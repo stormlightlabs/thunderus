@@ -1,0 +1,251 @@
+*ROADMAP.txt*                                       Coding Agent (Thunderus) MVP
+
+CODING AGENT MVP                                                 *agent-harness*
+================================================================================
+
+Replicate the *harness* quality of Claude Code + Codex CLI:
+tight TUI loop, diff-first edits, explicit approvals/sandboxing, ergonomic
+"composer" UX, and a workflow that is safe, scriptable, and hard to derail[^1]
+
+- Rust, TUI-first (UI inspiration: OpenCode + Crush; keybinds: Claude/Codex)
+- Shell tools are first-class ("anything in the shell" is usable, but gated)
+- Dual providers: GLM-4.7 + Gemini
+- First-class Markdown + JSONL hybrid VCS (audit + projections)
+- Mixed-initiative: no "short-circuiting" when you work alongside the agent
+
+--------------------------------------------------------------------------------
+CONTENTS                                                    *roadmap-contents*
+--------------------------------------------------------------------------------
+
+    I. Repo Scaffold + Config + Session Store .................. |agent-I|
+   II. Provider Harness + Tool-Calling Core Loop ............... |agent-II|
+  III. TUI Harness (Composer UX, Keybinds, Panels) ............. |agent-III|
+   IV. Approvals + Sandboxing (Shell-First, Still Safe) ........ |agent-IV|
+    V. Diff-First Editing + Git Integration .................... |agent-V|
+   VI. Markdown + JSONL Hybrid VCS ............................. |agent-VI|
+  VII. Mixed-Initiative Collaboration .......................... |agent-VII|
+ VIII. Extensibility + Hardening ............................... |agent-VIII|
+   IX. Endnotes ................................................ |roadmap-notes|
+
+--------------------------------------------------------------------------------
+I. REPO SCAFFOLD + CONFIG + SESSION STORE                              *agent-I*
+--------------------------------------------------------------------------------
+
+Goal:
+Lay down the filesystem + config "spine" so everything else plugs in cleanly.
+
+Tasks:
+- [ ] Create Cargo workspace:
+      - `crates/cli`          (bin) [thunderus]
+      - `crates/ui`           (lib) [thunderus_ui]
+      - `crates/core`         (lib) [thunderus_core]
+      - `crates/tools`        (lib) [thunderus_tools]
+      - `crates/providers`    (lib) [thunderus_providers]
+      - `crates/store`        (lib) [thunderus_store]
+- [ ] Define `.agent/` layout (repo-local, versionable):
+      - `.agent/sessions/<timestamp>/events.jsonl`
+      - `.agent/sessions/<timestamp>/patches/*.patch`
+      - `.agent/views/{MEMORY.md,PLAN.md,DECISIONS.md}`
+- [ ] Implement `config.toml` with *profiles* (Codex-like ergonomics):
+      - profile name, working root, extra writable roots, approval mode,
+      - sandbox mode, provider/model selection[^2]
+- [ ] Add shell completions generation (bash/zsh/fish) for the CLI entrypoint
+      (Codex CLI explicitly supports this; it’s a baseline harness feature)[^3]
+- [ ] Implement `SessionId` + monotonic `seq` event numbering in JSONL store.
+
+Definition of Done (DoD):
+- Running `agent` creates a session folder and appends events immediately.
+
+--------------------------------------------------------------------------------
+II. PROVIDER HARNESS (GLM + GEMINI) + TOOL-CALLING CORE LOOP          *agent-II*
+--------------------------------------------------------------------------------
+A provider-agnostic agent loop with streaming, cancellation, and tool calls.
+
+- [ ] Define provider-neutral types:
+      - `ChatRequest/ChatResponse`, `ToolSpec`, `ToolCall`, `ToolResult`,
+      - `StreamEvent`, `CancelToken`
+- [ ] Implement Gemini adapter:
+      - function calling + tool schema wiring[^4]
+- [ ] Implement GLM-4.7 adapter:
+      - `tools` + `tool_choice`-style function calling[^5]
+- [ ] Implement streaming output plumbing:
+      - token stream to TUI
+      - reliable cancel (user interrupt always wins)
+- [ ] Core agent loop (minimum):
+      - build context → model → tool calls → execute tools → append results
+        → repeat
+
+DoD:
+- "Hello tool": model calls `fs.read` and the agent executes it on both providers.
+
+--------------------------------------------------------------------------------
+III. TUI HARNESS (COMPOSER UX, KEYBINDS, PANELS)                     *agent-III*
+--------------------------------------------------------------------------------
+A Codex/Claude-class interactive experience: composer-first, fast navigation,
+and a transcript that shows actions.
+
+Implementation note:
+Use Ratatui for the Rust TUI foundation[^6]
+
+- [ ] Layout (minimum viable):
+      - Header: cwd, git branch, profile, provider/model, approval/sandbox state
+      - Main: transcript (messages + tool/action cards)
+      - Right pane (tabs): Files, Diff Queue, Command Output, Context
+      - Footer: composer + hints
+- [ ] Composer features modeled after Codex CLI:
+      - `@` opens fuzzy file search and inserts paths into input[^3]
+      - `!cmd` runs a local command and inserts output as a user-provided result
+        (still subject to approvals/sandbox)[^3]
+      - `Ctrl+G` opens $VISUAL/$EDITOR for long prompts[^3]
+      - History editing: "edit previous message / fork from point" behavior
+        (Codex supports Esc-based rewind; copy the spirit)[^3]
+- [ ] Slash commands (minimum set):
+      - `/model`, `/approvals`, `/status`, `/plan`, `/review`, `/memory`[^3]
+- [ ] Keybind pack (Claude/Codex-inspired essentials):
+      - cancel generation/tool, toggle verbose action trace, next/prev hunk,
+      - approve/reject, open panes (Files/Diff/Output)
+
+DoD:
+- A TUI that feels like a *harness*, not a chat box.
+
+--------------------------------------------------------------------------------
+IV. APPROVALS + SANDBOXING (SHELL-FIRST, STILL SAFE)                   *agent-D*
+--------------------------------------------------------------------------------
+Make "anything in the shell" possible without turning the agent into malware.
+
+Design target:
+Codex’s model: approval policies + sandbox modes + profiles[^2]
+
+- [ ] Approval modes (at least these three):
+      - `read-only` (consultative; no edits, no commands)
+      - `auto` (workspace edits + safe commands; gates risky ops)
+      - `full-access` (still logged; you opt in explicitly)[^3]
+- [ ] Sandbox modes (MVP = policy sandbox; OS sandbox later):
+      - define "workspace roots" and enforce tool access by path
+      - default: no network commands unless approved[^2]
+- [ ] Command classification:
+      - "safe": tests, formatters, linters
+      - "risky": package install, shell piping, file deletion, network tooling
+      - require explicit approval for risky commands, always
+- [ ] "Action cards" in transcript:
+      - every tool call shows: intent, inputs, scope (paths), risk flags
+      - approvals are per action (and logged)
+
+DoD:
+- The agent can run `cargo test`, but will stop and ask before doing anything
+  risky.
+
+--------------------------------------------------------------------------------
+V. DIFF-FIRST EDITING + GIT INTEGRATION                                *agent-E*
+--------------------------------------------------------------------------------
+Edits are *reviewable*, *reversible*, and *conflict-aware*.
+
+Codex explicitly treats diffs and `git apply` failure modes as first-class
+(e.g., `codex apply` exits non-zero if `git apply` fails). Mirror that rigor[^7]
+
+- [ ] Patch queue:
+      - states: `PROPOSED → APPROVED → APPLIED` or `REJECTED`
+      - patch objects store base snapshot id + target files + hunks
+- [ ] Unified diff generation contract for models:
+      - patch-first is default; raw write is an escape hatch (heavily gated)
+- [ ] Apply engine:
+      - try `git apply` (or equivalent) and detect conflicts
+      - on failure: enter conflict UI instead of "forcing it"
+- [ ] Rollback/undo:
+      - revert last applied patch (one keybind)
+      - show `git diff` before/after
+- [ ] Git metadata linkage:
+      - attach session pointers via git notes (optional but powerful)
+      - show "this commit came from session X" in TUI
+
+DoD:
+- "PR-stack feel" inside a TUI: accept hunks, undo safely, never lose work.
+
+--------------------------------------------------------------------------------
+VI. MARKDOWN + JSONL HYBRID VCS                                       *agent-VI*
+--------------------------------------------------------------------------------
+Your hybrid system is the canonical record of agent work, and it improves
+collaboration and debugging.
+
+- [ ] JSONL event model (append-only) in `events.jsonl`:
+      - user msgs, model msgs, tool calls/results, approvals, patches,
+      - shell outputs (by reference), git snapshots
+- [ ] Materialized Markdown views:
+      - `MEMORY.md` (always-loaded "project memory", Claude-style)
+      - `PLAN.md` (current plan + checkpoints)
+      - `DECISIONS.md` (ADR-lite)[^1]
+- [ ] "CLAUDE.md compatibility":
+      - if repo has `CLAUDE.md`, import it into context automatically because
+        Claude Code uses it as auto-context[^1]
+- [ ] View materializer:
+      - deterministic regeneration from JSONL + explicit user edits logged as
+        events
+- [ ] Fast search:
+      - ripgrep recipes surfaced in-app for events + views
+
+DoD:
+- You can reconstruct *exactly* what happened in a session and why.
+
+--------------------------------------------------------------------------------
+VII. MIXED-INITIATIVE COLLABORATION                                  *agent-VII*
+--------------------------------------------------------------------------------
+When you work alongside the agent, it pauses, notices drift, and reconciles.
+
+- [ ] Drift detection (mandatory gate at every step boundary):
+      - compare repo snapshot IDs; if changed → stop and require reconcile
+- [ ] "User right-of-way" state machine:
+      - any keystroke/edit cancels generation or tool execution immediately
+- [ ] Reconcile ritual (single predictable flow):
+      1. summarize changed files/diffstat
+      2. choose: update plan & continue / rebase pending patches / discard
+      3. refresh context and revalidate plan before acting again
+- [ ] File ownership rule:
+      - files you touched become "user-owned"; agent needs explicit approval to
+        modify them until reconcile completes
+- [ ] Advisor mode toggle:
+      - consultative suggestions only (maps to read-only/approval modes)[^3]
+
+DoD:
+- The agent never proceeds on stale assumptions after you fix something manually
+
+--------------------------------------------------------------------------------
+VIII. EXTENSIBILITY + HARDENING                                     *agent-VIII*
+--------------------------------------------------------------------------------
+Match the "pro tool" feel: pluggable integrations, automation entrypoints,
+and regression tests for harness behaviors.
+
+- [ ] MCP client (optional server later):
+      - load MCP servers from config, import tool schemas, route calls
+      - respect approval/sandbox across MCP tools[^8]
+- [ ] Web search tool:
+      - either provider-native (Gemini tools) or shell-gated `web_search`
+        equivalent
+      - treat results as tool outputs and log them[^9]
+- [ ] Non-interactive mode (`agent exec "…"`) like Codex’s `exec`:
+      - emits JSON (machine output) + writes JSONL session log[^3]
+- [ ] Optional: "review agent" (second pass) like Codex `/review` flow[^3]
+- [ ] Harness regression tests (golden scenarios):
+      - interrupt mid-tool, drift+reconcile, patch conflict UI, approval gating
+
+DoD:
+- A daily-driver harness: interactive + scriptable + extensible.
+
+--------------------------------------------------------------------------------
+IX. NOTES                                                        *roadmap-notes*
+--------------------------------------------------------------------------------
+
+- Codex CLI: approval modes, sandbox/approvals posture, composer affordances
+  (`@` file search, `!` local commands), slash commands, prompt editor[^3]
+- Claude Code: repo-local memory file (`CLAUDE.md`) auto-loaded as context[^1]
+- MCP: standardized tool/plugin surface to avoid hardcoding integrations[^10]
+
+[^1]: https://www.anthropic.com/engineering/claude-code-best-practices
+[^2]: https://developers.openai.com/codex/security/
+[^3]: https://developers.openai.com/codex/cli/features/
+[^4]: https://ai.google.dev/gemini-api/docs/function-calling
+[^5]: https://docs.z.ai/guides/llm/glm-4.7
+[^6]: https://ratatui.rs/
+[^7]: https://developers.openai.com/codex/cli/reference/
+[^8]: https://modelcontextprotocol.io/
+[^9]: https://ai.google.dev/gemini-api/docs/tools
+[^10]: https://modelcontextprotocol.io/specification/2025-11-25

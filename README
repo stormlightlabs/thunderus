@@ -1,0 +1,44 @@
+*README*                                                      *thunderus-readme*
+================================================================================
+▐▖   ▀▛▘▌ ▌▌ ▌▙ ▌▛▀▖▛▀▘▛▀▖▌ ▌▞▀▖
+▐▝▚▖  ▌ ▙▄▌▌ ▌▌▌▌▌ ▌▙▄ ▙▄▘▌ ▌▚▄
+▐▞▘   ▌ ▌ ▌▌ ▌▌▝▌▌ ▌▌  ▌▚ ▌ ▌▖ ▌
+▝     ▘ ▘ ▘▝▀ ▘ ▘▀▀ ▀▀▘▘ ▘▝▀ ▝▀
+================================================================================
+OVERVIEW                                                    *thunderus-overview*
+--------------------------------------------------------------------------------
+Thunderus is a high-performance coding agent harness built in Rust. It attempts
+to replicate the rigorous workflows of "Claude Code" and the "Codex CLI", but
+packaged as a standalone, provider-agnostic TUI tool.
+
+It is designed for developers who want an agent that works *in* their repos,
+following strict "diff-first" and "shell-gated" safety protocols.
+
+--------------------------------------------------------------------------------
+PHILOSOPHY                                                *thunderus-philosophy*
+--------------------------------------------------------------------------------
+
+1.  Harness > Chat
+    The interface is a TUI work-bench, not a conversational UI.
+
+2.  Shell-First
+    "Anything in the shell" is usable, but gated by approval modes.
+
+3.  Mixed-Initiative
+    Seamless collaboration. If you type, the agent pauses. If you edit, the
+    agent reconciles.
+
+--------------------------------------------------------------------------------
+USAGE                                                          *thunderus-usage*
+--------------------------------------------------------------------------------
+
+  $ thunder|thunderus|thndrs
+
+  > Create a new component for the video player...
+
+  [Drafting...]
+
+  [Action] Create file `src/video.rs`? [y/N]
+
+--------------------------------------------------------------------------------
+For implementation status and tasks, see |ROADMAP.txt|.
