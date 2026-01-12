@@ -18,7 +18,7 @@ CONTENTS                                                      *roadmap-contents*
 --------------------------------------------------------------------------------
 
     I. Repo Scaffold + Config + Session Store .................. |agent-I|
-   II. Provider Harness + Tool-Calling Core Loop ............... |agent-II|
+   II. Provider Harness + Tool-Calling Core Loop + Execution Infrastructure ..... |agent-II|
   III. TUI Harness (Composer UX, Keybinds, Panels) ............. |agent-III|
    IV. Approvals + Sandboxing (Shell-First, Still Safe) ........ |agent-IV|
     V. Diff-First Editing + Git Integration .................... |agent-V|
@@ -55,7 +55,8 @@ Tasks:
 - [x] Implement CLI entry point with argument parsing:
       - Colored output using owo-colors
       - Load config.toml from current directory or create from example
-      - Support `thunderus start`, `thunderus exec <cmd>`, and `thunderus status` subcommands
+      - Support `thunderus start`, `thunderus exec <cmd>`, and
+        `thunderus status` subcommands
       - Add thunderus_core dependency to cli/Cargo.toml
 - [x] Implement session initialization:
       - Create `.agent/` directory layout on first run
@@ -69,59 +70,74 @@ Definition of Done (DoD):
 - Running `thunderus` creates a session folder and appends events immediately.
 
 --------------------------------------------------------------------------------
-II. PROVIDER HARNESS (GLM + GEMINI) + TOOL-CALLING CORE LOOP          *agent-II*
+II. PROVIDER HARNESS + TOOL-CALLING & EXECUTION INFRASTRUCTURE        *agent-II*
 --------------------------------------------------------------------------------
-A provider-agnostic agent loop with streaming, cancellation, and tool calls.
+A provider-agnostic agent loop with streaming, cancellation, tool calls,
+and execution infrastructure needed before TUI can be functional.
 
-- [ ] Define provider-neutral types:
+- [x] Define provider-neutral types:
       - `ChatRequest/ChatResponse`, `ToolSpec`, `ToolCall`, `ToolResult`,
       - `StreamEvent`, `CancelToken`
+- [ ] Define tool execution framework:
+      - Tool trait/interface for tool implementations
+      - Tool registry and dispatcher
+      - Basic tool implementations (test tools: `echo`, `noop`)
+- [ ] Implement command classification:
+      - "safe": tests, formatters, linters
+      - "risky": package install, shell piping, file deletion, network tooling
+      - classification logic in tool execution layer
+- [ ] Define basic approval protocol:
+      - Approval request/response types
+      - Approval decision tracking
+      - Integration with agent loop to pause for user approval
 - [ ] Implement GLM-4.7 adapter:
       - `tools` + `tool_choice`-style function calling[^5]
-- [ ] Implement streaming output plumbing:
-      - token stream to TUI
-      - reliable cancel (user interrupt always wins)
-- [ ] Core agent loop:
-      - build context → model → tool calls → execute tools → append results
-        → repeat
+      - streaming support with `StreamEvent` channel
 - [ ] Implement Gemini adapter:
       - function calling + tool schema wiring[^4]
+      - streaming support with `StreamEvent` channel
+- [ ] Implement streaming output plumbing:
+      - token stream from provider to TUI via channel
+      - reliable cancel (user interrupt always wins via `CancelToken`)
+- [ ] Core agent loop:
+      - build context → model → tool calls → check approvals → execute tools
+        → append results → repeat
+      - integration with streaming and cancellation
 
 DoD:
-- "Hello tool": model calls `fs.read` and the agent executes it on both
-  providers.
+- "Hello tool": model calls `echo` tool and the agent executes it on both
+  providers, requiring approval for non-safe operations.
 
 --------------------------------------------------------------------------------
 III. TUI HARNESS (COMPOSER UX, KEYBINDS, PANELS)                     *agent-III*
 --------------------------------------------------------------------------------
 A Codex/Claude-class interactive experience: composer-first, fast navigation,
-and a transcript that shows actions.
-
-Implementation note:
-Use Ratatui for the Rust TUI foundation[^6]
+and a transcript that shows actions. Use Ratatui for the Rust TUI foundation[^6]
 
 - [ ] Layout:
       - Header: cwd, git branch, profile, provider/model, approval/sandbox state
       - Main: transcript (messages + tool/action cards)
-      - Right pane (tabs): Files, Diff Queue, Command Output, Context
+      - Right pane (tabs): Command Output (basic)
+      - Left sidebar: Token Usage, Session Events (basic list), modified files,
+        git diff queue, LSPs & MCPs (placeholders)
       - Footer: composer + hints
 - [ ] Composer features modeled after Codex CLI:
-      - `@` opens fuzzy file search and inserts paths into input[^3]
       - `!cmd` runs a local command and inserts output as a user-provided result
-        (still subject to approvals/sandbox)[^3]
+        (subject to approvals/sandbox)[^3]
       - `Ctrl+G` opens $VISUAL/$EDITOR for long prompts[^3]
-      - History editing: "edit previous message / fork from point" behavior
-        (Codex supports Esc-based rewind; copy the spirit)[^3]
+      - Basic message history (up/down arrow navigation)
 - [ ] Base set of slash commands:
-      - `/model`, `/approvals`, `/status`, `/plan`, `/review`, `/memory`[^3]
+      - `/model`, `/approvals`, `/status`[^3]
 - [ ] Keybind pack (Claude/Codex-inspired essentials):
-      - cancel generation/tool, toggle verbose action trace, next/prev hunk,
-      - approve/reject, open panes (Files/Diff/Output)
+      - cancel generation/tool
+      - approve/reject tool calls
+      - open panes (Output)
 - [ ] Add shell completions generation (bash/zsh/fish) for the CLI entrypoint
-      (Codex CLI explicitly supports this; it’s a baseline harness feature)[^3]
+      (Codex CLI explicitly supports this; it's a baseline harness feature)[^3]
 
 DoD:
-- A TUI that feels like a *harness*, not a chat box.
+- A TUI that displays agent messages, shows tool call approval prompts,
+  and streams model responses as tokens arrive.
 
 --------------------------------------------------------------------------------
 IV. APPROVALS + SANDBOXING (SHELL-FIRST, STILL SAFE)                   *agent-D*
@@ -129,7 +145,7 @@ IV. APPROVALS + SANDBOXING (SHELL-FIRST, STILL SAFE)                   *agent-D*
 Make "anything in the shell" possible without turning the agent into malware.
 
 Design target:
-Codex’s model: approval policies + sandbox modes + profiles[^2]
+Codex's model: approval policies + sandbox modes + profiles[^2]
 
 - [ ] Approval modes (at least these three):
       - `read-only` (consultative; no edits, no commands)
@@ -138,10 +154,6 @@ Codex’s model: approval policies + sandbox modes + profiles[^2]
 - [ ] Sandbox modes (MVP = policy sandbox; OS sandbox later):
       - define "workspace roots" and enforce tool access by path
       - default: no network commands unless approved[^2]
-- [ ] Command classification:
-      - "safe": tests, formatters, linters
-      - "risky": package install, shell piping, file deletion, network tooling
-      - require explicit approval for risky commands, always
 - [ ] "Action cards" in transcript:
       - every tool call shows: intent, inputs, scope (paths), risk flags
       - approvals are per action (and logged)
@@ -151,7 +163,7 @@ DoD:
   risky.
 
 --------------------------------------------------------------------------------
-V. DIFF-FIRST EDITING + GIT INTEGRATION                                *agent-E*
+V. DIFF-FIRST EDITING + GIT INTEGRATION                                *agent-E|
 --------------------------------------------------------------------------------
 Edits are *reviewable*, *reversible*, and *conflict-aware*.
 
@@ -172,12 +184,16 @@ Codex explicitly treats diffs and `git apply` failure modes as first-class
 - [ ] Git metadata linkage:
       - attach session pointers via git notes
       - show "this commit came from session X" in TUI
+- [ ] TUI enhancements (moved from Section III):
+      - Diff Queue pane with hunk navigation
+      - next/prev hunk keybinds
+      - approve/reject individual hunks
 
 DoD:
 - "PR-stack feel" inside a TUI: accept hunks, undo safely, never lose work.
 
 --------------------------------------------------------------------------------
-VI. MARKDOWN + JSONL HYBRID VCS                                       *agent-VI*
+VI. MARKDOWN + JSONL HYBRID VCS                                       *agent-VI|
 --------------------------------------------------------------------------------
 Your hybrid system is the canonical record of agent work, and it improves
 collaboration and debugging.
@@ -197,12 +213,17 @@ collaboration and debugging.
         events
 - [ ] Fast search:
       - ripgrep recipes surfaced in-app for events + views
+- [ ] TUI enhancements (moved from Section III):
+      - Context pane with view content
+      - Files pane for file system browsing
+      - `/plan`, `/review`, `/memory` slash commands
+      - `@` file search in composer
 
 DoD:
 - You can reconstruct *exactly* what happened in a session and why.
 
 --------------------------------------------------------------------------------
-VII. MIXED-INITIATIVE COLLABORATION                                  *agent-VII*
+VII. MIXED-INITIATIVE COLLABORATION                                  *agent-VII|
 --------------------------------------------------------------------------------
 When you work alongside the agent, it pauses, notices drift, and reconciles.
 
@@ -219,12 +240,15 @@ When you work alongside the agent, it pauses, notices drift, and reconciles.
         modify them until reconcile completes
 - [ ] Advisor mode toggle:
       - consultative suggestions only (maps to read-only/approval modes)[^3]
+- [ ] TUI enhancements (moved from Section III):
+      - History editing: "edit previous message / fork from point"
+      - Esc-based rewind behavior
 
 DoD:
 - The agent never proceeds on stale assumptions after you fix something manually
 
 --------------------------------------------------------------------------------
-VIII. EXTENSIBILITY + HARDENING                                     *agent-VIII*
+VIII. EXTENSIBILITY + HARDENING                                     *agent-VIII|
 --------------------------------------------------------------------------------
 Match the "pro tool" feel: pluggable integrations, automation entrypoints,
 and regression tests for harness behaviors.
@@ -235,12 +259,18 @@ and regression tests for harness behaviors.
 - [ ] Web search tool:
       - either provider-native (Gemini tools) or shell-gated `web_search`
         equivalent
+            - Mojeek API
+            - Brave API
+            - Tavily API
       - treat results as tool outputs and log them[^9]
-- [ ] Non-interactive mode (`thunderus exec "…"`) like Codex’s `exec`:
+- [ ] Non-interactive mode (`thunderus exec "…"`) like Codex's `exec`:
       - emits JSON (machine output) + writes JSONL session log[^3]
 - [ ] "review agent" (second pass) like Codex `/review` flow[^3]
 - [ ] Harness regression tests (golden scenarios):
       - interrupt mid-tool, drift+reconcile, patch conflict UI, approval gating
+- [ ] TUI enhancements (moved from Section III):
+      - Permissions pane in sidebar
+      - toggle verbose action trace keybind
 
 DoD:
 - A daily-driver harness: interactive + scriptable + extensible.

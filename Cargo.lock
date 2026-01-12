@@ -502,6 +502,11 @@ dependencies = [
 [[package]]
 name = "thunderus-providers"
 version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thunderus-core",
+]
 
 [[package]]
 name = "thunderus-store"
