@@ -310,7 +310,6 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let agent = AgentDir::new(temp.path());
 
-        // Test base paths
         assert_eq!(agent.agent_dir(), temp.path().join(".agent"));
         assert_eq!(agent.sessions_dir(), temp.path().join(".agent/sessions"));
         assert_eq!(agent.views_dir(), temp.path().join(".agent/views"));

@@ -14,7 +14,7 @@ tight TUI loop, diff-first edits, explicit approvals/sandboxing, ergonomic
 - Mixed-initiative: no "short-circuiting" when you work alongside the agent
 
 --------------------------------------------------------------------------------
-CONTENTS                                                    *roadmap-contents*
+CONTENTS                                                      *roadmap-contents*
 --------------------------------------------------------------------------------
 
     I. Repo Scaffold + Config + Session Store .................. |agent-I|
@@ -46,12 +46,12 @@ Tasks:
       - `.agent/sessions/<timestamp>/events.jsonl`
       - `.agent/sessions/<timestamp>/patches/*.patch`
       - `.agent/views/{MEMORY.md,PLAN.md,DECISIONS.md}`
-- [ ] Implement `config.toml` with *profiles* (Codex-like ergonomics):
+- [x] Implement `config.toml` with *profiles* (Codex-like ergonomics):
+      - Use serde, toml, and `derive` to define the config struct with
+        a root level example (`config.example.toml`)
       - profile name, working root, extra writable roots, approval mode,
       - sandbox mode, provider/model selection[^2]
 - [ ] Implement `SessionId` + monotonic `seq` event numbering in JSONL store.
-- [ ] Add shell completions generation (bash/zsh/fish) for the CLI entrypoint
-      (Codex CLI explicitly supports this; it’s a baseline harness feature)[^3]
 
 Definition of Done (DoD):
 - Running `agent` creates a session folder and appends events immediately.
@@ -64,19 +64,20 @@ A provider-agnostic agent loop with streaming, cancellation, and tool calls.
 - [ ] Define provider-neutral types:
       - `ChatRequest/ChatResponse`, `ToolSpec`, `ToolCall`, `ToolResult`,
       - `StreamEvent`, `CancelToken`
-- [ ] Implement Gemini adapter:
-      - function calling + tool schema wiring[^4]
 - [ ] Implement GLM-4.7 adapter:
       - `tools` + `tool_choice`-style function calling[^5]
 - [ ] Implement streaming output plumbing:
       - token stream to TUI
       - reliable cancel (user interrupt always wins)
-- [ ] Core agent loop (minimum):
+- [ ] Core agent loop:
       - build context → model → tool calls → execute tools → append results
         → repeat
+- [ ] Implement Gemini adapter:
+      - function calling + tool schema wiring[^4]
 
 DoD:
-- "Hello tool": model calls `fs.read` and the agent executes it on both providers.
+- "Hello tool": model calls `fs.read` and the agent executes it on both
+  providers.
 
 --------------------------------------------------------------------------------
 III. TUI HARNESS (COMPOSER UX, KEYBINDS, PANELS)                     *agent-III*
@@ -87,7 +88,7 @@ and a transcript that shows actions.
 Implementation note:
 Use Ratatui for the Rust TUI foundation[^6]
 
-- [ ] Layout (minimum viable):
+- [ ] Layout:
       - Header: cwd, git branch, profile, provider/model, approval/sandbox state
       - Main: transcript (messages + tool/action cards)
       - Right pane (tabs): Files, Diff Queue, Command Output, Context
@@ -99,11 +100,13 @@ Use Ratatui for the Rust TUI foundation[^6]
       - `Ctrl+G` opens $VISUAL/$EDITOR for long prompts[^3]
       - History editing: "edit previous message / fork from point" behavior
         (Codex supports Esc-based rewind; copy the spirit)[^3]
-- [ ] Slash commands (minimum set):
+- [ ] Base set of slash commands:
       - `/model`, `/approvals`, `/status`, `/plan`, `/review`, `/memory`[^3]
 - [ ] Keybind pack (Claude/Codex-inspired essentials):
       - cancel generation/tool, toggle verbose action trace, next/prev hunk,
       - approve/reject, open panes (Files/Diff/Output)
+- [ ] Add shell completions generation (bash/zsh/fish) for the CLI entrypoint
+      (Codex CLI explicitly supports this; it’s a baseline harness feature)[^3]
 
 DoD:
 - A TUI that feels like a *harness*, not a chat box.
@@ -155,7 +158,7 @@ Codex explicitly treats diffs and `git apply` failure modes as first-class
       - revert last applied patch (one keybind)
       - show `git diff` before/after
 - [ ] Git metadata linkage:
-      - attach session pointers via git notes (optional but powerful)
+      - attach session pointers via git notes
       - show "this commit came from session X" in TUI
 
 DoD:
@@ -214,7 +217,7 @@ VIII. EXTENSIBILITY + HARDENING                                     *agent-VIII*
 Match the "pro tool" feel: pluggable integrations, automation entrypoints,
 and regression tests for harness behaviors.
 
-- [ ] MCP client (optional server later):
+- [ ] MCP client:
       - load MCP servers from config, import tool schemas, route calls
       - respect approval/sandbox across MCP tools[^8]
 - [ ] Web search tool:
@@ -223,7 +226,7 @@ and regression tests for harness behaviors.
       - treat results as tool outputs and log them[^9]
 - [ ] Non-interactive mode (`agent exec "…"`) like Codex’s `exec`:
       - emits JSON (machine output) + writes JSONL session log[^3]
-- [ ] Optional: "review agent" (second pass) like Codex `/review` flow[^3]
+- [ ] "review agent" (second pass) like Codex `/review` flow[^3]
 - [ ] Harness regression tests (golden scenarios):
       - interrupt mid-tool, drift+reconcile, patch conflict UI, approval gating
 
