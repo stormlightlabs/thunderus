@@ -1,0 +1,518 @@
+*design.txt*                                              Thunderus UI/UX Design
+
+THUNDERUS UI/UX DESIGN GUIDE                                  *thunderus-design*
+================================================================================
+
+Visual design system, color palette, and interaction patterns for the
+Thunderus TUI. Inspired by iceberg.vim color scheme and OpenCode's interface.
+
+--------------------------------------------------------------------------------
+CONTENTS                                                      *design-contents*
+--------------------------------------------------------------------------------
+
+    I. Design Philosophy .................................. |design-philosophy|
+   II. Color Palette (Iceberg-inspired) ................... |design-colors|
+  III. Layout Patterns .................................... |design-layout|
+   IV. Chat Interface Design .............................. |design-chat|
+    V. Responsive Breakpoints ............................. |design-responsive|
+   VI. Component Specifications ........................... |design-components|
+  VII. Interaction Patterns ............................... |design-interaction|
+ VIII. Typography & Spacing ............................... |design-typography|
+   IX. References ......................................... |design-ref|
+
+--------------------------------------------------------------------------------
+I. DESIGN PHILOSOPHY                                         *design-philosophy*
+--------------------------------------------------------------------------------
+
+Thunderus follows a "harness-first" design philosophy:
+- Terminal-native experience (not a web app in disguise)
+- Dark background with calm, bluish color palette
+- Centered, conversation-focused initial view
+- Progressive disclosure of complexity
+- Keyboard-driven workflow with visible affordances
+
+Inspiration sources:
+- iceberg.vim: eye-friendly dark blue color scheme[^1]
+- OpenCode: centered chat interface in terminal[^2]
+- Claude Code / Codex CLI: approval-first, composer-centric UX[^3]
+
+Design principles:
+1. Readability: High contrast for extended coding sessions
+2. Scannability: Clear visual hierarchy for quick navigation
+3. Calmness: Cool tones reduce eye strain
+4. Teachability: UI reveals how the system works through consistent patterns
+5. Responsiveness: Adapts gracefully to terminal width (>= 80 cols preferred)
+
+--------------------------------------------------------------------------------
+II. COLOR PALETTE (ICEBERG-INSPIRED)                             *design-colors*
+--------------------------------------------------------------------------------
+
+Base colors derived from iceberg.vim dark theme[^1][^4]:
+
+**Core UI Colors:**
+Background (main):       #161821  (deep blue-black)
+Background (secondary):  #1e2132  (slightly lighter for panels/lines)
+Background (highlight):  #272c42  (visual selection, hover states)
+Foreground (main):       #c6c8d1  (light blue-gray text)
+Foreground (dim):        #6b7089  (comments, secondary text)
+
+**Accent Colors:**
+Blue (primary):          #84a0c6  (functions, keywords, interactive elements)
+Cyan (info):             #89b8c2  (strings, info messages)
+Purple (constant):       #a093c7  (numbers, constants, special values)
+Green (success):         #b4be82  (added lines, success states)
+Yellow (warning):        #e2a478  (warnings, modified states)
+Red (error):             #e27878  (errors, destructive actions)
+
+**16-Color Terminal Palette:**
+Black:      #1e2132  |  Bright Black:   #6b7089
+Red:        #e27878  |  Bright Red:     #e98989
+Green:      #b4be82  |  Bright Green:   #c0ca8e
+Yellow:     #e2a478  |  Bright Yellow:  #e9b189
+Blue:       #84a0c6  |  Bright Blue:    #91acd1
+Magenta:    #a093c7  |  Bright Magenta: #ada0d3
+Cyan:       #89b8c2  |  Bright Cyan:    #95c4ce
+White:      #c6c8d1  |  Bright White:   #d2d4de
+
+**Semantic Color Mapping:**
+Cursor:              #c6c8d1  (same as foreground)
+Cursor line:         #1e2132  (subtle highlight)
+Selection:           #272c42  (visual mode, selected text)
+Status bar:          #84a0c6  (active), #6b7089 (inactive)
+Borders:             #6b7089  (panel separators, frames)
+Tool call (safe):    #b4be82  (green - safe operations)
+Tool call (risky):   #e2a478  (yellow/orange - requires approval)
+Error state:         #e27878  (red - failures, rejections)
+
+Usage notes:
+- Use #161821 for primary background (fills entire terminal)
+- Use #1e2132 for raised surfaces (panels, cards, input areas)
+- Use #272c42 sparingly for hover/active states
+- Keep accent colors for semantic meaning (don't overuse)
+- Maintain at least 4.5:1 contrast ratio for WCAG AA compliance
+
+--------------------------------------------------------------------------------
+III. LAYOUT PATTERNS                                             *design-layout*
+--------------------------------------------------------------------------------
+
+**Initial View (Centered Chat Mode):**
+When Thunderus starts, present a centered, conversation-focused interface:
+
+┌────────────────────────────────────────────────────────────────────────────┐
+│ thunderus | main | glm-4.7 | auto                                          │
+├────────────────────────────────────────────────────────────────────────────┤
+│                                                                            │
+│                                                                            │
+│                       ┌──────────────────────────┐                         │
+│                       │  Welcome to Thunderus    │                         │
+│                       │                          │                         │
+│                       │  Type a message to       │                         │
+│                       │  start a session...      │                         │
+│                       └──────────────────────────┘                         │
+│                                                                            │
+│                                                                            │
+│                                                                            │
+│                                                                            │
+├────────────────────────────────────────────────────────────────────────────┤
+│ > _                                                          [Press Esc]   │
+└────────────────────────────────────────────────────────────────────────────┘
+
+Width: Centered message area uses max 60-80 cols, even on wide terminals
+Rationale: Mimics OpenCode's centered chat view[^2], focuses attention on
+conversation rather than overwhelming with UI chrome.
+
+**Active Session View (Wide Terminal >= 100 cols):**
+
+┌──────────────────┬──────────────────────────────────────────────────────────┐
+│ Token Usage      │ thunderus | session-xyz | glm-4.7 | auto                 │
+│ ──────────────── │ ─────────────────────────────────────────────────────────│
+│ 1.2k / 100k      │                                                          │
+│                  │ User: Add error handling to parse_config                 │
+│ Approval Gates   │                                                          │
+│ ──────────────── │ Assistant: I'll add error handling...                    │
+│ Triggered: 2     │                                                          │
+│ Pending: 0       │ ┌─ Tool: edit_file ──────────────────────────────────┐   │
+│                  │ │ file: crates/core/src/config.rs                    │   │
+│                  │ │ risk: safe                                         │   │
+│                  │ │ [y] approve  [n] reject  [c] cancel                │   │
+│                  │ └────────────────────────────────────────────────────┘   │
+│                  │                                                          │
+│                  │ ┌─ Result: edit_file ────────────────────────────────┐   │
+│                  │ │ Exit code: 0                                       │   │
+│                  │ │ ✓ Applied successfully                             │   │
+│                  │ └────────────────────────────────────────────────────┘   │
+│                  │                                                          │
+├──────────────────┼──────────────────────────────────────────────────────────┤
+│                  │ > your next message_                                     │
+└──────────────────┴──────────────────────────────────────────────────────────┘
+ 20 cols (sidebar)           60+ cols (main transcript)
+
+**Active Session View (Medium Terminal 80-99 cols):**
+
+┌────────────────────────────────────────────────────────────────────────────┐
+│ thunderus | session-xyz | glm-4.7 | auto                      tokens: 1.2k │
+├────────────────────────────────────────────────────────────────────────────┤
+│                                                                            │
+│ User: Add error handling to parse_config                                   │
+│                                                                            │
+│ Assistant: I'll add error handling...                                      │
+│                                                                            │
+│ ┌─ Tool: edit_file ──────────────────────────────────────────────────────┐ │
+│ │ file: crates/core/src/config.rs                                        │ │
+│ │ risk: safe                                                             │ │
+│ │ [y] approve  [n] reject  [c] cancel                                    │ │
+│ └────────────────────────────────────────────────────────────────────────┘ │
+│                                                                            │
+│ ┌─ Result: edit_file ────────────────────────────────────────────────────┐ │
+│ │ Exit code: 0                                                           │ │
+│ │ ✓ Applied successfully                                                 │ │
+│ └────────────────────────────────────────────────────────────────────────┘ │
+│                                                                            │
+├────────────────────────────────────────────────────────────────────────────┤
+│ > your next message_                               [Ctrl+S: Sidebar]       │
+└────────────────────────────────────────────────────────────────────────────┘
+
+Sidebar hidden, token count moved to header, toggle sidebar with Ctrl+S
+
+**Compact View (Narrow Terminal < 80 cols):**
+
+┌──────────────────────────────────────────────────────────┐
+│ thunderus | glm-4.7 | auto                               │
+├──────────────────────────────────────────────────────────┤
+│                                                          │
+│ User: Add error handling to parse_config                 │
+│                                                          │
+│ Assistant: I'll add error handling...                    │
+│                                                          │
+│ [Tool: edit_file]                                        │
+│ config.rs | safe | [y/n/c]                               │
+│                                                          │
+│ [Result: edit_file]                                      │
+│ ✓ Applied successfully                                   │
+│                                                          │
+├──────────────────────────────────────────────────────────┤
+│ > _                                                      │
+└──────────────────────────────────────────────────────────┘
+
+Minimal chrome, focus on conversation, condensed tool cards.
+All tool output appears inline in the transcript.
+
+--------------------------------------------------------------------------------
+IV. CHAT INTERFACE DESIGN                                          *design-chat*
+--------------------------------------------------------------------------------
+
+**Message Bubble Design:**[^5]
+
+User messages (right-aligned in centered view, left-aligned in sidebar view):
+┌─ User ──────────────────────────────────────┐
+│ Add error handling to the parse_config      │
+│ function in crates/core/src/config.rs       │
+└─────────────────────────────────────────────┘
+Color: Foreground (#c6c8d1) on Background highlight (#272c42)
+Padding: 1 line vertical, 2 chars horizontal
+Max width: 60 cols in centered view, dynamic in sidebar view
+
+Assistant messages:
+┌─ Assistant ─────────────────────────────────┐
+│ I'll add comprehensive error handling to    │
+│ the parse_config function. Let me start by  │
+│ reading the current implementation...       │
+└─────────────────────────────────────────────┘
+Color: Foreground (#c6c8d1) on Background secondary (#1e2132)
+Streaming: Append tokens as they arrive, cursor follows last token
+Animation: Subtle fade-in (if terminal supports), no distracting effects
+
+**Action Card Design:**
+
+Tool call card (safe operation):
+┌─ Tool: bash_command ─────────────────────────┐
+│ Command: cargo test --package thunderus-core │
+│ Risk: Safe (tests, read-only)                │
+│ Reason: Testing does not modify files        │
+│                                              │
+│ Status: Running...                           │
+└──────────────────────────────────────────────┘
+Border: Green accent (#b4be82)
+
+Tool call card (risky operation requiring approval):
+┌─ Tool: file_delete ──────────────────────────┐
+│ Path: /tmp/cache/*.log                       │
+│ Risk: Risky (destructive, file deletion)     │
+│ Reason: Deletes files permanently            │
+│                                              │
+│ [y] approve  [n] reject  [c] cancel          │
+└──────────────────────────────────────────────┘
+Border: Yellow/orange accent (#e2a478), pulsing cursor on [y]
+
+Tool result card (success):
+┌─ Result: bash_command ───────────────────────┐
+│ Exit code: 0                                 │
+│ Output: running 12 tests                     │
+│         test it_works ... ok                 │
+│         ...                                  │
+│ ✓ 12 passed, 0 failed (2.3s)                 │
+└──────────────────────────────────────────────┘
+Border: Green accent (#b4be82)
+
+Tool result card (error):
+┌─ Result: bash_command ───────────────────────┐
+│ Exit code: 1                                 │
+│ Error: cargo test failed                     │
+│ Output: error[E0425]: cannot find value `x`  │
+│         in this scope                        │
+│ ✗ 2 passed, 10 failed                        │
+└──────────────────────────────────────────────┘
+Border: Red accent (#e27878)
+
+**Progressive Disclosure (Level 1, 2, 3):**[^6]
+
+Level 1 (default, collapsed):
+┌─ Tool: edit_file ───────────────────────────┐
+│ config.rs | safe | ✓ applied                │
+└─────────────────────────────────────────────┘
+
+Level 2 (expanded with Space/Enter):
+┌─ Tool: edit_file ────────────────────────────┐
+│ File: crates/core/src/config.rs              │
+│ Lines: 45-67                                 │
+│ Risk: Safe (workspace file, no side effects) │
+│ Status: ✓ Applied successfully               │
+│                                              │
+│ [Space: collapse] [v: verbose]               │
+└──────────────────────────────────────────────┘
+
+Level 3 (verbose with 'v' key):
+┌─ Tool: edit_file ────────────────────────────┐
+│ File: crates/core/src/config.rs              │
+│ Action: Replace lines 45-67                  │
+│ Risk: Safe (workspace file, no side effects) │
+│                                              │
+│ Classification reasoning:                    │
+│ - File is within workspace root              │
+│ - No network or system calls                 │
+│ - Reversible via git                         │
+│                                              │
+│ Diff preview:                                │
+│ @@ -45,3 +45,5 @@                            │
+│  pub fn parse_config(path: &Path) -> Result {│
+│ -    let contents = fs::read_to_string(path);│
+│ +    let contents = fs::read_to_string(path) │
+│ +        .map_err(|e| Error::Io(e))?;        │
+│                                              │
+│ Status: ✓ Applied successfully               │
+│ [Space: collapse] [v: default]               │
+└──────────────────────────────────────────────┘
+
+--------------------------------------------------------------------------------
+V. RESPONSIVE BREAKPOINTS                                    *design-responsive*
+--------------------------------------------------------------------------------
+
+Thunderus adapts to terminal width using conditional Ratatui constraints[^7]:
+
+```rust
+let layout = if area.width >= 100 {
+    // Wide: Full layout with left sidebar
+    Layout::horizontal([
+        Constraint::Length(20),     // Left sidebar
+        Constraint::Min(60),        // Main transcript
+    ])
+} else {
+    // Medium/Narrow: Full-width transcript, hide sidebar
+    Layout::horizontal([
+        Constraint::Percentage(100),
+    ])
+};
+```
+
+**Breakpoint Strategy:**
+
+Width >= 100 cols: Full layout
+- Left sidebar visible (20 cols): token usage, approval stats
+- Main transcript (60+ cols): messages, action cards, tool output inline
+- All tool results appear in the transcript flow
+
+Width 80-99 cols: Medium layout
+- Hide sidebar (toggle with Ctrl+S)
+- Full-width transcript
+- Move critical info to header (token count, approval mode)
+- Tool output continues to appear inline in transcript
+
+Width < 80 cols: Compact layout
+- Minimal header (essential info only)
+- Condensed action cards (single-line summaries when possible)
+- Reduced padding and decorative elements
+- Focus on readability at narrow width
+- Tool output inline, may scroll horizontally for wide output
+
+**Centered Chat View (Initial State):**
+Regardless of terminal width, start with a centered chat view:
+- Calculate available width
+- Create a centered region of max 60-80 cols
+- Place welcome message in center
+- Expand to full layout after first interaction (user message sent)
+
+Rationale: Mimics modern AI chat interfaces (ChatGPT, Claude.ai, OpenCode)[^2]
+where conversation starts focused and expands as context grows.
+
+--------------------------------------------------------------------------------
+VI. COMPONENT SPECIFICATIONS                                 *design-components*
+--------------------------------------------------------------------------------
+
+**Header Bar:**
+Height: 1 line
+Background: #1e2132 (secondary background)
+Foreground: #c6c8d1 (main foreground)
+Content: [cwd] | [session-id] | [provider-model] | [approval-mode] | [stats]
+Separator: " | " in dim color (#6b7089)
+
+**Footer Composer:**
+Height: 1-3 lines (expands with multiline input in Milestone III)
+Background: #1e2132 (secondary background)
+Foreground: #c6c8d1 (main foreground)
+Prompt: "> " in blue accent (#84a0c6)
+Cursor: Block cursor (#c6c8d1) or underline based on terminal
+Hints: Right-aligned in dim color (#6b7089), e.g., "[Ctrl+C: cancel]"
+
+**Sidebar Panel:**
+Width: 20 cols (fixed)
+Background: #1e2132 (secondary background)
+Borders: Single-line box-drawing chars in dim color (#6b7089)
+Section headers: Bold or underlined, blue accent (#84a0c6)
+Content: Dim foreground (#6b7089) for labels, main foreground (#c6c8d1) for vals
+
+**Transcript Area:**
+Background: #161821 (main background)
+Padding: 1 line top/bottom, 2 chars left/right
+Scroll: Infinite scroll, auto-scroll to bottom on new message
+Scrollbar: Optional, thin indicator on right edge (dim color #6b7089)
+
+**Action Card Borders:**
+Safe operations: Green (#b4be82)
+Risky operations: Yellow/orange (#e2a478)
+Errors: Red (#e27878)
+Info/neutral: Blue (#84a0c6)
+Border style: Rounded corners (if terminal supports) or simple box-drawing
+
+**Status Indicators:**[^5]
+Streaming: Animated ellipsis "..." in dim color (#6b7089)
+Success: "✓" in green (#b4be82)
+Error: "✗" in red (#e27878)
+Warning: "⚠" in yellow (#e2a478)
+Info: "ℹ" in cyan (#89b8c2)
+Pending approval: Pulsing "⏸" in yellow (#e2a478)
+
+--------------------------------------------------------------------------------
+VII. INTERACTION PATTERNS                                   *design-interaction*
+--------------------------------------------------------------------------------
+
+**Keyboard-Driven Workflow:**
+All actions accessible via keyboard, mouse optional.
+
+**Approval Flow:**
+1. Tool call card appears with border pulsing in yellow (#e2a478)
+2. Focus automatically moves to approval buttons
+3. User presses [y], [n], or [c]
+4. Card border changes to green (approved), red (rejected), or dim (cancelled)
+5. Next action proceeds based on decision
+
+**Message Streaming:**[^8]
+1. Assistant message card appears immediately after user submits
+2. Tokens append character-by-character as they arrive from provider
+3. Cursor follows last token (blinking block or underline)
+4. User can press Esc/Ctrl+C to cancel mid-stream
+5. Partial response preserved in transcript with "[cancelled]" indicator
+
+**Progressive Disclosure:**
+- Default: Level 1 (collapsed, scannable)
+- Space/Enter on focused card: Toggle Level 2 (expanded details)
+- 'v' key on focused card: Toggle Level 3 (verbose with full reasoning)
+- 'j'/'k' keys: Navigate between cards (vim-style)
+- Visual indicator shows current expansion level
+
+**Sidebar Toggling:**
+- Ctrl+S: Toggle left sidebar (hide/show)
+- Sidebar slides in/out with subtle animation (if terminal supports)
+- When hidden, critical stats move to header
+
+**Error Recovery:**[^5]
+- Errors display inline in transcript, never hidden
+- Error cards provide actionable context ("why it failed", "what to try")
+- Retry button available on transient errors (network, timeout)
+- Persistent errors suggest configuration changes or help command
+
+**First-Time User Hints:**
+- Contextual hints appear on first encounter of a feature
+- Displayed in dim color (#6b7089) at bottom of relevant card
+- Example: "Tip: Press 'v' to see full classification reasoning"
+- Never show same hint twice (tracked per session)
+- Dismissible with any keypress
+
+--------------------------------------------------------------------------------
+VIII. TYPOGRAPHY & SPACING                                   *design-typography*
+--------------------------------------------------------------------------------
+
+**Monospace Font:**
+Use terminal's default monospace font (typically SF Mono, Cascadia Code,
+Fira Code, JetBrains Mono, or similar on modern terminals).
+
+**Font Styling:**
+Bold: Headers, section titles, keywords (use ANSI bold code)
+Italic: Emphasis, file paths, placeholders (use ANSI italic if supported)
+Underline: Links (if clickable), active focus indicator
+Strikethrough: Deprecated or removed items (use ANSI strikethrough if supported)
+
+**Spacing:**
+Line height: 1 (no extra vertical spacing, terminal native)
+Paragraph spacing: 1 blank line between distinct messages
+Card padding: 1 line top/bottom, 2 chars left/right
+List item spacing: 0 lines (compact lists)
+Section spacing: 2 blank lines between major sections
+
+**Text Alignment:**
+Headers: Left-aligned
+User messages: Left-aligned (in sidebar), centered in initial chat view
+Assistant messages: Left-aligned (in sidebar), centered in initial chat view
+Action cards: Left-aligned always
+Footer: Input left, hints right
+
+**Text Wrapping:**
+Hard wrap at card boundary (no overflow)
+Wrap long lines at word boundaries
+Indent wrapped lines by 2 spaces for readability
+Code blocks: Preserve formatting, scroll horizontally if needed
+
+**Truncation:**
+File paths: Show "...middle..." truncation if too long
+Long values: Show first N chars + "..." with hover/expand to see full
+Avoid truncation in Level 2/3 expansion (show full content)
+
+--------------------------------------------------------------------------------
+IX. REFERENCES                                                      *design-ref*
+--------------------------------------------------------------------------------
+
+Color scheme and layout inspiration:
+
+[^1]: https://github.com/cocopon/iceberg.vim
+      iceberg.vim - Bluish dark color scheme for Vim/Neovim
+[^2]: https://opencode.ai/
+      https://github.com/anomalyco/opencode
+      OpenCode - Terminal-first AI coding agent with centered chat interface
+[^3]: https://claude.ai/code
+      https://developers.openai.com/codex
+      Claude Code & Codex CLI - Approval-first, composer-centric UX patterns
+[^4]: https://cocopon.github.io/iceberg.vim/
+      Iceberg color scheme official site with design principles
+[^5]: https://bricxlabs.com/blogs/message-screen-ui-deisgn
+      16 Chat UI Design Patterns That Work in 2025
+[^6]: https://www.nngroup.com/articles/progressive-disclosure/
+      Progressive Disclosure in UX Design (Nielsen Norman Group)
+[^7]: https://ratatui.rs/concepts/layout/
+      https://kdheepak.com/blog/the-basic-building-blocks-of-ratatui-part-2/
+      Ratatui responsive layouts with conditional constraints
+[^8]: https://oneryalcin.medium.com/building-a-responsive-textual-chat-ui-with-long-running-processes-c0c53cd36224
+      Building a Responsive Textual Chat UI with Long-Running Processes
+
+Additional research:
+- Chat UI principles: https://www.uxpin.com/studio/blog/chat-user-interface-design/
+- TUI libraries: https://blog.logrocket.com/7-tui-libraries-interactive-terminal-apps/
+- Terminal UI patterns: https://github.com/rothgar/awesome-tuis
