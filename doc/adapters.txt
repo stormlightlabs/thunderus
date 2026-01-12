@@ -1,0 +1,207 @@
+*adapters.txt*                                      Adapter Implementation Notes
+
+================================================================================
+ADAPTER IMPLEMENTATION NOTES                                          *adapters*
+================================================================================
+
+These notes cover the API details for GLM-4.7 and Gemini, referenced in
+|roadmap.txt| Section II.
+
+--------------------------------------------------------------------------------
+1. GLM-4.7 ADAPTER                                                 *adapter-glm*
+--------------------------------------------------------------------------------
+
+Documentation: https://docs.z.ai/guides/llm/glm-4.7
+
+API Style ~
+    - OpenAI Compatible: Yes, mostly.
+    - Base URL: `https://api.z.ai/api/paas/v4/`
+    - Endpoint: `/chat/completions`
+
+Authentication ~
+    - Header: `Authorization: Bearer <YOUR_API_KEY>`
+
+Request Format ~
+>json
+    {
+      "model": "glm-4.7",
+      "messages": [
+        { "role": "user", "content": "..." }
+      ],
+      "thinking": {
+        "type": "enabled"
+      },
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "get_weather",
+            "description": "...",
+            "parameters": { ... } // JSON Schema
+          }
+        }
+      ],
+      "tool_choice": "auto", // or specific tool
+      "stream": true,
+      "max_tokens": 4096,
+      "temperature": 1.0
+    }
+<
+
+Response Format (Streaming) ~
+    Standard OpenAI-compatible SSE stream.
+
+    - Delta: `choices[0].delta.content` (text) or `choices[0].delta.tool_calls`
+      (tool invocation).
+    - Thinking: If enabled, special field `reasoning_content` in delta? (Based
+      on SDK usage `chunk.choices[0].delta.reasoning_content`). Note: Standard
+      OpenAI client might not expose `reasoning_content` typed field without
+      custom handling or raw dict access.
+
+Adapter Mapping ~
+    - Input: Map generic `ChatRequest` messages to OpenAI `messages` format.
+    - Tools: Map generic `ToolSpec` to OpenAI `tools` list.
+    - Output:
+        - Extract text chunks.
+        - Accumulate tool call fragments (name, arguments JSON string).
+        - Handle `thinking` content if present.
+
+--------------------------------------------------------------------------------
+2. GEMINI ADAPTER                                               *adapter-gemini*
+--------------------------------------------------------------------------------
+
+Documentation: https://ai.google.dev/gemini-api/docs/function-calling
+
+API Style ~
+    - Google Native (REST/gRPC).
+    - Base URL: `https://generativelanguage.googleapis.com/v1beta`
+    - Endpoint: `/models/gemini-2.5-flash:generateContent` (or other model
+      versions)
+
+Authentication ~
+    - Header: `x-goog-api-key: <YOUR_API_KEY>`
+    - Query Param: `?key=<YOUR_API_KEY>` (alternative)
+
+Request Format ~
+Structure is significantly different from OpenAI.
+
+>json
+    {
+      "contents": [
+        {
+          // "user" or "model"
+          "role": "user",
+          "parts": [ { "text": "What is the weather?" } ]
+        }
+      ],
+      "tools": [
+        {
+          "functionDeclarations": [
+            {
+              "name": "get_weather",
+              "description": "...",
+              "parameters": {
+                "type": "object",
+                "properties": { ... },
+                "required": [...]
+              }
+            }
+          ]
+        }
+      ],
+      // "AUTO", "ANY", "NONE"
+      "functionCallingConfig": { "mode": "AUTO" }
+    }
+<
+
+Tool Definitions ~
+    - Schema: Subset of OpenAPI 3.0.
+    - Key difference: Wrapped in `functionDeclarations` inside `tools`.
+
+Response Format (Streaming support varies by endpoint) ~
+    - Tool Call Response:
+      The model returns a `functionCall` part instead of `text`.
+
+>json
+    {
+        "contents": [
+            {
+                "role": "model",
+                "parts": [
+                    {
+                        "functionCall": {
+                            "name": "get_weather",
+                            // Already parsed JSON object, NOT string
+                            "args": { "location": "San Francisco" }
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+<
+
+Tool Result Submission ~
+    History must include the function call AND the function response.
+
+>json
+    {
+        // Note: Gemini sometimes uses 'function' role or just 'user' with
+        //   functionResponse part depending on API version, check docs
+        //   carefully.
+        "role": "function",
+        // Documentation says:
+        // "Send user prompt along with the function declaration(s)...
+        //   model responds... Execute Function...
+        //   Create User friendly response... send it back"
+        // The 'role' for function response parts usually pairs with
+        //   'functionResponse'.
+        "parts": [
+            {
+                "functionResponse": {
+                    "name": "get_weather",
+                    // JSON object
+                    "response": { "temp": 72 }
+                }
+            }
+        ]
+    }
+<
+
+Adapter Mapping ~
+    - Input:
+        - `ChatRequest` messages need conversion to `contents` (role:
+          `user`/`model`).
+        - `system` prompt usually goes into `system_instruction` field (top
+          level), not `contents`.
+    - Tools:
+        - Convert `ToolSpec` to `functionDeclarations`.
+    - Output:
+        - Detect `functionCall` in `parts`. Note that `args` are already JSON
+          objects, unlike OpenAI's stringified JSON.
+        - Map `functionResponse` back for the next turn.
+
+--------------------------------------------------------------------------------
+3. KEY DIFFERENCES FOR ADAPTER LOGIC                              *adapter-diff*
+--------------------------------------------------------------------------------
+
+| Feature            | GLM-4.7 (OpenAI-like/compat)        |
+| :----------------- | :---------------------------------- |
+| Auth               | Bearer Token                        |
+| Message Structure  | `messages` list (flat)              |
+| System Prompt      | `role: system` in messages          |
+| Tool Definition    | `tools` -> `function`               |
+| Tool Call Output   | `tool_calls` (name + string args)   |
+| Tool Result Input  | `role: tool`, `tool_call_id`        |
+| Thinking           | `reasoning_content` (special field) |
+
+| Feature            | Gemini                               |
+| :----------------- | :----------------------------------- |
+| Auth               | `x-goog-api-key`                     |
+| Message Structure  | `contents` list of `parts`           |
+| System Prompt      | `system_instruction` field           |
+| Tool Definition    | `tools` -> `functionDeclarations`    |
+| Tool Call Output   | `functionCall` (name + object args)  |
+| Tool Result Input  | `functionResponse` part              |
+| Thinking           | Native support in newer models       |
+|                    | (check specific model docs)          |

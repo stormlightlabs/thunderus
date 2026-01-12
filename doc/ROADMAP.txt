@@ -78,7 +78,7 @@ and execution infrastructure needed before TUI can be functional.
 - [x] Define provider-neutral types:
       - `ChatRequest/ChatResponse`, `ToolSpec`, `ToolCall`, `ToolResult`,
       - `StreamEvent`, `CancelToken`
-- [ ] Define tool execution framework:
+- [x] Define tool execution framework:
       - Tool trait/interface for tool implementations
       - Tool registry and dispatcher
       - Basic tool implementations (test tools: `echo`, `noop`)
