@@ -35,23 +35,23 @@ Goal:
 Lay down the filesystem + config "spine" so everything else plugs in cleanly.
 
 Tasks:
-- [ ] Create Cargo workspace:
+- [x] Create Cargo workspace:
       - `crates/cli`          (bin) [thunderus]
       - `crates/ui`           (lib) [thunderus_ui]
       - `crates/core`         (lib) [thunderus_core]
       - `crates/tools`        (lib) [thunderus_tools]
       - `crates/providers`    (lib) [thunderus_providers]
       - `crates/store`        (lib) [thunderus_store]
-- [ ] Define `.agent/` layout (repo-local, versionable):
+- [x] Define `.agent/` layout (repo-local, versionable):
       - `.agent/sessions/<timestamp>/events.jsonl`
       - `.agent/sessions/<timestamp>/patches/*.patch`
       - `.agent/views/{MEMORY.md,PLAN.md,DECISIONS.md}`
 - [ ] Implement `config.toml` with *profiles* (Codex-like ergonomics):
       - profile name, working root, extra writable roots, approval mode,
       - sandbox mode, provider/model selection[^2]
+- [ ] Implement `SessionId` + monotonic `seq` event numbering in JSONL store.
 - [ ] Add shell completions generation (bash/zsh/fish) for the CLI entrypoint
       (Codex CLI explicitly supports this; it’s a baseline harness feature)[^3]
-- [ ] Implement `SessionId` + monotonic `seq` event numbering in JSONL store.
 
 Definition of Done (DoD):
 - Running `agent` creates a session folder and appends events immediately.
