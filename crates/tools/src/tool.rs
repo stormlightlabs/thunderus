@@ -1,8 +1,6 @@
 use serde_json::Value;
-use thunderus_core::Result;
+use thunderus_core::{Classification, Result, ToolRisk};
 use thunderus_providers::{ToolParameter, ToolResult, ToolSpec};
-
-use super::classification::ToolRisk;
 
 /// The core trait that all tools must implement
 pub trait Tool: Send + Sync + std::fmt::Debug {
@@ -17,6 +15,14 @@ pub trait Tool: Send + Sync + std::fmt::Debug {
 
     /// Returns the risk level of this tool (for approval gating)
     fn risk_level(&self) -> ToolRisk;
+
+    /// Returns classification with reasoning for this tool
+    ///
+    /// This provides pedagogical value by explaining why a tool is classified
+    /// as safe or risky, helping users understand the safety model.
+    fn classification(&self) -> Option<Classification> {
+        None
+    }
 
     /// Executes the tool with the given arguments
     ///

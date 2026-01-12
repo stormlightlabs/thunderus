@@ -5,9 +5,10 @@ pub mod registry;
 pub mod tool;
 
 pub use builtin::{EchoTool, NoopTool};
-pub use classification::{CommandClassifier, Pattern, ToolRisk};
+pub use classification::{CommandClassifier, Pattern};
 pub use dispatcher::ToolDispatcher;
 pub use registry::ToolRegistry;
+pub use thunderus_core::ToolRisk;
 pub use tool::Tool;
 
 #[cfg(test)]

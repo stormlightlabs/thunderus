@@ -76,12 +76,20 @@ impl Default for ToolRegistry {
 impl ToolRegistry {
     /// Executes a tool by name with given arguments
     ///
-    /// This is a convenience method that combines getting a tool and executing it
+    /// This is a convenience method that combines getting a tool and executing it.
+    /// Classification reasoning from the tool is included in the result for
+    /// pedagogical value (teaching users the safety model).
     pub fn execute(&self, tool_name: &str, tool_call_id: String, arguments: &serde_json::Value) -> Result<ToolResult> {
         let tools = self.tools.read().unwrap();
 
         match tools.get(tool_name) {
-            Some(tool) => tool.execute(tool_call_id, arguments),
+            Some(tool) => {
+                let mut result = tool.execute(tool_call_id.clone(), arguments)?;
+                if let Some(classification) = tool.classification() {
+                    result = result.with_classification(classification);
+                }
+                Ok(result)
+            }
             None => Err(thunderus_core::Error::Tool(format!(
                 "Tool '{}' not found in registry",
                 tool_name
@@ -93,6 +101,7 @@ impl ToolRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::builtin::EchoTool;
     use crate::builtin::NoopTool;
 
     #[test]
@@ -155,6 +164,57 @@ mod tests {
         let tool_result = result.unwrap();
         assert_eq!(tool_result.tool_call_id, "call_123");
         assert!(tool_result.is_success());
+    }
+
+    #[test]
+    fn test_execute_tool_with_classification() {
+        let registry = ToolRegistry::new();
+        registry.register(NoopTool).unwrap();
+
+        let args = serde_json::json!({});
+        let result = registry.execute("noop", "call_456".to_string(), &args);
+        assert!(result.is_ok());
+
+        let tool_result = result.unwrap();
+        assert_eq!(tool_result.tool_call_id, "call_456");
+        assert!(tool_result.is_success());
+
+        assert!(tool_result.risk_level.is_some());
+        assert_eq!(tool_result.risk_level.unwrap(), thunderus_core::ToolRisk::Safe);
+        assert!(tool_result.classification_reasoning.is_some());
+        assert!(
+            tool_result
+                .classification_reasoning
+                .as_ref()
+                .unwrap()
+                .contains("no side effects")
+        );
+    }
+
+    #[test]
+    fn test_execute_echo_with_classification() {
+        let registry = ToolRegistry::new();
+        registry.register(EchoTool).unwrap();
+
+        let args = serde_json::json!({"message": "test"});
+        let result = registry.execute("echo", "call_789".to_string(), &args);
+        assert!(result.is_ok());
+
+        let tool_result = result.unwrap();
+        assert_eq!(tool_result.tool_call_id, "call_789");
+        assert!(tool_result.is_success());
+        assert_eq!(tool_result.content, "test");
+
+        assert!(tool_result.risk_level.is_some());
+        assert_eq!(tool_result.risk_level.unwrap(), thunderus_core::ToolRisk::Safe);
+        assert!(tool_result.classification_reasoning.is_some());
+        assert!(
+            tool_result
+                .classification_reasoning
+                .as_ref()
+                .unwrap()
+                .contains("no side effects")
+        );
     }
 
     #[test]

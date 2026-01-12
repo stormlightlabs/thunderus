@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use thunderus_core::{Classification, ToolRisk};
+
 /// The role of a message sender
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -178,15 +180,33 @@ pub struct ToolResult {
     pub content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Risk level classification for this tool execution
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub risk_level: Option<ToolRisk>,
+    /// Human-readable explanation of why this tool was classified as safe/risky
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub classification_reasoning: Option<String>,
 }
 
 impl ToolResult {
     pub fn success(tool_call_id: impl Into<String>, content: impl Into<String>) -> Self {
-        Self { tool_call_id: tool_call_id.into(), content: content.into(), error: None }
+        Self {
+            tool_call_id: tool_call_id.into(),
+            content: content.into(),
+            error: None,
+            risk_level: None,
+            classification_reasoning: None,
+        }
     }
 
     pub fn error(tool_call_id: impl Into<String>, error: impl Into<String>) -> Self {
-        Self { tool_call_id: tool_call_id.into(), content: String::new(), error: Some(error.into()) }
+        Self {
+            tool_call_id: tool_call_id.into(),
+            content: String::new(),
+            error: Some(error.into()),
+            risk_level: None,
+            classification_reasoning: None,
+        }
     }
 
     pub fn is_success(&self) -> bool {
@@ -195,6 +215,13 @@ impl ToolResult {
 
     pub fn is_error(&self) -> bool {
         self.error.is_some()
+    }
+
+    /// Adds classification metadata to this result
+    pub fn with_classification(mut self, classification: Classification) -> Self {
+        self.risk_level = Some(classification.risk);
+        self.classification_reasoning = Some(classification.reasoning);
+        self
     }
 }
 

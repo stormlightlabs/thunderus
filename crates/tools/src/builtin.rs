@@ -1,8 +1,8 @@
 use serde_json::Value;
-use thunderus_core::Result;
+use thunderus_core::{Result, ToolRisk};
 use thunderus_providers::{ToolParameter, ToolResult};
 
-use super::{Tool, classification::ToolRisk};
+use super::Tool;
 
 /// A tool that does nothing and returns success
 /// Useful for testing and tool call workflows
@@ -24,6 +24,13 @@ impl Tool for NoopTool {
 
     fn risk_level(&self) -> ToolRisk {
         ToolRisk::Safe
+    }
+
+    fn classification(&self) -> Option<thunderus_core::Classification> {
+        Some(thunderus_core::Classification::new(
+            ToolRisk::Safe,
+            "No-op tool has no side effects and does not modify any state",
+        ))
     }
 
     fn execute(&self, tool_call_id: String, _arguments: &Value) -> Result<ToolResult> {
@@ -53,6 +60,13 @@ impl Tool for EchoTool {
 
     fn risk_level(&self) -> ToolRisk {
         ToolRisk::Safe
+    }
+
+    fn classification(&self) -> Option<thunderus_core::Classification> {
+        Some(thunderus_core::Classification::new(
+            ToolRisk::Safe,
+            "Echo tool only reflects input and produces no side effects",
+        ))
     }
 
     fn execute(&self, tool_call_id: String, arguments: &Value) -> Result<ToolResult> {

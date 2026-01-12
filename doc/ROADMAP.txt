@@ -86,10 +86,10 @@ and execution infrastructure needed before TUI can be functional.
       - "safe": tests, formatters, linters
       - "risky": package install, shell piping, file deletion, network tooling
       - classification logic in tool execution layer
-- [ ] Expose classification reasoning in tool results:
+- [x] Expose classification reasoning in tool results:
       - include "why safe" or "why risky" explanation in tool metadata
       - foundation for teaching users the safety model through consistency
-- [ ] Define basic approval protocol:
+- [ ] Define basic approval protocol/trait:
       - Approval request/response types
       - Approval decision tracking
       - Integration with agent loop to pause for user approval

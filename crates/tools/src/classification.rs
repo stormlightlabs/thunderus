@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 
+use thunderus_core::{Classification, ToolRisk};
+
 /// Commands that run tests
 const SAFE_TEST_COMMANDS: &[&str] = &[
     "test",
@@ -86,32 +88,10 @@ const RISKY_SHELL_PATTERNS: &[(&str, Pattern)] = &[
 
 /// Patterns for git write operations
 const RISKY_GIT_WRITE_PATTERNS: &[(&str, Pattern)] = &[
-    ("git push", Pattern::Contains("push")),
-    ("git commit", Pattern::Contains("commit")),
-    ("git rebase", Pattern::Contains("rebase")),
+    ("push", Pattern::Contains("push")),
+    ("commit", Pattern::Contains("commit")),
+    ("rebase", Pattern::Contains("rebase")),
 ];
-
-/// Risk level of a tool or command
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ToolRisk {
-    /// Safe operations: tests, formatters, linters, read-only operations
-    #[default]
-    Safe,
-    /// Risky operations: package install, file deletion, network tooling
-    Risky,
-}
-
-impl ToolRisk {
-    /// Returns true if this is a safe operation
-    pub fn is_safe(&self) -> bool {
-        matches!(self, Self::Safe)
-    }
-
-    /// Returns true if this is a risky operation
-    pub fn is_risky(&self) -> bool {
-        matches!(self, Self::Risky)
-    }
-}
 
 /// Pattern matching type for command classification
 #[derive(Debug, Clone)]
@@ -158,35 +138,165 @@ impl CommandClassifier {
         Self { safe_commands, risky_patterns }
     }
 
+    /// Classifies a shell command string with reasoning
+    ///
+    /// Returns a [Classification] containing both the risk level and explanation.
+    /// This enables teaching users the safety model through consistency.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use thunderus_tools::classification::CommandClassifier;
+    /// use thunderus_core::ToolRisk;
+    ///
+    /// let classifier = CommandClassifier::new();
+    /// let result = classifier.classify_with_reasoning("cargo test");
+    /// assert_eq!(result.risk, ToolRisk::Safe);
+    /// assert!(result.reasoning.to_lowercase().contains("test"));
+    /// ```
+    pub fn classify_with_reasoning(&self, command: &str) -> Classification {
+        let command_lower = command.to_lowercase();
+        let first_word = command_lower.split_whitespace().next().unwrap_or("");
+
+        if let Some(reasoning) = self.check_safe_reasoning(first_word, &command_lower) {
+            return Classification::new(ToolRisk::Safe, reasoning);
+        }
+
+        if let Some(reasoning) = self.check_risky_reasoning(first_word, &command_lower) {
+            return Classification::new(ToolRisk::Risky, reasoning);
+        }
+
+        Classification::new(
+            ToolRisk::Safe,
+            format!(
+                "Command '{}' is not in the known safe or risky lists, defaulting to safe",
+                first_word
+            ),
+        )
+    }
+
     /// Classifies a shell command string
     ///
     /// Returns [ToolRisk::Safe] for known safe commands,
     /// [ToolRisk::Risky] for known risky patterns,
     /// [ToolRisk::Safe] by default (conservative)
+    ///
+    /// For reasoning, use [classify_with_reasoning].
     pub fn classify_command(&self, command: &str) -> ToolRisk {
-        let command_lower = command.to_lowercase();
-        let first_word = command_lower.split_whitespace().next().unwrap_or("");
+        self.classify_with_reasoning(command).risk
+    }
 
-        if self.safe_commands.contains(first_word) {
-            return ToolRisk::Safe;
+    /// Checks if command is safe and returns reasoning
+    fn check_safe_reasoning(&self, first_word: &str, command_lower: &str) -> Option<String> {
+        if SAFE_TEST_COMMANDS.iter().any(|cmd| command_lower.contains(cmd)) {
+            return Some("Test commands are read-only and have no side effects on files or system state".to_string());
         }
 
-        for (_, pattern) in &self.risky_patterns {
+        if SAFE_FORMATTER_COMMANDS.iter().any(|cmd| command_lower.contains(cmd)) {
+            return Some("Formatters and linters only modify code style, not behavior or functionality".to_string());
+        }
+
+        if SAFE_READONLY_COMMANDS.contains(&first_word) {
+            return Some(format!(
+                "Command '{}' only reads files or displays information; it does not modify anything",
+                first_word
+            ));
+        }
+
+        if SAFE_GIT_READ_COMMANDS.iter().any(|cmd| command_lower.contains(cmd)) {
+            return Some(
+                "Git read-only operations (log, diff, show, status) do not modify repository state".to_string(),
+            );
+        }
+
+        if SAFE_VERIFY_COMMANDS.contains(&first_word) {
+            return Some(format!(
+                "Command '{}' only checks or validates; it does not make any changes",
+                first_word
+            ));
+        }
+
+        None
+    }
+
+    /// Checks if command is risky and returns reasoning
+    fn check_risky_reasoning(&self, first_word: &str, command_lower: &str) -> Option<String> {
+        for (desc, pattern) in &self.risky_patterns {
             match pattern {
                 Pattern::Exact(cmd) if first_word == *cmd => {
-                    return ToolRisk::Risky;
+                    return Some(match desc {
+                        &"rm" | &"rmdir" | &"del" | &"shred" => {
+                            format!(
+                                "Command '{}' permanently deletes files or directories (destructive operation)",
+                                first_word
+                            )
+                        }
+                        _ => format!("Command '{}' is classified as risky because: {}", first_word, desc),
+                    });
                 }
                 Pattern::Prefix(prefix) if first_word.starts_with(*prefix) => {
-                    return ToolRisk::Risky;
+                    return Some(match desc {
+                        &"rm" | &"rmdir" | &"del" | &"shred" => {
+                            format!(
+                                "Command '{}' permanently deletes files or directories (destructive operation)",
+                                first_word
+                            )
+                        }
+                        &"curl" | &"wget" | &"nc" | &"telnet" | &"ssh" | &"rsync" | &"scp" => {
+                            format!(
+                                "Command '{}' performs network operations which may transfer data to/from external systems",
+                                first_word
+                            )
+                        }
+                        &"mv" | &"cp" | &"chmod" | &"chown" | &"touch" | &"mkdir" => {
+                            format!(
+                                "Command '{}' modifies the file system structure or permissions",
+                                first_word
+                            )
+                        }
+                        &"apt-get" | &"apt" | &"yum" | &"dnf" | &"brew" => {
+                            format!(
+                                "Command '{}' is a package manager that may install software or modify system state",
+                                first_word
+                            )
+                        }
+                        &"bash" | &"zsh" | &"sh" | &"fish" | &"shell" => {
+                            format!(
+                                "Command '{}' opens an interactive shell which could execute arbitrary commands",
+                                first_word
+                            )
+                        }
+                        _ => format!("Command '{}' is classified as risky because: {}", first_word, desc),
+                    });
                 }
                 Pattern::Contains(substr) if command_lower.contains(*substr) => {
-                    return ToolRisk::Risky;
+                    return Some(match desc {
+                        &"install" | &"uninstall" => {
+                            format!(
+                                "Command '{}' installs or removes packages which may modify dependencies or system state",
+                                first_word
+                            )
+                        }
+                        &"add" | &"remove" | &"require" | &"get" => {
+                            format!(
+                                "Command '{}' modifies dependencies (adds or removes packages)",
+                                first_word
+                            )
+                        }
+                        &"push" | &"commit" | &"rebase" => {
+                            format!(
+                                "Git command '{}' modifies repository history or pushes changes to remote",
+                                substr
+                            )
+                        }
+                        _ => format!("Command '{}' is classified as risky because it: {}", first_word, desc),
+                    });
                 }
                 _ => {}
             }
         }
 
-        ToolRisk::Safe
+        None
     }
 
     /// Adds a custom safe command to the classifier
@@ -219,20 +329,6 @@ impl Default for CommandClassifier {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_tool_risk_variants() {
-        assert!(ToolRisk::Safe.is_safe());
-        assert!(!ToolRisk::Safe.is_risky());
-
-        assert!(!ToolRisk::Risky.is_safe());
-        assert!(ToolRisk::Risky.is_risky());
-    }
-
-    #[test]
-    fn test_tool_risk_default() {
-        assert_eq!(ToolRisk::default(), ToolRisk::Safe);
-    }
 
     #[test]
     fn test_classifier_safe_test_commands() {
@@ -358,6 +454,99 @@ mod tests {
     fn test_classifier_default_safe() {
         let classifier = CommandClassifier::new();
         assert_eq!(classifier.classify_command("unknown-command arg"), ToolRisk::Safe);
+    }
+
+    #[test]
+    fn test_classify_with_reasoning_safe_test() {
+        let classifier = CommandClassifier::new();
+        let result = classifier.classify_with_reasoning("cargo test");
+
+        eprintln!("Reasoning for 'cargo test': {}", result.reasoning);
+        assert_eq!(result.risk, ToolRisk::Safe);
+        assert!(result.reasoning.to_lowercase().contains("test"));
+        assert!(result.reasoning.contains("read-only"));
+    }
+
+    #[test]
+    fn test_classify_with_reasoning_safe_formatter() {
+        let classifier = CommandClassifier::new();
+        let result = classifier.classify_with_reasoning("cargo clippy");
+
+        eprintln!("Reasoning for 'cargo clippy': {}", result.reasoning);
+        assert_eq!(result.risk, ToolRisk::Safe);
+        assert!(result.reasoning.to_lowercase().contains("formatter"));
+        assert!(result.reasoning.to_lowercase().contains("linter"));
+    }
+
+    #[test]
+    fn test_classify_with_reasoning_safe_readonly() {
+        let classifier = CommandClassifier::new();
+        let result = classifier.classify_with_reasoning("cat file.txt");
+
+        assert_eq!(result.risk, ToolRisk::Safe);
+        assert!(result.reasoning.contains("reads"));
+        assert!(result.reasoning.contains("does not modify"));
+    }
+
+    #[test]
+    fn test_classify_with_reasoning_risky_deletion() {
+        let classifier = CommandClassifier::new();
+        let result = classifier.classify_with_reasoning("rm -rf /tmp");
+
+        assert_eq!(result.risk, ToolRisk::Risky);
+        assert!(result.reasoning.contains("deletes"));
+        assert!(result.reasoning.contains("destructive"));
+    }
+
+    #[test]
+    fn test_classify_with_reasoning_risky_network() {
+        let classifier = CommandClassifier::new();
+        let result = classifier.classify_with_reasoning("curl https://api.example.com");
+
+        assert_eq!(result.risk, ToolRisk::Risky);
+        assert!(result.reasoning.contains("network"));
+        assert!(result.reasoning.contains("external"));
+    }
+
+    #[test]
+    fn test_classify_with_reasoning_risky_package() {
+        let classifier = CommandClassifier::new();
+        let result = classifier.classify_with_reasoning("npm install lodash");
+
+        assert_eq!(result.risk, ToolRisk::Risky);
+        assert!(result.reasoning.contains("package"));
+        assert!(result.reasoning.contains("modify"));
+    }
+
+    #[test]
+    fn test_classify_with_reasoning_risky_file_modify() {
+        let classifier = CommandClassifier::new();
+        let result = classifier.classify_with_reasoning("chmod +x script.sh");
+
+        assert_eq!(result.risk, ToolRisk::Risky);
+        assert!(result.reasoning.contains("modifies"));
+        assert!(result.reasoning.contains("file system"));
+    }
+
+    #[test]
+    fn test_classify_with_reasoning_risky_git_write() {
+        let classifier = CommandClassifier::new();
+        let result = classifier.classify_with_reasoning("git push origin main");
+
+        eprintln!("Reasoning for 'git push origin main': {}", result.reasoning);
+        assert_eq!(result.risk, ToolRisk::Risky);
+        assert!(result.reasoning.to_lowercase().contains("git"));
+        assert!(result.reasoning.contains("modifies"));
+    }
+
+    #[test]
+    fn test_classify_with_reasoning_default_safe() {
+        let classifier = CommandClassifier::new();
+        let result = classifier.classify_with_reasoning("unknown-command arg");
+
+        assert_eq!(result.risk, ToolRisk::Safe);
+        assert!(result.reasoning.contains("not in the known"));
+        assert!(result.reasoning.contains("defaulting to safe"));
     }
 
     #[test]
