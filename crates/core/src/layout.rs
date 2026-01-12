@@ -232,6 +232,7 @@ impl AgentDir {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
     use tempfile::TempDir;
 
     #[test]
@@ -405,7 +406,6 @@ mod tests {
         assert_eq!(id1, id2);
         assert_ne!(id1, id3);
 
-        use std::collections::HashSet;
         let mut set = HashSet::new();
         set.insert(id1);
         assert!(set.contains(&id2));

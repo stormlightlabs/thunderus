@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::error::Result;
+use crate::{Error, Result};
 
 /// Approval modes for the agent (Codex-like ergonomics)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -213,8 +213,6 @@ impl Config {
 
     /// Get the default profile
     pub fn default_profile(&self) -> Result<&Profile> {
-        use crate::Error;
-
         self.profiles
             .get(&self.default_profile)
             .ok_or_else(|| Error::Config(ConfigError::ProfileNotFound(self.default_profile.clone()).to_string()))
@@ -222,8 +220,6 @@ impl Config {
 
     /// Get a profile by name
     pub fn profile(&self, name: &str) -> Result<&Profile> {
-        use crate::Error;
-
         self.profiles
             .get(name)
             .ok_or_else(|| Error::Config(ConfigError::ProfileNotFound(name.to_string()).to_string()))
@@ -236,8 +232,6 @@ impl Config {
 
     /// Validate the configuration
     fn validate(&self) -> Result<()> {
-        use crate::Error;
-
         if !self.profiles.contains_key(&self.default_profile) {
             return Err(Error::Config(
                 ConfigError::ProfileNotFound(self.default_profile.clone()).to_string(),

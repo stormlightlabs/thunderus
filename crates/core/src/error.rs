@@ -119,6 +119,7 @@ impl From<SessionIdError> for SessionError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::layout::SessionIdError;
 
     #[test]
     fn test_error_display() {
@@ -237,8 +238,6 @@ mod tests {
 
     #[test]
     fn test_session_error_from_session_id_error() {
-        use crate::layout::SessionIdError;
-
         let id_err = SessionIdError::Empty;
         let session_err: SessionError = id_err.into();
         assert_eq!(
