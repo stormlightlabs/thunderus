@@ -23,8 +23,8 @@ impl ToolDispatcher {
 
     /// Executes a single tool call
     ///
-    /// Takes a `ToolCall` from the provider and executes it,
-    /// returning a `ToolResult` to be sent back to the agent loop
+    /// Takes a [ToolCall] from the provider and executes it,
+    /// returning a [ToolResult] to be sent back to the agent loop
     pub fn execute(&self, tool_call: &ToolCall) -> Result<ToolResult> {
         let tool_name = tool_call.name();
         let arguments = tool_call.arguments();

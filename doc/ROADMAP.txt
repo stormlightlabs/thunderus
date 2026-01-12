@@ -18,7 +18,7 @@ CONTENTS                                                      *roadmap-contents*
 --------------------------------------------------------------------------------
 
     I. Repo Scaffold + Config + Session Store .................. |agent-I|
-   II. Provider Harness + Tool-Calling Core Loop + Execution Infrastructure ..... |agent-II|
+   II. Provider Harness...Execution Infrastructure ............. |agent-II|
   III. TUI Harness (Composer UX, Keybinds, Panels) ............. |agent-III|
    IV. Approvals + Sandboxing (Shell-First, Still Safe) ........ |agent-IV|
     V. Diff-First Editing + Git Integration .................... |agent-V|
@@ -82,10 +82,13 @@ and execution infrastructure needed before TUI can be functional.
       - Tool trait/interface for tool implementations
       - Tool registry and dispatcher
       - Basic tool implementations (test tools: `echo`, `noop`)
-- [ ] Implement command classification:
+- [x] Implement command classification:
       - "safe": tests, formatters, linters
       - "risky": package install, shell piping, file deletion, network tooling
       - classification logic in tool execution layer
+- [ ] Expose classification reasoning in tool results:
+      - include "why safe" or "why risky" explanation in tool metadata
+      - foundation for teaching users the safety model through consistency
 - [ ] Define basic approval protocol:
       - Approval request/response types
       - Approval decision tracking
@@ -118,8 +121,10 @@ and a transcript that shows actions. Use Ratatui for the Rust TUI foundation[^6]
       - Header: cwd, git branch, profile, provider/model, approval/sandbox state
       - Main: transcript (messages + tool/action cards)
       - Right pane (tabs): Command Output (basic)
-      - Left sidebar: Token Usage, Session Events (basic list), modified files,
-        git diff queue, LSPs & MCPs (placeholders)
+      - Left sidebar: Token Usage (teach LLM cost model),
+        Session Events (basic list), modified files (scope awareness),
+        git diff queue, approval gates triggered (safety model),
+        LSPs & MCPs (placeholders)
       - Footer: composer + hints
 - [ ] Composer features modeled after Codex CLI:
       - `!cmd` runs a local command and inserts output as a user-provided result
@@ -134,6 +139,15 @@ and a transcript that shows actions. Use Ratatui for the Rust TUI foundation[^6]
       - open panes (Output)
 - [ ] Add shell completions generation (bash/zsh/fish) for the CLI entrypoint
       (Codex CLI explicitly supports this; it's a baseline harness feature)[^3]
+- [ ] Progressive disclosure for action cards:
+      - Level 1 (default): intent + outcome (brief, scannable)
+      - Level 2 (expand): detailed context, scope, execution metadata
+      - Level 3 (verbose mode): full logs, reasoning chain, trace
+      - implement expand/collapse UI components with keybinds
+- [ ] Verbosity controls:
+      - toggle between default/verbose/quiet output modes
+      - persist preference per session
+      - surface in header with current mode indicator
 
 DoD:
 - A TUI that displays agent messages, shows tool call approval prompts,
@@ -157,6 +171,17 @@ Codex's model: approval policies + sandbox modes + profiles[^2]
 - [ ] "Action cards" in transcript:
       - every tool call shows: intent, inputs, scope (paths), risk flags
       - approvals are per action (and logged)
+- [ ] Enhance action cards with teaching context:
+      - "What": operation in plain language
+      - "Why": context for this action in task flow
+      - "Scope": files/paths affected, blast radius
+      - "Risk": classification with reasoning (why safe/risky)
+      - "Result": exit code, key output, next step
+- [ ] First-time contextual hints:
+      - track taught concepts per session (e.g., "risky_command_explained")
+      - show brief explainer on first encounter
+        (e.g., "network commands need approval")
+      - never nag - one-time hints only
 
 DoD:
 - The agent can run `cargo test`, but will stop and ask before doing anything
@@ -188,6 +213,17 @@ Codex explicitly treats diffs and `git apply` failure modes as first-class
       - Diff Queue pane with hunk navigation
       - next/prev hunk keybinds
       - approve/reject individual hunks
+- [ ] Hunk labeling with intent:
+      - attach semantic labels to hunks
+        (e.g., "Add error handling", "Remove deprecated fn")
+      - display intent above each hunk in diff view
+      - teach version control discipline through consistent labeling
+- [ ] Pedagogical conflict messages:
+      - on `git apply` failure, explain *why* conflict occurred
+        (not just "conflict detected")
+      - show conflicting regions with context
+      - suggest resolution strategies (rebase, manual merge, discard)
+      - first conflict triggers brief explainer on 3-way merge
 
 DoD:
 - "PR-stack feel" inside a TUI: accept hunks, undo safely, never lose work.
@@ -235,6 +271,9 @@ When you work alongside the agent, it pauses, notices drift, and reconciles.
       1. summarize changed files/diffstat
       2. choose: update plan & continue / rebase pending patches / discard
       3. refresh context and revalidate plan before acting again
+      - enhance with choice implications (teach trade-offs of each option)
+      - first drift triggers brief explainer:
+        "Agent paused - you edited files. Let's reconcile"
 - [ ] File ownership rule:
       - files you touched become "user-owned"; agent needs explicit approval to
         modify them until reconcile completes
@@ -271,6 +310,12 @@ and regression tests for harness behaviors.
 - [ ] TUI enhancements (moved from Section III):
       - Permissions pane in sidebar
       - toggle verbose action trace keybind
+- [ ] Session-based teaching state:
+      - persist "taught concepts" in session metadata
+      - track which pedagogical hints have been shown
+        (e.g., `taught: [patch_conflict, risky_command]`)
+      - prevent repetitive hints across session lifecycle
+      - expose teaching history in session events for debugging
 
 DoD:
 - A daily-driver harness: interactive + scriptable + extensible.
@@ -283,6 +328,10 @@ IX. NOTES                                                        *roadmap-notes*
   (`@` file search, `!` local commands), slash commands, prompt editor[^3]
 - Claude Code: repo-local memory file (`CLAUDE.md`) auto-loaded as context[^1]
 - MCP: standardized tool/plugin surface to avoid hardcoding integrations[^10]
+- Progressive Disclosure: UX pattern for teaching through staged information reveal,
+  reducing cognitive load while supporting power users[^11][^12]. Research shows 90%
+  of organizations consider AI transparency essential, and explainability is key to
+  building trust in agentic systems[^13][^14]
 
 [^1]: https://www.anthropic.com/engineering/claude-code-best-practices
 [^2]: https://developers.openai.com/codex/security/
@@ -294,3 +343,8 @@ IX. NOTES                                                        *roadmap-notes*
 [^8]: https://modelcontextprotocol.io/
 [^9]: https://ai.google.dev/gemini-api/docs/tools
 [^10]: https://modelcontextprotocol.io/specification/2025-11-25
+[^11]: https://www.nngroup.com/articles/progressive-disclosure/
+[^12]: https://blog.logrocket.com/ux-design/progressive-disclosure-ux-types-use-cases/
+[^13]: https://arxiv.org/html/2502.13767v3
+       (Agentic AI Software Engineers: Programming with Trust)
+[^14]: https://witness.ai/blog/ai-transparency/

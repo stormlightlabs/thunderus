@@ -1,9 +1,11 @@
 pub mod builtin;
+pub mod classification;
 pub mod dispatcher;
 pub mod registry;
 pub mod tool;
 
 pub use builtin::{EchoTool, NoopTool};
+pub use classification::{CommandClassifier, Pattern, ToolRisk};
 pub use dispatcher::ToolDispatcher;
 pub use registry::ToolRegistry;
 pub use tool::Tool;
@@ -46,10 +48,12 @@ mod tests {
         let noop = NoopTool;
         assert_eq!(noop.name(), "noop");
         assert_eq!(noop.spec().name(), "noop");
+        assert!(noop.risk_level().is_safe());
 
         let echo = EchoTool;
         assert_eq!(echo.name(), "echo");
         assert_eq!(echo.spec().name(), "echo");
+        assert!(echo.risk_level().is_safe());
     }
 
     #[test]

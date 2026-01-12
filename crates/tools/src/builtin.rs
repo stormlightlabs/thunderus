@@ -2,7 +2,7 @@ use serde_json::Value;
 use thunderus_core::Result;
 use thunderus_providers::{ToolParameter, ToolResult};
 
-use super::Tool;
+use super::{Tool, classification::ToolRisk};
 
 /// A tool that does nothing and returns success
 /// Useful for testing and tool call workflows
@@ -22,13 +22,16 @@ impl Tool for NoopTool {
         ToolParameter::new_object(vec![])
     }
 
+    fn risk_level(&self) -> ToolRisk {
+        ToolRisk::Safe
+    }
+
     fn execute(&self, tool_call_id: String, _arguments: &Value) -> Result<ToolResult> {
         Ok(ToolResult::success(tool_call_id, "noop executed successfully"))
     }
 }
 
-/// A tool that echoes back the provided input
-/// Useful for testing and debugging
+/// A tool that echoes back provided input
 #[derive(Debug)]
 pub struct EchoTool;
 
@@ -48,9 +51,12 @@ impl Tool for EchoTool {
         )])
     }
 
+    fn risk_level(&self) -> ToolRisk {
+        ToolRisk::Safe
+    }
+
     fn execute(&self, tool_call_id: String, arguments: &Value) -> Result<ToolResult> {
         let message = arguments.get("message").and_then(|v| v.as_str()).unwrap_or("");
-
         Ok(ToolResult::success(tool_call_id, message.to_string()))
     }
 }
@@ -79,6 +85,12 @@ mod tests {
             tool.description(),
             "Does nothing and returns success. Used for testing."
         );
+    }
+
+    #[test]
+    fn test_noop_risk_level() {
+        let tool = NoopTool;
+        assert!(tool.risk_level().is_safe());
     }
 
     #[test]
@@ -114,6 +126,12 @@ mod tests {
             tool.description(),
             "Echoes back the provided message. Useful for testing."
         );
+    }
+
+    #[test]
+    fn test_echo_risk_level() {
+        let tool = EchoTool;
+        assert!(tool.risk_level().is_safe());
     }
 
     #[test]
