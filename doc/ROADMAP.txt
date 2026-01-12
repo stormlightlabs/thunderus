@@ -51,10 +51,22 @@ Tasks:
         a root level example (`config.example.toml`)
       - profile name, working root, extra writable roots, approval mode,
       - sandbox mode, provider/model selection[^2]
-- [ ] Implement `SessionId` + monotonic `seq` event numbering in JSONL store.
+- [x] Implement `SessionId` + monotonic `seq` event numbering in JSONL store.
+- [x] Implement CLI entry point with argument parsing:
+      - Colored output using owo-colors
+      - Load config.toml from current directory or create from example
+      - Support `thunderus start`, `thunderus exec <cmd>`, and `thunderus status` subcommands
+      - Add thunderus_core dependency to cli/Cargo.toml
+- [x] Implement session initialization:
+      - Create `.agent/` directory layout on first run
+      - Generate SessionId and create session directory
+- [x] Implement event logging on session start:
+      - Append session-start event to events.jsonl immediately
+- [x] Implement placeholder interactive loop:
+      - Placeholder for future TUI/interactive functionality
 
 Definition of Done (DoD):
-- Running `agent` creates a session folder and appends events immediately.
+- Running `thunderus` creates a session folder and appends events immediately.
 
 --------------------------------------------------------------------------------
 II. PROVIDER HARNESS (GLM + GEMINI) + TOOL-CALLING CORE LOOP          *agent-II*
@@ -224,7 +236,7 @@ and regression tests for harness behaviors.
       - either provider-native (Gemini tools) or shell-gated `web_search`
         equivalent
       - treat results as tool outputs and log them[^9]
-- [ ] Non-interactive mode (`agent exec "…"`) like Codex’s `exec`:
+- [ ] Non-interactive mode (`thunderus exec "…"`) like Codex’s `exec`:
       - emits JSON (machine output) + writes JSONL session log[^3]
 - [ ] "review agent" (second pass) like Codex `/review` flow[^3]
 - [ ] Harness regression tests (golden scenarios):

@@ -1,0 +1,35 @@
+# Thunderus Configuration Example
+# Copy this file to config.toml and customize as needed
+
+# Default profile to use when no profile is specified
+default_profile = "default"
+
+# Named profiles
+[profiles.default]
+name = "default"
+# Working root directory (must be absolute path)
+working_root = "/path/to/workspace"
+# Extra writable directories beyond working_root (optional, must be absolute paths)
+extra_writable_roots = []
+# Approval mode: "read-only", "auto", or "full-access"
+approval_mode = "auto"
+# Sandbox mode: "policy", "os", or "none"
+sandbox_mode = "policy"
+# Allow network commands (default: false)
+allow_network = false
+
+# Provider configuration
+[profiles.default.provider]
+# Provider type: "glm" or "gemini"
+provider = "glm"
+# API key for the provider
+api_key = "your-api-key-here"
+# Model name to use
+model = "glm-4.7"
+# Base URL (optional, defaults to provider's default)
+# base_url = "https://custom.api.url"
+
+# Additional options (optional)
+# [profiles.default.options]
+# max_tokens = "8192"
+# temperature = "0.7"
