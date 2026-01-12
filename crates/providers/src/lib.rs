@@ -1,5 +1,7 @@
+pub mod adapter;
 pub mod types;
 
+pub use adapter::{GeminiProvider, GlmProvider, Provider, ProviderFactory};
 pub use types::{
     CancelToken, ChatMessage, ChatRequest, ChatResponse, FunctionCall, Role, StreamEvent, ToolCall, ToolParameter,
     ToolResult, ToolSpec,

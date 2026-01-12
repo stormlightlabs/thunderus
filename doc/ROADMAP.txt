@@ -75,7 +75,7 @@ II. PROVIDER HARNESS + MINIMAL INTERACTIVE TUI                        *agent-II*
 A provider-agnostic agent loop with streaming, tool calls, and a minimal
 but functional TUI. This creates an end-to-end testable system.
 
-**Foundation (Complete):**
+**Foundation:**
 - [x] Define provider-neutral types:
       - `ChatRequest/ChatResponse`, `ToolSpec`, `ToolCall`, `ToolResult`,
       - `StreamEvent`, `CancelToken`
@@ -95,11 +95,11 @@ but functional TUI. This creates an end-to-end testable system.
       - Approval decision tracking (ApprovalGate, ApprovalRecord)
       - ApprovalProtocol trait for pluggable backends
 
-**Provider Adapters:**
-- [ ] Implement GLM-4.7 adapter:
+**Provider Adapters** [x]:
+- [x] Implement GLM-4.7 adapter:
       - `tools` + `tool_choice`-style function calling[^5]
       - streaming support with `StreamEvent` channel
-- [ ] Implement Gemini adapter:
+- [x] Implement Gemini adapter:
       - function calling + tool schema wiring[^4]
       - streaming support with `StreamEvent` channel
 

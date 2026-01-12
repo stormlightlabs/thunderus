@@ -3,10 +3,12 @@ use std::collections::HashSet;
 use thunderus_core::{Classification, ToolRisk};
 
 /// Commands that run tests
+///
+/// FIXME: pytest command forms
 const SAFE_TEST_COMMANDS: &[&str] = &[
     "test",
     "pytest",
-    "pytest", // duplicate to catch both forms
+    "pytest",
     "go test",
     "npm test",
     "yarn test",

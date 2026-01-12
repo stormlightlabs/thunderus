@@ -920,7 +920,7 @@ mod tests {
         let session1 = Session::with_id(agent_dir.clone(), id.clone()).unwrap();
 
         let result = Session::with_id(agent_dir.clone(), id.clone());
-        assert!(result.is_ok()); // Can create session with same ID (it will just error out but won't crash)
+        assert!(result.is_ok());
 
         let session2 = Session::load(agent_dir, id).unwrap();
         assert_eq!(session1.id, session2.id);

@@ -1,0 +1,241 @@
+*PROVIDERS.txt*                                                Provider Adapters
+================================================================================
+
+This document describes the provider adapters for LLM backends
+(GLM-4.7 and Gemini) and how they integrate with the Thunderus agent harness.
+
+--------------------------------------------------------------------------------
+CONTENTS                                                    *providers-contents*
+--------------------------------------------------------------------------------
+    I. Provider Architecture .................................. |providers-I|
+   II. GLM-4.7 Adapter ........................................ |providers-II|
+  III. Gemini Adapter ......................................... |providers-III|
+   IV. Provider Configuration ................................. |providers-IV|
+    V. Streaming and Tool Calling ............................. |providers-V|
+   VI. Error Handling ......................................... |providers-VI|
+  VII. API Differences ........................................ |providers-VII|
+ VIII. Testing ................................................ |providers-VIII|
+
+--------------------------------------------------------------------------------
+I. PROVIDER ARCHITECTURE                                          *providers-I*
+--------------------------------------------------------------------------------
+
+The provider system follows a common interface to abstract differences between
+LLM backends.
+
+Core Types (thunderus-providers):
+- `Provider` trait: Common interface for all LLM providers
+  - `stream_chat()`: Async method for streaming chat completions
+  - Returns `Pin<Box<dyn Stream<Item = StreamEvent> + Send>>`
+
+- `StreamEvent`: Enum for streaming responses
+  - `Token(String)`: Text content chunks
+  - `ToolCall(Vec<ToolCall>)`: Function/tool invocations
+  - `Done`: Stream finished
+  - `Error(String)`: Stream error occurred
+
+- `CancelToken`: Atomic bool for cooperative cancellation
+
+Provider Factory:
+- `ProviderFactory::create_from_config()`: Instantiates providers from
+  config.toml
+
+--------------------------------------------------------------------------------
+II. GLM-4.7 ADAPTER                                               *providers-II*
+--------------------------------------------------------------------------------
+
+GLM-4.7 is an OpenAI-compatible API with minimal differences.
+
+**Base URL**: `https://api.z.ai/api/paas/v4/`
+**Endpoint**: `/chat/completions`
+
+**Authentication**:
+```
+Authorization: Bearer <API_KEY>
+```
+
+**Request Format**:
+- Uses standard OpenAI-style `messages`, `tools`, `tool_choice`
+- Supports extended `thinking` block for reasoning traces
+- Streaming enabled by default
+
+**Special Features**:
+- `reasoning_content`: Delta field containing model reasoning
+  (not standard OpenAI)
+- Handled by wrapping in `<thinking>...</thinking>` tags in StreamEvent::Token
+
+**Streaming**:
+- Server-Sent Events (SSE) via `eventsource-stream` crate
+- Standard OpenAI chunk format (`choices[0].delta.*`)
+
+**Tool Calling**:
+- Function calls arrive in `choices[0].delta.tool_calls`
+- Arguments are JSON strings (must be parsed)
+- Multiple tool calls can arrive in a single chunk
+
+--------------------------------------------------------------------------------
+III. GEMINI ADAPTER                                              *providers-III*
+--------------------------------------------------------------------------------
+
+Gemini uses Google's native API format with significant structural differences.
+
+**Base URL**: `https://generativelanguage.googleapis.com/v1beta`
+**Endpoint**: `/models/{model}:streamGenerateContent?key={api_key}`
+
+**Authentication**:
+```
+Query param: ?key=<API_KEY>
+or Header: x-goog-api-key: <API_KEY>
+```
+
+**Request Format**:
+- `contents`: Array of messages (role: "user" or "model")
+- `system_instruction`: Top-level field for system prompts (not in contents)
+- `tools.functionDeclarations`: Tool definitions (not `tools.function`)
+
+**Message Structure**:
+- Messages have `role` + `parts` array (not flat content string)
+- Each part can be: `{text}`, `{functionCall}`, or `{functionResponse}`
+
+**Tool Calling**:
+- Function calls appear as `parts: [{functionCall: {name, args}}]`
+- Arguments are JSON objects (not strings)
+- Function responses use `functionResponse` part
+
+**Streaming**:
+- Raw streaming JSON objects (one per line)
+- No SSE events, just newline-delimited JSON
+- Manual buffer parsing required
+
+--------------------------------------------------------------------------------
+IV. PROVIDER CONFIGURATION                                        *providers-IV*
+--------------------------------------------------------------------------------
+
+Providers are configured in `config.toml`:
+
+```toml
+[profiles.default.provider]
+provider = "glm"  # or "gemini"
+api_key = "your-api-key"
+model = "glm-4.7"  # or "gemini-2.5-flash"
+base_url = "https://custom.api.url"  # optional, has default
+```
+
+**Supported Providers**:
+1. `glm`: GLM-4.7 (OpenAI-compatible)
+2. `gemini`: Google Gemini (native format)
+
+**Runtime Instantiation**:
+```rust
+use thunderus_providers::ProviderFactory;
+
+let provider = ProviderFactory::create_from_config(&config.provider)?;
+```
+
+--------------------------------------------------------------------------------
+V. STREAMING AND TOOL CALLING                                      *providers-V*
+--------------------------------------------------------------------------------
+
+**Streaming Flow**:
+1. Provider receives `ChatRequest` with messages, tools, and parameters
+2. Request is converted to provider-specific format
+3. HTTP client initiates streaming request
+4. Stream yields `StreamEvent`s as data arrives
+5. CancelToken checked on each iteration for user interrupt
+
+**Tool Calling Flow**:
+1. Tools defined in request via `ToolSpec` (name, description, parameters)
+2. Provider sends tools to model in API request
+3. Model responds with `StreamEvent::ToolCall` containing function invocations
+4. Agent executes tools (outside adapter) and collects `ToolResult`s
+5. Results sent back as new messages (role: Tool) for next turn
+
+**Provider Differences**:
+
+| Feature       | GLM-4.7                       | Gemini                            |
+|-------------- |------------------------------ |-----------------------------------|
+| Auth          | Bearer token header           | Query param or header             |
+| Messages      | Flat `messages` array         | `contents` with `parts` array     |
+| System prompt | `role: system` message        | Top-level `system_instruction`    |
+| Tool defs     | `tools` -> `function`         | `tools` -> `functionDeclarations` |
+| Tool call     | `tool_calls` (string args)    | `functionCall` (object args)      |
+| Tool result   | `role: tool` + `tool_call_id` | `functionResponse` part           |
+| Streaming     | SSE events                    | Newline-delimited JSON            |
+
+--------------------------------------------------------------------------------
+VI. ERROR HANDLING                                               *providers-VI*
+--------------------------------------------------------------------------------
+
+**Error Types**:
+All provider errors wrapped in `thunderus_core::Error::Provider(String)`
+
+Common Error Scenarios:
+1. **Network errors**: Connection failures, timeouts
+   - Yielded as `StreamEvent::Error("GLM request failed: ...")`
+
+2. **API errors**: 4xx/5xx responses
+   - Include status code and response body in error message
+   - Format: `"GLM API error: 401 - Invalid API key"`
+
+3. **Parse errors**: Invalid JSON or unexpected format
+   - Yielded as `StreamEvent::Error("Failed to parse chunk: ...")`
+
+4. **Cancellation**: User interrupts generation
+   - Yielded as `StreamEvent::Error("Cancelled by user")`
+
+**Error Propagation**:
+- Errors in stream as events (not panics)
+- Agent loop can handle errors gracefully and retry/fail appropriately
+- CancelToken checked before/during streaming to avoid unnecessary work
+
+--------------------------------------------------------------------------------
+VII. API DIFFERENCES                                          *providers-VII*
+--------------------------------------------------------------------------------
+
+**Tool Schema Mapping**:
+`ToolParameter` (internal) maps to both:
+- OpenAI-style JSON Schema (GLM-4.7)
+- OpenAPI 3.0 subset (Gemini)
+
+Supported types:
+- `string`, `number`, `boolean`
+- `array` (with `items`)
+- `object` (with `properties`, `required`)
+
+**Message Role Mapping**:
+- `Role::System` → `system` (GLM) or `system_instruction` (Gemini)
+- `Role::User` → `user` (GLM) or `user` (Gemini)
+- `Role::Assistant` → `assistant` (GLM) or `model` (Gemini)
+- `Role::Tool` → `tool` (GLM) or `functionResponse` (Gemini)
+
+**Parameter Differences**:
+- `max_tokens` → `max_tokens` (GLM) or `max_output_tokens` (Gemini)
+- `temperature` → same range (0.0-1.0) for both
+- `top_p` → GLM only (Gemini uses `topK`, `topP` in generation config)
+
+--------------------------------------------------------------------------------
+VIII. TESTING                                                  *providers-VIII*
+--------------------------------------------------------------------------------
+
+**Unit Tests** (crates/providers/src/adapter.rs):
+- Provider creation and configuration
+- Request conversion (internal → provider format)
+- Chunk parsing (provider → StreamEvent)
+- Token cancellation behavior
+
+**Test Coverage**:
+- GLM provider: 15 tests
+- Gemini provider: 14 tests
+- Common types: 10 tests
+- Total: 29+ tests passing
+
+**Running Tests**:
+```bash
+cargo test -p thunderus-providers
+```
+
+**Test Categories**:
+1. **Creation tests**: Verify providers instantiate correctly
+2. **Conversion tests**: Ensure request format transformation is accurate
+3. **Parse tests**: Validate chunk parsing into StreamEvents
+4. **Integration tests**: (Future) Mock HTTP server tests
