@@ -22,9 +22,70 @@ impl EventHandler {
             return None;
         }
 
+        if state.is_fuzzy_finder_active() {
+            return Self::handle_fuzzy_finder_key(event, state);
+        }
+
         match state.pending_approval {
             Some(_) => Self::handle_approval_key(event, state),
             None => Self::handle_normal_key(event, state),
+        }
+    }
+
+    /// Handle keys in fuzzy finder mode
+    fn handle_fuzzy_finder_key(event: KeyEvent, state: &mut AppState) -> Option<KeyAction> {
+        if !state.is_fuzzy_finder_active() {
+            return None;
+        }
+
+        match event.code {
+            KeyCode::Up | KeyCode::Char('k') | KeyCode::Char('K') => {
+                if let Some(finder) = state.fuzzy_finder_mut() {
+                    finder.select_up();
+                }
+                Some(KeyAction::NavigateFinderUp)
+            }
+            KeyCode::Down | KeyCode::Char('j') | KeyCode::Char('J') => {
+                if let Some(finder) = state.fuzzy_finder_mut() {
+                    finder.select_down();
+                }
+                Some(KeyAction::NavigateFinderDown)
+            }
+            KeyCode::Enter => {
+                if let Some(finder) = state.fuzzy_finder()
+                    && let Some(file) = finder.selected()
+                {
+                    return Some(KeyAction::SelectFileInFinder { path: file.relative_path.clone() });
+                }
+                None
+            }
+            KeyCode::Esc => {
+                state.exit_fuzzy_finder();
+                Some(KeyAction::CancelFuzzyFinder)
+            }
+            KeyCode::Char(c) => {
+                if let Some(finder) = state.fuzzy_finder_mut() {
+                    let mut pattern = finder.pattern().to_string();
+                    pattern.push(c);
+                    finder.set_pattern(pattern);
+                }
+                None
+            }
+            KeyCode::Backspace => {
+                if let Some(finder) = state.fuzzy_finder_mut() {
+                    let mut pattern = finder.pattern().to_string();
+                    pattern.pop();
+                    finder.set_pattern(pattern);
+                }
+                None
+            }
+            KeyCode::Tab if event.modifiers.is_empty() => {
+                if let Some(finder) = state.fuzzy_finder_mut() {
+                    finder.toggle_sort();
+                }
+                Some(KeyAction::ToggleFinderSort)
+            }
+            _ => None,
         }
     }
 
@@ -176,6 +237,18 @@ pub enum KeyAction {
     OpenExternalEditor,
     /// Navigate message history (handled internally by InputState)
     NavigateHistory,
+    /// Activate fuzzy finder
+    ActivateFuzzyFinder,
+    /// Select file in fuzzy finder
+    SelectFileInFinder { path: String },
+    /// Navigate fuzzy finder up
+    NavigateFinderUp,
+    /// Navigate fuzzy finder down
+    NavigateFinderDown,
+    /// Toggle fuzzy finder sort mode
+    ToggleFinderSort,
+    /// Cancel fuzzy finder
+    CancelFuzzyFinder,
     /// No action (e.g., navigation in input)
     NoOp,
 }

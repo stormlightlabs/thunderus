@@ -21,6 +21,9 @@ impl Theme {
     /// Hover/active states: visual selection
     pub const ACTIVE: Color = Color::Rgb(39, 44, 66);
 
+    /// Highlight color for focused elements
+    pub const HIGHLIGHT: Color = Color::Rgb(39, 44, 66);
+
     /// Comments: dim blue-gray
     pub const COMMENT: Color = Color::Rgb(107, 112, 137);
 

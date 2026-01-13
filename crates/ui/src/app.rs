@@ -1,4 +1,4 @@
-use crate::components::{Footer, Header, Sidebar, Transcript as TranscriptComponent};
+use crate::components::{Footer, FuzzyFinderComponent, Header, Sidebar, Transcript as TranscriptComponent};
 use crate::event_handler::{EventHandler, KeyAction};
 use crate::layout::TuiLayout;
 use crate::state::AppState;
@@ -128,6 +128,24 @@ impl App {
                     self.open_external_editor();
                 }
                 KeyAction::NavigateHistory => {}
+                KeyAction::ActivateFuzzyFinder => {}
+                KeyAction::SelectFileInFinder { path } => {
+                    self.state_mut().exit_fuzzy_finder();
+                    let input = self.state_mut().input.buffer.clone();
+                    let cursor = self.state_mut().input.cursor;
+
+                    let mut new_input = input[..cursor].to_string();
+                    new_input.push('@');
+                    new_input.push_str(&path);
+                    new_input.push_str(&input[cursor..]);
+
+                    self.state_mut().input.buffer = new_input;
+                    self.state_mut().input.cursor = cursor + 1 + path.len();
+                }
+                KeyAction::NavigateFinderUp => {}
+                KeyAction::NavigateFinderDown => {}
+                KeyAction::ToggleFinderSort => {}
+                KeyAction::CancelFuzzyFinder => {}
                 KeyAction::NoOp => {}
             }
         }
@@ -152,6 +170,11 @@ impl App {
 
             let footer = Footer::new(&self.state);
             footer.render(frame, layout.footer);
+
+            if self.state.is_fuzzy_finder_active() {
+                let fuzzy_finder = FuzzyFinderComponent::new(&self.state);
+                fuzzy_finder.render(frame);
+            }
         })?;
 
         Ok(())

@@ -74,7 +74,7 @@ advanced composer features, multi-panel layout, and power-user productivity.
 - [x] Message history navigation:
       - up/down arrows to browse previous messages
       - edit and resubmit past messages
-- [ ] `@` file search:
+- [x] `@` file search:
       - fuzzy file finder to attach context
       - shows file preview before insertion
 
@@ -89,7 +89,7 @@ advanced composer features, multi-panel layout, and power-user productivity.
       - `/memory` - display MEMORY.md content in transcript
       - `/clear` - clear transcript (keep session history)
 - [ ] Add shell completions generation (bash/zsh/fish) for CLI and slash
-      commands (Codex CLI baseline feature)[^3]
+      commands[^3]
 
 **Progressive Disclosure for Action Cards:**
 - [ ] Multi-level detail expansion:

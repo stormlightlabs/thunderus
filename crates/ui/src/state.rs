@@ -1,3 +1,4 @@
+use crate::fuzzy_finder::FuzzyFinder;
 use std::path::PathBuf;
 use thunderus_core::{ApprovalMode, ProviderConfig, SandboxMode, TokensUsed};
 
@@ -193,6 +194,16 @@ pub struct ApprovalState {
     pub decision: Option<bool>, // Some(true) = approved, Some(false) = rejected, None = pending
 }
 
+/// Composer mode for input handling
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum ComposerMode {
+    /// Normal text input
+    #[default]
+    Normal,
+    /// Fuzzy file finder active
+    FuzzyFinder,
+}
+
 /// Verbosity levels for TUI display
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum VerbosityLevel {
@@ -301,6 +312,10 @@ pub struct AppState {
     pub sidebar_visible: bool,
     /// Whether the user is currently generating
     pub generating: bool,
+    /// Composer mode
+    pub composer_mode: ComposerMode,
+    /// Active fuzzy finder (if any)
+    pub fuzzy_finder: Option<FuzzyFinder>,
     /// Session events for sidebar
     pub session_events: Vec<SessionEvent>,
     /// Modified files list
@@ -330,12 +345,44 @@ impl AppState {
             pending_approval: None,
             sidebar_visible: true,
             generating: false,
+            composer_mode: ComposerMode::default(),
+            fuzzy_finder: None,
             session_events: Vec::new(),
             modified_files: Vec::new(),
             git_diff_queue: Vec::new(),
             scroll_horizontal: 0,
             scroll_vertical: 0,
         }
+    }
+
+    /// Enter fuzzy finder mode
+    pub fn enter_fuzzy_finder(&mut self, original_input: String, original_cursor: usize) {
+        self.composer_mode = ComposerMode::FuzzyFinder;
+        let mut finder = FuzzyFinder::new(self.cwd.clone(), original_input, original_cursor);
+        if let Ok(()) = finder.discover_files() {
+            self.fuzzy_finder = Some(finder);
+        }
+    }
+
+    /// Exit fuzzy finder mode
+    pub fn exit_fuzzy_finder(&mut self) {
+        self.composer_mode = ComposerMode::Normal;
+        self.fuzzy_finder = None;
+    }
+
+    /// Check if fuzzy finder is active
+    pub fn is_fuzzy_finder_active(&self) -> bool {
+        matches!(self.composer_mode, ComposerMode::FuzzyFinder)
+    }
+
+    /// Get mutable reference to fuzzy finder if active
+    pub fn fuzzy_finder_mut(&mut self) -> Option<&mut FuzzyFinder> {
+        self.fuzzy_finder.as_mut()
+    }
+
+    /// Get reference to fuzzy finder if active
+    pub fn fuzzy_finder(&self) -> Option<&FuzzyFinder> {
+        self.fuzzy_finder.as_ref()
     }
 
     /// Scroll transcript horizontally
@@ -412,6 +459,8 @@ impl Default for AppState {
             pending_approval: None,
             sidebar_visible: true,
             generating: false,
+            composer_mode: ComposerMode::default(),
+            fuzzy_finder: None,
             session_events: Vec::new(),
             modified_files: Vec::new(),
             git_diff_queue: Vec::new(),
