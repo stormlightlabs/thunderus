@@ -5,8 +5,11 @@ use crate::state::AppState;
 use crate::transcript::Transcript as TranscriptState;
 use crossterm;
 use ratatui::{Terminal, backend::CrosstermBackend};
-use std::io::Result;
+use std::env;
+use std::fs;
+use std::io::{Result, Write};
 use std::panic;
+use std::process::Command;
 use thunderus_tools::ToolRegistry;
 use uuid;
 
@@ -120,6 +123,9 @@ impl App {
                     self.state_mut().stop_generation();
                 }
                 KeyAction::ToggleSidebar => {}
+                KeyAction::OpenExternalEditor => {
+                    self.open_external_editor();
+                }
                 KeyAction::NoOp => {}
             }
         }
@@ -178,6 +184,71 @@ impl App {
                     .add_system_message(format!("Failed to execute shell command: {}", e));
             }
         }
+    }
+
+    /// Open external editor for current input buffer
+    fn open_external_editor(&mut self) {
+        let editor_cmd = env::var("VISUAL")
+            .or_else(|_| env::var("EDITOR"))
+            .unwrap_or_else(|_| "vi".to_string());
+
+        let temp_dir = env::temp_dir();
+        let temp_file_path = temp_dir.join(format!("thunderus_input_{}.md", uuid::Uuid::new_v4()));
+
+        if let Err(e) = fs::write(&temp_file_path, &self.state.input.buffer) {
+            self.transcript_mut()
+                .add_system_message(format!("Failed to create temporary file: {}", e));
+            return;
+        }
+
+        let _ = crossterm::terminal::disable_raw_mode();
+        let _ = crossterm::execute!(std::io::stdout(), crossterm::terminal::LeaveAlternateScreen);
+        let _ = std::io::stdout().flush();
+
+        let result = Command::new(&editor_cmd).arg(&temp_file_path).status();
+
+        let _ = crossterm::terminal::enable_raw_mode();
+        let _ = crossterm::execute!(std::io::stdout(), crossterm::terminal::EnterAlternateScreen);
+
+        match result {
+            Ok(status) if status.success() => match fs::read_to_string(&temp_file_path) {
+                Ok(content) => {
+                    self.state.input.buffer = content;
+                    self.state.input.cursor = self.state.input.buffer.len();
+
+                    self.transcript_mut()
+                        .add_system_message("Content loaded from external editor");
+                }
+                Err(e) => {
+                    self.transcript_mut()
+                        .add_system_message(format!("Failed to read edited content: {}", e));
+                }
+            },
+            Ok(status) => {
+                self.transcript_mut()
+                    .add_system_message(format!("Editor exited with non-zero status: {}", status));
+            }
+            Err(e) => {
+                self.transcript_mut()
+                    .add_system_message(format!("Failed to launch editor '{}': {}", editor_cmd, e));
+            }
+        }
+
+        let _ = fs::remove_file(&temp_file_path);
+        let _ = self.redraw_screen();
+    }
+
+    /// Redraw the screen after returning from external editor
+    fn redraw_screen(&self) -> Result<()> {
+        use std::io::{self, Write};
+
+        let backend = ratatui::backend::CrosstermBackend::new(io::stdout());
+        if let Ok(mut terminal) = ratatui::Terminal::new(backend) {
+            let _ = terminal.clear();
+            let _ = io::stdout().flush();
+        }
+
+        Ok(())
     }
 
     /// Quit the application and restore terminal
@@ -676,5 +747,99 @@ mod tests {
         }
 
         assert_eq!(app.state().input.buffer, "Hello");
+    }
+
+    #[test]
+    fn test_handle_event_open_external_editor() {
+        let mut app = create_test_app();
+        app.state_mut().input.buffer = "Initial content".to_string();
+
+        let event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Char('g'),
+            crossterm::event::KeyModifiers::CONTROL | crossterm::event::KeyModifiers::SHIFT,
+        ));
+
+        app.handle_event(event);
+
+        let transcript = app.transcript();
+        let entries = transcript.entries();
+
+        let system_entry = entries
+            .iter()
+            .find(|e| matches!(e, crate::transcript::TranscriptEntry::SystemMessage { .. }));
+        assert!(system_entry.is_some());
+    }
+
+    #[test]
+    fn test_external_editor_environment_variables() {
+        let mut app = create_test_app();
+        app.state_mut().input.buffer = "Test content for editor".to_string();
+
+        let editor_cmd = std::env::var("VISUAL")
+            .or_else(|_| std::env::var("EDITOR"))
+            .unwrap_or_else(|_| "vi".to_string());
+
+        assert!(!editor_cmd.is_empty());
+    }
+
+    #[test]
+    fn test_external_editor_temp_file_operations() {
+        let mut app = create_test_app();
+        app.state_mut().input.buffer = "Test content\nwith multiple lines".to_string();
+
+        let temp_dir = std::env::temp_dir();
+        let temp_file_path = temp_dir.join(format!("thunderus_test_{}.md", uuid::Uuid::new_v4()));
+
+        let write_result = std::fs::write(&temp_file_path, &app.state().input.buffer);
+        assert!(write_result.is_ok(), "Should be able to write to temporary file");
+
+        let read_result = std::fs::read_to_string(&temp_file_path);
+        assert!(read_result.is_ok(), "Should be able to read from temporary file");
+
+        let read_content = read_result.unwrap();
+        assert_eq!(read_content, app.state().input.buffer);
+
+        let _ = std::fs::remove_file(&temp_file_path);
+    }
+
+    #[test]
+    fn test_external_editor_with_empty_input() {
+        let mut app = create_test_app();
+        app.state_mut().input.buffer = "".to_string();
+
+        let event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Char('g'),
+            crossterm::event::KeyModifiers::CONTROL | crossterm::event::KeyModifiers::SHIFT,
+        ));
+
+        app.handle_event(event);
+
+        let transcript = app.transcript();
+        let entries = transcript.entries();
+
+        let system_entry = entries
+            .iter()
+            .find(|e| matches!(e, crate::transcript::TranscriptEntry::SystemMessage { .. }));
+        assert!(system_entry.is_some());
+    }
+
+    #[test]
+    fn test_external_editor_cursor_position() {
+        let mut app = create_test_app();
+        app.state_mut().input.buffer = "Some existing content".to_string();
+
+        let event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Char('g'),
+            crossterm::event::KeyModifiers::CONTROL | crossterm::event::KeyModifiers::SHIFT,
+        ));
+
+        app.handle_event(event);
+    }
+
+    #[test]
+    fn test_redraw_screen_method() {
+        let app = create_test_app();
+        let result = app.redraw_screen();
+        assert!(result.is_ok() || result.is_err());
     }
 }

@@ -87,6 +87,11 @@ impl EventHandler {
                     return Some(KeyAction::CancelGeneration);
                 } else if event.modifiers.contains(KeyModifiers::CONTROL) && c == 's' {
                     state.toggle_sidebar();
+                } else if event.modifiers.contains(KeyModifiers::CONTROL)
+                    && event.modifiers.contains(KeyModifiers::SHIFT)
+                    && c == 'g'
+                {
+                    return Some(KeyAction::OpenExternalEditor);
                 } else {
                     state.input.insert_char(c);
                 }
@@ -147,6 +152,8 @@ pub enum KeyAction {
     CancelGeneration,
     /// Toggle sidebar
     ToggleSidebar,
+    /// Open external editor for current input
+    OpenExternalEditor,
     /// No action (e.g., navigation in input)
     NoOp,
 }
@@ -289,6 +296,38 @@ mod tests {
         let action = EventHandler::handle_key_event(event, &mut state);
 
         assert!(matches!(action, Some(KeyAction::CancelGeneration)));
+    }
+
+    #[test]
+    fn test_handle_normal_key_ctrl_shift_g_open_editor() {
+        let mut state = create_test_state();
+
+        let event = KeyEvent::new(KeyCode::Char('g'), KeyModifiers::CONTROL | KeyModifiers::SHIFT);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(matches!(action, Some(KeyAction::OpenExternalEditor)));
+    }
+
+    #[test]
+    fn test_handle_normal_key_ctrl_g_without_shift_is_regular_char() {
+        let mut state = create_test_state();
+
+        let event = KeyEvent::new(KeyCode::Char('g'), KeyModifiers::CONTROL);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(action.is_none());
+        assert_eq!(state.input.buffer, "g");
+    }
+
+    #[test]
+    fn test_handle_normal_key_shift_g_without_ctrl_is_regular_char() {
+        let mut state = create_test_state();
+
+        let event = KeyEvent::new(KeyCode::Char('g'), KeyModifiers::SHIFT);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(action.is_none());
+        assert_eq!(state.input.buffer, "g"); // crossterm doesn't automatically uppercase shift+char
     }
 
     #[test]

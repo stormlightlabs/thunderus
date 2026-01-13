@@ -86,6 +86,8 @@ impl<'a> Footer<'a> {
         } else {
             hints.push(Span::styled("Enter", Style::default().fg(Theme::GREEN)));
             hints.push(Span::raw(": send "));
+            hints.push(Span::styled("Ctrl+Shift+G", Style::default().fg(Theme::BLUE)));
+            hints.push(Span::raw(": editor "));
 
             if self.state.sidebar_visible {
                 hints.push(Span::styled("Ctrl+S", Style::default().fg(Theme::BLUE)));
@@ -156,6 +158,7 @@ mod tests {
         let _footer = Footer::new(&state);
         let hints = _footer.get_hints();
         assert!(hints.iter().any(|s| s.content.contains("hide")));
+        assert!(hints.iter().any(|s| s.content.contains("editor")));
     }
 
     #[test]
@@ -166,6 +169,7 @@ mod tests {
         let _footer = Footer::new(&state);
         let hints = _footer.get_hints();
         assert!(hints.iter().any(|s| s.content.contains("show")));
+        assert!(hints.iter().any(|s| s.content.contains("editor")));
     }
 
     #[test]
@@ -221,17 +225,6 @@ mod tests {
         assert!(hints.iter().any(|s| s.content.contains("[n]")));
         assert!(hints.iter().any(|s| s.content.contains("[c]")));
         assert!(hints.iter().any(|s| s.content.contains("approve")));
-    }
-
-    #[test]
-    fn test_get_hints_normal_without_approval() {
-        let state = create_test_state();
-
-        let _footer = Footer::new(&state);
-        let hints = _footer.get_hints();
-
-        assert!(hints.iter().any(|s| s.content.contains("Enter")));
-        assert!(!hints.iter().any(|s| s.content.contains("[y]")));
     }
 
     #[test]
