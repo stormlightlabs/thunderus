@@ -173,17 +173,38 @@ impl<'a> TranscriptRenderer<'a> {
         match decision {
             None => {
                 lines.push(Line::default());
-                let hints = "[y] approve  [n] reject  [c] cancel";
-                self.wrap_text(hints, Theme::MUTED, width, lines);
+                lines.push(Line::from(vec![
+                    Span::styled("  [", Style::default().fg(Theme::MUTED)),
+                    Span::styled("y", Style::default().fg(Theme::GREEN).bold()),
+                    Span::styled("] approve  ", Style::default().fg(Theme::MUTED)),
+                    Span::styled("[", Style::default().fg(Theme::MUTED)),
+                    Span::styled("n", Style::default().fg(Theme::RED).bold()),
+                    Span::styled("] reject  ", Style::default().fg(Theme::MUTED)),
+                    Span::styled("[", Style::default().fg(Theme::MUTED)),
+                    Span::styled("c", Style::default().fg(Theme::YELLOW).bold()),
+                    Span::styled("] cancel", Style::default().fg(Theme::MUTED)),
+                ]));
             }
             Some(super::ApprovalDecision::Approved) => {
-                self.wrap_text("  ✅ Approved", Theme::GREEN, width, lines);
+                lines.push(Line::from(vec![
+                    Span::styled("  ", Style::default()),
+                    Span::styled("✓", Style::default().fg(Theme::GREEN)),
+                    Span::styled(" Approved", Style::default().fg(Theme::GREEN)),
+                ]));
             }
             Some(super::ApprovalDecision::Rejected) => {
-                self.wrap_text("  ❌ Rejected", Theme::RED, width, lines);
+                lines.push(Line::from(vec![
+                    Span::styled("  ", Style::default()),
+                    Span::styled("✗", Style::default().fg(Theme::RED)),
+                    Span::styled(" Rejected", Style::default().fg(Theme::RED)),
+                ]));
             }
             Some(super::ApprovalDecision::Cancelled) => {
-                self.wrap_text("  ⏹️ Cancelled", Theme::YELLOW, width, lines);
+                lines.push(Line::from(vec![
+                    Span::styled("  ", Style::default()),
+                    Span::styled("⏹", Style::default().fg(Theme::YELLOW)),
+                    Span::styled(" Cancelled", Style::default().fg(Theme::YELLOW)),
+                ]));
             }
         }
     }

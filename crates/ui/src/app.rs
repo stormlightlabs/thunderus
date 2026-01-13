@@ -207,4 +207,106 @@ mod tests {
         app.transcript_mut().add_system_message("Session started");
         assert_eq!(app.transcript().len(), 1);
     }
+
+    #[test]
+    fn test_approval_ui_flow_complete() {
+        let mut app = create_test_app();
+
+        app.transcript_mut().add_user_message("Add error handling");
+        app.transcript_mut().add_model_response("I'll add error handling...");
+
+        app.transcript_mut()
+            .add_tool_call("file_edit", "{ path: 'src/config.rs' }", "risky");
+
+        assert!(!app.transcript().has_pending_approval());
+
+        app.transcript_mut().add_approval_prompt("file_edit", "risky");
+
+        assert!(app.transcript().has_pending_approval());
+
+        let success = app
+            .transcript_mut()
+            .set_approval_decision(crate::transcript::ApprovalDecision::Approved);
+        assert!(success);
+        assert!(!app.transcript().has_pending_approval());
+
+        app.transcript_mut()
+            .add_tool_result("file_edit", "Applied successfully", true);
+
+        assert_eq!(app.transcript().len(), 5);
+    }
+
+    #[test]
+    fn test_approval_ui_flow_rejected() {
+        let mut app = create_test_app();
+
+        app.transcript_mut().add_approval_prompt("file_delete", "dangerous");
+        assert!(app.transcript().has_pending_approval());
+
+        app.transcript_mut()
+            .set_approval_decision(crate::transcript::ApprovalDecision::Rejected);
+
+        assert!(!app.transcript().has_pending_approval());
+
+        if let Some(crate::transcript::TranscriptEntry::ApprovalPrompt { decision, .. }) = app.transcript().last() {
+            assert_eq!(decision, &Some(crate::transcript::ApprovalDecision::Rejected));
+        } else {
+            panic!("Expected ApprovalPrompt");
+        }
+    }
+
+    #[test]
+    fn test_approval_ui_flow_cancelled() {
+        let mut app = create_test_app();
+
+        app.transcript_mut().add_approval_prompt("install_deps", "risky");
+        app.transcript_mut()
+            .set_approval_decision(crate::transcript::ApprovalDecision::Cancelled);
+
+        assert!(!app.transcript().has_pending_approval());
+
+        if let Some(crate::transcript::TranscriptEntry::ApprovalPrompt { decision, .. }) = app.transcript().last() {
+            assert_eq!(decision, &Some(crate::transcript::ApprovalDecision::Cancelled));
+        } else {
+            panic!("Expected ApprovalPrompt");
+        }
+    }
+
+    #[test]
+    fn test_approval_multiple_prompts() {
+        let mut app = create_test_app();
+
+        app.transcript_mut().add_approval_prompt("patch.feature", "risky");
+        app.transcript_mut()
+            .set_approval_decision(crate::transcript::ApprovalDecision::Approved);
+
+        app.transcript_mut().add_approval_prompt("patch.feature2", "safe");
+        app.transcript_mut()
+            .set_approval_decision(crate::transcript::ApprovalDecision::Approved);
+
+        assert!(!app.transcript().has_pending_approval());
+        assert_eq!(app.transcript().len(), 2);
+    }
+
+    #[test]
+    fn test_approval_with_description() {
+        let mut app = create_test_app();
+
+        app.transcript_mut().add_approval_prompt("install_crate", "risky");
+
+        if let Some(crate::transcript::TranscriptEntry::ApprovalPrompt { description, .. }) =
+            app.transcript_mut().last_mut()
+        {
+            *description = Some("Install serde dependency".to_string());
+        }
+
+        app.transcript_mut()
+            .set_approval_decision(crate::transcript::ApprovalDecision::Approved);
+
+        if let Some(crate::transcript::TranscriptEntry::ApprovalPrompt { description, .. }) = app.transcript().last() {
+            assert_eq!(description, &Some("Install serde dependency".to_string()));
+        } else {
+            panic!("Expected ApprovalPrompt with description");
+        }
+    }
 }

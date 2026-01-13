@@ -122,7 +122,7 @@ but functional TUI. This creates an end-to-end testable system.
       - Show tool call cards with: name, risk level, description
       - Show tool result cards inline in transcript flow
       - Basic streaming text display (append tokens as they arrive)
-- [ ] Interactive approval UI:
+- [x] Interactive approval UI:
       - Display approval prompts inline in transcript
       - Show: action type, description, affected paths, risk classification
       - Accept keyboard input: `y` (approve), `n` (reject), `c` (cancel)

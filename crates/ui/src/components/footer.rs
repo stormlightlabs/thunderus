@@ -56,7 +56,14 @@ impl<'a> Footer<'a> {
     fn get_hints(&self) -> Vec<Span<'_>> {
         let mut hints = Vec::new();
 
-        if self.state.is_generating() {
+        if self.state.pending_approval.is_some() {
+            hints.push(Span::styled("[y]", Style::default().fg(Theme::GREEN).bold()));
+            hints.push(Span::raw(" approve "));
+            hints.push(Span::styled("[n]", Style::default().fg(Theme::RED).bold()));
+            hints.push(Span::raw(" reject "));
+            hints.push(Span::styled("[c]", Style::default().fg(Theme::YELLOW).bold()));
+            hints.push(Span::raw(" cancel "));
+        } else if self.state.is_generating() {
             hints.push(Span::styled("Esc", Style::default().fg(Theme::RED)));
             hints.push(Span::raw(": cancel "));
         } else {
@@ -179,5 +186,49 @@ mod tests {
 
         assert_eq!(state.input.buffer, "");
         assert_eq!(state.input.cursor, 0);
+    }
+
+    #[test]
+    fn test_get_hints_with_pending_approval() {
+        let mut state = create_test_state();
+        state.pending_approval = Some(crate::state::ApprovalState::pending(
+            "test.action".to_string(),
+            "risky".to_string(),
+        ));
+
+        let _footer = Footer::new(&state);
+        let hints = _footer.get_hints();
+
+        assert!(hints.iter().any(|s| s.content.contains("[y]")));
+        assert!(hints.iter().any(|s| s.content.contains("[n]")));
+        assert!(hints.iter().any(|s| s.content.contains("[c]")));
+        assert!(hints.iter().any(|s| s.content.contains("approve")));
+    }
+
+    #[test]
+    fn test_get_hints_normal_without_approval() {
+        let state = create_test_state();
+
+        let _footer = Footer::new(&state);
+        let hints = _footer.get_hints();
+
+        assert!(hints.iter().any(|s| s.content.contains("Enter")));
+        assert!(!hints.iter().any(|s| s.content.contains("[y]")));
+    }
+
+    #[test]
+    fn test_get_hints_approval_overrides_generation() {
+        let mut state = create_test_state();
+        state.start_generation();
+        state.pending_approval = Some(crate::state::ApprovalState::pending(
+            "test.action".to_string(),
+            "safe".to_string(),
+        ));
+
+        let _footer = Footer::new(&state);
+        let hints = _footer.get_hints();
+
+        assert!(hints.iter().any(|s| s.content.contains("[y]")));
+        assert!(!hints.iter().any(|s| s.content.contains("Esc")));
     }
 }
