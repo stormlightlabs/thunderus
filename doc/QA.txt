@@ -1,0 +1,284 @@
+*USER-FLOW.txt*                                             Thunderus User Flows
+================================================================================
+
+CURRENT IMPLEMENTATION STATUS                                    *user-flow-status*
+
+This document describes user interaction flows for the current implementation
+of Thunderus. It serves as a reference for QA and smoke testing.
+
+Last updated: 2026-01-13
+
+--------------------------------------------------------------------------------
+CONTENTS
+--------------------------------------------------------------------------------
+
+   I. INITIAL SETUP....................................... |user-flow-setup|
+  II. SESSION MANAGEMENT.................................. |user-flow-sessions|
+ III. TUI INTERACTION (NOT YET INTEGRATED)................ |user-flow-tui|
+  IV. SESSION FILES AND LOGS.............................. |user-flow-files|
+   V. ERROR HANDLING...................................... |user-flow-errors|
+
+--------------------------------------------------------------------------------
+I. INITIAL SETUP                                               *user-flow-setup*
+--------------------------------------------------------------------------------
+
+First Run (No Config)
+---------------------
+$ thunderus status
+
+Expected:
+- Warning: "Config not found at config.toml"
+- Info: "Creating config from example..."
+- Success: "Created config at config.toml. Please edit it with your settings."
+- Error: "Please edit config.toml with your settings and run again"
+- Exit code 1
+- config.toml created with example configuration
+
+Result:
+- User must edit config.toml with their API keys and settings before proceeding
+
+Edit Config
+-----------
+$ cat config.toml
+
+Expected structure:
+- default_profile setting
+- [profiles.default] section with:
+  - provider configuration (glm or gemini)
+  - api_key, model, base_url
+  - approval_mode (read-only, auto, full-access)
+  - sandbox_mode (policy or off)
+  - working_root path
+
+After editing, verify:
+$ thunderus status
+
+Expected:
+- Info: "Thunderus Status"
+- Default profile displayed
+- Available profiles listed with provider types
+- No errors
+
+--------------------------------------------------------------------------------
+II. SESSION MANAGEMENT                                      *user-flow-sessions*
+--------------------------------------------------------------------------------
+
+Creating a Session
+------------------
+$ thunderus start
+
+Expected:
+- Info: "Creating .agent directory" (first time only)
+- Info: "Creating session..."
+- Session ID displayed (cyan color)
+- Session directory path shown
+- Success: "Session <id> started successfully"
+- Info: "Interactive TUI not yet implemented. Session created and event logged."
+
+Result:
+- .agent/ directory created in working directory
+  - .agent/sessions/<session-id>/ created
+  - .agent/sessions/<session-id>/events.jsonl created
+  - .agent/views/ directory created
+- Session start event logged to JSONL
+
+Session with Options
+--------------------
+$ thunderus start --dir /workspace
+$ thunderus start --profile work
+
+Expected:
+- Working directory used if specified
+- Profile loaded from config
+- Same session creation flow as above
+
+With Verbose Flag
+-----------------
+$ thunderus --verbose start
+
+Expected additional output:
+- "Using config: <path>"
+- "Available profiles: [...]"
+- "Working directory: <path>"
+- "Profile: <name>"
+- "Provider: <type>"
+- "Approval mode: <mode>"
+- "Sandbox mode: <mode>"
+- "Session ID: <id>"
+- "Session directory: <path>"
+
+Checking Status
+---------------
+$ thunderus status
+
+Expected:
+- Configuration section:
+  - Default profile
+  - Available profiles with provider types
+
+$ thunderus --verbose status
+
+Expected additional output:
+- Agent directory path (if initialized)
+- Sessions count
+- List of session IDs
+
+--------------------------------------------------------------------------------
+III. NON-INTERACTIVE EXECUTION (NOT YET IMPLEMENTED)            *user-flow-exec*
+--------------------------------------------------------------------------------
+
+Execute Command
+---------------
+$ thunderus exec "cargo test"
+
+Expected:
+- Info: "Executing: cargo test"
+- Info: "Command execution not yet implemented"
+- Exit code 0
+
+Result:
+- Placeholder only - no actual execution yet
+
+--------------------------------------------------------------------------------
+IV. TUI INTERACTION (NOT YET INTEGRATED)                         *user-flow-tui*
+--------------------------------------------------------------------------------
+
+Note: TUI components exist but are not yet connected to the CLI.
+The following describes the intended flow once integration is complete.
+
+Layout Structure
+----------------
+┌─ Header ───────────────────────────────────────────────────────────┐
+│ /workspace | @default | glm/glm-4.7 | auto | main | policy | std   │
+└────────────────────────────────────────────────────────────────────┘
+┌─ Sidebar ──┬─ Transcript ──────────────────────────────────────────┐
+│            │                                                       │
+│ Events     │ User messages, model responses, tool calls/results    │
+│ Files      │ Syntax-highlighted code blocks                        │
+│ Queue      │ Approval prompts (interactive)                        │
+│            │                                                       │
+│            │ Vertical scrolling supported                          │
+└────────────┴───────────────────────────────────────────────────────┘
+┌─ Footer ───────────────────────────────────────────────────────────┐
+│ > [input buffer with cursor]                                       │
+│ Status: Tokens used, approvals, tools executed                     │
+│ Keybinds: Ctrl+C (quit/cancel) | Esc (clear input)                 │
+└────────────────────────────────────────────────────────────────────┘
+
+Header Elements (responsive to terminal width):
+- Working directory (cyan)
+- Profile name (purple)
+- Provider/model (blue)
+- Approval mode (white/red)
+- Git branch (green) [implemented]
+- Sandbox mode (yellow) [implemented]
+- Verbosity level (gray) [implemented]
+
+Input Flow
+----------
+1. Type message in composer (footer)
+2. Press Enter to send (if not empty)
+3. Message appears in transcript as "User: <message>"
+4. Input buffer clears
+
+Input Editing:
+- Char input: Insert at cursor position
+- Backspace: Delete char before cursor
+- Delete: Delete char at cursor
+- Left/Right arrows: Move cursor
+- Home/End: Move to start/end
+- Esc: Clear entire buffer
+
+Approval Flow
+-------------
+When tool execution requires approval:
+1. Transcript shows approval prompt with:
+   - Action description
+   - Risk level (safe/risky/dangerous)
+2. Footer shows keybind options:
+   - Y: Approve action
+   - N: Reject action
+   - C: Cancel task
+3. User presses key
+4. Decision recorded in transcript
+5. Tool execution continues or stops based on decision
+
+Generation Control
+------------------
+While model is generating:
+- Streaming tokens appear in real-time
+- Ctrl+C: Cancel generation
+- State indicator shows "generating"
+
+Scrolling
+---------
+- Transcript auto-scrolls to bottom on new entries
+- Vertical scroll offset tracked in state
+
+Sidebar Toggle
+--------------
+- Ctrl+S: Toggle sidebar visibility (not yet implemented)
+- Maximizes transcript width when hidden
+
+--------------------------------------------------------------------------------
+V. SESSION FILES AND LOGS                                      *user-flow-files*
+--------------------------------------------------------------------------------
+
+Directory Structure
+------------------
+.agent/
+├── sessions/
+│   └── <session-id>/
+│       └── events.jsonl        # Append-only event log
+└── views/                      # Materialized views (planned)
+    ├── MEMORY.md               # Not yet implemented
+    ├── PLAN.md                 # Not yet implemented
+    └── DECISIONS.md            # Not yet implemented
+
+Event Log Format
+----------------
+Each line in events.jsonl is a JSON object with:
+- timestamp (ISO 8601)
+- type (user_message, model_response, tool_call, etc.)
+- payload (event-specific data)
+
+Example:
+{"timestamp":"2026-01-13T10:30:45Z","type":"user_message","payload":"Session started"}
+
+Reading Logs
+------------
+$ cat .agent/sessions/<session-id>/events.jsonl | jq
+$ rg "user_message" .agent/sessions/
+
+--------------------------------------------------------------------------------
+VI. ERROR HANDLING                                            *user-flow-errors*
+--------------------------------------------------------------------------------
+
+Config Errors
+-------------
+Missing profile:
+$ thunderus start --profile nonexistent
+
+Expected:
+- Error: "Failed to load profile 'nonexistent'"
+- Exit code 1
+
+Invalid TOML:
+$ echo "invalid" > config.toml
+$ thunderus status
+
+Expected:
+- Error: "Failed to load config: <parse error>"
+- Exit code 1
+
+Session Errors
+--------------
+Directory creation failure (permissions):
+Expected:
+- Error: "Failed to create .agent directory: <io error>"
+- Exit code 1
+
+Event log write failure:
+Expected:
+- Error: "Failed to log session start: <io error>"
+- Exit code 1

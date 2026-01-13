@@ -23,24 +23,27 @@ For detailed implementation roadmap, see `doc/ROADMAP.txt`.
 .
 ├── Cargo.toml                 # Workspace configuration
 ├── doc/
-│   └── ROADMAP.txt           # Implementation roadmap
+│   ├── ROADMAP.txt           # Implementation roadmap
+│   └── user-flow.txt         # User flows and testing guide
 └── crates/
+    ├── agent/                # Agent orchestrator and event loop
     ├── cli/                  # Binary entry point
-    ├── ui/                   # TUI library (placeholder)
     ├── core/                 # Core types and infrastructure
-    ├── tools/                # Tool execution framework
     ├── providers/            # Provider-neutral types
-    └── store/                # Session storage (placeholder)
+    ├── store/                # Session storage (placeholder)
+    ├── tools/                # Tool execution framework
+    └── ui/                   # TUI library (components ready, not integrated)
 ```
 
 ### Quick Reference: What's in Each Crate
 
-- **cli**: Command-line interface, colored output, config loading
-- **ui**: TUI implementation (not started - uses Ratatui)
+- **agent**: Agent orchestrator, event streaming, approval integration
+- **cli**: Command-line interface (start, exec, status), colored output, config loading
 - **core**: Configuration, session management, approval system, error handling
-- **tools**: Tool execution framework, tool registry, command classification
-- **providers**: Shared types for provider adapters (requests, responses, tool calls)
-- **store**: Session storage and event logging (placeholder)
+- **providers**: Provider types and traits (adapters not implemented)
+- **store**: Session storage placeholder
+- **tools**: Tool execution framework, registry, dispatcher, command classification
+- **ui**: TUI components (header, sidebar, footer, transcript), event handling, syntax highlighting
 
 ## Build and Development Commands
 
@@ -78,20 +81,27 @@ cargo clippy
 - ✅ Tool execution framework (Tool trait, registry, dispatcher)
 - ✅ Command classification with reasoning
 - ✅ Provider-neutral types
+- ✅ Agent orchestrator with event streaming
+- ✅ TUI components (header, sidebar, footer, transcript)
+- ✅ Interactive input handling and approval UI
+- ✅ Syntax highlighting for code blocks
 
 **What's Next** (see ROADMAP.txt for full details):
 
-- ⏳ Provider adapters (GLM-4.7, Gemini)
-- ⏳ Core agent loop with streaming
-- ⏳ TUI implementation
+- ⏳ TUI integration with CLI (components ready, not connected)
+- ⏳ Provider adapters (GLM-4.7, Gemini - types ready, adapters pending)
+- ⏳ Core agent loop integration
+- ⏳ Text processing tools (Grep, Glob, Read, Edit)
 - ⏳ Diff-first editing and git integration
 
 ## Key Technologies
 
 - **Language**: Rust 2024
-- **TUI Framework**: Ratatui (planned, not yet used)
+- **TUI Framework**: Ratatui (components implemented)
+- **Terminal**: Crossterm for event handling
+- **Syntax Highlighting**: syntect + owo_colors
 - **Providers**: GLM-4.7 and Gemini (types ready, adapters pending)
-- **Storage**: JSONL event logs + Markdown views
+- **Storage**: JSONL event logs + Markdown views (planned)
 - **Serialization**: serde, serde_json, toml
 
 ## Code Conventions

@@ -17,15 +17,17 @@ tight TUI loop, diff-first edits, explicit approvals/sandboxing, ergonomic
 CONTENTS                                                      *roadmap-contents*
 --------------------------------------------------------------------------------
 
-    I. Repo Scaffold + Config + Session Store .................. |agent-I|
-   II. Provider Harness...Execution Infrastructure ............. |agent-II|
-  III. TUI Harness ............................................. |agent-III|
-   IV. Approvals + Sandboxing (Shell-First, Still Safe) ........ |agent-IV|
-    V. Diff-First Editing + Git Integration .................... |agent-V|
-   VI. Markdown + JSONL Hybrid VCS ............................. |agent-VI|
-  VII. Mixed-Initiative Collaboration .......................... |agent-VII|
- VIII. Extensibility + Hardening ............................... |agent-VIII|
-   IX. Endnotes ................................................ |roadmap-notes|
+    I. Repo Scaffold + Config + Session Store ................. |agent-I|
+   II. Provider Harness...Execution Infrastructure ............ |agent-II|
+  III. TUI Harness ............................................ |agent-III|
+   IV. TUI + Agent + CLI Integration .......................... |agent-IV|
+    V. Core Text Processing Tools ............................. |agent-V|
+   VI. Approvals + Sandboxing (Shell-First, Still Safe) ....... |agent-VI|
+  VII. Diff-First Editing + Git Integration ................... |agent-VII|
+ VIII. Markdown + JSONL Hybrid VCS ............................ |agent-VIII|
+   IX. Mixed-Initiative Collaboration ......................... |agent-IX|
+    X. Extensibility + Hardening .............................. |agent-X|
+   XI. Endnotes ............................................... |agent-XI|
 
 --------------------------------------------------------------------------------
 I. REPO SCAFFOLD + CONFIG + SESSION STORE                              *agent-I*
@@ -61,13 +63,14 @@ advanced composer features, multi-panel layout, and power-user productivity.
       - Horizontal scrolling for wide output (e.g., test results, build logs)
       - "Smart" wrapping for long file paths and URLs
 
-**Advanced Composer (Codex CLI parity):**
+**Advanced Composer:**
 - [ ] `!cmd` shell command execution:
       - runs local command and inserts output as user-provided context
       - subject to approval/sandbox rules[^3]
-- [ ] `Ctrl+G` external editor:
+- [ ] `Ctrl+Shift+G` external editor:
       - opens $VISUAL/$EDITOR for long/complex prompts[^3]
       - loads result back into composer on save
+      - Note: ctrl+g conflicts with tools like zellij
 - [ ] Message history navigation:
       - up/down arrows to browse previous messages
       - edit and resubmit past messages
@@ -132,7 +135,224 @@ DoD:
         and smart formatting
 
 --------------------------------------------------------------------------------
-IV. APPROVALS + SANDBOXING (SHELL-FIRST, STILL SAFE)                   *agent-D*
+IV. TUI + AGENT + CLI INTEGRATION                                     *agent-IV*
+--------------------------------------------------------------------------------
+Bridge the TUI components, Agent orchestrator, and CLI into a working
+interactive system. This milestone connects the pieces built in I-III into
+a functional agent harness.
+
+**CLI Launch Integration:**
+- [ ] Wire TUI launch into `cmd_start`:
+      - Replace placeholder message with App initialization
+      - Pass session, config profile, and working directory to App
+      - Create AppState from config (provider, approval mode, sandbox mode)
+      - Launch TUI event loop: `app.run()?`
+      - Handle terminal cleanup on exit or error
+- [ ] Initial system message:
+      - On TUI launch, show welcome message in transcript:
+        * Session ID, working directory, profile name
+        * Approval mode and sandbox mode status
+        * Quick help: Ctrl+C to cancel, Esc to clear input
+      - Use transcript.add_system_message()
+
+**Combined Event Loop:**
+- [ ] Create unified event loop:
+      - Handle both TUI events (keyboard) and Agent events (streaming)
+      - Use tokio::select! to multiplex:
+        * TUI key events from EventHandler
+        * Agent events from message streaming (tokens, tool calls, approvals)
+      - Maintain cancellation token for agent operations
+      - Non-blocking event polling (current: 100ms)
+      - Graceful shutdown on exit signal
+
+**Agent Streaming Integration:**
+- [ ] Connect agent to transcript:
+      - On KeyAction::SendMessage: spawn agent.process_message()
+      - Stream AgentEvent::Token to transcript (add_streaming_token)
+      - On AgentEvent::Done: finish streaming in transcript
+      - On AgentEvent::Error: display error in transcript
+      - Update AppState.is_generating flag during streaming
+- [ ] Message flow:
+      - User input → Agent → Provider (stub initially)
+      - Provider response stream → Agent events → Transcript
+      - Maintain conversation context in Agent.messages
+
+**Approval Flow Integration:**
+- [ ] Wire approval requests:
+      - On AgentEvent::ApprovalRequest:
+        * Set AppState.pending_approval with action + risk
+        * Add approval prompt to transcript
+        * TUI enters approval mode (footer shows Y/N/C)
+- [ ] Wire approval responses:
+      - On KeyAction::Approve/Reject/Cancel:
+        * Send ApprovalResponse to agent via approval_protocol
+        * Clear AppState.pending_approval
+        * Update transcript with decision
+        * Resume agent processing
+- [ ] Approval protocol implementation:
+      - InMemoryApprovalProtocol bridges async agent and sync TUI
+      - Channel-based communication for approval requests/responses
+      - Timeout handling for abandoned approvals
+
+**Tool Execution Display:**
+- [ ] Tool call display:
+      - On AgentEvent::ToolCall:
+        * Add tool call to transcript with name, args, risk
+        * Display in real-time as card
+        * Show classification reasoning if available
+- [ ] Tool result display:
+      - On AgentEvent::ToolResult:
+        * Add tool result to transcript with success/failure
+        * Syntax-highlight output if code (using existing SyntaxHighlighter)
+        * Show execution time and metadata
+        * Expandable detail view for long output
+
+**Cancellation & Error Handling:**
+- [ ] Cancellation:
+      - On KeyAction::CancelGeneration (Ctrl+C or Esc):
+        * Call cancel_token.cancel()
+        * Agent stream terminates gracefully
+        * Clear AppState.is_generating
+        * Display "Cancelled" in transcript
+- [ ] Error handling:
+      - Provider errors: display in transcript, don't crash
+      - Network timeouts: show retry option in transcript
+      - Session write failures: warn user, continue (log to stderr)
+      - Terminal errors: restore terminal state before exit
+      - Panic hook: disable raw mode and restore terminal (already in App)
+
+**Session Persistence:**
+- [ ] Event logging:
+      - Log all transcript events to session.events.jsonl:
+        * User messages
+        * Model responses (full content after streaming completes)
+        * Tool calls and results
+        * Approval requests and decisions
+      - Use session.append_* methods from thunderus_core::Session
+      - Persist on each event (append-only, crash-safe)
+- [ ] Session recovery:
+      - Load previous session state on restart (future)
+      - Reconstruct transcript from events.jsonl
+      - Resume conversation context
+
+**Git Integration (Basic):**
+- [ ] Git status display:
+      - Detect git branch for header display (already in AppState)
+      - Show current branch in header git section
+      - Update branch on focus/refresh
+      - No git operations yet - just status display
+
+DoD:
+- `thunderus start` launches a fully functional TUI
+- User can send messages and see model responses stream in real-time
+- Approval prompts block execution and accept user input
+- Tool calls display with syntax-highlighted output
+- Ctrl+C cancels generation gracefully
+- All events persist to session JSONL log
+- Terminal restores correctly on exit or error
+- No placeholder messages - actual working agent loop
+- Full round-trip: User → Agent → (Stub)Provider → Transcript → Session
+
+--------------------------------------------------------------------------------
+V. CORE TEXT PROCESSING TOOLS                                          *agent-V*
+--------------------------------------------------------------------------------
+Implement the fundamental text search and file manipulation tools that enable
+the agent to explore codebases and make targeted edits. These tools form the
+backbone of agentic code interaction.
+
+Design target:
+Claude Code's tool model - ripgrep-based search, safe edit primitives, high-level
+abstractions over raw shell tools (grep, sed, awk).
+
+Research shows agentic search using bash tools is more reliable than semantic
+search. Successful agents treat shell tools as first-class citizens with careful
+safety guardrails.
+
+**Search Tools:**
+- [ ] Grep tool (ripgrep-based):
+      - pattern-based search with regex support
+      - file filtering with glob patterns (e.g., "*.rs", "*.{ts,tsx}")
+      - output modes: files_with_matches (default), content, count
+      - context lines support (-A, -B, -C flags)
+      - case-insensitive search option
+      - head_limit for result pagination
+      - JSON output mode for structured results
+      - fallback to grep if ripgrep unavailable
+- [ ] Glob tool (file pattern matching):
+      - find files by name patterns (e.g., "**/*.rs", "src/**/test_*.rs")
+      - sorted by modification time
+      - respect .gitignore by default
+      - fast file discovery for model context
+
+**Read Tools:**
+- [ ] Read tool:
+      - line-based file reading with numbers
+      - offset + limit for large files (default: 2000 lines)
+      - character truncation for long lines (2000 chars)
+      - binary file detection (reject binary reads)
+      - support common file types (code, text, markdown)
+- [ ] Integration with session state:
+      - track read history for edit validation
+      - required before Edit operations
+
+**Edit Tools:**
+- [ ] Edit tool (safe find-replace):
+      - exact string replacement in files
+      - old_string uniqueness validation (fail if ambiguous)
+      - replace_all option for bulk replacement
+      - requires prior Read in session history
+      - preserve exact indentation from Read output
+      - atomic operation (all-or-nothing)
+      - subject to approval mode gates
+- [ ] MultiEdit tool (atomic batch edits):
+      - multiple find-replace operations in single file
+      - all edits succeed or none applied
+      - validation for non-overlapping edits
+      - same safety requirements as Edit
+
+**Shell Tool Classification:**
+- [ ] Enhance command classifier for text tools:
+      - recognize grep/rg/sed/awk patterns
+      - classify risk level (grep=safe, sed -i=risky)
+      - suggest safer alternatives (sed → Edit tool)
+      - integrate with approval system
+
+**Safety & Approvals:**
+- [ ] Read-only tools bypass approval (Grep, Glob, Read)
+- [ ] Edit tools check approval mode:
+      - read-only: reject all edits
+      - auto: allow workspace edits, gate external paths
+      - full-access: allow all (still logged)
+- [ ] Mandatory backups for risky operations
+- [ ] Pedagogical warnings on first unsafe tool use
+
+**Provider Integration:**
+- [ ] Tool schema definitions for GLM-4.7 and Gemini
+- [ ] System prompt guidance:
+      - "Use Grep for code search, not bash grep"
+      - "Always Read before Edit"
+      - "Prefer Edit over sed for safety"
+- [ ] Result formatting for model consumption
+- [ ] Error messages that teach (e.g., "Edit failed: old_string not unique")
+
+**Full-Access Mode:**
+- [ ] Direct sed exposure (gated, with backups)
+- [ ] Direct awk exposure (gated, read-only recommended)
+- [ ] Rationale: complex syntax, safety concerns, better abstracted by
+      Edit tools
+
+DoD:
+- Grep, Glob, Read, Edit, and MultiEdit tools implemented and tested
+- Tool dispatcher routes calls correctly
+- Approval system enforces safety policies
+- Session state tracks read/edit history
+- Provider schemas include all tool definitions
+- Models can reliably search codebases and make targeted edits without
+  resorting to bash grep/sed/awk
+- Full research documented in .sandbox/research_text_tools_2026_01_13.md
+
+--------------------------------------------------------------------------------
+VI. APPROVALS + SANDBOXING (SHELL-FIRST, STILL SAFE)                  *agent-VI*
 --------------------------------------------------------------------------------
 Make "anything in the shell" possible without turning the agent into malware.
 Build on the basic approval system from Milestone II with policy enforcement
@@ -168,7 +388,7 @@ DoD:
   risky.
 
 --------------------------------------------------------------------------------
-V. DIFF-FIRST EDITING + GIT INTEGRATION                                *agent-E*
+VII. DIFF-FIRST EDITING + GIT INTEGRATION                            *agent-VII*
 --------------------------------------------------------------------------------
 Edits are *reviewable*, *reversible*, and *conflict-aware*.
 
@@ -209,7 +429,7 @@ DoD:
 - "PR-stack feel" inside a TUI: accept hunks, undo safely, never lose work.
 
 --------------------------------------------------------------------------------
-VI. MARKDOWN + JSONL HYBRID VCS                                       *agent-VI*
+VIII. MARKDOWN + JSONL HYBRID VCS                                   *agent-VIII*
 --------------------------------------------------------------------------------
 Your hybrid system is the canonical record of agent work, and it improves
 collaboration and debugging.
@@ -239,7 +459,7 @@ DoD:
 - You can reconstruct *exactly* what happened in a session and why.
 
 --------------------------------------------------------------------------------
-VII. MIXED-INITIATIVE COLLABORATION                                  *agent-VII*
+IX. MIXED-INITIATIVE COLLABORATION                                    *agent-IX*
 --------------------------------------------------------------------------------
 When you work alongside the agent, it pauses, notices drift, and reconciles.
 
@@ -267,7 +487,7 @@ DoD:
 - The agent never proceeds on stale assumptions after you fix something manually
 
 --------------------------------------------------------------------------------
-VIII. EXTENSIBILITY + HARDENING                                     *agent-VIII*
+X. EXTENSIBILITY + HARDENING                                           *agent-X*
 --------------------------------------------------------------------------------
 Match the "pro tool" feel: pluggable integrations, automation entrypoints,
 and regression tests for harness behaviors.
@@ -301,7 +521,7 @@ DoD:
 - A daily-driver harness: interactive + scriptable + extensible.
 
 --------------------------------------------------------------------------------
-IX. NOTES                                                        *roadmap-notes*
+XI. NOTES                                                             *agent-XI*
 --------------------------------------------------------------------------------
 
 - Codex CLI: approval modes, sandbox/approvals posture, composer affordances
