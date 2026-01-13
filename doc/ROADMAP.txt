@@ -31,121 +31,13 @@ CONTENTS                                                      *roadmap-contents*
 I. REPO SCAFFOLD + CONFIG + SESSION STORE                              *agent-I*
 --------------------------------------------------------------------------------
 
-Goal:
-Lay down the filesystem + config "spine" so everything else plugs in cleanly.
-
-Tasks:
-- [x] Create Cargo workspace:
-      - `crates/cli`          (bin) [thunderus]
-      - `crates/ui`           (lib) [thunderus_ui]
-      - `crates/core`         (lib) [thunderus_core]
-      - `crates/tools`        (lib) [thunderus_tools]
-      - `crates/providers`    (lib) [thunderus_providers]
-      - `crates/store`        (lib) [thunderus_store]
-- [x] Define `.agent/` layout (repo-local, versionable):
-      - `.agent/sessions/<timestamp>/events.jsonl`
-      - `.agent/sessions/<timestamp>/patches/*.patch`
-      - `.agent/views/{MEMORY.md,PLAN.md,DECISIONS.md}`
-- [x] Implement `config.toml` with *profiles* (Codex-like ergonomics):
-      - Use serde, toml, and `derive` to define the config struct with
-        a root level example (`config.example.toml`)
-      - profile name, working root, extra writable roots, approval mode,
-      - sandbox mode, provider/model selection[^2]
-- [x] Implement `SessionId` + monotonic `seq` event numbering in JSONL store.
-- [x] Implement CLI entry point with argument parsing:
-      - Colored output using owo-colors
-      - Load config.toml from current directory or create from example
-      - Support `thunderus start`, `thunderus exec <cmd>`, and
-        `thunderus status` subcommands
-      - Add thunderus_core dependency to cli/Cargo.toml
-- [x] Implement session initialization:
-      - Create `.agent/` directory layout on first run
-      - Generate SessionId and create session directory
-- [x] Implement event logging on session start:
-      - Append session-start event to events.jsonl immediately
-- [x] Implement placeholder interactive loop:
-      - Placeholder for future TUI/interactive functionality
-
-Definition of Done (DoD):
-- Running `thunderus` creates a session folder and appends events immediately.
+See section |2026-01-12| for changes made.
 
 --------------------------------------------------------------------------------
 II. PROVIDER HARNESS + MINIMAL INTERACTIVE TUI                        *agent-II*
 --------------------------------------------------------------------------------
-A provider-agnostic agent loop with streaming, tool calls, and a minimal
-but functional TUI. This creates an end-to-end testable system.
 
-- [x] Define provider-neutral types:
-      - `ChatRequest/ChatResponse`, `ToolSpec`, `ToolCall`, `ToolResult`,
-      - `StreamEvent`, `CancelToken`
-- [x] Define tool execution framework:
-      - Tool trait/interface for tool implementations
-      - Tool registry and dispatcher
-      - Basic tool implementations (test tools: `echo`, `noop`)
-- [x] Implement command classification:
-      - "safe": tests, formatters, linters
-      - "risky": package install, shell piping, file deletion, network tooling
-      - classification logic in tool execution layer
-- [x] Expose classification reasoning in tool results:
-      - include "why safe" or "why risky" explanation in tool metadata
-      - foundation for teaching users the safety model through consistency
-- [x] Define approval protocol/trait:
-      - Approval request/response types (ActionType, ApprovalContext)
-      - Approval decision tracking (ApprovalGate, ApprovalRecord)
-      - ApprovalProtocol trait for pluggable backends
-- [x] Implement GLM-4.7 adapter:
-      - `tools` + `tool_choice`-style function calling[^5]
-      - streaming support with `StreamEvent` channel
-- [x] Implement Gemini adapter:
-      - function calling + tool schema wiring[^4]
-      - streaming support with `StreamEvent` channel
-- [x] Implement streaming output plumbing:
-      - token stream from provider to TUI via channel
-      - reliable cancel (user interrupt always wins via `CancelToken`)
-- [x] Core agent loop:
-      - build context → model → tool calls → check approvals → execute tools
-        → append results → repeat
-      - integration with streaming and cancellation
-      - wire approval protocol into loop (pause on risky operations)
-- [x] Basic responsive layout with width-aware rendering[^6][^15]:
-      - Use conditional constraints based on `area.width` checks
-      - Implement breakpoints (e.g., >= 100 cols for sidebar, < 100 for full-width)
-      - Header: cwd, profile, provider/model, approval mode (always visible)
-      - Main panel: transcript (messages + tool/action cards + inline tool output)
-      - Left sidebar (collapsible on narrow terminals, >= 100 cols):
-        * Token usage counter
-        * Approval gates triggered count
-      - Footer: single-line input composer with hints
-      - No separate output pane: all tool output appears inline in transcript
-- [x] Simple transcript rendering:
-      - Display user messages and model responses
-      - Show tool call cards with: name, risk level, description
-      - Show tool result cards inline in transcript flow
-      - Basic streaming text display (append tokens as they arrive)
-- [x] Interactive approval UI:
-      - Display approval prompts inline in transcript
-      - Show: action type, description, affected paths, risk classification
-      - Accept keyboard input: `y` (approve), `n` (reject), `c` (cancel)
-      - Visual feedback on approval decision
-- [x] Basic input handling:
-      - Single-line text input for user messages
-      - `Enter` to submit, `Esc` to cancel generation
-- [x] Essential keybinds only:
-      - `Ctrl+C` / `Esc`: cancel current generation or tool execution
-      - `y` / `n` / `c`: approve/reject/cancel when approval prompt shown
-      - `Ctrl+S`: toggle left sidebar (hide/show)
-      - `Enter`: submit message from composer
-      - Backspace/Delete: edit input
-      - Left/Right/Home/End: navigate cursor in input
-
-DoD:
-- A working agent loop in a basic TUI
-      - user sends message, model responds with streaming text, tool calls
-        show approval prompts, user approves/rejects, execution completes, and
-        result displays inline in transcript.
-- Layout adapts to terminal width gracefully (wide terminals >= 100 cols show
-  sidebar, narrow terminals hide it).
-- All tool output appears inline in the transcript flow.
+See section |2026-01-13| for changes made.
 
 --------------------------------------------------------------------------------
 III. TUI HARNESS                                                     *agent-III*
@@ -420,15 +312,15 @@ IX. NOTES                                                        *roadmap-notes*
   Research shows 90% of organizations consider AI transparency essential, and
   explainability is key to building trust in agentic systems[^13][^14]
 
-[^1]: https://www.anthropic.com/engineering/claude-code-best-practices
-[^2]: https://developers.openai.com/codex/security/
-[^3]: https://developers.openai.com/codex/cli/features/
-[^4]: https://ai.google.dev/gemini-api/docs/function-calling
-[^5]: https://docs.z.ai/guides/llm/glm-4.7
-[^6]: https://ratatui.rs/
-[^7]: https://developers.openai.com/codex/cli/reference/
-[^8]: https://modelcontextprotocol.io/
-[^9]: https://ai.google.dev/gemini-api/docs/tools
+ [^1]: https://www.anthropic.com/engineering/claude-code-best-practices
+ [^2]: https://developers.openai.com/codex/security/
+ [^3]: https://developers.openai.com/codex/cli/features/
+ [^4]: https://ai.google.dev/gemini-api/docs/function-calling
+ [^5]: https://docs.z.ai/guides/llm/glm-4.7
+ [^6]: https://ratatui.rs/
+ [^7]: https://developers.openai.com/codex/cli/reference/
+ [^8]: https://modelcontextprotocol.io/
+ [^9]: https://ai.google.dev/gemini-api/docs/tools
 [^10]: https://modelcontextprotocol.io/specification/2025-11-25
 [^11]: https://www.nngroup.com/articles/progressive-disclosure/
 [^12]: https://blog.logrocket.com/ux-design/progressive-disclosure-ux-types-use-cases/
