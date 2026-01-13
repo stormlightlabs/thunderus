@@ -2495,6 +2495,7 @@ dependencies = [
  "crossterm",
  "ratatui",
  "thunderus-core",
+ "unicode-width",
 ]
 
 [[package]]

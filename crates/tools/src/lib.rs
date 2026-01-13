@@ -12,6 +12,9 @@ pub use thunderus_core::ToolRisk;
 pub use tool::Tool;
 
 #[cfg(test)]
+pub use builtin::{echo_tool_call, noop_tool_call};
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -79,6 +82,3 @@ mod tests {
         assert_eq!(results[3].content, "Second");
     }
 }
-
-#[cfg(test)]
-pub use builtin::{echo_tool_call, noop_tool_call};

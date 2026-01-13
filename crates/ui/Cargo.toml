@@ -6,4 +6,6 @@ edition = "2024"
 [dependencies]
 ratatui = "0.30"
 crossterm = "0.29"
+unicode-width = "0.2"
+
 thunderus-core = { path = "../core" }

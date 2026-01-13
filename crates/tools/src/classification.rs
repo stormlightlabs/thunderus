@@ -572,7 +572,7 @@ mod tests {
         let classifier = CommandClassifier::new();
 
         let safe_commands = classifier.safe_commands();
-        assert!(safe_commands.len() > 0);
+        assert!(!safe_commands.is_empty());
         assert!(safe_commands.contains("test"));
         assert!(safe_commands.contains("fmt"));
     }
@@ -582,7 +582,7 @@ mod tests {
         let classifier = CommandClassifier::new();
 
         let patterns = classifier.risky_patterns();
-        assert!(patterns.len() > 0);
+        assert!(!patterns.is_empty());
         assert!(patterns.iter().any(|(desc, _)| *desc == "rm"));
         assert!(patterns.iter().any(|(desc, _)| *desc == "install"));
     }

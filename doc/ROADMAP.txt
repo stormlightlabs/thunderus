@@ -117,7 +117,7 @@ but functional TUI. This creates an end-to-end testable system.
         * Approval gates triggered count
       - Footer: single-line input composer with hints
       - No separate output pane: all tool output appears inline in transcript
-- [ ] Simple transcript rendering:
+- [x] Simple transcript rendering:
       - Display user messages and model responses
       - Show tool call cards with: name, risk level, description
       - Show tool result cards inline in transcript flow
@@ -137,11 +137,13 @@ but functional TUI. This creates an end-to-end testable system.
       - `Enter`: submit message from composer
 
 DoD:
-- A working agent loop in a basic TUI: user sends message, model responds with
-  streaming text, tool calls show approval prompts, user approves/rejects,
-  execution completes, and result displays inline in transcript. Layout adapts to
-  terminal width gracefully (wide terminals >= 100 cols show sidebar, narrow
-  terminals hide it). All tool output appears inline in the transcript flow.
+- A working agent loop in a basic TUI
+      - user sends message, model responds with streaming text, tool calls
+        show approval prompts, user approves/rejects, execution completes, and
+        result displays inline in transcript.
+- Layout adapts to terminal width gracefully (wide terminals >= 100 cols show
+  sidebar, narrow terminals hide it).
+- All tool output appears inline in the transcript flow.
 
 --------------------------------------------------------------------------------
 III. TUI HARNESS                                                     *agent-III*
@@ -225,11 +227,14 @@ advanced composer features, multi-panel layout, and power-user productivity.
       - `Ctrl+L`: clear transcript view (keep history)
 
 DoD:
-- A polished, production-ready TUI with all power-user features: responsive layout
-  that adapts to terminal width, advanced composer with `!cmd` and external editor
-  support, slash commands, progressive disclosure for action cards with three
-  detail levels, and comprehensive keybinds for keyboard-driven workflow. All tool
-  output appears inline in transcript with syntax highlighting and smart formatting.
+- A polished, production-ready TUI with all power-user features
+      - responsive layout that adapts to terminal width
+      - advanced composer with `!cmd` and external editor support
+      - slash commands, progressive disclosure for action cards with three
+        detail levels
+      - comprehensive keybinds for keyboard-driven workflow
+      - All tool output appears inline in transcript with syntax highlighting
+        and smart formatting
 
 --------------------------------------------------------------------------------
 IV. APPROVALS + SANDBOXING (SHELL-FIRST, STILL SAFE)                   *agent-D*

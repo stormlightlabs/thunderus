@@ -1,6 +1,7 @@
-use crate::components::{Footer, Header, Sidebar, Transcript};
+use crate::components::{Footer, Header, Sidebar, Transcript as TranscriptComponent};
 use crate::layout::TuiLayout;
 use crate::state::AppState;
+use crate::transcript::Transcript as TranscriptState;
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io::Result;
 use std::panic;
@@ -10,13 +11,13 @@ use std::panic;
 /// Handles rendering and state management for the Thunderus TUI
 pub struct App {
     state: AppState,
-    transcript_content: String,
+    transcript: TranscriptState,
 }
 
 impl App {
     /// Create a new application
     pub fn new(state: AppState) -> Self {
-        Self { state, transcript_content: String::new() }
+        Self { state, transcript: TranscriptState::new() }
     }
 
     /// Get a mutable reference to the application state
@@ -29,27 +30,14 @@ impl App {
         &self.state
     }
 
-    /// Get the current transcript content
-    pub fn transcript_content(&self) -> &str {
-        &self.transcript_content
+    /// Get the transcript
+    pub fn transcript(&self) -> &TranscriptState {
+        &self.transcript
     }
 
-    /// Set the transcript content
-    pub fn set_transcript_content(&mut self, content: String) {
-        self.transcript_content = content;
-    }
-
-    /// Append to the transcript content
-    pub fn append_transcript(&mut self, content: &str) {
-        if !self.transcript_content.is_empty() {
-            self.transcript_content.push('\n');
-        }
-        self.transcript_content.push_str(content);
-    }
-
-    /// Clear the transcript content
-    pub fn clear_transcript(&mut self) {
-        self.transcript_content.clear();
+    /// Get a mutable reference to the transcript
+    pub fn transcript_mut(&mut self) -> &mut TranscriptState {
+        &mut self.transcript
     }
 
     /// Run the TUI application
@@ -80,11 +68,8 @@ impl App {
             let header = Header::new(&self.state);
             header.render(frame, layout.header);
 
-            let mut transcript = Transcript::new(&self.transcript_content);
-            if self.state.is_generating() {
-                transcript = transcript.streaming();
-            }
-            transcript.render(frame, layout.transcript);
+            let transcript_component = TranscriptComponent::new(&self.transcript);
+            transcript_component.render(frame, layout.transcript);
 
             if let Some(sidebar_area) = layout.sidebar {
                 let sidebar = Sidebar::new(&self.state);
@@ -134,40 +119,55 @@ mod tests {
     fn test_app_new() {
         let app = create_test_app();
         assert_eq!(app.state().profile, "test");
-        assert!(app.transcript_content().is_empty());
+        assert_eq!(app.transcript().len(), 0);
     }
 
     #[test]
     fn test_app_default() {
         let app = App::default();
         assert_eq!(app.state().profile, "default");
+        assert_eq!(app.transcript().len(), 0);
     }
 
     #[test]
-    fn test_set_transcript_content() {
+    fn test_transcript_operations() {
         let mut app = create_test_app();
-        app.set_transcript_content("Hello, world!".to_string());
-        assert_eq!(app.transcript_content(), "Hello, world!");
+
+        app.transcript_mut().add_user_message("Hello");
+        app.transcript_mut().add_model_response("Hi there");
+
+        assert_eq!(app.transcript().len(), 2);
     }
 
     #[test]
-    fn test_append_transcript() {
+    fn test_transcript_streaming() {
         let mut app = create_test_app();
-        app.append_transcript("First");
-        app.append_transcript("Second");
-        app.append_transcript("Third");
 
-        assert_eq!(app.transcript_content(), "First\nSecond\nThird");
+        app.transcript_mut().add_streaming_token("Hello");
+        app.transcript_mut().add_streaming_token(" ");
+        app.transcript_mut().add_streaming_token("World");
+
+        assert_eq!(app.transcript().len(), 1);
+
+        app.transcript_mut().finish_streaming();
+
+        if let crate::transcript::TranscriptEntry::ModelResponse { content, streaming, .. } =
+            app.transcript().last().unwrap()
+        {
+            assert_eq!(content, "Hello World");
+            assert!(!streaming);
+        }
     }
 
     #[test]
-    fn test_clear_transcript() {
+    fn test_transcript_with_tool_calls() {
         let mut app = create_test_app();
-        app.set_transcript_content("Content".to_string());
-        assert_eq!(app.transcript_content(), "Content");
 
-        app.clear_transcript();
-        assert!(app.transcript_content().is_empty());
+        app.transcript_mut()
+            .add_tool_call("fs.read", "{ path: '/tmp' }", "safe");
+        app.transcript_mut().add_tool_result("fs.read", "file content", true);
+
+        assert_eq!(app.transcript().len(), 2);
     }
 
     #[test]
@@ -178,36 +178,33 @@ mod tests {
     }
 
     #[test]
-    fn test_toggle_sidebar() {
+    fn test_transcript_clear() {
         let mut app = create_test_app();
-        assert!(app.state().sidebar_visible);
 
-        app.state_mut().toggle_sidebar();
-        assert!(!app.state().sidebar_visible);
+        app.transcript_mut().add_user_message("Hello");
+        assert_eq!(app.transcript().len(), 1);
 
-        app.state_mut().toggle_sidebar();
-        assert!(app.state().sidebar_visible);
+        app.transcript_mut().clear();
+        assert_eq!(app.transcript().len(), 0);
     }
 
     #[test]
-    fn test_generation_state() {
+    fn test_transcript_with_approval() {
         let mut app = create_test_app();
-        assert!(!app.state().is_generating());
 
-        app.state_mut().start_generation();
-        assert!(app.state().is_generating());
+        app.transcript_mut().add_approval_prompt("patch.feature", "risky");
+        assert!(app.transcript().has_pending_approval());
 
-        app.state_mut().stop_generation();
-        assert!(!app.state().is_generating());
+        app.transcript_mut()
+            .set_approval_decision(crate::transcript::ApprovalDecision::Approved);
+        assert!(!app.transcript().has_pending_approval());
     }
 
     #[test]
-    fn test_transcript_with_content() {
+    fn test_transcript_with_system_messages() {
         let mut app = create_test_app();
-        let content = "User: Hello\nAgent: Hi there!";
-        app.set_transcript_content(content.to_string());
 
-        assert_eq!(app.transcript_content(), content);
-        assert!(!app.transcript_content().is_empty());
+        app.transcript_mut().add_system_message("Session started");
+        assert_eq!(app.transcript().len(), 1);
     }
 }
