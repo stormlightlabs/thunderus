@@ -107,7 +107,7 @@ but functional TUI. This creates an end-to-end testable system.
         → append results → repeat
       - integration with streaming and cancellation
       - wire approval protocol into loop (pause on risky operations)
-- [ ] Basic responsive layout with width-aware rendering[^6][^15]:
+- [x] Basic responsive layout with width-aware rendering[^6][^15]:
       - Use conditional constraints based on `area.width` checks
       - Implement breakpoints (e.g., >= 100 cols for sidebar, < 100 for full-width)
       - Header: cwd, profile, provider/model, approval mode (always visible)

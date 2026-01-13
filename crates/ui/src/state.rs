@@ -1,0 +1,375 @@
+use std::path::PathBuf;
+use thunderus_core::{ApprovalMode, ProviderConfig, TokensUsed};
+
+/// State for the input composer
+#[derive(Debug, Clone, Default)]
+pub struct InputState {
+    /// Current input buffer
+    pub buffer: String,
+    /// Cursor position
+    pub cursor: usize,
+}
+
+impl InputState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn insert_char(&mut self, c: char) {
+        self.buffer.insert(self.cursor, c);
+        self.cursor += 1;
+    }
+
+    pub fn backspace(&mut self) {
+        if self.cursor > 0 && !self.buffer.is_empty() {
+            self.cursor -= 1;
+            self.buffer.remove(self.cursor);
+        }
+    }
+
+    pub fn delete(&mut self) {
+        if self.cursor < self.buffer.len() {
+            self.buffer.remove(self.cursor);
+        }
+    }
+
+    pub fn move_left(&mut self) {
+        if self.cursor > 0 {
+            self.cursor -= 1;
+        }
+    }
+
+    pub fn move_right(&mut self) {
+        if self.cursor < self.buffer.len() {
+            self.cursor += 1;
+        }
+    }
+
+    pub fn move_home(&mut self) {
+        self.cursor = 0;
+    }
+
+    pub fn move_end(&mut self) {
+        self.cursor = self.buffer.len();
+    }
+
+    pub fn clear(&mut self) {
+        self.buffer.clear();
+        self.cursor = 0;
+    }
+
+    pub fn take(&mut self) -> String {
+        let buffer = std::mem::take(&mut self.buffer);
+        self.cursor = 0;
+        buffer
+    }
+}
+
+/// Session statistics for the UI
+#[derive(Debug, Clone, Default)]
+pub struct SessionStats {
+    /// Total input tokens used
+    pub input_tokens: u32,
+    /// Total output tokens used
+    pub output_tokens: u32,
+    /// Number of approval gates triggered
+    pub approval_gates: u32,
+    /// Number of tools executed
+    pub tools_executed: u32,
+}
+
+impl SessionStats {
+    pub fn total_tokens(&self) -> u32 {
+        self.input_tokens + self.output_tokens
+    }
+
+    pub fn add_tokens(&mut self, tokens: &TokensUsed) {
+        self.input_tokens += tokens.input;
+        self.output_tokens += tokens.output;
+    }
+
+    pub fn increment_approval_gate(&mut self) {
+        self.approval_gates += 1;
+    }
+
+    pub fn increment_tools_executed(&mut self) {
+        self.tools_executed += 1;
+    }
+}
+
+/// Approval state for pending approvals
+#[derive(Debug, Clone)]
+pub struct ApprovalState {
+    /// Pending approval action
+    pub action: String,
+    /// Risk level
+    pub risk: String,
+    /// Description
+    pub description: Option<String>,
+    /// User's decision
+    pub decision: Option<bool>, // Some(true) = approved, Some(false) = rejected, None = pending
+}
+
+impl ApprovalState {
+    pub fn pending(action: String, risk: String) -> Self {
+        Self { action, risk, description: None, decision: None }
+    }
+
+    pub fn is_pending(&self) -> bool {
+        self.decision.is_none()
+    }
+
+    pub fn approve(&mut self) {
+        self.decision = Some(true);
+    }
+
+    pub fn reject(&mut self) {
+        self.decision = Some(false);
+    }
+}
+
+/// Main application state
+#[derive(Debug, Clone)]
+pub struct AppState {
+    /// Current working directory
+    pub cwd: PathBuf,
+    /// Profile name
+    pub profile: String,
+    /// Provider configuration
+    pub provider: ProviderConfig,
+    /// Approval mode
+    pub approval_mode: ApprovalMode,
+    /// Session statistics
+    pub stats: SessionStats,
+    /// Input composer state
+    pub input: InputState,
+    /// Pending approval (if any)
+    pub pending_approval: Option<ApprovalState>,
+    /// Whether sidebar is visible
+    pub sidebar_visible: bool,
+    /// Whether the user is currently generating
+    pub generating: bool,
+}
+
+impl AppState {
+    pub fn new(cwd: PathBuf, profile: String, provider: ProviderConfig, approval_mode: ApprovalMode) -> Self {
+        Self {
+            cwd,
+            profile,
+            provider,
+            approval_mode,
+            stats: SessionStats::default(),
+            input: InputState::new(),
+            pending_approval: None,
+            sidebar_visible: true,
+            generating: false,
+        }
+    }
+
+    /// Get the model name as a string
+    pub fn model_name(&self) -> String {
+        match &self.provider {
+            ProviderConfig::Glm { model, .. } => model.clone(),
+            ProviderConfig::Gemini { model, .. } => model.clone(),
+        }
+    }
+
+    /// Get the provider name
+    pub fn provider_name(&self) -> &'static str {
+        match &self.provider {
+            ProviderConfig::Glm { .. } => "GLM",
+            ProviderConfig::Gemini { .. } => "Gemini",
+        }
+    }
+
+    /// Toggle sidebar visibility
+    pub fn toggle_sidebar(&mut self) {
+        self.sidebar_visible = !self.sidebar_visible;
+    }
+
+    /// Start generation
+    pub fn start_generation(&mut self) {
+        self.generating = true;
+    }
+
+    /// Stop generation
+    pub fn stop_generation(&mut self) {
+        self.generating = false;
+    }
+
+    /// Check if currently generating
+    pub fn is_generating(&self) -> bool {
+        self.generating
+    }
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self {
+            cwd: PathBuf::from("."),
+            profile: "default".to_string(),
+            provider: ProviderConfig::Glm {
+                api_key: "".to_string(),
+                model: "glm-4.7".to_string(),
+                base_url: "https://open.bigmodel.cn/api/paas/v4".to_string(),
+            },
+            approval_mode: ApprovalMode::Auto,
+            stats: SessionStats::default(),
+            input: InputState::new(),
+            pending_approval: None,
+            sidebar_visible: true,
+            generating: false,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_input_state() {
+        let mut input = InputState::new();
+
+        input.insert_char('H');
+        assert_eq!(input.buffer, "H");
+        assert_eq!(input.cursor, 1);
+
+        input.insert_char('i');
+        assert_eq!(input.buffer, "Hi");
+        assert_eq!(input.cursor, 2);
+
+        input.backspace();
+        assert_eq!(input.buffer, "H");
+        assert_eq!(input.cursor, 1);
+
+        input.move_home();
+        assert_eq!(input.cursor, 0);
+
+        input.move_end();
+        assert_eq!(input.cursor, 1);
+
+        let taken = input.take();
+        assert_eq!(taken, "H");
+        assert_eq!(input.buffer, "");
+        assert_eq!(input.cursor, 0);
+    }
+
+    #[test]
+    fn test_input_state_navigation() {
+        let mut input = InputState::new();
+
+        input.insert_char('A');
+        input.insert_char('B');
+        input.insert_char('C');
+
+        assert_eq!(input.buffer, "ABC");
+        assert_eq!(input.cursor, 3);
+
+        input.move_left();
+        assert_eq!(input.cursor, 2);
+
+        input.move_left();
+        assert_eq!(input.cursor, 1);
+
+        input.insert_char('X');
+        assert_eq!(input.buffer, "AXBC");
+        assert_eq!(input.cursor, 2);
+
+        input.delete();
+        assert_eq!(input.buffer, "AXC");
+        assert_eq!(input.cursor, 2);
+    }
+
+    #[test]
+    fn test_session_stats() {
+        let mut stats = SessionStats::default();
+
+        let tokens = TokensUsed::new(10, 20);
+        stats.add_tokens(&tokens);
+
+        assert_eq!(stats.input_tokens, 10);
+        assert_eq!(stats.output_tokens, 20);
+        assert_eq!(stats.total_tokens(), 30);
+
+        stats.increment_approval_gate();
+        assert_eq!(stats.approval_gates, 1);
+
+        stats.increment_tools_executed();
+        assert_eq!(stats.tools_executed, 1);
+    }
+
+    #[test]
+    fn test_approval_state() {
+        let mut approval = ApprovalState::pending("patch.feature".to_string(), "risky".to_string());
+
+        assert!(approval.is_pending());
+        assert!(approval.decision.is_none());
+
+        approval.approve();
+        assert!(!approval.is_pending());
+        assert_eq!(approval.decision, Some(true));
+
+        let mut approval2 = ApprovalState::pending("delete.file".to_string(), "dangerous".to_string());
+        approval2.reject();
+        assert_eq!(approval2.decision, Some(false));
+    }
+
+    #[test]
+    fn test_app_state() {
+        let state = AppState::default();
+
+        assert_eq!(state.cwd, PathBuf::from("."));
+        assert_eq!(state.profile, "default");
+        assert_eq!(state.provider_name(), "GLM");
+        assert_eq!(state.model_name(), "glm-4.7".to_string());
+        assert!(state.sidebar_visible);
+        assert!(!state.generating);
+    }
+
+    #[test]
+    fn test_app_state_toggle_sidebar() {
+        let mut state = AppState::default();
+
+        assert!(state.sidebar_visible);
+        state.toggle_sidebar();
+        assert!(!state.sidebar_visible);
+        state.toggle_sidebar();
+        assert!(state.sidebar_visible);
+    }
+
+    #[test]
+    fn test_app_state_generation() {
+        let mut state = AppState::default();
+
+        assert!(!state.is_generating());
+
+        state.start_generation();
+        assert!(state.is_generating());
+
+        state.stop_generation();
+        assert!(!state.is_generating());
+    }
+
+    #[test]
+    fn test_app_state_with_custom_provider() {
+        let provider = ProviderConfig::Gemini {
+            api_key: "test-key".to_string(),
+            model: "gemini-2.5-flash".to_string(),
+            base_url: "https://api.example.com".to_string(),
+        };
+
+        let state = AppState::new(
+            PathBuf::from("/workspace"),
+            "custom".to_string(),
+            provider,
+            ApprovalMode::FullAccess,
+        );
+
+        assert_eq!(state.cwd, PathBuf::from("/workspace"));
+        assert_eq!(state.profile, "custom");
+        assert_eq!(state.provider_name(), "Gemini");
+        assert_eq!(state.model_name(), "gemini-2.5-flash".to_string());
+        assert_eq!(state.approval_mode, ApprovalMode::FullAccess);
+    }
+}
