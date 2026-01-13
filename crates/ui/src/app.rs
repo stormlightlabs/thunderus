@@ -3,15 +3,17 @@ use crate::event_handler::{EventHandler, KeyAction};
 use crate::layout::TuiLayout;
 use crate::state::AppState;
 use crate::state::VerbosityLevel;
-use crate::transcript::Transcript as TranscriptState;
+use crate::transcript::{CardDetailLevel, Transcript as TranscriptState};
 
 use crossterm;
+use crossterm::event::Event;
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::env;
 use std::fs;
 use std::io::{Result, Write};
 use std::panic;
 use std::process::Command;
+use thunderus_core::ApprovalMode;
 use thunderus_tools::ToolRegistry;
 use uuid;
 
@@ -94,11 +96,11 @@ impl App {
 
     /// Handle an event and update state
     fn handle_event(&mut self, event: crossterm::event::Event) {
-        use crossterm::event::Event;
-
         if let Event::Key(key) = event
             && let Some(action) = EventHandler::handle_key_event(key, self.state_mut())
         {
+            use crate::ApprovalDecision;
+
             match action {
                 KeyAction::SendMessage { message } => {
                     self.state_mut().input.add_to_history(message.clone());
@@ -106,18 +108,15 @@ impl App {
                 }
                 KeyAction::ExecuteShellCommand { command } => self.execute_shell_command(command),
                 KeyAction::Approve { action: _, risk: _ } => {
-                    self.transcript_mut()
-                        .set_approval_decision(crate::transcript::ApprovalDecision::Approved);
+                    self.transcript_mut().set_approval_decision(ApprovalDecision::Approved);
                     self.state_mut().pending_approval = None;
                 }
                 KeyAction::Reject { action: _, risk: _ } => {
-                    self.transcript_mut()
-                        .set_approval_decision(crate::transcript::ApprovalDecision::Rejected);
+                    self.transcript_mut().set_approval_decision(ApprovalDecision::Rejected);
                     self.state_mut().pending_approval = None;
                 }
                 KeyAction::Cancel { action: _, risk: _ } => {
-                    self.transcript_mut()
-                        .set_approval_decision(crate::transcript::ApprovalDecision::Cancelled);
+                    self.transcript_mut().set_approval_decision(ApprovalDecision::Cancelled);
                     self.state_mut().pending_approval = None;
                 }
                 KeyAction::CancelGeneration => self.state_mut().stop_generation(),
@@ -154,10 +153,16 @@ impl App {
                         .add_system_message("Transcript cleared (session history preserved)");
                 }
                 KeyAction::NavigateCardNext => {
-                    self.transcript_mut().focus_next_card();
+                    if !self.transcript_mut().focus_next_card() {
+                        self.transcript_mut().scroll_down(1);
+                        self.state_mut().scroll_vertical(1);
+                    }
                 }
                 KeyAction::NavigateCardPrev => {
-                    self.transcript_mut().focus_prev_card();
+                    if !self.transcript_mut().focus_prev_card() {
+                        self.transcript_mut().scroll_up(1);
+                        self.state_mut().scroll_vertical(-1);
+                    }
                 }
                 KeyAction::ToggleCardExpand => {
                     self.transcript_mut().toggle_focused_card_detail_level();
@@ -165,7 +170,57 @@ impl App {
                 KeyAction::ToggleCardVerbose => {
                     let _ = self
                         .transcript_mut()
-                        .set_focused_card_detail_level(crate::transcript::CardDetailLevel::Verbose);
+                        .set_focused_card_detail_level(CardDetailLevel::Verbose);
+                }
+                KeyAction::ScrollUp => {
+                    let has_action_cards = self.transcript().entries().iter().any(|e| e.is_action_card());
+
+                    if has_action_cards {
+                        self.transcript_mut().focus_prev_card();
+                    } else {
+                        self.transcript_mut().scroll_up(1);
+                        self.state_mut().scroll_vertical(-1);
+                    }
+                }
+                KeyAction::ScrollDown => {
+                    let has_action_cards = self.transcript().entries().iter().any(|e| e.is_action_card());
+
+                    if has_action_cards {
+                        self.transcript_mut().focus_next_card();
+                    } else {
+                        self.transcript_mut().scroll_down(1);
+                        self.state_mut().scroll_vertical(1);
+                    }
+                }
+                KeyAction::PageUp => {
+                    self.transcript_mut().scroll_up(10);
+                    self.state_mut().scroll_vertical(-10);
+                }
+                KeyAction::PageDown => {
+                    self.transcript_mut().scroll_down(10);
+                    self.state_mut().scroll_vertical(10);
+                }
+                KeyAction::ScrollToTop => {
+                    self.transcript_mut().scroll_up(usize::MAX);
+                    self.state_mut().scroll_vertical = 0;
+                }
+                KeyAction::ScrollToBottom => {
+                    self.transcript_mut().scroll_to_bottom();
+                    self.state_mut().scroll_vertical = 0;
+                }
+                KeyAction::CollapseSidebarSection => self.state_mut().sidebar_collapse_state.collapse_prev(),
+                KeyAction::ExpandSidebarSection => self.state_mut().sidebar_collapse_state.expand_next(),
+                KeyAction::RetryLastFailedAction => self
+                    .transcript_mut()
+                    .add_system_message("Retry last failed action: not yet implemented"),
+                KeyAction::FocusSlashCommand => {
+                    self.state_mut().input.buffer = "/".to_string();
+                    self.state_mut().input.cursor = 1;
+                }
+                KeyAction::ClearTranscriptView => {
+                    self.transcript_mut().clear();
+                    self.transcript_mut()
+                        .add_system_message("Transcript cleared (session history preserved)");
                 }
                 KeyAction::NoOp => (),
             }
@@ -210,8 +265,8 @@ impl App {
         self.transcript_mut().add_user_message(&user_message);
 
         match registry.execute("shell", tool_call_id.clone(), &serde_json::json!({"command": command})) {
-            Ok(result) => {
-                if result.is_success() {
+            Ok(result) => match result.is_success() {
+                true => {
                     self.transcript_mut()
                         .add_system_message(format!("Shell command output:\n```\n{}\n```", result.content));
 
@@ -220,15 +275,14 @@ impl App {
                         message: format!("Executed: {}", command),
                         timestamp: chrono::Utc::now().to_rfc3339(),
                     });
-                } else {
-                    self.transcript_mut()
-                        .add_system_message(format!("Shell command failed: {}", result.content));
                 }
-            }
-            Err(e) => {
-                self.transcript_mut()
-                    .add_system_message(format!("Failed to execute shell command: {}", e));
-            }
+                false => self
+                    .transcript_mut()
+                    .add_system_message(format!("Shell command failed: {}", result.content)),
+            },
+            Err(e) => self
+                .transcript_mut()
+                .add_system_message(format!("Failed to execute shell command: {}", e)),
         }
     }
 
@@ -263,21 +317,18 @@ impl App {
                     self.state.input.cursor = self.state.input.buffer.len();
 
                     self.transcript_mut()
-                        .add_system_message("Content loaded from external editor");
+                        .add_system_message("Content loaded from external editor")
                 }
-                Err(e) => {
-                    self.transcript_mut()
-                        .add_system_message(format!("Failed to read edited content: {}", e));
-                }
+                Err(e) => self
+                    .transcript_mut()
+                    .add_system_message(format!("Failed to read edited content: {}", e)),
             },
-            Ok(status) => {
-                self.transcript_mut()
-                    .add_system_message(format!("Editor exited with non-zero status: {}", status));
-            }
-            Err(e) => {
-                self.transcript_mut()
-                    .add_system_message(format!("Failed to launch editor '{}': {}", editor_cmd, e));
-            }
+            Ok(status) => self
+                .transcript_mut()
+                .add_system_message(format!("Editor exited with non-zero status: {}", status)),
+            Err(e) => self
+                .transcript_mut()
+                .add_system_message(format!("Failed to launch editor '{}': {}", editor_cmd, e)),
         }
 
         let _ = fs::remove_file(&temp_file_path);
@@ -286,48 +337,38 @@ impl App {
 
     /// Handle /model command
     fn handle_model_command(&mut self, model: String) {
-        if model == "list" {
-            let provider_name = self.state.provider_name();
-            let model_name = self.state.model_name();
-            self.transcript_mut().add_system_message(format!(
-                "Available models:\n  Current: {} ({})\n  Available: glm-4.7, gemini-2.5-flash",
-                provider_name, model_name
-            ));
-            return;
-        }
-
         match model.as_str() {
-            "glm-4.7" => {
-                self.transcript_mut()
-                    .add_system_message("Switching to GLM-4.7 is not yet implemented in this version");
-            }
-            "gemini-2.5-flash" => {
-                self.transcript_mut()
-                    .add_system_message("Switching to Gemini-2.5-flash is not yet implemented in this version");
-            }
-            _ => {
+            "list" => {
+                let provider_name = self.state.provider_name();
+                let model_name = self.state.model_name();
                 self.transcript_mut().add_system_message(format!(
-                    "Unknown model: {}. Use /model list to see available models.",
-                    model
-                ));
+                    "Available models:\n  Current: {} ({})\n  Available: glm-4.7, gemini-2.5-flash",
+                    provider_name, model_name
+                ))
             }
+            "glm-4.7" => self
+                .transcript_mut()
+                .add_system_message("Switching to GLM-4.7 is not yet implemented in this version"),
+            "gemini-2.5-flash" => self
+                .transcript_mut()
+                .add_system_message("Switching to Gemini-2.5-flash is not yet implemented in this version"),
+            _ => self.transcript_mut().add_system_message(format!(
+                "Unknown model: {}. Use /model list to see available models.",
+                model
+            )),
         }
     }
 
     /// Handle /approvals command
     fn handle_approvals_command(&mut self, mode: String) {
-        use thunderus_core::ApprovalMode;
-
-        if mode == "list" {
-            let current_mode = self.state.approval_mode;
-            self.transcript_mut().add_system_message(format!(
-                "Available approval modes:\n  Current: {}\n  Available: read-only, auto, full-access",
-                current_mode
-            ));
-            return;
-        }
-
         match mode.as_str() {
+            "list" => {
+                let current_mode = self.state.approval_mode;
+                self.transcript_mut().add_system_message(format!(
+                    "Available approval modes:\n  Current: {}\n  Available: read-only, auto, full-access",
+                    current_mode
+                ))
+            }
             "read-only" => {
                 let old_mode = self.state.approval_mode;
                 self.state.approval_mode = ApprovalMode::ReadOnly;
@@ -355,15 +396,14 @@ impl App {
 
     /// Handle /verbosity command
     fn handle_verbosity_command(&mut self, level: String) {
-        if level == "list" {
-            let current_level = self.state.verbosity;
-            return self.transcript_mut().add_system_message(format!(
-                "Available verbosity levels:\n  Current: {}\n  Available: quiet, default, verbose",
-                current_level.as_str()
-            ));
-        }
-
         match level.as_str() {
+            "list" => {
+                let current_level = self.state.verbosity;
+                self.transcript_mut().add_system_message(format!(
+                    "Available verbosity levels:\n  Current: {}\n  Available: quiet, default, verbose",
+                    current_level.as_str()
+                ))
+            }
             "quiet" => {
                 let old_level = self.state.verbosity;
                 self.state.verbosity = VerbosityLevel::Quiet;
@@ -431,10 +471,9 @@ impl App {
     fn handle_plan_command(&mut self) {
         let plan_path = self.state.cwd.join("PLAN.md");
         match fs::read_to_string(&plan_path) {
-            Ok(content) => {
-                self.transcript_mut()
-                    .add_system_message(format!("PLAN.md:\n\n{}", content));
-            }
+            Ok(content) => self
+                .transcript_mut()
+                .add_system_message(format!("PLAN.md:\n\n{}", content)),
             Err(_) => self
                 .transcript_mut()
                 .add_system_message("PLAN.md not found in the current working directory"),
@@ -451,10 +490,9 @@ impl App {
     fn handle_memory_command(&mut self) {
         let memory_path = self.state.cwd.join("MEMORY.md");
         match fs::read_to_string(&memory_path) {
-            Ok(content) => {
-                self.transcript_mut()
-                    .add_system_message(format!("MEMORY.md:\n\n{}", content));
-            }
+            Ok(content) => self
+                .transcript_mut()
+                .add_system_message(format!("MEMORY.md:\n\n{}", content)),
             Err(_) => self
                 .transcript_mut()
                 .add_system_message("MEMORY.md not found in the current working directory"),

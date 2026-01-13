@@ -175,6 +175,29 @@ impl EventHandler {
                     && c == 'g'
                 {
                     return Some(KeyAction::OpenExternalEditor);
+                } else if event.modifiers.contains(KeyModifiers::CONTROL) && c == 'u' {
+                    return Some(KeyAction::PageUp);
+                } else if event.modifiers.contains(KeyModifiers::CONTROL) && c == 'd' {
+                    return Some(KeyAction::PageDown);
+                } else if event.modifiers.contains(KeyModifiers::CONTROL) && c == 'r' {
+                    return Some(KeyAction::RetryLastFailedAction);
+                } else if event.modifiers.contains(KeyModifiers::CONTROL) && c == 'l' {
+                    return Some(KeyAction::ClearTranscriptView);
+                } else if !event.modifiers.contains(KeyModifiers::CONTROL) && state.input.buffer.is_empty() && c == 'g'
+                {
+                    return Some(KeyAction::ScrollToTop);
+                } else if !event.modifiers.contains(KeyModifiers::CONTROL) && state.input.buffer.is_empty() && c == 'G'
+                {
+                    return Some(KeyAction::ScrollToBottom);
+                } else if !event.modifiers.contains(KeyModifiers::CONTROL) && state.input.buffer.is_empty() && c == '/'
+                {
+                    return Some(KeyAction::FocusSlashCommand);
+                } else if !event.modifiers.contains(KeyModifiers::CONTROL) && state.input.buffer.is_empty() && c == '['
+                {
+                    return Some(KeyAction::CollapseSidebarSection);
+                } else if !event.modifiers.contains(KeyModifiers::CONTROL) && state.input.buffer.is_empty() && c == ']'
+                {
+                    return Some(KeyAction::ExpandSidebarSection);
                 } else {
                     if state.input.is_navigating_history() {
                         state.input.reset_history_navigation();
@@ -328,6 +351,28 @@ pub enum KeyAction {
     ToggleCardExpand,
     /// Toggle verbose mode on focused card
     ToggleCardVerbose,
+    /// Scroll transcript up by one line
+    ScrollUp,
+    /// Scroll transcript down by one line
+    ScrollDown,
+    /// Page up in transcript
+    PageUp,
+    /// Page down in transcript
+    PageDown,
+    /// Jump to top of transcript
+    ScrollToTop,
+    /// Jump to bottom of transcript
+    ScrollToBottom,
+    /// Collapse previous sidebar section
+    CollapseSidebarSection,
+    /// Expand next sidebar section
+    ExpandSidebarSection,
+    /// Retry last failed action
+    RetryLastFailedAction,
+    /// Focus slash command input
+    FocusSlashCommand,
+    /// Clear transcript view (keep history)
+    ClearTranscriptView,
     /// No action (e.g., navigation in input)
     NoOp,
 }
@@ -853,5 +898,120 @@ mod tests {
         assert!(action.is_none());
         assert_eq!(state.input.buffer, "Helo");
         assert_eq!(state.input.cursor, 2);
+    }
+
+    #[test]
+    fn test_handle_normal_key_ctrl_u_page_up() {
+        let mut state = create_test_state();
+
+        let event = KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(matches!(action, Some(KeyAction::PageUp)));
+    }
+
+    #[test]
+    fn test_handle_normal_key_ctrl_d_page_down() {
+        let mut state = create_test_state();
+
+        let event = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(matches!(action, Some(KeyAction::PageDown)));
+    }
+
+    #[test]
+    fn test_handle_normal_key_g_jump_to_top() {
+        let mut state = create_test_state();
+
+        let event = KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(matches!(action, Some(KeyAction::ScrollToTop)));
+    }
+
+    #[test]
+    fn test_handle_normal_key_g_jump_to_bottom() {
+        let mut state = create_test_state();
+
+        let event = KeyEvent::new(KeyCode::Char('G'), KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(matches!(action, Some(KeyAction::ScrollToBottom)));
+    }
+
+    #[test]
+    fn test_handle_normal_key_left_bracket_collapse_section() {
+        let mut state = create_test_state();
+
+        let event = KeyEvent::new(KeyCode::Char('['), KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(matches!(action, Some(KeyAction::CollapseSidebarSection)));
+    }
+
+    #[test]
+    fn test_handle_normal_key_right_bracket_expand_section() {
+        let mut state = create_test_state();
+
+        let event = KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(matches!(action, Some(KeyAction::ExpandSidebarSection)));
+    }
+
+    #[test]
+    fn test_handle_normal_key_ctrl_r_retry() {
+        let mut state = create_test_state();
+
+        let event = KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(matches!(action, Some(KeyAction::RetryLastFailedAction)));
+    }
+
+    #[test]
+    fn test_handle_normal_key_slash_focus_command() {
+        let mut state = create_test_state();
+
+        let event = KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(matches!(action, Some(KeyAction::FocusSlashCommand)));
+    }
+
+    #[test]
+    fn test_handle_normal_key_ctrl_l_clear_transcript() {
+        let mut state = create_test_state();
+
+        let event = KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(matches!(action, Some(KeyAction::ClearTranscriptView)));
+    }
+
+    #[test]
+    fn test_handle_normal_key_g_with_input() {
+        let mut state = create_test_state();
+        state.input.buffer = "some text".to_string();
+
+        let event = KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(action.is_none());
+        assert_eq!(state.input.buffer, "gsome text");
+    }
+
+    #[test]
+    fn test_handle_normal_key_slash_with_input() {
+        let mut state = create_test_state();
+        state.input.buffer = "some text".to_string();
+        state.input.cursor = state.input.buffer.len();
+
+        let event = KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(action.is_none());
+        assert_eq!(state.input.buffer, "some text/");
     }
 }

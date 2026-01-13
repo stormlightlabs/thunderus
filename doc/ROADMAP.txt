@@ -47,7 +47,6 @@ III. TUI HARNESS                                                     *agent-III*
 Polish the basic TUI into a Codex/Claude-class interactive experience with
 advanced composer features, multi-panel layout, and power-user productivity.
 
-**Enhanced Layout:**
 - [x] Expand left sidebar with additional sections (responsive to width):
       - Session Events (chronological list with filtering)
       - Modified files list (scope awareness)
@@ -62,8 +61,6 @@ advanced composer features, multi-panel layout, and power-user productivity.
         - syntect + owo_colors
       - Horizontal scrolling for wide output (e.g., test results, build logs)
       - "Smart" wrapping for long file paths and URLs
-
-**Advanced Composer:**
 - [x] `!cmd` shell command execution:
       - runs local command and inserts output as user-provided context
       - subject to approval/sandbox rules[^3]
@@ -77,8 +74,6 @@ advanced composer features, multi-panel layout, and power-user productivity.
 - [x] `@` file search:
       - fuzzy file finder to attach context
       - shows file preview before insertion
-
-**Slash Commands:**
 - [x] Base command set[^3]:
       - `/model` - switch provider/model
       - `/approvals` - change approval mode
@@ -88,8 +83,6 @@ advanced composer features, multi-panel layout, and power-user productivity.
       - `/review` - trigger review pass
       - `/memory` - display MEMORY.md content in transcript
       - `/clear` - clear transcript (keep session history)
-
-**Progressive Disclosure for Action Cards:**
 - [x] Multi-level detail expansion:
       - Level 1 (default): intent + outcome (brief, scannable)
       - Level 2 (expand): detailed context, scope, execution metadata
@@ -98,8 +91,6 @@ advanced composer features, multi-panel layout, and power-user productivity.
       - `Space` / `Enter`: expand/collapse focused card
       - `v`: toggle verbose mode for focused card
       - `j` / `k`: navigate between cards
-
-**Verbosity & Display Controls:**
 - [x] Global verbosity modes:
       - default (balanced), verbose (detailed), quiet (minimal)
       - toggle with keybind, persist per session
@@ -108,16 +99,14 @@ advanced composer features, multi-panel layout, and power-user productivity.
       - toggle sidebar visibility (maximize transcript width)
       - sidebar sections collapsible individually
       - auto-hide sidebar on narrow terminals
-
-**Enhanced Keybind Pack:**
-- [ ] Navigation:
+- [x] Navigation:
       - `j` / `k`: scroll transcript or navigate between action cards
       - `Ctrl+U` / `Ctrl+D`: page up/down in transcript
       - `g` / `G`: jump to top/bottom of transcript
-- [ ] Sidebar controls:
+- [x] Sidebar controls:
       - `Ctrl+S`: toggle sidebar visibility
       - `[` / `]`: collapse/expand sidebar sections
-- [ ] Action shortcuts:
+- [x] Action shortcuts:
       - `Ctrl+R`: retry last failed action
       - `/`: focus slash command input
       - `Ctrl+L`: clear transcript view (keep history)
@@ -243,7 +232,7 @@ a functional agent harness.
       - No git operations yet - just status display
 
 DoD:
-- `thunderus start` launches a fully functional TUI
+- `thunderus start` or `thunderus` launches a fully functional TUI
 - User can send messages and see model responses stream in real-time
 - Approval prompts block execution and accept user input
 - Tool calls display with syntax-highlighted output

@@ -1,4 +1,8 @@
-use crate::{layout, state::AppState, theme::Theme};
+use crate::{
+    layout,
+    state::{AppState, SidebarSection},
+    theme::Theme,
+};
 use ratatui::{
     Frame,
     layout::Rect,
@@ -35,10 +39,22 @@ impl<'a> Sidebar<'a> {
             return;
         };
 
-        self.render_session_events(frame, events_area);
-        self.render_modified_files(frame, files_area);
-        self.render_git_diff_queue(frame, diff_area);
-        self.render_lsp_mcp_status(frame, lsp_area);
+        if !self.state.sidebar_collapse_state.is_collapsed(SidebarSection::Events) {
+            self.render_session_events(frame, events_area);
+        }
+        if !self.state.sidebar_collapse_state.is_collapsed(SidebarSection::Modified) {
+            self.render_modified_files(frame, files_area);
+        }
+        if !self.state.sidebar_collapse_state.is_collapsed(SidebarSection::Diffs) {
+            self.render_git_diff_queue(frame, diff_area);
+        }
+        if !self
+            .state
+            .sidebar_collapse_state
+            .is_collapsed(SidebarSection::Integrations)
+        {
+            self.render_lsp_mcp_status(frame, lsp_area);
+        }
     }
 
     /// Note: Sidebar auto-hide on narrow terminals is handled by [TuiLayout::calculate]
