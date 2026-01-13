@@ -90,33 +90,34 @@ impl App {
         use crossterm::event::Event;
 
         if let Event::Key(key) = event
-            && let Some(action) = EventHandler::handle_key_event(key, self.state_mut()) {
-                match action {
-                    KeyAction::SendMessage { message } => {
-                        self.transcript_mut().add_user_message(&message);
-                    }
-                    KeyAction::Approve { action: _, risk: _ } => {
-                        self.transcript_mut()
-                            .set_approval_decision(crate::transcript::ApprovalDecision::Approved);
-                        self.state_mut().pending_approval = None;
-                    }
-                    KeyAction::Reject { action: _, risk: _ } => {
-                        self.transcript_mut()
-                            .set_approval_decision(crate::transcript::ApprovalDecision::Rejected);
-                        self.state_mut().pending_approval = None;
-                    }
-                    KeyAction::Cancel { action: _, risk: _ } => {
-                        self.transcript_mut()
-                            .set_approval_decision(crate::transcript::ApprovalDecision::Cancelled);
-                        self.state_mut().pending_approval = None;
-                    }
-                    KeyAction::CancelGeneration => {
-                        self.state_mut().stop_generation();
-                    }
-                    KeyAction::ToggleSidebar => {}
-                    KeyAction::NoOp => {}
+            && let Some(action) = EventHandler::handle_key_event(key, self.state_mut())
+        {
+            match action {
+                KeyAction::SendMessage { message } => {
+                    self.transcript_mut().add_user_message(&message);
                 }
+                KeyAction::Approve { action: _, risk: _ } => {
+                    self.transcript_mut()
+                        .set_approval_decision(crate::transcript::ApprovalDecision::Approved);
+                    self.state_mut().pending_approval = None;
+                }
+                KeyAction::Reject { action: _, risk: _ } => {
+                    self.transcript_mut()
+                        .set_approval_decision(crate::transcript::ApprovalDecision::Rejected);
+                    self.state_mut().pending_approval = None;
+                }
+                KeyAction::Cancel { action: _, risk: _ } => {
+                    self.transcript_mut()
+                        .set_approval_decision(crate::transcript::ApprovalDecision::Cancelled);
+                    self.state_mut().pending_approval = None;
+                }
+                KeyAction::CancelGeneration => {
+                    self.state_mut().stop_generation();
+                }
+                KeyAction::ToggleSidebar => {}
+                KeyAction::NoOp => {}
             }
+        }
     }
 
     /// Draw the UI
@@ -127,7 +128,8 @@ impl App {
             let header = Header::new(&self.state);
             header.render(frame, layout.header);
 
-            let transcript_component = TranscriptComponent::new(&self.transcript);
+            let transcript_component =
+                TranscriptComponent::with_vertical_scroll(&self.transcript, self.state.scroll_vertical);
             transcript_component.render(frame, layout.transcript);
 
             if let Some(sidebar_area) = layout.sidebar {
@@ -149,12 +151,11 @@ impl App {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::path::PathBuf;
-    use thunderus_core::{ApprovalMode, ProviderConfig};
+    use thunderus_core::{ApprovalMode, ProviderConfig, SandboxMode};
 
     fn create_test_app() -> App {
         let state = AppState::new(
@@ -166,6 +167,7 @@ mod tests {
                 base_url: "https://api.example.com".to_string(),
             },
             ApprovalMode::Auto,
+            SandboxMode::Policy,
         );
         App::new(state)
     }

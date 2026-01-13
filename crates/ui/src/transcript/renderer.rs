@@ -1,3 +1,4 @@
+use crate::syntax::SyntaxHighlighter;
 use crate::theme::Theme;
 use ratatui::{
     Frame,
@@ -8,15 +9,24 @@ use ratatui::{
 };
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
+const CODE_BLOCK_START: &str = "```";
+const CODE_BLOCK_END: &str = "```";
+
 /// Renders transcript entries to frame
 pub struct TranscriptRenderer<'a> {
     transcript: &'a super::Transcript,
+    scroll_vertical: u16,
 }
 
 impl<'a> TranscriptRenderer<'a> {
     /// Create a new renderer for given transcript
     pub fn new(transcript: &'a super::Transcript) -> Self {
-        Self { transcript }
+        Self { transcript, scroll_vertical: 0 }
+    }
+
+    /// Create a new renderer with scroll offset
+    pub fn with_vertical_scroll(transcript: &'a super::Transcript, scroll: u16) -> Self {
+        Self { transcript, scroll_vertical: scroll }
     }
 
     /// Render transcript to the given area
@@ -36,7 +46,8 @@ impl<'a> TranscriptRenderer<'a> {
 
         let paragraph = Paragraph::new(Text::from(text_lines))
             .block(block)
-            .wrap(Wrap { trim: true });
+            .wrap(Wrap { trim: true })
+            .scroll((0, self.scroll_vertical));
 
         frame.render_widget(paragraph, area);
     }
@@ -139,7 +150,57 @@ impl<'a> TranscriptRenderer<'a> {
         }
 
         lines.push(Line::from(vec![Span::styled("  ", Style::default().fg(Theme::MUTED))]));
-        self.wrap_text(result, Theme::FG, width, lines);
+        self.render_with_code_highlighting(result, Theme::FG, width, lines);
+    }
+
+    /// Render text with code block highlighting
+    fn render_with_code_highlighting(
+        &self, text: &str, default_color: ratatui::style::Color, max_width: usize, lines: &mut Vec<Line<'static>>,
+    ) {
+        let mut remaining = text;
+
+        while let Some(start_idx) = remaining.find(CODE_BLOCK_START) {
+            if start_idx > 0 {
+                let before_code = &remaining[..start_idx];
+                self.wrap_text(before_code, default_color, max_width, lines);
+            }
+
+            let after_start = &remaining[start_idx + CODE_BLOCK_START.len()..];
+
+            let lang_end_idx = after_start.find('\n').unwrap_or(after_start.len());
+            let lang = after_start[..lang_end_idx].trim();
+
+            let code_start = if lang_end_idx < after_start.len() { lang_end_idx + 1 } else { lang_end_idx };
+            let code_block = &after_start[code_start..];
+
+            if let Some(end_idx) = code_block.find(CODE_BLOCK_END) {
+                let code = &code_block[..end_idx];
+                remaining = &code_block[end_idx + CODE_BLOCK_END.len()..];
+
+                self.render_code_block(code, lang, max_width, lines);
+            } else {
+                self.wrap_text(after_start, Theme::CYAN, max_width, lines);
+                break;
+            }
+        }
+
+        if !remaining.is_empty() {
+            self.wrap_text(remaining, default_color, max_width, lines);
+        }
+    }
+
+    /// Render a code block with syntax highlighting
+    fn render_code_block(&self, code: &str, lang: &str, _max_width: usize, lines: &mut Vec<Line<'static>>) {
+        let highlighter = SyntaxHighlighter::new();
+        let highlighted = highlighter.highlight_code(code, lang.trim());
+
+        for span in &highlighted {
+            lines.push(Line::from(vec![Span::raw(format!("  {}", span.content))]));
+        }
+
+        if !highlighted.is_empty() && !code.lines().last().map(|l| l.trim().is_empty()).unwrap_or(true) {
+            lines.push(Line::default());
+        }
     }
 
     /// Render approval prompt card
@@ -226,6 +287,7 @@ impl<'a> TranscriptRenderer<'a> {
     /// - Wraps at word boundaries when possible
     /// - Breaks long words if they exceed width
     /// - Uses Unicode-aware width calculation
+    /// - Smart wrapping for file paths and URLs
     fn wrap_text(&self, text: &str, color: ratatui::style::Color, max_width: usize, lines: &mut Vec<Line<'static>>) {
         if max_width == 0 {
             return;
@@ -237,70 +299,147 @@ impl<'a> TranscriptRenderer<'a> {
                 continue;
             }
 
-            let words: Vec<&str> = source_line.split_whitespace().collect();
-            if words.is_empty() {
-                lines.push(Line::default());
-                continue;
+            if self.is_path_or_url(source_line) {
+                self.smart_wrap_path(source_line, color, max_width, lines);
+            } else {
+                self.wrap_normal_text(source_line, color, max_width, lines);
             }
+        }
+    }
 
-            let mut current_line = String::new();
-            let mut current_width = 0;
+    /// Check if text looks like a file path or URL
+    fn is_path_or_url(&self, text: &str) -> bool {
+        text.starts_with('/')
+            || text.starts_with("./")
+            || text.starts_with("../")
+            || text.starts_with("http://")
+            || text.starts_with("https://")
+            || text.starts_with("git@")
+            || text.starts_with("file://")
+    }
 
-            for word in words {
-                let word_width = word.width();
-                let space_width = if current_line.is_empty() { 0 } else { 1 };
+    /// Smart wrap for paths and URLs (prefer breaking at path separators)
+    fn smart_wrap_path(
+        &self, path: &str, color: ratatui::style::Color, max_width: usize, lines: &mut Vec<Line<'static>>,
+    ) {
+        if path.width() <= max_width {
+            lines.push(Line::from(vec![Span::styled(
+                path.to_string(),
+                Style::default().fg(color),
+            )]));
+            return;
+        }
 
-                if current_width + space_width + word_width > max_width {
-                    if !current_line.is_empty() {
-                        lines.push(Line::from(vec![Span::styled(
-                            current_line.clone(),
-                            Style::default().fg(color),
-                        )]));
-                        current_line = String::new();
-                        current_width = 0;
-                    }
+        let mut remaining = path;
+        while remaining.width() > max_width {
+            if let Some(idx) = self.find_break_point(remaining, max_width) {
+                let chunk = &remaining[..idx];
+                lines.push(Line::from(vec![Span::styled(
+                    chunk.to_string(),
+                    Style::default().fg(color),
+                )]));
+                remaining = &remaining[idx..];
+            } else {
+                lines.push(Line::from(vec![Span::styled(
+                    remaining.to_string(),
+                    Style::default().fg(color),
+                )]));
+                break;
+            }
+        }
 
-                    if word_width > max_width {
-                        let chars = word.chars().peekable();
-                        let mut chunk_width = 0;
-                        let mut chunk = String::new();
+        if !remaining.is_empty() {
+            lines.push(Line::from(vec![Span::styled(
+                remaining.to_string(),
+                Style::default().fg(color),
+            )]));
+        }
+    }
 
-                        for ch in chars {
-                            let ch_width = ch.width().unwrap_or(0);
+    /// Find a good break point in path/URL (prefer /, ., etc.)
+    fn find_break_point(&self, text: &str, max_width: usize) -> Option<usize> {
+        let mut break_idx = None;
+        for (i, ch) in text.char_indices() {
+            if i > 0
+                && i % max_width == 0
+                && let Some(idx) = break_idx
+            {
+                return Some(idx);
+            }
+            if matches!(ch, '/' | '.' | '-' | '_') {
+                break_idx = Some(i + ch.len_utf8());
+            }
+        }
+        break_idx
+    }
 
-                            if chunk_width + ch_width > max_width {
-                                lines.push(Line::from(vec![Span::styled(
-                                    chunk.clone(),
-                                    Style::default().fg(color),
-                                )]));
-                                chunk.clear();
-                                chunk_width = 0;
-                            }
+    /// Normal word-based text wrapping
+    fn wrap_normal_text(
+        &self, text: &str, color: ratatui::style::Color, max_width: usize, lines: &mut Vec<Line<'static>>,
+    ) {
+        let words: Vec<&str> = text.split_whitespace().collect();
+        if words.is_empty() {
+            lines.push(Line::default());
+            return;
+        }
 
-                            chunk.push(ch);
-                            chunk_width += ch_width;
-                        }
+        let mut current_line = String::new();
+        let mut current_width = 0;
 
-                        if !chunk.is_empty() {
+        for word in words {
+            let word_width = word.width();
+            let space_width = if current_line.is_empty() { 0 } else { 1 };
+
+            if current_width + space_width + word_width > max_width {
+                if !current_line.is_empty() {
+                    lines.push(Line::from(vec![Span::styled(
+                        current_line.clone(),
+                        Style::default().fg(color),
+                    )]));
+                    current_line = String::new();
+                    current_width = 0;
+                }
+
+                if word_width > max_width {
+                    let chars = word.chars().peekable();
+                    let mut chunk_width = 0;
+                    let mut chunk = String::new();
+
+                    for ch in chars {
+                        let ch_width = ch.width().unwrap_or(0);
+
+                        if chunk_width + ch_width > max_width {
                             lines.push(Line::from(vec![Span::styled(
                                 chunk.clone(),
                                 Style::default().fg(color),
                             )]));
+                            chunk.clear();
+                            chunk_width = 0;
                         }
-                        continue;
-                    }
-                }
-                if !current_line.is_empty() {
-                    current_line.push(' ');
-                    current_width += 1;
-                }
-                current_line.push_str(word);
-                current_width += word_width;
-            }
 
-            if !current_line.is_empty() {
-                lines.push(Line::from(vec![Span::styled(current_line, Style::default().fg(color))]));
+                        chunk.push(ch);
+                        chunk_width += ch_width;
+                    }
+
+                    if !chunk.is_empty() {
+                        lines.push(Line::from(vec![Span::styled(
+                            chunk.clone(),
+                            Style::default().fg(color),
+                        )]));
+                    }
+                    continue;
+                }
             }
+            if !current_line.is_empty() {
+                current_line.push(' ');
+                current_width += 1;
+            }
+            current_line.push_str(word);
+            current_width += word_width;
+        }
+
+        if !current_line.is_empty() {
+            lines.push(Line::from(vec![Span::styled(current_line, Style::default().fg(color))]));
         }
     }
 }

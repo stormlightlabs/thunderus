@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use thunderus_core::{ApprovalMode, ProviderConfig, TokensUsed};
+use thunderus_core::{ApprovalMode, ProviderConfig, SandboxMode, TokensUsed};
 
 /// State for the input composer
 #[derive(Debug, Clone, Default)]
@@ -110,6 +110,69 @@ pub struct ApprovalState {
     pub decision: Option<bool>, // Some(true) = approved, Some(false) = rejected, None = pending
 }
 
+/// Verbosity levels for TUI display
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum VerbosityLevel {
+    /// Minimal output, essential information only
+    #[default]
+    Quiet,
+    /// Balanced output (default)
+    Default,
+    /// Detailed output with all information
+    Verbose,
+}
+
+impl VerbosityLevel {
+    pub const VALUES: &[VerbosityLevel] = &[VerbosityLevel::Quiet, VerbosityLevel::Default, VerbosityLevel::Verbose];
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            VerbosityLevel::Quiet => "quiet",
+            VerbosityLevel::Default => "default",
+            VerbosityLevel::Verbose => "verbose",
+        }
+    }
+
+    pub fn toggle(&mut self) {
+        *self = match self {
+            VerbosityLevel::Quiet => VerbosityLevel::Default,
+            VerbosityLevel::Default => VerbosityLevel::Verbose,
+            VerbosityLevel::Verbose => VerbosityLevel::Quiet,
+        }
+    }
+}
+
+/// Session event for sidebar display
+#[derive(Debug, Clone)]
+pub struct SessionEvent {
+    /// Event type
+    pub event_type: String,
+    /// Event message
+    pub message: String,
+    /// Timestamp (simplified as string for now)
+    pub timestamp: String,
+}
+
+/// Modified file information
+#[derive(Debug, Clone)]
+pub struct ModifiedFile {
+    /// File path
+    pub path: String,
+    /// Modification type
+    pub mod_type: String, // "edited", "created", "deleted"
+}
+
+/// Git diff entry for sidebar display
+#[derive(Debug, Clone)]
+pub struct GitDiff {
+    /// File path
+    pub path: String,
+    /// Number of lines added
+    pub added: usize,
+    /// Number of lines deleted
+    pub deleted: usize,
+}
+
 impl ApprovalState {
     pub fn pending(action: String, risk: String) -> Self {
         Self { action, risk, description: None, decision: None }
@@ -139,6 +202,12 @@ pub struct AppState {
     pub provider: ProviderConfig,
     /// Approval mode
     pub approval_mode: ApprovalMode,
+    /// Sandbox mode
+    pub sandbox_mode: SandboxMode,
+    /// Verbosity level
+    pub verbosity: VerbosityLevel,
+    /// Git branch (if in a git repo)
+    pub git_branch: Option<String>,
     /// Session statistics
     pub stats: SessionStats,
     /// Input composer state
@@ -149,21 +218,59 @@ pub struct AppState {
     pub sidebar_visible: bool,
     /// Whether the user is currently generating
     pub generating: bool,
+    /// Session events for sidebar
+    pub session_events: Vec<SessionEvent>,
+    /// Modified files list
+    pub modified_files: Vec<ModifiedFile>,
+    /// Git diff queue
+    pub git_diff_queue: Vec<GitDiff>,
+    /// Horizontal scroll offset for transcript
+    pub scroll_horizontal: u16,
+    /// Vertical scroll offset for transcript
+    pub scroll_vertical: u16,
 }
 
 impl AppState {
-    pub fn new(cwd: PathBuf, profile: String, provider: ProviderConfig, approval_mode: ApprovalMode) -> Self {
+    pub fn new(
+        cwd: PathBuf, profile: String, provider: ProviderConfig, approval_mode: ApprovalMode, sandbox_mode: SandboxMode,
+    ) -> Self {
         Self {
             cwd,
             profile,
             provider,
             approval_mode,
+            sandbox_mode,
+            verbosity: VerbosityLevel::default(),
+            git_branch: None,
             stats: SessionStats::default(),
             input: InputState::new(),
             pending_approval: None,
             sidebar_visible: true,
             generating: false,
+            session_events: Vec::new(),
+            modified_files: Vec::new(),
+            git_diff_queue: Vec::new(),
+            scroll_horizontal: 0,
+            scroll_vertical: 0,
         }
+    }
+
+    /// Scroll transcript horizontally
+    pub fn scroll_horizontal(&mut self, delta: i16) {
+        let new_offset = self.scroll_horizontal as i16 + delta;
+        self.scroll_horizontal = new_offset.max(0) as u16;
+    }
+
+    /// Scroll transcript vertically
+    pub fn scroll_vertical(&mut self, delta: i16) {
+        let new_offset = self.scroll_vertical as i16 + delta;
+        self.scroll_vertical = new_offset.max(0) as u16;
+    }
+
+    /// Reset scroll to top-left
+    pub fn reset_scroll(&mut self) {
+        self.scroll_horizontal = 0;
+        self.scroll_vertical = 0;
     }
 
     /// Get the model name as a string
@@ -214,11 +321,19 @@ impl Default for AppState {
                 base_url: "https://open.bigmodel.cn/api/paas/v4".to_string(),
             },
             approval_mode: ApprovalMode::Auto,
+            sandbox_mode: SandboxMode::default(),
+            verbosity: VerbosityLevel::default(),
+            git_branch: None,
             stats: SessionStats::default(),
             input: InputState::new(),
             pending_approval: None,
             sidebar_visible: true,
             generating: false,
+            session_events: Vec::new(),
+            modified_files: Vec::new(),
+            git_diff_queue: Vec::new(),
+            scroll_horizontal: 0,
+            scroll_vertical: 0,
         }
     }
 }
@@ -364,6 +479,7 @@ mod tests {
             "custom".to_string(),
             provider,
             ApprovalMode::FullAccess,
+            SandboxMode::Policy,
         );
 
         assert_eq!(state.cwd, PathBuf::from("/workspace"));
@@ -371,5 +487,53 @@ mod tests {
         assert_eq!(state.provider_name(), "Gemini");
         assert_eq!(state.model_name(), "gemini-2.5-flash".to_string());
         assert_eq!(state.approval_mode, ApprovalMode::FullAccess);
+    }
+
+    #[test]
+    fn test_scroll_horizontal() {
+        let mut state = AppState::default();
+
+        assert_eq!(state.scroll_horizontal, 0);
+
+        state.scroll_horizontal(10);
+        assert_eq!(state.scroll_horizontal, 10);
+
+        state.scroll_horizontal(-5);
+        assert_eq!(state.scroll_horizontal, 5);
+
+        state.scroll_horizontal(-10);
+        assert_eq!(state.scroll_horizontal, 0);
+    }
+
+    #[test]
+    fn test_scroll_vertical() {
+        let mut state = AppState::default();
+
+        assert_eq!(state.scroll_vertical, 0);
+
+        state.scroll_vertical(20);
+        assert_eq!(state.scroll_vertical, 20);
+
+        state.scroll_vertical(-10);
+        assert_eq!(state.scroll_vertical, 10);
+
+        state.scroll_vertical(-15);
+        assert_eq!(state.scroll_vertical, 0);
+    }
+
+    #[test]
+    fn test_reset_scroll() {
+        let mut state = AppState::default();
+
+        state.scroll_horizontal(50);
+        state.scroll_vertical(100);
+
+        assert_eq!(state.scroll_horizontal, 50);
+        assert_eq!(state.scroll_vertical, 100);
+
+        state.reset_scroll();
+
+        assert_eq!(state.scroll_horizontal, 0);
+        assert_eq!(state.scroll_vertical, 0);
     }
 }

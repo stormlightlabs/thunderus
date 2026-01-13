@@ -46,19 +46,20 @@ Polish the basic TUI into a Codex/Claude-class interactive experience with
 advanced composer features, multi-panel layout, and power-user productivity.
 
 **Enhanced Layout:**
-- [ ] Expand left sidebar with additional sections (responsive to width):
+- [x] Expand left sidebar with additional sections (responsive to width):
       - Session Events (chronological list with filtering)
       - Modified files list (scope awareness)
       - Git diff queue preview
       - LSPs & MCPs status (placeholders)
-- [ ] Enhanced header:
+- [x] Enhanced header:
       - Add git branch indicator
       - Add sandbox mode status
       - Add verbosity level indicator
-- [ ] Transcript enhancements:
+- [x] Transcript enhancements:
       - Syntax highlighting for code blocks in tool output
+        - syntect + owo_colors
       - Horizontal scrolling for wide output (e.g., test results, build logs)
-      - Smart wrapping for long file paths and URLs
+      - "Smart" wrapping for long file paths and URLs
 
 **Advanced Composer (Codex CLI parity):**
 - [ ] `!cmd` shell command execution:

@@ -16,6 +16,12 @@ impl<'a> Transcript<'a> {
         Self { transcript, renderer }
     }
 
+    /// Create a new transcript component with vertical scroll offset
+    pub fn with_vertical_scroll(transcript: &'a TranscriptState, scroll: u16) -> Self {
+        let renderer = TranscriptRenderer::with_vertical_scroll(transcript, scroll);
+        Self { transcript, renderer }
+    }
+
     /// Render transcript to the given frame
     pub fn render(&self, frame: &mut Frame<'_>, area: Rect) {
         self.renderer.render(frame, area);

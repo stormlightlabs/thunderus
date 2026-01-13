@@ -7,5 +7,7 @@ edition = "2024"
 ratatui = "0.30"
 crossterm = "0.29"
 unicode-width = "0.2"
+syntect = { version = "5.2", features = ["default-fancy"] }
+owo-colors = "4.1"
 
 thunderus-core = { path = "../core" }

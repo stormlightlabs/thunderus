@@ -122,6 +122,36 @@ impl Theme {
     pub fn risk_level_span(risk: &str) -> Span<'_> {
         Span::styled(risk, Style::default().fg(Self::risk_level_color(risk)))
     }
+
+    /// Get sandbox mode color
+    pub fn sandbox_mode_color(mode: &str) -> Color {
+        match mode {
+            "policy" => Self::GREEN,
+            "os" => Self::YELLOW,
+            "none" => Self::RED,
+            _ => Self::MUTED,
+        }
+    }
+
+    /// Get span with sandbox mode styling
+    pub fn sandbox_mode_span(mode: &str) -> Span<'_> {
+        Span::styled(mode, Style::default().fg(Self::sandbox_mode_color(mode)))
+    }
+
+    /// Get verbosity level color
+    pub fn verbosity_color(level: &str) -> Color {
+        match level {
+            "quiet" => Self::MUTED,
+            "default" => Self::BLUE,
+            "verbose" => Self::PURPLE,
+            _ => Self::MUTED,
+        }
+    }
+
+    /// Get span with verbosity level styling
+    pub fn verbosity_span(level: &str) -> Span<'_> {
+        Span::styled(level, Style::default().fg(Self::verbosity_color(level)))
+    }
 }
 
 #[cfg(test)]

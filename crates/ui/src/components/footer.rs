@@ -104,7 +104,7 @@ impl<'a> Footer<'a> {
 mod tests {
     use super::*;
     use std::path::PathBuf;
-    use thunderus_core::{ApprovalMode, ProviderConfig};
+    use thunderus_core::{ApprovalMode, ProviderConfig, SandboxMode};
 
     fn create_test_state() -> AppState {
         AppState::new(
@@ -116,6 +116,7 @@ mod tests {
                 base_url: "https://api.example.com".to_string(),
             },
             ApprovalMode::Auto,
+            SandboxMode::Policy,
         )
     }
 

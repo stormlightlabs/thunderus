@@ -101,50 +101,120 @@ impl TuiLayout {
         chunks[1]
     }
 
-    /// Get sidebar sections layout (stats, approvals)
-    pub fn sidebar_sections(&self) -> Option<(Rect, Rect)> {
+    /// Get sidebar sections layout (4 sections)
+    ///
+    /// Returns: (session_events, modified_files, git_diff, lsp_mcp_status)
+    pub fn sidebar_sections(&self) -> Option<(Rect, Rect, Rect, Rect)> {
         let sidebar = self.sidebar?;
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Length(1), Constraint::Min(0)])
+            .constraints([
+                Constraint::Length(4),
+                Constraint::Length(3),
+                Constraint::Length(3),
+                Constraint::Min(0),
+            ])
             .split(sidebar);
 
-        Some((chunks[0], chunks[1]))
+        Some((chunks[0], chunks[1], chunks[2], chunks[3]))
     }
 }
 
 /// Calculate header section widths
 ///
-/// Header layout:
-/// - cwd | profile | provider/model | approval mode
-/// - On narrow terminals, less critical info is dropped
-pub fn header_sections(area: Rect) -> (Rect, Rect, Rect, Rect) {
+/// Header layout (responsive):
+/// - Full (>= 120): cwd | profile | provider/model | approval | git | sandbox | verbosity
+/// - Medium (>= 100): profile | provider/model | approval | git | sandbox | verbosity
+/// - Narrow (>= 80): profile | provider/model | approval | git
+/// - Compact (< 80): profile | approval
+pub fn header_sections(area: Rect) -> (Rect, Rect, Rect, Rect, Rect, Rect, Rect) {
     let sections = match area.width {
+        w if w >= 120 => Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Length(20),
+                Constraint::Length(12),
+                Constraint::Length(20),
+                Constraint::Length(12),
+                Constraint::Length(12),
+                Constraint::Length(10),
+                Constraint::Min(0),
+            ])
+            .split(area),
         w if w >= 100 => Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Length(25),
-                Constraint::Length(15),
+                Constraint::Length(12),
                 Constraint::Length(20),
+                Constraint::Length(12),
+                Constraint::Length(12),
+                Constraint::Length(10),
                 Constraint::Min(0),
             ])
             .split(area),
         w if w >= 80 => Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Length(15), Constraint::Length(20), Constraint::Min(0)])
+            .constraints([
+                Constraint::Length(12),
+                Constraint::Length(20),
+                Constraint::Length(12),
+                Constraint::Length(12),
+                Constraint::Min(0),
+            ])
             .split(area),
         _ => Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Length(15), Constraint::Min(0)])
+            .constraints([Constraint::Length(12), Constraint::Min(0)])
             .split(area),
     };
 
     match sections.len() {
-        4 => (sections[0], sections[1], sections[2], sections[3]),
-        3 => (Rect::default(), sections[0], sections[1], sections[2]),
-        2 => (Rect::default(), sections[0], Rect::default(), sections[1]),
-        _ => (Rect::default(), Rect::default(), Rect::default(), Rect::default()),
+        7 => (
+            sections[0],
+            sections[1],
+            sections[2],
+            sections[3],
+            sections[4],
+            sections[5],
+            sections[6],
+        ),
+        6 => (
+            Rect::default(),
+            sections[0],
+            sections[1],
+            sections[2],
+            sections[3],
+            sections[4],
+            sections[5],
+        ),
+        5 => (
+            Rect::default(),
+            sections[0],
+            sections[1],
+            sections[2],
+            Rect::default(),
+            Rect::default(),
+            sections[3],
+        ),
+        2 => (
+            Rect::default(),
+            sections[0],
+            Rect::default(),
+            sections[1],
+            Rect::default(),
+            Rect::default(),
+            Rect::default(),
+        ),
+        _ => (
+            Rect::default(),
+            Rect::default(),
+            Rect::default(),
+            Rect::default(),
+            Rect::default(),
+            Rect::default(),
+            Rect::default(),
+        ),
     }
 }
 
@@ -239,42 +309,52 @@ mod tests {
         let sections = layout.sidebar_sections();
         assert!(sections.is_some());
 
-        let (token_stats, approval_stats) = sections.unwrap();
+        let (session_events, modified_files, git_diff, _lsp_mcp) = sections.unwrap();
 
-        assert_eq!(token_stats.height, 1);
-        assert!(approval_stats.height > 0);
+        assert_eq!(session_events.height, 4);
+        assert_eq!(modified_files.height, 3);
+        assert_eq!(git_diff.height, 3);
     }
 
     #[test]
     fn test_header_sections_full() {
-        let area = Rect::new(0, 0, 100, 1);
-        let (cwd, profile, provider, approval) = header_sections(area);
+        let area = Rect::new(0, 0, 120, 1);
+        let (cwd, profile, provider, approval, git, sandbox, verbosity) = header_sections(area);
 
         assert_ne!(cwd.width, 0);
         assert_ne!(profile.width, 0);
         assert_ne!(provider.width, 0);
         assert_ne!(approval.width, 0);
-        assert_eq!(cwd.width, 25);
+        assert_ne!(git.width, 0);
+        assert_ne!(sandbox.width, 0);
+        assert_ne!(verbosity.width, 0);
+        assert_eq!(cwd.width, 20);
     }
 
     #[test]
     fn test_header_sections_medium() {
-        let area = Rect::new(0, 0, 85, 1);
-        let (cwd, profile, provider, approval) = header_sections(area);
+        let area = Rect::new(0, 0, 100, 1);
+        let (cwd, profile, provider, approval, git, sandbox, verbosity) = header_sections(area);
 
         assert_eq!(cwd, Rect::default());
         assert_ne!(profile.width, 0);
         assert_ne!(provider.width, 0);
         assert_ne!(approval.width, 0);
+        assert_ne!(git.width, 0);
+        assert_ne!(sandbox.width, 0);
+        assert_ne!(verbosity.width, 0);
     }
 
     #[test]
     fn test_header_sections_compact() {
         let area = Rect::new(0, 0, 70, 1);
-        let (cwd, profile, provider, approval) = header_sections(area);
+        let (cwd, profile, provider, approval, git, sandbox, verbosity) = header_sections(area);
 
         assert_eq!(cwd, Rect::default());
         assert_eq!(provider, Rect::default());
+        assert_eq!(git, Rect::default());
+        assert_eq!(sandbox, Rect::default());
+        assert_eq!(verbosity, Rect::default());
 
         assert_ne!(profile.width, 0);
         assert_ne!(approval.width, 0);

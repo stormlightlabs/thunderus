@@ -63,6 +63,20 @@ impl EventHandler {
                     return Some(KeyAction::SendMessage { message });
                 }
             }
+            KeyCode::Char('j') | KeyCode::Char('J') => {
+                if state.input.buffer.is_empty() {
+                    state.scroll_vertical(1);
+                } else {
+                    state.input.insert_char('j');
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Char('K') => {
+                if state.input.buffer.is_empty() {
+                    state.scroll_vertical(-1);
+                } else {
+                    state.input.insert_char('k');
+                }
+            }
             KeyCode::Char(c) => {
                 if event.modifiers.contains(KeyModifiers::CONTROL) && c == 'c' {
                     return Some(KeyAction::CancelGeneration);
@@ -79,10 +93,18 @@ impl EventHandler {
                 state.input.delete();
             }
             KeyCode::Left => {
-                state.input.move_left();
+                if state.input.buffer.is_empty() && event.modifiers.is_empty() {
+                    state.scroll_horizontal(-10);
+                } else {
+                    state.input.move_left();
+                }
             }
             KeyCode::Right => {
-                state.input.move_right();
+                if state.input.buffer.is_empty() && event.modifiers.is_empty() {
+                    state.scroll_horizontal(10);
+                } else {
+                    state.input.move_right();
+                }
             }
             KeyCode::Home => {
                 state.input.move_home();
@@ -126,7 +148,7 @@ pub enum KeyAction {
 mod tests {
     use super::*;
     use std::path::PathBuf;
-    use thunderus_core::{ApprovalMode, ProviderConfig};
+    use thunderus_core::{ApprovalMode, ProviderConfig, SandboxMode};
 
     fn create_test_state() -> AppState {
         AppState::new(
@@ -138,6 +160,7 @@ mod tests {
                 base_url: "https://api.example.com".to_string(),
             },
             ApprovalMode::Auto,
+            SandboxMode::Policy,
         )
     }
 
@@ -372,5 +395,76 @@ mod tests {
 
         assert!(action.is_none());
         assert_eq!(state.input.buffer, "testx");
+    }
+
+    #[test]
+    fn test_handle_scroll_vertical_down() {
+        let mut state = create_test_state();
+
+        let event = KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(action.is_none());
+        assert_eq!(state.scroll_vertical, 1);
+    }
+
+    #[test]
+    fn test_handle_scroll_vertical_up() {
+        let mut state = create_test_state();
+
+        let event = KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE);
+        EventHandler::handle_key_event(event, &mut state);
+
+        assert_eq!(state.scroll_vertical, 0);
+    }
+
+    #[test]
+    fn test_handle_scroll_horizontal_right() {
+        let mut state = create_test_state();
+
+        let event = KeyEvent::new(KeyCode::Right, KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(action.is_none());
+        assert_eq!(state.scroll_horizontal, 10);
+    }
+
+    #[test]
+    fn test_handle_scroll_horizontal_left() {
+        let mut state = create_test_state();
+        state.scroll_horizontal = 20;
+
+        let event = KeyEvent::new(KeyCode::Left, KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(action.is_none());
+        assert_eq!(state.scroll_horizontal, 10);
+    }
+
+    #[test]
+    fn test_handle_scroll_horizontal_with_input() {
+        let mut state = create_test_state();
+        state.input.buffer = "test".to_string();
+        state.input.cursor = 4;
+
+        let event = KeyEvent::new(KeyCode::Right, KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(action.is_none());
+        assert_eq!(state.input.cursor, 4);
+        assert_eq!(state.scroll_horizontal, 0);
+    }
+
+    #[test]
+    fn test_handle_scroll_vertical_with_input() {
+        let mut state = create_test_state();
+        state.input.buffer = "j".to_string();
+
+        let event = KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(action.is_none());
+        assert_eq!(state.input.buffer, "jj");
+        assert_eq!(state.scroll_vertical, 0);
     }
 }

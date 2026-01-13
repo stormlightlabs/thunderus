@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use thunderus_core::{ApprovalMode, ProviderConfig};
+use thunderus_core::{ApprovalMode, ProviderConfig, SandboxMode};
 use thunderus_ui::{App, ApprovalDecision, KeyAction, state::ApprovalState};
 
 #[test]
@@ -237,6 +237,7 @@ fn create_test_app() -> App {
             base_url: "https://api.example.com".to_string(),
         },
         ApprovalMode::Auto,
+        SandboxMode::Policy,
     );
     App::new(state)
 }

@@ -25,7 +25,8 @@ impl<'a> Header<'a> {
 
     /// Render the header to the given frame
     pub fn render(&self, frame: &mut Frame<'_>, area: Rect) {
-        let (cwd_area, profile_area, provider_area, approval_area) = header_sections(area);
+        let (cwd_area, profile_area, provider_area, approval_area, git_area, sandbox_area, verbosity_area) =
+            header_sections(area);
 
         if cwd_area.width > 0 {
             let cwd_span = Span::styled(self.cwd_display(), Style::default().fg(Theme::CYAN));
@@ -53,6 +54,34 @@ impl<'a> Header<'a> {
             let approval = Paragraph::new(Line::from(vec![mode_label, approval_span, mode_close]));
             frame.render_widget(approval, approval_area);
         }
+
+        if git_area.width > 0 {
+            let git_text = if let Some(ref branch) = self.state.git_branch {
+                format!("🌿 {}", branch)
+            } else {
+                String::new()
+            };
+            let git_span = Span::styled(git_text, Style::default().fg(Theme::GREEN));
+            let git = Paragraph::new(Line::from(git_span)).block(Block::default().borders(Borders::RIGHT));
+            frame.render_widget(git, git_area);
+        }
+
+        if sandbox_area.width > 0 {
+            let sandbox_span = Theme::sandbox_mode_span(self.state.sandbox_mode.as_str());
+            let sandbox_label = Span::styled("🔒", Style::default().fg(Theme::YELLOW));
+            let sandbox = Paragraph::new(Line::from(vec![
+                sandbox_label,
+                Span::styled(" ", Style::default()),
+                sandbox_span,
+            ]));
+            frame.render_widget(sandbox, sandbox_area);
+        }
+
+        if verbosity_area.width > 0 {
+            let verbosity_span = Theme::verbosity_span(self.state.verbosity.as_str());
+            let verbosity = Paragraph::new(Line::from(verbosity_span));
+            frame.render_widget(verbosity, verbosity_area);
+        }
     }
 
     /// Format cwd for display (truncate if too long)
@@ -71,7 +100,7 @@ impl<'a> Header<'a> {
 mod tests {
     use super::*;
     use std::path::PathBuf;
-    use thunderus_core::{ApprovalMode, ProviderConfig};
+    use thunderus_core::{ApprovalMode, ProviderConfig, SandboxMode};
 
     fn create_test_state() -> AppState {
         AppState::new(
@@ -83,6 +112,7 @@ mod tests {
                 base_url: "https://api.example.com".to_string(),
             },
             ApprovalMode::Auto,
+            SandboxMode::Policy,
         )
     }
 
@@ -124,6 +154,7 @@ mod tests {
                 base_url: "https://api.example.com".to_string(),
             },
             ApprovalMode::FullAccess,
+            SandboxMode::Policy,
         );
 
         let header = Header::new(&state);
@@ -146,15 +177,28 @@ mod tests {
             "test".to_string(),
             provider.clone(),
             ApprovalMode::ReadOnly,
+            SandboxMode::Policy,
         );
         let header_readonly = Header::new(&state_readonly);
         assert_eq!(header_readonly.state.approval_mode.as_str(), "read-only");
 
-        let state_auto = AppState::new(cwd.clone(), "test".to_string(), provider.clone(), ApprovalMode::Auto);
+        let state_auto = AppState::new(
+            cwd.clone(),
+            "test".to_string(),
+            provider.clone(),
+            ApprovalMode::Auto,
+            SandboxMode::Policy,
+        );
         let header_auto = Header::new(&state_auto);
         assert_eq!(header_auto.state.approval_mode.as_str(), "auto");
 
-        let state_full = AppState::new(cwd.clone(), "test".to_string(), provider, ApprovalMode::FullAccess);
+        let state_full = AppState::new(
+            cwd.clone(),
+            "test".to_string(),
+            provider,
+            ApprovalMode::FullAccess,
+            SandboxMode::Policy,
+        );
         let header_full = Header::new(&state_full);
         assert_eq!(header_full.state.approval_mode.as_str(), "full-access");
     }
