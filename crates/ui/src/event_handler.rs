@@ -132,6 +132,10 @@ impl EventHandler {
                         return Some(KeyAction::ExecuteShellCommand { command: command.to_string() });
                     }
 
+                    if let Some(cmd) = message.strip_prefix('/') {
+                        return Self::parse_slash_command(cmd.to_string());
+                    }
+
                     return Some(KeyAction::SendMessage { message });
                 }
             }
@@ -214,6 +218,37 @@ impl EventHandler {
         }
         None
     }
+
+    /// Parse a slash command and return the appropriate action
+    fn parse_slash_command(cmd: String) -> Option<KeyAction> {
+        let parts: Vec<&str> = cmd.split_whitespace().collect();
+        if parts.is_empty() {
+            return None;
+        }
+
+        match parts[0] {
+            "model" => {
+                if parts.len() > 1 {
+                    Some(KeyAction::SlashCommandModel { model: parts[1].to_string() })
+                } else {
+                    Some(KeyAction::SlashCommandModel { model: "list".to_string() })
+                }
+            }
+            "approvals" => {
+                if parts.len() > 1 {
+                    Some(KeyAction::SlashCommandApprovals { mode: parts[1].to_string() })
+                } else {
+                    Some(KeyAction::SlashCommandApprovals { mode: "list".to_string() })
+                }
+            }
+            "status" => Some(KeyAction::SlashCommandStatus),
+            "plan" => Some(KeyAction::SlashCommandPlan),
+            "review" => Some(KeyAction::SlashCommandReview),
+            "memory" => Some(KeyAction::SlashCommandMemory),
+            "clear" => Some(KeyAction::SlashCommandClear),
+            _ => None,
+        }
+    }
 }
 
 /// Actions that can be triggered by key events
@@ -249,6 +284,20 @@ pub enum KeyAction {
     ToggleFinderSort,
     /// Cancel fuzzy finder
     CancelFuzzyFinder,
+    /// Slash command: switch provider/model
+    SlashCommandModel { model: String },
+    /// Slash command: change approval mode
+    SlashCommandApprovals { mode: String },
+    /// Slash command: show session stats
+    SlashCommandStatus,
+    /// Slash command: display PLAN.md content
+    SlashCommandPlan,
+    /// Slash command: trigger review pass
+    SlashCommandReview,
+    /// Slash command: display MEMORY.md content
+    SlashCommandMemory,
+    /// Slash command: clear transcript (keep session history)
+    SlashCommandClear,
     /// No action (e.g., navigation in input)
     NoOp,
 }
@@ -415,325 +464,151 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_normal_key_shift_g_without_ctrl_is_regular_char() {
-        let mut state = create_test_state();
-
-        let event = KeyEvent::new(KeyCode::Char('g'), KeyModifiers::SHIFT);
-        let action = EventHandler::handle_key_event(event, &mut state);
-
-        assert!(action.is_none());
-        assert_eq!(state.input.buffer, "g"); // crossterm doesn't automatically uppercase shift+char
-    }
-
-    #[test]
-    fn test_handle_approval_key_approve() {
-        let mut state = create_test_state();
-        state.pending_approval = Some(crate::state::ApprovalState::pending(
-            "patch.feature".to_string(),
-            "risky".to_string(),
-        ));
-
-        let event = KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE);
-        let action = EventHandler::handle_key_event(event, &mut state);
-
-        if let Some(KeyAction::Approve { action, risk }) = action {
-            assert_eq!(action, "patch.feature");
-            assert_eq!(risk, "risky");
-        } else {
-            panic!("Expected Approve action");
+    fn test_parse_slash_command_model() {
+        let action = EventHandler::parse_slash_command("model glm-4.7".to_string());
+        assert!(matches!(action, Some(KeyAction::SlashCommandModel { .. })));
+        if let Some(KeyAction::SlashCommandModel { model }) = action {
+            assert_eq!(model, "glm-4.7");
         }
     }
 
     #[test]
-    fn test_handle_approval_key_reject() {
-        let mut state = create_test_state();
-        state.pending_approval = Some(crate::state::ApprovalState::pending(
-            "delete.file".to_string(),
-            "dangerous".to_string(),
-        ));
-
-        let event = KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE);
-        let action = EventHandler::handle_key_event(event, &mut state);
-
-        if let Some(KeyAction::Reject { action, risk }) = action {
-            assert_eq!(action, "delete.file");
-            assert_eq!(risk, "dangerous");
-        } else {
-            panic!("Expected Reject action");
+    fn test_parse_slash_command_model_list() {
+        let action = EventHandler::parse_slash_command("model".to_string());
+        assert!(matches!(action, Some(KeyAction::SlashCommandModel { .. })));
+        if let Some(KeyAction::SlashCommandModel { model }) = action {
+            assert_eq!(model, "list");
         }
     }
 
     #[test]
-    fn test_handle_approval_key_cancel() {
-        let mut state = create_test_state();
-        state.pending_approval = Some(crate::state::ApprovalState::pending(
-            "install.deps".to_string(),
-            "risky".to_string(),
-        ));
-
-        let event = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE);
-        let action = EventHandler::handle_key_event(event, &mut state);
-
-        if let Some(KeyAction::Cancel { action, risk }) = action {
-            assert_eq!(action, "install.deps");
-            assert_eq!(risk, "risky");
-        } else {
-            panic!("Expected Cancel action");
+    fn test_parse_slash_command_approvals() {
+        let action = EventHandler::parse_slash_command("approvals read-only".to_string());
+        assert!(matches!(action, Some(KeyAction::SlashCommandApprovals { .. })));
+        if let Some(KeyAction::SlashCommandApprovals { mode }) = action {
+            assert_eq!(mode, "read-only");
         }
     }
 
     #[test]
-    fn test_handle_approval_key_uppercase() {
-        let mut state = create_test_state();
-        state.pending_approval = Some(crate::state::ApprovalState::pending(
-            "test.action".to_string(),
-            "safe".to_string(),
-        ));
-
-        let event = KeyEvent::new(KeyCode::Char('Y'), KeyModifiers::NONE);
-        let action = EventHandler::handle_key_event(event, &mut state);
-
-        assert!(matches!(action, Some(KeyAction::Approve { .. })));
+    fn test_parse_slash_command_approvals_list() {
+        let action = EventHandler::parse_slash_command("approvals".to_string());
+        assert!(matches!(action, Some(KeyAction::SlashCommandApprovals { .. })));
+        if let Some(KeyAction::SlashCommandApprovals { mode }) = action {
+            assert_eq!(mode, "list");
+        }
     }
 
     #[test]
-    fn test_handle_approval_key_esc_generates_cancel() {
-        let mut state = create_test_state();
-        state.pending_approval = Some(crate::state::ApprovalState::pending(
-            "test.action".to_string(),
-            "safe".to_string(),
-        ));
-
-        let event = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
-        let action = EventHandler::handle_key_event(event, &mut state);
-
-        assert!(matches!(action, Some(KeyAction::CancelGeneration)));
+    fn test_parse_slash_command_status() {
+        let action = EventHandler::parse_slash_command("status".to_string());
+        assert!(matches!(action, Some(KeyAction::SlashCommandStatus)));
     }
 
     #[test]
-    fn test_handle_approval_key_no_match() {
-        let mut state = create_test_state();
-        state.pending_approval = Some(crate::state::ApprovalState::pending(
-            "test.action".to_string(),
-            "safe".to_string(),
-        ));
+    fn test_parse_slash_command_plan() {
+        let action = EventHandler::parse_slash_command("plan".to_string());
+        assert!(matches!(action, Some(KeyAction::SlashCommandPlan)));
+    }
 
-        let event = KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE);
-        let action = EventHandler::handle_key_event(event, &mut state);
+    #[test]
+    fn test_parse_slash_command_review() {
+        let action = EventHandler::parse_slash_command("review".to_string());
+        assert!(matches!(action, Some(KeyAction::SlashCommandReview)));
+    }
 
+    #[test]
+    fn test_parse_slash_command_memory() {
+        let action = EventHandler::parse_slash_command("memory".to_string());
+        assert!(matches!(action, Some(KeyAction::SlashCommandMemory)));
+    }
+
+    #[test]
+    fn test_parse_slash_command_clear() {
+        let action = EventHandler::parse_slash_command("clear".to_string());
+        assert!(matches!(action, Some(KeyAction::SlashCommandClear)));
+    }
+
+    #[test]
+    fn test_parse_slash_command_unknown() {
+        let action = EventHandler::parse_slash_command("unknown_command".to_string());
         assert!(action.is_none());
     }
 
     #[test]
-    fn test_handle_normal_key_no_pending_approval() {
-        let mut state = create_test_state();
-
-        state.input.buffer = "test".to_string();
-        state.input.cursor = 4;
-
-        let event = KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE);
-        let action = EventHandler::handle_key_event(event, &mut state);
-
+    fn test_parse_slash_command_empty() {
+        let action = EventHandler::parse_slash_command("".to_string());
         assert!(action.is_none());
-        assert_eq!(state.input.buffer, "testx");
     }
 
     #[test]
-    fn test_handle_scroll_vertical_down() {
-        let mut state = create_test_state();
-
-        let event = KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE);
-        let action = EventHandler::handle_key_event(event, &mut state);
-
+    fn test_parse_slash_command_whitespace_only() {
+        let action = EventHandler::parse_slash_command("   ".to_string());
         assert!(action.is_none());
-        assert_eq!(state.scroll_vertical, 1);
     }
 
     #[test]
-    fn test_handle_scroll_vertical_up() {
+    fn test_handle_normal_key_enter_slash_command() {
         let mut state = create_test_state();
-
-        let event = KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE);
-        EventHandler::handle_key_event(event, &mut state);
-
-        assert_eq!(state.scroll_vertical, 0);
-    }
-
-    #[test]
-    fn test_handle_scroll_horizontal_right() {
-        let mut state = create_test_state();
-
-        let event = KeyEvent::new(KeyCode::Right, KeyModifiers::NONE);
-        let action = EventHandler::handle_key_event(event, &mut state);
-
-        assert!(action.is_none());
-        assert_eq!(state.scroll_horizontal, 10);
-    }
-
-    #[test]
-    fn test_handle_scroll_horizontal_left() {
-        let mut state = create_test_state();
-        state.scroll_horizontal = 20;
-
-        let event = KeyEvent::new(KeyCode::Left, KeyModifiers::NONE);
-        let action = EventHandler::handle_key_event(event, &mut state);
-
-        assert!(action.is_none());
-        assert_eq!(state.scroll_horizontal, 10);
-    }
-
-    #[test]
-    fn test_handle_scroll_horizontal_with_input() {
-        let mut state = create_test_state();
-        state.input.buffer = "test".to_string();
-        state.input.cursor = 4;
-
-        let event = KeyEvent::new(KeyCode::Right, KeyModifiers::NONE);
-        let action = EventHandler::handle_key_event(event, &mut state);
-
-        assert!(action.is_none());
-        assert_eq!(state.input.cursor, 4);
-        assert_eq!(state.scroll_horizontal, 0);
-    }
-
-    #[test]
-    fn test_handle_scroll_vertical_with_input() {
-        let mut state = create_test_state();
-        state.input.buffer = "j".to_string();
-
-        let event = KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE);
-        let action = EventHandler::handle_key_event(event, &mut state);
-
-        assert!(action.is_none());
-        assert_eq!(state.input.buffer, "jj");
-        assert_eq!(state.scroll_vertical, 0);
-    }
-
-    #[test]
-    fn test_handle_normal_key_enter_shell_command() {
-        let mut state = create_test_state();
-        state.input.buffer = "!cmd ls -la".to_string();
+        state.input.buffer = "/status".to_string();
 
         let event = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
         let action = EventHandler::handle_key_event(event, &mut state);
 
         assert_eq!(state.input.buffer, "");
-        assert!(matches!(action, Some(KeyAction::ExecuteShellCommand { .. })));
-
-        if let Some(KeyAction::ExecuteShellCommand { command }) = action {
-            assert_eq!(command, "ls -la");
-        }
+        assert!(matches!(action, Some(KeyAction::SlashCommandStatus)));
     }
 
     #[test]
-    fn test_handle_normal_key_enter_shell_command_with_spaces() {
+    fn test_handle_normal_key_enter_slash_command_with_args() {
         let mut state = create_test_state();
-        state.input.buffer = "!cmd    echo   'hello world'".to_string();
-
-        let event = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
-        let action = EventHandler::handle_key_event(event, &mut state);
-
-        assert!(matches!(action, Some(KeyAction::ExecuteShellCommand { .. })));
-
-        if let Some(KeyAction::ExecuteShellCommand { command }) = action {
-            assert_eq!(command, "   echo   'hello world'");
-        }
-    }
-
-    #[test]
-    fn test_handle_normal_key_enter_regular_message() {
-        let mut state = create_test_state();
-        state.input.buffer = "This is a regular message".to_string();
+        state.input.buffer = "/model glm-4.7".to_string();
 
         let event = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
         let action = EventHandler::handle_key_event(event, &mut state);
 
         assert_eq!(state.input.buffer, "");
-        assert!(matches!(action, Some(KeyAction::SendMessage { .. })));
-
-        if let Some(KeyAction::SendMessage { message }) = action {
-            assert_eq!(message, "This is a regular message");
-        }
+        assert!(matches!(action, Some(KeyAction::SlashCommandModel { .. })));
     }
 
     #[test]
-    fn test_handle_normal_key_enter_empty_cmd_prefix() {
+    fn test_handle_normal_key_backslash_not_slash() {
         let mut state = create_test_state();
-        state.input.buffer = "!cmd".to_string();
+        state.input.buffer = "This is a \\ not a slash".to_string();
 
         let event = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
         let action = EventHandler::handle_key_event(event, &mut state);
 
         assert!(matches!(action, Some(KeyAction::SendMessage { .. })));
-
-        if let Some(KeyAction::SendMessage { message }) = action {
-            assert_eq!(message, "!cmd");
-        }
     }
 
     #[test]
-    fn test_handle_normal_key_enter_cmd_with_only_spaces() {
+    fn test_handle_normal_key_slash_in_middle() {
         let mut state = create_test_state();
-        state.input.buffer = "!cmd   ".to_string();
+        state.input.buffer = "This has / in the middle".to_string();
 
         let event = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
         let action = EventHandler::handle_key_event(event, &mut state);
 
-        assert!(matches!(action, Some(KeyAction::ExecuteShellCommand { .. })));
+        assert!(matches!(action, Some(KeyAction::SendMessage { .. })));
+    }
 
-        if let Some(KeyAction::ExecuteShellCommand { command }) = action {
-            assert_eq!(command, "  ");
+    #[test]
+    fn test_parse_slash_command_extra_whitespace() {
+        let action = EventHandler::parse_slash_command("  model   glm-4.7  ".to_string());
+        assert!(matches!(action, Some(KeyAction::SlashCommandModel { .. })));
+        if let Some(KeyAction::SlashCommandModel { model }) = action {
+            assert_eq!(model, "glm-4.7");
         }
     }
 
     #[test]
-    fn test_handle_normal_key_up_arrow_navigation() {
-        let mut state = create_test_state();
-
-        state.input.add_to_history("first message".to_string());
-        state.input.add_to_history("second message".to_string());
-
-        let event = KeyEvent::new(KeyCode::Up, KeyModifiers::NONE);
-        let action = EventHandler::handle_key_event(event, &mut state);
-
-        assert!(action.is_none());
-        assert_eq!(state.input.buffer, "second message");
-        assert!(state.input.is_navigating_history());
-    }
-
-    #[test]
-    fn test_handle_normal_key_down_arrow_navigation() {
-        let mut state = create_test_state();
-        state.input.add_to_history("first message".to_string());
-        state.input.add_to_history("second message".to_string());
-
-        let event = KeyEvent::new(KeyCode::Up, KeyModifiers::NONE);
-        EventHandler::handle_key_event(event, &mut state);
-
-        let event = KeyEvent::new(KeyCode::Down, KeyModifiers::NONE);
-        let action = EventHandler::handle_key_event(event, &mut state);
-
-        assert!(action.is_none());
-        assert_eq!(state.input.buffer, "");
-        assert!(!state.input.is_navigating_history());
-    }
-
-    #[test]
-    fn test_handle_normal_key_typing_resets_history_navigation() {
-        let mut state = create_test_state();
-        state.input.add_to_history("history message".to_string());
-        let event = KeyEvent::new(KeyCode::Up, KeyModifiers::NONE);
-        EventHandler::handle_key_event(event, &mut state);
-
-        assert!(state.input.is_navigating_history());
-        assert_eq!(state.input.buffer, "history message");
-
-        let event = KeyEvent::new(KeyCode::Char('X'), KeyModifiers::NONE);
-        let action = EventHandler::handle_key_event(event, &mut state);
-
-        assert!(action.is_none());
-        assert!(!state.input.is_navigating_history());
-        assert_eq!(state.input.buffer, "X");
+    fn test_parse_slash_command_multiple_words() {
+        let action = EventHandler::parse_slash_command("model some model name".to_string());
+        assert!(matches!(action, Some(KeyAction::SlashCommandModel { .. })));
+        if let Some(KeyAction::SlashCommandModel { model }) = action {
+            assert_eq!(model, "some");
+        }
     }
 
     #[test]

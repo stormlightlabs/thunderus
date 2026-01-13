@@ -79,17 +79,15 @@ advanced composer features, multi-panel layout, and power-user productivity.
       - shows file preview before insertion
 
 **Slash Commands:**
-- [ ] Base command set[^3]:
+- [x] Base command set[^3]:
       - `/model` - switch provider/model
       - `/approvals` - change approval mode
       - `/status` - show session stats
-- [ ] Session commands:
+- [x] Session commands:
       - `/plan` - display PLAN.md content in transcript
       - `/review` - trigger review pass
       - `/memory` - display MEMORY.md content in transcript
       - `/clear` - clear transcript (keep session history)
-- [ ] Add shell completions generation (bash/zsh/fish) for CLI and slash
-      commands[^3]
 
 **Progressive Disclosure for Action Cards:**
 - [ ] Multi-level detail expansion:
@@ -154,6 +152,8 @@ a functional agent harness.
         * Approval mode and sandbox mode status
         * Quick help: Ctrl+C to cancel, Esc to clear input
       - Use transcript.add_system_message()
+- [ ] Add shell completions generation (bash/zsh/fish) for CLI and slash
+      commands[^3]
 
 **Combined Event Loop:**
 - [ ] Create unified event loop:

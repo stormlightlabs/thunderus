@@ -146,6 +146,29 @@ impl App {
                 KeyAction::NavigateFinderDown => {}
                 KeyAction::ToggleFinderSort => {}
                 KeyAction::CancelFuzzyFinder => {}
+                KeyAction::SlashCommandModel { model } => {
+                    self.handle_model_command(model);
+                }
+                KeyAction::SlashCommandApprovals { mode } => {
+                    self.handle_approvals_command(mode);
+                }
+                KeyAction::SlashCommandStatus => {
+                    self.handle_status_command();
+                }
+                KeyAction::SlashCommandPlan => {
+                    self.handle_plan_command();
+                }
+                KeyAction::SlashCommandReview => {
+                    self.handle_review_command();
+                }
+                KeyAction::SlashCommandMemory => {
+                    self.handle_memory_command();
+                }
+                KeyAction::SlashCommandClear => {
+                    self.transcript_mut().clear();
+                    self.transcript_mut()
+                        .add_system_message("Transcript cleared (session history preserved)");
+                }
                 KeyAction::NoOp => {}
             }
         }
@@ -261,6 +284,148 @@ impl App {
 
         let _ = fs::remove_file(&temp_file_path);
         let _ = self.redraw_screen();
+    }
+
+    /// Handle /model command
+    fn handle_model_command(&mut self, model: String) {
+        if model == "list" {
+            let provider_name = self.state.provider_name();
+            let model_name = self.state.model_name();
+            self.transcript_mut().add_system_message(format!(
+                "Available models:\n  Current: {} ({})\n  Available: glm-4.7, gemini-2.5-flash",
+                provider_name, model_name
+            ));
+            return;
+        }
+
+        match model.as_str() {
+            "glm-4.7" => {
+                self.transcript_mut()
+                    .add_system_message("Switching to GLM-4.7 is not yet implemented in this version");
+            }
+            "gemini-2.5-flash" => {
+                self.transcript_mut()
+                    .add_system_message("Switching to Gemini-2.5-flash is not yet implemented in this version");
+            }
+            _ => {
+                self.transcript_mut().add_system_message(format!(
+                    "Unknown model: {}. Use /model list to see available models.",
+                    model
+                ));
+            }
+        }
+    }
+
+    /// Handle /approvals command
+    fn handle_approvals_command(&mut self, mode: String) {
+        use thunderus_core::ApprovalMode;
+
+        if mode == "list" {
+            let current_mode = self.state.approval_mode;
+            self.transcript_mut().add_system_message(format!(
+                "Available approval modes:\n  Current: {}\n  Available: read-only, auto, full-access",
+                current_mode
+            ));
+            return;
+        }
+
+        match mode.as_str() {
+            "read-only" => {
+                let old_mode = self.state.approval_mode;
+                self.state.approval_mode = ApprovalMode::ReadOnly;
+                self.transcript_mut()
+                    .add_system_message(format!("Approval mode changed: {} → read-only", old_mode));
+            }
+            "auto" => {
+                let old_mode = self.state.approval_mode;
+                self.state.approval_mode = ApprovalMode::Auto;
+                self.transcript_mut()
+                    .add_system_message(format!("Approval mode changed: {} → auto", old_mode));
+            }
+            "full-access" => {
+                let old_mode = self.state.approval_mode;
+                self.state.approval_mode = ApprovalMode::FullAccess;
+                self.transcript_mut()
+                    .add_system_message(format!("Approval mode changed: {} → full-access", old_mode));
+            }
+            _ => {
+                self.transcript_mut().add_system_message(format!(
+                    "Unknown approval mode: {}. Use /approvals list to see available modes.",
+                    mode
+                ));
+            }
+        }
+    }
+
+    /// Handle /status command
+    fn handle_status_command(&mut self) {
+        let profile = self.state.profile.clone();
+        let provider_name = self.state.provider_name();
+        let model_name = self.state.model_name();
+        let approval_mode = self.state.approval_mode;
+        let sandbox_mode = self.state.sandbox_mode;
+        let cwd = self.state.cwd.display();
+        let session_events_count = self.state.session_events.len();
+        let modified_files_count = self.state.modified_files.len();
+        let has_pending_approval = self.state.pending_approval.is_some();
+
+        let status = format!(
+            "Session Status:\n\
+             Profile: {}\n\
+             Provider: {} ({})\n\
+             Approval Mode: {}\n\
+             Sandbox Mode: {}\n\
+             Working Directory: {}\n\
+             Session Events: {}\n\
+             Modified Files: {}\n\
+             Pending Approvals: {}",
+            profile,
+            provider_name,
+            model_name,
+            approval_mode,
+            sandbox_mode,
+            cwd,
+            session_events_count,
+            modified_files_count,
+            has_pending_approval
+        );
+        self.transcript_mut().add_system_message(status);
+    }
+
+    /// Handle /plan command
+    fn handle_plan_command(&mut self) {
+        let plan_path = self.state.cwd.join("PLAN.md");
+        match fs::read_to_string(&plan_path) {
+            Ok(content) => {
+                self.transcript_mut()
+                    .add_system_message(format!("PLAN.md:\n\n{}", content));
+            }
+            Err(_) => {
+                self.transcript_mut()
+                    .add_system_message("PLAN.md not found in the current working directory");
+            }
+        }
+    }
+
+    /// Handle /review command
+    fn handle_review_command(&mut self) {
+        self.transcript_mut()
+            .add_system_message("Review pass triggered. This feature is not yet implemented in this version.");
+    }
+
+    /// Handle /memory command
+    fn handle_memory_command(&mut self) {
+        let memory_path = self.state.cwd.join("MEMORY.md");
+        match fs::read_to_string(&memory_path) {
+            Ok(content) => {
+                self.transcript_mut()
+                    .add_system_message(format!("MEMORY.md:\n\n{}", content));
+            }
+            Err(_) => {
+                self.transcript_mut()
+                    .add_system_message("MEMORY.md not found in the current working directory");
+            }
+        }
     }
 
     /// Redraw the screen after returning from external editor
@@ -866,5 +1031,211 @@ mod tests {
         let app = create_test_app();
         let result = app.redraw_screen();
         assert!(result.is_ok() || result.is_err());
+    }
+
+    #[test]
+    fn test_handle_model_command_list() {
+        let mut app = create_test_app();
+        app.handle_model_command("list".to_string());
+
+        assert_eq!(app.transcript().len(), 1);
+        if let crate::transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
+            assert!(content.contains("Available models"));
+            assert!(content.contains("Current"));
+        } else {
+            panic!("Expected SystemMessage");
+        }
+    }
+
+    #[test]
+    fn test_handle_model_command_unknown() {
+        let mut app = create_test_app();
+        app.handle_model_command("unknown-model".to_string());
+
+        assert_eq!(app.transcript().len(), 1);
+        if let crate::transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
+            assert!(content.contains("Unknown model"));
+        } else {
+            panic!("Expected SystemMessage");
+        }
+    }
+
+    #[test]
+    fn test_handle_approvals_command_list() {
+        let mut app = create_test_app();
+        app.handle_approvals_command("list".to_string());
+
+        assert_eq!(app.transcript().len(), 1);
+        if let crate::transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
+            assert!(content.contains("Available approval modes"));
+            assert!(content.contains("Current"));
+        } else {
+            panic!("Expected SystemMessage");
+        }
+    }
+
+    #[test]
+    fn test_handle_approvals_command_read_only() {
+        let mut app = create_test_app();
+        app.state_mut().approval_mode = thunderus_core::ApprovalMode::Auto;
+
+        app.handle_approvals_command("read-only".to_string());
+
+        assert_eq!(app.state.approval_mode, thunderus_core::ApprovalMode::ReadOnly);
+        assert_eq!(app.transcript().len(), 1);
+    }
+
+    #[test]
+    fn test_handle_approvals_command_auto() {
+        let mut app = create_test_app();
+        app.state_mut().approval_mode = thunderus_core::ApprovalMode::ReadOnly;
+
+        app.handle_approvals_command("auto".to_string());
+
+        assert_eq!(app.state.approval_mode, thunderus_core::ApprovalMode::Auto);
+        assert_eq!(app.transcript().len(), 1);
+    }
+
+    #[test]
+    fn test_handle_approvals_command_full_access() {
+        let mut app = create_test_app();
+        app.state_mut().approval_mode = thunderus_core::ApprovalMode::Auto;
+
+        app.handle_approvals_command("full-access".to_string());
+
+        assert_eq!(app.state.approval_mode, thunderus_core::ApprovalMode::FullAccess);
+        assert_eq!(app.transcript().len(), 1);
+    }
+
+    #[test]
+    fn test_handle_approvals_command_unknown() {
+        let mut app = create_test_app();
+        let original_mode = app.state.approval_mode;
+
+        app.handle_approvals_command("unknown-mode".to_string());
+
+        assert_eq!(app.state.approval_mode, original_mode);
+        assert_eq!(app.transcript().len(), 1);
+        if let crate::transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
+            assert!(content.contains("Unknown approval mode"));
+        } else {
+            panic!("Expected SystemMessage");
+        }
+    }
+
+    #[test]
+    fn test_handle_status_command() {
+        let mut app = create_test_app();
+
+        app.handle_status_command();
+
+        assert_eq!(app.transcript().len(), 1);
+        if let crate::transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
+            assert!(content.contains("Session Status"));
+            assert!(content.contains("Profile"));
+            assert!(content.contains("Provider"));
+            assert!(content.contains("Approval Mode"));
+            assert!(content.contains("Sandbox Mode"));
+        } else {
+            panic!("Expected SystemMessage");
+        }
+    }
+
+    #[test]
+    fn test_handle_plan_command() {
+        let mut app = create_test_app();
+
+        app.handle_plan_command();
+
+        assert_eq!(app.transcript().len(), 1);
+        if let crate::transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
+            assert!(content.contains("not found"));
+        } else {
+            panic!("Expected SystemMessage");
+        }
+    }
+
+    #[test]
+    fn test_handle_review_command() {
+        let mut app = create_test_app();
+
+        app.handle_review_command();
+
+        assert_eq!(app.transcript().len(), 1);
+        if let crate::transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
+            assert!(content.contains("Review pass triggered"));
+            assert!(content.contains("not yet implemented"));
+        } else {
+            panic!("Expected SystemMessage");
+        }
+    }
+
+    #[test]
+    fn test_handle_memory_command() {
+        let mut app = create_test_app();
+
+        app.handle_memory_command();
+
+        assert_eq!(app.transcript().len(), 1);
+        if let crate::transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
+            assert!(content.contains("not found"));
+        } else {
+            panic!("Expected SystemMessage");
+        }
+    }
+
+    #[test]
+    fn test_handle_clear_command() {
+        let mut app = create_test_app();
+
+        app.transcript_mut().add_user_message("Test message");
+        app.transcript_mut().add_system_message("Test system message");
+
+        assert_eq!(app.transcript().len(), 2);
+
+        app.state_mut().input.buffer = "/clear".to_string();
+        app.handle_event(crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Enter,
+            crossterm::event::KeyModifiers::NONE,
+        )));
+
+        assert_eq!(app.transcript().len(), 1);
+        if let crate::transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
+            assert!(content.contains("Transcript cleared"));
+        } else {
+            panic!("Expected SystemMessage");
+        }
+    }
+
+    #[test]
+    fn test_slash_command_integration() {
+        let mut app = create_test_app();
+
+        app.state_mut().input.buffer = "/status".to_string();
+        let event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Enter,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        app.handle_event(event);
+
+        assert_eq!(app.transcript().len(), 1);
+        assert!(app.state().input.buffer.is_empty());
+    }
+
+    #[test]
+    fn test_slash_command_with_args_integration() {
+        let mut app = create_test_app();
+        let original_mode = app.state().approval_mode;
+
+        app.state_mut().input.buffer = "/approvals read-only".to_string();
+        let event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Enter,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        app.handle_event(event);
+
+        assert_eq!(app.state.approval_mode, thunderus_core::ApprovalMode::ReadOnly);
+        assert_ne!(app.state.approval_mode, original_mode);
+        assert_eq!(app.transcript().len(), 1);
     }
 }
