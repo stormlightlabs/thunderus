@@ -9,10 +9,9 @@ pub struct EventHandler;
 impl EventHandler {
     /// Read a single event from the terminal
     pub fn read() -> Result<Option<Event>> {
-        if crossterm::event::poll(std::time::Duration::from_millis(100))? {
-            Ok(Some(crossterm::event::read()?))
-        } else {
-            Ok(None)
+        match crossterm::event::poll(std::time::Duration::from_millis(100)) {
+            Ok(true) => Ok(Some(crossterm::event::read()?)),
+            _ => Ok(None),
         }
     }
 
@@ -92,38 +91,28 @@ impl EventHandler {
     /// Handle keys when there's a pending approval
     fn handle_approval_key(event: KeyEvent, state: &mut AppState) -> Option<KeyAction> {
         match event.code {
-            KeyCode::Char('y') | KeyCode::Char('Y') => {
-                if let Some(ref approval) = state.pending_approval {
-                    return Some(KeyAction::Approve { action: approval.action.clone(), risk: approval.risk.clone() });
-                }
-            }
-            KeyCode::Char('n') | KeyCode::Char('N') => {
-                if let Some(ref approval) = state.pending_approval {
-                    return Some(KeyAction::Reject { action: approval.action.clone(), risk: approval.risk.clone() });
-                }
-            }
-            KeyCode::Char('c') | KeyCode::Char('C') => {
-                if let Some(ref approval) = state.pending_approval {
-                    return Some(KeyAction::Cancel { action: approval.action.clone(), risk: approval.risk.clone() });
-                }
-            }
-            KeyCode::Esc => {
-                return Some(KeyAction::CancelGeneration);
-            }
-            _ => {}
+            KeyCode::Char('y') | KeyCode::Char('Y') => state
+                .pending_approval
+                .as_ref()
+                .map(|approval| KeyAction::Approve { action: approval.action.clone(), risk: approval.risk.clone() }),
+            KeyCode::Char('n') | KeyCode::Char('N') => state
+                .pending_approval
+                .as_ref()
+                .map(|approval| KeyAction::Reject { action: approval.action.clone(), risk: approval.risk.clone() }),
+            KeyCode::Char('c') | KeyCode::Char('C') => state
+                .pending_approval
+                .as_ref()
+                .map(|approval| KeyAction::Cancel { action: approval.action.clone(), risk: approval.risk.clone() }),
+            KeyCode::Esc => Some(KeyAction::CancelGeneration),
+            _ => None,
         }
-        None
     }
 
     /// Handle keys in normal mode (no pending approval)
     fn handle_normal_key(event: KeyEvent, state: &mut AppState) -> Option<KeyAction> {
         match event.code {
-            KeyCode::Up => {
-                state.input.navigate_up();
-            }
-            KeyCode::Down => {
-                state.input.navigate_down();
-            }
+            KeyCode::Up => state.input.navigate_up(),
+            KeyCode::Down => state.input.navigate_down(),
             KeyCode::Char(' ') => {
                 if state.input.buffer.is_empty() {
                     return Some(KeyAction::ToggleCardExpand);
@@ -132,7 +121,16 @@ impl EventHandler {
                 }
             }
             KeyCode::Char('v') | KeyCode::Char('V') => {
-                if state.input.buffer.is_empty() {
+                if state.input.buffer.is_empty()
+                    && event.modifiers.contains(KeyModifiers::CONTROL)
+                    && event.modifiers.contains(KeyModifiers::SHIFT)
+                {
+                    state.verbosity.toggle();
+                    return Some(KeyAction::ToggleVerbosity);
+                } else if state.input.buffer.is_empty()
+                    && !event.modifiers.contains(KeyModifiers::CONTROL)
+                    && !event.modifiers.contains(KeyModifiers::SHIFT)
+                {
                     return Some(KeyAction::ToggleCardVerbose);
                 } else {
                     state.input.insert_char('v');
@@ -215,12 +213,8 @@ impl EventHandler {
                     state.input.move_right();
                 }
             }
-            KeyCode::Home => {
-                state.input.move_home();
-            }
-            KeyCode::End => {
-                state.input.move_end();
-            }
+            KeyCode::Home => state.input.move_home(),
+            KeyCode::End => state.input.move_end(),
             KeyCode::Esc => {
                 if state.is_generating() {
                     return Some(KeyAction::CancelGeneration);
@@ -228,7 +222,7 @@ impl EventHandler {
                     state.input.clear();
                 }
             }
-            _ => {}
+            _ => (),
         }
         None
     }
@@ -253,6 +247,13 @@ impl EventHandler {
                     Some(KeyAction::SlashCommandApprovals { mode: parts[1].to_string() })
                 } else {
                     Some(KeyAction::SlashCommandApprovals { mode: "list".to_string() })
+                }
+            }
+            "verbosity" => {
+                if parts.len() > 1 {
+                    Some(KeyAction::SlashCommandVerbosity { level: parts[1].to_string() })
+                } else {
+                    Some(KeyAction::SlashCommandVerbosity { level: "list".to_string() })
                 }
             }
             "status" => Some(KeyAction::SlashCommandStatus),
@@ -282,6 +283,11 @@ pub enum KeyAction {
     CancelGeneration,
     /// Toggle sidebar
     ToggleSidebar,
+    /// Toggle verbosity level
+    ToggleVerbosity,
+    /// Toggle sidebar section collapse
+    /// TODO: individual section control
+    ToggleSidebarSection,
     /// Open external editor for current input
     OpenExternalEditor,
     /// Navigate message history (handled internally by InputState)
@@ -302,6 +308,8 @@ pub enum KeyAction {
     SlashCommandModel { model: String },
     /// Slash command: change approval mode
     SlashCommandApprovals { mode: String },
+    /// Slash command: change verbosity level
+    SlashCommandVerbosity { level: String },
     /// Slash command: show session stats
     SlashCommandStatus,
     /// Slash command: display PLAN.md content
@@ -522,6 +530,42 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_slash_command_verbosity() {
+        let action = EventHandler::parse_slash_command("verbosity verbose".to_string());
+        assert!(matches!(action, Some(KeyAction::SlashCommandVerbosity { .. })));
+        if let Some(KeyAction::SlashCommandVerbosity { level }) = action {
+            assert_eq!(level, "verbose");
+        }
+    }
+
+    #[test]
+    fn test_parse_slash_command_verbosity_list() {
+        let action = EventHandler::parse_slash_command("verbosity".to_string());
+        assert!(matches!(action, Some(KeyAction::SlashCommandVerbosity { .. })));
+        if let Some(KeyAction::SlashCommandVerbosity { level }) = action {
+            assert_eq!(level, "list");
+        }
+    }
+
+    #[test]
+    fn test_parse_slash_command_verbosity_all_levels() {
+        let action_quiet = EventHandler::parse_slash_command("verbosity quiet".to_string());
+        if let Some(KeyAction::SlashCommandVerbosity { level }) = action_quiet {
+            assert_eq!(level, "quiet");
+        }
+
+        let action_default = EventHandler::parse_slash_command("verbosity default".to_string());
+        if let Some(KeyAction::SlashCommandVerbosity { level }) = action_default {
+            assert_eq!(level, "default");
+        }
+
+        let action_verbose = EventHandler::parse_slash_command("verbosity verbose".to_string());
+        if let Some(KeyAction::SlashCommandVerbosity { level }) = action_verbose {
+            assert_eq!(level, "verbose");
+        }
+    }
+
+    #[test]
     fn test_parse_slash_command_status() {
         let action = EventHandler::parse_slash_command("status".to_string());
         assert!(matches!(action, Some(KeyAction::SlashCommandStatus)));
@@ -723,6 +767,28 @@ mod tests {
         if let Some(KeyAction::SlashCommandModel { model }) = action {
             assert_eq!(model, "some");
         }
+    }
+
+    #[test]
+    fn test_handle_normal_key_ctrl_shift_v_toggle_verbosity() {
+        let mut state = create_test_state();
+        assert_eq!(state.verbosity.as_str(), "quiet");
+
+        let event = KeyEvent::new(KeyCode::Char('v'), KeyModifiers::CONTROL | KeyModifiers::SHIFT);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(matches!(action, Some(KeyAction::ToggleVerbosity)));
+        assert_eq!(state.verbosity.as_str(), "default");
+
+        let event = KeyEvent::new(KeyCode::Char('v'), KeyModifiers::CONTROL | KeyModifiers::SHIFT);
+        let _action = EventHandler::handle_key_event(event, &mut state);
+
+        assert_eq!(state.verbosity.as_str(), "verbose");
+
+        let event = KeyEvent::new(KeyCode::Char('v'), KeyModifiers::CONTROL | KeyModifiers::SHIFT);
+        let _action = EventHandler::handle_key_event(event, &mut state);
+
+        assert_eq!(state.verbosity.as_str(), "quiet");
     }
 
     #[test]

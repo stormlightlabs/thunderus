@@ -57,7 +57,8 @@ pub enum SandboxMode {
     /// Policy-based sandboxing (enforce workspace roots) (default)
     #[default]
     Policy,
-    /// OS-level sandboxing (future: containers, namespaces)
+    /// OS-level sandboxing
+    /// TODO: containers, namespaces
     Os,
     /// No sandboxing (dangerous, explicit opt-in)
     None,

@@ -2,7 +2,9 @@ use crate::components::{Footer, FuzzyFinderComponent, Header, Sidebar, Transcrip
 use crate::event_handler::{EventHandler, KeyAction};
 use crate::layout::TuiLayout;
 use crate::state::AppState;
+use crate::state::VerbosityLevel;
 use crate::transcript::Transcript as TranscriptState;
+
 use crossterm;
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::env;
@@ -102,9 +104,7 @@ impl App {
                     self.state_mut().input.add_to_history(message.clone());
                     self.transcript_mut().add_user_message(&message);
                 }
-                KeyAction::ExecuteShellCommand { command } => {
-                    self.execute_shell_command(command);
-                }
+                KeyAction::ExecuteShellCommand { command } => self.execute_shell_command(command),
                 KeyAction::Approve { action: _, risk: _ } => {
                     self.transcript_mut()
                         .set_approval_decision(crate::transcript::ApprovalDecision::Approved);
@@ -120,15 +120,10 @@ impl App {
                         .set_approval_decision(crate::transcript::ApprovalDecision::Cancelled);
                     self.state_mut().pending_approval = None;
                 }
-                KeyAction::CancelGeneration => {
-                    self.state_mut().stop_generation();
-                }
-                KeyAction::ToggleSidebar => {}
-                KeyAction::OpenExternalEditor => {
-                    self.open_external_editor();
-                }
-                KeyAction::NavigateHistory => {}
-                KeyAction::ActivateFuzzyFinder => {}
+                KeyAction::CancelGeneration => self.state_mut().stop_generation(),
+                KeyAction::ToggleSidebar | KeyAction::ToggleVerbosity | KeyAction::ToggleSidebarSection => (),
+                KeyAction::OpenExternalEditor => self.open_external_editor(),
+                KeyAction::NavigateHistory | KeyAction::ActivateFuzzyFinder => {}
                 KeyAction::SelectFileInFinder { path } => {
                     self.state_mut().exit_fuzzy_finder();
                     let input = self.state_mut().input.buffer.clone();
@@ -142,28 +137,17 @@ impl App {
                     self.state_mut().input.buffer = new_input;
                     self.state_mut().input.cursor = cursor + 1 + path.len();
                 }
-                KeyAction::NavigateFinderUp => {}
-                KeyAction::NavigateFinderDown => {}
-                KeyAction::ToggleFinderSort => {}
-                KeyAction::CancelFuzzyFinder => {}
-                KeyAction::SlashCommandModel { model } => {
-                    self.handle_model_command(model);
-                }
-                KeyAction::SlashCommandApprovals { mode } => {
-                    self.handle_approvals_command(mode);
-                }
-                KeyAction::SlashCommandStatus => {
-                    self.handle_status_command();
-                }
-                KeyAction::SlashCommandPlan => {
-                    self.handle_plan_command();
-                }
-                KeyAction::SlashCommandReview => {
-                    self.handle_review_command();
-                }
-                KeyAction::SlashCommandMemory => {
-                    self.handle_memory_command();
-                }
+                KeyAction::NavigateFinderUp
+                | KeyAction::NavigateFinderDown
+                | KeyAction::ToggleFinderSort
+                | KeyAction::CancelFuzzyFinder => (),
+                KeyAction::SlashCommandModel { model } => self.handle_model_command(model),
+                KeyAction::SlashCommandApprovals { mode } => self.handle_approvals_command(mode),
+                KeyAction::SlashCommandVerbosity { level } => self.handle_verbosity_command(level),
+                KeyAction::SlashCommandStatus => self.handle_status_command(),
+                KeyAction::SlashCommandPlan => self.handle_plan_command(),
+                KeyAction::SlashCommandReview => self.handle_review_command(),
+                KeyAction::SlashCommandMemory => self.handle_memory_command(),
                 KeyAction::SlashCommandClear => {
                     self.transcript_mut().clear();
                     self.transcript_mut()
@@ -183,7 +167,7 @@ impl App {
                         .transcript_mut()
                         .set_focused_card_detail_level(crate::transcript::CardDetailLevel::Verbose);
                 }
-                KeyAction::NoOp => {}
+                KeyAction::NoOp => (),
             }
         }
     }
@@ -362,12 +346,46 @@ impl App {
                 self.transcript_mut()
                     .add_system_message(format!("Approval mode changed: {} → full-access", old_mode));
             }
-            _ => {
-                self.transcript_mut().add_system_message(format!(
-                    "Unknown approval mode: {}. Use /approvals list to see available modes.",
-                    mode
-                ));
+            _ => self.transcript_mut().add_system_message(format!(
+                "Unknown approval mode: {}. Use /approvals list to see available modes.",
+                mode
+            )),
+        }
+    }
+
+    /// Handle /verbosity command
+    fn handle_verbosity_command(&mut self, level: String) {
+        if level == "list" {
+            let current_level = self.state.verbosity;
+            return self.transcript_mut().add_system_message(format!(
+                "Available verbosity levels:\n  Current: {}\n  Available: quiet, default, verbose",
+                current_level.as_str()
+            ));
+        }
+
+        match level.as_str() {
+            "quiet" => {
+                let old_level = self.state.verbosity;
+                self.state.verbosity = VerbosityLevel::Quiet;
+                self.transcript_mut()
+                    .add_system_message(format!("Verbosity changed: {} → quiet", old_level.as_str()));
             }
+            "default" => {
+                let old_level = self.state.verbosity;
+                self.state.verbosity = VerbosityLevel::Default;
+                self.transcript_mut()
+                    .add_system_message(format!("Verbosity changed: {} → default", old_level.as_str()));
+            }
+            "verbose" => {
+                let old_level = self.state.verbosity;
+                self.state.verbosity = VerbosityLevel::Verbose;
+                self.transcript_mut()
+                    .add_system_message(format!("Verbosity changed: {} → verbose", old_level.as_str()));
+            }
+            _ => self.transcript_mut().add_system_message(format!(
+                "Unknown verbosity level: {}. Use /verbosity list to see available levels.",
+                level
+            )),
         }
     }
 
@@ -378,6 +396,7 @@ impl App {
         let model_name = self.state.model_name();
         let approval_mode = self.state.approval_mode;
         let sandbox_mode = self.state.sandbox_mode;
+        let verbosity = self.state.verbosity;
         let cwd = self.state.cwd.display();
         let session_events_count = self.state.session_events.len();
         let modified_files_count = self.state.modified_files.len();
@@ -389,6 +408,7 @@ impl App {
              Provider: {} ({})\n\
              Approval Mode: {}\n\
              Sandbox Mode: {}\n\
+             Verbosity: {}\n\
              Working Directory: {}\n\
              Session Events: {}\n\
              Modified Files: {}\n\
@@ -398,6 +418,7 @@ impl App {
             model_name,
             approval_mode,
             sandbox_mode,
+            verbosity.as_str(),
             cwd,
             session_events_count,
             modified_files_count,
@@ -414,10 +435,9 @@ impl App {
                 self.transcript_mut()
                     .add_system_message(format!("PLAN.md:\n\n{}", content));
             }
-            Err(_) => {
-                self.transcript_mut()
-                    .add_system_message("PLAN.md not found in the current working directory");
-            }
+            Err(_) => self
+                .transcript_mut()
+                .add_system_message("PLAN.md not found in the current working directory"),
         }
     }
 
@@ -435,10 +455,9 @@ impl App {
                 self.transcript_mut()
                     .add_system_message(format!("MEMORY.md:\n\n{}", content));
             }
-            Err(_) => {
-                self.transcript_mut()
-                    .add_system_message("MEMORY.md not found in the current working directory");
-            }
+            Err(_) => self
+                .transcript_mut()
+                .add_system_message("MEMORY.md not found in the current working directory"),
         }
     }
 

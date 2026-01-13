@@ -1,4 +1,4 @@
-use crate::{layout::TuiLayout, state::AppState, theme::Theme};
+use crate::{layout, state::AppState, theme::Theme};
 use ratatui::{
     Frame,
     layout::Rect,
@@ -14,6 +14,11 @@ use ratatui::{
 /// - Modified files list
 /// - Git diff queue preview
 /// - LSPs & MCPs status
+///
+/// TODO: Collapsible sidebar sections:
+/// - Individual section collapse (Events, Modified, Diffs, Integrations)
+/// - Select-based collapse (navigate to section, then collapse)
+/// - Use [ and ] keys for section-level control
 pub struct Sidebar<'a> {
     state: &'a AppState,
 }
@@ -25,7 +30,7 @@ impl<'a> Sidebar<'a> {
 
     /// Render sidebar to the given frame
     pub fn render(&self, frame: &mut Frame<'_>, _area: Rect) {
-        let layout = TuiLayout::calculate(frame.area(), true);
+        let layout = layout::TuiLayout::calculate(frame.area(), true);
         let Some((events_area, files_area, diff_area, lsp_area)) = layout.sidebar_sections() else {
             return;
         };
@@ -36,6 +41,8 @@ impl<'a> Sidebar<'a> {
         self.render_lsp_mcp_status(frame, lsp_area);
     }
 
+    /// Note: Sidebar auto-hide on narrow terminals is handled by [TuiLayout::calculate]
+    /// when [layout::LayoutMode] is Medium (80-99 cols) or Compact (< 80 cols).
     fn render_session_events(&self, frame: &mut Frame<'_>, area: Rect) {
         let mut lines = Vec::new();
 
@@ -196,7 +203,6 @@ mod tests {
         state.stats.tools_executed = 10;
 
         let sidebar = Sidebar::new(&state);
-
         assert_eq!(sidebar.state.stats.input_tokens, 100);
         assert_eq!(sidebar.state.stats.output_tokens, 200);
         assert_eq!(sidebar.state.stats.total_tokens(), 300);
