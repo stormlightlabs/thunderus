@@ -1,6 +1,47 @@
 use crate::theme::Theme;
 use std::fmt;
 
+/// Detail level for action cards (progressive disclosure)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CardDetailLevel {
+    /// Level 1: intent + outcome (brief, scannable)
+    #[default]
+    Brief,
+    /// Level 2: detailed context, scope, execution metadata
+    Detailed,
+    /// Level 3: full logs, reasoning chain, trace
+    Verbose,
+}
+
+impl CardDetailLevel {
+    pub fn toggle(&mut self) {
+        *self = match self {
+            CardDetailLevel::Brief => CardDetailLevel::Detailed,
+            CardDetailLevel::Detailed => CardDetailLevel::Verbose,
+            CardDetailLevel::Verbose => CardDetailLevel::Brief,
+        }
+    }
+
+    pub fn cycle(&mut self, steps: i8) {
+        let levels = [
+            CardDetailLevel::Brief,
+            CardDetailLevel::Detailed,
+            CardDetailLevel::Verbose,
+        ];
+        let current_index = levels.iter().position(|&l| l == *self).unwrap_or(0);
+        let new_index = (current_index as i8 + steps).rem_euclid(levels.len() as i8) as usize;
+        *self = levels[new_index];
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CardDetailLevel::Brief => "brief",
+            CardDetailLevel::Detailed => "detailed",
+            CardDetailLevel::Verbose => "verbose",
+        }
+    }
+}
+
 /// Transcript entry types that can be displayed in transcript
 #[derive(Debug, Clone, PartialEq)]
 pub enum TranscriptEntry {
@@ -14,6 +55,7 @@ pub enum TranscriptEntry {
         arguments: String,
         risk: String,
         description: Option<String>,
+        detail_level: CardDetailLevel,
     },
     /// Tool result with success status
     ToolResult {
@@ -21,6 +63,7 @@ pub enum TranscriptEntry {
         result: String,
         success: bool,
         error: Option<String>,
+        detail_level: CardDetailLevel,
     },
     /// Approval prompt waiting for user input
     ApprovalPrompt {
@@ -28,6 +71,7 @@ pub enum TranscriptEntry {
         risk: String,
         description: Option<String>,
         decision: Option<ApprovalDecision>,
+        detail_level: CardDetailLevel,
     },
     /// System message or status
     SystemMessage { content: String },
@@ -62,7 +106,13 @@ impl TranscriptEntry {
 
     /// Create a tool call entry
     pub fn tool_call(tool: impl Into<String>, arguments: impl Into<String>, risk: impl Into<String>) -> Self {
-        Self::ToolCall { tool: tool.into(), arguments: arguments.into(), risk: risk.into(), description: None }
+        Self::ToolCall {
+            tool: tool.into(),
+            arguments: arguments.into(),
+            risk: risk.into(),
+            description: None,
+            detail_level: CardDetailLevel::default(),
+        }
     }
 
     /// Add description to a tool call
@@ -73,9 +123,28 @@ impl TranscriptEntry {
         self
     }
 
+    /// Set detail level for tool call
+    pub fn with_detail_level(mut self, level: CardDetailLevel) -> Self {
+        match &mut self {
+            Self::ToolCall { detail_level, .. }
+            | Self::ToolResult { detail_level, .. }
+            | Self::ApprovalPrompt { detail_level, .. } => {
+                *detail_level = level;
+            }
+            _ => {}
+        }
+        self
+    }
+
     /// Create a tool result entry
     pub fn tool_result(tool: impl Into<String>, result: impl Into<String>, success: bool) -> Self {
-        Self::ToolResult { tool: tool.into(), result: result.into(), success, error: None }
+        Self::ToolResult {
+            tool: tool.into(),
+            result: result.into(),
+            success,
+            error: None,
+            detail_level: CardDetailLevel::default(),
+        }
     }
 
     /// Add error to a tool result
@@ -88,7 +157,13 @@ impl TranscriptEntry {
 
     /// Create an approval prompt entry
     pub fn approval_prompt(action: impl Into<String>, risk: impl Into<String>) -> Self {
-        Self::ApprovalPrompt { action: action.into(), risk: risk.into(), description: None, decision: None }
+        Self::ApprovalPrompt {
+            action: action.into(),
+            risk: risk.into(),
+            description: None,
+            decision: None,
+            detail_level: CardDetailLevel::default(),
+        }
     }
 
     /// Set approval decision
@@ -140,6 +215,48 @@ impl TranscriptEntry {
     pub fn is_approval_entry(&self) -> bool {
         matches!(self, Self::ApprovalPrompt { .. })
     }
+
+    /// Check if this is an action card (can be expanded for detail)
+    pub fn is_action_card(&self) -> bool {
+        matches!(
+            self,
+            Self::ToolCall { .. } | Self::ToolResult { .. } | Self::ApprovalPrompt { .. }
+        )
+    }
+
+    /// Get the detail level for this entry
+    pub fn detail_level(&self) -> CardDetailLevel {
+        match self {
+            Self::ToolCall { detail_level, .. }
+            | Self::ToolResult { detail_level, .. }
+            | Self::ApprovalPrompt { detail_level, .. } => *detail_level,
+            _ => CardDetailLevel::Brief,
+        }
+    }
+
+    /// Set the detail level for this entry
+    pub fn set_detail_level(&mut self, level: CardDetailLevel) {
+        match self {
+            Self::ToolCall { detail_level, .. }
+            | Self::ToolResult { detail_level, .. }
+            | Self::ApprovalPrompt { detail_level, .. } => {
+                *detail_level = level;
+            }
+            _ => {}
+        }
+    }
+
+    /// Toggle detail level for this entry
+    pub fn toggle_detail_level(&mut self) {
+        match self {
+            Self::ToolCall { detail_level, .. }
+            | Self::ToolResult { detail_level, .. }
+            | Self::ApprovalPrompt { detail_level, .. } => {
+                detail_level.toggle();
+            }
+            _ => {}
+        }
+    }
 }
 
 impl fmt::Display for TranscriptEntry {
@@ -188,6 +305,59 @@ impl TranscriptEntry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_card_detail_level_default() {
+        let level = CardDetailLevel::default();
+        assert_eq!(level, CardDetailLevel::Brief);
+    }
+
+    #[test]
+    fn test_card_detail_level_toggle() {
+        let mut level = CardDetailLevel::Brief;
+        level.toggle();
+        assert_eq!(level, CardDetailLevel::Detailed);
+        level.toggle();
+        assert_eq!(level, CardDetailLevel::Verbose);
+        level.toggle();
+        assert_eq!(level, CardDetailLevel::Brief);
+    }
+
+    #[test]
+    fn test_card_detail_level_cycle_forward() {
+        let mut level = CardDetailLevel::Brief;
+        level.cycle(1);
+        assert_eq!(level, CardDetailLevel::Detailed);
+        level.cycle(1);
+        assert_eq!(level, CardDetailLevel::Verbose);
+        level.cycle(1);
+        assert_eq!(level, CardDetailLevel::Brief);
+    }
+
+    #[test]
+    fn test_card_detail_level_cycle_backward() {
+        let mut level = CardDetailLevel::Brief;
+        level.cycle(-1);
+        assert_eq!(level, CardDetailLevel::Verbose);
+        level.cycle(-1);
+        assert_eq!(level, CardDetailLevel::Detailed);
+        level.cycle(-1);
+        assert_eq!(level, CardDetailLevel::Brief);
+    }
+
+    #[test]
+    fn test_card_detail_level_cycle_multiple() {
+        let mut level = CardDetailLevel::Brief;
+        level.cycle(5);
+        assert_eq!(level, CardDetailLevel::Verbose);
+    }
+
+    #[test]
+    fn test_card_detail_level_as_str() {
+        assert_eq!(CardDetailLevel::Brief.as_str(), "brief");
+        assert_eq!(CardDetailLevel::Detailed.as_str(), "detailed");
+        assert_eq!(CardDetailLevel::Verbose.as_str(), "verbose");
+    }
 
     #[test]
     fn test_transcript_entry_user_message() {
@@ -311,5 +481,95 @@ mod tests {
         assert_eq!(TranscriptEntry::risk_emoji("risky"), "🟡");
         assert_eq!(TranscriptEntry::risk_emoji("dangerous"), "🔴");
         assert_eq!(TranscriptEntry::risk_emoji("unknown"), "⚪");
+    }
+
+    #[test]
+    fn test_tool_call_default_detail_level() {
+        let entry = TranscriptEntry::tool_call("test", "{}", "safe");
+        assert_eq!(entry.detail_level(), CardDetailLevel::Brief);
+    }
+
+    #[test]
+    fn test_tool_result_default_detail_level() {
+        let entry = TranscriptEntry::tool_result("test", "result", true);
+        assert_eq!(entry.detail_level(), CardDetailLevel::Brief);
+    }
+
+    #[test]
+    fn test_approval_prompt_default_detail_level() {
+        let entry = TranscriptEntry::approval_prompt("test", "safe");
+        assert_eq!(entry.detail_level(), CardDetailLevel::Brief);
+    }
+
+    #[test]
+    fn test_is_action_card() {
+        let tool_call = TranscriptEntry::tool_call("test", "{}", "safe");
+        let tool_result = TranscriptEntry::tool_result("test", "result", true);
+        let approval = TranscriptEntry::approval_prompt("test", "safe");
+        let user_msg = TranscriptEntry::user_message("test");
+        let model_msg = TranscriptEntry::model_response("test");
+        let system_msg = TranscriptEntry::system_message("test");
+
+        assert!(tool_call.is_action_card());
+        assert!(tool_result.is_action_card());
+        assert!(approval.is_action_card());
+        assert!(!user_msg.is_action_card());
+        assert!(!model_msg.is_action_card());
+        assert!(!system_msg.is_action_card());
+    }
+
+    #[test]
+    fn test_with_detail_level() {
+        let entry = TranscriptEntry::tool_call("test", "{}", "safe").with_detail_level(CardDetailLevel::Verbose);
+        assert_eq!(entry.detail_level(), CardDetailLevel::Verbose);
+    }
+
+    #[test]
+    fn test_set_detail_level() {
+        let mut entry = TranscriptEntry::tool_call("test", "{}", "safe");
+        assert_eq!(entry.detail_level(), CardDetailLevel::Brief);
+
+        entry.set_detail_level(CardDetailLevel::Detailed);
+        assert_eq!(entry.detail_level(), CardDetailLevel::Detailed);
+
+        entry.set_detail_level(CardDetailLevel::Verbose);
+        assert_eq!(entry.detail_level(), CardDetailLevel::Verbose);
+    }
+
+    #[test]
+    fn test_toggle_detail_level() {
+        let mut entry = TranscriptEntry::tool_call("test", "{}", "safe");
+        assert_eq!(entry.detail_level(), CardDetailLevel::Brief);
+
+        entry.toggle_detail_level();
+        assert_eq!(entry.detail_level(), CardDetailLevel::Detailed);
+
+        entry.toggle_detail_level();
+        assert_eq!(entry.detail_level(), CardDetailLevel::Verbose);
+
+        entry.toggle_detail_level();
+        assert_eq!(entry.detail_level(), CardDetailLevel::Brief);
+    }
+
+    #[test]
+    fn test_non_action_card_detail_level() {
+        let entry = TranscriptEntry::user_message("test");
+        assert_eq!(entry.detail_level(), CardDetailLevel::Brief);
+
+        let mut entry = TranscriptEntry::user_message("test");
+        entry.set_detail_level(CardDetailLevel::Verbose);
+        assert_eq!(entry.detail_level(), CardDetailLevel::Brief);
+    }
+
+    #[test]
+    fn test_with_detail_level_all_card_types() {
+        let tool_call = TranscriptEntry::tool_call("test", "{}", "safe").with_detail_level(CardDetailLevel::Detailed);
+        let tool_result =
+            TranscriptEntry::tool_result("test", "result", true).with_detail_level(CardDetailLevel::Detailed);
+        let approval = TranscriptEntry::approval_prompt("test", "safe").with_detail_level(CardDetailLevel::Detailed);
+
+        assert_eq!(tool_call.detail_level(), CardDetailLevel::Detailed);
+        assert_eq!(tool_result.detail_level(), CardDetailLevel::Detailed);
+        assert_eq!(approval.detail_level(), CardDetailLevel::Detailed);
     }
 }

@@ -1,5 +1,5 @@
-use crate::syntax::SyntaxHighlighter;
 use crate::theme::Theme;
+use crate::{syntax::SyntaxHighlighter, transcript::entry::CardDetailLevel};
 use ratatui::{
     Frame,
     layout::Rect,
@@ -11,6 +11,45 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 const CODE_BLOCK_START: &str = "```";
 const CODE_BLOCK_END: &str = "```";
+
+/// Context for rendering tool call cards
+struct ToolCallContext<'a> {
+    tool: &'a str,
+    arguments: &'a str,
+    risk: &'a str,
+    description: Option<&'a str>,
+    rendering: RenderContext<'a>,
+}
+
+/// Context for rendering tool result cards
+struct ToolResultContext<'a> {
+    tool: &'a str,
+    result: &'a str,
+    success: bool,
+    error: Option<&'a str>,
+    rendering: RenderContext<'a>,
+}
+
+/// Context for rendering approval prompt cards
+struct ApprovalPromptContext<'a> {
+    action: &'a str,
+    risk: &'a str,
+    description: Option<&'a str>,
+    decision: Option<super::ApprovalDecision>,
+    rendering: RenderContext<'a>,
+}
+
+struct RenderContext<'a> {
+    width: usize,
+    detail_level: CardDetailLevel,
+    lines: &'a mut Vec<Line<'static>>,
+}
+
+impl<'a> RenderContext<'a> {
+    pub fn new(width: usize, detail_level: CardDetailLevel, lines: &'a mut Vec<Line<'static>>) -> Self {
+        Self { width, detail_level, lines }
+    }
+}
 
 /// Renders transcript entries to frame
 pub struct TranscriptRenderer<'a> {
@@ -61,14 +100,32 @@ impl<'a> TranscriptRenderer<'a> {
             super::TranscriptEntry::ModelResponse { content, streaming } => {
                 self.render_model_response(content, *streaming, width, lines);
             }
-            super::TranscriptEntry::ToolCall { tool, arguments, risk, description } => {
-                self.render_tool_call(tool, arguments, risk, description.as_deref(), width, lines);
+            super::TranscriptEntry::ToolCall { tool, arguments, risk, description, detail_level } => {
+                self.render_tool_call(ToolCallContext {
+                    tool,
+                    arguments,
+                    risk,
+                    description: description.as_deref(),
+                    rendering: RenderContext::new(width, *detail_level, lines),
+                });
             }
-            super::TranscriptEntry::ToolResult { tool, result, success, error } => {
-                self.render_tool_result(tool, result, *success, error.as_deref(), width, lines);
+            super::TranscriptEntry::ToolResult { tool, result, success, error, detail_level } => {
+                self.render_tool_result(ToolResultContext {
+                    tool,
+                    result,
+                    success: *success,
+                    error: error.as_deref(),
+                    rendering: RenderContext::new(width, *detail_level, lines),
+                });
             }
-            super::TranscriptEntry::ApprovalPrompt { action, risk, description, decision } => {
-                self.render_approval_prompt(action, risk, description.as_deref(), *decision, width, lines);
+            super::TranscriptEntry::ApprovalPrompt { action, risk, description, decision, detail_level } => {
+                self.render_approval_prompt(ApprovalPromptContext {
+                    action,
+                    risk,
+                    description: description.as_deref(),
+                    decision: *decision,
+                    rendering: RenderContext::new(width, *detail_level, lines),
+                });
             }
             super::TranscriptEntry::SystemMessage { content } => {
                 self.render_system_message(content, width, lines);
@@ -98,14 +155,13 @@ impl<'a> TranscriptRenderer<'a> {
     }
 
     /// Render tool call card
-    fn render_tool_call(
-        &self, tool: &str, arguments: &str, risk: &str, description: Option<&str>, width: usize,
-        lines: &mut Vec<Line<'static>>,
-    ) {
-        lines.push(Line::default());
+    fn render_tool_call(&self, ctx: ToolCallContext) {
+        let ToolCallContext { tool, arguments, risk, description, rendering } = ctx;
+
+        rendering.lines.push(Line::default());
         let risk_color = super::TranscriptEntry::risk_level_color_str(risk);
 
-        lines.push(Line::from(vec![
+        rendering.lines.push(Line::from(vec![
             Span::styled("🔧", Style::default().fg(Theme::YELLOW)),
             Span::raw(" "),
             Span::styled(tool.to_string(), Style::default().fg(Theme::FG)),
@@ -114,43 +170,167 @@ impl<'a> TranscriptRenderer<'a> {
             Span::raw("]"),
         ]));
 
-        if let Some(desc) = description {
-            lines.push(Line::from(vec![
-                Span::styled("  ", Style::default().fg(Theme::MUTED)),
-                Span::styled(desc.to_string(), Style::default().fg(Theme::FG)),
-            ]));
-        }
+        match rendering.detail_level {
+            CardDetailLevel::Brief => {
+                if let Some(desc) = description {
+                    rendering.lines.push(Line::from(vec![
+                        Span::styled("  ", Style::default().fg(Theme::MUTED)),
+                        Span::styled(desc.to_string(), Style::default().fg(Theme::FG)),
+                    ]));
+                }
+            }
+            CardDetailLevel::Detailed | CardDetailLevel::Verbose => {
+                if let Some(desc) = description {
+                    rendering.lines.push(Line::from(vec![
+                        Span::styled("  ", Style::default().fg(Theme::MUTED)),
+                        Span::styled(desc.to_string(), Style::default().fg(Theme::FG)),
+                    ]));
+                }
 
-        lines.push(Line::from(vec![Span::styled(
-            "  Args: ",
-            Style::default().fg(Theme::MUTED),
-        )]));
-        self.wrap_text(arguments, Theme::FG, width, lines);
+                rendering.lines.push(Line::from(vec![Span::styled(
+                    "  Args: ",
+                    Style::default().fg(Theme::MUTED),
+                )]));
+                self.wrap_text(arguments, Theme::FG, rendering.width, rendering.lines);
+
+                if rendering.detail_level == CardDetailLevel::Verbose {
+                    rendering.lines.push(Line::from(vec![Span::styled(
+                        "  [verbose mode - full execution details]",
+                        Style::default().fg(Theme::MUTED),
+                    )]));
+                }
+            }
+        }
     }
 
     /// Render tool result card
-    fn render_tool_result(
-        &self, tool: &str, result: &str, success: bool, error: Option<&str>, width: usize,
-        lines: &mut Vec<Line<'static>>,
-    ) {
-        lines.push(Line::default());
+    fn render_tool_result(&self, ctx: ToolResultContext) {
+        let ToolResultContext { tool, result, success, error, rendering } = ctx;
+
+        rendering.lines.push(Line::default());
         let status = if success { ("✅", Theme::GREEN) } else { ("❌", Theme::RED) };
 
-        lines.push(Line::from(vec![
+        rendering.lines.push(Line::from(vec![
             Span::styled(status.0, Style::default().fg(status.1)),
             Span::raw(" "),
             Span::styled(tool.to_string(), Style::default().fg(Theme::FG)),
         ]));
 
         if let Some(err) = error {
-            lines.push(Line::from(vec![
+            rendering.lines.push(Line::from(vec![
                 Span::styled("  Error: ", Style::default().fg(Theme::RED)),
                 Span::styled(err.to_string(), Style::default().fg(Theme::RED)),
             ]));
         }
 
-        lines.push(Line::from(vec![Span::styled("  ", Style::default().fg(Theme::MUTED))]));
-        self.render_with_code_highlighting(result, Theme::FG, width, lines);
+        match rendering.detail_level {
+            CardDetailLevel::Brief => {
+                rendering.lines.push(Line::from(vec![Span::styled(
+                    "  [output truncated - press 'v' for verbose]",
+                    Style::default().fg(Theme::MUTED),
+                )]));
+            }
+            CardDetailLevel::Detailed | CardDetailLevel::Verbose => {
+                rendering
+                    .lines
+                    .push(Line::from(vec![Span::styled("  ", Style::default().fg(Theme::MUTED))]));
+                self.render_with_code_highlighting(result, Theme::FG, rendering.width, rendering.lines);
+
+                if rendering.detail_level == CardDetailLevel::Verbose {
+                    rendering.lines.push(Line::from(vec![Span::styled(
+                        "  [verbose mode - full execution trace]",
+                        Style::default().fg(Theme::MUTED),
+                    )]));
+                }
+            }
+        }
+    }
+
+    /// Render approval prompt card
+    fn render_approval_prompt(&self, ctx: ApprovalPromptContext) {
+        let ApprovalPromptContext { action, risk, description, decision, rendering } = ctx;
+
+        rendering.lines.push(Line::default());
+        let risk_color = super::TranscriptEntry::risk_level_color_str(risk);
+
+        rendering.lines.push(Line::from(vec![
+            Span::styled("⚠️", Style::default().fg(Theme::YELLOW)),
+            Span::raw(" "),
+            Span::styled("Approval Required", Style::default().fg(risk_color)),
+        ]));
+
+        rendering.lines.push(Line::from(vec![Span::styled(
+            "  Action: ",
+            Style::default().fg(Theme::MUTED),
+        )]));
+        self.wrap_text(
+            &format!("{} [{}]", action, risk),
+            Theme::FG,
+            rendering.width,
+            rendering.lines,
+        );
+
+        if let Some(desc) = description {
+            rendering.lines.push(Line::from(vec![Span::styled(
+                "  Description: ",
+                Style::default().fg(Theme::MUTED),
+            )]));
+            self.wrap_text(desc, Theme::FG, rendering.width, rendering.lines);
+        }
+
+        match decision {
+            None => {
+                rendering.lines.push(Line::default());
+                rendering.lines.push(Line::from(vec![
+                    Span::styled("  [", Style::default().fg(Theme::MUTED)),
+                    Span::styled("y", Style::default().fg(Theme::GREEN).bold()),
+                    Span::styled("] approve  ", Style::default().fg(Theme::MUTED)),
+                    Span::styled("[", Style::default().fg(Theme::MUTED)),
+                    Span::styled("n", Style::default().fg(Theme::RED).bold()),
+                    Span::styled("] reject  ", Style::default().fg(Theme::MUTED)),
+                    Span::styled("[", Style::default().fg(Theme::MUTED)),
+                    Span::styled("c", Style::default().fg(Theme::YELLOW).bold()),
+                    Span::styled("] cancel", Style::default().fg(Theme::MUTED)),
+                ]));
+
+                match rendering.detail_level {
+                    CardDetailLevel::Brief => {}
+                    CardDetailLevel::Detailed => {
+                        rendering.lines.push(Line::from(vec![Span::styled(
+                            "  [detailed mode - scope and risk assessment shown]",
+                            Style::default().fg(Theme::MUTED),
+                        )]));
+                    }
+                    CardDetailLevel::Verbose => {
+                        rendering.lines.push(Line::from(vec![Span::styled(
+                            "  [verbose mode - full approval context available]",
+                            Style::default().fg(Theme::MUTED),
+                        )]));
+                    }
+                }
+            }
+            Some(super::ApprovalDecision::Approved) => {
+                rendering.lines.push(Line::from(vec![
+                    Span::styled("  ", Style::default()),
+                    Span::styled("✓", Style::default().fg(Theme::GREEN)),
+                    Span::styled(" Approved", Style::default().fg(Theme::GREEN)),
+                ]));
+            }
+            Some(super::ApprovalDecision::Rejected) => {
+                rendering.lines.push(Line::from(vec![
+                    Span::styled("  ", Style::default()),
+                    Span::styled("✗", Style::default().fg(Theme::RED)),
+                    Span::styled(" Rejected", Style::default().fg(Theme::RED)),
+                ]));
+            }
+            Some(super::ApprovalDecision::Cancelled) => {
+                rendering.lines.push(Line::from(vec![
+                    Span::styled("  ", Style::default()),
+                    Span::styled("⏹", Style::default().fg(Theme::YELLOW)),
+                    Span::styled(" Cancelled", Style::default().fg(Theme::YELLOW)),
+                ]));
+            }
+        }
     }
 
     /// Render text with code block highlighting
@@ -200,73 +380,6 @@ impl<'a> TranscriptRenderer<'a> {
 
         if !highlighted.is_empty() && !code.lines().last().map(|l| l.trim().is_empty()).unwrap_or(true) {
             lines.push(Line::default());
-        }
-    }
-
-    /// Render approval prompt card
-    fn render_approval_prompt(
-        &self, action: &str, risk: &str, description: Option<&str>, decision: Option<super::ApprovalDecision>,
-        width: usize, lines: &mut Vec<Line<'static>>,
-    ) {
-        lines.push(Line::default());
-        let risk_color = super::TranscriptEntry::risk_level_color_str(risk);
-
-        lines.push(Line::from(vec![
-            Span::styled("⚠️", Style::default().fg(Theme::YELLOW)),
-            Span::raw(" "),
-            Span::styled("Approval Required", Style::default().fg(risk_color)),
-        ]));
-
-        lines.push(Line::from(vec![Span::styled(
-            "  Action: ",
-            Style::default().fg(Theme::MUTED),
-        )]));
-        self.wrap_text(&format!("{} [{}]", action, risk), Theme::FG, width, lines);
-
-        if let Some(desc) = description {
-            lines.push(Line::from(vec![Span::styled(
-                "  Description: ",
-                Style::default().fg(Theme::MUTED),
-            )]));
-            self.wrap_text(desc, Theme::FG, width, lines);
-        }
-
-        match decision {
-            None => {
-                lines.push(Line::default());
-                lines.push(Line::from(vec![
-                    Span::styled("  [", Style::default().fg(Theme::MUTED)),
-                    Span::styled("y", Style::default().fg(Theme::GREEN).bold()),
-                    Span::styled("] approve  ", Style::default().fg(Theme::MUTED)),
-                    Span::styled("[", Style::default().fg(Theme::MUTED)),
-                    Span::styled("n", Style::default().fg(Theme::RED).bold()),
-                    Span::styled("] reject  ", Style::default().fg(Theme::MUTED)),
-                    Span::styled("[", Style::default().fg(Theme::MUTED)),
-                    Span::styled("c", Style::default().fg(Theme::YELLOW).bold()),
-                    Span::styled("] cancel", Style::default().fg(Theme::MUTED)),
-                ]));
-            }
-            Some(super::ApprovalDecision::Approved) => {
-                lines.push(Line::from(vec![
-                    Span::styled("  ", Style::default()),
-                    Span::styled("✓", Style::default().fg(Theme::GREEN)),
-                    Span::styled(" Approved", Style::default().fg(Theme::GREEN)),
-                ]));
-            }
-            Some(super::ApprovalDecision::Rejected) => {
-                lines.push(Line::from(vec![
-                    Span::styled("  ", Style::default()),
-                    Span::styled("✗", Style::default().fg(Theme::RED)),
-                    Span::styled(" Rejected", Style::default().fg(Theme::RED)),
-                ]));
-            }
-            Some(super::ApprovalDecision::Cancelled) => {
-                lines.push(Line::from(vec![
-                    Span::styled("  ", Style::default()),
-                    Span::styled("⏹", Style::default().fg(Theme::YELLOW)),
-                    Span::styled(" Cancelled", Style::default().fg(Theme::YELLOW)),
-                ]));
-            }
         }
     }
 

@@ -90,11 +90,11 @@ advanced composer features, multi-panel layout, and power-user productivity.
       - `/clear` - clear transcript (keep session history)
 
 **Progressive Disclosure for Action Cards:**
-- [ ] Multi-level detail expansion:
+- [x] Multi-level detail expansion:
       - Level 1 (default): intent + outcome (brief, scannable)
       - Level 2 (expand): detailed context, scope, execution metadata
       - Level 3 (verbose): full logs, reasoning chain, trace
-- [ ] Keybinds for card interaction:
+- [x] Keybinds for card interaction:
       - `Space` / `Enter`: expand/collapse focused card
       - `v`: toggle verbose mode for focused card
       - `j` / `k`: navigate between cards

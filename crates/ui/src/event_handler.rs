@@ -124,6 +124,20 @@ impl EventHandler {
             KeyCode::Down => {
                 state.input.navigate_down();
             }
+            KeyCode::Char(' ') => {
+                if state.input.buffer.is_empty() {
+                    return Some(KeyAction::ToggleCardExpand);
+                } else {
+                    state.input.insert_char(' ');
+                }
+            }
+            KeyCode::Char('v') | KeyCode::Char('V') => {
+                if state.input.buffer.is_empty() {
+                    return Some(KeyAction::ToggleCardVerbose);
+                } else {
+                    state.input.insert_char('v');
+                }
+            }
             KeyCode::Enter => {
                 if !state.input.buffer.is_empty() {
                     let message = state.input.take();
@@ -141,14 +155,14 @@ impl EventHandler {
             }
             KeyCode::Char('j') | KeyCode::Char('J') => {
                 if state.input.buffer.is_empty() {
-                    state.scroll_vertical(1);
+                    return Some(KeyAction::NavigateCardNext);
                 } else {
                     state.input.insert_char('j');
                 }
             }
             KeyCode::Char('k') | KeyCode::Char('K') => {
                 if state.input.buffer.is_empty() {
-                    state.scroll_vertical(-1);
+                    return Some(KeyAction::NavigateCardPrev);
                 } else {
                     state.input.insert_char('k');
                 }
@@ -298,6 +312,14 @@ pub enum KeyAction {
     SlashCommandMemory,
     /// Slash command: clear transcript (keep session history)
     SlashCommandClear,
+    /// Navigate to next action card
+    NavigateCardNext,
+    /// Navigate to previous action card
+    NavigateCardPrev,
+    /// Toggle expand/collapse on focused card
+    ToggleCardExpand,
+    /// Toggle verbose mode on focused card
+    ToggleCardVerbose,
     /// No action (e.g., navigation in input)
     NoOp,
 }
@@ -527,6 +549,98 @@ mod tests {
     fn test_parse_slash_command_clear() {
         let action = EventHandler::parse_slash_command("clear".to_string());
         assert!(matches!(action, Some(KeyAction::SlashCommandClear)));
+    }
+
+    #[test]
+    fn test_handle_normal_key_j_with_empty_input() {
+        let mut state = create_test_state();
+
+        let event = KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert_eq!(state.input.buffer, "");
+        assert!(matches!(action, Some(KeyAction::NavigateCardNext)));
+    }
+
+    #[test]
+    fn test_handle_normal_key_k_with_empty_input() {
+        let mut state = create_test_state();
+
+        let event = KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert_eq!(state.input.buffer, "");
+        assert!(matches!(action, Some(KeyAction::NavigateCardPrev)));
+    }
+
+    #[test]
+    fn test_handle_normal_key_space_with_empty_input() {
+        let mut state = create_test_state();
+
+        let event = KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert_eq!(state.input.buffer, "");
+        assert!(matches!(action, Some(KeyAction::ToggleCardExpand)));
+    }
+
+    #[test]
+    fn test_handle_normal_key_v_with_empty_input() {
+        let mut state = create_test_state();
+
+        let event = KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert_eq!(state.input.buffer, "");
+        assert!(matches!(action, Some(KeyAction::ToggleCardVerbose)));
+    }
+
+    #[test]
+    fn test_handle_normal_key_j_with_input() {
+        let mut state = create_test_state();
+        state.input.buffer = "test".to_string();
+
+        let event = KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert_eq!(state.input.buffer, "jtest");
+        assert!(action.is_none());
+    }
+
+    #[test]
+    fn test_handle_normal_key_k_with_input() {
+        let mut state = create_test_state();
+        state.input.buffer = "test".to_string();
+
+        let event = KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert_eq!(state.input.buffer, "ktest");
+        assert!(action.is_none());
+    }
+
+    #[test]
+    fn test_handle_normal_key_space_with_input() {
+        let mut state = create_test_state();
+        state.input.buffer = "test".to_string();
+
+        let event = KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert_eq!(state.input.buffer, " test");
+        assert!(action.is_none());
+    }
+
+    #[test]
+    fn test_handle_normal_key_v_with_input() {
+        let mut state = create_test_state();
+        state.input.buffer = "test".to_string();
+
+        let event = KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert_eq!(state.input.buffer, "vtest");
+        assert!(action.is_none());
     }
 
     #[test]

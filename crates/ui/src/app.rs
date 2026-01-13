@@ -169,6 +169,20 @@ impl App {
                     self.transcript_mut()
                         .add_system_message("Transcript cleared (session history preserved)");
                 }
+                KeyAction::NavigateCardNext => {
+                    self.transcript_mut().focus_next_card();
+                }
+                KeyAction::NavigateCardPrev => {
+                    self.transcript_mut().focus_prev_card();
+                }
+                KeyAction::ToggleCardExpand => {
+                    self.transcript_mut().toggle_focused_card_detail_level();
+                }
+                KeyAction::ToggleCardVerbose => {
+                    let _ = self
+                        .transcript_mut()
+                        .set_focused_card_detail_level(crate::transcript::CardDetailLevel::Verbose);
+                }
                 KeyAction::NoOp => {}
             }
         }
