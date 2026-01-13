@@ -28,13 +28,21 @@ impl<'a> Footer<'a> {
         let hints_area = layout.footer_hints();
 
         let input_text = if self.state.input.buffer.is_empty() {
-            "Type a message...".to_string()
+            if self.state.input.is_navigating_history() {
+                "<no message>".to_string()
+            } else {
+                "Type a message...".to_string()
+            }
         } else {
             self.state.input.buffer.clone()
         };
 
         let input_style = if self.state.input.buffer.is_empty() {
-            Style::default().fg(Theme::MUTED)
+            if self.state.input.is_navigating_history() {
+                Style::default().fg(Theme::YELLOW)
+            } else {
+                Style::default().fg(Theme::MUTED)
+            }
         } else {
             Style::default().fg(Theme::FG)
         };
@@ -84,6 +92,19 @@ impl<'a> Footer<'a> {
             hints.push(Span::styled("Esc", Style::default().fg(Theme::RED)));
             hints.push(Span::raw(": cancel "));
         } else {
+            if self.state.input.message_history.len() > 1 {
+                hints.push(Span::styled("↑↓", Style::default().fg(Theme::BLUE)));
+                hints.push(Span::raw(": history "));
+
+                if let Some(position) = self.state.input.history_position() {
+                    hints.push(Span::styled(
+                        format!("[{}]", position),
+                        Style::default().fg(Theme::MUTED),
+                    ));
+                    hints.push(Span::raw(" "));
+                }
+            }
+
             hints.push(Span::styled("Enter", Style::default().fg(Theme::GREEN)));
             hints.push(Span::raw(": send "));
             hints.push(Span::styled("Ctrl+Shift+G", Style::default().fg(Theme::BLUE)));
@@ -241,5 +262,65 @@ mod tests {
 
         assert!(hints.iter().any(|s| s.content.contains("[y]")));
         assert!(!hints.iter().any(|s| s.content.contains("Esc")));
+    }
+
+    #[test]
+    fn test_get_hints_no_history() {
+        let state = create_test_state();
+        let _footer = Footer::new(&state);
+
+        let hints = _footer.get_hints();
+        assert!(!hints.iter().any(|s| s.content.contains("↑↓")));
+        assert!(!hints.iter().any(|s| s.content.contains("history")));
+    }
+
+    #[test]
+    fn test_get_hints_with_history() {
+        let mut state = create_test_state();
+        state.input.add_to_history("first message".to_string());
+        state.input.add_to_history("second message".to_string());
+
+        let _footer = Footer::new(&state);
+        let hints = _footer.get_hints();
+
+        assert!(hints.iter().any(|s| s.content.contains("↑↓")));
+        assert!(hints.iter().any(|s| s.content.contains("history")));
+    }
+
+    #[test]
+    fn test_get_hints_with_history_navigation_position() {
+        let mut state = create_test_state();
+        state.input.add_to_history("first".to_string());
+        state.input.add_to_history("second".to_string());
+        state.input.add_to_history("third".to_string());
+
+        state.input.navigate_up();
+
+        let _footer = Footer::new(&state);
+        let hints = _footer.get_hints();
+
+        assert!(hints.iter().any(|s| s.content.contains("[3/3]")));
+    }
+
+    #[test]
+    fn test_input_text_navigating_history() {
+        let mut state = create_test_state();
+        state.input.add_to_history("test message".to_string());
+        state.input.navigate_up();
+
+        let _footer = Footer::new(&state);
+
+        assert_eq!(state.input.buffer, "test message");
+        assert!(state.input.is_navigating_history());
+    }
+
+    #[test]
+    fn test_input_style_navigating_history() {
+        let mut state = create_test_state();
+        state.input.add_to_history("test message".to_string());
+        state.input.navigate_up();
+
+        let _footer = Footer::new(&state);
+        assert!(state.input.is_navigating_history());
     }
 }

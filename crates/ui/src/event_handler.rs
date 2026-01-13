@@ -57,6 +57,12 @@ impl EventHandler {
     /// Handle keys in normal mode (no pending approval)
     fn handle_normal_key(event: KeyEvent, state: &mut AppState) -> Option<KeyAction> {
         match event.code {
+            KeyCode::Up => {
+                state.input.navigate_up();
+            }
+            KeyCode::Down => {
+                state.input.navigate_down();
+            }
             KeyCode::Enter => {
                 if !state.input.buffer.is_empty() {
                     let message = state.input.take();
@@ -93,14 +99,28 @@ impl EventHandler {
                 {
                     return Some(KeyAction::OpenExternalEditor);
                 } else {
+                    if state.input.is_navigating_history() {
+                        state.input.reset_history_navigation();
+                        state.input.clear();
+                    }
                     state.input.insert_char(c);
                 }
             }
             KeyCode::Backspace => {
-                state.input.backspace();
+                if state.input.is_navigating_history() {
+                    state.input.reset_history_navigation();
+                    state.input.clear();
+                } else {
+                    state.input.backspace();
+                }
             }
             KeyCode::Delete => {
-                state.input.delete();
+                if state.input.is_navigating_history() {
+                    state.input.reset_history_navigation();
+                    state.input.clear();
+                } else {
+                    state.input.delete();
+                }
             }
             KeyCode::Left => {
                 if state.input.buffer.is_empty() && event.modifiers.is_empty() {
@@ -154,6 +174,8 @@ pub enum KeyAction {
     ToggleSidebar,
     /// Open external editor for current input
     OpenExternalEditor,
+    /// Navigate message history (handled internally by InputState)
+    NavigateHistory,
     /// No action (e.g., navigation in input)
     NoOp,
 }
@@ -589,5 +611,119 @@ mod tests {
         if let Some(KeyAction::ExecuteShellCommand { command }) = action {
             assert_eq!(command, "  ");
         }
+    }
+
+    #[test]
+    fn test_handle_normal_key_up_arrow_navigation() {
+        let mut state = create_test_state();
+
+        state.input.add_to_history("first message".to_string());
+        state.input.add_to_history("second message".to_string());
+
+        let event = KeyEvent::new(KeyCode::Up, KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(action.is_none());
+        assert_eq!(state.input.buffer, "second message");
+        assert!(state.input.is_navigating_history());
+    }
+
+    #[test]
+    fn test_handle_normal_key_down_arrow_navigation() {
+        let mut state = create_test_state();
+        state.input.add_to_history("first message".to_string());
+        state.input.add_to_history("second message".to_string());
+
+        let event = KeyEvent::new(KeyCode::Up, KeyModifiers::NONE);
+        EventHandler::handle_key_event(event, &mut state);
+
+        let event = KeyEvent::new(KeyCode::Down, KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(action.is_none());
+        assert_eq!(state.input.buffer, "");
+        assert!(!state.input.is_navigating_history());
+    }
+
+    #[test]
+    fn test_handle_normal_key_typing_resets_history_navigation() {
+        let mut state = create_test_state();
+        state.input.add_to_history("history message".to_string());
+        let event = KeyEvent::new(KeyCode::Up, KeyModifiers::NONE);
+        EventHandler::handle_key_event(event, &mut state);
+
+        assert!(state.input.is_navigating_history());
+        assert_eq!(state.input.buffer, "history message");
+
+        let event = KeyEvent::new(KeyCode::Char('X'), KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(action.is_none());
+        assert!(!state.input.is_navigating_history());
+        assert_eq!(state.input.buffer, "X");
+    }
+
+    #[test]
+    fn test_handle_normal_key_backspace_resets_history_navigation() {
+        let mut state = create_test_state();
+        state.input.add_to_history("history message".to_string());
+
+        let event = KeyEvent::new(KeyCode::Up, KeyModifiers::NONE);
+        EventHandler::handle_key_event(event, &mut state);
+
+        assert!(state.input.is_navigating_history());
+
+        let event = KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(action.is_none());
+        assert!(!state.input.is_navigating_history());
+        assert_eq!(state.input.buffer, "");
+    }
+
+    #[test]
+    fn test_handle_normal_key_delete_resets_history_navigation() {
+        let mut state = create_test_state();
+        state.input.add_to_history("history message".to_string());
+
+        let event = KeyEvent::new(KeyCode::Up, KeyModifiers::NONE);
+        EventHandler::handle_key_event(event, &mut state);
+
+        assert!(state.input.is_navigating_history());
+
+        let event = KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(action.is_none());
+        assert!(!state.input.is_navigating_history());
+        assert_eq!(state.input.buffer, "");
+    }
+
+    #[test]
+    fn test_handle_normal_key_backspace_normal_editing() {
+        let mut state = create_test_state();
+        state.input.buffer = "Hello".to_string();
+        state.input.cursor = 5;
+
+        let event = KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(action.is_none());
+        assert_eq!(state.input.buffer, "Hell");
+        assert_eq!(state.input.cursor, 4);
+    }
+
+    #[test]
+    fn test_handle_normal_key_delete_normal_editing() {
+        let mut state = create_test_state();
+        state.input.buffer = "Hello".to_string();
+        state.input.cursor = 2;
+
+        let event = KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(action.is_none());
+        assert_eq!(state.input.buffer, "Helo");
+        assert_eq!(state.input.cursor, 2);
     }
 }

@@ -175,6 +175,20 @@ impl Transcript {
     pub fn render_entries(&self) -> Vec<&TranscriptEntry> {
         self.entries.iter().collect()
     }
+
+    /// Get all user messages from transcript for history navigation
+    pub fn get_user_messages(&self) -> Vec<String> {
+        self.entries
+            .iter()
+            .filter_map(|entry| {
+                if let TranscriptEntry::UserMessage { content } = entry {
+                    if !content.trim().is_empty() { Some(content.clone()) } else { None }
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
 }
 
 impl Default for Transcript {
@@ -348,5 +362,57 @@ mod tests {
 
         let entries = transcript.render_entries();
         assert_eq!(entries.len(), 2);
+    }
+
+    #[test]
+    fn test_get_user_messages() {
+        let mut transcript = Transcript::new();
+
+        transcript.add_user_message("First message");
+        transcript.add_model_response("Response 1");
+        transcript.add_user_message("Second message");
+        transcript.add_tool_call("tool", "{}", "safe");
+        transcript.add_user_message("");
+        transcript.add_user_message("   ");
+        transcript.add_user_message("Third message");
+        transcript.add_system_message("System message");
+
+        let user_messages = transcript.get_user_messages();
+        assert_eq!(user_messages.len(), 3);
+        assert_eq!(user_messages[0], "First message");
+        assert_eq!(user_messages[1], "Second message");
+        assert_eq!(user_messages[2], "Third message");
+    }
+
+    #[test]
+    fn test_get_user_messages_empty() {
+        let transcript = Transcript::new();
+        let user_messages = transcript.get_user_messages();
+        assert!(user_messages.is_empty());
+    }
+
+    #[test]
+    fn test_get_user_messages_no_user_messages() {
+        let mut transcript = Transcript::new();
+        transcript.add_model_response("Response");
+        transcript.add_tool_call("tool", "{}", "safe");
+        transcript.add_system_message("System");
+
+        let user_messages = transcript.get_user_messages();
+        assert!(user_messages.is_empty());
+    }
+
+    #[test]
+    fn test_get_user_messages_with_max_entries() {
+        let mut transcript = Transcript::with_capacity(5);
+
+        for i in 0..10 {
+            transcript.add_user_message(format!("Message {}", i));
+        }
+
+        let user_messages = transcript.get_user_messages();
+        assert_eq!(user_messages.len(), 5); // Should have only the most recent 5
+        assert_eq!(user_messages[0], "Message 5");
+        assert_eq!(user_messages[4], "Message 9");
     }
 }

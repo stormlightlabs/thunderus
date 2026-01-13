@@ -71,7 +71,7 @@ advanced composer features, multi-panel layout, and power-user productivity.
       - opens $VISUAL/$EDITOR for long/complex prompts[^3]
       - loads result back into composer on save
       - Note: ctrl+g conflicts with tools like zellij
-- [ ] Message history navigation:
+- [x] Message history navigation:
       - up/down arrows to browse previous messages
       - edit and resubmit past messages
 - [ ] `@` file search:

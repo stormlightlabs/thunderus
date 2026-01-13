@@ -99,6 +99,7 @@ impl App {
         {
             match action {
                 KeyAction::SendMessage { message } => {
+                    self.state_mut().input.add_to_history(message.clone());
                     self.transcript_mut().add_user_message(&message);
                 }
                 KeyAction::ExecuteShellCommand { command } => {
@@ -126,6 +127,7 @@ impl App {
                 KeyAction::OpenExternalEditor => {
                     self.open_external_editor();
                 }
+                KeyAction::NavigateHistory => {}
                 KeyAction::NoOp => {}
             }
         }
