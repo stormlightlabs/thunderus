@@ -39,11 +39,28 @@ impl<'a> Footer<'a> {
             Style::default().fg(Theme::FG)
         };
 
-        let input_paragraph = Paragraph::new(Line::from(vec![
-            Span::styled("> ", Style::default().fg(Theme::BLUE)),
-            Span::styled(input_text, input_style),
-        ]))
-        .block(Block::default().borders(Borders::ALL));
+        let mut input_spans = vec![Span::styled("> ", Style::default().fg(Theme::BLUE))];
+
+        if self.state.input.buffer.is_empty() {
+            input_spans.push(Span::styled(input_text, input_style));
+            input_spans.push(Span::styled("█", Style::default().bg(Theme::FG).fg(Theme::FG)));
+        } else {
+            let cursor_pos = self.state.input.cursor.min(self.state.input.buffer.len());
+            let before_cursor = &self.state.input.buffer[..cursor_pos];
+            let after_cursor = &self.state.input.buffer[cursor_pos..];
+
+            if !before_cursor.is_empty() {
+                input_spans.push(Span::styled(before_cursor.to_string(), input_style));
+            }
+
+            input_spans.push(Span::styled("█", Style::default().bg(Theme::FG).fg(Theme::FG)));
+
+            if !after_cursor.is_empty() {
+                input_spans.push(Span::styled(after_cursor.to_string(), input_style));
+            }
+        }
+
+        let input_paragraph = Paragraph::new(Line::from(input_spans)).block(Block::default().borders(Borders::ALL));
 
         frame.render_widget(input_paragraph, input_area);
 

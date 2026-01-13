@@ -127,14 +127,16 @@ but functional TUI. This creates an end-to-end testable system.
       - Show: action type, description, affected paths, risk classification
       - Accept keyboard input: `y` (approve), `n` (reject), `c` (cancel)
       - Visual feedback on approval decision
-- [ ] Basic input handling:
+- [x] Basic input handling:
       - Single-line text input for user messages
       - `Enter` to submit, `Esc` to cancel generation
-- [ ] Essential keybinds only:
+- [x] Essential keybinds only:
       - `Ctrl+C` / `Esc`: cancel current generation or tool execution
       - `y` / `n` / `c`: approve/reject/cancel when approval prompt shown
       - `Ctrl+S`: toggle left sidebar (hide/show)
       - `Enter`: submit message from composer
+      - Backspace/Delete: edit input
+      - Left/Right/Home/End: navigate cursor in input
 
 DoD:
 - A working agent loop in a basic TUI

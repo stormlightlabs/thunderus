@@ -1,7 +1,9 @@
 use crate::components::{Footer, Header, Sidebar, Transcript as TranscriptComponent};
+use crate::event_handler::{EventHandler, KeyAction};
 use crate::layout::TuiLayout;
 use crate::state::AppState;
 use crate::transcript::Transcript as TranscriptState;
+use crossterm;
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io::Result;
 use std::panic;
@@ -9,15 +11,22 @@ use std::panic;
 /// Main TUI application
 ///
 /// Handles rendering and state management for the Thunderus TUI
+#[derive(Default)]
 pub struct App {
     state: AppState,
     transcript: TranscriptState,
+    should_exit: bool,
 }
 
 impl App {
     /// Create a new application
     pub fn new(state: AppState) -> Self {
-        Self { state, transcript: TranscriptState::new() }
+        Self { state, transcript: TranscriptState::new(), should_exit: false }
+    }
+
+    /// Check if the app should exit
+    pub fn should_exit(&self) -> bool {
+        self.should_exit
     }
 
     /// Get a mutable reference to the application state
@@ -42,6 +51,9 @@ impl App {
 
     /// Run the TUI application
     pub fn run(&mut self) -> Result<()> {
+        crossterm::terminal::enable_raw_mode()?;
+        crossterm::execute!(std::io::stdout(), crossterm::terminal::EnterAlternateScreen)?;
+
         let backend = CrosstermBackend::new(std::io::stdout());
         let mut terminal = Terminal::new(backend)?;
 
@@ -51,13 +63,60 @@ impl App {
             if let Ok(mut terminal) = Terminal::new(backend) {
                 let _ = terminal.show_cursor();
             }
+            let _ = crossterm::terminal::disable_raw_mode();
+            let _ = crossterm::execute!(std::io::stdout(), crossterm::terminal::LeaveAlternateScreen);
             original_hook(panic_info);
         }));
 
         terminal.clear()?;
         self.draw(&mut terminal)?;
 
+        while !self.should_exit {
+            if let Some(event) = EventHandler::read()? {
+                self.handle_event(event);
+                self.draw(&mut terminal)?;
+            }
+        }
+
+        terminal.show_cursor()?;
+        crossterm::terminal::disable_raw_mode()?;
+        crossterm::execute!(std::io::stdout(), crossterm::terminal::LeaveAlternateScreen)?;
+
         Ok(())
+    }
+
+    /// Handle an event and update state
+    fn handle_event(&mut self, event: crossterm::event::Event) {
+        use crossterm::event::Event;
+
+        if let Event::Key(key) = event
+            && let Some(action) = EventHandler::handle_key_event(key, self.state_mut()) {
+                match action {
+                    KeyAction::SendMessage { message } => {
+                        self.transcript_mut().add_user_message(&message);
+                    }
+                    KeyAction::Approve { action: _, risk: _ } => {
+                        self.transcript_mut()
+                            .set_approval_decision(crate::transcript::ApprovalDecision::Approved);
+                        self.state_mut().pending_approval = None;
+                    }
+                    KeyAction::Reject { action: _, risk: _ } => {
+                        self.transcript_mut()
+                            .set_approval_decision(crate::transcript::ApprovalDecision::Rejected);
+                        self.state_mut().pending_approval = None;
+                    }
+                    KeyAction::Cancel { action: _, risk: _ } => {
+                        self.transcript_mut()
+                            .set_approval_decision(crate::transcript::ApprovalDecision::Cancelled);
+                        self.state_mut().pending_approval = None;
+                    }
+                    KeyAction::CancelGeneration => {
+                        self.state_mut().stop_generation();
+                    }
+                    KeyAction::ToggleSidebar => {}
+                    KeyAction::NoOp => {}
+                }
+            }
     }
 
     /// Draw the UI
@@ -85,15 +144,11 @@ impl App {
 
     /// Quit the application and restore terminal
     pub fn quit(&mut self) -> Result<()> {
+        self.should_exit = true;
         Ok(())
     }
 }
 
-impl Default for App {
-    fn default() -> Self {
-        Self::new(AppState::default())
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -120,6 +175,15 @@ mod tests {
         let app = create_test_app();
         assert_eq!(app.state().profile, "test");
         assert_eq!(app.transcript().len(), 0);
+        assert!(!app.should_exit());
+    }
+
+    #[test]
+    fn test_app_quit() {
+        let mut app = create_test_app();
+        assert!(!app.should_exit());
+        app.quit().unwrap();
+        assert!(app.should_exit());
     }
 
     #[test]
@@ -308,5 +372,204 @@ mod tests {
         } else {
             panic!("Expected ApprovalPrompt with description");
         }
+    }
+
+    #[test]
+    fn test_input_flow_send_message() {
+        let mut app = create_test_app();
+
+        app.state_mut().input.buffer = "Hello, world!".to_string();
+        let message = app.state_mut().input.take();
+        app.transcript_mut().add_user_message(&message);
+
+        assert_eq!(app.transcript().len(), 1);
+        assert_eq!(app.state_mut().input.buffer, "");
+        assert_eq!(app.state_mut().input.cursor, 0);
+    }
+
+    #[test]
+    fn test_input_flow_navigation() {
+        let mut app = create_test_app();
+
+        app.state_mut().input.buffer = "Test".to_string();
+        app.state_mut().input.cursor = 4;
+
+        app.state_mut().input.move_left();
+        assert_eq!(app.state_mut().input.cursor, 3);
+
+        app.state_mut().input.insert_char('X');
+        assert_eq!(app.state_mut().input.buffer, "TesXt");
+        assert_eq!(app.state_mut().input.cursor, 4);
+
+        app.state_mut().input.delete();
+        assert_eq!(app.state_mut().input.buffer, "TesX");
+
+        app.state_mut().input.move_home();
+        assert_eq!(app.state_mut().input.cursor, 0);
+
+        app.state_mut().input.move_end();
+        assert_eq!(app.state_mut().input.cursor, 4);
+    }
+
+    #[test]
+    fn test_input_flow_backspace_delete() {
+        let mut app = create_test_app();
+
+        app.state_mut().input.buffer = "Test".to_string();
+        app.state_mut().input.cursor = 4;
+
+        app.state_mut().input.backspace();
+        assert_eq!(app.state_mut().input.buffer, "Tes");
+        assert_eq!(app.state_mut().input.cursor, 3);
+
+        app.state_mut().input.move_left();
+        app.state_mut().input.move_left();
+        app.state_mut().input.cursor = 1;
+
+        app.state_mut().input.delete();
+        assert_eq!(app.state_mut().input.buffer, "Ts");
+        assert_eq!(app.state_mut().input.cursor, 1);
+    }
+
+    #[test]
+    fn test_input_flow_clear() {
+        let mut app = create_test_app();
+
+        app.state_mut().input.buffer = "Test message".to_string();
+        app.state_mut().input.cursor = 12;
+
+        app.state_mut().input.clear();
+        assert_eq!(app.state_mut().input.buffer, "");
+        assert_eq!(app.state_mut().input.cursor, 0);
+    }
+
+    #[test]
+    fn test_sidebar_toggle() {
+        let mut app = create_test_app();
+
+        assert!(app.state().sidebar_visible);
+        app.state_mut().toggle_sidebar();
+        assert!(!app.state().sidebar_visible);
+        app.state_mut().toggle_sidebar();
+        assert!(app.state().sidebar_visible);
+    }
+
+    #[test]
+    fn test_generation_state() {
+        let mut app = create_test_app();
+
+        assert!(!app.state().is_generating());
+        app.state_mut().start_generation();
+        assert!(app.state().is_generating());
+        app.state_mut().stop_generation();
+        assert!(!app.state().is_generating());
+    }
+
+    #[test]
+    fn test_handle_event_send_message() {
+        let mut app = create_test_app();
+        app.state_mut().input.buffer = "Test message".to_string();
+
+        let event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Enter,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        app.handle_event(event);
+
+        assert_eq!(app.transcript().len(), 1);
+        assert_eq!(app.state().input.buffer, "");
+    }
+
+    #[test]
+    fn test_handle_event_send_message_empty() {
+        let mut app = create_test_app();
+
+        let event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Enter,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        app.handle_event(event);
+
+        assert_eq!(app.transcript().len(), 0);
+    }
+
+    #[test]
+    fn test_handle_event_approve_action() {
+        let mut app = create_test_app();
+        app.state_mut().pending_approval = Some(crate::state::ApprovalState::pending(
+            "test.action".to_string(),
+            "risky".to_string(),
+        ));
+
+        let event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Char('y'),
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        app.handle_event(event);
+
+        assert!(app.state().pending_approval.is_none());
+    }
+
+    #[test]
+    fn test_handle_event_reject_action() {
+        let mut app = create_test_app();
+        app.state_mut().pending_approval = Some(crate::state::ApprovalState::pending(
+            "test.action".to_string(),
+            "risky".to_string(),
+        ));
+
+        let event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Char('n'),
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        app.handle_event(event);
+
+        assert!(app.state().pending_approval.is_none());
+    }
+
+    #[test]
+    fn test_handle_event_cancel_action() {
+        let mut app = create_test_app();
+        app.state_mut().pending_approval = Some(crate::state::ApprovalState::pending(
+            "test.action".to_string(),
+            "risky".to_string(),
+        ));
+
+        let event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Char('c'),
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        app.handle_event(event);
+
+        assert!(app.state().pending_approval.is_none());
+    }
+
+    #[test]
+    fn test_handle_event_cancel_generation() {
+        let mut app = create_test_app();
+        app.state_mut().start_generation();
+
+        let event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Char('c'),
+            crossterm::event::KeyModifiers::CONTROL,
+        ));
+        app.handle_event(event);
+
+        assert!(!app.state().is_generating());
+    }
+
+    #[test]
+    fn test_handle_event_char_input() {
+        let mut app = create_test_app();
+
+        for c in "Hello".chars() {
+            let event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Char(c),
+                crossterm::event::KeyModifiers::NONE,
+            ));
+            app.handle_event(event);
+        }
+
+        assert_eq!(app.state().input.buffer, "Hello");
     }
 }
