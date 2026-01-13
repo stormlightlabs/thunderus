@@ -60,6 +60,11 @@ impl EventHandler {
             KeyCode::Enter => {
                 if !state.input.buffer.is_empty() {
                     let message = state.input.take();
+
+                    if let Some(command) = message.strip_prefix("!cmd ") {
+                        return Some(KeyAction::ExecuteShellCommand { command: command.to_string() });
+                    }
+
                     return Some(KeyAction::SendMessage { message });
                 }
             }
@@ -130,6 +135,8 @@ impl EventHandler {
 pub enum KeyAction {
     /// User wants to send a message
     SendMessage { message: String },
+    /// User wants to execute a shell command
+    ExecuteShellCommand { command: String },
     /// User approves an action
     Approve { action: String, risk: String },
     /// User rejects an action
@@ -466,5 +473,82 @@ mod tests {
         assert!(action.is_none());
         assert_eq!(state.input.buffer, "jj");
         assert_eq!(state.scroll_vertical, 0);
+    }
+
+    #[test]
+    fn test_handle_normal_key_enter_shell_command() {
+        let mut state = create_test_state();
+        state.input.buffer = "!cmd ls -la".to_string();
+
+        let event = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert_eq!(state.input.buffer, "");
+        assert!(matches!(action, Some(KeyAction::ExecuteShellCommand { .. })));
+
+        if let Some(KeyAction::ExecuteShellCommand { command }) = action {
+            assert_eq!(command, "ls -la");
+        }
+    }
+
+    #[test]
+    fn test_handle_normal_key_enter_shell_command_with_spaces() {
+        let mut state = create_test_state();
+        state.input.buffer = "!cmd    echo   'hello world'".to_string();
+
+        let event = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(matches!(action, Some(KeyAction::ExecuteShellCommand { .. })));
+
+        if let Some(KeyAction::ExecuteShellCommand { command }) = action {
+            assert_eq!(command, "   echo   'hello world'");
+        }
+    }
+
+    #[test]
+    fn test_handle_normal_key_enter_regular_message() {
+        let mut state = create_test_state();
+        state.input.buffer = "This is a regular message".to_string();
+
+        let event = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert_eq!(state.input.buffer, "");
+        assert!(matches!(action, Some(KeyAction::SendMessage { .. })));
+
+        if let Some(KeyAction::SendMessage { message }) = action {
+            assert_eq!(message, "This is a regular message");
+        }
+    }
+
+    #[test]
+    fn test_handle_normal_key_enter_empty_cmd_prefix() {
+        let mut state = create_test_state();
+        state.input.buffer = "!cmd".to_string();
+
+        let event = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(matches!(action, Some(KeyAction::SendMessage { .. })));
+
+        if let Some(KeyAction::SendMessage { message }) = action {
+            assert_eq!(message, "!cmd");
+        }
+    }
+
+    #[test]
+    fn test_handle_normal_key_enter_cmd_with_only_spaces() {
+        let mut state = create_test_state();
+        state.input.buffer = "!cmd   ".to_string();
+
+        let event = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(matches!(action, Some(KeyAction::ExecuteShellCommand { .. })));
+
+        if let Some(KeyAction::ExecuteShellCommand { command }) = action {
+            assert_eq!(command, "  ");
+        }
     }
 }

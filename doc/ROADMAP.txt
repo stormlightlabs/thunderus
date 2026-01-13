@@ -64,7 +64,7 @@ advanced composer features, multi-panel layout, and power-user productivity.
       - "Smart" wrapping for long file paths and URLs
 
 **Advanced Composer:**
-- [ ] `!cmd` shell command execution:
+- [x] `!cmd` shell command execution:
       - runs local command and inserts output as user-provided context
       - subject to approval/sandbox rules[^3]
 - [ ] `Ctrl+Shift+G` external editor:

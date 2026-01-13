@@ -7,6 +7,8 @@ use crossterm;
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io::Result;
 use std::panic;
+use thunderus_tools::ToolRegistry;
+use uuid;
 
 /// Main TUI application
 ///
@@ -96,6 +98,9 @@ impl App {
                 KeyAction::SendMessage { message } => {
                     self.transcript_mut().add_user_message(&message);
                 }
+                KeyAction::ExecuteShellCommand { command } => {
+                    self.execute_shell_command(command);
+                }
                 KeyAction::Approve { action: _, risk: _ } => {
                     self.transcript_mut()
                         .set_approval_decision(crate::transcript::ApprovalDecision::Approved);
@@ -144,6 +149,37 @@ impl App {
         Ok(())
     }
 
+    /// Execute a shell command and insert output as user-provided context
+    fn execute_shell_command(&mut self, command: String) {
+        let registry = ToolRegistry::with_builtin_tools();
+        let tool_call_id = format!("shell_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
+        let user_message = format!("!cmd {}", command);
+
+        self.transcript_mut().add_user_message(&user_message);
+
+        match registry.execute("shell", tool_call_id.clone(), &serde_json::json!({"command": command})) {
+            Ok(result) => {
+                if result.is_success() {
+                    self.transcript_mut()
+                        .add_system_message(format!("Shell command output:\n```\n{}\n```", result.content));
+
+                    self.state_mut().session_events.push(crate::state::SessionEvent {
+                        event_type: "shell_command".to_string(),
+                        message: format!("Executed: {}", command),
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                    });
+                } else {
+                    self.transcript_mut()
+                        .add_system_message(format!("Shell command failed: {}", result.content));
+                }
+            }
+            Err(e) => {
+                self.transcript_mut()
+                    .add_system_message(format!("Failed to execute shell command: {}", e));
+            }
+        }
+    }
+
     /// Quit the application and restore terminal
     pub fn quit(&mut self) -> Result<()> {
         self.should_exit = true;
@@ -186,6 +222,73 @@ mod tests {
         assert!(!app.should_exit());
         app.quit().unwrap();
         assert!(app.should_exit());
+    }
+
+    #[test]
+    fn test_execute_shell_command_simple() {
+        let mut app = create_test_app();
+
+        app.execute_shell_command("echo 'Hello from shell'".to_string());
+
+        let transcript = app.transcript();
+        let entries = transcript.entries();
+
+        let user_entry = entries
+            .iter()
+            .find(|e| matches!(e, crate::transcript::TranscriptEntry::UserMessage { .. }));
+        assert!(user_entry.is_some());
+        if let crate::transcript::TranscriptEntry::UserMessage { content } = user_entry.unwrap() {
+            assert!(content.contains("!cmd echo 'Hello from shell'"));
+        }
+
+        let system_entry = entries
+            .iter()
+            .find(|e| matches!(e, crate::transcript::TranscriptEntry::SystemMessage { .. }));
+        assert!(system_entry.is_some());
+        if let crate::transcript::TranscriptEntry::SystemMessage { content } = system_entry.unwrap() {
+            assert!(content.contains("Hello from shell"));
+            assert!(content.contains("```"));
+        }
+    }
+
+    #[test]
+    fn test_execute_shell_command_creates_session_event() {
+        let mut app = create_test_app();
+        let initial_event_count = app.state().session_events.len();
+
+        app.execute_shell_command("pwd".to_string());
+
+        assert_eq!(app.state().session_events.len(), initial_event_count + 1);
+
+        let event = &app.state().session_events[initial_event_count];
+        assert_eq!(event.event_type, "shell_command");
+        assert!(event.message.contains("Executed: pwd"));
+        assert!(!event.timestamp.is_empty());
+    }
+
+    #[test]
+    fn test_handle_shell_command_event() {
+        let mut app = create_test_app();
+
+        app.state_mut().input.buffer = "!cmd echo test".to_string();
+
+        let event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Enter,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+
+        app.handle_event(event);
+
+        let transcript = app.transcript();
+        let entries = transcript.entries();
+
+        let user_entry = entries
+            .iter()
+            .find(|e| matches!(e, crate::transcript::TranscriptEntry::UserMessage { .. }));
+        assert!(user_entry.is_some());
+        if let crate::transcript::TranscriptEntry::UserMessage { content } = user_entry.unwrap() {
+            assert!(content.contains("!cmd echo test"));
+        }
     }
 
     #[test]

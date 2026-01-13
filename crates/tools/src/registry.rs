@@ -4,6 +4,7 @@ use thunderus_core::Result;
 use thunderus_providers::{ToolResult, ToolSpec};
 
 use super::Tool;
+use super::builtin::{EchoTool, NoopTool, ShellTool};
 
 /// Registry that holds all available tools
 #[derive(Debug, Clone)]
@@ -15,6 +16,15 @@ impl ToolRegistry {
     /// Creates a new empty tool registry
     pub fn new() -> Self {
         Self { tools: Arc::new(RwLock::new(HashMap::new())) }
+    }
+
+    /// Creates a tool registry with all built-in tools registered
+    pub fn with_builtin_tools() -> Self {
+        let registry = Self::new();
+        registry.register(NoopTool).unwrap();
+        registry.register(EchoTool).unwrap();
+        registry.register(ShellTool).unwrap();
+        registry
     }
 
     /// Registers a new tool in the registry
@@ -36,8 +46,9 @@ impl ToolRegistry {
     }
 
     /// Gets a tool by name
+    /// Note: Due to trait object limitations, this returns None for now
+    /// Use the execute() method which works correctly
     pub fn get(&self, _name: &str) -> Option<Arc<dyn Tool>> {
-        let _tools = self.tools.read().unwrap();
         None
     }
 
