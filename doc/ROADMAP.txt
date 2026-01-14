@@ -129,13 +129,13 @@ interactive system. This milestone connects the pieces built in I-III into
 a functional agent harness.
 
 **CLI Launch Integration:**
-- [ ] Wire TUI launch into `cmd_start`:
+- [x] Wire TUI launch into `cmd_start`:
       - Replace placeholder message with App initialization
       - Pass session, config profile, and working directory to App
       - Create AppState from config (provider, approval mode, sandbox mode)
       - Launch TUI event loop: `app.run()?`
       - Handle terminal cleanup on exit or error
-- [ ] Initial system message:
+- [x] Initial system message:
       - On TUI launch, show welcome message in transcript:
         * Session ID, working directory, profile name
         * Approval mode and sandbox mode status

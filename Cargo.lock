@@ -2684,6 +2684,8 @@ dependencies = [
  "owo-colors",
  "tempfile",
  "thunderus-core",
+ "thunderus-tools",
+ "thunderus-ui",
 ]
 
 [[package]]

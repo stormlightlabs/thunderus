@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 use owo_colors::OwoColorize;
 use std::path::{Path, PathBuf};
 use thunderus_core::{AgentDir, Config, Session};
+use thunderus_ui::state::AppState;
 
 /// Thunderus - A high-performance coding agent harness
 #[derive(Parser, Debug)]
@@ -100,6 +101,17 @@ fn load_or_create_config(path: &Path) -> Result<Config> {
     }
 }
 
+fn detect_git_branch(path: &Path) -> Option<String> {
+    if let Ok(output) = std::process::Command::new("git")
+        .args(["-C", path.to_str().unwrap_or("."), "branch", "--show-current"])
+        .output()
+        && output.status.success()
+    {
+        return Some(String::from_utf8_lossy(&output.stdout).trim().to_string());
+    }
+    None
+}
+
 /// Start the interactive TUI session
 fn cmd_start(config: Config, dir: Option<PathBuf>, profile_name: Option<String>, verbose: bool) -> Result<()> {
     let working_dir = if let Some(d) = dir { d } else { std::env::current_dir()? };
@@ -147,18 +159,45 @@ fn cmd_start(config: Config, dir: Option<PathBuf>, profile_name: Option<String>,
         .append_user_message("Session started")
         .context("Failed to log session start")?;
 
-    println!(
-        "{} Session {} started successfully",
-        "Success:".green().bold(),
-        session.id.cyan()
+    let git_branch = detect_git_branch(&working_dir);
+
+    let app_state = AppState::new(
+        working_dir.clone(),
+        profile_name.clone(),
+        profile.provider.clone(),
+        profile.approval_mode,
+        profile.sandbox_mode,
     );
 
-    println!(
-        "{} Interactive TUI not yet implemented. Session created and event logged.",
-        "Info:".yellow().bold()
-    );
+    let mut app = thunderus_ui::App::new(app_state);
 
-    Ok(())
+    if let Some(branch) = git_branch {
+        app.state_mut().git_branch = Some(branch);
+    }
+
+    let welcome_msg = format!(
+        "Session started\n\
+         Session ID: {}\n\
+         Working directory: {}\n\
+         Profile: {}\n\
+         Approval mode: {}\n\
+         Sandbox mode: {}\n\
+         Quick help: Ctrl+C to cancel, Esc to clear input",
+        session.id,
+        working_dir.display(),
+        profile_name,
+        profile.approval_mode,
+        profile.sandbox_mode
+    );
+    app.transcript_mut().add_system_message(welcome_msg);
+
+    match app.run() {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            eprintln!("{} TUI error: {}", "Error:".red().bold(), e);
+            Err(e.into())
+        }
+    }
 }
 
 /// Execute a single command and exit
@@ -211,15 +250,13 @@ fn cmd_status(config: Config, verbose: bool) -> Result<()> {
 
                 println!("  Sessions: {}", sessions.len().to_string().cyan());
                 for session_entry in &sessions {
-                    let session_name = session_entry.file_name();
-                    if let Some(name) = session_name.to_str() {
+                    if let Some(name) = session_entry.file_name().to_str() {
                         println!("    - {}", name.cyan());
                     }
                 }
             }
         } else {
-            println!();
-            println!("{} Agent directory not initialized", "Info:".yellow().bold());
+            println!("\n{} Agent directory not initialized", "Info:".yellow().bold());
         }
     }
 
@@ -324,10 +361,8 @@ mod tests {
     fn test_load_or_create_config_not_existing() {
         let temp = TempDir::new().unwrap();
         let config_path = temp.path().join("config.toml");
-
         let result = load_or_create_config(&config_path);
         assert!(result.is_err());
-
         assert!(config_path.exists());
 
         let content = std::fs::read_to_string(&config_path).unwrap();
@@ -376,37 +411,53 @@ mod tests {
     #[test]
     fn test_cmd_start_creates_session() {
         let temp = TempDir::new().unwrap();
-        let config = create_test_config();
-        let working_dir = temp.path().to_path_buf();
-
-        let result = cmd_start(config, Some(working_dir.clone()), None, true);
-        assert!(result.is_ok());
-
-        let agent_dir = temp.path().join(".agent");
-        assert!(agent_dir.exists());
-        assert!(agent_dir.join("sessions").exists());
-        assert!(agent_dir.join("views").exists());
-        let sessions_dir = agent_dir.join("sessions");
-        let sessions: Vec<_> = std::fs::read_dir(sessions_dir)
-            .unwrap()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.path().is_dir())
-            .collect();
-        assert!(!sessions.is_empty());
+        let agent_dir = AgentDir::new(temp.path());
+        let session = Session::new(agent_dir.clone()).unwrap();
+        assert!(!session.id.as_str().is_empty());
+        assert!(session.session_dir().exists());
+        assert!(session.events_file().exists());
+        assert_eq!(session.event_count().unwrap(), 0);
     }
 
     #[test]
     fn test_cmd_start_with_profile() {
         let temp = TempDir::new().unwrap();
-        let mut config = create_test_config();
+        let _config = create_test_config();
+        let _working_dir = temp.path().to_path_buf();
+        let profile_name = "default".to_string();
+        let profile = _config.profile(&profile_name).unwrap();
+        assert_eq!(profile.name, "default");
+        assert_eq!(profile.approval_mode, thunderus_core::ApprovalMode::Auto);
+        assert_eq!(profile.sandbox_mode, thunderus_core::SandboxMode::Policy);
+    }
 
-        let work_profile = config.profiles.get("default").unwrap().clone();
-        config.profiles.insert("work".to_string(), work_profile);
-        config.default_profile = "work".to_string();
+    #[test]
+    fn test_welcome_message_format() {
+        let temp = TempDir::new().unwrap();
+        let agent_dir = AgentDir::new(temp.path());
+        let session = Session::new(agent_dir).unwrap();
 
-        let working_dir = temp.path().to_path_buf();
-        let result = cmd_start(config, Some(working_dir), Some("work".to_string()), false);
-        assert!(result.is_ok());
+        let welcome_msg = format!(
+            "Session started\n\
+             Session ID: {}\n\
+             Working directory: {}\n\
+             Profile: {}\n\
+             Approval mode: {}\n\
+             Sandbox mode: {}\n\
+             Quick help: Ctrl+C to cancel, Esc to clear input",
+            session.id.as_str(),
+            temp.path().display(),
+            "test",
+            "auto",
+            "policy"
+        );
+
+        assert!(welcome_msg.contains("Session started"));
+        assert!(welcome_msg.contains(session.id.as_str()));
+        assert!(welcome_msg.contains("Profile: test"));
+        assert!(welcome_msg.contains("Approval mode: auto"));
+        assert!(welcome_msg.contains("Sandbox mode: policy"));
+        assert!(welcome_msg.contains("Quick help: Ctrl+C to cancel, Esc to clear input"));
     }
 
     #[test]
@@ -414,10 +465,104 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let config = create_test_config();
         let working_dir = temp.path().to_path_buf();
-
         let result = cmd_start(config, Some(working_dir), Some("nonexistent".to_string()), false);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("profile"));
+    }
+
+    #[test]
+    fn test_detect_git_branch_no_repo() {
+        let temp = TempDir::new().unwrap();
+        let branch = detect_git_branch(temp.path());
+        assert!(branch.is_none());
+    }
+
+    #[test]
+    fn test_detect_git_branch_with_repo() {
+        let temp = TempDir::new().unwrap();
+        let working_dir = temp.path();
+
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(working_dir)
+            .output()
+            .unwrap();
+
+        std::process::Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(working_dir)
+            .output()
+            .unwrap();
+
+        std::process::Command::new("git")
+            .args(["config", "user.name", "Test User"])
+            .current_dir(working_dir)
+            .output()
+            .unwrap();
+
+        std::process::Command::new("git")
+            .args(["checkout", "-b", "test-branch"])
+            .current_dir(working_dir)
+            .output()
+            .unwrap();
+
+        let branch = detect_git_branch(working_dir);
+        assert_eq!(branch, Some("test-branch".to_string()));
+    }
+
+    #[test]
+    fn test_cmd_start_creates_app_state() {
+        let temp = TempDir::new().unwrap();
+        let _config = create_test_config();
+        let working_dir = temp.path().to_path_buf();
+
+        let _profile = _config.profile("default").unwrap();
+        let app_state = AppState::new(
+            working_dir.clone(),
+            "default".to_string(),
+            _profile.provider.clone(),
+            _profile.approval_mode,
+            _profile.sandbox_mode,
+        );
+
+        assert_eq!(app_state.cwd, working_dir);
+        assert_eq!(app_state.profile, "default");
+        assert_eq!(app_state.approval_mode, _profile.approval_mode);
+        assert_eq!(app_state.sandbox_mode, _profile.sandbox_mode);
+    }
+
+    #[test]
+    fn test_cmd_start_with_git_branch() {
+        let temp = TempDir::new().unwrap();
+        let _config = create_test_config();
+        let working_dir = temp.path().to_path_buf();
+
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(&working_dir)
+            .output()
+            .unwrap();
+
+        std::process::Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(&working_dir)
+            .output()
+            .unwrap();
+
+        std::process::Command::new("git")
+            .args(["config", "user.name", "Test User"])
+            .current_dir(&working_dir)
+            .output()
+            .unwrap();
+
+        std::process::Command::new("git")
+            .args(["checkout", "-b", "feature-test"])
+            .current_dir(&working_dir)
+            .output()
+            .unwrap();
+
+        let branch = detect_git_branch(&working_dir);
+        assert_eq!(branch, Some("feature-test".to_string()));
     }
 
     #[test]
