@@ -141,7 +141,7 @@ a functional agent harness.
         * Approval mode and sandbox mode status
         * Quick help: Ctrl+C to cancel, Esc to clear input
       - Use transcript.add_system_message()
-- [ ] Add shell completions generation (bash/zsh/fish) for CLI and slash
+- [x] Add shell completions generation (bash/zsh/fish) for CLI and slash
       commands with `clap_complete`[^3]
 
 **Combined Event Loop:**

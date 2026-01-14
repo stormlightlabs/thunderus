@@ -1,6 +1,8 @@
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{Command, CommandFactory, Parser, Subcommand};
+use clap_complete::{Generator, Shell, generate};
 use owo_colors::OwoColorize;
+use std::io;
 use std::path::{Path, PathBuf};
 use thunderus_core::{AgentDir, Config, Session};
 use thunderus_ui::state::AppState;
@@ -47,6 +49,12 @@ enum Commands {
     },
     /// Show current status
     Status,
+    /// Generate shell completion scripts
+    Completions {
+        /// Shell type to generate completions for
+        #[arg(value_enum)]
+        shell: Shell,
+    },
 }
 
 fn main() {
@@ -72,10 +80,15 @@ fn run() -> Result<()> {
     }
 
     match cli.command {
-        Commands::Start { dir } => cmd_start(config, dir, cli.profile, cli.verbose)?,
-        Commands::Exec { command, args } => cmd_exec(config, command, args, cli.verbose)?,
-        Commands::Status => cmd_status(config, cli.verbose)?,
+        Commands::Start { dir } => cmd_start(config, dir, cli.profile, cli.verbose),
+        Commands::Exec { command, args } => cmd_exec(config, command, args, cli.verbose),
+        Commands::Status => cmd_status(config, cli.verbose),
+        Commands::Completions { shell } => print_completions(shell, &mut Cli::command()),
     }
+}
+
+fn print_completions<G: Generator>(generator: G, cmd: &mut Command) -> Result<()> {
+    generate(generator, cmd, cmd.get_name().to_string(), &mut io::stdout());
 
     Ok(())
 }
@@ -589,5 +602,79 @@ api_key = "test-api-key"
 model = "glm-4.7"
 "#;
         Config::from_toml_str(toml).unwrap()
+    }
+
+    #[test]
+    fn test_cli_completions_command_bash() {
+        let cli = Cli::try_parse_from(["thunderus", "completions", "bash"]).unwrap();
+        assert!(matches!(cli.command, Commands::Completions { .. }));
+
+        if let Commands::Completions { shell } = cli.command {
+            assert_eq!(shell, Shell::Bash);
+        } else {
+            panic!("Expected Completions command");
+        }
+    }
+
+    #[test]
+    fn test_cli_completions_command_zsh() {
+        let cli = Cli::try_parse_from(["thunderus", "completions", "zsh"]).unwrap();
+        assert!(matches!(cli.command, Commands::Completions { .. }));
+
+        if let Commands::Completions { shell } = cli.command {
+            assert_eq!(shell, Shell::Zsh);
+        } else {
+            panic!("Expected Completions command");
+        }
+    }
+
+    #[test]
+    fn test_cli_completions_command_fish() {
+        let cli = Cli::try_parse_from(["thunderus", "completions", "fish"]).unwrap();
+        assert!(matches!(cli.command, Commands::Completions { .. }));
+
+        if let Commands::Completions { shell } = cli.command {
+            assert_eq!(shell, Shell::Fish);
+        } else {
+            panic!("Expected Completions command");
+        }
+    }
+
+    #[test]
+    fn test_cli_completions_invalid_shell() {
+        let cli = Cli::try_parse_from(["thunderus", "completions", "invalid"]);
+        assert!(cli.is_err());
+    }
+
+    #[test]
+    fn test_cli_completions_output_no_panic() {
+        use clap_complete::generate_to;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let mut cmd = Cli::command();
+
+        let result = generate_to(Shell::Bash, &mut cmd, "thunderus", temp_dir.path());
+        assert!(result.is_ok());
+
+        let completion_file = temp_dir.path().join("thunderus.bash");
+        assert!(completion_file.exists());
+
+        let content = std::fs::read_to_string(&completion_file).unwrap();
+        assert!(content.contains("thunderus"));
+    }
+
+    #[test]
+    fn test_cli_completions_all_shells() {
+        use clap_complete::generate_to;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let mut cmd = Cli::command();
+
+        for shell in [Shell::Bash, Shell::Zsh, Shell::Fish] {
+            let result = generate_to(shell, &mut cmd, "thunderus", temp_dir.path());
+            assert!(result.is_ok(), "Failed to generate completions for {:?}", shell);
+        }
     }
 }

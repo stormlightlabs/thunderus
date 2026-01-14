@@ -10,6 +10,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1.0"
 clap = { version = "4.5.54", features = ["derive"] }
+clap_complete = "4.5.54"
 owo-colors = "4.2.3"
 
 thunderus-core = { path = "../core" }
