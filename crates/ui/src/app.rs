@@ -12,7 +12,7 @@ use std::io::{self, Result, Write};
 use std::{env, fs, panic};
 use std::{process::Command, sync::Arc, time::Duration};
 use thunderus_agent::{Agent, AgentEvent};
-use thunderus_core::{ActionType, ApprovalDecision, ApprovalMode, ApprovalProtocol, SessionId, ToolRisk};
+use thunderus_core::{ActionType, ApprovalDecision, ApprovalMode, ApprovalProtocol, Session, SessionId, ToolRisk};
 use thunderus_providers::{CancelToken, Provider};
 use thunderus_tools::ToolRegistry;
 use tokio::sync::mpsc;
@@ -35,6 +35,10 @@ pub struct App {
     cancel_token: CancelToken,
     /// Provider for agent operations
     provider: Option<Arc<dyn Provider>>,
+    /// Session for event persistence
+    session: Option<Session>,
+    /// Buffer for accumulating streaming model response content
+    streaming_model_content: Option<String>,
 }
 
 impl App {
@@ -49,6 +53,8 @@ impl App {
             approval_handle: None,
             cancel_token: CancelToken::new(),
             provider: None,
+            session: None,
+            streaming_model_content: None,
         }
     }
 
@@ -63,7 +69,15 @@ impl App {
             approval_handle: None,
             cancel_token: CancelToken::new(),
             provider: Some(provider),
+            session: None,
+            streaming_model_content: None,
         }
+    }
+
+    /// Set the session for event persistence
+    pub fn with_session(mut self, session: Session) -> Self {
+        self.session = Some(session);
+        self
     }
 
     /// Check if the app should exit
@@ -89,6 +103,71 @@ impl App {
     /// Get a mutable reference to the transcript
     pub fn transcript_mut(&mut self) -> &mut TranscriptState {
         &mut self.transcript
+    }
+
+    /// Persist a user message to the session log
+    ///
+    /// Handles write failures gracefully by warning the user and logging to stderr
+    fn persist_user_message(&mut self, content: &str) {
+        if let Some(ref mut session) = self.session
+            && let Err(e) = session.append_user_message(content)
+        {
+            let warning = format!("Warning: Failed to persist user message: {}", e);
+            eprintln!("{}", warning);
+            self.transcript_mut().add_system_message(warning);
+        }
+    }
+
+    /// Persist a model response to the session log
+    ///
+    /// Handles write failures gracefully by warning the user and logging to stderr
+    fn persist_model_message(&mut self, content: &str) {
+        if let Some(ref mut session) = self.session
+            && let Err(e) = session.append_model_message(content, None)
+        {
+            let warning = format!("Warning: Failed to persist model message: {}", e);
+            eprintln!("{}", warning);
+            self.transcript_mut().add_system_message(warning);
+        }
+    }
+
+    /// Persist a tool call to the session log
+    ///
+    /// Handles write failures gracefully by warning the user and logging to stderr
+    fn persist_tool_call(&mut self, tool: &str, arguments: &serde_json::Value) {
+        if let Some(ref mut session) = self.session
+            && let Err(e) = session.append_tool_call(tool, arguments.clone())
+        {
+            let warning = format!("Warning: Failed to persist tool call: {}", e);
+            eprintln!("{}", warning);
+            self.transcript_mut().add_system_message(warning);
+        }
+    }
+
+    /// Persist a tool result to the session log
+    ///
+    /// Handles write failures gracefully by warning the user and logging to stderr
+    fn persist_tool_result(&mut self, tool: &str, result: &serde_json::Value, success: bool, error: Option<&str>) {
+        if let Some(ref mut session) = self.session
+            && let Err(e) = session.append_tool_result(tool, result.clone(), success, error.map(|s| s.to_string()))
+        {
+            let warning = format!("Warning: Failed to persist tool result: {}", e);
+            eprintln!("{}", warning);
+            self.transcript_mut().add_system_message(warning);
+        }
+    }
+
+    /// Persist an approval decision to the session log
+    ///
+    /// Handles write failures gracefully by warning the user and logging to stderr
+    fn persist_approval(&mut self, action: &str, approved: bool) {
+        if let Some(ref mut session) = self.session
+            && let Err(e) = session.append_approval(action, approved)
+        {
+            let warning = format!("Warning: Failed to persist approval: {}", e);
+            eprintln!("{}", warning);
+            self.transcript_mut().add_system_message(warning);
+        }
     }
 
     /// Run the TUI application with unified event loop
@@ -185,6 +264,7 @@ impl App {
                     self.state_mut().input.add_to_history(message.clone());
                     self.state_mut().last_message = Some(message.clone());
                     self.transcript_mut().add_user_message(&message);
+                    self.persist_user_message(&message);
 
                     if let Some(provider) = self.provider.clone() {
                         self.spawn_agent_for_message(message, &provider);
@@ -340,14 +420,30 @@ impl App {
     /// and updates the transcript and application state accordingly.
     fn handle_agent_event(&mut self, event: thunderus_agent::AgentEvent) {
         match event {
-            AgentEvent::Token(text) => self.transcript_mut().add_streaming_token(&text),
+            AgentEvent::Token(text) => {
+                // Accumulate streaming tokens for persistence when done
+                if self.streaming_model_content.is_none() {
+                    self.streaming_model_content = Some(String::new());
+                }
+                if let Some(ref mut buffer) = self.streaming_model_content {
+                    buffer.push_str(&text);
+                }
+                self.transcript_mut().add_streaming_token(&text);
+            }
             AgentEvent::ToolCall { name, args } => {
                 let args_str = serde_json::to_string_pretty(&args).unwrap_or_default();
                 self.transcript_mut().add_tool_call(&name, &args_str, "safe");
+                self.persist_tool_call(&name, &args);
             }
             AgentEvent::ToolResult { name, result } => {
                 let success = result.contains("success") || !result.contains("error");
                 self.transcript_mut().add_tool_result(&name, &result, success);
+
+                // Persist tool result as JSON value
+                let result_json = serde_json::json!({
+                    "output": result
+                });
+                self.persist_tool_result(&name, &result_json, success, if success { None } else { Some("") });
             }
             AgentEvent::ApprovalRequest(request) => {
                 eprintln!("Unexpected approval request via agent event: {:?}", request.id)
@@ -372,6 +468,11 @@ impl App {
             AgentEvent::Done => {
                 self.transcript_mut().finish_streaming();
                 self.state_mut().stop_generation();
+
+                // Persist the complete model response
+                if let Some(content) = self.streaming_model_content.take() {
+                    self.persist_model_message(&content);
+                }
             }
         }
     }
@@ -409,6 +510,11 @@ impl App {
         self.transcript_mut().set_approval_decision(decision);
 
         if let Some(approval_state) = self.state_mut().pending_approval.take() {
+            let approved = matches!(decision, ApprovalDecision::Approved);
+
+            // Persist the approval decision
+            self.persist_approval(&approval_state.action, approved);
+
             if let Some(request_id) = approval_state.request_id
                 && let Some(ref handle) = self.approval_handle
             {
@@ -769,6 +875,8 @@ impl Default for App {
             approval_handle: None,
             cancel_token: CancelToken::new(),
             provider: None,
+            session: None,
+            streaming_model_content: None,
         }
     }
 }

@@ -185,7 +185,7 @@ async fn cmd_start(config: Config, dir: Option<PathBuf>, profile_name: Option<St
         profile.sandbox_mode,
     );
 
-    let mut app = thunderus_ui::App::new(app_state);
+    let mut app = thunderus_ui::App::new(app_state).with_session(session.clone());
 
     if let Some(branch) = git_branch {
         app.state_mut().git_branch = Some(branch);

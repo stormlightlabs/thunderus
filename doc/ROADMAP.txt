@@ -209,7 +209,7 @@ Cancellation & Error Handling
 
 Session Persistence
 -------------------
-- [ ] Event logging:
+- [x] Event logging:
       - Log all transcript events to session.events.jsonl:
         * User messages
         * Model responses (full content after streaming completes)
@@ -219,7 +219,7 @@ Session Persistence
       - Persist on each event (append-only, crash-safe)
       - Session write failures: warn user, continue (log to stderr)
 - [ ] Session recovery:
-      - Load previous session state on restart (future)
+      - Load previous session state on restart
       - Reconstruct transcript from events.jsonl
       - Resume conversation context
 

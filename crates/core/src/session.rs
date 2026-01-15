@@ -141,7 +141,7 @@ impl LoggedEvent {
 }
 
 /// Session manages events and their storage in JSONL format
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Session {
     /// Unique identifier for this session
     pub id: SessionId,
