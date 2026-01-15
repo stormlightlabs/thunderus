@@ -26,6 +26,14 @@ impl ToolRisk {
     pub fn is_risky(&self) -> bool {
         matches!(self, Self::Risky)
     }
+
+    /// Returns the string representation of the risk level
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Safe => "safe",
+            Self::Risky => "risky",
+        }
+    }
 }
 
 /// Classification result with reasoning
@@ -60,6 +68,12 @@ mod tests {
 
         assert!(!ToolRisk::Risky.is_safe());
         assert!(ToolRisk::Risky.is_risky());
+    }
+
+    #[test]
+    fn test_tool_risk_as_str() {
+        assert_eq!(ToolRisk::Safe.as_str(), "safe");
+        assert_eq!(ToolRisk::Risky.as_str(), "risky");
     }
 
     #[test]

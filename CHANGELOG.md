@@ -6,6 +6,9 @@
 
 #### [2026-01-15]
 
+- Tool execution display with risk classification reasoning, improved tool descriptions,
+output truncation in brief mode, and execution time tracking.
+
 - Implemented a unified event multiplexer that handles real-time model streaming, tool
 execution cards, and interactive approval prompts within a single non-blocking loop.
 

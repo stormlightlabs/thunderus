@@ -504,18 +504,52 @@ impl App {
                 }
                 self.transcript_mut().add_streaming_token(&text);
             }
-            AgentEvent::ToolCall { name, args } => {
+            AgentEvent::ToolCall { name, args, risk, description, classification_reasoning } => {
                 let args_str = serde_json::to_string_pretty(&args).unwrap_or_default();
-                self.transcript_mut().add_tool_call(&name, &args_str, "safe");
+                let risk_str = risk.as_str();
+                self.transcript_mut().add_tool_call(&name, &args_str, risk_str);
+                if let Some(entry) = self.transcript_mut().last_mut()
+                    && let crate::transcript::TranscriptEntry::ToolCall {
+                        description: d,
+                        classification_reasoning: cr,
+                        ..
+                    } = entry
+                {
+                    if let Some(desc) = description {
+                        *d = Some(desc);
+                    }
+                    if let Some(reasoning) = classification_reasoning {
+                        *cr = Some(reasoning);
+                    }
+                }
                 self.persist_tool_call(&name, &args);
             }
-            AgentEvent::ToolResult { name, result } => {
-                let success = result.contains("success") || !result.contains("error");
+            AgentEvent::ToolResult { name, result, success, error, metadata } => {
                 self.transcript_mut().add_tool_result(&name, &result, success);
+                if let Some(err) = error
+                    && let Some(entry) = self.transcript_mut().last_mut()
+                    && let crate::transcript::TranscriptEntry::ToolResult { error: e, .. } = entry
+                {
+                    *e = Some(err);
+                }
                 let result_json = serde_json::json!({
                     "output": result
                 });
                 self.persist_tool_result(&name, &result_json, success, if success { None } else { Some("") });
+
+                if let Some(entry) = self.transcript_mut().last_mut()
+                    && let crate::transcript::TranscriptEntry::ToolResult { .. } = entry
+                    && let Some(exec_time) = metadata.execution_time_ms
+                    && exec_time > 0
+                {
+                    let time_str = if exec_time < 1000 {
+                        format!("{}ms", exec_time)
+                    } else {
+                        format!("{:.2}s", exec_time as f64 / 1000.0)
+                    };
+                    self.transcript_mut()
+                        .add_system_message(format!("Tool execution time: {}", time_str));
+                }
             }
             AgentEvent::ApprovalRequest(request) => {
                 eprintln!("Unexpected approval request via agent event: {:?}", request.id)

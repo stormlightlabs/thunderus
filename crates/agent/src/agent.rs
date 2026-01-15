@@ -5,15 +5,62 @@ use tokio::sync::mpsc;
 use thunderus_core::*;
 use thunderus_providers::*;
 
+/// Metadata for tool execution
+#[derive(Debug, Clone)]
+pub struct ToolExecutionMetadata {
+    pub execution_time_ms: Option<u64>,
+    pub classification_reasoning: Option<String>,
+    pub affected_paths: Vec<String>,
+}
+
+impl ToolExecutionMetadata {
+    pub fn new() -> Self {
+        Self { execution_time_ms: None, classification_reasoning: None, affected_paths: Vec::new() }
+    }
+
+    pub fn with_execution_time(mut self, time_ms: u64) -> Self {
+        self.execution_time_ms = Some(time_ms);
+        self
+    }
+
+    pub fn with_classification_reasoning(mut self, reasoning: String) -> Self {
+        self.classification_reasoning = Some(reasoning);
+        self
+    }
+
+    pub fn with_affected_paths(mut self, paths: Vec<String>) -> Self {
+        self.affected_paths = paths;
+        self
+    }
+}
+
+impl Default for ToolExecutionMetadata {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Events sent from agent to TUI
 #[derive(Debug, Clone)]
 pub enum AgentEvent {
     /// Text token from model
     Token(String),
     /// Tool call initiated
-    ToolCall { name: String, args: serde_json::Value },
+    ToolCall {
+        name: String,
+        args: serde_json::Value,
+        risk: ToolRisk,
+        description: Option<String>,
+        classification_reasoning: Option<String>,
+    },
     /// Tool result received
-    ToolResult { name: String, result: String },
+    ToolResult {
+        name: String,
+        result: String,
+        success: bool,
+        error: Option<String>,
+        metadata: ToolExecutionMetadata,
+    },
     /// Approval request for action
     ApprovalRequest(ApprovalRequest),
     /// Approval response from user
@@ -93,9 +140,14 @@ impl Agent {
                     }
                     StreamEvent::ToolCall(calls) => {
                         for call in calls {
+                            let classification = classify_tool_risk(&call.function.name, &call.function.arguments);
+                            let description = generate_tool_description(&call.function.name, &call.function.arguments);
                             let _ = tx.send(AgentEvent::ToolCall {
                                 name: call.function.name.clone(),
                                 args: call.function.arguments,
+                                risk: classification.risk,
+                                description: Some(description),
+                                classification_reasoning: Some(classification.reasoning),
                             });
                         }
                     }
@@ -162,6 +214,106 @@ fn get_next_approval_id() -> ApprovalId {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_millis() as u64
+}
+
+/// Classification result with reasoning
+struct ToolClassification {
+    risk: ToolRisk,
+    reasoning: String,
+}
+
+/// Classify tool risk based on tool name and arguments
+///
+/// This provides a basic heuristic for classifying tool calls by risk level.
+/// In a production system, this would be more sophisticated and potentially
+/// driven by configuration or ML-based classification.
+fn classify_tool_risk(tool_name: &str, arguments: &serde_json::Value) -> ToolClassification {
+    match tool_name {
+        name if name.contains("read") || name.contains("get") || name.contains("list") || name.contains("search") => {
+            ToolClassification {
+                risk: ToolRisk::Safe,
+                reasoning: format!("{} is read-only and does not modify files", name),
+            }
+        }
+        name if name.contains("write")
+            || name.contains("edit")
+            || name.contains("create")
+            || name.contains("update") =>
+        {
+            let path = arguments.get("path").and_then(|v| v.as_str()).unwrap_or("files");
+            ToolClassification {
+                risk: ToolRisk::Risky,
+                reasoning: format!("{} modifies {} which could change project state", name, path),
+            }
+        }
+        name if name.contains("delete") || name.contains("remove") || name.contains("rm") => {
+            let path = arguments.get("path").and_then(|v| v.as_str()).unwrap_or("files");
+            ToolClassification {
+                risk: ToolRisk::Risky,
+                reasoning: format!("{} removes {} which cannot be easily undone", name, path),
+            }
+        }
+        name if name.contains("shell") || name.contains("exec") || name.contains("command") => {
+            let cmd = arguments
+                .get("command")
+                .and_then(|v| v.as_str())
+                .unwrap_or("arbitrary commands");
+            ToolClassification {
+                risk: ToolRisk::Risky,
+                reasoning: format!("Shell execution of {} can have unintended side effects", cmd),
+            }
+        }
+        name if name.contains("http") || name.contains("fetch") || name.contains("request") => ToolClassification {
+            risk: ToolRisk::Risky,
+            reasoning: format!(
+                "{} makes network requests which may leak data or consume resources",
+                name
+            ),
+        },
+        _ => ToolClassification {
+            risk: ToolRisk::Safe,
+            reasoning: format!("{} is not in the known risky operations list", tool_name),
+        },
+    }
+}
+
+/// Generate a human-readable description for a tool call
+fn generate_tool_description(tool_name: &str, arguments: &serde_json::Value) -> String {
+    if let Some(obj) = arguments.as_object() {
+        if let Some(path) = obj.get("path").and_then(|v| v.as_str()) {
+            return match tool_name {
+                name if name.contains("read") => format!("Read file: {}", path),
+                name if name.contains("edit") || name.contains("write") => format!("Edit file: {}", path),
+                name if name.contains("delete") || name.contains("remove") => format!("Delete file: {}", path),
+                name if name.contains("search") || name.contains("grep") => format!("Search in: {}", path),
+                _ => format!("{} on {}", tool_name, path),
+            };
+        }
+
+        if let Some(query) = obj.get("query").and_then(|v| v.as_str()) {
+            let truncated_query = if query.len() > 50 { format!("{}...", &query[..47]) } else { query.to_string() };
+            return format!("{}: {}", tool_name, truncated_query);
+        }
+
+        if let Some(pattern) = obj.get("pattern").and_then(|v| v.as_str()) {
+            let truncated_pattern =
+                if pattern.len() > 40 { format!("{}...", &pattern[..37]) } else { pattern.to_string() };
+            return format!("{}: {}", tool_name, truncated_pattern);
+        }
+
+        if let Some(command) = obj.get("command").and_then(|v| v.as_str()) {
+            let truncated_cmd = if command.len() > 60 { format!("{}...", &command[..57]) } else { command.to_string() };
+            return format!("Execute: {}", truncated_cmd);
+        }
+
+        if let Some(patterns) = obj.get("patterns").and_then(|v| v.as_array())
+            && let Some(first_pattern) = patterns.first().and_then(|v| v.as_str())
+        {
+            return format!("{}: {} (+ {} more)", tool_name, first_pattern, patterns.len() - 1);
+        }
+    }
+
+    tool_name.to_string()
 }
 
 /// Simple in-memory approval protocol for testing
@@ -261,8 +413,26 @@ mod tests {
 
     #[test]
     fn test_agent_event_tool_call() {
-        let event = AgentEvent::ToolCall { name: "test_tool".to_string(), args: serde_json::json!({}) };
+        let event = AgentEvent::ToolCall {
+            name: "test_tool".to_string(),
+            args: serde_json::json!({}),
+            risk: thunderus_core::ToolRisk::Safe,
+            description: Some("Test tool".to_string()),
+            classification_reasoning: Some("Test reasoning".to_string()),
+        };
         assert!(matches!(event, AgentEvent::ToolCall { .. }));
+    }
+
+    #[test]
+    fn test_agent_event_tool_result() {
+        let event = AgentEvent::ToolResult {
+            name: "test_tool".to_string(),
+            result: "Success".to_string(),
+            success: true,
+            error: None,
+            metadata: ToolExecutionMetadata::new(),
+        };
+        assert!(matches!(event, AgentEvent::ToolResult { .. }));
     }
 
     #[test]
@@ -327,7 +497,13 @@ mod tests {
         let (tx, mut rx) = mpsc::unbounded_channel::<AgentEvent>();
 
         let _ = tx.send(AgentEvent::Token("Hello".to_string()));
-        let _ = tx.send(AgentEvent::ToolCall { name: "test".to_string(), args: serde_json::json!({}) });
+        let _ = tx.send(AgentEvent::ToolCall {
+            name: "test".to_string(),
+            args: serde_json::json!({}),
+            risk: thunderus_core::ToolRisk::Safe,
+            description: None,
+            classification_reasoning: None,
+        });
         let _ = tx.send(AgentEvent::Done);
 
         let ev1 = rx.recv().await.unwrap();

@@ -57,6 +57,7 @@ pub enum TranscriptEntry {
         arguments: String,
         risk: String,
         description: Option<String>,
+        classification_reasoning: Option<String>,
         detail_level: CardDetailLevel,
     },
     /// Tool result with success status
@@ -126,6 +127,7 @@ impl TranscriptEntry {
             arguments: arguments.into(),
             risk: risk.into(),
             description: None,
+            classification_reasoning: None,
             detail_level: CardDetailLevel::default(),
         }
     }
@@ -134,6 +136,14 @@ impl TranscriptEntry {
     pub fn with_description(mut self, description: impl Into<String>) -> Self {
         if let Self::ToolCall { description: desc, .. } = &mut self {
             *desc = Some(description.into());
+        }
+        self
+    }
+
+    /// Add classification reasoning to a tool call
+    pub fn with_classification_reasoning(mut self, reasoning: impl Into<String>) -> Self {
+        if let Self::ToolCall { classification_reasoning, .. } = &mut self {
+            *classification_reasoning = Some(reasoning.into());
         }
         self
     }

@@ -19,6 +19,7 @@ struct ToolCallContext<'a> {
     arguments: &'a str,
     risk: &'a str,
     description: Option<&'a str>,
+    classification_reasoning: Option<&'a str>,
     rendering: RenderContext<'a>,
 }
 
@@ -101,12 +102,20 @@ impl<'a> TranscriptRenderer<'a> {
             super::TranscriptEntry::ModelResponse { content, streaming } => {
                 self.render_model_response(content, *streaming, width, lines);
             }
-            super::TranscriptEntry::ToolCall { tool, arguments, risk, description, detail_level } => {
+            super::TranscriptEntry::ToolCall {
+                tool,
+                arguments,
+                risk,
+                description,
+                classification_reasoning,
+                detail_level,
+            } => {
                 self.render_tool_call(ToolCallContext {
                     tool,
                     arguments,
                     risk,
                     description: description.as_deref(),
+                    classification_reasoning: classification_reasoning.as_deref(),
                     rendering: RenderContext::new(width, *detail_level, lines),
                 });
             }
@@ -160,7 +169,7 @@ impl<'a> TranscriptRenderer<'a> {
 
     /// Render tool call card
     fn render_tool_call(&self, ctx: ToolCallContext) {
-        let ToolCallContext { tool, arguments, risk, description, rendering } = ctx;
+        let ToolCallContext { tool, arguments, risk, description, classification_reasoning, rendering } = ctx;
 
         rendering.lines.push(Line::default());
         let risk_color = super::TranscriptEntry::risk_level_color_str(risk);
@@ -198,6 +207,13 @@ impl<'a> TranscriptRenderer<'a> {
                 self.wrap_text(arguments, Theme::FG, rendering.width, rendering.lines);
 
                 if rendering.detail_level == CardDetailLevel::Verbose {
+                    if let Some(reasoning) = classification_reasoning {
+                        rendering.lines.push(Line::from(vec![
+                            Span::styled("  ", Style::default().fg(Theme::MUTED)),
+                            Span::styled("Classification: ", Style::default().fg(Theme::YELLOW)),
+                            Span::styled(reasoning.to_string(), Style::default().fg(Theme::FG).italic()),
+                        ]));
+                    }
                     rendering.lines.push(Line::from(vec![Span::styled(
                         "  [verbose mode - full execution details]",
                         Style::default().fg(Theme::MUTED),
@@ -229,6 +245,19 @@ impl<'a> TranscriptRenderer<'a> {
 
         match rendering.detail_level {
             CardDetailLevel::Brief => {
+                let preview = if let Some(first_line) = result.lines().next() {
+                    if first_line.len() > 80 { format!("{}...", &first_line[..77]) } else { first_line.to_string() }
+                } else {
+                    String::new()
+                };
+
+                if !preview.is_empty() {
+                    rendering.lines.push(Line::from(vec![
+                        Span::styled("  ", Style::default().fg(Theme::MUTED)),
+                        Span::styled(preview, Style::default().fg(Theme::FG)),
+                    ]));
+                }
+
                 rendering.lines.push(Line::from(vec![Span::styled(
                     "  [output truncated - press 'v' for verbose]",
                     Style::default().fg(Theme::MUTED),
