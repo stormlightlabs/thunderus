@@ -3,15 +3,7 @@
 CODING AGENT MVP                                                 *agent-harness*
 ================================================================================
 
-Replicate the *harness* quality of Claude Code + Codex CLI:
-tight TUI loop, diff-first edits, explicit approvals/sandboxing, ergonomic
-"composer" UX, and a workflow that is safe, scriptable, and hard to derail[^1]
-
-- Rust, TUI-first (UI inspiration: OpenCode + Crush; keybinds: Claude/Codex)
-- Shell tools are first-class ("anything in the shell" is usable, but gated)
-- Dual providers: GLM-4.7 + Gemini
-- First-class Markdown + JSONL hybrid VCS (audit + projections)
-- Mixed-initiative: no "short-circuiting" when you work alongside the agent
+See |VISION.txt| for design philosophy, core principles, and milestone targets.
 
 --------------------------------------------------------------------------------
 CONTENTS                                                      *roadmap-contents*
@@ -125,10 +117,11 @@ DoD:
 IV. TUI + AGENT + CLI INTEGRATION                                     *agent-IV*
 --------------------------------------------------------------------------------
 Bridge the TUI components, Agent orchestrator, and CLI into a working
-interactive system. This milestone connects the pieces built in I-III into
-a functional agent harness.
+interactive system. Here we connect the pieces built in I-III into a functional
+agent harness.
 
-**CLI Launch Integration:**
+CLI Launch Integration
+----------------------
 - [x] Wire TUI launch into `cmd_start`:
       - Replace placeholder message with App initialization
       - Pass session, config profile, and working directory to App
@@ -144,7 +137,8 @@ a functional agent harness.
 - [x] Add shell completions generation (bash/zsh/fish) for CLI and slash
       commands with `clap_complete`[^3]
 
-**Combined Event Loop:**
+Combined Event Loop
+-------------------
 - [ ] Create unified event loop:
       - Handle both TUI events (keyboard) and Agent events (streaming)
       - Use tokio::select! to multiplex:
@@ -154,7 +148,8 @@ a functional agent harness.
       - Non-blocking event polling (current: 100ms)
       - Graceful shutdown on exit signal
 
-**Agent Streaming Integration:**
+Agent Streaming Integration
+---------------------------
 - [ ] Connect agent to transcript:
       - On KeyAction::SendMessage: spawn agent.process_message()
       - Stream AgentEvent::Token to transcript (add_streaming_token)
@@ -166,7 +161,8 @@ a functional agent harness.
       - Provider response stream → Agent events → Transcript
       - Maintain conversation context in Agent.messages
 
-**Approval Flow Integration:**
+Approval Flow Integration
+-------------------------
 - [ ] Wire approval requests:
       - On AgentEvent::ApprovalRequest:
         * Set AppState.pending_approval with action + risk
@@ -183,7 +179,8 @@ a functional agent harness.
       - Channel-based communication for approval requests/responses
       - Timeout handling for abandoned approvals
 
-**Tool Execution Display:**
+Tool Execution Display
+----------------------
 - [ ] Tool call display:
       - On AgentEvent::ToolCall:
         * Add tool call to transcript with name, args, risk
@@ -196,7 +193,8 @@ a functional agent harness.
         * Show execution time and metadata
         * Expandable detail view for long output
 
-**Cancellation & Error Handling:**
+Cancellation & Error Handling
+-----------------------------
 - [ ] Cancellation:
       - On KeyAction::CancelGeneration (Ctrl+C or Esc):
         * Call cancel_token.cancel()
@@ -210,7 +208,8 @@ a functional agent harness.
       - Terminal errors: restore terminal state before exit
       - Panic hook: disable raw mode and restore terminal (already in App)
 
-**Session Persistence:**
+Session Persistence
+-------------------
 - [ ] Event logging:
       - Log all transcript events to session.events.jsonl:
         * User messages
@@ -224,7 +223,8 @@ a functional agent harness.
       - Reconstruct transcript from events.jsonl
       - Resume conversation context
 
-**Git Integration (Basic):**
+Git Integration (Basic)
+-----------------------
 - [ ] Git status display:
       - Detect git branch for header display (already in AppState)
       - Show current branch in header git section
@@ -257,7 +257,8 @@ Research shows agentic search using bash tools is more reliable than semantic
 search. Successful agents treat shell tools as first-class citizens with careful
 safety guardrails.
 
-**Search Tools:**
+Search Tools
+------------
 - [ ] Grep tool (ripgrep-based):
       - pattern-based search with regex support
       - file filtering with glob patterns (e.g., "*.rs", "*.{ts,tsx}")
@@ -273,7 +274,8 @@ safety guardrails.
       - respect .gitignore by default
       - fast file discovery for model context
 
-**Read Tools:**
+Read Tools
+----------
 - [ ] Read tool:
       - line-based file reading with numbers
       - offset + limit for large files (default: 2000 lines)
@@ -284,7 +286,8 @@ safety guardrails.
       - track read history for edit validation
       - required before Edit operations
 
-**Edit Tools:**
+Edit Tools
+----------
 - [ ] Edit tool (safe find-replace):
       - exact string replacement in files
       - old_string uniqueness validation (fail if ambiguous)
@@ -299,14 +302,16 @@ safety guardrails.
       - validation for non-overlapping edits
       - same safety requirements as Edit
 
-**Shell Tool Classification:**
+Shell Tool Classification
+-------------------------
 - [ ] Enhance command classifier for text tools:
       - recognize grep/rg/sed/awk patterns
       - classify risk level (grep=safe, sed -i=risky)
       - suggest safer alternatives (sed → Edit tool)
       - integrate with approval system
 
-**Safety & Approvals:**
+Safety & Approvals
+------------------
 - [ ] Read-only tools bypass approval (Grep, Glob, Read)
 - [ ] Edit tools check approval mode:
       - read-only: reject all edits
@@ -315,7 +320,8 @@ safety guardrails.
 - [ ] Mandatory backups for risky operations
 - [ ] Pedagogical warnings on first unsafe tool use
 
-**Provider Integration:**
+Provider Integration
+--------------------
 - [ ] Tool schema definitions for GLM-4.7 and Gemini
 - [ ] System prompt guidance:
       - "Use Grep for code search, not bash grep"
@@ -324,7 +330,8 @@ safety guardrails.
 - [ ] Result formatting for model consumption
 - [ ] Error messages that teach (e.g., "Edit failed: old_string not unique")
 
-**Full-Access Mode:**
+Full-Access Mode
+----------------
 - [ ] Direct sed exposure (gated, with backups)
 - [ ] Direct awk exposure (gated, read-only recommended)
 - [ ] Rationale: complex syntax, safety concerns, better abstracted by
@@ -448,6 +455,135 @@ DoD:
 - You can reconstruct *exactly* what happened in a session and why.
 
 --------------------------------------------------------------------------------
+VIII-A. TIERED MEMORY CORE + STORE (REPO-NATIVE, AUDITABLE)        *agent-VIIIa*
+--------------------------------------------------------------------------------
+Goal:
+Establish durable “external memory” that survives context limits and restarts,
+while staying reviewable + git-friendly. Use a tiered design:
+- Core memory: small, always-loaded
+- Recall/Episodic: append-only session history + session recaps
+- Semantic/Procedural: curated, reusable knowledge
+
+Tasks:
+- [ ] Define memory directory layout (repo-local, deterministic):
+      - `.thunderus/memory/`
+          - `core/`        (always loaded)
+          - `semantic/`    (facts + ADR-lite)
+          - `procedural/`  (playbooks)
+          - `episodic/`    (session recaps)
+          - `indexes/`     (manifests + search indexes)
+- [ ] Core memory contract:
+      - Small + stable (linted size caps; enforce headings; diffable)
+      - Add:
+          - `.thunderus/memory/core/CORE.md`
+          - `.thunderus/memory/core/CORE.local.md` (gitignored)
+      - Implement hierarchical load precedence (repo root → cwd):
+          - merge + override rules documented in CORE.md
+- [ ] Semantic memory contract:
+      - `.thunderus/memory/semantic/DECISIONS/ADR-xxxx.md` (ADR-lite)
+      - `.thunderus/memory/semantic/FACTS/*.md` (stable facts)
+- [ ] Procedural memory contract:
+      - `.thunderus/memory/procedural/PLAYBOOKS/*.md`
+      - Each playbook: Preconditions, Steps, Verification, Rollback
+- [ ] Memory writes are patch-driven:
+      - memory updates are proposed as diffs in the patch queue
+      - memory edits MUST be logged as VCS events (see VIII “events.jsonl”)
+
+See |SCHEMAS.txt| section |schemas-memory-doc| for format specifications.
+
+DoD:
+- `.thunderus/memory/` exists with the required subtrees + lint rules.
+- Memory docs are diffable, patch-driven, and always point back to provenance.
+
+--------------------------------------------------------------------------------
+VIII-B. LONG-TERM MEMORY STORE + RETRIEVAL                         *agent-VIIIb*
+        (LEXICAL FIRST, VECTORS OPT-IN)
+--------------------------------------------------------------------------------
+Goal:
+Make the agent reliably find the right memory at the right time without stuffing
+everything into context. Default to lexical retrieval; optionally augment with
+vector similarity later.
+
+Tasks:
+- [ ] Implement MemoryStore interface (backend: SQLite recommended):
+      - put(namespace, key, content, metadata)
+      - get(namespace, key)
+      - search(query, filters) → ranked hits with snippets + citations
+- [ ] Build lexical index over memory docs + selected session recaps:
+      - FTS index fields: title, headings, tags, body, updated, path, kind
+- [ ] Retrieval policy (wired into agent loop):
+      - Before edits/tool execution: query memory store using task intent
+      - Load top-k chunks into context (bounded)
+      - Always include citations: file path + heading anchor + event ids
+- [ ] Optional vector layer (config flag only):
+      - embed semantic/procedural + selected episodic recaps
+      - add similarity hits only when lexical confidence is low
+- [ ] TUI:
+      - “Memory hits” panel: results + reasons + quick open
+- [ ] Slash commands:
+      - `/memory search <q>`
+      - `/memory pin <id>` (pin a doc/chunk into current context set)
+
+See |SCHEMAS.txt| section |schemas-memory-store| for SQLite schema.
+
+DoD:
+- Memory search returns ranked results with provenance citations and paths.
+- Index is rebuildable; no “mystery memory”.
+
+--------------------------------------------------------------------------------
+VIII-C. MEMORY GARDENER                                            *agent-VIIIc*
+        (CONSOLIDATION, DRIFT CONTROL, AND HYGIENE)
+--------------------------------------------------------------------------------
+Goal:
+Prevent memory rot. Convert raw session history into small, stable, reusable
+memory artifacts (facts, ADRs, playbooks), without losing provenance.
+
+Tasks:
+- [ ] Consolidation pipeline (“episodic → semantic/procedural”):
+      - Inputs: `events.jsonl`, patch events, snapshots
+      - Outputs:
+          - update FACTS (stable commands + gotchas)
+          - create/update ADR-lite entries (durable decisions)
+          - update PLAYBOOKS (repeatable workflows)
+          - write session recap in `memory/episodic/YYYY-MM/<session>.md`
+- [ ] Hygiene rules:
+      - de-dup facts (single canonical location)
+      - enforce size limits on core
+      - require provenance links on all durable claims
+- [ ] Drift checks:
+      - if repo changed since `last_verified_commit`, mark docs “stale”
+- [ ] “Memory PR” workflow:
+      - gardener emits patch queue items (“Update memory: …”)
+      - user approves/rejects like any other diff
+- [ ] Tests:
+      - golden tests for deterministic outputs from identical inputs
+
+See |SCHEMAS.txt| section |schemas-gardener| for config format.
+
+DoD:
+- Memory stays small + correct: consolidation and drift marking are automatic.
+
+--------------------------------------------------------------------------------
+VIII-D. TRAJECTORY + INSPECTOR (DEBUGGABLE “WHY” FOR MEMORY)       *agent-VIIId*
+--------------------------------------------------------------------------------
+Goal:
+Make it trivial to answer: “Why did the agent believe X?” by linking memory
+assertions to the exact evidence in the session log and patch history.
+
+Tasks:
+- [ ] Standardize “trajectory view” extracted from `events.jsonl`
+- [ ] Build inspector UI (TUI):
+      - filter by tool, file, timestamp, risk class
+      - jump: memory doc → provenance events → patch diff → affected file
+- [ ] Require provenance backlinks:
+      - every durable memory doc must cite event ids + patch ids
+
+See |SCHEMAS.txt| section |schemas-events| for JSONL event format.
+
+DoD:
+- Inspector can trace any memory claim back to evidence events + diffs.
+
+--------------------------------------------------------------------------------
 IX. MIXED-INITIATIVE COLLABORATION                                    *agent-IX*
 --------------------------------------------------------------------------------
 When you work alongside the agent, it pauses, notices drift, and reconciles.
@@ -510,33 +646,7 @@ DoD:
 - A daily-driver harness: interactive + scriptable + extensible.
 
 --------------------------------------------------------------------------------
-XI. NOTES                                                             *agent-XI*
+XI. REFERENCES                                                        *agent-XI*
 --------------------------------------------------------------------------------
 
-- Codex CLI: approval modes, sandbox/approvals posture, composer affordances
-  (`@` file search, `!` local commands), slash commands, prompt editor[^3]
-- Claude Code: repo-local memory file (`CLAUDE.md`) auto-loaded as context[^1]
-- MCP: standardized tool/plugin surface to avoid hardcoding integrations[^10]
-- Progressive Disclosure: UX pattern for teaching through staged information
-  reveal, reducing cognitive load while supporting power users[^11][^12].
-  Research shows 90% of organizations consider AI transparency essential, and
-  explainability is key to building trust in agentic systems[^13][^14]
-
- [^1]: https://www.anthropic.com/engineering/claude-code-best-practices
- [^2]: https://developers.openai.com/codex/security/
- [^3]: https://developers.openai.com/codex/cli/features/
- [^4]: https://ai.google.dev/gemini-api/docs/function-calling
- [^5]: https://docs.z.ai/guides/llm/glm-4.7
- [^6]: https://ratatui.rs/
- [^7]: https://developers.openai.com/codex/cli/reference/
- [^8]: https://modelcontextprotocol.io/
- [^9]: https://ai.google.dev/gemini-api/docs/tools
-[^10]: https://modelcontextprotocol.io/specification/2025-11-25
-[^11]: https://www.nngroup.com/articles/progressive-disclosure/
-[^12]: https://blog.logrocket.com/ux-design/progressive-disclosure-ux-types-use-cases/
-[^13]: https://arxiv.org/html/2502.13767v3
-       (Agentic AI Software Engineers: Programming with Trust)
-[^14]: https://witness.ai/blog/ai-transparency/
-[^15]: https://ratatui.rs/concepts/layout/
-       https://kdheepak.com/blog/the-basic-building-blocks-of-ratatui-part-2/
-       Ratatui responsive layouts - conditional constraints (area.width checks)
+See |REFS.txt| for external resources, design inspirations, and footnotes.

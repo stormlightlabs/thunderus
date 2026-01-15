@@ -1,0 +1,43 @@
+*REFS.txt*                                          Coding Agent (Thunderus) MVP
+
+REFERENCES                                                           *refs-main*
+================================================================================
+
+External resources, design inspirations, and documentation that inform the
+Thunderus agent harness design.
+
+--------------------------------------------------------------------------------
+DESIGN INSPIRATIONS                                             *refs-inspirations*
+--------------------------------------------------------------------------------
+
+- Codex CLI: approval modes, sandbox/approvals posture, composer affordances
+  (`@` file search, `!` local commands), slash commands, prompt editor[^3]
+- Claude Code: repo-local memory file (`CLAUDE.md`) auto-loaded as context[^1]
+- MCP: standardized tool/plugin surface to avoid hardcoding integrations[^10]
+- Progressive Disclosure: UX pattern for teaching through staged information
+  reveal, reducing cognitive load while supporting power users[^11][^12].
+  Research shows 90% of organizations consider AI transparency essential, and
+  explainability is key to building trust in agentic systems[^13][^14]
+
+--------------------------------------------------------------------------------
+FOOTNOTES                                                         *refs-footnotes*
+--------------------------------------------------------------------------------
+
+ [^1]: https://www.anthropic.com/engineering/claude-code-best-practices
+ [^2]: https://developers.openai.com/codex/security/
+ [^3]: https://developers.openai.com/codex/cli/features/
+ [^4]: https://ai.google.dev/gemini-api/docs/function-calling
+ [^5]: https://docs.z.ai/guides/llm/glm-4.7
+ [^6]: https://ratatui.rs/
+ [^7]: https://developers.openai.com/codex/cli/reference/
+ [^8]: https://modelcontextprotocol.io/
+ [^9]: https://ai.google.dev/gemini-api/docs/tools
+[^10]: https://modelcontextprotocol.io/specification/2025-11-25
+[^11]: https://www.nngroup.com/articles/progressive-disclosure/
+[^12]: https://blog.logrocket.com/ux-design/progressive-disclosure-ux-types-use-cases/
+[^13]: https://arxiv.org/html/2502.13767v3
+       (Agentic AI Software Engineers: Programming with Trust)
+[^14]: https://witness.ai/blog/ai-transparency/
+[^15]: https://ratatui.rs/concepts/layout/
+       https://kdheepak.com/blog/the-basic-building-blocks-of-ratatui-part-2/
+       Ratatui responsive layouts - conditional constraints (area.width checks)

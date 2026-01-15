@@ -1,0 +1,59 @@
+*VISION.txt*                                        Coding Agent (Thunderus) MVP
+
+DESIGN VISION                                                      *vision-main*
+================================================================================
+
+Replicate the *harness* quality of Claude Code + Codex CLI:
+tight TUI loop, diff-first edits, explicit approvals/sandboxing, ergonomic
+"composer" UX, and a workflow that is safe, scriptable, and hard to derail[^1]
+
+--------------------------------------------------------------------------------
+CORE PRINCIPLES                                                *vision-principles*
+--------------------------------------------------------------------------------
+
+- Rust, TUI-first (UI inspiration: OpenCode + Crush; keybinds: Claude/Codex)
+- Shell tools are first-class ("anything in the shell" is usable, but gated)
+- Dual providers: GLM-4.7 + Gemini
+- First-class Markdown + JSONL hybrid VCS (audit + projections)
+- Mixed-initiative: no "short-circuiting" when you work alongside the agent
+
+--------------------------------------------------------------------------------
+DESIGN TARGETS                                                   *vision-targets*
+--------------------------------------------------------------------------------
+
+TUI Harness (Milestone III)
+---------------------------
+A polished, production-ready TUI with power-user features: responsive layout,
+advanced composer with `!cmd` and external editor support, slash commands,
+progressive disclosure for action cards, and comprehensive keybinds.
+
+Provider Integration (Milestone V)
+----------------------------------
+Claude Code's tool model - ripgrep-based search, safe edit primitives,
+high-level abstractions over raw shell tools (grep, sed, awk). Research shows
+agentic search using bash tools is more reliable than semantic search.
+
+Approvals & Sandboxing (Milestone VI)
+-------------------------------------
+Codex's model: approval policies + sandbox modes + profiles[^2]
+
+Diff-First Editing (Milestone VII)
+----------------------------------
+Edits are *reviewable*, *reversible*, and *conflict-aware*. Codex explicitly
+treats diffs and `git apply` failure modes as first-class[^7]
+
+Hybrid VCS (Milestone VIII)
+---------------------------
+The hybrid system is the canonical record of agent work, improving
+collaboration and debugging. You can reconstruct *exactly* what happened
+in a session and why.
+
+Mixed-Initiative (Milestone IX)
+--------------------------------
+When you work alongside the agent, it pauses, notices drift, and reconciles.
+The agent never proceeds on stale assumptions after you fix something manually.
+
+Extensibility (Milestone X)
+---------------------------
+Match the "pro tool" feel: pluggable integrations, automation entrypoints, and
+regression tests for harness behaviors.

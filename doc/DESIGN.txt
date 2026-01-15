@@ -49,14 +49,16 @@ II. COLOR PALETTE (ICEBERG-INSPIRED)                             *design-colors*
 
 Base colors derived from iceberg.vim dark theme[^1][^4]:
 
-**Core UI Colors:**
+Core UI Colors
+--------------
 Background (main):       #161821  (deep blue-black)
 Background (secondary):  #1e2132  (slightly lighter for panels/lines)
 Background (highlight):  #272c42  (visual selection, hover states)
 Foreground (main):       #c6c8d1  (light blue-gray text)
 Foreground (dim):        #6b7089  (comments, secondary text)
 
-**Accent Colors:**
+Accent Colors
+-------------
 Blue (primary):          #84a0c6  (functions, keywords, interactive elements)
 Cyan (info):             #89b8c2  (strings, info messages)
 Purple (constant):       #a093c7  (numbers, constants, special values)
@@ -64,7 +66,8 @@ Green (success):         #b4be82  (added lines, success states)
 Yellow (warning):        #e2a478  (warnings, modified states)
 Red (error):             #e27878  (errors, destructive actions)
 
-**16-Color Terminal Palette:**
+16-Color Terminal Palette
+-------------------------
 Black:      #1e2132  |  Bright Black:   #6b7089
 Red:        #e27878  |  Bright Red:     #e98989
 Green:      #b4be82  |  Bright Green:   #c0ca8e
@@ -74,7 +77,8 @@ Magenta:    #a093c7  |  Bright Magenta: #ada0d3
 Cyan:       #89b8c2  |  Bright Cyan:    #95c4ce
 White:      #c6c8d1  |  Bright White:   #d2d4de
 
-**Semantic Color Mapping:**
+Semantic Color Mapping
+----------------------
 Cursor:              #c6c8d1  (same as foreground)
 Cursor line:         #1e2132  (subtle highlight)
 Selection:           #272c42  (visual mode, selected text)
@@ -95,7 +99,8 @@ Usage notes:
 III. LAYOUT PATTERNS                                             *design-layout*
 --------------------------------------------------------------------------------
 
-**Initial View (Centered Chat Mode):**
+Initial View (Centered Chat Mode)
+---------------------------------
 When Thunderus starts, present a centered, conversation-focused interface:
 
 ┌────────────────────────────────────────────────────────────────────────────┐
@@ -121,7 +126,8 @@ Width: Centered message area uses max 60-80 cols, even on wide terminals
 Rationale: Mimics OpenCode's centered chat view[^2], focuses attention on
 conversation rather than overwhelming with UI chrome.
 
-**Active Session View (Wide Terminal >= 100 cols):**
+Active Session View (Wide Terminal >= 100 cols)
+-----------------------------------------------
 
 ┌──────────────────┬──────────────────────────────────────────────────────────┐
 │ Token Usage      │ thunderus | session-xyz | glm-4.7 | auto                 │
@@ -147,7 +153,8 @@ conversation rather than overwhelming with UI chrome.
 └──────────────────┴──────────────────────────────────────────────────────────┘
  20 cols (sidebar)           60+ cols (main transcript)
 
-**Active Session View (Medium Terminal 80-99 cols):**
+Active Session View (Medium Terminal 80-99 cols)
+------------------------------------------------
 
 ┌────────────────────────────────────────────────────────────────────────────┐
 │ thunderus | session-xyz | glm-4.7 | auto                      tokens: 1.2k │
@@ -174,7 +181,8 @@ conversation rather than overwhelming with UI chrome.
 
 Sidebar hidden, token count moved to header, toggle sidebar with Ctrl+S
 
-**Compact View (Narrow Terminal < 80 cols):**
+Compact View (Narrow Terminal < 80 cols)
+----------------------------------------
 
 ┌──────────────────────────────────────────────────────────┐
 │ thunderus | glm-4.7 | auto                               │
@@ -201,7 +209,8 @@ All tool output appears inline in the transcript.
 IV. CHAT INTERFACE DESIGN                                          *design-chat*
 --------------------------------------------------------------------------------
 
-**Message Bubble Design:**[^5]
+Message Bubble Design[^5]
+-------------------------
 
 User messages (right-aligned in centered view, left-aligned in sidebar view):
 ┌─ User ──────────────────────────────────────┐
@@ -222,7 +231,8 @@ Color: Foreground (#c6c8d1) on Background secondary (#1e2132)
 Streaming: Append tokens as they arrive, cursor follows last token
 Animation: Subtle fade-in (if terminal supports), no distracting effects
 
-**Action Card Design:**
+Action Card Design
+------------------
 
 Tool call card (safe operation):
 ┌─ Tool: bash_command ─────────────────────────┐
@@ -264,7 +274,8 @@ Tool result card (error):
 └──────────────────────────────────────────────┘
 Border: Red accent (#e27878)
 
-**Progressive Disclosure (Level 1, 2, 3):**[^6]
+Progressive Disclosure (Level 1, 2, 3)[^6]
+------------------------------------------
 
 Level 1 (default, collapsed):
 ┌─ Tool: edit_file ───────────────────────────┐
@@ -282,26 +293,26 @@ Level 2 (expanded with Space/Enter):
 └──────────────────────────────────────────────┘
 
 Level 3 (verbose with 'v' key):
-┌─ Tool: edit_file ────────────────────────────┐
-│ File: crates/core/src/config.rs              │
-│ Action: Replace lines 45-67                  │
-│ Risk: Safe (workspace file, no side effects) │
-│                                              │
-│ Classification reasoning:                    │
-│ - File is within workspace root              │
-│ - No network or system calls                 │
-│ - Reversible via git                         │
-│                                              │
-│ Diff preview:                                │
-│ @@ -45,3 +45,5 @@                            │
-│  pub fn parse_config(path: &Path) -> Result {│
-│ -    let contents = fs::read_to_string(path);│
-│ +    let contents = fs::read_to_string(path) │
-│ +        .map_err(|e| Error::Io(e))?;        │
-│                                              │
-│ Status: ✓ Applied successfully               │
-│ [Space: collapse] [v: default]               │
-└──────────────────────────────────────────────┘
+┌─ Tool: edit_file ─────────────────────────────┐
+│ File: crates/core/src/config.rs               │
+│ Action: Replace lines 45-67                   │
+│ Risk: Safe (workspace file, no side effects)  │
+│                                               │
+│ Classification reasoning:                     │
+│ - File is within workspace root               │
+│ - No network or system calls                  │
+│ - Reversible via git                          │
+│                                               │
+│ Diff preview:                                 │
+│ @@ -45,3 +45,5 @@                             │
+│  pub fn parse_config(path: &Path) -> Result { │
+│ -    let contents = fs::read_to_string(path); │
+│ +    let contents = fs::read_to_string(path)  │
+│ +        .map_err(|e| Error::Io(e))?;         │
+│                                               │
+│ Status: ✓ Applied successfully                │
+│ [Space: collapse] [v: default]                │
+└───────────────────────────────────────────────┘
 
 --------------------------------------------------------------------------------
 V. RESPONSIVE BREAKPOINTS                                    *design-responsive*
@@ -309,7 +320,6 @@ V. RESPONSIVE BREAKPOINTS                                    *design-responsive*
 
 Thunderus adapts to terminal width using conditional Ratatui constraints[^7]:
 
-```rust
 let layout = if area.width >= 100 {
     // Wide: Full layout with left sidebar
     Layout::horizontal([
@@ -322,9 +332,9 @@ let layout = if area.width >= 100 {
         Constraint::Percentage(100),
     ])
 };
-```
 
-**Breakpoint Strategy:**
+Breakpoint Strategy
+-------------------
 
 Width >= 100 cols: Full layout
 - Left sidebar visible (20 cols): token usage, approval stats
@@ -344,7 +354,9 @@ Width < 80 cols: Compact layout
 - Focus on readability at narrow width
 - Tool output inline, may scroll horizontally for wide output
 
-**Centered Chat View (Initial State):**
+Centered Chat View (Initial State)
+---------------------------------
+
 Regardless of terminal width, start with a centered chat view:
 - Calculate available width
 - Create a centered region of max 60-80 cols
@@ -358,14 +370,16 @@ where conversation starts focused and expands as context grows.
 VI. COMPONENT SPECIFICATIONS                                 *design-components*
 --------------------------------------------------------------------------------
 
-**Header Bar:**
+Header Bar
+----------
 Height: 1 line
 Background: #1e2132 (secondary background)
 Foreground: #c6c8d1 (main foreground)
 Content: [cwd] | [session-id] | [provider-model] | [approval-mode] | [stats]
 Separator: " | " in dim color (#6b7089)
 
-**Footer Composer:**
+Footer Composer
+---------------
 Height: 1-3 lines (expands with multiline input in Milestone III)
 Background: #1e2132 (secondary background)
 Foreground: #c6c8d1 (main foreground)
@@ -373,27 +387,31 @@ Prompt: "> " in blue accent (#84a0c6)
 Cursor: Block cursor (#c6c8d1) or underline based on terminal
 Hints: Right-aligned in dim color (#6b7089), e.g., "[Ctrl+C: cancel]"
 
-**Sidebar Panel:**
+Sidebar Panel
+-------------
 Width: 20 cols (fixed)
 Background: #1e2132 (secondary background)
 Borders: Single-line box-drawing chars in dim color (#6b7089)
 Section headers: Bold or underlined, blue accent (#84a0c6)
 Content: Dim foreground (#6b7089) for labels, main foreground (#c6c8d1) for vals
 
-**Transcript Area:**
+Transcript Area
+---------------
 Background: #161821 (main background)
 Padding: 1 line top/bottom, 2 chars left/right
 Scroll: Infinite scroll, auto-scroll to bottom on new message
 Scrollbar: Optional, thin indicator on right edge (dim color #6b7089)
 
-**Action Card Borders:**
+Action Card Borders
+-------------------
 Safe operations: Green (#b4be82)
 Risky operations: Yellow/orange (#e2a478)
 Errors: Red (#e27878)
 Info/neutral: Blue (#84a0c6)
 Border style: Rounded corners (if terminal supports) or simple box-drawing
 
-**Status Indicators:**[^5]
+Status Indicators[^5]
+---------------------
 Streaming: Animated ellipsis "..." in dim color (#6b7089)
 Success: "✓" in green (#b4be82)
 Error: "✗" in red (#e27878)
@@ -405,42 +423,49 @@ Pending approval: Pulsing "⏸" in yellow (#e2a478)
 VII. INTERACTION PATTERNS                                   *design-interaction*
 --------------------------------------------------------------------------------
 
-**Keyboard-Driven Workflow:**
+Keyboard-Driven Workflow
+------------------------
 All actions accessible via keyboard, mouse optional.
 
-**Approval Flow:**
+Approval Flow
+-------------
 1. Tool call card appears with border pulsing in yellow (#e2a478)
 2. Focus automatically moves to approval buttons
 3. User presses [y], [n], or [c]
 4. Card border changes to green (approved), red (rejected), or dim (cancelled)
 5. Next action proceeds based on decision
 
-**Message Streaming:**[^8]
+Message Streaming[^8]
+---------------------
 1. Assistant message card appears immediately after user submits
 2. Tokens append character-by-character as they arrive from provider
 3. Cursor follows last token (blinking block or underline)
 4. User can press Esc/Ctrl+C to cancel mid-stream
 5. Partial response preserved in transcript with "[cancelled]" indicator
 
-**Progressive Disclosure:**
+Progressive Disclosure
+----------------------
 - Default: Level 1 (collapsed, scannable)
 - Space/Enter on focused card: Toggle Level 2 (expanded details)
 - 'v' key on focused card: Toggle Level 3 (verbose with full reasoning)
 - 'j'/'k' keys: Navigate between cards (vim-style)
 - Visual indicator shows current expansion level
 
-**Sidebar Toggling:**
+Sidebar Toggling
+----------------
 - Ctrl+S: Toggle left sidebar (hide/show)
 - Sidebar slides in/out with subtle animation (if terminal supports)
 - When hidden, critical stats move to header
 
-**Error Recovery:**[^5]
+Error Recovery[^5]
+------------------
 - Errors display inline in transcript, never hidden
 - Error cards provide actionable context ("why it failed", "what to try")
 - Retry button available on transient errors (network, timeout)
 - Persistent errors suggest configuration changes or help command
 
-**First-Time User Hints:**
+First-Time User Hints
+---------------------
 - Contextual hints appear on first encounter of a feature
 - Displayed in dim color (#6b7089) at bottom of relevant card
 - Example: "Tip: Press 'v' to see full classification reasoning"
@@ -451,37 +476,43 @@ All actions accessible via keyboard, mouse optional.
 VIII. TYPOGRAPHY & SPACING                                   *design-typography*
 --------------------------------------------------------------------------------
 
-**Monospace Font:**
+Monospace Font
+--------------
 Use terminal's default monospace font (typically SF Mono, Cascadia Code,
 Fira Code, JetBrains Mono, or similar on modern terminals).
 
-**Font Styling:**
+Font Styling
+------------
 Bold: Headers, section titles, keywords (use ANSI bold code)
 Italic: Emphasis, file paths, placeholders (use ANSI italic if supported)
 Underline: Links (if clickable), active focus indicator
 Strikethrough: Deprecated or removed items (use ANSI strikethrough if supported)
 
-**Spacing:**
+Spacing
+-------
 Line height: 1 (no extra vertical spacing, terminal native)
 Paragraph spacing: 1 blank line between distinct messages
 Card padding: 1 line top/bottom, 2 chars left/right
 List item spacing: 0 lines (compact lists)
 Section spacing: 2 blank lines between major sections
 
-**Text Alignment:**
+Text Alignment
+--------------
 Headers: Left-aligned
 User messages: Left-aligned (in sidebar), centered in initial chat view
 Assistant messages: Left-aligned (in sidebar), centered in initial chat view
 Action cards: Left-aligned always
 Footer: Input left, hints right
 
-**Text Wrapping:**
+Text Wrapping
+-------------
 Hard wrap at card boundary (no overflow)
 Wrap long lines at word boundaries
 Indent wrapped lines by 2 spaces for readability
 Code blocks: Preserve formatting, scroll horizontally if needed
 
-**Truncation:**
+Truncation
+----------
 File paths: Show "...middle..." truncation if too long
 Long values: Show first N chars + "..." with hover/expand to see full
 Avoid truncation in Level 2/3 expansion (show full content)

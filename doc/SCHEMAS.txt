@@ -1,0 +1,133 @@
+*SCHEMAS.txt*                                       Coding Agent (Thunderus) MVP
+
+SCHEMAS & FILE FORMATS                                           *schemas-main*
+================================================================================
+
+Specification details for memory documents, manifests, events, and storage.
+Schemas are versioned and placed in `.thunderus/schemas/`.
+
+--------------------------------------------------------------------------------
+MEMORY DOCUMENT FORMAT (VIII-A)                                *schemas-memory-doc*
+--------------------------------------------------------------------------------
+
+Place schemas here (repo-local; versioned):
+- `.thunderus/schemas/`
+      - `memory_doc.frontmatter.schema.json`
+      - `memory_manifest.schema.json`
+
+A. Memory Markdown doc format (YAML frontmatter + Markdown body)
+- Applies to: CORE.md, FACTS/*.md, ADR-*.md, PLAYBOOKS/*.md, session recaps
+- MUST start with YAML frontmatter delimited by `---` lines.
+- Minimum keys (YAML):
+      id: <stable-id>              # e.g. "fact.testing.llvm-cov"
+      title: <human title>
+      kind: core|fact|adr|playbook|recap
+      tags: [ ... ]
+      created: <RFC3339 timestamp>
+      updated: <RFC3339 timestamp>
+      provenance:
+      events: [<event_id>, ...]  # back-links into events.jsonl
+      patches: [<patch_id>, ...] # back-links into patch queue events
+      commits: [<git sha>, ...]  # optional
+      verification:
+      last_verified_commit: <git sha or null>
+      status: verified|stale|unknown
+- Body is standard Markdown; headings should be stable (anchors used by search).
+
+B. Memory manifest format (JSON)
+- File: `.thunderus/memory/indexes/manifest.json`
+- Purpose: fast inventory of memory docs for load, lint, and UI listings.
+- Shape (minimum):
+      {
+            "version": 1,
+            "generated_at": "RFC3339",
+            "docs": [
+                  {
+                        "path": ".thunderus/memory/semantic/FACTS/testing.md",
+                        "id": "fact.testing",
+                        "kind": "fact",
+                        "title": "Testing conventions",
+                        "tags": ["testing"],
+                        "updated": "RFC3339",
+                        "provenance": { "events": ["..."], "patches": ["..."], "commits": ["..."] }
+                  }
+            ]
+      }
+
+--------------------------------------------------------------------------------
+MEMORY STORE SCHEMA (VIII-B)                                  *schemas-memory-store*
+--------------------------------------------------------------------------------
+
+Place DB schema doc here:
+- `.thunderus/schemas/memory_store.sql`   (reference schema, applied by migrations)
+
+SQLite schema (minimum viable; evolve via migrations):
+- `docs` table (authoritative metadata)
+- `docs_fts` virtual table (FTS5) for lexical search
+- `doc_edges` for provenance/links (optional but recommended)
+
+Example (reference):
+      -- docs: canonical registry for memory docs + derived recaps
+      CREATE TABLE IF NOT EXISTS docs (
+            doc_id TEXT PRIMARY KEY,          -- e.g. "fact.testing.llvm-cov"
+            kind TEXT NOT NULL,               -- core|fact|adr|playbook|recap
+            title TEXT NOT NULL,
+            path TEXT NOT NULL,               -- filesystem pointer
+            tags_json TEXT NOT NULL,           -- JSON array
+            updated TEXT NOT NULL,             -- RFC3339
+            provenance_json TEXT NOT NULL      -- JSON object
+      );
+
+      -- docs_fts: lexical search surface (content pulled from files)
+      CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts
+      USING fts5(doc_id, title, headings, tags, body, content='');
+
+      -- doc_edges: capture relationships (fact derived from recap; etc.)
+      CREATE TABLE IF NOT EXISTS doc_edges (
+            src_doc_id TEXT NOT NULL,
+            rel TEXT NOT NULL,                -- derives_from|refers_to|supersedes|duplicates
+            dst_doc_id TEXT NOT NULL,
+            PRIMARY KEY (src_doc_id, rel, dst_doc_id)
+      );
+
+Index refresh rule:
+- Memory docs on disk are source-of-truth.
+- Index is a projection: rebuildable from manifest + filesystem reads.
+
+--------------------------------------------------------------------------------
+GARDENER CONFIG (VIII-C)                                      *schemas-gardener*
+--------------------------------------------------------------------------------
+
+Add gardener config + outputs contract:
+- `.thunderus/memory/gardener.toml` (or json) for rules:
+      - size caps, allowed kinds, dedup strategy, recap template
+- `memory/episodic/<date>.md` recap template (must include provenance section)
+
+--------------------------------------------------------------------------------
+EVENT JSONL FORMAT (VIII-D)                                    *schemas-events*
+--------------------------------------------------------------------------------
+
+Extend the JSONL event model (Milestone VIII) with provenance-friendly fields.
+- File: `events.jsonl` (append-only; one JSON object per line)
+- MUST satisfy JSON Lines rules (UTF-8, newline delimited, each line valid JSON).
+
+Event base shape (minimum):
+{
+      "v": 1,
+      "id": "evt_...",                     -- stable id
+      "ts": "RFC3339",
+      "session_id": "sess_...",
+      "actor": "user|agent|tool",
+      "kind": "message|tool_call|tool_result|approval|patch|snapshot|note",
+      "refs": {
+            "paths": ["..."],              -- affected paths if any
+            "patch_id": "patch_...",       -- when kind=patch
+            "snapshot_id": "snap_...",     -- when kind=snapshot
+            "memory_doc_ids": ["..."]      -- when event references memory
+      },
+      "body": { ... }                      -- kind-specific payload
+}
+
+JSON Schemas (validate events + memory manifests):
+- `.thunderus/schemas/events.v1.schema.json`        (JSON Schema 2020-12)
+- `.thunderus/schemas/memory_manifest.schema.json`  (JSON Schema 2020-12)

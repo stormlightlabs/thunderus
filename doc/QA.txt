@@ -1,12 +1,12 @@
-*USER-FLOW.txt*                                             Thunderus User Flows
+*QA.txt*                                                    Thunderus User Flows
 ================================================================================
 
-CURRENT IMPLEMENTATION STATUS                                    *user-flow-status*
+CURRENT IMPLEMENTATION STATUS                                 *user-flow-status*
 
 This document describes user interaction flows for the current implementation
 of Thunderus. It serves as a reference for QA and smoke testing.
 
-Last updated: 2026-01-13
+Last updated: 2026-01-15
 
 --------------------------------------------------------------------------------
 CONTENTS
@@ -14,9 +14,11 @@ CONTENTS
 
    I. INITIAL SETUP....................................... |user-flow-setup|
   II. SESSION MANAGEMENT.................................. |user-flow-sessions|
- III. TUI INTERACTION (NOT YET INTEGRATED)................ |user-flow-tui|
-  IV. SESSION FILES AND LOGS.............................. |user-flow-files|
-   V. ERROR HANDLING...................................... |user-flow-errors|
+ III. TUI INTERACTION..................................... |user-flow-tui|
+  IV. SHELL COMMANDS & EDITOR............................. |user-flow-shell|
+   V. SLASH COMMANDS...................................... |user-flow-slash|
+  VI. SESSION FILES AND LOGS.............................. |user-flow-files|
+ VII. ERROR HANDLING...................................... |user-flow-errors|
 
 --------------------------------------------------------------------------------
 I. INITIAL SETUP                                               *user-flow-setup*
@@ -73,14 +75,17 @@ Expected:
 - Session ID displayed (cyan color)
 - Session directory path shown
 - Success: "Session <id> started successfully"
-- Info: "Interactive TUI not yet implemented. Session created and event logged."
+- TUI launches with welcome message in transcript
 
 Result:
 - .agent/ directory created in working directory
   - .agent/sessions/<session-id>/ created
   - .agent/sessions/<session-id>/events.jsonl created
   - .agent/views/ directory created
-- Session start event logged to JSONL
+- TUI displays welcome message with:
+  * Session ID, working directory, profile name
+  * Approval mode and sandbox mode status
+  * Quick help: Ctrl+C to cancel, Esc to clear input
 
 Session with Options
 --------------------
@@ -90,7 +95,7 @@ $ thunderus start --profile work
 Expected:
 - Working directory used if specified
 - Profile loaded from config
-- Same session creation flow as above
+- TUI launches with specified settings
 
 With Verbose Flag
 -----------------
@@ -107,47 +112,27 @@ Expected additional output:
 - "Session ID: <id>"
 - "Session directory: <path>"
 
-Checking Status
----------------
-$ thunderus status
+Shell Completions
+-----------------
+$ thunderus completions bash > ~/.bash_completion.d/thunderus
+$ thunderus completions zsh > ~/.zsh/completion/_thunderus
+$ thunderus completions fish > ~/.config/fish/completions/thunderus.fish
 
 Expected:
-- Configuration section:
-  - Default profile
-  - Available profiles with provider types
-
-$ thunderus --verbose status
-
-Expected additional output:
-- Agent directory path (if initialized)
-- Sessions count
-- List of session IDs
+- Shell-specific completion script output
+- Completions for commands: start, exec, status, completions
+- Completions for flags: --config, --profile, --verbose, --dir
 
 --------------------------------------------------------------------------------
-III. NON-INTERACTIVE EXECUTION (NOT YET IMPLEMENTED)            *user-flow-exec*
+III. TUI INTERACTION                                             *user-flow-tui*
 --------------------------------------------------------------------------------
 
-Execute Command
----------------
-$ thunderus exec "cargo test"
-
-Expected:
-- Info: "Executing: cargo test"
-- Info: "Command execution not yet implemented"
-- Exit code 0
-
-Result:
-- Placeholder only - no actual execution yet
-
---------------------------------------------------------------------------------
-IV. TUI INTERACTION (NOT YET INTEGRATED)                         *user-flow-tui*
---------------------------------------------------------------------------------
-
-Note: TUI components exist but are not yet connected to the CLI.
-The following describes the intended flow once integration is complete.
+The TUI is now fully integrated with the CLI. Launching with `thunderus start`
+opens the interactive TUI interface.
 
 Layout Structure
 ----------------
+Terminal width >= 100 columns (responsive layout):
 ┌─ Header ───────────────────────────────────────────────────────────┐
 │ /workspace | @default | glm/glm-4.7 | auto | main | policy | std   │
 └────────────────────────────────────────────────────────────────────┘
@@ -165,14 +150,16 @@ Layout Structure
 │ Keybinds: Ctrl+C (quit/cancel) | Esc (clear input)                 │
 └────────────────────────────────────────────────────────────────────┘
 
+Narrow terminals: Sidebar auto-hides, maximizes transcript width.
+
 Header Elements (responsive to terminal width):
 - Working directory (cyan)
 - Profile name (purple)
 - Provider/model (blue)
 - Approval mode (white/red)
-- Git branch (green) [implemented]
-- Sandbox mode (yellow) [implemented]
-- Verbosity level (gray) [implemented]
+- Git branch (green)
+- Sandbox mode (yellow)
+- Verbosity level (gray)
 
 Input Flow
 ----------
@@ -188,6 +175,16 @@ Input Editing:
 - Left/Right arrows: Move cursor
 - Home/End: Move to start/end
 - Esc: Clear entire buffer
+
+Message History Navigation
+--------------------------
+- Up arrow: Browse older messages
+- Down arrow: Browse newer messages
+- When navigating history:
+  * Current draft saved temporarily
+  * Position indicator shown: "(N/M)"
+  * Can edit and resubmit past messages
+- Start typing to reset navigation
 
 Approval Flow
 -------------
@@ -210,18 +207,152 @@ While model is generating:
 - Ctrl+C: Cancel generation
 - State indicator shows "generating"
 
-Scrolling
----------
+Transcript Navigation
+---------------------
+- j / k: Navigate between cards or scroll transcript
+- Ctrl+U: Page up in transcript
+- Ctrl+D: Page down in transcript
+- g: Jump to top of transcript
+- G: Jump to bottom of transcript
 - Transcript auto-scrolls to bottom on new entries
-- Vertical scroll offset tracked in state
 
-Sidebar Toggle
---------------
-- Ctrl+S: Toggle sidebar visibility (not yet implemented)
-- Maximizes transcript width when hidden
+Multi-Level Detail Expansion
+----------------------------
+- Space / Enter: Expand/collapse focused card
+- v: Toggle verbose mode for focused card
+- Three detail levels:
+  * Level 1 (default): Intent + outcome (brief, scannable)
+  * Level 2 (expand): Detailed context, scope, execution metadata
+  * Level 3 (verbose): Full logs, reasoning chain, trace
+
+Sidebar Controls
+----------------
+- Ctrl+S: Toggle sidebar visibility
+- [ / ]: Collapse/expand sidebar sections
+- Sidebar sections (collapsible individually):
+  * Session Events (chronological list with filtering)
+  * Modified files list (scope awareness)
+  * Git diff queue preview
+  * LSPs & MCPs status (placeholders)
+
+Action Shortcuts
+----------------
+- Ctrl+R: Retry last failed action
+- /: Focus slash command input
+- Ctrl+L: Clear transcript view (keep history)
+
+Verbosity Modes
+---------------
+Three global verbosity levels:
+- Quiet: Minimal output
+- Default: Balanced (default)
+- Verbose: Detailed output with all information
+
+Toggle with keybind, persists per session. Indicator shown in header.
 
 --------------------------------------------------------------------------------
-V. SESSION FILES AND LOGS                                      *user-flow-files*
+IV. SHELL COMMANDS & EDITOR                                    *user-flow-shell*
+--------------------------------------------------------------------------------
+
+Shell Command Execution (!cmd)
+------------------------------
+In the composer, prefix with `!` to execute a shell command:
+
+> !cargo test
+
+Expected:
+- Command executes in working directory
+- Output captured and inserted as user-provided context
+- Session event logged for shell execution
+- Subject to approval/sandbox rules
+
+Example output in transcript:
+  Shell: cargo test
+  ─────────────────
+  running 42 tests
+  test result: ok. 42 passed; 0 failed
+
+External Editor (Ctrl+Shift+G)
+------------------------------
+Press Ctrl+Shift+G to open an external editor for complex prompts:
+
+1. Press Ctrl+Shift+G
+2. $VISUAL or $EDITOR opens with current input buffer
+3. Edit content in external editor
+4. Save and close editor
+5. Content loaded back into composer
+6. TUI redraws automatically
+
+Note: Ctrl+G conflicts with tools like zellij, hence Ctrl+Shift+G is used.
+
+Fuzzy File Finder (@)
+---------------------
+Type `@` in the composer to trigger the fuzzy file finder:
+
+1. Type `@` at start of line or after space
+2. Fuzzy finder overlay appears
+3. Type to filter files (matching visible in real-time)
+4. Up/Down arrows: Navigate file list
+5. Enter: Insert selected file path
+6. Esc: Close finder without selection
+
+Features:
+- Shows file preview before insertion
+- Respects .gitignore
+- Sorted by modification time
+
+--------------------------------------------------------------------------------
+V. SLASH COMMANDS                                              *user-flow-slash*
+--------------------------------------------------------------------------------
+
+Base Commands
+-------------
+/model [name]
+  - Switch provider/model
+  - Without argument: lists available models
+
+/approvals [mode]
+  - Change approval mode (read-only, auto, full-access)
+  - Without argument: shows current mode and available options
+
+/verbosity [level]
+  - Change verbosity level (quiet, default, verbose)
+  - Without argument: shows current level and available options
+
+/status
+  - Show session statistics:
+    * Session ID
+    * Working directory
+    * Profile in use
+    * Tokens used
+    * Approvals gated
+    * Tools executed
+
+Session Commands
+----------------
+/plan
+  - Display PLAN.md content in transcript
+  - Shows "No PLAN.md found" if file doesn't exist
+
+/review
+  - Trigger review pass
+  - Currently placeholder: "Review functionality not yet implemented"
+
+/memory
+  - Display MEMORY.md content in transcript
+  - Shows "No MEMORY.md found" if file doesn't exist
+
+/clear
+  - Clear transcript view (keeps session history)
+  - Does not affect events.jsonl log
+
+Unknown Commands
+----------------
+Unrecognized slash commands display:
+  "Unknown command: /<command>. Type /help for available commands."
+
+--------------------------------------------------------------------------------
+VI. SESSION FILES AND LOGS                                     *user-flow-files*
 --------------------------------------------------------------------------------
 
 Directory Structure
@@ -239,11 +370,14 @@ Event Log Format
 ----------------
 Each line in events.jsonl is a JSON object with:
 - timestamp (ISO 8601)
-- type (user_message, model_response, tool_call, etc.)
+- type (user_message, model_response, tool_call, shell_exec, etc.)
 - payload (event-specific data)
 
 Example:
-{"timestamp":"2026-01-13T10:30:45Z","type":"user_message","payload":"Session started"}
+{"timestamp":"2026-01-15T10:30:45Z","type":"user_message", \
+ "payload":"Session started"}
+{"timestamp":"2026-01-15T10:31:00Z","type":"shell_exec", \
+ "payload":{"cmd":"cargo test","output":"..."}}
 
 Reading Logs
 ------------
@@ -251,7 +385,7 @@ $ cat .agent/sessions/<session-id>/events.jsonl | jq
 $ rg "user_message" .agent/sessions/
 
 --------------------------------------------------------------------------------
-VI. ERROR HANDLING                                            *user-flow-errors*
+VII. ERROR HANDLING                                            *user-flow-errors*
 --------------------------------------------------------------------------------
 
 Config Errors
@@ -282,3 +416,17 @@ Event log write failure:
 Expected:
 - Error: "Failed to log session start: <io error>"
 - Exit code 1
+
+TUI Errors
+----------
+Terminal restoration:
+- On exit or error, terminal state is restored
+- Panic hook disables raw mode and restores terminal
+
+Shell command failure:
+- Error message displayed in transcript
+- Session continues normally
+
+External editor not found:
+- "Failed to open editor. Check $VISUAL or $EDITOR environment variables."
+- Input buffer preserved
