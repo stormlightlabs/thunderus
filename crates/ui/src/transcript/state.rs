@@ -1,4 +1,4 @@
-use crate::transcript::entry::TranscriptEntry;
+use crate::transcript::{ErrorType, entry::TranscriptEntry};
 
 use std::collections::VecDeque;
 use thunderus_core::ApprovalDecision;
@@ -104,6 +104,30 @@ impl Transcript {
     /// Add a system message
     pub fn add_system_message(&mut self, content: impl Into<String>) {
         self.add(TranscriptEntry::system_message(content));
+    }
+
+    /// Add an error entry
+    pub fn add_error(&mut self, message: impl Into<String>, error_type: ErrorType) {
+        self.add(TranscriptEntry::error_entry(message, error_type));
+    }
+
+    /// Add a provider error with context
+    pub fn add_provider_error(&mut self, message: impl Into<String>, context: Option<String>) {
+        let entry =
+            TranscriptEntry::error_entry(message, ErrorType::Provider).with_error_context(context.unwrap_or_default());
+        self.add(entry);
+    }
+
+    /// Add a network error with retry option
+    pub fn add_network_error(&mut self, message: impl Into<String>, context: Option<String>) {
+        let entry =
+            TranscriptEntry::error_entry(message, ErrorType::Network).with_error_context(context.unwrap_or_default());
+        self.add(entry);
+    }
+
+    /// Add a cancellation error
+    pub fn add_cancellation_error(&mut self, message: impl Into<String>) {
+        self.add(TranscriptEntry::error_entry(message, ErrorType::Cancelled));
     }
 
     /// Get all entries

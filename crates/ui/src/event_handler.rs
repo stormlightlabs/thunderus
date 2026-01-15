@@ -196,6 +196,9 @@ impl EventHandler {
                     return Some(KeyAction::RetryLastFailedAction);
                 } else if event.modifiers.contains(KeyModifiers::CONTROL) && c == 'l' {
                     return Some(KeyAction::ClearTranscriptView);
+                } else if !event.modifiers.contains(KeyModifiers::CONTROL) && state.input.buffer.is_empty() && c == 'r'
+                {
+                    return Some(KeyAction::RetryLastFailedAction);
                 } else if !event.modifiers.contains(KeyModifiers::CONTROL) && state.input.buffer.is_empty() && c == 'g'
                 {
                     return Some(KeyAction::ScrollToTop);
@@ -978,6 +981,16 @@ mod tests {
         let mut state = create_test_state();
 
         let event = KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(matches!(action, Some(KeyAction::RetryLastFailedAction)));
+    }
+
+    #[test]
+    fn test_handle_normal_key_r_retry() {
+        let mut state = create_test_state();
+
+        let event = KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE);
         let action = EventHandler::handle_key_event(event, &mut state);
 
         assert!(matches!(action, Some(KeyAction::RetryLastFailedAction)));

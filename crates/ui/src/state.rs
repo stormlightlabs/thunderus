@@ -405,6 +405,8 @@ pub struct AppState {
     pub scroll_vertical: u16,
     /// Sidebar section collapse state
     pub sidebar_collapse_state: SidebarCollapseState,
+    /// Last user message sent (for retry functionality)
+    pub last_message: Option<String>,
 }
 
 impl AppState {
@@ -432,6 +434,7 @@ impl AppState {
             scroll_horizontal: 0,
             scroll_vertical: 0,
             sidebar_collapse_state: SidebarCollapseState::default(),
+            last_message: None,
         }
     }
 
@@ -547,6 +550,7 @@ impl Default for AppState {
             scroll_horizontal: 0,
             scroll_vertical: 0,
             sidebar_collapse_state: SidebarCollapseState::default(),
+            last_message: None,
         }
     }
 }

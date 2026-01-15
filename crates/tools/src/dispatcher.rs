@@ -67,7 +67,7 @@ impl From<ToolRegistry> for ToolDispatcher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::builtin::{EchoTool, NoopTool};
+    use crate::builtin::{self, EchoTool, NoopTool};
     use serde_json;
 
     fn setup_dispatcher() -> ToolDispatcher {
@@ -80,7 +80,7 @@ mod tests {
     #[test]
     fn test_execute_noop() {
         let dispatcher = setup_dispatcher();
-        let tool_call = crate::builtin::noop_tool_call("call_1");
+        let tool_call = builtin::noop_tool_call("call_1");
 
         let result = dispatcher.execute(&tool_call);
         assert!(result.is_ok());
@@ -93,7 +93,7 @@ mod tests {
     #[test]
     fn test_execute_echo() {
         let dispatcher = setup_dispatcher();
-        let tool_call = crate::builtin::echo_tool_call("call_2", "Hello");
+        let tool_call = builtin::echo_tool_call("call_2", "Hello");
 
         let result = dispatcher.execute(&tool_call);
         assert!(result.is_ok());
@@ -108,9 +108,9 @@ mod tests {
     fn test_execute_batch() {
         let dispatcher = setup_dispatcher();
         let tool_calls = vec![
-            crate::builtin::noop_tool_call("call_1"),
-            crate::builtin::echo_tool_call("call_2", "First"),
-            crate::builtin::echo_tool_call("call_3", "Second"),
+            builtin::noop_tool_call("call_1"),
+            builtin::echo_tool_call("call_2", "First"),
+            builtin::echo_tool_call("call_3", "Second"),
         ];
 
         let results = dispatcher.execute_batch(&tool_calls);
@@ -127,7 +127,6 @@ mod tests {
     fn test_execute_nonexistent_tool() {
         let dispatcher = setup_dispatcher();
         let tool_call = thunderus_providers::ToolCall::new("call_123", "nonexistent_tool", serde_json::json!({}));
-
         let result = dispatcher.execute(&tool_call);
         assert!(result.is_err());
         assert!(matches!(result, Err(thunderus_core::Error::Tool(_))));
@@ -137,8 +136,8 @@ mod tests {
     fn test_registry_access() {
         let registry = ToolRegistry::new();
         registry.register(NoopTool).unwrap();
-        let dispatcher = ToolDispatcher::new(registry);
 
+        let dispatcher = ToolDispatcher::new(registry);
         assert_eq!(dispatcher.registry().count(), 1);
         assert!(dispatcher.registry().has("noop"));
     }

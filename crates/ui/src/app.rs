@@ -3,7 +3,7 @@ use crate::event_handler::{EventHandler, KeyAction};
 use crate::layout::TuiLayout;
 use crate::state::VerbosityLevel;
 use crate::state::{AppState, ApprovalState};
-use crate::transcript::{CardDetailLevel, Transcript as TranscriptState};
+use crate::transcript::{CardDetailLevel, ErrorType, Transcript as TranscriptState};
 use crate::tui_approval::{TuiApprovalHandle, TuiApprovalProtocol};
 
 use crossterm::{self, event::Event};
@@ -183,6 +183,7 @@ impl App {
             match action {
                 KeyAction::SendMessage { message } => {
                     self.state_mut().input.add_to_history(message.clone());
+                    self.state_mut().last_message = Some(message.clone());
                     self.transcript_mut().add_user_message(&message);
 
                     if let Some(provider) = self.provider.clone() {
@@ -199,7 +200,35 @@ impl App {
                 KeyAction::CancelGeneration => {
                     self.cancel_token.cancel();
                     self.state_mut().stop_generation();
-                    self.transcript_mut().add_system_message("Generation cancelled.");
+                    self.transcript_mut()
+                        .add_cancellation_error("Generation cancelled by user");
+                }
+                KeyAction::RetryLastFailedAction => {
+                    let has_retryable_error = self.transcript().entries().iter().any(|entry| {
+                        matches!(
+                            entry,
+                            crate::transcript::TranscriptEntry::ErrorEntry { can_retry: true, .. }
+                        )
+                    });
+
+                    if let Some(last_message) = self.state_mut().last_message.clone() {
+                        if has_retryable_error {
+                            self.transcript_mut().add_system_message("Retrying last message...");
+                            self.state_mut().input.add_to_history(last_message.clone());
+                            self.transcript_mut().add_user_message(&last_message);
+
+                            if let Some(provider) = self.provider.clone() {
+                                self.spawn_agent_for_message(last_message, &provider);
+                            }
+                        } else {
+                            self.transcript_mut().add_system_message(
+                                "No retryable error found. Use message history to re-send a message.",
+                            );
+                        }
+                    } else {
+                        self.transcript_mut()
+                            .add_system_message("No previous message to retry.");
+                    }
                 }
                 KeyAction::ToggleSidebar | KeyAction::ToggleVerbosity | KeyAction::ToggleSidebarSection => (),
                 KeyAction::OpenExternalEditor => self.open_external_editor(),
@@ -291,9 +320,6 @@ impl App {
                 }
                 KeyAction::CollapseSidebarSection => self.state_mut().sidebar_collapse_state.collapse_prev(),
                 KeyAction::ExpandSidebarSection => self.state_mut().sidebar_collapse_state.expand_next(),
-                KeyAction::RetryLastFailedAction => self
-                    .transcript_mut()
-                    .add_system_message("Retry last failed action: not yet implemented"),
                 KeyAction::FocusSlashCommand => {
                     self.state_mut().input.buffer = "/".to_string();
                     self.state_mut().input.cursor = 1;
@@ -328,8 +354,19 @@ impl App {
             }
             AgentEvent::ApprovalResponse(_response) => self.state_mut().pending_approval = None,
             AgentEvent::Error(msg) => {
-                self.transcript_mut()
-                    .add_system_message(format!("Agent error: {}", msg));
+                let error_type = if msg.contains("cancelled") {
+                    ErrorType::Cancelled
+                } else if msg.contains("timeout") || msg.contains("network") {
+                    ErrorType::Network
+                } else if msg.contains("provider") || msg.contains("API") {
+                    ErrorType::Provider
+                } else {
+                    ErrorType::Other
+                };
+
+                eprintln!("[Agent Error] {}", msg);
+
+                self.transcript_mut().add_error(msg, error_type);
                 self.state_mut().stop_generation();
             }
             AgentEvent::Done => {

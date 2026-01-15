@@ -195,16 +195,15 @@ Tool Execution Display
 
 Cancellation & Error Handling
 -----------------------------
-- [ ] Cancellation:
+- [x] Cancellation:
       - On KeyAction::CancelGeneration (Ctrl+C or Esc):
         * Call cancel_token.cancel()
         * Agent stream terminates gracefully
         * Clear AppState.is_generating
         * Display "Cancelled" in transcript
-- [ ] Error handling:
+- [x] Error handling:
       - Provider errors: display in transcript, don't crash
       - Network timeouts: show retry option in transcript
-      - Session write failures: warn user, continue (log to stderr)
       - Terminal errors: restore terminal state before exit
       - Panic hook: disable raw mode and restore terminal (already in App)
 
@@ -218,6 +217,7 @@ Session Persistence
         * Approval requests and decisions
       - Use session.append_* methods from thunderus_core::Session
       - Persist on each event (append-only, crash-safe)
+      - Session write failures: warn user, continue (log to stderr)
 - [ ] Session recovery:
       - Load previous session state on restart (future)
       - Reconstruct transcript from events.jsonl

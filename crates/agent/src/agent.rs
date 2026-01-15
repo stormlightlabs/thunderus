@@ -63,6 +63,7 @@ impl Agent {
 
         let provider = Arc::clone(&self.provider);
         let cancel_token_clone = cancel_token.clone();
+        let cancel_token_for_stream = cancel_token.clone();
 
         tokio::spawn(async move {
             if cancel_token_clone.is_cancelled() {
@@ -70,7 +71,7 @@ impl Agent {
                 return;
             }
 
-            let stream = match provider.stream_chat(request, cancel_token_clone).await {
+            let stream = match provider.stream_chat(request, cancel_token_for_stream).await {
                 Ok(s) => s,
                 Err(e) => {
                     let _ = tx.send(AgentEvent::Error(format!("Provider error: {}", e)));
@@ -81,6 +82,11 @@ impl Agent {
             tokio::pin!(stream);
 
             while let Some(event) = stream.next().await {
+                if cancel_token_clone.is_cancelled() {
+                    let _ = tx.send(AgentEvent::Error("Generation cancelled by user".to_string()));
+                    break;
+                }
+
                 match event {
                     StreamEvent::Token(text) => {
                         let _ = tx.send(AgentEvent::Token(text));

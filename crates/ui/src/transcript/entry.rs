@@ -77,6 +77,30 @@ pub enum TranscriptEntry {
     },
     /// System message or status
     SystemMessage { content: String },
+    /// Error entry with context and optional retry option
+    ErrorEntry {
+        message: String,
+        error_type: ErrorType,
+        can_retry: bool,
+        context: Option<String>,
+    },
+}
+
+/// Error type classification for error entries
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorType {
+    /// Provider-related error (API, rate limiting, etc.)
+    Provider,
+    /// Network timeout or connectivity issue
+    Network,
+    /// Session write failure
+    SessionWrite,
+    /// Terminal or TUI error
+    Terminal,
+    /// User cancellation
+    Cancelled,
+    /// Generic error
+    Other,
 }
 
 impl TranscriptEntry {
@@ -170,6 +194,32 @@ impl TranscriptEntry {
         Self::SystemMessage { content: content.into() }
     }
 
+    /// Create an error entry
+    pub fn error_entry(message: impl Into<String>, error_type: ErrorType) -> Self {
+        Self::ErrorEntry {
+            message: message.into(),
+            error_type,
+            can_retry: matches!(error_type, ErrorType::Network | ErrorType::Provider),
+            context: None,
+        }
+    }
+
+    /// Add context to an error entry
+    pub fn with_error_context(mut self, context: impl Into<String>) -> Self {
+        if let Self::ErrorEntry { context: ctx, .. } = &mut self {
+            *ctx = Some(context.into());
+        }
+        self
+    }
+
+    /// Set retry option for error entry
+    pub fn with_can_retry(mut self, can_retry: bool) -> Self {
+        if let Self::ErrorEntry { can_retry: retry, .. } = &mut self {
+            *retry = can_retry;
+        }
+        self
+    }
+
     /// Check if entry is pending (waiting for user action)
     pub fn is_pending(&self) -> bool {
         matches!(self, Self::ApprovalPrompt { decision: None, .. })
@@ -184,6 +234,7 @@ impl TranscriptEntry {
             Self::ToolResult { .. } => "tool-result",
             Self::ApprovalPrompt { .. } => "approval-prompt",
             Self::SystemMessage { .. } => "system-message",
+            Self::ErrorEntry { .. } => "error-entry",
         }
     }
 
@@ -277,6 +328,18 @@ impl fmt::Display for TranscriptEntry {
                 write!(f, "[Approval] {} {} [{}]", action, status, risk)
             }
             Self::SystemMessage { content } => write!(f, "[System] {}", content),
+            Self::ErrorEntry { message, error_type, can_retry, .. } => {
+                let type_str = match error_type {
+                    ErrorType::Provider => "Provider",
+                    ErrorType::Network => "Network",
+                    ErrorType::SessionWrite => "Session",
+                    ErrorType::Terminal => "Terminal",
+                    ErrorType::Cancelled => "Cancelled",
+                    ErrorType::Other => "Error",
+                };
+                let retry_hint = if *can_retry { " (Press R to retry)" } else { "" };
+                write!(f, "[Error: {}] {}{}", type_str, message, retry_hint)
+            }
         }
     }
 }
@@ -562,5 +625,106 @@ mod tests {
         assert_eq!(tool_call.detail_level(), CardDetailLevel::Detailed);
         assert_eq!(tool_result.detail_level(), CardDetailLevel::Detailed);
         assert_eq!(approval.detail_level(), CardDetailLevel::Detailed);
+    }
+
+    #[test]
+    fn test_error_entry_creation() {
+        let entry = TranscriptEntry::error_entry("Something went wrong", ErrorType::Other);
+        assert_eq!(entry.type_name(), "error-entry");
+    }
+
+    #[test]
+    fn test_error_entry_with_context() {
+        let entry = TranscriptEntry::error_entry("Network timeout", ErrorType::Network)
+            .with_error_context("Failed to reach API");
+
+        if let TranscriptEntry::ErrorEntry { context, .. } = entry {
+            assert_eq!(context, Some("Failed to reach API".to_string()));
+        } else {
+            panic!("Expected ErrorEntry");
+        }
+    }
+
+    #[test]
+    fn test_error_entry_can_retry() {
+        let entry = TranscriptEntry::error_entry("API error", ErrorType::Provider)
+            .with_can_retry(true);
+
+        if let TranscriptEntry::ErrorEntry { can_retry, .. } = entry {
+            assert!(can_retry);
+        } else {
+            panic!("Expected ErrorEntry");
+        }
+    }
+
+    #[test]
+    fn test_error_entry_display_with_retry() {
+        let entry = TranscriptEntry::error_entry("Network error", ErrorType::Network);
+        let display = entry.to_string();
+        assert!(display.contains("Network"));
+        assert!(display.contains("Network error"));
+        assert!(display.contains("Press R to retry"));
+    }
+
+    #[test]
+    fn test_error_entry_display_no_retry() {
+        let entry = TranscriptEntry::error_entry("Cancelled", ErrorType::Cancelled).with_can_retry(false);
+        let display = entry.to_string();
+        assert!(display.contains("Cancelled"));
+        assert!(!display.contains("Press R to retry"));
+    }
+
+    #[test]
+    fn test_error_entry_provider_type() {
+        let entry = TranscriptEntry::error_entry("API error", ErrorType::Provider);
+        if let TranscriptEntry::ErrorEntry { error_type, can_retry, .. } = entry {
+            assert_eq!(error_type, ErrorType::Provider);
+            assert!(can_retry);
+        } else {
+            panic!("Expected ErrorEntry");
+        }
+    }
+
+    #[test]
+    fn test_error_entry_network_type() {
+        let entry = TranscriptEntry::error_entry("Timeout", ErrorType::Network);
+        if let TranscriptEntry::ErrorEntry { error_type, can_retry, .. } = entry {
+            assert_eq!(error_type, ErrorType::Network);
+            assert!(can_retry);
+        } else {
+            panic!("Expected ErrorEntry");
+        }
+    }
+
+    #[test]
+    fn test_error_entry_cancelled_type() {
+        let entry = TranscriptEntry::error_entry("User cancelled", ErrorType::Cancelled);
+        if let TranscriptEntry::ErrorEntry { error_type, can_retry, .. } = entry {
+            assert_eq!(error_type, ErrorType::Cancelled);
+            assert!(!can_retry);
+        } else {
+            panic!("Expected ErrorEntry");
+        }
+    }
+
+    #[test]
+    fn test_error_entry_is_not_action_card() {
+        let entry = TranscriptEntry::error_entry("Test error", ErrorType::Other);
+        assert!(!entry.is_action_card());
+        assert!(!entry.is_pending());
+    }
+
+    #[test]
+    fn test_error_entry_all_types() {
+        let provider = TranscriptEntry::error_entry("Provider error", ErrorType::Provider);
+        let network = TranscriptEntry::error_entry("Network error", ErrorType::Network);
+        let session = TranscriptEntry::error_entry("Session error", ErrorType::SessionWrite);
+        let terminal = TranscriptEntry::error_entry("Terminal error", ErrorType::Terminal);
+        let cancelled = TranscriptEntry::error_entry("Cancelled", ErrorType::Cancelled);
+        let other = TranscriptEntry::error_entry("Other error", ErrorType::Other);
+
+        for entry in [provider, network, session, terminal, cancelled, other] {
+            assert_eq!(entry.type_name(), "error-entry");
+        }
     }
 }

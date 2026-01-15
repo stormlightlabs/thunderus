@@ -1,4 +1,5 @@
 use crate::theme::Theme;
+use crate::transcript::ErrorType;
 use crate::{syntax::SyntaxHighlighter, transcript::entry::CardDetailLevel};
 use ratatui::{
     Frame,
@@ -129,6 +130,9 @@ impl<'a> TranscriptRenderer<'a> {
             }
             super::TranscriptEntry::SystemMessage { content } => {
                 self.render_system_message(content, width, lines);
+            }
+            super::TranscriptEntry::ErrorEntry { message, error_type, can_retry, context } => {
+                self.render_error_entry(message, *error_type, *can_retry, context.as_deref(), width, lines);
             }
         }
     }
@@ -391,6 +395,46 @@ impl<'a> TranscriptRenderer<'a> {
             Span::styled("] ", Style::default().fg(Theme::MUTED)),
         ]));
         self.wrap_text(content, Theme::FG, width, lines);
+    }
+
+    /// Render error entry with retry hint
+    fn render_error_entry(
+        &self, message: &str, error_type: ErrorType, can_retry: bool, context: Option<&str>, _width: usize,
+        lines: &mut Vec<Line<'static>>,
+    ) {
+        lines.push(Line::default());
+
+        let (type_label, type_color) = match error_type {
+            ErrorType::Provider => ("Provider", Theme::YELLOW),
+            ErrorType::Network => ("Network", Theme::YELLOW),
+            ErrorType::SessionWrite => ("Session", Theme::YELLOW),
+            ErrorType::Terminal => ("Terminal", Theme::RED),
+            ErrorType::Cancelled => ("Cancelled", Theme::MUTED),
+            ErrorType::Other => ("Error", Theme::RED),
+        };
+
+        let message = message.to_string();
+        lines.push(Line::from(vec![
+            Span::styled("[", Style::default().fg(Theme::MUTED)),
+            Span::styled(type_label, Style::default().fg(type_color)),
+            Span::styled(" Error] ", Style::default().fg(Theme::MUTED)),
+            Span::styled(message.clone(), Style::default().fg(Theme::RED)),
+        ]));
+
+        if let Some(ctx) = context {
+            let ctx = ctx.to_string();
+            lines.push(Line::from(vec![
+                Span::styled("  ", Style::default()),
+                Span::styled(ctx, Style::default().fg(Theme::MUTED).italic()),
+            ]));
+        }
+
+        if can_retry {
+            lines.push(Line::from(vec![
+                Span::styled("  ", Style::default()),
+                Span::styled("Press R to retry", Style::default().fg(Theme::CYAN).italic()),
+            ]));
+        }
     }
 
     /// Wrap text into lines with proper word wrapping based on width
