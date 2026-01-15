@@ -23,29 +23,29 @@ Authentication ~
 
 Request Format ~
 >json
-    {
-      "model": "glm-4.7",
-      "messages": [
-        { "role": "user", "content": "..." }
-      ],
-      "thinking": {
-        "type": "enabled"
-      },
-      "tools": [
-        {
-          "type": "function",
-          "function": {
-            "name": "get_weather",
-            "description": "...",
-            "parameters": { ... } // JSON Schema
-          }
+  {
+    "model": "glm-4.7",
+    "messages": [
+      { "role": "user", "content": "..." }
+    ],
+    "thinking": {
+      "type": "enabled"
+    },
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "get_weather",
+          "description": "...",
+          "parameters": { ... } // JSON Schema
         }
-      ],
-      "tool_choice": "auto", // or specific tool
-      "stream": true,
-      "max_tokens": 4096,
-      "temperature": 1.0
-    }
+      }
+    ],
+    "tool_choice": "auto", // or specific tool
+    "stream": true,
+    "max_tokens": 4096,
+    "temperature": 1.0
+  }
 <
 
 Response Format (Streaming) ~
@@ -86,32 +86,32 @@ Request Format ~
 Structure is significantly different from OpenAI.
 
 >json
-    {
-      "contents": [
-        {
-          // "user" or "model"
-          "role": "user",
-          "parts": [ { "text": "What is the weather?" } ]
-        }
-      ],
-      "tools": [
-        {
-          "functionDeclarations": [
-            {
-              "name": "get_weather",
-              "description": "...",
-              "parameters": {
-                "type": "object",
-                "properties": { ... },
-                "required": [...]
-              }
+  {
+    "contents": [
+      {
+        // "user" or "model"
+        "role": "user",
+        "parts": [ { "text": "What is the weather?" } ]
+      }
+    ],
+    "tools": [
+      {
+        "functionDeclarations": [
+          {
+            "name": "get_weather",
+            "description": "...",
+            "parameters": {
+              "type": "object",
+              "properties": { ... },
+              "required": [...]
             }
-          ]
-        }
-      ],
-      // "AUTO", "ANY", "NONE"
-      "functionCallingConfig": { "mode": "AUTO" }
-    }
+          }
+        ]
+      }
+    ],
+    // "AUTO", "ANY", "NONE"
+    "functionCallingConfig": { "mode": "AUTO" }
+  }
 <
 
 Tool Definitions ~
@@ -123,49 +123,45 @@ Response Format (Streaming support varies by endpoint) ~
       The model returns a `functionCall` part instead of `text`.
 
 >json
-    {
-        "contents": [
-            {
-                "role": "model",
-                "parts": [
-                    {
-                        "functionCall": {
-                            "name": "get_weather",
-                            // Already parsed JSON object, NOT string
-                            "args": { "location": "San Francisco" }
-                        }
-                    }
-                ]
+  {
+    "contents": [
+      {
+        "role": "model",
+        "parts": [
+          {
+            "functionCall": {
+              "name": "get_weather",
+              "args": { "location": "San Francisco" }
             }
+          }
         ]
-    }
+      }
+    ]
+  }
 <
 
 Tool Result Submission ~
     History must include the function call AND the function response.
 
+Gemini sometimes uses 'function' role or just 'user' with functionResponse
+part depending on API version, check docs carefully. The role for function
+response parts usually pairs with 'functionResponse'.
+
+The documentation says: "Send user prompt along with the function
+declaration(s)...model responds... Execute Function... Create User friendly
+response... send it back"
 >json
-    {
-        // Note: Gemini sometimes uses 'function' role or just 'user' with
-        //   functionResponse part depending on API version, check docs
-        //   carefully.
-        "role": "function",
-        // Documentation says:
-        // "Send user prompt along with the function declaration(s)...
-        //   model responds... Execute Function...
-        //   Create User friendly response... send it back"
-        // The 'role' for function response parts usually pairs with
-        //   'functionResponse'.
-        "parts": [
-            {
-                "functionResponse": {
-                    "name": "get_weather",
-                    // JSON object
-                    "response": { "temp": 72 }
-                }
-            }
-        ]
-    }
+  {
+    "role": "function",
+    "parts": [
+      {
+        "functionResponse": {
+          "name": "get_weather",
+          "response": { "temp": 72 }
+        }
+      }
+    ]
+  }
 <
 
 Adapter Mapping ~

@@ -2,6 +2,7 @@ mod entry;
 mod renderer;
 mod state;
 
-pub use entry::{ApprovalDecision, CardDetailLevel, TranscriptEntry};
+pub use entry::{CardDetailLevel, TranscriptEntry};
 pub use renderer::TranscriptRenderer;
 pub use state::Transcript;
+pub use thunderus_core::ApprovalDecision;

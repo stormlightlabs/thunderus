@@ -1,5 +1,7 @@
-use crate::transcript::entry::{ApprovalDecision, TranscriptEntry};
+use crate::transcript::entry::TranscriptEntry;
+
 use std::collections::VecDeque;
+use thunderus_core::ApprovalDecision;
 
 /// Transcript manages a conversation history with entries
 ///

@@ -150,31 +150,31 @@ Combined Event Loop
 
 Agent Streaming Integration
 ---------------------------
-- [ ] Connect agent to transcript:
+- [x] Connect agent to transcript:
       - On KeyAction::SendMessage: spawn agent.process_message()
       - Stream AgentEvent::Token to transcript (add_streaming_token)
       - On AgentEvent::Done: finish streaming in transcript
       - On AgentEvent::Error: display error in transcript
       - Update AppState.is_generating flag during streaming
-- [ ] Message flow:
+- [x] Message flow:
       - User input → Agent → Provider (stub initially)
       - Provider response stream → Agent events → Transcript
       - Maintain conversation context in Agent.messages
 
 Approval Flow Integration
 -------------------------
-- [ ] Wire approval requests:
+- [x] Wire approval requests:
       - On AgentEvent::ApprovalRequest:
         * Set AppState.pending_approval with action + risk
         * Add approval prompt to transcript
         * TUI enters approval mode (footer shows Y/N/C)
-- [ ] Wire approval responses:
+- [x] Wire approval responses:
       - On KeyAction::Approve/Reject/Cancel:
         * Send ApprovalResponse to agent via approval_protocol
         * Clear AppState.pending_approval
         * Update transcript with decision
         * Resume agent processing
-- [ ] Approval protocol implementation:
+- [x] Approval protocol implementation:
       - InMemoryApprovalProtocol bridges async agent and sync TUI
       - Channel-based communication for approval requests/responses
       - Timeout handling for abandoned approvals

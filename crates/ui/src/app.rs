@@ -1,23 +1,18 @@
 use crate::components::{Footer, FuzzyFinderComponent, Header, Sidebar, Transcript as TranscriptComponent};
 use crate::event_handler::{EventHandler, KeyAction};
 use crate::layout::TuiLayout;
-use crate::state::AppState;
 use crate::state::VerbosityLevel;
+use crate::state::{AppState, ApprovalState};
 use crate::transcript::{CardDetailLevel, Transcript as TranscriptState};
-use crate::tui_approval::TuiApprovalProtocol;
+use crate::tui_approval::{TuiApprovalHandle, TuiApprovalProtocol};
 
-use crossterm;
-use crossterm::event::Event;
+use crossterm::{self, event::Event};
 use ratatui::{Terminal, backend::CrosstermBackend};
-use std::env;
-use std::fs;
-use std::io::{Result, Write};
-use std::panic;
-use std::process::Command;
-use std::sync::Arc;
-use std::time::Duration;
-use thunderus_agent::Agent;
-use thunderus_core::ApprovalMode;
+use std::io::{self, Result, Write};
+use std::{env, fs, panic};
+use std::{process::Command, sync::Arc, time::Duration};
+use thunderus_agent::{Agent, AgentEvent};
+use thunderus_core::{ActionType, ApprovalDecision, ApprovalMode, ApprovalProtocol, SessionId, ToolRisk};
 use thunderus_providers::{CancelToken, Provider};
 use thunderus_tools::ToolRegistry;
 use tokio::sync::mpsc;
@@ -34,6 +29,8 @@ pub struct App {
     agent_event_rx: Option<mpsc::UnboundedReceiver<thunderus_agent::AgentEvent>>,
     /// Approval request receiver from agent
     approval_request_rx: Option<mpsc::UnboundedReceiver<thunderus_core::ApprovalRequest>>,
+    /// Handle for sending approval responses back to agent
+    approval_handle: Option<TuiApprovalHandle>,
     /// Cancellation token for stopping agent operations
     cancel_token: CancelToken,
     /// Provider for agent operations
@@ -49,6 +46,7 @@ impl App {
             should_exit: false,
             agent_event_rx: None,
             approval_request_rx: None,
+            approval_handle: None,
             cancel_token: CancelToken::new(),
             provider: None,
         }
@@ -62,6 +60,7 @@ impl App {
             should_exit: false,
             agent_event_rx: None,
             approval_request_rx: None,
+            approval_handle: None,
             cancel_token: CancelToken::new(),
             provider: Some(provider),
         }
@@ -125,16 +124,13 @@ impl App {
             };
 
             if let Some(ref mut rx) = self.agent_event_rx {
-                // Agent active - multiplex TUI events, agent events, and approval requests
                 tokio::select! {
-                    // TUI keyboard events
                     maybe_event = tui_poll => {
                         if let Some(event) = maybe_event {
                             self.handle_event(event);
                             self.draw(&mut terminal)?;
                         }
                     }
-                    // Agent streaming events
                     maybe_event = rx.recv() => {
                         match maybe_event {
                             Some(event) => {
@@ -147,7 +143,6 @@ impl App {
                             }
                         }
                     }
-                    // Approval requests from agent
                     maybe_request = async {
                         if let Some(ref mut approval_rx) = self.approval_request_rx {
                             approval_rx.recv().await
@@ -162,7 +157,6 @@ impl App {
                     }
                 }
             } else {
-                // No active agent - only poll TUI events
                 let maybe_event = tui_poll.await;
                 if let Some(event) = maybe_event {
                     self.handle_event(event);
@@ -186,8 +180,6 @@ impl App {
         if let Event::Key(key) = event
             && let Some(action) = EventHandler::handle_key_event(key, self.state_mut())
         {
-            use crate::ApprovalDecision;
-
             match action {
                 KeyAction::SendMessage { message } => {
                     self.state_mut().input.add_to_history(message.clone());
@@ -201,18 +193,9 @@ impl App {
                     }
                 }
                 KeyAction::ExecuteShellCommand { command } => self.execute_shell_command(command),
-                KeyAction::Approve { action: _, risk: _ } => {
-                    self.transcript_mut().set_approval_decision(ApprovalDecision::Approved);
-                    self.state_mut().pending_approval = None;
-                }
-                KeyAction::Reject { action: _, risk: _ } => {
-                    self.transcript_mut().set_approval_decision(ApprovalDecision::Rejected);
-                    self.state_mut().pending_approval = None;
-                }
-                KeyAction::Cancel { action: _, risk: _ } => {
-                    self.transcript_mut().set_approval_decision(ApprovalDecision::Cancelled);
-                    self.state_mut().pending_approval = None;
-                }
+                KeyAction::Approve { action: _, risk: _ } => self.send_approval_response(ApprovalDecision::Approved),
+                KeyAction::Reject { action: _, risk: _ } => self.send_approval_response(ApprovalDecision::Rejected),
+                KeyAction::Cancel { action: _, risk: _ } => self.send_approval_response(ApprovalDecision::Cancelled),
                 KeyAction::CancelGeneration => {
                     self.cancel_token.cancel();
                     self.state_mut().stop_generation();
@@ -330,12 +313,8 @@ impl App {
     /// Processes events from the agent (tokens, tool calls, approvals, errors)
     /// and updates the transcript and application state accordingly.
     fn handle_agent_event(&mut self, event: thunderus_agent::AgentEvent) {
-        use thunderus_agent::AgentEvent;
-
         match event {
-            AgentEvent::Token(text) => {
-                self.transcript_mut().add_streaming_token(&text);
-            }
+            AgentEvent::Token(text) => self.transcript_mut().add_streaming_token(&text),
             AgentEvent::ToolCall { name, args } => {
                 let args_str = serde_json::to_string_pretty(&args).unwrap_or_default();
                 self.transcript_mut().add_tool_call(&name, &args_str, "safe");
@@ -345,9 +324,7 @@ impl App {
                 self.transcript_mut().add_tool_result(&name, &result, success);
             }
             AgentEvent::ApprovalRequest(request) => {
-                // This should be handled via the approval request channel instead
-                // Log for now but this path shouldn't be hit in normal operation
-                eprintln!("Unexpected approval request via agent event: {:?}", request.id);
+                eprintln!("Unexpected approval request via agent event: {:?}", request.id)
             }
             AgentEvent::ApprovalResponse(_response) => self.state_mut().pending_approval = None,
             AgentEvent::Error(msg) => {
@@ -367,9 +344,6 @@ impl App {
     /// Called when the agent requests approval for an action (tool call, etc).
     /// Displays the approval prompt in the transcript and sets pending state.
     fn handle_approval_request(&mut self, request: thunderus_core::ApprovalRequest) {
-        use thunderus_core::ActionType;
-
-        // Display approval prompt in transcript
         let action_type_str = match request.action_type {
             ActionType::Tool => "tool",
             ActionType::Shell => "shell",
@@ -380,16 +354,43 @@ impl App {
             ActionType::Generic => "generic",
         };
         let risk_str = match request.risk_level {
-            thunderus_core::ToolRisk::Safe => "safe",
-            thunderus_core::ToolRisk::Risky => "risky",
+            ToolRisk::Safe => "safe",
+            ToolRisk::Risky => "risky",
         };
 
         self.transcript_mut()
             .add_approval_prompt(format!("{}:{}", action_type_str, request.description), risk_str);
-        self.state_mut().pending_approval = Some(crate::state::ApprovalState::pending(
-            request.description.clone(),
-            risk_str.to_string(),
-        ));
+        self.state_mut().pending_approval =
+            Some(ApprovalState::pending(request.description.clone(), risk_str.to_string()).with_request_id(request.id));
+    }
+
+    /// Send approval response back to agent
+    ///
+    /// Called when user responds to an approval prompt (y/n/c).
+    /// Sends the decision back to the agent via TuiApprovalHandle and updates the transcript.
+    fn send_approval_response(&mut self, decision: ApprovalDecision) {
+        self.transcript_mut().set_approval_decision(decision);
+
+        if let Some(approval_state) = self.state_mut().pending_approval.take() {
+            if let Some(request_id) = approval_state.request_id
+                && let Some(ref handle) = self.approval_handle
+            {
+                if handle.respond(request_id, decision) {
+                    let decision_str = match decision {
+                        ApprovalDecision::Approved => "approved",
+                        ApprovalDecision::Rejected => "rejected",
+                        ApprovalDecision::Cancelled => "cancelled",
+                    };
+                    self.transcript_mut()
+                        .add_system_message(format!("Action {}.", decision_str));
+                } else {
+                    self.transcript_mut()
+                        .add_system_message("Approval request timed out or was already cancelled.");
+                }
+            }
+        } else {
+            self.transcript_mut().set_approval_decision(decision);
+        }
     }
 
     /// Spawn agent to process a user message
@@ -397,13 +398,13 @@ impl App {
     /// Creates a new agent task that will stream events back to the TUI.
     /// The agent runs in the background, sending events through the channel.
     fn spawn_agent_for_message(&mut self, message: String, provider: &Arc<dyn Provider>) {
-        use thunderus_core::{ApprovalProtocol, SessionId};
-
-        // Create TUI approval protocol to bridge agent and TUI
         let (tui_approval, approval_request_rx) = TuiApprovalProtocol::new();
         self.approval_request_rx = Some(approval_request_rx);
-        let approval_protocol = Arc::new(tui_approval) as Arc<dyn ApprovalProtocol>;
 
+        let approval_handle = TuiApprovalHandle::from_protocol(&tui_approval);
+        self.approval_handle = Some(approval_handle);
+
+        let approval_protocol = Arc::new(tui_approval) as Arc<dyn ApprovalProtocol>;
         let session_id = SessionId::new();
         let cancel_token = self.cancel_token.clone();
         let provider_clone = Arc::clone(provider);
@@ -412,7 +413,6 @@ impl App {
 
         self.state_mut().start_generation();
 
-        // Create channel for agent events
         let (tx, rx) = mpsc::unbounded_channel();
 
         self.agent_event_rx = Some(rx);
@@ -705,8 +705,6 @@ impl App {
 
     /// Redraw the screen after returning from external editor
     fn redraw_screen(&self) -> Result<()> {
-        use std::io::{self, Write};
-
         let backend = ratatui::backend::CrosstermBackend::new(io::stdout());
         if let Ok(mut terminal) = ratatui::Terminal::new(backend) {
             let _ = terminal.clear();
@@ -731,6 +729,7 @@ impl Default for App {
             should_exit: false,
             agent_event_rx: None,
             approval_request_rx: None,
+            approval_handle: None,
             cancel_token: CancelToken::new(),
             provider: None,
         }
@@ -739,6 +738,9 @@ impl Default for App {
 
 #[cfg(test)]
 mod tests {
+    use crate::tui_approval::TuiApprovalHandle;
+    use crate::{state::ApprovalState, tui_approval::TuiApprovalProtocol};
+
     use super::*;
     use std::path::PathBuf;
     use thunderus_core::{ApprovalMode, ProviderConfig, SandboxMode};
@@ -1151,10 +1153,7 @@ mod tests {
     #[test]
     fn test_handle_event_approve_action() {
         let mut app = create_test_app();
-        app.state_mut().pending_approval = Some(crate::state::ApprovalState::pending(
-            "test.action".to_string(),
-            "risky".to_string(),
-        ));
+        app.state_mut().pending_approval = Some(ApprovalState::pending("test.action".to_string(), "risky".to_string()));
 
         let event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
             crossterm::event::KeyCode::Char('y'),
@@ -1166,12 +1165,73 @@ mod tests {
     }
 
     #[test]
+    fn test_send_approval_response_with_handle() {
+        let mut app = create_test_app();
+
+        let (tui_approval, _rx) = TuiApprovalProtocol::new();
+        let handle = TuiApprovalHandle::from_protocol(&tui_approval);
+        app.approval_handle = Some(handle);
+
+        app.state_mut().pending_approval =
+            Some(ApprovalState::pending("test.action".to_string(), "safe".to_string()).with_request_id(123));
+
+        app.transcript_mut().add_approval_prompt("test.action", "safe");
+
+        app.send_approval_response(thunderus_core::ApprovalDecision::Approved);
+        assert!(app.state().pending_approval.is_none());
+        assert!(app.transcript().len() >= 2);
+    }
+
+    #[test]
+    fn test_send_approval_response_without_handle() {
+        let mut app = create_test_app();
+
+        app.state_mut().pending_approval =
+            Some(ApprovalState::pending("test.action".to_string(), "safe".to_string()).with_request_id(456));
+
+        app.transcript_mut().add_approval_prompt("test.action", "safe");
+
+        app.send_approval_response(thunderus_core::ApprovalDecision::Approved);
+        assert!(app.state().pending_approval.is_none());
+    }
+
+    #[test]
+    fn test_send_approval_response_reject() {
+        let mut app = create_test_app();
+        let (tui_approval, _rx) = TuiApprovalProtocol::new();
+        let handle = TuiApprovalHandle::from_protocol(&tui_approval);
+        app.approval_handle = Some(handle);
+
+        app.state_mut().pending_approval =
+            Some(ApprovalState::pending("delete.file".to_string(), "dangerous".to_string()).with_request_id(789));
+
+        app.transcript_mut().add_approval_prompt("delete.file", "dangerous");
+        app.send_approval_response(thunderus_core::ApprovalDecision::Rejected);
+
+        assert!(app.state().pending_approval.is_none());
+    }
+
+    #[test]
+    fn test_send_approval_response_cancel() {
+        let mut app = create_test_app();
+
+        let (tui_approval, _rx) = TuiApprovalProtocol::new();
+        let handle = TuiApprovalHandle::from_protocol(&tui_approval);
+        app.approval_handle = Some(handle);
+
+        app.state_mut().pending_approval =
+            Some(ApprovalState::pending("install.crate".to_string(), "risky".to_string()).with_request_id(999));
+
+        app.transcript_mut().add_approval_prompt("install.crate", "risky");
+        app.send_approval_response(thunderus_core::ApprovalDecision::Cancelled);
+
+        assert!(app.state().pending_approval.is_none());
+    }
+
+    #[test]
     fn test_handle_event_reject_action() {
         let mut app = create_test_app();
-        app.state_mut().pending_approval = Some(crate::state::ApprovalState::pending(
-            "test.action".to_string(),
-            "risky".to_string(),
-        ));
+        app.state_mut().pending_approval = Some(ApprovalState::pending("test.action".to_string(), "risky".to_string()));
 
         let event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
             crossterm::event::KeyCode::Char('n'),
@@ -1185,10 +1245,7 @@ mod tests {
     #[test]
     fn test_handle_event_cancel_action() {
         let mut app = create_test_app();
-        app.state_mut().pending_approval = Some(crate::state::ApprovalState::pending(
-            "test.action".to_string(),
-            "risky".to_string(),
-        ));
+        app.state_mut().pending_approval = Some(ApprovalState::pending("test.action".to_string(), "risky".to_string()));
 
         let event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
             crossterm::event::KeyCode::Char('c'),

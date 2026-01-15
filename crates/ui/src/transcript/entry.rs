@@ -1,5 +1,7 @@
 use crate::theme::Theme;
+
 use std::fmt;
+use thunderus_core::ApprovalDecision;
 
 /// Detail level for action cards (progressive disclosure)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -75,17 +77,6 @@ pub enum TranscriptEntry {
     },
     /// System message or status
     SystemMessage { content: String },
-}
-
-/// Approval decision by user
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ApprovalDecision {
-    /// User approved the action
-    Approved,
-    /// User rejected the action
-    Rejected,
-    /// User cancelled the operation
-    Cancelled,
 }
 
 impl TranscriptEntry {
