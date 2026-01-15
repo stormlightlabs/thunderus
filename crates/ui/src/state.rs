@@ -521,6 +521,26 @@ impl AppState {
     pub fn is_generating(&self) -> bool {
         self.generating
     }
+
+    /// Refresh the git branch from the current working directory
+    ///
+    /// Uses git command to detect the current branch.
+    /// If not in a git repo or git fails, sets git_branch to None.
+    pub fn refresh_git_branch(&mut self) {
+        if let Ok(output) = std::process::Command::new("git")
+            .args(["-C", &self.cwd.to_string_lossy(), "branch", "--show-current"])
+            .output()
+        {
+            if output.status.success() {
+                let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                self.git_branch = if branch.is_empty() { None } else { Some(branch) };
+            } else {
+                self.git_branch = None;
+            }
+        } else {
+            self.git_branch = None;
+        }
+    }
 }
 
 impl Default for AppState {
@@ -904,5 +924,123 @@ mod tests {
 
         input.add_to_history(sent);
         assert_eq!(input.message_history.last(), Some(&"modified message".to_string()));
+    }
+
+    #[test]
+    fn test_refresh_git_branch_no_repo() {
+        let temp = std::env::temp_dir();
+        let mut state = AppState::new(
+            temp.clone(),
+            "test".to_string(),
+            ProviderConfig::Glm {
+                api_key: "test".to_string(),
+                model: "glm-4.7".to_string(),
+                base_url: "https://api.example.com".to_string(),
+            },
+            ApprovalMode::Auto,
+            SandboxMode::Policy,
+        );
+
+        state.refresh_git_branch();
+        assert!(state.git_branch.is_none());
+    }
+
+    #[test]
+    fn test_refresh_git_branch_with_repo() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let working_dir = temp.path();
+
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(working_dir)
+            .output()
+            .unwrap();
+
+        std::process::Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(working_dir)
+            .output()
+            .unwrap();
+
+        std::process::Command::new("git")
+            .args(["config", "user.name", "Test User"])
+            .current_dir(working_dir)
+            .output()
+            .unwrap();
+
+        std::process::Command::new("git")
+            .args(["checkout", "-b", "test-refresh-branch"])
+            .current_dir(working_dir)
+            .output()
+            .unwrap();
+
+        let mut state = AppState::new(
+            working_dir.to_path_buf(),
+            "test".to_string(),
+            ProviderConfig::Glm {
+                api_key: "test".to_string(),
+                model: "glm-4.7".to_string(),
+                base_url: "https://api.example.com".to_string(),
+            },
+            ApprovalMode::Auto,
+            SandboxMode::Policy,
+        );
+
+        state.refresh_git_branch();
+        assert_eq!(state.git_branch, Some("test-refresh-branch".to_string()));
+    }
+
+    #[test]
+    fn test_refresh_git_branch_updates_existing() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let working_dir = temp.path();
+
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(working_dir)
+            .output()
+            .unwrap();
+
+        std::process::Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(working_dir)
+            .output()
+            .unwrap();
+
+        std::process::Command::new("git")
+            .args(["config", "user.name", "Test User"])
+            .current_dir(working_dir)
+            .output()
+            .unwrap();
+
+        std::process::Command::new("git")
+            .args(["checkout", "-b", "initial-branch"])
+            .current_dir(working_dir)
+            .output()
+            .unwrap();
+
+        let mut state = AppState::new(
+            working_dir.to_path_buf(),
+            "test".to_string(),
+            ProviderConfig::Glm {
+                api_key: "test".to_string(),
+                model: "glm-4.7".to_string(),
+                base_url: "https://api.example.com".to_string(),
+            },
+            ApprovalMode::Auto,
+            SandboxMode::Policy,
+        );
+
+        state.refresh_git_branch();
+        assert_eq!(state.git_branch, Some("initial-branch".to_string()));
+
+        std::process::Command::new("git")
+            .args(["checkout", "-b", "new-branch"])
+            .current_dir(working_dir)
+            .output()
+            .unwrap();
+
+        state.refresh_git_branch();
+        assert_eq!(state.git_branch, Some("new-branch".to_string()));
     }
 }

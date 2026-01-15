@@ -6,7 +6,7 @@ use crate::state::{AppState, ApprovalState};
 use crate::transcript::{CardDetailLevel, ErrorType, Transcript as TranscriptState};
 use crate::tui_approval::{TuiApprovalHandle, TuiApprovalProtocol};
 
-use crossterm::{self, event::Event};
+use crossterm;
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io::{self, Result, Write};
 use std::{env, fs, panic};
@@ -333,9 +333,7 @@ impl App {
 
     /// Handle an event and update state
     fn handle_event(&mut self, event: crossterm::event::Event) {
-        if let Event::Key(key) = event
-            && let Some(action) = EventHandler::handle_key_event(key, self.state_mut())
-        {
+        if let Some(action) = EventHandler::handle_event(&event, self.state_mut()) {
             match action {
                 KeyAction::SendMessage { message } => {
                     self.state_mut().input.add_to_history(message.clone());

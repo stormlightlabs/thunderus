@@ -44,6 +44,18 @@ impl EventHandler {
         }
     }
 
+    /// Handle any event and refresh git branch on focus gained
+    pub fn handle_event(event: &Event, state: &mut AppState) -> Option<KeyAction> {
+        match event {
+            Event::FocusGained => {
+                state.refresh_git_branch();
+                None
+            }
+            Event::Key(key_event) => Self::handle_key_event(*key_event, state),
+            _ => None,
+        }
+    }
+
     /// Handle keys in fuzzy finder mode
     fn handle_fuzzy_finder_key(event: KeyEvent, state: &mut AppState) -> Option<KeyAction> {
         if !state.is_fuzzy_finder_active() {
@@ -1039,5 +1051,59 @@ mod tests {
 
         assert!(action.is_none());
         assert_eq!(state.input.buffer, "some text/");
+    }
+
+    #[test]
+    fn test_handle_event_focus_gained_refreshes_git_branch() {
+        let mut state = create_test_state();
+
+        state.git_branch = Some("initial-branch".to_string());
+
+        let temp = tempfile::TempDir::new().unwrap();
+        let working_dir = temp.path();
+
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(working_dir)
+            .output()
+            .unwrap();
+
+        std::process::Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(working_dir)
+            .output()
+            .unwrap();
+
+        std::process::Command::new("git")
+            .args(["config", "user.name", "Test User"])
+            .current_dir(working_dir)
+            .output()
+            .unwrap();
+
+        std::process::Command::new("git")
+            .args(["checkout", "-b", "focus-test-branch"])
+            .current_dir(working_dir)
+            .output()
+            .unwrap();
+
+        state.cwd = working_dir.to_path_buf();
+
+        let event = crossterm::event::Event::FocusGained;
+        let action = EventHandler::handle_event(&event, &mut state);
+
+        assert!(action.is_none());
+        assert_eq!(state.git_branch, Some("focus-test-branch".to_string()));
+    }
+
+    #[test]
+    fn test_handle_event_key_event_delegates_to_handle_key_event() {
+        let mut state = create_test_state();
+
+        let key_event = KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE);
+        let event = crossterm::event::Event::Key(key_event);
+        let action = EventHandler::handle_event(&event, &mut state);
+
+        assert!(action.is_none());
+        assert_eq!(state.input.buffer, "q");
     }
 }

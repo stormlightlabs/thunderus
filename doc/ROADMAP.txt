@@ -37,82 +37,8 @@ See section |2026-01-13| for changes made.
 --------------------------------------------------------------------------------
 III. TUI HARNESS                                                     *agent-III*
 --------------------------------------------------------------------------------
-Polish the basic TUI into a Codex/Claude-class interactive experience with
-advanced composer features, multi-panel layout, and power-user productivity.
 
-- [x] Expand left sidebar with additional sections (responsive to width):
-      - Session Events (chronological list with filtering)
-      - Modified files list (scope awareness)
-      - Git diff queue preview
-      - LSPs & MCPs status (placeholders)
-- [x] Enhanced header:
-      - Add git branch indicator
-      - Add sandbox mode status
-      - Add verbosity level indicator
-- [x] Transcript enhancements:
-      - Syntax highlighting for code blocks in tool output
-        - syntect + owo_colors
-      - Horizontal scrolling for wide output (e.g., test results, build logs)
-      - "Smart" wrapping for long file paths and URLs
-- [x] `!cmd` shell command execution:
-      - runs local command and inserts output as user-provided context
-      - subject to approval/sandbox rules[^3]
-- [x] `Ctrl+Shift+G` external editor:
-      - opens $VISUAL/$EDITOR for long/complex prompts[^3]
-      - loads result back into composer on save
-      - Note: ctrl+g conflicts with tools like zellij
-- [x] Message history navigation:
-      - up/down arrows to browse previous messages
-      - edit and resubmit past messages
-- [x] `@` file search:
-      - fuzzy file finder to attach context
-      - shows file preview before insertion
-- [x] Base command set[^3]:
-      - `/model` - switch provider/model
-      - `/approvals` - change approval mode
-      - `/status` - show session stats
-- [x] Session commands:
-      - `/plan` - display PLAN.md content in transcript
-      - `/review` - trigger review pass
-      - `/memory` - display MEMORY.md content in transcript
-      - `/clear` - clear transcript (keep session history)
-- [x] Multi-level detail expansion:
-      - Level 1 (default): intent + outcome (brief, scannable)
-      - Level 2 (expand): detailed context, scope, execution metadata
-      - Level 3 (verbose): full logs, reasoning chain, trace
-- [x] Keybinds for card interaction:
-      - `Space` / `Enter`: expand/collapse focused card
-      - `v`: toggle verbose mode for focused card
-      - `j` / `k`: navigate between cards
-- [x] Global verbosity modes:
-      - default (balanced), verbose (detailed), quiet (minimal)
-      - toggle with keybind, persist per session
-      - indicator in header
-- [x] Sidebar management:
-      - toggle sidebar visibility (maximize transcript width)
-      - sidebar sections collapsible individually
-      - auto-hide sidebar on narrow terminals
-- [x] Navigation:
-      - `j` / `k`: scroll transcript or navigate between action cards
-      - `Ctrl+U` / `Ctrl+D`: page up/down in transcript
-      - `g` / `G`: jump to top/bottom of transcript
-- [x] Sidebar controls:
-      - `Ctrl+S`: toggle sidebar visibility
-      - `[` / `]`: collapse/expand sidebar sections
-- [x] Action shortcuts:
-      - `Ctrl+R`: retry last failed action
-      - `/`: focus slash command input
-      - `Ctrl+L`: clear transcript view (keep history)
-
-DoD:
-- A polished, production-ready TUI with all power-user features
-      - responsive layout that adapts to terminal width
-      - advanced composer with `!cmd` and external editor support
-      - slash commands, progressive disclosure for action cards with three
-        detail levels
-      - comprehensive keybinds for keyboard-driven workflow
-      - All tool output appears inline in transcript with syntax highlighting
-        and smart formatting
+See section |2026-01-15| for changes made.
 
 --------------------------------------------------------------------------------
 IV. TUI + AGENT + CLI INTEGRATION                                     *agent-IV*
@@ -226,7 +152,7 @@ Session Persistence
 
 Git Integration
 ---------------
-- [ ] Git status display:
+- [x] Git status display:
       - Detect git branch for header display (already in AppState)
       - Show current branch in header git section
       - Update branch on focus/refresh
