@@ -139,7 +139,7 @@ CLI Launch Integration
 
 Combined Event Loop
 -------------------
-- [ ] Create unified event loop:
+- [x] Create unified event loop:
       - Handle both TUI events (keyboard) and Agent events (streaming)
       - Use tokio::select! to multiplex:
         * TUI key events from EventHandler

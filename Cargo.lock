@@ -2696,6 +2696,7 @@ dependencies = [
  "thunderus-core",
  "thunderus-tools",
  "thunderus-ui",
+ "tokio",
 ]
 
 [[package]]
@@ -2751,6 +2752,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "crossterm",
+ "futures",
  "ignore",
  "nucleo-matcher",
  "num_cpus",
@@ -2759,8 +2761,11 @@ dependencies = [
  "serde_json",
  "syntect",
  "tempfile",
+ "thunderus-agent",
  "thunderus-core",
+ "thunderus-providers",
  "thunderus-tools",
+ "tokio",
  "unicode-width",
  "uuid",
 ]

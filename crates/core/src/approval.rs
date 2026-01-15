@@ -3,6 +3,7 @@ use crate::config::ApprovalMode;
 use crate::error::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt::Display;
 
 /// Unique identifier for an approval request
 pub type ApprovalId = u64;
@@ -25,6 +26,12 @@ pub enum ActionType {
     Patch,
     /// Generic action
     Generic,
+}
+
+impl Display for ActionType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 /// A request for approval from the user

@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 /// Risk level of a tool or command
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum ToolRisk {
@@ -6,6 +8,12 @@ pub enum ToolRisk {
     Safe,
     /// Risky operations: package install, file deletion, network tooling
     Risky,
+}
+
+impl Display for ToolRisk {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 impl ToolRisk {

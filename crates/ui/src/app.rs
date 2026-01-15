@@ -4,6 +4,7 @@ use crate::layout::TuiLayout;
 use crate::state::AppState;
 use crate::state::VerbosityLevel;
 use crate::transcript::{CardDetailLevel, Transcript as TranscriptState};
+use crate::tui_approval::TuiApprovalProtocol;
 
 use crossterm;
 use crossterm::event::Event;
@@ -13,24 +14,57 @@ use std::fs;
 use std::io::{Result, Write};
 use std::panic;
 use std::process::Command;
+use std::sync::Arc;
+use std::time::Duration;
+use thunderus_agent::Agent;
 use thunderus_core::ApprovalMode;
+use thunderus_providers::{CancelToken, Provider};
 use thunderus_tools::ToolRegistry;
+use tokio::sync::mpsc;
 use uuid;
 
 /// Main TUI application
 ///
 /// Handles rendering and state management for the Thunderus TUI
-#[derive(Default)]
 pub struct App {
     state: AppState,
     transcript: TranscriptState,
     should_exit: bool,
+    /// Agent event receiver for streaming responses
+    agent_event_rx: Option<mpsc::UnboundedReceiver<thunderus_agent::AgentEvent>>,
+    /// Approval request receiver from agent
+    approval_request_rx: Option<mpsc::UnboundedReceiver<thunderus_core::ApprovalRequest>>,
+    /// Cancellation token for stopping agent operations
+    cancel_token: CancelToken,
+    /// Provider for agent operations
+    provider: Option<Arc<dyn Provider>>,
 }
 
 impl App {
     /// Create a new application
     pub fn new(state: AppState) -> Self {
-        Self { state, transcript: TranscriptState::new(), should_exit: false }
+        Self {
+            state,
+            transcript: TranscriptState::new(),
+            should_exit: false,
+            agent_event_rx: None,
+            approval_request_rx: None,
+            cancel_token: CancelToken::new(),
+            provider: None,
+        }
+    }
+
+    /// Create a new application with a provider for agent operations
+    pub fn with_provider(state: AppState, provider: Arc<dyn Provider>) -> Self {
+        Self {
+            state,
+            transcript: TranscriptState::new(),
+            should_exit: false,
+            agent_event_rx: None,
+            approval_request_rx: None,
+            cancel_token: CancelToken::new(),
+            provider: Some(provider),
+        }
     }
 
     /// Check if the app should exit
@@ -58,8 +92,12 @@ impl App {
         &mut self.transcript
     }
 
-    /// Run the TUI application
-    pub fn run(&mut self) -> Result<()> {
+    /// Run the TUI application with unified event loop
+    ///
+    /// Uses tokio::select! to multiplex TUI keyboard events and Agent streaming events.
+    /// This allows the agent to stream responses in real-time while remaining responsive
+    /// to user input (cancellation, approval requests, etc.).
+    pub async fn run(&mut self) -> Result<()> {
         crossterm::terminal::enable_raw_mode()?;
         crossterm::execute!(std::io::stdout(), crossterm::terminal::EnterAlternateScreen)?;
 
@@ -81,11 +119,60 @@ impl App {
         self.draw(&mut terminal)?;
 
         while !self.should_exit {
-            if let Some(event) = EventHandler::read()? {
-                self.handle_event(event);
-                self.draw(&mut terminal)?;
+            let tui_poll = async {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                EventHandler::read()
+            };
+
+            if let Some(ref mut rx) = self.agent_event_rx {
+                // Agent active - multiplex TUI events, agent events, and approval requests
+                tokio::select! {
+                    // TUI keyboard events
+                    maybe_event = tui_poll => {
+                        if let Some(event) = maybe_event {
+                            self.handle_event(event);
+                            self.draw(&mut terminal)?;
+                        }
+                    }
+                    // Agent streaming events
+                    maybe_event = rx.recv() => {
+                        match maybe_event {
+                            Some(event) => {
+                                self.handle_agent_event(event);
+                                self.draw(&mut terminal)?;
+                            }
+                            None => {
+                                self.agent_event_rx = None;
+                                self.state_mut().stop_generation();
+                            }
+                        }
+                    }
+                    // Approval requests from agent
+                    maybe_request = async {
+                        if let Some(ref mut approval_rx) = self.approval_request_rx {
+                            approval_rx.recv().await
+                        } else {
+                            std::future::pending().await
+                        }
+                    } => {
+                        if let Some(request) = maybe_request {
+                            self.handle_approval_request(request);
+                            self.draw(&mut terminal)?;
+                        }
+                    }
+                }
+            } else {
+                // No active agent - only poll TUI events
+                let maybe_event = tui_poll.await;
+                if let Some(event) = maybe_event {
+                    self.handle_event(event);
+                    self.draw(&mut terminal)?;
+                }
             }
         }
+
+        self.cancel_token.cancel();
+        self.state_mut().stop_generation();
 
         terminal.show_cursor()?;
         crossterm::terminal::disable_raw_mode()?;
@@ -105,6 +192,13 @@ impl App {
                 KeyAction::SendMessage { message } => {
                     self.state_mut().input.add_to_history(message.clone());
                     self.transcript_mut().add_user_message(&message);
+
+                    if let Some(provider) = self.provider.clone() {
+                        self.spawn_agent_for_message(message, &provider);
+                    } else {
+                        self.transcript_mut()
+                            .add_system_message("No provider configured. Cannot process message.");
+                    }
                 }
                 KeyAction::ExecuteShellCommand { command } => self.execute_shell_command(command),
                 KeyAction::Approve { action: _, risk: _ } => {
@@ -119,7 +213,11 @@ impl App {
                     self.transcript_mut().set_approval_decision(ApprovalDecision::Cancelled);
                     self.state_mut().pending_approval = None;
                 }
-                KeyAction::CancelGeneration => self.state_mut().stop_generation(),
+                KeyAction::CancelGeneration => {
+                    self.cancel_token.cancel();
+                    self.state_mut().stop_generation();
+                    self.transcript_mut().add_system_message("Generation cancelled.");
+                }
                 KeyAction::ToggleSidebar | KeyAction::ToggleVerbosity | KeyAction::ToggleSidebarSection => (),
                 KeyAction::OpenExternalEditor => self.open_external_editor(),
                 KeyAction::NavigateHistory | KeyAction::ActivateFuzzyFinder => {}
@@ -225,6 +323,112 @@ impl App {
                 KeyAction::NoOp => (),
             }
         }
+    }
+
+    /// Handle agent streaming events
+    ///
+    /// Processes events from the agent (tokens, tool calls, approvals, errors)
+    /// and updates the transcript and application state accordingly.
+    fn handle_agent_event(&mut self, event: thunderus_agent::AgentEvent) {
+        use thunderus_agent::AgentEvent;
+
+        match event {
+            AgentEvent::Token(text) => {
+                self.transcript_mut().add_streaming_token(&text);
+            }
+            AgentEvent::ToolCall { name, args } => {
+                let args_str = serde_json::to_string_pretty(&args).unwrap_or_default();
+                self.transcript_mut().add_tool_call(&name, &args_str, "safe");
+            }
+            AgentEvent::ToolResult { name, result } => {
+                let success = result.contains("success") || !result.contains("error");
+                self.transcript_mut().add_tool_result(&name, &result, success);
+            }
+            AgentEvent::ApprovalRequest(request) => {
+                // This should be handled via the approval request channel instead
+                // Log for now but this path shouldn't be hit in normal operation
+                eprintln!("Unexpected approval request via agent event: {:?}", request.id);
+            }
+            AgentEvent::ApprovalResponse(_response) => self.state_mut().pending_approval = None,
+            AgentEvent::Error(msg) => {
+                self.transcript_mut()
+                    .add_system_message(format!("Agent error: {}", msg));
+                self.state_mut().stop_generation();
+            }
+            AgentEvent::Done => {
+                self.transcript_mut().finish_streaming();
+                self.state_mut().stop_generation();
+            }
+        }
+    }
+
+    /// Handle an approval request from the agent
+    ///
+    /// Called when the agent requests approval for an action (tool call, etc).
+    /// Displays the approval prompt in the transcript and sets pending state.
+    fn handle_approval_request(&mut self, request: thunderus_core::ApprovalRequest) {
+        use thunderus_core::ActionType;
+
+        // Display approval prompt in transcript
+        let action_type_str = match request.action_type {
+            ActionType::Tool => "tool",
+            ActionType::Shell => "shell",
+            ActionType::FileWrite => "file write",
+            ActionType::FileDelete => "file delete",
+            ActionType::Network => "network",
+            ActionType::Patch => "patch",
+            ActionType::Generic => "generic",
+        };
+        let risk_str = match request.risk_level {
+            thunderus_core::ToolRisk::Safe => "safe",
+            thunderus_core::ToolRisk::Risky => "risky",
+        };
+
+        self.transcript_mut()
+            .add_approval_prompt(format!("{}:{}", action_type_str, request.description), risk_str);
+        self.state_mut().pending_approval = Some(crate::state::ApprovalState::pending(
+            request.description.clone(),
+            risk_str.to_string(),
+        ));
+    }
+
+    /// Spawn agent to process a user message
+    ///
+    /// Creates a new agent task that will stream events back to the TUI.
+    /// The agent runs in the background, sending events through the channel.
+    fn spawn_agent_for_message(&mut self, message: String, provider: &Arc<dyn Provider>) {
+        use thunderus_core::{ApprovalProtocol, SessionId};
+
+        // Create TUI approval protocol to bridge agent and TUI
+        let (tui_approval, approval_request_rx) = TuiApprovalProtocol::new();
+        self.approval_request_rx = Some(approval_request_rx);
+        let approval_protocol = Arc::new(tui_approval) as Arc<dyn ApprovalProtocol>;
+
+        let session_id = SessionId::new();
+        let cancel_token = self.cancel_token.clone();
+        let provider_clone = Arc::clone(provider);
+
+        let mut agent = Agent::new(provider_clone, approval_protocol, session_id);
+
+        self.state_mut().start_generation();
+
+        // Create channel for agent events
+        let (tx, rx) = mpsc::unbounded_channel();
+
+        self.agent_event_rx = Some(rx);
+
+        tokio::spawn(async move {
+            match agent.process_message(&message, None, cancel_token).await {
+                Ok(mut event_rx) => {
+                    while let Some(event) = event_rx.recv().await {
+                        let _ = tx.send(event);
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send(thunderus_agent::AgentEvent::Error(format!("Agent error: {}", e)));
+                }
+            }
+        });
     }
 
     /// Draw the UI
@@ -516,6 +720,20 @@ impl App {
     pub fn quit(&mut self) -> Result<()> {
         self.should_exit = true;
         Ok(())
+    }
+}
+
+impl Default for App {
+    fn default() -> Self {
+        Self {
+            state: AppState::default(),
+            transcript: TranscriptState::new(),
+            should_exit: false,
+            agent_event_rx: None,
+            approval_request_rx: None,
+            cancel_token: CancelToken::new(),
+            provider: None,
+        }
     }
 }
 
@@ -913,7 +1131,7 @@ mod tests {
         ));
         app.handle_event(event);
 
-        assert_eq!(app.transcript().len(), 1);
+        assert_eq!(app.transcript().len(), 2);
         assert_eq!(app.state().input.buffer, "");
     }
 
@@ -1015,6 +1233,10 @@ mod tests {
         let mut app = create_test_app();
         app.state_mut().input.buffer = "Initial content".to_string();
 
+        let original_editor = std::env::var("EDITOR").ok();
+        let original_visual = std::env::var("VISUAL").ok();
+        unsafe { std::env::set_var("EDITOR", "true") }
+
         let event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
             crossterm::event::KeyCode::Char('g'),
             crossterm::event::KeyModifiers::CONTROL | crossterm::event::KeyModifiers::SHIFT,
@@ -1029,6 +1251,15 @@ mod tests {
             .iter()
             .find(|e| matches!(e, crate::transcript::TranscriptEntry::SystemMessage { .. }));
         assert!(system_entry.is_some());
+
+        match original_editor {
+            Some(val) => unsafe { std::env::set_var("EDITOR", val) },
+            None => unsafe { std::env::remove_var("EDITOR") },
+        }
+        match original_visual {
+            Some(val) => unsafe { std::env::set_var("VISUAL", val) },
+            None => unsafe { std::env::remove_var("VISUAL") },
+        }
     }
 
     #[test]
@@ -1068,6 +1299,10 @@ mod tests {
         let mut app = create_test_app();
         app.state_mut().input.buffer = "".to_string();
 
+        let original_editor = std::env::var("EDITOR").ok();
+        let original_visual = std::env::var("VISUAL").ok();
+        unsafe { std::env::set_var("EDITOR", "true") }
+
         let event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
             crossterm::event::KeyCode::Char('g'),
             crossterm::event::KeyModifiers::CONTROL | crossterm::event::KeyModifiers::SHIFT,
@@ -1082,6 +1317,15 @@ mod tests {
             .iter()
             .find(|e| matches!(e, crate::transcript::TranscriptEntry::SystemMessage { .. }));
         assert!(system_entry.is_some());
+
+        match original_editor {
+            Some(val) => unsafe { std::env::set_var("EDITOR", val) },
+            None => unsafe { std::env::remove_var("EDITOR") },
+        }
+        match original_visual {
+            Some(val) => unsafe { std::env::set_var("VISUAL", val) },
+            None => unsafe { std::env::remove_var("VISUAL") },
+        }
     }
 
     #[test]
@@ -1089,12 +1333,25 @@ mod tests {
         let mut app = create_test_app();
         app.state_mut().input.buffer = "Some existing content".to_string();
 
+        let original_editor = std::env::var("EDITOR").ok();
+        let original_visual = std::env::var("VISUAL").ok();
+        unsafe { std::env::set_var("EDITOR", "true") }
+
         let event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
             crossterm::event::KeyCode::Char('g'),
             crossterm::event::KeyModifiers::CONTROL | crossterm::event::KeyModifiers::SHIFT,
         ));
 
         app.handle_event(event);
+
+        match original_editor {
+            Some(val) => unsafe { std::env::set_var("EDITOR", val) },
+            None => unsafe { std::env::remove_var("EDITOR") },
+        }
+        match original_visual {
+            Some(val) => unsafe { std::env::set_var("VISUAL", val) },
+            None => unsafe { std::env::remove_var("VISUAL") },
+        }
     }
 
     #[test]

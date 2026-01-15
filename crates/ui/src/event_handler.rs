@@ -1,5 +1,4 @@
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use std::io::Result;
 
 use crate::state::AppState;
 
@@ -8,10 +7,24 @@ pub struct EventHandler;
 
 impl EventHandler {
     /// Read a single event from the terminal
-    pub fn read() -> Result<Option<Event>> {
+    ///
+    /// Returns `Some(event)` if an event is available, `None` on timeout or error.
+    /// Terminal errors are logged to stderr but not propagated, since they are
+    /// typically fatal and the application will exit on the next iteration.
+    pub fn read() -> Option<Event> {
         match crossterm::event::poll(std::time::Duration::from_millis(100)) {
-            Ok(true) => Ok(Some(crossterm::event::read()?)),
-            _ => Ok(None),
+            Ok(true) => match crossterm::event::read() {
+                Ok(event) => Some(event),
+                Err(e) => {
+                    eprintln!("Terminal error: {}", e);
+                    None
+                }
+            },
+            Ok(false) => None,
+            Err(e) => {
+                eprintln!("Event poll error: {}", e);
+                None
+            }
         }
     }
 

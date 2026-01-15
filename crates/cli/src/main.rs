@@ -79,12 +79,15 @@ fn run() -> Result<()> {
         );
     }
 
-    match cli.command {
-        Commands::Start { dir } => cmd_start(config, dir, cli.profile, cli.verbose),
-        Commands::Exec { command, args } => cmd_exec(config, command, args, cli.verbose),
-        Commands::Status => cmd_status(config, cli.verbose),
-        Commands::Completions { shell } => print_completions(shell, &mut Cli::command()),
-    }
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async {
+        match cli.command {
+            Commands::Start { dir } => cmd_start(config, dir, cli.profile, cli.verbose).await,
+            Commands::Exec { command, args } => cmd_exec(config, command, args, cli.verbose),
+            Commands::Status => cmd_status(config, cli.verbose),
+            Commands::Completions { shell } => print_completions(shell, &mut Cli::command()),
+        }
+    })
 }
 
 fn print_completions<G: Generator>(generator: G, cmd: &mut Command) -> Result<()> {
@@ -126,7 +129,7 @@ fn detect_git_branch(path: &Path) -> Option<String> {
 }
 
 /// Start the interactive TUI session
-fn cmd_start(config: Config, dir: Option<PathBuf>, profile_name: Option<String>, verbose: bool) -> Result<()> {
+async fn cmd_start(config: Config, dir: Option<PathBuf>, profile_name: Option<String>, verbose: bool) -> Result<()> {
     let working_dir = if let Some(d) = dir { d } else { std::env::current_dir()? };
 
     let profile_name = profile_name.unwrap_or_else(|| config.default_profile.clone());
@@ -204,7 +207,7 @@ fn cmd_start(config: Config, dir: Option<PathBuf>, profile_name: Option<String>,
     );
     app.transcript_mut().add_system_message(welcome_msg);
 
-    match app.run() {
+    match app.run().await {
         Ok(_) => Ok(()),
         Err(e) => {
             eprintln!("{} TUI error: {}", "Error:".red().bold(), e);
@@ -473,12 +476,12 @@ mod tests {
         assert!(welcome_msg.contains("Quick help: Ctrl+C to cancel, Esc to clear input"));
     }
 
-    #[test]
-    fn test_cmd_start_invalid_profile() {
+    #[tokio::test]
+    async fn test_cmd_start_invalid_profile() {
         let temp = TempDir::new().unwrap();
         let config = create_test_config();
         let working_dir = temp.path().to_path_buf();
-        let result = cmd_start(config, Some(working_dir), Some("nonexistent".to_string()), false);
+        let result = cmd_start(config, Some(working_dir), Some("nonexistent".to_string()), false).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("profile"));
     }

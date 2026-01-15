@@ -44,6 +44,9 @@ pub enum Error {
     /// Generic errors
     #[error("{0}")]
     Other(String),
+
+    #[error("Approval protocol error: {0}")]
+    Approval(String),
 }
 
 /// Session-specific errors
@@ -123,25 +126,25 @@ mod tests {
 
     #[test]
     fn test_error_display() {
-        let io_err = Error::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "file not found"));
+        let io_err: Error = Error::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "file not found"));
         assert_eq!(io_err.to_string(), "I/O error: file not found");
 
-        let config_err = Error::Config("invalid profile".to_string());
+        let config_err: Error = Error::Config("invalid profile".to_string());
         assert_eq!(config_err.to_string(), "configuration error: invalid profile");
 
-        let provider_err = Error::Provider("provider unavailable".to_string());
+        let provider_err: Error = Error::Provider("provider unavailable".to_string());
         assert_eq!(provider_err.to_string(), "provider error: provider unavailable");
 
-        let tool_err = Error::Tool("command failed".to_string());
+        let tool_err: Error = Error::Tool("command failed".to_string());
         assert_eq!(tool_err.to_string(), "tool error: command failed");
 
-        let parse_err = Error::Parse("invalid JSON".to_string());
+        let parse_err: Error = Error::Parse("invalid JSON".to_string());
         assert_eq!(parse_err.to_string(), "parse error: invalid JSON");
 
-        let validation_err = Error::Validation("invalid input".to_string());
+        let validation_err: Error = Error::Validation("invalid input".to_string());
         assert_eq!(validation_err.to_string(), "validation error: invalid input");
 
-        let other_err = Error::Other("something went wrong".to_string());
+        let other_err: Error = Error::Other("something went wrong".to_string());
         assert_eq!(other_err.to_string(), "something went wrong");
     }
 
