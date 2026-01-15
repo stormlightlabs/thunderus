@@ -1,4 +1,5 @@
 use std::fmt;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Base directory name for agent data (repo-local, versionable)
@@ -226,6 +227,41 @@ impl AgentDir {
     /// Get all view file paths
     pub fn all_view_files(&self) -> Vec<PathBuf> {
         ViewFile::all().iter().map(|view| self.view_file(*view)).collect()
+    }
+
+    /// List all available sessions, sorted by timestamp (newest first)
+    ///
+    /// Returns SessionId for each valid session directory that contains an events.jsonl file
+    pub fn list_sessions(&self) -> Vec<SessionId> {
+        let sessions_dir = self.sessions_dir();
+
+        if !sessions_dir.exists() {
+            return Vec::new();
+        }
+
+        let mut sessions: Vec<SessionId> = fs::read_dir(sessions_dir)
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.path().is_dir())
+            .filter_map(|entry| {
+                let session_id_str = entry.file_name().to_string_lossy().to_string();
+                SessionId::from_timestamp(session_id_str).ok()
+            })
+            .filter(|session_id| {
+                let events_file = self.events_file(session_id);
+                events_file.exists()
+            })
+            .collect();
+
+        sessions.sort();
+        sessions.reverse();
+        sessions
+    }
+
+    /// Get the most recent session (if any)
+    pub fn latest_session(&self) -> Option<SessionId> {
+        self.list_sessions().into_iter().next()
     }
 }
 

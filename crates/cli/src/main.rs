@@ -159,8 +159,47 @@ async fn cmd_start(config: Config, dir: Option<PathBuf>, profile_name: Option<St
         std::fs::create_dir_all(agent_dir.views_dir()).context("Failed to create views directory")?;
     }
 
-    println!("{} Creating session...", "Info:".blue().bold());
-    let mut session = Session::new(agent_dir.clone()).context("Failed to create session")?;
+    let existing_sessions = agent_dir.list_sessions();
+    let (mut session, is_recovery) = if let Some(latest_session_id) = existing_sessions.first() {
+        println!(
+            "\n{} Found previous session: {}",
+            "Info:".blue().bold(),
+            latest_session_id.cyan()
+        );
+
+        println!("Would you like to recover the previous session? [Y/n]");
+        println!("(Press Enter to recover, or 'n' to start a new session)");
+
+        let mut input = String::new();
+        std::io::stdin()
+            .read_line(&mut input)
+            .context("Failed to read user input")?;
+
+        let input = input.trim().to_lowercase();
+        if input == "n" {
+            println!("{} Creating new session...", "Info:".blue().bold());
+            (
+                Session::new(agent_dir.clone()).context("Failed to create session")?,
+                false,
+            )
+        } else {
+            println!(
+                "{} Recovering session {}",
+                "Info:".blue().bold(),
+                latest_session_id.cyan()
+            );
+            (
+                Session::load(agent_dir.clone(), latest_session_id.clone()).context("Failed to load session")?,
+                true,
+            )
+        }
+    } else {
+        println!("{} Creating session...", "Info:".blue().bold());
+        (
+            Session::new(agent_dir.clone()).context("Failed to create session")?,
+            false,
+        )
+    };
 
     if verbose {
         println!("{} Session ID: {}", "Info:".blue().bold(), session.id.cyan());
@@ -171,9 +210,11 @@ async fn cmd_start(config: Config, dir: Option<PathBuf>, profile_name: Option<St
         );
     }
 
-    session
-        .append_user_message("Session started")
-        .context("Failed to log session start")?;
+    if !is_recovery {
+        session
+            .append_user_message("Session started")
+            .context("Failed to log session start")?;
+    }
 
     let git_branch = detect_git_branch(&working_dir);
 
@@ -191,21 +232,36 @@ async fn cmd_start(config: Config, dir: Option<PathBuf>, profile_name: Option<St
         app.state_mut().git_branch = Some(branch);
     }
 
-    let welcome_msg = format!(
-        "Session started\n\
-         Session ID: {}\n\
-         Working directory: {}\n\
-         Profile: {}\n\
-         Approval mode: {}\n\
-         Sandbox mode: {}\n\
-         Quick help: Ctrl+C to cancel, Esc to clear input",
-        session.id,
-        working_dir.display(),
-        profile_name,
-        profile.approval_mode,
-        profile.sandbox_mode
-    );
-    app.transcript_mut().add_system_message(welcome_msg);
+    if is_recovery {
+        if let Err(e) = app.reconstruct_transcript_from_session() {
+            eprintln!(
+                "{} Warning: Failed to reconstruct transcript: {}",
+                "Warning:".yellow().bold(),
+                e
+            );
+            app.transcript_mut()
+                .add_system_message("Note: Some previous session events could not be loaded.");
+        }
+
+        app.transcript_mut()
+            .add_system_message(format!("Session recovered: {}", session.id));
+    } else {
+        let welcome_msg = format!(
+            "Session started\n\
+             Session ID: {}\n\
+             Working directory: {}\n\
+             Profile: {}\n\
+             Approval mode: {}\n\
+             Sandbox mode: {}\n\
+             Quick help: Ctrl+C to cancel, Esc to clear input",
+            session.id,
+            working_dir.display(),
+            profile_name,
+            profile.approval_mode,
+            profile.sandbox_mode
+        );
+        app.transcript_mut().add_system_message(welcome_msg);
+    }
 
     match app.run().await {
         Ok(_) => Ok(()),

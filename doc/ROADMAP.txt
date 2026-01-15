@@ -19,7 +19,8 @@ CONTENTS                                                      *roadmap-contents*
  VIII. Markdown + JSONL Hybrid VCS ............................ |agent-VIII|
    IX. Mixed-Initiative Collaboration ......................... |agent-IX|
     X. Extensibility + Hardening .............................. |agent-X|
-   XI. Endnotes ............................................... |agent-XI|
+   XI. Session Recovery ....................................... |agent-XI|
+  XII. Endnotes ............................................... |agent-XII|
 
 --------------------------------------------------------------------------------
 I. REPO SCAFFOLD + CONFIG + SESSION STORE                              *agent-I*
@@ -218,18 +219,18 @@ Session Persistence
       - Use session.append_* methods from thunderus_core::Session
       - Persist on each event (append-only, crash-safe)
       - Session write failures: warn user, continue (log to stderr)
-- [ ] Session recovery:
+- [x] Session recovery:
       - Load previous session state on restart
       - Reconstruct transcript from events.jsonl
       - Resume conversation context
 
-Git Integration (Basic)
------------------------
+Git Integration
+---------------
 - [ ] Git status display:
       - Detect git branch for header display (already in AppState)
       - Show current branch in header git section
       - Update branch on focus/refresh
-      - No git operations yet - just status display
+      - No git operations yet
 
 DoD:
 - `thunderus start` or `thunderus` launches a fully functional TUI
@@ -250,8 +251,8 @@ the agent to explore codebases and make targeted edits. These tools form the
 backbone of agentic code interaction.
 
 Design target:
-Claude Code's tool model - ripgrep-based search, safe edit primitives, high-level
-abstractions over raw shell tools (grep, sed, awk).
+Claude Code's tool model - ripgrep-based search, safe edit primitives,
+high-level abstractions over raw shell tools (grep, sed, awk).
 
 Research shows agentic search using bash tools is more reliable than semantic
 search. Successful agents treat shell tools as first-class citizens with careful
@@ -645,8 +646,20 @@ and regression tests for harness behaviors.
 DoD:
 - A daily-driver harness: interactive + scriptable + extensible.
 
+
 --------------------------------------------------------------------------------
-XI. REFERENCES                                                        *agent-XI*
+XI. Parking Lot                                                       *agent-XI*
+--------------------------------------------------------------------------------
+
+Session Recovery:
+- Interactive session selection UI (list multiple sessions with metadata)
+- Session search and filtering (by date, keyword, etc.)
+- Session branching (fork from a previous session)
+- Session export/import (share sessions between machines)
+- Session metadata (title, tags, description)
+
+--------------------------------------------------------------------------------
+XII. REFERENCES                                                      *agent-XII*
 --------------------------------------------------------------------------------
 
 See |REFS.txt| for external resources, design inspirations, and footnotes.

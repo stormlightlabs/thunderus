@@ -647,8 +647,7 @@ mod tests {
 
     #[test]
     fn test_error_entry_can_retry() {
-        let entry = TranscriptEntry::error_entry("API error", ErrorType::Provider)
-            .with_can_retry(true);
+        let entry = TranscriptEntry::error_entry("API error", ErrorType::Provider).with_can_retry(true);
 
         if let TranscriptEntry::ErrorEntry { can_retry, .. } = entry {
             assert!(can_retry);

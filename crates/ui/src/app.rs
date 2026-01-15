@@ -170,6 +170,83 @@ impl App {
         }
     }
 
+    /// Reconstruct transcript from session events
+    ///
+    /// Loads all events from the session and converts them to transcript entries.
+    /// This is used for session recovery on restart.
+    pub fn reconstruct_transcript_from_session(&mut self) -> thunderus_core::Result<()> {
+        let Some(ref session) = self.session else {
+            return Ok(());
+        };
+
+        let events = session.read_events()?;
+
+        for logged_event in events {
+            match logged_event.event {
+                thunderus_core::Event::UserMessage { content } => {
+                    self.transcript_mut().add_user_message(&content);
+                }
+                thunderus_core::Event::ModelMessage { content, tokens_used: _ } => {
+                    self.transcript_mut().add_model_response(&content);
+                }
+                thunderus_core::Event::ToolCall { tool, arguments } => {
+                    let args_str = serde_json::to_string_pretty(&arguments).unwrap_or_default();
+                    self.transcript_mut().add_tool_call(&tool, &args_str, "safe");
+                }
+                thunderus_core::Event::ToolResult { tool, result, success, error } => {
+                    let result_str =
+                        serde_json::to_string_pretty(&result).unwrap_or_else(|_| "Invalid JSON".to_string());
+                    self.transcript_mut().add_tool_result(&tool, &result_str, success);
+
+                    if let Some(error_msg) = error {
+                        self.transcript_mut()
+                            .add_system_message(format!("Tool error: {}", error_msg));
+                    }
+                }
+                thunderus_core::Event::Approval { action, approved } => {
+                    let decision = if approved {
+                        crate::transcript::ApprovalDecision::Approved
+                    } else {
+                        crate::transcript::ApprovalDecision::Rejected
+                    };
+
+                    self.transcript_mut().add_approval_prompt(&action, "safe");
+                    let _ = self.transcript_mut().set_approval_decision(decision);
+                }
+                thunderus_core::Event::Patch { name, status, files, diff } => {
+                    let status_str = format!("{:?}", status);
+                    self.transcript_mut().add_system_message(format!(
+                        "Patch: {} ({})\nFiles: {:?}\n{}",
+                        name, status_str, files, diff
+                    ));
+                }
+                thunderus_core::Event::ShellCommand { command, args, working_dir, exit_code, output_ref } => {
+                    let cmd_str =
+                        if args.is_empty() { command.clone() } else { format!("{} {}", command, args.join(" ")) };
+                    self.transcript_mut().add_system_message(format!(
+                        "Shell: {} (in {})\nExit: {:?}",
+                        cmd_str,
+                        working_dir.display(),
+                        exit_code
+                    ));
+
+                    if let Some(ref output_file) = output_ref {
+                        self.transcript_mut()
+                            .add_system_message(format!("Output in: {}", output_file));
+                    }
+                }
+                thunderus_core::Event::GitSnapshot { commit, branch, changed_files } => {
+                    self.transcript_mut().add_system_message(format!(
+                        "Git snapshot: {} @ {}\nChanged files: {}",
+                        commit, branch, changed_files
+                    ));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Run the TUI application with unified event loop
     ///
     /// Uses tokio::select! to multiplex TUI keyboard events and Agent streaming events.
@@ -421,7 +498,6 @@ impl App {
     fn handle_agent_event(&mut self, event: thunderus_agent::AgentEvent) {
         match event {
             AgentEvent::Token(text) => {
-                // Accumulate streaming tokens for persistence when done
                 if self.streaming_model_content.is_none() {
                     self.streaming_model_content = Some(String::new());
                 }
@@ -438,8 +514,6 @@ impl App {
             AgentEvent::ToolResult { name, result } => {
                 let success = result.contains("success") || !result.contains("error");
                 self.transcript_mut().add_tool_result(&name, &result, success);
-
-                // Persist tool result as JSON value
                 let result_json = serde_json::json!({
                     "output": result
                 });
@@ -469,7 +543,6 @@ impl App {
                 self.transcript_mut().finish_streaming();
                 self.state_mut().stop_generation();
 
-                // Persist the complete model response
                 if let Some(content) = self.streaming_model_content.take() {
                     self.persist_model_message(&content);
                 }
@@ -512,7 +585,6 @@ impl App {
         if let Some(approval_state) = self.state_mut().pending_approval.take() {
             let approved = matches!(decision, ApprovalDecision::Approved);
 
-            // Persist the approval decision
             self.persist_approval(&approval_state.action, approved);
 
             if let Some(request_id) = approval_state.request_id
