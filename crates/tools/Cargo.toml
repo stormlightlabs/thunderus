@@ -12,3 +12,6 @@ regex-lite = "0.1"
 
 thunderus-core = { path = "../core" }
 thunderus-providers = { path = "../providers" }
+
+[dev-dependencies]
+tempfile = "3.16"

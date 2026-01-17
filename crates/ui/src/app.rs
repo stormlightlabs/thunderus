@@ -241,6 +241,17 @@ impl App {
                         commit, branch, changed_files
                     ));
                 }
+                thunderus_core::Event::FileRead { file_path, line_count, offset, success } => {
+                    if success {
+                        self.transcript_mut().add_system_message(format!(
+                            "File read: {} (lines: {}, offset: {})",
+                            file_path, line_count, offset
+                        ));
+                    } else {
+                        self.transcript_mut()
+                            .add_system_message(format!("File read failed: {}", file_path));
+                    }
+                }
             }
         }
 

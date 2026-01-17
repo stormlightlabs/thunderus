@@ -1,18 +1,22 @@
 pub mod builtin;
 pub mod classification;
 pub mod dispatcher;
+pub mod read_history;
 pub mod registry;
+pub mod session_dispatcher;
 pub mod tool;
 
-pub use builtin::{EchoTool, GlobTool, GrepTool, NoopTool, ShellTool};
+pub use builtin::{EchoTool, GlobTool, GrepTool, NoopTool, ReadTool, ShellTool};
 pub use classification::{CommandClassifier, Pattern};
 pub use dispatcher::ToolDispatcher;
+pub use read_history::{ReadHistory, validate_read_before_edit};
 pub use registry::ToolRegistry;
+pub use session_dispatcher::{SessionToolDispatcher, validate_read_before_edit as validate_session_read_before_edit};
 pub use thunderus_core::ToolRisk;
 pub use tool::Tool;
 
 #[cfg(test)]
-pub use builtin::{echo_tool_call, glob_tool_call, grep_tool_call, noop_tool_call, shell_tool_call};
+pub use builtin::{echo_tool_call, glob_tool_call, grep_tool_call, noop_tool_call, read_tool_call, shell_tool_call};
 
 #[cfg(test)]
 mod tests {

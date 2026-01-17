@@ -83,6 +83,17 @@ pub enum Event {
         /// Number of changed files
         changed_files: usize,
     },
+    /// File read operation (for tracking read history and edit validation)
+    FileRead {
+        /// Absolute path to the file that was read
+        file_path: String,
+        /// Number of lines read
+        line_count: usize,
+        /// Offset used for reading (0-indexed)
+        offset: usize,
+        /// Whether the read was successful
+        success: bool,
+    },
 }
 
 /// Token usage information for model responses
@@ -309,6 +320,13 @@ impl Session {
         self.append_event(Event::GitSnapshot { commit: commit.into(), branch: branch.into(), changed_files })
     }
 
+    /// Append a file read operation
+    pub fn append_file_read(
+        &mut self, file_path: impl Into<String>, line_count: usize, offset: usize, success: bool,
+    ) -> Result<Seq> {
+        self.append_event(Event::FileRead { file_path: file_path.into(), line_count, offset, success })
+    }
+
     /// Read all events from the session log
     pub fn read_events(&self) -> Result<Vec<LoggedEvent>> {
         let events_file = self.events_file();
@@ -361,6 +379,48 @@ impl Session {
     /// Check if the session exists on disk
     pub fn exists(&self) -> bool {
         self.session_dir().exists() && self.events_file().exists()
+    }
+
+    /// Check if a file has been read in this session
+    ///
+    /// Returns the sequence number of the most recent read event for the file,
+    /// or None if the file has not been read
+    pub fn was_file_read(&self, file_path: &str) -> Result<Option<Seq>> {
+        let events = self.read_events()?;
+
+        let last_read_seq = events
+            .iter()
+            .rev()
+            .filter_map(|e| {
+                if let Event::FileRead { file_path: ref fp, success, .. } = e.event {
+                    if fp == file_path && success { Some(e.seq) } else { None }
+                } else {
+                    None
+                }
+            })
+            .next();
+
+        Ok(last_read_seq)
+    }
+
+    /// Get all files that have been read in this session
+    ///
+    /// Returns a vector of (file_path, seq) tuples for all successful reads
+    pub fn read_files(&self) -> Result<Vec<(String, Seq)>> {
+        let events = self.read_events()?;
+
+        let files: Vec<(String, Seq)> = events
+            .iter()
+            .filter_map(|e| {
+                if let Event::FileRead { file_path: ref fp, success, .. } = e.event {
+                    if success { Some((fp.clone(), e.seq)) } else { None }
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        Ok(files)
     }
 }
 
@@ -947,5 +1007,83 @@ mod tests {
         let id1 = SessionId::from_timestamp("2025-01-11T14-30-45Z").unwrap();
         let id2 = SessionId::from_timestamp("2025-01-11T15-30-45Z").unwrap();
         assert!(id1 < id2);
+    }
+
+    #[test]
+    fn test_append_file_read() {
+        let (temp, mut session) = create_test_session();
+
+        let seq = session.append_file_read("/path/to/file.txt", 100, 0, true).unwrap();
+        assert_eq!(seq, 0);
+
+        let events = session.read_events().unwrap();
+        assert_eq!(events.len(), 1);
+
+        if let Event::FileRead { file_path, line_count, offset, success } = &events[0].event {
+            assert_eq!(file_path, "/path/to/file.txt");
+            assert_eq!(*line_count, 100);
+            assert_eq!(*offset, 0);
+            assert!(*success);
+        } else {
+            panic!("Expected FileRead event");
+        }
+        drop(temp);
+    }
+
+    #[test]
+    fn test_was_file_read() {
+        let (temp, mut session) = create_test_session();
+
+        assert!(session.was_file_read("/path/to/file.txt").unwrap().is_none());
+
+        session.append_file_read("/path/to/file.txt", 100, 0, true).unwrap();
+        assert_eq!(session.was_file_read("/path/to/file.txt").unwrap(), Some(0));
+
+        session.append_user_message("some message").unwrap();
+        session.append_file_read("/path/to/file.txt", 200, 0, true).unwrap();
+        assert_eq!(session.was_file_read("/path/to/file.txt").unwrap(), Some(2));
+
+        session.append_file_read("/another/file.txt", 50, 0, false).unwrap();
+        assert!(session.was_file_read("/another/file.txt").unwrap().is_none());
+
+        assert!(session.was_file_read("/different/file.rs").unwrap().is_none());
+        drop(temp);
+    }
+
+    #[test]
+    fn test_read_files() {
+        let (temp, mut session) = create_test_session();
+
+        assert!(session.read_files().unwrap().is_empty());
+
+        session.append_file_read("/path/to/file1.txt", 100, 0, true).unwrap();
+        session.append_file_read("/path/to/file2.rs", 200, 10, true).unwrap();
+        session.append_file_read("/path/to/file3.md", 50, 0, true).unwrap();
+
+        let files = session.read_files().unwrap();
+        assert_eq!(files.len(), 3);
+        assert_eq!(files[0], ("/path/to/file1.txt".to_string(), 0));
+        assert_eq!(files[1], ("/path/to/file2.rs".to_string(), 1));
+        assert_eq!(files[2], ("/path/to/file3.md".to_string(), 2));
+
+        session.append_file_read("/path/to/file4.txt", 100, 0, false).unwrap();
+
+        let files = session.read_files().unwrap();
+        assert_eq!(files.len(), 3);
+        drop(temp);
+    }
+
+    #[test]
+    fn test_file_read_event_serialization() {
+        let event =
+            Event::FileRead { file_path: "/test/path.txt".to_string(), line_count: 42, offset: 10, success: true };
+
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("file-read"));
+        assert!(json.contains("/test/path.txt"));
+        assert!(json.contains("42"));
+
+        let deserialized: Event = serde_json::from_str(&json).unwrap();
+        assert_eq!(event, deserialized);
     }
 }

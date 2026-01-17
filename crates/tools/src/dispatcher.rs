@@ -11,6 +11,7 @@ use super::ToolRegistry;
 /// - Validating arguments
 /// - Executing the tool
 /// - Returning results in the format expected by the agent loop
+#[derive(Debug)]
 pub struct ToolDispatcher {
     registry: ToolRegistry,
 }
