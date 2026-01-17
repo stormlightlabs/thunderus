@@ -136,9 +136,9 @@ Provider Integration
 
 Full-Access Mode
 ----------------
-- [ ] Direct sed exposure (gated, with backups)
-- [ ] Direct awk exposure (gated, read-only recommended)
-- [ ] Rationale: complex syntax, safety concerns, better abstracted by
+- [x] Direct sed exposure (gated, with backups)
+- [x] Direct awk exposure (gated, read-only recommended)
+- [x] Rationale: complex syntax, safety concerns, better abstracted by
       Edit tools
 
 DoD:

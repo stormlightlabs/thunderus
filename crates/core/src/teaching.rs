@@ -61,7 +61,10 @@ impl TeachingState {
 }
 
 /// Get the educational hint for a concept
-fn get_hint_for_concept(concept: &str) -> Option<String> {
+///
+/// Public API for getting hints without needing a TeachingState instance.
+/// Useful for one-off hint display without tracking teaching state.
+pub fn get_hint_for_concept(concept: &str) -> Option<String> {
     match concept {
         "risky_command_explained" => Some(
             "Risky commands (like rm, sed -i, package installs) require approval because they can \
@@ -123,6 +126,26 @@ fn get_hint_for_concept(concept: &str) -> Option<String> {
                 still logged to the session for review and debugging."
                 .to_string(),
         ),
+        "sed_full_access" => Some(
+            "Direct sed exposure in full-access mode with mandatory backups. The Edit tool \
+                is still safer and more reliable for most find-replace operations."
+                .to_string(),
+        ),
+        "awk_full_access" => Some(
+            "Direct awk exposure in full-access mode. Use read-only patterns (without output \
+                redirection) for safety. The Read and Edit tools are safer for file manipulation."
+                .to_string(),
+        ),
+        "sed_backup_created" => Some(
+            "A backup was created before running sed -i. If the result is unexpected, you can \
+                restore from the backup. Use the Edit tool for safer operations with automatic rollback."
+                .to_string(),
+        ),
+        "awk_read_only_recommended" => Some(
+            "Awk works best for read-only data transformation. For file modifications, use \
+                Read + Edit tools for better safety and validation."
+                .to_string(),
+        ),
         _ => None,
     }
 }
@@ -135,6 +158,9 @@ pub fn suggest_concept(action_type: &str, risk_level: ToolRisk, context: &str) -
         ("shell", true) => match context {
             c if c.contains("rm") || c.contains("shred") || c.contains("rmdir") => Some("file_destruction".to_string()),
             c if c.contains("sed -i") || c.contains("sed --in-place") => Some("sed_risky_explained".to_string()),
+            c if c.contains("sed") && !c.contains("-i") => Some("sed_full_access".to_string()),
+            c if c.contains("awk") && c.contains(">") => Some("awk_full_access".to_string()),
+            c if c.contains("awk") => Some("awk_read_only_recommended".to_string()),
             c if c.contains("install") => Some("package_install".to_string()),
             c if c.contains("git push") || c.contains("git commit") || c.contains("git rebase") => {
                 Some("git_write_operations".to_string())
@@ -143,6 +169,11 @@ pub fn suggest_concept(action_type: &str, risk_level: ToolRisk, context: &str) -
                 Some("network_command_explained".to_string())
             }
             _ => Some("risky_command_explained".to_string()),
+        },
+        ("shell", false) => match context {
+            c if c.contains("sed") => Some("sed_full_access".to_string()),
+            c if c.contains("awk") => Some("awk_read_only_recommended".to_string()),
+            _ => None,
         },
         ("tool", true) => match context {
             c if c.contains("edit") || c.contains("multiedit") => Some("edit_tool_benefits".to_string()),
@@ -284,6 +315,55 @@ mod tests {
     fn test_suggest_concept_none_for_safe_operations() {
         let concept = suggest_concept("tool", ToolRisk::Safe, "grep");
         assert!(concept.is_none());
+    }
+
+    #[test]
+    fn test_suggest_concept_sed_safe_full_access() {
+        let concept = suggest_concept("shell", ToolRisk::Safe, "sed 's/old/new/g' file.txt");
+        assert_eq!(concept, Some("sed_full_access".to_string()));
+    }
+
+    #[test]
+    fn test_suggest_concept_awk_safe_read_only() {
+        let concept = suggest_concept("shell", ToolRisk::Safe, "awk '{print $1}' file.txt");
+        assert_eq!(concept, Some("awk_read_only_recommended".to_string()));
+    }
+
+    #[test]
+    fn test_suggest_concept_awk_risky_with_redirection() {
+        let concept = suggest_concept("shell", ToolRisk::Risky, "awk '{print $1}' file.txt > output.txt");
+        assert_eq!(concept, Some("awk_full_access".to_string()));
+    }
+
+    #[test]
+    fn test_get_hint_for_sed_full_access() {
+        let hint = get_hint_for_concept("sed_full_access");
+        assert!(hint.is_some());
+        let hint_content = hint.unwrap();
+        assert!(hint_content.contains("backup") || hint_content.contains("Edit tool"));
+    }
+
+    #[test]
+    fn test_get_hint_for_awk_full_access() {
+        let hint = get_hint_for_concept("awk_full_access");
+        assert!(hint.is_some());
+        let hint_content = hint.unwrap();
+        assert!(hint_content.contains("read-only") || hint_content.contains("redirection"));
+    }
+
+    #[test]
+    fn test_get_hint_for_sed_backup_created() {
+        let hint = get_hint_for_concept("sed_backup_created");
+        assert!(hint.is_some());
+        assert!(hint.unwrap().contains("backup"));
+    }
+
+    #[test]
+    fn test_get_hint_for_awk_read_only_recommended() {
+        let hint = get_hint_for_concept("awk_read_only_recommended");
+        assert!(hint.is_some());
+        let hint_content = hint.unwrap();
+        assert!(hint_content.contains("Read") || hint_content.contains("Edit"));
     }
 
     #[test]

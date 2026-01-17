@@ -15,4 +15,4 @@ pub use config::{ApprovalMode, Config, Profile, ProviderConfig, SandboxMode};
 pub use error::{Error, Result};
 pub use layout::{AgentDir, SessionId, SessionIdError, ViewFile};
 pub use session::{Event, LoggedEvent, PatchStatus, Session, TokensUsed};
-pub use teaching::{TeachingState, suggest_concept};
+pub use teaching::{get_hint_for_concept, suggest_concept, TeachingState};

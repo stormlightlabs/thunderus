@@ -2,6 +2,7 @@ pub mod backup;
 pub mod builtin;
 pub mod classification;
 pub mod dispatcher;
+pub mod full_access;
 pub mod read_history;
 pub mod registry;
 pub mod result_formatting;
@@ -15,6 +16,10 @@ pub use builtin::{
 };
 pub use classification::{CommandClassifier, Pattern};
 pub use dispatcher::ToolDispatcher;
+pub use full_access::{
+    check_full_access_policy, classify_and_get_hint, create_backups_for_command, extract_files_for_backup,
+    format_command_result, get_teaching_hint_for_command, FullAccessPolicy,
+};
 pub use read_history::{ReadHistory, validate_read_before_edit};
 pub use registry::ToolRegistry;
 pub use result_formatting::{
