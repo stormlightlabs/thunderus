@@ -4,7 +4,7 @@ use thunderus_core::Result;
 use thunderus_providers::{ToolResult, ToolSpec};
 
 use super::Tool;
-use super::builtin::{EchoTool, GrepTool, NoopTool, ShellTool};
+use super::builtin::{EchoTool, GlobTool, GrepTool, NoopTool, ShellTool};
 
 /// Registry that holds all available tools
 #[derive(Debug, Clone)]
@@ -24,6 +24,7 @@ impl ToolRegistry {
         registry.register(NoopTool).unwrap();
         registry.register(EchoTool).unwrap();
         registry.register(GrepTool).unwrap();
+        registry.register(GlobTool).unwrap();
         registry.register(ShellTool).unwrap();
         registry
     }

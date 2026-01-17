@@ -63,7 +63,7 @@ safety guardrails.
 
 Search Tools
 ------------
-- [ ] Grep tool (ripgrep-based):
+- [x] Grep tool (ripgrep-based):
       - pattern-based search with regex support
       - file filtering with glob patterns (e.g., "*.rs", "*.{ts,tsx}")
       - output modes: files_with_matches (default), content, count
@@ -72,7 +72,7 @@ Search Tools
       - head_limit for result pagination
       - JSON output mode for structured results
       - fallback to grep if ripgrep unavailable
-- [ ] Glob tool (file pattern matching):
+- [x] Glob tool (file pattern matching):
       - find files by name patterns (e.g., "**/*.rs", "src/**/test_*.rs")
       - sorted by modification time
       - respect .gitignore by default

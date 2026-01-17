@@ -4,7 +4,7 @@ pub mod dispatcher;
 pub mod registry;
 pub mod tool;
 
-pub use builtin::{EchoTool, GrepTool, NoopTool, ShellTool};
+pub use builtin::{EchoTool, GlobTool, GrepTool, NoopTool, ShellTool};
 pub use classification::{CommandClassifier, Pattern};
 pub use dispatcher::ToolDispatcher;
 pub use registry::ToolRegistry;
@@ -12,7 +12,7 @@ pub use thunderus_core::ToolRisk;
 pub use tool::Tool;
 
 #[cfg(test)]
-pub use builtin::{echo_tool_call, grep_tool_call, noop_tool_call, shell_tool_call};
+pub use builtin::{echo_tool_call, glob_tool_call, grep_tool_call, noop_tool_call, shell_tool_call};
 
 #[cfg(test)]
 mod tests {

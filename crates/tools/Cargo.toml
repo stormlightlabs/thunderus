@@ -4,7 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-thunderus-core = { path = "../core" }
-thunderus-providers = { path = "../providers" }
 serde_json = "1.0.128"
 thiserror = "2"
+glob = "0.3"
+ignore = "0.4"
+regex-lite = "0.1"
+
+thunderus-core = { path = "../core" }
+thunderus-providers = { path = "../providers" }
