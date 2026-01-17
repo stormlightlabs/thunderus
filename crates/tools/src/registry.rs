@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
-use thunderus_core::{ApprovalGate, ApprovalMode, Result};
+use thunderus_core::config::PathAccessResult;
+use thunderus_core::{ApprovalGate, ApprovalMode, Profile, Result};
 use thunderus_providers::{ToolResult, ToolSpec};
 
 use super::Tool;
@@ -13,19 +14,42 @@ pub struct ToolRegistry {
     tools: Arc<RwLock<HashMap<String, Box<dyn Tool>>>>,
     /// Optional approval gate for controlling tool execution
     approval_gate: Option<ApprovalGate>,
-    /// Workspace root directories for edit tool validation
+    /// Optional profile for sandbox policy enforcement
+    profile: Option<Profile>,
+    /// Workspace root directories for edit tool validation (legacy, kept for compatibility)
     workspace_roots: Vec<PathBuf>,
 }
 
 impl ToolRegistry {
     /// Creates a new empty tool registry
     pub fn new() -> Self {
-        Self { tools: Arc::new(RwLock::new(HashMap::new())), approval_gate: None, workspace_roots: Vec::new() }
+        Self {
+            tools: Arc::new(RwLock::new(HashMap::new())),
+            approval_gate: None,
+            profile: None,
+            workspace_roots: Vec::new(),
+        }
     }
 
     /// Creates a new tool registry with approval control
     pub fn with_approval(approval_gate: ApprovalGate, workspace_roots: Vec<PathBuf>) -> Self {
-        Self { tools: Arc::new(RwLock::new(HashMap::new())), approval_gate: Some(approval_gate), workspace_roots }
+        Self {
+            tools: Arc::new(RwLock::new(HashMap::new())),
+            approval_gate: Some(approval_gate),
+            profile: None,
+            workspace_roots,
+        }
+    }
+
+    /// Creates a new tool registry with profile-based sandbox policy
+    pub fn with_profile(profile: Profile) -> Self {
+        let workspace_roots = profile.workspace.all_roots();
+        Self {
+            tools: Arc::new(RwLock::new(HashMap::new())),
+            approval_gate: None,
+            profile: Some(profile),
+            workspace_roots,
+        }
     }
 
     /// Creates a tool registry with all built-in tools registered
@@ -47,9 +71,11 @@ impl ToolRegistry {
         self.approval_gate = Some(gate);
     }
 
-    /// Sets the workspace roots for edit tool validation
-    pub fn set_workspace_roots(&mut self, roots: Vec<PathBuf>) {
-        self.workspace_roots = roots;
+    /// Sets the profile for sandbox policy enforcement
+    pub fn set_profile(&mut self, profile: Profile) {
+        let workspace_roots = profile.workspace.all_roots();
+        self.profile = Some(profile);
+        self.workspace_roots = workspace_roots;
     }
 
     /// Gets the approval gate
@@ -57,7 +83,17 @@ impl ToolRegistry {
         self.approval_gate.as_ref()
     }
 
-    /// Gets the workspace roots
+    /// Gets the profile
+    pub fn profile(&self) -> Option<&Profile> {
+        self.profile.as_ref()
+    }
+
+    /// Sets the workspace roots for edit tool validation (legacy, kept for compatibility)
+    pub fn set_workspace_roots(&mut self, roots: Vec<PathBuf>) {
+        self.workspace_roots = roots;
+    }
+
+    /// Gets the workspace roots (legacy, kept for compatibility)
     pub fn workspace_roots(&self) -> &[PathBuf] {
         &self.workspace_roots
     }
@@ -76,33 +112,107 @@ impl ToolRegistry {
             return Ok(true);
         }
 
-        let Some(gate) = &self.approval_gate else {
-            return Ok(true);
+        let mode = match &self.approval_gate {
+            Some(gate) => gate.mode(),
+            None => ApprovalMode::Auto,
         };
 
-        let mode = gate.mode();
+        if let Some(profile) = &self.profile {
+            if tool.name() == "shell"
+                && let Some(cmd) = arguments.get("command").and_then(|v| v.as_str())
+                && Self::is_network_command(cmd)
+            {
+                return self.check_network_access(profile, mode, cmd);
+            }
+
+            if let Some(path) = self.extract_target_path(tool, arguments) {
+                let path_buf = PathBuf::from(&path);
+                return self.check_path_access(profile, &path_buf, mode, tool);
+            }
+        }
 
         match mode {
             ApprovalMode::ReadOnly => Err(thunderus_core::Error::Approval(
                 "Tool execution rejected: approval mode is read-only".to_string(),
             )),
             ApprovalMode::FullAccess => Ok(true),
-            ApprovalMode::Auto => match self.extract_target_path(tool, arguments) {
-                Some(path) => {
-                    let path_buf = PathBuf::from(&path);
-                    if self.is_within_workspace(&path_buf) {
-                        Ok(true)
-                    } else {
-                        Err(thunderus_core::Error::Approval(format!(
-                            "Tool execution requires approval: path '{}' is outside workspace",
-                            path
-                        )))
+            ApprovalMode::Auto => {
+                match self.extract_target_path(tool, arguments) {
+                    Some(path) => {
+                        let path_buf = PathBuf::from(&path);
+                        if self.is_within_workspace(&path_buf) {
+                            Ok(true)
+                        } else {
+                            Err(thunderus_core::Error::Approval(format!(
+                                "Tool execution requires approval: path '{}' is outside workspace",
+                                path
+                            )))
+                        }
                     }
+                    None => Ok(true), // No path to check, allow
                 }
-                None => Err(thunderus_core::Error::Approval(
-                    "Tool execution requires approval: cannot verify workspace boundary".to_string(),
-                )),
-            },
+            }
+        }
+    }
+
+    /// Check if a command is a network command
+    fn is_network_command(cmd: &str) -> bool {
+        let cmd_lower = cmd.to_lowercase();
+        cmd_lower.contains("curl ")
+            || cmd_lower.contains("wget ")
+            || cmd_lower.starts_with("curl")
+            || cmd_lower.starts_with("wget")
+            || cmd_lower.contains("ssh ")
+            || cmd_lower.starts_with("ssh")
+            || cmd_lower.contains("http://")
+            || cmd_lower.contains("https://")
+    }
+
+    /// Check network access based on profile and mode
+    fn check_network_access(&self, profile: &Profile, mode: ApprovalMode, cmd: &str) -> Result<bool> {
+        match mode {
+            ApprovalMode::FullAccess => Ok(true), // Full access allows network
+            ApprovalMode::ReadOnly => Err(thunderus_core::Error::Approval(format!(
+                "Network command '{}' blocked: read-only mode",
+                cmd
+            ))),
+            ApprovalMode::Auto => {
+                if profile.is_network_allowed() {
+                    Ok(true)
+                } else {
+                    Err(thunderus_core::Error::Approval(format!(
+                        "Network command '{}' blocked: network access disabled",
+                        cmd
+                    )))
+                }
+            }
+        }
+    }
+
+    /// Check path access based on profile, mode, and tool type
+    fn check_path_access(&self, profile: &Profile, path: &Path, mode: ApprovalMode, tool: &dyn Tool) -> Result<bool> {
+        match profile.check_path_access(path, mode) {
+            PathAccessResult::Allowed => Ok(true),
+            PathAccessResult::ReadOnly => {
+                if tool.is_read_only() {
+                    Ok(true)
+                } else {
+                    Err(thunderus_core::Error::Approval(format!(
+                        "Write access to '{}' denied: read-only mode",
+                        path.display()
+                    )))
+                }
+            }
+            PathAccessResult::Denied(reason) => Err(thunderus_core::Error::Approval(format!(
+                "Access to '{}' denied: {}",
+                path.display(),
+                reason
+            ))),
+            PathAccessResult::NeedsApproval(reason) => Err(thunderus_core::Error::Approval(format!(
+                "Access to '{}' requires approval: {}",
+                path.display(),
+                reason
+            ))),
         }
     }
 

@@ -147,6 +147,10 @@ pub struct Profile {
     #[serde(default)]
     pub extra_writable_roots: Vec<PathBuf>,
 
+    /// Workspace sandbox configuration
+    #[serde(default)]
+    pub workspace: WorkspaceConfig,
+
     /// Approval mode
     #[serde(default)]
     pub approval_mode: ApprovalMode,
@@ -162,10 +166,99 @@ pub struct Profile {
     #[serde(default)]
     pub allow_network: bool,
 
+    /// Network sandbox configuration
+    #[serde(default)]
+    pub network: NetworkConfig,
+
     /// Additional configuration options
     #[serde(default)]
     pub options: HashMap<String, String>,
 }
+
+/// Workspace sandbox configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WorkspaceConfig {
+    /// Workspace root directories
+    #[serde(default)]
+    pub roots: Vec<PathBuf>,
+
+    /// Include /tmp for scratch files
+    #[serde(default)]
+    pub include_temp: bool,
+
+    /// Explicitly allowed paths (beyond workspace roots)
+    #[serde(default)]
+    pub allow: Vec<PathBuf>,
+
+    /// Explicitly denied paths (always blocked)
+    #[serde(default)]
+    pub deny: Vec<PathBuf>,
+}
+
+impl Default for WorkspaceConfig {
+    fn default() -> Self {
+        Self { roots: Vec::new(), include_temp: true, allow: Vec::new(), deny: Vec::new() }
+    }
+}
+
+/// Network sandbox configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct NetworkConfig {
+    /// Enable network access (default: false)
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Allowed domains for web operations
+    #[serde(default)]
+    pub allow_domains: Vec<String>,
+}
+
+impl WorkspaceConfig {
+    /// Get all workspace roots (including /tmp if include_temp is true)
+    pub fn all_roots(&self) -> Vec<PathBuf> {
+        let mut roots = self.roots.clone();
+        if self.include_temp {
+            roots.push(PathBuf::from("/tmp"));
+        }
+        roots
+    }
+
+    /// Check if a path is in workspace roots or explicitly allowed
+    pub fn is_allowed(&self, path: &Path) -> bool {
+        for denied in &self.deny {
+            if path.starts_with(denied) {
+                return false;
+            }
+        }
+
+        for allowed in &self.allow {
+            if path.starts_with(allowed) {
+                return true;
+            }
+        }
+
+        for root in self.all_roots() {
+            if path.starts_with(&root) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Check if a path is explicitly denied
+    pub fn is_denied(&self, path: &Path) -> bool {
+        self.deny.iter().any(|denied| path.starts_with(denied))
+    }
+}
+
+/// Sensitive directories that should always be denied
+pub const SENSITIVE_DIRS: &[&str] = &[
+    "~/.ssh", "~/.gnupg", "~/.aws", "~/.kube", "/etc", "/usr", "/bin", "/sbin", "/var", "/sys", "/proc", "/boot",
+    "/root",
+];
 
 impl Profile {
     /// Get all writable roots (working_root + extra_writable_roots)
@@ -179,6 +272,100 @@ impl Profile {
     pub fn is_writable(&self, path: &Path) -> bool {
         self.writable_roots().iter().any(|root| path.starts_with(root))
     }
+
+    /// Check if network access is allowed
+    pub fn is_network_allowed(&self) -> bool {
+        self.allow_network || self.network.enabled
+    }
+
+    /// Check if a domain is in the allow list
+    pub fn is_domain_allowed(&self, domain: &str) -> bool {
+        if self.network.enabled {
+            return self.network.allow_domains.iter().any(|d| domain.ends_with(d));
+        }
+        false
+    }
+
+    /// Check if a path is a sensitive directory
+    pub fn is_sensitive_dir(path: &Path) -> bool {
+        let path_str = path.to_string_lossy();
+
+        let expanded_path = if path_str.starts_with("~/") {
+            if let Ok(home) = std::env::var("HOME") {
+                path_str.replace("~", &home)
+            } else {
+                path_str.to_string()
+            }
+        } else {
+            path_str.to_string()
+        };
+
+        for sensitive in SENSITIVE_DIRS {
+            let expanded_sensitive = if sensitive.starts_with("~/") {
+                if let Ok(home) = std::env::var("HOME") {
+                    sensitive.replace("~", &home)
+                } else {
+                    sensitive.to_string()
+                }
+            } else {
+                sensitive.to_string()
+            };
+
+            if expanded_path.starts_with(&expanded_sensitive) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Check path access based on approval mode and workspace config
+    pub fn check_path_access(&self, path: &Path, mode: ApprovalMode) -> PathAccessResult {
+        if Self::is_sensitive_dir(path) {
+            return PathAccessResult::Denied("Sensitive directory");
+        }
+
+        if self.workspace.is_denied(path) {
+            return PathAccessResult::Denied("Path in deny list");
+        }
+
+        match mode {
+            ApprovalMode::ReadOnly => {
+                if self.workspace.is_allowed(path) {
+                    PathAccessResult::ReadOnly
+                } else {
+                    PathAccessResult::Denied("Outside workspace in read-only mode")
+                }
+            }
+            ApprovalMode::Auto => {
+                if self.workspace.is_allowed(path) || self.is_writable(path) {
+                    PathAccessResult::Allowed
+                } else {
+                    PathAccessResult::NeedsApproval("Outside workspace")
+                }
+            }
+            ApprovalMode::FullAccess => {
+                if self.workspace.is_denied(path) {
+                    PathAccessResult::Denied("Path in deny list")
+                } else {
+                    PathAccessResult::Allowed
+                }
+            }
+        }
+    }
+}
+
+/// Result of checking path access
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PathAccessResult {
+    /// Access is allowed
+    Allowed,
+    /// Read-only access allowed
+    ReadOnly,
+    /// Access denied with reason
+    Denied(&'static str),
+    /// Needs approval with reason
+    NeedsApproval(&'static str),
 }
 
 /// Root configuration structure for config.toml
@@ -388,6 +575,7 @@ mod tests {
             name: "test".to_string(),
             working_root: PathBuf::from("/workspace"),
             extra_writable_roots: vec![PathBuf::from("/data"), PathBuf::from("/cache")],
+            workspace: WorkspaceConfig::default(),
             approval_mode: ApprovalMode::default(),
             sandbox_mode: SandboxMode::default(),
             provider: ProviderConfig::Glm {
@@ -396,6 +584,7 @@ mod tests {
                 base_url: default_glm_base_url(),
             },
             allow_network: false,
+            network: NetworkConfig::default(),
             options: HashMap::new(),
         };
 
@@ -412,6 +601,7 @@ mod tests {
             name: "test".to_string(),
             working_root: PathBuf::from("/workspace"),
             extra_writable_roots: vec![PathBuf::from("/data")],
+            workspace: WorkspaceConfig::default(),
             approval_mode: ApprovalMode::default(),
             sandbox_mode: SandboxMode::default(),
             provider: ProviderConfig::Glm {
@@ -420,6 +610,7 @@ mod tests {
                 base_url: default_glm_base_url(),
             },
             allow_network: false,
+            network: NetworkConfig::default(),
             options: HashMap::new(),
         };
 
@@ -770,5 +961,165 @@ model = "gemini-2.5-flash"
 
         let err = ConfigError::TomlParse("parse error".to_string());
         assert_eq!(err.to_string(), "TOML parse error: parse error");
+    }
+
+    #[test]
+    fn test_sensitive_dirs() {
+        assert!(SENSITIVE_DIRS.contains(&"~/.ssh"));
+        assert!(SENSITIVE_DIRS.contains(&"/etc"));
+        assert!(SENSITIVE_DIRS.contains(&"/usr"));
+    }
+
+    #[test]
+    fn test_workspace_config_default() {
+        let config = WorkspaceConfig::default();
+        assert!(config.roots.is_empty());
+        assert!(config.include_temp);
+        assert!(config.allow.is_empty());
+        assert!(config.deny.is_empty());
+    }
+
+    #[test]
+    fn test_workspace_config_all_roots() {
+        let mut config = WorkspaceConfig::default();
+        config.roots.push(PathBuf::from("/workspace"));
+        config.include_temp = false;
+
+        let roots = config.all_roots();
+        assert_eq!(roots.len(), 1);
+        assert_eq!(roots[0], PathBuf::from("/workspace"));
+    }
+
+    #[test]
+    fn test_workspace_config_all_roots_with_temp() {
+        let mut config = WorkspaceConfig::default();
+        config.roots.push(PathBuf::from("/workspace"));
+
+        let roots = config.all_roots();
+        assert_eq!(roots.len(), 2);
+        assert!(roots.contains(&PathBuf::from("/workspace")));
+        assert!(roots.contains(&PathBuf::from("/tmp")));
+    }
+
+    #[test]
+    fn test_workspace_config_is_allowed() {
+        let mut config = WorkspaceConfig::default();
+        config.roots.push(PathBuf::from("/workspace"));
+        config.allow.push(PathBuf::from("/opt/app"));
+
+        assert!(config.is_allowed(Path::new("/workspace/src/main.rs")));
+        assert!(config.is_allowed(Path::new("/tmp/test.txt"))); // include_temp by default
+        assert!(config.is_allowed(Path::new("/opt/app/config")));
+        assert!(!config.is_allowed(Path::new("/etc/passwd")));
+    }
+
+    #[test]
+    fn test_workspace_config_is_denied() {
+        let mut config = WorkspaceConfig::default();
+        config.deny.push(PathBuf::from("/secrets"));
+
+        assert!(!config.is_denied(Path::new("/workspace/file.txt")));
+        assert!(config.is_denied(Path::new("/secrets/key.txt")));
+    }
+
+    #[test]
+    fn test_network_config_default() {
+        let config = NetworkConfig::default();
+        assert!(!config.enabled);
+        assert!(config.allow_domains.is_empty());
+    }
+
+    #[test]
+    fn test_profile_is_sensitive_dir() {
+        assert!(Profile::is_sensitive_dir(Path::new("/etc/passwd")));
+        assert!(Profile::is_sensitive_dir(Path::new("/usr/bin")));
+        assert!(!Profile::is_sensitive_dir(Path::new("/workspace/file.txt")));
+    }
+
+    #[test]
+    fn test_profile_check_path_access_readonly() {
+        let profile = create_test_profile_with_workspace("/workspace");
+        let result = profile.check_path_access(Path::new("/workspace/file.txt"), ApprovalMode::ReadOnly);
+        assert!(matches!(result, PathAccessResult::ReadOnly));
+    }
+
+    #[test]
+    fn test_profile_check_path_access_auto() {
+        let profile = create_test_profile_with_workspace("/workspace");
+        let result = profile.check_path_access(Path::new("/workspace/file.txt"), ApprovalMode::Auto);
+        assert!(matches!(result, PathAccessResult::Allowed));
+        let result = profile.check_path_access(Path::new("/etc/passwd"), ApprovalMode::Auto);
+        assert!(matches!(result, PathAccessResult::Denied(_)));
+    }
+
+    #[test]
+    fn test_profile_check_path_access_full_access() {
+        let profile = create_test_profile_with_workspace("/workspace");
+        let result = profile.check_path_access(Path::new("/workspace/file.txt"), ApprovalMode::FullAccess);
+        assert!(matches!(result, PathAccessResult::Allowed));
+    }
+
+    #[test]
+    fn test_profile_check_path_access_sensitive_dir() {
+        let profile = create_test_profile_with_workspace("/workspace");
+        let result = profile.check_path_access(Path::new("/etc/passwd"), ApprovalMode::FullAccess);
+        assert!(matches!(result, PathAccessResult::Denied(_)));
+    }
+
+    #[test]
+    fn test_profile_check_path_access_deny_list() {
+        let mut profile = create_test_profile_with_workspace("/workspace");
+        profile.workspace.deny.push(PathBuf::from("/blocked"));
+
+        let result = profile.check_path_access(Path::new("/blocked/file.txt"), ApprovalMode::Auto);
+        assert!(matches!(result, PathAccessResult::Denied(_)));
+    }
+
+    #[test]
+    fn test_profile_is_network_allowed() {
+        let mut profile = create_test_profile_with_workspace("/workspace");
+
+        assert!(!profile.is_network_allowed());
+
+        profile.allow_network = true;
+        assert!(profile.is_network_allowed());
+
+        profile.allow_network = false;
+        profile.network.enabled = true;
+        assert!(profile.is_network_allowed());
+    }
+
+    #[test]
+    fn test_profile_is_domain_allowed() {
+        let mut profile = create_test_profile_with_workspace("/workspace");
+        profile.network.enabled = true;
+        profile.network.allow_domains = vec!["crates.io".to_string(), "github.com".to_string()];
+
+        assert!(profile.is_domain_allowed("crates.io"));
+        assert!(profile.is_domain_allowed("api.crates.io"));
+        assert!(profile.is_domain_allowed("github.com"));
+        assert!(!profile.is_domain_allowed("example.com"));
+    }
+
+    fn create_test_profile_with_workspace(root: &str) -> Profile {
+        let mut workspace = WorkspaceConfig::default();
+        workspace.roots.push(PathBuf::from(root));
+
+        Profile {
+            name: "test".to_string(),
+            working_root: PathBuf::from(root),
+            extra_writable_roots: vec![],
+            workspace,
+            approval_mode: ApprovalMode::Auto,
+            sandbox_mode: SandboxMode::Policy,
+            provider: ProviderConfig::Glm {
+                api_key: "test-key".to_string(),
+                model: "glm-4.7".to_string(),
+                base_url: default_glm_base_url(),
+            },
+            allow_network: false,
+            network: NetworkConfig::default(),
+            options: HashMap::new(),
+        }
     }
 }

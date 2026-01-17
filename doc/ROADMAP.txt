@@ -167,7 +167,7 @@ Codex's model: approval policies + sandbox modes + profiles[^2]
       - `auto`: workspace edits + safe commands; gates risky ops (default)
       - `full-access`: still logged; explicit opt-in only[^3]
       - runtime mode switching via `/approvals` command
-- [ ] Sandbox policy enforcement:
+- [x] Sandbox policy enforcement:
       - define "workspace roots" in config
       - path allow/deny lists (sensitive dirs always denied: ~/.ssh, ~/.aws)
       - enforce tool access by path (block outside workspace)
