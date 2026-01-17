@@ -1,21 +1,31 @@
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
-use thunderus_core::Result;
+use thunderus_core::{ApprovalGate, ApprovalMode, Result};
 use thunderus_providers::{ToolResult, ToolSpec};
 
 use super::Tool;
-use super::builtin::{EchoTool, GlobTool, GrepTool, NoopTool, ShellTool};
+use super::builtin::{EchoTool, EditTool, GlobTool, GrepTool, MultiEditTool, NoopTool, ReadTool, ShellTool};
 
 /// Registry that holds all available tools
 #[derive(Debug, Clone)]
 pub struct ToolRegistry {
     tools: Arc<RwLock<HashMap<String, Box<dyn Tool>>>>,
+    /// Optional approval gate for controlling tool execution
+    approval_gate: Option<ApprovalGate>,
+    /// Workspace root directories for edit tool validation
+    workspace_roots: Vec<PathBuf>,
 }
 
 impl ToolRegistry {
     /// Creates a new empty tool registry
     pub fn new() -> Self {
-        Self { tools: Arc::new(RwLock::new(HashMap::new())) }
+        Self { tools: Arc::new(RwLock::new(HashMap::new())), approval_gate: None, workspace_roots: Vec::new() }
+    }
+
+    /// Creates a new tool registry with approval control
+    pub fn with_approval(approval_gate: ApprovalGate, workspace_roots: Vec<PathBuf>) -> Self {
+        Self { tools: Arc::new(RwLock::new(HashMap::new())), approval_gate: Some(approval_gate), workspace_roots }
     }
 
     /// Creates a tool registry with all built-in tools registered
@@ -25,8 +35,92 @@ impl ToolRegistry {
         registry.register(EchoTool).unwrap();
         registry.register(GrepTool).unwrap();
         registry.register(GlobTool).unwrap();
+        registry.register(ReadTool).unwrap();
         registry.register(ShellTool).unwrap();
+        registry.register(EditTool).unwrap();
+        registry.register(MultiEditTool).unwrap();
         registry
+    }
+
+    /// Sets the approval gate for this registry
+    pub fn set_approval_gate(&mut self, gate: ApprovalGate) {
+        self.approval_gate = Some(gate);
+    }
+
+    /// Sets the workspace roots for edit tool validation
+    pub fn set_workspace_roots(&mut self, roots: Vec<PathBuf>) {
+        self.workspace_roots = roots;
+    }
+
+    /// Gets the approval gate
+    pub fn approval_gate(&self) -> Option<&ApprovalGate> {
+        self.approval_gate.as_ref()
+    }
+
+    /// Gets the workspace roots
+    pub fn workspace_roots(&self) -> &[PathBuf] {
+        &self.workspace_roots
+    }
+
+    /// Check if a path is within workspace boundaries
+    pub fn is_within_workspace(&self, path: &Path) -> bool {
+        match self.workspace_roots.is_empty() {
+            true => true,
+            false => self.workspace_roots.iter().any(|root| path.starts_with(root)),
+        }
+    }
+
+    /// Check if tool execution requires approval
+    fn check_approval_required(&self, tool: &dyn Tool, arguments: &serde_json::Value) -> Result<bool> {
+        if tool.is_read_only() {
+            return Ok(true);
+        }
+
+        let Some(gate) = &self.approval_gate else {
+            return Ok(true);
+        };
+
+        let mode = gate.mode();
+
+        match mode {
+            ApprovalMode::ReadOnly => Err(thunderus_core::Error::Approval(
+                "Tool execution rejected: approval mode is read-only".to_string(),
+            )),
+            ApprovalMode::FullAccess => Ok(true),
+            ApprovalMode::Auto => match self.extract_target_path(tool, arguments) {
+                Some(path) => {
+                    let path_buf = PathBuf::from(&path);
+                    if self.is_within_workspace(&path_buf) {
+                        Ok(true)
+                    } else {
+                        Err(thunderus_core::Error::Approval(format!(
+                            "Tool execution requires approval: path '{}' is outside workspace",
+                            path
+                        )))
+                    }
+                }
+                None => Err(thunderus_core::Error::Approval(
+                    "Tool execution requires approval: cannot verify workspace boundary".to_string(),
+                )),
+            },
+        }
+    }
+
+    /// Extract the target file path from tool arguments
+    fn extract_target_path(&self, tool: &dyn Tool, arguments: &serde_json::Value) -> Option<String> {
+        let tool_name = tool.name();
+
+        match tool_name {
+            "edit" | "read" => arguments
+                .get("file_path")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            "multiedit" => arguments
+                .get("file_path")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            _ => None,
+        }
     }
 
     /// Registers a new tool in the registry
@@ -95,11 +189,17 @@ impl ToolRegistry {
     ///
     /// Uses dynamic classification based on the specific execution arguments
     /// (e.g., ShellTool classifies specific commands).
+    ///
+    /// Approval checks are performed before execution:
+    /// - Read-only tools (grep, glob, read) always bypass approval
+    /// - Edit tools check approval mode and workspace boundaries
     pub fn execute(&self, tool_name: &str, tool_call_id: String, arguments: &serde_json::Value) -> Result<ToolResult> {
         let tools = self.tools.read().unwrap();
 
         match tools.get(tool_name) {
             Some(tool) => {
+                self.check_approval_required(tool.as_ref(), arguments)?;
+
                 let classification = tool.classify_execution(arguments);
 
                 let mut result = tool.execute(tool_call_id.clone(), arguments)?;
@@ -243,5 +343,151 @@ mod tests {
         let result = registry.execute("nonexistent", "call_123".to_string(), &args);
         assert!(result.is_err());
         assert!(matches!(result, Err(thunderus_core::Error::Tool(_))));
+    }
+
+    #[test]
+    fn test_readonly_tools_bypass_approval_in_readonly_mode() {
+        let mut registry = ToolRegistry::new();
+        let gate = ApprovalGate::new(ApprovalMode::ReadOnly, false);
+        registry.set_approval_gate(gate);
+        registry.register(GrepTool).unwrap();
+        registry.register(GlobTool).unwrap();
+        registry.register(ReadTool).unwrap();
+
+        let grep_args = serde_json::json!({"pattern": "test"});
+        let result = registry.execute("grep", "call_1".to_string(), &grep_args);
+        assert!(!matches!(result, Err(thunderus_core::Error::Approval(_))));
+
+        let glob_args = serde_json::json!({"pattern": "*.rs"});
+        let result = registry.execute("glob", "call_2".to_string(), &glob_args);
+        assert!(!matches!(result, Err(thunderus_core::Error::Approval(_))));
+    }
+
+    #[test]
+    fn test_edit_tools_rejected_in_readonly_mode() {
+        let mut registry = ToolRegistry::new();
+        let gate = ApprovalGate::new(ApprovalMode::ReadOnly, false);
+        registry.set_approval_gate(gate);
+        registry.register(EditTool).unwrap();
+
+        let edit_args = serde_json::json!({
+            "file_path": "/tmp/test.txt",
+            "old_string": "old",
+            "new_string": "new"
+        });
+        let result = registry.execute("edit", "call_1".to_string(), &edit_args);
+        assert!(matches!(result, Err(thunderus_core::Error::Approval(_))));
+    }
+
+    #[test]
+    fn test_edit_tools_allowed_in_full_access_mode() {
+        let mut registry = ToolRegistry::new();
+        let gate = ApprovalGate::new(ApprovalMode::FullAccess, false);
+        registry.set_approval_gate(gate);
+        registry.register(EditTool).unwrap();
+
+        let edit_args = serde_json::json!({
+            "file_path": "/tmp/test.txt",
+            "old_string": "old",
+            "new_string": "new"
+        });
+        let result = registry.execute("edit", "call_1".to_string(), &edit_args);
+        assert!(!matches!(result, Err(thunderus_core::Error::Approval(_))));
+    }
+
+    #[test]
+    fn test_workspace_boundary_checking() {
+        let mut registry = ToolRegistry::new();
+        let gate = ApprovalGate::new(ApprovalMode::Auto, false);
+        registry.set_approval_gate(gate);
+        registry.set_workspace_roots(vec![PathBuf::from("/workspace")]);
+        registry.register(EditTool).unwrap();
+
+        let workspace_args = serde_json::json!({
+            "file_path": "/workspace/src/main.rs",
+            "old_string": "old",
+            "new_string": "new"
+        });
+        let result = registry.execute("edit", "call_1".to_string(), &workspace_args);
+        assert!(!matches!(result, Err(thunderus_core::Error::Approval(_))));
+
+        let external_args = serde_json::json!({
+            "file_path": "/etc/passwd",
+            "old_string": "old",
+            "new_string": "new"
+        });
+        let result = registry.execute("edit", "call_2".to_string(), &external_args);
+        assert!(matches!(result, Err(thunderus_core::Error::Approval(_))));
+        if let Err(thunderus_core::Error::Approval(msg)) = result {
+            assert!(msg.contains("outside workspace"));
+        }
+    }
+
+    #[test]
+    fn test_no_approval_gate_allows_all() {
+        let registry = ToolRegistry::new();
+        registry.register(EditTool).unwrap();
+
+        let edit_args = serde_json::json!({
+            "file_path": "/any/path/test.txt",
+            "old_string": "old",
+            "new_string": "new"
+        });
+        let result = registry.execute("edit", "call_1".to_string(), &edit_args);
+        assert!(!matches!(result, Err(thunderus_core::Error::Approval(_))));
+    }
+
+    #[test]
+    fn test_is_within_workspace() {
+        let registry = ToolRegistry::new();
+        assert!(registry.is_within_workspace(Path::new("/any/path")));
+
+        let mut registry = ToolRegistry::new();
+        registry.set_workspace_roots(vec![PathBuf::from("/workspace"), PathBuf::from("/data")]);
+        assert!(registry.is_within_workspace(Path::new("/workspace/src/main.rs")));
+        assert!(registry.is_within_workspace(Path::new("/data/file.txt")));
+        assert!(!registry.is_within_workspace(Path::new("/etc/passwd")));
+        assert!(!registry.is_within_workspace(Path::new("/tmp/file.txt")));
+    }
+
+    #[test]
+    fn test_registry_with_approval() {
+        let gate = ApprovalGate::new(ApprovalMode::Auto, false);
+        let roots = vec![PathBuf::from("/workspace")];
+        let registry = ToolRegistry::with_approval(gate, roots);
+
+        assert!(registry.approval_gate().is_some());
+        assert_eq!(registry.workspace_roots(), &[PathBuf::from("/workspace")]);
+    }
+
+    #[test]
+    fn test_setters_getters() {
+        let mut registry = ToolRegistry::new();
+
+        let gate = ApprovalGate::new(ApprovalMode::FullAccess, true);
+        registry.set_approval_gate(gate);
+        assert!(registry.approval_gate().is_some());
+        assert_eq!(registry.approval_gate().unwrap().mode(), ApprovalMode::FullAccess);
+        assert!(registry.approval_gate().unwrap().allow_network());
+
+        let roots = vec![PathBuf::from("/workspace"), PathBuf::from("/data")];
+        registry.set_workspace_roots(roots.clone());
+        assert_eq!(registry.workspace_roots(), &roots[..]);
+    }
+
+    #[test]
+    fn test_all_builtin_tools_registered() {
+        let registry = ToolRegistry::with_builtin_tools();
+        let tools = registry.list();
+
+        assert!(tools.contains(&"noop".to_string()));
+        assert!(tools.contains(&"echo".to_string()));
+        assert!(tools.contains(&"grep".to_string()));
+        assert!(tools.contains(&"glob".to_string()));
+        assert!(tools.contains(&"read".to_string()));
+        assert!(tools.contains(&"shell".to_string()));
+        assert!(tools.contains(&"edit".to_string()));
+        assert!(tools.contains(&"multiedit".to_string()));
+        assert_eq!(tools.len(), 8);
     }
 }

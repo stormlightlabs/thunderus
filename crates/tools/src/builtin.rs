@@ -377,6 +377,10 @@ impl Tool for GrepTool {
         ToolRisk::Safe
     }
 
+    fn is_read_only(&self) -> bool {
+        true
+    }
+
     fn classification(&self) -> Option<Classification> {
         Some(Classification::new(
             ToolRisk::Safe,
@@ -675,6 +679,10 @@ impl Tool for GlobTool {
         ToolRisk::Safe
     }
 
+    fn is_read_only(&self) -> bool {
+        true
+    }
+
     fn classification(&self) -> Option<Classification> {
         Some(Classification::new(
             ToolRisk::Safe,
@@ -910,6 +918,10 @@ impl Tool for ReadTool {
 
     fn risk_level(&self) -> ToolRisk {
         ToolRisk::Safe
+    }
+
+    fn is_read_only(&self) -> bool {
+        true
     }
 
     fn classification(&self) -> Option<Classification> {

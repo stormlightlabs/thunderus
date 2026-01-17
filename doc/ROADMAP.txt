@@ -116,8 +116,8 @@ Shell Tool Classification
 
 Safety & Approvals
 ------------------
-- [ ] Read-only tools bypass approval (Grep, Glob, Read)
-- [ ] Edit tools check approval mode:
+- [x] Read-only tools bypass approval (Grep, Glob, Read)
+- [x] Edit tools check approval mode:
       - read-only: reject all edits
       - auto: allow workspace edits, gate external paths
       - full-access: allow all (still logged)

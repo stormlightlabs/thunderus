@@ -16,6 +16,14 @@ pub trait Tool: Send + Sync + std::fmt::Debug {
     /// Returns the risk level of this tool (for approval gating)
     fn risk_level(&self) -> ToolRisk;
 
+    /// Returns true if this tool is read-only (never requires approval)
+    ///
+    /// Read-only tools like Grep, Glob, and Read bypass approval checks
+    /// entirely since they cannot modify files or system state.
+    fn is_read_only(&self) -> bool {
+        false
+    }
+
     /// Returns classification with reasoning for this tool
     ///
     /// This provides pedagogical value by explaining why a tool is classified
