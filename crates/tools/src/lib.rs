@@ -4,7 +4,9 @@ pub mod classification;
 pub mod dispatcher;
 pub mod read_history;
 pub mod registry;
+pub mod result_formatting;
 pub mod session_dispatcher;
+pub mod teaching_errors;
 pub mod tool;
 
 pub use backup::{BackupManager, BackupMetadata, BackupMode, command_requires_backup};
@@ -15,7 +17,13 @@ pub use classification::{CommandClassifier, Pattern};
 pub use dispatcher::ToolDispatcher;
 pub use read_history::{ReadHistory, validate_read_before_edit};
 pub use registry::ToolRegistry;
+pub use result_formatting::{
+    EditFormatter, FormattedResult, GlobFormatter, GrepFormatter, MultiEditFormatter, ReadFormatter,
+};
 pub use session_dispatcher::{SessionToolDispatcher, validate_read_before_edit as validate_session_read_before_edit};
+pub use teaching_errors::{
+    EditErrors, ErrorCategory, GlobErrors, GrepErrors, MultiEditErrors, ReadErrors, TeachingError,
+};
 pub use thunderus_core::ToolRisk;
 pub use tool::Tool;
 

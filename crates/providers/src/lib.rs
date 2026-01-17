@@ -1,7 +1,16 @@
 pub mod adapter;
+pub mod prompts;
+pub mod schemas;
 pub mod types;
 
 pub use adapter::{GeminiProvider, GlmProvider, Provider, ProviderFactory};
+pub use prompts::{
+    ProviderType, base_system_prompt, build_system_prompt_for_provider, provider_prompt_adaptation,
+    result_formatting_guidance, system_prompt, teaching_error_messages, tool_usage_guidance,
+};
+pub use schemas::{
+    GeminiFunctionDeclaration, GeminiToolSchema, GlmFunction, GlmToolSchema, gemini_tool_schemas, glm_tool_schemas,
+};
 pub use types::{
     CancelToken, ChatMessage, ChatRequest, ChatResponse, FunctionCall, Role, StreamEvent, ToolCall, ToolParameter,
     ToolResult, ToolSpec,

@@ -126,13 +126,13 @@ Safety & Approvals
 
 Provider Integration
 --------------------
-- [ ] Tool schema definitions for GLM-4.7 and Gemini
-- [ ] System prompt guidance:
+- [x] Tool schema definitions for GLM-4.7 and Gemini
+- [x] System prompt guidance:
       - "Use Grep for code search, not bash grep"
       - "Always Read before Edit"
       - "Prefer Edit over sed for safety"
-- [ ] Result formatting for model consumption
-- [ ] Error messages that teach (e.g., "Edit failed: old_string not unique")
+- [x] Result formatting for model consumption
+- [x] Error messages that teach (e.g., "Edit failed: old_string not unique")
 
 Full-Access Mode
 ----------------
