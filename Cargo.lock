@@ -2755,6 +2755,7 @@ dependencies = [
  "glob",
  "ignore",
  "regex-lite",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.17",

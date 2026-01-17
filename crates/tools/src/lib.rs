@@ -6,7 +6,9 @@ pub mod registry;
 pub mod session_dispatcher;
 pub mod tool;
 
-pub use builtin::{EchoTool, GlobTool, GrepTool, NoopTool, ReadTool, ShellTool};
+pub use builtin::{
+    EchoTool, EditTool, GlobTool, GrepTool, MultiEditOperation, MultiEditTool, NoopTool, ReadTool, ShellTool,
+};
 pub use classification::{CommandClassifier, Pattern};
 pub use dispatcher::ToolDispatcher;
 pub use read_history::{ReadHistory, validate_read_before_edit};

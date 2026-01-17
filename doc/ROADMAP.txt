@@ -80,19 +80,19 @@ Search Tools
 
 Read Tools
 ----------
-- [ ] Read tool:
+- [x] Read tool:
       - line-based file reading with numbers
       - offset + limit for large files (default: 2000 lines)
       - character truncation for long lines (2000 chars)
       - binary file detection (reject binary reads)
       - support common file types (code, text, markdown)
-- [ ] Integration with session state:
+- [x] Integration with session state:
       - track read history for edit validation
       - required before Edit operations
 
 Edit Tools
 ----------
-- [ ] Edit tool (safe find-replace):
+- [x] Edit tool (safe find-replace):
       - exact string replacement in files
       - old_string uniqueness validation (fail if ambiguous)
       - replace_all option for bulk replacement
@@ -100,7 +100,7 @@ Edit Tools
       - preserve exact indentation from Read output
       - atomic operation (all-or-nothing)
       - subject to approval mode gates
-- [ ] MultiEdit tool (atomic batch edits):
+- [x] MultiEdit tool (atomic batch edits):
       - multiple find-replace operations in single file
       - all edits succeed or none applied
       - validation for non-overlapping edits
