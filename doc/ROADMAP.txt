@@ -121,8 +121,8 @@ Safety & Approvals
       - read-only: reject all edits
       - auto: allow workspace edits, gate external paths
       - full-access: allow all (still logged)
-- [ ] Mandatory backups for risky operations
-- [ ] Pedagogical warnings on first unsafe tool use
+- [x] Mandatory backups for risky operations
+- [x] Pedagogical warnings on first unsafe tool use
 
 Provider Integration
 --------------------

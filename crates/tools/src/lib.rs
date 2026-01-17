@@ -1,3 +1,4 @@
+pub mod backup;
 pub mod builtin;
 pub mod classification;
 pub mod dispatcher;
@@ -6,6 +7,7 @@ pub mod registry;
 pub mod session_dispatcher;
 pub mod tool;
 
+pub use backup::{BackupManager, BackupMetadata, BackupMode, command_requires_backup};
 pub use builtin::{
     EchoTool, EditTool, GlobTool, GrepTool, MultiEditOperation, MultiEditTool, NoopTool, ReadTool, ShellTool,
 };
