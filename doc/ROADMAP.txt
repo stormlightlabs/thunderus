@@ -161,16 +161,21 @@ and pedagogical features.
 Design target:
 Codex's model: approval policies + sandbox modes + profiles[^2]
 
-- [ ] Approval mode enforcement:
+- [x] Approval mode enforcement:
       - wire `read-only`, `auto`, `full-access` modes into agent loop
       - `read-only`: consultative; no edits, no commands
       - `auto`: workspace edits + safe commands; gates risky ops (default)
       - `full-access`: still logged; explicit opt-in only[^3]
+      - runtime mode switching via `/approvals` command
 - [ ] Sandbox policy enforcement:
       - define "workspace roots" in config
+      - path allow/deny lists (sensitive dirs always denied: ~/.ssh, ~/.aws)
       - enforce tool access by path (block outside workspace)
       - default: no network commands unless approved[^2]
       - integration with tool dispatcher
+- [ ] Command classifier integration (extends Milestone V):
+      - safe/risky/blocked categorization for shell commands
+      - pedagogical suggestions (e.g., "Consider Edit tool instead of sed -i")
 - [ ] Enhance action cards with teaching context (builds on Milestone II cards):
       - "What": operation in plain language
       - "Why": context for this action in task flow
@@ -182,6 +187,10 @@ Codex's model: approval policies + sandbox modes + profiles[^2]
       - show brief explainer on first encounter
         (e.g., "network commands need approval")
       - never nag - one-time hints only
+      - persist teaching state in session metadata
+- [ ] TUI integration:
+      - mode indicator in status bar (Mode: AUTO | Net: OFF)
+      - approval dialog with action card display
 
 DoD:
 - The agent can run `cargo test`, but will stop and ask before doing anything

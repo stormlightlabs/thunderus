@@ -11,6 +11,9 @@ pub const SESSIONS_DIR: &str = "sessions";
 /// Filename for JSONL event logs within a session
 pub const EVENTS_FILE: &str = "events.jsonl";
 
+/// Filename for session metadata
+pub const METADATA_FILE: &str = "metadata.json";
+
 /// Subdirectory for patches within a session
 pub const PATCHES_DIR: &str = "patches";
 
@@ -196,6 +199,11 @@ impl AgentDir {
     /// Get path to events file for a session (`.agent/sessions/<timestamp>/events.jsonl`)
     pub fn events_file(&self, session_id: &SessionId) -> PathBuf {
         self.session_dir(session_id).join(EVENTS_FILE)
+    }
+
+    /// Get path to metadata file for a session (`.agent/sessions/<timestamp>/metadata.json`)
+    pub fn metadata_file(&self, session_id: &SessionId) -> PathBuf {
+        self.session_dir(session_id).join(METADATA_FILE)
     }
 
     /// Get path to patches directory for a session (`.agent/sessions/<timestamp>/patches/`)

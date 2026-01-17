@@ -1,5 +1,5 @@
 use futures::StreamExt;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use tokio::sync::mpsc;
 
 use thunderus_core::*;
@@ -65,6 +65,8 @@ pub enum AgentEvent {
     ApprovalRequest(ApprovalRequest),
     /// Approval response from user
     ApprovalResponse(ApprovalResponse),
+    /// Approval mode changed
+    ApprovalModeChanged { from: ApprovalMode, to: ApprovalMode },
     /// Error occurred
     Error(String),
     /// Generation complete
@@ -78,6 +80,8 @@ pub struct Agent {
     provider: Arc<dyn Provider>,
     /// Approval protocol for gating actions
     approval_protocol: Arc<dyn ApprovalProtocol>,
+    /// Approval gate for mode-based enforcement
+    approval_gate: Arc<RwLock<ApprovalGate>>,
     /// Session ID for logging
     session_id: SessionId,
     /// Conversation messages (for context)
@@ -87,9 +91,34 @@ pub struct Agent {
 impl Agent {
     /// Create a new agent
     pub fn new(
-        provider: Arc<dyn Provider>, approval_protocol: Arc<dyn ApprovalProtocol>, session_id: SessionId,
+        provider: Arc<dyn Provider>, approval_protocol: Arc<dyn ApprovalProtocol>, approval_gate: ApprovalGate,
+        session_id: SessionId,
     ) -> Self {
-        Self { provider, approval_protocol, session_id, messages: Vec::new() }
+        Self {
+            provider,
+            approval_protocol,
+            approval_gate: Arc::new(RwLock::new(approval_gate)),
+            session_id,
+            messages: Vec::new(),
+        }
+    }
+
+    /// Get the current approval mode
+    pub fn approval_mode(&self) -> ApprovalMode {
+        self.approval_gate.read().unwrap().mode()
+    }
+
+    /// Set the approval mode
+    pub fn set_approval_mode(&self, new_mode: ApprovalMode) -> Result<ApprovalMode> {
+        let mut gate = self.approval_gate.write().unwrap();
+        let old_mode = gate.mode();
+        gate.set_mode(new_mode);
+        Ok(old_mode)
+    }
+
+    /// Get a reference to the approval gate
+    pub fn approval_gate(&self) -> Arc<RwLock<ApprovalGate>> {
+        Arc::clone(&self.approval_gate)
     }
 
     /// Process a user message and stream response
@@ -348,10 +377,54 @@ mod tests {
         let provider =
             Arc::new(GlmProvider::new("test-key".to_string(), "glm-4.7".to_string(), None)) as Arc<dyn Provider>;
         let approval = Arc::new(InMemoryApprovalProtocol::new(true)) as Arc<dyn ApprovalProtocol>;
+        let gate = ApprovalGate::new(ApprovalMode::Auto, false);
         let session_id = SessionId::new();
 
-        let agent = Agent::new(provider, approval, session_id);
+        let agent = Agent::new(provider, approval, gate, session_id);
         assert_eq!(agent.messages().len(), 0);
+    }
+
+    #[test]
+    fn test_agent_approval_mode() {
+        let provider =
+            Arc::new(GlmProvider::new("test-key".to_string(), "glm-4.7".to_string(), None)) as Arc<dyn Provider>;
+        let approval = Arc::new(InMemoryApprovalProtocol::new(true)) as Arc<dyn ApprovalProtocol>;
+        let gate = ApprovalGate::new(ApprovalMode::Auto, false);
+        let session_id = SessionId::new();
+
+        let agent = Agent::new(provider, approval, gate, session_id);
+        assert_eq!(agent.approval_mode(), ApprovalMode::Auto);
+    }
+
+    #[test]
+    fn test_agent_set_approval_mode() {
+        let provider =
+            Arc::new(GlmProvider::new("test-key".to_string(), "glm-4.7".to_string(), None)) as Arc<dyn Provider>;
+        let approval = Arc::new(InMemoryApprovalProtocol::new(true)) as Arc<dyn ApprovalProtocol>;
+        let gate = ApprovalGate::new(ApprovalMode::Auto, false);
+        let session_id = SessionId::new();
+
+        let agent = Agent::new(provider, approval, gate, session_id);
+
+        let old_mode = agent.set_approval_mode(ApprovalMode::ReadOnly).unwrap();
+        assert_eq!(old_mode, ApprovalMode::Auto);
+        assert_eq!(agent.approval_mode(), ApprovalMode::ReadOnly);
+    }
+
+    #[test]
+    fn test_agent_approval_gate_access() {
+        let provider =
+            Arc::new(GlmProvider::new("test-key".to_string(), "glm-4.7".to_string(), None)) as Arc<dyn Provider>;
+        let approval = Arc::new(InMemoryApprovalProtocol::new(true)) as Arc<dyn ApprovalProtocol>;
+        let gate = ApprovalGate::new(ApprovalMode::FullAccess, true);
+        let session_id = SessionId::new();
+
+        let agent = Agent::new(provider, approval, gate, session_id);
+
+        let agent_gate = agent.approval_gate();
+        let gate_read = agent_gate.read().unwrap();
+        assert_eq!(gate_read.mode(), ApprovalMode::FullAccess);
+        assert!(gate_read.allow_network());
     }
 
     #[test]
@@ -359,9 +432,10 @@ mod tests {
         let provider =
             Arc::new(GlmProvider::new("test-key".to_string(), "glm-4.7".to_string(), None)) as Arc<dyn Provider>;
         let approval = Arc::new(InMemoryApprovalProtocol::new(true)) as Arc<dyn ApprovalProtocol>;
+        let gate = ApprovalGate::new(ApprovalMode::Auto, false);
         let session_id = SessionId::new();
 
-        let mut agent = Agent::new(provider, approval, session_id);
+        let mut agent = Agent::new(provider, approval, gate, session_id);
 
         let result = ToolResult::success("call_1", "OK");
         agent.append_tool_result("test_tool".to_string(), "call_1".to_string(), result);
@@ -475,9 +549,10 @@ mod tests {
         let provider =
             Arc::new(GlmProvider::new("test-key".to_string(), "glm-4.7".to_string(), None)) as Arc<dyn Provider>;
         let approval = Arc::new(InMemoryApprovalProtocol::new(true)) as Arc<dyn ApprovalProtocol>;
+        let gate = ApprovalGate::new(ApprovalMode::Auto, false);
         let session_id = SessionId::new();
 
-        let mut agent = Agent::new(provider, approval, session_id);
+        let mut agent = Agent::new(provider, approval, gate, session_id);
 
         let cancel = CancelToken::new();
         cancel.cancel();

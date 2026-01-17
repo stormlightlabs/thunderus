@@ -1,3 +1,4 @@
+use crate::config::ApprovalMode;
 use crate::error::{Error, Result, SessionError};
 use crate::layout::{AgentDir, SessionId};
 
@@ -94,6 +95,13 @@ pub enum Event {
         /// Whether the read was successful
         success: bool,
     },
+    /// Approval mode change
+    ApprovalModeChange {
+        /// Previous approval mode
+        from: ApprovalMode,
+        /// New approval mode
+        to: ApprovalMode,
+    },
 }
 
 /// Token usage information for model responses
@@ -127,6 +135,67 @@ pub enum PatchStatus {
     Rejected,
     /// Patch application failed
     Failed,
+}
+
+/// Session metadata persisted to metadata.json
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SessionMetadata {
+    /// Approval mode for this session
+    pub approval_mode: ApprovalMode,
+    /// Whether network access is allowed
+    pub allow_network: bool,
+    /// Session title (optional)
+    pub title: Option<String>,
+    /// Session tags
+    pub tags: Vec<String>,
+    /// When the session was created
+    pub created_at: String,
+    /// When the session was last updated
+    pub updated_at: String,
+}
+
+impl SessionMetadata {
+    /// Create new session metadata with default values
+    pub fn new(approval_mode: ApprovalMode) -> Self {
+        let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+
+        Self {
+            approval_mode,
+            allow_network: false,
+            title: None,
+            tags: Vec::new(),
+            created_at: now.clone(),
+            updated_at: now,
+        }
+    }
+
+    /// Update the approval mode
+    pub fn with_approval_mode(mut self, mode: ApprovalMode) -> Self {
+        self.approval_mode = mode;
+        self.updated_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        self
+    }
+
+    /// Update the network permission
+    pub fn with_allow_network(mut self, allow: bool) -> Self {
+        self.allow_network = allow;
+        self.updated_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        self
+    }
+
+    /// Set the session title
+    pub fn with_title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
+        self.updated_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        self
+    }
+
+    /// Add a tag to the session
+    pub fn with_tag(mut self, tag: impl Into<String>) -> Self {
+        self.tags.push(tag.into());
+        self.updated_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        self
+    }
 }
 
 /// A logged event with its sequence number and timestamp
@@ -421,6 +490,83 @@ impl Session {
             .collect();
 
         Ok(files)
+    }
+
+    /// Get the path to the metadata file for this session
+    pub fn metadata_file(&self) -> PathBuf {
+        self.agent_dir.metadata_file(&self.id)
+    }
+
+    /// Load session metadata from disk
+    ///
+    /// Returns default metadata if the file doesn't exist
+    pub fn load_metadata(&self) -> Result<SessionMetadata> {
+        let metadata_file = self.metadata_file();
+
+        if !metadata_file.exists() {
+            return Ok(SessionMetadata::new(ApprovalMode::Auto));
+        }
+
+        let file = File::open(&metadata_file)?;
+        let metadata: SessionMetadata = serde_json::from_reader(file)
+            .map_err(|e| Error::Parse(format!("Failed to parse session metadata: {}", e)))?;
+
+        Ok(metadata)
+    }
+
+    /// Save session metadata to disk
+    pub fn save_metadata(&self, metadata: &SessionMetadata) -> Result<()> {
+        let metadata_file = self.metadata_file();
+
+        let json = serde_json::to_string_pretty(metadata)
+            .map_err(|e| Error::Parse(format!("Failed to serialize session metadata: {}", e)))?;
+
+        std::fs::write(&metadata_file, json)
+            .map_err(|e| Error::Other(format!("Failed to write session metadata: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Append an approval mode change event
+    pub fn append_approval_mode_change(&mut self, from: ApprovalMode, to: ApprovalMode) -> Result<Seq> {
+        self.append_event(Event::ApprovalModeChange { from, to })
+    }
+
+    /// Get the current approval mode from metadata
+    ///
+    /// This loads the metadata from disk and returns the approval mode
+    pub fn get_approval_mode(&self) -> Result<ApprovalMode> {
+        Ok(self.load_metadata()?.approval_mode)
+    }
+
+    /// Set the approval mode and persist it to metadata
+    ///
+    /// This updates the metadata file and logs a mode change event
+    pub fn set_approval_mode(&mut self, new_mode: ApprovalMode) -> Result<()> {
+        let current_mode = self.get_approval_mode()?;
+
+        if current_mode != new_mode {
+            self.append_approval_mode_change(current_mode, new_mode)?;
+
+            let mut metadata = self.load_metadata()?;
+            metadata = metadata.with_approval_mode(new_mode);
+            self.save_metadata(&metadata)?;
+        }
+
+        Ok(())
+    }
+
+    /// Get the network permission from metadata
+    pub fn get_allow_network(&self) -> Result<bool> {
+        Ok(self.load_metadata()?.allow_network)
+    }
+
+    /// Set the network permission and persist it to metadata
+    pub fn set_allow_network(&mut self, allow: bool) -> Result<()> {
+        let mut metadata = self.load_metadata()?;
+        metadata = metadata.with_allow_network(allow);
+        self.save_metadata(&metadata)?;
+        Ok(())
     }
 }
 
@@ -1085,5 +1231,147 @@ mod tests {
 
         let deserialized: Event = serde_json::from_str(&json).unwrap();
         assert_eq!(event, deserialized);
+    }
+
+    #[test]
+    fn test_session_metadata_new() {
+        let metadata = SessionMetadata::new(ApprovalMode::Auto);
+        assert_eq!(metadata.approval_mode, ApprovalMode::Auto);
+        assert!(!metadata.allow_network);
+        assert!(metadata.title.is_none());
+        assert!(metadata.tags.is_empty());
+        assert!(!metadata.created_at.is_empty());
+        assert!(!metadata.updated_at.is_empty());
+    }
+
+    #[test]
+    fn test_session_metadata_with_approval_mode() {
+        let metadata = SessionMetadata::new(ApprovalMode::ReadOnly);
+        let updated = metadata.with_approval_mode(ApprovalMode::FullAccess);
+        assert_eq!(updated.approval_mode, ApprovalMode::FullAccess);
+        assert!(!updated.updated_at.is_empty());
+    }
+
+    #[test]
+    fn test_session_metadata_with_allow_network() {
+        let metadata = SessionMetadata::new(ApprovalMode::Auto);
+        let updated = metadata.with_allow_network(true);
+        assert!(updated.allow_network);
+    }
+
+    #[test]
+    fn test_session_metadata_serialization() {
+        let metadata = SessionMetadata::new(ApprovalMode::Auto).with_title("Test Session");
+        let json = serde_json::to_string(&metadata).unwrap();
+        assert!(json.contains("\"auto\""));
+        assert!(json.contains("Test Session"));
+
+        let deserialized: SessionMetadata = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.approval_mode, ApprovalMode::Auto);
+        assert_eq!(deserialized.title, Some("Test Session".to_string()));
+    }
+
+    #[test]
+    fn test_approval_mode_change_event() {
+        let (temp, mut session) = create_test_session();
+
+        let seq = session
+            .append_approval_mode_change(ApprovalMode::Auto, ApprovalMode::ReadOnly)
+            .unwrap();
+        assert_eq!(seq, 0);
+
+        let events = session.read_events().unwrap();
+        assert_eq!(events.len(), 1);
+
+        if let Event::ApprovalModeChange { from, to } = &events[0].event {
+            assert_eq!(from, &ApprovalMode::Auto);
+            assert_eq!(to, &ApprovalMode::ReadOnly);
+        } else {
+            panic!("Expected ApprovalModeChange event");
+        }
+        drop(temp);
+    }
+
+    #[test]
+    fn test_get_approval_mode_default() {
+        let (temp, session) = create_test_session();
+        let mode = session.get_approval_mode().unwrap();
+        assert_eq!(mode, ApprovalMode::Auto);
+        drop(temp);
+    }
+
+    #[test]
+    fn test_set_approval_mode() {
+        let (temp, mut session) = create_test_session();
+
+        session.set_approval_mode(ApprovalMode::ReadOnly).unwrap();
+
+        let mode = session.get_approval_mode().unwrap();
+        assert_eq!(mode, ApprovalMode::ReadOnly);
+
+        let events = session.read_events().unwrap();
+        assert_eq!(events.len(), 1);
+
+        if let Event::ApprovalModeChange { from, to } = &events[0].event {
+            assert_eq!(from, &ApprovalMode::Auto);
+            assert_eq!(to, &ApprovalMode::ReadOnly);
+        } else {
+            panic!("Expected ApprovalModeChange event");
+        }
+        drop(temp);
+    }
+
+    #[test]
+    fn test_set_same_approval_mode_no_event() {
+        let (temp, mut session) = create_test_session();
+        session.set_approval_mode(ApprovalMode::Auto).unwrap();
+
+        let events = session.read_events().unwrap();
+        assert!(events.is_empty());
+        drop(temp);
+    }
+
+    #[test]
+    fn test_get_allow_network_default() {
+        let (temp, session) = create_test_session();
+
+        let allow = session.get_allow_network().unwrap();
+        assert!(!allow);
+        drop(temp);
+    }
+
+    #[test]
+    fn test_set_allow_network() {
+        let (temp, mut session) = create_test_session();
+
+        session.set_allow_network(true).unwrap();
+
+        let allow = session.get_allow_network().unwrap();
+        assert!(allow);
+        drop(temp);
+    }
+
+    #[test]
+    fn test_metadata_persistence() {
+        let temp = TempDir::new().unwrap();
+        let agent_dir = AgentDir::new(temp.path());
+
+        let mut session = Session::new(agent_dir.clone()).unwrap();
+        session.set_approval_mode(ApprovalMode::FullAccess).unwrap();
+        session.set_allow_network(true).unwrap();
+
+        let loaded_session = Session::load(agent_dir, session.id.clone()).unwrap();
+        assert_eq!(loaded_session.get_approval_mode().unwrap(), ApprovalMode::FullAccess);
+        assert!(loaded_session.get_allow_network().unwrap());
+        drop(temp);
+    }
+
+    #[test]
+    fn test_metadata_file_path() {
+        let (temp, session) = create_test_session();
+        let metadata_path = session.metadata_file();
+
+        assert!(metadata_path.ends_with("metadata.json"));
+        drop(temp);
     }
 }

@@ -12,7 +12,9 @@ use std::io::{self, Result, Write};
 use std::{env, fs, panic};
 use std::{process::Command, sync::Arc, time::Duration};
 use thunderus_agent::{Agent, AgentEvent};
-use thunderus_core::{ActionType, ApprovalDecision, ApprovalMode, ApprovalProtocol, Session, SessionId, ToolRisk};
+use thunderus_core::{
+    ActionType, ApprovalDecision, ApprovalGate, ApprovalMode, ApprovalProtocol, Session, SessionId, ToolRisk,
+};
 use thunderus_providers::{CancelToken, Provider};
 use thunderus_tools::ToolRegistry;
 use tokio::sync::mpsc;
@@ -251,6 +253,13 @@ impl App {
                         self.transcript_mut()
                             .add_system_message(format!("File read failed: {}", file_path));
                     }
+                }
+                thunderus_core::Event::ApprovalModeChange { from, to } => {
+                    self.transcript_mut().add_system_message(format!(
+                        "Approval mode changed: {} → {}",
+                        from.as_str(),
+                        to.as_str()
+                    ));
                 }
             }
         }
@@ -590,6 +599,13 @@ impl App {
                     self.persist_model_message(&content);
                 }
             }
+            AgentEvent::ApprovalModeChanged { from, to } => {
+                self.transcript_mut().add_system_message(format!(
+                    "Approval mode changed: {} → {}",
+                    from.as_str(),
+                    to.as_str()
+                ));
+            }
         }
     }
 
@@ -666,13 +682,12 @@ impl App {
         let session_id = SessionId::new();
         let cancel_token = self.cancel_token.clone();
         let provider_clone = Arc::clone(provider);
+        let approval_gate = ApprovalGate::new(ApprovalMode::Auto, false);
 
-        let mut agent = Agent::new(provider_clone, approval_protocol, session_id);
-
+        let mut agent = Agent::new(provider_clone, approval_protocol, approval_gate, session_id);
         self.state_mut().start_generation();
 
         let (tx, rx) = mpsc::unbounded_channel();
-
         self.agent_event_rx = Some(rx);
 
         tokio::spawn(async move {
