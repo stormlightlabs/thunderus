@@ -8,6 +8,7 @@ use thunderus_core::{Classification, Result, ToolRisk};
 use thunderus_providers::{ToolParameter, ToolResult};
 
 use super::Tool;
+use super::classification::CommandClassifier;
 
 /// A tool that does nothing and returns success
 /// Useful for testing and tool call workflows
@@ -73,6 +74,12 @@ impl Tool for ShellTool {
             ToolRisk::Risky,
             "Shell commands can modify the system, access files, and make network requests. All shell commands require approval.",
         ))
+    }
+
+    fn classify_execution(&self, arguments: &Value) -> Option<Classification> {
+        let command = arguments.get("command").and_then(|v| v.as_str())?;
+        let classifier = CommandClassifier::new();
+        Some(classifier.classify_with_reasoning(command))
     }
 
     fn execute(&self, tool_call_id: String, arguments: &Value) -> Result<ToolResult> {
@@ -1522,6 +1529,46 @@ mod tests {
         assert_eq!(tool_call.id, "test_id");
         assert_eq!(tool_call.name(), "shell");
         assert_eq!(*tool_call.arguments(), serde_json::json!({"command": "ls -la"}));
+    }
+
+    #[test]
+    fn test_shell_dynamic_classification_safe() {
+        let tool = ShellTool;
+
+        let grep_args = serde_json::json!({"command": "grep pattern file.txt"});
+        let grep_classification = tool.classify_execution(&grep_args);
+        assert!(grep_classification.is_some());
+        assert_eq!(grep_classification.unwrap().risk, ToolRisk::Safe);
+
+        let sed_args = serde_json::json!({"command": "sed 's/old/new/g' file.txt"});
+        let sed_classification = tool.classify_execution(&sed_args);
+        assert!(sed_classification.is_some());
+        assert_eq!(sed_classification.unwrap().risk, ToolRisk::Safe);
+    }
+
+    #[test]
+    fn test_shell_dynamic_classification_risky() {
+        let tool = ShellTool;
+
+        let sed_args = serde_json::json!({"command": "sed -i 's/old/new/g' file.txt"});
+        let sed_classification = tool.classify_execution(&sed_args);
+        assert!(sed_classification.is_some());
+        assert_eq!(sed_classification.unwrap().risk, ToolRisk::Risky);
+
+        let awk_args = serde_json::json!({"command": "awk '{print $1}' file.txt > output.txt"});
+        let awk_classification = tool.classify_execution(&awk_args);
+        assert!(awk_classification.is_some());
+        assert_eq!(awk_classification.unwrap().risk, ToolRisk::Risky);
+    }
+
+    #[test]
+    fn test_shell_dynamic_classification_with_suggestions() {
+        let tool = ShellTool;
+        let sed_args = serde_json::json!({"command": "sed -i 's/old/new/g' file.txt"});
+        let sed_classification = tool.classify_execution(&sed_args).unwrap();
+        assert_eq!(sed_classification.risk, ToolRisk::Risky);
+        assert!(sed_classification.suggestion.is_some());
+        assert!(sed_classification.suggestion.as_ref().unwrap().contains("Edit tool"));
     }
 
     #[test]

@@ -92,13 +92,18 @@ impl ToolRegistry {
     /// This is a convenience method that combines getting a tool and executing it.
     /// Classification reasoning from the tool is included in the result for
     /// pedagogical value (teaching users the safety model).
+    ///
+    /// Uses dynamic classification based on the specific execution arguments
+    /// (e.g., ShellTool classifies specific commands).
     pub fn execute(&self, tool_name: &str, tool_call_id: String, arguments: &serde_json::Value) -> Result<ToolResult> {
         let tools = self.tools.read().unwrap();
 
         match tools.get(tool_name) {
             Some(tool) => {
+                let classification = tool.classify_execution(arguments);
+
                 let mut result = tool.execute(tool_call_id.clone(), arguments)?;
-                if let Some(classification) = tool.classification() {
+                if let Some(classification) = classification {
                     result = result.with_classification(classification);
                 }
                 Ok(result)

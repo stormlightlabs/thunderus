@@ -24,6 +24,17 @@ pub trait Tool: Send + Sync + std::fmt::Debug {
         None
     }
 
+    /// Returns dynamic classification based on execution arguments
+    ///
+    /// This allows tools to provide context-sensitive classification based on
+    /// the actual operation being performed (e.g., ShellTool can classify
+    /// specific commands as safe or risky).
+    ///
+    /// Default implementation falls back to static classification.
+    fn classify_execution(&self, _: &Value) -> Option<Classification> {
+        self.classification()
+    }
+
     /// Executes the tool with the given arguments
     ///
     /// Returns a [ToolResult] containing the tool call ID and output or error

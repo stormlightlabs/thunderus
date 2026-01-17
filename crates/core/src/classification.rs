@@ -41,11 +41,18 @@ impl ToolRisk {
 pub struct Classification {
     pub risk: ToolRisk,
     pub reasoning: String,
+    /// Suggested safer alternative (if applicable)
+    pub suggestion: Option<String>,
 }
 
 impl Classification {
     pub fn new(risk: ToolRisk, reasoning: impl Into<String>) -> Self {
-        Self { risk, reasoning: reasoning.into() }
+        Self { risk, reasoning: reasoning.into(), suggestion: None }
+    }
+
+    pub fn with_suggestion(mut self, suggestion: impl Into<String>) -> Self {
+        self.suggestion = Some(suggestion.into());
+        self
     }
 
     pub fn is_safe(&self) -> bool {
@@ -103,5 +110,33 @@ mod tests {
         let deserialized: Classification = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.risk, ToolRisk::Safe);
         assert_eq!(deserialized.reasoning, "Test reasoning");
+        assert!(deserialized.suggestion.is_none());
+    }
+
+    #[test]
+    fn test_classification_with_suggestion() {
+        let classification = Classification::new(ToolRisk::Risky, "Using sed -i is risky".to_string())
+            .with_suggestion("Use the Edit tool instead for safer find-replace operations");
+
+        assert_eq!(classification.risk, ToolRisk::Risky);
+        assert!(classification.reasoning.contains("sed -i"));
+        assert!(classification.suggestion.is_some());
+        assert!(classification.suggestion.as_ref().unwrap().contains("Edit tool"));
+    }
+
+    #[test]
+    fn test_classification_serialization_with_suggestion() {
+        let classification =
+            Classification::new(ToolRisk::Risky, "Test reasoning".to_string()).with_suggestion("Use safer alternative");
+
+        let json = serde_json::to_string(&classification).unwrap();
+        assert!(json.contains("Risky"));
+        assert!(json.contains("Test reasoning"));
+        assert!(json.contains("safer alternative"));
+
+        let deserialized: Classification = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.risk, ToolRisk::Risky);
+        assert_eq!(deserialized.reasoning, "Test reasoning");
+        assert_eq!(deserialized.suggestion, Some("Use safer alternative".to_string()));
     }
 }

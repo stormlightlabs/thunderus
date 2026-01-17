@@ -108,7 +108,7 @@ Edit Tools
 
 Shell Tool Classification
 -------------------------
-- [ ] Enhance command classifier for text tools:
+- [x] Enhance command classifier for text tools:
       - recognize grep/rg/sed/awk patterns
       - classify risk level (grep=safe, sed -i=risky)
       - suggest safer alternatives (sed → Edit tool)
