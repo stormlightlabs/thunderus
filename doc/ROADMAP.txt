@@ -73,6 +73,10 @@ Codex explicitly treats diffs and `git apply` failure modes as first-class
 - [x] Patch queue:
       - states: `PROPOSED → APPROVED → APPLIED` or `REJECTED`
       - patch objects store base snapshot id + target files + hunks
+- [x] Diffing algorithm upgrade:
+      - replace naive line-by-line diff with `imara-diff` crate
+      - use Histogram algorithm for semantic code diffs
+      - improves readability for moved/refactored code blocks
 - [ ] Unified diff generation contract for models:
       - patch-first is default; raw write is an escape hatch (heavily gated)
 - [x] Apply engine:
@@ -84,7 +88,7 @@ Codex explicitly treats diffs and `git apply` failure modes as first-class
 - [x] Git metadata linkage:
       - attach session pointers via git notes
       - show "this commit came from session X" in TUI
-- [ ] TUI enhancements (moved from Section III):
+- [ ] TUI enhancements:
       - Diff Queue pane with hunk navigation
       - next/prev hunk keybinds
       - approve/reject individual hunks
@@ -118,17 +122,14 @@ High Priority UI Gaps
       - Detect "first session" state and render centered welcome message
       - Max 60-80 cols centered region with prompt
       - Expand to full layout after first user message sent
-      - Matches DESIGN.txt III:102-127 specification
 - [ ] Token usage display:
       - Add "Token Usage" section to sidebar showing "X.Xk / YYYk" format
       - Calculate from session stats (input_tokens, output_tokens)
       - Update in real-time as agent streams responses
-      - Matches DESIGN.txt III:134 specification
 - [ ] Compact view tool cards:
       - Single-line summaries for terminals < 80 cols
       - Format: "[Tool: name] path | risk | [y/n/c]"
       - Preserve multiline for detailed/verbose levels
-      - Matches DESIGN.txt III:194-196 specification
 
 Medium Priority UI Gaps
 -----------------------

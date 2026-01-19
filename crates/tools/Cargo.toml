@@ -11,6 +11,7 @@ ignore = "0.4"
 regex-lite = "0.1"
 serde = { version = "1.0.228", features = ["derive"] }
 chrono = "0.4"
+imara-diff = { version = "0.2", features = ["unified_diff"] }
 
 thunderus-core = { path = "../core" }
 thunderus-providers = { path = "../providers" }
