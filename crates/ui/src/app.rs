@@ -360,7 +360,7 @@ impl App {
             match action {
                 KeyAction::SendMessage { message } => {
                     self.state_mut().input.add_to_history(message.clone());
-                    self.state_mut().last_message = Some(message.clone());
+                    self.state_mut().session.last_message = Some(message.clone());
                     self.transcript_mut().add_user_message(&message);
                     self.persist_user_message(&message);
 
@@ -381,6 +381,9 @@ impl App {
                     self.transcript_mut()
                         .add_cancellation_error("Generation cancelled by user");
                 }
+                KeyAction::Exit => {
+                    self.should_exit = true;
+                }
                 KeyAction::RetryLastFailedAction => {
                     let has_retryable_error = self.transcript().entries().iter().any(|entry| {
                         matches!(
@@ -389,14 +392,14 @@ impl App {
                         )
                     });
 
-                    if let Some(last_message) = self.state_mut().last_message.clone() {
+                    if let Some(last_message) = self.state_mut().last_message().cloned() {
                         if has_retryable_error {
                             self.transcript_mut().add_system_message("Retrying last message...");
                             self.state_mut().input.add_to_history(last_message.clone());
-                            self.transcript_mut().add_user_message(&last_message);
+                            self.transcript_mut().add_user_message(last_message.clone());
 
                             if let Some(provider) = self.provider.clone() {
-                                self.spawn_agent_for_message(last_message, &provider);
+                                self.spawn_agent_for_message(last_message.clone(), &provider);
                             }
                         } else {
                             self.transcript_mut().add_system_message(
@@ -490,14 +493,14 @@ impl App {
                 }
                 KeyAction::ScrollToTop => {
                     self.transcript_mut().scroll_up(usize::MAX);
-                    self.state_mut().scroll_vertical = 0;
+                    self.state_mut().ui.scroll_vertical = 0;
                 }
                 KeyAction::ScrollToBottom => {
                     self.transcript_mut().scroll_to_bottom();
-                    self.state_mut().scroll_vertical = 0;
+                    self.state_mut().ui.scroll_vertical = 0;
                 }
-                KeyAction::CollapseSidebarSection => self.state_mut().sidebar_collapse_state.collapse_prev(),
-                KeyAction::ExpandSidebarSection => self.state_mut().sidebar_collapse_state.expand_next(),
+                KeyAction::CollapseSidebarSection => self.state_mut().ui.sidebar_collapse_state.collapse_prev(),
+                KeyAction::ExpandSidebarSection => self.state_mut().ui.sidebar_collapse_state.expand_next(),
                 KeyAction::FocusSlashCommand => {
                     self.state_mut().input.buffer = "/".to_string();
                     self.state_mut().input.cursor = 1;
@@ -585,7 +588,7 @@ impl App {
             AgentEvent::ApprovalRequest(request) => {
                 eprintln!("Unexpected approval request via agent event: {:?}", request.id)
             }
-            AgentEvent::ApprovalResponse(_response) => self.state_mut().pending_approval = None,
+            AgentEvent::ApprovalResponse(_response) => self.state_mut().approval_ui.pending_approval = None,
             AgentEvent::Error(msg) => {
                 let error_type = match msg.as_str() {
                     m if m.contains("cancelled") => ErrorType::Cancelled,
@@ -658,7 +661,7 @@ impl App {
 
         self.transcript_mut()
             .add_approval_prompt(format!("{}:{}", action_type_str, request.description), risk_str);
-        self.state_mut().pending_approval =
+        self.state_mut().approval_ui.pending_approval =
             Some(ApprovalState::pending(request.description.clone(), risk_str.to_string()).with_request_id(request.id));
     }
 
@@ -669,7 +672,7 @@ impl App {
     fn send_approval_response(&mut self, decision: ApprovalDecision) {
         self.transcript_mut().set_approval_decision(decision);
 
-        if let Some(approval_state) = self.state_mut().pending_approval.take() {
+        if let Some(approval_state) = self.state_mut().approval_ui.pending_approval.take() {
             let approved = matches!(decision, ApprovalDecision::Approved);
 
             self.persist_approval(&approval_state.action, approved);
@@ -736,12 +739,12 @@ impl App {
     pub fn draw(&self, terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<()> {
         terminal.draw(|frame| {
             let size = frame.area();
-            let layout = TuiLayout::calculate(size, self.state.sidebar_visible);
+            let layout = TuiLayout::calculate(size, self.state.ui.sidebar_visible);
             let header = Header::new(&self.state);
             header.render(frame, layout.header);
 
             let transcript_component =
-                TranscriptComponent::with_vertical_scroll(&self.transcript, self.state.scroll_vertical);
+                TranscriptComponent::with_vertical_scroll(&self.transcript, self.state.ui.scroll_vertical);
             transcript_component.render(frame, layout.transcript);
 
             if let Some(sidebar_area) = layout.sidebar {
@@ -757,7 +760,7 @@ impl App {
                 fuzzy_finder.render(frame);
             }
 
-            if let Some(ref hint) = self.state.pending_hint {
+            if let Some(ref hint) = self.state.approval_ui.pending_hint {
                 let hint_popup = TeachingHintPopup::new(hint);
                 hint_popup.render(frame, size);
             }
@@ -780,11 +783,14 @@ impl App {
                     self.transcript_mut()
                         .add_system_message(format!("Shell command output:\n```\n{}\n```", result.content));
 
-                    self.state_mut().session_events.push(crate::state::SessionEvent {
-                        event_type: "shell_command".to_string(),
-                        message: format!("Executed: {}", command),
-                        timestamp: chrono::Utc::now().to_rfc3339(),
-                    });
+                    self.state_mut()
+                        .session
+                        .session_events
+                        .push(crate::state::SessionEvent {
+                            event_type: "shell_command".to_string(),
+                            message: format!("Executed: {}", command),
+                            timestamp: chrono::Utc::now().to_rfc3339(),
+                        });
                 }
                 false => self
                     .transcript_mut()
@@ -873,27 +879,27 @@ impl App {
     fn handle_approvals_command(&mut self, mode: String) {
         match mode.as_str() {
             "list" => {
-                let current_mode = self.state.approval_mode;
+                let current_mode = self.state.config.approval_mode;
                 self.transcript_mut().add_system_message(format!(
                     "Available approval modes:\n  Current: {}\n  Available: read-only, auto, full-access",
                     current_mode
                 ))
             }
             "read-only" => {
-                let old_mode = self.state.approval_mode;
-                self.state.approval_mode = ApprovalMode::ReadOnly;
+                let old_mode = self.state.config.approval_mode;
+                self.state.config.approval_mode = ApprovalMode::ReadOnly;
                 self.transcript_mut()
                     .add_system_message(format!("Approval mode changed: {} → read-only", old_mode));
             }
             "auto" => {
-                let old_mode = self.state.approval_mode;
-                self.state.approval_mode = ApprovalMode::Auto;
+                let old_mode = self.state.config.approval_mode;
+                self.state.config.approval_mode = ApprovalMode::Auto;
                 self.transcript_mut()
                     .add_system_message(format!("Approval mode changed: {} → auto", old_mode));
             }
             "full-access" => {
-                let old_mode = self.state.approval_mode;
-                self.state.approval_mode = ApprovalMode::FullAccess;
+                let old_mode = self.state.config.approval_mode;
+                self.state.config.approval_mode = ApprovalMode::FullAccess;
                 self.transcript_mut()
                     .add_system_message(format!("Approval mode changed: {} → full-access", old_mode));
             }
@@ -908,27 +914,27 @@ impl App {
     fn handle_verbosity_command(&mut self, level: String) {
         match level.as_str() {
             "list" => {
-                let current_level = self.state.verbosity;
+                let current_level = self.state.verbosity();
                 self.transcript_mut().add_system_message(format!(
                     "Available verbosity levels:\n  Current: {}\n  Available: quiet, default, verbose",
                     current_level.as_str()
                 ))
             }
             "quiet" => {
-                let old_level = self.state.verbosity;
-                self.state.verbosity = VerbosityLevel::Quiet;
+                let old_level = self.state.verbosity();
+                self.state.config.verbosity = VerbosityLevel::Quiet;
                 self.transcript_mut()
                     .add_system_message(format!("Verbosity changed: {} → quiet", old_level.as_str()));
             }
             "default" => {
-                let old_level = self.state.verbosity;
-                self.state.verbosity = VerbosityLevel::Default;
+                let old_level = self.state.verbosity();
+                self.state.config.verbosity = VerbosityLevel::Default;
                 self.transcript_mut()
                     .add_system_message(format!("Verbosity changed: {} → default", old_level.as_str()));
             }
             "verbose" => {
-                let old_level = self.state.verbosity;
-                self.state.verbosity = VerbosityLevel::Verbose;
+                let old_level = self.state.verbosity();
+                self.state.config.verbosity = VerbosityLevel::Verbose;
                 self.transcript_mut()
                     .add_system_message(format!("Verbosity changed: {} → verbose", old_level.as_str()));
             }
@@ -941,16 +947,16 @@ impl App {
 
     /// Handle /status command
     fn handle_status_command(&mut self) {
-        let profile = self.state.profile.clone();
+        let profile = self.state.config.profile.clone();
         let provider_name = self.state.provider_name();
         let model_name = self.state.model_name();
-        let approval_mode = self.state.approval_mode;
-        let sandbox_mode = self.state.sandbox_mode;
-        let verbosity = self.state.verbosity;
-        let cwd = self.state.cwd.display();
-        let session_events_count = self.state.session_events.len();
-        let modified_files_count = self.state.modified_files.len();
-        let has_pending_approval = self.state.pending_approval.is_some();
+        let approval_mode = self.state.config.approval_mode;
+        let sandbox_mode = self.state.config.sandbox_mode;
+        let verbosity = self.state.config.verbosity;
+        let cwd = self.state.config.cwd.display();
+        let session_events_count = self.state.session.session_events.len();
+        let modified_files_count = self.state.session.modified_files.len();
+        let has_pending_approval = self.state.approval_ui.pending_approval.is_some();
 
         let status = format!(
             "Session Status:\n\
@@ -979,7 +985,7 @@ impl App {
 
     /// Handle /plan command
     fn handle_plan_command(&mut self) {
-        let plan_path = self.state.cwd.join("PLAN.md");
+        let plan_path = self.state.config.cwd.join("PLAN.md");
         match fs::read_to_string(&plan_path) {
             Ok(content) => self
                 .transcript_mut()
@@ -998,7 +1004,7 @@ impl App {
 
     /// Handle /memory command
     fn handle_memory_command(&mut self) {
-        let memory_path = self.state.cwd.join("MEMORY.md");
+        let memory_path = self.state.config.cwd.join("MEMORY.md");
         match fs::read_to_string(&memory_path) {
             Ok(content) => self
                 .transcript_mut()
@@ -1071,7 +1077,7 @@ mod tests {
     #[test]
     fn test_app_new() {
         let app = create_test_app();
-        assert_eq!(app.state().profile, "test");
+        assert_eq!(app.state().config.profile, "test");
         assert_eq!(app.transcript().len(), 0);
         assert!(!app.should_exit());
     }
@@ -1114,13 +1120,13 @@ mod tests {
     #[test]
     fn test_execute_shell_command_creates_session_event() {
         let mut app = create_test_app();
-        let initial_event_count = app.state().session_events.len();
+        let initial_event_count = app.state().session.session_events.len();
 
         app.execute_shell_command("pwd".to_string());
 
-        assert_eq!(app.state().session_events.len(), initial_event_count + 1);
+        assert_eq!(app.state().session.session_events.len(), initial_event_count + 1);
 
-        let event = &app.state().session_events[initial_event_count];
+        let event = &app.state().session.session_events[initial_event_count];
         assert_eq!(event.event_type, "shell_command");
         assert!(event.message.contains("Executed: pwd"));
         assert!(!event.timestamp.is_empty());
@@ -1154,7 +1160,7 @@ mod tests {
     #[test]
     fn test_app_default() {
         let app = App::default();
-        assert_eq!(app.state().profile, "default");
+        assert_eq!(app.state().config.profile, "default");
         assert_eq!(app.transcript().len(), 0);
     }
 
@@ -1202,8 +1208,8 @@ mod tests {
     #[test]
     fn test_state_mut() {
         let mut app = create_test_app();
-        app.state_mut().profile = "modified".to_string();
-        assert_eq!(app.state().profile, "modified");
+        app.state_mut().config.profile = "modified".to_string();
+        assert_eq!(app.state().config.profile, "modified");
     }
 
     #[test]
@@ -1410,11 +1416,11 @@ mod tests {
     fn test_sidebar_toggle() {
         let mut app = create_test_app();
 
-        assert!(app.state().sidebar_visible);
+        assert!(app.state().ui.sidebar_visible);
         app.state_mut().toggle_sidebar();
-        assert!(!app.state().sidebar_visible);
+        assert!(!app.state().ui.sidebar_visible);
         app.state_mut().toggle_sidebar();
-        assert!(app.state().sidebar_visible);
+        assert!(app.state().ui.sidebar_visible);
     }
 
     #[test]
@@ -1459,7 +1465,8 @@ mod tests {
     #[test]
     fn test_handle_event_approve_action() {
         let mut app = create_test_app();
-        app.state_mut().pending_approval = Some(ApprovalState::pending("test.action".to_string(), "risky".to_string()));
+        app.state_mut().approval_ui.pending_approval =
+            Some(ApprovalState::pending("test.action".to_string(), "risky".to_string()));
 
         let event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
             crossterm::event::KeyCode::Char('y'),
@@ -1467,7 +1474,7 @@ mod tests {
         ));
         app.handle_event(event);
 
-        assert!(app.state().pending_approval.is_none());
+        assert!(app.state().approval_ui.pending_approval.is_none());
     }
 
     #[test]
@@ -1478,13 +1485,13 @@ mod tests {
         let handle = TuiApprovalHandle::from_protocol(&tui_approval);
         app.approval_handle = Some(handle);
 
-        app.state_mut().pending_approval =
+        app.state_mut().approval_ui.pending_approval =
             Some(ApprovalState::pending("test.action".to_string(), "safe".to_string()).with_request_id(123));
 
         app.transcript_mut().add_approval_prompt("test.action", "safe");
 
         app.send_approval_response(thunderus_core::ApprovalDecision::Approved);
-        assert!(app.state().pending_approval.is_none());
+        assert!(app.state().approval_ui.pending_approval.is_none());
         assert!(app.transcript().len() >= 2);
     }
 
@@ -1492,13 +1499,13 @@ mod tests {
     fn test_send_approval_response_without_handle() {
         let mut app = create_test_app();
 
-        app.state_mut().pending_approval =
+        app.state_mut().approval_ui.pending_approval =
             Some(ApprovalState::pending("test.action".to_string(), "safe".to_string()).with_request_id(456));
 
         app.transcript_mut().add_approval_prompt("test.action", "safe");
 
         app.send_approval_response(thunderus_core::ApprovalDecision::Approved);
-        assert!(app.state().pending_approval.is_none());
+        assert!(app.state().approval_ui.pending_approval.is_none());
     }
 
     #[test]
@@ -1508,13 +1515,13 @@ mod tests {
         let handle = TuiApprovalHandle::from_protocol(&tui_approval);
         app.approval_handle = Some(handle);
 
-        app.state_mut().pending_approval =
+        app.state_mut().approval_ui.pending_approval =
             Some(ApprovalState::pending("delete.file".to_string(), "dangerous".to_string()).with_request_id(789));
 
         app.transcript_mut().add_approval_prompt("delete.file", "dangerous");
         app.send_approval_response(thunderus_core::ApprovalDecision::Rejected);
 
-        assert!(app.state().pending_approval.is_none());
+        assert!(app.state().approval_ui.pending_approval.is_none());
     }
 
     #[test]
@@ -1525,19 +1532,20 @@ mod tests {
         let handle = TuiApprovalHandle::from_protocol(&tui_approval);
         app.approval_handle = Some(handle);
 
-        app.state_mut().pending_approval =
+        app.state_mut().approval_ui.pending_approval =
             Some(ApprovalState::pending("install.crate".to_string(), "risky".to_string()).with_request_id(999));
 
         app.transcript_mut().add_approval_prompt("install.crate", "risky");
         app.send_approval_response(thunderus_core::ApprovalDecision::Cancelled);
 
-        assert!(app.state().pending_approval.is_none());
+        assert!(app.state().approval_ui.pending_approval.is_none());
     }
 
     #[test]
     fn test_handle_event_reject_action() {
         let mut app = create_test_app();
-        app.state_mut().pending_approval = Some(ApprovalState::pending("test.action".to_string(), "risky".to_string()));
+        app.state_mut().approval_ui.pending_approval =
+            Some(ApprovalState::pending("test.action".to_string(), "risky".to_string()));
 
         let event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
             crossterm::event::KeyCode::Char('n'),
@@ -1545,13 +1553,14 @@ mod tests {
         ));
         app.handle_event(event);
 
-        assert!(app.state().pending_approval.is_none());
+        assert!(app.state().approval_ui.pending_approval.is_none());
     }
 
     #[test]
     fn test_handle_event_cancel_action() {
         let mut app = create_test_app();
-        app.state_mut().pending_approval = Some(ApprovalState::pending("test.action".to_string(), "risky".to_string()));
+        app.state_mut().approval_ui.pending_approval =
+            Some(ApprovalState::pending("test.action".to_string(), "risky".to_string()));
 
         let event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
             crossterm::event::KeyCode::Char('c'),
@@ -1559,7 +1568,7 @@ mod tests {
         ));
         app.handle_event(event);
 
-        assert!(app.state().pending_approval.is_none());
+        assert!(app.state().approval_ui.pending_approval.is_none());
     }
 
     #[test]
@@ -1768,44 +1777,44 @@ mod tests {
     #[test]
     fn test_handle_approvals_command_read_only() {
         let mut app = create_test_app();
-        app.state_mut().approval_mode = thunderus_core::ApprovalMode::Auto;
+        app.state_mut().config.approval_mode = thunderus_core::ApprovalMode::Auto;
 
         app.handle_approvals_command("read-only".to_string());
 
-        assert_eq!(app.state.approval_mode, thunderus_core::ApprovalMode::ReadOnly);
+        assert_eq!(app.state.config.approval_mode, thunderus_core::ApprovalMode::ReadOnly);
         assert_eq!(app.transcript().len(), 1);
     }
 
     #[test]
     fn test_handle_approvals_command_auto() {
         let mut app = create_test_app();
-        app.state_mut().approval_mode = thunderus_core::ApprovalMode::ReadOnly;
+        app.state_mut().config.approval_mode = thunderus_core::ApprovalMode::ReadOnly;
 
         app.handle_approvals_command("auto".to_string());
 
-        assert_eq!(app.state.approval_mode, thunderus_core::ApprovalMode::Auto);
+        assert_eq!(app.state.config.approval_mode, thunderus_core::ApprovalMode::Auto);
         assert_eq!(app.transcript().len(), 1);
     }
 
     #[test]
     fn test_handle_approvals_command_full_access() {
         let mut app = create_test_app();
-        app.state_mut().approval_mode = thunderus_core::ApprovalMode::Auto;
+        app.state_mut().config.approval_mode = thunderus_core::ApprovalMode::Auto;
 
         app.handle_approvals_command("full-access".to_string());
 
-        assert_eq!(app.state.approval_mode, thunderus_core::ApprovalMode::FullAccess);
+        assert_eq!(app.state.config.approval_mode, thunderus_core::ApprovalMode::FullAccess);
         assert_eq!(app.transcript().len(), 1);
     }
 
     #[test]
     fn test_handle_approvals_command_unknown() {
         let mut app = create_test_app();
-        let original_mode = app.state.approval_mode;
+        let original_mode = app.state.config.approval_mode;
 
         app.handle_approvals_command("unknown-mode".to_string());
 
-        assert_eq!(app.state.approval_mode, original_mode);
+        assert_eq!(app.state.config.approval_mode, original_mode);
         assert_eq!(app.transcript().len(), 1);
         if let crate::transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
             assert!(content.contains("Unknown approval mode"));
@@ -1916,7 +1925,7 @@ mod tests {
     #[test]
     fn test_slash_command_with_args_integration() {
         let mut app = create_test_app();
-        let original_mode = app.state().approval_mode;
+        let original_mode = app.state().config.approval_mode;
 
         app.state_mut().input.buffer = "/approvals read-only".to_string();
         let event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
@@ -1925,8 +1934,8 @@ mod tests {
         ));
         app.handle_event(event);
 
-        assert_eq!(app.state.approval_mode, thunderus_core::ApprovalMode::ReadOnly);
-        assert_ne!(app.state.approval_mode, original_mode);
+        assert_eq!(app.state().config.approval_mode, thunderus_core::ApprovalMode::ReadOnly);
+        assert_ne!(app.state().config.approval_mode, original_mode);
         assert_eq!(app.transcript().len(), 1);
     }
 }

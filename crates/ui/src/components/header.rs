@@ -35,7 +35,10 @@ impl<'a> Header<'a> {
         }
 
         if sections.profile.width > 0 {
-            let profile_span = Span::styled(format!("@{}", self.state.profile), Style::default().fg(Theme::PURPLE));
+            let profile_span = Span::styled(
+                format!("@{}", self.state.config.profile),
+                Style::default().fg(Theme::PURPLE),
+            );
             let profile = Paragraph::new(Line::from(profile_span)).block(Block::default().borders(Borders::RIGHT));
             frame.render_widget(profile, sections.profile);
         }
@@ -48,7 +51,7 @@ impl<'a> Header<'a> {
         }
 
         if sections.approval.width > 0 {
-            let approval_span = Theme::approval_mode_span(self.state.approval_mode.as_str());
+            let approval_span = Theme::approval_mode_span(self.state.config.approval_mode.as_str());
             let mode_label = Span::styled("[", Style::default().fg(Theme::MUTED));
             let mode_close = Span::styled("]", Style::default().fg(Theme::MUTED));
             let approval = Paragraph::new(Line::from(vec![mode_label, approval_span, mode_close]));
@@ -56,7 +59,7 @@ impl<'a> Header<'a> {
         }
 
         if sections.git.width > 0 {
-            let git_text = if let Some(ref branch) = self.state.git_branch {
+            let git_text = if let Some(ref branch) = self.state.config.git_branch {
                 format!("🌿 {}", branch)
             } else {
                 String::new()
@@ -67,7 +70,7 @@ impl<'a> Header<'a> {
         }
 
         if sections.sandbox.width > 0 {
-            let sandbox_span = Theme::sandbox_mode_span(self.state.sandbox_mode.as_str());
+            let sandbox_span = Theme::sandbox_mode_span(self.state.config.sandbox_mode.as_str());
             let sandbox_label = Span::styled("🔒", Style::default().fg(Theme::YELLOW));
             let sandbox = Paragraph::new(Line::from(vec![
                 sandbox_label,
@@ -78,7 +81,7 @@ impl<'a> Header<'a> {
         }
 
         if sections.network.width > 0 {
-            let network_span = if self.state.allow_network {
+            let network_span = if self.state.config.allow_network {
                 Span::styled("ON", Style::default().fg(Theme::GREEN))
             } else {
                 Span::styled("OFF", Style::default().fg(Theme::MUTED))
@@ -93,7 +96,7 @@ impl<'a> Header<'a> {
         }
 
         if sections.verbosity.width > 0 {
-            let verbosity_span = Theme::verbosity_span(self.state.verbosity.as_str());
+            let verbosity_span = Theme::verbosity_span(self.state.config.verbosity.as_str());
             let verbosity = Paragraph::new(Line::from(verbosity_span));
             frame.render_widget(verbosity, sections.verbosity);
         }
@@ -101,7 +104,7 @@ impl<'a> Header<'a> {
 
     /// Format cwd for display (truncate if too long)
     fn cwd_display(&self) -> String {
-        let cwd = self.state.cwd.display().to_string();
+        let cwd = self.state.config.cwd.display().to_string();
         if cwd.len() > 20 {
             let start = cwd.len().saturating_sub(20);
             format!("...{}", &cwd[start..])
@@ -135,7 +138,7 @@ mod tests {
     fn test_header_new() {
         let state = create_test_state();
         let header = Header::new(&state);
-        assert_eq!(header.state.profile, "work-profile");
+        assert_eq!(header.state.config.profile, "work-profile");
     }
 
     #[test]
@@ -150,7 +153,7 @@ mod tests {
     #[test]
     fn test_cwd_display_no_truncation() {
         let mut state = create_test_state();
-        state.cwd = PathBuf::from("/workspace");
+        state.config.cwd = PathBuf::from("/workspace");
         let header = Header::new(&state);
         let display = header.cwd_display();
 
@@ -175,7 +178,7 @@ mod tests {
         let header = Header::new(&state);
         assert_eq!(header.state.provider_name(), "Gemini");
         assert_eq!(header.state.model_name(), "gemini-2.5-flash".to_string());
-        assert_eq!(header.state.approval_mode, ApprovalMode::FullAccess);
+        assert_eq!(header.state.config.approval_mode, ApprovalMode::FullAccess);
     }
 
     #[test]
@@ -195,7 +198,7 @@ mod tests {
             SandboxMode::Policy,
         );
         let header_readonly = Header::new(&state_readonly);
-        assert_eq!(header_readonly.state.approval_mode.as_str(), "read-only");
+        assert_eq!(header_readonly.state.config.approval_mode.as_str(), "read-only");
 
         let state_auto = AppState::new(
             cwd.clone(),
@@ -205,7 +208,7 @@ mod tests {
             SandboxMode::Policy,
         );
         let header_auto = Header::new(&state_auto);
-        assert_eq!(header_auto.state.approval_mode.as_str(), "auto");
+        assert_eq!(header_auto.state.config.approval_mode.as_str(), "auto");
 
         let state_full = AppState::new(
             cwd.clone(),
@@ -215,6 +218,6 @@ mod tests {
             SandboxMode::Policy,
         );
         let header_full = Header::new(&state_full);
-        assert_eq!(header_full.state.approval_mode.as_str(), "full-access");
+        assert_eq!(header_full.state.config.approval_mode.as_str(), "full-access");
     }
 }

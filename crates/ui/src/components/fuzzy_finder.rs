@@ -232,7 +232,7 @@ mod tests {
         let state = AppState::default();
         let component = FuzzyFinderComponent::new(&state);
 
-        assert_eq!(component.state.profile, "default");
+        assert_eq!(component.state.config.profile, "default");
     }
 
     #[test]

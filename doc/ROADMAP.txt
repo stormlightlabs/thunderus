@@ -16,11 +16,15 @@ CONTENTS                                                      *roadmap-contents*
     V. Core Text Processing Tools ............................. |agent-V|
    VI. Approvals + Sandboxing (Shell-First, Still Safe) ....... |agent-VI|
   VII. Diff-First Editing + Git Integration ................... |agent-VII|
- VIII. Markdown + JSONL Hybrid VCS ............................ |agent-VIII|
-   IX. Mixed-Initiative Collaboration ......................... |agent-IX|
-    X. Extensibility + Hardening .............................. |agent-X|
-   XI. Session Recovery ....................................... |agent-XI|
-  XII. Endnotes ............................................... |agent-XII|
+ VIII. Theming / UI ........................................... |agent-VIII|
+   IX. Markdown + JSONL Hybrid VCS ............................ |agent-IX|
+    X. TIERED MEMORY CORE + STORE ............................. |agent-X|
+   XI. LONG-TERM MEMORY STORE + RETRIEVAL ..................... |agent-XI|
+  XII. MEMORY GARDENER  ....................................... |agent-XII|
+ XIII. TRAJECTORY + INSPECTOR ................................. |agent-XIII|
+  XIV. MIXED-INITIATIVE COLLABORATION ......................... |agent-XIV|
+   XV. EXTENSIBILITY + HARDENING .............................. |agent-XV|
+  XVI. PARKING LOT............................................. |agent-XVI|
 
 --------------------------------------------------------------------------------
 I. REPO SCAFFOLD + CONFIG + SESSION STORE                              *agent-I*
@@ -49,152 +53,14 @@ See section |2026-01-15| for changes made.
 --------------------------------------------------------------------------------
 V. CORE TEXT PROCESSING TOOLS                                          *agent-V*
 --------------------------------------------------------------------------------
-Implement the fundamental text search and file manipulation tools that enable
-the agent to explore codebases and make targeted edits. These tools form the
-backbone of agentic code interaction.
 
-Design target:
-Claude Code's tool model - ripgrep-based search, safe edit primitives,
-high-level abstractions over raw shell tools (grep, sed, awk).
-
-Research shows agentic search using bash tools is more reliable than semantic
-search. Successful agents treat shell tools as first-class citizens with careful
-safety guardrails.
-
-Search Tools
-------------
-- [x] Grep tool (ripgrep-based):
-      - pattern-based search with regex support
-      - file filtering with glob patterns (e.g., "*.rs", "*.{ts,tsx}")
-      - output modes: files_with_matches (default), content, count
-      - context lines support (-A, -B, -C flags)
-      - case-insensitive search option
-      - head_limit for result pagination
-      - JSON output mode for structured results
-      - fallback to grep if ripgrep unavailable
-- [x] Glob tool (file pattern matching):
-      - find files by name patterns (e.g., "**/*.rs", "src/**/test_*.rs")
-      - sorted by modification time
-      - respect .gitignore by default
-      - fast file discovery for model context
-
-Read Tools
-----------
-- [x] Read tool:
-      - line-based file reading with numbers
-      - offset + limit for large files (default: 2000 lines)
-      - character truncation for long lines (2000 chars)
-      - binary file detection (reject binary reads)
-      - support common file types (code, text, markdown)
-- [x] Integration with session state:
-      - track read history for edit validation
-      - required before Edit operations
-
-Edit Tools
-----------
-- [x] Edit tool (safe find-replace):
-      - exact string replacement in files
-      - old_string uniqueness validation (fail if ambiguous)
-      - replace_all option for bulk replacement
-      - requires prior Read in session history
-      - preserve exact indentation from Read output
-      - atomic operation (all-or-nothing)
-      - subject to approval mode gates
-- [x] MultiEdit tool (atomic batch edits):
-      - multiple find-replace operations in single file
-      - all edits succeed or none applied
-      - validation for non-overlapping edits
-      - same safety requirements as Edit
-
-Shell Tool Classification
--------------------------
-- [x] Enhance command classifier for text tools:
-      - recognize grep/rg/sed/awk patterns
-      - classify risk level (grep=safe, sed -i=risky)
-      - suggest safer alternatives (sed → Edit tool)
-      - integrate with approval system
-
-Safety & Approvals
-------------------
-- [x] Read-only tools bypass approval (Grep, Glob, Read)
-- [x] Edit tools check approval mode:
-      - read-only: reject all edits
-      - auto: allow workspace edits, gate external paths
-      - full-access: allow all (still logged)
-- [x] Mandatory backups for risky operations
-- [x] Pedagogical warnings on first unsafe tool use
-
-Provider Integration
---------------------
-- [x] Tool schema definitions for GLM-4.7 and Gemini
-- [x] System prompt guidance:
-      - "Use Grep for code search, not bash grep"
-      - "Always Read before Edit"
-      - "Prefer Edit over sed for safety"
-- [x] Result formatting for model consumption
-- [x] Error messages that teach (e.g., "Edit failed: old_string not unique")
-
-Full-Access Mode
-----------------
-- [x] Direct sed exposure (gated, with backups)
-- [x] Direct awk exposure (gated, read-only recommended)
-- [x] Rationale: complex syntax, safety concerns, better abstracted by
-      Edit tools
-
-DoD:
-- Grep, Glob, Read, Edit, and MultiEdit tools implemented and tested
-- Tool dispatcher routes calls correctly
-- Approval system enforces safety policies
-- Session state tracks read/edit history
-- Provider schemas include all tool definitions
-- Models can reliably search codebases and make targeted edits without
-  resorting to bash grep/sed/awk
-- Full research documented in .sandbox/research_text_tools_2026_01_13.md
+See section |2026-01-16| for changes made.
 
 --------------------------------------------------------------------------------
 VI. APPROVALS + SANDBOXING (SHELL-FIRST, STILL SAFE)                  *agent-VI*
 --------------------------------------------------------------------------------
-Make "anything in the shell" possible without turning the agent into malware.
-Build on the basic approval system from Milestone II with policy enforcement
-and pedagogical features.
 
-Design target:
-Codex's model: approval policies + sandbox modes + profiles[^2]
-
-- [x] Approval mode enforcement:
-      - wire `read-only`, `auto`, `full-access` modes into agent loop
-      - `read-only`: consultative; no edits, no commands
-      - `auto`: workspace edits + safe commands; gates risky ops (default)
-      - `full-access`: still logged; explicit opt-in only[^3]
-      - runtime mode switching via `/approvals` command
-- [x] Sandbox policy enforcement:
-      - define "workspace roots" in config
-      - path allow/deny lists (sensitive dirs always denied: ~/.ssh, ~/.aws)
-      - enforce tool access by path (block outside workspace)
-      - default: no network commands unless approved[^2]
-      - integration with tool dispatcher
-- [x] Command classifier integration:
-      - safe/risky/blocked categorization for shell commands
-      - pedagogical suggestions (e.g., "Consider Edit tool instead of sed -i")
-- [x] Enhance action cards with teaching context:
-      - "What": operation in plain language
-      - "Why": context for this action in task flow
-      - "Scope": files/paths affected, blast radius
-      - "Risk": classification with reasoning (why safe/risky)
-      - "Result": exit code, key output, next step
-- [ ] First-time contextual hints:
-      - track taught concepts per session (e.g., "risky_command_explained")
-      - show brief explainer on first encounter
-        (e.g., "network commands need approval")
-      - never nag - one-time hints only
-      - persist teaching state in session metadata
-- [ ] TUI integration:
-      - mode indicator in status bar (Mode: AUTO | Net: OFF)
-      - approval dialog with action card display
-
-DoD:
-- The agent can run `cargo test`, but will stop and ask before doing anything
-  risky.
+See section |2026-01-18| for changes made.
 
 --------------------------------------------------------------------------------
 VII. DIFF-FIRST EDITING + GIT INTEGRATION                            *agent-VII*
@@ -238,7 +104,103 @@ DoD:
 - "PR-stack feel" inside a TUI: accept hunks, undo safely, never lose work.
 
 --------------------------------------------------------------------------------
-VIII. MARKDOWN + JSONL HYBRID VCS                                   *agent-VIII*
+VIII. UI POLISH + THEMING                                           *agent-VIII*
+--------------------------------------------------------------------------------
+Complete the design spec implementation and add flexible, user-configurable theming.
+
+Design target:
+Match DESIGN.txt specifications for all UI components, then enable runtime theme
+switching like OpenCode (JSON themes, `/theme` command).
+
+High Priority UI Gaps
+---------------------
+- [ ] Centered initial view:
+      - Detect "first session" state and render centered welcome message
+      - Max 60-80 cols centered region with prompt
+      - Expand to full layout after first user message sent
+      - Matches DESIGN.txt III:102-127 specification
+- [ ] Token usage display:
+      - Add "Token Usage" section to sidebar showing "X.Xk / YYYk" format
+      - Calculate from session stats (input_tokens, output_tokens)
+      - Update in real-time as agent streams responses
+      - Matches DESIGN.txt III:134 specification
+- [ ] Compact view tool cards:
+      - Single-line summaries for terminals < 80 cols
+      - Format: "[Tool: name] path | risk | [y/n/c]"
+      - Preserve multiline for detailed/verbose levels
+      - Matches DESIGN.txt III:194-196 specification
+
+Medium Priority UI Gaps
+-----------------------
+- [ ] Header token count:
+      - Add token usage to header in medium layout (80-99 cols)
+      - Display format: "tokens: X.Xk"
+      - Integrate with responsive header sections
+- [ ] Scrollbar indicator:
+      - Optional thin scrollbar on right edge of transcript
+      - Dim color (#6b7089) for subtle visual indicator
+      - Show current scroll position in transcript
+- [ ] Status indicator animations:
+      - Animated ellipsis "..." for streaming state
+      - Blinking cursor on pending approval [y] option
+      - Pulsing border for risky approval cards
+- [ ] First-time user hints:
+      - Track taught concepts per session
+      - Show contextual hints on first feature encounter
+      - One-time display only (never nag)
+      - Integrate with existing TeachingHintPopup
+- [ ] Sidebar section navigation:
+      - [ and ] keys to navigate between sidebar sections
+      - Space/Enter to expand/collapse focused section
+      - Visual focus indicator on active section
+
+Theme Architecture
+------------------
+- [ ] ThemeColors struct with semantic colors:
+      - success, warning, error, info, primary, secondary
+      - background, foreground, muted, border
+      - Approval mode colors (read-only, auto, full-access)
+      - Risk level colors (safe, risky, dangerous)
+- [ ] ThemeManager for runtime theme switching:
+      - Load/save theme from config
+      - Hot-reload themes without restart
+      - Theme validation and error handling
+- [ ] JSON serialization/deserialization with serde
+- [ ] Built-in themes:
+      - Iceberg (default, current implementation)
+      - Catppuccin Mocha
+      - TokyoNight
+      - Nord
+      - System (ANSI colors, terminal-adaptive)
+- [ ] JSON theme format:
+      - hex colors (#rrggbb), ANSI colors (0-255), color name references
+      - theme metadata (name, author, description, variant)
+- [ ] Theme loading hierarchy:
+      - built-in themes
+      - user themes (~/.config/thunderus/themes/)
+      - project themes (.thunderus/themes/)
+- [ ] Theme switching:
+      - `/theme list` - show available themes
+      - `/theme <name>` - switch to theme
+      - `/theme preview <name>` - temporary preview (revert on restart)
+      - Ctrl+T keybind for theme picker popup
+      - Persist selection in profile config
+- [ ] Component integration:
+      - Replace hardcoded Theme::COLOR with ThemeManager::current().color
+      - Update all components (Header, Sidebar, Footer, Transcript, Action Cards)
+      - Semantic color mapping (safe=green, risky=yellow, error=red)
+      - Test theme switching doesn't break layout or readability
+
+DoD:
+- All DESIGN.txt specifications are implemented
+  (centered view, token display, compact cards)
+- Users can switch themes via `/theme` command and Ctrl+T keybind
+- Custom JSON themes load from user/project directories
+- All UI components respect active theme colors
+- Theme switching is instant and doesn't require restart
+
+--------------------------------------------------------------------------------
+IX. MARKDOWN + JSONL HYBRID VCS                                      *agent-IX*
 --------------------------------------------------------------------------------
 Your hybrid system is the canonical record of agent work, and it improves
 collaboration and debugging.
@@ -268,7 +230,7 @@ DoD:
 - You can reconstruct *exactly* what happened in a session and why.
 
 --------------------------------------------------------------------------------
-VIII-A. TIERED MEMORY CORE + STORE (REPO-NATIVE, AUDITABLE)        *agent-VIIIa*
+X. TIERED MEMORY CORE + STORE (REPO-NATIVE, AUDITABLE)          *agent-X*
 --------------------------------------------------------------------------------
 Goal:
 Establish durable “external memory” that survives context limits and restarts,
@@ -309,8 +271,7 @@ DoD:
 - Memory docs are diffable, patch-driven, and always point back to provenance.
 
 --------------------------------------------------------------------------------
-VIII-B. LONG-TERM MEMORY STORE + RETRIEVAL                         *agent-VIIIb*
-        (LEXICAL FIRST, VECTORS OPT-IN)
+XI. LONG-TERM MEMORY + RETRIEVAL (LEXICAL FIRST, VECTORS OPT-IN)      *agent-XI*
 --------------------------------------------------------------------------------
 Goal:
 Make the agent reliably find the right memory at the right time without stuffing
@@ -344,8 +305,7 @@ DoD:
 - Index is rebuildable; no “mystery memory”.
 
 --------------------------------------------------------------------------------
-VIII-C. MEMORY GARDENER                                            *agent-VIIIc*
-        (CONSOLIDATION, DRIFT CONTROL, AND HYGIENE)
+XII. MEMORY GARDENER  (CONSOLIDATION, DRIFT CONTROL, AND HYGIENE)    *agent-XII*
 --------------------------------------------------------------------------------
 Goal:
 Prevent memory rot. Convert raw session history into small, stable, reusable
@@ -377,7 +337,7 @@ DoD:
 - Memory stays small + correct: consolidation and drift marking are automatic.
 
 --------------------------------------------------------------------------------
-VIII-D. TRAJECTORY + INSPECTOR (DEBUGGABLE “WHY” FOR MEMORY)       *agent-VIIId*
+XIII. TRAJECTORY + INSPECTOR (DEBUGGABLE “WHY” FOR MEMORY)          *agent-XIII*
 --------------------------------------------------------------------------------
 Goal:
 Make it trivial to answer: “Why did the agent believe X?” by linking memory
@@ -397,7 +357,7 @@ DoD:
 - Inspector can trace any memory claim back to evidence events + diffs.
 
 --------------------------------------------------------------------------------
-IX. MIXED-INITIATIVE COLLABORATION                                    *agent-IX*
+XIV. MIXED-INITIATIVE COLLABORATION                                  *agent-XIV*
 --------------------------------------------------------------------------------
 When you work alongside the agent, it pauses, notices drift, and reconciles.
 
@@ -425,7 +385,7 @@ DoD:
 - The agent never proceeds on stale assumptions after you fix something manually
 
 --------------------------------------------------------------------------------
-X. EXTENSIBILITY + HARDENING                                           *agent-X*
+XV. EXTENSIBILITY + HARDENING                                         *agent-XV*
 --------------------------------------------------------------------------------
 Match the "pro tool" feel: pluggable integrations, automation entrypoints,
 and regression tests for harness behaviors.
@@ -460,7 +420,7 @@ DoD:
 
 
 --------------------------------------------------------------------------------
-XI. Parking Lot                                                       *agent-XI*
+XVI. PARKING LOT                                                     *agent-XVI*
 --------------------------------------------------------------------------------
 
 Session Recovery:
@@ -471,7 +431,7 @@ Session Recovery:
 - Session metadata (title, tags, description)
 
 --------------------------------------------------------------------------------
-XII. REFERENCES                                                      *agent-XII*
+XVII. REFERENCES                                                    *agent-XVII*
 --------------------------------------------------------------------------------
 
 See |REFS.txt| for external resources, design inspirations, and footnotes.

@@ -40,17 +40,28 @@ impl<'a> Sidebar<'a> {
             return;
         };
 
-        if !self.state.sidebar_collapse_state.is_collapsed(SidebarSection::Events) {
+        if !self
+            .state
+            .ui
+            .sidebar_collapse_state
+            .is_collapsed(SidebarSection::Events)
+        {
             self.render_session_events(frame, sidebar.session_events);
         }
-        if !self.state.sidebar_collapse_state.is_collapsed(SidebarSection::Modified) {
+        if !self
+            .state
+            .ui
+            .sidebar_collapse_state
+            .is_collapsed(SidebarSection::Modified)
+        {
             self.render_modified_files(frame, sidebar.modified_files);
         }
-        if !self.state.sidebar_collapse_state.is_collapsed(SidebarSection::Diffs) {
+        if !self.state.ui.sidebar_collapse_state.is_collapsed(SidebarSection::Diffs) {
             self.render_git_diff_queue(frame, sidebar.git_diff);
         }
         if !self
             .state
+            .ui
             .sidebar_collapse_state
             .is_collapsed(SidebarSection::Integrations)
         {
@@ -63,19 +74,19 @@ impl<'a> Sidebar<'a> {
     fn render_session_events(&self, frame: &mut Frame<'_>, area: Rect) {
         let mut lines = Vec::new();
 
-        if self.state.session_events.is_empty() {
+        if self.state.session.session_events.is_empty() {
             lines.push(Line::from(Span::styled("No events", Style::default().fg(Theme::MUTED))));
         } else {
-            for event in self.state.session_events.iter().take(3) {
+            for event in self.state.session.session_events.iter().take(3) {
                 lines.push(Line::from(vec![
                     Span::styled(&event.event_type, Style::default().fg(Theme::BLUE)),
                     Span::raw(" "),
                     Span::styled(&event.message, Style::default().fg(Theme::FG)),
                 ]));
             }
-            if self.state.session_events.len() > 3 {
+            if self.state.session.session_events.len() > 3 {
                 lines.push(Line::from(Span::styled(
-                    format!("+ {} more", self.state.session_events.len() - 3),
+                    format!("+ {} more", self.state.session.session_events.len() - 3),
                     Style::default().fg(Theme::MUTED),
                 )));
             }
@@ -90,13 +101,13 @@ impl<'a> Sidebar<'a> {
     fn render_modified_files(&self, frame: &mut Frame<'_>, area: Rect) {
         let mut lines = Vec::new();
 
-        if self.state.modified_files.is_empty() {
+        if self.state.session.modified_files.is_empty() {
             lines.push(Line::from(Span::styled(
                 "No changes",
                 Style::default().fg(Theme::MUTED),
             )));
         } else {
-            for file in self.state.modified_files.iter().take(2) {
+            for file in self.state.session.modified_files.iter().take(2) {
                 let mod_color = match file.mod_type.as_str() {
                     "edited" => Theme::YELLOW,
                     "created" => Theme::GREEN,
@@ -109,9 +120,9 @@ impl<'a> Sidebar<'a> {
                     Span::styled(&file.path, Style::default().fg(Theme::FG)),
                 ]));
             }
-            if self.state.modified_files.len() > 2 {
+            if self.state.session.modified_files.len() > 2 {
                 lines.push(Line::from(Span::styled(
-                    format!("+ {} more", self.state.modified_files.len() - 2),
+                    format!("+ {} more", self.state.session.modified_files.len() - 2),
                     Style::default().fg(Theme::MUTED),
                 )));
             }
@@ -126,10 +137,10 @@ impl<'a> Sidebar<'a> {
     fn render_git_diff_queue(&self, frame: &mut Frame<'_>, area: Rect) {
         let mut lines = Vec::new();
 
-        if self.state.git_diff_queue.is_empty() {
+        if self.state.session.git_diff_queue.is_empty() {
             lines.push(Line::from(Span::styled("No diffs", Style::default().fg(Theme::MUTED))));
         } else {
-            for diff in self.state.git_diff_queue.iter().take(2) {
+            for diff in self.state.session.git_diff_queue.iter().take(2) {
                 lines.push(Line::from(vec![
                     Span::styled(
                         format!("+{}/-{}", diff.added, diff.deleted),
@@ -139,9 +150,9 @@ impl<'a> Sidebar<'a> {
                     Span::styled(&diff.path, Style::default().fg(Theme::FG)),
                 ]));
             }
-            if self.state.git_diff_queue.len() > 2 {
+            if self.state.session.git_diff_queue.len() > 2 {
                 lines.push(Line::from(Span::styled(
-                    format!("+ {} more", self.state.git_diff_queue.len() - 2),
+                    format!("+ {} more", self.state.session.git_diff_queue.len() - 2),
                     Style::default().fg(Theme::MUTED),
                 )));
             }
@@ -198,33 +209,33 @@ mod tests {
     fn test_sidebar_new() {
         let state = create_test_state();
         let sidebar = Sidebar::new(&state);
-        assert_eq!(sidebar.state.profile, "test");
+        assert_eq!(sidebar.state.config.profile, "test");
     }
 
     #[test]
     fn test_sidebar_initial_state() {
         let state = create_test_state();
         let sidebar = Sidebar::new(&state);
-        assert_eq!(sidebar.state.stats.input_tokens, 0);
-        assert_eq!(sidebar.state.stats.output_tokens, 0);
-        assert_eq!(sidebar.state.stats.approval_gates, 0);
-        assert_eq!(sidebar.state.stats.tools_executed, 0);
+        assert_eq!(sidebar.state.session.stats.input_tokens, 0);
+        assert_eq!(sidebar.state.session.stats.output_tokens, 0);
+        assert_eq!(sidebar.state.session.stats.approval_gates, 0);
+        assert_eq!(sidebar.state.session.stats.tools_executed, 0);
     }
 
     #[test]
     fn test_sidebar_with_stats() {
         let mut state = create_test_state();
-        state.stats.input_tokens = 100;
-        state.stats.output_tokens = 200;
-        state.stats.approval_gates = 5;
-        state.stats.tools_executed = 10;
+        state.session.stats.input_tokens = 100;
+        state.session.stats.output_tokens = 200;
+        state.session.stats.approval_gates = 5;
+        state.session.stats.tools_executed = 10;
 
         let sidebar = Sidebar::new(&state);
-        assert_eq!(sidebar.state.stats.input_tokens, 100);
-        assert_eq!(sidebar.state.stats.output_tokens, 200);
-        assert_eq!(sidebar.state.stats.total_tokens(), 300);
-        assert_eq!(sidebar.state.stats.approval_gates, 5);
-        assert_eq!(sidebar.state.stats.tools_executed, 10);
+        assert_eq!(sidebar.state.session.stats.input_tokens, 100);
+        assert_eq!(sidebar.state.session.stats.output_tokens, 200);
+        assert_eq!(sidebar.state.session.stats.total_tokens(), 300);
+        assert_eq!(sidebar.state.session.stats.approval_gates, 5);
+        assert_eq!(sidebar.state.session.stats.tools_executed, 10);
     }
 
     #[test]
@@ -244,7 +255,7 @@ mod tests {
             SandboxMode::Policy,
         );
         let sidebar_auto = Sidebar::new(&state_auto);
-        assert_eq!(sidebar_auto.state.approval_mode, ApprovalMode::Auto);
+        assert_eq!(sidebar_auto.state.config.approval_mode, ApprovalMode::Auto);
 
         let state_full = AppState::new(
             cwd.clone(),
@@ -254,7 +265,7 @@ mod tests {
             SandboxMode::Policy,
         );
         let sidebar_full = Sidebar::new(&state_full);
-        assert_eq!(sidebar_full.state.approval_mode, ApprovalMode::FullAccess);
+        assert_eq!(sidebar_full.state.config.approval_mode, ApprovalMode::FullAccess);
 
         let state_readonly = AppState::new(
             cwd,
@@ -264,6 +275,6 @@ mod tests {
             SandboxMode::Policy,
         );
         let sidebar_readonly = Sidebar::new(&state_readonly);
-        assert_eq!(sidebar_readonly.state.approval_mode, ApprovalMode::ReadOnly);
+        assert_eq!(sidebar_readonly.state.config.approval_mode, ApprovalMode::ReadOnly);
     }
 }

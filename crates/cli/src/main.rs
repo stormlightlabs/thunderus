@@ -25,8 +25,12 @@ struct Cli {
     #[arg(short, long)]
     verbose: bool,
 
+    /// Working directory (for default start behavior)
+    #[arg(short, long, value_name = "DIR")]
+    dir: Option<PathBuf>,
+
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -58,9 +62,18 @@ enum Commands {
 }
 
 fn main() {
+    #[cfg(unix)]
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+
     if let Err(e) = run() {
         eprintln!("{} {}", "Error:".red().bold(), e);
-        std::process::exit(1);
+        let code = match e.downcast_ref::<clap::Error>() {
+            Some(_) => 2,
+            None => 1,
+        };
+        std::process::exit(code);
     }
 }
 
@@ -68,11 +81,11 @@ fn run() -> Result<()> {
     let cli = Cli::parse();
 
     let config_path = cli.config.unwrap_or_else(|| PathBuf::from("config.toml"));
-    let config = load_or_create_config(&config_path)?;
+    let config = load_or_create_config(&config_path, cli.verbose)?;
 
     if cli.verbose {
-        println!("{} Using config: {}", "Info:".blue().bold(), config_path.display());
-        println!(
+        eprintln!("{} Using config: {}", "Info:".blue().bold(), config_path.display());
+        eprintln!(
             "{} Available profiles: {:?}",
             "Info:".blue().bold(),
             config.profile_names()
@@ -82,10 +95,11 @@ fn run() -> Result<()> {
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async {
         match cli.command {
-            Commands::Start { dir } => cmd_start(config, dir, cli.profile, cli.verbose).await,
-            Commands::Exec { command, args } => cmd_exec(config, command, args, cli.verbose),
-            Commands::Status => cmd_status(config, cli.verbose),
-            Commands::Completions { shell } => print_completions(shell, &mut Cli::command()),
+            None | Some(Commands::Start { dir: None }) => cmd_start(config, cli.dir, cli.profile, cli.verbose).await,
+            Some(Commands::Start { dir }) => cmd_start(config, dir, cli.profile, cli.verbose).await,
+            Some(Commands::Exec { command, args }) => cmd_exec(config, command, args, cli.verbose),
+            Some(Commands::Status) => cmd_status(config, cli.verbose),
+            Some(Commands::Completions { shell }) => print_completions(shell, &mut Cli::command()),
         }
     })
 }
@@ -97,17 +111,19 @@ fn print_completions<G: Generator>(generator: G, cmd: &mut Command) -> Result<()
 }
 
 /// Load config from file or create from example
-fn load_or_create_config(path: &Path) -> Result<Config> {
+fn load_or_create_config(path: &Path, verbose: bool) -> Result<Config> {
     if path.exists() {
-        println!("{} Loading config from {}", "Info:".green().bold(), path.display());
+        if verbose {
+            eprintln!("{} Loading config from {}", "Info:".green().bold(), path.display());
+        }
         Config::from_file(&PathBuf::from(path)).map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))
     } else {
-        println!("{} Config not found at {}", "Warning:".yellow().bold(), path.display());
-        println!("{} Creating config from example...", "Info:".blue().bold());
+        eprintln!("{} Config not found at {}", "Warning:".yellow().bold(), path.display());
+        eprintln!("{} Creating config from example...", "Info:".blue().bold());
 
         std::fs::write(path, Config::example()).context("Failed to create config")?;
 
-        println!(
+        eprintln!(
             "{} Created config at {}. Please edit it with your settings.",
             "Success:".green().bold(),
             path.display()
@@ -138,22 +154,24 @@ async fn cmd_start(config: Config, dir: Option<PathBuf>, profile_name: Option<St
         .with_context(|| format!("Failed to load profile '{}'", profile_name))?;
 
     if verbose {
-        println!("{} Working directory: {}", "Info:".blue().bold(), working_dir.display());
-        println!("{} Profile: {}", "Info:".blue().bold(), profile_name.cyan());
-        println!("{} Provider: {:?}", "Info:".blue().bold(), profile.provider);
-        println!("{} Approval mode: {}", "Info:".blue().bold(), profile.approval_mode);
-        println!("{} Sandbox mode: {}", "Info:".blue().bold(), profile.sandbox_mode);
+        eprintln!("{} Working directory: {}", "Info:".blue().bold(), working_dir.display());
+        eprintln!("{} Profile: {}", "Info:".blue().bold(), profile_name.cyan());
+        eprintln!("{} Provider: {:?}", "Info:".blue().bold(), profile.provider);
+        eprintln!("{} Approval mode: {}", "Info:".blue().bold(), profile.approval_mode);
+        eprintln!("{} Sandbox mode: {}", "Info:".blue().bold(), profile.sandbox_mode);
     }
 
     let agent_dir = AgentDir::new(&working_dir);
     let agent_dir_path = agent_dir.agent_dir();
 
     if !agent_dir_path.exists() {
-        println!(
-            "{} Creating .agent directory at {}",
-            "Info:".blue().bold(),
-            agent_dir_path.display()
-        );
+        if verbose {
+            eprintln!(
+                "{} Creating .agent directory at {}",
+                "Info:".blue().bold(),
+                agent_dir_path.display()
+            );
+        }
         std::fs::create_dir_all(&agent_dir_path).context("Failed to create .agent directory")?;
         std::fs::create_dir_all(agent_dir.sessions_dir()).context("Failed to create sessions directory")?;
         std::fs::create_dir_all(agent_dir.views_dir()).context("Failed to create views directory")?;
@@ -177,24 +195,30 @@ async fn cmd_start(config: Config, dir: Option<PathBuf>, profile_name: Option<St
 
         let input = input.trim().to_lowercase();
         if input == "n" {
-            println!("{} Creating new session...", "Info:".blue().bold());
+            if verbose {
+                eprintln!("{} Creating new session...", "Info:".blue().bold());
+            }
             (
                 Session::new(agent_dir.clone()).context("Failed to create session")?,
                 false,
             )
         } else {
-            println!(
-                "{} Recovering session {}",
-                "Info:".blue().bold(),
-                latest_session_id.cyan()
-            );
+            if verbose {
+                eprintln!(
+                    "{} Recovering session {}",
+                    "Info:".blue().bold(),
+                    latest_session_id.cyan()
+                );
+            }
             (
                 Session::load(agent_dir.clone(), latest_session_id.clone()).context("Failed to load session")?,
                 true,
             )
         }
     } else {
-        println!("{} Creating session...", "Info:".blue().bold());
+        if verbose {
+            eprintln!("{} Creating session...", "Info:".blue().bold());
+        }
         (
             Session::new(agent_dir.clone()).context("Failed to create session")?,
             false,
@@ -202,8 +226,8 @@ async fn cmd_start(config: Config, dir: Option<PathBuf>, profile_name: Option<St
     };
 
     if verbose {
-        println!("{} Session ID: {}", "Info:".blue().bold(), session.id.cyan());
-        println!(
+        eprintln!("{} Session ID: {}", "Info:".blue().bold(), session.id.cyan());
+        eprintln!(
             "{} Session directory: {}",
             "Info:".blue().bold(),
             session.session_dir().display()
@@ -229,7 +253,7 @@ async fn cmd_start(config: Config, dir: Option<PathBuf>, profile_name: Option<St
     let mut app = thunderus_ui::App::new(app_state).with_session(session.clone());
 
     if let Some(branch) = git_branch {
-        app.state_mut().git_branch = Some(branch);
+        app.state_mut().config.git_branch = Some(branch);
     }
 
     if is_recovery {
@@ -274,18 +298,17 @@ async fn cmd_start(config: Config, dir: Option<PathBuf>, profile_name: Option<St
 
 /// Execute a single command and exit
 fn cmd_exec(config: Config, command: String, args: Vec<String>, verbose: bool) -> Result<()> {
-    println!(
-        "{} Executing: {} {}",
-        "Info:".blue().bold(),
-        command.cyan(),
-        args.join(" ").cyan()
-    );
-
     if verbose {
-        println!("{} Profile: {}", "Info:".blue().bold(), config.default_profile.cyan());
+        eprintln!(
+            "{} Executing: {} {}",
+            "Info:".blue().bold(),
+            command.cyan(),
+            args.join(" ").cyan()
+        );
+        eprintln!("{} Profile: {}", "Info:".blue().bold(), config.default_profile.cyan());
     }
 
-    println!("{} Command execution not yet implemented", "Info:".yellow().bold());
+    eprintln!("{} Command execution not yet implemented", "Info:".yellow().bold());
 
     Ok(())
 }
@@ -375,10 +398,10 @@ mod tests {
     #[test]
     fn test_cli_start_command() {
         let cli = Cli::try_parse_from(["thunderus", "start"]).unwrap();
-        assert!(matches!(cli.command, Commands::Start { .. }));
+        assert!(matches!(cli.command.unwrap(), Commands::Start { .. }));
 
         let cli = Cli::try_parse_from(["thunderus", "start", "--dir", "/workspace"]).unwrap();
-        if let Commands::Start { dir } = cli.command {
+        if let Some(Commands::Start { dir }) = cli.command {
             assert_eq!(dir, Some(PathBuf::from("/workspace")));
         } else {
             panic!("Expected Start command");
@@ -388,9 +411,10 @@ mod tests {
     #[test]
     fn test_cli_exec_command() {
         let cli = Cli::try_parse_from(["thunderus", "exec", "cargo", "test"]).unwrap();
-        assert!(matches!(cli.command, Commands::Exec { .. }));
+        let cmd = cli.command.unwrap();
+        assert!(matches!(cmd, Commands::Exec { .. }));
 
-        if let Commands::Exec { command, args } = cli.command {
+        if let Commands::Exec { command, args } = cmd {
             assert_eq!(command, "cargo");
             assert_eq!(args, vec!["test"]);
         } else {
@@ -402,7 +426,7 @@ mod tests {
     fn test_cli_exec_command_with_args() {
         let cli = Cli::try_parse_from(["thunderus", "exec", "cargo", "build", "--", "--release"]).unwrap();
 
-        if let Commands::Exec { command, args } = cli.command {
+        if let Some(Commands::Exec { command, args }) = cli.command {
             assert_eq!(command, "cargo");
             assert_eq!(args, vec!["build", "--release"]);
         } else {
@@ -413,7 +437,7 @@ mod tests {
     #[test]
     fn test_cli_status_command() {
         let cli = Cli::try_parse_from(["thunderus", "status"]).unwrap();
-        assert!(matches!(cli.command, Commands::Status));
+        assert!(matches!(cli.command.unwrap(), Commands::Status));
     }
 
     #[test]
@@ -422,7 +446,7 @@ mod tests {
         let config_path = temp.path().join("config.toml");
         std::fs::write(&config_path, Config::example()).unwrap();
 
-        let result = load_or_create_config(&config_path);
+        let result = load_or_create_config(&config_path, false);
         assert!(result.is_ok());
 
         let config = result.unwrap();
@@ -433,7 +457,7 @@ mod tests {
     fn test_load_or_create_config_not_existing() {
         let temp = TempDir::new().unwrap();
         let config_path = temp.path().join("config.toml");
-        let result = load_or_create_config(&config_path);
+        let result = load_or_create_config(&config_path, false);
         assert!(result.is_err());
         assert!(config_path.exists());
 
@@ -448,7 +472,7 @@ mod tests {
         let config_path = temp.path().join("config.toml");
         std::fs::write(&config_path, "invalid toml").unwrap();
 
-        let result = load_or_create_config(&config_path);
+        let result = load_or_create_config(&config_path, false);
         assert!(result.is_err());
     }
 
@@ -597,10 +621,10 @@ mod tests {
             _profile.sandbox_mode,
         );
 
-        assert_eq!(app_state.cwd, working_dir);
-        assert_eq!(app_state.profile, "default");
-        assert_eq!(app_state.approval_mode, _profile.approval_mode);
-        assert_eq!(app_state.sandbox_mode, _profile.sandbox_mode);
+        assert_eq!(app_state.config.cwd, working_dir);
+        assert_eq!(app_state.config.profile, "default");
+        assert_eq!(app_state.config.approval_mode, _profile.approval_mode);
+        assert_eq!(app_state.config.sandbox_mode, _profile.sandbox_mode);
     }
 
     #[test]
@@ -666,9 +690,10 @@ model = "glm-4.7"
     #[test]
     fn test_cli_completions_command_bash() {
         let cli = Cli::try_parse_from(["thunderus", "completions", "bash"]).unwrap();
-        assert!(matches!(cli.command, Commands::Completions { .. }));
+        let cmd = cli.command.unwrap();
+        assert!(matches!(cmd, Commands::Completions { .. }));
 
-        if let Commands::Completions { shell } = cli.command {
+        if let Commands::Completions { shell } = cmd {
             assert_eq!(shell, Shell::Bash);
         } else {
             panic!("Expected Completions command");
@@ -678,9 +703,10 @@ model = "glm-4.7"
     #[test]
     fn test_cli_completions_command_zsh() {
         let cli = Cli::try_parse_from(["thunderus", "completions", "zsh"]).unwrap();
-        assert!(matches!(cli.command, Commands::Completions { .. }));
+        let cmd = cli.command.unwrap();
+        assert!(matches!(cmd, Commands::Completions { .. }));
 
-        if let Commands::Completions { shell } = cli.command {
+        if let Commands::Completions { shell } = cmd {
             assert_eq!(shell, Shell::Zsh);
         } else {
             panic!("Expected Completions command");
@@ -690,9 +716,10 @@ model = "glm-4.7"
     #[test]
     fn test_cli_completions_command_fish() {
         let cli = Cli::try_parse_from(["thunderus", "completions", "fish"]).unwrap();
-        assert!(matches!(cli.command, Commands::Completions { .. }));
+        let cmd = cli.command.unwrap();
+        assert!(matches!(cmd, Commands::Completions { .. }));
 
-        if let Commands::Completions { shell } = cli.command {
+        if let Commands::Completions { shell } = cmd {
             assert_eq!(shell, Shell::Fish);
         } else {
             panic!("Expected Completions command");

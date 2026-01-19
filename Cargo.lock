@@ -2704,6 +2704,7 @@ dependencies = [
  "anyhow",
  "clap",
  "clap_complete",
+ "libc",
  "owo-colors",
  "tempfile",
  "thunderus-core",

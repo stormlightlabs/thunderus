@@ -183,7 +183,7 @@ fn test_keyboard_approval_flow() {
 
     let mut app = create_test_app();
     let state = app.state_mut();
-    state.pending_approval = Some(ApprovalState::pending("test.action".to_string(), "risky".to_string()));
+    state.approval_ui.pending_approval = Some(ApprovalState::pending("test.action".to_string(), "risky".to_string()));
 
     let event = KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE);
     let action = EventHandler::handle_key_event(event, state);

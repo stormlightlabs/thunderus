@@ -23,7 +23,7 @@ impl<'a> Footer<'a> {
 
     /// Render footer to the given frame
     pub fn render(&self, frame: &mut Frame<'_>, area: Rect) {
-        let layout = TuiLayout::calculate(area, self.state.sidebar_visible);
+        let layout = TuiLayout::calculate(area, self.state.ui.sidebar_visible);
         let input_area = layout.footer_input();
         let hints_area = layout.footer_hints();
 
@@ -81,7 +81,7 @@ impl<'a> Footer<'a> {
     fn get_hints(&self) -> Vec<Span<'_>> {
         let mut hints = Vec::new();
 
-        if self.state.pending_approval.is_some() {
+        if self.state.approval_ui.pending_approval.is_some() {
             hints.push(Span::styled("[y]", Style::default().fg(Theme::GREEN).bold()));
             hints.push(Span::raw(" approve "));
             hints.push(Span::styled("[n]", Style::default().fg(Theme::RED).bold()));
@@ -110,7 +110,7 @@ impl<'a> Footer<'a> {
             hints.push(Span::styled("Ctrl+Shift+G", Style::default().fg(Theme::BLUE)));
             hints.push(Span::raw(": editor "));
 
-            if self.state.sidebar_visible {
+            if self.state.ui.sidebar_visible {
                 hints.push(Span::styled("Ctrl+S", Style::default().fg(Theme::BLUE)));
                 hints.push(Span::raw(": hide "));
             } else {
@@ -147,7 +147,7 @@ mod tests {
     fn test_footer_new() {
         let state = create_test_state();
         let footer = Footer::new(&state);
-        assert_eq!(footer.state.profile, "test");
+        assert_eq!(footer.state.config.profile, "test");
     }
 
     #[test]
@@ -174,7 +174,7 @@ mod tests {
     #[test]
     fn test_get_hints_sidebar_visible() {
         let mut state = create_test_state();
-        state.sidebar_visible = true;
+        state.ui.sidebar_visible = true;
 
         let _footer = Footer::new(&state);
         let hints = _footer.get_hints();
@@ -185,7 +185,7 @@ mod tests {
     #[test]
     fn test_get_hints_sidebar_hidden() {
         let mut state = create_test_state();
-        state.sidebar_visible = false;
+        state.ui.sidebar_visible = false;
 
         let _footer = Footer::new(&state);
         let hints = _footer.get_hints();
@@ -234,7 +234,7 @@ mod tests {
     #[test]
     fn test_get_hints_with_pending_approval() {
         let mut state = create_test_state();
-        state.pending_approval = Some(crate::state::ApprovalState::pending(
+        state.approval_ui.pending_approval = Some(crate::state::ApprovalState::pending(
             "test.action".to_string(),
             "risky".to_string(),
         ));
@@ -252,7 +252,7 @@ mod tests {
     fn test_get_hints_approval_overrides_generation() {
         let mut state = create_test_state();
         state.start_generation();
-        state.pending_approval = Some(crate::state::ApprovalState::pending(
+        state.approval_ui.pending_approval = Some(crate::state::ApprovalState::pending(
             "test.action".to_string(),
             "safe".to_string(),
         ));

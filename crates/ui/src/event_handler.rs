@@ -34,8 +34,8 @@ impl EventHandler {
             return None;
         }
 
-        if state.pending_hint.is_some() {
-            state.pending_hint = None;
+        if state.approval_ui.pending_hint.is_some() {
+            state.approval_ui.pending_hint = None;
             return Some(KeyAction::NoOp);
         }
 
@@ -43,7 +43,7 @@ impl EventHandler {
             return Self::handle_fuzzy_finder_key(event, state);
         }
 
-        match state.pending_approval {
+        match state.approval_ui.pending_approval {
             Some(_) => Self::handle_approval_key(event, state),
             None => Self::handle_normal_key(event, state),
         }
@@ -122,14 +122,17 @@ impl EventHandler {
     fn handle_approval_key(event: KeyEvent, state: &mut AppState) -> Option<KeyAction> {
         match event.code {
             KeyCode::Char('y') | KeyCode::Char('Y') => state
+                .approval_ui
                 .pending_approval
                 .as_ref()
                 .map(|approval| KeyAction::Approve { action: approval.action.clone(), risk: approval.risk.clone() }),
             KeyCode::Char('n') | KeyCode::Char('N') => state
+                .approval_ui
                 .pending_approval
                 .as_ref()
                 .map(|approval| KeyAction::Reject { action: approval.action.clone(), risk: approval.risk.clone() }),
             KeyCode::Char('c') | KeyCode::Char('C') => state
+                .approval_ui
                 .pending_approval
                 .as_ref()
                 .map(|approval| KeyAction::Cancel { action: approval.action.clone(), risk: approval.risk.clone() }),
@@ -155,7 +158,7 @@ impl EventHandler {
                     && event.modifiers.contains(KeyModifiers::CONTROL)
                     && event.modifiers.contains(KeyModifiers::SHIFT)
                 {
-                    state.verbosity.toggle();
+                    state.config.verbosity.toggle();
                     return Some(KeyAction::ToggleVerbosity);
                 } else if state.input.buffer.is_empty()
                     && !event.modifiers.contains(KeyModifiers::CONTROL)
@@ -197,7 +200,13 @@ impl EventHandler {
             }
             KeyCode::Char(c) => {
                 if event.modifiers.contains(KeyModifiers::CONTROL) && c == 'c' {
-                    return Some(KeyAction::CancelGeneration);
+                    if state.is_generating() {
+                        return Some(KeyAction::CancelGeneration);
+                    } else if state.record_ctrl_c_press() {
+                        return Some(KeyAction::Exit);
+                    } else {
+                        state.reset_ctrl_c_count();
+                    }
                 } else if event.modifiers.contains(KeyModifiers::CONTROL) && c == 's' {
                     state.toggle_sidebar();
                 } else if event.modifiers.contains(KeyModifiers::CONTROL)
@@ -208,6 +217,9 @@ impl EventHandler {
                 } else if event.modifiers.contains(KeyModifiers::CONTROL) && c == 'u' {
                     return Some(KeyAction::PageUp);
                 } else if event.modifiers.contains(KeyModifiers::CONTROL) && c == 'd' {
+                    if state.input.buffer.is_empty() && !state.is_generating() {
+                        return Some(KeyAction::Exit);
+                    }
                     return Some(KeyAction::PageDown);
                 } else if event.modifiers.contains(KeyModifiers::CONTROL) && c == 'r' {
                     return Some(KeyAction::RetryLastFailedAction);
@@ -232,6 +244,7 @@ impl EventHandler {
                 {
                     return Some(KeyAction::ExpandSidebarSection);
                 } else {
+                    state.reset_ctrl_c_count();
                     if state.input.is_navigating_history() {
                         state.input.reset_history_navigation();
                         state.input.clear();
@@ -240,6 +253,7 @@ impl EventHandler {
                 }
             }
             KeyCode::Backspace => {
+                state.reset_ctrl_c_count();
                 if state.input.is_navigating_history() {
                     state.input.reset_history_navigation();
                     state.input.clear();
@@ -248,6 +262,7 @@ impl EventHandler {
                 }
             }
             KeyCode::Delete => {
+                state.reset_ctrl_c_count();
                 if state.input.is_navigating_history() {
                     state.input.reset_history_navigation();
                     state.input.clear();
@@ -256,6 +271,7 @@ impl EventHandler {
                 }
             }
             KeyCode::Left => {
+                state.reset_ctrl_c_count();
                 if state.input.buffer.is_empty() && event.modifiers.is_empty() {
                     state.scroll_horizontal(-10);
                 } else {
@@ -263,15 +279,23 @@ impl EventHandler {
                 }
             }
             KeyCode::Right => {
+                state.reset_ctrl_c_count();
                 if state.input.buffer.is_empty() && event.modifiers.is_empty() {
                     state.scroll_horizontal(10);
                 } else {
                     state.input.move_right();
                 }
             }
-            KeyCode::Home => state.input.move_home(),
-            KeyCode::End => state.input.move_end(),
+            KeyCode::Home => {
+                state.reset_ctrl_c_count();
+                state.input.move_home();
+            }
+            KeyCode::End => {
+                state.reset_ctrl_c_count();
+                state.input.move_end();
+            }
             KeyCode::Esc => {
+                state.reset_ctrl_c_count();
                 if state.is_generating() {
                     return Some(KeyAction::CancelGeneration);
                 } else if !state.input.buffer.is_empty() {
@@ -406,6 +430,8 @@ pub enum KeyAction {
     FocusSlashCommand,
     /// Clear transcript view (keep history)
     ClearTranscriptView,
+    /// Exit the TUI application
+    Exit,
     /// No action (e.g., navigation in input)
     NoOp,
 }
@@ -520,12 +546,12 @@ mod tests {
     #[test]
     fn test_handle_normal_key_toggle_sidebar() {
         let mut state = create_test_state();
-        assert!(state.sidebar_visible);
+        assert!(state.ui.sidebar_visible);
 
         let event = KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL);
         EventHandler::handle_key_event(event, &mut state);
 
-        assert!(!state.sidebar_visible);
+        assert!(!state.ui.sidebar_visible);
     }
 
     #[test]
@@ -850,23 +876,23 @@ mod tests {
     #[test]
     fn test_handle_normal_key_ctrl_shift_v_toggle_verbosity() {
         let mut state = create_test_state();
-        assert_eq!(state.verbosity.as_str(), "quiet");
+        assert_eq!(state.config.verbosity.as_str(), "quiet");
 
         let event = KeyEvent::new(KeyCode::Char('v'), KeyModifiers::CONTROL | KeyModifiers::SHIFT);
         let action = EventHandler::handle_key_event(event, &mut state);
 
         assert!(matches!(action, Some(KeyAction::ToggleVerbosity)));
-        assert_eq!(state.verbosity.as_str(), "default");
+        assert_eq!(state.config.verbosity.as_str(), "default");
 
         let event = KeyEvent::new(KeyCode::Char('v'), KeyModifiers::CONTROL | KeyModifiers::SHIFT);
         let _action = EventHandler::handle_key_event(event, &mut state);
 
-        assert_eq!(state.verbosity.as_str(), "verbose");
+        assert_eq!(state.config.verbosity.as_str(), "verbose");
 
         let event = KeyEvent::new(KeyCode::Char('v'), KeyModifiers::CONTROL | KeyModifiers::SHIFT);
         let _action = EventHandler::handle_key_event(event, &mut state);
 
-        assert_eq!(state.verbosity.as_str(), "quiet");
+        assert_eq!(state.config.verbosity.as_str(), "quiet");
     }
 
     #[test]
@@ -946,7 +972,12 @@ mod tests {
     #[test]
     fn test_handle_normal_key_ctrl_d_page_down() {
         let mut state = create_test_state();
+        let event = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL);
+        let action = EventHandler::handle_key_event(event, &mut state);
 
+        assert!(matches!(action, Some(KeyAction::Exit)));
+
+        state.input.insert_char('a');
         let event = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL);
         let action = EventHandler::handle_key_event(event, &mut state);
 
@@ -1062,7 +1093,7 @@ mod tests {
     fn test_handle_event_focus_gained_refreshes_git_branch() {
         let mut state = create_test_state();
 
-        state.git_branch = Some("initial-branch".to_string());
+        state.config.git_branch = Some("initial-branch".to_string());
 
         let temp = tempfile::TempDir::new().unwrap();
         let working_dir = temp.path();
@@ -1091,13 +1122,13 @@ mod tests {
             .output()
             .unwrap();
 
-        state.cwd = working_dir.to_path_buf();
+        state.config.cwd = working_dir.to_path_buf();
 
         let event = crossterm::event::Event::FocusGained;
         let action = EventHandler::handle_event(&event, &mut state);
 
         assert!(action.is_none());
-        assert_eq!(state.git_branch, Some("focus-test-branch".to_string()));
+        assert_eq!(state.config.git_branch, Some("focus-test-branch".to_string()));
     }
 
     #[test]

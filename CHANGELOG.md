@@ -4,6 +4,27 @@
 
 ### Added
 
+#### [2026-01-19]
+
+- Action cards now have automated task context tracking and scope extraction to
+provide clearer rationale for agent operations during approval prompts.
+
+#### [2026-01-18]
+
+- Multi-tiered approval and sandboxing system with read-only, auto, and full-access
+modes to safely gate agent actions and shell commands.
+
+- Workspace boundary enforcement and a command risk classifier that provides pedagogical
+context and mandatory backups for destructive operations.
+
+#### [2026-01-16]
+
+- Text processing tools including ripgrep-powered search, gitignore-aware file
+discovery, and atomic find-replace primitives.
+
+- Tools with a session-aware dispatcher that enforces "read-before-edit" protocols and
+maintains a full audit trail of file modifications.
+
 #### [2026-01-15]
 
 - Tool execution display with risk classification reasoning, improved tool descriptions,
