@@ -2,8 +2,10 @@ use futures::StreamExt;
 use std::sync::{Arc, RwLock};
 use tokio::sync::mpsc;
 
+use thunderus_core::TaskContextTracker;
 use thunderus_core::*;
 use thunderus_providers::*;
+use thunderus_tools::extract_scope;
 
 /// Metadata for tool execution
 #[derive(Debug, Clone)]
@@ -51,6 +53,8 @@ pub enum AgentEvent {
         args: serde_json::Value,
         risk: ToolRisk,
         description: Option<String>,
+        task_context: Option<String>,
+        scope: Option<String>,
         classification_reasoning: Option<String>,
     },
     /// Tool result received
@@ -86,6 +90,8 @@ pub struct Agent {
     session_id: SessionId,
     /// Conversation messages (for context)
     messages: Vec<ChatMessage>,
+    /// Task context tracker for "WHY" field
+    task_context: Arc<TaskContextTracker>,
 }
 
 impl Agent {
@@ -100,6 +106,7 @@ impl Agent {
             approval_gate: Arc::new(RwLock::new(approval_gate)),
             session_id,
             messages: Vec::new(),
+            task_context: Arc::new(TaskContextTracker::new()),
         }
     }
 
@@ -128,6 +135,7 @@ impl Agent {
     ) -> Result<mpsc::UnboundedReceiver<AgentEvent>> {
         let (tx, rx) = mpsc::unbounded_channel();
 
+        self.task_context.update_from_user_message(user_input);
         self.messages.push(ChatMessage::user(user_input.to_string()));
 
         let request = ChatRequest::builder()
@@ -140,6 +148,7 @@ impl Agent {
         let provider = Arc::clone(&self.provider);
         let cancel_token_clone = cancel_token.clone();
         let cancel_token_for_stream = cancel_token.clone();
+        let task_context = Arc::clone(&self.task_context);
 
         tokio::spawn(async move {
             if cancel_token_clone.is_cancelled() {
@@ -171,11 +180,17 @@ impl Agent {
                         for call in calls {
                             let classification = classify_tool_risk(&call.function.name, &call.function.arguments);
                             let description = generate_tool_description(&call.function.name, &call.function.arguments);
+                            let scope_info = extract_scope(&call.function.name, &call.function.arguments);
+                            let scope = if !scope_info.is_empty() { Some(scope_info.to_detailed()) } else { None };
+                            let task_context_str = task_context.brief_description();
+
                             let _ = tx.send(AgentEvent::ToolCall {
                                 name: call.function.name.clone(),
                                 args: call.function.arguments,
                                 risk: classification.risk,
                                 description: Some(description),
+                                task_context: task_context_str,
+                                scope,
                                 classification_reasoning: Some(classification.reasoning),
                             });
                         }
@@ -492,6 +507,8 @@ mod tests {
             args: serde_json::json!({}),
             risk: thunderus_core::ToolRisk::Safe,
             description: Some("Test tool".to_string()),
+            task_context: Some("Test task".to_string()),
+            scope: Some("/test/path".to_string()),
             classification_reasoning: Some("Test reasoning".to_string()),
         };
         assert!(matches!(event, AgentEvent::ToolCall { .. }));
@@ -577,6 +594,8 @@ mod tests {
             args: serde_json::json!({}),
             risk: thunderus_core::ToolRisk::Safe,
             description: None,
+            task_context: None,
+            scope: None,
             classification_reasoning: None,
         });
         let _ = tx.send(AgentEvent::Done);

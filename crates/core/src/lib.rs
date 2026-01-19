@@ -4,6 +4,7 @@ pub mod config;
 pub mod error;
 pub mod layout;
 pub mod session;
+pub mod task_context;
 pub mod teaching;
 
 pub use approval::{
@@ -15,4 +16,5 @@ pub use config::{ApprovalMode, Config, Profile, ProviderConfig, SandboxMode};
 pub use error::{BlockedCommandError, Error, Result};
 pub use layout::{AgentDir, SessionId, SessionIdError, ViewFile};
 pub use session::{Event, LoggedEvent, PatchStatus, Session, TokensUsed};
+pub use task_context::{TaskContext, TaskContextTracker};
 pub use teaching::{TeachingState, get_hint_for_concept, suggest_concept};

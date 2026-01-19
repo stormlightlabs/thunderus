@@ -51,28 +51,45 @@ pub enum TranscriptEntry {
     UserMessage { content: String },
     /// Model response (may be streaming)
     ModelResponse { content: String, streaming: bool },
-    /// Tool call with risk classification
+    /// Tool call with risk classification and teaching context
     ToolCall {
         tool: String,
         arguments: String,
         risk: String,
+        /// WHAT: Plain language description of the operation
         description: Option<String>,
+        /// WHY: Context for this action in task flow
+        task_context: Option<String>,
+        /// SCOPE: Files/paths affected, blast radius
+        scope: Option<String>,
+        /// RISK: Classification with reasoning (why safe/risky)
         classification_reasoning: Option<String>,
         detail_level: CardDetailLevel,
     },
-    /// Tool result with success status
+    /// Tool result with success status and teaching context
     ToolResult {
         tool: String,
         result: String,
         success: bool,
         error: Option<String>,
+        /// RESULT: Exit code (0-255)
+        exit_code: Option<i32>,
+        /// RESULT: Next steps or follow-up actions
+        next_steps: Option<Vec<String>>,
         detail_level: CardDetailLevel,
     },
-    /// Approval prompt waiting for user input
+    /// Approval prompt waiting for user input with teaching context
     ApprovalPrompt {
         action: String,
         risk: String,
+        /// WHAT: Plain language description of the operation
         description: Option<String>,
+        /// WHY: Context for this action in task flow
+        task_context: Option<String>,
+        /// SCOPE: Files/paths affected, blast radius
+        scope: Option<String>,
+        /// RISK: Classification with reasoning
+        risk_reasoning: Option<String>,
         decision: Option<ApprovalDecision>,
         detail_level: CardDetailLevel,
     },
@@ -127,12 +144,14 @@ impl TranscriptEntry {
             arguments: arguments.into(),
             risk: risk.into(),
             description: None,
+            task_context: None,
+            scope: None,
             classification_reasoning: None,
             detail_level: CardDetailLevel::default(),
         }
     }
 
-    /// Add description to a tool call
+    /// Add description to a tool call (WHAT field)
     pub fn with_description(mut self, description: impl Into<String>) -> Self {
         if let Self::ToolCall { description: desc, .. } = &mut self {
             *desc = Some(description.into());
@@ -140,7 +159,23 @@ impl TranscriptEntry {
         self
     }
 
-    /// Add classification reasoning to a tool call
+    /// Add task context to a tool call (WHY field)
+    pub fn with_task_context(mut self, context: impl Into<String>) -> Self {
+        if let Self::ToolCall { task_context, .. } = &mut self {
+            *task_context = Some(context.into());
+        }
+        self
+    }
+
+    /// Add scope to a tool call (SCOPE field)
+    pub fn with_scope(mut self, scope: impl Into<String>) -> Self {
+        if let Self::ToolCall { scope: s, .. } = &mut self {
+            *s = Some(scope.into());
+        }
+        self
+    }
+
+    /// Add classification reasoning to a tool call (RISK field)
     pub fn with_classification_reasoning(mut self, reasoning: impl Into<String>) -> Self {
         if let Self::ToolCall { classification_reasoning, .. } = &mut self {
             *classification_reasoning = Some(reasoning.into());
@@ -168,6 +203,8 @@ impl TranscriptEntry {
             result: result.into(),
             success,
             error: None,
+            exit_code: None,
+            next_steps: None,
             detail_level: CardDetailLevel::default(),
         }
     }
@@ -180,15 +217,66 @@ impl TranscriptEntry {
         self
     }
 
+    /// Add exit code to a tool result (RESULT field)
+    pub fn with_exit_code(mut self, exit_code: i32) -> Self {
+        if let Self::ToolResult { exit_code: ec, .. } = &mut self {
+            *ec = Some(exit_code);
+        }
+        self
+    }
+
+    /// Add next steps to a tool result (RESULT field)
+    pub fn with_next_steps(mut self, steps: Vec<String>) -> Self {
+        if let Self::ToolResult { next_steps, .. } = &mut self {
+            *next_steps = Some(steps);
+        }
+        self
+    }
+
     /// Create an approval prompt entry
     pub fn approval_prompt(action: impl Into<String>, risk: impl Into<String>) -> Self {
         Self::ApprovalPrompt {
             action: action.into(),
             risk: risk.into(),
             description: None,
+            task_context: None,
+            scope: None,
+            risk_reasoning: None,
             decision: None,
             detail_level: CardDetailLevel::default(),
         }
+    }
+
+    /// Add description to an approval prompt (WHAT field)
+    pub fn with_approval_description(mut self, description: impl Into<String>) -> Self {
+        if let Self::ApprovalPrompt { description: desc, .. } = &mut self {
+            *desc = Some(description.into());
+        }
+        self
+    }
+
+    /// Add task context to an approval prompt (WHY field)
+    pub fn with_approval_task_context(mut self, context: impl Into<String>) -> Self {
+        if let Self::ApprovalPrompt { task_context, .. } = &mut self {
+            *task_context = Some(context.into());
+        }
+        self
+    }
+
+    /// Add scope to an approval prompt (SCOPE field)
+    pub fn with_approval_scope(mut self, scope: impl Into<String>) -> Self {
+        if let Self::ApprovalPrompt { scope: s, .. } = &mut self {
+            *s = Some(scope.into());
+        }
+        self
+    }
+
+    /// Add risk reasoning to an approval prompt (RISK field)
+    pub fn with_approval_risk_reasoning(mut self, reasoning: impl Into<String>) -> Self {
+        if let Self::ApprovalPrompt { risk_reasoning, .. } = &mut self {
+            *risk_reasoning = Some(reasoning.into());
+        }
+        self
     }
 
     /// Set approval decision
@@ -734,6 +822,175 @@ mod tests {
 
         for entry in [provider, network, session, terminal, cancelled, other] {
             assert_eq!(entry.type_name(), "error-entry");
+        }
+    }
+
+    #[test]
+    fn test_tool_call_with_teaching_context() {
+        let entry = TranscriptEntry::tool_call("edit", "{path: '/test.rs'}", "risky")
+            .with_description("Edit test file")
+            .with_task_context("Fix authentication bug")
+            .with_scope("/test.rs")
+            .with_classification_reasoning("Modifies file which could break code");
+
+        match &entry {
+            TranscriptEntry::ToolCall {
+                tool,
+                risk,
+                description,
+                task_context,
+                scope,
+                classification_reasoning,
+                ..
+            } => {
+                assert_eq!(tool, "edit");
+                assert_eq!(risk, "risky");
+                assert_eq!(description, &Some("Edit test file".to_string()));
+                assert_eq!(task_context, &Some("Fix authentication bug".to_string()));
+                assert_eq!(scope, &Some("/test.rs".to_string()));
+                assert_eq!(
+                    classification_reasoning,
+                    &Some("Modifies file which could break code".to_string())
+                );
+            }
+            _ => panic!("Expected ToolCall"),
+        }
+    }
+
+    #[test]
+    fn test_tool_result_with_exit_code_and_next_steps() {
+        let entry = TranscriptEntry::tool_result("shell", "Command failed", false)
+            .with_exit_code(1)
+            .with_next_steps(vec![
+                "Check command syntax".to_string(),
+                "Verify permissions".to_string(),
+            ]);
+
+        match &entry {
+            TranscriptEntry::ToolResult { tool, success, exit_code, next_steps, .. } => {
+                assert_eq!(tool, "shell");
+                assert!(!success);
+                assert_eq!(exit_code, &Some(1));
+                assert_eq!(
+                    next_steps,
+                    &Some(vec![
+                        "Check command syntax".to_string(),
+                        "Verify permissions".to_string()
+                    ])
+                );
+            }
+            _ => panic!("Expected ToolResult"),
+        }
+    }
+
+    #[test]
+    fn test_approval_prompt_with_teaching_context() {
+        let entry = TranscriptEntry::approval_prompt("patch.feature", "risky")
+            .with_approval_description("Apply feature patch")
+            .with_approval_task_context("Implement user authentication")
+            .with_approval_scope("src/auth/*.rs")
+            .with_approval_risk_reasoning("Modifies authentication logic which is security-sensitive");
+
+        match &entry {
+            TranscriptEntry::ApprovalPrompt {
+                action, risk, description, task_context, scope, risk_reasoning, ..
+            } => {
+                assert_eq!(action, "patch.feature");
+                assert_eq!(risk, "risky");
+                assert_eq!(description, &Some("Apply feature patch".to_string()));
+                assert_eq!(task_context, &Some("Implement user authentication".to_string()));
+                assert_eq!(scope, &Some("src/auth/*.rs".to_string()));
+                assert_eq!(
+                    risk_reasoning,
+                    &Some("Modifies authentication logic which is security-sensitive".to_string())
+                );
+            }
+            _ => panic!("Expected ApprovalPrompt"),
+        }
+    }
+
+    #[test]
+    fn test_tool_call_builder_methods_chain() {
+        let entry = TranscriptEntry::tool_call("read", "{path: '/tmp/file'}", "safe")
+            .with_description("Read temp file")
+            .with_task_context("Debug file permissions")
+            .with_scope("/tmp/file")
+            .with_classification_reasoning("Read-only operation")
+            .with_detail_level(CardDetailLevel::Verbose);
+
+        assert_eq!(entry.detail_level(), CardDetailLevel::Verbose);
+    }
+
+    #[test]
+    fn test_tool_result_builder_methods_chain() {
+        let entry = TranscriptEntry::tool_result("grep", "Found 3 matches", true)
+            .with_exit_code(0)
+            .with_next_steps(vec!["Review matches".to_string()])
+            .with_detail_level(CardDetailLevel::Detailed);
+
+        assert_eq!(entry.detail_level(), CardDetailLevel::Detailed);
+    }
+
+    #[test]
+    fn test_action_card_detail_levels_teaching_context() {
+        let brief = TranscriptEntry::tool_call("edit", "{}", "risky").with_detail_level(CardDetailLevel::Brief);
+        let detailed = TranscriptEntry::tool_call("edit", "{}", "risky").with_detail_level(CardDetailLevel::Detailed);
+        let verbose = TranscriptEntry::tool_call("edit", "{}", "risky").with_detail_level(CardDetailLevel::Verbose);
+
+        assert_eq!(brief.detail_level(), CardDetailLevel::Brief);
+        assert_eq!(detailed.detail_level(), CardDetailLevel::Detailed);
+        assert_eq!(verbose.detail_level(), CardDetailLevel::Verbose);
+    }
+
+    #[test]
+    fn test_tool_call_serialization_with_teaching_context() {
+        let entry = TranscriptEntry::tool_call("edit", "{}", "risky")
+            .with_description("Test")
+            .with_task_context("Fix bug")
+            .with_scope("/test.rs")
+            .with_classification_reasoning("Reasoning");
+
+        match &entry {
+            TranscriptEntry::ToolCall { tool, description, task_context, scope, classification_reasoning, .. } => {
+                assert!(!tool.is_empty());
+                assert!(description.is_some());
+                assert!(task_context.is_some());
+                assert!(scope.is_some());
+                assert!(classification_reasoning.is_some());
+            }
+            _ => panic!("Expected ToolCall"),
+        }
+    }
+
+    #[test]
+    fn test_teaching_context_fields_display_in_renderer() {
+        let entry = TranscriptEntry::tool_call("read", "{path: '/test.rs'}", "safe")
+            .with_description("Read file")
+            .with_task_context("Understand code structure")
+            .with_scope("/test.rs");
+
+        match &entry {
+            TranscriptEntry::ToolCall { description, task_context, scope, .. } => {
+                assert_eq!(description, &Some("Read file".to_string()));
+                assert_eq!(task_context, &Some("Understand code structure".to_string()));
+                assert_eq!(scope, &Some("/test.rs".to_string()));
+            }
+            _ => panic!("Expected ToolCall"),
+        }
+    }
+
+    #[test]
+    fn test_result_fields_display_in_renderer() {
+        let entry = TranscriptEntry::tool_result("shell", "Output", true)
+            .with_exit_code(0)
+            .with_next_steps(vec!["Step 1".to_string(), "Step 2".to_string()]);
+
+        match &entry {
+            TranscriptEntry::ToolResult { exit_code, next_steps, .. } => {
+                assert_eq!(exit_code, &Some(0));
+                assert_eq!(next_steps, &Some(vec!["Step 1".to_string(), "Step 2".to_string()]));
+            }
+            _ => panic!("Expected ToolResult"),
         }
     }
 }

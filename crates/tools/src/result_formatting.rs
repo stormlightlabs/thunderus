@@ -20,6 +20,8 @@ pub struct FormattedResult {
     pub summary: String,
     /// Detailed output or error message
     pub details: String,
+    /// Exit code (0-255, optional)
+    pub exit_code: Option<i32>,
     /// Suggested next steps (optional)
     pub next_steps: Option<Vec<String>>,
     /// Structured data for programmatic access (optional)
@@ -34,6 +36,7 @@ impl FormattedResult {
             success: true,
             summary: summary.into(),
             details: details.into(),
+            exit_code: Some(0),
             next_steps: None,
             data: None,
         }
@@ -46,6 +49,22 @@ impl FormattedResult {
             success: false,
             summary: summary.into(),
             details: details.into(),
+            exit_code: Some(1),
+            next_steps: None,
+            data: None,
+        }
+    }
+
+    /// Create a result with a specific exit code
+    pub fn with_exit_code(
+        tool: impl Into<String>, summary: impl Into<String>, details: impl Into<String>, exit_code: i32,
+    ) -> Self {
+        Self {
+            tool: tool.into(),
+            success: exit_code == 0,
+            summary: summary.into(),
+            details: details.into(),
+            exit_code: Some(exit_code),
             next_steps: None,
             data: None,
         }
@@ -72,6 +91,10 @@ impl FormattedResult {
             "Status: {}\n",
             if self.success { "✓ Success" } else { "✗ Failed" }
         ));
+
+        if let Some(code) = self.exit_code {
+            output.push_str(&format!("Exit code: {}\n", code));
+        }
 
         if !self.details.is_empty() {
             output.push_str("\n```\n");

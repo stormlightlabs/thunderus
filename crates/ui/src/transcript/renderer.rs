@@ -18,7 +18,13 @@ struct ToolCallContext<'a> {
     tool: &'a str,
     arguments: &'a str,
     risk: &'a str,
+    /// WHAT: Plain language description
     description: Option<&'a str>,
+    /// WHY: Task context
+    task_context: Option<&'a str>,
+    /// SCOPE: Files/paths affected
+    scope: Option<&'a str>,
+    /// RISK: Classification reasoning
     classification_reasoning: Option<&'a str>,
     rendering: RenderContext<'a>,
 }
@@ -29,6 +35,10 @@ struct ToolResultContext<'a> {
     result: &'a str,
     success: bool,
     error: Option<&'a str>,
+    /// RESULT: Exit code
+    exit_code: Option<i32>,
+    /// RESULT: Next steps
+    next_steps: Option<&'a Vec<String>>,
     rendering: RenderContext<'a>,
 }
 
@@ -36,7 +46,14 @@ struct ToolResultContext<'a> {
 struct ApprovalPromptContext<'a> {
     action: &'a str,
     risk: &'a str,
+    /// WHAT: Plain language description
     description: Option<&'a str>,
+    /// WHY: Task context
+    task_context: Option<&'a str>,
+    /// SCOPE: Files/paths affected
+    scope: Option<&'a str>,
+    /// RISK: Risk reasoning
+    risk_reasoning: Option<&'a str>,
     decision: Option<super::ApprovalDecision>,
     rendering: RenderContext<'a>,
 }
@@ -107,6 +124,8 @@ impl<'a> TranscriptRenderer<'a> {
                 arguments,
                 risk,
                 description,
+                task_context,
+                scope,
                 classification_reasoning,
                 detail_level,
             } => {
@@ -115,24 +134,48 @@ impl<'a> TranscriptRenderer<'a> {
                     arguments,
                     risk,
                     description: description.as_deref(),
+                    task_context: task_context.as_deref(),
+                    scope: scope.as_deref(),
                     classification_reasoning: classification_reasoning.as_deref(),
                     rendering: RenderContext::new(width, *detail_level, lines),
                 });
             }
-            super::TranscriptEntry::ToolResult { tool, result, success, error, detail_level } => {
+            super::TranscriptEntry::ToolResult {
+                tool,
+                result,
+                success,
+                error,
+                exit_code,
+                next_steps,
+                detail_level,
+            } => {
                 self.render_tool_result(ToolResultContext {
                     tool,
                     result,
                     success: *success,
                     error: error.as_deref(),
+                    exit_code: *exit_code,
+                    next_steps: next_steps.as_ref(),
                     rendering: RenderContext::new(width, *detail_level, lines),
                 });
             }
-            super::TranscriptEntry::ApprovalPrompt { action, risk, description, decision, detail_level } => {
+            super::TranscriptEntry::ApprovalPrompt {
+                action,
+                risk,
+                description,
+                task_context,
+                scope,
+                risk_reasoning,
+                decision,
+                detail_level,
+            } => {
                 self.render_approval_prompt(ApprovalPromptContext {
                     action,
                     risk,
                     description: description.as_deref(),
+                    task_context: task_context.as_deref(),
+                    scope: scope.as_deref(),
+                    risk_reasoning: risk_reasoning.as_deref(),
                     decision: *decision,
                     rendering: RenderContext::new(width, *detail_level, lines),
                 });
@@ -167,9 +210,18 @@ impl<'a> TranscriptRenderer<'a> {
         self.wrap_text(content, Theme::FG, width, lines);
     }
 
-    /// Render tool call card
+    /// Render tool call card with teaching context (WHAT, WHY, SCOPE, RISK)
     fn render_tool_call(&self, ctx: ToolCallContext) {
-        let ToolCallContext { tool, arguments, risk, description, classification_reasoning, rendering } = ctx;
+        let ToolCallContext {
+            tool,
+            arguments,
+            risk,
+            description,
+            task_context,
+            scope,
+            classification_reasoning,
+            rendering,
+        } = ctx;
 
         rendering.lines.push(Line::default());
         let risk_color = super::TranscriptEntry::risk_level_color_str(risk);
@@ -192,11 +244,73 @@ impl<'a> TranscriptRenderer<'a> {
                     ]));
                 }
             }
-            CardDetailLevel::Detailed | CardDetailLevel::Verbose => {
+            CardDetailLevel::Detailed => {
                 if let Some(desc) = description {
                     rendering.lines.push(Line::from(vec![
                         Span::styled("  ", Style::default().fg(Theme::MUTED)),
+                        Span::styled("WHAT: ", Style::default().fg(Theme::CYAN).bold()),
                         Span::styled(desc.to_string(), Style::default().fg(Theme::FG)),
+                    ]));
+                }
+
+                if let Some(ctx) = task_context {
+                    rendering.lines.push(Line::from(vec![
+                        Span::styled("  ", Style::default().fg(Theme::MUTED)),
+                        Span::styled("WHY:  ", Style::default().fg(Theme::CYAN).bold()),
+                        Span::styled(ctx.to_string(), Style::default().fg(Theme::FG)),
+                    ]));
+                }
+
+                if let Some(sc) = scope {
+                    rendering.lines.push(Line::from(vec![
+                        Span::styled("  ", Style::default().fg(Theme::MUTED)),
+                        Span::styled("SCOPE:", Style::default().fg(Theme::CYAN).bold()),
+                    ]));
+                    rendering.lines.push(Line::from(vec![
+                        Span::styled("    ", Style::default().fg(Theme::MUTED)),
+                        Span::styled(sc.to_string(), Style::default().fg(Theme::FG)),
+                    ]));
+                }
+
+                rendering.lines.push(Line::from(vec![Span::styled(
+                    "  Args: ",
+                    Style::default().fg(Theme::MUTED),
+                )]));
+                self.wrap_text(arguments, Theme::FG, rendering.width, rendering.lines);
+            }
+            CardDetailLevel::Verbose => {
+                if let Some(desc) = description {
+                    rendering.lines.push(Line::from(vec![
+                        Span::styled("  ", Style::default().fg(Theme::MUTED)),
+                        Span::styled("WHAT: ", Style::default().fg(Theme::CYAN).bold()),
+                        Span::styled(desc.to_string(), Style::default().fg(Theme::FG)),
+                    ]));
+                }
+
+                if let Some(ctx) = task_context {
+                    rendering.lines.push(Line::from(vec![
+                        Span::styled("  ", Style::default().fg(Theme::MUTED)),
+                        Span::styled("WHY:  ", Style::default().fg(Theme::CYAN).bold()),
+                        Span::styled(ctx.to_string(), Style::default().fg(Theme::FG)),
+                    ]));
+                }
+
+                if let Some(sc) = scope {
+                    rendering.lines.push(Line::from(vec![
+                        Span::styled("  ", Style::default().fg(Theme::MUTED)),
+                        Span::styled("SCOPE:", Style::default().fg(Theme::CYAN).bold()),
+                    ]));
+                    rendering.lines.push(Line::from(vec![
+                        Span::styled("    ", Style::default().fg(Theme::MUTED)),
+                        Span::styled(sc.to_string(), Style::default().fg(Theme::FG)),
+                    ]));
+                }
+
+                if let Some(reasoning) = classification_reasoning {
+                    rendering.lines.push(Line::from(vec![
+                        Span::styled("  ", Style::default().fg(Theme::MUTED)),
+                        Span::styled("RISK:  ", Style::default().fg(Theme::YELLOW).bold()),
+                        Span::styled(reasoning.to_string(), Style::default().fg(Theme::FG).italic()),
                     ]));
                 }
 
@@ -206,26 +320,17 @@ impl<'a> TranscriptRenderer<'a> {
                 )]));
                 self.wrap_text(arguments, Theme::FG, rendering.width, rendering.lines);
 
-                if rendering.detail_level == CardDetailLevel::Verbose {
-                    if let Some(reasoning) = classification_reasoning {
-                        rendering.lines.push(Line::from(vec![
-                            Span::styled("  ", Style::default().fg(Theme::MUTED)),
-                            Span::styled("Classification: ", Style::default().fg(Theme::YELLOW)),
-                            Span::styled(reasoning.to_string(), Style::default().fg(Theme::FG).italic()),
-                        ]));
-                    }
-                    rendering.lines.push(Line::from(vec![Span::styled(
-                        "  [verbose mode - full execution details]",
-                        Style::default().fg(Theme::MUTED),
-                    )]));
-                }
+                rendering.lines.push(Line::from(vec![Span::styled(
+                    "  [verbose mode - full execution trace]",
+                    Style::default().fg(Theme::MUTED),
+                )]));
             }
         }
     }
 
-    /// Render tool result card
+    /// Render tool result card with RESULT fields (exit code, next steps)
     fn render_tool_result(&self, ctx: ToolResultContext) {
-        let ToolResultContext { tool, result, success, error, rendering } = ctx;
+        let ToolResultContext { tool, result, success, error, exit_code, next_steps, rendering } = ctx;
 
         rendering.lines.push(Line::default());
         let status = if success { ("✅", Theme::GREEN) } else { ("❌", Theme::RED) };
@@ -263,25 +368,96 @@ impl<'a> TranscriptRenderer<'a> {
                     Style::default().fg(Theme::MUTED),
                 )]));
             }
-            CardDetailLevel::Detailed | CardDetailLevel::Verbose => {
+            CardDetailLevel::Detailed => {
                 rendering
                     .lines
                     .push(Line::from(vec![Span::styled("  ", Style::default().fg(Theme::MUTED))]));
                 self.render_with_code_highlighting(result, Theme::FG, rendering.width, rendering.lines);
 
-                if rendering.detail_level == CardDetailLevel::Verbose {
-                    rendering.lines.push(Line::from(vec![Span::styled(
-                        "  [verbose mode - full execution trace]",
-                        Style::default().fg(Theme::MUTED),
-                    )]));
+                if let Some(code) = exit_code
+                    && code != 0
+                {
+                    rendering.lines.push(Line::from(vec![
+                        Span::styled("  ", Style::default().fg(Theme::MUTED)),
+                        Span::styled("RESULT:", Style::default().fg(Theme::CYAN).bold()),
+                        Span::styled(format!(" Exit code {}", code), Style::default().fg(Theme::RED).bold()),
+                    ]));
                 }
+
+                if let Some(steps) = next_steps
+                    && !steps.is_empty()
+                {
+                    rendering.lines.push(Line::from(vec![
+                        Span::styled("  ", Style::default().fg(Theme::MUTED)),
+                        Span::styled("RESULT:", Style::default().fg(Theme::CYAN).bold()),
+                        Span::styled(" Next steps", Style::default().fg(Theme::FG)),
+                    ]));
+                    for step in steps {
+                        rendering.lines.push(Line::from(vec![
+                            Span::styled("    • ", Style::default().fg(Theme::MUTED)),
+                            Span::styled(step.clone(), Style::default().fg(Theme::FG)),
+                        ]));
+                    }
+                }
+            }
+            CardDetailLevel::Verbose => {
+                rendering
+                    .lines
+                    .push(Line::from(vec![Span::styled("  ", Style::default().fg(Theme::MUTED))]));
+                self.render_with_code_highlighting(result, Theme::FG, rendering.width, rendering.lines);
+
+                rendering.lines.push(Line::from(vec![
+                    Span::styled("  ", Style::default().fg(Theme::MUTED)),
+                    Span::styled("RESULT:", Style::default().fg(Theme::CYAN).bold()),
+                ]));
+                if let Some(code) = exit_code {
+                    let color = if code == 0 { Theme::GREEN } else { Theme::RED };
+                    rendering.lines.push(Line::from(vec![
+                        Span::styled("    Exit code: ", Style::default().fg(Theme::MUTED)),
+                        Span::styled(code.to_string(), Style::default().fg(color).bold()),
+                    ]));
+                } else {
+                    rendering.lines.push(Line::from(vec![
+                        Span::styled("    Exit code: ", Style::default().fg(Theme::MUTED)),
+                        Span::styled("unknown", Style::default().fg(Theme::MUTED)),
+                    ]));
+                }
+
+                if let Some(steps) = next_steps
+                    && !steps.is_empty()
+                {
+                    rendering.lines.push(Line::from(vec![
+                        Span::styled("    ", Style::default().fg(Theme::MUTED)),
+                        Span::styled("Next steps:", Style::default().fg(Theme::FG)),
+                    ]));
+                    for step in steps {
+                        rendering.lines.push(Line::from(vec![
+                            Span::styled("      • ", Style::default().fg(Theme::MUTED)),
+                            Span::styled(step.clone(), Style::default().fg(Theme::FG)),
+                        ]));
+                    }
+                }
+
+                rendering.lines.push(Line::from(vec![Span::styled(
+                    "  [verbose mode - full execution trace]",
+                    Style::default().fg(Theme::MUTED),
+                )]));
             }
         }
     }
 
-    /// Render approval prompt card
+    /// Render approval prompt card with teaching context (WHAT, WHY, SCOPE, RISK)
     fn render_approval_prompt(&self, ctx: ApprovalPromptContext) {
-        let ApprovalPromptContext { action, risk, description, decision, rendering } = ctx;
+        let ApprovalPromptContext {
+            action,
+            risk,
+            description,
+            task_context,
+            scope,
+            risk_reasoning,
+            decision,
+            rendering,
+        } = ctx;
 
         rendering.lines.push(Line::default());
         let risk_color = super::TranscriptEntry::risk_level_color_str(risk);
@@ -296,6 +472,7 @@ impl<'a> TranscriptRenderer<'a> {
             "  Action: ",
             Style::default().fg(Theme::MUTED),
         )]));
+
         self.wrap_text(
             &format!("{} [{}]", action, risk),
             Theme::FG,
@@ -303,12 +480,79 @@ impl<'a> TranscriptRenderer<'a> {
             rendering.lines,
         );
 
-        if let Some(desc) = description {
-            rendering.lines.push(Line::from(vec![Span::styled(
-                "  Description: ",
-                Style::default().fg(Theme::MUTED),
-            )]));
-            self.wrap_text(desc, Theme::FG, rendering.width, rendering.lines);
+        match rendering.detail_level {
+            CardDetailLevel::Brief => {
+                if let Some(desc) = description {
+                    rendering.lines.push(Line::from(vec![
+                        Span::styled("  ", Style::default().fg(Theme::MUTED)),
+                        Span::styled(desc.to_string(), Style::default().fg(Theme::FG)),
+                    ]));
+                }
+            }
+            CardDetailLevel::Detailed => {
+                if let Some(desc) = description {
+                    rendering.lines.push(Line::from(vec![
+                        Span::styled("  ", Style::default().fg(Theme::MUTED)),
+                        Span::styled("WHAT: ", Style::default().fg(Theme::CYAN).bold()),
+                        Span::styled(desc.to_string(), Style::default().fg(Theme::FG)),
+                    ]));
+                }
+
+                if let Some(ctx) = task_context {
+                    rendering.lines.push(Line::from(vec![
+                        Span::styled("  ", Style::default().fg(Theme::MUTED)),
+                        Span::styled("WHY:  ", Style::default().fg(Theme::CYAN).bold()),
+                        Span::styled(ctx.to_string(), Style::default().fg(Theme::FG)),
+                    ]));
+                }
+
+                if let Some(sc) = scope {
+                    rendering.lines.push(Line::from(vec![
+                        Span::styled("  ", Style::default().fg(Theme::MUTED)),
+                        Span::styled("SCOPE:", Style::default().fg(Theme::CYAN).bold()),
+                    ]));
+                    rendering.lines.push(Line::from(vec![
+                        Span::styled("    ", Style::default().fg(Theme::MUTED)),
+                        Span::styled(sc.to_string(), Style::default().fg(Theme::FG)),
+                    ]));
+                }
+            }
+            CardDetailLevel::Verbose => {
+                if let Some(desc) = description {
+                    rendering.lines.push(Line::from(vec![
+                        Span::styled("  ", Style::default().fg(Theme::MUTED)),
+                        Span::styled("WHAT: ", Style::default().fg(Theme::CYAN).bold()),
+                        Span::styled(desc.to_string(), Style::default().fg(Theme::FG)),
+                    ]));
+                }
+
+                if let Some(ctx) = task_context {
+                    rendering.lines.push(Line::from(vec![
+                        Span::styled("  ", Style::default().fg(Theme::MUTED)),
+                        Span::styled("WHY:  ", Style::default().fg(Theme::CYAN).bold()),
+                        Span::styled(ctx.to_string(), Style::default().fg(Theme::FG)),
+                    ]));
+                }
+
+                if let Some(sc) = scope {
+                    rendering.lines.push(Line::from(vec![
+                        Span::styled("  ", Style::default().fg(Theme::MUTED)),
+                        Span::styled("SCOPE:", Style::default().fg(Theme::CYAN).bold()),
+                    ]));
+                    rendering.lines.push(Line::from(vec![
+                        Span::styled("    ", Style::default().fg(Theme::MUTED)),
+                        Span::styled(sc.to_string(), Style::default().fg(Theme::FG)),
+                    ]));
+                }
+
+                if let Some(reasoning) = risk_reasoning {
+                    rendering.lines.push(Line::from(vec![
+                        Span::styled("  ", Style::default().fg(Theme::MUTED)),
+                        Span::styled("RISK:  ", Style::default().fg(Theme::YELLOW).bold()),
+                        Span::styled(reasoning.to_string(), Style::default().fg(Theme::FG).italic()),
+                    ]));
+                }
+            }
         }
 
         match decision {

@@ -524,19 +524,27 @@ impl App {
                 }
                 self.transcript_mut().add_streaming_token(&text);
             }
-            AgentEvent::ToolCall { name, args, risk, description, classification_reasoning } => {
+            AgentEvent::ToolCall { name, args, risk, description, task_context, scope, classification_reasoning } => {
                 let args_str = serde_json::to_string_pretty(&args).unwrap_or_default();
                 let risk_str = risk.as_str();
                 self.transcript_mut().add_tool_call(&name, &args_str, risk_str);
                 if let Some(entry) = self.transcript_mut().last_mut()
                     && let crate::transcript::TranscriptEntry::ToolCall {
                         description: d,
+                        task_context: tc,
+                        scope: sc,
                         classification_reasoning: cr,
                         ..
                     } = entry
                 {
                     if let Some(desc) = description {
                         *d = Some(desc);
+                    }
+                    if let Some(ctx) = task_context {
+                        *tc = Some(ctx);
+                    }
+                    if let Some(scp) = scope {
+                        *sc = Some(scp);
                     }
                     if let Some(reasoning) = classification_reasoning {
                         *cr = Some(reasoning);

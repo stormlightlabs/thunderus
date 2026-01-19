@@ -176,7 +176,7 @@ Codex's model: approval policies + sandbox modes + profiles[^2]
 - [x] Command classifier integration:
       - safe/risky/blocked categorization for shell commands
       - pedagogical suggestions (e.g., "Consider Edit tool instead of sed -i")
-- [ ] Enhance action cards with teaching context (builds on Milestone II cards):
+- [x] Enhance action cards with teaching context:
       - "What": operation in plain language
       - "Why": context for this action in task flow
       - "Scope": files/paths affected, blast radius

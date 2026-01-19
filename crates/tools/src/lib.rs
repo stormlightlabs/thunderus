@@ -6,6 +6,7 @@ pub mod full_access;
 pub mod read_history;
 pub mod registry;
 pub mod result_formatting;
+pub mod scope_extraction;
 pub mod session_dispatcher;
 pub mod teaching_errors;
 pub mod tool;
@@ -25,6 +26,7 @@ pub use registry::ToolRegistry;
 pub use result_formatting::{
     EditFormatter, FormattedResult, GlobFormatter, GrepFormatter, MultiEditFormatter, ReadFormatter,
 };
+pub use scope_extraction::{ScopeInfo, extract_scope};
 pub use session_dispatcher::{SessionToolDispatcher, validate_read_before_edit as validate_session_read_before_edit};
 pub use teaching_errors::{
     EditErrors, ErrorCategory, GlobErrors, GrepErrors, MultiEditErrors, ReadErrors, TeachingError,

@@ -2692,6 +2692,7 @@ dependencies = [
  "serde_json",
  "thunderus-core",
  "thunderus-providers",
+ "thunderus-tools",
  "tokio",
  "tokio-test",
 ]
