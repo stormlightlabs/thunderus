@@ -1,4 +1,6 @@
-use crate::components::{Footer, FuzzyFinderComponent, Header, Sidebar, Transcript as TranscriptComponent};
+use crate::components::{
+    Footer, FuzzyFinderComponent, Header, Sidebar, TeachingHintPopup, Transcript as TranscriptComponent,
+};
 use crate::event_handler::{EventHandler, KeyAction};
 use crate::layout::TuiLayout;
 use crate::state::VerbosityLevel;
@@ -12,6 +14,7 @@ use std::io::{self, Result, Write};
 use std::{env, fs, panic};
 use std::{process::Command, sync::Arc, time::Duration};
 use thunderus_agent::{Agent, AgentEvent};
+use thunderus_core::teaching::suggest_concept;
 use thunderus_core::{
     ActionType, ApprovalDecision, ApprovalGate, ApprovalMode, ApprovalProtocol, Session, SessionId, ToolRisk,
 };
@@ -584,14 +587,11 @@ impl App {
             }
             AgentEvent::ApprovalResponse(_response) => self.state_mut().pending_approval = None,
             AgentEvent::Error(msg) => {
-                let error_type = if msg.contains("cancelled") {
-                    ErrorType::Cancelled
-                } else if msg.contains("timeout") || msg.contains("network") {
-                    ErrorType::Network
-                } else if msg.contains("provider") || msg.contains("API") {
-                    ErrorType::Provider
-                } else {
-                    ErrorType::Other
+                let error_type = match msg.as_str() {
+                    m if m.contains("cancelled") => ErrorType::Cancelled,
+                    m if m.contains("timeout") || m.contains("network") => ErrorType::Network,
+                    m if m.contains("provider") || m.contains("API") => ErrorType::Provider,
+                    _ => ErrorType::Other,
                 };
 
                 eprintln!("[Agent Error] {}", msg);
@@ -607,13 +607,11 @@ impl App {
                     self.persist_model_message(&content);
                 }
             }
-            AgentEvent::ApprovalModeChanged { from, to } => {
-                self.transcript_mut().add_system_message(format!(
-                    "Approval mode changed: {} → {}",
-                    from.as_str(),
-                    to.as_str()
-                ));
-            }
+            AgentEvent::ApprovalModeChanged { from, to } => self.transcript_mut().add_system_message(format!(
+                "Approval mode changed: {} → {}",
+                from.as_str(),
+                to.as_str()
+            )),
         }
     }
 
@@ -636,6 +634,27 @@ impl App {
             ToolRisk::Risky => "risky",
             ToolRisk::Blocked => "blocked",
         };
+
+        if let Some(ref mut session) = self.session
+            && request.risk_level.is_risky()
+        {
+            let action_type_for_hint = match request.action_type {
+                ActionType::Tool => "tool",
+                ActionType::Shell => "shell",
+                ActionType::FileWrite => "file_write",
+                ActionType::FileDelete => "file_delete",
+                ActionType::Network => "network",
+                ActionType::Patch => "patch",
+                ActionType::Generic => "generic",
+            };
+
+            if let Some(concept) =
+                suggest_concept(action_type_for_hint, request.risk_level, request.description.as_str())
+                && let Ok(Some(hint)) = session.get_hint_for_concept(&concept)
+            {
+                self.state_mut().show_hint(hint);
+            }
+        }
 
         self.transcript_mut()
             .add_approval_prompt(format!("{}:{}", action_type_str, request.description), risk_str);
@@ -736,6 +755,11 @@ impl App {
             if self.state.is_fuzzy_finder_active() {
                 let fuzzy_finder = FuzzyFinderComponent::new(&self.state);
                 fuzzy_finder.render(frame);
+            }
+
+            if let Some(ref hint) = self.state.pending_hint {
+                let hint_popup = TeachingHintPopup::new(hint);
+                hint_popup.render(frame, size);
             }
         })?;
 
@@ -1375,10 +1399,8 @@ mod tests {
     #[test]
     fn test_input_flow_clear() {
         let mut app = create_test_app();
-
         app.state_mut().input.buffer = "Test message".to_string();
         app.state_mut().input.cursor = 12;
-
         app.state_mut().input.clear();
         assert_eq!(app.state_mut().input.buffer, "");
         assert_eq!(app.state_mut().input.cursor, 0);

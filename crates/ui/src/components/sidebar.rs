@@ -3,6 +3,7 @@ use crate::{
     state::{AppState, SidebarSection},
     theme::Theme,
 };
+
 use ratatui::{
     Frame,
     layout::Rect,
@@ -33,27 +34,27 @@ impl<'a> Sidebar<'a> {
     }
 
     /// Render sidebar to the given frame
-    pub fn render(&self, frame: &mut Frame<'_>, _area: Rect) {
+    pub fn render(&self, frame: &mut Frame<'_>, _: Rect) {
         let layout = layout::TuiLayout::calculate(frame.area(), true);
-        let Some((events_area, files_area, diff_area, lsp_area)) = layout.sidebar_sections() else {
+        let Some(sidebar) = layout.sidebar_sections() else {
             return;
         };
 
         if !self.state.sidebar_collapse_state.is_collapsed(SidebarSection::Events) {
-            self.render_session_events(frame, events_area);
+            self.render_session_events(frame, sidebar.session_events);
         }
         if !self.state.sidebar_collapse_state.is_collapsed(SidebarSection::Modified) {
-            self.render_modified_files(frame, files_area);
+            self.render_modified_files(frame, sidebar.modified_files);
         }
         if !self.state.sidebar_collapse_state.is_collapsed(SidebarSection::Diffs) {
-            self.render_git_diff_queue(frame, diff_area);
+            self.render_git_diff_queue(frame, sidebar.git_diff);
         }
         if !self
             .state
             .sidebar_collapse_state
             .is_collapsed(SidebarSection::Integrations)
         {
-            self.render_lsp_mcp_status(frame, lsp_area);
+            self.render_lsp_mcp_status(frame, sidebar.lsp_mcp_status);
         }
     }
 

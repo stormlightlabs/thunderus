@@ -34,6 +34,11 @@ impl EventHandler {
             return None;
         }
 
+        if state.pending_hint.is_some() {
+            state.pending_hint = None;
+            return Some(KeyAction::NoOp);
+        }
+
         if state.is_fuzzy_finder_active() {
             return Self::handle_fuzzy_finder_key(event, state);
         }

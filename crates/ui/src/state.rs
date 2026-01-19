@@ -375,6 +375,8 @@ pub struct AppState {
     pub approval_mode: ApprovalMode,
     /// Sandbox mode
     pub sandbox_mode: SandboxMode,
+    /// Network access allowed
+    pub allow_network: bool,
     /// Verbosity level
     pub verbosity: VerbosityLevel,
     /// Git branch (if in a git repo)
@@ -385,6 +387,8 @@ pub struct AppState {
     pub input: InputState,
     /// Pending approval (if any)
     pub pending_approval: Option<ApprovalState>,
+    /// Pending teaching hint (if any)
+    pub pending_hint: Option<String>,
     /// Whether sidebar is visible
     pub sidebar_visible: bool,
     /// Whether the user is currently generating
@@ -419,11 +423,13 @@ impl AppState {
             provider,
             approval_mode,
             sandbox_mode,
+            allow_network: false,
             verbosity: VerbosityLevel::default(),
             git_branch: None,
             stats: SessionStats::default(),
             input: InputState::new(),
             pending_approval: None,
+            pending_hint: None,
             sidebar_visible: true,
             generating: false,
             composer_mode: ComposerMode::default(),
@@ -541,6 +547,24 @@ impl AppState {
             self.git_branch = None;
         }
     }
+
+    /// Show a teaching hint to the user
+    ///
+    /// This sets a pending hint that will be displayed in a popup until the user
+    /// presses any key to dismiss it.
+    pub fn show_hint(&mut self, hint: impl Into<String>) {
+        self.pending_hint = Some(hint.into());
+    }
+
+    /// Dismiss the current teaching hint if one is shown
+    pub fn dismiss_hint(&mut self) {
+        self.pending_hint = None;
+    }
+
+    /// Check if a teaching hint is currently shown
+    pub fn has_pending_hint(&self) -> bool {
+        self.pending_hint.is_some()
+    }
 }
 
 impl Default for AppState {
@@ -555,11 +579,13 @@ impl Default for AppState {
             },
             approval_mode: ApprovalMode::Auto,
             sandbox_mode: SandboxMode::default(),
+            allow_network: false,
             verbosity: VerbosityLevel::default(),
             git_branch: None,
             stats: SessionStats::default(),
             input: InputState::new(),
             pending_approval: None,
+            pending_hint: None,
             sidebar_visible: true,
             generating: false,
             composer_mode: ComposerMode::default(),

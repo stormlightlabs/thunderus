@@ -1,4 +1,5 @@
-use crate::{layout::header_sections, state::AppState, theme::Theme};
+use crate::{layout::HeaderSections, state::AppState, theme::Theme};
+
 use ratatui::{
     Frame,
     layout::Rect,
@@ -25,37 +26,36 @@ impl<'a> Header<'a> {
 
     /// Render the header to the given frame
     pub fn render(&self, frame: &mut Frame<'_>, area: Rect) {
-        let (cwd_area, profile_area, provider_area, approval_area, git_area, sandbox_area, verbosity_area) =
-            header_sections(area);
+        let sections = HeaderSections::new(area);
 
-        if cwd_area.width > 0 {
+        if sections.cwd.width > 0 {
             let cwd_span = Span::styled(self.cwd_display(), Style::default().fg(Theme::CYAN));
             let cwd = Paragraph::new(Line::from(cwd_span)).block(Block::default().borders(Borders::RIGHT));
-            frame.render_widget(cwd, cwd_area);
+            frame.render_widget(cwd, sections.cwd);
         }
 
-        if profile_area.width > 0 {
+        if sections.profile.width > 0 {
             let profile_span = Span::styled(format!("@{}", self.state.profile), Style::default().fg(Theme::PURPLE));
             let profile = Paragraph::new(Line::from(profile_span)).block(Block::default().borders(Borders::RIGHT));
-            frame.render_widget(profile, profile_area);
+            frame.render_widget(profile, sections.profile);
         }
 
-        if provider_area.width > 0 {
+        if sections.provider.width > 0 {
             let provider_text = format!("{}/{}", self.state.provider_name(), self.state.model_name());
             let provider_span = Span::styled(provider_text, Style::default().fg(Theme::BLUE));
             let provider = Paragraph::new(Line::from(provider_span)).block(Block::default().borders(Borders::RIGHT));
-            frame.render_widget(provider, provider_area);
+            frame.render_widget(provider, sections.provider);
         }
 
-        if approval_area.width > 0 {
+        if sections.approval.width > 0 {
             let approval_span = Theme::approval_mode_span(self.state.approval_mode.as_str());
             let mode_label = Span::styled("[", Style::default().fg(Theme::MUTED));
             let mode_close = Span::styled("]", Style::default().fg(Theme::MUTED));
             let approval = Paragraph::new(Line::from(vec![mode_label, approval_span, mode_close]));
-            frame.render_widget(approval, approval_area);
+            frame.render_widget(approval, sections.approval);
         }
 
-        if git_area.width > 0 {
+        if sections.git.width > 0 {
             let git_text = if let Some(ref branch) = self.state.git_branch {
                 format!("🌿 {}", branch)
             } else {
@@ -63,10 +63,10 @@ impl<'a> Header<'a> {
             };
             let git_span = Span::styled(git_text, Style::default().fg(Theme::GREEN));
             let git = Paragraph::new(Line::from(git_span)).block(Block::default().borders(Borders::RIGHT));
-            frame.render_widget(git, git_area);
+            frame.render_widget(git, sections.git);
         }
 
-        if sandbox_area.width > 0 {
+        if sections.sandbox.width > 0 {
             let sandbox_span = Theme::sandbox_mode_span(self.state.sandbox_mode.as_str());
             let sandbox_label = Span::styled("🔒", Style::default().fg(Theme::YELLOW));
             let sandbox = Paragraph::new(Line::from(vec![
@@ -74,13 +74,28 @@ impl<'a> Header<'a> {
                 Span::styled(" ", Style::default()),
                 sandbox_span,
             ]));
-            frame.render_widget(sandbox, sandbox_area);
+            frame.render_widget(sandbox, sections.sandbox);
         }
 
-        if verbosity_area.width > 0 {
+        if sections.network.width > 0 {
+            let network_span = if self.state.allow_network {
+                Span::styled("ON", Style::default().fg(Theme::GREEN))
+            } else {
+                Span::styled("OFF", Style::default().fg(Theme::MUTED))
+            };
+            let network_label = Span::styled("Net:", Style::default().fg(Theme::MUTED));
+            let network = Paragraph::new(Line::from(vec![
+                network_label,
+                Span::styled(" ", Style::default()),
+                network_span,
+            ]));
+            frame.render_widget(network, sections.network);
+        }
+
+        if sections.verbosity.width > 0 {
             let verbosity_span = Theme::verbosity_span(self.state.verbosity.as_str());
             let verbosity = Paragraph::new(Line::from(verbosity_span));
-            frame.render_widget(verbosity, verbosity_area);
+            frame.render_widget(verbosity, sections.verbosity);
         }
     }
 

@@ -14,7 +14,7 @@ use std::collections::HashSet;
 use crate::ToolRisk;
 
 /// Concept IDs that have been taught in this session
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct TeachingState {
     /// Set of concept IDs that have been taught
     taught: HashSet<String>,

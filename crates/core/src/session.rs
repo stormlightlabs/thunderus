@@ -1,6 +1,7 @@
 use crate::config::ApprovalMode;
 use crate::error::{Error, Result, SessionError};
 use crate::layout::{AgentDir, SessionId};
+use crate::teaching::TeachingState;
 
 use serde::{Deserialize, Serialize};
 use std::fs::{File, OpenOptions};
@@ -148,6 +149,9 @@ pub struct SessionMetadata {
     pub title: Option<String>,
     /// Session tags
     pub tags: Vec<String>,
+    /// Teaching state for tracking taught concepts
+    #[serde(default)]
+    pub teaching_state: TeachingState,
     /// When the session was created
     pub created_at: String,
     /// When the session was last updated
@@ -164,6 +168,7 @@ impl SessionMetadata {
             allow_network: false,
             title: None,
             tags: Vec::new(),
+            teaching_state: TeachingState::default(),
             created_at: now.clone(),
             updated_at: now,
         }
@@ -567,6 +572,37 @@ impl Session {
         metadata = metadata.with_allow_network(allow);
         self.save_metadata(&metadata)?;
         Ok(())
+    }
+
+    /// Get the teaching state from metadata
+    pub fn get_teaching_state(&self) -> Result<TeachingState> {
+        Ok(self.load_metadata()?.teaching_state)
+    }
+
+    /// Get a hint for a concept if it hasn't been taught yet
+    ///
+    /// Returns Some(hint) if this is the first time the concept is encountered,
+    /// or None if it has already been taught. Persists the updated teaching state.
+    pub fn get_hint_for_concept(&mut self, concept: &str) -> Result<Option<String>> {
+        let mut metadata = self.load_metadata()?;
+        let hint = metadata.teaching_state.get_hint(concept);
+        if hint.is_some() {
+            self.save_metadata(&metadata)?;
+        }
+        Ok(hint)
+    }
+
+    /// Mark a concept as taught without displaying a hint
+    pub fn mark_concept_taught(&mut self, concept: &str) -> Result<()> {
+        let mut metadata = self.load_metadata()?;
+        metadata.teaching_state.mark_taught(concept);
+        self.save_metadata(&metadata)?;
+        Ok(())
+    }
+
+    /// Check if a concept has been taught
+    pub fn is_concept_taught(&self, concept: &str) -> Result<bool> {
+        Ok(self.load_metadata()?.teaching_state.has_taught(concept))
     }
 }
 
@@ -1372,6 +1408,76 @@ mod tests {
         let metadata_path = session.metadata_file();
 
         assert!(metadata_path.ends_with("metadata.json"));
+        drop(temp);
+    }
+
+    #[test]
+    fn test_get_teaching_state_default() {
+        let (temp, session) = create_test_session();
+        let teaching_state = session.get_teaching_state().unwrap();
+        assert!(!teaching_state.has_taught("any_concept"));
+        drop(temp);
+    }
+
+    #[test]
+    fn test_get_hint_for_concept_first_time() {
+        let (temp, mut session) = create_test_session();
+        let hint = session.get_hint_for_concept("sed_risky_explained").unwrap();
+        assert!(hint.is_some());
+        assert!(hint.unwrap().contains("sed -i"));
+        drop(temp);
+    }
+
+    #[test]
+    fn test_get_hint_for_concept_second_time() {
+        let (temp, mut session) = create_test_session();
+        let hint1 = session.get_hint_for_concept("network_command_explained").unwrap();
+        assert!(hint1.is_some());
+
+        let hint2 = session.get_hint_for_concept("network_command_explained").unwrap();
+        assert!(hint2.is_none());
+        drop(temp);
+    }
+
+    #[test]
+    fn test_mark_concept_taught() {
+        let (temp, mut session) = create_test_session();
+        session.mark_concept_taught("custom_concept").unwrap();
+        assert!(session.is_concept_taught("custom_concept").unwrap());
+        drop(temp);
+    }
+
+    #[test]
+    fn test_is_concept_taught_not_taught() {
+        let (temp, session) = create_test_session();
+        assert!(!session.is_concept_taught("unknown_concept").unwrap());
+        drop(temp);
+    }
+
+    #[test]
+    fn test_teaching_state_persistence() {
+        let temp = TempDir::new().unwrap();
+        let agent_dir = AgentDir::new(temp.path());
+
+        let mut session = Session::new(agent_dir.clone()).unwrap();
+        session.mark_concept_taught("test_concept").unwrap();
+
+        let loaded_session = Session::load(agent_dir, session.id.clone()).unwrap();
+        assert!(loaded_session.is_concept_taught("test_concept").unwrap());
+        drop(temp);
+    }
+
+    #[test]
+    fn test_multiple_concepts_tracked() {
+        let (temp, mut session) = create_test_session();
+        session.mark_concept_taught("concept1").unwrap();
+        session.mark_concept_taught("concept2").unwrap();
+        session.mark_concept_taught("concept3").unwrap();
+
+        assert!(session.is_concept_taught("concept1").unwrap());
+        assert!(session.is_concept_taught("concept2").unwrap());
+        assert!(session.is_concept_taught("concept3").unwrap());
+        assert!(!session.is_concept_taught("concept4").unwrap());
         drop(temp);
     }
 }
