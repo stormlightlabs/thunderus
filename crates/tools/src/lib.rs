@@ -1,8 +1,10 @@
+pub mod apply_engine;
 pub mod backup;
 pub mod builtin;
 pub mod classification;
 pub mod dispatcher;
 pub mod full_access;
+pub mod patch_generator;
 pub mod read_history;
 pub mod registry;
 pub mod result_formatting;
@@ -11,6 +13,7 @@ pub mod session_dispatcher;
 pub mod teaching_errors;
 pub mod tool;
 
+pub use apply_engine::{ApplyEngine, ApplyResult, ConflictInfo, ConflictType};
 pub use backup::{BackupManager, BackupMetadata, BackupMode, command_requires_backup};
 pub use builtin::{
     EchoTool, EditTool, GlobTool, GrepTool, MultiEditOperation, MultiEditTool, NoopTool, ReadTool, ShellTool,
@@ -21,6 +24,7 @@ pub use full_access::{
     FullAccessPolicy, check_full_access_policy, classify_and_get_hint, create_backups_for_command,
     extract_files_for_backup, format_command_result, get_teaching_hint_for_command,
 };
+pub use patch_generator::{PatchGenerator, generate_unified_diff};
 pub use read_history::{ReadHistory, validate_read_before_edit};
 pub use registry::ToolRegistry;
 pub use result_formatting::{

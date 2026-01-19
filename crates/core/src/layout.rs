@@ -2,6 +2,9 @@ use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use serde::Deserialize;
+use serde::Serialize;
+
 /// Base directory name for agent data (repo-local, versionable)
 pub const AGENT_DIR_NAME: &str = ".agent";
 
@@ -59,7 +62,7 @@ impl fmt::Display for ViewFile {
 /// Session identifier based on timestamp (ISO 8601 format)
 ///
 /// Format: `YYYY-MM-DDTHH-MM-SS-Z` (RFC 3339 format, safe for filenames)
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct SessionId(String);
 
 impl SessionId {

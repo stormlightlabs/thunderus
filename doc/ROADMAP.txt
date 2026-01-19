@@ -70,18 +70,18 @@ Edits are *reviewable*, *reversible*, and *conflict-aware*.
 Codex explicitly treats diffs and `git apply` failure modes as first-class
 (e.g., `codex apply` exits non-zero if `git apply` fails). Mirror that rigor[^7]
 
-- [ ] Patch queue:
+- [x] Patch queue:
       - states: `PROPOSED → APPROVED → APPLIED` or `REJECTED`
       - patch objects store base snapshot id + target files + hunks
 - [ ] Unified diff generation contract for models:
       - patch-first is default; raw write is an escape hatch (heavily gated)
-- [ ] Apply engine:
+- [x] Apply engine:
       - try `git apply` (or equivalent) and detect conflicts
       - on failure: enter conflict UI instead of "forcing it"
-- [ ] Rollback/undo:
+- [x] Rollback/undo:
       - revert last applied patch (one keybind)
       - show `git diff` before/after
-- [ ] Git metadata linkage:
+- [x] Git metadata linkage:
       - attach session pointers via git notes
       - show "this commit came from session X" in TUI
 - [ ] TUI enhancements (moved from Section III):
@@ -93,7 +93,7 @@ Codex explicitly treats diffs and `git apply` failure modes as first-class
         (e.g., "Add error handling", "Remove deprecated fn")
       - display intent above each hunk in diff view
       - teach version control discipline through consistent labeling
-- [ ] Pedagogical conflict messages:
+- [x] Pedagogical conflict messages:
       - on `git apply` failure, explain *why* conflict occurred
         (not just "conflict detected")
       - show conflicting regions with context
