@@ -14,7 +14,7 @@ pub use backup::{BackupManager, BackupMetadata, BackupMode, command_requires_bac
 pub use builtin::{
     EchoTool, EditTool, GlobTool, GrepTool, MultiEditOperation, MultiEditTool, NoopTool, ReadTool, ShellTool,
 };
-pub use classification::{CommandClassifier, Pattern};
+pub use classification::{CommandClassifier, Pattern, classify_shell_command, classify_shell_command_risk};
 pub use dispatcher::ToolDispatcher;
 pub use full_access::{
     FullAccessPolicy, check_full_access_policy, classify_and_get_hint, create_backups_for_command,

@@ -173,7 +173,7 @@ Codex's model: approval policies + sandbox modes + profiles[^2]
       - enforce tool access by path (block outside workspace)
       - default: no network commands unless approved[^2]
       - integration with tool dispatcher
-- [ ] Command classifier integration (extends Milestone V):
+- [x] Command classifier integration:
       - safe/risky/blocked categorization for shell commands
       - pedagogical suggestions (e.g., "Consider Edit tool instead of sed -i")
 - [ ] Enhance action cards with teaching context (builds on Milestone II cards):

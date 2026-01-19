@@ -47,6 +47,87 @@ pub enum Error {
 
     #[error("Approval protocol error: {0}")]
     Approval(String),
+
+    /// Blocked command error
+    #[error("blocked command: {0}")]
+    BlockedCommand(#[from] BlockedCommandError),
+}
+
+/// Error for blocked commands
+///
+/// This error is returned when a command is blocked for security reasons,
+/// regardless of the approval mode. Blocked commands pose unacceptable
+/// security or system stability risks.
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+pub enum BlockedCommandError {
+    /// Command requires superuser privileges
+    #[error("command '{command}' requires superuser privileges and is blocked for security reasons")]
+    Sudo { command: String },
+
+    /// Command attempts destructive filesystem operations
+    #[error("command '{command}' attempts to destroy the filesystem and is permanently blocked")]
+    FilesystemDestruction { command: String },
+
+    /// Command modifies disk partitions or destroys data
+    #[error("command '{command}' can destroy data and is permanently blocked")]
+    DataDestruction { command: String },
+
+    /// Command removes all permissions
+    #[error("command '{command}' removes all permissions and is permanently blocked")]
+    PermissionRemoval { command: String },
+
+    /// Generic blocked command with reason
+    #[error("command '{command}' is blocked: {reason}")]
+    Generic { command: String, reason: String },
+}
+
+impl BlockedCommandError {
+    /// Create a new blocked command error for sudo commands
+    pub fn sudo(command: impl Into<String>) -> Self {
+        Self::Sudo { command: command.into() }
+    }
+
+    /// Create a new blocked command error for filesystem destruction
+    pub fn filesystem_destruction(command: impl Into<String>) -> Self {
+        Self::FilesystemDestruction { command: command.into() }
+    }
+
+    /// Create a new blocked command error for data destruction
+    pub fn data_destruction(command: impl Into<String>) -> Self {
+        Self::DataDestruction { command: command.into() }
+    }
+
+    /// Create a new blocked command error for permission removal
+    pub fn permission_removal(command: impl Into<String>) -> Self {
+        Self::PermissionRemoval { command: command.into() }
+    }
+
+    /// Create a new generic blocked command error
+    pub fn generic(command: impl Into<String>, reason: impl Into<String>) -> Self {
+        Self::Generic { command: command.into(), reason: reason.into() }
+    }
+
+    /// Get the command that was blocked
+    pub fn command(&self) -> &str {
+        match self {
+            Self::Sudo { command } => command,
+            Self::FilesystemDestruction { command } => command,
+            Self::DataDestruction { command } => command,
+            Self::PermissionRemoval { command } => command,
+            Self::Generic { command, .. } => command,
+        }
+    }
+
+    /// Get the reason for blocking
+    pub fn reason(&self) -> &str {
+        match self {
+            Self::Sudo { .. } => "requires superuser privileges",
+            Self::FilesystemDestruction { .. } => "attempts to destroy the filesystem",
+            Self::DataDestruction { .. } => "can destroy data",
+            Self::PermissionRemoval { .. } => "removes all permissions",
+            Self::Generic { reason, .. } => reason,
+        }
+    }
 }
 
 /// Session-specific errors
@@ -263,5 +344,69 @@ mod tests {
 
         let err: Result<i32> = Err(Error::Other("error".to_string()));
         assert!(err.is_err());
+    }
+
+    #[test]
+    fn test_blocked_command_error_sudo() {
+        let err = BlockedCommandError::sudo("sudo apt-get install vim");
+        assert_eq!(err.command(), "sudo apt-get install vim");
+        assert!(err.reason().contains("superuser"));
+    }
+
+    #[test]
+    fn test_blocked_command_error_filesystem_destruction() {
+        let err = BlockedCommandError::filesystem_destruction("rm -rf /");
+        assert_eq!(err.command(), "rm -rf /");
+        assert!(err.reason().contains("filesystem"));
+    }
+
+    #[test]
+    fn test_blocked_command_error_data_destruction() {
+        let err = BlockedCommandError::data_destruction("dd if=/dev/zero of=/dev/sda");
+        assert_eq!(err.command(), "dd if=/dev/zero of=/dev/sda");
+        assert!(err.reason().contains("destroy data"));
+    }
+
+    #[test]
+    fn test_blocked_command_error_permission_removal() {
+        let err = BlockedCommandError::permission_removal("chmod 000 file.txt");
+        assert_eq!(err.command(), "chmod 000 file.txt");
+        assert!(err.reason().contains("permissions"));
+    }
+
+    #[test]
+    fn test_blocked_command_error_generic() {
+        let err = BlockedCommandError::generic("evil-command", "too dangerous");
+        assert_eq!(err.command(), "evil-command");
+        assert_eq!(err.reason(), "too dangerous");
+    }
+
+    #[test]
+    fn test_blocked_command_error_display() {
+        let sudo_err = BlockedCommandError::sudo("sudo test");
+        assert!(sudo_err.to_string().contains("superuser"));
+
+        let fs_err = BlockedCommandError::filesystem_destruction("rm -rf /");
+        assert!(fs_err.to_string().contains("filesystem"));
+
+        let generic_err = BlockedCommandError::generic("cmd", "reason");
+        assert!(generic_err.to_string().contains("blocked"));
+    }
+
+    #[test]
+    fn test_error_from_blocked_command() {
+        let blocked_err = BlockedCommandError::sudo("sudo test");
+        let error: Error = blocked_err.into();
+        assert!(error.to_string().contains("blocked command"));
+    }
+
+    #[test]
+    fn test_blocked_command_error_equality() {
+        let err1 = BlockedCommandError::sudo("sudo test");
+        let err2 = BlockedCommandError::sudo("sudo test");
+        assert_eq!(err1, err2);
+
+        let err3 = BlockedCommandError::data_destruction("dd test");
+        assert_ne!(err1, err3);
     }
 }

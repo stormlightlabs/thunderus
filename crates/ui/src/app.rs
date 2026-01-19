@@ -626,6 +626,7 @@ impl App {
         let risk_str = match request.risk_level {
             ToolRisk::Safe => "safe",
             ToolRisk::Risky => "risky",
+            ToolRisk::Blocked => "blocked",
         };
 
         self.transcript_mut()

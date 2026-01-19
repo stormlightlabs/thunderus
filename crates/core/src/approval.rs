@@ -287,23 +287,33 @@ impl ApprovalGate {
 
     /// Check if an action requires approval based on mode and risk
     pub fn requires_approval(&self, risk_level: ToolRisk, is_network: bool) -> bool {
-        match self.mode {
-            ApprovalMode::ReadOnly => true,
-            ApprovalMode::Auto => risk_level.is_risky() || is_network,
-            ApprovalMode::FullAccess => false,
+        match risk_level.is_blocked() {
+            true => true,
+            false => match self.mode {
+                ApprovalMode::ReadOnly => true,
+                ApprovalMode::Auto => risk_level.is_risky() || is_network,
+                ApprovalMode::FullAccess => false,
+            },
         }
+    }
+
+    /// Check if a risk level is blocked (always denied regardless of mode)
+    pub fn is_blocked(&self, risk_level: ToolRisk) -> bool {
+        risk_level.is_blocked()
     }
 
     /// Check if approval is required, considering network permissions
     pub fn check_requires_approval(&self, risk_level: ToolRisk, action_type: &ActionType) -> bool {
-        let is_network = matches!(action_type, ActionType::Network);
-        let network_allowed = is_network && self.allow_network;
-
-        if network_allowed && self.mode == ApprovalMode::Auto && risk_level.is_safe() {
-            return false;
+        if risk_level.is_blocked() {
+            return true;
         }
 
-        self.requires_approval(risk_level, is_network)
+        let is_network = matches!(action_type, ActionType::Network);
+        if is_network && self.allow_network && self.mode == ApprovalMode::Auto && risk_level.is_safe() {
+            false
+        } else {
+            self.requires_approval(risk_level, is_network)
+        }
     }
 
     /// Create an approval request and return its ID
@@ -645,6 +655,8 @@ mod tests {
         assert!(gate.requires_approval(ToolRisk::Safe, false));
         assert!(gate.requires_approval(ToolRisk::Risky, false));
         assert!(gate.requires_approval(ToolRisk::Safe, true));
+        assert!(gate.requires_approval(ToolRisk::Blocked, false));
+        assert!(gate.requires_approval(ToolRisk::Blocked, true));
     }
 
     #[test]
@@ -654,6 +666,8 @@ mod tests {
         assert!(gate.requires_approval(ToolRisk::Risky, false));
         assert!(gate.requires_approval(ToolRisk::Safe, true));
         assert!(gate.requires_approval(ToolRisk::Risky, true));
+        assert!(gate.requires_approval(ToolRisk::Blocked, false));
+        assert!(gate.requires_approval(ToolRisk::Blocked, true));
     }
 
     #[test]
@@ -661,6 +675,7 @@ mod tests {
         let gate = ApprovalGate::new(ApprovalMode::Auto, true);
         assert!(!gate.check_requires_approval(ToolRisk::Safe, &ActionType::Network));
         assert!(gate.check_requires_approval(ToolRisk::Risky, &ActionType::Network));
+        assert!(gate.check_requires_approval(ToolRisk::Blocked, &ActionType::Network));
     }
 
     #[test]
@@ -669,6 +684,16 @@ mod tests {
         assert!(!gate.requires_approval(ToolRisk::Safe, false));
         assert!(!gate.requires_approval(ToolRisk::Risky, false));
         assert!(!gate.requires_approval(ToolRisk::Safe, true));
+        assert!(gate.requires_approval(ToolRisk::Blocked, false));
+        assert!(gate.requires_approval(ToolRisk::Blocked, true));
+    }
+
+    #[test]
+    fn test_approval_gate_is_blocked() {
+        let gate = ApprovalGate::new(ApprovalMode::Auto, false);
+        assert!(!gate.is_blocked(ToolRisk::Safe));
+        assert!(!gate.is_blocked(ToolRisk::Risky));
+        assert!(gate.is_blocked(ToolRisk::Blocked));
     }
 
     #[test]
@@ -678,6 +703,8 @@ mod tests {
         assert!(!gate.check_requires_approval(ToolRisk::Safe, &ActionType::Tool));
         assert!(gate.check_requires_approval(ToolRisk::Risky, &ActionType::Tool));
         assert!(gate.check_requires_approval(ToolRisk::Safe, &ActionType::Network));
+        assert!(gate.check_requires_approval(ToolRisk::Blocked, &ActionType::Tool));
+        assert!(gate.check_requires_approval(ToolRisk::Blocked, &ActionType::Shell));
     }
 
     #[test]

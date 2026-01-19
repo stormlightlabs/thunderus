@@ -8,6 +8,8 @@ pub enum ToolRisk {
     Safe,
     /// Risky operations: package install, file deletion, network tooling
     Risky,
+    /// Blocked operations: always denied regardless of approval mode (e.g., sudo, rm -rf /)
+    Blocked,
 }
 
 impl Display for ToolRisk {
@@ -27,11 +29,17 @@ impl ToolRisk {
         matches!(self, Self::Risky)
     }
 
+    /// Returns true if this is a blocked operation
+    pub fn is_blocked(&self) -> bool {
+        matches!(self, Self::Blocked)
+    }
+
     /// Returns the string representation of the risk level
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Safe => "safe",
             Self::Risky => "risky",
+            Self::Blocked => "blocked",
         }
     }
 }
@@ -62,6 +70,10 @@ impl Classification {
     pub fn is_risky(&self) -> bool {
         self.risk.is_risky()
     }
+
+    pub fn is_blocked(&self) -> bool {
+        self.risk.is_blocked()
+    }
 }
 
 #[cfg(test)]
@@ -72,15 +84,22 @@ mod tests {
     fn test_tool_risk_variants() {
         assert!(ToolRisk::Safe.is_safe());
         assert!(!ToolRisk::Safe.is_risky());
+        assert!(!ToolRisk::Safe.is_blocked());
 
         assert!(!ToolRisk::Risky.is_safe());
         assert!(ToolRisk::Risky.is_risky());
+        assert!(!ToolRisk::Risky.is_blocked());
+
+        assert!(!ToolRisk::Blocked.is_safe());
+        assert!(!ToolRisk::Blocked.is_risky());
+        assert!(ToolRisk::Blocked.is_blocked());
     }
 
     #[test]
     fn test_tool_risk_as_str() {
         assert_eq!(ToolRisk::Safe.as_str(), "safe");
         assert_eq!(ToolRisk::Risky.as_str(), "risky");
+        assert_eq!(ToolRisk::Blocked.as_str(), "blocked");
     }
 
     #[test]
@@ -93,10 +112,17 @@ mod tests {
         let safe_classification = Classification::new(ToolRisk::Safe, "This is safe".to_string());
         assert!(safe_classification.is_safe());
         assert!(!safe_classification.is_risky());
+        assert!(!safe_classification.is_blocked());
 
         let risky_classification = Classification::new(ToolRisk::Risky, "This is risky".to_string());
         assert!(!risky_classification.is_safe());
         assert!(risky_classification.is_risky());
+        assert!(!risky_classification.is_blocked());
+
+        let blocked_classification = Classification::new(ToolRisk::Blocked, "This is blocked".to_string());
+        assert!(!blocked_classification.is_safe());
+        assert!(!blocked_classification.is_risky());
+        assert!(blocked_classification.is_blocked());
     }
 
     #[test]

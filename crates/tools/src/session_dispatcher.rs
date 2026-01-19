@@ -4,12 +4,12 @@
 //! events to the session and maintains read history for edit validation.
 
 use thunderus_core::Result;
-use thunderus_core::Session;
+use thunderus_core::{BlockedCommandError, Session};
 use thunderus_providers::ToolCall;
 use thunderus_providers::ToolResult;
 
-use crate::ToolDispatcher;
 use crate::read_history::ReadHistory;
+use crate::{ToolDispatcher, classify_shell_command};
 
 /// Session-aware tool dispatcher
 ///
@@ -41,8 +41,24 @@ impl SessionToolDispatcher {
     /// Executes a tool call and logs to session
     pub fn execute(&mut self, tool_call: &ToolCall) -> Result<ToolResult> {
         let tool_name = tool_call.name();
-        let _tool_call_id = tool_call.id.clone();
         let arguments = tool_call.arguments();
+
+        if tool_name == "shell"
+            && let Some(command) = arguments.get("command").and_then(|v| v.as_str())
+        {
+            let classification = classify_shell_command(command);
+            if classification.risk.is_blocked() {
+                let blocked_error = Self::create_blocked_error(command, &classification.reasoning);
+                let _ = self.session.append_tool_call(tool_name, arguments.clone());
+                let _ = self.session.append_tool_result(
+                    tool_name,
+                    serde_json::json!(null),
+                    false,
+                    Some(blocked_error.to_string()),
+                );
+                return Err(blocked_error.into());
+            }
+        }
 
         let _ = self.session.append_tool_call(tool_name, arguments.clone());
 
@@ -69,6 +85,21 @@ impl SessionToolDispatcher {
         }
 
         result
+    }
+
+    /// Creates a blocked command error based on the command and reasoning
+    fn create_blocked_error(command: &str, reasoning: &str) -> BlockedCommandError {
+        let command_lower = command.to_lowercase();
+        let first_word = command_lower.split_whitespace().next().unwrap_or("");
+
+        match first_word {
+            "sudo" => BlockedCommandError::sudo(command),
+            "dd" => BlockedCommandError::data_destruction(command),
+            "mkfs" => BlockedCommandError::data_destruction(command),
+            "format" => BlockedCommandError::data_destruction(command),
+            "fdisk" => BlockedCommandError::data_destruction(command),
+            _ => BlockedCommandError::generic(command, reasoning),
+        }
     }
 
     /// Executes multiple tool calls in order
@@ -156,6 +187,7 @@ mod tests {
 
         let registry = ToolRegistry::new();
         registry.register(ReadTool).unwrap();
+        registry.register(crate::builtin::ShellTool).unwrap();
         let dispatcher = ToolDispatcher::new(registry);
 
         let session_dispatcher = SessionToolDispatcher::with_new_history(dispatcher, session);
@@ -208,8 +240,9 @@ mod tests {
         let test_file = temp.path().join("test.txt");
         std::fs::write(&test_file, "content").unwrap();
 
-        let result = validate_read_before_edit(&dispatcher, test_file.to_str().unwrap());
-        assert!(result.is_err());
+        if validate_read_before_edit(&dispatcher, test_file.to_str().unwrap()).is_ok() {
+            panic!("Command should have been blocked")
+        }
 
         let tool_call = thunderus_providers::ToolCall::new(
             "call_1",
@@ -218,8 +251,10 @@ mod tests {
         );
         dispatcher.execute(&tool_call).unwrap();
 
-        let result = validate_read_before_edit(&dispatcher, test_file.to_str().unwrap());
-        assert!(result.is_ok());
+        match validate_read_before_edit(&dispatcher, test_file.to_str().unwrap()) {
+            Ok(_) => (),
+            Err(_) => panic!("Command should have been allowed"),
+        }
     }
 
     #[test]
@@ -235,8 +270,80 @@ mod tests {
             serde_json::json!({"file_path": test_file.to_string_lossy().as_ref()}),
         )];
 
-        let results = dispatcher.execute_batch(&tool_calls);
-        assert!(results.is_ok());
-        assert_eq!(results.unwrap().len(), 1);
+        match dispatcher.execute_batch(&tool_calls) {
+            Ok(res) => assert!(res.len() == 1),
+            Err(_) => panic!("Command should have been allowed"),
+        }
+    }
+
+    #[test]
+    fn test_blocked_shell_command_rejected() {
+        let (_, mut dispatcher) = create_test_dispatcher();
+
+        let tool_call = thunderus_providers::ToolCall::new(
+            "call_1",
+            "shell",
+            serde_json::json!({"command": "sudo apt-get install vim"}),
+        );
+
+        match dispatcher.execute(&tool_call) {
+            Err(e) => {
+                let error_str = e.to_string();
+                assert!(error_str.contains("blocked") || error_str.contains("superuser"));
+            }
+            Ok(_) => panic!("Command should have been blocked"),
+        }
+    }
+
+    #[test]
+    fn test_blocked_dd_command_rejected() {
+        let (_, mut dispatcher) = create_test_dispatcher();
+
+        let tool_call = thunderus_providers::ToolCall::new(
+            "call_1",
+            "shell",
+            serde_json::json!({"command": "dd if=/dev/zero of=/dev/sda"}),
+        );
+
+        match dispatcher.execute(&tool_call) {
+            Err(e) => {
+                let error_str = e.to_string();
+                assert!(error_str.contains("blocked") || error_str.contains("destroy data"));
+            }
+            Ok(_) => panic!("Command should have been blocked"),
+        }
+    }
+
+    #[test]
+    fn test_safe_shell_command_allowed() {
+        let (_, mut dispatcher) = create_test_dispatcher();
+
+        let tool_call = thunderus_providers::ToolCall::new(
+            "call_1",
+            "shell",
+            serde_json::json!({"command": "echo 'Hello, World!'"}),
+        );
+
+        match dispatcher.execute(&tool_call) {
+            Ok(res) => assert!(res.content.contains("Hello, World!")),
+            Err(_) => panic!("Command should have been allowed"),
+        }
+    }
+
+    #[test]
+    fn test_risky_shell_command_allowed() {
+        let (_, mut dispatcher) = create_test_dispatcher();
+
+        let tool_call = thunderus_providers::ToolCall::new(
+            "call_1",
+            "shell",
+            serde_json::json!({"command": "rm -f /tmp/test_file.txt"}),
+        );
+
+        let error_str = match dispatcher.execute(&tool_call) {
+            Err(ref e) => e.to_string(),
+            Ok(_) => String::new(),
+        };
+        assert!(!error_str.contains("blocked") && !error_str.contains("superuser"));
     }
 }

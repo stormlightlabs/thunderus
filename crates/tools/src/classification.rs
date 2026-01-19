@@ -104,6 +104,18 @@ const RISKY_GIT_WRITE_PATTERNS: &[(&str, Pattern)] = &[
     ("rebase", Pattern::Contains("rebase")),
 ];
 
+/// Patterns for blocked commands (always denied)
+///
+/// These commands are blocked regardless of approval mode because they pose
+/// unacceptable security or system stability risks.
+const BLOCKED_PATTERNS: &[(&str, Pattern)] = &[
+    ("sudo", Pattern::Prefix("sudo")),
+    ("dd", Pattern::Prefix("dd")),
+    ("mkfs", Pattern::Prefix("mkfs")),
+    ("format", Pattern::Prefix("format")),
+    ("fdisk", Pattern::Prefix("fdisk")),
+];
+
 /// Pattern matching type for command classification
 #[derive(Debug, Clone)]
 pub enum Pattern {
@@ -115,17 +127,20 @@ pub enum Pattern {
     Contains(&'static str),
 }
 
-/// Classifies shell commands and tool operations as safe or risky
+/// Classifies shell commands and tool operations as safe, risky, or blocked
 pub struct CommandClassifier {
     /// All commands considered safe
     safe_commands: HashSet<&'static str>,
 
     /// All patterns considered risky
     risky_patterns: Vec<(&'static str, Pattern)>,
+
+    /// All patterns considered blocked (always denied)
+    blocked_patterns: Vec<(&'static str, Pattern)>,
 }
 
 impl CommandClassifier {
-    /// Creates a new classifier with default safe/risky patterns
+    /// Creates a new classifier with default safe/risky/blocked patterns
     pub fn new() -> Self {
         let safe_commands: HashSet<&'static str> = SAFE_TEST_COMMANDS
             .iter()
@@ -146,7 +161,9 @@ impl CommandClassifier {
             .cloned()
             .collect();
 
-        Self { safe_commands, risky_patterns }
+        let blocked_patterns: Vec<(&'static str, Pattern)> = BLOCKED_PATTERNS.to_vec();
+
+        Self { safe_commands, risky_patterns, blocked_patterns }
     }
 
     /// Classifies a shell command string with reasoning
@@ -155,6 +172,10 @@ impl CommandClassifier {
     /// This enables teaching users the safety model through consistency.
     pub fn classify_with_reasoning(&self, command: &str) -> Classification {
         let command_lower = command.to_lowercase();
+
+        if let Some(reasoning) = self.check_blocked_reasoning(&command_lower) {
+            return Classification::new(ToolRisk::Blocked, reasoning);
+        }
 
         if command_lower.contains('|') {
             let pipeline_commands: Vec<&str> = command_lower.split('|').collect();
@@ -351,6 +372,75 @@ impl CommandClassifier {
         None
     }
 
+    /// Checks if command is blocked and returns reasoning
+    fn check_blocked_reasoning(&self, command_lower: &str) -> Option<String> {
+        let first_word = command_lower.split_whitespace().next().unwrap_or("");
+
+        for (desc, pattern) in &self.blocked_patterns {
+            match pattern {
+                Pattern::Exact(cmd) if first_word == *cmd => {
+                    return Some(match *desc {
+                        "sudo" => format!(
+                            "Command '{}' provides superuser privileges and is blocked for security reasons",
+                            first_word
+                        ),
+                        "dd" => format!(
+                            "Command '{}' can destroy data and filesystem structure and is permanently blocked",
+                            first_word
+                        ),
+                        "mkfs" => format!(
+                            "Command '{}' creates filesystems and can destroy existing data and is permanently blocked",
+                            first_word
+                        ),
+                        "format" => format!(
+                            "Command '{}' formats disks and destroys all data and is permanently blocked",
+                            first_word
+                        ),
+                        "fdisk" => format!(
+                            "Command '{}' modifies disk partitions and can destroy data and is permanently blocked",
+                            first_word
+                        ),
+                        _ => format!("Command '{}' is blocked for security reasons: {}", first_word, desc),
+                    });
+                }
+                Pattern::Prefix(prefix) if first_word.starts_with(*prefix) => {
+                    return Some(match *desc {
+                        "sudo" => format!(
+                            "Command '{}' provides superuser privileges and is blocked for security reasons",
+                            first_word
+                        ),
+                        "dd" => format!(
+                            "Command '{}' can destroy data and filesystem structure and is permanently blocked",
+                            first_word
+                        ),
+                        "mkfs" => format!(
+                            "Command '{}' creates filesystems and can destroy existing data and is permanently blocked",
+                            first_word
+                        ),
+                        "format" => format!(
+                            "Command '{}' formats disks and destroys all data and is permanently blocked",
+                            first_word
+                        ),
+                        "fdisk" => format!(
+                            "Command '{}' modifies disk partitions and can destroy data and is permanently blocked",
+                            first_word
+                        ),
+                        _ => format!("Command '{}' is blocked for security reasons: {}", first_word, desc),
+                    });
+                }
+                Pattern::Contains(substr) if command_lower.contains(*substr) => {
+                    return Some(format!(
+                        "Command '{}' is blocked for security reasons: {}",
+                        first_word, desc
+                    ));
+                }
+                _ => {}
+            }
+        }
+
+        None
+    }
+
     /// Adds a custom safe command to the classifier
     pub fn add_safe_command(&mut self, command: &'static str) {
         self.safe_commands.insert(command);
@@ -361,6 +451,11 @@ impl CommandClassifier {
         self.risky_patterns.push((desc, pattern));
     }
 
+    /// Adds a custom blocked pattern to the classifier
+    pub fn add_blocked_pattern(&mut self, desc: &'static str, pattern: Pattern) {
+        self.blocked_patterns.push((desc, pattern));
+    }
+
     /// Returns set of safe commands
     pub fn safe_commands(&self) -> &HashSet<&'static str> {
         &self.safe_commands
@@ -369,6 +464,11 @@ impl CommandClassifier {
     /// Returns risky patterns
     pub fn risky_patterns(&self) -> &[(&'static str, Pattern)] {
         &self.risky_patterns
+    }
+
+    /// Returns blocked patterns
+    pub fn blocked_patterns(&self) -> &[(&'static str, Pattern)] {
+        &self.blocked_patterns
     }
 
     /// Classifies text processing tools (sed, awk) with nuanced risk detection based on flags
@@ -394,9 +494,7 @@ impl CommandClassifier {
 
         match *first_word {
             "sed" => {
-                let has_in_place = !risky_flags.is_empty();
-
-                if has_in_place {
+                if !risky_flags.is_empty() {
                     Some((
                         Classification::new(
                             ToolRisk::Risky,
@@ -420,10 +518,9 @@ impl CommandClassifier {
                     ))
                 }
             }
-            "awk" => {
-                let has_redirection = !risky_flags.is_empty();
 
-                if has_redirection {
+            "awk" => {
+                if !risky_flags.is_empty() {
                     Some((
                         Classification::new(
                             ToolRisk::Risky,
@@ -456,100 +553,136 @@ impl Default for CommandClassifier {
     }
 }
 
+/// Convenience function to classify a shell command using the default classifier
+///
+/// This creates a new default CommandClassifier and uses it to classify the given command.
+/// For repeated classifications, create a CommandClassifier instance and reuse it.
+pub fn classify_shell_command(command: &str) -> Classification {
+    let classifier = CommandClassifier::new();
+    classifier.classify_with_reasoning(command)
+}
+
+/// Convenience function to get the risk level of a shell command
+///
+/// This is a shorthand for `classify_shell_command(command).risk`.
+pub fn classify_shell_command_risk(command: &str) -> ToolRisk {
+    classify_shell_command(command).risk
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Classifier Test Case
+    struct TC {
+        command: &'static str,
+        risk: ToolRisk,
+    }
+
+    impl TC {
+        fn new(command: &'static str, risk: ToolRisk) -> Self {
+            Self { command, risk }
+        }
+
+        fn for_safe(cmds: &[&'static str]) -> Vec<Self> {
+            cmds.iter().map(|cmd| Self::new(cmd, ToolRisk::Safe)).collect()
+        }
+
+        fn for_risky(cmds: &[&'static str]) -> Vec<Self> {
+            cmds.iter().map(|cmd| Self::new(cmd, ToolRisk::Risky)).collect()
+        }
+
+        fn for_blocked(cmds: &[&'static str]) -> Vec<Self> {
+            cmds.iter().map(|cmd| Self::new(cmd, ToolRisk::Blocked)).collect()
+        }
+    }
+
     #[test]
     fn test_classifier_safe_test_commands() {
         let classifier = CommandClassifier::new();
-
-        assert_eq!(classifier.classify_command("cargo test"), ToolRisk::Safe);
-        assert_eq!(classifier.classify_command("npm test"), ToolRisk::Safe);
-        assert_eq!(classifier.classify_command("pytest"), ToolRisk::Safe);
-        assert_eq!(classifier.classify_command("make test"), ToolRisk::Safe);
+        for tc in TC::for_safe(&["cargo test", "npm test", "pytest", "make test"]) {
+            assert_eq!(classifier.classify_command(tc.command), tc.risk);
+        }
     }
 
     #[test]
     fn test_classifier_safe_linter_commands() {
         let classifier = CommandClassifier::new();
-
-        assert_eq!(classifier.classify_command("cargo clippy"), ToolRisk::Safe);
-        assert_eq!(classifier.classify_command("eslint ."), ToolRisk::Safe);
-        assert_eq!(classifier.classify_command("prettier --write ."), ToolRisk::Safe);
-        assert_eq!(classifier.classify_command("black ."), ToolRisk::Safe);
+        for tc in TC::for_safe(&["cargo clippy", "eslint .", "prettier --write .", "black ."]) {
+            assert_eq!(classifier.classify_command(tc.command), tc.risk);
+        }
     }
 
     #[test]
     fn test_classifier_safe_readonly_commands() {
         let classifier = CommandClassifier::new();
-
-        assert_eq!(classifier.classify_command("cat file.txt"), ToolRisk::Safe);
-        assert_eq!(classifier.classify_command("grep pattern file"), ToolRisk::Safe);
-        assert_eq!(classifier.classify_command("ls -la"), ToolRisk::Safe);
-        assert_eq!(classifier.classify_command("git log"), ToolRisk::Safe);
-        assert_eq!(classifier.classify_command("git diff HEAD"), ToolRisk::Safe);
+        for tc in TC::for_safe(&[
+            "cat file.txt",
+            "grep pattern file",
+            "ls -la",
+            "git log",
+            "git diff HEAD",
+        ]) {
+            assert_eq!(classifier.classify_command(tc.command), tc.risk);
+        }
     }
 
     #[test]
     fn test_classifier_risky_deletion_commands() {
         let classifier = CommandClassifier::new();
-
-        assert_eq!(classifier.classify_command("rm -rf /tmp"), ToolRisk::Risky);
-        assert_eq!(classifier.classify_command("rmdir /tmp/dir"), ToolRisk::Risky);
-        assert_eq!(classifier.classify_command("del file.txt"), ToolRisk::Risky);
-        assert_eq!(classifier.classify_command("shred file"), ToolRisk::Risky);
+        for tc in TC::for_risky(&["rm -rf /tmp", "rmdir /tmp/dir", "del file.txt", "shred file"]) {
+            assert_eq!(classifier.classify_command(tc.command), tc.risk);
+        }
     }
 
     #[test]
     fn test_classifier_risky_package_commands() {
         let classifier = CommandClassifier::new();
-
-        assert_eq!(classifier.classify_command("npm install lodash"), ToolRisk::Risky);
-        assert_eq!(classifier.classify_command("pip install requests"), ToolRisk::Risky);
-        assert_eq!(classifier.classify_command("cargo install ripgrep"), ToolRisk::Risky);
-        assert_eq!(classifier.classify_command("apt-get install vim"), ToolRisk::Risky);
-        assert_eq!(classifier.classify_command("brew install python"), ToolRisk::Risky);
-        assert_eq!(classifier.classify_command("yarn add react"), ToolRisk::Risky);
+        for tc in TC::for_risky(&[
+            "npm install lodash",
+            "pip install requests",
+            "cargo install ripgrep",
+            "apt-get install vim",
+            "brew install python",
+            "yarn add react",
+        ]) {
+            assert_eq!(classifier.classify_command(tc.command), tc.risk);
+        }
     }
 
     #[test]
     fn test_classifier_risky_network_commands() {
         let classifier = CommandClassifier::new();
-
-        assert_eq!(
-            classifier.classify_command("curl https://api.example.com"),
-            ToolRisk::Risky
-        );
-        assert_eq!(
-            classifier.classify_command("wget https://example.com/file.txt"),
-            ToolRisk::Risky
-        );
-        assert_eq!(classifier.classify_command("ssh user@host"), ToolRisk::Risky);
-        assert_eq!(
-            classifier.classify_command("scp file.txt user@host:/tmp"),
-            ToolRisk::Risky
-        );
+        for tc in TC::for_risky(&[
+            "curl https://api.example.com",
+            "wget https://example.com/file.txt",
+            "ssh user@host",
+            "scp file.txt user@host:/tmp",
+        ]) {
+            assert_eq!(classifier.classify_command(tc.command), tc.risk);
+        }
     }
 
     #[test]
     fn test_classifier_risky_file_modify_commands() {
         let classifier = CommandClassifier::new();
-
-        assert_eq!(classifier.classify_command("mv old.txt new.txt"), ToolRisk::Risky);
-        assert_eq!(classifier.classify_command("cp src dst"), ToolRisk::Risky);
-        assert_eq!(classifier.classify_command("mkdir /tmp/dir"), ToolRisk::Risky);
-        assert_eq!(classifier.classify_command("chmod +x script.sh"), ToolRisk::Risky);
-        assert_eq!(classifier.classify_command("touch newfile.txt"), ToolRisk::Risky);
+        for tc in TC::for_risky(&[
+            "mv old.txt new.txt",
+            "cp src dst",
+            "mkdir /tmp/dir",
+            "chmod +x script.sh",
+            "touch newfile.txt",
+        ]) {
+            assert_eq!(classifier.classify_command(tc.command), tc.risk);
+        }
     }
 
     #[test]
     fn test_classifier_risky_git_write_commands() {
         let classifier = CommandClassifier::new();
-
-        assert_eq!(classifier.classify_command("git push origin"), ToolRisk::Risky);
-        assert_eq!(classifier.classify_command("git commit -m 'fix'"), ToolRisk::Risky);
-        assert_eq!(classifier.classify_command("git rebase main"), ToolRisk::Risky);
+        for tc in TC::for_risky(&["git push origin", "git commit -m 'fix'", "git rebase main"]) {
+            assert_eq!(classifier.classify_command(tc.command), tc.risk);
+        }
     }
 
     #[test]
@@ -563,12 +696,77 @@ mod tests {
     #[test]
     fn test_classifier_custom_risky_pattern() {
         let mut classifier = CommandClassifier::new();
-
         classifier.add_risky_pattern("custom risky", Pattern::Contains("dangerous"));
         assert_eq!(
             classifier.classify_command("my-tool dangerous operation"),
             ToolRisk::Risky
         );
+    }
+
+    #[test]
+    fn test_classifier_blocked_sudo_commands() {
+        let classifier = CommandClassifier::new();
+        for tc in TC::for_blocked(&["sudo apt-get install vim", "sudo rm file.txt", "sudo bash"]) {
+            assert_eq!(classifier.classify_command(tc.command), tc.risk);
+        }
+    }
+
+    #[test]
+    fn test_classifier_blocked_destructive_commands() {
+        let classifier = CommandClassifier::new();
+
+        for tc in TC::for_risky(&["rm -rf /", "rm -rf /usr", "chmod 000 file.txt", "chmod -R 000 /dir"]) {
+            assert_eq!(classifier.classify_command(tc.command), tc.risk);
+        }
+
+        for tc in TC::for_blocked(&[
+            "dd if=/dev/zero of=/dev/sda",
+            "mkfs.ext4 /dev/sda1",
+            "format C:",
+            "fdisk /dev/sda",
+        ]) {
+            assert_eq!(classifier.classify_command(tc.command), tc.risk);
+        }
+    }
+
+    #[test]
+    fn test_classifier_blocked_with_reasoning() {
+        let classifier = CommandClassifier::new();
+        let result = classifier.classify_with_reasoning("sudo apt-get install vim");
+
+        assert_eq!(result.risk, ToolRisk::Blocked);
+        assert!(result.reasoning.contains("superuser"));
+        assert!(result.reasoning.contains("security"));
+    }
+
+    #[test]
+    fn test_classifier_blocked_data_destruction() {
+        let classifier = CommandClassifier::new();
+        let result = classifier.classify_with_reasoning("dd if=/dev/zero of=/dev/sda");
+
+        assert_eq!(result.risk, ToolRisk::Blocked);
+        assert!(result.reasoning.contains("destroy data"));
+    }
+
+    #[test]
+    fn test_classifier_custom_blocked_pattern() {
+        let mut classifier = CommandClassifier::new();
+
+        classifier.add_blocked_pattern("evil command", Pattern::Prefix("evil"));
+        assert_eq!(
+            classifier.classify_command("evil --destroy-everything"),
+            ToolRisk::Blocked
+        );
+    }
+
+    #[test]
+    fn test_classifier_blocked_patterns_accessor() {
+        let classifier = CommandClassifier::new();
+
+        let patterns = classifier.blocked_patterns();
+        assert!(!patterns.is_empty());
+        assert!(patterns.iter().any(|(desc, _)| *desc == "sudo"));
+        assert!(patterns.iter().any(|(desc, _)| *desc == "dd"));
     }
 
     #[test]
@@ -578,6 +776,12 @@ mod tests {
         assert_eq!(classifier.classify_command("CARGO TEST"), ToolRisk::Safe);
         assert_eq!(classifier.classify_command("RM file"), ToolRisk::Risky);
         assert_eq!(classifier.classify_command("CURL http://example.com"), ToolRisk::Risky);
+        assert_eq!(classifier.classify_command("SUDO apt-get install"), ToolRisk::Blocked);
+        assert_eq!(
+            classifier.classify_command("DD if=/dev/zero of=/dev/sda"),
+            ToolRisk::Blocked
+        );
+        assert_eq!(classifier.classify_command("RM -RF /"), ToolRisk::Risky);
     }
 
     #[test]
@@ -838,5 +1042,33 @@ mod tests {
         let awk_risky = classifier.classify_with_reasoning("awk '{print $1}' file.txt > out.txt");
         assert!(awk_risky.suggestion.as_ref().unwrap().contains("safer"));
         assert!(awk_risky.suggestion.as_ref().unwrap().contains("validation"));
+    }
+
+    #[test]
+    fn test_classify_shell_command_safe() {
+        let result = classify_shell_command("cargo test");
+        assert!(result.risk.is_safe());
+        assert!(result.reasoning.to_lowercase().contains("test"));
+    }
+
+    #[test]
+    fn test_classify_shell_command_risky() {
+        let result = classify_shell_command("npm install lodash");
+        assert!(result.risk.is_risky());
+        assert!(result.reasoning.contains("package"));
+    }
+
+    #[test]
+    fn test_classify_shell_command_blocked() {
+        let result = classify_shell_command("sudo apt-get install vim");
+        assert!(result.risk.is_blocked());
+        assert!(result.reasoning.contains("superuser"));
+    }
+
+    #[test]
+    fn test_classify_shell_command_risk() {
+        assert_eq!(classify_shell_command_risk("cargo test"), ToolRisk::Safe);
+        assert_eq!(classify_shell_command_risk("npm install lodash"), ToolRisk::Risky);
+        assert_eq!(classify_shell_command_risk("sudo rm file"), ToolRisk::Blocked);
     }
 }
