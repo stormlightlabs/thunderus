@@ -510,6 +510,135 @@ impl App {
                     self.transcript_mut()
                         .add_system_message("Transcript cleared (session history preserved)");
                 }
+                KeyAction::NavigateNextPatch => {
+                    let total = self.state().patches().len();
+                    self.state_mut().next_patch(total);
+                }
+                KeyAction::NavigatePrevPatch => {
+                    let total = self.state().patches().len();
+                    self.state_mut().prev_patch(total);
+                }
+                KeyAction::NavigateNextHunk => {
+                    let Some(patch_idx) = self.state().selected_patch_index() else {
+                        return;
+                    };
+                    let Some(file_path_str) = self.state().selected_file_path() else {
+                        return;
+                    };
+
+                    let file_path = std::path::PathBuf::from(file_path_str);
+
+                    let total_hunks = self
+                        .state()
+                        .patches()
+                        .get(patch_idx)
+                        .and_then(|p| p.hunk_count(&file_path))
+                        .unwrap_or(0);
+
+                    self.state_mut().next_hunk(total_hunks);
+
+                    let has_files = self
+                        .state()
+                        .patches()
+                        .get(patch_idx)
+                        .map(|p| !p.files.is_empty())
+                        .unwrap_or(false);
+
+                    if self.state().selected_hunk_index().is_none() && has_files {
+                        self.state_mut()
+                            .set_selected_file(file_path.to_str().unwrap_or("").to_string());
+                    }
+                }
+                KeyAction::NavigatePrevHunk => {
+                    let Some(patch_idx) = self.state().selected_patch_index() else {
+                        return;
+                    };
+                    let Some(file_path_str) = self.state().selected_file_path() else {
+                        return;
+                    };
+
+                    let file_path = std::path::PathBuf::from(file_path_str);
+
+                    let total_hunks = self
+                        .state()
+                        .patches()
+                        .get(patch_idx)
+                        .and_then(|p| p.hunk_count(&file_path))
+                        .unwrap_or(0);
+
+                    self.state_mut().prev_hunk(total_hunks);
+
+                    let has_files = self
+                        .state()
+                        .patches()
+                        .get(patch_idx)
+                        .map(|p| !p.files.is_empty())
+                        .unwrap_or(false);
+
+                    if self.state().selected_hunk_index().is_none() && has_files {
+                        self.state_mut()
+                            .set_selected_file(file_path.to_str().unwrap_or("").to_string());
+                    }
+                }
+                KeyAction::ApproveHunk => {
+                    let Some(patch_idx) = self.state().selected_patch_index() else {
+                        return;
+                    };
+                    let Some(hunk_idx) = self.state().selected_hunk_index() else {
+                        return;
+                    };
+                    let Some(file_path_str) = self.state().selected_file_path() else {
+                        return;
+                    };
+
+                    let file_path = std::path::PathBuf::from(file_path_str);
+
+                    let result = self
+                        .state_mut()
+                        .patches_mut()
+                        .get_mut(patch_idx)
+                        .map(|patch| patch.approve_hunk(&file_path, hunk_idx));
+
+                    match result {
+                        Some(Ok(_)) => {}
+                        Some(Err(e)) => {
+                            self.transcript_mut()
+                                .add_system_message(format!("Failed to approve hunk: {}", e));
+                        }
+                        None => {}
+                    }
+                }
+                KeyAction::RejectHunk => {
+                    let Some(patch_idx) = self.state().selected_patch_index() else {
+                        return;
+                    };
+                    let Some(hunk_idx) = self.state().selected_hunk_index() else {
+                        return;
+                    };
+                    let Some(file_path_str) = self.state().selected_file_path() else {
+                        return;
+                    };
+
+                    let file_path = std::path::PathBuf::from(file_path_str);
+
+                    let result = self
+                        .state_mut()
+                        .patches_mut()
+                        .get_mut(patch_idx)
+                        .map(|patch| patch.reject_hunk(&file_path, hunk_idx));
+
+                    match result {
+                        Some(Ok(_)) => {}
+                        Some(Err(e)) => {
+                            self.transcript_mut()
+                                .add_system_message(format!("Failed to reject hunk: {}", e));
+                        }
+                        None => {}
+                    }
+                }
+                KeyAction::ToggleHunkDetails => {
+                    self.state_mut().toggle_hunk_details();
+                }
                 KeyAction::NoOp => (),
             }
         }

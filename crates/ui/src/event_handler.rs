@@ -153,6 +153,42 @@ impl EventHandler {
                     state.input.insert_char(' ');
                 }
             }
+            KeyCode::Char('a') | KeyCode::Char('A') => {
+                if !event.modifiers.contains(KeyModifiers::CONTROL)
+                    && state.input.buffer.is_empty()
+                    && state.selected_patch_index().is_some()
+                {
+                    return Some(KeyAction::ApproveHunk);
+                } else {
+                    state.input.insert_char('a');
+                }
+            }
+            KeyCode::Char('n') | KeyCode::Char('N') => {
+                if !event.modifiers.contains(KeyModifiers::CONTROL) {
+                    if state.input.buffer.is_empty() && event.modifiers.contains(KeyModifiers::SHIFT) {
+                        return Some(KeyAction::NavigateNextPatch);
+                    } else if state.input.buffer.is_empty() {
+                        return Some(KeyAction::NavigateNextHunk);
+                    } else {
+                        state.input.insert_char('n');
+                    }
+                } else {
+                    state.input.insert_char('n');
+                }
+            }
+            KeyCode::Char('p') | KeyCode::Char('P') => {
+                if !event.modifiers.contains(KeyModifiers::CONTROL) {
+                    if state.input.buffer.is_empty() && event.modifiers.contains(KeyModifiers::SHIFT) {
+                        return Some(KeyAction::NavigatePrevPatch);
+                    } else if state.input.buffer.is_empty() {
+                        return Some(KeyAction::NavigatePrevHunk);
+                    } else {
+                        state.input.insert_char('p');
+                    }
+                } else {
+                    state.input.insert_char('p');
+                }
+            }
             KeyCode::Char('v') | KeyCode::Char('V') => {
                 if state.input.buffer.is_empty()
                     && event.modifiers.contains(KeyModifiers::CONTROL)
@@ -225,8 +261,17 @@ impl EventHandler {
                     return Some(KeyAction::RetryLastFailedAction);
                 } else if event.modifiers.contains(KeyModifiers::CONTROL) && c == 'l' {
                     return Some(KeyAction::ClearTranscriptView);
+                } else if !event.modifiers.contains(KeyModifiers::CONTROL) && state.input.buffer.is_empty() && c == 'd'
+                {
+                    if state.selected_patch_index().is_some() {
+                        return Some(KeyAction::ToggleHunkDetails);
+                    }
+                    state.input.insert_char(c);
                 } else if !event.modifiers.contains(KeyModifiers::CONTROL) && state.input.buffer.is_empty() && c == 'r'
                 {
+                    if state.selected_patch_index().is_some() {
+                        return Some(KeyAction::RejectHunk);
+                    }
                     return Some(KeyAction::RetryLastFailedAction);
                 } else if !event.modifiers.contains(KeyModifiers::CONTROL) && state.input.buffer.is_empty() && c == 'g'
                 {
@@ -432,6 +477,20 @@ pub enum KeyAction {
     ClearTranscriptView,
     /// Exit the TUI application
     Exit,
+    /// Navigate to next patch in diff queue
+    NavigateNextPatch,
+    /// Navigate to previous patch in diff queue
+    NavigatePrevPatch,
+    /// Navigate to next hunk in current patch
+    NavigateNextHunk,
+    /// Navigate to previous hunk in current patch
+    NavigatePrevHunk,
+    /// Approve currently selected hunk
+    ApproveHunk,
+    /// Reject currently selected hunk
+    RejectHunk,
+    /// Toggle hunk details view
+    ToggleHunkDetails,
     /// No action (e.g., navigation in input)
     NoOp,
 }
@@ -1141,5 +1200,179 @@ mod tests {
 
         assert!(action.is_none());
         assert_eq!(state.input.buffer, "q");
+    }
+
+    #[test]
+    fn test_handle_normal_key_a_approves_hunk_when_patch_selected() {
+        let mut state = create_test_state();
+        state.ui.diff_navigation.selected_patch_index = Some(0);
+
+        let event = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(matches!(action, Some(KeyAction::ApproveHunk)));
+    }
+
+    #[test]
+    fn test_handle_normal_key_a_inserts_when_no_patch_selected() {
+        let mut state = create_test_state();
+
+        let event = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(action.is_none());
+        assert_eq!(state.input.buffer, "a");
+    }
+
+    #[test]
+    fn test_handle_normal_key_a_inserts_when_typing() {
+        let mut state = create_test_state();
+        state.ui.diff_navigation.selected_patch_index = Some(0);
+        state.input.buffer = "test".to_string();
+
+        let event = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+        assert!(action.is_none());
+        assert_eq!(state.input.buffer, "atest");
+    }
+
+    #[test]
+    fn test_handle_normal_key_ctrl_a_inserts_character() {
+        let mut state = create_test_state();
+        state.ui.diff_navigation.selected_patch_index = Some(0);
+
+        let event = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL);
+        let action = EventHandler::handle_key_event(event, &mut state);
+        assert!(action.is_none());
+        assert_eq!(state.input.buffer, "a");
+    }
+
+    #[test]
+    fn test_handle_normal_key_d_toggles_details_when_patch_selected() {
+        let mut state = create_test_state();
+        state.ui.diff_navigation.selected_patch_index = Some(0);
+
+        let event = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(matches!(action, Some(KeyAction::ToggleHunkDetails)));
+    }
+
+    #[test]
+    fn test_handle_normal_key_d_inserts_when_no_patch_selected() {
+        let mut state = create_test_state();
+
+        let event = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(action.is_none());
+        assert_eq!(state.input.buffer, "d");
+    }
+
+    #[test]
+    fn test_handle_normal_key_n_navigates_hunk() {
+        let mut state = create_test_state();
+        state.ui.diff_navigation.selected_patch_index = Some(0);
+
+        let event = KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(matches!(action, Some(KeyAction::NavigateNextHunk)));
+    }
+
+    #[test]
+    fn test_handle_normal_key_shift_n_navigates_patch() {
+        let mut state = create_test_state();
+        state.ui.diff_navigation.selected_patch_index = Some(0);
+
+        let event = KeyEvent::new(KeyCode::Char('n'), KeyModifiers::SHIFT);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(matches!(action, Some(KeyAction::NavigateNextPatch)));
+    }
+
+    #[test]
+    fn test_handle_normal_key_n_inserts_when_no_patch_selected() {
+        let mut state = create_test_state();
+        let event = KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+        assert!(matches!(action, Some(KeyAction::NavigateNextHunk)));
+        assert_eq!(state.input.buffer, "");
+    }
+
+    #[test]
+    fn test_handle_normal_key_p_navigates_hunk() {
+        let mut state = create_test_state();
+        state.ui.diff_navigation.selected_patch_index = Some(0);
+
+        let event = KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(matches!(action, Some(KeyAction::NavigatePrevHunk)));
+    }
+
+    #[test]
+    fn test_handle_normal_key_shift_p_navigates_patch() {
+        let mut state = create_test_state();
+        state.ui.diff_navigation.selected_patch_index = Some(0);
+
+        let event = KeyEvent::new(KeyCode::Char('p'), KeyModifiers::SHIFT);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(matches!(action, Some(KeyAction::NavigatePrevPatch)));
+    }
+
+    #[test]
+    fn test_handle_normal_key_p_inserts_when_no_patch_selected() {
+        let mut state = create_test_state();
+        let event = KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+        assert!(matches!(action, Some(KeyAction::NavigatePrevHunk)));
+        assert_eq!(state.input.buffer, "");
+    }
+
+    #[test]
+    fn test_handle_normal_key_ctrl_n_inserts_character() {
+        let mut state = create_test_state();
+        state.ui.diff_navigation.selected_patch_index = Some(0);
+
+        let event = KeyEvent::new(KeyCode::Char('n'), KeyModifiers::CONTROL);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(action.is_none());
+        assert_eq!(state.input.buffer, "n");
+    }
+
+    #[test]
+    fn test_handle_normal_key_ctrl_p_inserts_character() {
+        let mut state = create_test_state();
+        state.ui.diff_navigation.selected_patch_index = Some(0);
+
+        let event = KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(action.is_none());
+        assert_eq!(state.input.buffer, "p");
+    }
+
+    #[test]
+    fn test_handle_normal_key_r_rejects_hunk_when_patch_selected() {
+        let mut state = create_test_state();
+        state.ui.diff_navigation.selected_patch_index = Some(0);
+
+        let event = KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(matches!(action, Some(KeyAction::RejectHunk)));
+    }
+
+    #[test]
+    fn test_handle_normal_key_r_retries_when_no_patch_selected() {
+        let mut state = create_test_state();
+
+        let event = KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(matches!(action, Some(KeyAction::RetryLastFailedAction)));
     }
 }

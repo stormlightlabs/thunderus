@@ -1,4 +1,5 @@
 use crate::{
+    components::DiffView,
     layout,
     state::{AppState, SidebarSection},
     theme::Theme,
@@ -135,33 +136,8 @@ impl<'a> Sidebar<'a> {
     }
 
     fn render_git_diff_queue(&self, frame: &mut Frame<'_>, area: Rect) {
-        let mut lines = Vec::new();
-
-        if self.state.session.git_diff_queue.is_empty() {
-            lines.push(Line::from(Span::styled("No diffs", Style::default().fg(Theme::MUTED))));
-        } else {
-            for diff in self.state.session.git_diff_queue.iter().take(2) {
-                lines.push(Line::from(vec![
-                    Span::styled(
-                        format!("+{}/-{}", diff.added, diff.deleted),
-                        Style::default().fg(Theme::YELLOW),
-                    ),
-                    Span::raw(" "),
-                    Span::styled(&diff.path, Style::default().fg(Theme::FG)),
-                ]));
-            }
-            if self.state.session.git_diff_queue.len() > 2 {
-                lines.push(Line::from(Span::styled(
-                    format!("+ {} more", self.state.session.git_diff_queue.len() - 2),
-                    Style::default().fg(Theme::MUTED),
-                )));
-            }
-        }
-
-        let paragraph = Paragraph::new(lines)
-            .block(Block::default().title("Diffs").borders(Borders::ALL))
-            .wrap(Wrap { trim: true });
-        frame.render_widget(paragraph, area);
+        let diff_view = DiffView::new(self.state, self.state.patches());
+        diff_view.render(frame, area);
     }
 
     fn render_lsp_mcp_status(&self, frame: &mut Frame<'_>, area: Rect) {

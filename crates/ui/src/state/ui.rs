@@ -1,3 +1,115 @@
+/// Diff navigation state for tracking selected patch and hunk
+#[derive(Debug, Clone, Default)]
+pub struct DiffNavigationState {
+    /// Index of currently selected patch in the queue
+    pub selected_patch_index: Option<usize>,
+    /// Index of currently selected hunk within the patch
+    pub selected_hunk_index: Option<usize>,
+    /// Path of currently selected file within the patch
+    pub selected_file_path: Option<String>,
+    /// Whether to show detailed hunk view (true) or summary view (false)
+    pub show_hunk_details: bool,
+    /// Scroll offset within the hunk view
+    pub hunk_scroll_offset: u16,
+}
+
+impl DiffNavigationState {
+    /// Create a new diff navigation state
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Reset navigation state to initial values
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
+
+    /// Navigate to next patch
+    pub fn next_patch(&mut self, total_patches: usize) {
+        match self.selected_patch_index {
+            Some(idx) if idx + 1 < total_patches => {
+                self.selected_patch_index = Some(idx + 1);
+                self.reset_hunk_selection();
+            }
+            None if total_patches > 0 => {
+                self.selected_patch_index = Some(0);
+                self.reset_hunk_selection();
+            }
+            _ => {}
+        }
+    }
+
+    /// Navigate to previous patch
+    pub fn prev_patch(&mut self, total_patches: usize) {
+        match self.selected_patch_index {
+            Some(idx) if idx > 0 => {
+                self.selected_patch_index = Some(idx - 1);
+                self.reset_hunk_selection();
+            }
+            None if total_patches > 0 => {
+                self.selected_patch_index = Some(total_patches - 1);
+                self.reset_hunk_selection();
+            }
+            _ => {}
+        }
+    }
+
+    /// Navigate to next hunk in current file
+    pub fn next_hunk(&mut self, total_hunks: usize) {
+        match self.selected_hunk_index {
+            Some(idx) if idx + 1 < total_hunks => {
+                self.selected_hunk_index = Some(idx + 1);
+                self.hunk_scroll_offset = 0;
+            }
+            None if total_hunks > 0 => {
+                self.selected_hunk_index = Some(0);
+                self.hunk_scroll_offset = 0;
+            }
+            _ => {}
+        }
+    }
+
+    /// Navigate to previous hunk in current file
+    pub fn prev_hunk(&mut self, total_hunks: usize) {
+        match self.selected_hunk_index {
+            Some(idx) if idx > 0 => {
+                self.selected_hunk_index = Some(idx - 1);
+                self.hunk_scroll_offset = 0;
+            }
+            None if total_hunks > 0 => {
+                self.selected_hunk_index = Some(total_hunks - 1);
+                self.hunk_scroll_offset = 0;
+            }
+            _ => {}
+        }
+    }
+
+    /// Reset hunk selection when changing patches
+    fn reset_hunk_selection(&mut self) {
+        self.selected_hunk_index = None;
+        self.selected_file_path = None;
+        self.hunk_scroll_offset = 0;
+    }
+
+    /// Toggle between summary and detailed hunk view
+    pub fn toggle_details(&mut self) {
+        self.show_hunk_details = !self.show_hunk_details;
+    }
+
+    /// Set the selected file path
+    pub fn set_selected_file(&mut self, path: String) {
+        self.selected_file_path = Some(path);
+        self.selected_hunk_index = None;
+        self.hunk_scroll_offset = 0;
+    }
+
+    /// Scroll within the hunk view
+    pub fn scroll_hunk(&mut self, delta: i16) {
+        let new_offset = self.hunk_scroll_offset as i16 + delta;
+        self.hunk_scroll_offset = new_offset.max(0) as u16;
+    }
+}
+
 /// UI rendering state
 #[derive(Debug, Clone)]
 pub struct UIState {
@@ -11,6 +123,8 @@ pub struct UIState {
     pub scroll_vertical: u16,
     /// Sidebar section collapse state
     pub sidebar_collapse_state: super::SidebarCollapseState,
+    /// Diff navigation state
+    pub diff_navigation: DiffNavigationState,
 }
 
 impl UIState {
@@ -21,6 +135,7 @@ impl UIState {
             scroll_horizontal: 0,
             scroll_vertical: 0,
             sidebar_collapse_state: super::SidebarCollapseState::default(),
+            diff_navigation: DiffNavigationState::new(),
         }
     }
 
@@ -105,7 +220,6 @@ mod tests {
     #[test]
     fn test_scroll_horizontal() {
         let mut state = UIState::default();
-
         assert_eq!(state.scroll_horizontal, 0);
 
         state.scroll_horizontal(10);
@@ -137,7 +251,6 @@ mod tests {
     #[test]
     fn test_reset_scroll() {
         let mut state = UIState::default();
-
         state.scroll_horizontal(50);
         state.scroll_vertical(100);
 
@@ -148,5 +261,172 @@ mod tests {
 
         assert_eq!(state.scroll_horizontal, 0);
         assert_eq!(state.scroll_vertical, 0);
+    }
+
+    #[test]
+    fn test_diff_navigation_new() {
+        let nav = DiffNavigationState::new();
+        assert!(nav.selected_patch_index.is_none());
+        assert!(nav.selected_hunk_index.is_none());
+        assert!(nav.selected_file_path.is_none());
+        assert!(!nav.show_hunk_details);
+        assert_eq!(nav.hunk_scroll_offset, 0);
+    }
+
+    #[test]
+    fn test_diff_navigation_reset() {
+        let mut nav = DiffNavigationState::new();
+        nav.selected_patch_index = Some(5);
+        nav.selected_hunk_index = Some(2);
+        nav.selected_file_path = Some("test.rs".to_string());
+        nav.show_hunk_details = true;
+        nav.hunk_scroll_offset = 10;
+
+        nav.reset();
+
+        assert!(nav.selected_patch_index.is_none());
+        assert!(nav.selected_hunk_index.is_none());
+        assert!(nav.selected_file_path.is_none());
+        assert!(!nav.show_hunk_details);
+        assert_eq!(nav.hunk_scroll_offset, 0);
+    }
+
+    #[test]
+    fn test_diff_navigation_next_patch() {
+        let mut nav = DiffNavigationState::new();
+        nav.next_patch(0);
+        assert!(nav.selected_patch_index.is_none());
+
+        nav.next_patch(3);
+        assert_eq!(nav.selected_patch_index, Some(0));
+        assert!(nav.selected_hunk_index.is_none());
+
+        nav.next_patch(3);
+        assert_eq!(nav.selected_patch_index, Some(1));
+
+        nav.next_patch(3);
+        assert_eq!(nav.selected_patch_index, Some(2));
+
+        nav.next_patch(3);
+        assert_eq!(nav.selected_patch_index, Some(2));
+    }
+
+    #[test]
+    fn test_diff_navigation_prev_patch() {
+        let mut nav = DiffNavigationState::new();
+        nav.prev_patch(0);
+        assert!(nav.selected_patch_index.is_none());
+
+        nav.prev_patch(3);
+        assert_eq!(nav.selected_patch_index, Some(2));
+
+        nav.prev_patch(3);
+        assert_eq!(nav.selected_patch_index, Some(1));
+
+        nav.prev_patch(3);
+        assert_eq!(nav.selected_patch_index, Some(0));
+
+        nav.prev_patch(3);
+        assert_eq!(nav.selected_patch_index, Some(0));
+    }
+
+    #[test]
+    fn test_diff_navigation_next_hunk() {
+        let mut nav = DiffNavigationState::new();
+        nav.next_hunk(0);
+        assert!(nav.selected_hunk_index.is_none());
+
+        nav.next_hunk(5);
+        assert_eq!(nav.selected_hunk_index, Some(0));
+        assert_eq!(nav.hunk_scroll_offset, 0);
+
+        nav.next_hunk(5);
+        assert_eq!(nav.selected_hunk_index, Some(1));
+
+        nav.next_hunk(5);
+        assert_eq!(nav.selected_hunk_index, Some(2));
+
+        for _ in 0..10 {
+            nav.next_hunk(5);
+        }
+        assert_eq!(nav.selected_hunk_index, Some(4));
+    }
+
+    #[test]
+    fn test_diff_navigation_prev_hunk() {
+        let mut nav = DiffNavigationState::new();
+        nav.prev_hunk(0);
+        assert!(nav.selected_hunk_index.is_none());
+
+        nav.prev_hunk(5);
+        assert_eq!(nav.selected_hunk_index, Some(4));
+
+        nav.prev_hunk(5);
+        assert_eq!(nav.selected_hunk_index, Some(3));
+
+        nav.prev_hunk(5);
+        assert_eq!(nav.selected_hunk_index, Some(2));
+
+        nav.prev_hunk(5);
+        assert_eq!(nav.selected_hunk_index, Some(1));
+
+        nav.prev_hunk(5);
+        assert_eq!(nav.selected_hunk_index, Some(0));
+
+        nav.prev_hunk(5);
+        assert_eq!(nav.selected_hunk_index, Some(0));
+    }
+
+    #[test]
+    fn test_diff_navigation_toggle_details() {
+        let mut nav = DiffNavigationState::new();
+        assert!(!nav.show_hunk_details);
+
+        nav.toggle_details();
+        assert!(nav.show_hunk_details);
+
+        nav.toggle_details();
+        assert!(!nav.show_hunk_details);
+    }
+
+    #[test]
+    fn test_diff_navigation_set_selected_file() {
+        let mut nav = DiffNavigationState::new();
+
+        nav.set_selected_file("src/main.rs".to_string());
+        assert_eq!(nav.selected_file_path, Some("src/main.rs".to_string()));
+        assert!(nav.selected_hunk_index.is_none());
+        assert_eq!(nav.hunk_scroll_offset, 0);
+    }
+
+    #[test]
+    fn test_diff_navigation_scroll_hunk() {
+        let mut nav = DiffNavigationState::new();
+
+        nav.scroll_hunk(10);
+        assert_eq!(nav.hunk_scroll_offset, 10);
+
+        nav.scroll_hunk(-5);
+        assert_eq!(nav.hunk_scroll_offset, 5);
+
+        nav.scroll_hunk(-10);
+        assert_eq!(nav.hunk_scroll_offset, 0);
+
+        nav.scroll_hunk(100);
+        assert_eq!(nav.hunk_scroll_offset, 100);
+    }
+
+    #[test]
+    fn test_diff_navigation_patch_change_resets_hunk() {
+        let mut nav = DiffNavigationState::new();
+        nav.selected_hunk_index = Some(3);
+        nav.selected_file_path = Some("test.rs".to_string());
+        nav.hunk_scroll_offset = 15;
+        nav.next_patch(5);
+
+        assert_eq!(nav.selected_patch_index, Some(0));
+        assert!(nav.selected_hunk_index.is_none());
+        assert!(nav.selected_file_path.is_none());
+        assert_eq!(nav.hunk_scroll_offset, 0);
     }
 }

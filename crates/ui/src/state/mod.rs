@@ -15,7 +15,7 @@ pub use composer::{ComposerMode, ComposerState};
 pub use input::InputState;
 pub use session::{SessionStats, SessionTrackingState};
 pub use sidebar::{SidebarCollapseState, SidebarSection};
-pub use ui::{ApprovalUIState, UIState};
+pub use ui::{ApprovalUIState, DiffNavigationState, UIState};
 
 /// Verbosity levels for TUI display
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -302,6 +302,14 @@ impl AppState {
         &mut self.session.git_diff_queue
     }
 
+    pub fn patches(&self) -> &[thunderus_core::Patch] {
+        &self.session.patches
+    }
+
+    pub fn patches_mut(&mut self) -> &mut Vec<thunderus_core::Patch> {
+        &mut self.session.patches
+    }
+
     pub fn last_message(&self) -> Option<&String> {
         self.session.last_message.as_ref()
     }
@@ -401,6 +409,64 @@ impl AppState {
 
     pub fn reset_ctrl_c_count(&mut self) {
         self.exit_state.reset_ctrl_c_count();
+    }
+
+    pub fn diff_navigation(&self) -> &DiffNavigationState {
+        &self.ui.diff_navigation
+    }
+
+    pub fn diff_navigation_mut(&mut self) -> &mut DiffNavigationState {
+        &mut self.ui.diff_navigation
+    }
+
+    /// Navigate to next patch in the diff queue
+    pub fn next_patch(&mut self, total_patches: usize) {
+        self.ui.diff_navigation.next_patch(total_patches);
+    }
+
+    /// Navigate to previous patch in the diff queue
+    pub fn prev_patch(&mut self, total_patches: usize) {
+        self.ui.diff_navigation.prev_patch(total_patches);
+    }
+
+    /// Navigate to next hunk in current patch/file
+    pub fn next_hunk(&mut self, total_hunks: usize) {
+        self.ui.diff_navigation.next_hunk(total_hunks);
+    }
+
+    /// Navigate to previous hunk in current patch/file
+    pub fn prev_hunk(&mut self, total_hunks: usize) {
+        self.ui.diff_navigation.prev_hunk(total_hunks);
+    }
+
+    /// Toggle between summary and detailed hunk view
+    pub fn toggle_hunk_details(&mut self) {
+        self.ui.diff_navigation.toggle_details();
+    }
+
+    /// Set the selected file path for diff navigation
+    pub fn set_selected_file(&mut self, path: String) {
+        self.ui.diff_navigation.set_selected_file(path);
+    }
+
+    /// Get the selected patch index
+    pub fn selected_patch_index(&self) -> Option<usize> {
+        self.ui.diff_navigation.selected_patch_index
+    }
+
+    /// Get the selected hunk index
+    pub fn selected_hunk_index(&self) -> Option<usize> {
+        self.ui.diff_navigation.selected_hunk_index
+    }
+
+    /// Get the selected file path
+    pub fn selected_file_path(&self) -> Option<&String> {
+        self.ui.diff_navigation.selected_file_path.as_ref()
+    }
+
+    /// Reset diff navigation state
+    pub fn reset_diff_navigation(&mut self) {
+        self.ui.diff_navigation.reset();
     }
 }
 

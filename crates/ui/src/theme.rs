@@ -51,6 +51,9 @@ impl Theme {
     /// Border color
     pub const BORDER: Color = Color::Rgb(60, 65, 90);
 
+    /// Black color
+    pub const BLACK: Color = Color::Rgb(22, 24, 33);
+
     /// Base style for all text
     pub fn base() -> Style {
         Style::default().fg(Self::FG).bg(Self::BG)
