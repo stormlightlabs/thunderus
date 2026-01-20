@@ -58,6 +58,15 @@ struct ApprovalPromptContext<'a> {
     rendering: RenderContext<'a>,
 }
 
+/// Context for rendering patch display with hunk labels
+struct PatchDisplayContext<'a> {
+    patch_name: &'a str,
+    file_path: &'a str,
+    diff_content: &'a str,
+    hunk_labels: &'a [Option<String>],
+    rendering: RenderContext<'a>,
+}
+
 struct RenderContext<'a> {
     width: usize,
     detail_level: CardDetailLevel,
@@ -156,6 +165,15 @@ impl<'a> TranscriptRenderer<'a> {
                     error: error.as_deref(),
                     exit_code: *exit_code,
                     next_steps: next_steps.as_ref(),
+                    rendering: RenderContext::new(width, *detail_level, lines),
+                });
+            }
+            super::TranscriptEntry::PatchDisplay { patch_name, file_path, diff_content, hunk_labels, detail_level } => {
+                self.render_patch_display(PatchDisplayContext {
+                    patch_name,
+                    file_path,
+                    diff_content,
+                    hunk_labels,
                     rendering: RenderContext::new(width, *detail_level, lines),
                 });
             }
@@ -606,6 +624,105 @@ impl<'a> TranscriptRenderer<'a> {
                     Span::styled("⏹", Style::default().fg(Theme::YELLOW)),
                     Span::styled(" Cancelled", Style::default().fg(Theme::YELLOW)),
                 ]));
+            }
+        }
+    }
+
+    /// Render patch display with hunk-level intent labels
+    fn render_patch_display(&self, ctx: PatchDisplayContext) {
+        let PatchDisplayContext { patch_name, file_path, diff_content, hunk_labels, rendering } = ctx;
+
+        rendering.lines.push(Line::default());
+
+        rendering.lines.push(Line::from(vec![
+            Span::styled("📝", Style::default().fg(Theme::CYAN)),
+            Span::raw(" "),
+            Span::styled("Patch: ", Style::default().fg(Theme::MUTED)),
+            Span::styled(patch_name.to_string(), Style::default().fg(Theme::FG).bold()),
+        ]));
+
+        rendering.lines.push(Line::from(vec![
+            Span::styled("  ", Style::default()),
+            Span::styled("File: ", Style::default().fg(Theme::MUTED)),
+            Span::styled(file_path.to_string(), Style::default().fg(Theme::CYAN)),
+        ]));
+
+        let mut hunk_index = 0;
+        let mut in_hunk = false;
+        let mut current_hunk_lines = Vec::new();
+
+        for line in diff_content.lines() {
+            if line.starts_with("@@") {
+                if !current_hunk_lines.is_empty() && in_hunk {
+                    if hunk_index < hunk_labels.len()
+                        && let Some(label) = &hunk_labels[hunk_index]
+                    {
+                        rendering.lines.push(Line::default());
+                        rendering.lines.push(Line::from(vec![
+                            Span::styled("  ", Style::default()),
+                            Span::styled("📋 ", Style::default()),
+                            Span::styled(label.clone(), Style::default().fg(Theme::YELLOW).italic()),
+                        ]));
+                    }
+
+                    for hunk_line in &current_hunk_lines {
+                        rendering
+                            .lines
+                            .push(Line::from(vec![Span::raw(format!("  {}", hunk_line))]));
+                    }
+                    current_hunk_lines.clear();
+                    hunk_index += 1;
+                }
+
+                in_hunk = true;
+                current_hunk_lines.push(line.to_string());
+            } else if in_hunk {
+                current_hunk_lines.push(line.to_string());
+            } else if line.starts_with("diff --git") || line.starts_with("index") {
+                rendering.lines.push(Line::from(vec![Span::styled(
+                    format!("  {}", line),
+                    Style::default().fg(Theme::MUTED),
+                )]));
+            }
+        }
+
+        if !current_hunk_lines.is_empty() && in_hunk {
+            if hunk_index < hunk_labels.len()
+                && let Some(label) = &hunk_labels[hunk_index]
+            {
+                rendering.lines.push(Line::default());
+                rendering.lines.push(Line::from(vec![
+                    Span::styled("  ", Style::default()),
+                    Span::styled("📋 ", Style::default()),
+                    Span::styled(label.clone(), Style::default().fg(Theme::YELLOW).italic()),
+                ]));
+            }
+
+            for hunk_line in &current_hunk_lines {
+                rendering
+                    .lines
+                    .push(Line::from(vec![Span::raw(format!("  {}", hunk_line))]));
+            }
+        }
+
+        match rendering.detail_level {
+            CardDetailLevel::Brief => {
+                rendering.lines.push(Line::from(vec![Span::styled(
+                    "  [press 'v' for detailed diff view]",
+                    Style::default().fg(Theme::MUTED).italic(),
+                )]));
+            }
+            CardDetailLevel::Detailed => {
+                rendering.lines.push(Line::from(vec![Span::styled(
+                    "  [detailed mode - full diff with intent labels]",
+                    Style::default().fg(Theme::MUTED).italic(),
+                )]));
+            }
+            CardDetailLevel::Verbose => {
+                rendering.lines.push(Line::from(vec![Span::styled(
+                    "  [verbose mode - all patch details shown]",
+                    Style::default().fg(Theme::MUTED).italic(),
+                )]));
             }
         }
     }

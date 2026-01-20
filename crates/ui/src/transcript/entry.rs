@@ -78,6 +78,15 @@ pub enum TranscriptEntry {
         next_steps: Option<Vec<String>>,
         detail_level: CardDetailLevel,
     },
+    /// Patch display with hunk-level intent labels
+    PatchDisplay {
+        patch_name: String,
+        file_path: String,
+        diff_content: String,
+        /// Hunk-level intent labels (index -> label)
+        hunk_labels: Vec<Option<String>>,
+        detail_level: CardDetailLevel,
+    },
     /// Approval prompt waiting for user input with teaching context
     ApprovalPrompt {
         action: String,
@@ -233,6 +242,20 @@ impl TranscriptEntry {
         self
     }
 
+    /// Create a patch display entry with hunk labels
+    pub fn patch_display(
+        patch_name: impl Into<String>, file_path: impl Into<String>, diff_content: impl Into<String>,
+        hunk_labels: Vec<Option<String>>,
+    ) -> Self {
+        Self::PatchDisplay {
+            patch_name: patch_name.into(),
+            file_path: file_path.into(),
+            diff_content: diff_content.into(),
+            hunk_labels,
+            detail_level: CardDetailLevel::default(),
+        }
+    }
+
     /// Create an approval prompt entry
     pub fn approval_prompt(action: impl Into<String>, risk: impl Into<String>) -> Self {
         Self::ApprovalPrompt {
@@ -330,6 +353,7 @@ impl TranscriptEntry {
             Self::ModelResponse { .. } => "model-response",
             Self::ToolCall { .. } => "tool-call",
             Self::ToolResult { .. } => "tool-result",
+            Self::PatchDisplay { .. } => "patch-display",
             Self::ApprovalPrompt { .. } => "approval-prompt",
             Self::SystemMessage { .. } => "system-message",
             Self::ErrorEntry { .. } => "error-entry",
@@ -360,7 +384,7 @@ impl TranscriptEntry {
     pub fn is_action_card(&self) -> bool {
         matches!(
             self,
-            Self::ToolCall { .. } | Self::ToolResult { .. } | Self::ApprovalPrompt { .. }
+            Self::ToolCall { .. } | Self::ToolResult { .. } | Self::ApprovalPrompt { .. } | Self::PatchDisplay { .. }
         )
     }
 
@@ -369,7 +393,8 @@ impl TranscriptEntry {
         match self {
             Self::ToolCall { detail_level, .. }
             | Self::ToolResult { detail_level, .. }
-            | Self::ApprovalPrompt { detail_level, .. } => *detail_level,
+            | Self::ApprovalPrompt { detail_level, .. }
+            | Self::PatchDisplay { detail_level, .. } => *detail_level,
             _ => CardDetailLevel::Brief,
         }
     }
@@ -379,7 +404,8 @@ impl TranscriptEntry {
         match self {
             Self::ToolCall { detail_level, .. }
             | Self::ToolResult { detail_level, .. }
-            | Self::ApprovalPrompt { detail_level, .. } => {
+            | Self::ApprovalPrompt { detail_level, .. }
+            | Self::PatchDisplay { detail_level, .. } => {
                 *detail_level = level;
             }
             _ => {}
@@ -391,7 +417,8 @@ impl TranscriptEntry {
         match self {
             Self::ToolCall { detail_level, .. }
             | Self::ToolResult { detail_level, .. }
-            | Self::ApprovalPrompt { detail_level, .. } => {
+            | Self::ApprovalPrompt { detail_level, .. }
+            | Self::PatchDisplay { detail_level, .. } => {
                 detail_level.toggle();
             }
             _ => {}
@@ -415,6 +442,9 @@ impl fmt::Display for TranscriptEntry {
             }
             Self::ToolResult { tool, success, .. } => {
                 write!(f, "[{}] {}", tool, if *success { "✅" } else { "❌" })
+            }
+            Self::PatchDisplay { patch_name, file_path, .. } => {
+                write!(f, "[Patch] {} @ {}", patch_name, file_path)
             }
             Self::ApprovalPrompt { action, decision, risk, .. } => {
                 let status = match decision {
@@ -991,6 +1021,83 @@ mod tests {
                 assert_eq!(next_steps, &Some(vec!["Step 1".to_string(), "Step 2".to_string()]));
             }
             _ => panic!("Expected ToolResult"),
+        }
+    }
+
+    #[test]
+    fn test_patch_display_creation() {
+        let diff = "diff --git a/test.txt b/test.txt\n@@ -1,1 +1,1 @@\n-old\n+new";
+        let hunk_labels = vec![Some("Add test".to_string())];
+        let entry = TranscriptEntry::patch_display("test patch", "test.txt", diff, hunk_labels);
+
+        assert_eq!(entry.type_name(), "patch-display");
+        assert!(entry.is_action_card());
+        assert_eq!(entry.detail_level(), CardDetailLevel::Brief);
+    }
+
+    #[test]
+    fn test_patch_display_with_labels() {
+        let diff = "diff --git a/test.txt b/test.txt\n@@ -1,1 +1,1 @@\n-old\n+new";
+        let hunk_labels = vec![
+            Some("Add error handling".to_string()),
+            Some("Update documentation".to_string()),
+            None,
+        ];
+        let entry = TranscriptEntry::patch_display("multi-hunk patch", "test.txt", diff, hunk_labels);
+
+        match &entry {
+            TranscriptEntry::PatchDisplay { patch_name, file_path, hunk_labels, .. } => {
+                assert_eq!(patch_name, "multi-hunk patch");
+                assert_eq!(file_path, "test.txt");
+                assert_eq!(hunk_labels.len(), 3);
+                assert_eq!(hunk_labels[0], Some("Add error handling".to_string()));
+                assert_eq!(hunk_labels[1], Some("Update documentation".to_string()));
+                assert_eq!(hunk_labels[2], None);
+            }
+            _ => panic!("Expected PatchDisplay"),
+        }
+    }
+
+    #[test]
+    fn test_patch_display_detail_level() {
+        let diff = "diff --git a/test.txt b/test.txt\n@@ -1,1 +1,1 @@\n-old\n+new";
+        let hunk_labels = vec![Some("Test".to_string())];
+        let mut entry = TranscriptEntry::patch_display("test", "test.txt", diff, hunk_labels);
+
+        assert_eq!(entry.detail_level(), CardDetailLevel::Brief);
+
+        entry.set_detail_level(CardDetailLevel::Verbose);
+        assert_eq!(entry.detail_level(), CardDetailLevel::Verbose);
+
+        entry.toggle_detail_level();
+        assert_eq!(entry.detail_level(), CardDetailLevel::Brief);
+    }
+
+    #[test]
+    fn test_patch_display_display_format() {
+        let diff = "diff --git a/test.txt b/test.txt\n@@ -1,1 +1,1 @@\n-old\n+new";
+        let hunk_labels = vec![Some("Test".to_string())];
+        let entry = TranscriptEntry::patch_display("patch1", "src/test.txt", diff, hunk_labels);
+
+        let display = entry.to_string();
+        assert!(display.contains("[Patch]"));
+        assert!(display.contains("patch1"));
+        assert!(display.contains("src/test.txt"));
+    }
+
+    #[test]
+    fn test_patch_display_empty_labels() {
+        let diff = "diff --git a/test.txt b/test.txt\n@@ -1,1 +1,1 @@\n-old\n+new";
+        let hunk_labels = vec![None, None];
+        let entry = TranscriptEntry::patch_display("no labels", "test.txt", diff, hunk_labels);
+
+        match &entry {
+            TranscriptEntry::PatchDisplay { hunk_labels, .. } => {
+                assert_eq!(hunk_labels.len(), 2);
+                assert!(hunk_labels[0].is_none());
+                assert!(hunk_labels[1].is_none());
+            }
+            _ => panic!("Expected PatchDisplay"),
         }
     }
 }

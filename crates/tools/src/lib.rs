@@ -4,6 +4,7 @@ pub mod builtin;
 pub mod classification;
 pub mod dispatcher;
 pub mod full_access;
+pub mod hunk_labeler;
 pub mod patch_generator;
 pub mod read_history;
 pub mod registry;
@@ -25,6 +26,7 @@ pub use full_access::{
     FullAccessPolicy, check_full_access_policy, classify_and_get_hint, create_backups_for_command,
     extract_files_for_backup, format_command_result, get_teaching_hint_for_command,
 };
+pub use hunk_labeler::{HunkLabel, HunkLabeler};
 pub use patch_generator::{PatchGenerator, generate_unified_diff};
 pub use read_history::{ReadHistory, validate_read_before_edit};
 pub use registry::ToolRegistry;

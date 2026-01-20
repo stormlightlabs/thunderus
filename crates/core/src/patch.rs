@@ -330,6 +330,27 @@ impl Patch {
     pub fn total_hunk_count(&self) -> usize {
         self.hunks.values().map(|h| h.len()).sum()
     }
+
+    /// Label all hunks in this patch using the provided labeler
+    ///
+    /// This analyzes each hunk and assigns semantic intent labels
+    /// (e.g., "Add error handling", "Remove deprecated fn").
+    ///
+    /// Returns the number of hunks that were successfully labeled.
+    pub fn label_hunks(&mut self, labeler: &impl Fn(&Hunk) -> Option<String>) -> usize {
+        let mut labeled_count = 0;
+
+        for (_, hunks) in self.hunks.iter_mut() {
+            for hunk in hunks.iter_mut() {
+                if let Some(intent) = labeler(hunk) {
+                    hunk.intent = Some(intent);
+                    labeled_count += 1;
+                }
+            }
+        }
+
+        labeled_count
+    }
 }
 
 /// A queue of patches waiting to be applied
@@ -754,5 +775,58 @@ mod tests {
         .unwrap();
 
         assert_eq!(patch.total_hunk_count(), 2);
+    }
+
+    #[test]
+    fn test_patch_label_hunks() {
+        let diff = "diff --git a/test.txt b/test.txt\n@@ -1,2 +1,2 @@\n-old\n+new\n@@ -5,2 +5,2 @@\n-old2\n+new2";
+        let session_id = SessionId::new();
+        let mut patch = Patch::new(
+            PatchId::new("patch1"),
+            "test patch".to_string(),
+            "abc123".to_string(),
+            diff.to_string(),
+            session_id,
+            0,
+        )
+        .unwrap();
+
+        let labeled = patch.label_hunks(&|_hunk| Some("Test label".to_string()));
+        assert_eq!(labeled, 2);
+
+        let file = PathBuf::from("test.txt");
+        let hunks = patch.hunks.get(&file).unwrap();
+        assert_eq!(hunks[0].intent, Some("Test label".to_string()));
+        assert_eq!(hunks[1].intent, Some("Test label".to_string()));
+    }
+
+    #[test]
+    fn test_patch_label_hunks_conditional() {
+        let diff = "diff --git a/test.txt b/test.txt\n@@ -1,2 +1,2 @@\n-old\n+new\n@@ -5,2 +5,2 @@\n-old2\n+new2";
+        let session_id = SessionId::new();
+        let mut patch = Patch::new(
+            PatchId::new("patch1"),
+            "test patch".to_string(),
+            "abc123".to_string(),
+            diff.to_string(),
+            session_id,
+            0,
+        )
+        .unwrap();
+
+        let labeled = patch.label_hunks(&|hunk| {
+            if hunk.content.contains("old") && !hunk.content.contains("old2") {
+                Some("First hunk".to_string())
+            } else {
+                None
+            }
+        });
+
+        assert_eq!(labeled, 1);
+
+        let file = PathBuf::from("test.txt");
+        let hunks = patch.hunks.get(&file).unwrap();
+        assert_eq!(hunks[0].intent, Some("First hunk".to_string()));
+        assert_eq!(hunks[1].intent, None);
     }
 }

@@ -92,11 +92,13 @@ Codex explicitly treats diffs and `git apply` failure modes as first-class
       - Diff Queue pane with hunk navigation
       - next/prev hunk keybinds
       - approve/reject individual hunks
-- [ ] Hunk labeling with intent:
-      - attach semantic labels to hunks
+- [x] Hunk labeling with intent:
+      - [x] attach semantic labels to hunks
         (e.g., "Add error handling", "Remove deprecated fn")
-      - display intent above each hunk in diff view
-      - teach version control discipline through consistent labeling
+      - [x] Pattern-based intent extraction (HunkLabeler in thunderus-tools)
+      - [x] Patch::label_hunks() method for automatic labeling
+      - [x] display intent above each hunk in diff view
+      - [x] teach version control discipline through consistent labeling
 - [x] Pedagogical conflict messages:
       - on `git apply` failure, explain *why* conflict occurred
         (not just "conflict detected")
@@ -110,7 +112,8 @@ DoD:
 --------------------------------------------------------------------------------
 VIII. UI POLISH + THEMING                                           *agent-VIII*
 --------------------------------------------------------------------------------
-Complete the design spec implementation and add flexible, user-configurable theming.
+Complete the design spec implementation and add flexible, user-configurable
+theming.
 
 Design target:
 Match DESIGN.txt specifications for all UI components, then enable runtime theme
