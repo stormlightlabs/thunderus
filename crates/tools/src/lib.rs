@@ -16,7 +16,8 @@ pub mod tool;
 pub use apply_engine::{ApplyEngine, ApplyResult, ConflictInfo, ConflictType};
 pub use backup::{BackupManager, BackupMetadata, BackupMode, command_requires_backup};
 pub use builtin::{
-    EchoTool, EditTool, GlobTool, GrepTool, MultiEditOperation, MultiEditTool, NoopTool, ReadTool, ShellTool,
+    EchoTool, EditTool, GlobTool, GrepTool, MultiEditOperation, MultiEditTool, NoopTool, PatchTool, ReadTool,
+    ShellTool, WriteTool,
 };
 pub use classification::{CommandClassifier, Pattern, classify_shell_command, classify_shell_command_risk};
 pub use dispatcher::ToolDispatcher;

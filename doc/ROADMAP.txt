@@ -77,7 +77,7 @@ Codex explicitly treats diffs and `git apply` failure modes as first-class
       - replace naive line-by-line diff with `imara-diff` crate
       - use Histogram algorithm for semantic code diffs
       - improves readability for moved/refactored code blocks
-- [ ] Unified diff generation contract for models:
+- [x] Unified diff generation contract for models:
       - patch-first is default; raw write is an escape hatch (heavily gated)
 - [x] Apply engine:
       - try `git apply` (or equivalent) and detect conflicts

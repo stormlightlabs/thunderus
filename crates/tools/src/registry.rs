@@ -6,7 +6,9 @@ use thunderus_core::{ApprovalGate, ApprovalMode, Profile, Result};
 use thunderus_providers::{ToolResult, ToolSpec};
 
 use super::Tool;
-use super::builtin::{EchoTool, EditTool, GlobTool, GrepTool, MultiEditTool, NoopTool, ReadTool, ShellTool};
+use super::builtin::{
+    EchoTool, EditTool, GlobTool, GrepTool, MultiEditTool, NoopTool, PatchTool, ReadTool, ShellTool, WriteTool,
+};
 
 /// Registry that holds all available tools
 #[derive(Debug, Clone)]
@@ -61,6 +63,8 @@ impl ToolRegistry {
         registry.register(GlobTool).unwrap();
         registry.register(ReadTool).unwrap();
         registry.register(ShellTool).unwrap();
+        registry.register(PatchTool).unwrap();
+        registry.register(WriteTool).unwrap();
         registry.register(EditTool).unwrap();
         registry.register(MultiEditTool).unwrap();
         registry
@@ -596,8 +600,10 @@ mod tests {
         assert!(tools.contains(&"glob".to_string()));
         assert!(tools.contains(&"read".to_string()));
         assert!(tools.contains(&"shell".to_string()));
+        assert!(tools.contains(&"patch".to_string()));
+        assert!(tools.contains(&"write".to_string()));
         assert!(tools.contains(&"edit".to_string()));
         assert!(tools.contains(&"multiedit".to_string()));
-        assert_eq!(tools.len(), 8);
+        assert_eq!(tools.len(), 10);
     }
 }

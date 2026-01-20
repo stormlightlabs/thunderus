@@ -7,6 +7,8 @@ use std::process::{Command, Stdio};
 use thunderus_core::{Classification, Result, ToolRisk};
 use thunderus_providers::{ToolParameter, ToolResult};
 
+use crate::patch_generator;
+
 use super::Tool;
 use super::classification::CommandClassifier;
 
@@ -1313,6 +1315,242 @@ impl Tool for MultiEditTool {
         Self::validate_path(&path)?;
 
         let result = Self::perform_edits(&path, &edits)?;
+
+        Ok(ToolResult::success(tool_call_id, result))
+    }
+}
+
+/// Tool for generating unified diff patches (patch-first editing approach)
+///
+/// This is the RECOMMENDED and DEFAULT tool for models to use when editing files.
+/// It generates a patch using the Histogram diff algorithm, which produces more
+/// semantically meaningful diffs than naive line-by-line comparison.
+///
+/// Patches are reviewable, reversible, and conflict-aware. They go through the
+/// patch queue system where users can approve/reject individual hunks before applying.
+#[derive(Debug)]
+pub struct PatchTool;
+
+impl PatchTool {
+    /// Validates that the path exists and is a file
+    fn validate_path(path: &Path) -> Result<()> {
+        if !path.exists() {
+            return Err(thunderus_core::Error::Validation(format!(
+                "Path does not exist: {}",
+                path.display()
+            )));
+        }
+
+        if path.is_dir() {
+            return Err(thunderus_core::Error::Validation(format!(
+                "Path is a directory, not a file: {}",
+                path.display()
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Generates a unified diff patch for the file edit
+    fn generate_patch(path: &Path, new_content: &str, base_snapshot: &str) -> Result<String> {
+        let old_content = std::fs::read_to_string(path)
+            .map_err(|e| thunderus_core::Error::Tool(format!("Failed to read file '{}': {}", path.display(), e)))?;
+
+        if old_content == new_content {
+            return Err(thunderus_core::Error::Validation(
+                "No changes detected - old and new content are identical".to_string(),
+            ));
+        }
+
+        patch_generator::generate_unified_diff(path, &old_content, new_content, base_snapshot)
+            .map_err(thunderus_core::Error::Tool)
+    }
+}
+
+impl Tool for PatchTool {
+    fn name(&self) -> &str {
+        "patch"
+    }
+
+    fn description(&self) -> &str {
+        "Generate a unified diff patch for file edits (patch-first, RECOMMENDED). \
+         Patches are reviewable, reversible, and conflict-aware. Use this tool by default for all file edits."
+    }
+
+    fn parameters(&self) -> ToolParameter {
+        ToolParameter::new_object(vec![
+            (
+                "file_path".to_string(),
+                ToolParameter::new_string("Absolute path to the file")
+                    .with_description("The absolute path to the file to patch"),
+            ),
+            (
+                "new_content".to_string(),
+                ToolParameter::new_string("New file content")
+                    .with_description("The complete new content of the file after the edit"),
+            ),
+            (
+                "base_snapshot".to_string(),
+                ToolParameter::new_string("Git commit hash")
+                    .with_description("The git commit hash of the base snapshot (defaults to 'HEAD')"),
+            ),
+        ])
+    }
+
+    fn risk_level(&self) -> ToolRisk {
+        ToolRisk::Risky
+    }
+
+    fn classification(&self) -> Option<Classification> {
+        Some(Classification::new(
+            ToolRisk::Risky,
+            "PatchTool generates reviewable diffs using the Histogram algorithm. Patches must be approved before being applied. This is the RECOMMENDED approach for file edits.",
+        ).with_suggestion("Always prefer PatchTool over WriteTool for file edits. Patches are safer because they're reviewable and reversible."))
+    }
+
+    fn execute(&self, tool_call_id: String, arguments: &Value) -> Result<ToolResult> {
+        let file_path_str = arguments
+            .get("file_path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| thunderus_core::Error::Validation("Missing or invalid 'file_path' parameter".to_string()))?;
+
+        if file_path_str.is_empty() {
+            return Err(thunderus_core::Error::Validation(
+                "file_path cannot be empty".to_string(),
+            ));
+        }
+
+        let new_content = arguments.get("new_content").and_then(|v| v.as_str()).ok_or_else(|| {
+            thunderus_core::Error::Validation("Missing or invalid 'new_content' parameter".to_string())
+        })?;
+
+        let base_snapshot = arguments
+            .get("base_snapshot")
+            .and_then(|v| v.as_str())
+            .unwrap_or("HEAD");
+
+        let path = PathBuf::from(file_path_str);
+
+        Self::validate_path(&path)?;
+
+        let patch = Self::generate_patch(&path, new_content, base_snapshot)?;
+
+        Ok(ToolResult::success(
+            tool_call_id,
+            format!("Generated patch for file: {}\n\n{}", path.display(), patch),
+        ))
+    }
+}
+
+/// Tool for direct file writing (escape hatch, heavily gated)
+///
+/// WARNING: This is an ESCAPE HATCH tool that bypasses the patch system.
+/// It should ONLY be used in exceptional circumstances where patch-based
+/// editing is not feasible (e.g., binary files, generated files, etc.).
+///
+/// Direct writes are NOT reviewable through the patch queue and CANNOT be
+/// undone through the patch rollback mechanism. Use ONLY when absolutely necessary.
+#[derive(Debug)]
+pub struct WriteTool;
+
+impl WriteTool {
+    /// Validates that the path is valid for writing
+    fn validate_path(path: &Path) -> Result<()> {
+        if path.exists() && path.is_dir() {
+            return Err(thunderus_core::Error::Validation(format!(
+                "Path is a directory, not a file: {}",
+                path.display()
+            )));
+        }
+
+        if let Some(parent) = path.parent()
+            && !parent.exists()
+        {
+            return Err(thunderus_core::Error::Validation(format!(
+                "Parent directory does not exist: {}",
+                parent.display()
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Writes content directly to the file
+    fn write_file(path: &Path, content: &str) -> Result<String> {
+        std::fs::write(path, content)
+            .map_err(|e| thunderus_core::Error::Tool(format!("Failed to write file '{}': {}", path.display(), e)))?;
+
+        Ok(format!(
+            "Successfully wrote file: {}\n\n⚠️  WARNING: Direct file writes bypass the patch system and cannot be rolled back through the patch queue.",
+            path.display()
+        ))
+    }
+}
+
+impl Tool for WriteTool {
+    fn name(&self) -> &str {
+        "write"
+    }
+
+    fn description(&self) -> &str {
+        "[ESCAPE HATCH] Write content directly to a file, bypassing the patch system. \
+         WARNING: Not reviewable, not reversible, not conflict-aware. ONLY use when patch-based editing is not feasible."
+    }
+
+    fn parameters(&self) -> ToolParameter {
+        ToolParameter::new_object(vec![
+            (
+                "file_path".to_string(),
+                ToolParameter::new_string("Absolute path to the file")
+                    .with_description("The absolute path to the file to write"),
+            ),
+            (
+                "content".to_string(),
+                ToolParameter::new_string("File content").with_description("The complete content to write to the file"),
+            ),
+            (
+                "justification".to_string(),
+                ToolParameter::new_string("Reason for bypassing patch system")
+                    .with_description("Explanation of why patch-based editing cannot be used for this operation"),
+            ),
+        ])
+    }
+
+    fn risk_level(&self) -> ToolRisk {
+        ToolRisk::Risky
+    }
+
+    fn classification(&self) -> Option<Classification> {
+        Some(Classification::new(
+            ToolRisk::Risky,
+            "WriteTool bypasses the patch system and writes directly to files. Changes are NOT reviewable through the patch queue and CANNOT be undone via patch rollback. This tool should ONLY be used when patch-based editing is not feasible (e.g., binary files, auto-generated files, etc.).",
+        ).with_suggestion("Use PatchTool instead for all regular file edits. Patches are reviewable, reversible, and conflict-aware."))
+    }
+
+    fn execute(&self, tool_call_id: String, arguments: &Value) -> Result<ToolResult> {
+        let file_path_str = arguments
+            .get("file_path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| thunderus_core::Error::Validation("Missing or invalid 'file_path' parameter".to_string()))?;
+
+        if file_path_str.is_empty() {
+            return Err(thunderus_core::Error::Validation(
+                "file_path cannot be empty".to_string(),
+            ));
+        }
+
+        let content = arguments
+            .get("content")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| thunderus_core::Error::Validation("Missing or invalid 'content' parameter".to_string()))?;
+
+        let _justification = arguments.get("justification").and_then(|v| v.as_str());
+
+        let path = PathBuf::from(file_path_str);
+
+        Self::validate_path(&path)?;
+
+        let result = Self::write_file(&path, content)?;
 
         Ok(ToolResult::success(tool_call_id, result))
     }
