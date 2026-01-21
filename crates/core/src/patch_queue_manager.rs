@@ -1,9 +1,10 @@
-/// Patch queue manager for state management
-///
-/// This module provides the integration layer between the patch queue, session management,
-/// and the approval system.
+//! Patch queue manager for state management
+//!
+//! This module provides the integration layer between the patch queue, session management,
+//! and the approval system.
+use crate::error::{Error, Result};
 use crate::layout::{AgentDir, SessionId};
-use crate::patch::{Patch, PatchId, PatchQueue};
+use crate::patch::{MemoryPatch, MemoryPatchParams, Patch, PatchId, PatchQueue};
 
 use std::fs::{self, File};
 use std::io::BufWriter;
@@ -34,15 +35,15 @@ impl PatchQueueManager {
     }
 
     /// Load or create a patch queue for a session
-    pub fn load(mut self) -> Result<Self, crate::Error> {
+    pub fn load(mut self) -> Result<Self> {
         let queue_file = self.queue_file();
 
         if queue_file.exists() {
             let content = fs::read_to_string(&queue_file)
-                .map_err(|e| crate::Error::Other(format!("Failed to read patch queue: {}", e)))?;
+                .map_err(|e| Error::Other(format!("Failed to read patch queue: {}", e)))?;
 
             self.queue = serde_json::from_str(&content)
-                .map_err(|e| crate::Error::Parse(format!("Failed to parse patch queue: {}", e)))?;
+                .map_err(|e| Error::Parse(format!("Failed to parse patch queue: {}", e)))?;
         }
 
         Ok(self)
@@ -54,32 +55,32 @@ impl PatchQueueManager {
     }
 
     /// Save the patch queue to disk
-    pub fn save(&self) -> Result<(), crate::Error> {
+    pub fn save(&self) -> Result<()> {
         let queue_file = self.queue_file();
 
         if let Some(parent) = queue_file.parent() {
             fs::create_dir_all(parent)
-                .map_err(|e| crate::Error::Other(format!("Failed to create patch queue directory: {}", e)))?;
+                .map_err(|e| Error::Other(format!("Failed to create patch queue directory: {}", e)))?;
         }
 
-        let file = File::create(&queue_file)
-            .map_err(|e| crate::Error::Other(format!("Failed to create patch queue file: {}", e)))?;
+        let file =
+            File::create(&queue_file).map_err(|e| Error::Other(format!("Failed to create patch queue file: {}", e)))?;
 
         let writer = BufWriter::new(file);
         serde_json::to_writer_pretty(writer, &self.queue)
-            .map_err(|e| crate::Error::Parse(format!("Failed to serialize patch queue: {}", e)))?;
+            .map_err(|e| Error::Parse(format!("Failed to serialize patch queue: {}", e)))?;
 
         Ok(())
     }
 
     /// Add a new patch to the queue
-    pub fn add_patch(&mut self, patch: Patch) -> Result<(), crate::Error> {
+    pub fn add_patch(&mut self, patch: Patch) -> Result<()> {
         self.queue.add(patch);
         self.save()
     }
 
     /// Remove a patch from the queue
-    pub fn remove_patch(&mut self, patch_id: &PatchId) -> Result<Option<Patch>, crate::Error> {
+    pub fn remove_patch(&mut self, patch_id: &PatchId) -> Result<Option<Patch>> {
         let patch = self.queue.remove(patch_id);
         self.save()?;
         Ok(patch)
@@ -111,7 +112,7 @@ impl PatchQueueManager {
     }
 
     /// Approve a patch
-    pub fn approve_patch(&mut self, patch_id: &PatchId) -> Result<(), crate::Error> {
+    pub fn approve_patch(&mut self, patch_id: &PatchId) -> Result<()> {
         let patch = self
             .queue
             .get_mut(patch_id)
@@ -122,7 +123,7 @@ impl PatchQueueManager {
     }
 
     /// Reject a patch
-    pub fn reject_patch(&mut self, patch_id: &PatchId) -> Result<(), crate::Error> {
+    pub fn reject_patch(&mut self, patch_id: &PatchId) -> Result<()> {
         let patch = self
             .queue
             .get_mut(patch_id)
@@ -133,64 +134,64 @@ impl PatchQueueManager {
     }
 
     /// Approve a specific hunk in a patch
-    pub fn approve_hunk(&mut self, patch_id: &PatchId, file: &Path, hunk_index: usize) -> Result<(), crate::Error> {
+    pub fn approve_hunk(&mut self, patch_id: &PatchId, file: &Path, hunk_index: usize) -> Result<()> {
         let patch = self
             .queue
             .get_mut(patch_id)
-            .ok_or_else(|| crate::Error::Validation(format!("Patch not found: {}", patch_id)))?;
+            .ok_or_else(|| Error::Validation(format!("Patch not found: {}", patch_id)))?;
 
-        patch.approve_hunk(file, hunk_index).map_err(crate::Error::Validation)?;
+        patch.approve_hunk(file, hunk_index).map_err(Error::Validation)?;
         self.save()
     }
 
     /// Reject a specific hunk in a patch
-    pub fn reject_hunk(&mut self, patch_id: &PatchId, file: &Path, hunk_index: usize) -> Result<(), crate::Error> {
+    pub fn reject_hunk(&mut self, patch_id: &PatchId, file: &Path, hunk_index: usize) -> Result<()> {
         let patch = self
             .queue
             .get_mut(patch_id)
-            .ok_or_else(|| crate::Error::Validation(format!("Patch not found: {}", patch_id)))?;
+            .ok_or_else(|| Error::Validation(format!("Patch not found: {}", patch_id)))?;
 
-        patch.reject_hunk(file, hunk_index).map_err(crate::Error::Validation)?;
+        patch.reject_hunk(file, hunk_index).map_err(Error::Validation)?;
         self.save()
     }
 
     /// Set an intent label for a hunk
     pub fn set_hunk_intent(
         &mut self, patch_id: &PatchId, file: &Path, hunk_index: usize, intent: String,
-    ) -> Result<(), crate::Error> {
+    ) -> Result<()> {
         let patch = self
             .queue
             .get_mut(patch_id)
-            .ok_or_else(|| crate::Error::Validation(format!("Patch not found: {}", patch_id)))?;
+            .ok_or_else(|| Error::Validation(format!("Patch not found: {}", patch_id)))?;
 
         patch
             .set_hunk_intent(file, hunk_index, intent)
-            .map_err(crate::Error::Validation)?;
+            .map_err(Error::Validation)?;
         self.save()
     }
 
     /// Mark a patch as applied
-    pub fn mark_applied(&mut self, patch_id: &PatchId) -> Result<(), crate::Error> {
+    pub fn mark_applied(&mut self, patch_id: &PatchId) -> Result<()> {
         self.queue
             .mark_applied(patch_id)
-            .map_err(|e| crate::Error::Validation(e.clone()))?;
+            .map_err(|e| Error::Validation(e.clone()))?;
         self.save()
     }
 
     /// Mark a patch as failed
-    pub fn mark_failed(&mut self, patch_id: &PatchId) -> Result<(), crate::Error> {
+    pub fn mark_failed(&mut self, patch_id: &PatchId) -> Result<()> {
         let patch = self
             .queue
             .get_mut(patch_id)
-            .ok_or_else(|| crate::Error::Validation(format!("Patch not found: {}", patch_id)))?;
+            .ok_or_else(|| Error::Validation(format!("Patch not found: {}", patch_id)))?;
 
         patch.mark_failed();
         self.save()
     }
 
     /// Rollback the last applied patch
-    pub fn rollback_last(&mut self) -> Result<PatchId, crate::Error> {
-        let patch_id = self.queue.rollback_last().map_err(crate::Error::Validation)?;
+    pub fn rollback_last(&mut self) -> Result<PatchId> {
+        let patch_id = self.queue.rollback_last().map_err(Error::Validation)?;
         self.save()?;
         Ok(patch_id)
     }
@@ -206,7 +207,7 @@ impl PatchQueueManager {
     }
 
     /// Update the base snapshot (git commit) for the queue
-    pub fn update_base_snapshot(&mut self, base_snapshot: String) -> Result<(), crate::Error> {
+    pub fn update_base_snapshot(&mut self, base_snapshot: String) -> Result<()> {
         self.queue.base_snapshot = base_snapshot;
         self.save()
     }
@@ -223,6 +224,81 @@ impl PatchQueueManager {
         let id = PatchId::new(format!("patch_{}_{}", timestamp, self.id_counter));
         self.id_counter += 1;
         id
+    }
+
+    /// Queue a memory update for approval
+    ///
+    /// Creates a memory patch from the provided information and adds it to the queue.
+    /// The patch must be approved before it can be applied.
+    pub fn queue_memory_update(&mut self, params: MemoryPatchParams) -> Result<PatchId> {
+        let patch_id = self.generate_patch_id();
+        let patch = MemoryPatch::new(patch_id.clone(), params);
+
+        self.queue.add_memory_patch(patch);
+        self.save()?;
+        Ok(patch_id)
+    }
+
+    /// Get a memory patch by ID
+    pub fn get_memory_patch(&self, patch_id: &PatchId) -> Option<&MemoryPatch> {
+        self.queue.get_memory_patch(patch_id)
+    }
+
+    /// Get a mutable reference to a memory patch by ID
+    pub fn get_memory_patch_mut(&mut self, patch_id: &PatchId) -> Option<&mut MemoryPatch> {
+        self.queue.get_memory_patch_mut(patch_id)
+    }
+
+    /// Get all memory patches
+    pub fn memory_patches(&self) -> Vec<&MemoryPatch> {
+        self.queue.get_all_memory_patches()
+    }
+
+    /// Get pending memory patches
+    pub fn pending_memory_patches(&self) -> Vec<&MemoryPatch> {
+        self.queue.pending_memory_patches()
+    }
+
+    /// Approve a memory patch
+    pub fn approve_memory_patch(&mut self, patch_id: &PatchId) -> Result<()> {
+        let patch = self
+            .queue
+            .get_memory_patch_mut(patch_id)
+            .ok_or_else(|| Error::Validation(format!("Memory patch not found: {}", patch_id)))?;
+
+        patch.approve();
+        self.save()
+    }
+
+    /// Reject a memory patch
+    pub fn reject_memory_patch(&mut self, patch_id: &PatchId) -> Result<()> {
+        let patch = self
+            .queue
+            .get_memory_patch_mut(patch_id)
+            .ok_or_else(|| Error::Validation(format!("Memory patch not found: {}", patch_id)))?;
+
+        patch.reject();
+        self.save()
+    }
+
+    /// Mark a memory patch as applied
+    pub fn mark_memory_patch_applied(&mut self, patch_id: &PatchId) -> Result<()> {
+        self.queue
+            .mark_memory_patch_applied(patch_id)
+            .map_err(Error::Validation)?;
+        self.save()
+    }
+
+    /// Remove a memory patch from the queue
+    pub fn remove_memory_patch(&mut self, patch_id: &PatchId) -> Result<Option<MemoryPatch>> {
+        let patch = self.queue.remove_memory_patch(patch_id);
+        self.save()?;
+        Ok(patch)
+    }
+
+    /// Check if there are pending memory patches
+    pub fn has_pending_memory_patches(&self) -> bool {
+        self.queue.has_pending_memory_patches()
     }
 }
 

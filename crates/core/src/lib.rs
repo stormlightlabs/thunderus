@@ -26,10 +26,10 @@ pub use memory::{
     CORE_MEMORY_DIR, CORE_MEMORY_FILE, CORE_MEMORY_HARD_LIMIT, CORE_MEMORY_SOFT_LIMIT, CoreMemory, CoreMemoryLint,
     CoreMemorySource, DECISIONS_DIR, EPISODIC_MEMORY_DIR, FACTS_DIR, INDEXES_DIR, LintSeverity, MANIFEST_FILE,
     MEMORY_DIR, MEMORY_VERSION, MemoryDoc, MemoryFrontmatter, MemoryKind, MemoryPaths, PLAYBOOKS_DIR,
-    PROCEDURAL_MEMORY_DIR, Provenance, SEMANTIC_MEMORY_DIR, SessionMeta, TAGS_FILE, THUNDERUS_DIR_NAME, Verification,
-    VerificationStatus,
+    PROCEDURAL_MEMORY_DIR, ProceduralMemory, Provenance, SEMANTIC_MEMORY_DIR, SemanticMemory, SessionMeta, TAGS_FILE,
+    THUNDERUS_DIR_NAME, Verification, VerificationStatus,
 };
-pub use patch::{Hunk, Patch, PatchId, PatchQueue};
+pub use patch::{Hunk, MemoryPatch, MemoryPatchParams, Patch, PatchId, PatchQueue};
 pub use patch_queue_manager::PatchQueueManager;
 pub use search::{SearchHit, SearchScope, search_session};
 pub use session::{Event, LoggedEvent, PatchStatus, Seq, Session, TokensUsed};

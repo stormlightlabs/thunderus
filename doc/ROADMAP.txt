@@ -141,12 +141,12 @@ Tasks:
 - [ ] Semantic memory contract:
       - `.thunderus/memory/semantic/DECISIONS/ADR-xxxx.md` (ADR-lite)
       - `.thunderus/memory/semantic/FACTS/*.md` (stable facts)
-- [ ] Procedural memory contract:
+- [x] Procedural memory contract:
       - `.thunderus/memory/procedural/PLAYBOOKS/*.md`
       - Each playbook: Preconditions, Steps, Verification, Rollback
-- [ ] Memory writes are patch-driven:
+- [x] Memory writes are patch-driven:
       - memory updates are proposed as diffs in the patch queue
-      - memory edits MUST be logged as VCS events (see VIII “events.jsonl”)
+      - memory edits MUST be logged as VCS events
 
 See |SCHEMAS.txt| section |schemas-memory-doc| for format specifications.
 

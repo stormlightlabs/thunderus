@@ -3,6 +3,7 @@ use crate::SessionId;
 ///
 /// This module implements the patch queue system that enables reviewable,
 /// reversible, and conflict-aware edits through a unified diff workflow.
+use crate::memory::MemoryKind;
 use crate::session::PatchStatus;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -353,14 +354,129 @@ impl Patch {
     }
 }
 
+/// Parameters for creating a new memory patch
+#[derive(Debug, Clone)]
+pub struct MemoryPatchParams {
+    pub path: PathBuf,
+    pub doc_id: String,
+    pub kind: MemoryKind,
+    pub description: String,
+    pub diff: String,
+    pub source_events: Vec<String>,
+    pub session_id: SessionId,
+    pub seq: u64,
+}
+
+/// A memory document update patch
+///
+/// Memory patches represent proposed changes to memory documents (Facts, ADRs, Playbooks).
+/// They go through the same approval workflow as file patches.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MemoryPatch {
+    /// Unique identifier for this patch
+    pub id: PatchId,
+    /// Target memory document path
+    pub path: PathBuf,
+    /// Document ID (e.g., "fact.testing.coverage", "adr.0001")
+    pub doc_id: String,
+    /// Kind of memory document
+    pub kind: MemoryKind,
+    /// Human-readable description
+    pub description: String,
+    /// Current status of this patch
+    pub status: PatchStatus,
+    /// The diff content (unified diff format)
+    pub diff: String,
+    /// Events that motivated this update
+    pub source_events: Vec<String>,
+    /// Session ID that created this patch
+    pub session_id: SessionId,
+    /// Sequence number of the patch event in the session
+    pub seq: u64,
+    /// When the patch was created
+    pub created_at: String,
+}
+
+impl MemoryPatch {
+    /// Create a new memory patch
+    pub fn new(id: PatchId, params: MemoryPatchParams) -> Self {
+        let created_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+
+        Self {
+            id,
+            path: params.path,
+            doc_id: params.doc_id,
+            kind: params.kind,
+            description: params.description,
+            status: PatchStatus::Proposed,
+            diff: params.diff,
+            source_events: params.source_events,
+            session_id: params.session_id,
+            seq: params.seq,
+            created_at,
+        }
+    }
+
+    /// Approve this memory patch for application
+    pub fn approve(&mut self) {
+        self.status = PatchStatus::Approved;
+    }
+
+    /// Reject this memory patch
+    pub fn reject(&mut self) {
+        self.status = PatchStatus::Rejected;
+    }
+
+    /// Mark this memory patch as applied
+    pub fn mark_applied(&mut self) {
+        self.status = PatchStatus::Applied;
+    }
+
+    /// Mark this memory patch as failed
+    pub fn mark_failed(&mut self) {
+        self.status = PatchStatus::Failed;
+    }
+
+    /// Get the operation type from the diff
+    ///
+    /// Returns "create", "update", or "delete" based on the diff content
+    pub fn operation(&self) -> String {
+        if self.diff.starts_with("diff --git /dev/null") {
+            "create".to_string()
+        } else if self.diff.lines().any(|line| line.starts_with("--- /dev/null")) {
+            "delete".to_string()
+        } else {
+            "update".to_string()
+        }
+    }
+
+    /// Get a summary of the diff
+    pub fn diff_summary(&self) -> String {
+        let mut added = 0;
+        let mut removed = 0;
+
+        for line in self.diff.lines() {
+            if line.starts_with('+') && !line.starts_with("+++") {
+                added += 1;
+            } else if line.starts_with('-') && !line.starts_with("---") {
+                removed += 1;
+            }
+        }
+
+        format!("+{} -{}", added, removed)
+    }
+}
+
 /// A queue of patches waiting to be applied
 ///
 /// The patch queue manages the lifecycle of patches from proposal
 /// through approval, application, and potential rollback.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PatchQueue {
-    /// Patches in the queue, ordered by creation time
+    /// File patches in the queue, ordered by creation time
     pub patches: Vec<Patch>,
+    /// Memory patches in the queue, ordered by creation time
+    pub memory_patches: Vec<MemoryPatch>,
     /// IDs of applied patches, in order of application
     pub applied_patches: Vec<PatchId>,
     /// Base snapshot (git commit) for the working directory
@@ -370,7 +486,7 @@ pub struct PatchQueue {
 impl PatchQueue {
     /// Create a new empty patch queue
     pub fn new(base_snapshot: String) -> Self {
-        PatchQueue { patches: Vec::new(), applied_patches: Vec::new(), base_snapshot }
+        PatchQueue { patches: Vec::new(), memory_patches: Vec::new(), applied_patches: Vec::new(), base_snapshot }
     }
 
     /// Add a patch to the queue
@@ -451,6 +567,59 @@ impl PatchQueue {
     /// Check if there are any pending patches
     pub fn has_pending(&self) -> bool {
         !self.pending().is_empty()
+    }
+
+    /// Add a memory patch to the queue
+    pub fn add_memory_patch(&mut self, patch: MemoryPatch) {
+        self.memory_patches.push(patch);
+    }
+
+    /// Remove a memory patch from the queue
+    pub fn remove_memory_patch(&mut self, patch_id: &PatchId) -> Option<MemoryPatch> {
+        if let Some(pos) = self.memory_patches.iter().position(|p| &p.id == patch_id) {
+            Some(self.memory_patches.remove(pos))
+        } else {
+            None
+        }
+    }
+
+    /// Get a memory patch by ID
+    pub fn get_memory_patch(&self, patch_id: &PatchId) -> Option<&MemoryPatch> {
+        self.memory_patches.iter().find(|p| &p.id == patch_id)
+    }
+
+    /// Get a mutable reference to a memory patch by ID
+    pub fn get_memory_patch_mut(&mut self, patch_id: &PatchId) -> Option<&mut MemoryPatch> {
+        self.memory_patches.iter_mut().find(|p| &p.id == patch_id)
+    }
+
+    /// Get all memory patches
+    pub fn get_all_memory_patches(&self) -> Vec<&MemoryPatch> {
+        self.memory_patches.iter().collect()
+    }
+
+    /// Get pending memory patches (proposed or approved)
+    pub fn pending_memory_patches(&self) -> Vec<&MemoryPatch> {
+        self.memory_patches
+            .iter()
+            .filter(|p| matches!(p.status, PatchStatus::Proposed | PatchStatus::Approved))
+            .collect()
+    }
+
+    /// Check if there are any pending memory patches
+    pub fn has_pending_memory_patches(&self) -> bool {
+        !self.pending_memory_patches().is_empty()
+    }
+
+    /// Mark a memory patch as applied
+    pub fn mark_memory_patch_applied(&mut self, patch_id: &PatchId) -> Result<(), String> {
+        let patch = self
+            .get_memory_patch_mut(patch_id)
+            .ok_or_else(|| format!("Memory patch not found: {}", patch_id.id))?;
+
+        patch.mark_applied();
+        self.applied_patches.push(patch_id.clone());
+        Ok(())
     }
 }
 
