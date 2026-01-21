@@ -103,6 +103,55 @@ pub enum Event {
         /// New approval mode
         to: ApprovalMode,
     },
+    /// User manually edited a materialized markdown view
+    ViewEdit {
+        /// Which view was edited (MEMORY.md, PLAN.md, DECISIONS.md)
+        view: String,
+        /// Type of change (manual, merge, conflict_resolved)
+        change_type: String,
+        /// New content after edit
+        content: String,
+        /// Event sequence numbers this edit references
+        seq_refs: Vec<Seq>,
+    },
+    /// Loaded external context file (CLAUDE.md, AGENTS.md, etc.)
+    ContextLoad {
+        /// Source filename (e.g., "CLAUDE.md")
+        source: String,
+        /// Absolute path to the loaded file
+        path: String,
+        /// Hash of the content for deduplication
+        content_hash: String,
+    },
+    /// User-defined checkpoint in a plan
+    Checkpoint {
+        /// Label for the checkpoint
+        label: String,
+        /// Description of what was accomplished
+        description: String,
+        /// Optional snapshot ID reference
+        snapshot_id: Option<String>,
+    },
+    /// Plan item update (add, complete, remove)
+    PlanUpdate {
+        /// Action performed (add, complete, remove, update)
+        action: String,
+        /// The plan item text
+        item: String,
+        /// Optional reason for the update
+        reason: Option<String>,
+    },
+    /// Memory document created or updated
+    MemoryUpdate {
+        /// Kind of memory (core, semantic, procedural, episodic)
+        kind: String,
+        /// Path to the memory file
+        path: String,
+        /// Operation performed (create, update, delete)
+        operation: String,
+        /// Hash of the new content
+        content_hash: String,
+    },
 }
 
 /// Token usage information for model responses
@@ -603,6 +652,57 @@ impl Session {
     /// Check if a concept has been taught
     pub fn is_concept_taught(&self, concept: &str) -> Result<bool> {
         Ok(self.load_metadata()?.teaching_state.has_taught(concept))
+    }
+
+    /// Append a view edit event (user manually edited a markdown view)
+    pub fn append_view_edit(
+        &mut self, view: impl Into<String>, change_type: impl Into<String>, content: impl Into<String>,
+        seq_refs: Vec<Seq>,
+    ) -> Result<Seq> {
+        self.append_event(Event::ViewEdit {
+            view: view.into(),
+            change_type: change_type.into(),
+            content: content.into(),
+            seq_refs,
+        })
+    }
+
+    /// Append a context load event (external context file loaded)
+    pub fn append_context_load(
+        &mut self, source: impl Into<String>, path: impl Into<String>, content_hash: impl Into<String>,
+    ) -> Result<Seq> {
+        self.append_event(Event::ContextLoad {
+            source: source.into(),
+            path: path.into(),
+            content_hash: content_hash.into(),
+        })
+    }
+
+    /// Append a checkpoint event (user-defined checkpoint in plan)
+    pub fn append_checkpoint(
+        &mut self, label: impl Into<String>, description: impl Into<String>, snapshot_id: Option<String>,
+    ) -> Result<Seq> {
+        self.append_event(Event::Checkpoint { label: label.into(), description: description.into(), snapshot_id })
+    }
+
+    /// Append a plan update event (add, complete, or remove plan item)
+    pub fn append_plan_update(
+        &mut self, action: impl Into<String>, item: impl Into<String>, reason: Option<String>,
+    ) -> Result<Seq> {
+        self.append_event(Event::PlanUpdate { action: action.into(), item: item.into(), reason })
+    }
+
+    /// Append a memory update event (memory document created or updated)
+    pub fn append_memory_update(
+        &mut self, kind: impl Into<String>, path: impl Into<String>, operation: impl Into<String>,
+        content_hash: impl Into<String>,
+    ) -> Result<Seq> {
+        self.append_event(Event::MemoryUpdate {
+            kind: kind.into(),
+            path: path.into(),
+            operation: operation.into(),
+            content_hash: content_hash.into(),
+        })
     }
 }
 
@@ -1478,6 +1578,315 @@ mod tests {
         assert!(session.is_concept_taught("concept2").unwrap());
         assert!(session.is_concept_taught("concept3").unwrap());
         assert!(!session.is_concept_taught("concept4").unwrap());
+        drop(temp);
+    }
+
+    #[test]
+    fn test_view_edit_event() {
+        let (temp, mut session) = create_test_session();
+
+        let seq = session
+            .append_view_edit("PLAN.md", "manual", "# Updated Plan\n\n- [x] Task 1", vec![1, 2, 3])
+            .unwrap();
+        assert_eq!(seq, 0);
+
+        let events = session.read_events().unwrap();
+        assert_eq!(events.len(), 1);
+
+        if let Event::ViewEdit { view, change_type, content, seq_refs } = &events[0].event {
+            assert_eq!(view, "PLAN.md");
+            assert_eq!(change_type, "manual");
+            assert!(content.contains("Updated Plan"));
+            assert_eq!(seq_refs, &vec![1, 2, 3]);
+        } else {
+            panic!("Expected ViewEdit event");
+        }
+        drop(temp);
+    }
+
+    #[test]
+    fn test_view_edit_event_serialization() {
+        let event = Event::ViewEdit {
+            view: "MEMORY.md".to_string(),
+            change_type: "merge".to_string(),
+            content: "# Memory\n\nContent".to_string(),
+            seq_refs: vec![10, 20, 30],
+        };
+
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("view-edit"));
+        assert!(json.contains("MEMORY.md"));
+        assert!(json.contains("merge"));
+
+        let deserialized: Event = serde_json::from_str(&json).unwrap();
+        assert_eq!(event, deserialized);
+    }
+
+    #[test]
+    fn test_context_load_event() {
+        let (temp, mut session) = create_test_session();
+
+        let seq = session
+            .append_context_load("CLAUDE.md", "/home/user/project/CLAUDE.md", "abc123def")
+            .unwrap();
+        assert_eq!(seq, 0);
+
+        let events = session.read_events().unwrap();
+        assert_eq!(events.len(), 1);
+
+        if let Event::ContextLoad { source, path, content_hash } = &events[0].event {
+            assert_eq!(source, "CLAUDE.md");
+            assert_eq!(path, "/home/user/project/CLAUDE.md");
+            assert_eq!(content_hash, "abc123def");
+        } else {
+            panic!("Expected ContextLoad event");
+        }
+        drop(temp);
+    }
+
+    #[test]
+    fn test_context_load_event_serialization() {
+        let event = Event::ContextLoad {
+            source: "AGENTS.md".to_string(),
+            path: "/repo/AGENTS.md".to_string(),
+            content_hash: "xyz789".to_string(),
+        };
+
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("context-load"));
+
+        let deserialized: Event = serde_json::from_str(&json).unwrap();
+        assert_eq!(event, deserialized);
+    }
+
+    #[test]
+    fn test_checkpoint_event() {
+        let (temp, mut session) = create_test_session();
+
+        let seq = session
+            .append_checkpoint("Initial plan", "Created initial task list", Some("snap1".to_string()))
+            .unwrap();
+        assert_eq!(seq, 0);
+
+        let events = session.read_events().unwrap();
+        assert_eq!(events.len(), 1);
+
+        if let Event::Checkpoint { label, description, snapshot_id } = &events[0].event {
+            assert_eq!(label, "Initial plan");
+            assert_eq!(description, "Created initial task list");
+            assert_eq!(snapshot_id, &Some("snap1".to_string()));
+        } else {
+            panic!("Expected Checkpoint event");
+        }
+
+        let seq2 = session
+            .append_checkpoint("Milestone", "Reached milestone", None)
+            .unwrap();
+        assert_eq!(seq2, 1);
+
+        let events = session.read_events().unwrap();
+        if let Event::Checkpoint { snapshot_id, .. } = &events[1].event {
+            assert!(snapshot_id.is_none());
+        } else {
+            panic!("Expected Checkpoint event with None snapshot_id");
+        }
+        drop(temp);
+    }
+
+    #[test]
+    fn test_checkpoint_event_serialization() {
+        let event = Event::Checkpoint {
+            label: "Test checkpoint".to_string(),
+            description: "Test description".to_string(),
+            snapshot_id: Some("test_snap".to_string()),
+        };
+
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("checkpoint"));
+
+        let deserialized: Event = serde_json::from_str(&json).unwrap();
+        assert_eq!(event, deserialized);
+    }
+
+    #[test]
+    fn test_plan_update_event() {
+        let (temp, mut session) = create_test_session();
+
+        let seq = session
+            .append_plan_update("add", "Implement new feature", Some("User request".to_string()))
+            .unwrap();
+        assert_eq!(seq, 0);
+
+        let events = session.read_events().unwrap();
+        assert_eq!(events.len(), 1);
+
+        if let Event::PlanUpdate { action, item, reason } = &events[0].event {
+            assert_eq!(action, "add");
+            assert_eq!(item, "Implement new feature");
+            assert_eq!(reason, &Some("User request".to_string()));
+        } else {
+            panic!("Expected PlanUpdate event");
+        }
+
+        let seq2 = session.append_plan_update("complete", "Task 1", None).unwrap();
+        assert_eq!(seq2, 1);
+        drop(temp);
+    }
+
+    #[test]
+    fn test_plan_update_event_serialization() {
+        let event = Event::PlanUpdate {
+            action: "remove".to_string(),
+            item: "Deprecated task".to_string(),
+            reason: Some("No longer needed".to_string()),
+        };
+
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("plan-update"));
+
+        let deserialized: Event = serde_json::from_str(&json).unwrap();
+        assert_eq!(event, deserialized);
+    }
+
+    #[test]
+    fn test_memory_update_event() {
+        let (temp, mut session) = create_test_session();
+
+        let seq = session
+            .append_memory_update("semantic", "/repo/memory/decision-001.md", "create", "hash456")
+            .unwrap();
+        assert_eq!(seq, 0);
+
+        let events = session.read_events().unwrap();
+        assert_eq!(events.len(), 1);
+
+        if let Event::MemoryUpdate { kind, path, operation, content_hash } = &events[0].event {
+            assert_eq!(kind, "semantic");
+            assert_eq!(path, "/repo/memory/decision-001.md");
+            assert_eq!(operation, "create");
+            assert_eq!(content_hash, "hash456");
+        } else {
+            panic!("Expected MemoryUpdate event");
+        }
+        drop(temp);
+    }
+
+    #[test]
+    fn test_memory_update_event_serialization() {
+        let event = Event::MemoryUpdate {
+            kind: "core".to_string(),
+            path: "/repo/memory/core/CORE.md".to_string(),
+            operation: "update".to_string(),
+            content_hash: "new_hash".to_string(),
+        };
+
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("memory-update"));
+
+        let deserialized: Event = serde_json::from_str(&json).unwrap();
+        assert_eq!(event, deserialized);
+    }
+
+    #[test]
+    fn test_new_events_mixed_with_existing() {
+        let (temp, mut session) = create_test_session();
+
+        session.append_user_message("Start work").unwrap();
+        session
+            .append_context_load("CLAUDE.md", "/repo/CLAUDE.md", "hash1")
+            .unwrap();
+        session.append_plan_update("add", "Task 1", None).unwrap();
+        session.append_model_message("Response", None).unwrap();
+        session
+            .append_checkpoint("Checkpoint 1", "Progress made", None)
+            .unwrap();
+        session
+            .append_memory_update("core", "/repo/CORE.md", "create", "hash2")
+            .unwrap();
+        session
+            .append_view_edit("PLAN.md", "manual", "Updated content", vec![1])
+            .unwrap();
+
+        let events = session.read_events().unwrap();
+        assert_eq!(events.len(), 7);
+
+        assert!(matches!(events[0].event, Event::UserMessage { .. }));
+        assert!(matches!(events[1].event, Event::ContextLoad { .. }));
+        assert!(matches!(events[2].event, Event::PlanUpdate { .. }));
+        assert!(matches!(events[3].event, Event::ModelMessage { .. }));
+        assert!(matches!(events[4].event, Event::Checkpoint { .. }));
+        assert!(matches!(events[5].event, Event::MemoryUpdate { .. }));
+        assert!(matches!(events[6].event, Event::ViewEdit { .. }));
+        drop(temp);
+    }
+
+    #[test]
+    fn test_new_events_persist_across_reload() {
+        let temp = TempDir::new().unwrap();
+        let agent_dir = AgentDir::new(temp.path());
+
+        let mut session = Session::new(agent_dir.clone()).unwrap();
+        session
+            .append_view_edit("MEMORY.md", "manual", "New memory content", vec![1, 2])
+            .unwrap();
+        session
+            .append_context_load("AGENTS.md", "/repo/AGENTS.md", "hash3")
+            .unwrap();
+        session
+            .append_checkpoint("Test", "Test checkpoint", Some("snap1".to_string()))
+            .unwrap();
+
+        let mut loaded_session = Session::load(agent_dir, session.id.clone()).unwrap();
+        let events = loaded_session.read_events().unwrap();
+        assert_eq!(events.len(), 3);
+
+        if let Event::ViewEdit { .. } = &events[0].event {
+        } else {
+            panic!("Expected ViewEdit as first event");
+        }
+
+        if let Event::ContextLoad { .. } = &events[1].event {
+        } else {
+            panic!("Expected ContextLoad as second event");
+        }
+
+        if let Event::Checkpoint { .. } = &events[2].event {
+        } else {
+            panic!("Expected Checkpoint as third event");
+        }
+
+        let seq = loaded_session.append_plan_update("add", "New task", None).unwrap();
+        assert_eq!(seq, 3);
+
+        let events = loaded_session.read_events().unwrap();
+        assert_eq!(events.len(), 4);
+        drop(temp);
+    }
+
+    #[test]
+    fn test_all_new_event_types_jsonl_persistence() {
+        let (temp, mut session) = create_test_session();
+
+        session
+            .append_view_edit("PLAN.md", "manual", "Content", vec![])
+            .unwrap();
+        session
+            .append_context_load("CLAUDE.md", "/path/CLAUDE.md", "hash1")
+            .unwrap();
+        session.append_checkpoint("Label", "Description", None).unwrap();
+        session.append_plan_update("add", "Item", None).unwrap();
+        session
+            .append_memory_update("core", "/path/core.md", "create", "hash2")
+            .unwrap();
+
+        let events_file_content = std::fs::read_to_string(session.events_file()).unwrap();
+        let lines: Vec<&str> = events_file_content.lines().collect();
+        assert_eq!(lines.len(), 5);
+
+        for (i, line) in lines.iter().enumerate() {
+            let logged_event: LoggedEvent = serde_json::from_str(line).unwrap();
+            assert_eq!(logged_event.seq, i as u64);
+        }
         drop(temp);
     }
 }

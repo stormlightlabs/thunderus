@@ -5,7 +5,7 @@ use crate::event_handler::{EventHandler, KeyAction};
 use crate::layout::TuiLayout;
 use crate::state::VerbosityLevel;
 use crate::state::{AppState, ApprovalState};
-use crate::transcript::{CardDetailLevel, ErrorType, RenderOptions, Transcript as TranscriptState};
+use crate::transcript::{self, CardDetailLevel, ErrorType, RenderOptions, Transcript as TranscriptState};
 use crate::tui_approval::{TuiApprovalHandle, TuiApprovalProtocol};
 
 use crossterm;
@@ -248,9 +248,9 @@ impl App {
                 }
                 thunderus_core::Event::Approval { action, approved } => {
                     let decision = if approved {
-                        crate::transcript::ApprovalDecision::Approved
+                        transcript::ApprovalDecision::Approved
                     } else {
-                        crate::transcript::ApprovalDecision::Rejected
+                        transcript::ApprovalDecision::Rejected
                     };
 
                     self.transcript_mut().add_approval_prompt(&action, "safe");
@@ -301,6 +301,27 @@ impl App {
                         from.as_str(),
                         to.as_str()
                     ));
+                }
+                thunderus_core::Event::ViewEdit { view, change_type, .. } => {
+                    self.transcript_mut()
+                        .add_system_message(format!("View edited: {} ({})", view, change_type));
+                }
+                thunderus_core::Event::ContextLoad { source, path, .. } => {
+                    self.transcript_mut()
+                        .add_system_message(format!("Context loaded: {} from {}", source, path));
+                }
+                thunderus_core::Event::Checkpoint { label, description, .. } => {
+                    self.transcript_mut()
+                        .add_system_message(format!("Checkpoint: {} - {}", label, description));
+                }
+                thunderus_core::Event::PlanUpdate { action, item, reason } => {
+                    let reason_str = reason.as_ref().map(|r| format!(" (reason: {})", r)).unwrap_or_default();
+                    self.transcript_mut()
+                        .add_system_message(format!("Plan {}: {}{}", action, item, reason_str));
+                }
+                thunderus_core::Event::MemoryUpdate { kind, path, operation, .. } => {
+                    self.transcript_mut()
+                        .add_system_message(format!("Memory {}: {} ({})", operation, path, kind));
                 }
             }
         }
@@ -427,12 +448,10 @@ impl App {
                     self.should_exit = true;
                 }
                 KeyAction::RetryLastFailedAction => {
-                    let has_retryable_error = self.transcript().entries().iter().any(|entry| {
-                        matches!(
-                            entry,
-                            crate::transcript::TranscriptEntry::ErrorEntry { can_retry: true, .. }
-                        )
-                    });
+                    let has_retryable_error =
+                        self.transcript().entries().iter().any(|entry| {
+                            matches!(entry, transcript::TranscriptEntry::ErrorEntry { can_retry: true, .. })
+                        });
 
                     if let Some(last_message) = self.state_mut().last_message().cloned() {
                         if has_retryable_error {
@@ -707,7 +726,7 @@ impl App {
                 let risk_str = risk.as_str();
                 self.transcript_mut().add_tool_call(&name, &args_str, risk_str);
                 if let Some(entry) = self.transcript_mut().last_mut()
-                    && let crate::transcript::TranscriptEntry::ToolCall {
+                    && let transcript::TranscriptEntry::ToolCall {
                         description: d,
                         task_context: tc,
                         scope: sc,
@@ -734,7 +753,7 @@ impl App {
                 self.transcript_mut().add_tool_result(&name, &result, success);
                 if let Some(err) = error
                     && let Some(entry) = self.transcript_mut().last_mut()
-                    && let crate::transcript::TranscriptEntry::ToolResult { error: e, .. } = entry
+                    && let transcript::TranscriptEntry::ToolResult { error: e, .. } = entry
                 {
                     *e = Some(err);
                 }
@@ -744,7 +763,7 @@ impl App {
                 self.persist_tool_result(&name, &result_json, success, if success { None } else { Some("") });
 
                 if let Some(entry) = self.transcript_mut().last_mut()
-                    && let crate::transcript::TranscriptEntry::ToolResult { .. } = entry
+                    && let transcript::TranscriptEntry::ToolResult { .. } = entry
                     && let Some(exec_time) = metadata.execution_time_ms
                     && exec_time > 0
                 {
@@ -1323,17 +1342,17 @@ mod tests {
 
         let user_entry = entries
             .iter()
-            .find(|e| matches!(e, crate::transcript::TranscriptEntry::UserMessage { .. }));
+            .find(|e| matches!(e, transcript::TranscriptEntry::UserMessage { .. }));
         assert!(user_entry.is_some());
-        if let crate::transcript::TranscriptEntry::UserMessage { content } = user_entry.unwrap() {
+        if let transcript::TranscriptEntry::UserMessage { content } = user_entry.unwrap() {
             assert!(content.contains("!cmd echo 'Hello from shell'"));
         }
 
         let system_entry = entries
             .iter()
-            .find(|e| matches!(e, crate::transcript::TranscriptEntry::SystemMessage { .. }));
+            .find(|e| matches!(e, transcript::TranscriptEntry::SystemMessage { .. }));
         assert!(system_entry.is_some());
-        if let crate::transcript::TranscriptEntry::SystemMessage { content } = system_entry.unwrap() {
+        if let transcript::TranscriptEntry::SystemMessage { content } = system_entry.unwrap() {
             assert!(content.contains("Hello from shell"));
             assert!(content.contains("```"));
         }
@@ -1372,9 +1391,9 @@ mod tests {
 
         let user_entry = entries
             .iter()
-            .find(|e| matches!(e, crate::transcript::TranscriptEntry::UserMessage { .. }));
+            .find(|e| matches!(e, transcript::TranscriptEntry::UserMessage { .. }));
         assert!(user_entry.is_some());
-        if let crate::transcript::TranscriptEntry::UserMessage { content } = user_entry.unwrap() {
+        if let transcript::TranscriptEntry::UserMessage { content } = user_entry.unwrap() {
             assert!(content.contains("!cmd echo test"));
         }
     }
@@ -1408,8 +1427,7 @@ mod tests {
 
         app.transcript_mut().finish_streaming();
 
-        if let crate::transcript::TranscriptEntry::ModelResponse { content, streaming, .. } =
-            app.transcript().last().unwrap()
+        if let transcript::TranscriptEntry::ModelResponse { content, streaming, .. } = app.transcript().last().unwrap()
         {
             assert_eq!(content, "Hello World");
             assert!(!streaming);
@@ -1453,7 +1471,7 @@ mod tests {
         assert!(app.transcript().has_pending_approval());
 
         app.transcript_mut()
-            .set_approval_decision(crate::transcript::ApprovalDecision::Approved);
+            .set_approval_decision(transcript::ApprovalDecision::Approved);
         assert!(!app.transcript().has_pending_approval());
     }
 
@@ -1483,7 +1501,7 @@ mod tests {
 
         let success = app
             .transcript_mut()
-            .set_approval_decision(crate::transcript::ApprovalDecision::Approved);
+            .set_approval_decision(transcript::ApprovalDecision::Approved);
         assert!(success);
         assert!(!app.transcript().has_pending_approval());
 
@@ -1501,12 +1519,12 @@ mod tests {
         assert!(app.transcript().has_pending_approval());
 
         app.transcript_mut()
-            .set_approval_decision(crate::transcript::ApprovalDecision::Rejected);
+            .set_approval_decision(transcript::ApprovalDecision::Rejected);
 
         assert!(!app.transcript().has_pending_approval());
 
-        if let Some(crate::transcript::TranscriptEntry::ApprovalPrompt { decision, .. }) = app.transcript().last() {
-            assert_eq!(decision, &Some(crate::transcript::ApprovalDecision::Rejected));
+        if let Some(transcript::TranscriptEntry::ApprovalPrompt { decision, .. }) = app.transcript().last() {
+            assert_eq!(decision, &Some(transcript::ApprovalDecision::Rejected));
         } else {
             panic!("Expected ApprovalPrompt");
         }
@@ -1518,12 +1536,12 @@ mod tests {
 
         app.transcript_mut().add_approval_prompt("install_deps", "risky");
         app.transcript_mut()
-            .set_approval_decision(crate::transcript::ApprovalDecision::Cancelled);
+            .set_approval_decision(transcript::ApprovalDecision::Cancelled);
 
         assert!(!app.transcript().has_pending_approval());
 
-        if let Some(crate::transcript::TranscriptEntry::ApprovalPrompt { decision, .. }) = app.transcript().last() {
-            assert_eq!(decision, &Some(crate::transcript::ApprovalDecision::Cancelled));
+        if let Some(transcript::TranscriptEntry::ApprovalPrompt { decision, .. }) = app.transcript().last() {
+            assert_eq!(decision, &Some(transcript::ApprovalDecision::Cancelled));
         } else {
             panic!("Expected ApprovalPrompt");
         }
@@ -1535,11 +1553,11 @@ mod tests {
 
         app.transcript_mut().add_approval_prompt("patch.feature", "risky");
         app.transcript_mut()
-            .set_approval_decision(crate::transcript::ApprovalDecision::Approved);
+            .set_approval_decision(transcript::ApprovalDecision::Approved);
 
         app.transcript_mut().add_approval_prompt("patch.feature2", "safe");
         app.transcript_mut()
-            .set_approval_decision(crate::transcript::ApprovalDecision::Approved);
+            .set_approval_decision(transcript::ApprovalDecision::Approved);
 
         assert!(!app.transcript().has_pending_approval());
         assert_eq!(app.transcript().len(), 2);
@@ -1551,16 +1569,14 @@ mod tests {
 
         app.transcript_mut().add_approval_prompt("install_crate", "risky");
 
-        if let Some(crate::transcript::TranscriptEntry::ApprovalPrompt { description, .. }) =
-            app.transcript_mut().last_mut()
-        {
+        if let Some(transcript::TranscriptEntry::ApprovalPrompt { description, .. }) = app.transcript_mut().last_mut() {
             *description = Some("Install serde dependency".to_string());
         }
 
         app.transcript_mut()
-            .set_approval_decision(crate::transcript::ApprovalDecision::Approved);
+            .set_approval_decision(transcript::ApprovalDecision::Approved);
 
-        if let Some(crate::transcript::TranscriptEntry::ApprovalPrompt { description, .. }) = app.transcript().last() {
+        if let Some(transcript::TranscriptEntry::ApprovalPrompt { description, .. }) = app.transcript().last() {
             assert_eq!(description, &Some("Install serde dependency".to_string()));
         } else {
             panic!("Expected ApprovalPrompt with description");
@@ -1843,7 +1859,7 @@ mod tests {
 
         let system_entry = entries
             .iter()
-            .find(|e| matches!(e, crate::transcript::TranscriptEntry::SystemMessage { .. }));
+            .find(|e| matches!(e, transcript::TranscriptEntry::SystemMessage { .. }));
         assert!(system_entry.is_some());
 
         match original_editor {
@@ -1909,7 +1925,7 @@ mod tests {
 
         let system_entry = entries
             .iter()
-            .find(|e| matches!(e, crate::transcript::TranscriptEntry::SystemMessage { .. }));
+            .find(|e| matches!(e, transcript::TranscriptEntry::SystemMessage { .. }));
         assert!(system_entry.is_some());
 
         match original_editor {
@@ -1961,7 +1977,7 @@ mod tests {
         app.handle_model_command("list".to_string());
 
         assert_eq!(app.transcript().len(), 1);
-        if let crate::transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
+        if let transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
             assert!(content.contains("Available models"));
             assert!(content.contains("Current"));
         } else {
@@ -1975,7 +1991,7 @@ mod tests {
         app.handle_model_command("unknown-model".to_string());
 
         assert_eq!(app.transcript().len(), 1);
-        if let crate::transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
+        if let transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
             assert!(content.contains("Unknown model"));
         } else {
             panic!("Expected SystemMessage");
@@ -1988,7 +2004,7 @@ mod tests {
         app.handle_approvals_command("list".to_string());
 
         assert_eq!(app.transcript().len(), 1);
-        if let crate::transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
+        if let transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
             assert!(content.contains("Available approval modes"));
             assert!(content.contains("Current"));
         } else {
@@ -2038,7 +2054,7 @@ mod tests {
 
         assert_eq!(app.state.config.approval_mode, original_mode);
         assert_eq!(app.transcript().len(), 1);
-        if let crate::transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
+        if let transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
             assert!(content.contains("Unknown approval mode"));
         } else {
             panic!("Expected SystemMessage");
@@ -2052,7 +2068,7 @@ mod tests {
         app.handle_status_command();
 
         assert_eq!(app.transcript().len(), 1);
-        if let crate::transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
+        if let transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
             assert!(content.contains("Session Status"));
             assert!(content.contains("Profile"));
             assert!(content.contains("Provider"));
@@ -2070,7 +2086,7 @@ mod tests {
         app.handle_plan_command();
 
         assert_eq!(app.transcript().len(), 1);
-        if let crate::transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
+        if let transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
             assert!(content.contains("not found"));
         } else {
             panic!("Expected SystemMessage");
@@ -2084,7 +2100,7 @@ mod tests {
         app.handle_review_command();
 
         assert_eq!(app.transcript().len(), 1);
-        if let crate::transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
+        if let transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
             assert!(content.contains("Review pass triggered"));
             assert!(content.contains("not yet implemented"));
         } else {
@@ -2099,7 +2115,7 @@ mod tests {
         app.handle_memory_command();
 
         assert_eq!(app.transcript().len(), 1);
-        if let crate::transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
+        if let transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
             assert!(content.contains("not found"));
         } else {
             panic!("Expected SystemMessage");
@@ -2122,7 +2138,7 @@ mod tests {
         )));
 
         assert_eq!(app.transcript().len(), 1);
-        if let crate::transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
+        if let transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
             assert!(content.contains("Transcript cleared"));
         } else {
             panic!("Expected SystemMessage");

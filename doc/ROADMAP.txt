@@ -65,139 +65,14 @@ See section |2026-01-18| for changes made.
 --------------------------------------------------------------------------------
 VII. DIFF-FIRST EDITING + GIT INTEGRATION                            *agent-VII*
 --------------------------------------------------------------------------------
-Edits are *reviewable*, *reversible*, and *conflict-aware*.
 
-Codex explicitly treats diffs and `git apply` failure modes as first-class
-(e.g., `codex apply` exits non-zero if `git apply` fails). Mirror that rigor[^7]
-
-- [x] Patch queue:
-      - states: `PROPOSED → APPROVED → APPLIED` or `REJECTED`
-      - patch objects store base snapshot id + target files + hunks
-- [x] Diffing algorithm upgrade:
-      - replace naive line-by-line diff with `imara-diff` crate
-      - use Histogram algorithm for semantic code diffs
-      - improves readability for moved/refactored code blocks
-- [x] Unified diff generation contract for models:
-      - patch-first is default; raw write is an escape hatch (heavily gated)
-- [x] Apply engine:
-      - try `git apply` (or equivalent) and detect conflicts
-      - on failure: enter conflict UI instead of "forcing it"
-- [x] Rollback/undo:
-      - revert last applied patch (one keybind)
-      - show `git diff` before/after
-- [x] Git metadata linkage:
-      - attach session pointers via git notes
-      - show "this commit came from session X" in TUI
-- [x] TUI enhancements:
-      - Diff Queue pane with hunk navigation
-      - next/prev hunk keybinds
-      - approve/reject individual hunks
-- [x] Hunk labeling with intent:
-      - attach semantic labels to hunks
-        (e.g., "Add error handling", "Remove deprecated fn")
-      - Pattern-based intent extraction (HunkLabeler in thunderus-tools)
-      - Patch::label_hunks() method for automatic labeling
-      - display intent above each hunk in diff view
-      - teach version control discipline through consistent labeling
-- [x] Pedagogical conflict messages:
-      - on `git apply` failure, explain *why* conflict occurred
-        (not just "conflict detected")
-      - show conflicting regions with context
-      - suggest resolution strategies (rebase, manual merge, discard)
-      - first conflict triggers brief explainer on 3-way merge
-
-DoD:
-- "PR-stack feel" inside a TUI: accept hunks, undo safely, never lose work.
+See section |2026-01-19| for changes made.
 
 --------------------------------------------------------------------------------
 VIII. UI POLISH + THEMING                                           *agent-VIII*
 --------------------------------------------------------------------------------
-Complete the design spec implementation and fix broken UI components.
 
-Design target:
-Match DESIGN.txt specifications for all UI components. Simple theme toggle b/t
-Iceberg (default) and Oxocarbon.
-
-P0: Exit Behavior
------------------
-- [x] Ctrl+D global exit:
-      - BROKEN: only exits when input buffer empty
-      - Required: global exit like zsh, claude, cursor, other CLI agents
-      - Change: remove conditional, always return Exit action
-- [x] Ctrl+C double-press with feedback:
-      - Keep double-press behavior for safety
-      - After first press: show "Press Ctrl+C again to exit" in footer
-
-P0: Background Fills
----------------------
-ALL components are missing their DESIGN.txt background colors:
-
-- [x] Header background: #1e2132
-- [x] Footer background: #1e2132
-- [x] Sidebar background: #1e2132
-- [x] Transcript background: #161821
-- [x] Welcome screen backgrounds:
-      - Main area: #161821
-      - Panel box: #1e2132
-
-P1: Message Styling
--------------------
-Current: Plain text with prefix "You:" and "Agent:"
-Required: Styled bubbles with backgrounds
-
-- [x] User message bubbles:
-      - Background: #272c42 (highlight)
-      - Padding: 1 line vertical, 2 chars horizontal
-      - Max width: 60 cols in centered view
-- [x] Assistant message bubbles:
-      - Background: #1e2132 (secondary)
-      - Same padding requirements
-- [x] Footer hints during generation:
-      - Missing: [Ctrl+C: cancel]
-      - Current: only shows "Esc: cancel"
-
-P2: Medium Priority (Polish)
-----------------------------
-- [x] Scrollbar indicator:
-      - Thin dim indicator on right edge of transcript
-      - Color: #6b7089
-- [x] Streaming ellipsis animation:
-      - Animated "..." in dim color
-      - Current: static "(streaming...)" text
-- [x] Token usage format:
-      - Current sidebar shows "In: X Out: Y"
-      - DESIGN.txt shows "X.Xk / YYYk"
-- [x] Compact tool cards
-- [x] First-time hints: TeachingHintPopup
-- [x] Sidebar navigation: [ and ] keys work
-
-P3: Low Priority
------------------
-- [x] Remove emoji -> replace with Unicode characters if possible
-- [x] Pulsing border animation for risky approval cards
-- [x] Blinking cursor on [y] option
-- [x] Sidebar slide animation on toggle
-
-Theme Architecture
--------------------
-Goal: Toggle between Iceberg (current) and Oxocarbon.
-
-- [x] ThemeVariant enum:
-      - Iceberg (default) - bluish dark from iceberg.vim
-      - Oxocarbon - IBM Carbon-inspired grays/blues
-- [x] Theme color functions with variant parameter
-- [x] Ctrl+T keybind to toggle theme
-- [x] Persist theme choice in profile config
-
-Iceberg vs Oxocarbon:
-
-│ Color    │ Iceberg     │ Oxocarbon   │
-├──────────┼─────────────┼─────────────┤
-│ BG       │ #161821   │ #161616   │
-│ Panel    │ #1e2132   │ #262626   │
-│ Highlight│ #272c42   │ #393939   │
-│ FG       │ #c6c8d1   │ #f2f4f8   │
-│ Muted    │ #6b7089   │ #525252   │
+See section |2026-01-20| for changes made.
 
 --------------------------------------------------------------------------------
 IX. MARKDOWN + JSONL HYBRID VCS                                      *agent-IX*
@@ -205,9 +80,10 @@ IX. MARKDOWN + JSONL HYBRID VCS                                      *agent-IX*
 Your hybrid system is the canonical record of agent work, and it improves
 collaboration and debugging.
 
-- [ ] JSONL event model (append-only) in `events.jsonl`:
+- [x] JSONL event model (append-only) in `events.jsonl`:
       - user msgs, model msgs, tool calls/results, approvals, patches,
       - shell outputs (by reference), git snapshots
+      - view edits, context loads, checkpoints, plan updates, memory updates
 - [ ] Materialized Markdown views:
       - `MEMORY.md` (always-loaded "project memory", Claude-style)
       - `PLAN.md` (current plan + checkpoints)

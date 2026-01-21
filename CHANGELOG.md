@@ -4,7 +4,17 @@
 
 ### Added
 
+#### [2026-01-20]
+
+- Overhauled the TUI with full background fills, styled message bubbles, and refined component layouts.
+
+- Introduced dual-theme architecture supporting Iceberg and Oxocarbon variants, persistent theme selection, and global exit keybinds and animated streaming indicators.
+
 #### [2026-01-19]
+
+- Implemented a "PR-stack" style patch management system using the imara-diff Histogram algorithm for semantic code diffs and conflict-aware editing.
+
+- Hunk labeling to categorize changes by intent and conflict messaging to provide clear resolution strategies when git applications fail.
 
 - Action cards now have automated task context tracking and scope extraction to
 provide clearer rationale for agent operations during approval prompts.

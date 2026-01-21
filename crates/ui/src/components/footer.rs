@@ -48,7 +48,6 @@ impl<'a> Footer<'a> {
         self.render_input_card(frame, rows[1], theme);
         self.render_model_selector(frame, rows[2], theme);
 
-        // Render main action hints (Enter/Esc) closer to input
         let action_hints_area = Rect { x: rows[1].x, y: rows[1].y + rows[1].height, width: rows[1].width, height: 1 };
         let action_spans = vec![
             Span::styled("[Enter]", Style::default().fg(theme.blue)),
