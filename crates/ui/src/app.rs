@@ -5,6 +5,7 @@ use crate::event_handler::{EventHandler, KeyAction};
 use crate::layout::TuiLayout;
 use crate::state::VerbosityLevel;
 use crate::state::{AppState, ApprovalState};
+use crate::theme::Theme;
 use crate::transcript::{self, CardDetailLevel, ErrorType, RenderOptions, Transcript as TranscriptState};
 use crate::tui_approval::{TuiApprovalHandle, TuiApprovalProtocol};
 
@@ -948,7 +949,7 @@ impl App {
 
         terminal.draw(|frame| {
             let size = frame.area();
-            let theme = crate::theme::Theme::palette(self.state.theme_variant());
+            let theme = Theme::palette(self.state.theme_variant());
 
             if !self.state.is_first_session() || !self.transcript.is_empty() {
                 frame.render_widget(
@@ -981,7 +982,7 @@ impl App {
             let header = Header::new(&self.state.session_header);
             header.render(frame, layout.header);
 
-            let theme = crate::theme::Theme::palette(self.state.theme_variant());
+            let theme = Theme::palette(self.state.theme_variant());
             let options = RenderOptions {
                 centered: false,
                 max_bubble_width: if layout.mode == crate::layout::LayoutMode::Full { None } else { Some(60) },
@@ -1020,7 +1021,7 @@ impl App {
             }
 
             if let Some(ref hint) = self.state.approval_ui.pending_hint {
-                let theme = crate::theme::Theme::palette(self.state.theme_variant());
+                let theme = Theme::palette(self.state.theme_variant());
                 let hint_popup = TeachingHintPopup::new(hint, theme);
                 hint_popup.render(frame, size);
             }

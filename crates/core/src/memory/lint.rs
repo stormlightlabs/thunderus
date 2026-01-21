@@ -2,8 +2,7 @@
 //!
 //! Enforces quality and consistency rules for memory documents.
 
-use crate::memory::document::MemoryDoc;
-use crate::memory::kinds::MemoryKind;
+use crate::memory::{self, document::MemoryDoc, kinds::MemoryKind};
 
 use std::path::{Path, PathBuf};
 
@@ -75,7 +74,7 @@ impl MemoryLinter {
     }
 
     /// Lint all documents in memory directory
-    pub fn lint_all(&self, paths: &crate::memory::MemoryPaths) -> Vec<LintDiagnostic> {
+    pub fn lint_all(&self, paths: &memory::MemoryPaths) -> Vec<LintDiagnostic> {
         let mut all_diagnostics = Vec::new();
 
         for path in &[paths.core_memory_file(), paths.core_local_memory_file()] {
@@ -192,7 +191,7 @@ impl LintRule for CoreMemorySizeRule {
 
         if doc.frontmatter.kind == MemoryKind::Core {
             let token_count = doc.approx_token_count();
-            let soft_limit = crate::memory::CORE_MEMORY_SOFT_LIMIT;
+            let soft_limit = memory::CORE_MEMORY_SOFT_LIMIT;
 
             if token_count > soft_limit {
                 diagnostics.push(LintDiagnostic {
@@ -230,7 +229,7 @@ impl LintRule for CoreMemoryHardLimitRule {
 
         if doc.frontmatter.kind == MemoryKind::Core {
             let token_count = doc.approx_token_count();
-            let hard_limit = crate::memory::CORE_MEMORY_HARD_LIMIT;
+            let hard_limit = memory::CORE_MEMORY_HARD_LIMIT;
 
             if token_count > hard_limit {
                 diagnostics.push(LintDiagnostic {
@@ -299,7 +298,7 @@ impl LintRule for StaleDocumentRule {
     fn check(&self, doc: &MemoryDoc, path: &Path) -> Vec<LintDiagnostic> {
         let mut diagnostics = Vec::new();
 
-        if let crate::memory::VerificationStatus::Stale = doc.frontmatter.verification.status {
+        if let memory::VerificationStatus::Stale = doc.frontmatter.verification.status {
             diagnostics.push(LintDiagnostic {
                 rule: self.id().to_string(),
                 severity: LintSeverity::Warning,
@@ -476,7 +475,7 @@ mod tests {
             vec!["test".to_string()],
             "Content",
         );
-        doc.frontmatter.verification.status = crate::memory::VerificationStatus::Stale;
+        doc.frontmatter.verification.status = memory::VerificationStatus::Stale;
 
         let diagnostics = rule.check(&doc, Path::new("test.md"));
         assert_eq!(diagnostics.len(), 1);
@@ -487,7 +486,7 @@ mod tests {
     fn test_memory_linter_multiple_rules() {
         let linter = MemoryLinter::new();
         let mut doc = MemoryDoc::new("fact.test", "", MemoryKind::Fact, vec![], "");
-        doc.frontmatter.verification.status = crate::memory::VerificationStatus::Stale;
+        doc.frontmatter.verification.status = memory::VerificationStatus::Stale;
 
         let diagnostics = linter.lint(&doc, Path::new("test.md"));
         assert!(diagnostics.len() >= 3);

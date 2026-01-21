@@ -116,7 +116,7 @@ impl PatchQueueManager {
         let patch = self
             .queue
             .get_mut(patch_id)
-            .ok_or_else(|| crate::Error::Validation(format!("Patch not found: {}", patch_id)))?;
+            .ok_or_else(|| Error::Validation(format!("Patch not found: {}", patch_id)))?;
 
         patch.approve();
         self.save()
@@ -127,7 +127,7 @@ impl PatchQueueManager {
         let patch = self
             .queue
             .get_mut(patch_id)
-            .ok_or_else(|| crate::Error::Validation(format!("Patch not found: {}", patch_id)))?;
+            .ok_or_else(|| Error::Validation(format!("Patch not found: {}", patch_id)))?;
 
         patch.reject();
         self.save()

@@ -1,4 +1,7 @@
-use crate::{state::AppState, theme::Theme};
+use crate::{
+    state::AppState,
+    theme::{Theme, ThemePalette},
+};
 
 use ratatui::{
     Frame,
@@ -59,7 +62,7 @@ impl<'a> Footer<'a> {
     }
 
     /// Render input card with blue accent bar (like welcome screen)
-    fn render_input_card(&self, frame: &mut Frame<'_>, area: Rect, theme: crate::theme::ThemePalette) {
+    fn render_input_card(&self, frame: &mut Frame<'_>, area: Rect, theme: ThemePalette) {
         if area.width < 10 || area.height < 1 {
             return;
         }
@@ -129,7 +132,7 @@ impl<'a> Footer<'a> {
     }
 
     /// Render model/agent selector row (left-aligned like OpenCode)
-    fn render_model_selector(&self, frame: &mut Frame<'_>, area: Rect, theme: crate::theme::ThemePalette) {
+    fn render_model_selector(&self, frame: &mut Frame<'_>, area: Rect, theme: ThemePalette) {
         let models = &self.state.model_selector.available_models;
         let current = &self.state.model_selector.current_model;
 
@@ -161,7 +164,7 @@ impl<'a> Footer<'a> {
     }
 
     /// Render keyboard hints row (right-aligned, responsive)
-    fn render_hints(&self, frame: &mut Frame<'_>, area: Rect, theme: crate::theme::ThemePalette, width: u16) {
+    fn render_hints(&self, frame: &mut Frame<'_>, area: Rect, theme: ThemePalette, width: u16) {
         let hints = self.get_responsive_hints(theme, width);
 
         let paragraph = Paragraph::new(Line::from(hints)).alignment(Alignment::Right);
@@ -175,7 +178,7 @@ impl<'a> Footer<'a> {
     /// - Narrow (<80): Just essential (ctrl+c quit)
     /// - Medium (80-120): Core hints (ctrl+c, ctrl+s, enter)
     /// - Wide (>120): All hints
-    fn get_responsive_hints(&self, theme: crate::theme::ThemePalette, width: u16) -> Vec<Span<'_>> {
+    fn get_responsive_hints(&self, theme: ThemePalette, width: u16) -> Vec<Span<'_>> {
         let mut hints = Vec::new();
         let hint_style = Style::default().fg(theme.muted);
         let key_style = Style::default().fg(theme.blue);
@@ -243,7 +246,7 @@ impl<'a> Footer<'a> {
 
     /// Generate keyboard hints (for tests, uses full width)
     #[cfg(test)]
-    fn get_hints(&self, theme: crate::theme::ThemePalette) -> Vec<Span<'_>> {
+    fn get_hints(&self, theme: ThemePalette) -> Vec<Span<'_>> {
         self.get_responsive_hints(theme, 200)
     }
 }

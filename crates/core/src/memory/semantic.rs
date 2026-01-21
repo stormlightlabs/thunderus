@@ -36,17 +36,17 @@ impl SemanticMemory {
             return Ok(facts);
         }
 
-        let entries = fs::read_dir(facts_dir).map_err(crate::error::Error::Io)?;
+        let entries = fs::read_dir(facts_dir).map_err(Error::Io)?;
 
         for entry in entries {
-            let entry = entry.map_err(crate::error::Error::Io)?;
+            let entry = entry.map_err(Error::Io)?;
             let path = entry.path();
 
             if path.extension().and_then(|s| s.to_str()) == Some("md") {
-                let content = fs::read_to_string(&path).map_err(crate::error::Error::Io)?;
+                let content = fs::read_to_string(&path).map_err(Error::Io)?;
 
                 let doc = MemoryDoc::parse(&content)
-                    .map_err(|e| crate::error::Error::Parse(format!("Failed to parse fact document: {}", e)))?;
+                    .map_err(|e| Error::Parse(format!("Failed to parse fact document: {}", e)))?;
 
                 if doc.frontmatter.kind == MemoryKind::Fact {
                     facts.push(FactDoc { path, doc });

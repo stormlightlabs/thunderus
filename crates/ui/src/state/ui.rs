@@ -1,3 +1,5 @@
+use crate::theme::ThemeVariant;
+
 /// Diff navigation state for tracking selected patch and hunk
 #[derive(Debug, Clone, Default)]
 pub struct DiffNavigationState {
@@ -138,7 +140,7 @@ pub struct UIState {
     /// Animation frame counter for streaming ellipsis animation (0-3 cycle)
     pub animation_frame: u8,
     /// Active UI theme variant
-    pub theme_variant: crate::theme::ThemeVariant,
+    pub theme_variant: ThemeVariant,
 }
 
 impl UIState {
@@ -153,7 +155,7 @@ impl UIState {
             diff_navigation: DiffNavigationState::new(),
             is_first_session: true,
             animation_frame: 0,
-            theme_variant: crate::theme::ThemeVariant::Iceberg,
+            theme_variant: ThemeVariant::Iceberg,
         }
     }
 
@@ -237,15 +239,15 @@ impl UIState {
     }
 
     /// Set the current theme variant
-    pub fn set_theme_variant(&mut self, variant: crate::theme::ThemeVariant) {
+    pub fn set_theme_variant(&mut self, variant: ThemeVariant) {
         self.theme_variant = variant;
     }
 
     /// Toggle theme variant between Iceberg and Oxocarbon
     pub fn toggle_theme_variant(&mut self) {
         self.theme_variant = match self.theme_variant {
-            crate::theme::ThemeVariant::Iceberg => crate::theme::ThemeVariant::Oxocarbon,
-            crate::theme::ThemeVariant::Oxocarbon => crate::theme::ThemeVariant::Iceberg,
+            ThemeVariant::Iceberg => ThemeVariant::Oxocarbon,
+            ThemeVariant::Oxocarbon => ThemeVariant::Iceberg,
         };
     }
 

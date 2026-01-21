@@ -1,5 +1,6 @@
 use crate::theme::ThemePalette;
 use crate::transcript::{RenderOptions, Transcript as TranscriptState, TranscriptRenderer};
+
 use ratatui::{Frame, layout::Rect};
 
 /// Transcript component displaying of conversation
@@ -47,11 +48,12 @@ impl<'a> Transcript<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::theme::{Theme, ThemeVariant};
 
     #[test]
     fn test_transcript_new() {
         let transcript_state = TranscriptState::new();
-        let theme = crate::theme::Theme::palette(crate::theme::ThemeVariant::Iceberg);
+        let theme = Theme::palette(ThemeVariant::Iceberg);
         let component = Transcript::new(&transcript_state, theme);
         assert_eq!(component.inner().len(), 0);
     }
@@ -62,7 +64,7 @@ mod tests {
         transcript_state.add_user_message("Hello");
         transcript_state.add_model_response("Hi there");
 
-        let theme = crate::theme::Theme::palette(crate::theme::ThemeVariant::Iceberg);
+        let theme = Theme::palette(ThemeVariant::Iceberg);
         let component = Transcript::new(&transcript_state, theme);
         assert_eq!(component.inner().len(), 2);
     }
@@ -70,9 +72,8 @@ mod tests {
     #[test]
     fn test_transcript_inner() {
         let transcript_state = TranscriptState::new();
-        let theme = crate::theme::Theme::palette(crate::theme::ThemeVariant::Iceberg);
+        let theme = Theme::palette(ThemeVariant::Iceberg);
         let component = Transcript::new(&transcript_state, theme);
-
         assert_eq!(component.inner(), &transcript_state);
     }
 }

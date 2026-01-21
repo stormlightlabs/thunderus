@@ -10,6 +10,8 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Padding, Paragraph, Wrap},
 };
 
+use crate::theme::ThemePalette;
+
 /// Teaching hint popup for one-time educational messages
 pub struct TeachingHintPopup<'a> {
     /// The hint message to display
@@ -17,12 +19,12 @@ pub struct TeachingHintPopup<'a> {
     /// Optional title for the hint (defaults to "First Time")
     pub title: Option<&'a str>,
     /// Theme palette for styling
-    pub theme: crate::theme::ThemePalette,
+    pub theme: ThemePalette,
 }
 
 impl<'a> TeachingHintPopup<'a> {
     /// Create a new teaching hint popup
-    pub fn new(hint: &'a str, theme: crate::theme::ThemePalette) -> Self {
+    pub fn new(hint: &'a str, theme: ThemePalette) -> Self {
         Self { hint, title: None, theme }
     }
 
@@ -75,10 +77,11 @@ impl<'a> TeachingHintPopup<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::theme::{Theme, ThemeVariant};
 
     #[test]
     fn test_teaching_hint_new() {
-        let theme = crate::theme::Theme::palette(crate::theme::ThemeVariant::Iceberg);
+        let theme = Theme::palette(ThemeVariant::Iceberg);
         let hint = TeachingHintPopup::new("Test hint", theme);
         assert_eq!(hint.hint, "Test hint");
         assert!(hint.title.is_none());
@@ -86,7 +89,7 @@ mod tests {
 
     #[test]
     fn test_teaching_hint_with_title() {
-        let theme = crate::theme::Theme::palette(crate::theme::ThemeVariant::Iceberg);
+        let theme = Theme::palette(ThemeVariant::Iceberg);
         let hint = TeachingHintPopup::new("Test hint", theme).with_title("Custom Title");
         assert_eq!(hint.hint, "Test hint");
         assert_eq!(hint.title, Some("Custom Title"));
@@ -94,7 +97,7 @@ mod tests {
 
     #[test]
     fn test_teaching_hint_default_title() {
-        let theme = crate::theme::Theme::palette(crate::theme::ThemeVariant::Iceberg);
+        let theme = Theme::palette(ThemeVariant::Iceberg);
         assert_eq!(TeachingHintPopup::new("Test", theme).title, None);
     }
 }

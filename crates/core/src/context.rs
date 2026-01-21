@@ -201,7 +201,7 @@ impl ContextLoader {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::layout::AgentDir;
+    use crate::{layout::AgentDir, session};
     use tempfile::TempDir;
 
     #[test]
@@ -375,7 +375,7 @@ mod tests {
         let events = session.read_events().unwrap();
         assert_eq!(events.len(), 1);
 
-        if let crate::session::Event::ContextLoad { source, path, content_hash } = &events[0].event {
+        if let session::Event::ContextLoad { source, path, content_hash } = &events[0].event {
             assert_eq!(source, "CLAUDE.md");
             assert!(path.contains("CLAUDE.md"));
             assert!(!content_hash.is_empty());

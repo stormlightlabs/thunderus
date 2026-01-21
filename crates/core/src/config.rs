@@ -1,8 +1,8 @@
+use crate::{Error, Result};
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-
-use crate::{Error, Result};
 
 /// Approval modes for the agent (Codex-like ergonomics)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -43,7 +43,7 @@ impl std::str::FromStr for ApprovalMode {
             "read-only" => Ok(ApprovalMode::ReadOnly),
             "auto" => Ok(ApprovalMode::Auto),
             "full-access" => Ok(ApprovalMode::FullAccess),
-            _ => Err(crate::Error::Config(
+            _ => Err(Error::Config(
                 ConfigError::InvalidApprovalMode(s.to_string()).to_string(),
             )),
         }
@@ -90,7 +90,7 @@ impl std::str::FromStr for SandboxMode {
             "policy" => Ok(SandboxMode::Policy),
             "os" => Ok(SandboxMode::Os),
             "none" => Ok(SandboxMode::None),
-            _ => Err(crate::Error::Config(
+            _ => Err(Error::Config(
                 ConfigError::InvalidSandboxMode(s.to_string()).to_string(),
             )),
         }
@@ -387,8 +387,7 @@ fn default_profile() -> String {
 impl Config {
     /// Load configuration from a TOML string
     pub fn from_toml_str(toml_str: &str) -> Result<Self> {
-        let config: Config =
-            toml::from_str(toml_str).map_err(|e| crate::Error::Config(format!("TOML parse error: {}", e)))?;
+        let config: Config = toml::from_str(toml_str).map_err(|e| Error::Config(format!("TOML parse error: {}", e)))?;
         config.validate()?;
         Ok(config)
     }
@@ -401,9 +400,8 @@ impl Config {
 
     /// Save configuration to a file as TOML
     pub fn save_to_file(&self, path: &Path) -> Result<()> {
-        let toml_str =
-            toml::to_string_pretty(self).map_err(|e| crate::Error::Config(format!("TOML encode error: {}", e)))?;
-        std::fs::write(path, toml_str).map_err(|e| crate::Error::Config(format!("Failed to write config: {}", e)))?;
+        let toml_str = toml::to_string_pretty(self).map_err(|e| Error::Config(format!("TOML encode error: {}", e)))?;
+        std::fs::write(path, toml_str).map_err(|e| Error::Config(format!("Failed to write config: {}", e)))?;
         Ok(())
     }
 

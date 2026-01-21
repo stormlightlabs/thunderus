@@ -1,7 +1,7 @@
 use crate::{
     layout::{LayoutMode, WelcomeLayout},
     state::AppState,
-    theme::Theme,
+    theme::{Theme, ThemePalette},
 };
 
 use ratatui::{
@@ -56,7 +56,7 @@ impl<'a> WelcomeView<'a> {
     }
 
     /// Render the logo with gradient colors (cyan for top, blue for bottom)
-    fn render_logo(&self, frame: &mut Frame<'_>, theme: crate::theme::ThemePalette) {
+    fn render_logo(&self, frame: &mut Frame<'_>, theme: ThemePalette) {
         let mut lines = Vec::new();
 
         lines.push(Line::default());
@@ -76,7 +76,7 @@ impl<'a> WelcomeView<'a> {
     }
 
     /// Render the input card with blue accent bar on the left
-    fn render_input_card(&self, frame: &mut Frame<'_>, theme: crate::theme::ThemePalette) {
+    fn render_input_card(&self, frame: &mut Frame<'_>, theme: ThemePalette) {
         let area = self.layout.input_card;
         if area.width < 10 || area.height < 1 {
             return;
@@ -133,7 +133,7 @@ impl<'a> WelcomeView<'a> {
     }
 
     /// Render recent sessions as clickable cards
-    fn render_recent_sessions(&self, frame: &mut Frame<'_>, theme: crate::theme::ThemePalette) {
+    fn render_recent_sessions(&self, frame: &mut Frame<'_>, theme: ThemePalette) {
         let area = self.layout.recent_sessions;
         if area.height == 0 || self.state.welcome.recent_sessions.is_empty() {
             return;
@@ -165,7 +165,7 @@ impl<'a> WelcomeView<'a> {
     }
 
     /// Render centered keyboard shortcuts
-    fn render_shortcuts(&self, frame: &mut Frame<'_>, theme: crate::theme::ThemePalette) {
+    fn render_shortcuts(&self, frame: &mut Frame<'_>, theme: ThemePalette) {
         let area = self.layout.shortcuts;
         if area.height == 0 {
             return;
@@ -212,7 +212,7 @@ impl<'a> WelcomeView<'a> {
     }
 
     /// Render tip with yellow indicator dot
-    fn render_tip(&self, frame: &mut Frame<'_>, theme: crate::theme::ThemePalette) {
+    fn render_tip(&self, frame: &mut Frame<'_>, theme: ThemePalette) {
         let area = self.layout.tips;
         if area.height == 0 {
             return;
@@ -233,7 +233,7 @@ impl<'a> WelcomeView<'a> {
     }
 
     /// Render the header: git branch + working directory
-    fn render_header(&self, frame: &mut Frame<'_>, theme: crate::theme::ThemePalette) {
+    fn render_header(&self, frame: &mut Frame<'_>, theme: ThemePalette) {
         let area = self.layout.header;
         if area.height == 0 {
             return;
@@ -268,7 +268,7 @@ impl<'a> WelcomeView<'a> {
     }
 
     /// Render status bar: github URL | version
-    fn render_status_bar(&self, frame: &mut Frame<'_>, theme: crate::theme::ThemePalette) {
+    fn render_status_bar(&self, frame: &mut Frame<'_>, theme: ThemePalette) {
         let area = self.layout.status_bar;
         if area.height == 0 {
             return;

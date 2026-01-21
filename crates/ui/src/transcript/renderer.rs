@@ -1356,12 +1356,12 @@ impl<'a> TranscriptRenderer<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Theme, transcript::Transcript};
+    use crate::{Theme, ThemeVariant, transcript::Transcript};
 
     #[test]
     fn test_renderer_new() {
         let transcript = Transcript::new();
-        let theme = Theme::palette(crate::theme::ThemeVariant::Iceberg);
+        let theme = Theme::palette(ThemeVariant::Iceberg);
         let _ = TranscriptRenderer::new(&transcript, theme);
     }
 
@@ -1370,14 +1370,14 @@ mod tests {
         let mut transcript = Transcript::new();
         transcript.add_user_message("Hello");
         transcript.add_model_response("Hi there");
-        let theme = Theme::palette(crate::theme::ThemeVariant::Iceberg);
+        let theme = Theme::palette(ThemeVariant::Iceberg);
         let _ = TranscriptRenderer::new(&transcript, theme);
     }
 
     #[test]
     fn test_wrap_text_basic() {
         let transcript = Transcript::new();
-        let theme = Theme::palette(crate::theme::ThemeVariant::Iceberg);
+        let theme = Theme::palette(ThemeVariant::Iceberg);
         let renderer = TranscriptRenderer::new(&transcript, theme);
         let mut lines = Vec::new();
 
@@ -1390,7 +1390,7 @@ mod tests {
     #[test]
     fn test_wrap_text_with_wrap() {
         let transcript = Transcript::new();
-        let theme = Theme::palette(crate::theme::ThemeVariant::Iceberg);
+        let theme = Theme::palette(ThemeVariant::Iceberg);
         let renderer = TranscriptRenderer::new(&transcript, theme);
         let mut lines = Vec::new();
         renderer.wrap_text("This is a long line that should wrap", theme.fg, 20, &mut lines);
@@ -1401,7 +1401,7 @@ mod tests {
     #[test]
     fn test_wrap_text_empty() {
         let transcript = Transcript::new();
-        let theme = Theme::palette(crate::theme::ThemeVariant::Iceberg);
+        let theme = Theme::palette(ThemeVariant::Iceberg);
         let renderer = TranscriptRenderer::new(&transcript, theme);
         let mut lines = Vec::new();
         renderer.wrap_text("", theme.fg, 20, &mut lines);
@@ -1411,7 +1411,7 @@ mod tests {
     #[test]
     fn test_wrap_text_newlines() {
         let transcript = Transcript::new();
-        let theme = Theme::palette(crate::theme::ThemeVariant::Iceberg);
+        let theme = Theme::palette(ThemeVariant::Iceberg);
         let renderer = TranscriptRenderer::new(&transcript, theme);
         let mut lines = Vec::new();
 
@@ -1423,7 +1423,7 @@ mod tests {
     #[test]
     fn test_wrap_text_zero_width() {
         let transcript = Transcript::new();
-        let theme = Theme::palette(crate::theme::ThemeVariant::Iceberg);
+        let theme = Theme::palette(ThemeVariant::Iceberg);
         let renderer = TranscriptRenderer::new(&transcript, theme);
         let mut lines = Vec::new();
         renderer.wrap_text("Hello", theme.fg, 0, &mut lines);
@@ -1433,7 +1433,7 @@ mod tests {
     #[test]
     fn test_wrap_text_long_word() {
         let transcript = Transcript::new();
-        let theme = Theme::palette(crate::theme::ThemeVariant::Iceberg);
+        let theme = Theme::palette(ThemeVariant::Iceberg);
         let renderer = TranscriptRenderer::new(&transcript, theme);
         let mut lines = Vec::new();
         renderer.wrap_text("supercalifragilisticexpialidocious", theme.fg, 10, &mut lines);
@@ -1443,7 +1443,7 @@ mod tests {
     #[test]
     fn test_wrap_text_unicode() {
         let transcript = Transcript::new();
-        let theme = Theme::palette(crate::theme::ThemeVariant::Iceberg);
+        let theme = Theme::palette(ThemeVariant::Iceberg);
         let renderer = TranscriptRenderer::new(&transcript, theme);
         let mut lines = Vec::new();
         renderer.wrap_text("Hello 世界 🌍", theme.fg, 20, &mut lines);

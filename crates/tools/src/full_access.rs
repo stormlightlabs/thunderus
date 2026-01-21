@@ -163,6 +163,7 @@ pub fn format_command_result(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backup;
     use tempfile::TempDir;
     use thunderus_core::ToolRisk;
 
@@ -227,7 +228,7 @@ mod tests {
         std::fs::write(&test_file, "original content").unwrap();
 
         let backup_dir = temp.path().join(".backups");
-        let backup_manager = BackupManager::new(backup_dir, crate::backup::BackupMode::Always, 5);
+        let backup_manager = BackupManager::new(backup_dir, backup::BackupMode::Always, 5);
 
         let backups = create_backups_for_command(
             &format!("sed -i 's/old/new/g' {}", test_file.display()),
@@ -244,7 +245,7 @@ mod tests {
     fn test_create_backups_for_command_no_files() {
         let temp = TempDir::new().unwrap();
         let backup_dir = temp.path().join(".backups");
-        let backup_manager = BackupManager::new(backup_dir, crate::backup::BackupMode::Always, 5);
+        let backup_manager = BackupManager::new(backup_dir, backup::BackupMode::Always, 5);
 
         let backups = create_backups_for_command("sed 's/old/new/g' file.txt", &backup_manager).unwrap();
 

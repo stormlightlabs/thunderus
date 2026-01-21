@@ -1,5 +1,5 @@
 use crate::state::AppState;
-use crate::theme::Theme;
+use crate::theme::{Theme, ThemePalette};
 use ratatui::{
     Frame,
     layout::Alignment,
@@ -42,7 +42,7 @@ impl<'a> DiffView<'a> {
     }
 
     /// Render empty state when no patches
-    fn render_empty(&self, frame: &mut Frame<'_>, area: ratatui::layout::Rect, theme: crate::theme::ThemePalette) {
+    fn render_empty(&self, frame: &mut Frame<'_>, area: ratatui::layout::Rect, theme: ThemePalette) {
         let paragraph = Paragraph::new("No patches in queue")
             .block(
                 Block::default()
@@ -57,7 +57,7 @@ impl<'a> DiffView<'a> {
     }
 
     /// Render summary view of patches
-    fn render_summary(&self, frame: &mut Frame<'_>, area: ratatui::layout::Rect, theme: crate::theme::ThemePalette) {
+    fn render_summary(&self, frame: &mut Frame<'_>, area: ratatui::layout::Rect, theme: ThemePalette) {
         let mut lines = Vec::new();
 
         let nav = self.state.diff_navigation();
@@ -102,7 +102,7 @@ impl<'a> DiffView<'a> {
     }
 
     /// Render detailed view of a patch with hunks
-    fn render_detailed(&self, frame: &mut Frame<'_>, area: ratatui::layout::Rect, theme: crate::theme::ThemePalette) {
+    fn render_detailed(&self, frame: &mut Frame<'_>, area: ratatui::layout::Rect, theme: ThemePalette) {
         let nav = self.state.diff_navigation();
 
         let Some(patch_idx) = nav.selected_patch_index else {

@@ -1,4 +1,7 @@
-use crate::{state::HeaderState, theme::Theme};
+use crate::{
+    state::HeaderState,
+    theme::{Theme, ThemeVariant},
+};
 use unicode_width::UnicodeWidthStr;
 
 use ratatui::{
@@ -15,17 +18,17 @@ use ratatui::{
 /// - Right: tokens % ($cost) version
 pub struct Header<'a> {
     state: &'a HeaderState,
-    theme_variant: crate::theme::ThemeVariant,
+    theme_variant: ThemeVariant,
 }
 
 impl<'a> Header<'a> {
     /// Create a new session header
     pub fn new(state: &'a HeaderState) -> Self {
-        Self { state, theme_variant: crate::theme::ThemeVariant::Iceberg }
+        Self { state, theme_variant: ThemeVariant::Iceberg }
     }
 
     /// Create a session header with a specific theme
-    pub fn with_theme(state: &'a HeaderState, theme_variant: crate::theme::ThemeVariant) -> Self {
+    pub fn with_theme(state: &'a HeaderState, theme_variant: ThemeVariant) -> Self {
         Self { state, theme_variant }
     }
 

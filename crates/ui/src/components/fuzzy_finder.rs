@@ -1,6 +1,6 @@
 use crate::fuzzy_finder::FuzzyFinder;
 use crate::state::AppState;
-use crate::theme::Theme;
+use crate::theme::{Theme, ThemePalette};
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -50,7 +50,7 @@ impl<'a> FuzzyFinderComponent<'a> {
         }
     }
 
-    fn render_input(&self, frame: &mut Frame<'_>, finder: &FuzzyFinder, area: Rect, theme: crate::theme::ThemePalette) {
+    fn render_input(&self, frame: &mut Frame<'_>, finder: &FuzzyFinder, area: Rect, theme: ThemePalette) {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(theme.blue))
@@ -72,7 +72,7 @@ impl<'a> FuzzyFinderComponent<'a> {
         frame.render_widget(paragraph, area);
     }
 
-    fn render_list(&self, frame: &mut Frame<'_>, finder: &FuzzyFinder, area: Rect, theme: crate::theme::ThemePalette) {
+    fn render_list(&self, frame: &mut Frame<'_>, finder: &FuzzyFinder, area: Rect, theme: ThemePalette) {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(theme.muted))
@@ -121,9 +121,7 @@ impl<'a> FuzzyFinderComponent<'a> {
         frame.render_widget(list, area);
     }
 
-    fn render_preview(
-        &self, frame: &mut Frame<'_>, finder: &FuzzyFinder, area: Rect, theme: crate::theme::ThemePalette,
-    ) {
+    fn render_preview(&self, frame: &mut Frame<'_>, finder: &FuzzyFinder, area: Rect, theme: ThemePalette) {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(theme.muted))

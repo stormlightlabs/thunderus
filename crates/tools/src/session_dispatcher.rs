@@ -8,7 +8,7 @@ use thunderus_core::{BlockedCommandError, Session};
 use thunderus_providers::ToolCall;
 use thunderus_providers::ToolResult;
 
-use crate::read_history::ReadHistory;
+use crate::read_history::{self, ReadHistory};
 use crate::{ToolDispatcher, classify_shell_command};
 
 /// Session-aware tool dispatcher
@@ -169,14 +169,14 @@ impl SessionToolDispatcher {
 
 /// Validates that a file has been read before allowing edits
 pub fn validate_read_before_edit(dispatcher: &SessionToolDispatcher, file_path: &str) -> Result<()> {
-    crate::read_history::validate_read_before_edit(dispatcher.read_history(), file_path)
+    read_history::validate_read_before_edit(dispatcher.read_history(), file_path)
         .map_err(|e| thunderus_core::Error::Tool(e.to_string()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::builtin::ReadTool;
+    use crate::builtin::{self, ReadTool};
     use crate::registry::ToolRegistry;
     use tempfile::TempDir;
 
@@ -187,7 +187,7 @@ mod tests {
 
         let registry = ToolRegistry::new();
         registry.register(ReadTool).unwrap();
-        registry.register(crate::builtin::ShellTool).unwrap();
+        registry.register(builtin::ShellTool).unwrap();
         let dispatcher = ToolDispatcher::new(registry);
 
         let session_dispatcher = SessionToolDispatcher::with_new_history(dispatcher, session);

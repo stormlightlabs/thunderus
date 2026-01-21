@@ -1,6 +1,8 @@
 use std::fmt;
 use thunderus_core::ApprovalDecision;
 
+use crate::theme::ThemePalette;
+
 /// Detail level for action cards (progressive disclosure)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CardDetailLevel {
@@ -396,7 +398,7 @@ impl TranscriptEntry {
     }
 
     /// Get risk level color as ratatui Color
-    pub fn risk_level_color(palette: crate::theme::ThemePalette, risk: &str) -> ratatui::style::Color {
+    pub fn risk_level_color(palette: ThemePalette, risk: &str) -> ratatui::style::Color {
         match risk {
             "safe" => palette.green,
             "risky" => palette.yellow,
@@ -527,6 +529,8 @@ impl TranscriptEntry {
 
 #[cfg(test)]
 mod tests {
+    use crate::{Theme, ThemeVariant};
+
     use super::*;
 
     #[test]
@@ -692,7 +696,7 @@ mod tests {
             assert_eq!(risk, "unknown");
         }
 
-        let palette = crate::theme::Theme::palette(crate::theme::ThemeVariant::Iceberg);
+        let palette = Theme::palette(ThemeVariant::Iceberg);
         assert_eq!(TranscriptEntry::risk_level_color(palette, "safe"), palette.green);
         assert_eq!(TranscriptEntry::risk_level_color(palette, "risky"), palette.yellow);
         assert_eq!(TranscriptEntry::risk_level_color(palette, "dangerous"), palette.red);

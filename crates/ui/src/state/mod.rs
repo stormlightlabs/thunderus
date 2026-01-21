@@ -1,4 +1,4 @@
-use crate::fuzzy_finder::FuzzyFinder;
+use crate::{ThemeVariant, fuzzy_finder::FuzzyFinder};
 
 use std::path::PathBuf;
 use thunderus_core::{ApprovalMode, ProviderConfig, SandboxMode};
@@ -281,11 +281,11 @@ impl AppState {
         self.config.git_branch.as_ref()
     }
 
-    pub fn theme_variant(&self) -> crate::theme::ThemeVariant {
+    pub fn theme_variant(&self) -> ThemeVariant {
         self.ui.theme_variant
     }
 
-    pub fn set_theme_variant(&mut self, variant: crate::theme::ThemeVariant) {
+    pub fn set_theme_variant(&mut self, variant: ThemeVariant) {
         self.ui.set_theme_variant(variant);
     }
 
