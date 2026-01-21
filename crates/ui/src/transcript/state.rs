@@ -581,7 +581,7 @@ mod tests {
         }
 
         let user_messages = transcript.get_user_messages();
-        assert_eq!(user_messages.len(), 5); // Should have only the most recent 5
+        assert_eq!(user_messages.len(), 5);
         assert_eq!(user_messages[0], "Message 5");
         assert_eq!(user_messages[4], "Message 9");
     }
@@ -626,15 +626,15 @@ mod tests {
         transcript.add_user_message("Message 2");
 
         assert!(transcript.focus_first_card());
-        assert_eq!(transcript.focused_card_index(), Some(1)); // First action card is at index 1
+        assert_eq!(transcript.focused_card_index(), Some(1));
 
         assert!(transcript.focus_next_card());
-        assert_eq!(transcript.focused_card_index(), Some(3)); // Second action card
+        assert_eq!(transcript.focused_card_index(), Some(3));
 
         assert!(transcript.focus_next_card());
-        assert_eq!(transcript.focused_card_index(), Some(4)); // Third action card
+        assert_eq!(transcript.focused_card_index(), Some(4));
 
-        assert!(!transcript.focus_next_card()); // At last card
+        assert!(!transcript.focus_next_card());
         assert_eq!(transcript.focused_card_index(), Some(4));
     }
 
@@ -654,7 +654,7 @@ mod tests {
         assert!(transcript.focus_prev_card());
         assert_eq!(transcript.focused_card_index(), Some(0));
 
-        assert!(!transcript.focus_prev_card()); // At first card
+        assert!(!transcript.focus_prev_card());
         assert_eq!(transcript.focused_card_index(), Some(0));
     }
 
@@ -724,9 +724,9 @@ mod tests {
 
         transcript.focus_first_card();
 
-        assert!(!transcript.is_entry_focused(0)); // User message
-        assert!(transcript.is_entry_focused(1)); // Tool call (focused)
-        assert!(!transcript.is_entry_focused(2)); // Model response
+        assert!(!transcript.is_entry_focused(0));
+        assert!(transcript.is_entry_focused(1));
+        assert!(!transcript.is_entry_focused(2));
     }
 
     #[test]

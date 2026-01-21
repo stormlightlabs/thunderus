@@ -1016,7 +1016,7 @@ model = "gemini-2.5-flash"
         config.allow.push(PathBuf::from("/opt/app"));
 
         assert!(config.is_allowed(Path::new("/workspace/src/main.rs")));
-        assert!(config.is_allowed(Path::new("/tmp/test.txt"))); // include_temp by default
+        assert!(config.is_allowed(Path::new("/tmp/test.txt")));
         assert!(config.is_allowed(Path::new("/opt/app/config")));
         assert!(!config.is_allowed(Path::new("/etc/passwd")));
     }

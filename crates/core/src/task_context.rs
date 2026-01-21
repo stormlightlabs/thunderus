@@ -432,7 +432,7 @@ mod tests {
     fn test_extract_task_subject_truncation() {
         let long = "a very long description of something that should be truncated";
         let result = extract_task_subject(long);
-        assert!(result.len() <= 53); // 50 + "..."
+        assert!(result.len() <= 53);
         assert!(result.ends_with("..."));
     }
 

@@ -140,22 +140,20 @@ impl ToolRegistry {
                 "Tool execution rejected: approval mode is read-only".to_string(),
             )),
             ApprovalMode::FullAccess => Ok(true),
-            ApprovalMode::Auto => {
-                match self.extract_target_path(tool, arguments) {
-                    Some(path) => {
-                        let path_buf = PathBuf::from(&path);
-                        if self.is_within_workspace(&path_buf) {
-                            Ok(true)
-                        } else {
-                            Err(thunderus_core::Error::Approval(format!(
-                                "Tool execution requires approval: path '{}' is outside workspace",
-                                path
-                            )))
-                        }
+            ApprovalMode::Auto => match self.extract_target_path(tool, arguments) {
+                Some(path) => {
+                    let path_buf = PathBuf::from(&path);
+                    if self.is_within_workspace(&path_buf) {
+                        Ok(true)
+                    } else {
+                        Err(thunderus_core::Error::Approval(format!(
+                            "Tool execution requires approval: path '{}' is outside workspace",
+                            path
+                        )))
                     }
-                    None => Ok(true), // No path to check, allow
                 }
-            }
+                None => Ok(true),
+            },
         }
     }
 
@@ -175,7 +173,7 @@ impl ToolRegistry {
     /// Check network access based on profile and mode
     fn check_network_access(&self, profile: &Profile, mode: ApprovalMode, cmd: &str) -> Result<bool> {
         match mode {
-            ApprovalMode::FullAccess => Ok(true), // Full access allows network
+            ApprovalMode::FullAccess => Ok(true),
             ApprovalMode::ReadOnly => Err(thunderus_core::Error::Approval(format!(
                 "Network command '{}' blocked: read-only mode",
                 cmd

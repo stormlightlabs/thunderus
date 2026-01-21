@@ -170,7 +170,7 @@ impl ContextLoader {
                     if let Some(name) = path.file_name() {
                         let name_str = name.to_string_lossy();
                         if name_str.ends_with(".local.md") {
-                            let priority = u8::MAX; // Lowest priority for local files
+                            let priority = u8::MAX;
                             if let Ok(ctx) = LoadedContext::from_path(path.clone(), priority) {
                                 self.loaded.insert(name_str.to_string(), ctx);
                             }

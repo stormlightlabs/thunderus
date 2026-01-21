@@ -274,7 +274,7 @@ mod tests {
         let mut input = InputState::new();
 
         input.add_to_history("test message".to_string());
-        input.add_to_history("test message".to_string()); // Duplicate
+        input.add_to_history("test message".to_string());
         input.add_to_history("different message".to_string());
 
         assert_eq!(input.message_history.len(), 2);
@@ -323,7 +323,7 @@ mod tests {
         input.navigate_down();
         assert_eq!(input.history_position(), Some("3/3".to_string()));
 
-        input.navigate_down(); // Back to new message
+        input.navigate_down();
         assert!(input.history_position().is_none());
     }
 

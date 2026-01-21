@@ -302,7 +302,7 @@ mod tests {
     fn test_edit_formatter_truncation() {
         let long_string = "a".repeat(100);
         let output = EditFormatter::format_success("/path/to/file", &long_string, "replacement");
-        assert!(output.contains("...")); // Should be truncated
+        assert!(output.contains("..."));
     }
 
     #[test]

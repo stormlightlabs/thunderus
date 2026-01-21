@@ -28,7 +28,7 @@ pub struct PatchQueueManager {
 impl PatchQueueManager {
     /// Create a new patch queue manager for a session
     pub fn new(session_id: SessionId, agent_dir: AgentDir) -> Self {
-        let queue = PatchQueue::new("HEAD".to_string()); // Will be updated on first load
+        let queue = PatchQueue::new("HEAD".to_string());
 
         Self { session_id, agent_dir, queue, id_counter: 0 }
     }
@@ -353,6 +353,6 @@ mod tests {
 
         assert!(id1.starts_with("patch_"));
         assert!(id2.starts_with("patch_"));
-        assert_ne!(id1, id2); // IDs should be unique
+        assert_ne!(id1, id2);
     }
 }

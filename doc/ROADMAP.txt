@@ -124,14 +124,14 @@ while staying reviewable + git-friendly. Use a tiered design:
 - Semantic/Procedural: curated, reusable knowledge
 
 Tasks:
-- [ ] Define memory directory layout (repo-local, deterministic):
+- [x] Define memory directory layout (repo-local, deterministic):
       - `.thunderus/memory/`
           - `core/`        (always loaded)
           - `semantic/`    (facts + ADR-lite)
           - `procedural/`  (playbooks)
           - `episodic/`    (session recaps)
           - `indexes/`     (manifests + search indexes)
-- [ ] Core memory contract:
+- [x] Core memory contract:
       - Small + stable (linted size caps; enforce headings; diffable)
       - Add:
           - `.thunderus/memory/core/CORE.md`
