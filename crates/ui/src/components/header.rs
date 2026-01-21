@@ -15,17 +15,31 @@ use ratatui::{
 /// - Right: tokens % ($cost) version
 pub struct Header<'a> {
     state: &'a HeaderState,
+    theme_variant: crate::theme::ThemeVariant,
 }
 
 impl<'a> Header<'a> {
     /// Create a new session header
     pub fn new(state: &'a HeaderState) -> Self {
-        Self { state }
+        Self { state, theme_variant: crate::theme::ThemeVariant::Iceberg }
     }
 
-    /// Render the session header to the given frame
+    /// Create a session header with a specific theme
+    pub fn with_theme(state: &'a HeaderState, theme_variant: crate::theme::ThemeVariant) -> Self {
+        Self { state, theme_variant }
+    }
+
+    /// Render the session header to the given frame with horizontal padding
     pub fn render(&self, frame: &mut Frame<'_>, area: Rect) {
-        let theme = Theme::palette(crate::theme::ThemeVariant::Iceberg);
+        let theme = Theme::palette(self.theme_variant);
+        let h_padding: u16 = 2;
+
+        let padded_area = Rect {
+            x: area.x + h_padding,
+            y: area.y,
+            width: area.width.saturating_sub(h_padding * 2),
+            height: area.height,
+        };
 
         let task_title = self
             .state
@@ -62,7 +76,7 @@ impl<'a> Header<'a> {
 
         let title_width = title_spans.iter().map(|s| s.content.width()).sum::<usize>();
         let stats_width = stats_spans.iter().map(|s| s.content.width()).sum::<usize>();
-        let spacing = area.width.saturating_sub((title_width + stats_width) as u16);
+        let spacing = padded_area.width.saturating_sub((title_width + stats_width) as u16);
 
         let mut all_spans = title_spans;
         if spacing > 0 {
@@ -75,7 +89,7 @@ impl<'a> Header<'a> {
 
         let header = Paragraph::new(Line::from(all_spans)).block(ratatui::widgets::Block::default().bg(theme.panel_bg));
 
-        frame.render_widget(header, area);
+        frame.render_widget(header, padded_area);
     }
 }
 

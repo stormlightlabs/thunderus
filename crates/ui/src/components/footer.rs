@@ -2,18 +2,18 @@ use crate::{state::AppState, theme::Theme};
 
 use ratatui::{
     Frame,
-    layout::{Alignment, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::Style,
-    style::Stylize,
     text::{Line, Span},
     widgets::{Block, Paragraph},
 };
 
 /// Footer component displaying input composer, model selector, and hints
 ///
-/// - Row 1: Input card with blue accent bar (2 chars)
-/// - Row 2: Model/agent selector
-/// - Row 3: Keyboard shortcuts (right-aligned)
+/// OpenCode-style layout:
+/// - Row 1: Divider
+/// - Row 2-4: Input card with blue accent bar
+/// - Row 5: Model selector (left) + hints (right)
 pub struct Footer<'a> {
     state: &'a AppState,
 }
@@ -23,23 +23,31 @@ impl<'a> Footer<'a> {
         Self { state }
     }
 
-    /// Render footer to the given frame
+    /// Render footer to the given frame with horizontal padding
     pub fn render(&self, frame: &mut Frame<'_>, area: Rect) {
         let theme = Theme::palette(self.state.theme_variant());
+        let h_padding: u16 = 2;
 
-        let rows = ratatui::layout::Layout::default()
-            .direction(ratatui::layout::Direction::Vertical)
+        let padded_area = Rect {
+            x: area.x + h_padding,
+            y: area.y,
+            width: area.width.saturating_sub(h_padding * 2),
+            height: area.height,
+        };
+
+        let rows = Layout::default()
+            .direction(Direction::Vertical)
             .constraints([
-                ratatui::layout::Constraint::Length(1),
-                ratatui::layout::Constraint::Length(3),
-                ratatui::layout::Constraint::Length(1),
-                ratatui::layout::Constraint::Length(1),
+                Constraint::Length(1),
+                Constraint::Length(3),
+                Constraint::Length(1),
+                Constraint::Length(1),
             ])
-            .split(area);
+            .split(padded_area);
 
         frame.render_widget(
             Paragraph::new(Line::from(vec![Span::styled(
-                "─".repeat(area.width as usize),
+                "─".repeat(padded_area.width as usize),
                 Style::default().fg(theme.muted),
             )])),
             rows[0],
@@ -47,20 +55,7 @@ impl<'a> Footer<'a> {
 
         self.render_input_card(frame, rows[1], theme);
         self.render_model_selector(frame, rows[2], theme);
-
-        let action_hints_area = Rect { x: rows[1].x, y: rows[1].y + rows[1].height, width: rows[1].width, height: 1 };
-        let action_spans = vec![
-            Span::styled("[Enter]", Style::default().fg(theme.blue)),
-            Span::styled(" send  ", Style::default().fg(theme.muted)),
-            Span::styled("[Esc]", Style::default().fg(theme.blue)),
-            Span::styled(" exit", Style::default().fg(theme.muted)),
-        ];
-        frame.render_widget(
-            Paragraph::new(Line::from(action_spans)).alignment(Alignment::Right),
-            action_hints_area,
-        );
-
-        self.render_hints(frame, rows[3], theme);
+        self.render_hints(frame, rows[3], theme, padded_area.width);
     }
 
     /// Render input card with blue accent bar (like welcome screen)
@@ -133,7 +128,7 @@ impl<'a> Footer<'a> {
         frame.render_widget(cursor_paragraph, input_area);
     }
 
-    /// Render model/agent selector row
+    /// Render model/agent selector row (left-aligned like OpenCode)
     fn render_model_selector(&self, frame: &mut Frame<'_>, area: Rect, theme: crate::theme::ThemePalette) {
         let models = &self.state.model_selector.available_models;
         let current = &self.state.model_selector.current_model;
@@ -142,113 +137,114 @@ impl<'a> Footer<'a> {
 
         for (idx, model) in models.iter().enumerate() {
             if idx > 0 {
-                spans.push(Span::styled(" ", Style::default().bg(theme.panel_bg)));
+                spans.push(Span::styled(" ", Style::default()));
             }
 
             let is_selected = model == current;
-            let style = if is_selected {
-                Style::default().fg(theme.blue).bg(theme.panel_bg).bold()
-            } else {
-                Style::default().fg(theme.muted).bg(theme.panel_bg)
-            };
+            let style =
+                if is_selected { Style::default().fg(theme.blue).bold() } else { Style::default().fg(theme.muted) };
 
             spans.push(Span::styled(model.as_str(), style));
         }
 
         if let Some(ref agent) = self.state.model_selector.current_agent {
-            spans.push(Span::styled(" | ", Style::default().fg(theme.muted).bg(theme.panel_bg)));
+            spans.push(Span::styled(" | ", Style::default().fg(theme.muted)));
             spans.push(Span::styled(
                 format!("@{}", agent),
-                Style::default().fg(theme.purple).bg(theme.panel_bg).bold(),
+                Style::default().fg(theme.purple).bold(),
             ));
         }
 
-        let paragraph = Paragraph::new(Line::from(spans))
-            .block(Block::default().bg(theme.panel_bg))
-            .alignment(Alignment::Center);
+        let paragraph = Paragraph::new(Line::from(spans)).alignment(Alignment::Center);
 
         frame.render_widget(paragraph, area);
     }
 
-    /// Render keyboard hints row
-    fn render_hints(&self, frame: &mut Frame<'_>, area: Rect, theme: crate::theme::ThemePalette) {
-        let hints = self.get_hints(theme);
-        let mut spans = Vec::new();
+    /// Render keyboard hints row (right-aligned, responsive)
+    fn render_hints(&self, frame: &mut Frame<'_>, area: Rect, theme: crate::theme::ThemePalette, width: u16) {
+        let hints = self.get_responsive_hints(theme, width);
 
-        for (i, hint) in hints.into_iter().enumerate() {
-            if i > 0 {
-                spans.push(Span::raw("   "));
-            }
-            spans.push(hint);
-        }
-
-        let paragraph = Paragraph::new(Line::from(spans))
-            .block(Block::default().bg(theme.bg))
-            .alignment(Alignment::Center);
+        let paragraph = Paragraph::new(Line::from(hints)).alignment(Alignment::Right);
 
         frame.render_widget(paragraph, area);
     }
 
-    fn get_hints(&self, theme: crate::theme::ThemePalette) -> Vec<Span<'_>> {
+    /// Generate responsive keyboard hints based on available width
+    ///
+    /// Prioritizes important hints when space is limited:
+    /// - Narrow (<80): Just essential (ctrl+c quit)
+    /// - Medium (80-120): Core hints (ctrl+c, ctrl+s, enter)
+    /// - Wide (>120): All hints
+    fn get_responsive_hints(&self, theme: crate::theme::ThemePalette, width: u16) -> Vec<Span<'_>> {
         let mut hints = Vec::new();
+        let hint_style = Style::default().fg(theme.muted);
+        let key_style = Style::default().fg(theme.blue);
 
         if self.state.ui.is_first_session && self.state.input.buffer.is_empty() {
-            hints.push(Span::styled(
-                "[Press Esc]",
-                Style::default().fg(theme.muted).bg(theme.panel_bg),
-            ));
+            hints.push(Span::styled("esc", key_style));
+            hints.push(Span::styled(" dismiss", hint_style));
             return hints;
         }
 
         if self.state.approval_ui.pending_approval.is_some() {
-            hints.push(Span::styled(
-                "[y] approve [n] reject [c] cancel",
-                Style::default().fg(theme.muted).bg(theme.panel_bg),
-            ));
-        } else if self.state.is_generating() {
-            hints.push(Span::styled(
-                "[Ctrl+C: cancel]",
-                Style::default().fg(theme.muted).bg(theme.panel_bg),
-            ));
-        } else {
-            if self.state.input.message_history.len() > 1 {
-                hints.push(Span::styled(
-                    "[↑↓] history",
-                    Style::default().fg(theme.muted).bg(theme.panel_bg),
-                ));
+            hints.push(Span::styled("y", key_style));
+            hints.push(Span::styled(" approve • ", hint_style));
+            hints.push(Span::styled("n", key_style));
+            hints.push(Span::styled(" reject • ", hint_style));
+            hints.push(Span::styled("c", key_style));
+            hints.push(Span::styled(" cancel", hint_style));
+            return hints;
+        }
 
-                if let Some(position) = self.state.input.history_position() {
-                    hints.push(Span::styled(
-                        format!("[{}]", position),
-                        Style::default().fg(theme.muted).bg(theme.panel_bg),
-                    ));
-                }
-            }
+        if self.state.is_generating() {
+            hints.push(Span::styled("ctrl+c", key_style));
+            hints.push(Span::styled(" cancel", hint_style));
+            return hints;
+        }
 
-            hints.push(Span::styled(
-                "[Ctrl+Shift+G] editor",
-                Style::default().fg(theme.muted).bg(theme.panel_bg),
-            ));
+        let is_narrow = width < 80;
+        let is_medium = (80..120).contains(&width);
+        let is_wide = width >= 120;
 
+        hints.push(Span::styled("ctrl+c", key_style));
+        hints.push(Span::styled(" quit", hint_style));
+
+        if is_narrow {
+            return hints;
+        }
+
+        hints.insert(0, Span::styled(" • ", hint_style));
+        hints.insert(
+            0,
             if self.state.ui.sidebar_visible {
-                hints.push(Span::styled(
-                    "[Ctrl+S] hide",
-                    Style::default().fg(theme.muted).bg(theme.panel_bg),
-                ));
+                Span::styled(" hide", hint_style)
             } else {
-                hints.push(Span::styled(
-                    "[Ctrl+S] show",
-                    Style::default().fg(theme.muted).bg(theme.panel_bg),
-                ));
-            }
+                Span::styled(" show", hint_style)
+            },
+        );
+        hints.insert(0, Span::styled("ctrl+s", key_style));
 
-            hints.push(Span::styled(
-                "[Ctrl+T] theme",
-                Style::default().fg(theme.muted).bg(theme.panel_bg),
-            ));
+        if is_medium {
+            return hints;
+        }
+
+        hints.insert(0, Span::styled(" • ", hint_style));
+        hints.insert(0, Span::styled(" theme", hint_style));
+        hints.insert(0, Span::styled("ctrl+t", key_style));
+
+        if is_wide {
+            hints.insert(0, Span::styled(" • ", hint_style));
+            hints.insert(0, Span::styled(" editor", hint_style));
+            hints.insert(0, Span::styled("ctrl+shift+g", key_style));
         }
 
         hints
+    }
+
+    /// Generate keyboard hints (for tests, uses full width)
+    #[cfg(test)]
+    fn get_hints(&self, theme: crate::theme::ThemePalette) -> Vec<Span<'_>> {
+        self.get_responsive_hints(theme, 200)
     }
 }
 
@@ -294,9 +290,8 @@ mod tests {
         state.ui.set_first_session(false);
         let _footer = Footer::new(&state);
         let theme = Theme::palette(state.theme_variant());
-
         let hints = _footer.get_hints(theme);
-        assert!(hints.iter().any(|s| s.content.contains("[Ctrl+S]")));
+        assert!(hints.iter().any(|s| s.content.contains("ctrl+s")));
     }
 
     #[test]
@@ -308,7 +303,7 @@ mod tests {
         let _footer = Footer::new(&state);
         let theme = Theme::palette(state.theme_variant());
         let hints = _footer.get_hints(theme);
-        assert!(hints.iter().any(|s| s.content.contains("Ctrl+C")));
+        assert!(hints.iter().any(|s| s.content.contains("ctrl+c")));
     }
 
     #[test]
@@ -321,8 +316,8 @@ mod tests {
         let _footer = Footer::new(&state);
         let theme = Theme::palette(state.theme_variant());
         let hints = _footer.get_hints(theme);
-        assert!(hints.iter().any(|s| s.content.contains("[y]")));
-        assert!(hints.iter().any(|s| s.content.contains("[n]")));
+        assert!(hints.iter().any(|s| s.content == "y"));
+        assert!(hints.iter().any(|s| s.content == "n"));
     }
 
     #[test]

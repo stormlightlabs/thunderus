@@ -1,6 +1,6 @@
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-
 use crate::state::AppState;
+
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 /// Event handler for the TUI application
 pub struct EventHandler;
@@ -36,7 +36,6 @@ impl EventHandler {
 
         if state.approval_ui.pending_hint.is_some() {
             state.approval_ui.pending_hint = None;
-            return Some(KeyAction::NoOp);
         }
 
         if state.is_fuzzy_finder_active() {
@@ -268,6 +267,7 @@ impl EventHandler {
                     }
                 } else if event.modifiers.contains(KeyModifiers::CONTROL) && c == 's' {
                     state.toggle_sidebar();
+                    return Some(KeyAction::ToggleSidebar);
                 } else if event.modifiers.contains(KeyModifiers::CONTROL)
                     && event.modifiers.contains(KeyModifiers::SHIFT)
                     && c == 'g'
