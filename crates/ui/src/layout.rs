@@ -58,7 +58,7 @@ impl TuiLayout {
         let effective_sidebar_visible = sidebar_visible && mode.has_sidebar() && sidebar_width > 0;
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Length(1), Constraint::Min(0), Constraint::Length(5)])
+            .constraints([Constraint::Length(1), Constraint::Min(0), Constraint::Length(6)])
             .split(area);
 
         let header = chunks[0];
@@ -279,6 +279,8 @@ impl HeaderSections {
 /// Provides a centered, clean layout without header/sidebar for first session.
 #[derive(Debug, Clone)]
 pub struct WelcomeLayout {
+    /// Header area (git branch + working directory)
+    pub header: Rect,
     /// Centered logo area (upper portion)
     pub logo: Rect,
     /// Input card with blue accent bar
@@ -289,7 +291,7 @@ pub struct WelcomeLayout {
     pub shortcuts: Rect,
     /// Tip with colored indicator
     pub tips: Rect,
-    /// Bottom status bar (path:branch | version)
+    /// Bottom status bar (github.com/stormlightlabs/thunderus | version)
     pub status_bar: Rect,
 }
 
@@ -297,24 +299,26 @@ impl WelcomeLayout {
     /// Calculate layout based on terminal size and layout mode
     pub fn calculate(area: Rect, mode: LayoutMode) -> Self {
         let content_width = match mode {
-            LayoutMode::Full => 80.min(area.width.saturating_sub(4)),
-            LayoutMode::Medium => 70.min(area.width.saturating_sub(4)),
+            LayoutMode::Full => 120.min(area.width.saturating_sub(4)),
+            LayoutMode::Medium => 100.min(area.width.saturating_sub(4)),
             LayoutMode::Compact => area.width.saturating_sub(4),
         };
 
         let center_x = area.x + (area.width.saturating_sub(content_width)) / 2;
+        let header_height = 1;
         let status_bar_height = 1;
         let tips_height = 1;
         let shortcuts_height = 1;
         let recent_sessions_height: u16 = if mode == LayoutMode::Compact { 0 } else { 1 };
         let input_card_height = 3;
         let logo_height = 6;
+        let header = Rect { x: area.x, y: area.y, width: area.width, height: header_height };
 
         let total_content_height =
             logo_height + 1 + input_card_height + 1 + recent_sessions_height + 1 + shortcuts_height + 1 + tips_height;
 
-        let available_height = area.height.saturating_sub(status_bar_height);
-        let content_start_y = area.y + available_height.saturating_sub(total_content_height) / 2;
+        let available_height = area.height.saturating_sub(status_bar_height + header_height);
+        let content_start_y = area.y + header_height + available_height.saturating_sub(total_content_height) / 2;
 
         let mut current_y = content_start_y;
 
@@ -324,6 +328,9 @@ impl WelcomeLayout {
         let input_card = Rect { x: center_x, y: current_y, width: content_width, height: input_card_height };
         current_y += input_card_height + 1;
 
+        let shortcuts = Rect { x: center_x, y: current_y, width: content_width, height: shortcuts_height };
+        current_y += shortcuts_height + 1;
+
         let recent_sessions = if mode == LayoutMode::Compact {
             Rect { x: center_x, y: current_y, width: content_width, height: 0 }
         } else {
@@ -331,9 +338,6 @@ impl WelcomeLayout {
             current_y += recent_sessions_height + 1;
             rect
         };
-
-        let shortcuts = Rect { x: center_x, y: current_y, width: content_width, height: shortcuts_height };
-        current_y += shortcuts_height + 1;
 
         let tips = Rect { x: center_x, y: current_y, width: content_width, height: tips_height };
 
@@ -344,7 +348,7 @@ impl WelcomeLayout {
             height: status_bar_height,
         };
 
-        Self { logo, input_card, recent_sessions, shortcuts, tips, status_bar }
+        Self { header, logo, input_card, recent_sessions, shortcuts, tips, status_bar }
     }
 }
 
@@ -381,7 +385,7 @@ mod tests {
         assert!(layout.sidebar.is_some());
         assert_eq!(layout.header.height, 1);
         assert_eq!(layout.header.width, 140);
-        assert_eq!(layout.footer.height, 5);
+        assert_eq!(layout.footer.height, 6);
         assert_eq!(layout.footer.width, 140);
 
         let sidebar = layout.sidebar.unwrap();
@@ -511,8 +515,8 @@ mod tests {
         assert!(layout.sidebar.is_none());
 
         assert_eq!(layout.header.height, 1);
-        assert_eq!(layout.footer.height, 5);
-        assert_eq!(layout.transcript.height, 9);
+        assert_eq!(layout.footer.height, 6);
+        assert_eq!(layout.transcript.height, 8);
     }
 
     #[test]

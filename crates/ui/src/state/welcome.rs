@@ -18,7 +18,6 @@ pub struct RecentSessionInfo {
 
 /// Tips shown on the welcome screen
 pub const WELCOME_TIPS: &[&str] = &[
-    "Use /theme to switch between themes",
     "Press Ctrl+S to toggle the sidebar",
     "Use Tab to autocomplete file paths",
     "Press Ctrl+T to change the color theme",

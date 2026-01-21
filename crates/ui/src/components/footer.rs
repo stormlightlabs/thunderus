@@ -30,15 +30,38 @@ impl<'a> Footer<'a> {
         let rows = ratatui::layout::Layout::default()
             .direction(ratatui::layout::Direction::Vertical)
             .constraints([
+                ratatui::layout::Constraint::Length(1),
                 ratatui::layout::Constraint::Length(3),
                 ratatui::layout::Constraint::Length(1),
                 ratatui::layout::Constraint::Length(1),
             ])
             .split(area);
 
-        self.render_input_card(frame, rows[0], theme);
-        self.render_model_selector(frame, rows[1], theme);
-        self.render_hints(frame, rows[2], theme);
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![Span::styled(
+                "─".repeat(area.width as usize),
+                Style::default().fg(theme.muted),
+            )])),
+            rows[0],
+        );
+
+        self.render_input_card(frame, rows[1], theme);
+        self.render_model_selector(frame, rows[2], theme);
+
+        // Render main action hints (Enter/Esc) closer to input
+        let action_hints_area = Rect { x: rows[1].x, y: rows[1].y + rows[1].height, width: rows[1].width, height: 1 };
+        let action_spans = vec![
+            Span::styled("[Enter]", Style::default().fg(theme.blue)),
+            Span::styled(" send  ", Style::default().fg(theme.muted)),
+            Span::styled("[Esc]", Style::default().fg(theme.blue)),
+            Span::styled(" exit", Style::default().fg(theme.muted)),
+        ];
+        frame.render_widget(
+            Paragraph::new(Line::from(action_spans)).alignment(Alignment::Right),
+            action_hints_area,
+        );
+
+        self.render_hints(frame, rows[3], theme);
     }
 
     /// Render input card with blue accent bar (like welcome screen)
@@ -103,6 +126,12 @@ impl<'a> Footer<'a> {
 
         let input_paragraph = Paragraph::new(Line::from(spans));
         frame.render_widget(input_paragraph, input_area);
+
+        let cursor_text = format!("1:{} ", self.state.input.cursor + 1);
+        let cursor_paragraph =
+            Paragraph::new(Span::styled(cursor_text, Style::default().fg(theme.muted))).alignment(Alignment::Right);
+
+        frame.render_widget(cursor_paragraph, input_area);
     }
 
     /// Render model/agent selector row
@@ -145,9 +174,18 @@ impl<'a> Footer<'a> {
     /// Render keyboard hints row
     fn render_hints(&self, frame: &mut Frame<'_>, area: Rect, theme: crate::theme::ThemePalette) {
         let hints = self.get_hints(theme);
-        let paragraph = Paragraph::new(Line::from(hints))
-            .block(Block::default().bg(theme.panel_bg))
-            .alignment(Alignment::Right);
+        let mut spans = Vec::new();
+
+        for (i, hint) in hints.into_iter().enumerate() {
+            if i > 0 {
+                spans.push(Span::raw("   "));
+            }
+            spans.push(hint);
+        }
+
+        let paragraph = Paragraph::new(Line::from(spans))
+            .block(Block::default().bg(theme.bg))
+            .alignment(Alignment::Center);
 
         frame.render_widget(paragraph, area);
     }
@@ -188,10 +226,6 @@ impl<'a> Footer<'a> {
                 }
             }
 
-            hints.push(Span::styled(
-                "[Enter] send",
-                Style::default().fg(theme.muted).bg(theme.panel_bg),
-            ));
             hints.push(Span::styled(
                 "[Ctrl+Shift+G] editor",
                 Style::default().fg(theme.muted).bg(theme.panel_bg),

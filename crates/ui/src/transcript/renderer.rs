@@ -137,7 +137,14 @@ impl<'a> TranscriptRenderer<'a> {
         let scrollbar_width = 1usize;
         let content_width = area.width.saturating_sub((padding_x * 2 + scrollbar_width) as u16) as usize;
 
-        for entry in entries {
+        for (idx, entry) in entries.iter().enumerate() {
+            if idx > 0 {
+                text_lines.push(Line::from(vec![Span::styled(
+                    "─".repeat(content_width),
+                    Style::default().fg(self.theme.muted),
+                )]));
+                text_lines.push(Line::default());
+            }
             self.render_entry(entry, content_width, self.streaming_ellipsis, &mut text_lines);
         }
 
@@ -163,7 +170,7 @@ impl<'a> TranscriptRenderer<'a> {
 
         let line_count = padded_lines.len();
 
-        frame.render_widget(Block::default().style(Style::default().bg(self.theme.bg)), area);
+        frame.render_widget(Block::default().style(Style::default().bg(self.theme.panel_bg)), area);
 
         let paragraph = Paragraph::new(Text::from(padded_lines))
             .wrap(Wrap { trim: true })
@@ -200,7 +207,7 @@ impl<'a> TranscriptRenderer<'a> {
             let symbol = if is_thumb { "▮" } else { "│" };
             let style = Style::default()
                 .fg(if is_thumb { self.theme.fg } else { self.theme.muted })
-                .bg(self.theme.bg);
+                .bg(self.theme.panel_bg);
 
             frame.render_widget(
                 Paragraph::new(Line::from(vec![Span::styled(symbol, style)])),
@@ -301,9 +308,12 @@ impl<'a> TranscriptRenderer<'a> {
         }
     }
 
-    /// Render user message with accent bar style
+    /// Render user message with role prefix
     fn render_user_message(&self, content: &str, width: usize, lines: &mut Vec<Line<'static>>) {
-        lines.push(Line::default());
+        lines.push(Line::from(vec![
+            Span::styled("● ", Style::default().fg(self.theme.blue)),
+            Span::styled("User", Style::default().fg(self.theme.blue).bold()),
+        ]));
         self.render_accent_bar_message(content, self.theme.blue, self.theme.panel_bg, width, lines);
     }
 
@@ -334,11 +344,14 @@ impl<'a> TranscriptRenderer<'a> {
         lines.push(Line::from(vec![accent_bar.clone()]));
     }
 
-    /// Render model response as plain text
+    /// Render model response with role prefix
     fn render_model_response(
         &self, content: &str, streaming: bool, ellipsis: &str, width: usize, lines: &mut Vec<Line<'static>>,
     ) {
-        lines.push(Line::default());
+        lines.push(Line::from(vec![
+            Span::styled("◆ ", Style::default().fg(self.theme.cyan)),
+            Span::styled("Assistant", Style::default().fg(self.theme.cyan).bold()),
+        ]));
 
         let content_style = Style::default().fg(self.theme.fg).bg(self.theme.bg);
 
@@ -1079,19 +1092,20 @@ impl<'a> TranscriptRenderer<'a> {
         }
     }
 
-    /// Render a code block with syntax highlighting
-    fn render_code_block(&self, code: &str, lang: &str, _max_width: usize, lines: &mut Vec<Line<'static>>) {
+    /// Render a code block with syntax highlighting and boxed frame
+    fn render_code_block(&self, code: &str, lang: &str, width: usize, lines: &mut Vec<Line<'static>>) {
         let highlighter = SyntaxHighlighter::new();
         let highlighted = highlighter.highlight_code(code, lang.trim());
+        let mut code_lines = Vec::new();
 
         for span in &highlighted {
-            let styled = Span::styled(format!("  {}", span.content), span.style.bg(self.theme.panel_bg));
-            lines.push(Line::from(vec![styled]));
+            let styled = Span::styled(span.content.to_string(), span.style.bg(self.theme.panel_bg));
+            code_lines.push(Line::from(vec![styled]));
         }
 
-        if !highlighted.is_empty() && !code.lines().last().map(|l| l.trim().is_empty()).unwrap_or(true) {
-            lines.push(Line::default());
-        }
+        let title = if lang.is_empty() { " Code ".to_string() } else { format!(" {} ", lang.to_uppercase()) };
+
+        self.render_card(&title, self.theme.muted, width, code_lines, lines);
     }
 
     /// Render system message

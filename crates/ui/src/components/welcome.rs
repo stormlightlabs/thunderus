@@ -46,6 +46,7 @@ impl<'a> WelcomeView<'a> {
         let theme = Theme::palette(self.state.theme_variant());
         frame.render_widget(Block::default().style(Style::default().bg(theme.bg)), frame.area());
 
+        self.render_header(frame, theme);
         self.render_logo(frame, theme);
         self.render_input_card(frame, theme);
         self.render_recent_sessions(frame, theme);
@@ -84,7 +85,7 @@ impl<'a> WelcomeView<'a> {
         let panel_block = Block::default().style(Style::default().bg(theme.panel_bg));
         frame.render_widget(panel_block, area);
 
-        let accent_width = 2;
+        let accent_width = 1;
         let accent_area = Rect { x: area.x, y: area.y, width: accent_width, height: area.height };
         let accent_block = Block::default().style(Style::default().bg(theme.blue));
         frame.render_widget(accent_block, accent_area);
@@ -175,6 +176,7 @@ impl<'a> WelcomeView<'a> {
         let shortcuts = match mode {
             LayoutMode::Full => vec![
                 ("Enter", "send"),
+                ("Backspace", "start"),
                 ("Tab", "autocomplete"),
                 ("Ctrl+S", "sidebar"),
                 ("Ctrl+T", "theme"),
@@ -182,6 +184,7 @@ impl<'a> WelcomeView<'a> {
             ],
             LayoutMode::Medium => vec![
                 ("Enter", "send"),
+                ("Backspace", "start"),
                 ("Tab", "complete"),
                 ("Ctrl+T", "theme"),
                 ("Esc", "exit"),
@@ -200,9 +203,12 @@ impl<'a> WelcomeView<'a> {
 
         let paragraph = Paragraph::new(Line::from(spans))
             .block(Block::default().style(Style::default().bg(theme.bg)))
-            .alignment(Alignment::Center);
+            .alignment(Alignment::Left);
 
-        frame.render_widget(paragraph, area);
+        let aligned_area =
+            Rect { x: area.x.saturating_add(2), y: area.y, width: area.width.saturating_sub(2), height: area.height };
+
+        frame.render_widget(paragraph, aligned_area);
     }
 
     /// Render tip with yellow indicator dot
@@ -226,9 +232,9 @@ impl<'a> WelcomeView<'a> {
         frame.render_widget(paragraph, area);
     }
 
-    /// Render status bar: path:branch | version
-    fn render_status_bar(&self, frame: &mut Frame<'_>, theme: crate::theme::ThemePalette) {
-        let area = self.layout.status_bar;
+    /// Render the header: git branch + working directory
+    fn render_header(&self, frame: &mut Frame<'_>, theme: crate::theme::ThemePalette) {
+        let area = self.layout.header;
         if area.height == 0 {
             return;
         }
@@ -242,25 +248,52 @@ impl<'a> WelcomeView<'a> {
             "~",
         );
 
-        let mut left_spans = vec![Span::styled(cwd_display, Style::default().fg(theme.cyan))];
+        let mut spans = Vec::new();
 
         if let Some(branch) = self.state.git_branch() {
-            left_spans.push(Span::styled(":", Style::default().fg(theme.muted)));
-            left_spans.push(Span::styled(branch, Style::default().fg(theme.green)));
+            spans.push(Span::styled("  λ ", Style::default().fg(theme.muted)));
+            spans.push(Span::styled(branch, Style::default().fg(theme.muted)));
+            spans.push(Span::styled("  ", Style::default()));
+        } else {
+            spans.push(Span::styled("  ", Style::default()));
         }
+
+        spans.push(Span::styled(cwd_display, Style::default().fg(theme.muted)));
+
+        let paragraph = Paragraph::new(Line::from(spans))
+            .block(Block::default().style(Style::default().bg(theme.bg)))
+            .alignment(Alignment::Left);
+
+        frame.render_widget(paragraph, area);
+    }
+
+    /// Render status bar: github URL | version
+    fn render_status_bar(&self, frame: &mut Frame<'_>, theme: crate::theme::ThemePalette) {
+        let area = self.layout.status_bar;
+        if area.height == 0 {
+            return;
+        }
+
+        let left_spans = vec![Span::styled(
+            "  github.com/stormlightlabs/thunderus",
+            Style::default().fg(theme.muted),
+        )];
 
         let left_paragraph = Paragraph::new(Line::from(left_spans))
             .block(Block::default().style(Style::default().bg(theme.bg)))
             .alignment(Alignment::Left);
 
-        let right_spans = vec![Span::styled(format!("v{}", VERSION), Style::default().fg(theme.muted))];
+        let right_spans = vec![Span::styled(
+            format!("v{}  ", VERSION),
+            Style::default().fg(theme.muted),
+        )];
 
         let right_paragraph = Paragraph::new(Line::from(right_spans))
             .block(Block::default().style(Style::default().bg(theme.bg)))
             .alignment(Alignment::Right);
 
-        let left_area = Rect { x: area.x + 1, y: area.y, width: area.width / 2, height: area.height };
-        let right_area = Rect { x: area.x + area.width / 2, y: area.y, width: area.width / 2 - 1, height: area.height };
+        let left_area = Rect { x: area.x, y: area.y, width: area.width / 2, height: area.height };
+        let right_area = Rect { x: area.x + area.width / 2, y: area.y, width: area.width / 2, height: area.height };
 
         frame.render_widget(left_paragraph, left_area);
         frame.render_widget(right_paragraph, right_area);

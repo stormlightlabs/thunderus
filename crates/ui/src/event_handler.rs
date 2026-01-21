@@ -142,7 +142,30 @@ impl EventHandler {
     }
 
     /// Handle keys in normal mode (no pending approval)
+    ///
+    /// Welcome screen keystroke passthrough:
+    /// Any printable character (without Ctrl/Alt) dismisses welcome and starts typing.
+    /// We only trigger on printable chars without Ctrl/Alt modifiers to avoid interfering
+    /// with other keybindings.
     fn handle_normal_key(event: KeyEvent, state: &mut AppState) -> Option<KeyAction> {
+        if state.is_first_session() {
+            let is_printable = matches!(event.code, KeyCode::Char(_));
+            let is_start_typing_key = matches!(event.code, KeyCode::Backspace | KeyCode::Delete);
+
+            if is_printable || is_start_typing_key {
+                let has_ctrl_or_alt =
+                    event.modifiers.contains(KeyModifiers::CONTROL) || event.modifiers.contains(KeyModifiers::ALT);
+
+                if !has_ctrl_or_alt {
+                    state.exit_first_session();
+                    if let KeyCode::Char(c) = event.code {
+                        state.input.insert_char(c);
+                    }
+                    return None;
+                }
+            }
+        }
+
         match event.code {
             KeyCode::Up => state.input.navigate_up(),
             KeyCode::Down => state.input.navigate_down(),
@@ -503,7 +526,7 @@ mod tests {
     use thunderus_core::{ApprovalMode, ProviderConfig, SandboxMode};
 
     fn create_test_state() -> AppState {
-        AppState::new(
+        let mut state = AppState::new(
             PathBuf::from("."),
             "test".to_string(),
             ProviderConfig::Glm {
@@ -513,7 +536,33 @@ mod tests {
             },
             ApprovalMode::Auto,
             SandboxMode::Policy,
-        )
+        );
+        state.set_first_session(false);
+        state
+    }
+
+    #[test]
+    fn test_welcome_screen_keystroke_passthrough() {
+        let mut state = AppState::new(
+            PathBuf::from("."),
+            "test".to_string(),
+            ProviderConfig::Glm {
+                api_key: "test".to_string(),
+                model: "glm-4.7".to_string(),
+                base_url: "https://api.example.com".to_string(),
+            },
+            ApprovalMode::Auto,
+            SandboxMode::Policy,
+        );
+        assert!(state.is_first_session());
+        assert_eq!(state.input.buffer, "");
+
+        let event = KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE);
+        let action = EventHandler::handle_key_event(event, &mut state);
+
+        assert!(action.is_none());
+        assert!(!state.is_first_session());
+        assert_eq!(state.input.buffer, "x");
     }
 
     #[test]

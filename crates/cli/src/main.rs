@@ -183,45 +183,7 @@ async fn cmd_start(
         std::fs::create_dir_all(agent_dir.views_dir()).context("Failed to create views directory")?;
     }
 
-    let existing_sessions = agent_dir.list_sessions();
-    let (mut session, is_recovery) = if let Some(latest_session_id) = existing_sessions.first() {
-        println!(
-            "\n{} Found previous session: {}",
-            "Info:".blue().bold(),
-            latest_session_id.cyan()
-        );
-
-        println!("Would you like to recover the previous session? [Y/n]");
-        println!("(Press Enter to recover, or 'n' to start a new session)");
-
-        let mut input = String::new();
-        std::io::stdin()
-            .read_line(&mut input)
-            .context("Failed to read user input")?;
-
-        let input = input.trim().to_lowercase();
-        if input == "n" {
-            if verbose {
-                eprintln!("{} Creating new session...", "Info:".blue().bold());
-            }
-            (
-                Session::new(agent_dir.clone()).context("Failed to create session")?,
-                false,
-            )
-        } else {
-            if verbose {
-                eprintln!(
-                    "{} Recovering session {}",
-                    "Info:".blue().bold(),
-                    latest_session_id.cyan()
-                );
-            }
-            (
-                Session::load(agent_dir.clone(), latest_session_id.clone()).context("Failed to load session")?,
-                true,
-            )
-        }
-    } else {
+    let (mut session, is_recovery) = {
         if verbose {
             eprintln!("{} Creating session...", "Info:".blue().bold());
         }

@@ -215,16 +215,19 @@ collaboration and debugging.
 - [ ] "CLAUDE.md compatibility":
       - if repo has `CLAUDE.md`, import it into context automatically because
         Claude Code uses it as auto-context[^1]
+      - Should apply to AGENTS.md, QWEN.md, GEMINI.md and THUNDERUS or THNDRS.md
 - [ ] View materializer:
       - deterministic regeneration from JSONL + explicit user edits logged as
         events
 - [ ] Fast search:
       - ripgrep recipes surfaced in-app for events + views
-- [ ] TUI enhancements (moved from Section III):
+- [ ] TUI enhancements & fixes:
       - Context pane with view content
       - Files pane for file system browsing
       - `/plan`, `/review`, `/memory` slash commands
       - `@` file search in composer
+      - Panels in session screen are on top of a full panel with the theme panel
+        background color. This is currently not the case.
 
 DoD:
 - You can reconstruct *exactly* what happened in a session and why.
