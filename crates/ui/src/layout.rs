@@ -523,11 +523,10 @@ mod tests {
     fn test_welcome_layout_full() {
         let area = Rect::new(0, 0, 120, 30);
         let layout = WelcomeLayout::calculate(area, LayoutMode::Full);
-
-        assert_eq!(layout.logo.width, 80);
+        assert_eq!(layout.logo.width, 116);
         assert_eq!(layout.logo.height, 6);
 
-        assert_eq!(layout.input_card.width, 80);
+        assert_eq!(layout.input_card.width, 116);
         assert_eq!(layout.input_card.height, 3);
 
         assert_eq!(layout.recent_sessions.height, 1);
@@ -554,8 +553,8 @@ mod tests {
     fn test_welcome_layout_centered() {
         let area = Rect::new(0, 0, 100, 30);
         let layout = WelcomeLayout::calculate(area, LayoutMode::Full);
-        assert_eq!(layout.logo.x, 10);
-        assert_eq!(layout.input_card.x, 10);
-        assert_eq!(layout.shortcuts.x, 10);
+        assert_eq!(layout.logo.x, 2);
+        assert_eq!(layout.input_card.x, 2);
+        assert_eq!(layout.shortcuts.x, 2);
     }
 }

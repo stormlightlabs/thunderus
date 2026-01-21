@@ -4,7 +4,7 @@ use clap_complete::{Generator, Shell, generate};
 use owo_colors::OwoColorize;
 use std::io;
 use std::path::{Path, PathBuf};
-use thunderus_core::{AgentDir, Config, Session};
+use thunderus_core::{AgentDir, Config, ContextLoader, Session};
 use thunderus_ui::state::AppState;
 
 /// Thunderus - A high-performance coding agent harness
@@ -200,6 +200,28 @@ async fn cmd_start(
             "Info:".blue().bold(),
             session.session_dir().display()
         );
+    }
+
+    if verbose {
+        eprintln!("{} Loading context files...", "Info:".blue().bold());
+    }
+
+    let mut context_loader = ContextLoader::new(working_dir.clone());
+    match context_loader.append_to_session(&mut session) {
+        Ok(count) => {
+            if verbose && count > 0 {
+                eprintln!("{} Loaded {} context file(s)", "Info:".green().bold(), count);
+            }
+        }
+        Err(e) => {
+            if verbose {
+                eprintln!(
+                    "{} Warning: Failed to load context files: {}",
+                    "Warning:".yellow().bold(),
+                    e
+                );
+            }
+        }
     }
 
     if !is_recovery {
@@ -473,6 +495,62 @@ mod tests {
         assert!(session.session_dir().exists());
         assert!(session.events_file().exists());
         assert_eq!(session.event_count().unwrap(), 0);
+    }
+
+    #[test]
+    fn test_cmd_start_loads_context_files() {
+        let temp = TempDir::new().unwrap();
+        let agent_dir = AgentDir::new(temp.path());
+        std::fs::write(temp.path().join("CLAUDE.md"), "# Project Context\n\nTest content").unwrap();
+
+        let mut session = Session::new(agent_dir.clone()).unwrap();
+        let mut context_loader = ContextLoader::new(temp.path().to_path_buf());
+
+        let count = context_loader.append_to_session(&mut session).unwrap();
+        assert_eq!(count, 1);
+
+        let events = session.read_events().unwrap();
+        assert_eq!(events.len(), 1);
+
+        if let thunderus_core::Event::ContextLoad { source, .. } = &events[0].event {
+            assert_eq!(source, "CLAUDE.md");
+        } else {
+            panic!("Expected ContextLoad event");
+        }
+    }
+
+    #[test]
+    fn test_cmd_start_loads_multiple_context_files() {
+        let temp = TempDir::new().unwrap();
+        let agent_dir = AgentDir::new(temp.path());
+
+        std::fs::write(temp.path().join("CLAUDE.md"), "# Claude\n").unwrap();
+        std::fs::write(temp.path().join("AGENTS.md"), "# Agents\n").unwrap();
+        std::fs::write(temp.path().join("GEMINI.md"), "# Gemini\n").unwrap();
+
+        let mut session = Session::new(agent_dir.clone()).unwrap();
+        let mut context_loader = ContextLoader::new(temp.path().to_path_buf());
+
+        let count = context_loader.append_to_session(&mut session).unwrap();
+        assert_eq!(count, 3);
+
+        let events = session.read_events().unwrap();
+        assert_eq!(events.len(), 3);
+
+        let sources: Vec<_> = events
+            .iter()
+            .filter_map(|e| {
+                if let thunderus_core::Event::ContextLoad { source, .. } = &e.event {
+                    Some(source.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        assert!(sources.contains(&"CLAUDE.md"));
+        assert!(sources.contains(&"AGENTS.md"));
+        assert!(sources.contains(&"GEMINI.md"));
     }
 
     #[test]

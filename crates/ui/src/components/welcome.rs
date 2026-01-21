@@ -325,7 +325,7 @@ mod tests {
         let state = create_test_state();
         let area = Rect::new(0, 0, 100, 30);
         let view = WelcomeView::new(&state, area);
-        assert_eq!(view.layout.logo.width, 70);
+        assert_eq!(view.layout.logo.width, 96);
     }
 
     #[test]

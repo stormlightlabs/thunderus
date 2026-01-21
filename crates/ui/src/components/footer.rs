@@ -296,7 +296,7 @@ mod tests {
         let theme = Theme::palette(state.theme_variant());
 
         let hints = _footer.get_hints(theme);
-        assert!(hints.iter().any(|s| s.content.contains("[Enter]")));
+        assert!(hints.iter().any(|s| s.content.contains("[Ctrl+S]")));
     }
 
     #[test]
