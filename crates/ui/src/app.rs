@@ -10,6 +10,8 @@ use crate::tui_approval::{TuiApprovalHandle, TuiApprovalProtocol};
 
 use crossterm;
 use ratatui::{Terminal, backend::CrosstermBackend};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::io::{self, Result, Write};
 use std::{env, fs, panic};
 use std::{process::Command, sync::Arc, time::Duration};
@@ -481,7 +483,12 @@ impl App {
                 }
                 KeyAction::ToggleSidebar | KeyAction::ToggleVerbosity | KeyAction::ToggleSidebarSection => (),
                 KeyAction::OpenExternalEditor => self.open_external_editor(),
-                KeyAction::NavigateHistory | KeyAction::ActivateFuzzyFinder => {}
+                KeyAction::NavigateHistory => (),
+                KeyAction::ActivateFuzzyFinder => {
+                    let input = self.state.input.buffer.clone();
+                    let cursor = self.state.input.cursor;
+                    self.state_mut().enter_fuzzy_finder(input, cursor);
+                }
                 KeyAction::SelectFileInFinder { path } => {
                     self.state_mut().exit_fuzzy_finder();
                     let input = self.state_mut().input.buffer.clone();
@@ -504,8 +511,12 @@ impl App {
                 KeyAction::SlashCommandVerbosity { level } => self.handle_verbosity_command(level),
                 KeyAction::SlashCommandStatus => self.handle_status_command(),
                 KeyAction::SlashCommandPlan => self.handle_plan_command(),
+                KeyAction::SlashCommandPlanAdd { item } => self.handle_plan_add_command(item),
+                KeyAction::SlashCommandPlanDone { index } => self.handle_plan_done_command(index),
                 KeyAction::SlashCommandReview => self.handle_review_command(),
                 KeyAction::SlashCommandMemory => self.handle_memory_command(),
+                KeyAction::SlashCommandMemoryAdd { fact } => self.handle_memory_add_command(fact),
+                KeyAction::SlashCommandSearch { query, scope } => self.handle_search_command(query, scope),
                 KeyAction::SlashCommandClear => {
                     self.transcript_mut().clear();
                     self.transcript_mut()
@@ -938,10 +949,18 @@ impl App {
         terminal.draw(|frame| {
             let size = frame.area();
             let theme = crate::theme::Theme::palette(self.state.theme_variant());
-            frame.render_widget(
-                ratatui::widgets::Block::default().style(ratatui::style::Style::default().bg(theme.bg)),
-                size,
-            );
+
+            if !self.state.is_first_session() || !self.transcript.is_empty() {
+                frame.render_widget(
+                    ratatui::widgets::Block::default().style(ratatui::style::Style::default().bg(theme.panel_bg)),
+                    size,
+                );
+            } else {
+                frame.render_widget(
+                    ratatui::widgets::Block::default().style(ratatui::style::Style::default().bg(theme.bg)),
+                    size,
+                );
+            }
 
             if self.state.is_first_session() && self.transcript.is_empty() {
                 let welcome = WelcomeView::new(&self.state, size);
@@ -1226,33 +1245,197 @@ impl App {
 
     /// Handle /plan command
     fn handle_plan_command(&mut self) {
-        let plan_path = self.state.config.cwd.join("PLAN.md");
-        match fs::read_to_string(&plan_path) {
-            Ok(content) => self
-                .transcript_mut()
-                .add_system_message(format!("PLAN.md:\n\n{}", content)),
-            Err(_) => self
-                .transcript_mut()
-                .add_system_message("PLAN.md not found in the current working directory"),
+        if let Some(ref session) = self.session {
+            let materializer = thunderus_core::ViewMaterializer::new(session);
+            match materializer.materialize(thunderus_core::ViewKind::Plan) {
+                Ok(content) => self
+                    .transcript_mut()
+                    .add_system_message(format!("## Current Plan\n\n{}", content)),
+                Err(e) => self
+                    .transcript_mut()
+                    .add_system_message(format!("Failed to materialize plan: {}", e)),
+            }
+        } else {
+            self.transcript_mut()
+                .add_system_message("No active session to materialize plan from");
         }
     }
 
     /// Handle /review command
     fn handle_review_command(&mut self) {
-        self.transcript_mut()
-            .add_system_message("Review pass triggered. This feature is not yet implemented in this version.");
+        let patches = self.state.patches();
+        if patches.is_empty() {
+            self.transcript_mut()
+                .add_system_message("No pending patches to review.");
+        } else {
+            let mut review_text = String::from("## Pending Patches for Review\n\n");
+            for (idx, patch) in patches.iter().enumerate() {
+                review_text.push_str(&format!("### Patch {} - {}\n\n", idx + 1, patch.name));
+                let files_str: Vec<String> = patch.files.iter().map(|p| p.display().to_string()).collect();
+                review_text.push_str(&format!("Files: {}\n\n", files_str.join(", ")));
+                review_text.push_str("```diff\n");
+                review_text.push_str(&patch.diff);
+                review_text.push_str("\n```\n\n");
+            }
+            self.transcript_mut().add_system_message(review_text);
+        }
     }
 
     /// Handle /memory command
     fn handle_memory_command(&mut self) {
-        let memory_path = self.state.config.cwd.join("MEMORY.md");
-        match fs::read_to_string(&memory_path) {
-            Ok(content) => self
+        match self.session {
+            Some(ref session) => {
+                let materializer = thunderus_core::ViewMaterializer::new(session);
+                match materializer.materialize(thunderus_core::ViewKind::Memory) {
+                    Ok(content) => self
+                        .transcript_mut()
+                        .add_system_message(format!("## Project Memory\n\n{}", content)),
+                    Err(e) => self
+                        .transcript_mut()
+                        .add_system_message(format!("Failed to materialize memory: {}", e)),
+                }
+            }
+            None => self
                 .transcript_mut()
-                .add_system_message(format!("MEMORY.md:\n\n{}", content)),
-            Err(_) => self
-                .transcript_mut()
-                .add_system_message("MEMORY.md not found in the current working directory"),
+                .add_system_message("No active session to materialize memory from"),
+        }
+    }
+
+    /// Auto-materialize and save all views after session updates
+    fn materialize_views(&mut self) {
+        if let Some(ref session) = self.session {
+            let materializer = thunderus_core::ViewMaterializer::new(session);
+            let _ = materializer.materialize_all();
+        }
+    }
+
+    /// Handle /plan add <item> command
+    fn handle_plan_add_command(&mut self, item: String) {
+        if let Some(ref mut session) = self.session {
+            match session.append_plan_update("add", &item, None) {
+                Ok(_) => {
+                    self.transcript_mut()
+                        .add_system_message(format!("Added to plan: {}", item));
+                    self.materialize_views();
+                }
+                Err(e) => self
+                    .transcript_mut()
+                    .add_system_message(format!("Failed to add plan item: {}", e)),
+            }
+        } else {
+            self.transcript_mut()
+                .add_system_message("No active session to add plan item to");
+        }
+    }
+
+    /// Handle /plan done <n> command
+    fn handle_plan_done_command(&mut self, index: usize) {
+        if let Some(ref mut session) = self.session {
+            let materializer = thunderus_core::ViewMaterializer::new(session);
+            match materializer.materialize(thunderus_core::ViewKind::Plan) {
+                Ok(content) => {
+                    let lines: Vec<&str> = content.lines().collect();
+                    let mut task_count = 0;
+                    let mut target_item = None;
+
+                    for line in lines {
+                        if line.trim().starts_with("- [ ]") {
+                            task_count += 1;
+                            if task_count == index {
+                                target_item = Some(line.trim().trim_start_matches("- [ ]").trim().to_string());
+                                break;
+                            }
+                        }
+                    }
+
+                    if let Some(item) = target_item {
+                        match session.append_plan_update("complete", &item, None) {
+                            Ok(_) => {
+                                self.transcript_mut()
+                                    .add_system_message(format!("Marked as done: {}", item));
+                                self.materialize_views();
+                            }
+                            Err(e) => self
+                                .transcript_mut()
+                                .add_system_message(format!("Failed to mark item as done: {}", e)),
+                        }
+                    } else {
+                        self.transcript_mut()
+                            .add_system_message(format!("No task found at index {}", index));
+                    }
+                }
+                Err(e) => self
+                    .transcript_mut()
+                    .add_system_message(format!("Failed to read plan: {}", e)),
+            }
+        } else {
+            self.transcript_mut()
+                .add_system_message("No active session to update plan in");
+        }
+    }
+
+    /// Handle /memory add <fact> command
+    fn handle_memory_add_command(&mut self, fact: String) {
+        if let Some(ref mut session) = self.session {
+            let mut hasher = DefaultHasher::new();
+            fact.hash(&mut hasher);
+            let content_hash = format!("{:x}", hasher.finish());
+
+            match session.append_memory_update("core", "MEMORY.md", "update", &content_hash) {
+                Ok(_) => {
+                    self.transcript_mut()
+                        .add_system_message(format!("Added to memory: {}", fact));
+                    self.materialize_views();
+                }
+                Err(e) => self
+                    .transcript_mut()
+                    .add_system_message(format!("Failed to add memory: {}", e)),
+            }
+        } else {
+            self.transcript_mut()
+                .add_system_message("No active session to add memory to");
+        }
+    }
+
+    /// Handle /search <query> command
+    fn handle_search_command(&mut self, query: String, scope: thunderus_core::SearchScope) {
+        if let Some(ref session) = self.session {
+            let session_dir = session.session_dir();
+
+            match thunderus_core::search_session(&session_dir, &query, scope) {
+                Ok(hits) => {
+                    if hits.is_empty() {
+                        self.transcript_mut()
+                            .add_system_message(format!("No results found for '{}'", query));
+                    } else {
+                        let scope_str = match scope {
+                            thunderus_core::SearchScope::All => "all files",
+                            thunderus_core::SearchScope::Events => "events",
+                            thunderus_core::SearchScope::Views => "views",
+                        };
+
+                        let mut results_text = format!("## Search Results for '{}' in {}\n\n", query, scope_str);
+                        results_text.push_str(&format!("Found {} match(es):\n\n", hits.len()));
+
+                        for hit in hits.iter().take(20) {
+                            results_text.push_str(&format!("**{}:{}**\n", hit.file, hit.line));
+                            results_text.push_str(&format!("```\n{}\n```\n\n", hit.content));
+                        }
+
+                        if hits.len() > 20 {
+                            results_text.push_str(&format!("... and {} more results\n", hits.len() - 20));
+                        }
+
+                        self.transcript_mut().add_system_message(results_text);
+                    }
+                }
+                Err(e) => {
+                    self.transcript_mut()
+                        .add_system_message(format!("Search failed: {}", e));
+                }
+            }
+        } else {
+            self.transcript_mut().add_system_message("No active session to search");
         }
     }
 
@@ -2087,7 +2270,7 @@ mod tests {
 
         assert_eq!(app.transcript().len(), 1);
         if let transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
-            assert!(content.contains("not found"));
+            assert!(content.contains("No active session") || content.contains("Current Plan"));
         } else {
             panic!("Expected SystemMessage");
         }
@@ -2101,8 +2284,7 @@ mod tests {
 
         assert_eq!(app.transcript().len(), 1);
         if let transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
-            assert!(content.contains("Review pass triggered"));
-            assert!(content.contains("not yet implemented"));
+            assert!(content.contains("No pending patches"));
         } else {
             panic!("Expected SystemMessage");
         }
@@ -2116,7 +2298,7 @@ mod tests {
 
         assert_eq!(app.transcript().len(), 1);
         if let transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
-            assert!(content.contains("not found"));
+            assert!(content.contains("No active session") || content.contains("Project Memory"));
         } else {
             panic!("Expected SystemMessage");
         }

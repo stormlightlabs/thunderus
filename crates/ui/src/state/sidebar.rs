@@ -6,16 +6,20 @@ pub enum SidebarSection {
     Modified,
     Diffs,
     Integrations,
+    Context,
+    Files,
 }
 
 impl SidebarSection {
-    pub fn all() -> [SidebarSection; 5] {
+    pub fn all() -> [SidebarSection; 7] {
         [
             Self::TokenUsage,
             Self::Events,
             Self::Modified,
             Self::Diffs,
             Self::Integrations,
+            Self::Context,
+            Self::Files,
         ]
     }
 
@@ -26,6 +30,8 @@ impl SidebarSection {
             SidebarSection::Modified => "Modified",
             SidebarSection::Diffs => "Diffs",
             SidebarSection::Integrations => "Integrations",
+            SidebarSection::Context => "Context",
+            SidebarSection::Files => "Files",
         }
     }
 }
@@ -38,6 +44,8 @@ pub struct SidebarCollapseState {
     modified_collapsed: bool,
     diffs_collapsed: bool,
     integrations_collapsed: bool,
+    context_collapsed: bool,
+    files_collapsed: bool,
 }
 
 impl SidebarCollapseState {
@@ -48,6 +56,8 @@ impl SidebarCollapseState {
             SidebarSection::Modified => self.modified_collapsed,
             SidebarSection::Diffs => self.diffs_collapsed,
             SidebarSection::Integrations => self.integrations_collapsed,
+            SidebarSection::Context => self.context_collapsed,
+            SidebarSection::Files => self.files_collapsed,
         }
     }
 
@@ -58,6 +68,8 @@ impl SidebarCollapseState {
             SidebarSection::Modified => self.modified_collapsed = !self.modified_collapsed,
             SidebarSection::Diffs => self.diffs_collapsed = !self.diffs_collapsed,
             SidebarSection::Integrations => self.integrations_collapsed = !self.integrations_collapsed,
+            SidebarSection::Context => self.context_collapsed = !self.context_collapsed,
+            SidebarSection::Files => self.files_collapsed = !self.files_collapsed,
         }
     }
 

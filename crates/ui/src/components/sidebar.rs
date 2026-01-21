@@ -87,6 +87,17 @@ impl<'a> Sidebar<'a> {
         {
             self.render_lsp_mcp_status(frame, sidebar.lsp_mcp_status);
         }
+        if !self
+            .state
+            .ui
+            .sidebar_collapse_state
+            .is_collapsed(SidebarSection::Context)
+        {
+            self.render_context(frame, sidebar.context);
+        }
+        if !self.state.ui.sidebar_collapse_state.is_collapsed(SidebarSection::Files) {
+            self.render_files(frame, sidebar.files);
+        }
     }
 
     /// Note: Sidebar auto-hide on narrow terminals is handled by [TuiLayout::calculate]
@@ -227,6 +238,64 @@ impl<'a> Sidebar<'a> {
             .block(
                 Block::default()
                     .title(Span::styled("Integrations", Style::default().fg(theme.blue).bold()))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(theme.border))
+                    .bg(theme.panel_bg),
+            )
+            .wrap(Wrap { trim: true });
+        frame.render_widget(paragraph, area);
+    }
+
+    fn render_context(&self, frame: &mut Frame<'_>, area: Rect) {
+        let theme = Theme::palette(self.state.theme_variant());
+        let lines = vec![
+            Line::from(vec![
+                Span::styled("[M]", Style::default().fg(theme.green).bg(theme.panel_bg)),
+                Span::styled(" Memory", Style::default().fg(theme.fg).bg(theme.panel_bg)),
+            ]),
+            Line::from(vec![
+                Span::styled("[P]", Style::default().fg(theme.cyan).bg(theme.panel_bg)),
+                Span::styled(" Plan", Style::default().fg(theme.fg).bg(theme.panel_bg)),
+            ]),
+            Line::from(vec![
+                Span::styled("[D]", Style::default().fg(theme.yellow).bg(theme.panel_bg)),
+                Span::styled(" Decisions", Style::default().fg(theme.fg).bg(theme.panel_bg)),
+            ]),
+        ];
+
+        let paragraph = Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .title(Span::styled("Context", Style::default().fg(theme.blue).bold()))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(theme.border))
+                    .bg(theme.panel_bg),
+            )
+            .wrap(Wrap { trim: true });
+        frame.render_widget(paragraph, area);
+    }
+
+    fn render_files(&self, frame: &mut Frame<'_>, area: Rect) {
+        let theme = Theme::palette(self.state.theme_variant());
+        let lines = vec![
+            Line::from(vec![
+                Span::styled("■", Style::default().fg(theme.blue).bg(theme.panel_bg)),
+                Span::styled(" crates/", Style::default().fg(theme.fg).bg(theme.panel_bg)),
+            ]),
+            Line::from(vec![
+                Span::styled("  ■", Style::default().fg(theme.blue).bg(theme.panel_bg)),
+                Span::styled(" core/", Style::default().fg(theme.fg).bg(theme.panel_bg)),
+            ]),
+            Line::from(vec![
+                Span::styled("    ●", Style::default().fg(theme.green).bg(theme.panel_bg)),
+                Span::styled(" config.rs", Style::default().fg(theme.fg).bg(theme.panel_bg)),
+            ]),
+        ];
+
+        let paragraph = Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .title(Span::styled("Files", Style::default().fg(theme.blue).bold()))
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(theme.border))
                     .bg(theme.panel_bg),

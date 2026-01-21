@@ -310,6 +310,8 @@ impl EventHandler {
                 } else if !event.modifiers.contains(KeyModifiers::CONTROL) && state.input.buffer.is_empty() && c == ']'
                 {
                     return Some(KeyAction::ExpandSidebarSection);
+                } else if !event.modifiers.contains(KeyModifiers::CONTROL) && c == '@' {
+                    return Some(KeyAction::ActivateFuzzyFinder);
                 } else {
                     state.reset_ctrl_c_count();
                     if state.input.is_navigating_history() {
@@ -404,10 +406,68 @@ impl EventHandler {
                 }
             }
             "status" => Some(KeyAction::SlashCommandStatus),
-            "plan" => Some(KeyAction::SlashCommandPlan),
+            "plan" => {
+                if parts.len() > 1 {
+                    match parts[1] {
+                        "add" => {
+                            if parts.len() > 2 {
+                                let item = parts[2..].join(" ");
+                                Some(KeyAction::SlashCommandPlanAdd { item })
+                            } else {
+                                None
+                            }
+                        }
+                        "done" => {
+                            if parts.len() > 2 {
+                                if let Ok(index) = parts[2].parse::<usize>() {
+                                    Some(KeyAction::SlashCommandPlanDone { index })
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        }
+                        _ => Some(KeyAction::SlashCommandPlan),
+                    }
+                } else {
+                    Some(KeyAction::SlashCommandPlan)
+                }
+            }
             "review" => Some(KeyAction::SlashCommandReview),
-            "memory" => Some(KeyAction::SlashCommandMemory),
+            "memory" => {
+                if parts.len() > 1 && parts[1] == "add" {
+                    if parts.len() > 2 {
+                        let fact = parts[2..].join(" ");
+                        Some(KeyAction::SlashCommandMemoryAdd { fact })
+                    } else {
+                        None
+                    }
+                } else {
+                    Some(KeyAction::SlashCommandMemory)
+                }
+            }
             "clear" => Some(KeyAction::SlashCommandClear),
+            "search" => {
+                if parts.len() > 1 {
+                    let (scope, query_start) = if parts[1] == "--events" {
+                        (thunderus_core::SearchScope::Events, 2)
+                    } else if parts[1] == "--views" {
+                        (thunderus_core::SearchScope::Views, 2)
+                    } else {
+                        (thunderus_core::SearchScope::All, 1)
+                    };
+
+                    if parts.len() > query_start {
+                        let query = parts[query_start..].join(" ");
+                        Some(KeyAction::SlashCommandSearch { query, scope })
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
             _ => None,
         }
     }
@@ -463,12 +523,23 @@ pub enum KeyAction {
     SlashCommandStatus,
     /// Slash command: display PLAN.md content
     SlashCommandPlan,
+    /// Slash command: add item to plan
+    SlashCommandPlanAdd { item: String },
+    /// Slash command: mark plan item as done
+    SlashCommandPlanDone { index: usize },
     /// Slash command: trigger review pass
     SlashCommandReview,
     /// Slash command: display MEMORY.md content
     SlashCommandMemory,
+    /// Slash command: add fact to memory
+    SlashCommandMemoryAdd { fact: String },
     /// Slash command: clear transcript (keep session history)
     SlashCommandClear,
+    /// Slash command: search session with ripgrep
+    SlashCommandSearch {
+        query: String,
+        scope: thunderus_core::SearchScope,
+    },
     /// Navigate to next action card
     NavigateCardNext,
     /// Navigate to previous action card

@@ -96,15 +96,19 @@ collaboration and debugging.
 - [x] View materializer:
       - deterministic regeneration from JSONL + explicit user edits logged as
         events
-- [ ] Fast search:
-      - ripgrep recipes surfaced in-app for events + views
-- [ ] TUI enhancements & fixes:
+- [x] Fast search:
+      - ripgrep wrapper implemented in `core/src/search.rs`
+      - `/search`, `/search --events`, `/search --views` commands functional
+- [x] TUI enhancements & fixes:
       - Context pane with view content
       - Files pane for file system browsing
-      - `/plan`, `/review`, `/memory` slash commands
+      - `/plan`, `/review`, `/memory` slash commands (full implementation)
+      - `/plan add <item>`, `/plan done <n>` extended commands
+      - `/memory add <fact>` extended command
+      - `/search <query>` with scope support
       - `@` file search in composer
       - Panels in session screen are on top of a full panel with the theme panel
-        background color. This is currently not the case.
+        background color.
 
 DoD:
 - You can reconstruct *exactly* what happened in a session and why.

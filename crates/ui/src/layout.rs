@@ -102,9 +102,9 @@ impl TuiLayout {
         chunks[1]
     }
 
-    /// Get sidebar sections layout (4 sections)
+    /// Get sidebar sections layout (7 sections)
     ///
-    /// Returns: (session_events, modified_files, git_diff, lsp_mcp_status)
+    /// Returns: (token_usage, session_events, modified_files, git_diff, lsp_mcp_status, context, files)
     pub fn sidebar_sections(&self) -> Option<SidebarSections> {
         self.sidebar.map(SidebarSections::new)
     }
@@ -116,6 +116,8 @@ pub struct SidebarSections {
     pub modified_files: Rect,
     pub git_diff: Rect,
     pub lsp_mcp_status: Rect,
+    pub context: Rect,
+    pub files: Rect,
 }
 
 impl SidebarSections {
@@ -127,6 +129,8 @@ impl SidebarSections {
                 Constraint::Length(4),
                 Constraint::Length(3),
                 Constraint::Length(3),
+                Constraint::Length(3),
+                Constraint::Length(4),
                 Constraint::Min(0),
             ])
             .split(area);
@@ -137,6 +141,8 @@ impl SidebarSections {
             modified_files: chunks[2],
             git_diff: chunks[3],
             lsp_mcp_status: chunks[4],
+            context: chunks[5],
+            files: chunks[6],
         }
     }
 }
@@ -445,6 +451,7 @@ mod tests {
         assert_eq!(sidebar.session_events.height, 4);
         assert_eq!(sidebar.modified_files.height, 3);
         assert_eq!(sidebar.git_diff.height, 3);
+        assert_eq!(sidebar.context.height, 4);
     }
 
     #[test]
