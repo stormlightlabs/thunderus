@@ -166,14 +166,14 @@ fn test_approval_visual_feedback() {
     app.transcript_mut().set_approval_decision(ApprovalDecision::Approved);
 
     let approval_text = app.transcript().entries()[0].to_string();
-    assert!(approval_text.contains("✅") || approval_text.contains("Approved"));
+    assert!(approval_text.contains("✅") || approval_text.contains("APPROVED"));
 
     app.transcript_mut().add_approval_prompt("test_action2", "risky");
     app.transcript_mut().set_approval_decision(ApprovalDecision::Rejected);
 
     let entries = app.transcript().entries();
     let rejected_text = entries[1].to_string();
-    assert!(rejected_text.contains("❌") || rejected_text.contains("Rejected"));
+    assert!(rejected_text.contains("❌") || rejected_text.contains("REJECTED"));
 }
 
 #[test]

@@ -3,7 +3,7 @@ use crate::theme::Theme;
 use ratatui::{
     Frame,
     layout::Alignment,
-    style::Style,
+    style::{Style, Stylize},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Wrap},
 };
@@ -26,31 +26,38 @@ impl<'a> DiffView<'a> {
 
     /// Render the diff view
     pub fn render(&self, frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
+        let theme = Theme::palette(self.state.theme_variant());
         if self.patches.is_empty() {
-            self.render_empty(frame, area);
+            self.render_empty(frame, area, theme);
             return;
         }
 
         let nav = self.state.diff_navigation();
 
         if !nav.show_hunk_details {
-            self.render_summary(frame, area);
+            self.render_summary(frame, area, theme);
         } else {
-            self.render_detailed(frame, area);
+            self.render_detailed(frame, area, theme);
         }
     }
 
     /// Render empty state when no patches
-    fn render_empty(&self, frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
+    fn render_empty(&self, frame: &mut Frame<'_>, area: ratatui::layout::Rect, theme: crate::theme::ThemePalette) {
         let paragraph = Paragraph::new("No patches in queue")
-            .block(Block::default().title("Patches").borders(Borders::ALL))
+            .block(
+                Block::default()
+                    .title(Span::styled("Patches", Style::default().fg(theme.blue).bold()))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(theme.border))
+                    .bg(theme.panel_bg),
+            )
             .alignment(Alignment::Center)
             .wrap(Wrap { trim: true });
         frame.render_widget(paragraph, area);
     }
 
     /// Render summary view of patches
-    fn render_summary(&self, frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
+    fn render_summary(&self, frame: &mut Frame<'_>, area: ratatui::layout::Rect, theme: crate::theme::ThemePalette) {
         let mut lines = Vec::new();
 
         let nav = self.state.diff_navigation();
@@ -61,48 +68,54 @@ impl<'a> DiffView<'a> {
             let status_text = self.status_text(&patch.status);
 
             let base_style =
-                if is_selected { Style::default().bg(Theme::BLUE).fg(Theme::BLACK) } else { Style::default() };
+                if is_selected { Style::default().bg(theme.blue).fg(theme.black) } else { Style::default() };
 
             lines.push(Line::from(vec![
                 Span::styled(format!("{} ", if is_selected { ">" } else { " " }), base_style),
-                Span::styled(format!("#{} ", idx + 1), Style::default().fg(Theme::MUTED)),
+                Span::styled(format!("#{} ", idx + 1), Style::default().fg(theme.muted)),
                 Span::styled(status_text, status_color),
                 Span::styled(format!(" {} ({})", patch.name, patch.files.len()), base_style),
             ]));
         }
 
         let help_text = Line::from(vec![
-            Span::styled("N", Style::default().fg(Theme::BLUE)),
+            Span::styled("N", Style::default().fg(theme.blue)),
             Span::raw("/"),
-            Span::styled("P", Style::default().fg(Theme::BLUE)),
+            Span::styled("P", Style::default().fg(theme.blue)),
             Span::raw(": prev/next patch | "),
-            Span::styled("Enter", Style::default().fg(Theme::BLUE)),
+            Span::styled("Enter", Style::default().fg(theme.blue)),
             Span::raw(": view details"),
         ]);
 
         lines.push(help_text);
 
         let paragraph = Paragraph::new(lines)
-            .block(Block::default().title("Patches").borders(Borders::ALL))
+            .block(
+                Block::default()
+                    .title(Span::styled("Patches", Style::default().fg(theme.blue).bold()))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(theme.border))
+                    .bg(theme.panel_bg),
+            )
             .wrap(Wrap { trim: true });
         frame.render_widget(paragraph, area);
     }
 
     /// Render detailed view of a patch with hunks
-    fn render_detailed(&self, frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
+    fn render_detailed(&self, frame: &mut Frame<'_>, area: ratatui::layout::Rect, theme: crate::theme::ThemePalette) {
         let nav = self.state.diff_navigation();
 
         let Some(patch_idx) = nav.selected_patch_index else {
-            return self.render_summary(frame, area);
+            return self.render_summary(frame, area, theme);
         };
 
         let Some(patch) = self.patches.get(patch_idx) else {
-            return self.render_summary(frame, area);
+            return self.render_summary(frame, area, theme);
         };
 
         let mut lines = vec![Line::from(vec![Span::styled(
             format!("Patch #{}: {}", patch_idx + 1, patch.name),
-            Style::default().fg(Theme::BLUE).bold(),
+            Style::default().fg(theme.blue).bold(),
         )])];
 
         lines.push(Line::from(vec![Span::styled(
@@ -111,7 +124,7 @@ impl<'a> DiffView<'a> {
                 self.status_text(&patch.status),
                 patch.files.len()
             ),
-            Style::default().fg(Theme::MUTED),
+            Style::default().fg(theme.muted),
         )]));
 
         lines.push(Line::from(""));
@@ -126,7 +139,7 @@ impl<'a> DiffView<'a> {
             lines.push(Line::from(vec![
                 Span::styled(
                     if is_selected_file { "> " } else { "  " },
-                    Style::default().fg(Theme::BLUE),
+                    Style::default().fg(theme.blue),
                 ),
                 Span::styled(
                     file_path.to_str().unwrap_or("<invalid>"),
@@ -137,17 +150,17 @@ impl<'a> DiffView<'a> {
             if is_selected_file {
                 for (hunk_idx, hunk) in hunks.iter().enumerate() {
                     let is_selected_hunk = nav.selected_hunk_index == Some(hunk_idx);
-                    let hunk_style = if is_selected_hunk { Style::default().bg(Theme::BLUE) } else { Style::default() };
+                    let hunk_style = if is_selected_hunk { Style::default().bg(theme.blue) } else { Style::default() };
 
                     lines.push(Line::from(vec![
                         Span::styled("    ", hunk_style),
-                        Span::styled(hunk.header(), Style::default().fg(Theme::CYAN)),
+                        Span::styled(hunk.header(), Style::default().fg(theme.cyan)),
                         Span::styled(
                             if hunk.approved { " [APPROVED]" } else { " [PENDING]" },
                             if hunk.approved {
-                                Style::default().fg(Theme::GREEN)
+                                Style::default().fg(theme.green)
                             } else {
-                                Style::default().fg(Theme::YELLOW)
+                                Style::default().fg(theme.yellow)
                             },
                         ),
                     ]));
@@ -155,18 +168,18 @@ impl<'a> DiffView<'a> {
                     if let Some(ref intent) = hunk.intent {
                         lines.push(Line::from(vec![
                             Span::styled("      ", hunk_style),
-                            Span::styled(format!("Intent: {}", intent), Style::default().fg(Theme::MUTED)),
+                            Span::styled(format!("Intent: {}", intent), Style::default().fg(theme.muted)),
                         ]));
                     }
 
                     if is_selected_hunk {
                         for hunk_line in hunk.content.lines().take(3) {
                             let line_style = if hunk_line.starts_with('-') {
-                                Style::default().fg(Theme::RED)
+                                Style::default().fg(theme.red)
                             } else if hunk_line.starts_with('+') {
-                                Style::default().fg(Theme::GREEN)
+                                Style::default().fg(theme.green)
                             } else {
-                                Style::default().fg(Theme::FG)
+                                Style::default().fg(theme.fg)
                             };
 
                             lines.push(Line::from(vec![
@@ -180,7 +193,7 @@ impl<'a> DiffView<'a> {
                                 Span::styled("        ", hunk_style),
                                 Span::styled(
                                     format!("(+ {} more lines)", hunk.content.lines().count() - 3),
-                                    Style::default().fg(Theme::MUTED),
+                                    Style::default().fg(theme.muted),
                                 ),
                             ]));
                         }
@@ -192,34 +205,41 @@ impl<'a> DiffView<'a> {
         lines.push(Line::from(""));
 
         let help_text = Line::from(vec![
-            Span::styled("Esc", Style::default().fg(Theme::BLUE)),
+            Span::styled("Esc", Style::default().fg(theme.blue)),
             Span::raw(": back | "),
-            Span::styled("n", Style::default().fg(Theme::BLUE)),
+            Span::styled("n", Style::default().fg(theme.blue)),
             Span::raw("/"),
-            Span::styled("p", Style::default().fg(Theme::BLUE)),
+            Span::styled("p", Style::default().fg(theme.blue)),
             Span::raw(": hunk nav | "),
-            Span::styled("a", Style::default().fg(Theme::GREEN)),
+            Span::styled("a", Style::default().fg(theme.green)),
             Span::raw("/"),
-            Span::styled("r", Style::default().fg(Theme::RED)),
+            Span::styled("r", Style::default().fg(theme.red)),
             Span::raw(": approve/reject"),
         ]);
 
         lines.push(help_text);
 
         let paragraph = Paragraph::new(lines)
-            .block(Block::default().title("Patch Details").borders(Borders::ALL))
+            .block(
+                Block::default()
+                    .title(Span::styled("Patch Details", Style::default().fg(theme.blue).bold()))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(theme.border))
+                    .bg(theme.panel_bg),
+            )
             .wrap(Wrap { trim: true });
         frame.render_widget(paragraph, area);
     }
 
     /// Get color for patch status
     fn status_color(&self, status: &PatchStatus) -> Style {
+        let theme = Theme::palette(self.state.theme_variant());
         match status {
-            PatchStatus::Proposed => Style::default().fg(Theme::YELLOW),
-            PatchStatus::Approved => Style::default().fg(Theme::GREEN),
-            PatchStatus::Applied => Style::default().fg(Theme::GREEN),
-            PatchStatus::Rejected => Style::default().fg(Theme::RED),
-            PatchStatus::Failed => Style::default().fg(Theme::RED).bold(),
+            PatchStatus::Proposed => Style::default().fg(theme.yellow),
+            PatchStatus::Approved => Style::default().fg(theme.green),
+            PatchStatus::Applied => Style::default().fg(theme.green),
+            PatchStatus::Rejected => Style::default().fg(theme.red),
+            PatchStatus::Failed => Style::default().fg(theme.red).bold(),
         }
     }
 
@@ -291,26 +311,27 @@ mod tests {
     fn test_status_color() {
         let state = create_test_state();
         let diff_view = DiffView::new(&state, &[]);
+        let theme = Theme::palette(state.theme_variant());
 
         assert_eq!(
             diff_view.status_color(&PatchStatus::Proposed),
-            Style::default().fg(Theme::YELLOW)
+            Style::default().fg(theme.yellow)
         );
         assert_eq!(
             diff_view.status_color(&PatchStatus::Approved),
-            Style::default().fg(Theme::GREEN)
+            Style::default().fg(theme.green)
         );
         assert_eq!(
             diff_view.status_color(&PatchStatus::Applied),
-            Style::default().fg(Theme::GREEN)
+            Style::default().fg(theme.green)
         );
         assert_eq!(
             diff_view.status_color(&PatchStatus::Rejected),
-            Style::default().fg(Theme::RED)
+            Style::default().fg(theme.red)
         );
         assert_eq!(
             diff_view.status_color(&PatchStatus::Failed),
-            Style::default().fg(Theme::RED).bold()
+            Style::default().fg(theme.red).bold()
         );
     }
 
@@ -467,7 +488,8 @@ mod tests {
 
         let proposed_color = diff_view.status_color(&PatchStatus::Proposed);
         let applied_color = diff_view.status_color(&PatchStatus::Applied);
-        assert_eq!(proposed_color, Style::default().fg(Theme::YELLOW));
-        assert_eq!(applied_color, Style::default().fg(Theme::GREEN));
+        let theme = Theme::palette(state.theme_variant());
+        assert_eq!(proposed_color, Style::default().fg(theme.yellow));
+        assert_eq!(applied_color, Style::default().fg(theme.green));
     }
 }

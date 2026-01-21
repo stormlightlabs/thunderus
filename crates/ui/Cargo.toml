@@ -17,6 +17,7 @@ ignore = "0.4"
 num_cpus = "1"
 tokio = { version = "1.42", features = ["sync", "time", "macros"] }
 futures = "0.3"
+dirs = "6"
 
 thunderus-core = { path = "../core" }
 thunderus-tools = { path = "../tools" }

@@ -5,24 +5,24 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 /// Layout breakpoints for responsive TUI
 ///
 /// Based on terminal width, we render different layouts:
-/// - >= 100 cols: Full layout with sidebar
-/// - 80-99 cols: Medium layout, sidebar hidden
-/// - < 80 cols: Compact layout, minimal chrome
+/// - >= 140 cols: Full layout with sidebar (wide terminals)
+/// - 100-139 cols: Medium layout, sidebar hidden (typical terminals)
+/// - < 100 cols: Compact layout, minimal chrome (narrow terminals)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LayoutMode {
-    /// Full layout with sidebar (>= 100 columns)
+    /// Full layout with sidebar (>= 140 columns)
     Full,
-    /// Medium layout without sidebar (80-99 columns)
+    /// Medium layout without sidebar (100-139 columns)
     Medium,
-    /// Compact layout (<= 79 columns)
+    /// Compact layout (< 100 columns)
     Compact,
 }
 
 impl From<u16> for LayoutMode {
     fn from(width: u16) -> Self {
         match width {
-            w if w >= 100 => Self::Full,
-            w if w >= 80 => Self::Medium,
+            w if w >= 140 => Self::Full,
+            w if w >= 100 => Self::Medium,
             _ => Self::Compact,
         }
     }
@@ -52,13 +52,13 @@ pub struct TuiLayout {
 
 impl TuiLayout {
     /// Calculate layout based on terminal size and sidebar visibility preference
-    pub fn calculate(area: Rect, sidebar_visible: bool) -> Self {
+    pub fn calculate(area: Rect, sidebar_visible: bool, sidebar_width_override: Option<u16>) -> Self {
         let mode = LayoutMode::from(area.width);
-        let effective_sidebar_visible = sidebar_visible && mode.has_sidebar();
-
+        let sidebar_width = sidebar_width_override.unwrap_or(20);
+        let effective_sidebar_visible = sidebar_visible && mode.has_sidebar() && sidebar_width > 0;
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Length(1), Constraint::Min(0), Constraint::Length(3)])
+            .constraints([Constraint::Length(1), Constraint::Min(0), Constraint::Length(5)])
             .split(area);
 
         let header = chunks[0];
@@ -67,7 +67,7 @@ impl TuiLayout {
 
         let (sidebar, transcript) = if effective_sidebar_visible {
             let width = main.width.saturating_sub(2);
-            let sidebar_width = width.min(25);
+            let sidebar_width = sidebar_width.min(width);
 
             let main_chunks = Layout::default()
                 .direction(Direction::Horizontal)
@@ -86,7 +86,7 @@ impl TuiLayout {
     pub fn footer_input(&self) -> Rect {
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Min(0), Constraint::Length(20)])
+            .constraints([Constraint::Min(0), Constraint::Length(40)])
             .split(self.footer);
 
         chunks[0]
@@ -96,7 +96,7 @@ impl TuiLayout {
     pub fn footer_hints(&self) -> Rect {
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Min(0), Constraint::Length(20)])
+            .constraints([Constraint::Min(0), Constraint::Length(40)])
             .split(self.footer);
 
         chunks[1]
@@ -111,6 +111,7 @@ impl TuiLayout {
 }
 
 pub struct SidebarSections {
+    pub token_usage: Rect,
     pub session_events: Rect,
     pub modified_files: Rect,
     pub git_diff: Rect,
@@ -122,6 +123,7 @@ impl SidebarSections {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
+                Constraint::Length(3),
                 Constraint::Length(4),
                 Constraint::Length(3),
                 Constraint::Length(3),
@@ -129,7 +131,13 @@ impl SidebarSections {
             ])
             .split(area);
 
-        Self { session_events: chunks[0], modified_files: chunks[1], git_diff: chunks[2], lsp_mcp_status: chunks[3] }
+        Self {
+            token_usage: chunks[0],
+            session_events: chunks[1],
+            modified_files: chunks[2],
+            git_diff: chunks[3],
+            lsp_mcp_status: chunks[4],
+        }
     }
 }
 
@@ -266,17 +274,95 @@ impl HeaderSections {
     }
 }
 
+/// Layout for the welcome screen
+///
+/// Provides a centered, clean layout without header/sidebar for first session.
+#[derive(Debug, Clone)]
+pub struct WelcomeLayout {
+    /// Centered logo area (upper portion)
+    pub logo: Rect,
+    /// Input card with blue accent bar
+    pub input_card: Rect,
+    /// Recent sessions row (below input card)
+    pub recent_sessions: Rect,
+    /// Centered keyboard shortcuts row
+    pub shortcuts: Rect,
+    /// Tip with colored indicator
+    pub tips: Rect,
+    /// Bottom status bar (path:branch | version)
+    pub status_bar: Rect,
+}
+
+impl WelcomeLayout {
+    /// Calculate layout based on terminal size and layout mode
+    pub fn calculate(area: Rect, mode: LayoutMode) -> Self {
+        let content_width = match mode {
+            LayoutMode::Full => 80.min(area.width.saturating_sub(4)),
+            LayoutMode::Medium => 70.min(area.width.saturating_sub(4)),
+            LayoutMode::Compact => area.width.saturating_sub(4),
+        };
+
+        let center_x = area.x + (area.width.saturating_sub(content_width)) / 2;
+        let status_bar_height = 1;
+        let tips_height = 1;
+        let shortcuts_height = 1;
+        let recent_sessions_height: u16 = if mode == LayoutMode::Compact { 0 } else { 1 };
+        let input_card_height = 3;
+        let logo_height = 6;
+
+        let total_content_height =
+            logo_height + 1 + input_card_height + 1 + recent_sessions_height + 1 + shortcuts_height + 1 + tips_height;
+
+        let available_height = area.height.saturating_sub(status_bar_height);
+        let content_start_y = area.y + available_height.saturating_sub(total_content_height) / 2;
+
+        let mut current_y = content_start_y;
+
+        let logo = Rect { x: center_x, y: current_y, width: content_width, height: logo_height };
+        current_y += logo_height + 1;
+
+        let input_card = Rect { x: center_x, y: current_y, width: content_width, height: input_card_height };
+        current_y += input_card_height + 1;
+
+        let recent_sessions = if mode == LayoutMode::Compact {
+            Rect { x: center_x, y: current_y, width: content_width, height: 0 }
+        } else {
+            let rect = Rect { x: center_x, y: current_y, width: content_width, height: recent_sessions_height };
+            current_y += recent_sessions_height + 1;
+            rect
+        };
+
+        let shortcuts = Rect { x: center_x, y: current_y, width: content_width, height: shortcuts_height };
+        current_y += shortcuts_height + 1;
+
+        let tips = Rect { x: center_x, y: current_y, width: content_width, height: tips_height };
+
+        let status_bar = Rect {
+            x: area.x,
+            y: area.y + area.height.saturating_sub(status_bar_height),
+            width: area.width,
+            height: status_bar_height,
+        };
+
+        Self { logo, input_card, recent_sessions, shortcuts, tips, status_bar }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_layout_mode_from_width() {
-        assert_eq!(LayoutMode::from(100), LayoutMode::Full);
-        assert_eq!(LayoutMode::from(120), LayoutMode::Full);
-        assert_eq!(LayoutMode::from(99), LayoutMode::Medium);
-        assert_eq!(LayoutMode::from(80), LayoutMode::Medium);
-        assert_eq!(LayoutMode::from(79), LayoutMode::Compact);
+        assert_eq!(LayoutMode::from(140), LayoutMode::Full);
+        assert_eq!(LayoutMode::from(160), LayoutMode::Full);
+
+        assert_eq!(LayoutMode::from(139), LayoutMode::Medium);
+        assert_eq!(LayoutMode::from(120), LayoutMode::Medium);
+        assert_eq!(LayoutMode::from(100), LayoutMode::Medium);
+
+        assert_eq!(LayoutMode::from(99), LayoutMode::Compact);
+        assert_eq!(LayoutMode::from(80), LayoutMode::Compact);
         assert_eq!(LayoutMode::from(60), LayoutMode::Compact);
     }
 
@@ -289,14 +375,14 @@ mod tests {
 
     #[test]
     fn test_tui_layout_full_mode() {
-        let area = Rect::new(0, 0, 100, 30);
-        let layout = TuiLayout::calculate(area, true);
+        let area = Rect::new(0, 0, 140, 30);
+        let layout = TuiLayout::calculate(area, true, Some(20));
         assert_eq!(layout.mode, LayoutMode::Full);
         assert!(layout.sidebar.is_some());
         assert_eq!(layout.header.height, 1);
-        assert_eq!(layout.header.width, 100);
-        assert_eq!(layout.footer.height, 3);
-        assert_eq!(layout.footer.width, 100);
+        assert_eq!(layout.header.width, 140);
+        assert_eq!(layout.footer.height, 5);
+        assert_eq!(layout.footer.width, 140);
 
         let sidebar = layout.sidebar.unwrap();
         assert!(sidebar.width > 0);
@@ -305,49 +391,49 @@ mod tests {
 
     #[test]
     fn test_tui_layout_medium_mode() {
-        let area = Rect::new(0, 0, 85, 30);
-        let layout = TuiLayout::calculate(area, true);
+        let area = Rect::new(0, 0, 120, 30);
+        let layout = TuiLayout::calculate(area, true, Some(20));
 
         assert_eq!(layout.mode, LayoutMode::Medium);
         assert!(layout.sidebar.is_none());
 
-        assert_eq!(layout.transcript.width, 85);
+        assert_eq!(layout.transcript.width, 120);
     }
 
     #[test]
     fn test_tui_layout_compact_mode() {
-        let area = Rect::new(0, 0, 70, 20);
-        let layout = TuiLayout::calculate(area, true);
+        let area = Rect::new(0, 0, 80, 20);
+        let layout = TuiLayout::calculate(area, true, Some(20));
         assert_eq!(layout.mode, LayoutMode::Compact);
         assert!(layout.sidebar.is_none());
-        assert_eq!(layout.transcript.width, 70);
+        assert_eq!(layout.transcript.width, 80);
     }
 
     #[test]
     fn test_tui_layout_sidebar_hidden() {
-        let area = Rect::new(0, 0, 100, 30);
-        let layout = TuiLayout::calculate(area, false);
+        let area = Rect::new(0, 0, 140, 30);
+        let layout = TuiLayout::calculate(area, false, None);
         assert!(layout.sidebar.is_none());
-        assert_eq!(layout.transcript.width, 100);
+        assert_eq!(layout.transcript.width, 140);
     }
 
     #[test]
     fn test_footer_sections() {
-        let area = Rect::new(0, 0, 100, 30);
-        let layout = TuiLayout::calculate(area, true);
+        let area = Rect::new(0, 0, 120, 30);
+        let layout = TuiLayout::calculate(area, true, Some(20));
         let input = layout.footer_input();
         let hints = layout.footer_hints();
 
         assert_eq!(input.y, layout.footer.y);
         assert_eq!(hints.y, layout.footer.y);
-        assert_eq!(hints.width, 20);
+        assert_eq!(hints.width, 40);
         assert_eq!(input.width, 80);
     }
 
     #[test]
     fn test_sidebar_sections() {
-        let area = Rect::new(0, 0, 100, 30);
-        let layout = TuiLayout::calculate(area, true);
+        let area = Rect::new(0, 0, 140, 30);
+        let layout = TuiLayout::calculate(area, true, Some(20));
         let sections = layout.sidebar_sections();
         assert!(sections.is_some());
 
@@ -419,13 +505,53 @@ mod tests {
     #[test]
     fn test_tui_layout_small_terminal() {
         let area = Rect::new(0, 0, 40, 15);
-        let layout = TuiLayout::calculate(area, true);
+        let layout = TuiLayout::calculate(area, true, Some(20));
 
         assert_eq!(layout.mode, LayoutMode::Compact);
         assert!(layout.sidebar.is_none());
 
         assert_eq!(layout.header.height, 1);
-        assert_eq!(layout.footer.height, 3);
-        assert_eq!(layout.transcript.height, 11);
+        assert_eq!(layout.footer.height, 5);
+        assert_eq!(layout.transcript.height, 9);
+    }
+
+    #[test]
+    fn test_welcome_layout_full() {
+        let area = Rect::new(0, 0, 120, 30);
+        let layout = WelcomeLayout::calculate(area, LayoutMode::Full);
+
+        assert_eq!(layout.logo.width, 80);
+        assert_eq!(layout.logo.height, 6);
+
+        assert_eq!(layout.input_card.width, 80);
+        assert_eq!(layout.input_card.height, 3);
+
+        assert_eq!(layout.recent_sessions.height, 1);
+        assert_eq!(layout.shortcuts.height, 1);
+        assert_eq!(layout.tips.height, 1);
+
+        assert_eq!(layout.status_bar.height, 1);
+        assert_eq!(layout.status_bar.width, 120);
+        assert_eq!(layout.status_bar.y, 29);
+    }
+
+    #[test]
+    fn test_welcome_layout_compact() {
+        let area = Rect::new(0, 0, 70, 25);
+        let layout = WelcomeLayout::calculate(area, LayoutMode::Compact);
+        assert_eq!(layout.logo.width, 66);
+        assert_eq!(layout.input_card.width, 66);
+        assert_eq!(layout.recent_sessions.height, 0);
+        assert_eq!(layout.status_bar.height, 1);
+        assert_eq!(layout.status_bar.y, 24);
+    }
+
+    #[test]
+    fn test_welcome_layout_centered() {
+        let area = Rect::new(0, 0, 100, 30);
+        let layout = WelcomeLayout::calculate(area, LayoutMode::Full);
+        assert_eq!(layout.logo.x, 10);
+        assert_eq!(layout.input_card.x, 10);
+        assert_eq!(layout.shortcuts.x, 10);
     }
 }

@@ -399,6 +399,14 @@ impl Config {
         Self::from_toml_str(&content)
     }
 
+    /// Save configuration to a file as TOML
+    pub fn save_to_file(&self, path: &Path) -> Result<()> {
+        let toml_str =
+            toml::to_string_pretty(self).map_err(|e| crate::Error::Config(format!("TOML encode error: {}", e)))?;
+        std::fs::write(path, toml_str).map_err(|e| crate::Error::Config(format!("Failed to write config: {}", e)))?;
+        Ok(())
+    }
+
     /// Get the default profile
     pub fn default_profile(&self) -> Result<&Profile> {
         self.profiles

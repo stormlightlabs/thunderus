@@ -13,6 +13,12 @@ pub struct DiffNavigationState {
     pub hunk_scroll_offset: u16,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum SidebarAnimation {
+    Showing { width: u16 },
+    Hiding { width: u16 },
+}
+
 impl DiffNavigationState {
     /// Create a new diff navigation state
     pub fn new() -> Self {
@@ -123,8 +129,16 @@ pub struct UIState {
     pub scroll_vertical: u16,
     /// Sidebar section collapse state
     pub sidebar_collapse_state: super::SidebarCollapseState,
+    /// Sidebar animation state (for slide in/out)
+    pub sidebar_animation: Option<SidebarAnimation>,
     /// Diff navigation state
     pub diff_navigation: DiffNavigationState,
+    /// Whether this is the first session (show centered welcome view)
+    pub is_first_session: bool,
+    /// Animation frame counter for streaming ellipsis animation (0-3 cycle)
+    pub animation_frame: u8,
+    /// Active UI theme variant
+    pub theme_variant: crate::theme::ThemeVariant,
 }
 
 impl UIState {
@@ -135,13 +149,104 @@ impl UIState {
             scroll_horizontal: 0,
             scroll_vertical: 0,
             sidebar_collapse_state: super::SidebarCollapseState::default(),
+            sidebar_animation: None,
             diff_navigation: DiffNavigationState::new(),
+            is_first_session: true,
+            animation_frame: 0,
+            theme_variant: crate::theme::ThemeVariant::Iceberg,
         }
+    }
+
+    /// Advance animation frame for streaming ellipsis (cycles 0-3)
+    pub fn advance_animation_frame(&mut self) {
+        self.animation_frame = (self.animation_frame + 1) % 4;
+    }
+
+    /// Get current streaming ellipsis based on animation frame
+    pub fn streaming_ellipsis(&self) -> &'static str {
+        match self.animation_frame {
+            0 => "",
+            1 => ".",
+            2 => "..",
+            _ => "...",
+        }
+    }
+
+    /// Exit first session mode (called when first message is sent)
+    pub fn exit_first_session(&mut self) {
+        self.is_first_session = false;
+    }
+
+    /// Set first session mode (used when reconstructing from empty session)
+    pub fn set_first_session(&mut self, value: bool) {
+        self.is_first_session = value;
     }
 
     /// Toggle sidebar visibility
     pub fn toggle_sidebar(&mut self) {
-        self.sidebar_visible = !self.sidebar_visible;
+        const SIDEBAR_WIDTH: u16 = 20;
+
+        if self.sidebar_visible {
+            self.sidebar_visible = false;
+            self.sidebar_animation = Some(SidebarAnimation::Hiding { width: SIDEBAR_WIDTH });
+        } else {
+            self.sidebar_visible = true;
+            self.sidebar_animation = Some(SidebarAnimation::Showing { width: 0 });
+        }
+    }
+
+    pub fn sidebar_width_override(&self) -> Option<u16> {
+        match self.sidebar_animation {
+            Some(SidebarAnimation::Showing { width }) => Some(width),
+            Some(SidebarAnimation::Hiding { width }) => Some(width),
+            None => {
+                if self.sidebar_visible {
+                    Some(20)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    pub fn advance_sidebar_animation(&mut self) {
+        const SIDEBAR_WIDTH: u16 = 20;
+        const STEP: u16 = 4;
+
+        let next = match self.sidebar_animation {
+            Some(SidebarAnimation::Showing { width }) => {
+                let new_width = (width + STEP).min(SIDEBAR_WIDTH);
+                if new_width >= SIDEBAR_WIDTH {
+                    self.sidebar_animation = None;
+                    return;
+                }
+                Some(SidebarAnimation::Showing { width: new_width })
+            }
+            Some(SidebarAnimation::Hiding { width }) => {
+                let new_width = width.saturating_sub(STEP);
+                if new_width == 0 {
+                    self.sidebar_animation = None;
+                    return;
+                }
+                Some(SidebarAnimation::Hiding { width: new_width })
+            }
+            None => None,
+        };
+
+        self.sidebar_animation = next;
+    }
+
+    /// Set the current theme variant
+    pub fn set_theme_variant(&mut self, variant: crate::theme::ThemeVariant) {
+        self.theme_variant = variant;
+    }
+
+    /// Toggle theme variant between Iceberg and Oxocarbon
+    pub fn toggle_theme_variant(&mut self) {
+        self.theme_variant = match self.theme_variant {
+            crate::theme::ThemeVariant::Iceberg => crate::theme::ThemeVariant::Oxocarbon,
+            crate::theme::ThemeVariant::Oxocarbon => crate::theme::ThemeVariant::Iceberg,
+        };
     }
 
     /// Start generation

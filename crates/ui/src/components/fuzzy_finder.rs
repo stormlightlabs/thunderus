@@ -4,7 +4,7 @@ use crate::theme::Theme;
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style},
+    style::{Modifier, Style, Stylize},
     text::{Line, Span, Text},
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
 };
@@ -22,6 +22,7 @@ impl<'a> FuzzyFinderComponent<'a> {
     /// Render the fuzzy finder as an overlay
     pub fn render(&self, frame: &mut Frame<'_>) {
         let size = frame.area();
+        let theme = Theme::palette(self.state.theme_variant());
 
         let overlay_size = Rect {
             x: size.x + size.width / 4,
@@ -43,38 +44,43 @@ impl<'a> FuzzyFinderComponent<'a> {
         frame.render_widget(Clear, overlay_size);
 
         if let Some(finder) = self.state.fuzzy_finder() {
-            self.render_input(frame, finder, input_area);
-            self.render_list(frame, finder, list_area);
-            self.render_preview(frame, finder, preview_area);
+            self.render_input(frame, finder, input_area, theme);
+            self.render_list(frame, finder, list_area, theme);
+            self.render_preview(frame, finder, preview_area, theme);
         }
     }
 
-    fn render_input(&self, frame: &mut Frame<'_>, finder: &FuzzyFinder, area: Rect) {
+    fn render_input(&self, frame: &mut Frame<'_>, finder: &FuzzyFinder, area: Rect, theme: crate::theme::ThemePalette) {
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Theme::BLUE))
-            .title(Span::styled("File Finder", Style::default().fg(Theme::BLUE).bold()));
+            .border_style(Style::default().fg(theme.blue))
+            .title(Span::styled("File Finder", Style::default().fg(theme.blue).bold()))
+            .bg(theme.panel_bg);
 
         let input_text = finder.pattern();
         let prompt = "> ";
 
-        let mut spans = vec![Span::styled(prompt, Style::default().fg(Theme::BLUE))];
-        spans.push(Span::styled(input_text, Style::default().fg(Theme::FG)));
-        spans.push(Span::styled("█", Style::default().bg(Theme::FG).fg(Theme::FG)));
+        let mut spans = vec![Span::styled(prompt, Style::default().fg(theme.blue).bg(theme.panel_bg))];
+        spans.push(Span::styled(
+            input_text,
+            Style::default().fg(theme.fg).bg(theme.panel_bg),
+        ));
+        spans.push(Span::styled("█", Style::default().bg(theme.fg).fg(theme.fg)));
 
         let paragraph = Paragraph::new(Line::from(spans)).block(block);
 
         frame.render_widget(paragraph, area);
     }
 
-    fn render_list(&self, frame: &mut Frame<'_>, finder: &FuzzyFinder, area: Rect) {
+    fn render_list(&self, frame: &mut Frame<'_>, finder: &FuzzyFinder, area: Rect, theme: crate::theme::ThemePalette) {
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Theme::MUTED))
+            .border_style(Style::default().fg(theme.muted))
             .title(Span::styled(
                 format!("Results ({}/{})", finder.match_count(), finder.total_file_count()),
-                Style::default().fg(Theme::MUTED),
-            ));
+                Style::default().fg(theme.muted),
+            ))
+            .bg(theme.panel_bg);
 
         let results: Vec<ListItem> = finder
             .results()
@@ -84,16 +90,16 @@ impl<'a> FuzzyFinderComponent<'a> {
                 let is_selected = idx == finder.selected_index();
                 let style = if is_selected {
                     Style::default()
-                        .fg(Theme::FG)
-                        .bg(Theme::HIGHLIGHT)
+                        .fg(theme.fg)
+                        .bg(theme.highlight)
                         .add_modifier(Modifier::BOLD)
                 } else {
-                    Style::default().fg(Theme::FG)
+                    Style::default().fg(theme.fg)
                 };
 
                 let language = self.get_language_from_extension(file.extension().unwrap_or(""));
                 let language_span = if let Some(lang) = language {
-                    Span::styled(format!(" [{}]", lang), Style::default().fg(Theme::CYAN))
+                    Span::styled(format!(" [{}]", lang), Style::default().fg(theme.cyan))
                 } else {
                     Span::raw("")
                 };
@@ -115,10 +121,13 @@ impl<'a> FuzzyFinderComponent<'a> {
         frame.render_widget(list, area);
     }
 
-    fn render_preview(&self, frame: &mut Frame<'_>, finder: &FuzzyFinder, area: Rect) {
+    fn render_preview(
+        &self, frame: &mut Frame<'_>, finder: &FuzzyFinder, area: Rect, theme: crate::theme::ThemePalette,
+    ) {
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Theme::MUTED));
+            .border_style(Style::default().fg(theme.muted))
+            .bg(theme.panel_bg);
 
         if let Some(selected) = finder.selected() {
             let title = format!(
@@ -128,7 +137,7 @@ impl<'a> FuzzyFinderComponent<'a> {
                 self.get_total_lines(&selected.path)
             );
 
-            let block = block.title(Span::styled(title, Style::default().fg(Theme::MUTED)));
+            let block = block.title(Span::styled(title, Style::default().fg(theme.muted)));
 
             let content = if let Ok(text) = std::fs::read_to_string(&selected.path) {
                 let lines: Vec<String> = text

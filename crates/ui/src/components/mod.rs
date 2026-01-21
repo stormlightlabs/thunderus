@@ -5,6 +5,7 @@ pub mod header;
 pub mod sidebar;
 pub mod teaching_hint;
 pub mod transcript;
+pub mod welcome;
 
 pub use diff_view::DiffView;
 pub use footer::Footer;
@@ -13,3 +14,4 @@ pub use header::Header;
 pub use sidebar::Sidebar;
 pub use teaching_hint::TeachingHintPopup;
 pub use transcript::Transcript;
+pub use welcome::WelcomeView;

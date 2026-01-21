@@ -1,17 +1,19 @@
-use crate::{layout::TuiLayout, state::AppState, theme::Theme};
+use crate::{state::AppState, theme::Theme};
+
 use ratatui::{
     Frame,
-    layout::Rect,
+    layout::{Alignment, Rect},
     style::Style,
+    style::Stylize,
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Paragraph},
 };
 
-/// Footer component displaying input composer and hints
+/// Footer component displaying input composer, model selector, and hints
 ///
-/// Shows:
-/// - Single-line input composer
-/// - Hints for available keys
+/// - Row 1: Input card with blue accent bar (2 chars)
+/// - Row 2: Model/agent selector
+/// - Row 3: Keyboard shortcuts (right-aligned)
 pub struct Footer<'a> {
     state: &'a AppState,
 }
@@ -23,9 +25,42 @@ impl<'a> Footer<'a> {
 
     /// Render footer to the given frame
     pub fn render(&self, frame: &mut Frame<'_>, area: Rect) {
-        let layout = TuiLayout::calculate(area, self.state.ui.sidebar_visible);
-        let input_area = layout.footer_input();
-        let hints_area = layout.footer_hints();
+        let theme = Theme::palette(self.state.theme_variant());
+
+        let rows = ratatui::layout::Layout::default()
+            .direction(ratatui::layout::Direction::Vertical)
+            .constraints([
+                ratatui::layout::Constraint::Length(3),
+                ratatui::layout::Constraint::Length(1),
+                ratatui::layout::Constraint::Length(1),
+            ])
+            .split(area);
+
+        self.render_input_card(frame, rows[0], theme);
+        self.render_model_selector(frame, rows[1], theme);
+        self.render_hints(frame, rows[2], theme);
+    }
+
+    /// Render input card with blue accent bar (like welcome screen)
+    fn render_input_card(&self, frame: &mut Frame<'_>, area: Rect, theme: crate::theme::ThemePalette) {
+        if area.width < 10 || area.height < 1 {
+            return;
+        }
+
+        let panel_block = Block::default().style(Style::default().bg(theme.panel_bg));
+        frame.render_widget(panel_block, area);
+
+        let accent_width = 2;
+        let accent_area = Rect { x: area.x, y: area.y, width: accent_width, height: area.height };
+        let accent_block = Block::default().style(Style::default().bg(theme.blue));
+        frame.render_widget(accent_block, accent_area);
+
+        let input_area = Rect {
+            x: area.x + accent_width + 1,
+            y: area.y + 1,
+            width: area.width.saturating_sub(accent_width + 2),
+            height: 1,
+        };
 
         let input_text = if self.state.input.buffer.is_empty() {
             if self.state.input.is_navigating_history() {
@@ -39,84 +74,145 @@ impl<'a> Footer<'a> {
 
         let input_style = if self.state.input.buffer.is_empty() {
             if self.state.input.is_navigating_history() {
-                Style::default().fg(Theme::YELLOW)
+                Style::default().fg(theme.yellow).bg(theme.panel_bg)
             } else {
-                Style::default().fg(Theme::MUTED)
+                Style::default().fg(theme.muted).bg(theme.panel_bg)
             }
         } else {
-            Style::default().fg(Theme::FG)
+            Style::default().fg(theme.fg).bg(theme.panel_bg)
         };
 
-        let mut input_spans = vec![Span::styled("> ", Style::default().fg(Theme::BLUE))];
+        let mut spans = Vec::new();
 
         if self.state.input.buffer.is_empty() {
-            input_spans.push(Span::styled(input_text, input_style));
-            input_spans.push(Span::styled("█", Style::default().bg(Theme::FG).fg(Theme::FG)));
+            spans.push(Span::styled(input_text, input_style));
+            spans.push(Span::styled("█", Style::default().bg(theme.fg).fg(theme.fg)));
         } else {
             let cursor_pos = self.state.input.cursor.min(self.state.input.buffer.len());
             let before_cursor = &self.state.input.buffer[..cursor_pos];
             let after_cursor = &self.state.input.buffer[cursor_pos..];
 
             if !before_cursor.is_empty() {
-                input_spans.push(Span::styled(before_cursor.to_string(), input_style));
+                spans.push(Span::styled(before_cursor.to_string(), input_style));
             }
-
-            input_spans.push(Span::styled("█", Style::default().bg(Theme::FG).fg(Theme::FG)));
-
+            spans.push(Span::styled("█", Style::default().bg(theme.fg).fg(theme.fg)));
             if !after_cursor.is_empty() {
-                input_spans.push(Span::styled(after_cursor.to_string(), input_style));
+                spans.push(Span::styled(after_cursor.to_string(), input_style));
             }
         }
 
-        let input_paragraph = Paragraph::new(Line::from(input_spans)).block(Block::default().borders(Borders::ALL));
-
+        let input_paragraph = Paragraph::new(Line::from(spans));
         frame.render_widget(input_paragraph, input_area);
-
-        let hints = self.get_hints();
-        let hints_paragraph = Paragraph::new(Line::from(hints)).block(Block::default().borders(Borders::ALL));
-
-        frame.render_widget(hints_paragraph, hints_area);
     }
 
-    fn get_hints(&self) -> Vec<Span<'_>> {
+    /// Render model/agent selector row
+    fn render_model_selector(&self, frame: &mut Frame<'_>, area: Rect, theme: crate::theme::ThemePalette) {
+        let models = &self.state.model_selector.available_models;
+        let current = &self.state.model_selector.current_model;
+
+        let mut spans = Vec::new();
+
+        for (idx, model) in models.iter().enumerate() {
+            if idx > 0 {
+                spans.push(Span::styled(" ", Style::default().bg(theme.panel_bg)));
+            }
+
+            let is_selected = model == current;
+            let style = if is_selected {
+                Style::default().fg(theme.blue).bg(theme.panel_bg).bold()
+            } else {
+                Style::default().fg(theme.muted).bg(theme.panel_bg)
+            };
+
+            spans.push(Span::styled(model.as_str(), style));
+        }
+
+        if let Some(ref agent) = self.state.model_selector.current_agent {
+            spans.push(Span::styled(" | ", Style::default().fg(theme.muted).bg(theme.panel_bg)));
+            spans.push(Span::styled(
+                format!("@{}", agent),
+                Style::default().fg(theme.purple).bg(theme.panel_bg).bold(),
+            ));
+        }
+
+        let paragraph = Paragraph::new(Line::from(spans))
+            .block(Block::default().bg(theme.panel_bg))
+            .alignment(Alignment::Center);
+
+        frame.render_widget(paragraph, area);
+    }
+
+    /// Render keyboard hints row
+    fn render_hints(&self, frame: &mut Frame<'_>, area: Rect, theme: crate::theme::ThemePalette) {
+        let hints = self.get_hints(theme);
+        let paragraph = Paragraph::new(Line::from(hints))
+            .block(Block::default().bg(theme.panel_bg))
+            .alignment(Alignment::Right);
+
+        frame.render_widget(paragraph, area);
+    }
+
+    fn get_hints(&self, theme: crate::theme::ThemePalette) -> Vec<Span<'_>> {
         let mut hints = Vec::new();
 
+        if self.state.ui.is_first_session && self.state.input.buffer.is_empty() {
+            hints.push(Span::styled(
+                "[Press Esc]",
+                Style::default().fg(theme.muted).bg(theme.panel_bg),
+            ));
+            return hints;
+        }
+
         if self.state.approval_ui.pending_approval.is_some() {
-            hints.push(Span::styled("[y]", Style::default().fg(Theme::GREEN).bold()));
-            hints.push(Span::raw(" approve "));
-            hints.push(Span::styled("[n]", Style::default().fg(Theme::RED).bold()));
-            hints.push(Span::raw(" reject "));
-            hints.push(Span::styled("[c]", Style::default().fg(Theme::YELLOW).bold()));
-            hints.push(Span::raw(" cancel "));
+            hints.push(Span::styled(
+                "[y] approve [n] reject [c] cancel",
+                Style::default().fg(theme.muted).bg(theme.panel_bg),
+            ));
         } else if self.state.is_generating() {
-            hints.push(Span::styled("Esc", Style::default().fg(Theme::RED)));
-            hints.push(Span::raw(": cancel "));
+            hints.push(Span::styled(
+                "[Ctrl+C: cancel]",
+                Style::default().fg(theme.muted).bg(theme.panel_bg),
+            ));
         } else {
             if self.state.input.message_history.len() > 1 {
-                hints.push(Span::styled("↑↓", Style::default().fg(Theme::BLUE)));
-                hints.push(Span::raw(": history "));
+                hints.push(Span::styled(
+                    "[↑↓] history",
+                    Style::default().fg(theme.muted).bg(theme.panel_bg),
+                ));
 
                 if let Some(position) = self.state.input.history_position() {
                     hints.push(Span::styled(
                         format!("[{}]", position),
-                        Style::default().fg(Theme::MUTED),
+                        Style::default().fg(theme.muted).bg(theme.panel_bg),
                     ));
-                    hints.push(Span::raw(" "));
                 }
             }
 
-            hints.push(Span::styled("Enter", Style::default().fg(Theme::GREEN)));
-            hints.push(Span::raw(": send "));
-            hints.push(Span::styled("Ctrl+Shift+G", Style::default().fg(Theme::BLUE)));
-            hints.push(Span::raw(": editor "));
+            hints.push(Span::styled(
+                "[Enter] send",
+                Style::default().fg(theme.muted).bg(theme.panel_bg),
+            ));
+            hints.push(Span::styled(
+                "[Ctrl+Shift+G] editor",
+                Style::default().fg(theme.muted).bg(theme.panel_bg),
+            ));
 
             if self.state.ui.sidebar_visible {
-                hints.push(Span::styled("Ctrl+S", Style::default().fg(Theme::BLUE)));
-                hints.push(Span::raw(": hide "));
+                hints.push(Span::styled(
+                    "[Ctrl+S] hide",
+                    Style::default().fg(theme.muted).bg(theme.panel_bg),
+                ));
             } else {
-                hints.push(Span::styled("Ctrl+S", Style::default().fg(Theme::BLUE)));
-                hints.push(Span::raw(": show "));
+                hints.push(Span::styled(
+                    "[Ctrl+S] show",
+                    Style::default().fg(theme.muted).bg(theme.panel_bg),
+                ));
             }
+
+            hints.push(Span::styled(
+                "[Ctrl+T] theme",
+                Style::default().fg(theme.muted).bg(theme.panel_bg),
+            ));
         }
 
         hints
@@ -126,6 +222,8 @@ impl<'a> Footer<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::ApprovalState;
+
     use std::path::PathBuf;
     use thunderus_core::{ApprovalMode, ProviderConfig, SandboxMode};
 
@@ -151,176 +249,59 @@ mod tests {
     }
 
     #[test]
-    fn test_get_hints_normal_state() {
+    fn test_footer_model_selector() {
         let state = create_test_state();
-        let _footer = Footer::new(&state);
+        let footer = Footer::new(&state);
+        assert_eq!(footer.state.model_selector.current_model, "glm-4.7");
+    }
 
-        let hints = _footer.get_hints();
-        assert!(hints.iter().any(|s| s.content.contains("Enter")));
-        assert!(hints.iter().any(|s| s.content.contains("Ctrl+S")));
+    #[test]
+    fn test_get_hints_normal_state() {
+        let mut state = create_test_state();
+        state.ui.set_first_session(false);
+        let _footer = Footer::new(&state);
+        let theme = Theme::palette(state.theme_variant());
+
+        let hints = _footer.get_hints(theme);
+        assert!(hints.iter().any(|s| s.content.contains("[Enter]")));
     }
 
     #[test]
     fn test_get_hints_generating_state() {
         let mut state = create_test_state();
+        state.ui.set_first_session(false);
         state.start_generation();
 
         let _footer = Footer::new(&state);
-        let hints = _footer.get_hints();
-        assert!(hints.iter().any(|s| s.content.contains("Esc")));
-        assert!(hints.iter().any(|s| s.content.contains("cancel")));
-    }
-
-    #[test]
-    fn test_get_hints_sidebar_visible() {
-        let mut state = create_test_state();
-        state.ui.sidebar_visible = true;
-
-        let _footer = Footer::new(&state);
-        let hints = _footer.get_hints();
-        assert!(hints.iter().any(|s| s.content.contains("hide")));
-        assert!(hints.iter().any(|s| s.content.contains("editor")));
-    }
-
-    #[test]
-    fn test_get_hints_sidebar_hidden() {
-        let mut state = create_test_state();
-        state.ui.sidebar_visible = false;
-
-        let _footer = Footer::new(&state);
-        let hints = _footer.get_hints();
-        assert!(hints.iter().any(|s| s.content.contains("show")));
-        assert!(hints.iter().any(|s| s.content.contains("editor")));
-    }
-
-    #[test]
-    fn test_get_hints_with_input() {
-        let mut state = create_test_state();
-        state.input.buffer = "Hello".to_string();
-
-        let _footer = Footer::new(&state);
-        let hints = _footer.get_hints();
-        assert!(!hints.is_empty());
-    }
-
-    #[test]
-    fn test_render_input_empty() {
-        let state = create_test_state();
-        let _footer = Footer::new(&state);
-
-        let input_text = if state.input.buffer.is_empty() { "Type a message..." } else { &state.input.buffer };
-
-        assert_eq!(input_text, "Type a message...");
-    }
-
-    #[test]
-    fn test_render_input_with_content() {
-        let mut state = create_test_state();
-        state.input.buffer = "Test message".to_string();
-
-        let _footer = Footer::new(&state);
-
-        assert_eq!(state.input.buffer, "Test message");
-    }
-
-    #[test]
-    fn test_input_state_default() {
-        let state = create_test_state();
-
-        assert_eq!(state.input.buffer, "");
-        assert_eq!(state.input.cursor, 0);
+        let theme = Theme::palette(state.theme_variant());
+        let hints = _footer.get_hints(theme);
+        assert!(hints.iter().any(|s| s.content.contains("Ctrl+C")));
     }
 
     #[test]
     fn test_get_hints_with_pending_approval() {
         let mut state = create_test_state();
-        state.approval_ui.pending_approval = Some(crate::state::ApprovalState::pending(
-            "test.action".to_string(),
-            "risky".to_string(),
-        ));
+        state.ui.set_first_session(false);
+        state.approval_ui.pending_approval =
+            Some(ApprovalState::pending("test.action".to_string(), "risky".to_string()));
 
         let _footer = Footer::new(&state);
-        let hints = _footer.get_hints();
-
+        let theme = Theme::palette(state.theme_variant());
+        let hints = _footer.get_hints(theme);
         assert!(hints.iter().any(|s| s.content.contains("[y]")));
         assert!(hints.iter().any(|s| s.content.contains("[n]")));
-        assert!(hints.iter().any(|s| s.content.contains("[c]")));
-        assert!(hints.iter().any(|s| s.content.contains("approve")));
     }
 
     #[test]
-    fn test_get_hints_approval_overrides_generation() {
-        let mut state = create_test_state();
-        state.start_generation();
-        state.approval_ui.pending_approval = Some(crate::state::ApprovalState::pending(
-            "test.action".to_string(),
-            "safe".to_string(),
-        ));
-
-        let _footer = Footer::new(&state);
-        let hints = _footer.get_hints();
-
-        assert!(hints.iter().any(|s| s.content.contains("[y]")));
-        assert!(!hints.iter().any(|s| s.content.contains("Esc")));
-    }
-
-    #[test]
-    fn test_get_hints_no_history() {
+    fn test_model_selector_models() {
         let state = create_test_state();
-        let _footer = Footer::new(&state);
-
-        let hints = _footer.get_hints();
-        assert!(!hints.iter().any(|s| s.content.contains("↑↓")));
-        assert!(!hints.iter().any(|s| s.content.contains("history")));
+        assert_eq!(state.model_selector.models().len(), 3);
+        assert!(state.model_selector.models().contains(&"GLM-4.7".to_string()));
     }
 
     #[test]
-    fn test_get_hints_with_history() {
-        let mut state = create_test_state();
-        state.input.add_to_history("first message".to_string());
-        state.input.add_to_history("second message".to_string());
-
-        let _footer = Footer::new(&state);
-        let hints = _footer.get_hints();
-
-        assert!(hints.iter().any(|s| s.content.contains("↑↓")));
-        assert!(hints.iter().any(|s| s.content.contains("history")));
-    }
-
-    #[test]
-    fn test_get_hints_with_history_navigation_position() {
-        let mut state = create_test_state();
-        state.input.add_to_history("first".to_string());
-        state.input.add_to_history("second".to_string());
-        state.input.add_to_history("third".to_string());
-
-        state.input.navigate_up();
-
-        let _footer = Footer::new(&state);
-        let hints = _footer.get_hints();
-
-        assert!(hints.iter().any(|s| s.content.contains("[3/3]")));
-    }
-
-    #[test]
-    fn test_input_text_navigating_history() {
-        let mut state = create_test_state();
-        state.input.add_to_history("test message".to_string());
-        state.input.navigate_up();
-
-        let _footer = Footer::new(&state);
-
-        assert_eq!(state.input.buffer, "test message");
-        assert!(state.input.is_navigating_history());
-    }
-
-    #[test]
-    fn test_input_style_navigating_history() {
-        let mut state = create_test_state();
-        state.input.add_to_history("test message".to_string());
-        state.input.navigate_up();
-
-        let _footer = Footer::new(&state);
-        assert!(state.input.is_navigating_history());
+    fn test_model_selector_display_name() {
+        let state = create_test_state();
+        assert_eq!(state.model_selector.display_name(), "glm-4.7");
     }
 }

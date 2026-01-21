@@ -1,6 +1,7 @@
 /// Sidebar section for collapse/expand
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SidebarSection {
+    TokenUsage,
     Events,
     Modified,
     Diffs,
@@ -8,12 +9,19 @@ pub enum SidebarSection {
 }
 
 impl SidebarSection {
-    pub fn all() -> [SidebarSection; 4] {
-        [Self::Events, Self::Modified, Self::Diffs, Self::Integrations]
+    pub fn all() -> [SidebarSection; 5] {
+        [
+            Self::TokenUsage,
+            Self::Events,
+            Self::Modified,
+            Self::Diffs,
+            Self::Integrations,
+        ]
     }
 
     pub fn name(&self) -> &str {
         match self {
+            SidebarSection::TokenUsage => "Token Usage",
             SidebarSection::Events => "Events",
             SidebarSection::Modified => "Modified",
             SidebarSection::Diffs => "Diffs",
@@ -25,6 +33,7 @@ impl SidebarSection {
 /// Collapse state for sidebar sections
 #[derive(Debug, Clone, Default)]
 pub struct SidebarCollapseState {
+    token_usage_collapsed: bool,
     events_collapsed: bool,
     modified_collapsed: bool,
     diffs_collapsed: bool,
@@ -34,6 +43,7 @@ pub struct SidebarCollapseState {
 impl SidebarCollapseState {
     pub fn is_collapsed(&self, section: SidebarSection) -> bool {
         match section {
+            SidebarSection::TokenUsage => self.token_usage_collapsed,
             SidebarSection::Events => self.events_collapsed,
             SidebarSection::Modified => self.modified_collapsed,
             SidebarSection::Diffs => self.diffs_collapsed,
@@ -43,6 +53,7 @@ impl SidebarCollapseState {
 
     pub fn toggle(&mut self, section: SidebarSection) {
         match section {
+            SidebarSection::TokenUsage => self.token_usage_collapsed = !self.token_usage_collapsed,
             SidebarSection::Events => self.events_collapsed = !self.events_collapsed,
             SidebarSection::Modified => self.modified_collapsed = !self.modified_collapsed,
             SidebarSection::Diffs => self.diffs_collapsed = !self.diffs_collapsed,

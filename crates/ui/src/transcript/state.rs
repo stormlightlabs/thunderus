@@ -73,6 +73,21 @@ impl Transcript {
         }
     }
 
+    /// Mark current streaming response as cancelled, preserving partial output.
+    pub fn mark_streaming_cancelled(&mut self, message: impl Into<String>) {
+        if let Some(TranscriptEntry::ModelResponse { content, streaming }) = self.entries.back_mut()
+            && *streaming
+        {
+            if !content.ends_with(" [cancelled]") {
+                content.push_str(" [cancelled]");
+            }
+            *streaming = false;
+            return;
+        }
+
+        self.add_cancellation_error(message);
+    }
+
     /// Add a tool call
     pub fn add_tool_call(&mut self, tool: impl Into<String>, arguments: impl Into<String>, risk: impl Into<String>) {
         self.add(TranscriptEntry::tool_call(tool, arguments, risk));

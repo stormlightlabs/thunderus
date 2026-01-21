@@ -8,7 +8,7 @@ use crate::{
 use ratatui::{
     Frame,
     layout::Rect,
-    style::Style,
+    style::{Style, Stylize},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Wrap},
 };
@@ -36,11 +36,30 @@ impl<'a> Sidebar<'a> {
 
     /// Render sidebar to the given frame
     pub fn render(&self, frame: &mut Frame<'_>, _: Rect) {
-        let layout = layout::TuiLayout::calculate(frame.area(), true);
+        let theme = Theme::palette(self.state.theme_variant());
+        let layout = layout::TuiLayout::calculate(
+            frame.area(),
+            self.state.ui.sidebar_visible,
+            self.state.ui.sidebar_width_override(),
+        );
+        let Some(sidebar_area) = layout.sidebar else {
+            return;
+        };
+
+        frame.render_widget(Block::default().bg(theme.panel_bg), sidebar_area);
+
         let Some(sidebar) = layout.sidebar_sections() else {
             return;
         };
 
+        if !self
+            .state
+            .ui
+            .sidebar_collapse_state
+            .is_collapsed(SidebarSection::TokenUsage)
+        {
+            self.render_token_usage(frame, sidebar.token_usage);
+        }
         if !self
             .state
             .ui
@@ -72,65 +91,116 @@ impl<'a> Sidebar<'a> {
 
     /// Note: Sidebar auto-hide on narrow terminals is handled by [TuiLayout::calculate]
     /// when [layout::LayoutMode] is Medium (80-99 cols) or Compact (< 80 cols).
+    fn render_token_usage(&self, frame: &mut Frame<'_>, area: Rect) {
+        let stats = &self.state.session.stats;
+        let theme = Theme::palette(self.state.theme_variant());
+
+        let in_display = if stats.input_tokens >= 1000 {
+            format!("{:.1}k", stats.input_tokens as f64 / 1000.0)
+        } else {
+            format!("{}", stats.input_tokens)
+        };
+
+        let out_display = if stats.output_tokens >= 1000 {
+            format!("{:.1}k", stats.output_tokens as f64 / 1000.0)
+        } else {
+            format!("{}", stats.output_tokens)
+        };
+
+        let lines = vec![Line::from(vec![
+            Span::styled(in_display, Style::default().fg(theme.green).bg(theme.panel_bg)),
+            Span::styled(" / ", Style::default().fg(theme.muted).bg(theme.panel_bg)),
+            Span::styled(out_display, Style::default().fg(theme.cyan).bg(theme.panel_bg)),
+        ])];
+
+        let paragraph = Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .title(Span::styled("Tokens", Style::default().fg(theme.blue).bold()))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(theme.border))
+                    .bg(theme.panel_bg),
+            )
+            .wrap(Wrap { trim: true });
+        frame.render_widget(paragraph, area);
+    }
+
     fn render_session_events(&self, frame: &mut Frame<'_>, area: Rect) {
         let mut lines = Vec::new();
+        let theme = Theme::palette(self.state.theme_variant());
 
         if self.state.session.session_events.is_empty() {
-            lines.push(Line::from(Span::styled("No events", Style::default().fg(Theme::MUTED))));
+            lines.push(Line::from(Span::styled(
+                "No events",
+                Style::default().fg(theme.muted).bg(theme.panel_bg),
+            )));
         } else {
             for event in self.state.session.session_events.iter().take(3) {
                 lines.push(Line::from(vec![
-                    Span::styled(&event.event_type, Style::default().fg(Theme::BLUE)),
+                    Span::styled(&event.event_type, Style::default().fg(theme.blue).bg(theme.panel_bg)),
                     Span::raw(" "),
-                    Span::styled(&event.message, Style::default().fg(Theme::FG)),
+                    Span::styled(&event.message, Style::default().fg(theme.fg).bg(theme.panel_bg)),
                 ]));
             }
             if self.state.session.session_events.len() > 3 {
                 lines.push(Line::from(Span::styled(
                     format!("+ {} more", self.state.session.session_events.len() - 3),
-                    Style::default().fg(Theme::MUTED),
+                    Style::default().fg(theme.muted).bg(theme.panel_bg),
                 )));
             }
         }
 
         let paragraph = Paragraph::new(lines)
-            .block(Block::default().title("Events").borders(Borders::ALL))
+            .block(
+                Block::default()
+                    .title(Span::styled("Events", Style::default().fg(theme.blue).bold()))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(theme.border))
+                    .bg(theme.panel_bg),
+            )
             .wrap(Wrap { trim: true });
         frame.render_widget(paragraph, area);
     }
 
     fn render_modified_files(&self, frame: &mut Frame<'_>, area: Rect) {
         let mut lines = Vec::new();
+        let theme = Theme::palette(self.state.theme_variant());
 
         if self.state.session.modified_files.is_empty() {
             lines.push(Line::from(Span::styled(
                 "No changes",
-                Style::default().fg(Theme::MUTED),
+                Style::default().fg(theme.muted).bg(theme.panel_bg),
             )));
         } else {
             for file in self.state.session.modified_files.iter().take(2) {
                 let mod_color = match file.mod_type.as_str() {
-                    "edited" => Theme::YELLOW,
-                    "created" => Theme::GREEN,
-                    "deleted" => Theme::RED,
-                    _ => Theme::MUTED,
+                    "edited" => theme.yellow,
+                    "created" => theme.green,
+                    "deleted" => theme.red,
+                    _ => theme.muted,
                 };
                 lines.push(Line::from(vec![
-                    Span::styled(&file.mod_type, Style::default().fg(mod_color)),
+                    Span::styled(&file.mod_type, Style::default().fg(mod_color).bg(theme.panel_bg)),
                     Span::raw(" "),
-                    Span::styled(&file.path, Style::default().fg(Theme::FG)),
+                    Span::styled(&file.path, Style::default().fg(theme.fg).bg(theme.panel_bg)),
                 ]));
             }
             if self.state.session.modified_files.len() > 2 {
                 lines.push(Line::from(Span::styled(
                     format!("+ {} more", self.state.session.modified_files.len() - 2),
-                    Style::default().fg(Theme::MUTED),
+                    Style::default().fg(theme.muted).bg(theme.panel_bg),
                 )));
             }
         }
 
         let paragraph = Paragraph::new(lines)
-            .block(Block::default().title("Modified").borders(Borders::ALL))
+            .block(
+                Block::default()
+                    .title(Span::styled("Modified", Style::default().fg(theme.blue).bold()))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(theme.border))
+                    .bg(theme.panel_bg),
+            )
             .wrap(Wrap { trim: true });
         frame.render_widget(paragraph, area);
     }
@@ -141,21 +211,26 @@ impl<'a> Sidebar<'a> {
     }
 
     fn render_lsp_mcp_status(&self, frame: &mut Frame<'_>, area: Rect) {
+        let theme = Theme::palette(self.state.theme_variant());
         let lines = vec![
             Line::from(vec![
-                Span::styled("🔌", Style::default().fg(Theme::PURPLE)),
-                Span::raw(" "),
-                Span::styled("LSPs: Not connected", Style::default().fg(Theme::MUTED)),
+                Span::styled("LSP: ", Style::default().fg(theme.purple).bg(theme.panel_bg)),
+                Span::styled("Not connected", Style::default().fg(theme.muted).bg(theme.panel_bg)),
             ]),
             Line::from(vec![
-                Span::styled("🔗", Style::default().fg(Theme::CYAN)),
-                Span::raw(" "),
-                Span::styled("MCPs: Not connected", Style::default().fg(Theme::MUTED)),
+                Span::styled("MCP: ", Style::default().fg(theme.cyan).bg(theme.panel_bg)),
+                Span::styled("Not connected", Style::default().fg(theme.muted).bg(theme.panel_bg)),
             ]),
         ];
 
         let paragraph = Paragraph::new(lines)
-            .block(Block::default().title("Integrations").borders(Borders::ALL))
+            .block(
+                Block::default()
+                    .title(Span::styled("Integrations", Style::default().fg(theme.blue).bold()))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(theme.border))
+                    .bg(theme.panel_bg),
+            )
             .wrap(Wrap { trim: true });
         frame.render_widget(paragraph, area);
     }

@@ -6,7 +6,7 @@
 use ratatui::{
     Frame,
     layout::{Alignment, Rect},
-    style::{Color, Style},
+    style::Style,
     widgets::{Block, Borders, Clear, Padding, Paragraph, Wrap},
 };
 
@@ -14,14 +14,16 @@ use ratatui::{
 pub struct TeachingHintPopup<'a> {
     /// The hint message to display
     pub hint: &'a str,
-    /// Optional title for the hint (defaults to "💡 First Time")
+    /// Optional title for the hint (defaults to "First Time")
     pub title: Option<&'a str>,
+    /// Theme palette for styling
+    pub theme: crate::theme::ThemePalette,
 }
 
 impl<'a> TeachingHintPopup<'a> {
     /// Create a new teaching hint popup
-    pub fn new(hint: &'a str) -> Self {
-        Self { hint, title: None }
+    pub fn new(hint: &'a str, theme: crate::theme::ThemePalette) -> Self {
+        Self { hint, title: None, theme }
     }
 
     /// Set a custom title for the hint
@@ -54,9 +56,10 @@ impl<'a> TeachingHintPopup<'a> {
         frame.render_widget(Clear, popup_area);
 
         let block = Block::default()
-            .title(self.title.unwrap_or("💡 First Time"))
+            .title(self.title.unwrap_or("First Time"))
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Yellow))
+            .border_style(Style::default().fg(self.theme.yellow))
+            .style(Style::default().bg(self.theme.panel_bg))
             .padding(Padding::new(1, 1, 1, 1));
 
         frame.render_widget(
@@ -75,20 +78,23 @@ mod tests {
 
     #[test]
     fn test_teaching_hint_new() {
-        let hint = TeachingHintPopup::new("Test hint");
+        let theme = crate::theme::Theme::palette(crate::theme::ThemeVariant::Iceberg);
+        let hint = TeachingHintPopup::new("Test hint", theme);
         assert_eq!(hint.hint, "Test hint");
         assert!(hint.title.is_none());
     }
 
     #[test]
     fn test_teaching_hint_with_title() {
-        let hint = TeachingHintPopup::new("Test hint").with_title("Custom Title");
+        let theme = crate::theme::Theme::palette(crate::theme::ThemeVariant::Iceberg);
+        let hint = TeachingHintPopup::new("Test hint", theme).with_title("Custom Title");
         assert_eq!(hint.hint, "Test hint");
         assert_eq!(hint.title, Some("Custom Title"));
     }
 
     #[test]
     fn test_teaching_hint_default_title() {
-        assert_eq!(TeachingHintPopup::new("Test").title, None);
+        let theme = crate::theme::Theme::palette(crate::theme::ThemeVariant::Iceberg);
+        assert_eq!(TeachingHintPopup::new("Test", theme).title, None);
     }
 }

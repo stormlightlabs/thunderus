@@ -1,223 +1,111 @@
-use crate::{layout::HeaderSections, state::AppState, theme::Theme};
+use crate::{state::HeaderState, theme::Theme};
+use unicode_width::UnicodeWidthStr;
 
 use ratatui::{
     Frame,
     layout::Rect,
-    style::Style,
+    style::{Style, Stylize},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::Paragraph,
 };
 
-/// Header component displaying session information
+/// Minimal session header displaying task title and usage statistics
 ///
-/// Shows (depending on terminal width):
-/// - Current working directory
-/// - Profile name
-/// - Provider/model
-/// - Approval mode
+/// - Left: # Task title (from first user message)
+/// - Right: tokens % ($cost) version
 pub struct Header<'a> {
-    state: &'a AppState,
+    state: &'a HeaderState,
 }
 
 impl<'a> Header<'a> {
-    pub fn new(state: &'a AppState) -> Self {
+    /// Create a new session header
+    pub fn new(state: &'a HeaderState) -> Self {
         Self { state }
     }
 
-    /// Render the header to the given frame
+    /// Render the session header to the given frame
     pub fn render(&self, frame: &mut Frame<'_>, area: Rect) {
-        let sections = HeaderSections::new(area);
+        let theme = Theme::palette(crate::theme::ThemeVariant::Iceberg);
 
-        if sections.cwd.width > 0 {
-            let cwd_span = Span::styled(self.cwd_display(), Style::default().fg(Theme::CYAN));
-            let cwd = Paragraph::new(Line::from(cwd_span)).block(Block::default().borders(Borders::RIGHT));
-            frame.render_widget(cwd, sections.cwd);
-        }
+        let task_title = self
+            .state
+            .task_title
+            .as_ref()
+            .map(|t| format!("# {}", t))
+            .unwrap_or_else(|| "# New Session".to_string());
 
-        if sections.profile.width > 0 {
-            let profile_span = Span::styled(
-                format!("@{}", self.state.config.profile),
-                Style::default().fg(Theme::PURPLE),
-            );
-            let profile = Paragraph::new(Line::from(profile_span)).block(Block::default().borders(Borders::RIGHT));
-            frame.render_widget(profile, sections.profile);
-        }
+        let title_spans = vec![Span::styled(
+            task_title,
+            Style::default().fg(theme.fg).bg(theme.panel_bg),
+        )];
 
-        if sections.provider.width > 0 {
-            let provider_text = format!("{}/{}", self.state.provider_name(), self.state.model_name());
-            let provider_span = Span::styled(provider_text, Style::default().fg(Theme::BLUE));
-            let provider = Paragraph::new(Line::from(provider_span)).block(Block::default().borders(Borders::RIGHT));
-            frame.render_widget(provider, sections.provider);
-        }
+        let tokens = self.state.tokens_display();
+        let percent = self.state.context_percentage();
+        let cost = self.state.cost_display();
+        let version = env!("CARGO_PKG_VERSION");
 
-        if sections.approval.width > 0 {
-            let approval_span = Theme::approval_mode_span(self.state.config.approval_mode.as_str());
-            let mode_label = Span::styled("[", Style::default().fg(Theme::MUTED));
-            let mode_close = Span::styled("]", Style::default().fg(Theme::MUTED));
-            let approval = Paragraph::new(Line::from(vec![mode_label, approval_span, mode_close]));
-            frame.render_widget(approval, sections.approval);
-        }
+        let stats_spans = vec![
+            Span::styled(format!("{} ", tokens), Style::default().fg(theme.fg).bg(theme.panel_bg)),
+            Span::styled(
+                format!("{}%", percent),
+                Style::default().fg(theme.cyan).bg(theme.panel_bg),
+            ),
+            Span::styled(
+                format!(" ({})", cost),
+                Style::default().fg(theme.muted).bg(theme.panel_bg),
+            ),
+            Span::styled(
+                format!(" v{}", version),
+                Style::default().fg(theme.muted).bg(theme.panel_bg),
+            ),
+        ];
 
-        if sections.git.width > 0 {
-            let git_text = if let Some(ref branch) = self.state.config.git_branch {
-                format!("🌿 {}", branch)
-            } else {
-                String::new()
-            };
-            let git_span = Span::styled(git_text, Style::default().fg(Theme::GREEN));
-            let git = Paragraph::new(Line::from(git_span)).block(Block::default().borders(Borders::RIGHT));
-            frame.render_widget(git, sections.git);
-        }
+        let title_width = title_spans.iter().map(|s| s.content.width()).sum::<usize>();
+        let stats_width = stats_spans.iter().map(|s| s.content.width()).sum::<usize>();
+        let spacing = area.width.saturating_sub((title_width + stats_width) as u16);
 
-        if sections.sandbox.width > 0 {
-            let sandbox_span = Theme::sandbox_mode_span(self.state.config.sandbox_mode.as_str());
-            let sandbox_label = Span::styled("🔒", Style::default().fg(Theme::YELLOW));
-            let sandbox = Paragraph::new(Line::from(vec![
-                sandbox_label,
-                Span::styled(" ", Style::default()),
-                sandbox_span,
-            ]));
-            frame.render_widget(sandbox, sections.sandbox);
+        let mut all_spans = title_spans;
+        if spacing > 0 {
+            all_spans.push(Span::styled(
+                " ".repeat(spacing as usize),
+                Style::default().bg(theme.panel_bg),
+            ));
         }
+        all_spans.extend(stats_spans);
 
-        if sections.network.width > 0 {
-            let network_span = if self.state.config.allow_network {
-                Span::styled("ON", Style::default().fg(Theme::GREEN))
-            } else {
-                Span::styled("OFF", Style::default().fg(Theme::MUTED))
-            };
-            let network_label = Span::styled("Net:", Style::default().fg(Theme::MUTED));
-            let network = Paragraph::new(Line::from(vec![
-                network_label,
-                Span::styled(" ", Style::default()),
-                network_span,
-            ]));
-            frame.render_widget(network, sections.network);
-        }
+        let header = Paragraph::new(Line::from(all_spans)).block(ratatui::widgets::Block::default().bg(theme.panel_bg));
 
-        if sections.verbosity.width > 0 {
-            let verbosity_span = Theme::verbosity_span(self.state.config.verbosity.as_str());
-            let verbosity = Paragraph::new(Line::from(verbosity_span));
-            frame.render_widget(verbosity, sections.verbosity);
-        }
-    }
-
-    /// Format cwd for display (truncate if too long)
-    fn cwd_display(&self) -> String {
-        let cwd = self.state.config.cwd.display().to_string();
-        if cwd.len() > 20 {
-            let start = cwd.len().saturating_sub(20);
-            format!("...{}", &cwd[start..])
-        } else {
-            cwd
-        }
+        frame.render_widget(header, area);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
-    use thunderus_core::{ApprovalMode, ProviderConfig, SandboxMode};
-
-    fn create_test_state() -> AppState {
-        AppState::new(
-            PathBuf::from("/very/long/path/to/workspace"),
-            "work-profile".to_string(),
-            ProviderConfig::Glm {
-                api_key: "test".to_string(),
-                model: "glm-4.7".to_string(),
-                base_url: "https://api.example.com".to_string(),
-            },
-            ApprovalMode::Auto,
-            SandboxMode::Policy,
-        )
-    }
 
     #[test]
-    fn test_header_new() {
-        let state = create_test_state();
+    fn test_session_header_new() {
+        let state = HeaderState::new();
         let header = Header::new(&state);
-        assert_eq!(header.state.config.profile, "work-profile");
+        assert!(header.state.task_title.is_none());
     }
 
     #[test]
-    fn test_cwd_display_truncation() {
-        let state = create_test_state();
+    fn test_session_header_with_title() {
+        let mut state = HeaderState::new();
+        state.set_task_title_from_message("Fix the login bug");
         let header = Header::new(&state);
-        let display = header.cwd_display();
-        assert!(display.len() <= 23);
-        assert!(display.starts_with("..."));
+        assert_eq!(header.state.task_title, Some("Fix the login bug".to_string()));
     }
 
     #[test]
-    fn test_cwd_display_no_truncation() {
-        let mut state = create_test_state();
-        state.config.cwd = PathBuf::from("/workspace");
+    fn test_session_header_with_tokens() {
+        let mut state = HeaderState::new();
+        state.update_tokens(14295);
+        state.update_cost(0.05);
         let header = Header::new(&state);
-        let display = header.cwd_display();
-
-        assert_eq!(display, "/workspace");
-        assert!(!display.starts_with("..."));
-    }
-
-    #[test]
-    fn test_header_with_gemini() {
-        let state = AppState::new(
-            PathBuf::from("."),
-            "default".to_string(),
-            ProviderConfig::Gemini {
-                api_key: "test".to_string(),
-                model: "gemini-2.5-flash".to_string(),
-                base_url: "https://api.example.com".to_string(),
-            },
-            ApprovalMode::FullAccess,
-            SandboxMode::Policy,
-        );
-
-        let header = Header::new(&state);
-        assert_eq!(header.state.provider_name(), "Gemini");
-        assert_eq!(header.state.model_name(), "gemini-2.5-flash".to_string());
-        assert_eq!(header.state.config.approval_mode, ApprovalMode::FullAccess);
-    }
-
-    #[test]
-    fn test_header_approval_modes() {
-        let cwd = PathBuf::from(".");
-        let provider = ProviderConfig::Glm {
-            api_key: "test".to_string(),
-            model: "glm-4.7".to_string(),
-            base_url: "https://api.example.com".to_string(),
-        };
-
-        let state_readonly = AppState::new(
-            cwd.clone(),
-            "test".to_string(),
-            provider.clone(),
-            ApprovalMode::ReadOnly,
-            SandboxMode::Policy,
-        );
-        let header_readonly = Header::new(&state_readonly);
-        assert_eq!(header_readonly.state.config.approval_mode.as_str(), "read-only");
-
-        let state_auto = AppState::new(
-            cwd.clone(),
-            "test".to_string(),
-            provider.clone(),
-            ApprovalMode::Auto,
-            SandboxMode::Policy,
-        );
-        let header_auto = Header::new(&state_auto);
-        assert_eq!(header_auto.state.config.approval_mode.as_str(), "auto");
-
-        let state_full = AppState::new(
-            cwd.clone(),
-            "test".to_string(),
-            provider,
-            ApprovalMode::FullAccess,
-            SandboxMode::Policy,
-        );
-        let header_full = Header::new(&state_full);
-        assert_eq!(header_full.state.config.approval_mode.as_str(), "full-access");
+        assert_eq!(header.state.tokens_used, 14295);
+        assert_eq!(header.state.tokens_display(), "14.3k");
+        assert_eq!(header.state.cost_display(), "$0.05");
     }
 }

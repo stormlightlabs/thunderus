@@ -112,97 +112,92 @@ DoD:
 --------------------------------------------------------------------------------
 VIII. UI POLISH + THEMING                                           *agent-VIII*
 --------------------------------------------------------------------------------
-Complete the design spec implementation and add flexible, user-configurable
-theming.
+Complete the design spec implementation and fix broken UI components.
 
 Design target:
-Match DESIGN.txt specifications for all UI components, then enable runtime theme
-switching like OpenCode (JSON themes, `/theme` command).
+Match DESIGN.txt specifications for all UI components. Simple theme toggle b/t
+Iceberg (default) and Oxocarbon.
 
-High Priority UI Gaps
+P0: Exit Behavior
+-----------------
+- [x] Ctrl+D global exit:
+      - BROKEN: only exits when input buffer empty
+      - Required: global exit like zsh, claude, cursor, other CLI agents
+      - Change: remove conditional, always return Exit action
+- [x] Ctrl+C double-press with feedback:
+      - Keep double-press behavior for safety
+      - After first press: show "Press Ctrl+C again to exit" in footer
+
+P0: Background Fills
 ---------------------
-- [ ] Centered initial view:
-      - Detect "first session" state and render centered welcome message
-      - Max 60-80 cols centered region with prompt
-      - Expand to full layout after first user message sent
-      - Logo is ascii art from repo README
-- [ ] Token usage display:
-      - Add "Token Usage" section to sidebar showing "X.Xk / YYYk" format
-      - Calculate from session stats (input_tokens, output_tokens)
-      - Update in real-time as agent streams responses
-- [ ] Compact view tool cards:
-      - Single-line summaries for terminals < 80 cols
-      - Format: "[Tool: name] path | risk | [y/n/c]"
-      - Preserve multiline for detailed/verbose levels
+ALL components are missing their DESIGN.txt background colors:
 
-Medium Priority UI Gaps
------------------------
-- [ ] Header token count:
-      - Add token usage to header in medium layout (80-99 cols)
-      - Display format: "tokens: X.Xk"
-      - Integrate with responsive header sections
-- [ ] Scrollbar indicator:
-      - Optional thin scrollbar on right edge of transcript
-      - Dim color (#6b7089) for subtle visual indicator
-      - Show current scroll position in transcript
-- [ ] Status indicator animations:
-      - Animated ellipsis "..." for streaming state
-      - Blinking cursor on pending approval [y] option
-      - Pulsing border for risky approval cards
-- [ ] First-time user hints:
-      - Track taught concepts per session
-      - Show contextual hints on first feature encounter
-      - One-time display only (never nag)
-      - Integrate with existing TeachingHintPopup
-- [ ] Sidebar section navigation:
-      - [ and ] keys to navigate between sidebar sections
-      - Space/Enter to expand/collapse focused section
-      - Visual focus indicator on active section
+- [x] Header background: #1e2132
+- [x] Footer background: #1e2132
+- [x] Sidebar background: #1e2132
+- [x] Transcript background: #161821
+- [x] Welcome screen backgrounds:
+      - Main area: #161821
+      - Panel box: #1e2132
+
+P1: Message Styling
+-------------------
+Current: Plain text with prefix "You:" and "Agent:"
+Required: Styled bubbles with backgrounds
+
+- [x] User message bubbles:
+      - Background: #272c42 (highlight)
+      - Padding: 1 line vertical, 2 chars horizontal
+      - Max width: 60 cols in centered view
+- [x] Assistant message bubbles:
+      - Background: #1e2132 (secondary)
+      - Same padding requirements
+- [x] Footer hints during generation:
+      - Missing: [Ctrl+C: cancel]
+      - Current: only shows "Esc: cancel"
+
+P2: Medium Priority (Polish)
+----------------------------
+- [x] Scrollbar indicator:
+      - Thin dim indicator on right edge of transcript
+      - Color: #6b7089
+- [x] Streaming ellipsis animation:
+      - Animated "..." in dim color
+      - Current: static "(streaming...)" text
+- [x] Token usage format:
+      - Current sidebar shows "In: X Out: Y"
+      - DESIGN.txt shows "X.Xk / YYYk"
+- [x] Compact tool cards
+- [x] First-time hints: TeachingHintPopup
+- [x] Sidebar navigation: [ and ] keys work
+
+P3: Low Priority
+-----------------
+- [x] Remove emoji -> replace with Unicode characters if possible
+- [x] Pulsing border animation for risky approval cards
+- [x] Blinking cursor on [y] option
+- [x] Sidebar slide animation on toggle
 
 Theme Architecture
-------------------
-- [ ] ThemeColors struct with semantic colors:
-      - success, warning, error, info, primary, secondary
-      - background, foreground, muted, border
-      - Approval mode colors (read-only, auto, full-access)
-      - Risk level colors (safe, risky, dangerous)
-- [ ] ThemeManager for runtime theme switching:
-      - Load/save theme from config
-      - Hot-reload themes without restart
-      - Theme validation and error handling
-- [ ] JSON serialization/deserialization with serde
-- [ ] Built-in themes:
-      - Iceberg (default, current implementation)
-      - Catppuccin Mocha
-      - TokyoNight
-      - Nord
-      - System (ANSI colors, terminal-adaptive)
-- [ ] JSON theme format:
-      - hex colors (#rrggbb), ANSI colors (0-255), color name references
-      - theme metadata (name, author, description, variant)
-- [ ] Theme loading hierarchy:
-      - built-in themes
-      - user themes (~/.config/thunderus/themes/)
-      - project themes (.thunderus/themes/)
-- [ ] Theme switching:
-      - `/theme list` - show available themes
-      - `/theme <name>` - switch to theme
-      - `/theme preview <name>` - temporary preview (revert on restart)
-      - Ctrl+T keybind for theme picker popup
-      - Persist selection in profile config
-- [ ] Component integration:
-      - Replace hardcoded Theme::COLOR with ThemeManager::current().color
-      - Update all components (Header, Sidebar, Footer, Transcript, Action Cards)
-      - Semantic color mapping (safe=green, risky=yellow, error=red)
-      - Test theme switching doesn't break layout or readability
+-------------------
+Goal: Toggle between Iceberg (current) and Oxocarbon.
 
-DoD:
-- All DESIGN.txt specifications are implemented
-  (centered view, token display, compact cards)
-- Users can switch themes via `/theme` command and Ctrl+T keybind
-- Custom JSON themes load from user/project directories
-- All UI components respect active theme colors
-- Theme switching is instant and doesn't require restart
+- [x] ThemeVariant enum:
+      - Iceberg (default) - bluish dark from iceberg.vim
+      - Oxocarbon - IBM Carbon-inspired grays/blues
+- [x] Theme color functions with variant parameter
+- [x] Ctrl+T keybind to toggle theme
+- [x] Persist theme choice in profile config
+
+Iceberg vs Oxocarbon:
+
+│ Color    │ Iceberg     │ Oxocarbon   │
+├──────────┼─────────────┼─────────────┤
+│ BG       │ #161821   │ #161616   │
+│ Panel    │ #1e2132   │ #262626   │
+│ Highlight│ #272c42   │ #393939   │
+│ FG       │ #c6c8d1   │ #f2f4f8   │
+│ Muted    │ #6b7089   │ #525252   │
 
 --------------------------------------------------------------------------------
 IX. MARKDOWN + JSONL HYBRID VCS                                      *agent-IX*

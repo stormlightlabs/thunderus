@@ -5,17 +5,23 @@ use thunderus_core::{ApprovalMode, ProviderConfig, SandboxMode};
 
 mod approval;
 mod composer;
+mod header;
 mod input;
+mod model_selector;
 mod session;
 mod sidebar;
 mod ui;
+mod welcome;
 
 pub use approval::ApprovalState;
 pub use composer::{ComposerMode, ComposerState};
+pub use header::HeaderState;
 pub use input::InputState;
+pub use model_selector::ModelSelectorState;
 pub use session::{SessionStats, SessionTrackingState};
 pub use sidebar::{SidebarCollapseState, SidebarSection};
 pub use ui::{ApprovalUIState, DiffNavigationState, UIState};
+pub use welcome::{RecentSessionInfo, WELCOME_TIPS, WelcomeState};
 
 /// Verbosity levels for TUI display
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -65,8 +71,8 @@ pub struct SessionEvent {
 pub struct ModifiedFile {
     /// File path
     pub path: String,
-    /// Modification type
-    pub mod_type: String, // "edited", "created", "deleted"
+    /// Modification type (edited, created, deleted)
+    pub mod_type: String,
 }
 
 /// Git diff entry for sidebar display
@@ -99,6 +105,8 @@ pub struct ConfigState {
     pub verbosity: VerbosityLevel,
     /// Git branch (if in a git repo)
     pub git_branch: Option<String>,
+    /// Path to config.toml (if provided by CLI)
+    pub config_path: Option<PathBuf>,
 }
 
 impl ConfigState {
@@ -114,6 +122,7 @@ impl ConfigState {
             allow_network: false,
             verbosity: VerbosityLevel::default(),
             git_branch: None,
+            config_path: None,
         }
     }
 
@@ -209,12 +218,23 @@ pub struct AppState {
     pub approval_ui: ApprovalUIState,
     /// Exit detection state
     pub exit_state: ExitState,
+    /// Welcome screen state
+    pub welcome: WelcomeState,
+    /// Session header state (minimal header with task title and stats)
+    pub session_header: HeaderState,
+    /// Model selector state (for footer model/agent selection)
+    pub model_selector: ModelSelectorState,
 }
 
 impl AppState {
     pub fn new(
         cwd: PathBuf, profile: String, provider: ProviderConfig, approval_mode: ApprovalMode, sandbox_mode: SandboxMode,
     ) -> Self {
+        let model_name = match &provider {
+            ProviderConfig::Glm { model, .. } => model.clone(),
+            ProviderConfig::Gemini { model, .. } => model.clone(),
+        };
+
         Self {
             config: ConfigState::new(cwd, profile, provider, approval_mode, sandbox_mode),
             session: SessionTrackingState::new(),
@@ -223,6 +243,9 @@ impl AppState {
             composer: ComposerState::new(),
             approval_ui: ApprovalUIState::default(),
             exit_state: ExitState::new(),
+            welcome: WelcomeState::new(),
+            session_header: HeaderState::new(),
+            model_selector: ModelSelectorState::new(model_name),
         }
     }
 
@@ -256,6 +279,18 @@ impl AppState {
 
     pub fn git_branch(&self) -> Option<&String> {
         self.config.git_branch.as_ref()
+    }
+
+    pub fn theme_variant(&self) -> crate::theme::ThemeVariant {
+        self.ui.theme_variant
+    }
+
+    pub fn set_theme_variant(&mut self, variant: crate::theme::ThemeVariant) {
+        self.ui.set_theme_variant(variant);
+    }
+
+    pub fn toggle_theme_variant(&mut self) {
+        self.ui.toggle_theme_variant();
     }
 
     pub fn model_name(&self) -> String {
@@ -338,6 +373,14 @@ impl AppState {
         self.ui.is_generating()
     }
 
+    pub fn advance_animation_frame(&mut self) {
+        self.ui.advance_animation_frame();
+    }
+
+    pub fn streaming_ellipsis(&self) -> &'static str {
+        self.ui.streaming_ellipsis()
+    }
+
     pub fn scroll_horizontal(&mut self, delta: i16) {
         self.ui.scroll_horizontal(delta);
     }
@@ -348,6 +391,18 @@ impl AppState {
 
     pub fn reset_scroll(&mut self) {
         self.ui.reset_scroll();
+    }
+
+    pub fn is_first_session(&self) -> bool {
+        self.ui.is_first_session
+    }
+
+    pub fn exit_first_session(&mut self) {
+        self.ui.exit_first_session();
+    }
+
+    pub fn set_first_session(&mut self, value: bool) {
+        self.ui.set_first_session(value);
     }
 
     pub fn sidebar_collapse_state(&self) -> &SidebarCollapseState {
@@ -490,6 +545,9 @@ impl Default for AppState {
             composer: ComposerState::default(),
             approval_ui: ApprovalUIState::default(),
             exit_state: ExitState::default(),
+            welcome: WelcomeState::default(),
+            session_header: HeaderState::default(),
+            model_selector: ModelSelectorState::new("glm-4.7".to_string()),
         }
     }
 }
@@ -516,8 +574,14 @@ mod tests {
 
         assert!(state.sidebar_visible());
         state.toggle_sidebar();
+        for _ in 0..10 {
+            state.ui.advance_sidebar_animation();
+        }
         assert!(!state.sidebar_visible());
         state.toggle_sidebar();
+        for _ in 0..10 {
+            state.ui.advance_sidebar_animation();
+        }
         assert!(state.sidebar_visible());
     }
 

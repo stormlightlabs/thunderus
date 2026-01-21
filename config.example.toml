@@ -33,6 +33,7 @@ model = "glm-4.7"
 # [profiles.default.options]
 # max_tokens = "8192"
 # temperature = "0.7"
+# theme = "iceberg"
 
 # Example profile for GLM-4.7
 [profiles.glm-work]

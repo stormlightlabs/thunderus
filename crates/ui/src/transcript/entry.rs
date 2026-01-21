@@ -1,5 +1,3 @@
-use crate::theme::Theme;
-
 use std::fmt;
 use thunderus_core::ApprovalDecision;
 
@@ -111,6 +109,13 @@ pub enum TranscriptEntry {
         can_retry: bool,
         context: Option<String>,
     },
+    /// Thinking indicator showing elapsed time
+    ThinkingIndicator {
+        /// Duration in seconds
+        duration_secs: f32,
+    },
+    /// Status line for current state
+    StatusLine { message: String, status_type: StatusType },
 }
 
 /// Error type classification for error entries
@@ -128,6 +133,24 @@ pub enum ErrorType {
     Cancelled,
     /// Generic error
     Other,
+}
+
+/// Status types for the status line display
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum StatusType {
+    /// Ready for input
+    #[default]
+    Ready,
+    /// Building/compiling
+    Building,
+    /// Generating response
+    Generating,
+    /// Waiting for approval
+    WaitingApproval,
+    /// Interrupted by user
+    Interrupted,
+    /// Idle
+    Idle,
 }
 
 impl TranscriptEntry {
@@ -325,6 +348,16 @@ impl TranscriptEntry {
         }
     }
 
+    /// Create a thinking indicator entry
+    pub fn thinking_indicator(duration_secs: f32) -> Self {
+        Self::ThinkingIndicator { duration_secs }
+    }
+
+    /// Create a status line entry
+    pub fn status_line(message: impl Into<String>, status_type: StatusType) -> Self {
+        Self::StatusLine { message: message.into(), status_type }
+    }
+
     /// Add context to an error entry
     pub fn with_error_context(mut self, context: impl Into<String>) -> Self {
         if let Self::ErrorEntry { context: ctx, .. } = &mut self {
@@ -357,16 +390,18 @@ impl TranscriptEntry {
             Self::ApprovalPrompt { .. } => "approval-prompt",
             Self::SystemMessage { .. } => "system-message",
             Self::ErrorEntry { .. } => "error-entry",
+            Self::ThinkingIndicator { .. } => "thinking-indicator",
+            Self::StatusLine { .. } => "status-line",
         }
     }
 
     /// Get risk level color as ratatui Color
-    pub fn risk_level_color_str(risk: &str) -> ratatui::style::Color {
+    pub fn risk_level_color(palette: crate::theme::ThemePalette, risk: &str) -> ratatui::style::Color {
         match risk {
-            "safe" => Theme::GREEN,
-            "risky" => Theme::YELLOW,
-            "dangerous" => Theme::RED,
-            _ => Theme::MUTED,
+            "safe" => palette.green,
+            "risky" => palette.yellow,
+            "dangerous" => palette.red,
+            _ => palette.muted,
         }
     }
 
@@ -441,17 +476,17 @@ impl fmt::Display for TranscriptEntry {
                 write!(f, "[{}] {} [{}]", tool, risk, Self::risk_emoji(risk))
             }
             Self::ToolResult { tool, success, .. } => {
-                write!(f, "[{}] {}", tool, if *success { "✅" } else { "❌" })
+                write!(f, "[{}] {}", tool, if *success { "OK" } else { "FAIL" })
             }
             Self::PatchDisplay { patch_name, file_path, .. } => {
                 write!(f, "[Patch] {} @ {}", patch_name, file_path)
             }
             Self::ApprovalPrompt { action, decision, risk, .. } => {
                 let status = match decision {
-                    None => "⏳",
-                    Some(ApprovalDecision::Approved) => "✅",
-                    Some(ApprovalDecision::Rejected) => "❌",
-                    Some(ApprovalDecision::Cancelled) => "⏹️",
+                    None => "PENDING",
+                    Some(ApprovalDecision::Approved) => "APPROVED",
+                    Some(ApprovalDecision::Rejected) => "REJECTED",
+                    Some(ApprovalDecision::Cancelled) => "CANCELLED",
                 };
                 write!(f, "[Approval] {} {} [{}]", action, status, risk)
             }
@@ -468,6 +503,12 @@ impl fmt::Display for TranscriptEntry {
                 let retry_hint = if *can_retry { " (Press R to retry)" } else { "" };
                 write!(f, "[Error: {}] {}{}", type_str, message, retry_hint)
             }
+            Self::ThinkingIndicator { duration_secs } => {
+                write!(f, "Thought for {:.0}s", duration_secs)
+            }
+            Self::StatusLine { message, .. } => {
+                write!(f, ":: {}", message)
+            }
         }
     }
 }
@@ -476,10 +517,10 @@ impl TranscriptEntry {
     /// Get emoji for risk level
     pub fn risk_emoji(risk: &str) -> &'static str {
         match risk {
-            "safe" => "🟢",
-            "risky" => "🟡",
-            "dangerous" => "🔴",
-            _ => "⚪",
+            "safe" => "OK",
+            "risky" => "!",
+            "dangerous" => "X",
+            _ => "?",
         }
     }
 }
@@ -572,7 +613,7 @@ mod tests {
         assert_eq!(entry.type_name(), "tool-call");
         assert!(!entry.is_pending());
         assert!(entry.to_string().contains("[fs.read]"));
-        assert!(entry.to_string().contains("🟢"));
+        assert!(entry.to_string().contains("OK"));
         assert!(entry.is_tool_entry());
         assert!(!entry.is_approval_entry());
     }
@@ -596,7 +637,7 @@ mod tests {
         assert_eq!(entry.type_name(), "tool-result");
         assert!(!entry.is_pending());
         assert!(entry.to_string().contains("[fs.read]"));
-        assert!(entry.to_string().contains("✅"));
+        assert!(entry.to_string().contains("OK"));
         assert!(entry.is_tool_entry());
     }
 
@@ -617,7 +658,7 @@ mod tests {
         let entry = TranscriptEntry::approval_prompt("patch.feature", "risky");
         assert_eq!(entry.type_name(), "approval-prompt");
         assert!(entry.is_pending());
-        assert!(entry.to_string().contains("⏳"));
+        assert!(entry.to_string().contains("PENDING"));
         assert!(entry.is_approval_entry());
         assert!(!entry.is_tool_entry());
     }
@@ -628,7 +669,7 @@ mod tests {
             TranscriptEntry::approval_prompt("patch.feature", "risky").with_decision(ApprovalDecision::Approved);
 
         assert!(!entry.is_pending());
-        assert!(entry.to_string().contains("✅"));
+        assert!(entry.to_string().contains("APPROVED"));
     }
 
     #[test]
@@ -651,18 +692,19 @@ mod tests {
             assert_eq!(risk, "unknown");
         }
 
-        assert_eq!(TranscriptEntry::risk_level_color_str("safe"), Theme::GREEN);
-        assert_eq!(TranscriptEntry::risk_level_color_str("risky"), Theme::YELLOW);
-        assert_eq!(TranscriptEntry::risk_level_color_str("dangerous"), Theme::RED);
-        assert_eq!(TranscriptEntry::risk_level_color_str("unknown"), Theme::MUTED);
+        let palette = crate::theme::Theme::palette(crate::theme::ThemeVariant::Iceberg);
+        assert_eq!(TranscriptEntry::risk_level_color(palette, "safe"), palette.green);
+        assert_eq!(TranscriptEntry::risk_level_color(palette, "risky"), palette.yellow);
+        assert_eq!(TranscriptEntry::risk_level_color(palette, "dangerous"), palette.red);
+        assert_eq!(TranscriptEntry::risk_level_color(palette, "unknown"), palette.muted);
     }
 
     #[test]
-    fn test_risk_color_emojis() {
-        assert_eq!(TranscriptEntry::risk_emoji("safe"), "🟢");
-        assert_eq!(TranscriptEntry::risk_emoji("risky"), "🟡");
-        assert_eq!(TranscriptEntry::risk_emoji("dangerous"), "🔴");
-        assert_eq!(TranscriptEntry::risk_emoji("unknown"), "⚪");
+    fn test_risk_color_markers() {
+        assert_eq!(TranscriptEntry::risk_emoji("safe"), "OK");
+        assert_eq!(TranscriptEntry::risk_emoji("risky"), "!");
+        assert_eq!(TranscriptEntry::risk_emoji("dangerous"), "X");
+        assert_eq!(TranscriptEntry::risk_emoji("unknown"), "?");
     }
 
     #[test]

@@ -1,4 +1,5 @@
-use crate::transcript::{Transcript as TranscriptState, TranscriptRenderer};
+use crate::theme::ThemePalette;
+use crate::transcript::{RenderOptions, Transcript as TranscriptState, TranscriptRenderer};
 use ratatui::{Frame, layout::Rect};
 
 /// Transcript component displaying of conversation
@@ -11,14 +12,24 @@ pub struct Transcript<'a> {
 }
 
 impl<'a> Transcript<'a> {
-    pub fn new(transcript: &'a TranscriptState) -> Self {
-        let renderer = TranscriptRenderer::new(transcript);
+    pub fn new(transcript: &'a TranscriptState, theme: ThemePalette) -> Self {
+        let renderer = TranscriptRenderer::new(transcript, theme);
         Self { transcript, renderer }
     }
 
     /// Create a new transcript component with vertical scroll offset
-    pub fn with_vertical_scroll(transcript: &'a TranscriptState, scroll: u16) -> Self {
-        let renderer = TranscriptRenderer::with_vertical_scroll(transcript, scroll);
+    pub fn with_vertical_scroll(
+        transcript: &'a TranscriptState, scroll: u16, theme: ThemePalette, options: RenderOptions,
+    ) -> Self {
+        let renderer = TranscriptRenderer::with_vertical_scroll(transcript, scroll, theme, options);
+        Self { transcript, renderer }
+    }
+
+    /// Create a new transcript component with streaming ellipsis animation
+    pub fn with_streaming_ellipsis(
+        transcript: &'a TranscriptState, scroll: u16, ellipsis: &'a str, theme: ThemePalette, options: RenderOptions,
+    ) -> Self {
+        let renderer = TranscriptRenderer::with_streaming_ellipsis(transcript, scroll, ellipsis, theme, options);
         Self { transcript, renderer }
     }
 
@@ -40,7 +51,8 @@ mod tests {
     #[test]
     fn test_transcript_new() {
         let transcript_state = TranscriptState::new();
-        let component = Transcript::new(&transcript_state);
+        let theme = crate::theme::Theme::palette(crate::theme::ThemeVariant::Iceberg);
+        let component = Transcript::new(&transcript_state, theme);
         assert_eq!(component.inner().len(), 0);
     }
 
@@ -50,14 +62,16 @@ mod tests {
         transcript_state.add_user_message("Hello");
         transcript_state.add_model_response("Hi there");
 
-        let component = Transcript::new(&transcript_state);
+        let theme = crate::theme::Theme::palette(crate::theme::ThemeVariant::Iceberg);
+        let component = Transcript::new(&transcript_state, theme);
         assert_eq!(component.inner().len(), 2);
     }
 
     #[test]
     fn test_transcript_inner() {
         let transcript_state = TranscriptState::new();
-        let component = Transcript::new(&transcript_state);
+        let theme = crate::theme::Theme::palette(crate::theme::ThemeVariant::Iceberg);
+        let component = Transcript::new(&transcript_state, theme);
 
         assert_eq!(component.inner(), &transcript_state);
     }

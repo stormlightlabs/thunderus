@@ -14,6 +14,6 @@ pub use event_handler::{EventHandler, KeyAction};
 pub use fuzzy_finder::{FileEntry, FuzzyFinder, SortMode};
 pub use state::{AppState, ComposerMode, InputState};
 pub use syntax::SyntaxHighlighter;
-pub use theme::Theme;
+pub use theme::{Theme, ThemeVariant};
 pub use transcript::{ApprovalDecision, Transcript, TranscriptEntry, TranscriptRenderer};
 pub use tui_approval::TuiApprovalHandle;

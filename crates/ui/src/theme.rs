@@ -1,162 +1,179 @@
 use ratatui::style::{Color, Style};
 use ratatui::text::Span;
 
-/// Iceberg color theme for Thunderus TUI
-///
-/// Based on iceberg.vim color scheme (https://github.com/cocopon/iceberg.vim)
-/// Bluish dark theme designed for extended coding sessions with eye-friendly colors.
+/// Theme variant options supported by Thunderus.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThemeVariant {
+    Iceberg,
+    Oxocarbon,
+}
+
+impl ThemeVariant {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ThemeVariant::Iceberg => "iceberg",
+            ThemeVariant::Oxocarbon => "oxocarbon",
+        }
+    }
+
+    pub fn parse_str(value: &str) -> Option<Self> {
+        match value.to_lowercase().as_str() {
+            "iceberg" => Some(Self::Iceberg),
+            "oxocarbon" => Some(Self::Oxocarbon),
+            _ => None,
+        }
+    }
+}
+
+/// Color palette for a given theme variant.
 #[derive(Debug, Clone, Copy)]
+pub struct ThemePalette {
+    pub bg: Color,
+    pub fg: Color,
+    pub panel_bg: Color,
+    pub active: Color,
+    pub highlight: Color,
+    pub comment: Color,
+    pub blue: Color,
+    pub cyan: Color,
+    pub purple: Color,
+    pub green: Color,
+    pub yellow: Color,
+    pub red: Color,
+    pub muted: Color,
+    pub border: Color,
+    pub black: Color,
+}
+
+/// Theme helpers for Thunderus TUI.
 pub struct Theme;
 
 impl Theme {
-    /// Primary background: deep blue-black (fills terminal)
-    pub const BG: Color = Color::Rgb(22, 24, 33);
-
-    /// Foreground: light blue-gray (primary text)
-    pub const FG: Color = Color::Rgb(198, 200, 209);
-
-    /// Secondary background: lighter blue-black (panels, cards, input)
-    pub const PANEL_BG: Color = Color::Rgb(30, 33, 50);
-
-    /// Hover/active states: visual selection
-    pub const ACTIVE: Color = Color::Rgb(39, 44, 66);
-
-    /// Highlight color for focused elements
-    pub const HIGHLIGHT: Color = Color::Rgb(39, 44, 66);
-
-    /// Comments: dim blue-gray
-    pub const COMMENT: Color = Color::Rgb(107, 112, 137);
-
-    /// Primary accent: blue
-    pub const BLUE: Color = Color::Rgb(132, 160, 198);
-
-    /// Secondary accent: cyan
-    pub const CYAN: Color = Color::Rgb(137, 184, 194);
-
-    /// Tertiary accent: purple
-    pub const PURPLE: Color = Color::Rgb(160, 147, 199);
-
-    /// Safe operations: green (borders, success)
-    pub const GREEN: Color = Color::Rgb(180, 190, 130);
-
-    /// Risky operations: yellow (requires approval)
-    pub const YELLOW: Color = Color::Rgb(226, 164, 120);
-
-    /// Errors: red (failures, destructive actions)
-    pub const RED: Color = Color::Rgb(226, 120, 120);
-
-    /// Muted text: dimmed foreground
-    pub const MUTED: Color = Color::Rgb(107, 112, 137);
-
-    /// Border color
-    pub const BORDER: Color = Color::Rgb(60, 65, 90);
-
-    /// Black color
-    pub const BLACK: Color = Color::Rgb(22, 24, 33);
-
-    /// Base style for all text
-    pub fn base() -> Style {
-        Style::default().fg(Self::FG).bg(Self::BG)
-    }
-
-    /// Primary accent style
-    pub fn primary() -> Style {
-        Style::default().fg(Self::BLUE).bg(Self::BG)
-    }
-
-    /// Success style
-    pub fn success() -> Style {
-        Style::default().fg(Self::GREEN).bg(Self::BG)
-    }
-
-    /// Warning style (for approval prompts)
-    pub fn warning() -> Style {
-        Style::default().fg(Self::YELLOW).bg(Self::BG)
-    }
-
-    /// Error style
-    pub fn error() -> Style {
-        Style::default().fg(Self::RED).bg(Self::BG)
-    }
-
-    /// Muted style (for secondary text)
-    pub fn muted() -> Style {
-        Style::default().fg(Self::MUTED).bg(Self::BG)
-    }
-
-    /// Panel style
-    pub fn panel() -> Style {
-        Style::default().fg(Self::FG).bg(Self::PANEL_BG)
-    }
-
-    /// Border style
-    pub fn border() -> Style {
-        Style::default().fg(Self::BORDER)
-    }
-
-    /// Active (selected) style
-    pub fn active() -> Style {
-        Style::default().fg(Self::FG).bg(Self::ACTIVE)
-    }
-
-    /// Get approval mode color
-    pub fn approval_mode_color(mode: &str) -> Color {
-        match mode {
-            "read-only" => Self::CYAN,
-            "auto" => Self::BLUE,
-            "full-access" => Self::YELLOW,
-            _ => Self::MUTED,
+    pub fn palette(variant: ThemeVariant) -> ThemePalette {
+        match variant {
+            ThemeVariant::Iceberg => ThemePalette {
+                bg: Color::Rgb(22, 24, 33),
+                fg: Color::Rgb(198, 200, 209),
+                panel_bg: Color::Rgb(30, 33, 50),
+                active: Color::Rgb(39, 44, 66),
+                highlight: Color::Rgb(39, 44, 66),
+                comment: Color::Rgb(107, 112, 137),
+                blue: Color::Rgb(132, 160, 198),
+                cyan: Color::Rgb(137, 184, 194),
+                purple: Color::Rgb(160, 147, 199),
+                green: Color::Rgb(180, 190, 130),
+                yellow: Color::Rgb(226, 164, 120),
+                red: Color::Rgb(226, 120, 120),
+                muted: Color::Rgb(107, 112, 137),
+                border: Color::Rgb(107, 112, 137),
+                black: Color::Rgb(22, 24, 33),
+            },
+            ThemeVariant::Oxocarbon => ThemePalette {
+                bg: Color::Rgb(22, 22, 22),
+                fg: Color::Rgb(242, 244, 248),
+                panel_bg: Color::Rgb(38, 38, 38),
+                active: Color::Rgb(57, 57, 57),
+                highlight: Color::Rgb(57, 57, 57),
+                comment: Color::Rgb(82, 82, 82),
+                blue: Color::Rgb(120, 169, 255),
+                cyan: Color::Rgb(8, 189, 186),
+                purple: Color::Rgb(190, 149, 255),
+                green: Color::Rgb(66, 190, 101),
+                yellow: Color::Rgb(255, 126, 182),
+                red: Color::Rgb(238, 83, 150),
+                muted: Color::Rgb(82, 82, 82),
+                border: Color::Rgb(82, 82, 82),
+                black: Color::Rgb(22, 22, 22),
+            },
         }
     }
 
-    /// Get span with approval mode styling
-    pub fn approval_mode_span(mode: &str) -> Span<'_> {
-        Span::styled(mode, Style::default().fg(Self::approval_mode_color(mode)))
+    pub fn base(palette: ThemePalette) -> Style {
+        Style::default().fg(palette.fg).bg(palette.bg)
     }
 
-    /// Get tool risk level color
-    pub fn risk_level_color(risk: &str) -> Color {
+    pub fn primary(palette: ThemePalette) -> Style {
+        Style::default().fg(palette.blue).bg(palette.bg)
+    }
+
+    pub fn success(palette: ThemePalette) -> Style {
+        Style::default().fg(palette.green).bg(palette.bg)
+    }
+
+    pub fn warning(palette: ThemePalette) -> Style {
+        Style::default().fg(palette.yellow).bg(palette.bg)
+    }
+
+    pub fn error(palette: ThemePalette) -> Style {
+        Style::default().fg(palette.red).bg(palette.bg)
+    }
+
+    pub fn muted(palette: ThemePalette) -> Style {
+        Style::default().fg(palette.muted).bg(palette.bg)
+    }
+
+    pub fn panel(palette: ThemePalette) -> Style {
+        Style::default().fg(palette.fg).bg(palette.panel_bg)
+    }
+
+    pub fn border(palette: ThemePalette) -> Style {
+        Style::default().fg(palette.border)
+    }
+
+    pub fn active(palette: ThemePalette) -> Style {
+        Style::default().fg(palette.fg).bg(palette.active)
+    }
+
+    pub fn approval_mode_color(palette: ThemePalette, mode: &str) -> Color {
+        match mode {
+            "read-only" => palette.cyan,
+            "auto" => palette.blue,
+            "full-access" => palette.yellow,
+            _ => palette.muted,
+        }
+    }
+
+    pub fn approval_mode_span(palette: ThemePalette, mode: &str) -> Span<'_> {
+        Span::styled(mode, Style::default().fg(Self::approval_mode_color(palette, mode)))
+    }
+
+    pub fn risk_level_color(palette: ThemePalette, risk: &str) -> Color {
         match risk {
-            "safe" => Self::GREEN,
-            "risky" => Self::YELLOW,
-            "dangerous" => Self::RED,
-            _ => Self::MUTED,
+            "safe" => palette.green,
+            "risky" => palette.yellow,
+            "dangerous" => palette.red,
+            _ => palette.muted,
         }
     }
 
-    /// Get span with risk level styling
-    pub fn risk_level_span(risk: &str) -> Span<'_> {
-        Span::styled(risk, Style::default().fg(Self::risk_level_color(risk)))
+    pub fn risk_level_span(palette: ThemePalette, risk: &str) -> Span<'_> {
+        Span::styled(risk, Style::default().fg(Self::risk_level_color(palette, risk)))
     }
 
-    /// Get sandbox mode color
-    pub fn sandbox_mode_color(mode: &str) -> Color {
+    pub fn sandbox_mode_color(palette: ThemePalette, mode: &str) -> Color {
         match mode {
-            "policy" => Self::GREEN,
-            "os" => Self::YELLOW,
-            "none" => Self::RED,
-            _ => Self::MUTED,
+            "policy" => palette.green,
+            "os" => palette.yellow,
+            "none" => palette.red,
+            _ => palette.muted,
         }
     }
 
-    /// Get span with sandbox mode styling
-    pub fn sandbox_mode_span(mode: &str) -> Span<'_> {
-        Span::styled(mode, Style::default().fg(Self::sandbox_mode_color(mode)))
+    pub fn sandbox_mode_span(palette: ThemePalette, mode: &str) -> Span<'_> {
+        Span::styled(mode, Style::default().fg(Self::sandbox_mode_color(palette, mode)))
     }
 
-    /// Get verbosity level color
-    pub fn verbosity_color(level: &str) -> Color {
+    pub fn verbosity_color(palette: ThemePalette, level: &str) -> Color {
         match level {
-            "quiet" => Self::MUTED,
-            "default" => Self::BLUE,
-            "verbose" => Self::PURPLE,
-            _ => Self::MUTED,
+            "quiet" => palette.muted,
+            "default" => palette.blue,
+            "verbose" => palette.purple,
+            _ => palette.muted,
         }
     }
 
-    /// Get span with verbosity level styling
-    pub fn verbosity_span(level: &str) -> Span<'_> {
-        Span::styled(level, Style::default().fg(Self::verbosity_color(level)))
+    pub fn verbosity_span(palette: ThemePalette, level: &str) -> Span<'_> {
+        Span::styled(level, Style::default().fg(Self::verbosity_color(palette, level)))
     }
 }
 
@@ -166,35 +183,39 @@ mod tests {
 
     #[test]
     fn test_color_values() {
-        assert!(matches!(Theme::BG, Color::Rgb(_, _, _)));
-        assert!(matches!(Theme::FG, Color::Rgb(_, _, _)));
-        assert!(matches!(Theme::PANEL_BG, Color::Rgb(_, _, _)));
+        let iceberg = Theme::palette(ThemeVariant::Iceberg);
+        assert!(matches!(iceberg.bg, Color::Rgb(_, _, _)));
+        assert!(matches!(iceberg.fg, Color::Rgb(_, _, _)));
+        assert!(matches!(iceberg.panel_bg, Color::Rgb(_, _, _)));
     }
 
     #[test]
     fn test_approval_mode_colors() {
-        assert_eq!(Theme::approval_mode_color("read-only"), Theme::CYAN);
-        assert_eq!(Theme::approval_mode_color("auto"), Theme::BLUE);
-        assert_eq!(Theme::approval_mode_color("full-access"), Theme::YELLOW);
-        assert_eq!(Theme::approval_mode_color("unknown"), Theme::MUTED);
+        let palette = Theme::palette(ThemeVariant::Iceberg);
+        assert_eq!(Theme::approval_mode_color(palette, "read-only"), palette.cyan);
+        assert_eq!(Theme::approval_mode_color(palette, "auto"), palette.blue);
+        assert_eq!(Theme::approval_mode_color(palette, "full-access"), palette.yellow);
+        assert_eq!(Theme::approval_mode_color(palette, "unknown"), palette.muted);
     }
 
     #[test]
     fn test_risk_level_colors() {
-        assert_eq!(Theme::risk_level_color("safe"), Theme::GREEN);
-        assert_eq!(Theme::risk_level_color("risky"), Theme::YELLOW);
-        assert_eq!(Theme::risk_level_color("dangerous"), Theme::RED);
-        assert_eq!(Theme::risk_level_color("unknown"), Theme::MUTED);
+        let palette = Theme::palette(ThemeVariant::Iceberg);
+        assert_eq!(Theme::risk_level_color(palette, "safe"), palette.green);
+        assert_eq!(Theme::risk_level_color(palette, "risky"), palette.yellow);
+        assert_eq!(Theme::risk_level_color(palette, "dangerous"), palette.red);
+        assert_eq!(Theme::risk_level_color(palette, "unknown"), palette.muted);
     }
 
     #[test]
     fn test_styles() {
-        let base = Theme::base();
-        assert_eq!(base.fg, Some(Theme::FG));
-        assert_eq!(base.bg, Some(Theme::BG));
+        let palette = Theme::palette(ThemeVariant::Iceberg);
+        let base = Theme::base(palette);
+        assert_eq!(base.fg, Some(palette.fg));
+        assert_eq!(base.bg, Some(palette.bg));
 
-        let panel = Theme::panel();
-        assert_eq!(panel.fg, Some(Theme::FG));
-        assert_eq!(panel.bg, Some(Theme::PANEL_BG));
+        let panel = Theme::panel(palette);
+        assert_eq!(panel.fg, Some(palette.fg));
+        assert_eq!(panel.bg, Some(palette.panel_bg));
     }
 }

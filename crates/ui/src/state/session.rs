@@ -35,6 +35,8 @@ impl SessionStats {
 /// Session tracking data
 #[derive(Debug, Clone)]
 pub struct SessionTrackingState {
+    /// Session ID (if available)
+    pub session_id: Option<String>,
     /// Session statistics
     pub stats: SessionStats,
     /// Session events for sidebar
@@ -52,6 +54,7 @@ pub struct SessionTrackingState {
 impl SessionTrackingState {
     pub fn new() -> Self {
         Self {
+            session_id: None,
             stats: SessionStats::default(),
             session_events: Vec::new(),
             modified_files: Vec::new(),

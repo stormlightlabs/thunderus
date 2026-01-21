@@ -241,7 +241,7 @@ impl EventHandler {
                     } else if state.record_ctrl_c_press() {
                         return Some(KeyAction::Exit);
                     } else {
-                        state.reset_ctrl_c_count();
+                        state.show_hint("Press Ctrl+C again to exit");
                     }
                 } else if event.modifiers.contains(KeyModifiers::CONTROL) && c == 's' {
                     state.toggle_sidebar();
@@ -253,10 +253,9 @@ impl EventHandler {
                 } else if event.modifiers.contains(KeyModifiers::CONTROL) && c == 'u' {
                     return Some(KeyAction::PageUp);
                 } else if event.modifiers.contains(KeyModifiers::CONTROL) && c == 'd' {
-                    if state.input.buffer.is_empty() && !state.is_generating() {
-                        return Some(KeyAction::Exit);
-                    }
-                    return Some(KeyAction::PageDown);
+                    return Some(KeyAction::Exit);
+                } else if event.modifiers.contains(KeyModifiers::CONTROL) && c == 't' {
+                    return Some(KeyAction::ToggleTheme);
                 } else if event.modifiers.contains(KeyModifiers::CONTROL) && c == 'r' {
                     return Some(KeyAction::RetryLastFailedAction);
                 } else if event.modifiers.contains(KeyModifiers::CONTROL) && c == 'l' {
@@ -413,6 +412,8 @@ pub enum KeyAction {
     /// Toggle sidebar section collapse
     /// TODO: individual section control
     ToggleSidebarSection,
+    /// Toggle theme variant
+    ToggleTheme,
     /// Open external editor for current input
     OpenExternalEditor,
     /// Navigate message history (handled internally by InputState)
@@ -1029,18 +1030,16 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_normal_key_ctrl_d_page_down() {
+    fn test_handle_normal_key_ctrl_d_exits() {
         let mut state = create_test_state();
         let event = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL);
         let action = EventHandler::handle_key_event(event, &mut state);
-
         assert!(matches!(action, Some(KeyAction::Exit)));
 
         state.input.insert_char('a');
         let event = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL);
         let action = EventHandler::handle_key_event(event, &mut state);
-
-        assert!(matches!(action, Some(KeyAction::PageDown)));
+        assert!(matches!(action, Some(KeyAction::Exit)));
     }
 
     #[test]

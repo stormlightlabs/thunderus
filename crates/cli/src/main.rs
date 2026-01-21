@@ -95,8 +95,12 @@ fn run() -> Result<()> {
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async {
         match cli.command {
-            None | Some(Commands::Start { dir: None }) => cmd_start(config, cli.dir, cli.profile, cli.verbose).await,
-            Some(Commands::Start { dir }) => cmd_start(config, dir, cli.profile, cli.verbose).await,
+            None | Some(Commands::Start { dir: None }) => {
+                cmd_start(config, config_path.clone(), cli.dir, cli.profile, cli.verbose).await
+            }
+            Some(Commands::Start { dir }) => {
+                cmd_start(config, config_path.clone(), dir, cli.profile, cli.verbose).await
+            }
             Some(Commands::Exec { command, args }) => cmd_exec(config, command, args, cli.verbose),
             Some(Commands::Status) => cmd_status(config, cli.verbose),
             Some(Commands::Completions { shell }) => print_completions(shell, &mut Cli::command()),
@@ -145,7 +149,9 @@ fn detect_git_branch(path: &Path) -> Option<String> {
 }
 
 /// Start the interactive TUI session
-async fn cmd_start(config: Config, dir: Option<PathBuf>, profile_name: Option<String>, verbose: bool) -> Result<()> {
+async fn cmd_start(
+    config: Config, config_path: PathBuf, dir: Option<PathBuf>, profile_name: Option<String>, verbose: bool,
+) -> Result<()> {
     let working_dir = if let Some(d) = dir { d } else { std::env::current_dir()? };
 
     let profile_name = profile_name.unwrap_or_else(|| config.default_profile.clone());
@@ -242,13 +248,21 @@ async fn cmd_start(config: Config, dir: Option<PathBuf>, profile_name: Option<St
 
     let git_branch = detect_git_branch(&working_dir);
 
-    let app_state = AppState::new(
+    let mut app_state = AppState::new(
         working_dir.clone(),
         profile_name.clone(),
         profile.provider.clone(),
         profile.approval_mode,
         profile.sandbox_mode,
     );
+
+    app_state.config.config_path = Some(config_path.clone());
+
+    if let Some(theme_value) = profile.options.get("theme")
+        && let Some(variant) = thunderus_ui::ThemeVariant::parse_str(theme_value)
+    {
+        app_state.set_theme_variant(variant);
+    }
 
     let mut app = thunderus_ui::App::new(app_state).with_session(session.clone());
 
@@ -269,22 +283,6 @@ async fn cmd_start(config: Config, dir: Option<PathBuf>, profile_name: Option<St
 
         app.transcript_mut()
             .add_system_message(format!("Session recovered: {}", session.id));
-    } else {
-        let welcome_msg = format!(
-            "Session started\n\
-             Session ID: {}\n\
-             Working directory: {}\n\
-             Profile: {}\n\
-             Approval mode: {}\n\
-             Sandbox mode: {}\n\
-             Quick help: Ctrl+C to cancel, Esc to clear input",
-            session.id,
-            working_dir.display(),
-            profile_name,
-            profile.approval_mode,
-            profile.sandbox_mode
-        );
-        app.transcript_mut().add_system_message(welcome_msg);
     }
 
     match app.run().await {
@@ -561,7 +559,15 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let config = create_test_config();
         let working_dir = temp.path().to_path_buf();
-        let result = cmd_start(config, Some(working_dir), Some("nonexistent".to_string()), false).await;
+        let config_path = temp.path().join("config.toml");
+        let result = cmd_start(
+            config,
+            config_path,
+            Some(working_dir),
+            Some("nonexistent".to_string()),
+            false,
+        )
+        .await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("profile"));
     }

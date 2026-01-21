@@ -1,11 +1,11 @@
 use crate::components::{
-    Footer, FuzzyFinderComponent, Header, Sidebar, TeachingHintPopup, Transcript as TranscriptComponent,
+    Footer, FuzzyFinderComponent, Header, Sidebar, TeachingHintPopup, Transcript as TranscriptComponent, WelcomeView,
 };
 use crate::event_handler::{EventHandler, KeyAction};
 use crate::layout::TuiLayout;
 use crate::state::VerbosityLevel;
 use crate::state::{AppState, ApprovalState};
-use crate::transcript::{CardDetailLevel, ErrorType, Transcript as TranscriptState};
+use crate::transcript::{CardDetailLevel, ErrorType, RenderOptions, Transcript as TranscriptState};
 use crate::tui_approval::{TuiApprovalHandle, TuiApprovalProtocol};
 
 use crossterm;
@@ -16,7 +16,7 @@ use std::{process::Command, sync::Arc, time::Duration};
 use thunderus_agent::{Agent, AgentEvent};
 use thunderus_core::teaching::suggest_concept;
 use thunderus_core::{
-    ActionType, ApprovalDecision, ApprovalGate, ApprovalMode, ApprovalProtocol, Session, SessionId, ToolRisk,
+    ActionType, ApprovalDecision, ApprovalGate, ApprovalMode, ApprovalProtocol, Config, Session, SessionId, ToolRisk,
 };
 use thunderus_providers::{CancelToken, Provider};
 use thunderus_tools::ToolRegistry;
@@ -81,6 +81,7 @@ impl App {
 
     /// Set the session for event persistence
     pub fn with_session(mut self, session: Session) -> Self {
+        self.state.session.session_id = Some(session.id.to_string());
         self.session = Some(session);
         self
     }
@@ -170,6 +171,43 @@ impl App {
             && let Err(e) = session.append_approval(action, approved)
         {
             let warning = format!("Warning: Failed to persist approval: {}", e);
+            eprintln!("{}", warning);
+            self.transcript_mut().add_system_message(warning);
+        }
+    }
+
+    /// Persist the selected theme variant back to config.toml if available.
+    fn persist_theme_variant(&mut self) {
+        let Some(config_path) = self.state.config.config_path.clone() else {
+            return;
+        };
+
+        let profile_name = self.state.config.profile.clone();
+        let variant = self.state.theme_variant();
+
+        let mut config = match Config::from_file(&config_path) {
+            Ok(config) => config,
+            Err(e) => {
+                let warning = format!("Warning: Failed to load config for theme update: {}", e);
+                eprintln!("{}", warning);
+                self.transcript_mut().add_system_message(warning);
+                return;
+            }
+        };
+
+        if let Some(profile) = config.profiles.get_mut(&profile_name) {
+            profile
+                .options
+                .insert("theme".to_string(), variant.as_str().to_string());
+        } else {
+            let warning = format!("Warning: Profile '{}' not found for theme update", profile_name);
+            eprintln!("{}", warning);
+            self.transcript_mut().add_system_message(warning);
+            return;
+        }
+
+        if let Err(e) = config.save_to_file(&config_path) {
+            let warning = format!("Warning: Failed to save theme selection: {}", e);
             eprintln!("{}", warning);
             self.transcript_mut().add_system_message(warning);
         }
@@ -267,6 +305,9 @@ impl App {
             }
         }
 
+        let is_empty = self.transcript.is_empty();
+        self.state_mut().set_first_session(is_empty);
+
         Ok(())
     }
 
@@ -363,6 +404,7 @@ impl App {
                     self.state_mut().session.last_message = Some(message.clone());
                     self.transcript_mut().add_user_message(&message);
                     self.persist_user_message(&message);
+                    self.state_mut().exit_first_session();
 
                     if let Some(provider) = self.provider.clone() {
                         self.spawn_agent_for_message(message, &provider);
@@ -379,7 +421,7 @@ impl App {
                     self.cancel_token.cancel();
                     self.state_mut().stop_generation();
                     self.transcript_mut()
-                        .add_cancellation_error("Generation cancelled by user");
+                        .mark_streaming_cancelled("Generation cancelled by user");
                 }
                 KeyAction::Exit => {
                     self.should_exit = true;
@@ -410,6 +452,13 @@ impl App {
                         self.transcript_mut()
                             .add_system_message("No previous message to retry.");
                     }
+                }
+                KeyAction::ToggleTheme => {
+                    self.state_mut().toggle_theme_variant();
+                    self.persist_theme_variant();
+                    let variant = self.state.theme_variant().as_str();
+                    self.transcript_mut()
+                        .add_system_message(format!("Theme switched to {}", variant));
                 }
                 KeyAction::ToggleSidebar | KeyAction::ToggleVerbosity | KeyAction::ToggleSidebarSection => (),
                 KeyAction::OpenExternalEditor => self.open_external_editor(),
@@ -597,15 +646,12 @@ impl App {
                         .state_mut()
                         .patches_mut()
                         .get_mut(patch_idx)
-                        .map(|patch| patch.approve_hunk(&file_path, hunk_idx));
+                        .ok_or_else(|| "Patch not found".to_string())
+                        .and_then(|patch| patch.approve_hunk(&file_path, hunk_idx));
 
-                    match result {
-                        Some(Ok(_)) => {}
-                        Some(Err(e)) => {
-                            self.transcript_mut()
-                                .add_system_message(format!("Failed to approve hunk: {}", e));
-                        }
-                        None => {}
+                    if let Err(e) = result {
+                        self.transcript_mut()
+                            .add_system_message(format!("Failed to approve hunk: {}", e));
                     }
                 }
                 KeyAction::RejectHunk => {
@@ -625,15 +671,12 @@ impl App {
                         .state_mut()
                         .patches_mut()
                         .get_mut(patch_idx)
-                        .map(|patch| patch.reject_hunk(&file_path, hunk_idx));
+                        .ok_or_else(|| "Patch not found".to_string())
+                        .and_then(|patch| patch.reject_hunk(&file_path, hunk_idx));
 
-                    match result {
-                        Some(Ok(_)) => {}
-                        Some(Err(e)) => {
-                            self.transcript_mut()
-                                .add_system_message(format!("Failed to reject hunk: {}", e));
-                        }
-                        None => {}
+                    if let Err(e) = result {
+                        self.transcript_mut()
+                            .add_system_message(format!("Failed to reject hunk: {}", e));
                     }
                 }
                 KeyAction::ToggleHunkDetails => {
@@ -865,15 +908,64 @@ impl App {
     }
 
     /// Draw the UI
-    pub fn draw(&self, terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<()> {
+    pub fn draw(&mut self, terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<()> {
+        if self.state.is_generating() || self.state.approval_ui.pending_approval.is_some() {
+            self.state.advance_animation_frame();
+        }
+        if self.state.ui.sidebar_animation.is_some() {
+            self.state.ui.advance_sidebar_animation();
+        }
+
         terminal.draw(|frame| {
             let size = frame.area();
-            let layout = TuiLayout::calculate(size, self.state.ui.sidebar_visible);
-            let header = Header::new(&self.state);
+            let theme = crate::theme::Theme::palette(self.state.theme_variant());
+            frame.render_widget(
+                ratatui::widgets::Block::default().style(ratatui::style::Style::default().bg(theme.bg)),
+                size,
+            );
+
+            if self.state.is_first_session() && self.transcript.is_empty() {
+                let welcome = WelcomeView::new(&self.state, size);
+                welcome.render(frame);
+                if self.state.is_fuzzy_finder_active() {
+                    let fuzzy_finder = FuzzyFinderComponent::new(&self.state);
+                    fuzzy_finder.render(frame);
+                }
+
+                return;
+            }
+
+            let layout = TuiLayout::calculate(
+                size,
+                self.state.ui.sidebar_visible,
+                self.state.ui.sidebar_width_override(),
+            );
+            let header = Header::new(&self.state.session_header);
             header.render(frame, layout.header);
 
-            let transcript_component =
-                TranscriptComponent::with_vertical_scroll(&self.transcript, self.state.ui.scroll_vertical);
+            let theme = crate::theme::Theme::palette(self.state.theme_variant());
+            let options = RenderOptions {
+                centered: false,
+                max_bubble_width: if layout.mode == crate::layout::LayoutMode::Full { None } else { Some(60) },
+                animation_frame: self.state.ui.animation_frame,
+            };
+            let ellipsis = self.state.streaming_ellipsis();
+            let transcript_component = if self.state.is_generating() {
+                TranscriptComponent::with_streaming_ellipsis(
+                    &self.transcript,
+                    self.state.ui.scroll_vertical,
+                    ellipsis,
+                    theme,
+                    options,
+                )
+            } else {
+                TranscriptComponent::with_vertical_scroll(
+                    &self.transcript,
+                    self.state.ui.scroll_vertical,
+                    theme,
+                    options,
+                )
+            };
             transcript_component.render(frame, layout.transcript);
 
             if let Some(sidebar_area) = layout.sidebar {
@@ -890,7 +982,8 @@ impl App {
             }
 
             if let Some(ref hint) = self.state.approval_ui.pending_hint {
-                let hint_popup = TeachingHintPopup::new(hint);
+                let theme = crate::theme::Theme::palette(self.state.theme_variant());
+                let hint_popup = TeachingHintPopup::new(hint, theme);
                 hint_popup.render(frame, size);
             }
         })?;
