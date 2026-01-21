@@ -138,7 +138,7 @@ Tasks:
           - `.thunderus/memory/core/CORE.local.md` (gitignored)
       - Implement hierarchical load precedence (repo root → cwd):
           - merge + override rules documented in CORE.md
-- [ ] Semantic memory contract:
+- [x] Semantic memory contract:
       - `.thunderus/memory/semantic/DECISIONS/ADR-xxxx.md` (ADR-lite)
       - `.thunderus/memory/semantic/FACTS/*.md` (stable facts)
 - [x] Procedural memory contract:
@@ -163,7 +163,7 @@ everything into context. Default to lexical retrieval; optionally augment with
 vector similarity later.
 
 Tasks:
-- [ ] Implement MemoryStore interface (backend: SQLite recommended):
+- [x] Implement MemoryStore interface (backend: SQLite):
       - put(namespace, key, content, metadata)
       - get(namespace, key)
       - search(query, filters) → ranked hits with snippets + citations
@@ -177,7 +177,7 @@ Tasks:
       - embed semantic/procedural + selected episodic recaps
       - add similarity hits only when lexical confidence is low
 - [ ] TUI:
-      - “Memory hits” panel: results + reasons + quick open
+      - "Memory hits" panel: results + reasons + quick open
 - [ ] Slash commands:
       - `/memory search <q>`
       - `/memory pin <id>` (pin a doc/chunk into current context set)
@@ -186,7 +186,7 @@ See |SCHEMAS.txt| section |schemas-memory-store| for SQLite schema.
 
 DoD:
 - Memory search returns ranked results with provenance citations and paths.
-- Index is rebuildable; no “mystery memory”.
+- Index is rebuildable; no "mystery memory".
 
 --------------------------------------------------------------------------------
 XII. MEMORY GARDENER  (CONSOLIDATION, DRIFT CONTROL, AND HYGIENE)    *agent-XII*
