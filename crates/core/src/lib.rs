@@ -25,9 +25,10 @@ pub use layout::{AgentDir, SessionId, SessionIdError, ViewFile};
 pub use memory::{
     CORE_MEMORY_DIR, CORE_MEMORY_FILE, CORE_MEMORY_HARD_LIMIT, CORE_MEMORY_SOFT_LIMIT, CoreMemory, CoreMemoryLint,
     CoreMemorySource, DECISIONS_DIR, EPISODIC_MEMORY_DIR, FACTS_DIR, INDEXES_DIR, LintSeverity, MANIFEST_FILE,
-    MEMORY_DIR, MEMORY_VERSION, MemoryDoc, MemoryFrontmatter, MemoryKind, MemoryPaths, PLAYBOOKS_DIR,
-    PROCEDURAL_MEMORY_DIR, ProceduralMemory, Provenance, SEMANTIC_MEMORY_DIR, SemanticMemory, SessionMeta, TAGS_FILE,
-    THUNDERUS_DIR_NAME, Verification, VerificationStatus,
+    MEMORY_DIR, MEMORY_VERSION, ManifestEntry, ManifestStats, MemoryDoc, MemoryFrontmatter, MemoryKind, MemoryManifest,
+    MemoryPaths, PLAYBOOKS_DIR, PROCEDURAL_MEMORY_DIR, ProceduralMemory, Provenance, ProvenanceInfo,
+    SEMANTIC_MEMORY_DIR, SemanticMemory, SessionMeta, TAGS_FILE, THUNDERUS_DIR_NAME, Verification, VerificationInfo,
+    VerificationStatus,
 };
 pub use patch::{Hunk, MemoryPatch, MemoryPatchParams, Patch, PatchId, PatchQueue};
 pub use patch_queue_manager::PatchQueueManager;

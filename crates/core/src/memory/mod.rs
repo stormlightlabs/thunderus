@@ -40,6 +40,8 @@
 mod core;
 mod document;
 mod kinds;
+mod lint;
+mod manifest;
 mod paths;
 mod procedural;
 mod semantic;
@@ -49,6 +51,8 @@ pub use core::{
 };
 pub use document::{MemoryDoc, MemoryFrontmatter, ValidationError};
 pub use kinds::{MemoryKind, Provenance, SessionMeta, Verification, VerificationStatus};
+pub use lint::{LintDiagnostic, LintRule, LintSeverity as MemoryLintSeverity, MemoryLinter};
+pub use manifest::{ManifestEntry, ManifestStats, MemoryManifest, ProvenanceInfo, VerificationInfo};
 pub use paths::{
     CORE_LOCAL_MEMORY_FILE, CORE_MEMORY_DIR, CORE_MEMORY_FILE, DECISIONS_DIR, EPISODIC_MEMORY_DIR, FACTS_DIR,
     INDEXES_DIR, MANIFEST_FILE, MEMORY_DIR, MemoryPaths, PLAYBOOKS_DIR, PROCEDURAL_MEMORY_DIR, SEMANTIC_MEMORY_DIR,
