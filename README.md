@@ -10,30 +10,30 @@
 ## OVERVIEW
 
 Thunderus is a coding agent harness built in Rust. It attempts to replicate and
-build upon the workflows of "Claude Code" and the "Codex CLI", but packaged as a
-standalone, provider-agnostic TUI tool.
+build upon the workflows of "Claude Code" and "Codex", but packaged as a standalone,
+provider-agnostic TUI tool.
 
-It is designed for developers who want an agent that works *in* their repos,
+It is designed for developers who want an agent that works _in_ their repos,
 following strict "diff-first" and "shell-gated" safety protocols.
 
 ## PHILOSOPHY
 
 1. Harness > Chat
-    The interface is a TUI work-bench, not a conversational UI.
+   The interface is a TUI work-bench, not a conversational UI.
 
 2. Shell-First
-    "Anything in the shell" is usable, but gated by approval modes.
+   "Anything in the shell" is usable, but gated by approval modes.
 
 3. Mixed-Initiative
-    Seamless collaboration.
-    If you type, the agent pauses.
-    If you edit, the agent reconciles.
+   Seamless collaboration.
+   If you type, the agent pauses.
+   If you edit, the agent reconciles.
 
 4. Teaching Through Transparency
-    Output teaches as it works.
-    Progressive disclosure reveals complexity on demand, building user
-    understanding of safety models, version control, and agent reasoning without
-    overwhelming.
+   Output teaches as it works.
+   Progressive disclosure reveals complexity on demand, building user
+   understanding of safety models, version control, and agent reasoning without
+   overwhelming.
 
 ## USAGE
 
@@ -51,11 +51,18 @@ For implementation status and tasks, see [ROADMAP.txt](doc/ROADMAP.txt).
 
 ## INSPIRATION
 
-Crush (charm) - <https://github.com/charmbracelet/crush>
-Claude Code   - <https://github.com/anthropics/claude-code>
-Codex (CLI)   - <https://github.com/anthropic/codex-cli>
-OpenClaudia   - <https://github.com/dollspace-gay/OpenClaudia>
+### For Agent Harness
 
-For VCS:
-Beads         - <https://github.com/steveyegge/beads>
-Chainlink     - <https://github.com/dollspace-gay/chainlink>
+| Tool          | Link                                           |
+| ------------- | ---------------------------------------------- |
+| Crush (charm) | <https://github.com/charmbracelet/crush>       |
+| Claude Code   | <https://github.com/anthropics/claude-code>    |
+| Codex (CLI)   | <https://github.com/anthropic/codex-cli>       |
+| OpenClaudia   | <https://github.com/dollspace-gay/OpenClaudia> |
+
+### For VCS
+
+| Tool      | Link                                         |
+| --------- | -------------------------------------------- |
+| Beads     | <https://github.com/steveyegge/beads>        |
+| Chainlink | <https://github.com/dollspace-gay/chainlink> |
