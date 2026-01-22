@@ -169,7 +169,7 @@ Tasks:
       - search(query, filters) → ranked hits with snippets + citations
 - [x] Build lexical index over memory docs + selected session recaps:
       - FTS index fields: title, headings, tags, body, updated, path, kind
-- [ ] Retrieval policy (wired into agent loop):
+- [x] Retrieval policy (wired into agent loop):
       - Before edits/tool execution: query memory store using task intent
       - Load top-k chunks into context (bounded)
       - Always include citations: file path + heading anchor + event ids

@@ -1,11 +1,11 @@
 use futures::StreamExt;
 use std::sync::{Arc, RwLock};
-use tokio::sync::mpsc;
-
 use thunderus_core::TaskContextTracker;
+use thunderus_core::memory::{MemoryRetriever, RetrievalPolicy, format_memory_context};
 use thunderus_core::*;
 use thunderus_providers::*;
 use thunderus_tools::extract_scope;
+use tokio::sync::mpsc;
 
 /// Metadata for tool execution
 #[derive(Debug, Clone)]
@@ -71,6 +71,13 @@ pub enum AgentEvent {
     ApprovalResponse(ApprovalResponse),
     /// Approval mode changed
     ApprovalModeChanged { from: ApprovalMode, to: ApprovalMode },
+    /// Memory retrieval completed
+    MemoryRetrieval {
+        query: String,
+        chunks: Vec<thunderus_core::memory::RetrievedChunk>,
+        total_tokens: usize,
+        search_time_ms: u64,
+    },
     /// Error occurred
     Error(String),
     /// Generation complete
@@ -92,6 +99,10 @@ pub struct Agent {
     messages: Vec<ChatMessage>,
     /// Task context tracker for "WHY" field
     task_context: Arc<TaskContextTracker>,
+    /// Memory retriever for querying relevant context
+    memory_retriever: Option<Arc<dyn MemoryRetriever>>,
+    /// Retrieval policy configuration
+    retrieval_policy: Option<RetrievalPolicy>,
 }
 
 impl Agent {
@@ -107,7 +118,21 @@ impl Agent {
             session_id,
             messages: Vec::new(),
             task_context: Arc::new(TaskContextTracker::new()),
+            memory_retriever: None,
+            retrieval_policy: None,
         }
+    }
+
+    /// Set the memory retriever for this agent
+    pub fn with_memory_retriever(mut self, retriever: Arc<dyn MemoryRetriever>) -> Self {
+        self.memory_retriever = Some(retriever);
+        self
+    }
+
+    /// Set the retrieval policy for this agent
+    pub fn with_retrieval_policy(mut self, policy: RetrievalPolicy) -> Self {
+        self.retrieval_policy = Some(policy);
+        self
     }
 
     /// Get the current approval mode
@@ -136,10 +161,56 @@ impl Agent {
         let (tx, rx) = mpsc::unbounded_channel();
 
         self.task_context.update_from_user_message(user_input);
+
+        let mut system_message_content = String::new();
+        if let Some(retriever) = &self.memory_retriever {
+            match retriever.query(user_input).await {
+                Ok(retrieval_result) => {
+                    let _ = tx.send(AgentEvent::MemoryRetrieval {
+                        query: retrieval_result.query.clone(),
+                        chunks: retrieval_result.chunks.clone(),
+                        total_tokens: retrieval_result.total_tokens,
+                        search_time_ms: retrieval_result.search_time_ms,
+                    });
+
+                    let memory_context = format_memory_context(&retrieval_result);
+                    system_message_content = format!("\n\n## Relevant Memory\n{}", memory_context);
+                }
+                Err(e) => {
+                    let _ = tx.send(AgentEvent::Error(format!("Memory retrieval failed: {}", e)));
+                }
+            }
+        }
+
+        let mut messages_for_request = self.messages.clone();
+        if !system_message_content.is_empty() {
+            let has_system = messages_for_request.iter().any(|m| m.role == Role::System);
+            if has_system {
+                for msg in &mut messages_for_request {
+                    if msg.role == Role::System {
+                        msg.content.push_str(&system_message_content);
+                        break;
+                    }
+                }
+            } else {
+                messages_for_request.insert(
+                    0,
+                    ChatMessage {
+                        role: Role::System,
+                        content: format!("You are a helpful coding assistant.{}", system_message_content),
+                        tool_call_id: None,
+                        tool_calls: None,
+                    },
+                );
+            }
+        }
+
+        messages_for_request.push(ChatMessage::user(user_input.to_string()));
+
         self.messages.push(ChatMessage::user(user_input.to_string()));
 
         let request = ChatRequest::builder()
-            .messages(self.messages.clone())
+            .messages(messages_for_request)
             .tools(tools.unwrap_or_default())
             .temperature(0.7)
             .max_tokens(8192)

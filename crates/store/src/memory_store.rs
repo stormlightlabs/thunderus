@@ -2,7 +2,7 @@
 //!
 //! Provides durable storage and full-text search for memory documents.
 use crate::error::{Error, Result};
-use crate::schema::SCHEMA_SQL;
+use crate::schema;
 
 use chrono::{DateTime, Utc};
 use rusqlite::{OptionalExtension, params};
@@ -115,7 +115,7 @@ impl MemoryStore {
 
         conn.call(|conn| {
             tracing::debug!("Initializing schema");
-            conn.execute_batch(SCHEMA_SQL)
+            conn.execute_batch(schema::SCHEMA_SQL)
                 .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
             tracing::trace!("Schema initialized successfully");
             Ok::<(), rusqlite::Error>(())
@@ -222,20 +222,9 @@ impl MemoryStore {
 
         let query = query.to_owned();
         let limit = filters.limit.unwrap_or(10) as i64;
-
-        let (join_clause, mut where_clauses, mut filter_values): (
-            &str,
-            Vec<String>,
-            Vec<Box<dyn rusqlite::ToSql + Send + Sync>>,
-        ) = if filters.kinds.is_some() {
-            (
-                "INNER JOIN memory_docs ON memory_fts.id = memory_docs.id",
-                Vec::new(),
-                Vec::new(),
-            )
-        } else {
-            ("", Vec::new(), Vec::new())
-        };
+        let join_clause = "INNER JOIN memory_docs ON memory_fts.id = memory_docs.id";
+        let (mut where_clauses, mut filter_values): (Vec<String>, Vec<Box<dyn rusqlite::ToSql + Send + Sync>>) =
+            (Vec::new(), Vec::new());
 
         if let Some(kinds) = &filters.kinds {
             let kind_placeholders: Vec<String> = kinds.iter().map(|_| "?".to_string()).collect();
@@ -278,7 +267,8 @@ impl MemoryStore {
                 memory_fts.kind,
                 memory_fts.path,
                 snippet(memory_fts, 1, '<b>', '</b>', '...', 32) as snippet,
-                bm25(memory_fts) as score
+                bm25(memory_fts) as score,
+                json_extract(memory_docs.meta_json, '$.event_ids') as event_ids
             FROM memory_fts
             {}
             {}
@@ -305,7 +295,12 @@ impl MemoryStore {
                         let kind: MemoryKind =
                             serde_json::from_str(&format!("\"{}\"", kind_str)).unwrap_or(MemoryKind::Core);
 
-                        // TODO: Load event_ids from memory_docs if needed
+                        let event_ids_raw: Option<String> = row.get(6)?;
+                        let event_ids: Vec<String> = match event_ids_raw {
+                            Some(raw) => serde_json::from_str(&raw).unwrap_or_default(),
+                            None => Vec::new(),
+                        };
+
                         Ok(SearchHit {
                             id: row.get(0)?,
                             title: row.get(1)?,
@@ -314,7 +309,7 @@ impl MemoryStore {
                             anchor: None,
                             snippet: row.get(4)?,
                             score: row.get(5)?,
-                            event_ids: vec![],
+                            event_ids,
                         })
                     })?
                     .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -345,8 +340,8 @@ impl MemoryStore {
                     "#,
                 )?;
 
-                conn.execute_batch(crate::schema::MEMORY_FTS_SQL)?;
-                conn.execute_batch(crate::schema::FTS_TRIGGERS_SQL)?;
+                conn.execute_batch(schema::MEMORY_FTS_SQL)?;
+                conn.execute_batch(schema::FTS_TRIGGERS_SQL)?;
 
                 conn.execute(
                     r#"

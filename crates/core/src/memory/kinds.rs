@@ -2,6 +2,8 @@
 //!
 //! Defines the types and categories for memory documents.
 
+use std::fmt::Display;
+
 use serde::{Deserialize, Serialize};
 
 /// Kind of memory document
@@ -21,6 +23,19 @@ pub enum MemoryKind {
     Playbook,
     /// Episodic memory: session recaps and historical context
     Recap,
+}
+
+impl Display for MemoryKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let as_str = match self {
+            Self::Core => "Core",
+            Self::Fact => "Fact",
+            Self::Adr => "Adr",
+            Self::Playbook => "Playbook",
+            Self::Recap => "Recap",
+        };
+        write!(f, "{}", as_str)
+    }
 }
 
 impl MemoryKind {

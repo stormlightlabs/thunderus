@@ -44,6 +44,7 @@ mod lint;
 mod manifest;
 mod paths;
 mod procedural;
+mod retriever;
 mod semantic;
 
 pub use core::{
@@ -61,17 +62,11 @@ pub use paths::{
 pub use procedural::{
     IssueSeverity, NewPlaybook, PlaybookDoc, PlaybookIssue, PlaybookSections, PlaybookUpdate, ProceduralMemory,
 };
+pub use retriever::{
+    InMemoryRetriever, MemoryRetriever, RetrievalError, RetrievalPolicy, RetrievalResult, RetrievedChunk, STOP_WORDS,
+    format_memory_context,
+};
 pub use semantic::{AdrDoc, AdrUpdate, FactDoc, FactUpdate, NewAdr, NewFact, SemanticMemory};
 
 /// Memory system version for compatibility tracking
 pub const MEMORY_VERSION: &str = "1.0.0";
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_memory_version() {
-        assert_eq!(MEMORY_VERSION, "1.0.0");
-    }
-}

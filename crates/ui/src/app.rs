@@ -2,8 +2,8 @@ use crate::components::{
     Footer, FuzzyFinderComponent, Header, Sidebar, TeachingHintPopup, Transcript as TranscriptComponent, WelcomeView,
 };
 use crate::event_handler::{EventHandler, KeyAction};
-use crate::layout::TuiLayout;
-use crate::state::VerbosityLevel;
+use crate::layout::{LayoutMode, TuiLayout};
+use crate::state::{self, VerbosityLevel};
 use crate::state::{AppState, ApprovalState};
 use crate::theme::Theme;
 use crate::transcript::{self, CardDetailLevel, ErrorType, RenderOptions, Transcript as TranscriptState};
@@ -818,6 +818,19 @@ impl App {
                 from.as_str(),
                 to.as_str()
             )),
+            AgentEvent::MemoryRetrieval { query: _, chunks, total_tokens, search_time_ms } => {
+                let time_str = if search_time_ms < 1000 {
+                    format!("{}ms", search_time_ms)
+                } else {
+                    format!("{:.2}s", search_time_ms as f64 / 1000.0)
+                };
+                self.transcript_mut().add_system_message(format!(
+                    "Memory retrieval: {} chunks ({} tokens) in {}",
+                    chunks.len(),
+                    total_tokens,
+                    time_str
+                ));
+            }
         }
     }
 
@@ -985,7 +998,7 @@ impl App {
             let theme = Theme::palette(self.state.theme_variant());
             let options = RenderOptions {
                 centered: false,
-                max_bubble_width: if layout.mode == crate::layout::LayoutMode::Full { None } else { Some(60) },
+                max_bubble_width: if layout.mode == LayoutMode::Full { None } else { Some(60) },
                 animation_frame: self.state.ui.animation_frame,
             };
             let ellipsis = self.state.streaming_ellipsis();
@@ -1044,14 +1057,11 @@ impl App {
                     self.transcript_mut()
                         .add_system_message(format!("Shell command output:\n```\n{}\n```", result.content));
 
-                    self.state_mut()
-                        .session
-                        .session_events
-                        .push(crate::state::SessionEvent {
-                            event_type: "shell_command".to_string(),
-                            message: format!("Executed: {}", command),
-                            timestamp: chrono::Utc::now().to_rfc3339(),
-                        });
+                    self.state_mut().session.session_events.push(state::SessionEvent {
+                        event_type: "shell_command".to_string(),
+                        message: format!("Executed: {}", command),
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                    });
                 }
                 false => self
                     .transcript_mut()
@@ -1477,8 +1487,10 @@ impl Default for App {
 
 #[cfg(test)]
 mod tests {
-    use crate::tui_approval::TuiApprovalHandle;
-    use crate::{state::ApprovalState, tui_approval::TuiApprovalProtocol};
+    use crate::{
+        state::ApprovalState,
+        tui_approval::{TuiApprovalHandle, TuiApprovalProtocol},
+    };
 
     use super::*;
     use std::path::PathBuf;
