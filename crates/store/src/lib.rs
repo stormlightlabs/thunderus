@@ -34,8 +34,10 @@
 //! ```
 
 mod error;
+mod indexer;
 mod memory_store;
 mod schema;
 
 pub use error::{Error, Result};
+pub use indexer::{IndexError, IndexResult, MemoryIndexer};
 pub use memory_store::{MemoryMeta, MemoryStore, SearchFilters, SearchHit, StoreStats};

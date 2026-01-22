@@ -167,7 +167,7 @@ Tasks:
       - put(namespace, key, content, metadata)
       - get(namespace, key)
       - search(query, filters) → ranked hits with snippets + citations
-- [ ] Build lexical index over memory docs + selected session recaps:
+- [x] Build lexical index over memory docs + selected session recaps:
       - FTS index fields: title, headings, tags, body, updated, path, kind
 - [ ] Retrieval policy (wired into agent loop):
       - Before edits/tool execution: query memory store using task intent

@@ -4,7 +4,8 @@ use clap_complete::{Generator, Shell, generate};
 use owo_colors::OwoColorize;
 use std::io;
 use std::path::{Path, PathBuf};
-use thunderus_core::{AgentDir, Config, ContextLoader, Session};
+use thunderus_core::{AgentDir, Config, ContextLoader, Session, memory::MemoryPaths};
+use thunderus_store::{MemoryIndexer, MemoryStore};
 use thunderus_ui::state::AppState;
 
 /// Thunderus - A high-performance coding agent harness
@@ -138,14 +139,19 @@ fn load_or_create_config(path: &Path, verbose: bool) -> Result<Config> {
 }
 
 fn detect_git_branch(path: &Path) -> Option<String> {
-    if let Ok(output) = std::process::Command::new("git")
+    match std::process::Command::new("git")
         .args(["-C", path.to_str().unwrap_or("."), "branch", "--show-current"])
         .output()
-        && output.status.success()
     {
-        return Some(String::from_utf8_lossy(&output.stdout).trim().to_string());
+        Ok(output) => {
+            if output.status.success() {
+                Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+            } else {
+                None
+            }
+        }
+        Err(_) => None,
     }
-    None
 }
 
 /// Start the interactive TUI session
@@ -222,6 +228,96 @@ async fn cmd_start(
                 );
             }
         }
+    }
+
+    if verbose {
+        eprintln!("{} Initializing memory index...", "Info:".blue().bold());
+    }
+
+    let memory_paths = MemoryPaths::from_thunderus_root(&working_dir);
+    let db_path = working_dir
+        .join(".thunderus")
+        .join("memory")
+        .join("indexes")
+        .join("memory.db");
+
+    let store_result = MemoryStore::open(&db_path).await;
+    let index_result = match store_result {
+        Ok(store) => {
+            let indexer = MemoryIndexer::new(store, memory_paths, &working_dir);
+            let result = indexer.index_changed().await;
+            match result {
+                Ok(r) if r.docs_added == 0 && r.docs_updated == 0 => {
+                    if verbose {
+                        eprintln!("{} Memory index is up to date", "Info:".green().bold());
+                    }
+                    r
+                }
+                Ok(_) => {
+                    let full_result = indexer.reindex_all().await;
+                    match full_result {
+                        Ok(r) => {
+                            if verbose {
+                                eprintln!(
+                                    "{} Memory index: {} added, {} updated",
+                                    "Info:".green().bold(),
+                                    r.docs_added,
+                                    r.docs_updated
+                                );
+                            }
+                            r
+                        }
+                        Err(e) => {
+                            if verbose {
+                                eprintln!(
+                                    "{} Warning: Memory index update failed: {}",
+                                    "Warning:".yellow().bold(),
+                                    e
+                                );
+                            }
+
+                            thunderus_store::IndexResult::default()
+                        }
+                    }
+                }
+                Err(e) => {
+                    if verbose {
+                        eprintln!("{} Warning: Memory indexing failed: {}", "Warning:".yellow().bold(), e);
+                    }
+                    thunderus_store::IndexResult {
+                        docs_added: 0,
+                        docs_updated: 0,
+                        docs_deleted: 0,
+                        errors: vec![],
+                        duration_ms: 0,
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            if verbose {
+                eprintln!(
+                    "{} Warning: Failed to open memory store: {}",
+                    "Warning:".yellow().bold(),
+                    e
+                );
+            }
+            thunderus_store::IndexResult {
+                docs_added: 0,
+                docs_updated: 0,
+                docs_deleted: 0,
+                errors: vec![],
+                duration_ms: 0,
+            }
+        }
+    };
+
+    if !index_result.errors.is_empty() && verbose {
+        eprintln!(
+            "{} Memory indexing had {} error(s)",
+            "Warning:".yellow().bold(),
+            index_result.errors.len()
+        );
     }
 
     if !is_recovery {

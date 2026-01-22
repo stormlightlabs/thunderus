@@ -16,6 +16,7 @@ owo-colors = "4.2.3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
 thunderus-core = { path = "../core" }
+thunderus-store = { path = "../store" }
 thunderus-ui = { path = "../ui" }
 thunderus-tools = { path = "../tools" }
 
