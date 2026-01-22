@@ -23,8 +23,9 @@ CONTENTS                                                      *roadmap-contents*
   XII. MEMORY GARDENER  ....................................... |agent-XII|
  XIII. TRAJECTORY + INSPECTOR ................................. |agent-XIII|
   XIV. MIXED-INITIATIVE COLLABORATION ......................... |agent-XIV|
-   XV. EXTENSIBILITY + HARDENING .............................. |agent-XV|
-  XVI. PARKING LOT............................................. |agent-XVI|
+   XV. EXTENSIBILITY .......................................... |agent-XV|
+  XVI. HARDENING .............................................. |agent-XVI|
+ XVII. PARKING LOT............................................. |agent-XVII|
 
 --------------------------------------------------------------------------------
 I. REPO SCAFFOLD + CONFIG + SESSION STORE                              *agent-I*
@@ -173,7 +174,7 @@ Tasks:
       - Before edits/tool execution: query memory store using task intent
       - Load top-k chunks into context (bounded)
       - Always include citations: file path + heading anchor + event ids
-- [ ] Optional vector layer (config flag only):
+- [x] Optional vector layer (config flag only):
       - embed semantic/procedural + selected episodic recaps
       - add similarity hits only when lexical confidence is low
 - [ ] TUI:
@@ -269,42 +270,69 @@ DoD:
 - The agent never proceeds on stale assumptions after you fix something manually
 
 --------------------------------------------------------------------------------
-XV. EXTENSIBILITY + HARDENING                                         *agent-XV*
+XV. EXTENSIBILITY (SKILLS + PLUGINS)                                  *agent-XV*
 --------------------------------------------------------------------------------
-Match the "pro tool" feel: pluggable integrations, automation entrypoints,
-and regression tests for harness behaviors.
+Make Thunderus extensible via on-demand capabilities and custom plugins.
+Inspired by Pi's Skills system and token-efficient design.
 
-- [ ] MCP client:
+See |.sandbox/spec_agent_xv_extensibility_2026_01_22.md| for full spec.
+See |.sandbox/spec_research_hardening_2026_01_22.md| for research notes.
+
+- [ ] Skills system (on-demand capability loading):
+      - `.thunderus/skills/` directory structure
+      - SKILL.md format with frontmatter (name, description)
+      - `/skill:name` invocation
+      - Agent auto-discovery based on task intent
+- [ ] Extension points (Rust trait-based):
+      - Custom tools via `ToolDefinition` trait
+      - Custom commands via `CommandHandler` trait
+      - Event hooks via `EventSubscriber` trait
+- [ ] Plugin loading:
+      - Static: compile-time registration
+      - Dynamic: WASM or Lua for runtime loading (optional)
+- [ ] Built-in extensions registry:
+      - Move web_search to skill
+      - Move fetch_url to skill
+- [ ] MCP client (opt-in extension):
       - load MCP servers from config, import tool schemas, route calls
       - respect approval/sandbox across MCP tools[^8]
-- [ ] Web search tool:
-      - either provider-native (Gemini tools) or shell-gated `web_search`
-        equivalent
-            - Mojeek API
-            - Brave API
-            - Tavily API
-      - treat results as tool outputs and log them[^9]
-- [ ] Non-interactive mode (`thunderus exec "…"`) like Codex's `exec`:
-      - emits JSON (machine output) + writes JSONL session log[^3]
-- [ ] "review agent" (second pass) like Codex `/review` flow[^3]
+
+DoD:
+- Skills load on-demand; custom tools can be registered without recompiling.
+
+--------------------------------------------------------------------------------
+XVI. HARDENING (TESTS + EXEC MODE)                                   *agent-XVI*
+--------------------------------------------------------------------------------
+Make Thunderus production-ready with regression tests and automation support.
+
+See |.sandbox/spec_agent_xvi_hardening_2026_01_22.md| for full spec.
+
 - [ ] Harness regression tests (golden scenarios):
       - interrupt mid-tool, drift+reconcile, patch conflict UI, approval gating
-- [ ] TUI enhancements (moved from Section III):
-      - Permissions pane in sidebar
-      - toggle verbose action trace keybind
+- [ ] Non-interactive mode (`thunderus exec "…"`) like Codex's `exec`:
+      - emits JSON (machine output) + writes JSONL session log[^3]
+      - Exit codes for CI/CD integration
+- [ ] "review agent" (second pass) like Codex `/review` flow[^3]:
+      - Confidence scoring for changes
 - [ ] Session-based teaching state:
       - persist "taught concepts" in session metadata
       - track which pedagogical hints have been shown
         (e.g., `taught: [patch_conflict, risky_command]`)
       - prevent repetitive hints across session lifecycle
       - expose teaching history in session events for debugging
+- [ ] Error recovery:
+      - Graceful degradation on tool failures
+      - Automatic retry with backoff
+      - User notification on repeated failures
+- [ ] TUI enhancements:
+      - Permissions pane in sidebar
+      - toggle verbose action trace keybind
 
 DoD:
-- A daily-driver harness: interactive + scriptable + extensible.
-
+- Test suite covers all critical paths; `exec` mode works reliably in CI.
 
 --------------------------------------------------------------------------------
-XVI. PARKING LOT                                                     *agent-XVI*
+XVII. PARKING LOT                                                   *agent-XVII*
 --------------------------------------------------------------------------------
 
 Session Recovery:
@@ -315,7 +343,7 @@ Session Recovery:
 - Session metadata (title, tags, description)
 
 --------------------------------------------------------------------------------
-XVII. REFERENCES                                                    *agent-XVII*
+XVIII. REFERENCES                                                  *agent-XVIII*
 --------------------------------------------------------------------------------
 
 See |REFS.txt| for external resources, design inspirations, and footnotes.

@@ -69,3 +69,14 @@ END;
 
 -- Initialize schema version
 INSERT OR IGNORE INTO schema_version (version) VALUES (1);
+
+-- Vector embeddings table (optional, for semantic search)
+CREATE TABLE IF NOT EXISTS memory_embeddings (
+    doc_id TEXT NOT NULL PRIMARY KEY,
+    embedding BLOB NOT NULL,
+    dims INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_embeddings_doc_id
+ON memory_embeddings(doc_id);

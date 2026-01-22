@@ -4,10 +4,39 @@
 //! parses them, and populates the SQLite FTS5 store for full-text search.
 
 use crate::{Error, MemoryMeta, MemoryStore, Result};
-
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use thunderus_core::memory::{MemoryDoc, MemoryPaths};
 use tokio::fs;
+
+/// Generate a placeholder embedding for text
+///
+/// This is a simple hash-based embedding for demonstration purposes.
+/// In production, this would use a proper sentence transformer model
+/// like all-MiniLM-L6-v2 (384 dimensions).
+pub fn generate_placeholder_embedding(text: &str, dims: usize) -> Vec<f32> {
+    let mut hasher = DefaultHasher::new();
+    text.hash(&mut hasher);
+    let hash = hasher.finish();
+
+    let mut embedding = Vec::with_capacity(dims);
+    let mut seed = hash;
+
+    for _ in 0..dims {
+        seed = seed.wrapping_mul(1103515245).wrapping_add(12345);
+        embedding.push(((seed % 1000) as f32) / 1000.0);
+    }
+
+    let norm: f32 = embedding.iter().map(|x| x * x).sum::<f32>().sqrt();
+    if norm > 0.0 {
+        for v in embedding.iter_mut() {
+            *v /= norm;
+        }
+    }
+
+    embedding
+}
 
 /// Result of an indexing operation
 #[derive(Debug, Clone, Default)]

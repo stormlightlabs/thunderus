@@ -38,8 +38,10 @@ mod indexer;
 mod memory_store;
 mod retriever;
 mod schema;
+mod vector;
 
 pub use error::{Error, Result};
-pub use indexer::{IndexError, IndexResult, MemoryIndexer};
+pub use indexer::{IndexError, IndexResult, MemoryIndexer, generate_placeholder_embedding};
 pub use memory_store::{MemoryMeta, MemoryStore, SearchFilters, SearchHit, StoreStats};
 pub use retriever::StoreRetriever;
+pub use vector::{SimilarDoc, VectorStore};

@@ -125,6 +125,7 @@ pub enum ProviderConfig {
     },
 }
 
+// FIXME: Correct this/make configurable
 fn default_glm_base_url() -> String {
     "https://open.bigmodel.cn/api/paas/v4".to_string()
 }
@@ -170,6 +171,10 @@ pub struct Profile {
     #[serde(default)]
     pub network: NetworkConfig,
 
+    /// Memory configuration including vector search settings
+    #[serde(default)]
+    pub memory: MemoryConfig,
+
     /// Additional configuration options
     #[serde(default)]
     pub options: HashMap<String, String>,
@@ -213,6 +218,44 @@ pub struct NetworkConfig {
     /// Allowed domains for web operations
     #[serde(default)]
     pub allow_domains: Vec<String>,
+}
+
+/// Memory configuration including vector search settings
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct MemoryConfig {
+    /// Enable vector search (default: false - lexical-only)
+    #[serde(default)]
+    pub enable_vector_search: bool,
+
+    /// Vector embedding model name (e.g., "all-MiniLM-L6-v2")
+    #[serde(default)]
+    pub vector_model: String,
+
+    /// Vector embedding dimensions
+    #[serde(default)]
+    pub vector_dims: usize,
+
+    /// Minimum BM25 score threshold for triggering vector fallback
+    /// Lower = more likely to use vector search. Default -3.0.
+    #[serde(default = "default_vector_threshold")]
+    pub vector_fallback_threshold: f64,
+}
+
+impl MemoryConfig {
+    /// Get default vector model
+    pub fn default_vector_model() -> String {
+        "all-MiniLM-L6-v2".to_string()
+    }
+
+    /// Get default vector dimensions
+    pub fn default_vector_dims() -> usize {
+        384
+    }
+}
+
+fn default_vector_threshold() -> f64 {
+    -3.0
 }
 
 impl WorkspaceConfig {
@@ -291,10 +334,9 @@ impl Profile {
         let path_str = path.to_string_lossy();
 
         let expanded_path = if path_str.starts_with("~/") {
-            if let Ok(home) = std::env::var("HOME") {
-                path_str.replace("~", &home)
-            } else {
-                path_str.to_string()
+            match std::env::var("HOME") {
+                Ok(home) => path_str.replace("~", &home),
+                Err(_) => path_str.to_string(),
             }
         } else {
             path_str.to_string()
@@ -302,10 +344,9 @@ impl Profile {
 
         for sensitive in SENSITIVE_DIRS {
             let expanded_sensitive = if sensitive.starts_with("~/") {
-                if let Ok(home) = std::env::var("HOME") {
-                    sensitive.replace("~", &home)
-                } else {
-                    sensitive.to_string()
+                match std::env::var("HOME") {
+                    Ok(home) => sensitive.replace("~", &home),
+                    Err(_) => sensitive.to_string(),
                 }
             } else {
                 sensitive.to_string()
@@ -330,27 +371,18 @@ impl Profile {
         }
 
         match mode {
-            ApprovalMode::ReadOnly => {
-                if self.workspace.is_allowed(path) {
-                    PathAccessResult::ReadOnly
-                } else {
-                    PathAccessResult::Denied("Outside workspace in read-only mode")
-                }
-            }
-            ApprovalMode::Auto => {
-                if self.workspace.is_allowed(path) || self.is_writable(path) {
-                    PathAccessResult::Allowed
-                } else {
-                    PathAccessResult::NeedsApproval("Outside workspace")
-                }
-            }
-            ApprovalMode::FullAccess => {
-                if self.workspace.is_denied(path) {
-                    PathAccessResult::Denied("Path in deny list")
-                } else {
-                    PathAccessResult::Allowed
-                }
-            }
+            ApprovalMode::ReadOnly => match self.workspace.is_allowed(path) {
+                true => PathAccessResult::ReadOnly,
+                false => PathAccessResult::Denied("Outside workspace in read-only mode"),
+            },
+            ApprovalMode::Auto => match self.workspace.is_allowed(path) || self.is_writable(path) {
+                true => PathAccessResult::Allowed,
+                false => PathAccessResult::NeedsApproval("Outside workspace"),
+            },
+            ApprovalMode::FullAccess => match self.workspace.is_denied(path) {
+                true => PathAccessResult::Denied("Path in deny list"),
+                false => PathAccessResult::Allowed,
+            },
         }
     }
 }
@@ -591,6 +623,7 @@ mod tests {
             },
             allow_network: false,
             network: NetworkConfig::default(),
+            memory: MemoryConfig::default(),
             options: HashMap::new(),
         };
 
@@ -617,6 +650,7 @@ mod tests {
             },
             allow_network: false,
             network: NetworkConfig::default(),
+            memory: MemoryConfig::default(),
             options: HashMap::new(),
         };
 
@@ -1125,6 +1159,7 @@ model = "gemini-2.5-flash"
             },
             allow_network: false,
             network: NetworkConfig::default(),
+            memory: MemoryConfig::default(),
             options: HashMap::new(),
         }
     }

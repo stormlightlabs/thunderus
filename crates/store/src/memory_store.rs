@@ -7,8 +7,7 @@ use crate::schema;
 use chrono::{DateTime, Utc};
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
-use std::sync::Arc;
+use std::{collections::HashMap, path::Path, sync::Arc};
 use thunderus_core::memory::MemoryKind;
 use tokio_rusqlite::Connection;
 use tracing::instrument;
@@ -320,6 +319,176 @@ impl MemoryStore {
 
         tracing::debug!("Search returned {} hits", hits.len());
         Ok(hits)
+    }
+
+    /// Vector similarity search
+    ///
+    /// Finds similar documents using cosine similarity of embeddings.
+    /// Returns SearchHits with similarity-based scores (higher = better match).
+    #[instrument(skip(self, query_embedding, filters), fields(limit = filters.limit.unwrap_or(10)))]
+    pub async fn vector_search(&self, query_embedding: &[f32], filters: SearchFilters) -> Result<Vec<SearchHit>> {
+        tracing::debug!("Vector similarity search with {} dimensions", query_embedding.len());
+
+        let vector_store = crate::VectorStore::new(self.conn.clone());
+        let similar_docs = vector_store
+            .find_similar(query_embedding, filters.limit.unwrap_or(10), 0.5)
+            .await
+            .map_err(|e| Error::database(format!("Vector search failed: {e}")))?;
+
+        if similar_docs.is_empty() {
+            tracing::debug!("Vector search returned no results");
+            return Ok(Vec::new());
+        }
+
+        let similarity_map: std::collections::HashMap<String, f64> =
+            similar_docs.iter().map(|d| (d.doc_id.clone(), d.similarity)).collect();
+
+        let doc_ids: Vec<String> = similarity_map.keys().cloned().collect();
+
+        let hits = self
+            .conn
+            .call(move |conn| {
+                let placeholders: Vec<String> = doc_ids.iter().map(|_| "?".to_string()).collect();
+                let placeholder_list = placeholders.join(",");
+
+                let sql = format!(
+                    r#"
+                    SELECT
+                        d.id,
+                        json_extract(d.meta_json, '$.title') as title,
+                        json_extract(d.meta_json, '$.path') as path,
+                        d.content,
+                        json_extract(d.meta_json, '$.event_ids') as event_ids,
+                        json_extract(d.meta_json, '$.kind') as kind_raw
+                    FROM memory_docs d
+                    WHERE d.id IN ({})
+                    "#,
+                    placeholder_list
+                );
+
+                let mut stmt = conn.prepare(&sql)?;
+
+                let mut param_values: Vec<&dyn rusqlite::ToSql> = Vec::new();
+                for id in &doc_ids {
+                    param_values.push(id);
+                }
+
+                let mut hits_by_id: std::collections::HashMap<String, SearchHit> = stmt
+                    .query_map(param_values.as_slice(), |row| {
+                        let id: String = row.get(0)?;
+                        let title: String = row.get(1)?;
+                        let path: String = row.get(2)?;
+                        let content: String = row.get(3)?;
+                        let event_ids_raw: Option<String> = row.get(4)?;
+                        let kind_raw: String = row.get(5)?;
+
+                        let event_ids: Vec<String> = match event_ids_raw {
+                            Some(raw) => serde_json::from_str(&raw).unwrap_or_default(),
+                            None => Vec::new(),
+                        };
+
+                        let kind: MemoryKind =
+                            serde_json::from_str(&format!("\"{}\"", kind_raw)).unwrap_or(MemoryKind::Core);
+
+                        Ok((
+                            id.clone(),
+                            SearchHit {
+                                id,
+                                kind,
+                                title,
+                                path,
+                                anchor: None,
+                                snippet: content.chars().take(200).collect::<String>() + "...",
+                                score: 0.0,
+                                event_ids,
+                            },
+                        ))
+                    })?
+                    .collect::<std::result::Result<_, _>>()?;
+
+                let hits = doc_ids
+                    .into_iter()
+                    .filter_map(|doc_id| {
+                        let similarity = similarity_map.get(&doc_id)?;
+                        let mut hit = hits_by_id.remove(&doc_id)?;
+                        hit.score = -similarity;
+                        Some(hit)
+                    })
+                    .collect::<Vec<_>>();
+
+                Ok::<_, rusqlite::Error>(hits)
+            })
+            .await?;
+
+        tracing::debug!("Vector search returned {} hits", hits.len());
+        Ok(hits)
+    }
+
+    /// Hybrid search: FTS5 + vector similarity
+    ///
+    /// Combines lexical (FTS5) and vector similarity search.
+    /// Uses vector search only when lexical confidence is low.
+    #[instrument(skip(self, query, query_embedding, filters), fields(limit = filters.limit.unwrap_or(10), fts_threshold))]
+    pub async fn hybrid_search(
+        &self, query: &str, query_embedding: &[f32], filters: SearchFilters, fts_threshold: f64,
+    ) -> Result<Vec<SearchHit>> {
+        tracing::debug!("Hybrid search with FTS threshold {}", fts_threshold);
+
+        let fts_hits = self.search(query, filters.clone()).await?;
+
+        let best_fts_score = fts_hits.first().map(|h| h.score).unwrap_or(0.0);
+
+        if best_fts_score > fts_threshold || fts_hits.len() < 3 {
+            tracing::debug!(
+                "FTS confidence low (score: {}, hits: {}), augmenting with vector search",
+                best_fts_score,
+                fts_hits.len()
+            );
+
+            let vector_hits = self.vector_search(query_embedding, filters).await?;
+
+            if vector_hits.is_empty() {
+                tracing::debug!("Vector search returned no results, using FTS only");
+                return Ok(fts_hits);
+            }
+
+            tracing::debug!(
+                "Merging {} FTS hits and {} vector hits",
+                fts_hits.len(),
+                vector_hits.len()
+            );
+
+            return Ok(self.merge_hits(fts_hits, vector_hits));
+        }
+
+        tracing::debug!(
+            "FTS confidence sufficient (score: {}), skipping vector search",
+            best_fts_score
+        );
+        Ok(fts_hits)
+    }
+
+    /// Merge FTS and vector hits, removing duplicates and re-ranking
+    ///
+    /// Prioritizes documents that appear in both result sets.
+    fn merge_hits(&self, mut fts_hits: Vec<SearchHit>, mut vector_hits: Vec<SearchHit>) -> Vec<SearchHit> {
+        let mut merged: HashMap<String, SearchHit> = HashMap::new();
+
+        for hit in fts_hits.drain(..) {
+            merged.insert(hit.id.clone(), hit);
+        }
+
+        for hit in vector_hits.drain(..) {
+            if let Some(existing) = merged.get_mut(&hit.id) {
+                existing.score = (existing.score + hit.score) / 2.0;
+            } else {
+                merged.insert(hit.id.clone(), hit);
+            }
+        }
+
+        let mut results: Vec<_> = merged.into_values().collect();
+        results.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal));
+        results
     }
 
     /// Rebuild the FTS index from all stored documents
