@@ -78,116 +78,20 @@ See section |2026-01-20| for changes made.
 --------------------------------------------------------------------------------
 IX. MARKDOWN + JSONL HYBRID VCS                                      *agent-IX*
 --------------------------------------------------------------------------------
-Your hybrid system is the canonical record of agent work, and it improves
-collaboration and debugging.
 
-- [x] JSONL event model (append-only) in `events.jsonl`:
-      - user msgs, model msgs, tool calls/results, approvals, patches,
-      - shell outputs (by reference), git snapshots
-      - view edits, context loads, checkpoints, plan updates, memory updates
-- [x] Materialized Markdown views:
-      - `MEMORY.md` (always-loaded "project memory", Claude-style)
-      - `PLAN.md` (current plan + checkpoints)
-      - `DECISIONS.md` (ADR-lite)[^1]
-      - View materializer with materialize_all(), materialize(), apply_edit() methods
-- [x] "CLAUDE.md compatibility":
-      - if repo has `CLAUDE.md`, import it into context automatically because
-        Claude Code uses it as auto-context[^1]
-      - Should apply to AGENTS.md, QWEN.md, GEMINI.md and THUNDERUS or THNDRS.md
-- [x] View materializer:
-      - deterministic regeneration from JSONL + explicit user edits logged as
-        events
-- [x] Fast search:
-      - ripgrep wrapper implemented in `core/src/search.rs`
-      - `/search`, `/search --events`, `/search --views` commands functional
-- [x] TUI enhancements & fixes:
-      - Context pane with view content
-      - Files pane for file system browsing
-      - `/plan`, `/review`, `/memory` slash commands (full implementation)
-      - `/plan add <item>`, `/plan done <n>` extended commands
-      - `/memory add <fact>` extended command
-      - `/search <query>` with scope support
-      - `@` file search in composer
-      - Panels in session screen are on top of a full panel with the theme panel
-        background color.
-
-DoD:
-- You can reconstruct *exactly* what happened in a session and why.
+See section |2026-01-21| for changes made.
 
 --------------------------------------------------------------------------------
 X. TIERED MEMORY CORE + STORE (REPO-NATIVE, AUDITABLE)                 *agent-X*
 --------------------------------------------------------------------------------
-Goal:
-Establish durable “external memory” that survives context limits and restarts,
-while staying reviewable + git-friendly. Use a tiered design:
-- Core memory: small, always-loaded
-- Recall/Episodic: append-only session history + session recaps
-- Semantic/Procedural: curated, reusable knowledge
 
-Tasks:
-- [x] Define memory directory layout (repo-local, deterministic):
-      - `.thunderus/memory/`
-          - `core/`        (always loaded)
-          - `semantic/`    (facts + ADR-lite)
-          - `procedural/`  (playbooks)
-          - `episodic/`    (session recaps)
-          - `indexes/`     (manifests + search indexes)
-- [x] Core memory contract:
-      - Small + stable (linted size caps; enforce headings; diffable)
-      - Add:
-          - `.thunderus/memory/core/CORE.md`
-          - `.thunderus/memory/core/CORE.local.md` (gitignored)
-      - Implement hierarchical load precedence (repo root → cwd):
-          - merge + override rules documented in CORE.md
-- [x] Semantic memory contract:
-      - `.thunderus/memory/semantic/DECISIONS/ADR-xxxx.md` (ADR-lite)
-      - `.thunderus/memory/semantic/FACTS/*.md` (stable facts)
-- [x] Procedural memory contract:
-      - `.thunderus/memory/procedural/PLAYBOOKS/*.md`
-      - Each playbook: Preconditions, Steps, Verification, Rollback
-- [x] Memory writes are patch-driven:
-      - memory updates are proposed as diffs in the patch queue
-      - memory edits MUST be logged as VCS events
-
-See |SCHEMAS.txt| section |schemas-memory-doc| for format specifications.
-
-DoD:
-- `.thunderus/memory/` exists with the required subtrees + lint rules.
-- Memory docs are diffable, patch-driven, and always point back to provenance.
+See section |2026-01-22| for changes made.
 
 --------------------------------------------------------------------------------
 XI. LONG-TERM MEMORY + RETRIEVAL (LEXICAL FIRST, VECTORS OPT-IN)      *agent-XI*
 --------------------------------------------------------------------------------
-Goal:
-Make the agent reliably find the right memory at the right time without stuffing
-everything into context. Default to lexical retrieval; optionally augment with
-vector similarity later.
 
-Tasks:
-- [x] Implement MemoryStore interface (backend: SQLite):
-      - put(namespace, key, content, metadata)
-      - get(namespace, key)
-      - search(query, filters) → ranked hits with snippets + citations
-- [x] Build lexical index over memory docs + selected session recaps:
-      - FTS index fields: title, headings, tags, body, updated, path, kind
-- [x] Retrieval policy (wired into agent loop):
-      - Before edits/tool execution: query memory store using task intent
-      - Load top-k chunks into context (bounded)
-      - Always include citations: file path + heading anchor + event ids
-- [x] Optional vector layer (config flag only):
-      - embed semantic/procedural + selected episodic recaps
-      - add similarity hits only when lexical confidence is low
-- [x] TUI:
-      - "Memory hits" panel: results + reasons + quick open
-- [x] Slash commands:
-      - `/memory search <q>`
-      - `/memory pin <id>` (pin a doc/chunk into current context set)
-
-See |SCHEMAS.txt| section |schemas-memory-store| for SQLite schema.
-
-DoD:
-- Memory search returns ranked results with provenance citations and paths.
-- Index is rebuildable; no "mystery memory".
+See section |2026-01-22| for changes made.
 
 --------------------------------------------------------------------------------
 XII. MEMORY GARDENER  (CONSOLIDATION, DRIFT CONTROL, AND HYGIENE)    *agent-XII*

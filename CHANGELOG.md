@@ -4,6 +4,21 @@
 
 ### Added
 
+#### [2026-01-22]
+
+- SQLite-backed lexical search engine with FTS5 for retrieval of memory documents and session recaps.
+
+- Repo-native hierarchical memory system categorized into core, semantic, procedural, and episodic tiers with patch-driven updates.
+
+- Automated retrieval policy for relevant context chunks with full provenance citations during task execution.
+
+#### [2026-01-21]
+
+- Event-driven record of agent actions using JSONL with materialized Markdown views for project memory and plans.
+
+- Added dedicated context pane and slash commands for real-time search and plan
+management from the TUI
+
 #### [2026-01-20]
 
 - Overhauled the TUI with full background fills, styled message bubbles, and refined component layouts.
