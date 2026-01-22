@@ -18,11 +18,13 @@ num_cpus = "1"
 tokio = { version = "1", features = ["sync", "time", "macros"] }
 futures = "0.3"
 dirs = "6"
+textwrap = "0.16"
 
 thunderus-core = { path = "../core" }
 thunderus-tools = { path = "../tools" }
 thunderus-agent = { path = "../agent" }
 thunderus-providers = { path = "../providers" }
+thunderus-store = { path = "../store" }
 
 [dev-dependencies]
 tempfile = "3"

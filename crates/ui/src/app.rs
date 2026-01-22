@@ -1,5 +1,6 @@
 use crate::components::{
-    Footer, FuzzyFinderComponent, Header, Sidebar, TeachingHintPopup, Transcript as TranscriptComponent, WelcomeView,
+    Footer, FuzzyFinderComponent, Header, MemoryHitsPanel, Sidebar, TeachingHintPopup,
+    Transcript as TranscriptComponent, WelcomeView,
 };
 use crate::event_handler::{EventHandler, KeyAction};
 use crate::layout::{LayoutMode, TuiLayout};
@@ -19,9 +20,11 @@ use std::{process::Command, sync::Arc, time::Duration};
 use thunderus_agent::{Agent, AgentEvent};
 use thunderus_core::teaching::suggest_concept;
 use thunderus_core::{
-    ActionType, ApprovalDecision, ApprovalGate, ApprovalMode, ApprovalProtocol, Config, Session, SessionId, ToolRisk,
+    ActionType, ApprovalDecision, ApprovalGate, ApprovalMode, ApprovalProtocol, Config, MemoryPaths, SearchScope,
+    Session, SessionId, ToolRisk, ViewKind, ViewMaterializer,
 };
 use thunderus_providers::{CancelToken, Provider};
+use thunderus_store::{MemoryStore, SearchFilters};
 use thunderus_tools::ToolRegistry;
 use tokio::sync::mpsc;
 use uuid;
@@ -221,6 +224,7 @@ impl App {
     /// Loads all events from the session and converts them to transcript entries.
     /// This is used for session recovery on restart.
     pub fn reconstruct_transcript_from_session(&mut self) -> thunderus_core::Result<()> {
+        use thunderus_core::Event;
         let Some(ref session) = self.session else {
             return Ok(());
         };
@@ -229,17 +233,13 @@ impl App {
 
         for logged_event in events {
             match logged_event.event {
-                thunderus_core::Event::UserMessage { content } => {
-                    self.transcript_mut().add_user_message(&content);
-                }
-                thunderus_core::Event::ModelMessage { content, tokens_used: _ } => {
-                    self.transcript_mut().add_model_response(&content);
-                }
-                thunderus_core::Event::ToolCall { tool, arguments } => {
+                Event::UserMessage { content } => self.transcript_mut().add_user_message(&content),
+                Event::ModelMessage { content, tokens_used: _ } => self.transcript_mut().add_model_response(&content),
+                Event::ToolCall { tool, arguments } => {
                     let args_str = serde_json::to_string_pretty(&arguments).unwrap_or_default();
                     self.transcript_mut().add_tool_call(&tool, &args_str, "safe");
                 }
-                thunderus_core::Event::ToolResult { tool, result, success, error } => {
+                Event::ToolResult { tool, result, success, error } => {
                     let result_str =
                         serde_json::to_string_pretty(&result).unwrap_or_else(|_| "Invalid JSON".to_string());
                     self.transcript_mut().add_tool_result(&tool, &result_str, success);
@@ -249,7 +249,7 @@ impl App {
                             .add_system_message(format!("Tool error: {}", error_msg));
                     }
                 }
-                thunderus_core::Event::Approval { action, approved } => {
+                Event::Approval { action, approved } => {
                     let decision = if approved {
                         transcript::ApprovalDecision::Approved
                     } else {
@@ -259,14 +259,14 @@ impl App {
                     self.transcript_mut().add_approval_prompt(&action, "safe");
                     let _ = self.transcript_mut().set_approval_decision(decision);
                 }
-                thunderus_core::Event::Patch { name, status, files, diff } => {
+                Event::Patch { name, status, files, diff } => {
                     let status_str = format!("{:?}", status);
                     self.transcript_mut().add_system_message(format!(
                         "Patch: {} ({})\nFiles: {:?}\n{}",
                         name, status_str, files, diff
                     ));
                 }
-                thunderus_core::Event::ShellCommand { command, args, working_dir, exit_code, output_ref } => {
+                Event::ShellCommand { command, args, working_dir, exit_code, output_ref } => {
                     let cmd_str =
                         if args.is_empty() { command.clone() } else { format!("{} {}", command, args.join(" ")) };
                     self.transcript_mut().add_system_message(format!(
@@ -281,13 +281,13 @@ impl App {
                             .add_system_message(format!("Output in: {}", output_file));
                     }
                 }
-                thunderus_core::Event::GitSnapshot { commit, branch, changed_files } => {
+                Event::GitSnapshot { commit, branch, changed_files } => {
                     self.transcript_mut().add_system_message(format!(
                         "Git snapshot: {} @ {}\nChanged files: {}",
                         commit, branch, changed_files
                     ));
                 }
-                thunderus_core::Event::FileRead { file_path, line_count, offset, success } => {
+                Event::FileRead { file_path, line_count, offset, success } => {
                     if success {
                         self.transcript_mut().add_system_message(format!(
                             "File read: {} (lines: {}, offset: {})",
@@ -298,34 +298,28 @@ impl App {
                             .add_system_message(format!("File read failed: {}", file_path));
                     }
                 }
-                thunderus_core::Event::ApprovalModeChange { from, to } => {
-                    self.transcript_mut().add_system_message(format!(
-                        "Approval mode changed: {} → {}",
-                        from.as_str(),
-                        to.as_str()
-                    ));
-                }
-                thunderus_core::Event::ViewEdit { view, change_type, .. } => {
-                    self.transcript_mut()
-                        .add_system_message(format!("View edited: {} ({})", view, change_type));
-                }
-                thunderus_core::Event::ContextLoad { source, path, .. } => {
-                    self.transcript_mut()
-                        .add_system_message(format!("Context loaded: {} from {}", source, path));
-                }
-                thunderus_core::Event::Checkpoint { label, description, .. } => {
-                    self.transcript_mut()
-                        .add_system_message(format!("Checkpoint: {} - {}", label, description));
-                }
-                thunderus_core::Event::PlanUpdate { action, item, reason } => {
+                Event::ApprovalModeChange { from, to } => self.transcript_mut().add_system_message(format!(
+                    "Approval mode changed: {} → {}",
+                    from.as_str(),
+                    to.as_str()
+                )),
+                Event::ViewEdit { view, change_type, .. } => self
+                    .transcript_mut()
+                    .add_system_message(format!("View edited: {} ({})", view, change_type)),
+                Event::ContextLoad { source, path, .. } => self
+                    .transcript_mut()
+                    .add_system_message(format!("Context loaded: {} from {}", source, path)),
+                Event::Checkpoint { label, description, .. } => self
+                    .transcript_mut()
+                    .add_system_message(format!("Checkpoint: {} - {}", label, description)),
+                Event::PlanUpdate { action, item, reason } => {
                     let reason_str = reason.as_ref().map(|r| format!(" (reason: {})", r)).unwrap_or_default();
                     self.transcript_mut()
                         .add_system_message(format!("Plan {}: {}{}", action, item, reason_str));
                 }
-                thunderus_core::Event::MemoryUpdate { kind, path, operation, .. } => {
-                    self.transcript_mut()
-                        .add_system_message(format!("Memory {}: {} ({})", operation, path, kind));
-                }
+                Event::MemoryUpdate { kind, path, operation, .. } => self
+                    .transcript_mut()
+                    .add_system_message(format!("Memory {}: {} ({})", operation, path, kind)),
             }
         }
 
@@ -456,29 +450,30 @@ impl App {
                             matches!(entry, transcript::TranscriptEntry::ErrorEntry { can_retry: true, .. })
                         });
 
-                    if let Some(last_message) = self.state_mut().last_message().cloned() {
-                        if has_retryable_error {
-                            self.transcript_mut().add_system_message("Retrying last message...");
-                            self.state_mut().input.add_to_history(last_message.clone());
-                            self.transcript_mut().add_user_message(last_message.clone());
+                    match self.state_mut().last_message().cloned() {
+                        Some(last_message) => match has_retryable_error {
+                            true => {
+                                self.transcript_mut().add_system_message("Retrying last message...");
+                                self.state_mut().input.add_to_history(last_message.clone());
+                                self.transcript_mut().add_user_message(last_message.clone());
 
-                            if let Some(provider) = self.provider.clone() {
-                                self.spawn_agent_for_message(last_message.clone(), &provider);
+                                if let Some(provider) = self.provider.clone() {
+                                    self.spawn_agent_for_message(last_message.clone(), &provider);
+                                }
                             }
-                        } else {
-                            self.transcript_mut().add_system_message(
+                            false => self.transcript_mut().add_system_message(
                                 "No retryable error found. Use message history to re-send a message.",
-                            );
-                        }
-                    } else {
-                        self.transcript_mut()
-                            .add_system_message("No previous message to retry.");
+                            ),
+                        },
+                        None => self
+                            .transcript_mut()
+                            .add_system_message("No previous message to retry."),
                     }
                 }
                 KeyAction::ToggleTheme => {
                     self.state_mut().toggle_theme_variant();
                     self.persist_theme_variant();
-                    let variant = self.state.theme_variant().as_str();
+                    let variant = self.state.theme_variant();
                     self.transcript_mut()
                         .add_system_message(format!("Theme switched to {}", variant));
                 }
@@ -517,6 +512,8 @@ impl App {
                 KeyAction::SlashCommandReview => self.handle_review_command(),
                 KeyAction::SlashCommandMemory => self.handle_memory_command(),
                 KeyAction::SlashCommandMemoryAdd { fact } => self.handle_memory_add_command(fact),
+                KeyAction::SlashCommandMemorySearch { query } => self.handle_memory_search_command(query),
+                KeyAction::SlashCommandMemoryPin { id } => self.handle_memory_pin_command(id),
                 KeyAction::SlashCommandSearch { query, scope } => self.handle_search_command(query, scope),
                 KeyAction::SlashCommandClear => {
                     self.transcript_mut().clear();
@@ -710,9 +707,22 @@ impl App {
                             .add_system_message(format!("Failed to reject hunk: {}", e));
                     }
                 }
-                KeyAction::ToggleHunkDetails => {
-                    self.state_mut().toggle_hunk_details();
+                KeyAction::ToggleHunkDetails => self.state_mut().toggle_hunk_details(),
+                KeyAction::MemoryHitsNavigate => {}
+                KeyAction::MemoryHitsOpen { path } => {
+                    self.transcript_mut()
+                        .add_system_message(format!("Opening memory document: {}", path));
+                    self.state_mut().memory_hits.clear();
                 }
+                KeyAction::MemoryHitsPin { id } => {
+                    let is_pinned = self.state().memory_hits.is_pinned(&id);
+                    self.transcript_mut().add_system_message(format!(
+                        "{}: {}",
+                        if is_pinned { "Unpinned" } else { "Pinned" },
+                        id
+                    ));
+                }
+                KeyAction::MemoryHitsClose => self.transcript_mut().add_system_message("Memory panel closed"),
                 KeyAction::NoOp => (),
             }
         }
@@ -1033,6 +1043,17 @@ impl App {
                 fuzzy_finder.render(frame);
             }
 
+            if self.state.memory_hits.is_visible() {
+                let panel_area = ratatui::layout::Rect {
+                    x: size.width / 4,
+                    y: size.height / 8,
+                    width: size.width / 2,
+                    height: size.height * 3 / 4,
+                };
+                let memory_panel = MemoryHitsPanel::new(&self.state.memory_hits);
+                memory_panel.render(frame, panel_area);
+            }
+
             if let Some(ref hint) = self.state.approval_ui.pending_hint {
                 let theme = Theme::palette(self.state.theme_variant());
                 let hint_popup = TeachingHintPopup::new(hint, theme);
@@ -1256,19 +1277,18 @@ impl App {
 
     /// Handle /plan command
     fn handle_plan_command(&mut self) {
-        if let Some(ref session) = self.session {
-            let materializer = thunderus_core::ViewMaterializer::new(session);
-            match materializer.materialize(thunderus_core::ViewKind::Plan) {
+        match self.session {
+            Some(ref session) => match ViewMaterializer::new(session).materialize(ViewKind::Plan) {
                 Ok(content) => self
                     .transcript_mut()
                     .add_system_message(format!("## Current Plan\n\n{}", content)),
                 Err(e) => self
                     .transcript_mut()
                     .add_system_message(format!("Failed to materialize plan: {}", e)),
-            }
-        } else {
-            self.transcript_mut()
-                .add_system_message("No active session to materialize plan from");
+            },
+            None => self
+                .transcript_mut()
+                .add_system_message("No active session to materialize plan from"),
         }
     }
 
@@ -1295,17 +1315,14 @@ impl App {
     /// Handle /memory command
     fn handle_memory_command(&mut self) {
         match self.session {
-            Some(ref session) => {
-                let materializer = thunderus_core::ViewMaterializer::new(session);
-                match materializer.materialize(thunderus_core::ViewKind::Memory) {
-                    Ok(content) => self
-                        .transcript_mut()
-                        .add_system_message(format!("## Project Memory\n\n{}", content)),
-                    Err(e) => self
-                        .transcript_mut()
-                        .add_system_message(format!("Failed to materialize memory: {}", e)),
-                }
-            }
+            Some(ref session) => match ViewMaterializer::new(session).materialize(ViewKind::Memory) {
+                Ok(content) => self
+                    .transcript_mut()
+                    .add_system_message(format!("## Project Memory\n\n{}", content)),
+                Err(e) => self
+                    .transcript_mut()
+                    .add_system_message(format!("Failed to materialize memory: {}", e)),
+            },
             None => self
                 .transcript_mut()
                 .add_system_message("No active session to materialize memory from"),
@@ -1315,7 +1332,7 @@ impl App {
     /// Auto-materialize and save all views after session updates
     fn materialize_views(&mut self) {
         if let Some(ref session) = self.session {
-            let materializer = thunderus_core::ViewMaterializer::new(session);
+            let materializer = ViewMaterializer::new(session);
             let _ = materializer.materialize_all();
         }
     }
@@ -1341,9 +1358,8 @@ impl App {
 
     /// Handle /plan done <n> command
     fn handle_plan_done_command(&mut self, index: usize) {
-        if let Some(ref mut session) = self.session {
-            let materializer = thunderus_core::ViewMaterializer::new(session);
-            match materializer.materialize(thunderus_core::ViewKind::Plan) {
+        match self.session {
+            Some(ref mut session) => match ViewMaterializer::new(session).materialize(ViewKind::Plan) {
                 Ok(content) => {
                     let lines: Vec<&str> = content.lines().collect();
                     let mut task_count = 0;
@@ -1359,8 +1375,8 @@ impl App {
                         }
                     }
 
-                    if let Some(item) = target_item {
-                        match session.append_plan_update("complete", &item, None) {
+                    match target_item {
+                        Some(item) => match session.append_plan_update("complete", &item, None) {
                             Ok(_) => {
                                 self.transcript_mut()
                                     .add_system_message(format!("Marked as done: {}", item));
@@ -1369,19 +1385,19 @@ impl App {
                             Err(e) => self
                                 .transcript_mut()
                                 .add_system_message(format!("Failed to mark item as done: {}", e)),
-                        }
-                    } else {
-                        self.transcript_mut()
-                            .add_system_message(format!("No task found at index {}", index));
+                        },
+                        None => self
+                            .transcript_mut()
+                            .add_system_message(format!("No task found at index {}", index)),
                     }
                 }
                 Err(e) => self
                     .transcript_mut()
                     .add_system_message(format!("Failed to read plan: {}", e)),
-            }
-        } else {
-            self.transcript_mut()
-                .add_system_message("No active session to update plan in");
+            },
+            None => self
+                .transcript_mut()
+                .add_system_message("No active session to update plan in"),
         }
     }
 
@@ -1408,21 +1424,94 @@ impl App {
         }
     }
 
-    /// Handle /search <query> command
-    fn handle_search_command(&mut self, query: String, scope: thunderus_core::SearchScope) {
-        if let Some(ref session) = self.session {
-            let session_dir = session.session_dir();
+    /// Handle /memory search <query> command
+    ///
+    /// Searches the memory store and displays results in the memory hits panel.
+    fn handle_memory_search_command(&mut self, query: String) {
+        let memory_paths = MemoryPaths::from_thunderus_root(&self.state.config.cwd);
+        let db_path = memory_paths.indexes.join("memory.db");
 
-            match thunderus_core::search_session(&session_dir, &query, scope) {
+        let store = match tokio::runtime::Handle::try_current() {
+            Ok(handle) => match handle.block_on(MemoryStore::open(&db_path)) {
+                Ok(store) => store,
+                Err(e) => {
+                    return self
+                        .transcript_mut()
+                        .add_system_message(format!("Failed to open memory store: {}", e));
+                }
+            },
+            Err(_) => {
+                return self
+                    .transcript_mut()
+                    .add_system_message("No tokio runtime available for memory search");
+            }
+        };
+
+        let hits = match tokio::runtime::Handle::try_current() {
+            Ok(handle) => match handle.block_on(store.search(&query, SearchFilters::default())) {
+                Ok(hits) => hits,
+                Err(e) => {
+                    return self
+                        .transcript_mut()
+                        .add_system_message(format!("Memory search failed: {}", e));
+                }
+            },
+            Err(_) => {
+                return self
+                    .transcript_mut()
+                    .add_system_message("No tokio runtime available for memory search");
+            }
+        };
+
+        if hits.is_empty() {
+            self.transcript_mut()
+                .add_system_message(format!("No memory results found for '{}'", query));
+            self.state_mut().memory_hits.clear();
+        } else {
+            self.transcript_mut()
+                .add_system_message(format!("Found {} memory result(s) for '{}'", hits.len(), query));
+
+            let start = std::time::Instant::now();
+            let search_time = start.elapsed().as_millis() as u64;
+
+            self.state_mut().memory_hits.set_hits(hits, query, search_time);
+        }
+    }
+
+    /// Handle /memory pin <id> command
+    ///
+    /// Pins a memory document to the current context set.
+    fn handle_memory_pin_command(&mut self, id: String) {
+        if self.state().memory_hits.is_pinned(&id) {
+            self.state_mut().memory_hits.unpin(&id);
+            self.transcript_mut()
+                .add_system_message(format!("Unpinned memory: {}", id));
+        } else {
+            self.state_mut().memory_hits.pin(id.clone());
+            self.transcript_mut()
+                .add_system_message(format!("Pinned memory: {}", id));
+        }
+
+        let pinned_count = self.state().memory_hits.pinned_count();
+        if pinned_count > 0 {
+            self.transcript_mut()
+                .add_system_message(format!("Total pinned: {}", pinned_count));
+        }
+    }
+
+    /// Handle /search <query> command
+    fn handle_search_command(&mut self, query: String, scope: SearchScope) {
+        match self.session {
+            Some(ref session) => match thunderus_core::search_session(&session.session_dir(), &query, scope) {
                 Ok(hits) => {
                     if hits.is_empty() {
                         self.transcript_mut()
                             .add_system_message(format!("No results found for '{}'", query));
                     } else {
                         let scope_str = match scope {
-                            thunderus_core::SearchScope::All => "all files",
-                            thunderus_core::SearchScope::Events => "events",
-                            thunderus_core::SearchScope::Views => "views",
+                            SearchScope::All => "all files",
+                            SearchScope::Events => "events",
+                            SearchScope::Views => "views",
                         };
 
                         let mut results_text = format!("## Search Results for '{}' in {}\n\n", query, scope_str);
@@ -1444,9 +1533,8 @@ impl App {
                     self.transcript_mut()
                         .add_system_message(format!("Search failed: {}", e));
                 }
-            }
-        } else {
-            self.transcript_mut().add_system_message("No active session to search");
+            },
+            None => self.transcript_mut().add_system_message("No active session to search"),
         }
     }
 

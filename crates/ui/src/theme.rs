@@ -1,5 +1,7 @@
 use ratatui::style::{Color, Style};
 use ratatui::text::Span;
+use std::fmt::Display;
+use std::str::FromStr;
 
 /// Theme variant options supported by Thunderus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,6 +24,20 @@ impl ThemeVariant {
             "oxocarbon" => Some(Self::Oxocarbon),
             _ => None,
         }
+    }
+}
+
+impl Display for ThemeVariant {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+impl FromStr for ThemeVariant {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        ThemeVariant::parse_str(s).ok_or_else(|| s.to_string())
     }
 }
 
@@ -174,6 +190,12 @@ impl Theme {
 
     pub fn verbosity_span(palette: ThemePalette, level: &str) -> Span<'_> {
         Span::styled(level, Style::default().fg(Self::verbosity_color(palette, level)))
+    }
+}
+
+impl Default for ThemePalette {
+    fn default() -> Self {
+        Theme::palette(ThemeVariant::Iceberg)
     }
 }
 

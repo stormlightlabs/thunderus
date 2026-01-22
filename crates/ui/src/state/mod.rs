@@ -7,6 +7,7 @@ mod approval;
 mod composer;
 mod header;
 mod input;
+mod memory_hits;
 mod model_selector;
 mod session;
 mod sidebar;
@@ -17,6 +18,7 @@ pub use approval::ApprovalState;
 pub use composer::{ComposerMode, ComposerState};
 pub use header::HeaderState;
 pub use input::InputState;
+pub use memory_hits::MemoryHitsState;
 pub use model_selector::ModelSelectorState;
 pub use session::{SessionStats, SessionTrackingState};
 pub use sidebar::{SidebarCollapseState, SidebarSection};
@@ -224,6 +226,8 @@ pub struct AppState {
     pub session_header: HeaderState,
     /// Model selector state (for footer model/agent selection)
     pub model_selector: ModelSelectorState,
+    /// Memory hits panel state
+    pub memory_hits: MemoryHitsState,
 }
 
 impl AppState {
@@ -246,6 +250,7 @@ impl AppState {
             welcome: WelcomeState::new(),
             session_header: HeaderState::new(),
             model_selector: ModelSelectorState::new(model_name),
+            memory_hits: MemoryHitsState::new(),
         }
     }
 
@@ -548,6 +553,7 @@ impl Default for AppState {
             welcome: WelcomeState::default(),
             session_header: HeaderState::default(),
             model_selector: ModelSelectorState::new("glm-4.7".to_string()),
+            memory_hits: MemoryHitsState::default(),
         }
     }
 }

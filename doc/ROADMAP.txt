@@ -177,9 +177,9 @@ Tasks:
 - [x] Optional vector layer (config flag only):
       - embed semantic/procedural + selected episodic recaps
       - add similarity hits only when lexical confidence is low
-- [ ] TUI:
+- [x] TUI:
       - "Memory hits" panel: results + reasons + quick open
-- [ ] Slash commands:
+- [x] Slash commands:
       - `/memory search <q>`
       - `/memory pin <id>` (pin a doc/chunk into current context set)
 

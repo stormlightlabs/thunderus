@@ -165,6 +165,36 @@ impl EventHandler {
             }
         }
 
+        if state.memory_hits.is_visible() {
+            match event.code {
+                KeyCode::Up | KeyCode::Char('k') | KeyCode::Char('K') => {
+                    state.memory_hits.select_next();
+                    return Some(KeyAction::MemoryHitsNavigate);
+                }
+                KeyCode::Down | KeyCode::Char('j') | KeyCode::Char('J') => {
+                    state.memory_hits.select_prev();
+                    return Some(KeyAction::MemoryHitsNavigate);
+                }
+                KeyCode::Enter => {
+                    if let Some(hit) = state.memory_hits.selected_hit() {
+                        return Some(KeyAction::MemoryHitsOpen { path: hit.path.clone() });
+                    }
+                }
+                KeyCode::Char('p') | KeyCode::Char('P') => {
+                    if let Some(hit) = state.memory_hits.selected_hit() {
+                        let id = hit.id.clone();
+                        state.memory_hits.toggle_pin(&id);
+                        return Some(KeyAction::MemoryHitsPin { id });
+                    }
+                }
+                KeyCode::Esc => {
+                    state.memory_hits.clear();
+                    return Some(KeyAction::MemoryHitsClose);
+                }
+                _ => {}
+            }
+        }
+
         match event.code {
             KeyCode::Up => state.input.navigate_up(),
             KeyCode::Down => state.input.navigate_down(),
@@ -436,12 +466,33 @@ impl EventHandler {
             }
             "review" => Some(KeyAction::SlashCommandReview),
             "memory" => {
-                if parts.len() > 1 && parts[1] == "add" {
-                    if parts.len() > 2 {
-                        let fact = parts[2..].join(" ");
-                        Some(KeyAction::SlashCommandMemoryAdd { fact })
-                    } else {
-                        None
+                if parts.len() > 1 {
+                    match parts[1] {
+                        "add" => {
+                            if parts.len() > 2 {
+                                let fact = parts[2..].join(" ");
+                                Some(KeyAction::SlashCommandMemoryAdd { fact })
+                            } else {
+                                None
+                            }
+                        }
+                        "search" => {
+                            if parts.len() > 2 {
+                                let query = parts[2..].join(" ");
+                                Some(KeyAction::SlashCommandMemorySearch { query })
+                            } else {
+                                None
+                            }
+                        }
+                        "pin" => {
+                            if parts.len() > 2 {
+                                let id = parts[2..].join(" ");
+                                Some(KeyAction::SlashCommandMemoryPin { id })
+                            } else {
+                                None
+                            }
+                        }
+                        _ => Some(KeyAction::SlashCommandMemory),
                     }
                 } else {
                     Some(KeyAction::SlashCommandMemory)
@@ -533,6 +584,10 @@ pub enum KeyAction {
     SlashCommandMemory,
     /// Slash command: add fact to memory
     SlashCommandMemoryAdd { fact: String },
+    /// Slash command: search memory store
+    SlashCommandMemorySearch { query: String },
+    /// Slash command: pin memory document
+    SlashCommandMemoryPin { id: String },
     /// Slash command: clear transcript (keep session history)
     SlashCommandClear,
     /// Slash command: search session with ripgrep
@@ -540,6 +595,14 @@ pub enum KeyAction {
         query: String,
         scope: thunderus_core::SearchScope,
     },
+    /// Memory hits panel navigation
+    MemoryHitsNavigate,
+    /// Open a document from the memory hits panel
+    MemoryHitsOpen { path: String },
+    /// Pin/unpin a document from the memory hits panel
+    MemoryHitsPin { id: String },
+    /// Close the memory hits panel
+    MemoryHitsClose,
     /// Navigate to next action card
     NavigateCardNext,
     /// Navigate to previous action card
