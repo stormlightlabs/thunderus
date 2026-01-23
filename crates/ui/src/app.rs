@@ -4,28 +4,18 @@ use crate::components::{
 };
 use crate::event_handler::{EventHandler, KeyAction};
 use crate::layout::{LayoutMode, TuiLayout};
-use crate::state::{self, VerbosityLevel};
-use crate::state::{AppState, ApprovalState};
+use crate::state::{self, AppState};
 use crate::theme::Theme;
-use crate::transcript::{self, CardDetailLevel, ErrorType, RenderOptions, Transcript as TranscriptState};
-use crate::tui_approval::{TuiApprovalHandle, TuiApprovalProtocol};
+use crate::transcript::{self, CardDetailLevel, RenderOptions, Transcript as TranscriptState};
+use crate::tui_approval::TuiApprovalHandle;
 
 use crossterm;
 use ratatui::{Terminal, backend::CrosstermBackend};
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::io::{self, Result, Write};
 use std::{env, fs, panic};
 use std::{process::Command, sync::Arc, time::Duration};
-use thunderus_agent::{Agent, AgentEvent};
-use thunderus_core::memory::{Severity, StalenessSeverity};
-use thunderus_core::teaching::suggest_concept;
-use thunderus_core::{
-    ActionType, ApprovalDecision, ApprovalGate, ApprovalMode, ApprovalProtocol, Config, MemoryPaths, SearchScope,
-    Session, SessionId, ToolRisk, ViewKind, ViewMaterializer,
-};
+use thunderus_core::{ApprovalDecision, Config, Session};
 use thunderus_providers::{CancelToken, Provider};
-use thunderus_store::{MemoryStore, SearchFilters};
 use thunderus_tools::ToolRegistry;
 use tokio::sync::mpsc;
 use uuid;
@@ -34,23 +24,23 @@ use uuid;
 ///
 /// Handles rendering and state management for the Thunderus TUI
 pub struct App {
-    state: AppState,
-    transcript: TranscriptState,
-    should_exit: bool,
+    pub(crate) state: AppState,
+    pub(crate) transcript: TranscriptState,
+    pub(crate) should_exit: bool,
     /// Agent event receiver for streaming responses
-    agent_event_rx: Option<mpsc::UnboundedReceiver<thunderus_agent::AgentEvent>>,
+    pub(crate) agent_event_rx: Option<mpsc::UnboundedReceiver<thunderus_agent::AgentEvent>>,
     /// Approval request receiver from agent
-    approval_request_rx: Option<mpsc::UnboundedReceiver<thunderus_core::ApprovalRequest>>,
+    pub(crate) approval_request_rx: Option<mpsc::UnboundedReceiver<thunderus_core::ApprovalRequest>>,
     /// Handle for sending approval responses back to agent
-    approval_handle: Option<TuiApprovalHandle>,
+    pub(crate) approval_handle: Option<TuiApprovalHandle>,
     /// Cancellation token for stopping agent operations
-    cancel_token: CancelToken,
+    pub(crate) cancel_token: CancelToken,
     /// Provider for agent operations
     provider: Option<Arc<dyn Provider>>,
     /// Session for event persistence
-    session: Option<Session>,
+    pub(crate) session: Option<Session>,
     /// Buffer for accumulating streaming model response content
-    streaming_model_content: Option<String>,
+    pub(crate) streaming_model_content: Option<String>,
 }
 
 impl App {
@@ -121,7 +111,7 @@ impl App {
     /// Persist a user message to the session log
     ///
     /// Handles write failures gracefully by warning the user and logging to stderr
-    fn persist_user_message(&mut self, content: &str) {
+    pub(crate) fn persist_user_message(&mut self, content: &str) {
         if let Some(ref mut session) = self.session
             && let Err(e) = session.append_user_message(content)
         {
@@ -134,7 +124,7 @@ impl App {
     /// Persist a model response to the session log
     ///
     /// Handles write failures gracefully by warning the user and logging to stderr
-    fn persist_model_message(&mut self, content: &str) {
+    pub(crate) fn persist_model_message(&mut self, content: &str) {
         if let Some(ref mut session) = self.session
             && let Err(e) = session.append_model_message(content, None)
         {
@@ -147,7 +137,7 @@ impl App {
     /// Persist a tool call to the session log
     ///
     /// Handles write failures gracefully by warning the user and logging to stderr
-    fn persist_tool_call(&mut self, tool: &str, arguments: &serde_json::Value) {
+    pub(crate) fn persist_tool_call(&mut self, tool: &str, arguments: &serde_json::Value) {
         if let Some(ref mut session) = self.session
             && let Err(e) = session.append_tool_call(tool, arguments.clone())
         {
@@ -160,7 +150,9 @@ impl App {
     /// Persist a tool result to the session log
     ///
     /// Handles write failures gracefully by warning the user and logging to stderr
-    fn persist_tool_result(&mut self, tool: &str, result: &serde_json::Value, success: bool, error: Option<&str>) {
+    pub(crate) fn persist_tool_result(
+        &mut self, tool: &str, result: &serde_json::Value, success: bool, error: Option<&str>,
+    ) {
         if let Some(ref mut session) = self.session
             && let Err(e) = session.append_tool_result(tool, result.clone(), success, error.map(|s| s.to_string()))
         {
@@ -173,7 +165,7 @@ impl App {
     /// Persist an approval decision to the session log
     ///
     /// Handles write failures gracefully by warning the user and logging to stderr
-    fn persist_approval(&mut self, action: &str, approved: bool) {
+    pub(crate) fn persist_approval(&mut self, action: &str, approved: bool) {
         if let Some(ref mut session) = self.session
             && let Err(e) = session.append_approval(action, approved)
         {
@@ -791,239 +783,6 @@ impl App {
         }
     }
 
-    /// Handle agent streaming events
-    ///
-    /// Processes events from the agent (tokens, tool calls, approvals, errors)
-    /// and updates the transcript and application state accordingly.
-    fn handle_agent_event(&mut self, event: thunderus_agent::AgentEvent) {
-        match event {
-            AgentEvent::Token(text) => {
-                if self.streaming_model_content.is_none() {
-                    self.streaming_model_content = Some(String::new());
-                }
-                if let Some(ref mut buffer) = self.streaming_model_content {
-                    buffer.push_str(&text);
-                }
-                self.transcript_mut().add_streaming_token(&text);
-            }
-            AgentEvent::ToolCall { name, args, risk, description, task_context, scope, classification_reasoning } => {
-                let args_str = serde_json::to_string_pretty(&args).unwrap_or_default();
-                let risk_str = risk.as_str();
-                self.transcript_mut().add_tool_call(&name, &args_str, risk_str);
-                if let Some(entry) = self.transcript_mut().last_mut()
-                    && let transcript::TranscriptEntry::ToolCall {
-                        description: d,
-                        task_context: tc,
-                        scope: sc,
-                        classification_reasoning: cr,
-                        ..
-                    } = entry
-                {
-                    if let Some(desc) = description {
-                        *d = Some(desc);
-                    }
-                    if let Some(ctx) = task_context {
-                        *tc = Some(ctx);
-                    }
-                    if let Some(scp) = scope {
-                        *sc = Some(scp);
-                    }
-                    if let Some(reasoning) = classification_reasoning {
-                        *cr = Some(reasoning);
-                    }
-                }
-                self.persist_tool_call(&name, &args);
-            }
-            AgentEvent::ToolResult { name, result, success, error, metadata } => {
-                self.transcript_mut().add_tool_result(&name, &result, success);
-                if let Some(err) = error
-                    && let Some(entry) = self.transcript_mut().last_mut()
-                    && let transcript::TranscriptEntry::ToolResult { error: e, .. } = entry
-                {
-                    *e = Some(err);
-                }
-                let result_json = serde_json::json!({
-                    "output": result
-                });
-                self.persist_tool_result(&name, &result_json, success, if success { None } else { Some("") });
-
-                if let Some(entry) = self.transcript_mut().last_mut()
-                    && let transcript::TranscriptEntry::ToolResult { .. } = entry
-                    && let Some(exec_time) = metadata.execution_time_ms
-                    && exec_time > 0
-                {
-                    let time_str = if exec_time < 1000 {
-                        format!("{}ms", exec_time)
-                    } else {
-                        format!("{:.2}s", exec_time as f64 / 1000.0)
-                    };
-                    self.transcript_mut()
-                        .add_system_message(format!("Tool execution time: {}", time_str));
-                }
-            }
-            AgentEvent::ApprovalRequest(request) => {
-                eprintln!("Unexpected approval request via agent event: {:?}", request.id)
-            }
-            AgentEvent::ApprovalResponse(_response) => self.state_mut().approval_ui.pending_approval = None,
-            AgentEvent::Error(msg) => {
-                let error_type = match msg.as_str() {
-                    m if m.contains("cancelled") => ErrorType::Cancelled,
-                    m if m.contains("timeout") || m.contains("network") => ErrorType::Network,
-                    m if m.contains("provider") || m.contains("API") => ErrorType::Provider,
-                    _ => ErrorType::Other,
-                };
-
-                eprintln!("[Agent Error] {}", msg);
-
-                self.transcript_mut().add_error(msg, error_type);
-                self.state_mut().stop_generation();
-            }
-            AgentEvent::Done => {
-                self.transcript_mut().finish_streaming();
-                self.state_mut().stop_generation();
-
-                if let Some(content) = self.streaming_model_content.take() {
-                    self.persist_model_message(&content);
-                }
-            }
-            AgentEvent::ApprovalModeChanged { from, to } => self.transcript_mut().add_system_message(format!(
-                "Approval mode changed: {} → {}",
-                from.as_str(),
-                to.as_str()
-            )),
-            AgentEvent::MemoryRetrieval { query: _, chunks, total_tokens, search_time_ms } => {
-                let time_str = if search_time_ms < 1000 {
-                    format!("{}ms", search_time_ms)
-                } else {
-                    format!("{:.2}s", search_time_ms as f64 / 1000.0)
-                };
-                self.transcript_mut().add_system_message(format!(
-                    "Memory retrieval: {} chunks ({} tokens) in {}",
-                    chunks.len(),
-                    total_tokens,
-                    time_str
-                ));
-            }
-        }
-    }
-
-    /// Handle an approval request from the agent
-    ///
-    /// Called when the agent requests approval for an action (tool call, etc).
-    /// Displays the approval prompt in the transcript and sets pending state.
-    fn handle_approval_request(&mut self, request: thunderus_core::ApprovalRequest) {
-        let action_type_str = match request.action_type {
-            ActionType::Tool => "tool",
-            ActionType::Shell => "shell",
-            ActionType::FileWrite => "file write",
-            ActionType::FileDelete => "file delete",
-            ActionType::Network => "network",
-            ActionType::Patch => "patch",
-            ActionType::Generic => "generic",
-        };
-        let risk_str = match request.risk_level {
-            ToolRisk::Safe => "safe",
-            ToolRisk::Risky => "risky",
-            ToolRisk::Blocked => "blocked",
-        };
-
-        if let Some(ref mut session) = self.session
-            && request.risk_level.is_risky()
-        {
-            let action_type_for_hint = match request.action_type {
-                ActionType::Tool => "tool",
-                ActionType::Shell => "shell",
-                ActionType::FileWrite => "file_write",
-                ActionType::FileDelete => "file_delete",
-                ActionType::Network => "network",
-                ActionType::Patch => "patch",
-                ActionType::Generic => "generic",
-            };
-
-            if let Some(concept) =
-                suggest_concept(action_type_for_hint, request.risk_level, request.description.as_str())
-                && let Ok(Some(hint)) = session.get_hint_for_concept(&concept)
-            {
-                self.state_mut().show_hint(hint);
-            }
-        }
-
-        self.transcript_mut()
-            .add_approval_prompt(format!("{}:{}", action_type_str, request.description), risk_str);
-        self.state_mut().approval_ui.pending_approval =
-            Some(ApprovalState::pending(request.description.clone(), risk_str.to_string()).with_request_id(request.id));
-    }
-
-    /// Send approval response back to agent
-    ///
-    /// Called when user responds to an approval prompt (y/n/c).
-    /// Sends the decision back to the agent via TuiApprovalHandle and updates the transcript.
-    fn send_approval_response(&mut self, decision: ApprovalDecision) {
-        self.transcript_mut().set_approval_decision(decision);
-
-        if let Some(approval_state) = self.state_mut().approval_ui.pending_approval.take() {
-            let approved = matches!(decision, ApprovalDecision::Approved);
-
-            self.persist_approval(&approval_state.action, approved);
-
-            if let Some(request_id) = approval_state.request_id
-                && let Some(ref handle) = self.approval_handle
-            {
-                if handle.respond(request_id, decision) {
-                    let decision_str = match decision {
-                        ApprovalDecision::Approved => "approved",
-                        ApprovalDecision::Rejected => "rejected",
-                        ApprovalDecision::Cancelled => "cancelled",
-                    };
-                    self.transcript_mut()
-                        .add_system_message(format!("Action {}.", decision_str));
-                } else {
-                    self.transcript_mut()
-                        .add_system_message("Approval request timed out or was already cancelled.");
-                }
-            }
-        } else {
-            self.transcript_mut().set_approval_decision(decision);
-        }
-    }
-
-    /// Spawn agent to process a user message
-    ///
-    /// Creates a new agent task that will stream events back to the TUI.
-    /// The agent runs in the background, sending events through the channel.
-    fn spawn_agent_for_message(&mut self, message: String, provider: &Arc<dyn Provider>) {
-        let (tui_approval, approval_request_rx) = TuiApprovalProtocol::new();
-        self.approval_request_rx = Some(approval_request_rx);
-
-        let approval_handle = TuiApprovalHandle::from_protocol(&tui_approval);
-        self.approval_handle = Some(approval_handle);
-
-        let approval_protocol = Arc::new(tui_approval) as Arc<dyn ApprovalProtocol>;
-        let session_id = SessionId::new();
-        let cancel_token = self.cancel_token.clone();
-        let provider_clone = Arc::clone(provider);
-        let approval_gate = ApprovalGate::new(ApprovalMode::Auto, false);
-
-        let mut agent = Agent::new(provider_clone, approval_protocol, approval_gate, session_id);
-        self.state_mut().start_generation();
-
-        let (tx, rx) = mpsc::unbounded_channel();
-        self.agent_event_rx = Some(rx);
-
-        tokio::spawn(async move {
-            match agent.process_message(&message, None, cancel_token).await {
-                Ok(mut event_rx) => {
-                    while let Some(event) = event_rx.recv().await {
-                        let _ = tx.send(event);
-                    }
-                }
-                Err(e) => {
-                    let _ = tx.send(thunderus_agent::AgentEvent::Error(format!("Agent error: {}", e)));
-                }
-            }
-        });
-    }
-
     /// Draw the UI
     pub fn draw(&mut self, terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<()> {
         if self.state.is_generating() || self.state.approval_ui.pending_approval.is_some() {
@@ -1204,600 +963,6 @@ impl App {
 
         let _ = fs::remove_file(&temp_file_path);
         let _ = self.redraw_screen();
-    }
-
-    /// Handle /model command
-    fn handle_model_command(&mut self, model: String) {
-        match model.as_str() {
-            "list" => {
-                let provider_name = self.state.provider_name();
-                let model_name = self.state.model_name();
-                self.transcript_mut().add_system_message(format!(
-                    "Available models:\n  Current: {} ({})\n  Available: glm-4.7, gemini-2.5-flash",
-                    provider_name, model_name
-                ))
-            }
-            "glm-4.7" => self
-                .transcript_mut()
-                .add_system_message("Switching to GLM-4.7 is not yet implemented in this version"),
-            "gemini-2.5-flash" => self
-                .transcript_mut()
-                .add_system_message("Switching to Gemini-2.5-flash is not yet implemented in this version"),
-            _ => self.transcript_mut().add_system_message(format!(
-                "Unknown model: {}. Use /model list to see available models.",
-                model
-            )),
-        }
-    }
-
-    /// Handle /approvals command
-    fn handle_approvals_command(&mut self, mode: String) {
-        match mode.as_str() {
-            "list" => {
-                let current_mode = self.state.config.approval_mode;
-                self.transcript_mut().add_system_message(format!(
-                    "Available approval modes:\n  Current: {}\n  Available: read-only, auto, full-access",
-                    current_mode
-                ))
-            }
-            "read-only" => {
-                let old_mode = self.state.config.approval_mode;
-                self.state.config.approval_mode = ApprovalMode::ReadOnly;
-                self.transcript_mut()
-                    .add_system_message(format!("Approval mode changed: {} → read-only", old_mode));
-            }
-            "auto" => {
-                let old_mode = self.state.config.approval_mode;
-                self.state.config.approval_mode = ApprovalMode::Auto;
-                self.transcript_mut()
-                    .add_system_message(format!("Approval mode changed: {} → auto", old_mode));
-            }
-            "full-access" => {
-                let old_mode = self.state.config.approval_mode;
-                self.state.config.approval_mode = ApprovalMode::FullAccess;
-                self.transcript_mut()
-                    .add_system_message(format!("Approval mode changed: {} → full-access", old_mode));
-            }
-            _ => self.transcript_mut().add_system_message(format!(
-                "Unknown approval mode: {}. Use /approvals list to see available modes.",
-                mode
-            )),
-        }
-    }
-
-    /// Handle /verbosity command
-    fn handle_verbosity_command(&mut self, level: String) {
-        match level.as_str() {
-            "list" => {
-                let current_level = self.state.verbosity();
-                self.transcript_mut().add_system_message(format!(
-                    "Available verbosity levels:\n  Current: {}\n  Available: quiet, default, verbose",
-                    current_level.as_str()
-                ))
-            }
-            "quiet" => {
-                let old_level = self.state.verbosity();
-                self.state.config.verbosity = VerbosityLevel::Quiet;
-                self.transcript_mut()
-                    .add_system_message(format!("Verbosity changed: {} → quiet", old_level.as_str()));
-            }
-            "default" => {
-                let old_level = self.state.verbosity();
-                self.state.config.verbosity = VerbosityLevel::Default;
-                self.transcript_mut()
-                    .add_system_message(format!("Verbosity changed: {} → default", old_level.as_str()));
-            }
-            "verbose" => {
-                let old_level = self.state.verbosity();
-                self.state.config.verbosity = VerbosityLevel::Verbose;
-                self.transcript_mut()
-                    .add_system_message(format!("Verbosity changed: {} → verbose", old_level.as_str()));
-            }
-            _ => self.transcript_mut().add_system_message(format!(
-                "Unknown verbosity level: {}. Use /verbosity list to see available levels.",
-                level
-            )),
-        }
-    }
-
-    /// Handle /status command
-    fn handle_status_command(&mut self) {
-        let profile = self.state.config.profile.clone();
-        let provider_name = self.state.provider_name();
-        let model_name = self.state.model_name();
-        let approval_mode = self.state.config.approval_mode;
-        let sandbox_mode = self.state.config.sandbox_mode;
-        let verbosity = self.state.config.verbosity;
-        let cwd = self.state.config.cwd.display();
-        let session_events_count = self.state.session.session_events.len();
-        let modified_files_count = self.state.session.modified_files.len();
-        let has_pending_approval = self.state.approval_ui.pending_approval.is_some();
-
-        let status = format!(
-            "Session Status:\n\
-             Profile: {}\n\
-             Provider: {} ({})\n\
-             Approval Mode: {}\n\
-             Sandbox Mode: {}\n\
-             Verbosity: {}\n\
-             Working Directory: {}\n\
-             Session Events: {}\n\
-             Modified Files: {}\n\
-             Pending Approvals: {}",
-            profile,
-            provider_name,
-            model_name,
-            approval_mode,
-            sandbox_mode,
-            verbosity.as_str(),
-            cwd,
-            session_events_count,
-            modified_files_count,
-            has_pending_approval
-        );
-        self.transcript_mut().add_system_message(status);
-    }
-
-    /// Handle /plan command
-    fn handle_plan_command(&mut self) {
-        match self.session {
-            Some(ref session) => match ViewMaterializer::new(session).materialize(ViewKind::Plan) {
-                Ok(content) => self
-                    .transcript_mut()
-                    .add_system_message(format!("## Current Plan\n\n{}", content)),
-                Err(e) => self
-                    .transcript_mut()
-                    .add_system_message(format!("Failed to materialize plan: {}", e)),
-            },
-            None => self
-                .transcript_mut()
-                .add_system_message("No active session to materialize plan from"),
-        }
-    }
-
-    /// Handle /review command
-    fn handle_review_command(&mut self) {
-        let patches = self.state.patches();
-        if patches.is_empty() {
-            self.transcript_mut()
-                .add_system_message("No pending patches to review.");
-        } else {
-            let mut review_text = String::from("## Pending Patches for Review\n\n");
-            for (idx, patch) in patches.iter().enumerate() {
-                review_text.push_str(&format!("### Patch {} - {}\n\n", idx + 1, patch.name));
-                let files_str: Vec<String> = patch.files.iter().map(|p| p.display().to_string()).collect();
-                review_text.push_str(&format!("Files: {}\n\n", files_str.join(", ")));
-                review_text.push_str("```diff\n");
-                review_text.push_str(&patch.diff);
-                review_text.push_str("\n```\n\n");
-            }
-            self.transcript_mut().add_system_message(review_text);
-        }
-    }
-
-    /// Handle /memory command
-    fn handle_memory_command(&mut self) {
-        match self.session {
-            Some(ref session) => match ViewMaterializer::new(session).materialize(ViewKind::Memory) {
-                Ok(content) => self
-                    .transcript_mut()
-                    .add_system_message(format!("## Project Memory\n\n{}", content)),
-                Err(e) => self
-                    .transcript_mut()
-                    .add_system_message(format!("Failed to materialize memory: {}", e)),
-            },
-            None => self
-                .transcript_mut()
-                .add_system_message("No active session to materialize memory from"),
-        }
-    }
-
-    /// Auto-materialize and save all views after session updates
-    fn materialize_views(&mut self) {
-        if let Some(ref session) = self.session {
-            let materializer = ViewMaterializer::new(session);
-            let _ = materializer.materialize_all();
-        }
-    }
-
-    /// Handle /plan add <item> command
-    fn handle_plan_add_command(&mut self, item: String) {
-        if let Some(ref mut session) = self.session {
-            match session.append_plan_update("add", &item, None) {
-                Ok(_) => {
-                    self.transcript_mut()
-                        .add_system_message(format!("Added to plan: {}", item));
-                    self.materialize_views();
-                }
-                Err(e) => self
-                    .transcript_mut()
-                    .add_system_message(format!("Failed to add plan item: {}", e)),
-            }
-        } else {
-            self.transcript_mut()
-                .add_system_message("No active session to add plan item to");
-        }
-    }
-
-    /// Handle /plan done <n> command
-    fn handle_plan_done_command(&mut self, index: usize) {
-        match self.session {
-            Some(ref mut session) => match ViewMaterializer::new(session).materialize(ViewKind::Plan) {
-                Ok(content) => {
-                    let lines: Vec<&str> = content.lines().collect();
-                    let mut task_count = 0;
-                    let mut target_item = None;
-
-                    for line in lines {
-                        if line.trim().starts_with("- [ ]") {
-                            task_count += 1;
-                            if task_count == index {
-                                target_item = Some(line.trim().trim_start_matches("- [ ]").trim().to_string());
-                                break;
-                            }
-                        }
-                    }
-
-                    match target_item {
-                        Some(item) => match session.append_plan_update("complete", &item, None) {
-                            Ok(_) => {
-                                self.transcript_mut()
-                                    .add_system_message(format!("Marked as done: {}", item));
-                                self.materialize_views();
-                            }
-                            Err(e) => self
-                                .transcript_mut()
-                                .add_system_message(format!("Failed to mark item as done: {}", e)),
-                        },
-                        None => self
-                            .transcript_mut()
-                            .add_system_message(format!("No task found at index {}", index)),
-                    }
-                }
-                Err(e) => self
-                    .transcript_mut()
-                    .add_system_message(format!("Failed to read plan: {}", e)),
-            },
-            None => self
-                .transcript_mut()
-                .add_system_message("No active session to update plan in"),
-        }
-    }
-
-    /// Handle /memory add <fact> command
-    fn handle_memory_add_command(&mut self, fact: String) {
-        if let Some(ref mut session) = self.session {
-            let mut hasher = DefaultHasher::new();
-            fact.hash(&mut hasher);
-            let content_hash = format!("{:x}", hasher.finish());
-
-            match session.append_memory_update("core", "MEMORY.md", "update", &content_hash) {
-                Ok(_) => {
-                    self.transcript_mut()
-                        .add_system_message(format!("Added to memory: {}", fact));
-                    self.materialize_views();
-                }
-                Err(e) => self
-                    .transcript_mut()
-                    .add_system_message(format!("Failed to add memory: {}", e)),
-            }
-        } else {
-            self.transcript_mut()
-                .add_system_message("No active session to add memory to");
-        }
-    }
-
-    /// Handle /memory search <query> command
-    ///
-    /// Searches the memory store and displays results in the memory hits panel.
-    fn handle_memory_search_command(&mut self, query: String) {
-        let memory_paths = MemoryPaths::from_thunderus_root(&self.state.config.cwd);
-        let db_path = memory_paths.indexes.join("memory.db");
-
-        let store = match tokio::runtime::Handle::try_current() {
-            Ok(handle) => match handle.block_on(MemoryStore::open(&db_path)) {
-                Ok(store) => store,
-                Err(e) => {
-                    return self
-                        .transcript_mut()
-                        .add_system_message(format!("Failed to open memory store: {}", e));
-                }
-            },
-            Err(_) => {
-                return self
-                    .transcript_mut()
-                    .add_system_message("No tokio runtime available for memory search");
-            }
-        };
-
-        let hits = match tokio::runtime::Handle::try_current() {
-            Ok(handle) => match handle.block_on(store.search(&query, SearchFilters::default())) {
-                Ok(hits) => hits,
-                Err(e) => {
-                    return self
-                        .transcript_mut()
-                        .add_system_message(format!("Memory search failed: {}", e));
-                }
-            },
-            Err(_) => {
-                return self
-                    .transcript_mut()
-                    .add_system_message("No tokio runtime available for memory search");
-            }
-        };
-
-        if hits.is_empty() {
-            self.transcript_mut()
-                .add_system_message(format!("No memory results found for '{}'", query));
-            self.state_mut().memory_hits.clear();
-        } else {
-            self.transcript_mut()
-                .add_system_message(format!("Found {} memory result(s) for '{}'", hits.len(), query));
-
-            let start = std::time::Instant::now();
-            let search_time = start.elapsed().as_millis() as u64;
-
-            self.state_mut().memory_hits.set_hits(hits, query, search_time);
-        }
-    }
-
-    /// Handle /memory pin <id> command
-    ///
-    /// Pins a memory document to the current context set.
-    fn handle_memory_pin_command(&mut self, id: String) {
-        if self.state().memory_hits.is_pinned(&id) {
-            self.state_mut().memory_hits.unpin(&id);
-            self.transcript_mut()
-                .add_system_message(format!("Unpinned memory: {}", id));
-        } else {
-            self.state_mut().memory_hits.pin(id.clone());
-            self.transcript_mut()
-                .add_system_message(format!("Pinned memory: {}", id));
-        }
-
-        let pinned_count = self.state().memory_hits.pinned_count();
-        if pinned_count > 0 {
-            self.transcript_mut()
-                .add_system_message(format!("Total pinned: {}", pinned_count));
-        }
-    }
-
-    /// Handle /search <query> command
-    fn handle_search_command(&mut self, query: String, scope: SearchScope) {
-        match self.session {
-            Some(ref session) => match thunderus_core::search_session(&session.session_dir(), &query, scope) {
-                Ok(hits) => {
-                    if hits.is_empty() {
-                        self.transcript_mut()
-                            .add_system_message(format!("No results found for '{}'", query));
-                    } else {
-                        let scope_str = match scope {
-                            SearchScope::All => "all files",
-                            SearchScope::Events => "events",
-                            SearchScope::Views => "views",
-                        };
-
-                        let mut results_text = format!("## Search Results for '{}' in {}\n\n", query, scope_str);
-                        results_text.push_str(&format!("Found {} match(es):\n\n", hits.len()));
-
-                        for hit in hits.iter().take(20) {
-                            results_text.push_str(&format!("**{}:{}**\n", hit.file, hit.line));
-                            results_text.push_str(&format!("```\n{}\n```\n\n", hit.content));
-                        }
-
-                        if hits.len() > 20 {
-                            results_text.push_str(&format!("... and {} more results\n", hits.len() - 20));
-                        }
-
-                        self.transcript_mut().add_system_message(results_text);
-                    }
-                }
-                Err(e) => self
-                    .transcript_mut()
-                    .add_system_message(format!("Search failed: {}", e)),
-            },
-            None => self.transcript_mut().add_system_message("No active session to search"),
-        }
-    }
-
-    /// Handle /garden consolidate [session-id] command
-    fn handle_garden_consolidate_command(&mut self, session_id: String) {
-        let memory_paths = MemoryPaths::from_thunderus_root(&self.state.config.cwd);
-
-        let events_file = if session_id == "latest" {
-            match &self.session {
-                Some(session) => session.events_file(),
-                None => {
-                    return self
-                        .transcript_mut()
-                        .add_system_message("No active session to consolidate");
-                }
-            }
-        } else {
-            let agent_dir = thunderus_core::AgentDir::new(&self.state.config.cwd);
-            let session_dir = agent_dir.sessions_dir().join(&session_id);
-            std::path::PathBuf::from(&session_dir).join("events.jsonl")
-        };
-
-        let gardener = thunderus_core::memory::Gardener::new(memory_paths);
-        let result = match tokio::runtime::Handle::try_current() {
-            Ok(handle) => handle.block_on(gardener.consolidate_session(&session_id, &events_file)),
-            Err(_) => {
-                return self
-                    .transcript_mut()
-                    .add_system_message("No tokio runtime available for consolidation");
-            }
-        };
-
-        match result {
-            Ok(consolidation_result) => {
-                let mut msg = format!("🌱 Garden: Consolidated session {}\n\n", session_id);
-
-                msg.push_str("Extracted:\n");
-                msg.push_str(&format!("  • {} facts\n", consolidation_result.facts.len()));
-                msg.push_str(&format!("  • {} ADRs\n", consolidation_result.adrs.len()));
-                msg.push_str(&format!("  • {} playbooks\n", consolidation_result.playbooks.len()));
-
-                let recap_path = consolidation_result
-                    .recap
-                    .as_ref()
-                    .map(|r| r.path.display().to_string());
-                let warnings = consolidation_result.warnings.clone();
-
-                let memory_patches = consolidation_result.into_memory_patches();
-                let patch_count = memory_patches.len();
-                for patch in &memory_patches {
-                    msg.push_str(&format!("  • [{}] {}\n", patch.kind, patch.description));
-                }
-
-                if !memory_patches.is_empty() {
-                    msg.push_str(&format!(
-                        "\n🧠 Added {} memory patch(es) to review queue\n",
-                        patch_count
-                    ));
-                    self.state_mut().memory_patches_mut().extend(memory_patches);
-                }
-
-                if let Some(ref path) = recap_path {
-                    msg.push_str(&format!("\nRecap: {}\n", path));
-                }
-
-                for warning in &warnings {
-                    msg.push_str(&format!("\n⚠️  {}\n", warning));
-                }
-
-                self.transcript_mut().add_system_message(msg);
-            }
-            Err(e) => {
-                self.transcript_mut()
-                    .add_system_message(format!("Consolidation failed: {}", e));
-            }
-        }
-    }
-
-    /// Handle /garden hygiene command
-    fn handle_garden_hygiene_command(&mut self) {
-        let memory_paths = MemoryPaths::from_thunderus_root(&self.state.config.cwd);
-        let gardener = thunderus_core::memory::Gardener::new(memory_paths.clone());
-
-        let result = gardener.check_hygiene();
-
-        match result {
-            Ok(violations) => {
-                if violations.is_empty() {
-                    self.transcript_mut()
-                        .add_system_message("🧹 Hygiene Check: No violations found");
-                } else {
-                    let mut msg = format!("🧹 Hygiene Check Results:\n\n{} violation(s):\n\n", violations.len());
-                    for v in &violations {
-                        let severity = if matches!(v.severity, Severity::Error) { "🔴" } else { "⚠️ " };
-                        msg.push_str(&format!("  {} [{}] {}\n", severity, v.doc_id, v.message));
-                        if let Some(fix) = &v.suggested_fix {
-                            msg.push_str(&format!("      Fix: {}\n", fix));
-                        }
-                    }
-                    self.transcript_mut().add_system_message(msg);
-                }
-            }
-            Err(e) => {
-                self.transcript_mut()
-                    .add_system_message(format!("Hygiene check failed: {}", e));
-            }
-        }
-    }
-
-    /// Handle /garden drift command
-    fn handle_garden_drift_command(&mut self) {
-        let memory_paths = MemoryPaths::from_thunderus_root(&self.state.config.cwd);
-        let gardener = thunderus_core::memory::Gardener::new(memory_paths.clone());
-
-        let result = gardener.check_drift_auto();
-
-        match result {
-            Ok(drift_result) => {
-                if drift_result.stale_docs.is_empty() {
-                    self.transcript_mut()
-                        .add_system_message("📊 Drift Detection: All documents verified");
-                } else {
-                    let mut msg = format!(
-                        "📊 Drift Detection Results:\n\n{} stale document(s):\n\n",
-                        drift_result.stale_docs.len()
-                    );
-                    for doc in &drift_result.stale_docs {
-                        let severity = match doc.severity {
-                            StalenessSeverity::Minor => "🟡",
-                            StalenessSeverity::Major => "🟠",
-                            StalenessSeverity::Critical => "🔴",
-                        };
-                        msg.push_str(&format!(
-                            "  {} {} (changed: {:?})\n",
-                            severity, doc.doc_id, doc.changed_files
-                        ));
-                    }
-                    msg.push_str(&format!("\nCurrent commit: {}\n", drift_result.current_commit));
-                    self.transcript_mut().add_system_message(msg);
-                }
-            }
-            Err(e) => {
-                self.transcript_mut()
-                    .add_system_message(format!("Drift check failed: {}", e));
-            }
-        }
-    }
-
-    /// Handle /garden verify <doc-id> command
-    fn handle_garden_verify_command(&mut self, doc_id: String) {
-        let memory_paths = MemoryPaths::from_thunderus_root(&self.state.config.cwd);
-        let gardener = thunderus_core::memory::Gardener::new(memory_paths.clone());
-
-        let result = gardener.verify_document(&doc_id);
-
-        match result {
-            Ok(()) => {
-                self.transcript_mut()
-                    .add_system_message(format!("✓ Marked {} as verified at current commit", doc_id));
-            }
-            Err(e) => {
-                self.transcript_mut()
-                    .add_system_message(format!("Verification failed: {}", e));
-            }
-        }
-    }
-
-    /// Handle /garden stats command
-    fn handle_garden_stats_command(&mut self) {
-        let memory_paths = MemoryPaths::from_thunderus_root(&self.state.config.cwd);
-
-        let manifest = match std::fs::read_to_string(memory_paths.manifest_file()) {
-            Ok(content) => match serde_json::from_str::<thunderus_core::memory::MemoryManifest>(&content) {
-                Ok(manifest) => manifest,
-                Err(e) => {
-                    return self
-                        .transcript_mut()
-                        .add_system_message(format!("Failed to parse manifest: {}", e));
-                }
-            },
-            Err(e) => {
-                return self
-                    .transcript_mut()
-                    .add_system_message(format!("Failed to read manifest: {}", e));
-            }
-        };
-
-        let mut msg = "🌱 Memory Gardener Statistics:\n\n".to_string();
-        msg.push_str(&format!("Total documents: {}\n\n", manifest.docs.len()));
-
-        let mut kind_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-        for doc in &manifest.docs {
-            *kind_counts.entry(format!("{:?}", doc.kind)).or_insert(0) += 1;
-        }
-
-        msg.push_str("Documents by type:\n");
-        for (kind, count) in kind_counts.iter() {
-            msg.push_str(&format!("  • {}: {}\n", kind, count));
-        }
-
-        self.transcript_mut().add_system_message(msg);
     }
 
     /// Redraw the screen after returning from external editor

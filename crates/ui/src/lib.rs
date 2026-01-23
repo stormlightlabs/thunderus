@@ -1,8 +1,10 @@
+pub mod agent_handling;
 pub mod app;
 pub mod components;
 pub mod event_handler;
 pub mod fuzzy_finder;
 pub mod layout;
+pub mod slash_commands;
 pub mod state;
 pub mod syntax;
 pub mod theme;

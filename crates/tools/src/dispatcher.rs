@@ -81,7 +81,7 @@ mod tests {
     #[test]
     fn test_execute_noop() {
         let dispatcher = setup_dispatcher();
-        let tool_call = builtin::noop_tool_call("call_1");
+        let tool_call = builtin::test_helpers::noop_tool_call("call_1");
 
         let result = dispatcher.execute(&tool_call);
         assert!(result.is_ok());
@@ -94,7 +94,7 @@ mod tests {
     #[test]
     fn test_execute_echo() {
         let dispatcher = setup_dispatcher();
-        let tool_call = builtin::echo_tool_call("call_2", "Hello");
+        let tool_call = builtin::test_helpers::echo_tool_call("call_2", "Hello");
 
         let result = dispatcher.execute(&tool_call);
         assert!(result.is_ok());
@@ -109,9 +109,9 @@ mod tests {
     fn test_execute_batch() {
         let dispatcher = setup_dispatcher();
         let tool_calls = vec![
-            builtin::noop_tool_call("call_1"),
-            builtin::echo_tool_call("call_2", "First"),
-            builtin::echo_tool_call("call_3", "Second"),
+            builtin::test_helpers::noop_tool_call("call_1"),
+            builtin::test_helpers::echo_tool_call("call_2", "First"),
+            builtin::test_helpers::echo_tool_call("call_3", "Second"),
         ];
 
         let results = dispatcher.execute_batch(&tool_calls);

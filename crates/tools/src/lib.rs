@@ -42,7 +42,9 @@ pub use thunderus_core::ToolRisk;
 pub use tool::Tool;
 
 #[cfg(test)]
-pub use builtin::{echo_tool_call, glob_tool_call, grep_tool_call, noop_tool_call, read_tool_call, shell_tool_call};
+pub use builtin::test_helpers::{
+    echo_tool_call, glob_tool_call, grep_tool_call, noop_tool_call, read_tool_call, shell_tool_call,
+};
 
 #[cfg(test)]
 mod tests {
@@ -65,12 +67,12 @@ mod tests {
 
         let dispatcher = ToolDispatcher::new(registry);
 
-        let tool_call = builtin::noop_tool_call("call_test");
+        let tool_call = builtin::test_helpers::noop_tool_call("call_test");
         let result = dispatcher.execute(&tool_call);
         assert!(result.is_ok());
         assert!(result.unwrap().is_success());
 
-        let echo_call = builtin::echo_tool_call("echo_test", "Integration test");
+        let echo_call = builtin::test_helpers::echo_tool_call("echo_test", "Integration test");
         let result = dispatcher.execute(&echo_call);
         assert!(result.is_ok());
         let tool_result = result.unwrap();
@@ -99,10 +101,10 @@ mod tests {
         let dispatcher = ToolDispatcher::new(registry);
 
         let calls = vec![
-            builtin::noop_tool_call("call_1"),
-            builtin::echo_tool_call("call_2", "First"),
-            builtin::noop_tool_call("call_3"),
-            builtin::echo_tool_call("call_4", "Second"),
+            builtin::test_helpers::noop_tool_call("call_1"),
+            builtin::test_helpers::echo_tool_call("call_2", "First"),
+            builtin::test_helpers::noop_tool_call("call_3"),
+            builtin::test_helpers::echo_tool_call("call_4", "Second"),
         ];
 
         let results = dispatcher.execute_batch(&calls).unwrap();

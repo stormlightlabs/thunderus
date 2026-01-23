@@ -1,9 +1,7 @@
 use crate::config::ApprovalMode;
 use crate::error::{Error, Result, SessionError};
 use crate::layout::{AgentDir, SessionId};
-use crate::teaching::TeachingState;
 
-use serde::{Deserialize, Serialize};
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -11,268 +9,11 @@ use std::path::{Path, PathBuf};
 /// Monotonically increasing sequence number for events
 pub type Seq = u64;
 
-/// Event types that can be logged in a session
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "type", rename_all = "kebab-case")]
-pub enum Event {
-    /// User message to the agent
-    UserMessage {
-        /// Content of the user message
-        content: String,
-    },
-    /// Model response to the user
-    ModelMessage {
-        /// Content of the model response
-        content: String,
-        /// Tokens used (optional, not always available)
-        tokens_used: Option<TokensUsed>,
-    },
-    /// Tool call initiated by the model
-    ToolCall {
-        /// Name of the tool being called
-        tool: String,
-        /// Arguments passed to the tool
-        arguments: serde_json::Value,
-    },
-    /// Result from a tool execution
-    ToolResult {
-        /// Name of the tool that was called
-        tool: String,
-        /// Result of the tool execution
-        result: serde_json::Value,
-        /// Whether the tool call was successful
-        success: bool,
-        /// Error message if the tool call failed
-        error: Option<String>,
-    },
-    /// Approval action by the user
-    Approval {
-        /// Action being approved
-        action: String,
-        /// Whether the action was approved
-        approved: bool,
-    },
-    /// Patch proposed or applied
-    Patch {
-        /// Name of the patch
-        name: String,
-        /// Status of the patch
-        status: PatchStatus,
-        /// Files affected by the patch
-        files: Vec<String>,
-        /// Patch content (unified diff format)
-        diff: String,
-    },
-    /// Shell command execution
-    ShellCommand {
-        /// Command that was executed
-        command: String,
-        /// Arguments passed to the command
-        args: Vec<String>,
-        /// Working directory
-        working_dir: PathBuf,
-        /// Exit code of the command
-        exit_code: Option<i32>,
-        /// Output file reference (if output was too large to inline)
-        output_ref: Option<String>,
-    },
-    /// Git snapshot (commit state)
-    GitSnapshot {
-        /// Commit hash
-        commit: String,
-        /// Branch name
-        branch: String,
-        /// Number of changed files
-        changed_files: usize,
-    },
-    /// File read operation (for tracking read history and edit validation)
-    FileRead {
-        /// Absolute path to the file that was read
-        file_path: String,
-        /// Number of lines read
-        line_count: usize,
-        /// Offset used for reading (0-indexed)
-        offset: usize,
-        /// Whether the read was successful
-        success: bool,
-    },
-    /// Approval mode change
-    ApprovalModeChange {
-        /// Previous approval mode
-        from: ApprovalMode,
-        /// New approval mode
-        to: ApprovalMode,
-    },
-    /// User manually edited a materialized markdown view
-    ViewEdit {
-        /// Which view was edited (MEMORY.md, PLAN.md, DECISIONS.md)
-        view: String,
-        /// Type of change (manual, merge, conflict_resolved)
-        change_type: String,
-        /// New content after edit
-        content: String,
-        /// Event sequence numbers this edit references
-        seq_refs: Vec<Seq>,
-    },
-    /// Loaded external context file (CLAUDE.md, AGENTS.md, etc.)
-    ContextLoad {
-        /// Source filename (e.g., "CLAUDE.md")
-        source: String,
-        /// Absolute path to the loaded file
-        path: String,
-        /// Hash of the content for deduplication
-        content_hash: String,
-    },
-    /// User-defined checkpoint in a plan
-    Checkpoint {
-        /// Label for the checkpoint
-        label: String,
-        /// Description of what was accomplished
-        description: String,
-        /// Optional snapshot ID reference
-        snapshot_id: Option<String>,
-    },
-    /// Plan item update (add, complete, remove)
-    PlanUpdate {
-        /// Action performed (add, complete, remove, update)
-        action: String,
-        /// The plan item text
-        item: String,
-        /// Optional reason for the update
-        reason: Option<String>,
-    },
-    /// Memory document created or updated
-    MemoryUpdate {
-        /// Kind of memory (core, semantic, procedural, episodic)
-        kind: String,
-        /// Path to the memory file
-        path: String,
-        /// Operation performed (create, update, delete)
-        operation: String,
-        /// Hash of the new content
-        content_hash: String,
-    },
-}
+pub mod events;
+pub mod metadata;
 
-/// Token usage information for model responses
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct TokensUsed {
-    /// Number of input tokens
-    pub input: u32,
-    /// Number of output tokens
-    pub output: u32,
-    /// Total tokens (input + output)
-    pub total: u32,
-}
-
-impl TokensUsed {
-    pub fn new(input: u32, output: u32) -> Self {
-        Self { input, output, total: input + output }
-    }
-}
-
-/// Status of a patch
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "kebab-case")]
-pub enum PatchStatus {
-    /// Patch is proposed but not yet applied
-    Proposed,
-    /// Patch has been approved
-    Approved,
-    /// Patch has been applied
-    Applied,
-    /// Patch was rejected
-    Rejected,
-    /// Patch application failed
-    Failed,
-}
-
-/// Session metadata persisted to metadata.json
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct SessionMetadata {
-    /// Approval mode for this session
-    pub approval_mode: ApprovalMode,
-    /// Whether network access is allowed
-    pub allow_network: bool,
-    /// Session title (optional)
-    pub title: Option<String>,
-    /// Session tags
-    pub tags: Vec<String>,
-    /// Teaching state for tracking taught concepts
-    #[serde(default)]
-    pub teaching_state: TeachingState,
-    /// When the session was created
-    pub created_at: String,
-    /// When the session was last updated
-    pub updated_at: String,
-}
-
-impl SessionMetadata {
-    /// Create new session metadata with default values
-    pub fn new(approval_mode: ApprovalMode) -> Self {
-        let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-
-        Self {
-            approval_mode,
-            allow_network: false,
-            title: None,
-            tags: Vec::new(),
-            teaching_state: TeachingState::default(),
-            created_at: now.clone(),
-            updated_at: now,
-        }
-    }
-
-    /// Update the approval mode
-    pub fn with_approval_mode(mut self, mode: ApprovalMode) -> Self {
-        self.approval_mode = mode;
-        self.updated_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-        self
-    }
-
-    /// Update the network permission
-    pub fn with_allow_network(mut self, allow: bool) -> Self {
-        self.allow_network = allow;
-        self.updated_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-        self
-    }
-
-    /// Set the session title
-    pub fn with_title(mut self, title: impl Into<String>) -> Self {
-        self.title = Some(title.into());
-        self.updated_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-        self
-    }
-
-    /// Add a tag to the session
-    pub fn with_tag(mut self, tag: impl Into<String>) -> Self {
-        self.tags.push(tag.into());
-        self.updated_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-        self
-    }
-}
-
-/// A logged event with its sequence number and timestamp
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct LoggedEvent {
-    /// Monotonic sequence number
-    pub seq: Seq,
-    /// Session ID this event belongs to
-    pub session_id: String,
-    /// Timestamp when the event was logged (ISO 8601)
-    pub timestamp: String,
-    /// The event data
-    pub event: Event,
-}
-
-impl LoggedEvent {
-    fn new(seq: Seq, session_id: &SessionId, event: Event) -> Self {
-        let now = chrono::Utc::now();
-        let timestamp = now.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-
-        Self { seq, session_id: session_id.as_str().to_string(), timestamp, event }
-    }
-}
+pub use events::{Event, LoggedEvent, PatchStatus, TokensUsed};
+pub use metadata::SessionMetadata;
 
 /// Session manages events and their storage in JSONL format
 #[derive(Debug, Clone)]
@@ -624,7 +365,7 @@ impl Session {
     }
 
     /// Get the teaching state from metadata
-    pub fn get_teaching_state(&self) -> Result<TeachingState> {
+    pub fn get_teaching_state(&self) -> Result<crate::teaching::TeachingState> {
         Ok(self.load_metadata()?.teaching_state)
     }
 
@@ -797,7 +538,7 @@ mod tests {
     fn test_append_model_message() {
         let (temp, mut session) = create_test_session();
 
-        let tokens = TokensUsed::new(10, 20);
+        let tokens = events::TokensUsed::new(10, 20);
         let seq = session
             .append_model_message("Response content", Some(tokens.clone()))
             .unwrap();
@@ -1002,77 +743,6 @@ mod tests {
         assert_eq!(events_from_5.len(), 5);
         assert_eq!(events_from_5[0].seq, 5);
         assert_eq!(events_from_5[4].seq, 9);
-        drop(temp);
-    }
-
-    #[test]
-    fn test_event_json_serialization() {
-        let event = Event::UserMessage { content: "test".to_string() };
-        let json = serde_json::to_string(&event).unwrap();
-        assert!(json.contains("user-message"));
-        assert!(json.contains("test"));
-
-        let deserialized: Event = serde_json::from_str(&json).unwrap();
-        assert_eq!(event, deserialized);
-    }
-
-    #[test]
-    fn test_logged_event_json_serialization() {
-        let id = SessionId::from_timestamp("2025-01-11T14-30-45Z").unwrap();
-        let event = Event::UserMessage { content: "test".to_string() };
-        let logged = LoggedEvent::new(0, &id, event);
-
-        let json = serde_json::to_string(&logged).unwrap();
-        let deserialized: LoggedEvent = serde_json::from_str(&json).unwrap();
-
-        assert_eq!(logged.seq, deserialized.seq);
-        assert_eq!(logged.session_id, deserialized.session_id);
-        assert_eq!(logged.event, deserialized.event);
-    }
-
-    #[test]
-    fn test_tokens_used() {
-        let tokens = TokensUsed::new(10, 20);
-        assert_eq!(tokens.input, 10);
-        assert_eq!(tokens.output, 20);
-        assert_eq!(tokens.total, 30);
-    }
-
-    #[test]
-    fn test_patch_status_serialization() {
-        let statuses = [
-            PatchStatus::Proposed,
-            PatchStatus::Approved,
-            PatchStatus::Applied,
-            PatchStatus::Rejected,
-            PatchStatus::Failed,
-        ];
-
-        for status in &statuses {
-            let json = serde_json::to_string(status).unwrap();
-            let deserialized: PatchStatus = serde_json::from_str(&json).unwrap();
-            assert_eq!(status, &deserialized);
-        }
-    }
-
-    #[test]
-    fn test_jsonl_format() {
-        let (temp, mut session) = create_test_session();
-
-        session.append_user_message("First").unwrap();
-        session
-            .append_tool_call("test", serde_json::json!({"arg": "value"}))
-            .unwrap();
-
-        let events_file_content = std::fs::read_to_string(session.events_file()).unwrap();
-        let lines: Vec<&str> = events_file_content.lines().collect();
-        assert_eq!(lines.len(), 2);
-
-        let event1: LoggedEvent = serde_json::from_str(lines[0]).unwrap();
-        let event2: LoggedEvent = serde_json::from_str(lines[1]).unwrap();
-
-        assert_eq!(event1.seq, 0);
-        assert_eq!(event2.seq, 1);
         drop(temp);
     }
 
@@ -1356,153 +1026,6 @@ mod tests {
     }
 
     #[test]
-    fn test_file_read_event_serialization() {
-        let event =
-            Event::FileRead { file_path: "/test/path.txt".to_string(), line_count: 42, offset: 10, success: true };
-
-        let json = serde_json::to_string(&event).unwrap();
-        assert!(json.contains("file-read"));
-        assert!(json.contains("/test/path.txt"));
-        assert!(json.contains("42"));
-
-        let deserialized: Event = serde_json::from_str(&json).unwrap();
-        assert_eq!(event, deserialized);
-    }
-
-    #[test]
-    fn test_session_metadata_new() {
-        let metadata = SessionMetadata::new(ApprovalMode::Auto);
-        assert_eq!(metadata.approval_mode, ApprovalMode::Auto);
-        assert!(!metadata.allow_network);
-        assert!(metadata.title.is_none());
-        assert!(metadata.tags.is_empty());
-        assert!(!metadata.created_at.is_empty());
-        assert!(!metadata.updated_at.is_empty());
-    }
-
-    #[test]
-    fn test_session_metadata_with_approval_mode() {
-        let metadata = SessionMetadata::new(ApprovalMode::ReadOnly);
-        let updated = metadata.with_approval_mode(ApprovalMode::FullAccess);
-        assert_eq!(updated.approval_mode, ApprovalMode::FullAccess);
-        assert!(!updated.updated_at.is_empty());
-    }
-
-    #[test]
-    fn test_session_metadata_with_allow_network() {
-        let metadata = SessionMetadata::new(ApprovalMode::Auto);
-        let updated = metadata.with_allow_network(true);
-        assert!(updated.allow_network);
-    }
-
-    #[test]
-    fn test_session_metadata_serialization() {
-        let metadata = SessionMetadata::new(ApprovalMode::Auto).with_title("Test Session");
-        let json = serde_json::to_string(&metadata).unwrap();
-        assert!(json.contains("\"auto\""));
-        assert!(json.contains("Test Session"));
-
-        let deserialized: SessionMetadata = serde_json::from_str(&json).unwrap();
-        assert_eq!(deserialized.approval_mode, ApprovalMode::Auto);
-        assert_eq!(deserialized.title, Some("Test Session".to_string()));
-    }
-
-    #[test]
-    fn test_approval_mode_change_event() {
-        let (temp, mut session) = create_test_session();
-
-        let seq = session
-            .append_approval_mode_change(ApprovalMode::Auto, ApprovalMode::ReadOnly)
-            .unwrap();
-        assert_eq!(seq, 0);
-
-        let events = session.read_events().unwrap();
-        assert_eq!(events.len(), 1);
-
-        if let Event::ApprovalModeChange { from, to } = &events[0].event {
-            assert_eq!(from, &ApprovalMode::Auto);
-            assert_eq!(to, &ApprovalMode::ReadOnly);
-        } else {
-            panic!("Expected ApprovalModeChange event");
-        }
-        drop(temp);
-    }
-
-    #[test]
-    fn test_get_approval_mode_default() {
-        let (temp, session) = create_test_session();
-        let mode = session.get_approval_mode().unwrap();
-        assert_eq!(mode, ApprovalMode::Auto);
-        drop(temp);
-    }
-
-    #[test]
-    fn test_set_approval_mode() {
-        let (temp, mut session) = create_test_session();
-
-        session.set_approval_mode(ApprovalMode::ReadOnly).unwrap();
-
-        let mode = session.get_approval_mode().unwrap();
-        assert_eq!(mode, ApprovalMode::ReadOnly);
-
-        let events = session.read_events().unwrap();
-        assert_eq!(events.len(), 1);
-
-        if let Event::ApprovalModeChange { from, to } = &events[0].event {
-            assert_eq!(from, &ApprovalMode::Auto);
-            assert_eq!(to, &ApprovalMode::ReadOnly);
-        } else {
-            panic!("Expected ApprovalModeChange event");
-        }
-        drop(temp);
-    }
-
-    #[test]
-    fn test_set_same_approval_mode_no_event() {
-        let (temp, mut session) = create_test_session();
-        session.set_approval_mode(ApprovalMode::Auto).unwrap();
-
-        let events = session.read_events().unwrap();
-        assert!(events.is_empty());
-        drop(temp);
-    }
-
-    #[test]
-    fn test_get_allow_network_default() {
-        let (temp, session) = create_test_session();
-
-        let allow = session.get_allow_network().unwrap();
-        assert!(!allow);
-        drop(temp);
-    }
-
-    #[test]
-    fn test_set_allow_network() {
-        let (temp, mut session) = create_test_session();
-
-        session.set_allow_network(true).unwrap();
-
-        let allow = session.get_allow_network().unwrap();
-        assert!(allow);
-        drop(temp);
-    }
-
-    #[test]
-    fn test_metadata_persistence() {
-        let temp = TempDir::new().unwrap();
-        let agent_dir = AgentDir::new(temp.path());
-
-        let mut session = Session::new(agent_dir.clone()).unwrap();
-        session.set_approval_mode(ApprovalMode::FullAccess).unwrap();
-        session.set_allow_network(true).unwrap();
-
-        let loaded_session = Session::load(agent_dir, session.id.clone()).unwrap();
-        assert_eq!(loaded_session.get_approval_mode().unwrap(), ApprovalMode::FullAccess);
-        assert!(loaded_session.get_allow_network().unwrap());
-        drop(temp);
-    }
-
-    #[test]
     fn test_metadata_file_path() {
         let (temp, session) = create_test_session();
         let metadata_path = session.metadata_file();
@@ -1605,24 +1128,6 @@ mod tests {
     }
 
     #[test]
-    fn test_view_edit_event_serialization() {
-        let event = Event::ViewEdit {
-            view: "MEMORY.md".to_string(),
-            change_type: "merge".to_string(),
-            content: "# Memory\n\nContent".to_string(),
-            seq_refs: vec![10, 20, 30],
-        };
-
-        let json = serde_json::to_string(&event).unwrap();
-        assert!(json.contains("view-edit"));
-        assert!(json.contains("MEMORY.md"));
-        assert!(json.contains("merge"));
-
-        let deserialized: Event = serde_json::from_str(&json).unwrap();
-        assert_eq!(event, deserialized);
-    }
-
-    #[test]
     fn test_context_load_event() {
         let (temp, mut session) = create_test_session();
 
@@ -1642,21 +1147,6 @@ mod tests {
             panic!("Expected ContextLoad event");
         }
         drop(temp);
-    }
-
-    #[test]
-    fn test_context_load_event_serialization() {
-        let event = Event::ContextLoad {
-            source: "AGENTS.md".to_string(),
-            path: "/repo/AGENTS.md".to_string(),
-            content_hash: "xyz789".to_string(),
-        };
-
-        let json = serde_json::to_string(&event).unwrap();
-        assert!(json.contains("context-load"));
-
-        let deserialized: Event = serde_json::from_str(&json).unwrap();
-        assert_eq!(event, deserialized);
     }
 
     #[test]
@@ -1694,21 +1184,6 @@ mod tests {
     }
 
     #[test]
-    fn test_checkpoint_event_serialization() {
-        let event = Event::Checkpoint {
-            label: "Test checkpoint".to_string(),
-            description: "Test description".to_string(),
-            snapshot_id: Some("test_snap".to_string()),
-        };
-
-        let json = serde_json::to_string(&event).unwrap();
-        assert!(json.contains("checkpoint"));
-
-        let deserialized: Event = serde_json::from_str(&json).unwrap();
-        assert_eq!(event, deserialized);
-    }
-
-    #[test]
     fn test_plan_update_event() {
         let (temp, mut session) = create_test_session();
 
@@ -1734,21 +1209,6 @@ mod tests {
     }
 
     #[test]
-    fn test_plan_update_event_serialization() {
-        let event = Event::PlanUpdate {
-            action: "remove".to_string(),
-            item: "Deprecated task".to_string(),
-            reason: Some("No longer needed".to_string()),
-        };
-
-        let json = serde_json::to_string(&event).unwrap();
-        assert!(json.contains("plan-update"));
-
-        let deserialized: Event = serde_json::from_str(&json).unwrap();
-        assert_eq!(event, deserialized);
-    }
-
-    #[test]
     fn test_memory_update_event() {
         let (temp, mut session) = create_test_session();
 
@@ -1769,22 +1229,6 @@ mod tests {
             panic!("Expected MemoryUpdate event");
         }
         drop(temp);
-    }
-
-    #[test]
-    fn test_memory_update_event_serialization() {
-        let event = Event::MemoryUpdate {
-            kind: "core".to_string(),
-            path: "/repo/memory/core/CORE.md".to_string(),
-            operation: "update".to_string(),
-            content_hash: "new_hash".to_string(),
-        };
-
-        let json = serde_json::to_string(&event).unwrap();
-        assert!(json.contains("memory-update"));
-
-        let deserialized: Event = serde_json::from_str(&json).unwrap();
-        assert_eq!(event, deserialized);
     }
 
     #[test]
@@ -1887,6 +1331,122 @@ mod tests {
             let logged_event: LoggedEvent = serde_json::from_str(line).unwrap();
             assert_eq!(logged_event.seq, i as u64);
         }
+        drop(temp);
+    }
+
+    #[test]
+    fn test_approval_mode_change_event() {
+        let (temp, mut session) = create_test_session();
+
+        let seq = session
+            .append_approval_mode_change(ApprovalMode::Auto, ApprovalMode::ReadOnly)
+            .unwrap();
+        assert_eq!(seq, 0);
+
+        let events = session.read_events().unwrap();
+        assert_eq!(events.len(), 1);
+
+        if let Event::ApprovalModeChange { from, to } = &events[0].event {
+            assert_eq!(from, &ApprovalMode::Auto);
+            assert_eq!(to, &ApprovalMode::ReadOnly);
+        } else {
+            panic!("Expected ApprovalModeChange event");
+        }
+        drop(temp);
+    }
+
+    #[test]
+    fn test_get_approval_mode_default() {
+        let (temp, session) = create_test_session();
+        let mode = session.get_approval_mode().unwrap();
+        assert_eq!(mode, ApprovalMode::Auto);
+        drop(temp);
+    }
+
+    #[test]
+    fn test_set_approval_mode() {
+        let (temp, mut session) = create_test_session();
+
+        session.set_approval_mode(ApprovalMode::ReadOnly).unwrap();
+
+        let mode = session.get_approval_mode().unwrap();
+        assert_eq!(mode, ApprovalMode::ReadOnly);
+
+        let events = session.read_events().unwrap();
+        assert_eq!(events.len(), 1);
+
+        if let Event::ApprovalModeChange { from, to } = &events[0].event {
+            assert_eq!(from, &ApprovalMode::Auto);
+            assert_eq!(to, &ApprovalMode::ReadOnly);
+        } else {
+            panic!("Expected ApprovalModeChange event");
+        }
+        drop(temp);
+    }
+
+    #[test]
+    fn test_set_same_approval_mode_no_event() {
+        let (temp, mut session) = create_test_session();
+        session.set_approval_mode(ApprovalMode::Auto).unwrap();
+
+        let events = session.read_events().unwrap();
+        assert!(events.is_empty());
+        drop(temp);
+    }
+
+    #[test]
+    fn test_get_allow_network_default() {
+        let (temp, session) = create_test_session();
+
+        let allow = session.get_allow_network().unwrap();
+        assert!(!allow);
+        drop(temp);
+    }
+
+    #[test]
+    fn test_set_allow_network() {
+        let (temp, mut session) = create_test_session();
+
+        session.set_allow_network(true).unwrap();
+
+        let allow = session.get_allow_network().unwrap();
+        assert!(allow);
+        drop(temp);
+    }
+
+    #[test]
+    fn test_metadata_persistence() {
+        let temp = TempDir::new().unwrap();
+        let agent_dir = AgentDir::new(temp.path());
+
+        let mut session = Session::new(agent_dir.clone()).unwrap();
+        session.set_approval_mode(ApprovalMode::FullAccess).unwrap();
+        session.set_allow_network(true).unwrap();
+
+        let loaded_session = Session::load(agent_dir, session.id.clone()).unwrap();
+        assert_eq!(loaded_session.get_approval_mode().unwrap(), ApprovalMode::FullAccess);
+        assert!(loaded_session.get_allow_network().unwrap());
+        drop(temp);
+    }
+
+    #[test]
+    fn test_jsonl_format() {
+        let (temp, mut session) = create_test_session();
+
+        session.append_user_message("First").unwrap();
+        session
+            .append_tool_call("test", serde_json::json!({"arg": "value"}))
+            .unwrap();
+
+        let events_file_content = std::fs::read_to_string(session.events_file()).unwrap();
+        let lines: Vec<&str> = events_file_content.lines().collect();
+        assert_eq!(lines.len(), 2);
+
+        let event1: LoggedEvent = serde_json::from_str(lines[0]).unwrap();
+        let event2: LoggedEvent = serde_json::from_str(lines[1]).unwrap();
+
+        assert_eq!(event1.seq, 0);
+        assert_eq!(event2.seq, 1);
         drop(temp);
     }
 }
