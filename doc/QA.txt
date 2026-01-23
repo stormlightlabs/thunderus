@@ -6,7 +6,7 @@ CURRENT IMPLEMENTATION STATUS                                 *user-flow-status*
 This document describes user interaction flows for the current implementation
 of Thunderus. It serves as a reference for QA and smoke testing.
 
-Last updated: 2026-01-15
+Last updated: 2026-01-22
 
 --------------------------------------------------------------------------------
 CONTENTS
@@ -250,6 +250,18 @@ Three global verbosity levels:
 
 Toggle with keybind, persists per session. Indicator shown in header.
 
+Theme Variants
+--------------
+Two visual themes are available:
+- Iceberg: Cool blue palette (default)
+- Oxocarbon: Dark carbon-based palette with warm accents
+
+Theme selection persists per session. Both themes provide:
+- Full background fills for all panels
+- Styled message bubbles
+- Animated streaming indicators
+- Consistent color semantics across components
+
 --------------------------------------------------------------------------------
 IV. SHELL COMMANDS & EDITOR                                    *user-flow-shell*
 --------------------------------------------------------------------------------
@@ -328,19 +340,58 @@ Base Commands
     * Approvals gated
     * Tools executed
 
-Session Commands
-----------------
+Plan Commands
+-------------
 /plan
   - Display PLAN.md content in transcript
   - Shows "No PLAN.md found" if file doesn't exist
 
-/review
-  - Trigger review pass
-  - Currently placeholder: "Review functionality not yet implemented"
+/plan add <item>
+  - Append a new item to PLAN.md
+  - Creates PLAN.md if it doesn't exist
+  - Adds with uncompleted checkbox: "- [ ] <item>"
 
+/plan done <index>
+  - Mark plan item as complete by 1-based index
+  - Updates checkbox from "[ ]" to "[x]"
+  - Shows error if index out of range
+
+Memory Commands
+---------------
 /memory
   - Display MEMORY.md content in transcript
   - Shows "No MEMORY.md found" if file doesn't exist
+
+/memory add <fact>
+  - Add a new fact to core memory (FACTS.md)
+  - Appends to facts list with timestamp and provenance
+
+/memory search <query>
+  - Full-text search across all memory documents
+  - Uses SQLite FTS5 with BM25 ranking
+  - Returns snippets with citations and relevance scores
+  - Respects memory tier filtering (core > semantic > procedural > episodic)
+
+/memory pin <id>
+  - Pin a memory document for priority retrieval
+  - Pinned documents appear in context automatically
+
+Search Commands
+---------------
+/search <query> [scope: all|files|memory|patches]
+  - Unified search across codebase and memory
+  - Scopes:
+    * all: search everything (default)
+    * files: search project files only
+    * memory: search memory documents only
+    * patches: search patch queue and diffs
+  - Results displayed in transcript with file paths and line numbers
+
+Session Commands
+----------------
+/review
+  - Trigger review pass
+  - Currently placeholder: "Review functionality not yet implemented"
 
 /clear
   - Clear transcript view (keeps session history)
@@ -360,11 +411,30 @@ Directory Structure
 .agent/
 ├── sessions/
 │   └── <session-id>/
-│       └── events.jsonl        # Append-only event log
-└── views/                      # Materialized views (planned)
-    ├── MEMORY.md               # Not yet implemented
-    ├── PLAN.md                 # Not yet implemented
-    └── DECISIONS.md            # Not yet implemented
+│       ├── events.jsonl        # Append-only event log
+│       └── memory.db           # SQLite FTS5 memory store
+├── views/                      # Materialized Markdown views
+│   ├── PLAN.md                 # Active plan with checklist items
+│   └── MEMORY.md               # Core memory facts and decisions
+└── memory/                     # Tiered memory documents
+    ├── core/                   # High-value, stable facts
+    │   ├── FACTS.md            # Canonical facts about the project
+    │   ├── DECISIONS.md        # ADR-lite decision records
+    │   └── PLAYBOOKS.md        # Repeatable workflows
+    ├── semantic/               # Entity-relationship knowledge
+    ├── procedural/             # How-to knowledge
+    └── episodic/               # Session recaps by date
+        └── YYYY-MM/<session>.md
+
+Memory Store
+------------
+Under the hood, memory documents are indexed in a SQLite database using FTS5
+for full-text search with BM25 ranking:
+
+- Lexical search: FTS5 virtual table with snippet extraction
+- Vector search: Optional embeddings for semantic similarity (opt-in)
+- Hybrid search: Combines lexical + vector when confidence is low
+- Provenance: All memory entries cite source events and patches
 
 Event Log Format
 ----------------
@@ -374,9 +444,9 @@ Each line in events.jsonl is a JSON object with:
 - payload (event-specific data)
 
 Example:
-{"timestamp":"2026-01-15T10:30:45Z","type":"user_message", \
+{"timestamp":"2026-01-22T10:30:45Z","type":"user_message", \
  "payload":"Session started"}
-{"timestamp":"2026-01-15T10:31:00Z","type":"shell_exec", \
+{"timestamp":"2026-01-22T10:31:00Z","type":"shell_exec", \
  "payload":{"cmd":"cargo test","output":"..."}}
 
 Reading Logs

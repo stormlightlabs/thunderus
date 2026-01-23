@@ -101,7 +101,7 @@ Prevent memory rot. Convert raw session history into small, stable, reusable
 memory artifacts (facts, ADRs, playbooks), without losing provenance.
 
 Tasks:
-- [ ] Consolidation pipeline (“episodic → semantic/procedural”):
+- [x] Consolidation pipeline (“episodic → semantic/procedural”):
       - Inputs: `events.jsonl`, patch events, snapshots
       - Outputs:
           - update FACTS (stable commands + gotchas)

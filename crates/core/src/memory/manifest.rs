@@ -58,7 +58,7 @@ pub struct VerificationInfo {
 }
 
 /// Statistics about the memory store
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ManifestStats {
     pub total_docs: usize,
     pub by_kind: HashMap<String, usize>,
@@ -69,7 +69,7 @@ pub struct ManifestStats {
 ///
 /// The manifest provides a cached index of all memory documents
 /// for quick lookup without scanning the filesystem.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MemoryManifest {
     pub version: u32,
     pub generated_at: DateTime<Utc>,

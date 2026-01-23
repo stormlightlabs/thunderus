@@ -39,6 +39,7 @@
 
 mod core;
 mod document;
+mod gardener;
 mod kinds;
 mod lint;
 mod manifest;
@@ -51,6 +52,13 @@ pub use core::{
     CORE_MEMORY_HARD_LIMIT, CORE_MEMORY_SOFT_LIMIT, CoreMemory, CoreMemoryLint, CoreMemorySource, LintSeverity,
 };
 pub use document::{MemoryDoc, MemoryFrontmatter, ValidationError};
+pub use gardener::{
+    AdrUpdate as GardenerAdrUpdate, CommandEntity, CommandOutcome, ConsolidationJob, ConsolidationResult,
+    DecisionEntity, DeduplicationStrategy, DriftConfig, DriftDetector, DriftResult, DuplicateGroup, EntityExtractor,
+    ExtractedEntities, ExtractionConfig, FactDeduplicator, FactUpdate as GardenerFactUpdate, Gardener, GotchaCategory,
+    GotchaEntity, HygieneChecker, HygieneConfig, HygieneRule, HygieneViolation, RecapConfig, RecapGenerator,
+    RecapResult, RecapStats, RecapTemplate, SizeLimits, StalenessInfo, StalenessSeverity, WorkflowEntity, WorkflowStep,
+};
 pub use kinds::{MemoryKind, Provenance, SessionMeta, Verification, VerificationStatus};
 pub use lint::{LintDiagnostic, LintRule, LintSeverity as MemoryLintSeverity, MemoryLinter};
 pub use manifest::{ManifestEntry, ManifestStats, MemoryManifest, ProvenanceInfo, VerificationInfo};

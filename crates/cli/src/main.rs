@@ -4,7 +4,9 @@ use clap_complete::{Generator, Shell, generate};
 use owo_colors::OwoColorize;
 use std::io;
 use std::path::{Path, PathBuf};
-use thunderus_core::{AgentDir, Config, ContextLoader, Session, memory::MemoryPaths};
+use thunderus_core::{
+    AgentDir, Config, ContextLoader, PatchQueueManager, Session, memory::Gardener, memory::MemoryPaths,
+};
 use thunderus_store::{MemoryIndexer, MemoryStore};
 use thunderus_ui::state::AppState;
 
@@ -244,7 +246,7 @@ async fn cmd_start(
     let store_result = MemoryStore::open(&db_path).await;
     let index_result = match store_result {
         Ok(store) => {
-            let indexer = MemoryIndexer::new(store, memory_paths, &working_dir);
+            let indexer = MemoryIndexer::new(store, memory_paths.clone(), &working_dir);
             let result = indexer.index_changed().await;
             match result {
                 Ok(r) if r.docs_added == 0 && r.docs_updated == 0 => {
@@ -366,10 +368,88 @@ async fn cmd_start(
     }
 
     match app.run().await {
-        Ok(_) => Ok(()),
+        Ok(_) => {
+            run_consolidation(&session, &agent_dir, &memory_paths, &working_dir, verbose)?;
+            Ok(())
+        }
         Err(e) => {
             eprintln!("{} TUI error: {}", "Error:".red().bold(), e);
             Err(e.into())
+        }
+    }
+}
+
+/// Run consolidation on a completed session
+fn run_consolidation(
+    session: &Session, agent_dir: &AgentDir, memory_paths: &MemoryPaths, _working_dir: &Path, verbose: bool,
+) -> Result<()> {
+    if verbose {
+        eprintln!("{} Running memory consolidation...", "Info:".blue().bold());
+    }
+
+    let gardener = Gardener::new(memory_paths.clone());
+
+    let session_id = session.id.to_string();
+    let events_file = session.events_file();
+
+    let rt = tokio::runtime::Runtime::new().context("Failed to create runtime for consolidation")?;
+
+    let result = rt.block_on(async { gardener.consolidate_session(&session_id, &events_file).await });
+
+    match result {
+        Ok(consolidation_result) => {
+            if !consolidation_result.patches.is_empty() {
+                if verbose {
+                    eprintln!(
+                        "{} Memory consolidation: {} patches generated",
+                        "Info:".green().bold(),
+                        consolidation_result.patches.len()
+                    );
+                }
+
+                let mut queue_manager = PatchQueueManager::new(session.id.clone(), agent_dir.clone())
+                    .load()
+                    .unwrap_or_else(|_| PatchQueueManager::new(session.id.clone(), agent_dir.clone()));
+
+                for patch_params in consolidation_result.patches {
+                    match queue_manager.queue_memory_update(patch_params.clone()) {
+                        Ok(patch_id) => {
+                            if verbose {
+                                eprintln!("  {} Queued: {} ({})", "+".green(), patch_params.description, patch_id);
+                            }
+                        }
+                        Err(e) => {
+                            if verbose {
+                                eprintln!("  {} Failed to queue patch: {}", "!".yellow(), e);
+                            }
+                        }
+                    }
+                }
+            } else if verbose {
+                eprintln!("{} Memory consolidation: no changes needed", "Info:".green().bold());
+            }
+
+            if let Some(recap) = consolidation_result.recap
+                && verbose
+            {
+                eprintln!(
+                    "{} Session recap written to: {}",
+                    "Info:".green().bold(),
+                    recap.path.display()
+                );
+            }
+
+            for warning in consolidation_result.warnings {
+                eprintln!("{} {}", "Warning:".yellow().bold(), warning);
+            }
+
+            Ok(())
+        }
+        Err(e) => {
+            if verbose {
+                eprintln!("{} Memory consolidation failed: {}", "Warning:".yellow().bold(), e);
+            }
+            Ok(())
         }
     }
 }
