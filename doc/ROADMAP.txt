@@ -108,13 +108,13 @@ Tasks:
           - create/update ADR-lite entries (durable decisions)
           - update PLAYBOOKS (repeatable workflows)
           - write session recap in `memory/episodic/YYYY-MM/<session>.md`
-- [ ] Hygiene rules:
+- [x] Hygiene rules:
       - de-dup facts (single canonical location)
       - enforce size limits on core
       - require provenance links on all durable claims
-- [ ] Drift checks:
+- [x] Drift checks:
       - if repo changed since `last_verified_commit`, mark docs “stale”
-- [ ] “Memory PR” workflow:
+- [ ] "Memory PR" workflow:
       - gardener emits patch queue items (“Update memory: …”)
       - user approves/rejects like any other diff
 - [ ] Tests:

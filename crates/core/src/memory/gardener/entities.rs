@@ -158,9 +158,10 @@ impl AdrUpdate {
         let mut max_seq = 0;
         for entry in &manifest.docs {
             if let Some(seq_str) = entry.id.strip_prefix("adr.")
-                && let Ok(seq) = seq_str.parse::<u32>() {
-                    max_seq = max_seq.max(seq);
-                }
+                && let Ok(seq) = seq_str.parse::<u32>()
+            {
+                max_seq = max_seq.max(seq);
+            }
         }
         max_seq + 1
     }

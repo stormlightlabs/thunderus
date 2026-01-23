@@ -88,7 +88,6 @@ impl DriftDetector {
             None => return Ok(None),
         };
 
-        // TODO: Check if document references any files
         let doc_path = std::path::Path::new(&entry.path);
 
         let changed_files = self.get_changed_files_since(repo, &last_verified, head_commit)?;

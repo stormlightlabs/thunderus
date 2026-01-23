@@ -9,6 +9,7 @@ use crate::memory::gardener::config::{DeduplicationStrategy as Strategy, Hygiene
 use crate::memory::kinds::MemoryKind;
 use crate::memory::manifest::MemoryManifest;
 use crate::memory::paths::MemoryPaths;
+use chrono::Utc;
 
 /// A hygiene violation
 #[derive(Debug, Clone)]
@@ -21,7 +22,7 @@ pub struct HygieneViolation {
 }
 
 /// Hygiene rule that was violated
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HygieneRule {
     /// Duplicate fact detected
     DuplicateFact,
@@ -64,9 +65,18 @@ impl HygieneChecker {
             violations.push(violation);
         }
 
+        let mut docs: Vec<MemoryDoc> = Vec::new();
         for entry in &manifest.docs {
             if let Ok(doc) = self.load_document(paths, entry) {
                 violations.extend(self.check_doc(&doc, paths));
+                docs.push(doc);
+            }
+        }
+
+        let references = self.collect_all_references(&docs);
+        for doc in &docs {
+            if let Some(violation) = self.check_orphaned(doc, &references, manifest) {
+                violations.push(violation);
             }
         }
 
@@ -164,13 +174,103 @@ impl HygieneChecker {
         let content = std::fs::read_to_string(&path).map_err(crate::error::Error::Io)?;
         MemoryDoc::parse(&content).map_err(|e| crate::error::Error::Parse(format!("Failed to parse: {}", e)))
     }
+
+    /// Collect all document references from all documents
+    ///
+    /// Returns a set of document IDs and paths that are referenced anywhere.
+    fn collect_all_references(&self, docs: &[MemoryDoc]) -> std::collections::HashSet<String> {
+        let mut references = std::collections::HashSet::new();
+
+        references.insert("CORE".to_string());
+        references.insert("CORE.local".to_string());
+
+        let link_pattern = regex::Regex::new(r"\[([^\]]+)\]\(([^)]+)\)").unwrap();
+        let mention_pattern = regex::Regex::new(r"@([a-z]+\.[a-z.]+)").unwrap();
+        let adr_pattern = regex::Regex::new(r"ADR-(\d{4})").unwrap();
+
+        for doc in docs {
+            for cap in link_pattern.captures_iter(&doc.body) {
+                if let Some(target) = cap.get(2) {
+                    let target = target.as_str().to_string();
+
+                    if target.contains(".md") {
+                        let id = target
+                            .trim_start_matches("../")
+                            .trim_start_matches("semantic/")
+                            .trim_start_matches("facts/")
+                            .trim_start_matches("decisions/")
+                            .trim_start_matches("playbooks/")
+                            .trim_end_matches(".md")
+                            .replace('_', ".");
+                        references.insert(id);
+                    }
+                }
+            }
+
+            for cap in mention_pattern.captures_iter(&doc.body) {
+                if let Some(mention) = cap.get(1) {
+                    references.insert(mention.as_str().to_string());
+                }
+            }
+
+            for cap in adr_pattern.captures_iter(&doc.body) {
+                if let Some(num) = cap.get(1) {
+                    references.insert(format!("adr.{}", num.as_str()));
+                }
+            }
+        }
+
+        references
+    }
+
+    /// Check if a document is orphaned (not referenced by any other document)
+    ///
+    /// Core documents and recently created documents are never considered orphaned.
+    fn check_orphaned(
+        &self, doc: &MemoryDoc, references: &std::collections::HashSet<String>, manifest: &MemoryManifest,
+    ) -> Option<HygieneViolation> {
+        if doc.frontmatter.id == "CORE" || doc.frontmatter.id == "CORE.local" {
+            return None;
+        }
+
+        let days_old = Utc::now().signed_duration_since(doc.frontmatter.created).num_days();
+        if days_old < 7 {
+            return None;
+        }
+
+        if matches!(doc.frontmatter.kind, MemoryKind::Adr) {
+            return None;
+        }
+
+        if !references.contains(&doc.frontmatter.id) {
+            let is_tagged = manifest.docs.iter().any(|other| {
+                other.id != doc.frontmatter.id
+                    && other.tags.iter().any(|tag| {
+                        tag.to_lowercase() == doc.frontmatter.id.to_lowercase().replace("fact.", "")
+                            || tag.to_lowercase() == doc.frontmatter.title.to_lowercase()
+                    })
+            });
+
+            if !is_tagged {
+                return Some(HygieneViolation {
+                    rule: HygieneRule::OrphanedDoc,
+                    severity: Severity::Warning,
+                    doc_id: doc.frontmatter.id.clone(),
+                    message: "Document is not referenced by any other document".to_string(),
+                    suggested_fix: Some(
+                        "Add links to this document from related facts, or add relevant tags".to_string(),
+                    ),
+                });
+            }
+        }
+
+        None
+    }
 }
 
 /// Detects and handles duplicate facts
 #[derive(Debug, Clone)]
 pub struct FactDeduplicator {
-    // TODO: Use strategy in resolve() method for duplicate resolution
-    #[allow(dead_code)]
     strategy: Strategy,
 }
 
@@ -247,9 +347,96 @@ impl FactDeduplicator {
     }
 
     /// Generate patches to resolve duplicates
-    pub fn resolve(&self, _groups: &[DuplicateGroup]) -> Vec<MemoryPatchParams> {
-        // TODO: Implement duplicate resolution strategy
-        Vec::new()
+    ///
+    /// Based on the configured strategy, generates patches to merge or remove duplicates.
+    pub fn resolve(&self, groups: &[DuplicateGroup]) -> Vec<MemoryPatchParams> {
+        let mut patches = Vec::new();
+
+        for group in groups {
+            match self.strategy {
+                Strategy::MergeToFirst => patches.push(self.create_merge_patch(group)),
+                Strategy::KeepNewest => patches.extend(self.create_removal_patches(group)),
+                Strategy::FlagForReview => patches.push(self.create_review_patch(group)),
+            }
+        }
+
+        patches
+    }
+
+    /// Create a patch that merges duplicate content into the canonical document
+    fn create_merge_patch(&self, group: &DuplicateGroup) -> MemoryPatchParams {
+        let merge_note = format!(
+            "Merging {} duplicate{} into {}",
+            group.duplicates.len(),
+            if group.duplicates.len() == 1 { "" } else { "s" },
+            group.canonical_id
+        );
+
+        MemoryPatchParams {
+            path: std::path::PathBuf::from(format!("memory/{}", group.canonical_id.replace('.', "/"))),
+            doc_id: group.canonical_id.clone(),
+            kind: MemoryKind::Fact,
+            description: merge_note,
+            diff: format!(
+                "<!-- Merge duplicates: {} -->\n<!-- Similarity: {:.2} -->",
+                group.duplicates.join(", "),
+                group.similarity
+            ),
+            source_events: vec![],
+            session_id: crate::layout::SessionId::new(),
+            seq: 0,
+        }
+    }
+
+    /// Create patches to remove older duplicate documents
+    fn create_removal_patches(&self, group: &DuplicateGroup) -> Vec<MemoryPatchParams> {
+        group
+            .duplicates
+            .iter()
+            .map(|dup_id| MemoryPatchParams {
+                path: std::path::PathBuf::from(format!("memory/{}", dup_id.replace('.', "/"))),
+                doc_id: dup_id.clone(),
+                kind: MemoryKind::Fact,
+                description: format!("Remove duplicate of {}", group.canonical_id),
+                diff: "".to_string(),
+                source_events: vec![],
+                session_id: crate::layout::SessionId::new(),
+                seq: 0,
+            })
+            .collect()
+    }
+
+    /// Create a patch that flags duplicates for manual review
+    fn create_review_patch(&self, group: &DuplicateGroup) -> MemoryPatchParams {
+        let review_note = format!(
+            "Review required: {} potential duplicate{} of {} (similarity: {:.2})",
+            group.duplicates.len(),
+            if group.duplicates.len() == 1 { "" } else { "s" },
+            group.canonical_id,
+            group.similarity
+        );
+
+        MemoryPatchParams {
+            path: std::path::PathBuf::from(format!(".thunderus/memory/review/{}", group.canonical_id)),
+            doc_id: format!("review.{}", group.canonical_id),
+            kind: MemoryKind::Fact,
+            description: review_note,
+            diff: format!(
+                "# Duplicate Review: {}\n\n## Canonical: {}\n\n## Duplicates:\n{}\n\n## Similarity Score: {:.2}\n\n## Action Required\n\nPlease review and decide whether to:\n- Merge into canonical\n- Keep as separate documents\n- Remove duplicates\n",
+                group.canonical_id,
+                group.canonical_id,
+                group
+                    .duplicates
+                    .iter()
+                    .map(|d| format!("- {}", d))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                group.similarity
+            ),
+            source_events: vec![],
+            session_id: crate::layout::SessionId::new(),
+            seq: 0,
+        }
     }
 }
 
@@ -267,6 +454,10 @@ pub struct DuplicateGroup {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::memory::document::{MemoryDoc, MemoryFrontmatter};
+    use crate::memory::kinds::MemoryKind;
+    use chrono::Utc;
+    use tempfile::TempDir;
 
     #[test]
     fn test_estimate_tokens() {
@@ -303,5 +494,287 @@ mod tests {
         let content_b = "The weather is nice today";
         let similarity = dedup.compute_similarity(content_a, content_b);
         assert!(similarity < 0.3);
+    }
+
+    #[test]
+    fn test_fact_deduplicator_resolve_merge_to_first() {
+        let dedup = FactDeduplicator::new(Strategy::MergeToFirst);
+        let group = DuplicateGroup {
+            canonical_id: "fact.commands.build".to_string(),
+            duplicates: vec!["fact.build".to_string()],
+            similarity: 0.85,
+        };
+
+        let patches = dedup.resolve(std::slice::from_ref(&group));
+        assert_eq!(patches.len(), 1);
+        assert!(patches[0].description.contains("Merging"));
+        assert_eq!(patches[0].doc_id, "fact.commands.build");
+    }
+
+    #[test]
+    fn test_fact_deduplicator_resolve_keep_newest() {
+        let dedup = FactDeduplicator::new(Strategy::KeepNewest);
+        let group = DuplicateGroup {
+            canonical_id: "fact.commands.build".to_string(),
+            duplicates: vec!["fact.build".to_string(), "fact.compile".to_string()],
+            similarity: 0.90,
+        };
+
+        let patches = dedup.resolve(std::slice::from_ref(&group));
+        assert_eq!(patches.len(), 2);
+        assert!(patches[0].description.contains("Remove duplicate"));
+        assert!(patches[1].description.contains("Remove duplicate"));
+    }
+
+    #[test]
+    fn test_fact_deduplicator_resolve_flag_for_review() {
+        let dedup = FactDeduplicator::new(Strategy::FlagForReview);
+        let group = DuplicateGroup {
+            canonical_id: "fact.test.coverage".to_string(),
+            duplicates: vec!["fact.testing".to_string()],
+            similarity: 0.82,
+        };
+
+        let patches = dedup.resolve(&[group]);
+        assert_eq!(patches.len(), 1);
+        assert!(patches[0].description.contains("Review required"));
+        assert!(patches[0].diff.contains("# Duplicate Review"));
+    }
+
+    #[test]
+    fn test_hygiene_checker_doc_size_violation() {
+        let config = HygieneConfig::default();
+        let checker = HygieneChecker::new(config);
+
+        let large_body = "x".repeat(10000);
+        let doc = MemoryDoc {
+            frontmatter: MemoryFrontmatter {
+                id: "fact.large".to_string(),
+                title: "Large Document".to_string(),
+                kind: MemoryKind::Fact,
+                tags: vec![],
+                created: Utc::now(),
+                updated: Utc::now(),
+                provenance: Default::default(),
+                verification: Default::default(),
+                session: None,
+            },
+            body: large_body,
+        };
+
+        let temp = TempDir::new().unwrap();
+        let paths = MemoryPaths::from_thunderus_root(temp.path());
+        paths.ensure().unwrap();
+
+        let violations = checker.check_doc(&doc, &paths);
+        assert!(!violations.is_empty());
+        assert!(violations.iter().any(|v| v.rule == HygieneRule::DocOverSize));
+    }
+
+    #[test]
+    fn test_hygiene_checker_missing_provenance() {
+        let config = HygieneConfig { require_provenance: true, ..Default::default() };
+        let checker = HygieneChecker::new(config);
+
+        let doc = MemoryDoc {
+            frontmatter: MemoryFrontmatter {
+                id: "fact.no_prov".to_string(),
+                title: "No Provenance".to_string(),
+                kind: MemoryKind::Fact,
+                tags: vec![],
+                created: Utc::now(),
+                updated: Utc::now(),
+                provenance: Default::default(),
+                verification: Default::default(),
+                session: None,
+            },
+            body: "Some content".to_string(),
+        };
+
+        let temp = TempDir::new().unwrap();
+        let paths = MemoryPaths::from_thunderus_root(temp.path());
+        paths.ensure().unwrap();
+
+        let violations = checker.check_doc(&doc, &paths);
+        assert!(violations.iter().any(|v| v.rule == HygieneRule::MissingProvenance));
+    }
+
+    #[test]
+    fn test_hygiene_checker_with_provenance() {
+        let config = HygieneConfig { require_provenance: true, ..Default::default() };
+        let checker = HygieneChecker::new(config);
+
+        let mut provenance = crate::memory::kinds::Provenance::default();
+        provenance.events.push("evt_001".to_string());
+
+        let doc = MemoryDoc {
+            frontmatter: MemoryFrontmatter {
+                id: "fact.with_prov".to_string(),
+                title: "With Provenance".to_string(),
+                kind: MemoryKind::Fact,
+                tags: vec![],
+                created: Utc::now(),
+                updated: Utc::now(),
+                provenance,
+                verification: Default::default(),
+                session: None,
+            },
+            body: "Some content".to_string(),
+        };
+
+        let temp = TempDir::new().unwrap();
+        let paths = MemoryPaths::from_thunderus_root(temp.path());
+        paths.ensure().unwrap();
+
+        let violations = checker.check_doc(&doc, &paths);
+        assert!(!violations.iter().any(|v| v.rule == HygieneRule::MissingProvenance));
+    }
+
+    #[test]
+    fn test_hygiene_checker_orphaned_document() {
+        let config = HygieneConfig::default();
+        let checker = HygieneChecker::new(config);
+
+        let old_date = Utc::now() - chrono::Duration::days(30);
+        let orphan_doc = MemoryDoc {
+            frontmatter: MemoryFrontmatter {
+                id: "fact.orphaned".to_string(),
+                title: "Orphaned Document".to_string(),
+                kind: MemoryKind::Fact,
+                tags: vec![],
+                created: old_date,
+                updated: old_date,
+                provenance: Default::default(),
+                verification: Default::default(),
+                session: None,
+            },
+            body: "Some orphaned content".to_string(),
+        };
+
+        let temp = TempDir::new().unwrap();
+        let paths = MemoryPaths::from_thunderus_root(temp.path());
+        paths.ensure().unwrap();
+
+        let manifest = MemoryManifest::default();
+        let references = checker.collect_all_references(std::slice::from_ref(&orphan_doc));
+        let violation = checker.check_orphaned(&orphan_doc, &references, &manifest);
+
+        assert!(violation.is_some());
+        assert_eq!(violation.unwrap().rule, HygieneRule::OrphanedDoc);
+    }
+
+    #[test]
+    fn test_hygiene_checker_core_not_orphaned() {
+        let config = HygieneConfig::default();
+        let checker = HygieneChecker::new(config);
+
+        let core_doc = MemoryDoc {
+            frontmatter: MemoryFrontmatter {
+                id: "CORE".to_string(),
+                title: "Core Memory".to_string(),
+                kind: MemoryKind::Fact,
+                tags: vec![],
+                created: Utc::now() - chrono::Duration::days(100),
+                updated: Utc::now(),
+                provenance: Default::default(),
+                verification: Default::default(),
+                session: None,
+            },
+            body: "# Core Memory\n\nProject overview".to_string(),
+        };
+
+        let manifest = MemoryManifest::default();
+        let references = std::collections::HashSet::new();
+        let violation = checker.check_orphaned(&core_doc, &references, &manifest);
+        assert!(violation.is_none());
+    }
+
+    #[test]
+    fn test_hygiene_checker_recent_doc_not_orphaned() {
+        let config = HygieneConfig::default();
+        let checker = HygieneChecker::new(config);
+
+        let recent_doc = MemoryDoc {
+            frontmatter: MemoryFrontmatter {
+                id: "fact.recent".to_string(),
+                title: "Recent Document".to_string(),
+                kind: MemoryKind::Fact,
+                tags: vec![],
+                created: Utc::now() - chrono::Duration::days(2),
+                updated: Utc::now(),
+                provenance: Default::default(),
+                verification: Default::default(),
+                session: None,
+            },
+            body: "Recent content".to_string(),
+        };
+
+        let manifest = MemoryManifest::default();
+        let references = std::collections::HashSet::new();
+        let violation = checker.check_orphaned(&recent_doc, &references, &manifest);
+
+        assert!(violation.is_none());
+    }
+
+    #[test]
+    fn test_hygiene_checker_adr_not_orphaned() {
+        let config = HygieneConfig::default();
+        let checker = HygieneChecker::new(config);
+
+        let old_adr = MemoryDoc {
+            frontmatter: MemoryFrontmatter {
+                id: "adr.0001".to_string(),
+                title: "Old ADR".to_string(),
+                kind: MemoryKind::Adr,
+                tags: vec![],
+                created: Utc::now() - chrono::Duration::days(100),
+                updated: Utc::now() - chrono::Duration::days(90),
+                provenance: Default::default(),
+                verification: Default::default(),
+                session: None,
+            },
+            body: "# ADR-0001\n\nSome decision".to_string(),
+        };
+
+        let manifest = MemoryManifest::default();
+        let references = std::collections::HashSet::new();
+        let violation = checker.check_orphaned(&old_adr, &references, &manifest);
+
+        assert!(violation.is_none());
+    }
+
+    #[test]
+    fn test_hygiene_checker_collect_references() {
+        let config = HygieneConfig::default();
+        let checker = HygieneChecker::new(config);
+
+        let doc_with_links = MemoryDoc {
+            frontmatter: MemoryFrontmatter {
+                id: "fact.main".to_string(),
+                title: "Main Document".to_string(),
+                kind: MemoryKind::Fact,
+                tags: vec![],
+                created: Utc::now(),
+                updated: Utc::now(),
+                provenance: Default::default(),
+                verification: Default::default(),
+                session: None,
+            },
+            body: r#"
+See [Build Commands](../facts/commands_build.md) for details.
+Also check @fact.test.coverage for testing info.
+
+Referencing ADR-0005 for context.
+"#
+            .to_string(),
+        };
+
+        let references = checker.collect_all_references(&[doc_with_links]);
+
+        assert!(references.contains("CORE"));
+        assert!(references.contains("CORE.local"));
+        assert!(references.contains("commands.build") || references.iter().any(|r| r.contains("commands")));
+        assert!(references.contains("fact.test.coverage"));
+        assert!(references.contains("adr.0005"));
     }
 }

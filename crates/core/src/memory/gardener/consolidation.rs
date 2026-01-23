@@ -349,10 +349,16 @@ impl ConsolidationJob {
 
 #[cfg(test)]
 mod tests {
-    use std::fs::File;
-
     use super::*;
+    use crate::memory::gardener::config::ExtractionConfig;
+    use crate::session::{Event, LoggedEvent, Seq};
+    use serde_json::json;
+    use std::fs::File;
     use tempfile::TempDir;
+
+    fn create_test_event(seq: Seq, session_id: &str, event: Event) -> LoggedEvent {
+        LoggedEvent { seq, session_id: session_id.to_string(), timestamp: "2026-01-22T10:00:00Z".to_string(), event }
+    }
 
     #[test]
     fn test_consolidation_job_new() {
@@ -387,5 +393,194 @@ mod tests {
             }
             _ => panic!("Expected Create variant"),
         }
+    }
+
+    #[test]
+    fn test_consolidation_golden_commands() {
+        let events = vec![
+            create_test_event(
+                0,
+                "test-session",
+                Event::ToolCall { tool: "shell".to_string(), arguments: json!({"cmd": "cargo build"}) },
+            ),
+            create_test_event(
+                1,
+                "test-session",
+                Event::ToolResult {
+                    tool: "shell".to_string(),
+                    result: json!({"cmd": "cargo build", "exit_code": 0}),
+                    success: true,
+                    error: None,
+                },
+            ),
+            create_test_event(
+                2,
+                "test-session",
+                Event::ToolCall { tool: "shell".to_string(), arguments: json!({"cmd": "cargo test"}) },
+            ),
+            create_test_event(
+                3,
+                "test-session",
+                Event::ToolResult {
+                    tool: "shell".to_string(),
+                    result: json!({"cmd": "cargo test", "exit_code": 0}),
+                    success: true,
+                    error: None,
+                },
+            ),
+        ];
+
+        let extractor = EntityExtractor::new();
+        let entities = extractor.extract(&events);
+
+        assert_eq!(entities.commands.len(), 2);
+        assert_eq!(entities.commands[0].command, "cargo build");
+        assert_eq!(entities.commands[1].command, "cargo test");
+        assert_eq!(entities.commands[0].outcome, CommandOutcome::Success);
+        assert_eq!(entities.commands[1].outcome, CommandOutcome::Success);
+    }
+
+    #[test]
+    fn test_consolidation_golden_gotchas() {
+        let events = vec![
+            create_test_event(
+                0,
+                "test-session",
+                Event::ToolResult {
+                    tool: "shell".to_string(),
+                    result: json!({"cmd": "cargo build", "exit_code": 1}),
+                    success: false,
+                    error: Some("error: feature not found".to_string()),
+                },
+            ),
+            create_test_event(
+                1,
+                "test-session",
+                Event::ToolResult {
+                    tool: "shell".to_string(),
+                    result: json!({"cmd": "cargo build --features foo", "exit_code": 0}),
+                    success: true,
+                    error: None,
+                },
+            ),
+        ];
+
+        let extractor = EntityExtractor::new();
+        let entities = extractor.extract(&events);
+
+        assert_eq!(entities.gotchas.len(), 1);
+        assert!(entities.gotchas[0].issue.contains("cargo build"));
+        assert!(entities.gotchas[0].resolution.contains("--features foo"));
+        assert_eq!(entities.gotchas[0].category, GotchaCategory::Build);
+    }
+
+    #[test]
+    fn test_consolidation_golden_adr() {
+        let events = vec![create_test_event(
+            0,
+            "test-session",
+            Event::ModelMessage {
+                content: "I decided to use tokio-rusqlite for the database layer because we need async access."
+                    .to_string(),
+                tokens_used: None,
+            },
+        )];
+
+        let extractor = EntityExtractor::new();
+        let entities = extractor.extract(&events);
+
+        assert_eq!(entities.decisions.len(), 1);
+        assert!(
+            entities.decisions[0].decision.to_lowercase().contains("tokio")
+                || entities.decisions[0].decision.to_lowercase().contains("database")
+        );
+    }
+
+    #[test]
+    fn test_consolidation_generates_fact_updates() {
+        let events = vec![
+            create_test_event(
+                0,
+                "test-session",
+                Event::ToolCall { tool: "shell".to_string(), arguments: json!({"cmd": "cargo build"}) },
+            ),
+            create_test_event(
+                1,
+                "test-session",
+                Event::ToolResult {
+                    tool: "shell".to_string(),
+                    result: json!({"cmd": "cargo build", "exit_code": 0}),
+                    success: true,
+                    error: None,
+                },
+            ),
+        ];
+
+        let extractor = EntityExtractor::new();
+        let entities = extractor.extract(&events);
+        let manifest = MemoryManifest::default();
+
+        let config = GardenerConfig::default();
+        let job = ConsolidationJob {
+            session_id: "test-session".to_string(),
+            events_file: std::path::PathBuf::from("/tmp/test"),
+            config,
+        };
+
+        let facts = job.generate_fact_updates(&entities, &manifest);
+
+        assert_eq!(facts.len(), 1);
+        match &facts[0] {
+            FactUpdate::Append { doc_id, section, .. } => {
+                assert!(doc_id.contains("build"));
+                assert_eq!(section, "Build Commands");
+            }
+            _ => panic!("Expected Append for build commands"),
+        }
+    }
+
+    #[test]
+    fn test_consolidation_workflow_with_custom_config() {
+        let events = vec![
+            create_test_event(
+                0,
+                "test-session",
+                Event::ToolResult {
+                    tool: "shell".to_string(),
+                    result: json!({"cmd": "cargo fmt", "exit_code": 0}),
+                    success: true,
+                    error: None,
+                },
+            ),
+            create_test_event(
+                1,
+                "test-session",
+                Event::ToolResult {
+                    tool: "shell".to_string(),
+                    result: json!({"cmd": "cargo clippy", "exit_code": 0}),
+                    success: true,
+                    error: None,
+                },
+            ),
+            create_test_event(
+                2,
+                "test-session",
+                Event::ToolResult {
+                    tool: "shell".to_string(),
+                    result: json!({"cmd": "cargo test", "exit_code": 0}),
+                    success: true,
+                    error: None,
+                },
+            ),
+            create_test_event(3, "test-session", Event::UserMessage { content: "Done".to_string() }),
+        ];
+
+        let config = ExtractionConfig { min_workflow_steps: 2, ..Default::default() };
+        let extractor = EntityExtractor::with_config(config);
+        let entities = extractor.extract(&events);
+
+        assert_eq!(entities.commands.len(), 3);
+        assert_eq!(entities.workflows.len(), 1);
+        assert!(entities.workflows[0].title.contains("Rust") || entities.workflows[0].title.contains("step"));
     }
 }
