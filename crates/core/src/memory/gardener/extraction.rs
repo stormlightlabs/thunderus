@@ -91,9 +91,13 @@ impl EntityExtractor {
                     }
                 }
 
-                Event::UserMessage { content: _ } => {
-                    // TODO: Use content to detect user intent and task boundaries
-                    if !current_sequence.is_empty() && current_sequence.len() >= self.config.min_workflow_steps {
+                Event::UserMessage { content } => {
+                    let is_task_boundary = self.is_task_boundary(content);
+
+                    if is_task_boundary
+                        && !current_sequence.is_empty()
+                        && current_sequence.len() >= self.config.min_workflow_steps
+                    {
                         command_sequences.push(current_sequence.clone());
                     }
                     current_sequence.clear();
@@ -110,22 +114,20 @@ impl EntityExtractor {
 
     /// Extract a shell command from tool result
     fn extract_shell_command(
-        &self, result: &serde_json::Value, success: bool, _error: &Option<String>, session_id: &str, seq: u64,
+        &self, result: &serde_json::Value, success: bool, error: &Option<String>, session_id: &str, seq: u64,
     ) -> Option<CommandEntity> {
-        // TODO: Use error for gotcha extraction when available in result
         let cmd = result.get("cmd")?.as_str()?;
         let cwd = result.get("cwd").and_then(|v| v.as_str()).map(|s| s.to_string());
         let exit_code = result.get("exit_code").and_then(|v| v.as_i64()).unwrap_or(0);
 
         let outcome = if success || exit_code == 0 { CommandOutcome::Success } else { CommandOutcome::Failure };
 
-        Some(CommandEntity {
-            command: cmd.to_string(),
-            cwd,
-            args: vec![],
-            outcome,
-            event_ids: vec![format!("{}_{}", session_id, seq)],
-        })
+        let mut event_id = format!("{}_{}", session_id, seq);
+        if let Some(err) = error {
+            event_id.push_str(&format!(":err:{}", err.chars().take(50).collect::<String>()));
+        }
+
+        Some(CommandEntity { command: cmd.to_string(), cwd, args: vec![], outcome, event_ids: vec![event_id] })
     }
 
     /// Check if a command is an attempt to resolve a previous failure
@@ -137,16 +139,27 @@ impl EntityExtractor {
 
     /// Extract a gotcha from a failed command and its resolution
     fn extract_gotcha(
-        &self, failed: &CommandEntity, resolution: &CommandEntity, _session_id: &str,
+        &self, failed: &CommandEntity, resolution: &CommandEntity, session_id: &str,
     ) -> Option<GotchaEntity> {
-        // TODO: Use session_id for provenance tracking
         let category = self.classify_gotcha(&failed.command);
+        let error_context = failed
+            .event_ids
+            .iter()
+            .filter_map(|id| id.split(":err:").nth(1))
+            .next()
+            .unwrap_or("");
 
-        let issue = format!("Command failed: {}", failed.command);
+        let issue = if error_context.is_empty() {
+            format!("Command failed: {}", failed.command)
+        } else {
+            format!("Command failed: {} - Error: {}", failed.command, error_context)
+        };
+
         let resolution_text = format!("Fixed with: {}", resolution.command);
 
         let mut event_ids = failed.event_ids.clone();
         event_ids.extend(resolution.event_ids.clone());
+        event_ids.push(format!("session:{}", session_id));
 
         Some(GotchaEntity { issue, resolution: resolution_text, category, event_ids })
     }
@@ -254,8 +267,7 @@ impl EntityExtractor {
     }
 
     /// Extract workflows from command sequences
-    fn extract_workflows(&self, sequences: &[Vec<CommandEntity>], _events: &[LoggedEvent]) -> Vec<WorkflowEntity> {
-        // TODO: Use events to provide context for workflow titles/descriptions
+    fn extract_workflows(&self, sequences: &[Vec<CommandEntity>], events: &[LoggedEvent]) -> Vec<WorkflowEntity> {
         let mut workflows = Vec::new();
 
         for sequence in sequences {
@@ -263,8 +275,12 @@ impl EntityExtractor {
                 continue;
             }
 
-            // TODO: Check if this is a repeatable pattern
-            let title = self.generate_workflow_title(sequence);
+            if !self.is_repeatable_workflow(sequence) {
+                continue;
+            }
+
+            let title = self.generate_workflow_title(sequence, events);
+            let context = self.extract_workflow_context(sequence, events);
 
             let steps: Vec<WorkflowStep> = sequence
                 .iter()
@@ -281,6 +297,7 @@ impl EntityExtractor {
 
             workflows.push(WorkflowEntity {
                 title,
+                description: Some(context),
                 steps,
                 event_ids: sequence.iter().flat_map(|c| c.event_ids.clone()).collect(),
             });
@@ -290,7 +307,7 @@ impl EntityExtractor {
     }
 
     /// Generate a workflow title from a command sequence
-    fn generate_workflow_title(&self, sequence: &[CommandEntity]) -> String {
+    fn generate_workflow_title(&self, sequence: &[CommandEntity], _events: &[LoggedEvent]) -> String {
         let commands: Vec<&str> = sequence.iter().map(|c| c.command.as_str()).collect();
 
         if commands.iter().all(|c| c.contains("cargo")) {
@@ -307,6 +324,82 @@ impl EntityExtractor {
         }
 
         format!("{}-step workflow", sequence.len())
+    }
+
+    /// Extract context from surrounding events for workflow description
+    fn extract_workflow_context(&self, sequence: &[CommandEntity], events: &[LoggedEvent]) -> String {
+        let first_event_id = sequence.first().and_then(|c| c.event_ids.first());
+        let last_event_id = sequence.last().and_then(|c| c.event_ids.first());
+
+        let mut context_parts = Vec::new();
+
+        let in_range = first_event_id.is_some() && last_event_id.is_some();
+        if in_range {
+            for event in events {
+                if let Event::ModelMessage { content, .. } = &event.event
+                    && content.len() < 300
+                {
+                    context_parts.push(content.trim().to_string());
+                }
+            }
+        }
+
+        if context_parts.is_empty() {
+            format!("A {}-step workflow sequence", sequence.len())
+        } else {
+            context_parts.join(" ").chars().take(200).collect::<String>() + "..."
+        }
+    }
+
+    /// Check if a command sequence represents a repeatable pattern
+    fn is_repeatable_workflow(&self, sequence: &[CommandEntity]) -> bool {
+        if sequence.len() < self.config.min_workflow_steps {
+            return false;
+        }
+
+        let all_success = sequence.iter().all(|cmd| cmd.outcome == CommandOutcome::Success);
+        if !all_success {
+            return false;
+        }
+
+        let command_types: Vec<&str> = sequence
+            .iter()
+            .map(|c| c.command.split_whitespace().next().unwrap_or(""))
+            .collect();
+
+        let same_tool = command_types.windows(2).all(|w| w[0] == w[1]);
+        let is_common_pattern = command_types.iter().any(|&t| {
+            matches!(
+                t,
+                "cargo" | "npm" | "pytest" | "jest" | "git" | "make" | "cmake" | "docker" | "kubectl"
+            )
+        });
+
+        same_tool || is_common_pattern
+    }
+
+    /// Check if user message indicates a task boundary
+    fn is_task_boundary(&self, content: &str) -> bool {
+        let content_lower = content.to_lowercase();
+
+        let boundary_keywords = [
+            "next task",
+            "now let's",
+            "moving on",
+            "another thing",
+            "finally",
+            "lastly",
+            "done with",
+            "finished",
+            "complete",
+            "that's it",
+        ];
+
+        let is_explicit_boundary = boundary_keywords.iter().any(|kw| content_lower.contains(kw));
+        let is_question = content.trim().ends_with('?');
+        let is_short = content.trim().len() < 20;
+
+        is_explicit_boundary || is_question || is_short
     }
 }
 

@@ -499,6 +499,32 @@ impl EventHandler {
                 }
             }
             "clear" => Some(KeyAction::SlashCommandClear),
+            "garden" => {
+                if parts.len() > 1 {
+                    match parts[1] {
+                        "consolidate" => {
+                            if parts.len() > 2 {
+                                Some(KeyAction::SlashCommandGardenConsolidate { session_id: parts[2].to_string() })
+                            } else {
+                                Some(KeyAction::SlashCommandGardenConsolidate { session_id: "latest".to_string() })
+                            }
+                        }
+                        "hygiene" => Some(KeyAction::SlashCommandGardenHygiene),
+                        "drift" => Some(KeyAction::SlashCommandGardenDrift),
+                        "verify" => {
+                            if parts.len() > 2 {
+                                Some(KeyAction::SlashCommandGardenVerify { doc_id: parts[2].to_string() })
+                            } else {
+                                None
+                            }
+                        }
+                        "stats" => Some(KeyAction::SlashCommandGardenStats),
+                        _ => Some(KeyAction::SlashCommandGardenStats),
+                    }
+                } else {
+                    Some(KeyAction::SlashCommandGardenStats)
+                }
+            }
             "search" => {
                 if parts.len() > 1 {
                     let (scope, query_start) = if parts[1] == "--events" {
@@ -590,6 +616,16 @@ pub enum KeyAction {
     SlashCommandMemoryPin { id: String },
     /// Slash command: clear transcript (keep session history)
     SlashCommandClear,
+    /// Slash command: garden consolidate session
+    SlashCommandGardenConsolidate { session_id: String },
+    /// Slash command: garden hygiene check
+    SlashCommandGardenHygiene,
+    /// Slash command: garden drift detection
+    SlashCommandGardenDrift,
+    /// Slash command: garden verify document
+    SlashCommandGardenVerify { doc_id: String },
+    /// Slash command: garden statistics
+    SlashCommandGardenStats,
     /// Slash command: search session with ripgrep
     SlashCommandSearch {
         query: String,

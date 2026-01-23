@@ -18,6 +18,7 @@ use std::io::{self, Result, Write};
 use std::{env, fs, panic};
 use std::{process::Command, sync::Arc, time::Duration};
 use thunderus_agent::{Agent, AgentEvent};
+use thunderus_core::memory::{Severity, StalenessSeverity};
 use thunderus_core::teaching::suggest_concept;
 use thunderus_core::{
     ActionType, ApprovalDecision, ApprovalGate, ApprovalMode, ApprovalProtocol, Config, MemoryPaths, SearchScope,
@@ -520,6 +521,21 @@ impl App {
                     self.transcript_mut()
                         .add_system_message("Transcript cleared (session history preserved)");
                 }
+                KeyAction::SlashCommandGardenConsolidate { session_id } => {
+                    self.handle_garden_consolidate_command(session_id);
+                }
+                KeyAction::SlashCommandGardenHygiene => {
+                    self.handle_garden_hygiene_command();
+                }
+                KeyAction::SlashCommandGardenDrift => {
+                    self.handle_garden_drift_command();
+                }
+                KeyAction::SlashCommandGardenVerify { doc_id } => {
+                    self.handle_garden_verify_command(doc_id);
+                }
+                KeyAction::SlashCommandGardenStats => {
+                    self.handle_garden_stats_command();
+                }
                 KeyAction::NavigateCardNext => {
                     if !self.transcript_mut().focus_next_card() {
                         self.transcript_mut().scroll_down(1);
@@ -588,11 +604,11 @@ impl App {
                         .add_system_message("Transcript cleared (session history preserved)");
                 }
                 KeyAction::NavigateNextPatch => {
-                    let total = self.state().patches().len();
+                    let total = self.state().patches().len() + self.state().memory_patches().len();
                     self.state_mut().next_patch(total);
                 }
                 KeyAction::NavigatePrevPatch => {
-                    let total = self.state().patches().len();
+                    let total = self.state().patches().len() + self.state().memory_patches().len();
                     self.state_mut().prev_patch(total);
                 }
                 KeyAction::NavigateNextHunk => {
@@ -661,50 +677,97 @@ impl App {
                     let Some(patch_idx) = self.state().selected_patch_index() else {
                         return;
                     };
-                    let Some(hunk_idx) = self.state().selected_hunk_index() else {
-                        return;
-                    };
-                    let Some(file_path_str) = self.state().selected_file_path() else {
-                        return;
-                    };
 
-                    let file_path = std::path::PathBuf::from(file_path_str);
+                    let file_patch_count = self.state().patches().len();
 
-                    let result = self
-                        .state_mut()
-                        .patches_mut()
-                        .get_mut(patch_idx)
-                        .ok_or_else(|| "Patch not found".to_string())
-                        .and_then(|patch| patch.approve_hunk(&file_path, hunk_idx));
+                    if patch_idx >= file_patch_count {
+                        let mem_idx = patch_idx - file_patch_count;
+                        let result = self
+                            .state_mut()
+                            .memory_patches_mut()
+                            .get_mut(mem_idx)
+                            .ok_or_else(|| "Memory patch not found".to_string())
+                            .and_then(|patch| {
+                                patch.approve();
+                                patch.apply().map_err(|e| format!("Failed to apply: {}", e))?;
+                                Ok(format!("Applied memory patch: {}", patch.doc_id))
+                            });
 
-                    if let Err(e) = result {
-                        self.transcript_mut()
-                            .add_system_message(format!("Failed to approve hunk: {}", e));
+                        match result {
+                            Ok(msg) => self.transcript_mut().add_system_message(msg),
+                            Err(e) => self
+                                .transcript_mut()
+                                .add_system_message(format!("Failed to apply: {}", e)),
+                        }
+                    } else {
+                        let Some(hunk_idx) = self.state().selected_hunk_index() else {
+                            return;
+                        };
+                        let Some(file_path_str) = self.state().selected_file_path() else {
+                            return;
+                        };
+
+                        let file_path = std::path::PathBuf::from(file_path_str);
+
+                        let result = self
+                            .state_mut()
+                            .patches_mut()
+                            .get_mut(patch_idx)
+                            .ok_or_else(|| "Patch not found".to_string())
+                            .and_then(|patch| patch.approve_hunk(&file_path, hunk_idx));
+
+                        if let Err(e) = result {
+                            self.transcript_mut()
+                                .add_system_message(format!("Failed to approve hunk: {}", e));
+                        }
                     }
                 }
                 KeyAction::RejectHunk => {
                     let Some(patch_idx) = self.state().selected_patch_index() else {
                         return;
                     };
-                    let Some(hunk_idx) = self.state().selected_hunk_index() else {
-                        return;
-                    };
-                    let Some(file_path_str) = self.state().selected_file_path() else {
-                        return;
-                    };
 
-                    let file_path = std::path::PathBuf::from(file_path_str);
+                    let file_patch_count = self.state().patches().len();
 
-                    let result = self
-                        .state_mut()
-                        .patches_mut()
-                        .get_mut(patch_idx)
-                        .ok_or_else(|| "Patch not found".to_string())
-                        .and_then(|patch| patch.reject_hunk(&file_path, hunk_idx));
+                    if patch_idx >= file_patch_count {
+                        let mem_idx = patch_idx - file_patch_count;
+                        let result = self
+                            .state_mut()
+                            .memory_patches_mut()
+                            .get_mut(mem_idx)
+                            .ok_or_else(|| "Memory patch not found".to_string())
+                            .map(|patch| {
+                                patch.reject();
+                                format!("Rejected memory patch: {}", patch.doc_id)
+                            });
 
-                    if let Err(e) = result {
-                        self.transcript_mut()
-                            .add_system_message(format!("Failed to reject hunk: {}", e));
+                        match result {
+                            Ok(msg) => self.transcript_mut().add_system_message(msg),
+                            Err(e) => self
+                                .transcript_mut()
+                                .add_system_message(format!("Failed to reject: {}", e)),
+                        }
+                    } else {
+                        let Some(hunk_idx) = self.state().selected_hunk_index() else {
+                            return;
+                        };
+                        let Some(file_path_str) = self.state().selected_file_path() else {
+                            return;
+                        };
+
+                        let file_path = std::path::PathBuf::from(file_path_str);
+
+                        let result = self
+                            .state_mut()
+                            .patches_mut()
+                            .get_mut(patch_idx)
+                            .ok_or_else(|| "Patch not found".to_string())
+                            .and_then(|patch| patch.reject_hunk(&file_path, hunk_idx));
+
+                        if let Err(e) = result {
+                            self.transcript_mut()
+                                .add_system_message(format!("Failed to reject hunk: {}", e));
+                        }
                     }
                 }
                 KeyAction::ToggleHunkDetails => self.state_mut().toggle_hunk_details(),
@@ -1529,13 +1592,212 @@ impl App {
                         self.transcript_mut().add_system_message(results_text);
                     }
                 }
-                Err(e) => {
-                    self.transcript_mut()
-                        .add_system_message(format!("Search failed: {}", e));
-                }
+                Err(e) => self
+                    .transcript_mut()
+                    .add_system_message(format!("Search failed: {}", e)),
             },
             None => self.transcript_mut().add_system_message("No active session to search"),
         }
+    }
+
+    /// Handle /garden consolidate [session-id] command
+    fn handle_garden_consolidate_command(&mut self, session_id: String) {
+        let memory_paths = MemoryPaths::from_thunderus_root(&self.state.config.cwd);
+
+        let events_file = if session_id == "latest" {
+            match &self.session {
+                Some(session) => session.events_file(),
+                None => {
+                    return self
+                        .transcript_mut()
+                        .add_system_message("No active session to consolidate");
+                }
+            }
+        } else {
+            let agent_dir = thunderus_core::AgentDir::new(&self.state.config.cwd);
+            let session_dir = agent_dir.sessions_dir().join(&session_id);
+            std::path::PathBuf::from(&session_dir).join("events.jsonl")
+        };
+
+        let gardener = thunderus_core::memory::Gardener::new(memory_paths);
+        let result = match tokio::runtime::Handle::try_current() {
+            Ok(handle) => handle.block_on(gardener.consolidate_session(&session_id, &events_file)),
+            Err(_) => {
+                return self
+                    .transcript_mut()
+                    .add_system_message("No tokio runtime available for consolidation");
+            }
+        };
+
+        match result {
+            Ok(consolidation_result) => {
+                let mut msg = format!("🌱 Garden: Consolidated session {}\n\n", session_id);
+
+                msg.push_str("Extracted:\n");
+                msg.push_str(&format!("  • {} facts\n", consolidation_result.facts.len()));
+                msg.push_str(&format!("  • {} ADRs\n", consolidation_result.adrs.len()));
+                msg.push_str(&format!("  • {} playbooks\n", consolidation_result.playbooks.len()));
+
+                let recap_path = consolidation_result
+                    .recap
+                    .as_ref()
+                    .map(|r| r.path.display().to_string());
+                let warnings = consolidation_result.warnings.clone();
+
+                let memory_patches = consolidation_result.into_memory_patches();
+                let patch_count = memory_patches.len();
+                for patch in &memory_patches {
+                    msg.push_str(&format!("  • [{}] {}\n", patch.kind, patch.description));
+                }
+
+                if !memory_patches.is_empty() {
+                    msg.push_str(&format!(
+                        "\n🧠 Added {} memory patch(es) to review queue\n",
+                        patch_count
+                    ));
+                    self.state_mut().memory_patches_mut().extend(memory_patches);
+                }
+
+                if let Some(ref path) = recap_path {
+                    msg.push_str(&format!("\nRecap: {}\n", path));
+                }
+
+                for warning in &warnings {
+                    msg.push_str(&format!("\n⚠️  {}\n", warning));
+                }
+
+                self.transcript_mut().add_system_message(msg);
+            }
+            Err(e) => {
+                self.transcript_mut()
+                    .add_system_message(format!("Consolidation failed: {}", e));
+            }
+        }
+    }
+
+    /// Handle /garden hygiene command
+    fn handle_garden_hygiene_command(&mut self) {
+        let memory_paths = MemoryPaths::from_thunderus_root(&self.state.config.cwd);
+        let gardener = thunderus_core::memory::Gardener::new(memory_paths.clone());
+
+        let result = gardener.check_hygiene();
+
+        match result {
+            Ok(violations) => {
+                if violations.is_empty() {
+                    self.transcript_mut()
+                        .add_system_message("🧹 Hygiene Check: No violations found");
+                } else {
+                    let mut msg = format!("🧹 Hygiene Check Results:\n\n{} violation(s):\n\n", violations.len());
+                    for v in &violations {
+                        let severity = if matches!(v.severity, Severity::Error) { "🔴" } else { "⚠️ " };
+                        msg.push_str(&format!("  {} [{}] {}\n", severity, v.doc_id, v.message));
+                        if let Some(fix) = &v.suggested_fix {
+                            msg.push_str(&format!("      Fix: {}\n", fix));
+                        }
+                    }
+                    self.transcript_mut().add_system_message(msg);
+                }
+            }
+            Err(e) => {
+                self.transcript_mut()
+                    .add_system_message(format!("Hygiene check failed: {}", e));
+            }
+        }
+    }
+
+    /// Handle /garden drift command
+    fn handle_garden_drift_command(&mut self) {
+        let memory_paths = MemoryPaths::from_thunderus_root(&self.state.config.cwd);
+        let gardener = thunderus_core::memory::Gardener::new(memory_paths.clone());
+
+        let result = gardener.check_drift_auto();
+
+        match result {
+            Ok(drift_result) => {
+                if drift_result.stale_docs.is_empty() {
+                    self.transcript_mut()
+                        .add_system_message("📊 Drift Detection: All documents verified");
+                } else {
+                    let mut msg = format!(
+                        "📊 Drift Detection Results:\n\n{} stale document(s):\n\n",
+                        drift_result.stale_docs.len()
+                    );
+                    for doc in &drift_result.stale_docs {
+                        let severity = match doc.severity {
+                            StalenessSeverity::Minor => "🟡",
+                            StalenessSeverity::Major => "🟠",
+                            StalenessSeverity::Critical => "🔴",
+                        };
+                        msg.push_str(&format!(
+                            "  {} {} (changed: {:?})\n",
+                            severity, doc.doc_id, doc.changed_files
+                        ));
+                    }
+                    msg.push_str(&format!("\nCurrent commit: {}\n", drift_result.current_commit));
+                    self.transcript_mut().add_system_message(msg);
+                }
+            }
+            Err(e) => {
+                self.transcript_mut()
+                    .add_system_message(format!("Drift check failed: {}", e));
+            }
+        }
+    }
+
+    /// Handle /garden verify <doc-id> command
+    fn handle_garden_verify_command(&mut self, doc_id: String) {
+        let memory_paths = MemoryPaths::from_thunderus_root(&self.state.config.cwd);
+        let gardener = thunderus_core::memory::Gardener::new(memory_paths.clone());
+
+        let result = gardener.verify_document(&doc_id);
+
+        match result {
+            Ok(()) => {
+                self.transcript_mut()
+                    .add_system_message(format!("✓ Marked {} as verified at current commit", doc_id));
+            }
+            Err(e) => {
+                self.transcript_mut()
+                    .add_system_message(format!("Verification failed: {}", e));
+            }
+        }
+    }
+
+    /// Handle /garden stats command
+    fn handle_garden_stats_command(&mut self) {
+        let memory_paths = MemoryPaths::from_thunderus_root(&self.state.config.cwd);
+
+        let manifest = match std::fs::read_to_string(memory_paths.manifest_file()) {
+            Ok(content) => match serde_json::from_str::<thunderus_core::memory::MemoryManifest>(&content) {
+                Ok(manifest) => manifest,
+                Err(e) => {
+                    return self
+                        .transcript_mut()
+                        .add_system_message(format!("Failed to parse manifest: {}", e));
+                }
+            },
+            Err(e) => {
+                return self
+                    .transcript_mut()
+                    .add_system_message(format!("Failed to read manifest: {}", e));
+            }
+        };
+
+        let mut msg = "🌱 Memory Gardener Statistics:\n\n".to_string();
+        msg.push_str(&format!("Total documents: {}\n\n", manifest.docs.len()));
+
+        let mut kind_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        for doc in &manifest.docs {
+            *kind_counts.entry(format!("{:?}", doc.kind)).or_insert(0) += 1;
+        }
+
+        msg.push_str("Documents by type:\n");
+        for (kind, count) in kind_counts.iter() {
+            msg.push_str(&format!("  • {}: {}\n", kind, count));
+        }
+
+        self.transcript_mut().add_system_message(msg);
     }
 
     /// Redraw the screen after returning from external editor

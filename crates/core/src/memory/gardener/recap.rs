@@ -52,8 +52,6 @@ impl From<RecapConfig> for RecapTemplate {
 /// Generates session recap documents
 #[derive(Debug, Clone)]
 pub struct RecapGenerator {
-    // TODO: Use template to customize recap format and content
-    #[allow(dead_code)]
     template: RecapTemplate,
 }
 
@@ -69,14 +67,22 @@ impl RecapGenerator {
     ) -> Result<RecapResult> {
         let now = Utc::now();
         let month_dir = format!("{:04}-{:02}", now.year(), now.month());
+        let path = PathBuf::from("/tmp").join("recap").join(&month_dir);
 
+        self.generate_with_path(session_id, events, entities, patches, &path)
+    }
+
+    /// Generate a session recap with a custom output directory
+    pub fn generate_with_path(
+        &self, session_id: &str, events: &[LoggedEvent], entities: &ExtractedEntities, patches: &[PathBuf],
+        output_dir: &PathBuf,
+    ) -> Result<RecapResult> {
         let content = self.render_recap(session_id, events, entities, patches)?;
 
         let filename = format!("{}.md", session_id.replace(':', "-"));
-        let path = PathBuf::from("/tmp").join("recap").join(&month_dir);
-        fs::create_dir_all(&path)?;
+        fs::create_dir_all(output_dir)?;
 
-        let full_path = path.join(&filename);
+        let full_path = output_dir.join(&filename);
 
         let file = File::create(&full_path).map_err(Error::Io)?;
         let mut writer = BufWriter::new(file);
@@ -89,7 +95,7 @@ impl RecapGenerator {
 
     /// Render the recap markdown
     fn render_recap(
-        &self, session_id: &str, events: &[LoggedEvent], entities: &ExtractedEntities, _patches: &[PathBuf],
+        &self, session_id: &str, events: &[LoggedEvent], entities: &ExtractedEntities, patches: &[PathBuf],
     ) -> Result<String> {
         let mut md = String::new();
 
@@ -140,12 +146,28 @@ impl RecapGenerator {
             md.push_str("## Workflows Identified\n\n");
             for workflow in &entities.workflows {
                 md.push_str(&format!("### {}\n\n", workflow.title));
+                if let Some(description) = &workflow.description {
+                    md.push_str(&format!("**Description:** {}\n\n", description));
+                }
                 for (i, step) in workflow.steps.iter().enumerate() {
                     md.push_str(&format!("{}. {}\n", i + 1, step.description));
                     if let Some(action) = &step.action {
                         md.push_str(&format!("   - `{}`\n", action));
                     }
                 }
+                md.push('\n');
+            }
+        }
+
+        if self.template.include_file_changes && !patches.is_empty() {
+            md.push_str("## Files Modified\n\n");
+            let limit = self.template.max_files_listed.min(patches.len());
+            for (i, patch) in patches.iter().take(limit).enumerate() {
+                md.push_str(&format!("{}. `{}`\n", i + 1, patch.display()));
+            }
+            if patches.len() > limit {
+                md.push_str(&format!("... and {} more\n\n", patches.len() - limit));
+            } else {
                 md.push('\n');
             }
         }

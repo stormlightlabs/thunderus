@@ -1,4 +1,4 @@
-use thunderus_core::{Patch, TokensUsed};
+use thunderus_core::{MemoryPatch, Patch, TokensUsed};
 
 /// Session statistics for the UI
 #[derive(Debug, Clone, Default)]
@@ -47,6 +47,8 @@ pub struct SessionTrackingState {
     pub git_diff_queue: Vec<super::GitDiff>,
     /// Patches in the queue
     pub patches: Vec<Patch>,
+    /// Memory patches in the queue
+    pub memory_patches: Vec<MemoryPatch>,
     /// Last user message sent (for retry functionality)
     pub last_message: Option<String>,
 }
@@ -60,6 +62,7 @@ impl SessionTrackingState {
             modified_files: Vec::new(),
             git_diff_queue: Vec::new(),
             patches: Vec::new(),
+            memory_patches: Vec::new(),
             last_message: None,
         }
     }

@@ -2,7 +2,9 @@
 //!
 //! Transforms raw session history into durable knowledge artifacts.
 
+use crate::LoggedEvent;
 use crate::error::{Error, Result};
+use crate::layout::{AgentDir, SessionId};
 use crate::memory::gardener::config::GardenerConfig;
 use crate::memory::gardener::entities::{AdrStatus, AdrUpdate, CommandEntity};
 use crate::memory::gardener::extraction::{EntityExtractor, ExtractedEntities};
@@ -10,8 +12,8 @@ use crate::memory::gardener::recap::{RecapGenerator, RecapResult};
 use crate::memory::kinds::MemoryKind;
 use crate::memory::paths::MemoryPaths;
 use crate::memory::{CommandOutcome, GotchaCategory, MemoryManifest};
-use crate::patch::MemoryPatchParams;
-use crate::{LoggedEvent, SessionId};
+use crate::patch::{MemoryPatch, MemoryPatchParams, PatchId};
+use crate::session::Session;
 
 use serde_json::json;
 use std::fs::{self};
@@ -56,6 +58,23 @@ pub struct ConsolidationResult {
     pub warnings: Vec<String>,
 }
 
+impl ConsolidationResult {
+    /// Convert MemoryPatchParams to full MemoryPatch objects
+    ///
+    /// This assigns proper PatchIds and creates complete patch objects
+    /// ready for adding to the patch queue.
+    pub fn into_memory_patches(self) -> Vec<MemoryPatch> {
+        self.patches
+            .into_iter()
+            .enumerate()
+            .map(|(idx, params)| {
+                let id = PatchId::new(format!("mem_{:03}", idx));
+                MemoryPatch::new(id, params)
+            })
+            .collect()
+    }
+}
+
 /// Orchestrates the episodic to semantic/procedural promotion
 #[derive(Debug, Clone)]
 pub struct ConsolidationJob {
@@ -96,9 +115,6 @@ impl ConsolidationJob {
 
     /// Load events from the session file
     fn load_events(&self) -> Result<Vec<LoggedEvent>> {
-        use crate::layout::{AgentDir, SessionId};
-        use crate::session::Session;
-
         let agent_dir = AgentDir::new(self.events_file.parent().unwrap().parent().unwrap());
         let session_id = SessionId::from_timestamp(&self.session_id)
             .map_err(|e| Error::Other(format!("Invalid session ID: {}", e)))?;
@@ -121,9 +137,15 @@ impl ConsolidationJob {
     }
 
     /// Generate fact updates from extracted entities
-    fn generate_fact_updates(&self, entities: &ExtractedEntities, _manifest: &MemoryManifest) -> Vec<FactUpdate> {
-        // TODO: Use manifest to match existing facts and avoid duplicates
+    fn generate_fact_updates(&self, entities: &ExtractedEntities, manifest: &MemoryManifest) -> Vec<FactUpdate> {
         let mut updates = Vec::new();
+
+        let existing_fact_ids: std::collections::HashSet<String> = manifest
+            .docs
+            .iter()
+            .filter(|d| d.kind == MemoryKind::Fact)
+            .map(|d| d.id.clone())
+            .collect();
 
         let mut build_commands: Vec<&CommandEntity> = Vec::new();
         let mut test_commands: Vec<&CommandEntity> = Vec::new();
@@ -141,24 +163,52 @@ impl ConsolidationJob {
             }
         }
 
+        let build_doc_id = "fact.commands.build".to_string();
         if !build_commands.is_empty() {
-            let content = self.format_commands_as_markdown(&build_commands);
-            updates.push(FactUpdate::Append {
-                doc_id: "fact.commands.build".to_string(),
-                section: "Build Commands".to_string(),
-                content,
-                provenance: build_commands.iter().flat_map(|c| c.event_ids.clone()).collect(),
-            });
+            if existing_fact_ids.contains(&build_doc_id) {
+                let content = self.format_commands_as_markdown(&build_commands);
+                updates.push(FactUpdate::Append {
+                    doc_id: build_doc_id.clone(),
+                    section: "Build Commands".to_string(),
+                    content,
+                    provenance: build_commands.iter().flat_map(|c| c.event_ids.clone()).collect(),
+                });
+            } else {
+                let content = self.format_commands_as_markdown(&build_commands);
+                updates.push(FactUpdate::Create {
+                    doc_id: build_doc_id.clone(),
+                    title: "Build Commands".to_string(),
+                    tags: vec!["commands".to_string(), "build".to_string()],
+                    content: format!("## Build Commands\n\n{}", content),
+                    provenance: build_commands.iter().flat_map(|c| c.event_ids.clone()).collect(),
+                });
+            }
+        } else if existing_fact_ids.contains(&build_doc_id) {
+            updates.push(FactUpdate::NoOp { doc_id: build_doc_id, reason: "No new build commands to add".to_string() });
         }
 
+        let test_doc_id = "fact.commands.test".to_string();
         if !test_commands.is_empty() {
-            let content = self.format_commands_as_markdown(&test_commands);
-            updates.push(FactUpdate::Append {
-                doc_id: "fact.commands.test".to_string(),
-                section: "Test Commands".to_string(),
-                content,
-                provenance: test_commands.iter().flat_map(|c| c.event_ids.clone()).collect(),
-            });
+            if existing_fact_ids.contains(&test_doc_id) {
+                let content = self.format_commands_as_markdown(&test_commands);
+                updates.push(FactUpdate::Append {
+                    doc_id: test_doc_id.clone(),
+                    section: "Test Commands".to_string(),
+                    content,
+                    provenance: test_commands.iter().flat_map(|c| c.event_ids.clone()).collect(),
+                });
+            } else {
+                let content = self.format_commands_as_markdown(&test_commands);
+                updates.push(FactUpdate::Create {
+                    doc_id: test_doc_id.clone(),
+                    title: "Test Commands".to_string(),
+                    tags: vec!["commands".to_string(), "test".to_string()],
+                    content: format!("## Test Commands\n\n{}", content),
+                    provenance: test_commands.iter().flat_map(|c| c.event_ids.clone()).collect(),
+                });
+            }
+        } else if existing_fact_ids.contains(&test_doc_id) {
+            updates.push(FactUpdate::NoOp { doc_id: test_doc_id, reason: "No new test commands to add".to_string() });
         }
 
         for gotcha in &entities.gotchas {
@@ -173,12 +223,25 @@ impl ConsolidationJob {
                 "- **Issue**: {}\n- **Resolution**: {}\n",
                 gotcha.issue, gotcha.resolution
             );
-            updates.push(FactUpdate::Append {
-                doc_id,
-                section: "Gotchas".to_string(),
-                content,
-                provenance: gotcha.event_ids.clone(),
-            });
+
+            if existing_fact_ids.contains(&doc_id) {
+                updates.push(FactUpdate::Append {
+                    doc_id,
+                    section: "Gotchas".to_string(),
+                    content,
+                    provenance: gotcha.event_ids.clone(),
+                });
+            } else {
+                let title = format!("Gotchas: {:?}", gotcha.category);
+                let tags = vec!["gotchas".to_string(), format!("{:?}", gotcha.category).to_lowercase()];
+                updates.push(FactUpdate::Create {
+                    doc_id,
+                    title,
+                    tags,
+                    content: format!("## Gotchas\n\n{}", content),
+                    provenance: gotcha.event_ids.clone(),
+                });
+            }
         }
 
         updates
@@ -323,11 +386,11 @@ impl ConsolidationJob {
 
     /// Generate a session recap
     async fn generate_recap(
-        &self, events: &[crate::session::LoggedEvent], entities: &ExtractedEntities, _paths: &MemoryPaths,
+        &self, events: &[crate::session::LoggedEvent], entities: &ExtractedEntities, paths: &MemoryPaths,
     ) -> Result<RecapResult> {
-        // TODO: Use paths to determine recap output location
+        let recap_dir = paths.episodic.join(format!("{:?}", chrono::Utc::now().format("%Y-%m")));
         let generator = RecapGenerator::new(self.config.recap.clone());
-        generator.generate(&self.session_id, events, entities, &[])
+        generator.generate_with_path(&self.session_id, events, entities, &[], &recap_dir)
     }
 
     /// Collect warnings from the consolidation
@@ -531,11 +594,11 @@ mod tests {
 
         assert_eq!(facts.len(), 1);
         match &facts[0] {
-            FactUpdate::Append { doc_id, section, .. } => {
+            FactUpdate::Create { doc_id, title, .. } => {
                 assert!(doc_id.contains("build"));
-                assert_eq!(section, "Build Commands");
+                assert!(title.contains("Build"));
             }
-            _ => panic!("Expected Append for build commands"),
+            _ => panic!("Expected Create for build commands with empty manifest"),
         }
     }
 

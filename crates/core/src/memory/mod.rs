@@ -57,7 +57,8 @@ pub use gardener::{
     DecisionEntity, DeduplicationStrategy, DriftConfig, DriftDetector, DriftResult, DuplicateGroup, EntityExtractor,
     ExtractedEntities, ExtractionConfig, FactDeduplicator, FactUpdate as GardenerFactUpdate, Gardener, GotchaCategory,
     GotchaEntity, HygieneChecker, HygieneConfig, HygieneRule, HygieneViolation, RecapConfig, RecapGenerator,
-    RecapResult, RecapStats, RecapTemplate, SizeLimits, StalenessInfo, StalenessSeverity, WorkflowEntity, WorkflowStep,
+    RecapResult, RecapStats, RecapTemplate, Severity, SizeLimits, StalenessInfo, StalenessSeverity, WorkflowEntity,
+    WorkflowStep,
 };
 pub use kinds::{MemoryKind, Provenance, SessionMeta, Verification, VerificationStatus};
 pub use lint::{LintDiagnostic, LintRule, LintSeverity as MemoryLintSeverity, MemoryLinter};

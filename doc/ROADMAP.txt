@@ -113,11 +113,11 @@ Tasks:
       - enforce size limits on core
       - require provenance links on all durable claims
 - [x] Drift checks:
-      - if repo changed since `last_verified_commit`, mark docs “stale”
-- [ ] "Memory PR" workflow:
-      - gardener emits patch queue items (“Update memory: …”)
+      - if repo changed since `last_verified_commit`, mark docs "stale"
+- [x] "Memory PR" workflow:
+      - gardener emits patch queue items ("Update memory: …")
       - user approves/rejects like any other diff
-- [ ] Tests:
+- [x] Tests:
       - golden tests for deterministic outputs from identical inputs
 
 See |SCHEMAS.txt| section |schemas-gardener| for config format.

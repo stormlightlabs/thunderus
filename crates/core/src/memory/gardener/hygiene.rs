@@ -84,8 +84,7 @@ impl HygieneChecker {
     }
 
     /// Check a single document
-    pub fn check_doc(&self, doc: &MemoryDoc, _paths: &MemoryPaths) -> Vec<HygieneViolation> {
-        // TODO: Use paths to check for orphaned documents
+    pub fn check_doc(&self, doc: &MemoryDoc, paths: &MemoryPaths) -> Vec<HygieneViolation> {
         let mut violations = Vec::new();
 
         let limits = SizeLimits::new(self.config.doc_soft_limit, self.config.doc_hard_limit);
@@ -119,6 +118,20 @@ impl HygieneChecker {
                 doc_id: doc.frontmatter.id.clone(),
                 message: "Document missing provenance links".to_string(),
                 suggested_fix: Some("Add source event IDs to document frontmatter".to_string()),
+            });
+        }
+
+        let expected_path = paths
+            .root
+            .join(doc.frontmatter.kind.dir_name())
+            .join(format!("{}.md", doc.frontmatter.id.replace('.', "_")));
+        if !expected_path.exists() {
+            violations.push(HygieneViolation {
+                rule: HygieneRule::OrphanedDoc,
+                severity: Severity::Error,
+                doc_id: doc.frontmatter.id.clone(),
+                message: format!("Document file missing from filesystem: {:?}", expected_path),
+                suggested_fix: Some("Recreate document file or remove from manifest".to_string()),
             });
         }
 

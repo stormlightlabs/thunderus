@@ -93,6 +93,8 @@ pub struct DecisionEntity {
 pub struct WorkflowEntity {
     /// Workflow name/title
     pub title: String,
+    /// Optional description of the workflow purpose and context
+    pub description: Option<String>,
     /// Steps in sequence
     pub steps: Vec<WorkflowStep>,
     /// Source event IDs that produced this entity
@@ -227,6 +229,7 @@ mod tests {
     fn test_workflow_entity() {
         let workflow = WorkflowEntity {
             title: "Run tests before commit".to_string(),
+            description: Some("Pre-commit checks to ensure code quality".to_string()),
             steps: vec![
                 WorkflowStep {
                     description: "Format code".to_string(),

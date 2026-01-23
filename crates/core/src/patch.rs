@@ -1,12 +1,14 @@
+//! Patch queue module for diff-first editing
+//!
+//! This module implements the patch queue system that enables reviewable,
+//! reversible, and conflict-aware edits through a unified diff workflow.
 use crate::SessionId;
-/// Patch queue module for diff-first editing
-///
-/// This module implements the patch queue system that enables reviewable,
-/// reversible, and conflict-aware edits through a unified diff workflow.
 use crate::memory::MemoryKind;
 use crate::session::PatchStatus;
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 /// A unique identifier for a patch
@@ -464,6 +466,22 @@ impl MemoryPatch {
         }
 
         format!("+{} -{}", added, removed)
+    }
+
+    /// Apply this memory patch by writing the content to the file
+    ///
+    /// For memory patches, the diff field contains the full document content
+    /// (not a unified diff), so we simply write it to the target path.
+    pub fn apply(&self) -> Result<(), String> {
+        if let Some(parent) = self.path.parent()
+            && !parent.exists()
+        {
+            fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory {:?}: {}", parent, e))?;
+        }
+
+        fs::write(&self.path, &self.diff).map_err(|e| format!("Failed to write memory doc {:?}: {}", self.path, e))?;
+
+        Ok(())
     }
 }
 

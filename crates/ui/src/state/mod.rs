@@ -350,6 +350,14 @@ impl AppState {
         &mut self.session.patches
     }
 
+    pub fn memory_patches(&self) -> &[thunderus_core::MemoryPatch] {
+        &self.session.memory_patches
+    }
+
+    pub fn memory_patches_mut(&mut self) -> &mut Vec<thunderus_core::MemoryPatch> {
+        &mut self.session.memory_patches
+    }
+
     pub fn last_message(&self) -> Option<&String> {
         self.session.last_message.as_ref()
     }

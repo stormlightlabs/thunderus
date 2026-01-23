@@ -7,7 +7,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Wrap},
 };
-use thunderus_core::{Patch, PatchStatus};
+use thunderus_core::{MemoryPatch, Patch, PatchStatus};
 
 /// Diff view component for displaying patches with hunk navigation
 ///
@@ -17,17 +17,27 @@ use thunderus_core::{Patch, PatchStatus};
 pub struct DiffView<'a> {
     state: &'a AppState,
     patches: &'a [Patch],
+    memory_patches: &'a [MemoryPatch],
 }
 
 impl<'a> DiffView<'a> {
     pub fn new(state: &'a AppState, patches: &'a [Patch]) -> Self {
-        Self { state, patches }
+        Self { state, patches, memory_patches: &[] }
+    }
+
+    pub fn with_memory_patches(state: &'a AppState, patches: &'a [Patch], memory_patches: &'a [MemoryPatch]) -> Self {
+        Self { state, patches, memory_patches }
+    }
+
+    /// Check if there are any patches (file or memory) to display
+    fn has_patches(&self) -> bool {
+        !self.patches.is_empty() || !self.memory_patches.is_empty()
     }
 
     /// Render the diff view
     pub fn render(&self, frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
         let theme = Theme::palette(self.state.theme_variant());
-        if self.patches.is_empty() {
+        if !self.has_patches() {
             self.render_empty(frame, area, theme);
             return;
         }
@@ -56,10 +66,9 @@ impl<'a> DiffView<'a> {
         frame.render_widget(paragraph, area);
     }
 
-    /// Render summary view of patches
+    /// Render summary view of patches (including memory patches)
     fn render_summary(&self, frame: &mut Frame<'_>, area: ratatui::layout::Rect, theme: ThemePalette) {
         let mut lines = Vec::new();
-
         let nav = self.state.diff_navigation();
 
         for (idx, patch) in self.patches.iter().enumerate() {
@@ -75,6 +84,25 @@ impl<'a> DiffView<'a> {
                 Span::styled(format!("#{} ", idx + 1), Style::default().fg(theme.muted)),
                 Span::styled(status_text, status_color),
                 Span::styled(format!(" {} ({})", patch.name, patch.files.len()), base_style),
+            ]));
+        }
+
+        let file_patch_count = self.patches.len();
+        for (idx, patch) in self.memory_patches.iter().enumerate() {
+            let global_idx = file_patch_count + idx;
+            let is_selected = nav.selected_patch_index == Some(global_idx);
+            let status_color = self.status_color(&patch.status);
+            let status_text = self.status_text(&patch.status);
+
+            let base_style =
+                if is_selected { Style::default().bg(theme.blue).fg(theme.black) } else { Style::default() };
+
+            lines.push(Line::from(vec![
+                Span::styled(format!("{} ", if is_selected { ">" } else { " " }), base_style),
+                Span::styled("🧠 ", Style::default().fg(theme.cyan)),
+                Span::styled(format!("#{} ", global_idx + 1), Style::default().fg(theme.muted)),
+                Span::styled(status_text, status_color),
+                Span::styled(format!(" {} [{}]", patch.doc_id, patch.kind), base_style),
             ]));
         }
 
@@ -109,9 +137,27 @@ impl<'a> DiffView<'a> {
             return self.render_summary(frame, area, theme);
         };
 
-        let Some(patch) = self.patches.get(patch_idx) else {
-            return self.render_summary(frame, area, theme);
-        };
+        let file_patch_count = self.patches.len();
+
+        if patch_idx < file_patch_count {
+            let Some(patch) = self.patches.get(patch_idx) else {
+                return self.render_summary(frame, area, theme);
+            };
+            self.render_file_patch_details(frame, area, theme, patch_idx, patch);
+        } else {
+            let mem_idx = patch_idx - file_patch_count;
+            let Some(patch) = self.memory_patches.get(mem_idx) else {
+                return self.render_summary(frame, area, theme);
+            };
+            self.render_memory_patch_details(frame, area, theme, patch_idx, patch);
+        }
+    }
+
+    /// Render detailed view of a file patch
+    fn render_file_patch_details(
+        &self, frame: &mut Frame<'_>, area: ratatui::layout::Rect, theme: ThemePalette, patch_idx: usize, patch: &Patch,
+    ) {
+        let nav = self.state.diff_navigation();
 
         let mut lines = vec![Line::from(vec![Span::styled(
             format!("Patch #{}: {}", patch_idx + 1, patch.name),
@@ -223,6 +269,87 @@ impl<'a> DiffView<'a> {
             .block(
                 Block::default()
                     .title(Span::styled("Patch Details", Style::default().fg(theme.blue).bold()))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(theme.border))
+                    .bg(theme.panel_bg),
+            )
+            .wrap(Wrap { trim: true });
+        frame.render_widget(paragraph, area);
+    }
+
+    /// Render detailed view of a memory patch
+    fn render_memory_patch_details(
+        &self, frame: &mut Frame<'_>, area: ratatui::layout::Rect, theme: ThemePalette, patch_idx: usize,
+        patch: &MemoryPatch,
+    ) {
+        let mut lines = vec![Line::from(vec![
+            Span::styled("🧠 ", Style::default().fg(theme.cyan)),
+            Span::styled(
+                format!("Memory Patch #{}: {}", patch_idx + 1, patch.doc_id),
+                Style::default().fg(theme.blue).bold(),
+            ),
+        ])];
+
+        lines.push(Line::from(vec![Span::styled(
+            format!("Kind: {}, Status: {}", patch.kind, self.status_text(&patch.status)),
+            Style::default().fg(theme.muted),
+        )]));
+
+        lines.push(Line::from(vec![Span::styled(
+            format!("Path: {}", patch.path.display()),
+            Style::default().fg(theme.muted),
+        )]));
+
+        lines.push(Line::from(""));
+
+        lines.push(Line::from(vec![Span::styled(
+            format!("Description: {}", patch.description),
+            Style::default().fg(theme.fg),
+        )]));
+
+        lines.push(Line::from(""));
+
+        for line in patch.diff.lines().take(8) {
+            let line_style = if line.starts_with("+++ ") || line.starts_with("--- ") {
+                Style::default().fg(theme.cyan)
+            } else if line.starts_with('+') && !line.starts_with("+++") {
+                Style::default().fg(theme.green)
+            } else if line.starts_with('-') && !line.starts_with("---") {
+                Style::default().fg(theme.red)
+            } else {
+                Style::default().fg(theme.fg)
+            };
+
+            lines.push(Line::from(vec![Span::styled(line, line_style)]));
+        }
+
+        if patch.diff.lines().count() > 8 {
+            lines.push(Line::from(vec![Span::styled(
+                format!("(+ {} more lines)", patch.diff.lines().count() - 8),
+                Style::default().fg(theme.muted),
+            )]));
+        }
+
+        lines.push(Line::from(""));
+
+        let help_text = Line::from(vec![
+            Span::styled("Esc", Style::default().fg(theme.blue)),
+            Span::raw(": back | "),
+            Span::styled("a", Style::default().fg(theme.green)),
+            Span::raw("/"),
+            Span::styled("r", Style::default().fg(theme.red)),
+            Span::raw(": approve/reject"),
+        ]);
+
+        lines.push(help_text);
+
+        let paragraph = Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .title(Span::styled(
+                        "Memory Patch Details",
+                        Style::default().fg(theme.cyan).bold(),
+                    ))
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(theme.border))
                     .bg(theme.panel_bg),

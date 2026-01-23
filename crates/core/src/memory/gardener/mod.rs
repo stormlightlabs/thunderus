@@ -21,10 +21,10 @@ pub use entities::{
     WorkflowStep,
 };
 pub use extraction::{EntityExtractor, ExtractedEntities};
-pub use hygiene::{DuplicateGroup, FactDeduplicator, HygieneChecker, HygieneRule, HygieneViolation};
+pub use hygiene::{DuplicateGroup, FactDeduplicator, HygieneChecker, HygieneRule, HygieneViolation, Severity};
 pub use recap::{RecapGenerator, RecapResult, RecapStats, RecapTemplate};
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::memory::paths::MemoryPaths;
 
 /// Main entry point for the memory gardener
@@ -76,6 +76,47 @@ impl Gardener {
         let detector = DriftDetector::new(repo)?;
         let manifest = self.load_manifest()?;
         detector.check_all(&manifest)
+    }
+
+    /// Check for drift between memory and repository (opens repo internally)
+    ///
+    /// Returns information about stale documents.
+    pub fn check_drift_auto(&self) -> Result<DriftResult> {
+        let repo = git2::Repository::discover(&self.paths.root)
+            .map_err(|e| Error::Other(format!("Failed to open git repo: {}", e)))?;
+        self.check_drift(&repo)
+    }
+
+    /// Verify a document at the current commit
+    ///
+    /// Marks the document as verified at the current HEAD commit.
+    pub fn verify_document(&self, doc_id: &str) -> Result<()> {
+        let repo = git2::Repository::discover(&self.paths.root)
+            .map_err(|e| Error::Other(format!("Failed to open git repo: {}", e)))?;
+        let head = repo
+            .head()
+            .map_err(|e| Error::Other(format!("Failed to get HEAD: {}", e)))?;
+        let commit = head
+            .peel_to_commit()
+            .map_err(|e| Error::Other(format!("Failed to get commit: {}", e)))?;
+        let commit_id = commit.id().to_string();
+
+        let manifest = self.load_manifest()?;
+        if let Some(entry) = manifest.docs.iter().find(|e| e.id == doc_id) {
+            let path = self.paths.root.join(&entry.path);
+            let content = std::fs::read_to_string(&path).map_err(Error::Io)?;
+            let mut doc = crate::memory::document::MemoryDoc::parse(&content)
+                .map_err(|e| Error::Parse(format!("Failed to parse document: {}", e)))?;
+
+            doc.frontmatter.verification.last_verified_commit = Some(commit_id.clone());
+            doc.frontmatter.verification.status = crate::memory::kinds::VerificationStatus::Verified;
+
+            let new_content = format!("{}", doc);
+            std::fs::write(&path, new_content).map_err(Error::Io)?;
+            Ok(())
+        } else {
+            Err(Error::Other(format!("Document not found: {}", doc_id)))
+        }
     }
 
     /// Find duplicate facts across memory

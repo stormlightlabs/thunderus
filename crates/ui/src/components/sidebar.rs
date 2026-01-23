@@ -217,7 +217,7 @@ impl<'a> Sidebar<'a> {
     }
 
     fn render_git_diff_queue(&self, frame: &mut Frame<'_>, area: Rect) {
-        let diff_view = DiffView::new(self.state, self.state.patches());
+        let diff_view = DiffView::with_memory_patches(self.state, self.state.patches(), self.state.memory_patches());
         diff_view.render(frame, area);
     }
 
