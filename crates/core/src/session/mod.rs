@@ -2,6 +2,7 @@ use crate::config::ApprovalMode;
 use crate::error::{Error, Result, SessionError};
 use crate::layout::{AgentDir, SessionId};
 
+use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -24,6 +25,8 @@ pub struct Session {
     agent_dir: AgentDir,
     /// Next sequence number to assign
     next_seq: Seq,
+    /// File ownership tracking (PathBuf -> OwnerId)
+    pub file_ownership: HashMap<PathBuf, String>,
 }
 
 impl Session {
@@ -52,7 +55,7 @@ impl Session {
 
         let next_seq = Self::load_next_seq(&events_file)?;
 
-        Ok(Self { id, agent_dir, next_seq })
+        Ok(Self { id, agent_dir, next_seq, file_ownership: HashMap::new() })
     }
 
     /// Load an existing session by ID
@@ -72,7 +75,7 @@ impl Session {
 
         let next_seq = Self::load_next_seq(&events_file)?;
 
-        Ok(Self { id, agent_dir, next_seq })
+        Ok(Self { id, agent_dir, next_seq, file_ownership: HashMap::new() })
     }
 
     /// Load the next sequence number from the events file
@@ -445,6 +448,27 @@ impl Session {
             content_hash: content_hash.into(),
         })
     }
+
+    /// Claim ownership of a file
+    pub fn claim_ownership(&mut self, path: PathBuf, owner: String) {
+        self.file_ownership.insert(path, owner);
+    }
+
+    /// Check if a file is owned by the user
+    pub fn is_owned_by_user(&self, path: &Path) -> bool {
+        self.file_ownership
+            .get(path)
+            .map(|owner| owner == "user")
+            .unwrap_or(false)
+    }
+
+    /// Check if a file is owned by the agent
+    pub fn is_owned_by_agent(&self, path: &Path) -> bool {
+        self.file_ownership
+            .get(path)
+            .map(|owner| owner == "agent")
+            .unwrap_or(false)
+    }
 }
 
 #[cfg(test)]
@@ -755,7 +779,7 @@ mod tests {
         let temp2 = TempDir::new().unwrap();
         let agent_dir = AgentDir::new(temp2.path());
         let id = SessionId::new();
-        let non_existent = Session { id, agent_dir, next_seq: 0 };
+        let non_existent = Session { id, agent_dir, next_seq: 0, file_ownership: HashMap::new() };
         assert!(!non_existent.exists());
         drop(temp2);
     }

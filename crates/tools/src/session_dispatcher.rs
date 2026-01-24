@@ -60,6 +60,21 @@ impl SessionToolDispatcher {
             }
         }
 
+        if self.is_write_tool(tool_name)
+            && let Some(path) = self.get_target_path(tool_name, arguments)
+            && self.session.is_owned_by_user(&path)
+        {
+            let error_msg = format!(
+                "Write blocked! File '{}' has been modified by the user and is protected. Use ReadTool to re-sync or ask user for permission.",
+                path.display()
+            );
+            let _ = self.session.append_tool_call(tool_name, arguments.clone());
+            let _ = self
+                .session
+                .append_tool_result(tool_name, serde_json::json!(null), false, Some(error_msg.clone()));
+            return Err(thunderus_core::Error::Tool(error_msg));
+        }
+
         let _ = self.session.append_tool_call(tool_name, arguments.clone());
 
         let result = self.dispatcher.execute(tool_call);
@@ -75,6 +90,13 @@ impl SessionToolDispatcher {
 
                 if tool_name == "read" {
                     self.track_file_read(tool_result, arguments);
+                }
+
+                if self.is_write_tool(tool_name)
+                    && tool_result.is_success()
+                    && let Some(path) = self.get_target_path(tool_name, arguments)
+                {
+                    self.session.claim_ownership(path, "agent".to_string());
                 }
             }
             Err(e) => {
@@ -164,6 +186,24 @@ impl SessionToolDispatcher {
     /// Consumes self and returns the inner components
     pub fn into_inner(self) -> (ToolDispatcher, Session, ReadHistory) {
         (self.dispatcher, self.session, self.read_history)
+    }
+
+    /// Returns true if the tool name corresponds to a write-related tool
+    fn is_write_tool(&self, name: &str) -> bool {
+        matches!(name, "write" | "patch" | "edit" | "multiedit")
+    }
+
+    /// Extracts the target file path from tool arguments
+    fn get_target_path(&self, tool_name: &str, arguments: &serde_json::Value) -> Option<std::path::PathBuf> {
+        let path_str = match tool_name {
+            "write" | "read" => arguments.get("file_path").and_then(|v| v.as_str()),
+            "patch" => arguments.get("file").and_then(|v| v.as_str()),
+            "edit" => arguments.get("path").and_then(|v| v.as_str()),
+            "multiedit" => None, // Multiedit handles multiple files, might need special handling
+            _ => None,
+        };
+
+        path_str.map(std::path::PathBuf::from)
     }
 }
 

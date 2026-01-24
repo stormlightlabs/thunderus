@@ -10,6 +10,20 @@ pub enum MainView {
     Inspector,
 }
 
+/// Agent execution status
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AgentStatus {
+    /// Agent is idle and waiting for input
+    #[default]
+    Idle,
+    /// Agent is currently generating a response or executing tools
+    Generating,
+    /// Agent execution is paused due to drift or user interruption
+    Paused,
+    /// Agent is in the reconcile ritual after drift detection
+    Reconciling,
+}
+
 /// Diff navigation state for tracking selected patch and hunk
 #[derive(Debug, Clone, Default)]
 pub struct DiffNavigationState {
@@ -133,8 +147,8 @@ impl DiffNavigationState {
 pub struct UIState {
     /// Whether sidebar is visible
     pub sidebar_visible: bool,
-    /// Whether the user is currently generating
-    pub generating: bool,
+    /// Current agent execution status
+    pub agent_status: AgentStatus,
     /// Horizontal scroll offset for transcript
     pub scroll_horizontal: u16,
     /// Vertical scroll offset for transcript
@@ -159,7 +173,7 @@ impl UIState {
     pub fn new() -> Self {
         Self {
             sidebar_visible: true,
-            generating: false,
+            agent_status: AgentStatus::Idle,
             scroll_horizontal: 0,
             scroll_vertical: 0,
             sidebar_collapse_state: super::SidebarCollapseState::default(),
@@ -269,17 +283,37 @@ impl UIState {
 
     /// Start generation
     pub fn start_generation(&mut self) {
-        self.generating = true;
+        self.agent_status = AgentStatus::Generating;
     }
 
     /// Stop generation
     pub fn stop_generation(&mut self) {
-        self.generating = false;
+        self.agent_status = AgentStatus::Idle;
+    }
+
+    /// Pause generation
+    pub fn pause_generation(&mut self) {
+        self.agent_status = AgentStatus::Paused;
+    }
+
+    /// Start reconcile ritual
+    pub fn start_reconcile(&mut self) {
+        self.agent_status = AgentStatus::Reconciling;
     }
 
     /// Check if currently generating
     pub fn is_generating(&self) -> bool {
-        self.generating
+        self.agent_status == AgentStatus::Generating
+    }
+
+    /// Check if currently paused
+    pub fn is_paused(&self) -> bool {
+        self.agent_status == AgentStatus::Paused
+    }
+
+    /// Check if in reconcile ritual
+    pub fn is_reconciling(&self) -> bool {
+        self.agent_status == AgentStatus::Reconciling
     }
 
     /// Scroll transcript horizontally

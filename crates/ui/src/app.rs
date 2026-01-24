@@ -14,7 +14,7 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io::{self, Result, Write};
 use std::{env, fs, panic};
 use std::{process::Command, sync::Arc, time::Duration};
-use thunderus_core::{ApprovalDecision, Config, MemoryDoc, Session, TrajectoryWalker};
+use thunderus_core::{ApprovalDecision, Config, DriftMonitor, MemoryDoc, Session, SnapshotManager, TrajectoryWalker};
 use thunderus_providers::{CancelToken, Provider};
 use thunderus_tools::ToolRegistry;
 use tokio::sync::mpsc;
@@ -41,11 +41,32 @@ pub struct App {
     pub(crate) session: Option<Session>,
     /// Buffer for accumulating streaming model response content
     pub(crate) streaming_model_content: Option<String>,
+    /// Drift monitor for workspace changes
+    #[allow(dead_code)]
+    pub(crate) drift_monitor: Option<thunderus_core::DriftMonitor>,
+    /// Snapshot manager for workspace state
+    pub(crate) snapshot_manager: Option<thunderus_core::SnapshotManager>,
+    /// Receiver for drift events
+    pub(crate) drift_rx: Option<tokio::sync::broadcast::Receiver<thunderus_core::DriftEvent>>,
+    /// Cancellation token for pausing agent on drift or user interruption
+    pub(crate) pause_token: tokio_util::sync::CancellationToken,
+    /// Last captured snapshot state for drift detection
+    pub(crate) last_snapshot_state: Option<String>,
 }
 
 impl App {
     /// Create a new application
     pub fn new(state: AppState) -> Self {
+        let (drift_monitor, drift_rx) = DriftMonitor::new(state.cwd())
+            .ok()
+            .map(|m| {
+                let rx = m.subscribe();
+                (Some(m), Some(rx))
+            })
+            .unwrap_or((None, None));
+
+        let snapshot_manager = Some(SnapshotManager::new(state.cwd()));
+
         Self {
             state,
             transcript: TranscriptState::new(),
@@ -57,11 +78,26 @@ impl App {
             provider: None,
             session: None,
             streaming_model_content: None,
+            drift_monitor,
+            snapshot_manager,
+            drift_rx,
+            pause_token: tokio_util::sync::CancellationToken::new(),
+            last_snapshot_state: None,
         }
     }
 
     /// Create a new application with a provider for agent operations
     pub fn with_provider(state: AppState, provider: Arc<dyn Provider>) -> Self {
+        let (drift_monitor, drift_rx) = DriftMonitor::new(state.cwd())
+            .ok()
+            .map(|m| {
+                let rx = m.subscribe();
+                (Some(m), Some(rx))
+            })
+            .unwrap_or((None, None));
+
+        let snapshot_manager = Some(SnapshotManager::new(state.cwd()));
+
         Self {
             state,
             transcript: TranscriptState::new(),
@@ -73,6 +109,11 @@ impl App {
             provider: Some(provider),
             session: None,
             streaming_model_content: None,
+            drift_monitor,
+            snapshot_manager,
+            drift_rx,
+            pause_token: tokio_util::sync::CancellationToken::new(),
+            last_snapshot_state: None,
         }
     }
 
@@ -354,44 +395,54 @@ impl App {
                 EventHandler::read()
             };
 
-            if let Some(ref mut rx) = self.agent_event_rx {
-                tokio::select! {
-                    maybe_event = tui_poll => {
-                        if let Some(event) = maybe_event {
-                            self.handle_event(event).await;
+            tokio::select! {
+                maybe_event = tui_poll => {
+                    if let Some(event) = maybe_event {
+                        self.handle_event(event).await;
+                        self.draw(&mut terminal)?;
+                    }
+                }
+                maybe_drift = async {
+                    if let Some(ref mut rx) = self.drift_rx {
+                        rx.recv().await.ok()
+                    } else {
+                        std::future::pending().await
+                    }
+                } => {
+                    if let Some(drift) = maybe_drift {
+                        self.handle_drift_event(drift);
+                        self.draw(&mut terminal)?;
+                    }
+                }
+                maybe_agent = async {
+                    if let Some(ref mut rx) = self.agent_event_rx {
+                        rx.recv().await
+                    } else {
+                        std::future::pending().await
+                    }
+                } => {
+                    match maybe_agent {
+                        Some(event) => {
+                            self.handle_agent_event(event);
                             self.draw(&mut terminal)?;
                         }
-                    }
-                    maybe_event = rx.recv() => {
-                        match maybe_event {
-                            Some(event) => {
-                                self.handle_agent_event(event);
-                                self.draw(&mut terminal)?;
-                            }
-                            None => {
-                                self.agent_event_rx = None;
-                                self.state_mut().stop_generation();
-                            }
-                        }
-                    }
-                    maybe_request = async {
-                        if let Some(ref mut approval_rx) = self.approval_request_rx {
-                            approval_rx.recv().await
-                        } else {
-                            std::future::pending().await
-                        }
-                    } => {
-                        if let Some(request) = maybe_request {
-                            self.handle_approval_request(request);
-                            self.draw(&mut terminal)?;
+                        None => {
+                            self.agent_event_rx = None;
+                            self.state_mut().stop_generation();
                         }
                     }
                 }
-            } else {
-                let maybe_event = tui_poll.await;
-                if let Some(event) = maybe_event {
-                    self.handle_event(event).await;
-                    self.draw(&mut terminal)?;
+                maybe_request = async {
+                    if let Some(ref mut approval_rx) = self.approval_request_rx {
+                        approval_rx.recv().await
+                    } else {
+                        std::future::pending().await
+                    }
+                } => {
+                    if let Some(request) = maybe_request {
+                        self.handle_approval_request(request);
+                        self.draw(&mut terminal)?;
+                    }
                 }
             }
         }
@@ -430,9 +481,22 @@ impl App {
                 KeyAction::Cancel { action: _, risk: _ } => self.send_approval_response(ApprovalDecision::Cancelled),
                 KeyAction::CancelGeneration => {
                     self.cancel_token.cancel();
+                    self.pause_token.cancel();
                     self.state_mut().stop_generation();
                     self.transcript_mut()
                         .mark_streaming_cancelled("Generation cancelled by user");
+                }
+                KeyAction::StartReconcileRitual => {
+                    self.start_reconcile_ritual();
+                }
+                KeyAction::ReconcileContinue => {
+                    self.reconcile_continue();
+                }
+                KeyAction::ReconcileDiscard => {
+                    self.reconcile_discard();
+                }
+                KeyAction::ReconcileStop => {
+                    self.reconcile_stop();
                 }
                 KeyAction::Exit => {
                     self.should_exit = true;
@@ -469,6 +533,22 @@ impl App {
                     let variant = self.state.theme_variant();
                     self.transcript_mut()
                         .add_system_message(format!("Theme switched to {}", variant));
+                }
+                KeyAction::ToggleAdvisorMode => {
+                    let new_mode = match self.state.config.approval_mode {
+                        thunderus_core::ApprovalMode::ReadOnly => thunderus_core::ApprovalMode::Auto,
+                        _ => thunderus_core::ApprovalMode::ReadOnly,
+                    };
+                    self.state_mut().config.approval_mode = new_mode;
+
+                    self.transcript_mut().add_system_message(format!(
+                        "Advisor mode: {} (Ctrl+A to toggle)",
+                        if new_mode == thunderus_core::ApprovalMode::ReadOnly { "ON" } else { "OFF" }
+                    ));
+
+                    if let Some(ref mut session) = self.session {
+                        let _ = session.set_approval_mode(new_mode);
+                    }
                 }
                 KeyAction::ToggleSidebar | KeyAction::ToggleVerbosity | KeyAction::ToggleSidebarSection => (),
                 KeyAction::OpenExternalEditor => self.open_external_editor(),
@@ -1059,6 +1139,11 @@ impl Default for App {
             provider: None,
             session: None,
             streaming_model_content: None,
+            drift_monitor: None,
+            snapshot_manager: None,
+            drift_rx: None,
+            pause_token: tokio_util::sync::CancellationToken::new(),
+            last_snapshot_state: None,
         }
     }
 }

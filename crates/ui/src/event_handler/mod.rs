@@ -164,11 +164,11 @@ mod tests {
     fn test_handle_event_key_event_delegates_to_handle_key_event() {
         let mut state = create_test_state();
 
-        let key_event = KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE);
+        let key_event = KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE);
         let event = crossterm::event::Event::Key(key_event);
         let action = EventHandler::handle_event(&event, &mut state);
 
         assert!(action.is_none());
-        assert_eq!(state.input.buffer, "q");
+        assert_eq!(state.input.buffer, "x");
     }
 }

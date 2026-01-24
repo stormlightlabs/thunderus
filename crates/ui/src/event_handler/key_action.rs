@@ -22,6 +22,8 @@ pub enum KeyAction {
     ToggleSidebarSection,
     /// Toggle theme variant
     ToggleTheme,
+    /// Toggle Advisor mode (read-only/suggestions only)
+    ToggleAdvisorMode,
     /// Toggle Inspector view
     ToggleInspector,
     /// Inspect specific memory document
@@ -143,4 +145,12 @@ pub enum KeyAction {
     NoOp,
     /// Open a file from the inspector
     InspectorOpenFile { path: String },
+    /// Start the reconcile ritual after drift/interruption
+    StartReconcileRitual,
+    /// Continue after reconciliation (accept changes)
+    ReconcileContinue,
+    /// Discard user changes during reconciliation
+    ReconcileDiscard,
+    /// Stop/reset agent during reconciliation
+    ReconcileStop,
 }

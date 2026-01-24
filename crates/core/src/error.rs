@@ -45,6 +45,14 @@ pub enum Error {
     #[error("{0}")]
     Other(String),
 
+    /// Git errors
+    #[error("git error: {0}")]
+    Git(String),
+
+    /// Watcher errors
+    #[error("watcher error: {0}")]
+    Watcher(String),
+
     #[error("Approval protocol error: {0}")]
     Approval(String),
 

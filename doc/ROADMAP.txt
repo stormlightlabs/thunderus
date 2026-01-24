@@ -129,25 +129,30 @@ XIV. MIXED-INITIATIVE COLLABORATION                                  *agent-XIV*
 --------------------------------------------------------------------------------
 When you work alongside the agent, it pauses, notices drift, and reconciles.
 
-- [ ] Drift detection (mandatory gate at every step boundary):
+- [x] Drift detection (mandatory gate at every step boundary):
       - compare repo snapshot IDs; if changed → stop and require reconcile
-- [ ] "User right-of-way" state machine:
+      - SnapshotManager tracks git state for drift detection
+- [x] "User right-of-way" state machine:
       - any keystroke/edit cancels generation or tool execution immediately
-- [ ] Reconcile ritual (single predictable flow):
+      - pause_token and CancelToken for immediate interruption
+- [x] Reconcile ritual (single predictable flow):
       1. summarize changed files/diffstat
       2. choose: update plan & continue / rebase pending patches / discard
       3. refresh context and revalidate plan before acting again
-      - enhance with choice implications (teach trade-offs of each option)
+      - interactive options: Enter (continue), Esc (discard), q (stop)
       - first drift triggers brief explainer:
         "Agent paused - you edited files. Let's reconcile"
-- [ ] File ownership rule:
+- [x] File ownership rule:
       - files you touched become "user-owned"; agent needs explicit approval to
         modify them until reconcile completes
-- [ ] Advisor mode toggle:
-      - consultative suggestions only (maps to read-only/approval modes)[^3]
-- [ ] TUI enhancements (moved from Section III):
-      - History editing: "edit previous message / fork from point"
-      - Esc-based rewind behavior
+      - SessionToolDispatcher enforces write protection
+      - Session.file_ownership HashMap tracks ownership
+- [x] Advisor mode toggle:
+      - consultative suggestions only (maps to read-only/approval modes)
+      - Ctrl+A toggles between Auto and ReadOnly modes
+- [~] TUI enhancements (moved from Section III):
+      - History editing: "edit previous message / fork from point" (deferred to future milestone)
+      - Esc-based rewind behavior (partial: Esc triggers reconcile when paused, full history editing deferred)
 
 DoD:
 - The agent never proceeds on stale assumptions after you fix something manually

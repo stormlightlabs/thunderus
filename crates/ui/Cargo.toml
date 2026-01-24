@@ -25,6 +25,7 @@ thunderus-tools = { path = "../tools" }
 thunderus-agent = { path = "../agent" }
 thunderus-providers = { path = "../providers" }
 thunderus-store = { path = "../store" }
+tokio-util = "0.7.18"
 
 [dev-dependencies]
 tempfile = "3"

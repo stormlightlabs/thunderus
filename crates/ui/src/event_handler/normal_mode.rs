@@ -155,6 +155,9 @@ pub fn handle_normal_key(event: KeyEvent, state: &mut AppState) -> Option<KeyAct
             }
         }
         KeyCode::Enter => {
+            if state.ui.is_reconciling() {
+                return Some(KeyAction::ReconcileContinue);
+            }
             if !state.input.buffer.is_empty() {
                 let message = state.input.take();
 
@@ -167,6 +170,15 @@ pub fn handle_normal_key(event: KeyEvent, state: &mut AppState) -> Option<KeyAct
                 }
 
                 return Some(KeyAction::SendMessage { message });
+            }
+        }
+        KeyCode::Char('q') | KeyCode::Char('Q') => {
+            if state.ui.is_reconciling() {
+                return Some(KeyAction::ReconcileStop);
+            } else if state.input.buffer.is_empty() {
+                return Some(KeyAction::Exit);
+            } else {
+                state.input.insert_char('q');
             }
         }
         KeyCode::Char('j') | KeyCode::Char('J') => {
@@ -213,6 +225,8 @@ pub fn handle_normal_key(event: KeyEvent, state: &mut AppState) -> Option<KeyAct
                 return Some(KeyAction::Exit);
             } else if event.modifiers.contains(KeyModifiers::CONTROL) && c == 't' {
                 return Some(KeyAction::ToggleTheme);
+            } else if event.modifiers.contains(KeyModifiers::CONTROL) && c == 'a' {
+                return Some(KeyAction::ToggleAdvisorMode);
             } else if event.modifiers.contains(KeyModifiers::CONTROL) && c == 'r' {
                 return Some(KeyAction::RetryLastFailedAction);
             } else if event.modifiers.contains(KeyModifiers::CONTROL) && c == 'l' {
@@ -294,6 +308,10 @@ pub fn handle_normal_key(event: KeyEvent, state: &mut AppState) -> Option<KeyAct
             state.reset_ctrl_c_count();
             if state.is_generating() {
                 return Some(KeyAction::CancelGeneration);
+            } else if state.is_paused() {
+                return Some(KeyAction::StartReconcileRitual);
+            } else if state.ui.is_reconciling() {
+                return Some(KeyAction::ReconcileDiscard);
             } else if !state.input.buffer.is_empty() {
                 state.input.clear();
             }

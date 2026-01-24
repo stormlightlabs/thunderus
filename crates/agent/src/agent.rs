@@ -157,12 +157,25 @@ impl Agent {
     /// Returns a receiver for agent events (tokens, tool calls, etc.)
     pub async fn process_message(
         &mut self, user_input: &str, tools: Option<Vec<ToolSpec>>, cancel_token: CancelToken,
+        user_owned_files: Vec<std::path::PathBuf>,
     ) -> Result<mpsc::UnboundedReceiver<AgentEvent>> {
         let (tx, rx) = mpsc::unbounded_channel();
 
         self.task_context.update_from_user_message(user_input);
 
         let mut system_message_content = String::new();
+
+        if !user_owned_files.is_empty() {
+            system_message_content.push_str("\n\n## Write Protection\n");
+            system_message_content
+                .push_str("The following files have been modified by the user and are currently WRITE-PROTECTED. ");
+            system_message_content.push_str(
+                "You cannot write to or patch these files until you have read them again to sync with user changes:\n",
+            );
+            for path in user_owned_files {
+                system_message_content.push_str(&format!("- {}\n", path.display()));
+            }
+        }
         if let Some(retriever) = &self.memory_retriever {
             match retriever.query(user_input).await {
                 Ok(retrieval_result) => {
@@ -645,7 +658,7 @@ mod tests {
         let cancel = CancelToken::new();
         cancel.cancel();
 
-        let mut rx = agent.process_message("Hello", None, cancel).await.unwrap();
+        let mut rx = agent.process_message("Hello", None, cancel, Vec::new()).await.unwrap();
 
         tokio::time::timeout(std::time::Duration::from_millis(100), rx.recv())
             .await

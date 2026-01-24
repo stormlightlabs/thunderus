@@ -2,6 +2,7 @@ pub mod approval;
 pub mod classification;
 pub mod config;
 pub mod context;
+pub mod drift;
 pub mod error;
 pub mod layout;
 pub mod memory;
@@ -24,6 +25,7 @@ pub use approval::{
 pub use classification::{Classification, ToolRisk};
 pub use config::{ApprovalMode, Config, Profile, ProviderConfig, SandboxMode};
 pub use context::{CONTEXT_FILES, ContextLoader, LOCAL_CONTEXT_PATTERN, LoadedContext};
+pub use drift::{DriftEvent, DriftMonitor, SnapshotManager};
 pub use error::{BlockedCommandError, Error, Result};
 pub use layout::{AgentDir, SessionId, SessionIdError, ViewFile};
 pub use memory::{

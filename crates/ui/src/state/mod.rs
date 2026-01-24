@@ -392,6 +392,18 @@ impl AppState {
         self.ui.is_generating()
     }
 
+    pub fn is_paused(&self) -> bool {
+        self.ui.is_paused()
+    }
+
+    pub fn pause_generation(&mut self) {
+        self.ui.pause_generation();
+    }
+
+    pub fn start_reconcile(&mut self) {
+        self.ui.start_reconcile();
+    }
+
     pub fn advance_animation_frame(&mut self) {
         self.ui.advance_animation_frame();
     }
