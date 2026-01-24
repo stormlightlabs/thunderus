@@ -2,15 +2,17 @@ use anyhow::{Context, Result};
 use clap::{Command, CommandFactory, Parser, Subcommand};
 use clap_complete::{Generator, Shell, generate};
 use owo_colors::OwoColorize;
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use thunderus_core::{
     AgentDir, Config, ContextLoader, PatchQueueManager, Session,
     memory::{Gardener, MemoryPaths, MemoryRetriever, RetrievalPolicy},
 };
-use thunderus_providers::ProviderFactory;
+use thunderus_core::{ApprovalGate, ApprovalProtocol, AutoApprove};
+use thunderus_providers::{CancelToken, ProviderFactory};
 use thunderus_store::{MemoryIndexer, MemoryStore, StoreRetriever};
+use thunderus_tools::{SessionToolDispatcher, ToolDispatcher, ToolRegistry};
 use thunderus_ui::state::AppState;
 
 /// Thunderus - A high-performance coding agent harness
@@ -85,7 +87,6 @@ fn main() {
 
 fn run() -> Result<()> {
     let cli = Cli::parse();
-
     let config_path = cli.config.unwrap_or_else(|| PathBuf::from("config.toml"));
     let config = load_or_create_config(&config_path, cli.verbose)?;
 
@@ -107,7 +108,7 @@ fn run() -> Result<()> {
             Some(Commands::Start { dir }) => {
                 cmd_start(config, config_path.clone(), dir, cli.profile, cli.verbose).await
             }
-            Some(Commands::Exec { command, args }) => cmd_exec(config, command, args, cli.verbose),
+            Some(Commands::Exec { command, args }) => cmd_exec(config, command, args, cli.profile, cli.verbose),
             Some(Commands::Status) => cmd_status(config, cli.verbose),
             Some(Commands::Completions { shell }) => print_completions(shell, &mut Cli::command()),
         }
@@ -116,7 +117,6 @@ fn run() -> Result<()> {
 
 fn print_completions<G: Generator>(generator: G, cmd: &mut Command) -> Result<()> {
     generate(generator, cmd, cmd.get_name().to_string(), &mut io::stdout());
-
     Ok(())
 }
 
@@ -130,7 +130,6 @@ fn load_or_create_config(path: &Path, verbose: bool) -> Result<Config> {
     } else {
         eprintln!("{} Config not found at {}", "Warning:".yellow().bold(), path.display());
         eprintln!("{} Creating config from example...", "Info:".blue().bold());
-
         std::fs::write(path, Config::example()).context("Failed to create config")?;
 
         eprintln!(
@@ -148,13 +147,10 @@ fn detect_git_branch(path: &Path) -> Option<String> {
         .args(["-C", path.to_str().unwrap_or("."), "branch", "--show-current"])
         .output()
     {
-        Ok(output) => {
-            if output.status.success() {
-                Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
-            } else {
-                None
-            }
-        }
+        Ok(output) => match output.status.success() {
+            true => Some(String::from_utf8_lossy(&output.stdout).trim().to_string()),
+            false => None,
+        },
         Err(_) => None,
     }
 }
@@ -412,12 +408,9 @@ fn run_consolidation(
     }
 
     let gardener = Gardener::new(memory_paths.clone());
-
     let session_id = session.id.to_string();
     let events_file = session.events_file();
-
     let rt = tokio::runtime::Runtime::new().context("Failed to create runtime for consolidation")?;
-
     let result = rt.block_on(async { gardener.consolidate_session(&session_id, &events_file).await });
 
     match result {
@@ -478,8 +471,18 @@ fn run_consolidation(
     }
 }
 
-/// Execute a single command and exit
-fn cmd_exec(config: Config, command: String, args: Vec<String>, verbose: bool) -> Result<()> {
+/// Execute a single command and exit (non-interactive mode)
+fn cmd_exec(
+    config: Config, command: String, args: Vec<String>, profile_name: Option<String>, verbose: bool,
+) -> Result<()> {
+    let profile_name = profile_name.unwrap_or_else(|| config.default_profile.clone());
+    let profile = config
+        .profile(&profile_name)
+        .with_context(|| format!("Failed to load profile '{}'", profile_name))?;
+
+    let working_dir = std::env::current_dir()?;
+    let agent_dir = AgentDir::new(&working_dir);
+
     if verbose {
         eprintln!(
             "{} Executing: {} {}",
@@ -487,12 +490,97 @@ fn cmd_exec(config: Config, command: String, args: Vec<String>, verbose: bool) -
             command.cyan(),
             args.join(" ").cyan()
         );
-        eprintln!("{} Profile: {}", "Info:".blue().bold(), config.default_profile.cyan());
+        eprintln!("{} Profile: {}", "Info:".blue().bold(), profile_name.cyan());
+        eprintln!("{} Working directory: {}", "Info:".blue().bold(), working_dir.display());
     }
 
-    eprintln!("{} Command execution not yet implemented", "Info:".yellow().bold());
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async {
+        let session = Session::new(agent_dir).context("Failed to create session")?;
+        let provider = ProviderFactory::create_from_config(&profile.provider).context("Failed to create provider")?;
+        let approval_protocol = Arc::new(AutoApprove::new()) as Arc<dyn ApprovalProtocol>;
+        let approval_gate = ApprovalGate::new(profile.approval_mode, profile.is_network_allowed());
+        let cancel_token = CancelToken::new();
 
-    Ok(())
+        let mut agent = thunderus_agent::Agent::new(
+            Arc::clone(&provider),
+            approval_protocol,
+            approval_gate,
+            session.id.clone(),
+        );
+
+        agent = agent.with_profile(profile.clone());
+
+        let mut tool_registry = ToolRegistry::with_builtin_tools();
+        if let Err(e) = tool_registry.load_skills()
+            && verbose
+        {
+            eprintln!("{} Warning: Failed to load skills: {}", "Warning:".yellow(), e);
+        }
+        tool_registry.set_profile(profile.clone());
+
+        let tool_specs = tool_registry.specs();
+        let dispatcher = ToolDispatcher::new(tool_registry);
+        let session_dispatcher = SessionToolDispatcher::with_new_history(dispatcher, session.clone());
+        agent = agent.with_tool_dispatcher(std::sync::Arc::new(std::sync::Mutex::new(session_dispatcher)));
+
+        let full_command = if args.is_empty() { command } else { format!("{} {}", command, args.join(" ")) };
+
+        let mut event_rx = agent
+            .process_message(&full_command, Some(tool_specs), cancel_token.clone(), vec![])
+            .await
+            .context("Failed to process message")?;
+
+        let mut has_output = false;
+        while let Some(event) = event_rx.recv().await {
+            match event {
+                thunderus_agent::AgentEvent::Token(text) => {
+                    print!("{}", text);
+                    std::io::stdout().flush().ok();
+                    has_output = true;
+                }
+                thunderus_agent::AgentEvent::ToolCall { name, description, .. } => {
+                    eprintln!("\n{} Tool: {}", "Info:".blue(), name);
+                    if let Some(desc) = description {
+                        eprintln!("  Description: {}", desc);
+                    }
+                }
+                thunderus_agent::AgentEvent::ToolResult { name, result, success, error, .. } => {
+                    if !has_output {
+                        eprintln!();
+                    }
+                    if success {
+                        eprintln!("{} {} completed:", "Success:".green(), name);
+                        let output: String = result.chars().take(500).collect();
+                        if result.len() > 500 {
+                            eprintln!("    {}...\n(truncated, {} total chars)", output, result.len());
+                        } else {
+                            eprintln!("    {}", output);
+                        }
+                    } else if let Some(err) = error {
+                        eprintln!("{} {} failed: {}", "Error:".red(), name, err);
+                    } else {
+                        eprintln!("{} {} failed", "Error:".red(), name);
+                    }
+                }
+                // NOTE: in exec mode, we auto-approve
+                thunderus_agent::AgentEvent::ApprovalRequest(_) => {}
+                thunderus_agent::AgentEvent::Error(msg) => {
+                    eprintln!("{} {}", "Error:".red(), msg);
+                }
+                thunderus_agent::AgentEvent::Done => {
+                    if has_output {
+                        eprintln!();
+                    }
+                    eprintln!("{} Execution completed", "Success:".green());
+                    break;
+                }
+                _ => {}
+            }
+        }
+
+        Ok(())
+    })
 }
 
 /// Show current status
@@ -675,14 +763,14 @@ mod tests {
     #[test]
     fn test_cmd_exec() {
         let config = create_test_config();
-        let result = cmd_exec(config, "echo".to_string(), vec!["test".to_string()], false);
+        let result = cmd_exec(config, "echo".to_string(), vec!["test".to_string()], None, false);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_cmd_exec_verbose() {
         let config = create_test_config();
-        let result = cmd_exec(config, "ls".to_string(), vec![], true);
+        let result = cmd_exec(config, "ls".to_string(), vec![], None, true);
         assert!(result.is_ok());
     }
 

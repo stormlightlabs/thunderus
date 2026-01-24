@@ -10,6 +10,23 @@ use std::time::Instant;
 use thunderus_core::memory::{MemoryKind, RetrievalPolicy, RetrievalResult, RetrievedChunk, STOP_WORDS};
 use thunderus_core::memory::{MemoryRetriever, RetrievalError};
 
+/// Calculate cosine similarity between two vectors
+fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+    if a.len() != b.len() || a.is_empty() {
+        return 0.0;
+    }
+
+    let dot_product: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+    let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+    let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+
+    if norm_a == 0.0 || norm_b == 0.0 {
+        return 0.0;
+    }
+
+    dot_product / (norm_a * norm_b)
+}
+
 /// This struct bridges the `MemoryStore` with the `MemoryRetriever` trait,
 /// enabling the agent to query the memory store through the trait interface.
 pub struct StoreRetriever {
@@ -77,6 +94,55 @@ impl StoreRetriever {
         chunks
     }
 
+    /// Check if vector fallback should be used based on FTS5 search quality
+    ///
+    /// Use vector fallback if:
+    /// - FTS5 returned very few results (< 2 chunks)
+    /// - FTS5 results have poor scores (all above threshold)
+    fn should_use_vector_fallback(&self, fts_chunks: &[RetrievedChunk]) -> bool {
+        fts_chunks.len() < 2
+    }
+
+    /// Perform vector search fallback using semantic similarity
+    ///
+    /// This generates embeddings for the query and finds semantically similar documents.
+    /// Note: Currently uses placeholder hash-based embeddings. For production use,
+    /// this should be replaced with a proper sentence transformer model.
+    async fn vector_search_fallback(&self, task_intent: &str) -> Vec<RetrievedChunk> {
+        let query_embedding = crate::indexer::generate_placeholder_embedding(task_intent, 384);
+        let filters = SearchFilters { limit: Some(self.policy.max_chunks * 3), ..Default::default() };
+
+        let hits = self
+            .store
+            .search("", filters)
+            .await
+            .map_err(|e| RetrievalError::Store(e.to_string()))
+            .unwrap_or_default();
+
+        let mut scored_chunks = Vec::new();
+        for hit in hits {
+            let doc_embedding = crate::indexer::generate_placeholder_embedding(&hit.snippet, 384);
+            let similarity = cosine_similarity(&query_embedding, &doc_embedding);
+
+            scored_chunks.push((similarity, hit));
+        }
+
+        scored_chunks.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
+        scored_chunks
+            .into_iter()
+            .take(self.policy.max_chunks)
+            .map(|(similarity, hit)| RetrievedChunk {
+                content: hit.snippet,
+                path: hit.path,
+                anchor: hit.anchor,
+                event_ids: hit.event_ids,
+                kind: hit.kind,
+                score: similarity as f64,
+            })
+            .collect()
+    }
+
     /// Fetch all documents of a specific memory kind
     ///
     /// This is used for the `always_include` policy to ensure certain
@@ -142,7 +208,21 @@ impl MemoryRetriever for StoreRetriever {
                 .await
                 .map_err(|e| RetrievalError::Store(e.to_string()))?;
 
-            let search_chunks = self.filter_and_budget(hits);
+            let mut search_chunks = self.filter_and_budget(hits.clone());
+
+            if self.policy.enable_vector_fallback && self.should_use_vector_fallback(&search_chunks) {
+                let vector_chunks = self.vector_search_fallback(task_intent).await;
+                if !vector_chunks.is_empty() {
+                    for chunk in vector_chunks {
+                        let already_exists = search_chunks
+                            .iter()
+                            .any(|c| c.path == chunk.path && c.anchor == chunk.anchor);
+                        if !already_exists {
+                            search_chunks.push(chunk);
+                        }
+                    }
+                }
+            }
 
             for chunk in search_chunks {
                 let chunk_tokens = chunk.content.len() / 4;

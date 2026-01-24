@@ -19,13 +19,13 @@ tokio = { version = "1", features = ["sync", "time", "macros"] }
 futures = "0.3"
 dirs = "6"
 textwrap = "0.16"
+tokio-util = { version = "0.7", features = ["full"] }
 
 thunderus-core = { path = "../core" }
 thunderus-tools = { path = "../tools" }
 thunderus-agent = { path = "../agent" }
 thunderus-providers = { path = "../providers" }
 thunderus-store = { path = "../store" }
-tokio-util = "0.7.18"
 
 [dev-dependencies]
 tempfile = "3"

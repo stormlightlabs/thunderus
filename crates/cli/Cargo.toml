@@ -14,12 +14,14 @@ clap_complete = "4.5.54"
 libc = "0.2"
 owo-colors = "4.2.3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio-util = { version = "0.7", features = ["full"] }
 
 thunderus-core = { path = "../core" }
 thunderus-store = { path = "../store" }
 thunderus-ui = { path = "../ui" }
 thunderus-tools = { path = "../tools" }
 thunderus-providers = { path = "../providers" }
+thunderus-agent = { path = "../agent" }
 
 [dev-dependencies]
 tempfile = "3.16"

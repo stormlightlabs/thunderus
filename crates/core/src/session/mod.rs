@@ -120,6 +120,11 @@ impl Session {
         self.agent_dir.session_dir(&self.id)
     }
 
+    /// Get the agent directory for this session
+    pub fn agent_dir(&self) -> AgentDir {
+        self.agent_dir.clone()
+    }
+
     /// Append an event to the session log
     ///
     /// The event is assigned a sequence number and written to the JSONL file

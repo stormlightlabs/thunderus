@@ -4,7 +4,7 @@
 //! events to the session and maintains read history for edit validation.
 
 use thunderus_core::Result;
-use thunderus_core::{BlockedCommandError, Session};
+use thunderus_core::{BlockedCommandError, PatchQueueManager, Session};
 use thunderus_providers::ToolCall;
 use thunderus_providers::ToolResult;
 
@@ -15,7 +15,6 @@ use crate::{ToolDispatcher, classify_shell_command};
 ///
 /// Wraps a ToolDispatcher and integrates it with session state tracking.
 /// Automatically logs tool events to the session and maintains read history.
-#[derive(Debug)]
 pub struct SessionToolDispatcher {
     /// The underlying tool dispatcher
     dispatcher: ToolDispatcher,
@@ -23,19 +22,31 @@ pub struct SessionToolDispatcher {
     session: Session,
     /// Read history for tracking file reads
     read_history: ReadHistory,
+    /// Patch queue manager for diff-first editing workflow
+    patch_queue_manager: Option<PatchQueueManager>,
 }
 
 impl SessionToolDispatcher {
     /// Creates a new session-aware dispatcher
-    pub fn new(dispatcher: ToolDispatcher, session: Session, read_history: ReadHistory) -> Self {
-        Self { dispatcher, session, read_history }
+    pub fn new(
+        dispatcher: ToolDispatcher, session: Session, read_history: ReadHistory,
+        patch_queue_manager: Option<PatchQueueManager>,
+    ) -> Self {
+        Self { dispatcher, session, read_history, patch_queue_manager }
     }
 
     /// Creates a new session-aware dispatcher with a new read history
     ///
     /// Convenience method that creates an empty ReadHistory.
     pub fn with_new_history(dispatcher: ToolDispatcher, session: Session) -> Self {
-        Self::new(dispatcher, session, ReadHistory::new())
+        Self::new(dispatcher, session, ReadHistory::new(), None)
+    }
+
+    /// Creates a new session-aware dispatcher with a new read history and patch queue manager
+    pub fn with_history_and_queue(
+        dispatcher: ToolDispatcher, session: Session, patch_queue_manager: PatchQueueManager,
+    ) -> Self {
+        Self::new(dispatcher, session, ReadHistory::new(), Some(patch_queue_manager))
     }
 
     /// Executes a tool call and logs to session
@@ -90,6 +101,10 @@ impl SessionToolDispatcher {
 
                 if tool_name == "read" {
                     self.track_file_read(tool_result, arguments);
+                }
+
+                if tool_name == "patch" && tool_result.is_success() {
+                    self.enqueue_patch_from_result(tool_result, arguments);
                 }
 
                 if self.is_write_tool(tool_name)
@@ -183,9 +198,89 @@ impl SessionToolDispatcher {
         &self.read_history
     }
 
+    /// Gets a reference to the patch queue manager
+    pub fn patch_queue_manager(&self) -> Option<&PatchQueueManager> {
+        self.patch_queue_manager.as_ref()
+    }
+
+    /// Gets a mutable reference to the patch queue manager
+    pub fn patch_queue_manager_mut(&mut self) -> Option<&mut PatchQueueManager> {
+        self.patch_queue_manager.as_mut()
+    }
+
+    /// Sets the patch queue manager
+    pub fn set_patch_queue_manager(&mut self, manager: PatchQueueManager) {
+        self.patch_queue_manager = Some(manager);
+    }
+
     /// Consumes self and returns the inner components
-    pub fn into_inner(self) -> (ToolDispatcher, Session, ReadHistory) {
-        (self.dispatcher, self.session, self.read_history)
+    pub fn into_inner(self) -> (ToolDispatcher, Session, ReadHistory, Option<PatchQueueManager>) {
+        (
+            self.dispatcher,
+            self.session,
+            self.read_history,
+            self.patch_queue_manager,
+        )
+    }
+
+    /// Enqueues a patch from a successful patch tool result
+    ///
+    /// Parses the patch tool output and creates a Patch object in the queue.
+    fn enqueue_patch_from_result(&mut self, tool_result: &ToolResult, arguments: &serde_json::Value) {
+        let Some(ref mut queue_manager) = self.patch_queue_manager else {
+            return;
+        };
+
+        let content = &tool_result.content;
+        let diff_start = content.find("\n\n");
+        let diff = match diff_start {
+            Some(idx) => content[idx + 2..].trim(),
+            None => return,
+        };
+
+        let file_path = match arguments.get("file_path").and_then(|v| v.as_str()) {
+            Some(path) => path,
+            None => return,
+        };
+
+        let base_snapshot = arguments
+            .get("base_snapshot")
+            .and_then(|v| v.as_str())
+            .unwrap_or("HEAD")
+            .to_string();
+
+        let patch_id = queue_manager.generate_patch_id();
+
+        let path_buf = std::path::PathBuf::from(file_path);
+        let file_name = path_buf.file_name().and_then(|n| n.to_str()).unwrap_or("unknown");
+        let name = format!("Edit {}", file_name);
+
+        match thunderus_core::Patch::new(
+            patch_id.clone(),
+            name,
+            base_snapshot,
+            diff.to_string(),
+            self.session.id.clone(),
+            self.session.event_count().unwrap_or(0) as u64,
+        ) {
+            Ok(patch) => {
+                let _ = queue_manager.add_patch(patch);
+                let _ = self.session.append_tool_result(
+                    "patch",
+                    serde_json::json!({ "patch_id": patch_id.value() }),
+                    true,
+                    None,
+                );
+            }
+            Err(e) => {
+                let _ = self.session.append_tool_result(
+                    "patch",
+                    serde_json::json!(null),
+                    false,
+                    Some(format!("Failed to create patch: {}", e)),
+                );
+            }
+        }
     }
 
     /// Returns true if the tool name corresponds to a write-related tool

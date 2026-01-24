@@ -1,7 +1,10 @@
 use crate::app::App;
 use crate::transcript;
+use crossterm::style::Stylize;
 use thunderus_agent::{Agent, AgentEvent};
-use thunderus_core::{ActionType, ApprovalDecision, ApprovalGate, ApprovalMode, ApprovalProtocol, SessionId, ToolRisk};
+use thunderus_core::{
+    ActionType, ApprovalDecision, ApprovalGate, ApprovalMode, ApprovalProtocol, PatchQueueManager, SessionId, ToolRisk,
+};
 use thunderus_tools::{SessionToolDispatcher, ToolDispatcher, ToolRegistry};
 use tokio::sync::mpsc;
 
@@ -274,13 +277,32 @@ impl App {
     ///
     /// Called when user responds to an approval prompt (y/n/c).
     /// Sends the decision back to the agent via TuiApprovalHandle and updates the transcript.
+    ///
+    /// Also handles direct shell command approvals (!cmd) by executing approved commands.
     pub fn send_approval_response(&mut self, decision: ApprovalDecision) {
         self.transcript_mut().set_approval_decision(decision);
+
+        let pending_command = self.state_mut().approval_ui.pending_command.take();
 
         match self.state_mut().approval_ui.pending_approval.take() {
             Some(approval_state) => {
                 let approved = matches!(decision, ApprovalDecision::Approved);
                 self.persist_approval(&approval_state.action, approved);
+
+                if approved && let Some(command) = pending_command {
+                    let registry = thunderus_tools::ToolRegistry::with_builtin_tools();
+                    let tool_call_id = format!("shell_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
+                    self.do_execute_shell_command(command, &registry, tool_call_id);
+
+                    let decision_str = match decision {
+                        ApprovalDecision::Approved => "approved",
+                        ApprovalDecision::Rejected => "rejected",
+                        ApprovalDecision::Cancelled => "cancelled",
+                    };
+                    self.transcript_mut()
+                        .add_system_message(format!("Shell command {}.", decision_str));
+                    return;
+                }
 
                 if let Some(request_id) = approval_state.request_id
                     && let Some(ref handle) = self.approval_handle
@@ -302,6 +324,35 @@ impl App {
             None => {
                 self.transcript_mut().set_approval_decision(decision);
             }
+        }
+    }
+
+    /// Actually execute the shell command (after approval or auto-approval)
+    pub(crate) fn do_execute_shell_command(
+        &mut self, command: String, registry: &thunderus_tools::ToolRegistry, tool_call_id: String,
+    ) {
+        match registry.execute("shell", tool_call_id.clone(), &serde_json::json!({"command": command})) {
+            Ok(result) => match result.is_success() {
+                true => {
+                    self.transcript_mut()
+                        .add_system_message(format!("Shell command output:\n```\n{}\n```", result.content));
+
+                    self.state_mut()
+                        .session
+                        .session_events
+                        .push(crate::state::SessionEvent {
+                            event_type: "shell_command".to_string(),
+                            message: format!("Executed: {}", command),
+                            timestamp: chrono::Utc::now().to_rfc3339(),
+                        });
+                }
+                false => self
+                    .transcript_mut()
+                    .add_system_message(format!("Shell command failed: {}", result.content)),
+            },
+            Err(e) => self
+                .transcript_mut()
+                .add_system_message(format!("Failed to execute shell command: {}", e)),
         }
     }
 
@@ -332,6 +383,9 @@ impl App {
 
         let tool_specs = if let Some(profile) = self.profile() {
             let mut registry = ToolRegistry::with_builtin_tools();
+            if let Err(e) = registry.load_skills() {
+                eprintln!("{} Failed to load skills: {}", "Warning:".yellow(), e);
+            }
             registry.set_profile(profile.clone());
             registry.set_approval_gate(ApprovalGate::new(
                 ApprovalMode::FullAccess,
@@ -340,7 +394,22 @@ impl App {
             let specs = registry.specs();
             if let Some(ref session) = self.session {
                 let dispatcher = ToolDispatcher::new(registry);
-                let session_dispatcher = SessionToolDispatcher::with_new_history(dispatcher, session.clone());
+
+                if self.patch_queue_manager.is_none() {
+                    let agent_dir = session.agent_dir().clone();
+                    let patch_queue_manager = PatchQueueManager::new(session.id.clone(), agent_dir.clone());
+                    let patch_queue_manager = patch_queue_manager
+                        .load()
+                        .unwrap_or_else(|_| PatchQueueManager::new(session.id.clone(), agent_dir));
+                    self.patch_queue_manager = Some(patch_queue_manager);
+                }
+
+                let session_dispatcher = if let Some(ref pqm) = self.patch_queue_manager {
+                    SessionToolDispatcher::with_history_and_queue(dispatcher, session.clone(), pqm.clone())
+                } else {
+                    SessionToolDispatcher::with_new_history(dispatcher, session.clone())
+                };
+
                 agent = agent.with_tool_dispatcher(std::sync::Arc::new(std::sync::Mutex::new(session_dispatcher)));
             }
             Some(specs)

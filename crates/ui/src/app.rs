@@ -14,9 +14,10 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io::{self, Result, Write};
 use std::{env, fs, panic};
 use std::{process::Command, sync::Arc, time::Duration};
+use thunderus_core::{ActionType, ApprovalContext, ApprovalGate, ToolRisk};
 use thunderus_core::{
-    ApprovalDecision, ApprovalMode, ApprovalRequest, Config, DriftEvent, DriftMonitor, MemoryDoc, Profile, Session,
-    SnapshotManager, TrajectoryWalker, memory::MemoryRetriever,
+    ApprovalDecision, ApprovalMode, ApprovalRequest, Config, DriftEvent, DriftMonitor, MemoryDoc, PatchQueueManager,
+    Profile, Session, SnapshotManager, TrajectoryWalker, memory::MemoryRetriever,
 };
 use thunderus_providers::{CancelToken, Provider};
 use thunderus_tools::ToolRegistry;
@@ -60,6 +61,8 @@ pub struct App {
     pub(crate) pause_token: tokio_util::sync::CancellationToken,
     /// Last captured snapshot state for drift detection
     pub(crate) last_snapshot_state: Option<String>,
+    /// Patch queue manager for diff-first editing workflow
+    pub(crate) patch_queue_manager: Option<PatchQueueManager>,
 }
 
 impl App {
@@ -94,6 +97,7 @@ impl App {
             drift_rx,
             pause_token: tokio_util::sync::CancellationToken::new(),
             last_snapshot_state: None,
+            patch_queue_manager: None,
         }
     }
 
@@ -128,12 +132,21 @@ impl App {
             drift_rx,
             pause_token: tokio_util::sync::CancellationToken::new(),
             last_snapshot_state: None,
+            patch_queue_manager: None,
         }
     }
 
     /// Set the session for event persistence
     pub fn with_session(mut self, session: Session) -> Self {
         self.state.session.session_id = Some(session.id.to_string());
+
+        let agent_dir = session.agent_dir().clone();
+        let patch_queue_manager = PatchQueueManager::new(session.id.clone(), agent_dir.clone());
+        let patch_queue_manager = patch_queue_manager
+            .load()
+            .unwrap_or_else(|_| PatchQueueManager::new(session.id.clone(), agent_dir));
+        self.patch_queue_manager = Some(patch_queue_manager);
+
         self.session = Some(session);
         self
     }
@@ -1100,6 +1113,11 @@ impl App {
     }
 
     /// Execute a shell command and insert output as user-provided context
+    ///
+    /// Shell commands require approval based on the current approval mode:
+    /// - ReadOnly: Always rejected
+    /// - Auto: Safe commands auto-approve, risky commands require approval
+    /// - FullAccess: Auto-approved
     fn execute_shell_command(&mut self, command: String) {
         let registry = ToolRegistry::with_builtin_tools();
         let tool_call_id = format!("shell_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
@@ -1107,25 +1125,60 @@ impl App {
 
         self.transcript_mut().add_user_message(&user_message);
 
-        match registry.execute("shell", tool_call_id.clone(), &serde_json::json!({"command": command})) {
-            Ok(result) => match result.is_success() {
-                true => {
-                    self.transcript_mut()
-                        .add_system_message(format!("Shell command output:\n```\n{}\n```", result.content));
+        let mut approval_gate = ApprovalGate::new(self.state().config.approval_mode, self.state().config.allow_network);
 
-                    self.state_mut().session.session_events.push(state::SessionEvent {
-                        event_type: "shell_command".to_string(),
-                        message: format!("Executed: {}", command),
-                        timestamp: chrono::Utc::now().to_rfc3339(),
-                    });
-                }
-                false => self
-                    .transcript_mut()
-                    .add_system_message(format!("Shell command failed: {}", result.content)),
-            },
-            Err(e) => self
-                .transcript_mut()
-                .add_system_message(format!("Failed to execute shell command: {}", e)),
+        let command_lower = command.to_lowercase();
+        let is_network_command = command_lower.contains("curl ")
+            || command_lower.contains("wget ")
+            || command_lower.starts_with("curl")
+            || command_lower.starts_with("wget")
+            || command_lower.contains("ssh ")
+            || command_lower.starts_with("ssh")
+            || command_lower.contains("http://")
+            || command_lower.contains("https://");
+
+        let is_destructive = command_lower.contains("rm ")
+            || command_lower.contains("rmdir ")
+            || command_lower.contains("del ")
+            || command_lower.contains("mv ")
+            || command_lower.contains("> ")
+            || command_lower.contains("git clean")
+            || command_lower.contains("git reset")
+            || command_lower.contains("git rebase");
+
+        let risk_level = if is_destructive || is_network_command { ToolRisk::Risky } else { ToolRisk::Safe };
+        let requires_approval = approval_gate.requires_approval(risk_level, is_network_command);
+
+        if requires_approval {
+            let request_id = approval_gate.create_request(
+                ActionType::Shell,
+                format!("Execute: {}", command),
+                ApprovalContext::new()
+                    .with_name("shell")
+                    .with_arguments(serde_json::json!({"command": &command}))
+                    .with_classification_reasoning(format!(
+                        "Command classified as {}: {}",
+                        if risk_level.is_risky() { "risky" } else { "safe" },
+                        if is_destructive {
+                            "destructive operation"
+                        } else if is_network_command {
+                            "network access"
+                        } else {
+                            "local command"
+                        }
+                    )),
+                risk_level,
+            );
+
+            let risk_str = if risk_level.is_risky() { "risky" } else { "safe" };
+            self.transcript_mut()
+                .add_approval_prompt(format!("shell:{}", command), risk_str);
+            self.state_mut().approval_ui.pending_approval =
+                Some(state::ApprovalState::pending(command.clone(), risk_str.to_string()).with_request_id(request_id));
+
+            self.state_mut().approval_ui.pending_command = Some(command);
+        } else {
+            self.do_execute_shell_command(command, &registry, tool_call_id);
         }
     }
 
@@ -1217,6 +1270,7 @@ impl Default for App {
             drift_rx: None,
             pause_token: tokio_util::sync::CancellationToken::new(),
             last_snapshot_state: None,
+            patch_queue_manager: None,
         }
     }
 }

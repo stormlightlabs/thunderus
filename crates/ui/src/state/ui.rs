@@ -356,6 +356,8 @@ pub struct ApprovalUIState {
     pub pending_approval: Option<super::ApprovalState>,
     /// Pending teaching hint (if any)
     pub pending_hint: Option<String>,
+    /// Pending shell command (for !cmd execution after approval)
+    pub pending_command: Option<String>,
 }
 
 impl ApprovalUIState {

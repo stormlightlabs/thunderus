@@ -2997,12 +2997,14 @@ dependencies = [
  "libc",
  "owo-colors",
  "tempfile",
+ "thunderus-agent",
  "thunderus-core",
  "thunderus-providers",
  "thunderus-store",
  "thunderus-tools",
  "thunderus-ui",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]
