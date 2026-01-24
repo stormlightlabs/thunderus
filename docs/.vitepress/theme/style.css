@@ -1,139 +1,243 @@
 /**
- * Customize default theme styling by overriding CSS variables:
- * https://github.com/vuejs/vitepress/blob/main/src/client/theme-default/styles/vars.css
+ * Theme: Iceberg Dark + Nord Light
+ * Light mode: Based on Nord Light with iceberg-inspired tweaks (default)
+ * Dark mode: Based on iceberg.vim (https://github.com/cocopon/iceberg.vim)
  */
 
 /**
- * Colors
- *
- * Each colors have exact same color scale system with 3 levels of solid
- * colors with different brightness, and 1 soft color.
- *
- * - `XXX-1`: The most solid color used mainly for colored text. It must
- *   satisfy the contrast ratio against when used on top of `XXX-soft`.
- *
- * - `XXX-2`: The color used mainly for hover state of the button.
- *
- * - `XXX-3`: The color for solid background, such as bg color of the button.
- *   It must satisfy the contrast ratio with pure white (#ffffff) text on
- *   top of it.
- *
- * - `XXX-soft`: The color used for subtle background such as custom container
- *   or badges. It must satisfy the contrast ratio when putting `XXX-1` colors
- *   on top of it.
- *
- *   The soft color must be semi transparent alpha channel. This is crucial
- *   because it allows adding multiple "soft" colors on top of each other
- *   to create a accent, such as when having inline code block inside
- *   custom containers.
- *
- * - `default`: The color used purely for subtle indication without any
- *   special meanings attached to it such as bg color for menu hover state.
- *
- * - `brand`: Used for primary brand colors, such as link text, button with
- *   brand theme, etc.
- *
- * - `tip`: Used to indicate useful information. The default theme uses the
- *   brand color for this by default.
- *
- * - `warning`: Used to indicate warning to the users. Used in custom
- *   container, badges, etc.
- *
- * - `danger`: Used to show error, or dangerous message to the users. Used
- *   in custom container, badges, etc.
- * -------------------------------------------------------------------------- */
+ * Colors - Nord Light (Light Mode - Default)
+ */
 
 :root {
-  --vp-c-default-1: var(--vp-c-gray-1);
-  --vp-c-default-2: var(--vp-c-gray-2);
-  --vp-c-default-3: var(--vp-c-gray-3);
-  --vp-c-default-soft: var(--vp-c-gray-soft);
+    /* Nord Light - Base colors (with iceberg light adjustments) */
+    --nord-light-bg: #eceff4;
+    --nord-light-fg: #2e3440;
+    --nord-light-bg-alt: #e5e9f0;
+    --nord-light-bg-soft: #d8dee9;
+    --nord-light-border: #d8dee9;
+    --nord-light-selection: #d2d4dd;
 
-  --vp-c-brand-1: var(--vp-c-indigo-1);
-  --vp-c-brand-2: var(--vp-c-indigo-2);
-  --vp-c-brand-3: var(--vp-c-indigo-3);
-  --vp-c-brand-soft: var(--vp-c-indigo-soft);
+    /* Nord Light - UI colors */
+    --nord-light-subtle: #4c566a;
+    --nord-light-muted: #434c5e;
+    --nord-light-comment: #4c566a;
 
-  --vp-c-tip-1: var(--vp-c-brand-1);
-  --vp-c-tip-2: var(--vp-c-brand-2);
-  --vp-c-tip-3: var(--vp-c-brand-3);
-  --vp-c-tip-soft: var(--vp-c-brand-soft);
+    /* Nord Light - Accent colors (Frost + Aurora) */
+    --nord-light-blue: #5e81ac;
+    --nord-light-blue-bright: #81a1c1;
+    --nord-light-cyan: #88c0d0;
+    --nord-light-cyan-bright: #8fbcbb;
+    --nord-light-red: #bf616a;
+    --nord-light-orange: #d08770;
+    --nord-light-yellow: #ebcb8b;
+    --nord-light-green: #a3be8c;
+    --nord-light-purple: #b48ead;
 
-  --vp-c-warning-1: var(--vp-c-yellow-1);
-  --vp-c-warning-2: var(--vp-c-yellow-2);
-  --vp-c-warning-3: var(--vp-c-yellow-3);
-  --vp-c-warning-soft: var(--vp-c-yellow-soft);
+    /* VitePress color mappings - Light (default) */
+    --vp-c-bg: #eceff4;
+    --vp-c-bg-alt: #e5e9f0;
+    --vp-c-bg-elv: #d8dee9;
+    --vp-c-text-1: #2e3440;
+    --vp-c-text-2: #5e81ac;
+    --vp-c-text-3: #4c566a;
+    --vp-c-divider: #d8dee9;
+    --vp-c-border: #e5e9f0;
 
-  --vp-c-danger-1: var(--vp-c-red-1);
-  --vp-c-danger-2: var(--vp-c-red-2);
-  --vp-c-danger-3: var(--vp-c-red-3);
-  --vp-c-danger-soft: var(--vp-c-red-soft);
+    /* Brand colors - Nord blue */
+    --vp-c-brand-1: #5e81ac;
+    --vp-c-brand-2: #81a1c1;
+    --vp-c-brand-3: #5e81ac;
+    --vp-c-brand-soft: rgba(94, 129, 172, 0.14);
+
+    /* Default colors */
+    --vp-c-default-1: #4c566a;
+    --vp-c-default-2: #434c5e;
+    --vp-c-default-3: #e5e9f0;
+    --vp-c-default-soft: rgba(76, 86, 106, 0.14);
+
+    /* Tip colors - Cyan */
+    --vp-c-tip-1: #88c0d0;
+    --vp-c-tip-2: #8fbcbb;
+    --vp-c-tip-3: #88c0d0;
+    --vp-c-tip-soft: rgba(136, 192, 208, 0.14);
+
+    /* Warning colors - Yellow */
+    --vp-c-warning-1: #d08770;
+    --vp-c-warning-2: #ebcb8b;
+    --vp-c-warning-3: #d08770;
+    --vp-c-warning-soft: rgba(235, 203, 139, 0.14);
+
+    /* Danger colors - Red */
+    --vp-c-danger-1: #bf616a;
+    --vp-c-danger-2: #bf616a;
+    --vp-c-danger-3: #bf616a;
+    --vp-c-danger-soft: rgba(191, 97, 106, 0.14);
+}
+
+/**
+ * Colors - Iceberg Dark (Dark Mode)
+ */
+
+.dark {
+    /* Iceberg Dark - Base colors */
+    --iceberg-bg: #161821;
+    --iceberg-fg: #c6c8d1;
+    --iceberg-bg-light: #1e2132;
+    --iceberg-bg-lighter: #272c42;
+    --iceberg-border: #0f1117;
+    --iceberg-selection: #1e2132;
+
+    /* Iceberg Dark - UI colors */
+    --iceberg-subtle: #6b7089;
+    --iceberg-muted: #444b71;
+    --iceberg-comment: #6b7089;
+
+    /* Iceberg Dark - Accent colors */
+    --iceberg-red: #e27878;
+    --iceberg-red-bright: #e98989;
+    --iceberg-green: #b4be82;
+    --iceberg-green-bright: #c0ca8e;
+    --iceberg-yellow: #e2a478;
+    --iceberg-yellow-bright: #e9b189;
+    --iceberg-blue: #84a0c6;
+    --iceberg-blue-bright: #91acd1;
+    --iceberg-purple: #a093c7;
+    --iceberg-purple-bright: #ada0d3;
+    --iceberg-cyan: #89b8c2;
+    --iceberg-cyan-bright: #95c4ce;
+
+    /* VitePress color mappings - Dark */
+    --vp-c-bg: var(--iceberg-bg);
+    --vp-c-bg-alt: var(--iceberg-bg-light);
+    --vp-c-bg-elv: var(--iceberg-bg-lighter);
+    --vp-c-text-1: var(--iceberg-fg);
+    --vp-c-text-2: var(--iceberg-blue-bright);
+    --vp-c-text-3: var(--iceberg-subtle);
+    --vp-c-divider: var(--iceberg-border);
+    --vp-c-border: var(--iceberg-bg-light);
+
+    /* Brand colors - Iceberg blue */
+    --vp-c-brand-1: var(--iceberg-blue-bright);
+    --vp-c-brand-2: var(--iceberg-blue);
+    --vp-c-brand-3: var(--iceberg-blue);
+    --vp-c-brand-soft: rgba(132, 160, 198, 0.14);
+
+    /* Default colors */
+    --vp-c-default-1: var(--iceberg-subtle);
+    --vp-c-default-2: var(--iceberg-muted);
+    --vp-c-default-3: var(--iceberg-bg-light);
+    --vp-c-default-soft: rgba(107, 112, 137, 0.14);
+
+    /* Tip colors - Cyan */
+    --vp-c-tip-1: var(--iceberg-cyan-bright);
+    --vp-c-tip-2: var(--iceberg-cyan);
+    --vp-c-tip-3: var(--iceberg-cyan);
+    --vp-c-tip-soft: rgba(137, 184, 194, 0.14);
+
+    /* Warning colors - Yellow/Orange */
+    --vp-c-warning-1: var(--iceberg-yellow-bright);
+    --vp-c-warning-2: var(--iceberg-yellow);
+    --vp-c-warning-3: var(--iceberg-yellow);
+    --vp-c-warning-soft: rgba(226, 164, 120, 0.14);
+
+    /* Danger colors - Red */
+    --vp-c-danger-1: var(--iceberg-red-bright);
+    --vp-c-danger-2: var(--iceberg-red);
+    --vp-c-danger-3: var(--iceberg-red);
+    --vp-c-danger-soft: rgba(226, 120, 120, 0.14);
 }
 
 /**
  * Component: Button
- * -------------------------------------------------------------------------- */
+ */
+
+.dark {
+    --vp-button-brand-border: transparent;
+    --vp-button-brand-text: #161821;
+    --vp-button-brand-bg: var(--vp-c-brand-3);
+    --vp-button-brand-hover-border: transparent;
+    --vp-button-brand-hover-text: #161821;
+    --vp-button-brand-hover-bg: var(--vp-c-brand-2);
+    --vp-button-brand-active-border: transparent;
+    --vp-button-brand-active-text: #161821;
+    --vp-button-brand-active-bg: var(--vp-c-brand-1);
+}
 
 :root {
-  --vp-button-brand-border: transparent;
-  --vp-button-brand-text: var(--vp-c-white);
-  --vp-button-brand-bg: var(--vp-c-brand-3);
-  --vp-button-brand-hover-border: transparent;
-  --vp-button-brand-hover-text: var(--vp-c-white);
-  --vp-button-brand-hover-bg: var(--vp-c-brand-2);
-  --vp-button-brand-active-border: transparent;
-  --vp-button-brand-active-text: var(--vp-c-white);
-  --vp-button-brand-active-bg: var(--vp-c-brand-1);
+    --vp-button-brand-border: transparent;
+    --vp-button-brand-text: #eceff4;
+    --vp-button-brand-bg: var(--vp-c-brand-3);
+    --vp-button-brand-hover-border: transparent;
+    --vp-button-brand-hover-text: #eceff4;
+    --vp-button-brand-hover-bg: var(--vp-c-brand-2);
+    --vp-button-brand-active-border: transparent;
+    --vp-button-brand-active-text: #eceff4;
+    --vp-button-brand-active-bg: var(--vp-c-brand-1);
 }
 
 /**
  * Component: Home
- * -------------------------------------------------------------------------- */
+ */
+
+.dark {
+    --vp-home-hero-name-color: transparent;
+    --vp-home-hero-name-background: -webkit-linear-gradient(
+        120deg,
+        #91acd1 30%,
+        #95c4ce
+    );
+
+    --vp-home-hero-image-background-image: linear-gradient(
+        -45deg,
+        #a093c7 50%,
+        #89b8c2 50%
+    );
+    --vp-home-hero-image-filter: blur(44px);
+}
 
 :root {
-  --vp-home-hero-name-color: transparent;
-  --vp-home-hero-name-background: -webkit-linear-gradient(
-    120deg,
-    #bd34fe 30%,
-    #41d1ff
-  );
+    --vp-home-hero-name-color: transparent;
+    --vp-home-hero-name-background: -webkit-linear-gradient(
+        120deg,
+        #5e81ac 30%,
+        #88c0d0
+    );
 
-  --vp-home-hero-image-background-image: linear-gradient(
-    -45deg,
-    #bd34fe 50%,
-    #47caff 50%
-  );
-  --vp-home-hero-image-filter: blur(44px);
+    --vp-home-hero-image-background-image: linear-gradient(
+        -45deg,
+        #b48ead 50%,
+        #8fbcbb 50%
+    );
+    --vp-home-hero-image-filter: blur(44px);
 }
 
 @media (min-width: 640px) {
-  :root {
-    --vp-home-hero-image-filter: blur(56px);
-  }
+    :root {
+        --vp-home-hero-image-filter: blur(56px);
+    }
 }
 
 @media (min-width: 960px) {
-  :root {
-    --vp-home-hero-image-filter: blur(68px);
-  }
+    :root {
+        --vp-home-hero-image-filter: blur(68px);
+    }
 }
 
 /**
  * Component: Custom Block
- * -------------------------------------------------------------------------- */
+ */
 
 :root {
-  --vp-custom-block-tip-border: transparent;
-  --vp-custom-block-tip-text: var(--vp-c-text-1);
-  --vp-custom-block-tip-bg: var(--vp-c-brand-soft);
-  --vp-custom-block-tip-code-bg: var(--vp-c-brand-soft);
+    --vp-custom-block-tip-border: transparent;
+    --vp-custom-block-tip-text: var(--vp-c-text-1);
+    --vp-custom-block-tip-bg: var(--vp-c-tip-soft);
+    --vp-custom-block-tip-code-bg: var(--vp-c-tip-soft);
 }
 
 /**
  * Component: Algolia
- * -------------------------------------------------------------------------- */
+ */
 
 .DocSearch {
-  --docsearch-primary-color: var(--vp-c-brand-1) !important;
+    --docsearch-primary-color: var(--vp-c-brand-1) !important;
 }
-
