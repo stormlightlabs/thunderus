@@ -59,6 +59,17 @@ pub enum Error {
     /// Blocked command error
     #[error("blocked command: {0}")]
     BlockedCommand(#[from] BlockedCommandError),
+
+    /// Extension-related errors (skills, plugins)
+    #[error("extension error: {0}")]
+    Extension(String),
+}
+
+impl Error {
+    /// Create a new extension error
+    pub fn extension(message: impl Into<String>) -> Self {
+        Error::Extension(message.into())
+    }
 }
 
 /// Error for blocked commands

@@ -134,6 +134,31 @@ fn default_gemini_base_url() -> String {
     "https://generativelanguage.googleapis.com/v1beta".to_string()
 }
 
+/// Skills configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct SkillsConfig {
+    /// Enable skills system
+    #[serde(default = "default_skills_enabled")]
+    pub enabled: bool,
+
+    /// Custom skills directory (optional, defaults to .thunderus/skills)
+    #[serde(default)]
+    pub skills_dir: Option<PathBuf>,
+
+    /// Enable auto-discovery based on task intent
+    #[serde(default = "default_skills_auto_discovery")]
+    pub auto_discovery: bool,
+}
+
+fn default_skills_enabled() -> bool {
+    true
+}
+
+fn default_skills_auto_discovery() -> bool {
+    true
+}
+
 /// Profile configuration (Codex-like ergonomics)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -174,6 +199,10 @@ pub struct Profile {
     /// Memory configuration including vector search settings
     #[serde(default)]
     pub memory: MemoryConfig,
+
+    /// Skills configuration
+    #[serde(default)]
+    pub skills: SkillsConfig,
 
     /// Additional configuration options
     #[serde(default)]
@@ -624,6 +653,7 @@ mod tests {
             allow_network: false,
             network: NetworkConfig::default(),
             memory: MemoryConfig::default(),
+            skills: SkillsConfig::default(),
             options: HashMap::new(),
         };
 
@@ -651,6 +681,7 @@ mod tests {
             allow_network: false,
             network: NetworkConfig::default(),
             memory: MemoryConfig::default(),
+            skills: SkillsConfig::default(),
             options: HashMap::new(),
         };
 
@@ -1160,6 +1191,7 @@ model = "gemini-2.5-flash"
             allow_network: false,
             network: NetworkConfig::default(),
             memory: MemoryConfig::default(),
+            skills: SkillsConfig::default(),
             options: HashMap::new(),
         }
     }

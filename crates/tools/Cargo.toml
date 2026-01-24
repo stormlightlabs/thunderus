@@ -15,6 +15,7 @@ imara-diff = { version = "0.2", features = ["unified_diff"] }
 
 thunderus-core = { path = "../core" }
 thunderus-providers = { path = "../providers" }
+thunderus-skills = { path = "../skills" }
 
 [dev-dependencies]
 tempfile = "3.16"

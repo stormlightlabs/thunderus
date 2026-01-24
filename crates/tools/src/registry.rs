@@ -1,14 +1,16 @@
+use super::Tool;
+use super::builtin::{
+    EchoTool, EditTool, GlobTool, GrepTool, MultiEditTool, NoopTool, PatchTool, ReadTool, ShellTool, WriteTool,
+};
+use super::skill_tool::SkillTool;
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use thunderus_core::config::PathAccessResult;
 use thunderus_core::{ApprovalGate, ApprovalMode, Profile, Result};
 use thunderus_providers::{ToolResult, ToolSpec};
-
-use super::Tool;
-use super::builtin::{
-    EchoTool, EditTool, GlobTool, GrepTool, MultiEditTool, NoopTool, PatchTool, ReadTool, ShellTool, WriteTool,
-};
+use thunderus_skills::SkillLoader;
 
 /// Registry that holds all available tools
 #[derive(Debug, Clone)]
@@ -282,6 +284,58 @@ impl ToolRegistry {
     pub fn count(&self) -> usize {
         let tools = self.tools.read().unwrap();
         tools.len()
+    }
+
+    /// Load and register skills from the default skills directories.
+    ///
+    /// This discovers skills from:
+    /// - `.thunderus/skills/` (project-local, higher priority)
+    /// - `~/.thunderus/skills/` (global, lower priority)
+    ///
+    /// Returns the number of skills successfully loaded.
+    pub fn load_skills(&self) -> Result<usize> {
+        let mut skill_loader = SkillLoader::new(thunderus_skills::SkillsConfig::default())?;
+        self.load_skills_from_loader(&mut skill_loader)
+    }
+
+    /// Load and register skills from a custom SkillLoader.
+    ///
+    /// Returns the number of skills successfully loaded.
+    pub fn load_skills_from_loader(&self, skill_loader: &mut SkillLoader) -> Result<usize> {
+        let skills = skill_loader.discover()?;
+        let mut loaded = 0;
+
+        for skill_meta in skills {
+            if let Ok(skill) = skill_loader.load(&skill_meta.name) {
+                let tool = SkillTool::new((*skill).clone());
+
+                if self.register(tool).is_ok() {
+                    loaded += 1;
+                }
+            }
+        }
+
+        Ok(loaded)
+    }
+
+    /// Load and register a specific skill by name.
+    ///
+    /// Returns error if the skill is not found.
+    pub fn load_skill(&self, name: &str) -> Result<()> {
+        let mut skill_loader = SkillLoader::new(thunderus_skills::SkillsConfig::default())?;
+        let skill = skill_loader.load(name)?;
+
+        let tool = SkillTool::new((*skill).clone());
+        self.register(tool)?;
+
+        Ok(())
+    }
+
+    /// Create a registry with built-in tools and skills loaded.
+    pub fn with_builtin_tools_and_skills() -> Result<Self> {
+        let registry = Self::with_builtin_tools();
+        registry.load_skills()?;
+        Ok(registry)
     }
 }
 

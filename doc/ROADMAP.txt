@@ -26,7 +26,7 @@ CONTENTS                                                      *roadmap-contents*
     XV. EXTENSIBILITY .......................................... |agent-XV|
    XVI. HARDENING .............................................. |agent-XVI|
   XVII. TUI TESTING FRAMEWORK .................................. |agent-XVII|
- XVIII. FINAL UI LAYOUT & SPEC ................................. |agent-XVIII|
+ XVIII. LAYOUT ................................................. |agent-XVIII|
    XIX. PARKING LOT............................................. |agent-XIX|
     XX. REFERENCES ............................................. |agent-XX|
 
@@ -154,7 +154,7 @@ When you work alongside the agent, it pauses, notices drift, and reconciles.
       - consultative suggestions only (maps to read-only/approval modes)
       - Ctrl+A toggles between Auto and ReadOnly modes
       - implemented in normal_mode.rs line 228-229
-- [ ] TUI enhancements:
+- [x] TUI enhancements:
       - History editing: "edit previous message / fork from point"
       - Esc-based rewind behavior
 
@@ -167,7 +167,7 @@ XV. EXTENSIBILITY (SKILLS + PLUGINS)                                  *agent-XV*
 Make Thunderus extensible via on-demand capabilities and custom plugins.
 Inspired by Pi's Skills system and token-efficient design.
 
-- [ ] Skills system (on-demand capability loading):
+- [x] Skills system (on-demand capability loading):
       - `.thunderus/skills/` directory structure
       - SKILL.md format with frontmatter (name, description)
       - `/skill:name` invocation
@@ -176,9 +176,11 @@ Inspired by Pi's Skills system and token-efficient design.
       - Custom tools via `ToolDefinition` trait
       - Custom commands via `CommandHandler` trait
       - Event hooks via `EventSubscriber` trait
-- [ ] Plugin loading:
-      - Static: compile-time registration
-      - Dynamic: WASM or Lua for runtime loading (optional)
+- [ ] Plugin loading (Runtime):
+      - Unified `PluginHost` abstraction
+      - WASM Support (Extism based): sandboxed, safe, polyglot
+      - Lua Support (mlua based): lightweight scripting
+      - Host API: `log`, `read_file`, `ask_user`, `kv_store`
 - [ ] Built-in extensions registry:
       - Move web_search to skill
       - Move fetch_url to skill
@@ -246,7 +248,7 @@ DoD:
 - At least 3 major widgets have golden snapshots.
 
 --------------------------------------------------------------------------------
-XVIII. FINAL UI LAYOUT & SPEC                                         *agent-XVIII*
+XVIII. LAYOUT                                                      *agent-XVIII*
 --------------------------------------------------------------------------------
 Implement the final "Opening" and "Agent" layouts based on designated design
 artifacts, ensuring a premium, polished TUI experience.

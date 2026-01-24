@@ -11,6 +11,7 @@ pub mod registry;
 pub mod result_formatting;
 pub mod scope_extraction;
 pub mod session_dispatcher;
+pub mod skill_tool;
 pub mod teaching_errors;
 pub mod tool;
 
@@ -35,6 +36,7 @@ pub use result_formatting::{
 };
 pub use scope_extraction::{ScopeInfo, extract_scope};
 pub use session_dispatcher::{SessionToolDispatcher, validate_read_before_edit as validate_session_read_before_edit};
+pub use skill_tool::SkillTool;
 pub use teaching_errors::{
     EditErrors, ErrorCategory, GlobErrors, GrepErrors, MultiEditErrors, ReadErrors, TeachingError,
 };
