@@ -1,5 +1,5 @@
 use crate::components::{
-    Footer, FuzzyFinderComponent, Header, MemoryHitsPanel, Sidebar, TeachingHintPopup,
+    Footer, FuzzyFinderComponent, Header, Inspector, MemoryHitsPanel, Sidebar, TeachingHintPopup,
     Transcript as TranscriptComponent, WelcomeView,
 };
 use crate::event_handler::{EventHandler, KeyAction};
@@ -14,7 +14,10 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io::{self, Result, Write};
 use std::{env, fs, panic};
 use std::{process::Command, sync::Arc, time::Duration};
-use thunderus_core::{ApprovalDecision, Config, DriftMonitor, MemoryDoc, Session, SnapshotManager, TrajectoryWalker};
+use thunderus_core::{
+    ApprovalDecision, ApprovalMode, ApprovalRequest, Config, DriftEvent, DriftMonitor, MemoryDoc, Session,
+    SnapshotManager, TrajectoryWalker,
+};
 use thunderus_providers::{CancelToken, Provider};
 use thunderus_tools::ToolRegistry;
 use tokio::sync::mpsc;
@@ -30,7 +33,7 @@ pub struct App {
     /// Agent event receiver for streaming responses
     pub(crate) agent_event_rx: Option<mpsc::UnboundedReceiver<thunderus_agent::AgentEvent>>,
     /// Approval request receiver from agent
-    pub(crate) approval_request_rx: Option<mpsc::UnboundedReceiver<thunderus_core::ApprovalRequest>>,
+    pub(crate) approval_request_rx: Option<mpsc::UnboundedReceiver<ApprovalRequest>>,
     /// Handle for sending approval responses back to agent
     pub(crate) approval_handle: Option<TuiApprovalHandle>,
     /// Cancellation token for stopping agent operations
@@ -42,12 +45,11 @@ pub struct App {
     /// Buffer for accumulating streaming model response content
     pub(crate) streaming_model_content: Option<String>,
     /// Drift monitor for workspace changes
-    #[allow(dead_code)]
-    pub(crate) drift_monitor: Option<thunderus_core::DriftMonitor>,
+    pub(crate) _drift_monitor: Option<DriftMonitor>,
     /// Snapshot manager for workspace state
-    pub(crate) snapshot_manager: Option<thunderus_core::SnapshotManager>,
+    pub(crate) snapshot_manager: Option<SnapshotManager>,
     /// Receiver for drift events
-    pub(crate) drift_rx: Option<tokio::sync::broadcast::Receiver<thunderus_core::DriftEvent>>,
+    pub(crate) drift_rx: Option<tokio::sync::broadcast::Receiver<DriftEvent>>,
     /// Cancellation token for pausing agent on drift or user interruption
     pub(crate) pause_token: tokio_util::sync::CancellationToken,
     /// Last captured snapshot state for drift detection
@@ -78,7 +80,7 @@ impl App {
             provider: None,
             session: None,
             streaming_model_content: None,
-            drift_monitor,
+            _drift_monitor: drift_monitor,
             snapshot_manager,
             drift_rx,
             pause_token: tokio_util::sync::CancellationToken::new(),
@@ -109,7 +111,7 @@ impl App {
             provider: Some(provider),
             session: None,
             streaming_model_content: None,
-            drift_monitor,
+            _drift_monitor: drift_monitor,
             snapshot_manager,
             drift_rx,
             pause_token: tokio_util::sync::CancellationToken::new(),
@@ -462,17 +464,39 @@ impl App {
         if let Some(action) = EventHandler::handle_event(&event, self.state_mut()) {
             match action {
                 KeyAction::SendMessage { message } => {
-                    self.state_mut().input.add_to_history(message.clone());
+                    let is_fork_mode = self.state().input.is_in_fork_mode();
+                    let fork_point = self.state().input.fork_point_index;
+
+                    if is_fork_mode {
+                        if let Some(idx) = fork_point {
+                            let history: Vec<String> = self.state().input.message_history.clone();
+                            self.state_mut().input.replace_history_entry(idx, message.clone());
+                            self.state_mut().input.truncate_history_from(idx);
+                            self.transcript_mut().clear();
+                            for hist_msg in history.iter() {
+                                self.transcript_mut().add_user_message(hist_msg);
+                            }
+
+                            self.transcript_mut().add_system_message(format!(
+                                "Forked at position {} - conversation truncated and restarted",
+                                idx + 1
+                            ));
+                        }
+                        self.state_mut().input.exit_fork_mode();
+                    } else {
+                        self.state_mut().input.add_to_history(message.clone());
+                    }
+
                     self.state_mut().session.last_message = Some(message.clone());
                     self.transcript_mut().add_user_message(&message);
                     self.persist_user_message(&message);
                     self.state_mut().exit_first_session();
 
-                    if let Some(provider) = self.provider.clone() {
-                        self.spawn_agent_for_message(message, &provider);
-                    } else {
-                        self.transcript_mut()
-                            .add_system_message("No provider configured. Cannot process message.");
+                    match self.provider.clone() {
+                        Some(provider) => self.spawn_agent_for_message(message, &provider),
+                        None => self
+                            .transcript_mut()
+                            .add_system_message("No provider configured. Cannot process message."),
                     }
                 }
                 KeyAction::ExecuteShellCommand { command } => self.execute_shell_command(command),
@@ -486,21 +510,24 @@ impl App {
                     self.transcript_mut()
                         .mark_streaming_cancelled("Generation cancelled by user");
                 }
-                KeyAction::StartReconcileRitual => {
-                    self.start_reconcile_ritual();
+                KeyAction::StartReconcileRitual => self.start_reconcile_ritual(),
+                KeyAction::ReconcileContinue => self.reconcile_continue(),
+                KeyAction::ReconcileDiscard => self.reconcile_discard(),
+                KeyAction::ReconcileStop => self.reconcile_stop(),
+                KeyAction::RewindLastMessage => {
+                    let history_len = self.state().input.message_history.len();
+                    if history_len > 0 {
+                        self.state_mut().input.message_history.pop();
+                        self.transcript_mut().add_system_message(format!(
+                            "Rewound: Removed last message from history ({} messages remaining)",
+                            history_len - 1
+                        ));
+                    } else {
+                        self.transcript_mut()
+                            .add_system_message("No messages in history to rewind.");
+                    }
                 }
-                KeyAction::ReconcileContinue => {
-                    self.reconcile_continue();
-                }
-                KeyAction::ReconcileDiscard => {
-                    self.reconcile_discard();
-                }
-                KeyAction::ReconcileStop => {
-                    self.reconcile_stop();
-                }
-                KeyAction::Exit => {
-                    self.should_exit = true;
-                }
+                KeyAction::Exit => self.should_exit = true,
                 KeyAction::RetryLastFailedAction => {
                     let has_retryable_error =
                         self.transcript().entries().iter().any(|entry| {
@@ -536,14 +563,14 @@ impl App {
                 }
                 KeyAction::ToggleAdvisorMode => {
                     let new_mode = match self.state.config.approval_mode {
-                        thunderus_core::ApprovalMode::ReadOnly => thunderus_core::ApprovalMode::Auto,
-                        _ => thunderus_core::ApprovalMode::ReadOnly,
+                        ApprovalMode::ReadOnly => ApprovalMode::Auto,
+                        _ => ApprovalMode::ReadOnly,
                     };
                     self.state_mut().config.approval_mode = new_mode;
 
                     self.transcript_mut().add_system_message(format!(
                         "Advisor mode: {} (Ctrl+A to toggle)",
-                        if new_mode == thunderus_core::ApprovalMode::ReadOnly { "ON" } else { "OFF" }
+                        if new_mode == ApprovalMode::ReadOnly { "ON" } else { "OFF" }
                     ));
 
                     if let Some(ref mut session) = self.session {
@@ -594,20 +621,12 @@ impl App {
                         .add_system_message("Transcript cleared (session history preserved)");
                 }
                 KeyAction::SlashCommandGardenConsolidate { session_id } => {
-                    self.handle_garden_consolidate_command(session_id);
+                    self.handle_garden_consolidate_command(session_id)
                 }
-                KeyAction::SlashCommandGardenHygiene => {
-                    self.handle_garden_hygiene_command();
-                }
-                KeyAction::SlashCommandGardenDrift => {
-                    self.handle_garden_drift_command();
-                }
-                KeyAction::SlashCommandGardenVerify { doc_id } => {
-                    self.handle_garden_verify_command(doc_id);
-                }
-                KeyAction::SlashCommandGardenStats => {
-                    self.handle_garden_stats_command();
-                }
+                KeyAction::SlashCommandGardenHygiene => self.handle_garden_hygiene_command(),
+                KeyAction::SlashCommandGardenDrift => self.handle_garden_drift_command(),
+                KeyAction::SlashCommandGardenVerify { doc_id } => self.handle_garden_verify_command(doc_id),
+                KeyAction::SlashCommandGardenStats => self.handle_garden_stats_command(),
                 KeyAction::NavigateCardNext => {
                     if !self.transcript_mut().focus_next_card() {
                         self.transcript_mut().scroll_down(1);
@@ -628,26 +647,24 @@ impl App {
                         .transcript_mut()
                         .set_focused_card_detail_level(CardDetailLevel::Verbose);
                 }
-                KeyAction::ScrollUp => {
-                    let has_action_cards = self.transcript().entries().iter().any(|e| e.is_action_card());
-
-                    if has_action_cards {
+                KeyAction::ScrollUp => match self.transcript().entries().iter().any(|e| e.is_action_card()) {
+                    true => {
                         self.transcript_mut().focus_prev_card();
-                    } else {
+                    }
+                    false => {
                         self.transcript_mut().scroll_up(1);
                         self.state_mut().scroll_vertical(-1);
                     }
-                }
-                KeyAction::ScrollDown => {
-                    let has_action_cards = self.transcript().entries().iter().any(|e| e.is_action_card());
-
-                    if has_action_cards {
+                },
+                KeyAction::ScrollDown => match self.transcript().entries().iter().any(|e| e.is_action_card()) {
+                    true => {
                         self.transcript_mut().focus_next_card();
-                    } else {
+                    }
+                    false => {
                         self.transcript_mut().scroll_down(1);
                         self.state_mut().scroll_vertical(1);
                     }
-                }
+                },
                 KeyAction::PageUp => {
                     self.transcript_mut().scroll_up(10);
                     self.state_mut().scroll_vertical(-10);
@@ -896,13 +913,13 @@ impl App {
                     }
                 }
                 KeyAction::InspectorNavigate => {}
+                // TODO: Implement jump to diff or editor for affected file
                 KeyAction::InspectorOpenFile { .. } => {
-                    let inspector = crate::components::Inspector::new(&self.state);
+                    let inspector = Inspector::new(&self.state);
                     let files = inspector.affected_files();
                     if let Some(path) = files.first() {
                         self.transcript_mut()
                             .add_system_message(format!("Opening affected file: {}", path));
-                        // TODO: Implement jump to diff or editor for affected file
                     } else {
                         self.transcript_mut()
                             .add_system_message("No affected files for this event.");
@@ -962,7 +979,7 @@ impl App {
             header.render(frame, layout.header);
 
             if matches!(self.state.ui.active_view, crate::state::MainView::Inspector) {
-                let inspector = crate::components::Inspector::new(&self.state);
+                let inspector = Inspector::new(&self.state);
                 inspector.render(
                     frame,
                     layout.evidence_list.unwrap_or_default(),
@@ -1139,7 +1156,7 @@ impl Default for App {
             provider: None,
             session: None,
             streaming_model_content: None,
-            drift_monitor: None,
+            _drift_monitor: None,
             snapshot_manager: None,
             drift_rx: None,
             pause_token: tokio_util::sync::CancellationToken::new(),
@@ -1150,12 +1167,11 @@ impl Default for App {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::{
         state::ApprovalState,
         tui_approval::{TuiApprovalHandle, TuiApprovalProtocol},
     };
-
-    use super::*;
     use std::path::PathBuf;
     use thunderus_core::{ApprovalMode, ProviderConfig, SandboxMode};
 
@@ -1587,7 +1603,7 @@ mod tests {
 
         app.transcript_mut().add_approval_prompt("test.action", "safe");
 
-        app.send_approval_response(thunderus_core::ApprovalDecision::Approved);
+        app.send_approval_response(ApprovalDecision::Approved);
         assert!(app.state().approval_ui.pending_approval.is_none());
         assert!(app.transcript().len() >= 2);
     }
@@ -1601,7 +1617,7 @@ mod tests {
 
         app.transcript_mut().add_approval_prompt("test.action", "safe");
 
-        app.send_approval_response(thunderus_core::ApprovalDecision::Approved);
+        app.send_approval_response(ApprovalDecision::Approved);
         assert!(app.state().approval_ui.pending_approval.is_none());
     }
 
@@ -1616,7 +1632,7 @@ mod tests {
             Some(ApprovalState::pending("delete.file".to_string(), "dangerous".to_string()).with_request_id(789));
 
         app.transcript_mut().add_approval_prompt("delete.file", "dangerous");
-        app.send_approval_response(thunderus_core::ApprovalDecision::Rejected);
+        app.send_approval_response(ApprovalDecision::Rejected);
 
         assert!(app.state().approval_ui.pending_approval.is_none());
     }
@@ -1633,7 +1649,7 @@ mod tests {
             Some(ApprovalState::pending("install.crate".to_string(), "risky".to_string()).with_request_id(999));
 
         app.transcript_mut().add_approval_prompt("install.crate", "risky");
-        app.send_approval_response(thunderus_core::ApprovalDecision::Cancelled);
+        app.send_approval_response(ApprovalDecision::Cancelled);
 
         assert!(app.state().approval_ui.pending_approval.is_none());
     }
@@ -1874,33 +1890,33 @@ mod tests {
     #[test]
     fn test_handle_approvals_command_read_only() {
         let mut app = create_test_app();
-        app.state_mut().config.approval_mode = thunderus_core::ApprovalMode::Auto;
+        app.state_mut().config.approval_mode = ApprovalMode::Auto;
 
         app.handle_approvals_command("read-only".to_string());
 
-        assert_eq!(app.state.config.approval_mode, thunderus_core::ApprovalMode::ReadOnly);
+        assert_eq!(app.state.config.approval_mode, ApprovalMode::ReadOnly);
         assert_eq!(app.transcript().len(), 1);
     }
 
     #[test]
     fn test_handle_approvals_command_auto() {
         let mut app = create_test_app();
-        app.state_mut().config.approval_mode = thunderus_core::ApprovalMode::ReadOnly;
+        app.state_mut().config.approval_mode = ApprovalMode::ReadOnly;
 
         app.handle_approvals_command("auto".to_string());
 
-        assert_eq!(app.state.config.approval_mode, thunderus_core::ApprovalMode::Auto);
+        assert_eq!(app.state.config.approval_mode, ApprovalMode::Auto);
         assert_eq!(app.transcript().len(), 1);
     }
 
     #[test]
     fn test_handle_approvals_command_full_access() {
         let mut app = create_test_app();
-        app.state_mut().config.approval_mode = thunderus_core::ApprovalMode::Auto;
+        app.state_mut().config.approval_mode = ApprovalMode::Auto;
 
         app.handle_approvals_command("full-access".to_string());
 
-        assert_eq!(app.state.config.approval_mode, thunderus_core::ApprovalMode::FullAccess);
+        assert_eq!(app.state.config.approval_mode, ApprovalMode::FullAccess);
         assert_eq!(app.transcript().len(), 1);
     }
 
@@ -2031,7 +2047,7 @@ mod tests {
         ));
         app.handle_event(event).await;
 
-        assert_eq!(app.state().config.approval_mode, thunderus_core::ApprovalMode::ReadOnly);
+        assert_eq!(app.state().config.approval_mode, ApprovalMode::ReadOnly);
         assert_ne!(app.state().config.approval_mode, original_mode);
         assert_eq!(app.transcript().len(), 1);
     }

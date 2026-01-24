@@ -16,6 +16,9 @@ pub struct SessionMetadata {
     /// Teaching state for tracking taught concepts
     #[serde(default)]
     pub teaching_state: TeachingState,
+    /// Whether the user has seen the drift explainer
+    #[serde(default)]
+    pub drift_explainer_shown: bool,
     /// When the session was created
     pub created_at: String,
     /// When the session was last updated
@@ -35,6 +38,7 @@ impl SessionMetadata {
             teaching_state: TeachingState::default(),
             created_at: now.clone(),
             updated_at: now,
+            drift_explainer_shown: false,
         }
     }
 

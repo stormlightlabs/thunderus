@@ -312,8 +312,16 @@ pub fn handle_normal_key(event: KeyEvent, state: &mut AppState) -> Option<KeyAct
                 return Some(KeyAction::StartReconcileRitual);
             } else if state.ui.is_reconciling() {
                 return Some(KeyAction::ReconcileDiscard);
+            } else if state.input.is_navigating_history() && state.input.buffer.is_empty() {
+                state.input.enter_fork_mode();
+                return Some(KeyAction::NoOp);
+            } else if state.input.is_in_fork_mode() {
+                state.input.exit_fork_mode();
+                return Some(KeyAction::NoOp);
             } else if !state.input.buffer.is_empty() {
                 state.input.clear();
+            } else if !state.input.message_history.is_empty() {
+                return Some(KeyAction::RewindLastMessage);
             }
         }
         _ => (),

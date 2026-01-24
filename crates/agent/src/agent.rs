@@ -85,7 +85,6 @@ pub enum AgentEvent {
 }
 
 /// Agent orchestrator that manages the main interaction loop
-#[allow(dead_code)]
 pub struct Agent {
     /// Provider for LLM interaction
     provider: Arc<dyn Provider>,
@@ -94,6 +93,7 @@ pub struct Agent {
     /// Approval gate for mode-based enforcement
     approval_gate: Arc<RwLock<ApprovalGate>>,
     /// Session ID for logging
+    #[allow(dead_code)]
     session_id: SessionId,
     /// Conversation messages (for context)
     messages: Vec<ChatMessage>,

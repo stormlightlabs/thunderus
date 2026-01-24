@@ -303,6 +303,18 @@ impl Transcript {
         self.focused_card_index = None;
     }
 
+    /// Truncate entries from a specific index (for fork mode)
+    ///
+    /// Keeps all entries before the given index and removes everything from it onward.
+    /// Used when forking from a previous point in conversation history.
+    pub fn truncate_from(&mut self, index: usize) {
+        if index < self.entries.len() {
+            self.entries.truncate(index);
+            self.scroll_offset = 0;
+            self.focused_card_index = None;
+        }
+    }
+
     /// Scroll to bottom (most recent)
     pub fn scroll_to_bottom(&mut self) {
         self.scroll_offset = 0;

@@ -83,7 +83,12 @@ impl<'a> Footer<'a> {
         };
 
         let input_text = if self.state.input.buffer.is_empty() {
-            if self.state.input.is_navigating_history() {
+            if self.state.input.is_in_fork_mode() {
+                format!(
+                    "[FORK] Edit message #{}",
+                    self.state.input.history_index.map(|i| i + 1).unwrap_or(1)
+                )
+            } else if self.state.input.is_navigating_history() {
                 "<no message>".to_string()
             } else {
                 "Type a message...".to_string()
@@ -93,7 +98,9 @@ impl<'a> Footer<'a> {
         };
 
         let input_style = if self.state.input.buffer.is_empty() {
-            if self.state.input.is_navigating_history() {
+            if self.state.input.is_in_fork_mode() {
+                Style::default().fg(theme.green).bg(theme.panel_bg)
+            } else if self.state.input.is_navigating_history() {
                 Style::default().fg(theme.yellow).bg(theme.panel_bg)
             } else {
                 Style::default().fg(theme.muted).bg(theme.panel_bg)

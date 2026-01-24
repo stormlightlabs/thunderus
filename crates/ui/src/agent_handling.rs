@@ -22,6 +22,43 @@ impl App {
         }
     }
 
+    /// Check if a tool should be blocked due to file ownership
+    ///
+    /// Returns true if the tool is trying to write to a user-owned file.
+    /// Write operations include: edit, write, create, patch, delete
+    fn should_block_tool_for_ownership(&self, tool_name: &str, args: &serde_json::Value) -> bool {
+        let write_operations = [
+            "edit",
+            "write",
+            "write_file",
+            "create",
+            "create_file",
+            "patch",
+            "apply_patch",
+            "delete",
+            "remove",
+            "rm",
+        ];
+
+        if !write_operations.contains(&tool_name) {
+            return false;
+        }
+
+        let file_path = args
+            .get("file_path")
+            .or_else(|| args.get("path"))
+            .and_then(|v| v.as_str());
+
+        if let Some(path_str) = file_path
+            && let Some(ref session) = self.session
+        {
+            let path_buf = std::path::PathBuf::from(path_str);
+            return session.is_owned_by_user(&path_buf);
+        }
+
+        false
+    }
+
     /// Check for drift by comparing current state against last captured snapshot
     ///
     /// Returns true if drift was detected (state changed), false otherwise.
@@ -70,6 +107,17 @@ impl App {
                 self.transcript_mut().add_streaming_token(&text);
             }
             AgentEvent::ToolCall { name, args, risk, description, task_context, scope, classification_reasoning } => {
+                if self.should_block_tool_for_ownership(&name, &args) {
+                    self.transcript_mut()
+                        .add_system_message("⛔ Write blocked: File is currently owned by user after manual edits.");
+                    self.transcript_mut().add_system_message(
+                        "The agent cannot write to files you've modified. Press 'Esc' to reconcile and transfer ownership back to the agent."
+                    );
+                    self.pause_token.cancel();
+                    self.state_mut().pause_generation();
+                    return;
+                }
+
                 let args_str = serde_json::to_string_pretty(&args).unwrap_or_default();
                 let risk_str = risk.as_str();
                 self.transcript_mut().add_tool_call(&name, &args_str, risk_str);
@@ -300,12 +348,32 @@ impl App {
             Vec::new()
         };
 
+        let snapshot_manager = self.snapshot_manager.clone();
+        let last_snapshot_state = self.last_snapshot_state.clone();
+
         tokio::spawn(async move {
             let mut message_processed = false;
             while !message_processed {
                 if pause_token.is_cancelled() {
                     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                     continue;
+                }
+
+                if let Some(ref sm) = snapshot_manager
+                    && let Some(ref last_state) = last_snapshot_state
+                {
+                    match sm.get_current_state() {
+                        Ok(current_state) => {
+                            if current_state != *last_state {
+                                let _ = tx.send(thunderus_agent::AgentEvent::Error(
+                                    "Drift detected: Workspace state has changed. Press 'Esc' to reconcile."
+                                        .to_string(),
+                                ));
+                                break;
+                            }
+                        }
+                        Err(e) => eprintln!("Failed to check for drift: {}", e),
+                    }
                 }
 
                 match agent
@@ -333,6 +401,31 @@ impl App {
 
     /// Handle a drift event from the workspace monitor
     pub fn handle_drift_event(&mut self, event: thunderus_core::DriftEvent) {
+        let show_explainer = self
+            .session
+            .as_ref()
+            .map(|s| s.drift_explainer_shown().ok() == Some(false))
+            .unwrap_or(false);
+
+        if show_explainer {
+            self.transcript_mut().add_system_message("─".repeat(50));
+            self.transcript_mut()
+                .add_system_message("💡 MIXED-INITIATIVE COLLABORATION");
+            self.transcript_mut().add_system_message("─".repeat(50));
+            self.transcript_mut()
+                .add_system_message("You edited files while the agent was working. This is called 'drift'.");
+            self.transcript_mut()
+                .add_system_message("The agent paused to avoid conflicts. You can:");
+            self.transcript_mut()
+                .add_system_message("  • Press 'Esc' to reconcile - let the agent re-sync with your changes");
+            self.transcript_mut()
+                .add_system_message("  • Continue working - the agent will wait for you to finish");
+            self.transcript_mut().add_system_message("─".repeat(50));
+            if let Some(ref mut session) = self.session {
+                let _ = session.mark_drift_explainer_shown();
+            }
+        }
+
         match event {
             thunderus_core::DriftEvent::FileSystemChange(paths) => {
                 let paths_str = paths
@@ -458,12 +551,45 @@ impl App {
         self.transcript_mut()
             .add_system_message("⚠️  Discarding user changes...");
         self.transcript_mut()
-            .add_system_message("This would revert your changes. (Implementation requires git restore)");
+            .add_system_message("Reverting to last agent snapshot state...");
 
-        // TODO: Implement git restore to discard changes
-        self.state_mut().stop_generation();
-        self.transcript_mut()
-            .add_system_message("Note: Auto-revert not implemented. Please manually revert changes.");
+        let result = std::process::Command::new("git")
+            .args(["restore", "."])
+            .current_dir(self.state().cwd())
+            .output();
+
+        match result {
+            Ok(output) => {
+                if output.status.success() {
+                    self.transcript_mut()
+                        .add_system_message("✓ All uncommitted changes have been discarded.");
+
+                    if let Some(ref mut session) = self.session {
+                        session.file_ownership.clear();
+                    }
+
+                    self.capture_snapshot_state();
+
+                    self.state_mut().stop_generation();
+                    self.transcript_mut()
+                        .add_system_message("Ready. Workspace is now at the last agent state.");
+                } else {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    self.transcript_mut()
+                        .add_system_message(format!("Failed to discard changes: {}", stderr));
+                    self.transcript_mut()
+                        .add_system_message("Please manually revert changes with: git restore .");
+                    self.state_mut().stop_generation();
+                }
+            }
+            Err(e) => {
+                self.transcript_mut()
+                    .add_system_message(format!("Failed to run git restore: {}", e));
+                self.transcript_mut()
+                    .add_system_message("Please manually revert changes with: git restore .");
+                self.state_mut().stop_generation();
+            }
+        }
     }
 
     /// Stop/reset agent - exits the agent loop entirely

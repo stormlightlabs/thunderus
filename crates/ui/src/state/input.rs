@@ -11,6 +11,10 @@ pub struct InputState {
     pub history_index: Option<usize>,
     /// Temporary buffer for new message while navigating history
     pub temp_buffer: Option<String>,
+    /// Whether we're in "fork mode" (editing and replacing history entry)
+    pub is_fork_mode: bool,
+    /// Fork point index (when forking from a specific point in history)
+    pub fork_point_index: Option<usize>,
 }
 
 impl InputState {
@@ -142,6 +146,68 @@ impl InputState {
             let total = self.message_history.len();
             format!("{}/{}", idx + 1, total)
         })
+    }
+
+    /// Enter fork mode at the current history index
+    ///
+    /// This marks that we're editing history and will replace the entry
+    /// instead of appending a new one.
+    pub fn enter_fork_mode(&mut self) {
+        if let Some(idx) = self.history_index {
+            self.is_fork_mode = true;
+            self.fork_point_index = Some(idx);
+        }
+    }
+
+    /// Exit fork mode (return to normal message input)
+    pub fn exit_fork_mode(&mut self) {
+        self.is_fork_mode = false;
+        self.fork_point_index = None;
+    }
+
+    /// Check if currently in fork mode
+    pub fn is_in_fork_mode(&self) -> bool {
+        self.is_fork_mode
+    }
+
+    /// Replace a history message at the given index
+    ///
+    /// Returns the old message that was replaced.
+    pub fn replace_history_entry(&mut self, index: usize, new_message: String) -> Option<String> {
+        if index < self.message_history.len() {
+            let old = self.message_history.get(index).cloned();
+            self.message_history[index] = new_message;
+            old
+        } else {
+            None
+        }
+    }
+
+    /// Truncate history at the given index (removes all entries after it)
+    ///
+    /// This is used when "forking" from a previous point - all messages
+    /// after the fork point are discarded.
+    pub fn truncate_history_from(&mut self, index: usize) {
+        if index < self.message_history.len() {
+            self.message_history.truncate(index + 1);
+        }
+    }
+
+    /// Take the current buffer and update history if in fork mode
+    ///
+    /// Returns the message that was taken.
+    pub fn take_with_history_update(&mut self) -> String {
+        let buffer = std::mem::take(&mut self.buffer);
+        self.cursor = 0;
+
+        if self.is_fork_mode {
+            if let Some(idx) = self.fork_point_index {
+                self.replace_history_entry(idx, buffer.clone());
+            }
+            self.exit_fork_mode();
+        }
+
+        buffer
     }
 }
 #[cfg(test)]
@@ -342,5 +408,109 @@ mod tests {
 
         input.add_to_history(sent);
         assert_eq!(input.message_history.last(), Some(&"modified message".to_string()));
+    }
+
+    #[test]
+    fn test_input_state_fork_mode_enter_exit() {
+        let mut input = InputState::new();
+
+        input.add_to_history("msg1".to_string());
+        input.add_to_history("msg2".to_string());
+        input.navigate_up();
+
+        assert_eq!(input.history_index, Some(1));
+        assert!(!input.is_fork_mode);
+
+        input.enter_fork_mode();
+
+        assert!(input.is_fork_mode);
+        assert_eq!(input.fork_point_index, Some(1));
+
+        input.exit_fork_mode();
+
+        assert!(!input.is_fork_mode);
+        assert!(input.fork_point_index.is_none());
+    }
+
+    #[test]
+    fn test_input_state_fork_mode_requires_history_index() {
+        let mut input = InputState::new();
+        input.enter_fork_mode();
+        assert!(!input.is_fork_mode);
+        assert!(input.fork_point_index.is_none());
+    }
+
+    #[test]
+    fn test_input_state_replace_history_entry() {
+        let mut input = InputState::new();
+
+        input.add_to_history("first".to_string());
+        input.add_to_history("second".to_string());
+        input.add_to_history("third".to_string());
+
+        let old = input.replace_history_entry(1, "second-edited".to_string());
+        assert_eq!(old, Some("second".to_string()));
+        assert_eq!(input.message_history[1], "second-edited");
+    }
+
+    #[test]
+    fn test_input_state_replace_history_entry_out_of_bounds() {
+        let mut input = InputState::new();
+
+        input.add_to_history("msg".to_string());
+        let result = input.replace_history_entry(5, "new".to_string());
+        assert!(result.is_none());
+        assert_eq!(input.message_history.len(), 1);
+    }
+
+    #[test]
+    fn test_input_state_truncate_history_from() {
+        let mut input = InputState::new();
+
+        input.add_to_history("m1".to_string());
+        input.add_to_history("m2".to_string());
+        input.add_to_history("m3".to_string());
+        input.add_to_history("m4".to_string());
+
+        assert_eq!(input.message_history.len(), 4);
+
+        input.truncate_history_from(1);
+
+        assert_eq!(input.message_history.len(), 2);
+        assert_eq!(input.message_history[0], "m1");
+        assert_eq!(input.message_history[1], "m2");
+    }
+
+    #[test]
+    fn test_input_state_take_with_history_update_in_fork_mode() {
+        let mut input = InputState::new();
+
+        input.add_to_history("original".to_string());
+        input.navigate_up();
+
+        input.enter_fork_mode();
+        input.buffer = "edited".to_string();
+
+        let taken = input.take_with_history_update();
+
+        assert_eq!(taken, "edited");
+        assert!(!input.is_fork_mode);
+        assert_eq!(input.message_history[0], "edited");
+    }
+
+    #[test]
+    fn test_input_state_take_normal_mode() {
+        let mut input = InputState::new();
+
+        input.buffer = "test message".to_string();
+        input.cursor = 12;
+
+        assert!(!input.is_fork_mode);
+
+        let taken = input.take_with_history_update();
+
+        assert_eq!(taken, "test message");
+        assert!(!input.is_fork_mode);
+        assert!(input.fork_point_index.is_none());
     }
 }

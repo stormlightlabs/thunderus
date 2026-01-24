@@ -132,9 +132,11 @@ When you work alongside the agent, it pauses, notices drift, and reconciles.
 - [x] Drift detection (mandatory gate at every step boundary):
       - compare repo snapshot IDs; if changed → stop and require reconcile
       - SnapshotManager tracks git state for drift detection
+      - DriftMonitor uses notify crate for real-time file system watching
 - [x] "User right-of-way" state machine:
       - any keystroke/edit cancels generation or tool execution immediately
       - pause_token and CancelToken for immediate interruption
+      - pause_generation() and is_paused() state management
 - [x] Reconcile ritual (single predictable flow):
       1. summarize changed files/diffstat
       2. choose: update plan & continue / rebase pending patches / discard
@@ -145,14 +147,16 @@ When you work alongside the agent, it pauses, notices drift, and reconciles.
 - [x] File ownership rule:
       - files you touched become "user-owned"; agent needs explicit approval to
         modify them until reconcile completes
-      - SessionToolDispatcher enforces write protection
+      - should_block_tool_for_ownership() enforcement in agent_handling
       - Session.file_ownership HashMap tracks ownership
+      - ownership cleared on reconcile_continue()
 - [x] Advisor mode toggle:
       - consultative suggestions only (maps to read-only/approval modes)
       - Ctrl+A toggles between Auto and ReadOnly modes
-- [~] TUI enhancements (moved from Section III):
-      - History editing: "edit previous message / fork from point" (deferred to future milestone)
-      - Esc-based rewind behavior (partial: Esc triggers reconcile when paused, full history editing deferred)
+      - implemented in normal_mode.rs line 228-229
+- [ ] TUI enhancements:
+      - History editing: "edit previous message / fork from point"
+      - Esc-based rewind behavior
 
 DoD:
 - The agent never proceeds on stale assumptions after you fix something manually

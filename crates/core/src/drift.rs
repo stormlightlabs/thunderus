@@ -44,6 +44,7 @@ impl DriftMonitor {
     }
 }
 
+#[derive(Clone)]
 pub struct SnapshotManager {
     repo_path: PathBuf,
 }

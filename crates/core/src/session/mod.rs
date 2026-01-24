@@ -469,6 +469,18 @@ impl Session {
             .map(|owner| owner == "agent")
             .unwrap_or(false)
     }
+
+    /// Mark the drift explainer as shown
+    pub fn mark_drift_explainer_shown(&mut self) -> Result<()> {
+        let mut metadata = self.load_metadata()?;
+        metadata.drift_explainer_shown = true;
+        self.save_metadata(&metadata)
+    }
+
+    /// Check if the drift explainer has been shown
+    pub fn drift_explainer_shown(&self) -> Result<bool> {
+        Ok(self.load_metadata()?.drift_explainer_shown)
+    }
 }
 
 #[cfg(test)]

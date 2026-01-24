@@ -153,4 +153,6 @@ pub enum KeyAction {
     ReconcileDiscard,
     /// Stop/reset agent during reconciliation
     ReconcileStop,
+    /// Rewind to previous message (undo last sent message)
+    RewindLastMessage,
 }
