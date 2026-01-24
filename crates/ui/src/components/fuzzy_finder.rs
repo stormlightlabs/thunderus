@@ -227,6 +227,7 @@ mod tests {
             },
             thunderus_core::ApprovalMode::Auto,
             thunderus_core::SandboxMode::Policy,
+            false,
         );
 
         state.enter_fuzzy_finder(String::new(), 0);

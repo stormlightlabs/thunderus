@@ -104,6 +104,18 @@ impl ToolRegistry {
         &self.workspace_roots
     }
 
+    /// Get the risk level for a tool by name
+    pub fn tool_risk(&self, tool_name: &str) -> Option<thunderus_core::ToolRisk> {
+        let tools = self.tools.read().ok()?;
+        tools.get(tool_name).map(|tool| tool.risk_level())
+    }
+
+    /// Check if a tool is read-only by name
+    pub fn tool_is_read_only(&self, tool_name: &str) -> Option<bool> {
+        let tools = self.tools.read().ok()?;
+        tools.get(tool_name).map(|tool| tool.is_read_only())
+    }
+
     /// Check if a path is within workspace boundaries
     pub fn is_within_workspace(&self, path: &Path) -> bool {
         match self.workspace_roots.is_empty() {

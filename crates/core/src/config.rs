@@ -547,10 +547,49 @@ model = "glm-4.7"
 # Base URL (optional, defaults to provider's default)
 # base_url = "https://custom.api.url"
 
+# Workspace sandbox configuration
+[profiles.default.workspace]
+# Workspace root directories (optional)
+roots = []
+# Include /tmp for scratch files
+include_temp = true
+# Explicitly allowed paths
+allow = []
+# Explicitly denied paths (always blocked)
+deny = []
+
+# Network sandbox configuration
+[profiles.default.network]
+# Enable network access (default: false)
+enabled = false
+# Allowed domains for web operations
+allow_domains = []
+
+# Memory configuration
+[profiles.default.memory]
+# Enable vector search (default: false - lexical-only)
+enable_vector_search = false
+# Vector embedding model name (optional)
+vector_model = "all-MiniLM-L6-v2"
+# Vector embedding dimensions
+vector_dims = 384
+# BM25 threshold for vector fallback (lower = more likely)
+vector_fallback_threshold = -3.0
+
+# Skills configuration
+[profiles.default.skills]
+# Enable skills system
+enabled = true
+# Custom skills directory (optional, defaults to .thunderus/skills)
+# skills_dir = "/abs/path/to/skills"
+# Enable auto-discovery based on task intent
+auto_discovery = true
+
 # Additional options (optional)
 # [profiles.default.options]
 # max_tokens = "8192"
 # temperature = "0.7"
+# theme = "iceberg"
 "#
     }
 }
@@ -763,6 +802,15 @@ model = "gemini-2.5-flash"
         let personal = config.profile("personal").unwrap();
         assert_eq!(personal.approval_mode, ApprovalMode::FullAccess);
         assert!(personal.allow_network);
+    }
+
+    #[test]
+    fn test_example_includes_extended_sections() {
+        let example = Config::example();
+        assert!(example.contains("[profiles.default.workspace]"));
+        assert!(example.contains("[profiles.default.network]"));
+        assert!(example.contains("[profiles.default.memory]"));
+        assert!(example.contains("[profiles.default.skills]"));
     }
 
     #[test]

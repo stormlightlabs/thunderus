@@ -9,7 +9,7 @@ CLI is evolving; run `thunderus --help` for the authoritative list.
 
 ## Global Usage
 
-```
+```sh
 thunderus [--config PATH] [--profile PROFILE] [--verbose] [--dir DIR] [command]
 ```
 
@@ -26,7 +26,7 @@ thunderus [--config PATH] [--profile PROFILE] [--verbose] [--dir DIR] [command]
 
 Start the interactive TUI session.
 
-```
+```sh
 thunderus start [--dir DIR]
 ```
 
@@ -34,7 +34,7 @@ thunderus start [--dir DIR]
 
 Execute a single command and exit (non-interactive mode).
 
-```
+```sh
 thunderus exec <CMD> [ARGS...]
 ```
 
@@ -42,7 +42,7 @@ thunderus exec <CMD> [ARGS...]
 
 Display the current configuration status and profile information.
 
-```
+```sh
 thunderus status
 ```
 
@@ -50,15 +50,9 @@ thunderus status
 
 Generate shell completion scripts.
 
-```
+```sh
 thunderus completions <shell>
 ```
 
-Supported shells are those exposed by `clap_complete` (for example: `bash`,
-`zsh`, `fish`, `powershell`).
-
-## Planned: Expanded CLI Surface
-
-Additional subcommands for memory inspection, patch queue management, and
-workflow shortcuts are on the roadmap. Treat those as **Planned** until they
-land in `--help` output.
+Supported shells are those exposed by [`clap_complete`](https://crates.io/crates/clap_complete)
+(for example: `bash`, `zsh`, `fish`, `powershell`).

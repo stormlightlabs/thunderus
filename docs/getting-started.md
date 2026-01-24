@@ -4,9 +4,9 @@ outline: deep
 
 # Getting Started
 
-Thunderus is in active development. The TUI components, approval system, and tool
-framework exist today, while some integrations (provider adapters, full TUI
-wiring) are still in progress. Sections marked **Planned** describe upcoming work.
+Thunderus is in active development. The TUI, approval system, tool framework,
+providers, and memory retrieval are wired end-to-end, with ongoing refinement as
+the product stabilizes.
 
 ## Prerequisites
 
@@ -36,9 +36,9 @@ settings.
 cp config.example.toml config.toml
 ```
 
-At minimum, set `working_root` and select a provider profile. Provider adapters
-are still evolving, so treat credentials and model configuration as **Planned**
-until the adapter for your provider is wired in.
+At minimum, set `working_root` and select a provider profile. The GLM and Gemini
+adapters are wired into the runtime, so model and API credentials are used
+directly by the CLI.
 
 ## First Session Walkthrough
 
@@ -48,14 +48,8 @@ until the adapter for your provider is wired in.
 4. Approve read-only commands when prompted.
 5. Review diffs before accepting any edits.
 
-## Planned: Provider Connections
+## TUI Coverage
 
-Provider adapters (GLM and Gemini) have types and configuration schemas in place,
-but runtime integration is still in progress. Until adapters are complete, treat
-provider usage as **Planned** and rely on local-only or mock flows.
-
-## Planned: Expanded TUI Coverage
-
-The TUI runs from the CLI today, but some features (inspector wiring, deeper
-navigation, and richer session tooling) are still in progress. Expect occasional
-placeholder views as the UI expands.
+The TUI runs from the CLI and provides approvals, diffs, and transcript views.
+Some panels and flows will continue to evolve, but core interaction loops are
+available today.

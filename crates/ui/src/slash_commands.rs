@@ -2,7 +2,8 @@ use crate::app::App;
 use crate::state::VerbosityLevel;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use thunderus_core::{ApprovalMode, MemoryPaths, SearchScope, ViewKind, ViewMaterializer};
+use thunderus_core::{ApprovalMode, MemoryPaths, ProviderConfig, SearchScope, ViewKind, ViewMaterializer};
+use thunderus_providers::ProviderFactory;
 
 impl App {
     /// Handle /model command
@@ -16,16 +17,49 @@ impl App {
                     provider_name, model_name
                 ))
             }
-            "glm-4.7" => self
-                .transcript_mut()
-                .add_system_message("Switching to GLM-4.7 is not yet implemented in this version"),
-            "gemini-2.5-flash" => self
-                .transcript_mut()
-                .add_system_message("Switching to Gemini-2.5-flash is not yet implemented in this version"),
-            _ => self.transcript_mut().add_system_message(format!(
-                "Unknown model: {}. Use /model list to see available models.",
-                model
-            )),
+            _ => {
+                let new_provider = match &self.state.config.provider {
+                    ProviderConfig::Glm { api_key, base_url, .. } => {
+                        if !model.starts_with("glm") {
+                            self.transcript_mut().add_system_message(
+                                "Cannot switch to a Gemini model while using a GLM provider. Update your profile to change providers.",
+                            );
+                            return;
+                        }
+                        ProviderConfig::Glm {
+                            api_key: api_key.clone(),
+                            model: model.clone(),
+                            base_url: base_url.clone(),
+                        }
+                    }
+                    ProviderConfig::Gemini { api_key, base_url, .. } => {
+                        if !model.starts_with("gemini") {
+                            self.transcript_mut().add_system_message(
+                                "Cannot switch to a GLM model while using a Gemini provider. Update your profile to change providers.",
+                            );
+                            return;
+                        }
+                        ProviderConfig::Gemini {
+                            api_key: api_key.clone(),
+                            model: model.clone(),
+                            base_url: base_url.clone(),
+                        }
+                    }
+                };
+
+                match ProviderFactory::create_from_config(&new_provider) {
+                    Ok(provider) => {
+                        self.state.config.provider = new_provider;
+                        self.state.model_selector.current_model = model.clone();
+                        self.set_provider(provider);
+                        self.transcript_mut()
+                            .add_system_message(format!("Model switched to {}", model));
+                    }
+                    Err(e) => self
+                        .transcript_mut()
+                        .add_system_message(format!("Failed to switch model: {}", e)),
+                }
+            }
         }
     }
 
@@ -42,18 +76,21 @@ impl App {
             "read-only" => {
                 let old_mode = self.state.config.approval_mode;
                 self.state.config.approval_mode = ApprovalMode::ReadOnly;
+                self.update_approval_gate(ApprovalMode::ReadOnly);
                 self.transcript_mut()
                     .add_system_message(format!("Approval mode changed: {} → read-only", old_mode));
             }
             "auto" => {
                 let old_mode = self.state.config.approval_mode;
                 self.state.config.approval_mode = ApprovalMode::Auto;
+                self.update_approval_gate(ApprovalMode::Auto);
                 self.transcript_mut()
                     .add_system_message(format!("Approval mode changed: {} → auto", old_mode));
             }
             "full-access" => {
                 let old_mode = self.state.config.approval_mode;
                 self.state.config.approval_mode = ApprovalMode::FullAccess;
+                self.update_approval_gate(ApprovalMode::FullAccess);
                 self.transcript_mut()
                     .add_system_message(format!("Approval mode changed: {} → full-access", old_mode));
             }

@@ -1,10 +1,11 @@
 use futures::StreamExt;
-use std::sync::{Arc, RwLock};
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex, RwLock};
 use thunderus_core::TaskContextTracker;
 use thunderus_core::memory::{MemoryRetriever, RetrievalPolicy, format_memory_context};
 use thunderus_core::*;
 use thunderus_providers::*;
-use thunderus_tools::extract_scope;
+use thunderus_tools::{SessionToolDispatcher, classify_shell_command_risk, extract_scope};
 use tokio::sync::mpsc;
 
 /// Metadata for tool execution
@@ -96,13 +97,17 @@ pub struct Agent {
     #[allow(dead_code)]
     session_id: SessionId,
     /// Conversation messages (for context)
-    messages: Vec<ChatMessage>,
+    messages: Arc<Mutex<Vec<ChatMessage>>>,
     /// Task context tracker for "WHY" field
     task_context: Arc<TaskContextTracker>,
     /// Memory retriever for querying relevant context
     memory_retriever: Option<Arc<dyn MemoryRetriever>>,
     /// Retrieval policy configuration
     retrieval_policy: Option<RetrievalPolicy>,
+    /// Tool dispatcher for executing tool calls
+    tool_dispatcher: Option<Arc<Mutex<SessionToolDispatcher>>>,
+    /// Profile for sandbox/policy checks
+    profile: Option<Profile>,
 }
 
 impl Agent {
@@ -116,10 +121,12 @@ impl Agent {
             approval_protocol,
             approval_gate: Arc::new(RwLock::new(approval_gate)),
             session_id,
-            messages: Vec::new(),
+            messages: Arc::new(Mutex::new(Vec::new())),
             task_context: Arc::new(TaskContextTracker::new()),
             memory_retriever: None,
             retrieval_policy: None,
+            tool_dispatcher: None,
+            profile: None,
         }
     }
 
@@ -132,6 +139,18 @@ impl Agent {
     /// Set the retrieval policy for this agent
     pub fn with_retrieval_policy(mut self, policy: RetrievalPolicy) -> Self {
         self.retrieval_policy = Some(policy);
+        self
+    }
+
+    /// Set the tool dispatcher for executing tool calls
+    pub fn with_tool_dispatcher(mut self, dispatcher: Arc<Mutex<SessionToolDispatcher>>) -> Self {
+        self.tool_dispatcher = Some(dispatcher);
+        self
+    }
+
+    /// Set the profile for sandbox policy checks
+    pub fn with_profile(mut self, profile: Profile) -> Self {
+        self.profile = Some(profile);
         self
     }
 
@@ -195,7 +214,7 @@ impl Agent {
             }
         }
 
-        let mut messages_for_request = self.messages.clone();
+        let mut messages_for_request = self.messages.lock().unwrap().clone();
         if !system_message_content.is_empty() {
             let has_system = messages_for_request.iter().any(|m| m.role == Role::System);
             if has_system {
@@ -220,7 +239,10 @@ impl Agent {
 
         messages_for_request.push(ChatMessage::user(user_input.to_string()));
 
-        self.messages.push(ChatMessage::user(user_input.to_string()));
+        self.messages
+            .lock()
+            .unwrap()
+            .push(ChatMessage::user(user_input.to_string()));
 
         let request = ChatRequest::builder()
             .messages(messages_for_request)
@@ -233,6 +255,11 @@ impl Agent {
         let cancel_token_clone = cancel_token.clone();
         let cancel_token_for_stream = cancel_token.clone();
         let task_context = Arc::clone(&self.task_context);
+        let approval_protocol = Arc::clone(&self.approval_protocol);
+        let approval_gate = Arc::clone(&self.approval_gate);
+        let tool_dispatcher = self.tool_dispatcher.clone();
+        let profile = self.profile.clone();
+        let messages = Arc::clone(&self.messages);
 
         tokio::spawn(async move {
             if cancel_token_clone.is_cancelled() {
@@ -262,6 +289,7 @@ impl Agent {
                     }
                     StreamEvent::ToolCall(calls) => {
                         for call in calls {
+                            let args = call.function.arguments.clone();
                             let classification = classify_tool_risk(&call.function.name, &call.function.arguments);
                             let description = generate_tool_description(&call.function.name, &call.function.arguments);
                             let scope_info = extract_scope(&call.function.name, &call.function.arguments);
@@ -270,13 +298,36 @@ impl Agent {
 
                             let _ = tx.send(AgentEvent::ToolCall {
                                 name: call.function.name.clone(),
-                                args: call.function.arguments,
+                                args,
                                 risk: classification.risk,
                                 description: Some(description),
                                 task_context: task_context_str,
                                 scope,
                                 classification_reasoning: Some(classification.reasoning),
                             });
+
+                            if let Some(dispatcher) = &tool_dispatcher {
+                                let (tool_result, metadata) =
+                                    execute_tool_call(dispatcher, &approval_protocol, &approval_gate, &profile, &call);
+
+                                if tool_result.is_success() {
+                                    let msg = ChatMessage {
+                                        role: Role::Tool,
+                                        content: tool_result.content.clone(),
+                                        tool_call_id: Some(tool_result.tool_call_id.clone()),
+                                        tool_calls: None,
+                                    };
+                                    messages.lock().unwrap().push(msg);
+                                }
+
+                                let _ = tx.send(AgentEvent::ToolResult {
+                                    name: call.function.name.clone(),
+                                    result: tool_result.content.clone(),
+                                    success: tool_result.is_success(),
+                                    error: tool_result.error.clone(),
+                                    metadata,
+                                });
+                            }
                         }
                     }
                     StreamEvent::Done => {
@@ -327,13 +378,181 @@ impl Agent {
             tool_call_id: Some(call_id),
             tool_calls: None,
         };
-        self.messages.push(msg);
+        self.messages.lock().unwrap().push(msg);
     }
 
     /// Get the current conversation history
-    pub fn messages(&self) -> &[ChatMessage] {
-        &self.messages
+    pub fn messages(&self) -> Vec<ChatMessage> {
+        self.messages.lock().unwrap().clone()
     }
+}
+
+fn execute_tool_call(
+    dispatcher: &Arc<Mutex<SessionToolDispatcher>>, approval_protocol: &Arc<dyn ApprovalProtocol>,
+    approval_gate: &Arc<RwLock<ApprovalGate>>, profile: &Option<Profile>, call: &ToolCall,
+) -> (ToolResult, ToolExecutionMetadata) {
+    let tool_name = call.name();
+    let args = call.arguments();
+    let mut metadata = ToolExecutionMetadata::new();
+
+    let tool_is_read_only = dispatcher
+        .lock()
+        .ok()
+        .and_then(|guard| guard.dispatcher().registry().tool_is_read_only(tool_name))
+        .unwrap_or(false);
+
+    let risk = if tool_name == "shell" {
+        args.get("command")
+            .and_then(|v| v.as_str())
+            .map(classify_shell_command_risk)
+            .unwrap_or(ToolRisk::Risky)
+    } else {
+        dispatcher
+            .lock()
+            .ok()
+            .and_then(|guard| guard.dispatcher().registry().tool_risk(tool_name))
+            .unwrap_or_else(|| classify_tool_risk(tool_name, args).risk)
+    };
+
+    let action_type = tool_action_type(tool_name, args);
+    let approval_mode = approval_gate.read().unwrap().mode();
+
+    if approval_mode == ApprovalMode::ReadOnly && !tool_is_read_only {
+        return (
+            ToolResult::error(call.id.clone(), "Tool execution blocked: read-only mode"),
+            metadata,
+        );
+    }
+
+    let mut requires_approval = approval_gate
+        .read()
+        .unwrap()
+        .check_requires_approval(risk, &action_type);
+
+    if let Some(path) = extract_target_path(args) {
+        metadata.affected_paths = vec![path.display().to_string()];
+        if let Some(profile) = profile {
+            match profile.check_path_access(&path, approval_mode) {
+                thunderus_core::config::PathAccessResult::Denied(reason) => {
+                    return (
+                        ToolResult::error(
+                            call.id.clone(),
+                            format!("Tool execution blocked: access denied ({})", reason),
+                        ),
+                        metadata,
+                    );
+                }
+                thunderus_core::config::PathAccessResult::ReadOnly => {
+                    if !tool_is_read_only {
+                        return (
+                            ToolResult::error(call.id.clone(), "Tool execution blocked: read-only access"),
+                            metadata,
+                        );
+                    }
+                }
+                thunderus_core::config::PathAccessResult::NeedsApproval(_) => {
+                    requires_approval = true;
+                }
+                thunderus_core::config::PathAccessResult::Allowed => {}
+            }
+        }
+    }
+
+    if requires_approval && !request_tool_approval(approval_protocol, approval_gate, action_type, tool_name, args, risk)
+    {
+        return (
+            ToolResult::error(call.id.clone(), "Tool execution rejected by user"),
+            metadata,
+        );
+    }
+
+    let start = std::time::Instant::now();
+    let result = match dispatcher.lock() {
+        Ok(mut guard) => guard.execute(call),
+        Err(_) => Err(thunderus_core::Error::Tool("Tool dispatcher lock poisoned".to_string())),
+    };
+    metadata.execution_time_ms = Some(start.elapsed().as_millis() as u64);
+
+    match result {
+        Ok(tool_result) => {
+            metadata.classification_reasoning = tool_result.classification_reasoning.clone();
+            (tool_result, metadata)
+        }
+        Err(e) => (ToolResult::error(call.id.clone(), e.to_string()), metadata),
+    }
+}
+
+fn request_tool_approval(
+    approval_protocol: &Arc<dyn ApprovalProtocol>, approval_gate: &Arc<RwLock<ApprovalGate>>, action_type: ActionType,
+    tool_name: &str, args: &serde_json::Value, risk: ToolRisk,
+) -> bool {
+    let approval_request = {
+        let mut gate = approval_gate.write().unwrap();
+        let id = gate.create_request(
+            action_type,
+            format!("Execute tool: {}", tool_name),
+            ApprovalContext {
+                name: Some(tool_name.to_string()),
+                arguments: Some(args.clone()),
+                affected_paths: Vec::new(),
+                metadata: std::collections::HashMap::new(),
+                classification_reasoning: None,
+            },
+            risk,
+        );
+        gate.get_request(id).cloned()
+    };
+
+    let Some(approval_request) = approval_request else {
+        return false;
+    };
+
+    let decision = approval_protocol.request_approval(&approval_request);
+    if let Ok(decision) = decision {
+        let mut gate = approval_gate.write().unwrap();
+        let _ = gate.record_decision(ApprovalResponse::new(approval_request.id, decision));
+        matches!(decision, ApprovalDecision::Approved)
+    } else {
+        false
+    }
+}
+
+fn extract_target_path(args: &serde_json::Value) -> Option<PathBuf> {
+    args.get("file_path")
+        .or_else(|| args.get("path"))
+        .and_then(|v| v.as_str())
+        .map(PathBuf::from)
+}
+
+fn tool_action_type(tool_name: &str, args: &serde_json::Value) -> ActionType {
+    if tool_name == "shell" {
+        let is_network = args
+            .get("command")
+            .and_then(|v| v.as_str())
+            .map(is_network_command)
+            .unwrap_or(false);
+        if is_network { ActionType::Network } else { ActionType::Shell }
+    } else if tool_name.contains("patch") {
+        ActionType::Patch
+    } else if tool_name.contains("delete") || tool_name == "rm" {
+        ActionType::FileDelete
+    } else if tool_name.contains("write") || tool_name.contains("edit") || tool_name.contains("create") {
+        ActionType::FileWrite
+    } else {
+        ActionType::Tool
+    }
+}
+
+fn is_network_command(command: &str) -> bool {
+    let cmd_lower = command.to_lowercase();
+    cmd_lower.contains("curl ")
+        || cmd_lower.contains("wget ")
+        || cmd_lower.starts_with("curl")
+        || cmd_lower.starts_with("wget")
+        || cmd_lower.contains("ssh ")
+        || cmd_lower.starts_with("ssh")
+        || cmd_lower.contains("http://")
+        || cmd_lower.contains("https://")
 }
 
 /// Generate next approval ID (simplified for testing)
@@ -469,12 +688,15 @@ impl ApprovalProtocol for InMemoryApprovalProtocol {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use thunderus_providers::{GlmProvider, Provider};
+    use futures::stream;
+    use std::pin::Pin;
+    use tempfile::TempDir;
+    use thunderus_providers::Provider;
+    use thunderus_tools::{EchoTool, SessionToolDispatcher, ToolDispatcher, ToolRegistry};
 
     #[test]
     fn test_agent_creation() {
-        let provider =
-            Arc::new(GlmProvider::new("test-key".to_string(), "glm-4.7".to_string(), None)) as Arc<dyn Provider>;
+        let provider = Arc::new(MockProvider { events: vec![] }) as Arc<dyn Provider>;
         let approval = Arc::new(InMemoryApprovalProtocol::new(true)) as Arc<dyn ApprovalProtocol>;
         let gate = ApprovalGate::new(ApprovalMode::Auto, false);
         let session_id = SessionId::new();
@@ -485,8 +707,7 @@ mod tests {
 
     #[test]
     fn test_agent_approval_mode() {
-        let provider =
-            Arc::new(GlmProvider::new("test-key".to_string(), "glm-4.7".to_string(), None)) as Arc<dyn Provider>;
+        let provider = Arc::new(MockProvider { events: vec![] }) as Arc<dyn Provider>;
         let approval = Arc::new(InMemoryApprovalProtocol::new(true)) as Arc<dyn ApprovalProtocol>;
         let gate = ApprovalGate::new(ApprovalMode::Auto, false);
         let session_id = SessionId::new();
@@ -497,8 +718,7 @@ mod tests {
 
     #[test]
     fn test_agent_set_approval_mode() {
-        let provider =
-            Arc::new(GlmProvider::new("test-key".to_string(), "glm-4.7".to_string(), None)) as Arc<dyn Provider>;
+        let provider = Arc::new(MockProvider { events: vec![] }) as Arc<dyn Provider>;
         let approval = Arc::new(InMemoryApprovalProtocol::new(true)) as Arc<dyn ApprovalProtocol>;
         let gate = ApprovalGate::new(ApprovalMode::Auto, false);
         let session_id = SessionId::new();
@@ -512,8 +732,7 @@ mod tests {
 
     #[test]
     fn test_agent_approval_gate_access() {
-        let provider =
-            Arc::new(GlmProvider::new("test-key".to_string(), "glm-4.7".to_string(), None)) as Arc<dyn Provider>;
+        let provider = Arc::new(MockProvider { events: vec![] }) as Arc<dyn Provider>;
         let approval = Arc::new(InMemoryApprovalProtocol::new(true)) as Arc<dyn ApprovalProtocol>;
         let gate = ApprovalGate::new(ApprovalMode::FullAccess, true);
         let session_id = SessionId::new();
@@ -528,8 +747,7 @@ mod tests {
 
     #[test]
     fn test_append_tool_result() {
-        let provider =
-            Arc::new(GlmProvider::new("test-key".to_string(), "glm-4.7".to_string(), None)) as Arc<dyn Provider>;
+        let provider = Arc::new(MockProvider { events: vec![] }) as Arc<dyn Provider>;
         let approval = Arc::new(InMemoryApprovalProtocol::new(true)) as Arc<dyn ApprovalProtocol>;
         let gate = ApprovalGate::new(ApprovalMode::Auto, false);
         let session_id = SessionId::new();
@@ -539,9 +757,10 @@ mod tests {
         let result = ToolResult::success("call_1", "OK");
         agent.append_tool_result("test_tool".to_string(), "call_1".to_string(), result);
 
-        assert_eq!(agent.messages().len(), 1);
-        assert_eq!(agent.messages()[0].role, Role::Tool);
-        assert_eq!(agent.messages()[0].content, "OK");
+        let messages = agent.messages();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].role, Role::Tool);
+        assert_eq!(messages[0].content, "OK");
     }
 
     #[test]
@@ -647,8 +866,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_process_message_cancelled() {
-        let provider =
-            Arc::new(GlmProvider::new("test-key".to_string(), "glm-4.7".to_string(), None)) as Arc<dyn Provider>;
+        let provider = Arc::new(MockProvider { events: vec![] }) as Arc<dyn Provider>;
         let approval = Arc::new(InMemoryApprovalProtocol::new(true)) as Arc<dyn ApprovalProtocol>;
         let gate = ApprovalGate::new(ApprovalMode::Auto, false);
         let session_id = SessionId::new();
@@ -666,6 +884,72 @@ mod tests {
             .unwrap();
 
         assert_eq!(agent.messages().len(), 1);
+    }
+
+    struct MockProvider {
+        events: Vec<StreamEvent>,
+    }
+
+    #[async_trait::async_trait]
+    impl Provider for MockProvider {
+        async fn stream_chat<'a>(
+            &'a self, _request: ChatRequest, _cancel_token: CancelToken,
+        ) -> Result<Pin<Box<dyn futures::Stream<Item = StreamEvent> + Send + 'a>>> {
+            Ok(Box::pin(stream::iter(self.events.clone())))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_tool_call_executes_with_dispatcher() {
+        let provider = Arc::new(MockProvider {
+            events: vec![
+                StreamEvent::ToolCall(vec![ToolCall::new(
+                    "call_1",
+                    "echo",
+                    serde_json::json!({"message": "hello"}),
+                )]),
+                StreamEvent::Done,
+            ],
+        }) as Arc<dyn Provider>;
+
+        let approval = Arc::new(InMemoryApprovalProtocol::new(true)) as Arc<dyn ApprovalProtocol>;
+        let gate = ApprovalGate::new(ApprovalMode::Auto, false);
+        let session_id = SessionId::new();
+
+        let temp = TempDir::new().unwrap();
+        let agent_dir = AgentDir::new(temp.path());
+        let session = Session::new(agent_dir).unwrap();
+
+        let registry = ToolRegistry::new();
+        registry.register(EchoTool).unwrap();
+        let specs = registry.specs();
+        let dispatcher = ToolDispatcher::new(registry);
+        let session_dispatcher = SessionToolDispatcher::with_new_history(dispatcher, session);
+
+        let mut agent = Agent::new(provider, approval, gate, session_id)
+            .with_tool_dispatcher(Arc::new(Mutex::new(session_dispatcher)));
+
+        let mut rx = agent
+            .process_message("Hello", Some(specs), CancelToken::new(), Vec::new())
+            .await
+            .unwrap();
+
+        let mut saw_tool_result = false;
+
+        while let Ok(Some(event)) = tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv()).await {
+            match event {
+                AgentEvent::ToolResult { name, result, success, .. } => {
+                    assert_eq!(name, "echo");
+                    assert!(success);
+                    assert_eq!(result, "hello");
+                    saw_tool_result = true;
+                }
+                AgentEvent::Done => break,
+                _ => {}
+            }
+        }
+
+        assert!(saw_tool_result);
     }
 
     #[tokio::test]

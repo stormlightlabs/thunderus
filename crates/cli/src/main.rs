@@ -4,10 +4,13 @@ use clap_complete::{Generator, Shell, generate};
 use owo_colors::OwoColorize;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use thunderus_core::{
-    AgentDir, Config, ContextLoader, PatchQueueManager, Session, memory::Gardener, memory::MemoryPaths,
+    AgentDir, Config, ContextLoader, PatchQueueManager, Session,
+    memory::{Gardener, MemoryPaths, MemoryRetriever, RetrievalPolicy},
 };
-use thunderus_store::{MemoryIndexer, MemoryStore};
+use thunderus_providers::ProviderFactory;
+use thunderus_store::{MemoryIndexer, MemoryStore, StoreRetriever};
 use thunderus_ui::state::AppState;
 
 /// Thunderus - A high-performance coding agent harness
@@ -244,8 +247,9 @@ async fn cmd_start(
         .join("memory.db");
 
     let store_result = MemoryStore::open(&db_path).await;
-    let index_result = match store_result {
+    let (memory_store, index_result) = match store_result {
         Ok(store) => {
+            let store_clone = store.clone();
             let indexer = MemoryIndexer::new(store, memory_paths.clone(), &working_dir);
             let result = indexer.index_changed().await;
             match result {
@@ -253,7 +257,7 @@ async fn cmd_start(
                     if verbose {
                         eprintln!("{} Memory index is up to date", "Info:".green().bold());
                     }
-                    r
+                    (Some(store_clone), r)
                 }
                 Ok(_) => {
                     let full_result = indexer.reindex_all().await;
@@ -267,7 +271,7 @@ async fn cmd_start(
                                     r.docs_updated
                                 );
                             }
-                            r
+                            (Some(store_clone), r)
                         }
                         Err(e) => {
                             if verbose {
@@ -278,7 +282,7 @@ async fn cmd_start(
                                 );
                             }
 
-                            thunderus_store::IndexResult::default()
+                            (Some(store_clone), thunderus_store::IndexResult::default())
                         }
                     }
                 }
@@ -286,13 +290,14 @@ async fn cmd_start(
                     if verbose {
                         eprintln!("{} Warning: Memory indexing failed: {}", "Warning:".yellow().bold(), e);
                     }
-                    thunderus_store::IndexResult {
+                    let result = thunderus_store::IndexResult {
                         docs_added: 0,
                         docs_updated: 0,
                         docs_deleted: 0,
                         errors: vec![],
                         duration_ms: 0,
-                    }
+                    };
+                    (Some(store_clone), result)
                 }
             }
         }
@@ -304,13 +309,14 @@ async fn cmd_start(
                     e
                 );
             }
-            thunderus_store::IndexResult {
+            let result = thunderus_store::IndexResult {
                 docs_added: 0,
                 docs_updated: 0,
                 docs_deleted: 0,
                 errors: vec![],
                 duration_ms: 0,
-            }
+            };
+            (None, result)
         }
     };
 
@@ -322,6 +328,15 @@ async fn cmd_start(
         );
     }
 
+    let memory_retriever = memory_store.map(|store| {
+        let policy = RetrievalPolicy {
+            enable_vector_fallback: profile.memory.enable_vector_search,
+            score_threshold: profile.memory.vector_fallback_threshold,
+            ..Default::default()
+        };
+        Arc::new(StoreRetriever::new(Arc::new(store), policy)) as Arc<dyn MemoryRetriever>
+    });
+
     if !is_recovery {
         session
             .append_user_message("Session started")
@@ -330,12 +345,15 @@ async fn cmd_start(
 
     let git_branch = detect_git_branch(&working_dir);
 
+    let provider = ProviderFactory::create_from_config(&profile.provider).context("Failed to create provider")?;
+
     let mut app_state = AppState::new(
         working_dir.clone(),
         profile_name.clone(),
         profile.provider.clone(),
         profile.approval_mode,
         profile.sandbox_mode,
+        profile.is_network_allowed(),
     );
 
     app_state.config.config_path = Some(config_path.clone());
@@ -346,7 +364,13 @@ async fn cmd_start(
         app_state.set_theme_variant(variant);
     }
 
-    let mut app = thunderus_ui::App::new(app_state).with_session(session.clone());
+    let mut app = thunderus_ui::App::with_provider(app_state, provider)
+        .with_session(session.clone())
+        .with_profile(profile.clone());
+
+    if let Some(retriever) = memory_retriever {
+        app = app.with_memory_retriever(retriever);
+    }
 
     if let Some(branch) = git_branch {
         app.state_mut().config.git_branch = Some(branch);
@@ -841,6 +865,7 @@ mod tests {
             _profile.provider.clone(),
             _profile.approval_mode,
             _profile.sandbox_mode,
+            _profile.is_network_allowed(),
         );
 
         assert_eq!(app_state.config.cwd, working_dir);
@@ -888,6 +913,18 @@ mod tests {
         println!("{}", "Test".green().bold());
         println!("{}", "Test".blue());
         println!("{}", "Test".yellow().underline());
+    }
+
+    #[test]
+    fn test_profile_provider_config() {
+        let config = create_test_config();
+        let profile = config.profile("default").unwrap();
+        match profile.provider {
+            thunderus_core::ProviderConfig::Glm { ref model, .. } => {
+                assert_eq!(model, "glm-4.7");
+            }
+            _ => panic!("Expected GLM provider config"),
+        }
     }
 
     fn create_test_config() -> Config {

@@ -19,6 +19,7 @@ thunderus-core = { path = "../core" }
 thunderus-store = { path = "../store" }
 thunderus-ui = { path = "../ui" }
 thunderus-tools = { path = "../tools" }
+thunderus-providers = { path = "../providers" }
 
 [dev-dependencies]
 tempfile = "3.16"

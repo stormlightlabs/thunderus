@@ -4,7 +4,7 @@ outline: deep
 
 # Contributing
 
-Thunderus is early-stage and still evolving. Contributions should emphasize
+We welcome contributions! Do your best to make sure your contributions emphasize
 reviewability, safety, and clear diffs.
 
 ## Build and Test
@@ -35,8 +35,3 @@ cargo clippy
 - `crates/providers`: Provider-neutral types.
 - `crates/tools`: Tool execution framework.
 - `crates/ui`: TUI components.
-
-## Planned: Docs & Site
-
-The documentation site is a work in progress. See the roadmap for planned
-migration of additional guides and API references.

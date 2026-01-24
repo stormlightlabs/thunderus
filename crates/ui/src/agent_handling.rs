@@ -2,6 +2,7 @@ use crate::app::App;
 use crate::transcript;
 use thunderus_agent::{Agent, AgentEvent};
 use thunderus_core::{ActionType, ApprovalDecision, ApprovalGate, ApprovalMode, ApprovalProtocol, SessionId, ToolRisk};
+use thunderus_tools::{SessionToolDispatcher, ToolDispatcher, ToolRegistry};
 use tokio::sync::mpsc;
 
 impl App {
@@ -324,9 +325,37 @@ impl App {
         let session_id = SessionId::new();
         let cancel_token = self.cancel_token.clone();
         let provider_clone = std::sync::Arc::clone(provider);
-        let approval_gate = ApprovalGate::new(ApprovalMode::Auto, false);
+        let approval_gate = ApprovalGate::new(self.state().config.approval_mode, self.state().config.allow_network);
 
         let mut agent = Agent::new(provider_clone, approval_protocol, approval_gate, session_id);
+        self.set_approval_gate_handle(agent.approval_gate());
+
+        let tool_specs = if let Some(profile) = self.profile() {
+            let mut registry = ToolRegistry::with_builtin_tools();
+            registry.set_profile(profile.clone());
+            registry.set_approval_gate(ApprovalGate::new(
+                ApprovalMode::FullAccess,
+                profile.is_network_allowed(),
+            ));
+            let specs = registry.specs();
+            if let Some(ref session) = self.session {
+                let dispatcher = ToolDispatcher::new(registry);
+                let session_dispatcher = SessionToolDispatcher::with_new_history(dispatcher, session.clone());
+                agent = agent.with_tool_dispatcher(std::sync::Arc::new(std::sync::Mutex::new(session_dispatcher)));
+            }
+            Some(specs)
+        } else {
+            let registry = ToolRegistry::with_builtin_tools();
+            Some(registry.specs())
+        };
+
+        if let Some(profile) = self.profile() {
+            agent = agent.with_profile(profile.clone());
+        }
+
+        if let Some(retriever) = self.memory_retriever() {
+            agent = agent.with_memory_retriever(std::sync::Arc::clone(&retriever));
+        }
         self.state_mut().start_generation();
 
         let (tx, rx) = mpsc::unbounded_channel();
@@ -377,7 +406,12 @@ impl App {
                 }
 
                 match agent
-                    .process_message(&message, None, cancel_token.clone(), user_owned_files.clone())
+                    .process_message(
+                        &message,
+                        tool_specs.clone(),
+                        cancel_token.clone(),
+                        user_owned_files.clone(),
+                    )
                     .await
                 {
                     Ok(mut event_rx) => {

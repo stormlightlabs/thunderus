@@ -8,7 +8,7 @@ Thunderus keybindings are evolving with the TUI integration. The list below
 reflects the shortcuts currently surfaced in the UI tips. Treat this page as a
 baseline, not an exhaustive map.
 
-## Current Tips
+## Tips
 
 - `Ctrl+S`: Toggle the sidebar.
 - `Tab`: Autocomplete file paths.
@@ -16,7 +16,7 @@ baseline, not an exhaustive map.
 - `!cmd`: Run a shell command directly.
 - `Ctrl+Shift+G`: Open an external editor.
 
-## Planned: Full Keybinding Reference
+## Additional Bindings
 
-As the TUI integration stabilizes, this page will expand into a complete
-reference with mode-specific bindings, search, and inspector navigation.
+The TUI may surface additional bindings in-context. Use the in-app hints and
+help overlays for the most current list.

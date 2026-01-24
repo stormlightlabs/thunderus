@@ -1,5 +1,4 @@
 ---
-# https://vitepress.dev/reference/default-theme-home-page
 layout: home
 
 hero:
@@ -29,5 +28,5 @@ features:
   - title: Observability by Design
     details: Trajectory and inspector views make "why did it do that?" a first-class question.
   - title: Extensible by Skills
-    details: On-demand skill loading today; plugin runtime support is planned.
+    details: On-demand skill loading today; plugin runtime support is not implemented yet.
 ---

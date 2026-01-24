@@ -316,6 +316,7 @@ mod tests {
             },
             ApprovalMode::Auto,
             SandboxMode::Policy,
+            false,
         )
     }
 

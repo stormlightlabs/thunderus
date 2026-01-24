@@ -4,9 +4,7 @@ outline: deep
 
 # User Guide
 
-This guide explains how Thunderus is meant to be used day to day. It prioritizes
-safety, clarity, and reviewable changes. When a section is marked **Planned**, it
-indicates future behavior that is not yet fully implemented.
+This guide explains how Thunderus is meant to be used day to day.
 
 ## Start Here
 

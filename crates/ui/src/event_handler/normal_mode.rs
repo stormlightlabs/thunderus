@@ -346,6 +346,7 @@ mod tests {
             },
             ApprovalMode::Auto,
             SandboxMode::Policy,
+            false,
         );
         state.set_first_session(false);
         state

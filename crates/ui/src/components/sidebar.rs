@@ -322,6 +322,7 @@ mod tests {
             },
             ApprovalMode::Auto,
             SandboxMode::Policy,
+            false,
         )
     }
 
@@ -373,6 +374,7 @@ mod tests {
             provider.clone(),
             ApprovalMode::Auto,
             SandboxMode::Policy,
+            false,
         );
         let sidebar_auto = Sidebar::new(&state_auto);
         assert_eq!(sidebar_auto.state.config.approval_mode, ApprovalMode::Auto);
@@ -383,6 +385,7 @@ mod tests {
             provider.clone(),
             ApprovalMode::FullAccess,
             SandboxMode::Policy,
+            false,
         );
         let sidebar_full = Sidebar::new(&state_full);
         assert_eq!(sidebar_full.state.config.approval_mode, ApprovalMode::FullAccess);
@@ -393,6 +396,7 @@ mod tests {
             provider,
             ApprovalMode::ReadOnly,
             SandboxMode::Policy,
+            false,
         );
         let sidebar_readonly = Sidebar::new(&state_readonly);
         assert_eq!(sidebar_readonly.state.config.approval_mode, ApprovalMode::ReadOnly);

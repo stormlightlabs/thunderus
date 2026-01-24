@@ -115,7 +115,8 @@ pub struct ConfigState {
 
 impl ConfigState {
     pub fn new(
-        cwd: PathBuf, profile: String, provider: ProviderConfig, approval_mode: ApprovalMode, sandbox_mode: SandboxMode,
+        cwd: PathBuf, profile: String, provider: ProviderConfig, approval_mode: ApprovalMode,
+        sandbox_mode: SandboxMode, allow_network: bool,
     ) -> Self {
         Self {
             cwd,
@@ -123,7 +124,7 @@ impl ConfigState {
             provider,
             approval_mode,
             sandbox_mode,
-            allow_network: false,
+            allow_network,
             verbosity: VerbosityLevel::default(),
             git_branch: None,
             config_path: None,
@@ -237,7 +238,8 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(
-        cwd: PathBuf, profile: String, provider: ProviderConfig, approval_mode: ApprovalMode, sandbox_mode: SandboxMode,
+        cwd: PathBuf, profile: String, provider: ProviderConfig, approval_mode: ApprovalMode,
+        sandbox_mode: SandboxMode, allow_network: bool,
     ) -> Self {
         let model_name = match &provider {
             ProviderConfig::Glm { model, .. } => model.clone(),
@@ -245,7 +247,7 @@ impl AppState {
         };
 
         Self {
-            config: ConfigState::new(cwd, profile, provider, approval_mode, sandbox_mode),
+            config: ConfigState::new(cwd, profile, provider, approval_mode, sandbox_mode, allow_network),
             session: SessionTrackingState::new(),
             ui: UIState::new(),
             input: InputState::new(),
@@ -569,6 +571,7 @@ impl Default for AppState {
                 },
                 ApprovalMode::Auto,
                 SandboxMode::default(),
+                false,
             ),
             session: SessionTrackingState::default(),
             ui: UIState::default(),
@@ -645,6 +648,7 @@ mod tests {
             provider,
             ApprovalMode::FullAccess,
             SandboxMode::Policy,
+            false,
         );
 
         assert_eq!(state.config.cwd, PathBuf::from("/workspace"));
@@ -667,6 +671,7 @@ mod tests {
             },
             ApprovalMode::Auto,
             SandboxMode::Policy,
+            false,
         );
 
         state.refresh_git_branch();
@@ -712,6 +717,7 @@ mod tests {
             },
             ApprovalMode::Auto,
             SandboxMode::Policy,
+            false,
         );
 
         state.refresh_git_branch();
@@ -757,6 +763,7 @@ mod tests {
             },
             ApprovalMode::Auto,
             SandboxMode::Policy,
+            false,
         );
 
         state.refresh_git_branch();

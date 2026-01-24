@@ -31,7 +31,7 @@ Each `[profiles.<name>]` entry includes the following fields.
 
 ### Provider
 
-```
+```toml
 [profiles.<name>.provider]
 provider = "glm" | "gemini"
 api_key = "..."
@@ -39,12 +39,11 @@ model = "..."
 base_url = "..." # optional
 ```
 
-Provider adapters are still being integrated. Treat provider execution as
-**Planned** until the adapter for your provider is fully wired.
+Provider adapters are wired into the runtime for GLM and Gemini profiles.
 
 ### Workspace Sandbox
 
-```
+```toml
 [profiles.<name>.workspace]
 roots = []
 include_temp = true
@@ -59,7 +58,7 @@ deny = []
 
 ### Network Sandbox
 
-```
+```toml
 [profiles.<name>.network]
 enabled = false
 allow_domains = []
@@ -67,7 +66,7 @@ allow_domains = []
 
 ### Memory
 
-```
+```toml
 [profiles.<name>.memory]
 enable_vector_search = false
 vector_model = "all-MiniLM-L6-v2"
@@ -75,12 +74,12 @@ vector_dims = 384
 vector_fallback_threshold = -3.0
 ```
 
-Vector search is optional and defaults to lexical-only behavior. If your build
-has not enabled vector search, treat these fields as **Planned**.
+Vector search is optional and defaults to lexical-only behavior. Enable it only
+if your memory index includes embeddings.
 
 ### Skills
 
-```
+```toml
 [profiles.<name>.skills]
 enabled = true
 skills_dir = "/abs/path/to/skills" # optional
@@ -97,7 +96,7 @@ agent will not auto-load skill definitions. `skills_dir` overrides the default
 
 ## Example
 
-```
+```toml
 # Default profile to use when no profile is specified
 default_profile = "default"
 

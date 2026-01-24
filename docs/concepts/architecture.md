@@ -5,8 +5,7 @@ outline: deep
 # Core Concepts
 
 This section explains the core building blocks that make Thunderus predictable
-and safe. Items marked **Planned** are on the roadmap but not fully wired end to
-to end.
+and safe.
 
 ## Approval System
 
@@ -23,8 +22,7 @@ This keeps changes reversible and makes it easy to reason about impact.
 Sessions are recorded as event streams. The intent is to make reasoning and
 state transitions explicit, enabling future replay, inspection, and auditing.
 
-## Planned: Memory Layers
+## Memory Layers
 
-The roadmap includes tiered memory (short-term + long-term) with a gardener
-process that consolidates session history into durable artifacts. Treat memory
-consolidation as **Planned** unless explicitly enabled in the current build.
+Thunderus uses tiered memory (core, semantic, procedural, episodic) with a
+gardener process that consolidates session history into durable artifacts.

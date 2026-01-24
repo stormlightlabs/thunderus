@@ -99,6 +99,7 @@ fn create_test_state() -> AppState {
         },
         ApprovalMode::Auto,
         SandboxMode::Policy,
+        false,
     )
 }
 

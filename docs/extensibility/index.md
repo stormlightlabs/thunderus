@@ -6,7 +6,7 @@ outline: deep
 
 Thunderus is built to be extended without compromising safety. Today, the main
 extension mechanism is the Skills system. Plugin hosting and additional runtime
-hooks are **Planned**.
+hooks are not implemented yet (as of 2026-01-24).
 
 ## Skills
 
@@ -19,9 +19,9 @@ Key properties:
 - Each skill declares its name and description in frontmatter.
 - Skills can be toggled via profile configuration.
 
-## Planned: Plugins & Extension Points
+## Plugins & Extension Points
 
-The roadmap includes:
+Not implemented yet:
 
 - Tool and command extension traits.
 - Runtime plugin host support (WASM and Lua).

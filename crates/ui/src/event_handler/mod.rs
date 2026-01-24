@@ -89,6 +89,7 @@ mod tests {
             },
             ApprovalMode::Auto,
             SandboxMode::Policy,
+            false,
         );
         state.set_first_session(false);
         state
@@ -106,6 +107,7 @@ mod tests {
             },
             ApprovalMode::Auto,
             SandboxMode::Policy,
+            false,
         );
         assert!(state.is_first_session());
         assert_eq!(state.input.buffer, "");

@@ -5,7 +5,7 @@ outline: deep
 # Workflows
 
 Thunderus emphasizes repeatable, reviewable workflows. The patterns below are
-safe defaults, even while some components are still **Planned**.
+safe defaults.
 
 ## Review-First Editing
 
@@ -24,8 +24,3 @@ requires explicit opt-in and a clear audit trail.
 
 If you edit files manually, the agent pauses and waits for reconciliation. This
 protects you from the agent acting on outdated state.
-
-## Planned: Commit & Refactor Modes
-
-Dedicated "commit" and "refactor" workflows are on the roadmap. These will offer
-structured prompts, scoped diffing, and additional safety checks.

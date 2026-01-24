@@ -238,6 +238,7 @@ fn create_test_app() -> App {
         },
         ApprovalMode::Auto,
         SandboxMode::Policy,
+        false,
     );
     App::new(state)
 }

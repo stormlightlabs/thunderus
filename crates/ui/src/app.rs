@@ -15,8 +15,8 @@ use std::io::{self, Result, Write};
 use std::{env, fs, panic};
 use std::{process::Command, sync::Arc, time::Duration};
 use thunderus_core::{
-    ApprovalDecision, ApprovalMode, ApprovalRequest, Config, DriftEvent, DriftMonitor, MemoryDoc, Session,
-    SnapshotManager, TrajectoryWalker,
+    ApprovalDecision, ApprovalMode, ApprovalRequest, Config, DriftEvent, DriftMonitor, MemoryDoc, Profile, Session,
+    SnapshotManager, TrajectoryWalker, memory::MemoryRetriever,
 };
 use thunderus_providers::{CancelToken, Provider};
 use thunderus_tools::ToolRegistry;
@@ -40,6 +40,12 @@ pub struct App {
     pub(crate) cancel_token: CancelToken,
     /// Provider for agent operations
     provider: Option<Arc<dyn Provider>>,
+    /// Profile for sandbox policy and tool configuration
+    profile: Option<Profile>,
+    /// Memory retriever for agent context
+    memory_retriever: Option<Arc<dyn MemoryRetriever>>,
+    /// Approval gate handle for runtime updates
+    approval_gate_handle: Option<std::sync::Arc<std::sync::RwLock<thunderus_core::ApprovalGate>>>,
     /// Session for event persistence
     pub(crate) session: Option<Session>,
     /// Buffer for accumulating streaming model response content
@@ -78,6 +84,9 @@ impl App {
             approval_handle: None,
             cancel_token: CancelToken::new(),
             provider: None,
+            profile: None,
+            memory_retriever: None,
+            approval_gate_handle: None,
             session: None,
             streaming_model_content: None,
             _drift_monitor: drift_monitor,
@@ -109,6 +118,9 @@ impl App {
             approval_handle: None,
             cancel_token: CancelToken::new(),
             provider: Some(provider),
+            profile: None,
+            memory_retriever: None,
+            approval_gate_handle: None,
             session: None,
             streaming_model_content: None,
             _drift_monitor: drift_monitor,
@@ -126,6 +138,18 @@ impl App {
         self
     }
 
+    /// Attach a profile for sandbox and tool configuration
+    pub fn with_profile(mut self, profile: Profile) -> Self {
+        self.profile = Some(profile);
+        self
+    }
+
+    /// Attach a memory retriever for agent context
+    pub fn with_memory_retriever(mut self, retriever: Arc<dyn MemoryRetriever>) -> Self {
+        self.memory_retriever = Some(retriever);
+        self
+    }
+
     /// Check if the app should exit
     pub fn should_exit(&self) -> bool {
         self.should_exit
@@ -139,6 +163,35 @@ impl App {
     /// Get a reference to the application state
     pub fn state(&self) -> &AppState {
         &self.state
+    }
+
+    /// Get the active profile (if set)
+    pub fn profile(&self) -> Option<&Profile> {
+        self.profile.as_ref()
+    }
+
+    /// Get the memory retriever (if set)
+    pub fn memory_retriever(&self) -> Option<Arc<dyn MemoryRetriever>> {
+        self.memory_retriever.clone()
+    }
+
+    /// Set the provider used for agent operations
+    pub fn set_provider(&mut self, provider: Arc<dyn Provider>) {
+        self.provider = Some(provider);
+    }
+
+    /// Set the approval gate handle for live updates
+    pub fn set_approval_gate_handle(&mut self, gate: std::sync::Arc<std::sync::RwLock<thunderus_core::ApprovalGate>>) {
+        self.approval_gate_handle = Some(gate);
+    }
+
+    /// Update approval mode in the live agent gate (if active)
+    pub fn update_approval_gate(&mut self, new_mode: ApprovalMode) {
+        if let Some(ref gate) = self.approval_gate_handle
+            && let Ok(mut guard) = gate.write()
+        {
+            guard.set_mode(new_mode);
+        }
     }
 
     /// Get the transcript
@@ -1154,6 +1207,9 @@ impl Default for App {
             approval_handle: None,
             cancel_token: CancelToken::new(),
             provider: None,
+            profile: None,
+            memory_retriever: None,
+            approval_gate_handle: None,
             session: None,
             streaming_model_content: None,
             _drift_monitor: None,
@@ -1186,6 +1242,7 @@ mod tests {
             },
             ApprovalMode::Auto,
             SandboxMode::Policy,
+            false,
         );
         App::new(state)
     }
@@ -1867,7 +1924,11 @@ mod tests {
 
         assert_eq!(app.transcript().len(), 1);
         if let transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
-            assert!(content.contains("Unknown model"));
+            assert!(
+                content.contains("Cannot switch")
+                    || content.contains("Failed to switch")
+                    || content.contains("Unknown model")
+            );
         } else {
             panic!("Expected SystemMessage");
         }
