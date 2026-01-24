@@ -1,5 +1,7 @@
 //! Gardener configuration
 
+use crate::ValidationMode;
+
 use serde::{Deserialize, Serialize};
 
 /// Main gardener configuration
@@ -25,6 +27,9 @@ pub struct GardenerConfig {
 
     /// Recap generation configuration
     pub recap: RecapConfig,
+
+    /// Mode for provenance validation
+    pub provenance_validation_mode: ValidationMode,
 }
 
 impl Default for GardenerConfig {
@@ -37,6 +42,7 @@ impl Default for GardenerConfig {
             hygiene: HygieneConfig::default(),
             drift: DriftConfig::default(),
             recap: RecapConfig::default(),
+            provenance_validation_mode: crate::provenance::ValidationMode::Loose,
         }
     }
 }

@@ -5,6 +5,7 @@ use thunderus_core::{ApprovalMode, ProviderConfig, SandboxMode};
 
 mod approval;
 mod composer;
+mod evidence;
 mod header;
 mod input;
 mod memory_hits;
@@ -16,13 +17,14 @@ mod welcome;
 
 pub use approval::ApprovalState;
 pub use composer::{ComposerMode, ComposerState};
+pub use evidence::EvidenceState;
 pub use header::HeaderState;
 pub use input::InputState;
 pub use memory_hits::MemoryHitsState;
 pub use model_selector::ModelSelectorState;
 pub use session::{SessionStats, SessionTrackingState};
 pub use sidebar::{SidebarCollapseState, SidebarSection};
-pub use ui::{ApprovalUIState, DiffNavigationState, UIState};
+pub use ui::{ApprovalUIState, DiffNavigationState, MainView, UIState};
 pub use welcome::{RecentSessionInfo, WELCOME_TIPS, WelcomeState};
 
 /// Verbosity levels for TUI display
@@ -149,18 +151,19 @@ impl ConfigState {
     /// Uses git command to detect the current branch.
     /// If not in a git repo or git fails, sets git_branch to None.
     pub fn refresh_git_branch(&mut self) {
-        if let Ok(output) = std::process::Command::new("git")
+        match std::process::Command::new("git")
             .args(["-C", &self.cwd.to_string_lossy(), "branch", "--show-current"])
             .output()
         {
-            if output.status.success() {
-                let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                self.git_branch = if branch.is_empty() { None } else { Some(branch) };
-            } else {
-                self.git_branch = None;
+            Ok(output) => {
+                self.git_branch = if output.status.success() {
+                    let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if branch.is_empty() { None } else { Some(branch) }
+                } else {
+                    None
+                }
             }
-        } else {
-            self.git_branch = None;
+            Err(_) => self.git_branch = None,
         }
     }
 }
@@ -228,6 +231,8 @@ pub struct AppState {
     pub model_selector: ModelSelectorState,
     /// Memory hits panel state
     pub memory_hits: MemoryHitsState,
+    /// Evidence state for Inspector
+    pub evidence: EvidenceState,
 }
 
 impl AppState {
@@ -251,6 +256,7 @@ impl AppState {
             session_header: HeaderState::new(),
             model_selector: ModelSelectorState::new(model_name),
             memory_hits: MemoryHitsState::new(),
+            evidence: EvidenceState::new(),
         }
     }
 
@@ -562,6 +568,7 @@ impl Default for AppState {
             session_header: HeaderState::default(),
             model_selector: ModelSelectorState::new("glm-4.7".to_string()),
             memory_hits: MemoryHitsState::default(),
+            evidence: EvidenceState::default(),
         }
     }
 }

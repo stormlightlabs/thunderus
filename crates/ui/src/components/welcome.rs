@@ -172,9 +172,8 @@ impl<'a> WelcomeView<'a> {
         }
 
         let mode = LayoutMode::from(area.width + 20);
-
         let shortcuts = match mode {
-            LayoutMode::Full => vec![
+            LayoutMode::Full | LayoutMode::Inspector => vec![
                 ("Enter", "send"),
                 ("Backspace", "start"),
                 ("Tab", "autocomplete"),

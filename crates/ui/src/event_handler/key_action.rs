@@ -22,6 +22,12 @@ pub enum KeyAction {
     ToggleSidebarSection,
     /// Toggle theme variant
     ToggleTheme,
+    /// Toggle Inspector view
+    ToggleInspector,
+    /// Inspect specific memory document
+    InspectMemory { path: String },
+    /// Navigate within inspector
+    InspectorNavigate,
     /// Open external editor for current input
     OpenExternalEditor,
     /// Navigate message history (handled internally by InputState)
@@ -135,4 +141,6 @@ pub enum KeyAction {
     ToggleHunkDetails,
     /// No action (e.g., navigation in input)
     NoOp,
+    /// Open a file from the inspector
+    InspectorOpenFile { path: String },
 }

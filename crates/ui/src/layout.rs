@@ -1,6 +1,5 @@
-use std::rc::Rc;
-
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use std::rc::Rc;
 
 /// Layout breakpoints for responsive TUI
 ///
@@ -16,6 +15,8 @@ pub enum LayoutMode {
     Medium,
     /// Compact layout (< 100 columns)
     Compact,
+    /// Inspector layout (Provenance & Trajectory)
+    Inspector,
 }
 
 impl From<u16> for LayoutMode {
@@ -44,6 +45,10 @@ pub struct TuiLayout {
     pub header: Rect,
     /// Main transcript area
     pub transcript: Rect,
+    /// Evidence List area (in Inspector mode)
+    pub evidence_list: Option<Rect>,
+    /// Evidence Detail area (in Inspector mode)
+    pub evidence_detail: Option<Rect>,
     /// Left sidebar (only in Full mode)
     pub sidebar: Option<Rect>,
     /// Footer area (1-3 lines)
@@ -54,8 +59,7 @@ impl TuiLayout {
     /// Calculate layout based on terminal size and sidebar visibility preference
     pub fn calculate(area: Rect, sidebar_visible: bool, sidebar_width_override: Option<u16>) -> Self {
         let mode = LayoutMode::from(area.width);
-        let sidebar_width = sidebar_width_override.unwrap_or(20);
-        let effective_sidebar_visible = sidebar_visible && mode.has_sidebar() && sidebar_width > 0;
+
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(1), Constraint::Min(0), Constraint::Length(6)])
@@ -64,6 +68,9 @@ impl TuiLayout {
         let header = chunks[0];
         let main = chunks[1];
         let footer = chunks[2];
+
+        let sidebar_width = sidebar_width_override.unwrap_or(20);
+        let effective_sidebar_visible = sidebar_visible && mode.has_sidebar() && sidebar_width > 0;
 
         let (sidebar, transcript) = if effective_sidebar_visible {
             let width = main.width.saturating_sub(2);
@@ -79,7 +86,34 @@ impl TuiLayout {
             (None, main)
         };
 
-        Self { mode, header, transcript, sidebar, footer }
+        Self { mode, header, transcript, evidence_list: None, evidence_detail: None, sidebar, footer }
+    }
+
+    /// Calculate Inspector layout
+    pub fn calculate_inspector(area: Rect) -> Self {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(1), Constraint::Min(0), Constraint::Length(6)])
+            .split(area);
+
+        let header = chunks[0];
+        let main = chunks[1];
+        let footer = chunks[2];
+
+        let main_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
+            .split(main);
+
+        Self {
+            mode: LayoutMode::Inspector,
+            header,
+            transcript: Rect::default(), // Not used in Inspector mode
+            evidence_list: Some(main_chunks[0]),
+            evidence_detail: Some(main_chunks[1]),
+            sidebar: None,
+            footer,
+        }
     }
 
     /// Get footer input area (single line)
@@ -305,7 +339,7 @@ impl WelcomeLayout {
     /// Calculate layout based on terminal size and layout mode
     pub fn calculate(area: Rect, mode: LayoutMode) -> Self {
         let content_width = match mode {
-            LayoutMode::Full => 120.min(area.width.saturating_sub(4)),
+            LayoutMode::Full | LayoutMode::Inspector => 120.min(area.width.saturating_sub(4)),
             LayoutMode::Medium => 100.min(area.width.saturating_sub(4)),
             LayoutMode::Compact => area.width.saturating_sub(4),
         };

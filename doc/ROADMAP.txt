@@ -9,99 +9,79 @@ See |VISION.txt| for design philosophy, core principles, and milestone targets.
 CONTENTS                                                      *roadmap-contents*
 --------------------------------------------------------------------------------
 
-    I. Repo Scaffold + Config + Session Store ................. |agent-I|
-   II. Provider Harness...Execution Infrastructure ............ |agent-II|
-  III. TUI Harness ............................................ |agent-III|
-   IV. TUI + Agent + CLI Integration .......................... |agent-IV|
-    V. Core Text Processing Tools ............................. |agent-V|
-   VI. Approvals + Sandboxing (Shell-First, Still Safe) ....... |agent-VI|
-  VII. Diff-First Editing + Git Integration ................... |agent-VII|
- VIII. Theming / UI ........................................... |agent-VIII|
-   IX. Markdown + JSONL Hybrid VCS ............................ |agent-IX|
-    X. TIERED MEMORY CORE + STORE ............................. |agent-X|
-   XI. LONG-TERM MEMORY STORE + RETRIEVAL ..................... |agent-XI|
-  XII. MEMORY GARDENER  ....................................... |agent-XII|
- XIII. TRAJECTORY + INSPECTOR ................................. |agent-XIII|
-  XIV. MIXED-INITIATIVE COLLABORATION ......................... |agent-XIV|
-   XV. EXTENSIBILITY .......................................... |agent-XV|
-  XVI. HARDENING .............................................. |agent-XVI|
- XVII. PARKING LOT............................................. |agent-XVII|
+     I. Repo Scaffold + Config + Session Store ................. |agent-I|
+    II. Provider Harness...Execution Infrastructure ............ |agent-II|
+   III. TUI Harness ............................................ |agent-III|
+    IV. TUI + Agent + CLI Integration .......................... |agent-IV|
+     V. Core Text Processing Tools ............................. |agent-V|
+    VI. Approvals + Sandboxing (Shell-First, Still Safe) ....... |agent-VI|
+   VII. Diff-First Editing + Git Integration ................... |agent-VII|
+  VIII. Theming / UI ........................................... |agent-VIII|
+    IX. Markdown + JSONL Hybrid VCS ............................ |agent-IX|
+     X. TIERED MEMORY CORE + STORE ............................. |agent-X|
+    XI. LONG-TERM MEMORY STORE + RETRIEVAL ..................... |agent-XI|
+   XII. MEMORY GARDENER  ....................................... |agent-XII|
+  XIII. TRAJECTORY + INSPECTOR ................................. |agent-XIII|
+   XIV. MIXED-INITIATIVE COLLABORATION ......................... |agent-XIV|
+    XV. EXTENSIBILITY .......................................... |agent-XV|
+   XVI. HARDENING .............................................. |agent-XVI|
+  XVII. TUI TESTING FRAMEWORK .................................. |agent-XVII|
+ XVIII. FINAL UI LAYOUT & SPEC ................................. |agent-XVIII|
+   XIX. PARKING LOT............................................. |agent-XIX|
+    XX. REFERENCES ............................................. |agent-XX|
 
 --------------------------------------------------------------------------------
 I. REPO SCAFFOLD + CONFIG + SESSION STORE                              *agent-I*
 --------------------------------------------------------------------------------
-
 See section |2026-01-12| for changes made.
-
 --------------------------------------------------------------------------------
 II. PROVIDER HARNESS + MINIMAL INTERACTIVE TUI                        *agent-II*
 --------------------------------------------------------------------------------
-
 See section |2026-01-13| for changes made.
-
 --------------------------------------------------------------------------------
 III. TUI HARNESS                                                     *agent-III*
 --------------------------------------------------------------------------------
-
 See section |2026-01-15| for changes made.
-
 --------------------------------------------------------------------------------
 IV. TUI + AGENT + CLI INTEGRATION                                     *agent-IV*
 --------------------------------------------------------------------------------
-
 See section |2026-01-15| for changes made.
-
 --------------------------------------------------------------------------------
 V. CORE TEXT PROCESSING TOOLS                                          *agent-V*
 --------------------------------------------------------------------------------
-
 See section |2026-01-16| for changes made.
-
 --------------------------------------------------------------------------------
 VI. APPROVALS + SANDBOXING (SHELL-FIRST, STILL SAFE)                  *agent-VI*
 --------------------------------------------------------------------------------
-
 See section |2026-01-18| for changes made.
-
 --------------------------------------------------------------------------------
 VII. DIFF-FIRST EDITING + GIT INTEGRATION                            *agent-VII*
 --------------------------------------------------------------------------------
-
 See section |2026-01-19| for changes made.
-
 --------------------------------------------------------------------------------
 VIII. UI POLISH + THEMING                                           *agent-VIII*
 --------------------------------------------------------------------------------
-
 See section |2026-01-20| for changes made.
-
 --------------------------------------------------------------------------------
 IX. MARKDOWN + JSONL HYBRID VCS                                      *agent-IX*
 --------------------------------------------------------------------------------
-
 See section |2026-01-21| for changes made.
-
 --------------------------------------------------------------------------------
 X. TIERED MEMORY CORE + STORE (REPO-NATIVE, AUDITABLE)                 *agent-X*
 --------------------------------------------------------------------------------
-
 See section |2026-01-22| for changes made.
-
 --------------------------------------------------------------------------------
 XI. LONG-TERM MEMORY + RETRIEVAL (LEXICAL FIRST, VECTORS OPT-IN)      *agent-XI*
 --------------------------------------------------------------------------------
-
 See section |2026-01-22| for changes made.
-
 --------------------------------------------------------------------------------
 XII. MEMORY GARDENER  (CONSOLIDATION, DRIFT CONTROL, AND HYGIENE)    *agent-XII*
 --------------------------------------------------------------------------------
-Goal:
 Prevent memory rot. Convert raw session history into small, stable, reusable
 memory artifacts (facts, ADRs, playbooks), without losing provenance.
 
 Tasks:
-- [x] Consolidation pipeline (“episodic → semantic/procedural”):
+- [x] Consolidation pipeline ("episodic → semantic/procedural"):
       - Inputs: `events.jsonl`, patch events, snapshots
       - Outputs:
           - update FACTS (stable commands + gotchas)
@@ -126,19 +106,18 @@ DoD:
 - Memory stays small + correct: consolidation and drift marking are automatic.
 
 --------------------------------------------------------------------------------
-XIII. TRAJECTORY + INSPECTOR (DEBUGGABLE “WHY” FOR MEMORY)          *agent-XIII*
+XIII. TRAJECTORY + INSPECTOR (DEBUGGABLE "WHY" FOR MEMORY)          *agent-XIII*
 --------------------------------------------------------------------------------
-Goal:
-Make it trivial to answer: “Why did the agent believe X?” by linking memory
+Make it trivial to answer: "Why did the agent believe X?" by linking memory
 assertions to the exact evidence in the session log and patch history.
 
 Tasks:
-- [ ] Standardize “trajectory view” extracted from `events.jsonl`
-- [ ] Build inspector UI (TUI):
-      - filter by tool, file, timestamp, risk class
-      - jump: memory doc → provenance events → patch diff → affected file
-- [ ] Require provenance backlinks:
-      - every durable memory doc must cite event ids + patch ids
+- [x] Standardize "trajectory view" extracted from `events.jsonl`
+- [x] Build inspector UI (TUI):
+      - [x] filter by tool, file, timestamp, risk class
+      - [x] jump: memory doc → provenance events → patch diff → affected file
+- [x] Require provenance backlinks:
+      - [x] every durable memory doc must cite event ids + patch ids
 
 See |SCHEMAS.txt| section |schemas-events| for JSONL event format.
 
@@ -179,9 +158,6 @@ XV. EXTENSIBILITY (SKILLS + PLUGINS)                                  *agent-XV*
 Make Thunderus extensible via on-demand capabilities and custom plugins.
 Inspired by Pi's Skills system and token-efficient design.
 
-See |.sandbox/spec_agent_xv_extensibility_2026_01_22.md| for full spec.
-See |.sandbox/spec_research_hardening_2026_01_22.md| for research notes.
-
 - [ ] Skills system (on-demand capability loading):
       - `.thunderus/skills/` directory structure
       - SKILL.md format with frontmatter (name, description)
@@ -209,8 +185,6 @@ XVI. HARDENING (TESTS + EXEC MODE)                                   *agent-XVI*
 --------------------------------------------------------------------------------
 Make Thunderus production-ready with regression tests and automation support.
 
-See |.sandbox/spec_agent_xvi_hardening_2026_01_22.md| for full spec.
-
 - [ ] Harness regression tests (golden scenarios):
       - interrupt mid-tool, drift+reconcile, patch conflict UI, approval gating
 - [ ] Non-interactive mode (`thunderus exec "…"`) like Codex's `exec`:
@@ -236,9 +210,54 @@ DoD:
 - Test suite covers all critical paths; `exec` mode works reliably in CI.
 
 --------------------------------------------------------------------------------
-XVII. PARKING LOT                                                   *agent-XVII*
+XVII. TUI TESTING FRAMEWORK                                         *agent-XVII*
 --------------------------------------------------------------------------------
+Ensure visual regression coverage and end-to-end stability for the TUI harness.
+Prevent layout regressions and ensure the agent loop handles terminal events
+correctly.
 
+Tasks:
+- [ ] Widget Snapshot Infrastructure:
+      - Add `insta` dependency
+      - Configure snapshot directory and CI checks
+- [ ] Core Widget Component Tests:
+      - Welcome Screen (static render)
+      - Transcript Renderer (wrapping, colors)
+      - Approval Panel (risk state UI)
+- [ ] Behavioral Logic Tests:
+      - Event handler (input -> action)
+      - Session state transitions
+- [ ] PTY Integration Tests (End-to-End):
+      - Headless binary launch & quit
+      - Resize handling smoke test
+
+DoD:
+- `cargo test` runs unit + snapshot tests.
+- CI fails on unreviewed snapshot changes.
+- At least 3 major widgets have golden snapshots.
+
+--------------------------------------------------------------------------------
+XVIII. FINAL UI LAYOUT & SPEC                                         *agent-XVIII*
+--------------------------------------------------------------------------------
+Implement the final "Opening" and "Agent" layouts based on designated design
+artifacts, ensuring a premium, polished TUI experience.
+
+Tasks:
+- [ ] Implement Opening Layout (see `doc/DESIGN.txt` |design-layout|):
+      - Clean, focused entry point
+- [ ] Implement Agent Layouts (see `doc/DESIGN.txt` |design-layout|):
+      - "Inspire actual agent" interactions
+      - Sidebar / Context panels
+- [ ] Verify TUI responsiveness and styling matches design intent
+- [ ] Finalize `doc/DESIGN.txt` with observed patterns
+
+DoD:
+- UI matches the visual target of `doc/DESIGN.txt`.
+- Spec and implementation overlap 100%.
+
+--------------------------------------------------------------------------------
+XIX. PARKING LOT                                                    *agent-XIX*
+--------------------------------------------------------------------------------
 Session Recovery:
 - Interactive session selection UI (list multiple sessions with metadata)
 - Session search and filtering (by date, keyword, etc.)
@@ -247,7 +266,7 @@ Session Recovery:
 - Session metadata (title, tags, description)
 
 --------------------------------------------------------------------------------
-XVIII. REFERENCES                                                  *agent-XVIII*
+XX. REFERENCES                                                      *agent-XX*
 --------------------------------------------------------------------------------
 
 See |REFS.txt| for external resources, design inspirations, and footnotes.

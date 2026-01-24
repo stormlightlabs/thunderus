@@ -26,6 +26,7 @@ pub use recap::{RecapGenerator, RecapResult, RecapStats, RecapTemplate};
 
 use crate::error::{Error, Result};
 use crate::memory::paths::MemoryPaths;
+use crate::{AgentDir, SessionId};
 
 /// Main entry point for the memory gardener
 ///
@@ -54,9 +55,12 @@ impl Gardener {
     /// This extracts entities from the session events and generates
     /// memory updates (facts, ADRs, playbooks) for user approval.
     pub async fn consolidate_session(
-        &self, session_id: &str, events_file: &std::path::Path,
+        &self, session_id: &str, _events_file: &std::path::Path,
     ) -> Result<ConsolidationResult> {
-        let job = ConsolidationJob::new(session_id, events_file, self.config.clone())?;
+        let session_id =
+            SessionId::from_timestamp(session_id).map_err(|e| Error::Other(format!("Invalid session ID: {}", e)))?;
+        let agent_dir = AgentDir::new(&self.paths.root);
+        let job = ConsolidationJob::new(&session_id, &agent_dir, self.config.clone());
         job.run(&self.paths).await
     }
 

@@ -1,5 +1,15 @@
 use crate::theme::ThemeVariant;
 
+/// Main view modes for the TUI
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MainView {
+    /// Standard transcript view
+    #[default]
+    Transcript,
+    /// Inspector view (Trajectory/Provenance)
+    Inspector,
+}
+
 /// Diff navigation state for tracking selected patch and hunk
 #[derive(Debug, Clone, Default)]
 pub struct DiffNavigationState {
@@ -141,6 +151,8 @@ pub struct UIState {
     pub animation_frame: u8,
     /// Active UI theme variant
     pub theme_variant: ThemeVariant,
+    /// Currently active main view
+    pub active_view: MainView,
 }
 
 impl UIState {
@@ -156,6 +168,7 @@ impl UIState {
             is_first_session: true,
             animation_frame: 0,
             theme_variant: ThemeVariant::Iceberg,
+            active_view: MainView::Transcript,
         }
     }
 
@@ -198,16 +211,19 @@ impl UIState {
     }
 
     pub fn sidebar_width_override(&self) -> Option<u16> {
-        match self.sidebar_animation {
-            Some(SidebarAnimation::Showing { width }) => Some(width),
-            Some(SidebarAnimation::Hiding { width }) => Some(width),
-            None => {
-                if self.sidebar_visible {
-                    Some(20)
-                } else {
-                    None
+        match self.active_view {
+            MainView::Inspector => None,
+            _ => match self.sidebar_animation {
+                Some(SidebarAnimation::Showing { width }) => Some(width),
+                Some(SidebarAnimation::Hiding { width }) => Some(width),
+                None => {
+                    if self.sidebar_visible {
+                        Some(20)
+                    } else {
+                        None
+                    }
                 }
-            }
+            },
         }
     }
 
@@ -282,6 +298,14 @@ impl UIState {
     pub fn reset_scroll(&mut self) {
         self.scroll_horizontal = 0;
         self.scroll_vertical = 0;
+    }
+
+    /// Toggle Inspector view
+    pub fn toggle_inspector(&mut self) {
+        self.active_view = match self.active_view {
+            MainView::Transcript => MainView::Inspector,
+            MainView::Inspector => MainView::Transcript,
+        };
     }
 }
 

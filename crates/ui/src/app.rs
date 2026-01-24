@@ -14,7 +14,7 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io::{self, Result, Write};
 use std::{env, fs, panic};
 use std::{process::Command, sync::Arc, time::Duration};
-use thunderus_core::{ApprovalDecision, Config, Session};
+use thunderus_core::{ApprovalDecision, Config, MemoryDoc, Session, TrajectoryWalker};
 use thunderus_providers::{CancelToken, Provider};
 use thunderus_tools::ToolRegistry;
 use tokio::sync::mpsc;
@@ -358,7 +358,7 @@ impl App {
                 tokio::select! {
                     maybe_event = tui_poll => {
                         if let Some(event) = maybe_event {
-                            self.handle_event(event);
+                            self.handle_event(event).await;
                             self.draw(&mut terminal)?;
                         }
                     }
@@ -390,7 +390,7 @@ impl App {
             } else {
                 let maybe_event = tui_poll.await;
                 if let Some(event) = maybe_event {
-                    self.handle_event(event);
+                    self.handle_event(event).await;
                     self.draw(&mut terminal)?;
                 }
             }
@@ -407,7 +407,7 @@ impl App {
     }
 
     /// Handle an event and update state
-    fn handle_event(&mut self, event: crossterm::event::Event) {
+    async fn handle_event(&mut self, event: crossterm::event::Event) {
         if let Some(action) = EventHandler::handle_event(&event, self.state_mut()) {
             match action {
                 KeyAction::SendMessage { message } => {
@@ -778,6 +778,56 @@ impl App {
                     ));
                 }
                 KeyAction::MemoryHitsClose => self.transcript_mut().add_system_message("Memory panel closed"),
+                KeyAction::ToggleInspector => self.state_mut().ui.toggle_inspector(),
+                KeyAction::InspectMemory { path } => {
+                    let content = tokio::fs::read_to_string(&path).await;
+                    match content {
+                        Ok(c) => match MemoryDoc::parse(&c) {
+                            Ok(doc) => {
+                                let session_dir = self.session.as_ref().map(|s| s.session_dir());
+                                if let Some(dir) = session_dir {
+                                    let walker = TrajectoryWalker::new(dir);
+                                    match walker.walk(&doc).await {
+                                        Ok(nodes) => {
+                                            self.state_mut().evidence.set_nodes(nodes);
+                                            self.state_mut().ui.active_view = crate::state::MainView::Inspector;
+                                            self.transcript_mut()
+                                                .add_system_message(format!("Inspecting: {}", path));
+                                        }
+                                        Err(e) => {
+                                            self.transcript_mut()
+                                                .add_system_message(format!("Failed to walk trajectory: {}", e));
+                                        }
+                                    }
+                                } else {
+                                    self.transcript_mut()
+                                        .add_system_message("No active session for trajectory walk.");
+                                }
+                            }
+                            Err(e) => {
+                                self.transcript_mut()
+                                    .add_system_message(format!("Failed to parse memory doc: {}", e));
+                            }
+                        },
+                        Err(e) => {
+                            self.transcript_mut()
+                                .add_system_message(format!("Failed to read memory doc: {}", e));
+                        }
+                    }
+                }
+                KeyAction::InspectorNavigate => {}
+                KeyAction::InspectorOpenFile { .. } => {
+                    let inspector = crate::components::Inspector::new(&self.state);
+                    let files = inspector.affected_files();
+                    if let Some(path) = files.first() {
+                        self.transcript_mut()
+                            .add_system_message(format!("Opening affected file: {}", path));
+                        // TODO: Implement jump to diff or editor for affected file
+                    } else {
+                        self.transcript_mut()
+                            .add_system_message("No affected files for this event.");
+                    }
+                }
                 KeyAction::NoOp => (),
             }
         }
@@ -819,42 +869,55 @@ impl App {
                 return;
             }
 
-            let layout = TuiLayout::calculate(
-                size,
-                self.state.ui.sidebar_visible,
-                self.state.ui.sidebar_width_override(),
-            );
+            let layout = if matches!(self.state.ui.active_view, crate::state::MainView::Inspector) {
+                TuiLayout::calculate_inspector(size)
+            } else {
+                TuiLayout::calculate(
+                    size,
+                    self.state.ui.sidebar_visible,
+                    self.state.ui.sidebar_width_override(),
+                )
+            };
             let header = Header::new(&self.state.session_header);
             header.render(frame, layout.header);
 
-            let theme = Theme::palette(self.state.theme_variant());
-            let options = RenderOptions {
-                centered: false,
-                max_bubble_width: if layout.mode == LayoutMode::Full { None } else { Some(60) },
-                animation_frame: self.state.ui.animation_frame,
-            };
-            let ellipsis = self.state.streaming_ellipsis();
-            let transcript_component = if self.state.is_generating() {
-                TranscriptComponent::with_streaming_ellipsis(
-                    &self.transcript,
-                    self.state.ui.scroll_vertical,
-                    ellipsis,
-                    theme,
-                    options,
-                )
+            if matches!(self.state.ui.active_view, crate::state::MainView::Inspector) {
+                let inspector = crate::components::Inspector::new(&self.state);
+                inspector.render(
+                    frame,
+                    layout.evidence_list.unwrap_or_default(),
+                    layout.evidence_detail.unwrap_or_default(),
+                );
             } else {
-                TranscriptComponent::with_vertical_scroll(
-                    &self.transcript,
-                    self.state.ui.scroll_vertical,
-                    theme,
-                    options,
-                )
-            };
-            transcript_component.render(frame, layout.transcript);
+                let theme = Theme::palette(self.state.theme_variant());
+                let options = RenderOptions {
+                    centered: false,
+                    max_bubble_width: if layout.mode == LayoutMode::Full { None } else { Some(60) },
+                    animation_frame: self.state.ui.animation_frame,
+                };
+                let ellipsis = self.state.streaming_ellipsis();
+                let transcript_component = if self.state.is_generating() {
+                    TranscriptComponent::with_streaming_ellipsis(
+                        &self.transcript,
+                        self.state.ui.scroll_vertical,
+                        ellipsis,
+                        theme,
+                        options,
+                    )
+                } else {
+                    TranscriptComponent::with_vertical_scroll(
+                        &self.transcript,
+                        self.state.ui.scroll_vertical,
+                        theme,
+                        options,
+                    )
+                };
+                transcript_component.render(frame, layout.transcript);
 
-            if let Some(sidebar_area) = layout.sidebar {
-                let sidebar = Sidebar::new(&self.state);
-                sidebar.render(frame, sidebar_area);
+                if let Some(sidebar_area) = layout.sidebar {
+                    let sidebar = Sidebar::new(&self.state);
+                    sidebar.render(frame, sidebar_area);
+                }
             }
 
             let footer = Footer::new(&self.state);
@@ -1084,8 +1147,8 @@ mod tests {
         assert!(!event.timestamp.is_empty());
     }
 
-    #[test]
-    fn test_handle_shell_command_event() {
+    #[tokio::test]
+    async fn test_handle_shell_command_event() {
         let mut app = create_test_app();
 
         app.state_mut().input.buffer = "!cmd echo test".to_string();
@@ -1095,7 +1158,7 @@ mod tests {
             crossterm::event::KeyModifiers::NONE,
         ));
 
-        app.handle_event(event);
+        app.handle_event(event).await;
 
         let transcript = app.transcript();
         let entries = transcript.entries();
@@ -1383,8 +1446,8 @@ mod tests {
         assert!(!app.state().is_generating());
     }
 
-    #[test]
-    fn test_handle_event_send_message() {
+    #[tokio::test]
+    async fn test_handle_event_send_message() {
         let mut app = create_test_app();
         app.state_mut().input.buffer = "Test message".to_string();
 
@@ -1392,27 +1455,27 @@ mod tests {
             crossterm::event::KeyCode::Enter,
             crossterm::event::KeyModifiers::NONE,
         ));
-        app.handle_event(event);
+        app.handle_event(event).await;
 
         assert_eq!(app.transcript().len(), 2);
         assert_eq!(app.state().input.buffer, "");
     }
 
-    #[test]
-    fn test_handle_event_send_message_empty() {
+    #[tokio::test]
+    async fn test_handle_event_send_message_empty() {
         let mut app = create_test_app();
 
         let event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
             crossterm::event::KeyCode::Enter,
             crossterm::event::KeyModifiers::NONE,
         ));
-        app.handle_event(event);
+        app.handle_event(event).await;
 
         assert_eq!(app.transcript().len(), 0);
     }
 
-    #[test]
-    fn test_handle_event_approve_action() {
+    #[tokio::test]
+    async fn test_handle_event_approve_action() {
         let mut app = create_test_app();
         app.state_mut().approval_ui.pending_approval =
             Some(ApprovalState::pending("test.action".to_string(), "risky".to_string()));
@@ -1421,7 +1484,7 @@ mod tests {
             crossterm::event::KeyCode::Char('y'),
             crossterm::event::KeyModifiers::NONE,
         ));
-        app.handle_event(event);
+        app.handle_event(event).await;
 
         assert!(app.state().approval_ui.pending_approval.is_none());
     }
@@ -1490,8 +1553,8 @@ mod tests {
         assert!(app.state().approval_ui.pending_approval.is_none());
     }
 
-    #[test]
-    fn test_handle_event_reject_action() {
+    #[tokio::test]
+    async fn test_handle_event_reject_action() {
         let mut app = create_test_app();
         app.state_mut().approval_ui.pending_approval =
             Some(ApprovalState::pending("test.action".to_string(), "risky".to_string()));
@@ -1500,13 +1563,13 @@ mod tests {
             crossterm::event::KeyCode::Char('n'),
             crossterm::event::KeyModifiers::NONE,
         ));
-        app.handle_event(event);
+        app.handle_event(event).await;
 
         assert!(app.state().approval_ui.pending_approval.is_none());
     }
 
-    #[test]
-    fn test_handle_event_cancel_action() {
+    #[tokio::test]
+    async fn test_handle_event_cancel_action() {
         let mut app = create_test_app();
         app.state_mut().approval_ui.pending_approval =
             Some(ApprovalState::pending("test.action".to_string(), "risky".to_string()));
@@ -1515,13 +1578,13 @@ mod tests {
             crossterm::event::KeyCode::Char('c'),
             crossterm::event::KeyModifiers::NONE,
         ));
-        app.handle_event(event);
+        app.handle_event(event).await;
 
         assert!(app.state().approval_ui.pending_approval.is_none());
     }
 
-    #[test]
-    fn test_handle_event_cancel_generation() {
+    #[tokio::test]
+    async fn test_handle_event_cancel_generation() {
         let mut app = create_test_app();
         app.state_mut().start_generation();
 
@@ -1529,13 +1592,13 @@ mod tests {
             crossterm::event::KeyCode::Char('c'),
             crossterm::event::KeyModifiers::CONTROL,
         ));
-        app.handle_event(event);
+        app.handle_event(event).await;
 
         assert!(!app.state().is_generating());
     }
 
-    #[test]
-    fn test_handle_event_char_input() {
+    #[tokio::test]
+    async fn test_handle_event_char_input() {
         let mut app = create_test_app();
 
         for c in "Hello".chars() {
@@ -1543,14 +1606,14 @@ mod tests {
                 crossterm::event::KeyCode::Char(c),
                 crossterm::event::KeyModifiers::NONE,
             ));
-            app.handle_event(event);
+            app.handle_event(event).await;
         }
 
         assert_eq!(app.state().input.buffer, "Hello");
     }
 
-    #[test]
-    fn test_handle_event_open_external_editor() {
+    #[tokio::test]
+    async fn test_handle_event_open_external_editor() {
         let mut app = create_test_app();
         app.state_mut().input.buffer = "Initial content".to_string();
 
@@ -1563,7 +1626,7 @@ mod tests {
             crossterm::event::KeyModifiers::CONTROL | crossterm::event::KeyModifiers::SHIFT,
         ));
 
-        app.handle_event(event);
+        app.handle_event(event).await;
 
         let transcript = app.transcript();
         let entries = transcript.entries();
@@ -1615,8 +1678,8 @@ mod tests {
         let _ = std::fs::remove_file(&temp_file_path);
     }
 
-    #[test]
-    fn test_external_editor_with_empty_input() {
+    #[tokio::test]
+    async fn test_external_editor_with_empty_input() {
         let mut app = create_test_app();
         app.state_mut().input.buffer = "".to_string();
 
@@ -1629,7 +1692,7 @@ mod tests {
             crossterm::event::KeyModifiers::CONTROL | crossterm::event::KeyModifiers::SHIFT,
         ));
 
-        app.handle_event(event);
+        app.handle_event(event).await;
 
         let transcript = app.transcript();
         let entries = transcript.entries();
@@ -1649,8 +1712,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_external_editor_cursor_position() {
+    #[tokio::test]
+    async fn test_external_editor_cursor_position() {
         let mut app = create_test_app();
         app.state_mut().input.buffer = "Some existing content".to_string();
 
@@ -1663,7 +1726,7 @@ mod tests {
             crossterm::event::KeyModifiers::CONTROL | crossterm::event::KeyModifiers::SHIFT,
         ));
 
-        app.handle_event(event);
+        app.handle_event(event).await;
 
         match original_editor {
             Some(val) => unsafe { std::env::set_var("EDITOR", val) },
@@ -1832,8 +1895,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_handle_clear_command() {
+    #[tokio::test]
+    async fn test_handle_clear_command() {
         let mut app = create_test_app();
 
         app.transcript_mut().add_user_message("Test message");
@@ -1845,7 +1908,8 @@ mod tests {
         app.handle_event(crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
             crossterm::event::KeyCode::Enter,
             crossterm::event::KeyModifiers::NONE,
-        )));
+        )))
+        .await;
 
         assert_eq!(app.transcript().len(), 1);
         if let transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
@@ -1855,8 +1919,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_slash_command_integration() {
+    #[tokio::test]
+    async fn test_slash_command_integration() {
         let mut app = create_test_app();
 
         app.state_mut().input.buffer = "/status".to_string();
@@ -1864,14 +1928,14 @@ mod tests {
             crossterm::event::KeyCode::Enter,
             crossterm::event::KeyModifiers::NONE,
         ));
-        app.handle_event(event);
+        app.handle_event(event).await;
 
         assert_eq!(app.transcript().len(), 1);
         assert!(app.state().input.buffer.is_empty());
     }
 
-    #[test]
-    fn test_slash_command_with_args_integration() {
+    #[tokio::test]
+    async fn test_slash_command_with_args_integration() {
         let mut app = create_test_app();
         let original_mode = app.state().config.approval_mode;
 
@@ -1880,7 +1944,7 @@ mod tests {
             crossterm::event::KeyCode::Enter,
             crossterm::event::KeyModifiers::NONE,
         ));
-        app.handle_event(event);
+        app.handle_event(event).await;
 
         assert_eq!(app.state().config.approval_mode, thunderus_core::ApprovalMode::ReadOnly);
         assert_ne!(app.state().config.approval_mode, original_mode);

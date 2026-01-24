@@ -28,6 +28,35 @@ pub fn handle_normal_key(event: KeyEvent, state: &mut AppState) -> Option<KeyAct
         }
     }
 
+    if matches!(state.ui.active_view, crate::state::MainView::Inspector) {
+        match event.code {
+            KeyCode::Up | KeyCode::Char('k') | KeyCode::Char('K') => {
+                state.evidence.select_prev();
+                return Some(KeyAction::InspectorNavigate);
+            }
+            KeyCode::Down | KeyCode::Char('j') | KeyCode::Char('J') => {
+                state.evidence.select_next();
+                return Some(KeyAction::InspectorNavigate);
+            }
+            KeyCode::Char('c') | KeyCode::Char('C') => {
+                state.evidence.scroll_up();
+                return Some(KeyAction::InspectorNavigate);
+            }
+            KeyCode::Char('d') | KeyCode::Char('D') => {
+                state.evidence.scroll_down();
+                return Some(KeyAction::InspectorNavigate);
+            }
+            KeyCode::Char('i') | KeyCode::Char('I') | KeyCode::Esc => {
+                state.ui.toggle_inspector();
+                return Some(KeyAction::ToggleInspector);
+            }
+            KeyCode::Char('f') | KeyCode::Char('F') => {
+                return Some(KeyAction::InspectorOpenFile { path: String::new() });
+            }
+            _ => {}
+        }
+    }
+
     if state.memory_hits.is_visible() {
         match event.code {
             KeyCode::Up | KeyCode::Char('k') | KeyCode::Char('K') => {
@@ -48,6 +77,11 @@ pub fn handle_normal_key(event: KeyEvent, state: &mut AppState) -> Option<KeyAct
                     let id = hit.id.clone();
                     state.memory_hits.toggle_pin(&id);
                     return Some(KeyAction::MemoryHitsPin { id });
+                }
+            }
+            KeyCode::Char('i') | KeyCode::Char('I') => {
+                if let Some(hit) = state.memory_hits.selected_hit() {
+                    return Some(KeyAction::InspectMemory { path: hit.path.clone() });
                 }
             }
             KeyCode::Esc => {
@@ -147,6 +181,13 @@ pub fn handle_normal_key(event: KeyEvent, state: &mut AppState) -> Option<KeyAct
                 return Some(KeyAction::NavigateCardPrev);
             } else {
                 state.input.insert_char('k');
+            }
+        }
+        KeyCode::Char('i') | KeyCode::Char('I') => {
+            if state.input.buffer.is_empty() {
+                return Some(KeyAction::ToggleInspector);
+            } else {
+                state.input.insert_char('i');
             }
         }
         KeyCode::Char(c) => {

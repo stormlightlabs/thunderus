@@ -11,13 +11,12 @@ use crate::memory::gardener::extraction::{EntityExtractor, ExtractedEntities};
 use crate::memory::gardener::recap::{RecapGenerator, RecapResult};
 use crate::memory::kinds::MemoryKind;
 use crate::memory::paths::MemoryPaths;
-use crate::memory::{CommandOutcome, GotchaCategory, MemoryManifest};
+use crate::memory::{CommandOutcome, GotchaCategory, MemoryDoc, MemoryManifest};
 use crate::patch::{MemoryPatch, MemoryPatchParams, PatchId};
+use crate::provenance::ProvenanceValidator;
 use crate::session::Session;
 
-use serde_json::json;
-use std::fs::{self};
-use std::path::{Path, PathBuf};
+use std::fs;
 
 /// Represents an update to a FACT document
 #[derive(Debug, Clone)]
@@ -78,19 +77,15 @@ impl ConsolidationResult {
 /// Orchestrates the episodic to semantic/procedural promotion
 #[derive(Debug, Clone)]
 pub struct ConsolidationJob {
-    session_id: String,
-    events_file: PathBuf,
+    session_id: SessionId,
+    agent_dir: AgentDir,
     config: GardenerConfig,
 }
 
 impl ConsolidationJob {
     /// Create a new consolidation job for a completed session
-    pub fn new(session_id: &str, events_file: &Path, config: GardenerConfig) -> Result<Self> {
-        if !events_file.exists() {
-            return Err(Error::Other(format!("Events file not found: {:?}", events_file)));
-        }
-
-        Ok(Self { session_id: session_id.to_string(), events_file: events_file.to_path_buf(), config })
+    pub fn new(session_id: &SessionId, agent_dir: &AgentDir, config: GardenerConfig) -> Self {
+        Self { session_id: session_id.clone(), agent_dir: agent_dir.clone(), config }
     }
 
     /// Execute the consolidation pipeline
@@ -105,8 +100,10 @@ impl ConsolidationJob {
         let adrs = self.generate_adr_updates(&entities, &manifest);
 
         let mut patches = Vec::new();
-        self.generate_fact_patches(&facts, &mut patches, mem_paths)?;
-        self.generate_adr_patches(&adrs, &mut patches, mem_paths)?;
+        let validator = ProvenanceValidator::new(self.config.provenance_validation_mode);
+
+        self.generate_fact_patches(&facts, &mut patches, mem_paths, &validator)?;
+        self.generate_adr_patches(&adrs, &mut patches, mem_paths, &validator)?;
         let recap = self.generate_recap(&events, &entities, mem_paths).await.ok();
         let warnings = self.collect_warnings(&facts, &adrs);
 
@@ -115,11 +112,7 @@ impl ConsolidationJob {
 
     /// Load events from the session file
     fn load_events(&self) -> Result<Vec<LoggedEvent>> {
-        let agent_dir = AgentDir::new(self.events_file.parent().unwrap().parent().unwrap());
-        let session_id = SessionId::from_timestamp(&self.session_id)
-            .map_err(|e| Error::Other(format!("Invalid session ID: {}", e)))?;
-
-        let session = Session::load(agent_dir, session_id)?;
+        let session = Session::load(self.agent_dir.clone(), self.session_id.clone())?;
         session.read_events()
     }
 
@@ -285,26 +278,38 @@ impl ConsolidationJob {
     /// Generate memory patches from fact updates
     fn generate_fact_patches(
         &self, facts: &[FactUpdate], patches: &mut Vec<MemoryPatchParams>, paths: &MemoryPaths,
+        validator: &ProvenanceValidator,
     ) -> Result<()> {
-        let session_id = SessionId::from_timestamp(&self.session_id)
-            .map_err(|e| Error::Other(format!("Invalid session ID: {}", e)))?;
-
         for (idx, fact) in facts.iter().enumerate() {
             match fact {
                 FactUpdate::Create { doc_id, title, tags, content, provenance } => {
                     let path = paths.facts.join(format!("{}.md", doc_id.replace('.', "_")));
+                    let mut doc = MemoryDoc::new(
+                        doc_id.clone(),
+                        title.clone(),
+                        MemoryKind::Fact,
+                        tags.clone(),
+                        content.clone(),
+                    );
+                    doc.frontmatter.provenance.events = provenance.clone();
+
+                    validator.validate(&mut doc, &self.session_id)?;
+
                     patches.push(MemoryPatchParams {
                         path,
                         doc_id: doc_id.clone(),
                         kind: MemoryKind::Fact,
                         description: format!("Create fact: {}", title),
-                        diff: self.create_fact_diff(doc_id, title, tags, content),
-                        source_events: provenance.clone(),
-                        session_id: session_id.clone(),
+                        diff: format!("{}", doc),
+                        source_events: doc.frontmatter.provenance.events.clone(),
+                        session_id: self.session_id.clone(),
                         seq: idx as u64,
                     });
                 }
                 FactUpdate::Append { doc_id, section, content, provenance } => {
+                    let mut validated_provenance = provenance.clone();
+                    validator.validate_provenance(&mut validated_provenance, doc_id, &self.session_id)?;
+
                     let path = paths.facts.join(format!("{}.md", doc_id.replace('.', "_")));
                     patches.push(MemoryPatchParams {
                         path,
@@ -312,8 +317,8 @@ impl ConsolidationJob {
                         kind: MemoryKind::Fact,
                         description: format!("Append to fact: {}", doc_id),
                         diff: self.append_fact_diff(section, content),
-                        source_events: provenance.clone(),
-                        session_id: session_id.clone(),
+                        source_events: validated_provenance,
+                        session_id: self.session_id.clone(),
                         seq: idx as u64,
                     });
                 }
@@ -327,22 +332,32 @@ impl ConsolidationJob {
     /// Generate memory patches from ADR updates
     fn generate_adr_patches(
         &self, adrs: &[AdrUpdate], patches: &mut Vec<MemoryPatchParams>, paths: &MemoryPaths,
+        validator: &ProvenanceValidator,
     ) -> Result<()> {
-        let session_id = SessionId::from_timestamp(&self.session_id)
-            .map_err(|e| Error::Other(format!("Invalid session ID: {}", e)))?;
-
         for (idx, adr) in adrs.iter().enumerate() {
             let filename = format!("ADR-{:04}.md", adr.number);
             let path = paths.decisions.join(filename);
+            let doc_id = format!("adr.{:04}", adr.number);
+
+            let mut doc = MemoryDoc::new(
+                doc_id.clone(),
+                adr.title.clone(),
+                MemoryKind::Adr,
+                vec![],
+                adr.to_markdown(),
+            );
+            doc.frontmatter.provenance.events = adr.event_ids.clone();
+
+            validator.validate(&mut doc, &self.session_id)?;
 
             patches.push(MemoryPatchParams {
                 path,
-                doc_id: format!("adr.{:04}", adr.number),
+                doc_id,
                 kind: MemoryKind::Adr,
                 description: format!("Create ADR-{:04}: {}", adr.number, adr.title),
-                diff: self.create_adr_diff(adr),
-                source_events: adr.event_ids.clone(),
-                session_id: session_id.clone(),
+                diff: format!("{}", doc),
+                source_events: doc.frontmatter.provenance.events.clone(),
+                session_id: self.session_id.clone(),
                 seq: idx as u64,
             });
         }
@@ -350,38 +365,9 @@ impl ConsolidationJob {
         Ok(())
     }
 
-    /// Create a diff for a new fact document
-    fn create_fact_diff(&self, id: &str, title: &str, tags: &[String], content: &str) -> String {
-        let frontmatter = json!({
-            "id": id,
-            "title": title,
-            "kind": "fact",
-            "tags": tags,
-            "created_at": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
-        });
-
-        format!("---\n{}\n---\n\n{}", frontmatter, content)
-    }
-
-    /// Create a diff for appending to a fact
+    /// Append a diff for appending to a fact
     fn append_fact_diff(&self, section: &str, content: &str) -> String {
         format!("### {}\n\n{}", section, content)
-    }
-
-    /// Create a diff for a new ADR
-    fn create_adr_diff(&self, adr: &AdrUpdate) -> String {
-        let frontmatter = json!({
-            "id": format!("adr.{:04}", adr.number),
-            "title": adr.title,
-            "kind": "adr",
-            "tags": [],
-            "created_at": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-            "verification": {
-                "status": "verified"
-            }
-        });
-
-        format!("---\n{}\n---\n\n{}", frontmatter, adr.to_markdown())
     }
 
     /// Generate a session recap
@@ -390,7 +376,7 @@ impl ConsolidationJob {
     ) -> Result<RecapResult> {
         let recap_dir = paths.episodic.join(format!("{:?}", chrono::Utc::now().format("%Y-%m")));
         let generator = RecapGenerator::new(self.config.recap.clone());
-        generator.generate_with_path(&self.session_id, events, entities, &[], &recap_dir)
+        generator.generate_with_path(self.session_id.as_str(), events, entities, &[], &recap_dir)
     }
 
     /// Collect warnings from the consolidation
@@ -435,8 +421,9 @@ mod tests {
         File::create(&events_file).unwrap();
 
         let config = GardenerConfig::default();
-        let job = ConsolidationJob::new("test-session", &events_file, config);
-        assert!(job.is_ok());
+        let agent_dir = AgentDir::new(temp.path());
+        let session_id = SessionId::from_timestamp("test-session").unwrap();
+        let _job = ConsolidationJob::new(&session_id, &agent_dir, config);
     }
 
     #[test]
@@ -584,11 +571,9 @@ mod tests {
         let manifest = MemoryManifest::default();
 
         let config = GardenerConfig::default();
-        let job = ConsolidationJob {
-            session_id: "test-session".to_string(),
-            events_file: std::path::PathBuf::from("/tmp/test"),
-            config,
-        };
+        let agent_dir = AgentDir::new("/tmp/test");
+        let session_id = SessionId::from_timestamp("test-session").unwrap();
+        let job = ConsolidationJob::new(&session_id, &agent_dir, config);
 
         let facts = job.generate_fact_updates(&entities, &manifest);
 
@@ -645,5 +630,49 @@ mod tests {
         assert_eq!(entities.commands.len(), 3);
         assert_eq!(entities.workflows.len(), 1);
         assert!(entities.workflows[0].title.contains("Rust") || entities.workflows[0].title.contains("step"));
+    }
+
+    #[tokio::test]
+    async fn test_consolidation_provenance_loose() {
+        let config = GardenerConfig {
+            provenance_validation_mode: crate::provenance::ValidationMode::Loose,
+            ..Default::default()
+        };
+
+        let temp = TempDir::new().unwrap();
+        let paths = MemoryPaths::from_thunderus_root(temp.path());
+        paths.ensure().unwrap();
+
+        let session_dir = temp.path().join(".agent/sessions/test-session");
+        std::fs::create_dir_all(&session_dir).unwrap();
+        let events_file = session_dir.join("events.jsonl");
+
+        let event = create_test_event(
+            0,
+            "test-session",
+            Event::ToolResult {
+                tool: "shell".to_string(),
+                result: json!({"cmd": "cargo build", "exit_code": 0}),
+                success: true,
+                error: None,
+            },
+        );
+        let json_line = serde_json::to_string(&event).unwrap();
+        std::fs::write(&events_file, format!("{}\n", json_line)).unwrap();
+
+        let agent_dir = AgentDir::new(temp.path());
+        let session_id = SessionId::from_timestamp("test-session").unwrap();
+
+        let job = ConsolidationJob::new(&session_id, &agent_dir, config);
+        let result = job.run(&paths).await.unwrap();
+        assert!(!result.patches.is_empty());
+
+        let patch = result
+            .patches
+            .iter()
+            .find(|p| p.doc_id == "fact.commands.build")
+            .unwrap();
+
+        assert!(patch.source_events.contains(&"test-session_0".to_string()));
     }
 }

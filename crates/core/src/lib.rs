@@ -7,11 +7,15 @@ pub mod layout;
 pub mod memory;
 pub mod patch;
 pub mod patch_queue_manager;
+pub mod provenance;
 pub mod search;
 pub mod session;
 pub mod task_context;
 pub mod teaching;
+pub mod trajectory;
 pub mod views;
+
+pub use trajectory::{TrajectoryNode, TrajectoryWalker};
 
 pub use approval::{
     ActionType, ApprovalContext, ApprovalDecision, ApprovalGate, ApprovalId, ApprovalProtocol, ApprovalRecord,
@@ -32,6 +36,7 @@ pub use memory::{
 };
 pub use patch::{Hunk, MemoryPatch, MemoryPatchParams, Patch, PatchId, PatchQueue};
 pub use patch_queue_manager::PatchQueueManager;
+pub use provenance::{ProvenanceValidator, ValidationMode};
 pub use search::{SearchHit, SearchScope, search_session};
 pub use session::{Event, LoggedEvent, PatchStatus, Seq, Session, TokensUsed};
 pub use task_context::{TaskContext, TaskContextTracker};
