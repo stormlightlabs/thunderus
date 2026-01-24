@@ -21,3 +21,8 @@ target
 #.idea/
 .sandbox/
 .thunderus/
+node_modules/
+docs/.vitepress/cache/
+docs/.vitepress/.temp/
+docs/.vitepress/dist/
+.pnpm-store/
