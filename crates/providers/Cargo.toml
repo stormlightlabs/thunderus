@@ -16,3 +16,4 @@ thiserror = "2.0.9"
 thunderus-core = { path = "../core" }
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1.17"
+tracing = "0.1"

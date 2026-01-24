@@ -2,6 +2,7 @@
 //!
 //! Provides durable storage and full-text search for memory documents.
 use crate::error::{Error, Result};
+use crate::migration::MigrationManager;
 use crate::schema;
 
 use chrono::{DateTime, Utc};
@@ -113,14 +114,13 @@ impl MemoryStore {
             .map_err(|e| Error::database(format!("Failed to open database: {e}")))?;
 
         conn.call(|conn| {
-            tracing::debug!("Initializing schema");
-            conn.execute_batch(schema::SCHEMA_SQL)
-                .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-            tracing::trace!("Schema initialized successfully");
+            tracing::debug!("Running migrations");
+            MigrationManager::migrate(conn).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+            tracing::trace!("Migrations complete");
             Ok::<(), rusqlite::Error>(())
         })
         .await
-        .map_err(|e| Error::database(format!("Schema initialization failed: {e}")))?;
+        .map_err(|e| Error::database(format!("Migration failed: {e}")))?;
 
         tracing::info!("Memory store opened successfully");
         Ok(Self { conn: Arc::new(conn) })
@@ -590,6 +590,7 @@ impl MemoryStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::schema::SCHEMA_VERSION;
     use tempfile::TempDir;
 
     #[tokio::test]
@@ -598,6 +599,18 @@ mod tests {
         let db_path = temp_dir.path().join("test.db");
         let store = MemoryStore::open(&db_path).await;
         assert!(store.is_ok());
+        let _ = temp_dir;
+    }
+
+    #[tokio::test]
+    async fn test_fresh_store_opens_with_correct_version() {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let _store = MemoryStore::open(&db_path).await.unwrap();
+
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        let version = MigrationManager::get_current_version(&conn).unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
         let _ = temp_dir;
     }
 

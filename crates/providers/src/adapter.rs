@@ -1,12 +1,21 @@
+use crate::types::*;
+
 use eventsource_stream::Eventsource;
 use futures::{StreamExt, stream::Stream};
 use reqwest::Client as HttpClient;
 use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 use std::sync::Arc;
-
-use crate::types::*;
 use thunderus_core::Result;
+
+/// Parsed chunk with metadata for debugging/logging
+#[derive(Debug, Clone)]
+pub struct ParsedChunk {
+    pub event: StreamEvent,
+    pub request_id: Option<String>,
+    pub model: Option<String>,
+    pub finish_reason: Option<String>,
+}
 
 /// Generic provider trait for LLM backends
 #[async_trait::async_trait]
@@ -65,32 +74,56 @@ impl GlmProvider {
         })
     }
 
-    /// Parse SSE chunk into StreamEvent
-    fn parse_chunk(&self, chunk: &str) -> StreamEvent {
+    /// Parse SSE chunk into ParsedChunk with metadata
+    fn parse_chunk(&self, chunk: &str) -> ParsedChunk {
         if chunk.trim().is_empty() || chunk.starts_with("[DONE]") {
-            return StreamEvent::Done;
+            return ParsedChunk { event: StreamEvent::Done, request_id: None, model: None, finish_reason: None };
         }
 
         match serde_json::from_str::<GlmChunk>(chunk) {
             Ok(data) => {
+                let request_id = data.id.clone();
+                let model = data.model.clone();
+                let mut finish_reason = None;
+
                 if let Some(choices) = data.choices
                     && let Some(choice) = choices.first()
                 {
+                    finish_reason = choice.finish_reason.clone();
                     let delta = &choice.delta;
 
                     if let Some(content) = &delta.content {
-                        return StreamEvent::Token(content.clone());
+                        if let Some(ref role) = delta.role {
+                            tracing::debug!(
+                                request_id = ?request_id,
+                                role = %role,
+                                content_len = content.len(),
+                                "GLM content chunk with role"
+                            );
+                        }
+                        return ParsedChunk {
+                            event: StreamEvent::Token(content.clone()),
+                            request_id,
+                            model,
+                            finish_reason,
+                        };
                     }
 
                     if let Some(tool_calls) = &delta.tool_calls
                         && !tool_calls.is_empty()
                     {
+                        tracing::debug!(
+                            request_id = ?request_id,
+                            tool_calls_count = tool_calls.len(),
+                            tool_call_types = ?tool_calls.iter().map(|tc| tc.r#type.as_deref().unwrap_or("unknown")).collect::<Vec<_>>(),
+                            "GLM tool calls received"
+                        );
                         let calls: Vec<ToolCall> = tool_calls
                             .iter()
                             .filter_map(|tc| {
                                 tc.function.as_ref().map(|func| ToolCall {
                                     id: tc.id.clone().unwrap_or_default(),
-                                    call_type: "function".to_string(),
+                                    call_type: tc.r#type.clone().unwrap_or_else(|| "function".to_string()),
                                     function: FunctionCall {
                                         name: func.name.clone().unwrap_or_default(),
                                         arguments: serde_json::from_str(&func.arguments.clone().unwrap_or_default())
@@ -101,17 +134,32 @@ impl GlmProvider {
                             .collect();
 
                         if !calls.is_empty() {
-                            return StreamEvent::ToolCall(calls);
+                            return ParsedChunk {
+                                event: StreamEvent::ToolCall(calls),
+                                request_id,
+                                model,
+                                finish_reason,
+                            };
                         }
                     }
 
                     if let Some(ref reasoning) = delta.reasoning_content {
-                        return StreamEvent::Token(format!("<thinking>{}</thinking>", reasoning));
+                        return ParsedChunk {
+                            event: StreamEvent::Token(format!("<thinking>{}</thinking>", reasoning)),
+                            request_id,
+                            model,
+                            finish_reason,
+                        };
                     }
                 }
-                StreamEvent::Done
+                ParsedChunk { event: StreamEvent::Done, request_id, model, finish_reason }
             }
-            Err(_) => StreamEvent::Error(format!("Failed to parse chunk: {}", chunk)),
+            Err(_) => ParsedChunk {
+                event: StreamEvent::Error(format!("Failed to parse chunk: {}", chunk)),
+                request_id: None,
+                model: None,
+                finish_reason: None,
+            },
         }
     }
 }
@@ -165,8 +213,31 @@ impl Provider for GlmProvider {
                 match event_result {
                     Ok(event) => {
                         let parsed = self.parse_chunk(&event.data);
-                        let is_done = matches!(parsed, StreamEvent::Done);
-                        yield parsed;
+                        let is_done = matches!(parsed.event, StreamEvent::Done);
+
+                        if is_done
+                            && let Some(ref reason) = parsed.finish_reason {
+                                if let Ok(chunk_data) = serde_json::from_str::<GlmChunk>(&event.data) {
+                                    tracing::debug!(
+                                        request_id = ?parsed.request_id,
+                                        model = ?parsed.model,
+                                        object = ?chunk_data.object,
+                                        created = ?chunk_data.created,
+                                        index = ?chunk_data.choices.as_ref().and_then(|c| c.first()).and_then(|c| c.index),
+                                        finish_reason = %reason,
+                                        "GLM stream completed"
+                                    );
+                                } else {
+                                    tracing::debug!(
+                                        request_id = ?parsed.request_id,
+                                        model = ?parsed.model,
+                                        finish_reason = %reason,
+                                        "GLM stream completed"
+                                    );
+                                }
+                            }
+
+                        yield parsed.event;
 
                         if is_done {
                             break;
@@ -220,7 +291,6 @@ struct GlmThinking {
 
 /// GLM SSE chunk format
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 struct GlmChunk {
     id: Option<String>,
     object: Option<String>,
@@ -230,7 +300,6 @@ struct GlmChunk {
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 struct GlmChoice {
     index: Option<u32>,
     delta: GlmDelta,
@@ -238,7 +307,6 @@ struct GlmChoice {
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 struct GlmDelta {
     #[serde(default)]
     content: Option<String>,
@@ -251,7 +319,6 @@ struct GlmDelta {
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 struct GlmToolCall {
     #[serde(default)]
     id: Option<String>,
@@ -362,21 +429,32 @@ impl GeminiProvider {
         })
     }
 
-    /// Parse Gemini API chunk into StreamEvent
-    fn parse_chunk(&self, chunk: &str) -> StreamEvent {
+    /// Parse Gemini API chunk into ParsedChunk with metadata
+    fn parse_chunk(&self, chunk: &str) -> ParsedChunk {
         if chunk.trim().is_empty() {
-            return StreamEvent::Done;
+            return ParsedChunk { event: StreamEvent::Done, request_id: None, model: None, finish_reason: None };
         }
 
         match serde_json::from_str::<GeminiChunk>(chunk) {
             Ok(data) => {
+                let finish_reason = data
+                    .candidates
+                    .as_ref()
+                    .and_then(|c| c.first())
+                    .and_then(|c| c.finish_reason.clone());
+
                 if let Some(ref candidates) = data.candidates
                     && let Some(candidate) = candidates.first()
                     && let Some(ref content) = candidate.content
                 {
                     for part in &content.parts {
                         if let Some(text) = &part.text {
-                            return StreamEvent::Token(text.clone());
+                            return ParsedChunk {
+                                event: StreamEvent::Token(text.clone()),
+                                request_id: None,
+                                model: Some(self.model.clone()),
+                                finish_reason: finish_reason.clone(),
+                            };
                         }
 
                         if let Some(function_call) = &part.function_call {
@@ -394,7 +472,12 @@ impl GeminiProvider {
                                     arguments: function_call.args.clone(),
                                 },
                             };
-                            return StreamEvent::ToolCall(vec![call]);
+                            return ParsedChunk {
+                                event: StreamEvent::ToolCall(vec![call]),
+                                request_id: None,
+                                model: Some(self.model.clone()),
+                                finish_reason: finish_reason.clone(),
+                            };
                         }
                     }
                 }
@@ -404,12 +487,27 @@ impl GeminiProvider {
                     && candidate.finish_reason.is_some()
                     && candidate.finish_reason != Some("STOP".to_string())
                 {
-                    return StreamEvent::Done;
+                    return ParsedChunk {
+                        event: StreamEvent::Done,
+                        request_id: None,
+                        model: Some(self.model.clone()),
+                        finish_reason,
+                    };
                 }
 
-                StreamEvent::Done
+                ParsedChunk {
+                    event: StreamEvent::Done,
+                    request_id: None,
+                    model: Some(self.model.clone()),
+                    finish_reason,
+                }
             }
-            Err(_) => StreamEvent::Error(format!("Failed to parse chunk: {}", chunk)),
+            Err(_) => ParsedChunk {
+                event: StreamEvent::Error(format!("Failed to parse chunk: {}", chunk)),
+                request_id: None,
+                model: None,
+                finish_reason: None,
+            },
         }
     }
 }
@@ -476,8 +574,18 @@ impl Provider for GeminiProvider {
                             let line = String::from_utf8_lossy(&line_bytes).to_string();
                             if !line.trim().is_empty() {
                                 let parsed = self.parse_chunk(&line);
-                                let is_done = matches!(parsed, StreamEvent::Done);
-                                yield parsed;
+                                let is_done = matches!(parsed.event, StreamEvent::Done);
+
+                                if is_done
+                                    && let Some(ref reason) = parsed.finish_reason {
+                                        tracing::debug!(
+                                            model = ?parsed.model,
+                                            finish_reason = %reason,
+                                            "Gemini stream completed"
+                                        );
+                                    }
+
+                                yield parsed.event;
 
                                 if is_done {
                                     break;
@@ -559,6 +667,7 @@ struct GeminiChunk {
 #[derive(Debug, Deserialize)]
 struct GeminiCandidate {
     content: Option<GeminiContent>,
+    #[serde(rename = "finishReason")]
     finish_reason: Option<String>,
 }
 
@@ -704,16 +813,44 @@ mod tests {
     #[test]
     fn test_glm_parse_chunk_text() {
         let provider = GlmProvider::new("test-key".to_string(), "glm-4.7".to_string(), None);
-        let chunk = r#"{"choices":[{"delta":{"content":"Hello"}}]}"#;
-        let event = provider.parse_chunk(chunk);
-        assert!(matches!(event, StreamEvent::Token(_)));
+        let chunk =
+            r#"{"id":"req-123","model":"glm-4.7","choices":[{"delta":{"content":"Hello"},"finish_reason":null}]}"#;
+        let parsed = provider.parse_chunk(chunk);
+        assert!(matches!(parsed.event, StreamEvent::Token(_)));
+        assert_eq!(parsed.request_id, Some("req-123".to_string()));
+        assert_eq!(parsed.model, Some("glm-4.7".to_string()));
     }
 
     #[test]
     fn test_glm_parse_chunk_done() {
         let provider = GlmProvider::new("test-key".to_string(), "glm-4.7".to_string(), None);
-        let event = provider.parse_chunk("[DONE]");
-        assert!(matches!(event, StreamEvent::Done));
+        let parsed = provider.parse_chunk("[DONE]");
+        assert!(matches!(parsed.event, StreamEvent::Done));
+    }
+
+    #[test]
+    fn test_glm_parse_chunk_with_finish_reason() {
+        let provider = GlmProvider::new("test-key".to_string(), "glm-4.7".to_string(), None);
+        let chunk = r#"{"id":"req-456","model":"glm-4.7","choices":[{"delta":{},"finish_reason":"stop"}]}"#;
+        let parsed = provider.parse_chunk(chunk);
+        assert_eq!(parsed.finish_reason, Some("stop".to_string()));
+    }
+
+    #[test]
+    fn test_gemini_parse_chunk_text() {
+        let provider = GeminiProvider::new("test-key".to_string(), "gemini-2.5-flash".to_string(), None);
+        let chunk = r#"{"candidates":[{"content":{"role":"model","parts":[{"text":"Hello"}]},"finishReason":"STOP"}]}"#;
+        let parsed = provider.parse_chunk(chunk);
+        assert!(matches!(parsed.event, StreamEvent::Token(_)));
+        assert_eq!(parsed.model, Some("gemini-2.5-flash".to_string()));
+    }
+
+    #[test]
+    fn test_gemini_parse_chunk_with_finish_reason() {
+        let provider = GeminiProvider::new("test-key".to_string(), "gemini-2.5-flash".to_string(), None);
+        let chunk = r#"{"candidates":[{"content":{"role":"model","parts":[{"text":"Done"}]},"finishReason":"STOP"}]}"#;
+        let parsed = provider.parse_chunk(chunk);
+        assert_eq!(parsed.finish_reason, Some("STOP".to_string()));
     }
 
     #[test]

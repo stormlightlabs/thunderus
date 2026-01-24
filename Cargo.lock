@@ -3110,6 +3110,7 @@ dependencies = [
  "thunderus-core",
  "tokio",
  "tokio-stream",
+ "tracing",
 ]
 
 [[package]]

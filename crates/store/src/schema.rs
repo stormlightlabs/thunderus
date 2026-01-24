@@ -3,7 +3,6 @@
 //! Defines the FTS5 full-text search schema with triggers for automatic indexing.
 
 /// Current schema version for migrations
-#[allow(dead_code)]
 pub const SCHEMA_VERSION: i32 = 1;
 
 /// SQL to create the complete schema
@@ -16,7 +15,6 @@ pub const SCHEMA_VERSION: i32 = 1;
 pub const SCHEMA_SQL: &str = include_str!("schema.sql");
 
 /// SQL to create the schema version table
-#[allow(dead_code)]
 pub const SCHEMA_VERSION_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
@@ -25,7 +23,6 @@ CREATE TABLE IF NOT EXISTS schema_version (
 "#;
 
 /// SQL to create the memory documents content table
-#[allow(dead_code)]
 pub const MEMORY_DOCS_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS memory_docs (
     id TEXT PRIMARY KEY,
@@ -124,9 +121,7 @@ END;
 /// - Headings get medium-high weight (5x)
 /// - Tags get medium weight (3x)
 /// - Body and path get base weight (1x)
-#[allow(dead_code)]
 pub const BM25_COLUMN_WEIGHTS: &str = "10.0, 5.0, 3.0, 1.0, 1.0, 1.0";
 
 /// Query to get FTS5 column weights
-#[allow(dead_code)]
 pub const BM25_FUNCTION: &str = "bm25(memory_fts, 10.0, 5.0, 3.0, 1.0, 1.0, 1.0)";

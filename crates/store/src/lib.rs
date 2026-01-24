@@ -36,6 +36,7 @@
 mod error;
 mod indexer;
 mod memory_store;
+mod migration;
 mod retriever;
 mod schema;
 mod vector;
@@ -43,5 +44,7 @@ mod vector;
 pub use error::{Error, Result};
 pub use indexer::{IndexError, IndexResult, MemoryIndexer, generate_placeholder_embedding};
 pub use memory_store::{MemoryMeta, MemoryStore, SearchFilters, SearchHit, StoreStats};
+pub use migration::{BM25_WEIGHTS, MigrationManager};
 pub use retriever::StoreRetriever;
+pub use schema::{BM25_COLUMN_WEIGHTS, BM25_FUNCTION, MEMORY_DOCS_SQL, SCHEMA_VERSION, SCHEMA_VERSION_SQL};
 pub use vector::{SimilarDoc, VectorStore};
