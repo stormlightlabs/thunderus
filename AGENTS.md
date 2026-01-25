@@ -2,20 +2,18 @@
 
 This document helps agents work effectively in the Thunderus codebase.
 
-## Project Overview
+## Overview
 
 Thunderus is a high-performance coding agent harness built in Rust.
 It aims to replicate the rigorous workflows of "Claude Code" and "Codex CLI" as a
 standalone, provider-agnostic TUI tool.
 
-**Key Design Principles**:
+### Key Design Principles
 
 - **Harness > Chat**: TUI workbench, not conversational UI
 - **Shell-First**: "Anything in the shell" is usable, but gated by approvals
 - **Mixed-Initiative**: Seamless collaboration - agent pauses when you type/edit
 - **Diff-First**: All edits are reviewable, reversible, and conflict-aware
-
-For detailed implementation roadmap, see `doc/ROADMAP.txt`.
 
 ## Project Structure
 
@@ -70,46 +68,15 @@ cargo fmt
 cargo clippy
 ```
 
-## Development Status
-
-**What's Done**:
-
-- ✅ Workspace scaffold and module structure
-- ✅ Configuration system (TOML-based profiles)
-- ✅ Session management (JSONL event logs)
-- ✅ Approval protocol and gate system
-- ✅ Tool execution framework (Tool trait, registry, dispatcher)
-- ✅ Command classification with reasoning
-- ✅ Provider-neutral types
-- ✅ Agent orchestrator with event streaming
-- ✅ TUI components (header, sidebar, footer, transcript)
-- ✅ Interactive input handling and approval UI
-- ✅ Syntax highlighting for code blocks
-
-**What's Next** (see ROADMAP.txt for full details):
-
-- ⏳ TUI integration with CLI (components ready, not connected)
-- ⏳ Provider adapters (GLM-4.7, Gemini - types ready, adapters pending)
-- ⏳ Core agent loop integration
-- ⏳ Text processing tools (Grep, Glob, Read, Edit)
-- ⏳ Diff-first editing and git integration
-
 ## Key Technologies
 
 - **Language**: Rust 2024
-- **TUI Framework**: Ratatui (components implemented)
-- **Terminal**: Crossterm for event handling
+- **TUI Framework**: Ratatui
+- **Terminal**: Crossterm
 - **Syntax Highlighting**: syntect + owo_colors
-- **Providers**: GLM-4.7 and Gemini (types ready, adapters pending)
-- **Storage**: JSONL event logs + Markdown views (planned)
-- **Serialization**: serde, serde_json, toml
-
-## Code Conventions
-
-- **Crate names**: kebab-case (e.g., `thunderus-core`)
-- **Binary name**: `thunderus`
-- **Tests**: Use `#[cfg(test)] mod tests` blocks
-- **Test pattern**: `use super::*` at top of test blocks
+- **Providers**: GLM-4.7 and Gemini
+- **Storage**: JSONL event logs + Markdown views
+- **Serialization**: serde, serde_json, toml, serde_yml
 
 ## Important Context for Agents
 
@@ -120,20 +87,9 @@ cargo clippy
 5. **Safety-focused**: Approvals, sandboxes, and reversible operations are design goals
 6. **Early stage**: Much of the code is foundation; implementation details may change
 
-## Dependencies
-
-**Core crates depend on**:
-
-- `serde` (derive) - serialization
-- `serde_json` - JSON handling
-- `toml` - configuration
-- `chrono` - timestamps
-- `thiserror` - error handling
-
 ## When Working on This Codebase
 
 - Always test across workspace: `cargo test`
-- Use `cargo check` for faster feedback
+- Use `just check` for complete, fast feedback
 - Add dependencies to the appropriate crate's `Cargo.toml`
 - Consult `doc/ROADMAP.txt` for implementation order and priorities
-- The approval system (`thunderus_core::approval`) is ready for integration

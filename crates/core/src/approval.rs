@@ -481,32 +481,6 @@ impl ApprovalProtocol for AutoReject {
     }
 }
 
-/// Interactive protocol (for TUI/CLI - placeholder for future implementation)
-#[derive(Debug)]
-pub struct Interactive;
-
-impl Interactive {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl Default for Interactive {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ApprovalProtocol for Interactive {
-    fn request_approval(&self, _request: &ApprovalRequest) -> Result<ApprovalDecision> {
-        Err(Error::Other("Interactive approval not yet implemented".to_string()))
-    }
-
-    fn name(&self) -> &str {
-        "interactive"
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -866,16 +840,6 @@ mod tests {
         let decision = protocol.request_approval(&request).unwrap();
         assert_eq!(decision, ApprovalDecision::Rejected);
         assert_eq!(protocol.name(), "auto-reject");
-    }
-
-    #[test]
-    fn test_interactive_protocol_placeholder() {
-        let protocol = Interactive::new();
-        let request = ApprovalRequest::new(1, ActionType::Tool, "Test", ApprovalContext::new(), ToolRisk::Safe);
-
-        let result = protocol.request_approval(&request);
-        assert!(result.is_err());
-        assert_eq!(protocol.name(), "interactive");
     }
 
     #[test]

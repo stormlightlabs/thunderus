@@ -20,7 +20,7 @@ pub use trajectory::{TrajectoryNode, TrajectoryWalker};
 
 pub use approval::{
     ActionType, ApprovalContext, ApprovalDecision, ApprovalGate, ApprovalId, ApprovalProtocol, ApprovalRecord,
-    ApprovalRequest, ApprovalResponse, ApprovalStats, AutoApprove, AutoReject, Interactive,
+    ApprovalRequest, ApprovalResponse, ApprovalStats, AutoApprove, AutoReject,
 };
 pub use classification::{Classification, ToolRisk};
 pub use config::{ApprovalMode, Config, Profile, ProviderConfig, SandboxMode};

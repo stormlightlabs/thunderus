@@ -125,9 +125,8 @@ pub enum ProviderConfig {
     },
 }
 
-// FIXME: Correct this/make configurable
 fn default_glm_base_url() -> String {
-    "https://open.bigmodel.cn/api/paas/v4".to_string()
+    "https://api.z.ai/api/paas/v4/".to_string()
 }
 
 fn default_gemini_base_url() -> String {

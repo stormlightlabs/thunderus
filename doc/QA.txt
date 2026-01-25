@@ -70,7 +70,7 @@ Creating a Session
 $ thunderus start
 
 Expected:
-- Info: "Creating .agent directory" (first time only)
+- Info: "Creating .thunderus directory" (first time only)
 - Info: "Creating session..."
 - Session ID displayed (cyan color)
 - Session directory path shown
@@ -78,10 +78,10 @@ Expected:
 - TUI launches with welcome message in transcript
 
 Result:
-- .agent/ directory created in working directory
-  - .agent/sessions/<session-id>/ created
-  - .agent/sessions/<session-id>/events.jsonl created
-  - .agent/views/ directory created
+- .thunderus/ directory created in working directory
+  - .thunderus/sessions/<session-id>/ created
+  - .thunderus/sessions/<session-id>/events.jsonl created
+  - .thunderus/views/ directory created
 - TUI displays welcome message with:
   * Session ID, working directory, profile name
   * Approval mode and sandbox mode status
@@ -211,7 +211,7 @@ Transcript Navigation
 ---------------------
 - j / k: Navigate between cards or scroll transcript
 - Ctrl+U: Page up in transcript
-- Ctrl+D: Page down in transcript
+- Ctrl+D: Exit TUI
 - g: Jump to top of transcript
 - G: Jump to bottom of transcript
 - Transcript auto-scrolls to bottom on new entries
@@ -363,8 +363,8 @@ Memory Commands
   - Shows "No MEMORY.md found" if file doesn't exist
 
 /memory add <fact>
-  - Add a new fact to core memory (FACTS.md)
-  - Appends to facts list with timestamp and provenance
+  - Add a new fact to core memory (MEMORY.md)
+  - Appends to memory with timestamp and provenance
 
 /memory search <query>
   - Full-text search across all memory documents
@@ -378,20 +378,19 @@ Memory Commands
 
 Search Commands
 ---------------
-/search <query> [scope: all|files|memory|patches]
-  - Unified search across codebase and memory
+/search <query> [scope: all|events|views]
+  - Unified search across session files
   - Scopes:
-    * all: search everything (default)
-    * files: search project files only
-    * memory: search memory documents only
-    * patches: search patch queue and diffs
+    * all: search all files (default)
+    * events: search only events.jsonl
+    * views: search only materialized views
   - Results displayed in transcript with file paths and line numbers
 
 Session Commands
 ----------------
 /review
-  - Trigger review pass
-  - Currently placeholder: "Review functionality not yet implemented"
+  - Review pending patches
+  - Shows all pending patches for review and approval
 
 /clear
   - Clear transcript view (keeps session history)
@@ -408,7 +407,7 @@ VI. SESSION FILES AND LOGS                                     *user-flow-files*
 
 Directory Structure
 ------------------
-.agent/
+.thunderus/
 ├── sessions/
 │   └── <session-id>/
 │       ├── events.jsonl        # Append-only event log
@@ -451,8 +450,8 @@ Example:
 
 Reading Logs
 ------------
-$ cat .agent/sessions/<session-id>/events.jsonl | jq
-$ rg "user_message" .agent/sessions/
+$ cat .thunderus/sessions/<session-id>/events.jsonl | jq
+$ rg "user_message" .thunderus/sessions/
 
 --------------------------------------------------------------------------------
 VII. ERROR HANDLING                                            *user-flow-errors*
