@@ -97,6 +97,77 @@ impl std::str::FromStr for SandboxMode {
     }
 }
 
+/// GLM-4.7 thinking configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct GlmThinkingConfig {
+    /// Enable thinking mode
+    #[serde(default = "default_glm_thinking_enabled")]
+    pub enabled: bool,
+
+    /// Preserve thinking across turns (clear_thinking: false)
+    #[serde(default = "default_glm_thinking_preserved")]
+    pub preserved: bool,
+}
+
+fn default_glm_thinking_enabled() -> bool {
+    true
+}
+
+fn default_glm_thinking_preserved() -> bool {
+    true
+}
+
+/// Gemini 3 thinking configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+#[derive(Default)]
+pub enum GeminiThinkingLevel {
+    Minimal,
+    Low,
+    Medium,
+    #[default]
+    High,
+}
+
+/// Gemini thinking configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct GeminiThinkingConfig {
+    /// Thinking level (minimal, low, medium, high)
+    #[serde(default)]
+    pub level: GeminiThinkingLevel,
+}
+
+/// Provider options (retry, timeout, etc.)
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct ProviderOptions {
+    /// Number of retries for transient errors
+    #[serde(default = "default_retry_count")]
+    pub retry_count: u32,
+
+    /// Initial retry delay in milliseconds
+    #[serde(default = "default_retry_delay_ms")]
+    pub retry_delay_ms: u64,
+
+    /// Request timeout in milliseconds
+    #[serde(default = "default_timeout_ms")]
+    pub timeout_ms: u64,
+}
+
+fn default_retry_count() -> u32 {
+    3
+}
+
+fn default_retry_delay_ms() -> u64 {
+    1000
+}
+
+fn default_timeout_ms() -> u64 {
+    60000
+}
+
 /// Provider-specific configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "provider", rename_all = "lowercase")]
@@ -106,22 +177,41 @@ pub enum ProviderConfig {
     Glm {
         /// API key for authentication
         api_key: String,
-        /// Model name (e.g., "glm-4.7")
+        /// Model name (e.g., "glm-4.7", "glm-4.7-flash", "glm-4.7-flashx")
         model: String,
         /// Base URL for the API
         #[serde(default = "default_glm_base_url")]
         base_url: String,
+        /// Thinking configuration
+        #[serde(default)]
+        thinking: GlmThinkingConfig,
+        /// Provider options (retry, timeout)
+        #[serde(default)]
+        options: ProviderOptions,
     },
     /// Gemini provider configuration
     #[serde(rename = "gemini")]
     Gemini {
         /// API key for authentication
         api_key: String,
-        /// Model name (e.g., "gemini-2.5-flash")
+        /// Model name (e.g., "gemini-3-flash-preview", "gemini-3-pro-preview")
         model: String,
         /// Base URL for the API
         #[serde(default = "default_gemini_base_url")]
         base_url: String,
+        /// Thinking configuration
+        #[serde(default)]
+        thinking: GeminiThinkingConfig,
+        /// Provider options (retry, timeout)
+        #[serde(default)]
+        options: ProviderOptions,
+    },
+    /// Mock provider for testing
+    #[serde(rename = "mock")]
+    Mock {
+        /// Path to mock responses file
+        #[serde(default)]
+        responses_file: Option<String>,
     },
 }
 
@@ -472,6 +562,14 @@ impl Config {
             .ok_or_else(|| Error::Config(ConfigError::ProfileNotFound(self.default_profile.clone()).to_string()))
     }
 
+    /// Get all providers in the config
+    pub fn providers(&self) -> Vec<(String, ProviderConfig)> {
+        self.profiles
+            .iter()
+            .map(|(name, profile)| (name.clone(), profile.provider.clone()))
+            .collect()
+    }
+
     /// Get a profile by name
     pub fn profile(&self, name: &str) -> Result<&Profile> {
         self.profiles
@@ -537,7 +635,7 @@ allow_network = false
 
 # Provider configuration
 [profiles.default.provider]
-# Provider type: "glm" or "gemini"
+# Provider type: "glm", "gemini", or "mock"
 provider = "glm"
 # API key for the provider
 api_key = "your-api-key-here"
@@ -545,6 +643,22 @@ api_key = "your-api-key-here"
 model = "glm-4.7"
 # Base URL (optional, defaults to provider's default)
 # base_url = "https://custom.api.url"
+
+# Thinking configuration for GLM
+[profiles.default.provider.thinking]
+# Enable thinking mode
+enabled = true
+# Preserve thinking across turns (clear_thinking: false)
+preserved = true
+
+# Provider options (retry, timeout)
+[profiles.default.provider.options]
+# Number of retries for transient errors (default: 3)
+retry_count = 3
+# Initial retry delay in milliseconds (default: 1000)
+retry_delay_ms = 1000
+# Request timeout in milliseconds (default: 60000)
+timeout_ms = 60000
 
 # Workspace sandbox configuration
 [profiles.default.workspace]
@@ -589,6 +703,38 @@ auto_discovery = true
 # max_tokens = "8192"
 # temperature = "0.7"
 # theme = "iceberg"
+#
+# # Gemini provider example
+# [profiles.gemini-work]
+# name = "gemini-work"
+# working_root = "/path/to/workspace"
+# approval_mode = "auto"
+# sandbox_mode = "policy"
+# allow_network = false
+#
+# [profiles.gemini-work.provider]
+# provider = "gemini"
+# api_key = "gemini-api-key"
+# model = "gemini-3-flash-preview"
+#
+# [profiles.gemini-work.provider.thinking]
+# level = "high"  # minimal, low, medium, high
+#
+# [profiles.gemini-work.provider.options]
+# retry_count = 3
+# retry_delay_ms = 1000
+# timeout_ms = 60000
+#
+# # Mock provider for testing
+# [profiles.mock]
+# name = "mock"
+# working_root = "/path/to/workspace"
+# approval_mode = "auto"
+# sandbox_mode = "policy"
+#
+# [profiles.mock.provider]
+# provider = "mock"
+# responses_file = ".thunderus/test/mock_responses.toml"
 "#
     }
 }
@@ -687,6 +833,8 @@ mod tests {
                 api_key: "test-key".to_string(),
                 model: "glm-4.7".to_string(),
                 base_url: default_glm_base_url(),
+                thinking: Default::default(),
+                options: Default::default(),
             },
             allow_network: false,
             network: NetworkConfig::default(),
@@ -715,6 +863,8 @@ mod tests {
                 api_key: "test-key".to_string(),
                 model: "glm-4.7".to_string(),
                 base_url: default_glm_base_url(),
+                thinking: Default::default(),
+                options: Default::default(),
             },
             allow_network: false,
             network: NetworkConfig::default(),
@@ -953,7 +1103,7 @@ base_url = "https://custom.api.com/v4"
         let profile = config.default_profile().unwrap();
 
         match &profile.provider {
-            ProviderConfig::Glm { api_key, model, base_url } => {
+            ProviderConfig::Glm { api_key, model, base_url, .. } => {
                 assert_eq!(api_key, "glm-api-key");
                 assert_eq!(model, "glm-4.7");
                 assert_eq!(base_url, "https://custom.api.com/v4");
@@ -984,7 +1134,7 @@ base_url = "https://custom.api.com/v1beta"
         let profile = config.default_profile().unwrap();
 
         match &profile.provider {
-            ProviderConfig::Gemini { api_key, model, base_url } => {
+            ProviderConfig::Gemini { api_key, model, base_url, .. } => {
                 assert_eq!(api_key, "gemini-api-key");
                 assert_eq!(model, "gemini-2.5-flash");
                 assert_eq!(base_url, "https://custom.api.com/v1beta");
@@ -1196,7 +1346,6 @@ model = "gemini-2.5-flash"
     #[test]
     fn test_profile_is_network_allowed() {
         let mut profile = create_test_profile_with_workspace("/workspace");
-
         assert!(!profile.is_network_allowed());
 
         profile.allow_network = true;
@@ -1234,6 +1383,8 @@ model = "gemini-2.5-flash"
                 api_key: "test-key".to_string(),
                 model: "glm-4.7".to_string(),
                 base_url: default_glm_base_url(),
+                thinking: Default::default(),
+                options: Default::default(),
             },
             allow_network: false,
             network: NetworkConfig::default(),

@@ -136,6 +136,7 @@ impl ConfigState {
         match &self.provider {
             ProviderConfig::Glm { model, .. } => model.clone(),
             ProviderConfig::Gemini { model, .. } => model.clone(),
+            ProviderConfig::Mock { .. } => "mock".to_string(),
         }
     }
 
@@ -144,6 +145,7 @@ impl ConfigState {
         match &self.provider {
             ProviderConfig::Glm { .. } => "GLM",
             ProviderConfig::Gemini { .. } => "Gemini",
+            ProviderConfig::Mock { .. } => "Mock",
         }
     }
 
@@ -244,6 +246,7 @@ impl AppState {
         let model_name = match &provider {
             ProviderConfig::Glm { model, .. } => model.clone(),
             ProviderConfig::Gemini { model, .. } => model.clone(),
+            ProviderConfig::Mock { .. } => "mock".to_string(),
         };
 
         Self {
@@ -568,6 +571,8 @@ impl Default for AppState {
                     api_key: "".to_string(),
                     model: "glm-4.7".to_string(),
                     base_url: "https://open.bigmodel.cn/api/paas/v4".to_string(),
+                    thinking: Default::default(),
+                    options: Default::default(),
                 },
                 ApprovalMode::Auto,
                 SandboxMode::default(),
@@ -640,6 +645,8 @@ mod tests {
             api_key: "test-key".to_string(),
             model: "gemini-2.5-flash".to_string(),
             base_url: "https://api.example.com".to_string(),
+            thinking: Default::default(),
+            options: Default::default(),
         };
 
         let state = AppState::new(
@@ -668,6 +675,8 @@ mod tests {
                 api_key: "test".to_string(),
                 model: "glm-4.7".to_string(),
                 base_url: "https://api.example.com".to_string(),
+                thinking: Default::default(),
+                options: Default::default(),
             },
             ApprovalMode::Auto,
             SandboxMode::Policy,
@@ -714,6 +723,8 @@ mod tests {
                 api_key: "test".to_string(),
                 model: "glm-4.7".to_string(),
                 base_url: "https://api.example.com".to_string(),
+                thinking: Default::default(),
+                options: Default::default(),
             },
             ApprovalMode::Auto,
             SandboxMode::Policy,
@@ -760,6 +771,8 @@ mod tests {
                 api_key: "test".to_string(),
                 model: "glm-4.7".to_string(),
                 base_url: "https://api.example.com".to_string(),
+                thinking: Default::default(),
+                options: Default::default(),
             },
             ApprovalMode::Auto,
             SandboxMode::Policy,

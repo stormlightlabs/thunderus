@@ -4,13 +4,14 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+tokio = { workspace = true }
+chrono = { workspace = true }
+tokio-util = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
 async-trait = "0.1"
-chrono = "0.4"
 futures = "0.3"
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0"
-tokio = { version = "1", features = ["full"] }
-tokio-util = { version = "0.7", features = ["full"] }
 
 thunderus-core = { path = "../core" }
 thunderus-providers = { path = "../providers" }
@@ -18,5 +19,5 @@ thunderus-store = { path = "../store" }
 thunderus-tools = { path = "../tools" }
 
 [dev-dependencies]
-tokio-test = "0.4"
-tempfile = "3"
+tempfile = { workspace = true }
+tokio-test = { workspace = true }

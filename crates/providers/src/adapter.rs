@@ -1,4 +1,5 @@
 use crate::types::*;
+use thunderus_core::config::GeminiThinkingLevel;
 
 use eventsource_stream::Eventsource;
 use futures::{StreamExt, stream::Stream};
@@ -32,16 +33,37 @@ pub struct GlmProvider {
     api_key: String,
     base_url: String,
     model: String,
+    thinking_enabled: bool,
+    thinking_preserved: bool,
 }
 
 impl GlmProvider {
-    pub fn new(api_key: String, model: String, base_url: Option<String>) -> Self {
+    pub fn new(
+        api_key: String, model: String, base_url: Option<String>, thinking_enabled: bool, thinking_preserved: bool,
+    ) -> Self {
         Self {
             client: HttpClient::new(),
             api_key,
             model,
             base_url: base_url.unwrap_or_else(|| "https://api.z.ai/api/paas/v4".to_string()),
+            thinking_enabled,
+            thinking_preserved,
         }
+    }
+
+    /// Check if model is a flash variant
+    pub fn is_flash_model(&self) -> bool {
+        self.model.contains("flash")
+    }
+
+    /// Check if model is flashx variant
+    pub fn is_flashx_model(&self) -> bool {
+        self.model.contains("flashx")
+    }
+
+    /// Check if model is flagship variant
+    pub fn is_flagship_model(&self) -> bool {
+        !self.is_flash_model() && !self.is_flashx_model()
     }
 
     /// Convert ChatRequest to GLM API format
@@ -62,6 +84,12 @@ impl GlmProvider {
             })
             .collect();
 
+        let thinking = if self.thinking_enabled {
+            Some(GlmThinking { type_: "enabled".to_string(), clear_thinking: Some(!self.thinking_preserved) })
+        } else {
+            None
+        };
+
         Ok(GlmChatRequest {
             model: self.model.clone(),
             messages,
@@ -70,7 +98,7 @@ impl GlmProvider {
             stream: true,
             temperature: request.temperature,
             max_tokens: request.max_tokens,
-            thinking: Some(GlmThinking { type_: "enabled".to_string() }),
+            thinking,
         })
     }
 
@@ -287,6 +315,8 @@ struct GlmMessage {
 struct GlmThinking {
     #[serde(rename = "type")]
     type_: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    clear_thinking: Option<bool>,
 }
 
 /// GLM SSE chunk format
@@ -342,15 +372,27 @@ pub struct GeminiProvider {
     api_key: String,
     base_url: String,
     model: String,
+    thinking_level: GeminiThinkingLevel,
 }
 
 impl GeminiProvider {
-    pub fn new(api_key: String, model: String, base_url: Option<String>) -> Self {
+    pub fn new(api_key: String, model: String, base_url: Option<String>, thinking_level: GeminiThinkingLevel) -> Self {
         Self {
             client: HttpClient::new(),
             api_key,
             model,
             base_url: base_url.unwrap_or_else(|| "https://generativelanguage.googleapis.com/v1beta".to_string()),
+            thinking_level,
+        }
+    }
+
+    /// Get thinking level as string for API
+    fn thinking_level_str(&self) -> &str {
+        match self.thinking_level {
+            GeminiThinkingLevel::Minimal => "minimal",
+            GeminiThinkingLevel::Low => "low",
+            GeminiThinkingLevel::Medium => "medium",
+            GeminiThinkingLevel::High => "high",
         }
     }
 
@@ -412,21 +454,49 @@ impl GeminiProvider {
                     .map(|spec| GeminiFunctionDeclaration {
                         name: spec.function.name.clone(),
                         description: spec.function.description.clone(),
-                        parameters: spec.function.parameters.clone(),
+                        parameters: Self::convert_to_uppercase_parameters(&spec.function.parameters),
                     })
                     .collect(),
             }]
         });
 
-        Ok(GeminiChatRequest {
-            contents,
-            system_instruction,
-            tools,
-            generation_config: Some(GeminiGenerationConfig {
-                temperature: request.temperature,
-                max_output_tokens: request.max_tokens,
+        let generation_config = Some(GeminiGenerationConfig {
+            temperature: request.temperature,
+            max_output_tokens: request.max_tokens,
+            thinking_config: Some(GeminiThinkingConfig { thinking_level: self.thinking_level_str().to_string() }),
+            tool_config: Some(GeminiToolConfig {
+                function_calling_config: Some(GeminiFunctionCallingConfig {
+                    mode: "AUTO".to_string(),
+                    stream_function_call_arguments: true,
+                }),
             }),
-        })
+        });
+
+        Ok(GeminiChatRequest { contents, system_instruction, tools, generation_config })
+    }
+
+    /// Convert parameters to uppercase types for Gemini 3 (STRING, INTEGER, OBJECT, etc.)
+    fn convert_to_uppercase_parameters(params: &ToolParameter) -> ToolParameter {
+        match params {
+            ToolParameter::String { description } => ToolParameter::String { description: description.clone() },
+            ToolParameter::Number { description } => ToolParameter::Number { description: description.clone() },
+            ToolParameter::Boolean { description } => ToolParameter::Boolean { description: description.clone() },
+            ToolParameter::Array { items, description } => ToolParameter::Array {
+                items: Box::new(Self::convert_to_uppercase_parameters(items)),
+                description: description.clone(),
+            },
+            ToolParameter::Object { properties, description, required } => {
+                let converted_props = properties
+                    .iter()
+                    .map(|(k, v)| (k.clone(), Self::convert_to_uppercase_parameters(v)))
+                    .collect();
+                ToolParameter::Object {
+                    properties: converted_props,
+                    description: description.clone(),
+                    required: required.clone(),
+                }
+            }
+        }
     }
 
     /// Parse Gemini API chunk into ParsedChunk with metadata
@@ -657,6 +727,26 @@ struct GeminiGenerationConfig {
     temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_output_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thinking_config: Option<GeminiThinkingConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_config: Option<GeminiToolConfig>,
+}
+
+#[derive(Debug, Serialize)]
+struct GeminiThinkingConfig {
+    thinking_level: String,
+}
+
+#[derive(Debug, Serialize)]
+struct GeminiToolConfig {
+    function_calling_config: Option<GeminiFunctionCallingConfig>,
+}
+
+#[derive(Debug, Serialize)]
+struct GeminiFunctionCallingConfig {
+    mode: String,
+    stream_function_call_arguments: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -691,17 +781,31 @@ pub struct ProviderFactory;
 impl ProviderFactory {
     pub fn create_from_config(config: &thunderus_core::ProviderConfig) -> Result<Arc<dyn Provider>> {
         match config {
-            thunderus_core::ProviderConfig::Glm { api_key, model, base_url } => Ok(Arc::new(GlmProvider::new(
-                api_key.clone(),
-                model.clone(),
-                Some(base_url.clone()),
-            ))),
-            thunderus_core::ProviderConfig::Gemini { api_key, model, base_url } => Ok(Arc::new(GeminiProvider::new(
-                api_key.clone(),
-                model.clone(),
-                Some(base_url.clone()),
-            ))),
+            thunderus_core::ProviderConfig::Glm { api_key, model, base_url, thinking, options: _ } => {
+                Ok(Arc::new(GlmProvider::new(
+                    api_key.clone(),
+                    model.clone(),
+                    Some(base_url.clone()),
+                    thinking.enabled,
+                    thinking.preserved,
+                )))
+            }
+            thunderus_core::ProviderConfig::Gemini { api_key, model, base_url, thinking, options: _ } => {
+                Ok(Arc::new(GeminiProvider::new(
+                    api_key.clone(),
+                    model.clone(),
+                    Some(base_url.clone()),
+                    thinking.level.clone(),
+                )))
+            }
+            thunderus_core::ProviderConfig::Mock { responses_file } => {
+                Ok(Arc::new(super::mock::MockProvider::new(responses_file.clone())))
+            }
         }
+    }
+
+    pub fn create_mock_provider(responses_file: Option<String>) -> Result<Arc<dyn Provider>> {
+        Ok(Arc::new(super::mock::MockProvider::new(responses_file)))
     }
 }
 
@@ -711,7 +815,7 @@ mod tests {
 
     #[test]
     fn test_glm_provider_creation() {
-        let provider = GlmProvider::new("test-key".to_string(), "glm-4.7".to_string(), None);
+        let provider = GlmProvider::new("test-key".to_string(), "glm-4.7".to_string(), None, false, false);
         assert_eq!(provider.api_key, "test-key");
         assert_eq!(provider.model, "glm-4.7");
         assert_eq!(provider.base_url, "https://api.z.ai/api/paas/v4");
@@ -723,13 +827,20 @@ mod tests {
             "test-key".to_string(),
             "glm-4.7".to_string(),
             Some("https://custom.api.com".to_string()),
+            false,
+            false,
         );
         assert_eq!(provider.base_url, "https://custom.api.com");
     }
 
     #[test]
     fn test_gemini_provider_creation() {
-        let provider = GeminiProvider::new("test-key".to_string(), "gemini-2.5-flash".to_string(), None);
+        let provider = GeminiProvider::new(
+            "test-key".to_string(),
+            "gemini-2.5-flash".to_string(),
+            None,
+            GeminiThinkingLevel::Minimal,
+        );
         assert_eq!(provider.api_key, "test-key");
         assert_eq!(provider.model, "gemini-2.5-flash");
         assert_eq!(provider.base_url, "https://generativelanguage.googleapis.com/v1beta");
@@ -741,13 +852,14 @@ mod tests {
             "test-key".to_string(),
             "gemini-2.5-flash".to_string(),
             Some("https://custom.api.com".to_string()),
+            GeminiThinkingLevel::Minimal,
         );
         assert_eq!(provider.base_url, "https://custom.api.com");
     }
 
     #[test]
     fn test_glm_request_conversion() {
-        let provider = GlmProvider::new("test-key".to_string(), "glm-4.7".to_string(), None);
+        let provider = GlmProvider::new("test-key".to_string(), "glm-4.7".to_string(), None, false, false);
         let request = ChatRequest::builder().add_message(ChatMessage::user("Hello")).build();
 
         let glm_req = provider.to_glm_request(&request).unwrap();
@@ -758,7 +870,7 @@ mod tests {
 
     #[test]
     fn test_glm_request_with_tools() {
-        let provider = GlmProvider::new("test-key".to_string(), "glm-4.7".to_string(), None);
+        let provider = GlmProvider::new("test-key".to_string(), "glm-4.7".to_string(), None, false, false);
         let tool = ToolSpec::new("test_tool", "A test tool", ToolParameter::new_string("param"));
         let request = ChatRequest::builder()
             .add_message(ChatMessage::user("Hello"))
@@ -772,7 +884,12 @@ mod tests {
 
     #[test]
     fn test_gemini_request_conversion() {
-        let provider = GeminiProvider::new("test-key".to_string(), "gemini-2.5-flash".to_string(), None);
+        let provider = GeminiProvider::new(
+            "test-key".to_string(),
+            "gemini-2.5-flash".to_string(),
+            None,
+            GeminiThinkingLevel::Minimal,
+        );
         let request = ChatRequest::builder().add_message(ChatMessage::user("Hello")).build();
 
         let gem_req = provider.to_gemini_request(&request).unwrap();
@@ -782,7 +899,12 @@ mod tests {
 
     #[test]
     fn test_gemini_request_with_system() {
-        let provider = GeminiProvider::new("test-key".to_string(), "gemini-2.5-flash".to_string(), None);
+        let provider = GeminiProvider::new(
+            "test-key".to_string(),
+            "gemini-2.5-flash".to_string(),
+            None,
+            GeminiThinkingLevel::Minimal,
+        );
         let request = ChatRequest::builder()
             .add_message(ChatMessage::system("You are helpful"))
             .add_message(ChatMessage::user("Hello"))
@@ -798,7 +920,12 @@ mod tests {
 
     #[test]
     fn test_gemini_request_with_tools() {
-        let provider = GeminiProvider::new("test-key".to_string(), "gemini-2.5-flash".to_string(), None);
+        let provider = GeminiProvider::new(
+            "test-key".to_string(),
+            "gemini-2.5-flash".to_string(),
+            None,
+            GeminiThinkingLevel::Minimal,
+        );
         let tool = ToolSpec::new("test_tool", "A test tool", ToolParameter::new_string("param"));
         let request = ChatRequest::builder()
             .add_message(ChatMessage::user("Hello"))
@@ -812,7 +939,7 @@ mod tests {
 
     #[test]
     fn test_glm_parse_chunk_text() {
-        let provider = GlmProvider::new("test-key".to_string(), "glm-4.7".to_string(), None);
+        let provider = GlmProvider::new("test-key".to_string(), "glm-4.7".to_string(), None, false, false);
         let chunk =
             r#"{"id":"req-123","model":"glm-4.7","choices":[{"delta":{"content":"Hello"},"finish_reason":null}]}"#;
         let parsed = provider.parse_chunk(chunk);
@@ -823,14 +950,14 @@ mod tests {
 
     #[test]
     fn test_glm_parse_chunk_done() {
-        let provider = GlmProvider::new("test-key".to_string(), "glm-4.7".to_string(), None);
+        let provider = GlmProvider::new("test-key".to_string(), "glm-4.7".to_string(), None, false, false);
         let parsed = provider.parse_chunk("[DONE]");
         assert!(matches!(parsed.event, StreamEvent::Done));
     }
 
     #[test]
     fn test_glm_parse_chunk_with_finish_reason() {
-        let provider = GlmProvider::new("test-key".to_string(), "glm-4.7".to_string(), None);
+        let provider = GlmProvider::new("test-key".to_string(), "glm-4.7".to_string(), None, false, false);
         let chunk = r#"{"id":"req-456","model":"glm-4.7","choices":[{"delta":{},"finish_reason":"stop"}]}"#;
         let parsed = provider.parse_chunk(chunk);
         assert_eq!(parsed.finish_reason, Some("stop".to_string()));
@@ -838,7 +965,12 @@ mod tests {
 
     #[test]
     fn test_gemini_parse_chunk_text() {
-        let provider = GeminiProvider::new("test-key".to_string(), "gemini-2.5-flash".to_string(), None);
+        let provider = GeminiProvider::new(
+            "test-key".to_string(),
+            "gemini-2.5-flash".to_string(),
+            None,
+            GeminiThinkingLevel::Minimal,
+        );
         let chunk = r#"{"candidates":[{"content":{"role":"model","parts":[{"text":"Hello"}]},"finishReason":"STOP"}]}"#;
         let parsed = provider.parse_chunk(chunk);
         assert!(matches!(parsed.event, StreamEvent::Token(_)));
@@ -847,7 +979,12 @@ mod tests {
 
     #[test]
     fn test_gemini_parse_chunk_with_finish_reason() {
-        let provider = GeminiProvider::new("test-key".to_string(), "gemini-2.5-flash".to_string(), None);
+        let provider = GeminiProvider::new(
+            "test-key".to_string(),
+            "gemini-2.5-flash".to_string(),
+            None,
+            GeminiThinkingLevel::Minimal,
+        );
         let chunk = r#"{"candidates":[{"content":{"role":"model","parts":[{"text":"Done"}]},"finishReason":"STOP"}]}"#;
         let parsed = provider.parse_chunk(chunk);
         assert_eq!(parsed.finish_reason, Some("STOP".to_string()));

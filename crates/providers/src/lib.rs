@@ -1,13 +1,21 @@
 pub mod adapter;
+pub mod health;
+pub mod mock;
 pub mod prompts;
+pub mod replay;
+pub mod retry;
 pub mod schemas;
 pub mod types;
 
 pub use adapter::{GeminiProvider, GlmProvider, Provider, ProviderFactory};
+pub use health::{HealthCheckResult, ProviderHealthChecker};
+pub use mock::MockProvider;
 pub use prompts::{
     ProviderType, base_system_prompt, build_system_prompt_for_provider, provider_prompt_adaptation,
     result_formatting_guidance, system_prompt, teaching_error_messages, tool_usage_guidance,
 };
+pub use replay::{RecordedEvent, RecordedRequest, ReplayMode, ReplayProvider};
+pub use retry::{RetryConfig, is_retryable_error};
 pub use schemas::{
     GeminiFunctionDeclaration, GeminiToolSchema, GlmFunction, GlmToolSchema, gemini_tool_schemas, glm_tool_schemas,
 };

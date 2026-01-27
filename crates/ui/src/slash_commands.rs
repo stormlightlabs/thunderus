@@ -19,7 +19,7 @@ impl App {
             }
             _ => {
                 let new_provider = match &self.state.config.provider {
-                    ProviderConfig::Glm { api_key, base_url, .. } => {
+                    ProviderConfig::Glm { api_key, base_url, thinking, .. } => {
                         if !model.starts_with("glm") {
                             self.transcript_mut().add_system_message(
                                 "Cannot switch to a Gemini model while using a GLM provider. Update your profile to change providers.",
@@ -30,9 +30,11 @@ impl App {
                             api_key: api_key.clone(),
                             model: model.clone(),
                             base_url: base_url.clone(),
+                            thinking: thinking.clone(),
+                            options: Default::default(),
                         }
                     }
-                    ProviderConfig::Gemini { api_key, base_url, .. } => {
+                    ProviderConfig::Gemini { api_key, base_url, thinking, .. } => {
                         if !model.starts_with("gemini") {
                             self.transcript_mut().add_system_message(
                                 "Cannot switch to a GLM model while using a Gemini provider. Update your profile to change providers.",
@@ -43,7 +45,14 @@ impl App {
                             api_key: api_key.clone(),
                             model: model.clone(),
                             base_url: base_url.clone(),
+                            thinking: thinking.clone(),
+                            options: Default::default(),
                         }
+                    }
+                    ProviderConfig::Mock { .. } => {
+                        self.transcript_mut()
+                            .add_system_message("Cannot switch models while using Mock provider.");
+                        return;
                     }
                 };
 

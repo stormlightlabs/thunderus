@@ -23,12 +23,13 @@ CONTENTS                                                      *roadmap-contents*
    XII. MEMORY GARDENER  ....................................... |agent-XII|
   XIII. TRAJECTORY + INSPECTOR ................................. |agent-XIII|
    XIV. MIXED-INITIATIVE COLLABORATION ......................... |agent-XIV|
-    XV. EXTENSIBILITY .......................................... |agent-XV|
-   XVI. HARDENING .............................................. |agent-XVI|
-  XVII. TUI TESTING FRAMEWORK .................................. |agent-XVII|
- XVIII. LAYOUT ................................................. |agent-XVIII|
-   XIX. PARKING LOT............................................. |agent-XIX|
-    XX. REFERENCES ............................................. |agent-XX|
+    XV. PROVIDER COMPLETION + DEVELOPER TOOLING ................ |agent-XV|
+   XVI. EXTENSIBILITY .......................................... |agent-XVI|
+  XVII. HARDENING .............................................. |agent-XVII|
+ XVIII. TUI TESTING FRAMEWORK .................................. |agent-XVIII|
+   XIX. LAYOUT ................................................. |agent-XIX|
+    XX. PARKING LOT............................................. |agent-XX|
+   XXI. REFERENCES ............................................. |agent-XXI|
 
 --------------------------------------------------------------------------------
 I. REPO SCAFFOLD + CONFIG + SESSION STORE                              *agent-I*
@@ -162,7 +163,49 @@ DoD:
 - The agent never proceeds on stale assumptions after you fix something manually
 
 --------------------------------------------------------------------------------
-XV. EXTENSIBILITY (SKILLS + PLUGINS)                                  *agent-XV*
+XV. PROVIDER COMPLETION + DEVELOPER TOOLING                           *agent-XV*
+--------------------------------------------------------------------------------
+Complete provider implementations for GLM-4.7 and Gemini 3 families, and add
+baked-in developer tooling for streamlined QA testing.
+
+Tasks:
+- [x] Provider fixes (GLM-4.7):
+      - Support all variants: glm-4.7, glm-4.7-flash, glm-4.7-flashx
+      - Configurable thinking mode (turn-level control)
+      - Preserved thinking support (clear_thinking: false)
+      - Track and return reasoning_content in multi-turn conversations
+      - Dynamic tool_choice support
+- [x] Provider fixes (Gemini 3):
+      - Update model names: gemini-3-flash-preview, gemini-3-pro-preview
+      - Add thinkingConfig (minimal/low/medium/high)
+      - Fix parameter types (uppercase: STRING, INTEGER, OBJECT)
+      - Implement thought signature tracking for function calls
+      - Add streaming function argument support
+- [x] Provider resilience:
+      - Exponential backoff retry for transient errors
+      - Parse structured API errors (rate limits, auth failures)
+      - Provider health check endpoint
+      - Timeout configuration per provider
+- [x] Mock/Replay infrastructure:
+      - MockProvider with configurable responses
+      - ReplayProvider with record/replay modes
+      - --mock and --replay CLI flags
+- [x] Test harness (`thunderus test`):
+      - Scenario TOML format for QA flows
+      - Step executors (command, file_exists, file_contains)
+      - Scenario generation from recorded sessions
+- [ ] Debug/QA integration:
+      - THUNDERUS_DEBUG environment variable
+      - --check-providers for status command
+      - --test-mode for deterministic TUI testing
+
+DoD:
+- All GLM-4.7 and Gemini 3 variants work correctly with proper API conformance
+- MockProvider enables deterministic testing without API
+- `thunderus test run` validates QA.txt flows automatically
+
+--------------------------------------------------------------------------------
+XVI. EXTENSIBILITY (SKILLS + PLUGINS)                                *agent-XVI*
 --------------------------------------------------------------------------------
 Make Thunderus extensible via on-demand capabilities and custom plugins.
 Inspired by Pi's Skills system and token-efficient design.
@@ -192,7 +235,7 @@ DoD:
 - Skills load on-demand; custom tools can be registered without recompiling.
 
 --------------------------------------------------------------------------------
-XVI. HARDENING (TESTS + EXEC MODE)                                   *agent-XVI*
+XVII. HARDENING (TESTS + EXEC MODE)                                 *agent-XVII*
 --------------------------------------------------------------------------------
 Make Thunderus production-ready with regression tests and automation support.
 
@@ -221,7 +264,7 @@ DoD:
 - Test suite covers all critical paths; `exec` mode works reliably in CI.
 
 --------------------------------------------------------------------------------
-XVII. TUI TESTING FRAMEWORK                                         *agent-XVII*
+XVIII. TUI TESTING FRAMEWORK                                       *agent-XVIII*
 --------------------------------------------------------------------------------
 Ensure visual regression coverage and end-to-end stability for the TUI harness.
 Prevent layout regressions and ensure the agent loop handles terminal events
@@ -248,7 +291,7 @@ DoD:
 - At least 3 major widgets have golden snapshots.
 
 --------------------------------------------------------------------------------
-XVIII. LAYOUT                                                      *agent-XVIII*
+XIX. LAYOUT                                                         *agent-XIX*
 --------------------------------------------------------------------------------
 Implement the final "Opening" and "Agent" layouts based on designated design
 artifacts, ensuring a premium, polished TUI experience.
@@ -267,7 +310,7 @@ DoD:
 - Spec and implementation overlap 100%.
 
 --------------------------------------------------------------------------------
-XIX. PARKING LOT                                                    *agent-XIX*
+XX. PARKING LOT                                                      *agent-XX*
 --------------------------------------------------------------------------------
 Session Recovery:
 - Interactive session selection UI (list multiple sessions with metadata)
@@ -277,7 +320,7 @@ Session Recovery:
 - Session metadata (title, tags, description)
 
 --------------------------------------------------------------------------------
-XX. REFERENCES                                                      *agent-XX*
+XXI. REFERENCES                                                     *agent-XXI*
 --------------------------------------------------------------------------------
 
 See |REFS.txt| for external resources, design inspirations, and footnotes.

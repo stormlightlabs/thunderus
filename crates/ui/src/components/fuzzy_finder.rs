@@ -224,6 +224,8 @@ mod tests {
                 api_key: "test".to_string(),
                 model: "glm-4.7".to_string(),
                 base_url: "https://api.example.com".to_string(),
+                thinking: Default::default(),
+                options: Default::default(),
             },
             thunderus_core::ApprovalMode::Auto,
             thunderus_core::SandboxMode::Policy,

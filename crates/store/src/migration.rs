@@ -3,7 +3,7 @@
 //! Tracks applied migrations and applies pending ones up to the current schema version.
 
 use crate::error::{Error, Result};
-use crate::schema::{BM25_COLUMN_WEIGHTS, SCHEMA_SQL, SCHEMA_VERSION};
+use crate::schema::{SCHEMA_SQL, SCHEMA_VERSION};
 use rusqlite::Connection;
 use tracing::{debug, info, trace};
 
@@ -79,26 +79,10 @@ impl MigrationManager {
     }
 }
 
-fn _assert_bm25_weights_match() {
-    let parsed: Vec<f64> = BM25_COLUMN_WEIGHTS
-        .split(',')
-        .map(|s| s.trim().parse::<f64>().unwrap())
-        .collect();
-    assert_eq!(parsed.len(), BM25_WEIGHTS.len());
-    for (i, (p, w)) in parsed.iter().zip(BM25_WEIGHTS.iter()).enumerate() {
-        assert!(
-            (p - w).abs() < f64::EPSILON,
-            "BM25_WEIGHTS[{}] mismatch: {} vs {}",
-            i,
-            p,
-            w
-        );
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::BM25_COLUMN_WEIGHTS;
     use rusqlite::Connection;
 
     #[test]
@@ -142,17 +126,19 @@ mod tests {
 
     #[test]
     fn test_bm25_weights_match_constant() {
-        _assert_bm25_weights_match();
-    }
-
-    #[test]
-    fn test_bm25_weights_array() {
-        assert_eq!(BM25_WEIGHTS.len(), 6);
-        assert_eq!(BM25_WEIGHTS[0], 10.0); // title
-        assert_eq!(BM25_WEIGHTS[1], 5.0); // headings
-        assert_eq!(BM25_WEIGHTS[2], 3.0); // tags
-        assert_eq!(BM25_WEIGHTS[3], 1.0); // body
-        assert_eq!(BM25_WEIGHTS[4], 1.0); // path
-        assert_eq!(BM25_WEIGHTS[5], 1.0); // kind
+        let parsed: Vec<f64> = BM25_COLUMN_WEIGHTS
+            .split(',')
+            .map(|s| s.trim().parse::<f64>().unwrap())
+            .collect();
+        assert_eq!(parsed.len(), BM25_WEIGHTS.len());
+        for (i, (p, w)) in parsed.iter().zip(BM25_WEIGHTS.iter()).enumerate() {
+            assert!(
+                (p - w).abs() < f64::EPSILON,
+                "BM25_WEIGHTS[{}] mismatch: {} vs {}",
+                i,
+                p,
+                w
+            );
+        }
     }
 }

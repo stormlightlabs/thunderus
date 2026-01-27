@@ -11,6 +11,17 @@ members = [
     "crates/ui",
 ]
 
+[workspace.dependencies]
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["full"] }
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.9"
+tracing = "0.1"
+tempfile = "3.16"
+tokio-test = "0.4"
+
 [workspace.lints.clippy]
 bool_comparison = "deny"
 duplicate_mod = "deny"
