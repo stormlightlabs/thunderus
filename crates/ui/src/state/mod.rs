@@ -236,6 +236,8 @@ pub struct AppState {
     pub memory_hits: MemoryHitsState,
     /// Evidence state for Inspector
     pub evidence: EvidenceState,
+    /// Test mode for deterministic TUI testing
+    pub test_mode: bool,
 }
 
 impl AppState {
@@ -262,6 +264,7 @@ impl AppState {
             model_selector: ModelSelectorState::new(model_name),
             memory_hits: MemoryHitsState::new(),
             evidence: EvidenceState::new(),
+            test_mode: false,
         }
     }
 
@@ -559,6 +562,16 @@ impl AppState {
     pub fn reset_diff_navigation(&mut self) {
         self.ui.diff_navigation.reset();
     }
+
+    /// Enable test mode for deterministic TUI testing
+    pub fn set_test_mode(&mut self, enabled: bool) {
+        self.test_mode = enabled;
+    }
+
+    /// Check if test mode is enabled
+    pub fn is_test_mode(&self) -> bool {
+        self.test_mode
+    }
 }
 
 impl Default for AppState {
@@ -589,6 +602,7 @@ impl Default for AppState {
             model_selector: ModelSelectorState::new("glm-4.7".to_string()),
             memory_hits: MemoryHitsState::default(),
             evidence: EvidenceState::default(),
+            test_mode: false,
         }
     }
 }

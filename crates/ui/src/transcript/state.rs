@@ -1,4 +1,7 @@
-use crate::transcript::{ErrorType, entry::TranscriptEntry};
+use crate::transcript::{
+    ErrorType,
+    entry::{CardDetailLevel, TranscriptEntry},
+};
 
 use std::collections::VecDeque;
 use thunderus_core::ApprovalDecision;
@@ -276,7 +279,7 @@ impl Transcript {
     }
 
     /// Set detail level of the currently focused card
-    pub fn set_focused_card_detail_level(&mut self, level: crate::transcript::entry::CardDetailLevel) -> bool {
+    pub fn set_focused_card_detail_level(&mut self, level: CardDetailLevel) -> bool {
         if let Some(idx) = self.focused_card_index
             && let Some(entry) = self.entries.get_mut(idx)
         {
@@ -439,7 +442,6 @@ mod tests {
     fn test_set_approval_decision() {
         let mut transcript = Transcript::new();
         transcript.add_approval_prompt("patch.feature", "risky");
-
         assert!(transcript.has_pending_approval());
         let success = transcript.set_approval_decision(ApprovalDecision::Approved);
         assert!(success);
@@ -549,7 +551,6 @@ mod tests {
     #[test]
     fn test_get_user_messages() {
         let mut transcript = Transcript::new();
-
         transcript.add_user_message("First message");
         transcript.add_model_response("Response 1");
         transcript.add_user_message("Second message");
@@ -675,7 +676,6 @@ mod tests {
         let mut transcript = Transcript::new();
         transcript.add_tool_call("test", "{}", "safe");
         transcript.focus_first_card();
-
         assert_eq!(transcript.focused_card_index(), Some(0));
 
         transcript.clear_card_focus();
@@ -690,19 +690,19 @@ mod tests {
 
         assert_eq!(
             transcript.entries().front().unwrap().detail_level(),
-            crate::transcript::entry::CardDetailLevel::Brief
+            CardDetailLevel::Brief
         );
 
         assert!(transcript.toggle_focused_card_detail_level());
         assert_eq!(
             transcript.entries().front().unwrap().detail_level(),
-            crate::transcript::entry::CardDetailLevel::Detailed
+            CardDetailLevel::Detailed
         );
 
         assert!(transcript.toggle_focused_card_detail_level());
         assert_eq!(
             transcript.entries().front().unwrap().detail_level(),
-            crate::transcript::entry::CardDetailLevel::Verbose
+            CardDetailLevel::Verbose
         );
     }
 
@@ -710,7 +710,6 @@ mod tests {
     fn test_toggle_card_detail_level_no_focus() {
         let mut transcript = Transcript::new();
         transcript.add_tool_call("test", "{}", "safe");
-
         assert!(!transcript.toggle_focused_card_detail_level());
     }
 
@@ -719,11 +718,10 @@ mod tests {
         let mut transcript = Transcript::new();
         transcript.add_tool_call("test", "{}", "safe");
         transcript.focus_first_card();
-
-        assert!(transcript.set_focused_card_detail_level(crate::transcript::entry::CardDetailLevel::Verbose));
+        assert!(transcript.set_focused_card_detail_level(CardDetailLevel::Verbose));
         assert_eq!(
             transcript.entries().front().unwrap().detail_level(),
-            crate::transcript::entry::CardDetailLevel::Verbose
+            CardDetailLevel::Verbose
         );
     }
 
@@ -733,7 +731,6 @@ mod tests {
         transcript.add_user_message("Message");
         transcript.add_tool_call("tool", "{}", "safe");
         transcript.add_model_response("Response");
-
         transcript.focus_first_card();
 
         assert!(!transcript.is_entry_focused(0));
@@ -746,7 +743,6 @@ mod tests {
         let mut transcript = Transcript::new();
         transcript.add_tool_call("test", "{}", "safe");
         transcript.focus_first_card();
-
         assert_eq!(transcript.focused_card_index(), Some(0));
 
         transcript.clear();

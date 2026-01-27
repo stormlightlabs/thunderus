@@ -4,7 +4,8 @@ use crate::components::{
 };
 use crate::event_handler::{EventHandler, KeyAction};
 use crate::layout::{LayoutMode, TuiLayout};
-use crate::state::{self, AppState};
+use crate::snapshot_capture::{SnapshotCapture, SnapshotMode};
+use crate::state::{self, AppState, MainView};
 use crate::theme::Theme;
 use crate::transcript::{self, CardDetailLevel, RenderOptions, Transcript as TranscriptState};
 use crate::tui_approval::TuiApprovalHandle;
@@ -63,6 +64,8 @@ pub struct App {
     pub(crate) last_snapshot_state: Option<String>,
     /// Patch queue manager for diff-first editing workflow
     pub(crate) patch_queue_manager: Option<PatchQueueManager>,
+    /// Snapshot capture for regression testing
+    pub(crate) snapshot_capture: Option<SnapshotCapture>,
 }
 
 impl App {
@@ -77,6 +80,12 @@ impl App {
             .unwrap_or((None, None));
 
         let snapshot_manager = Some(SnapshotManager::new(state.cwd()));
+        let snapshot_capture = if state.is_test_mode() {
+            let snapshot_dir = state.cwd().join(".thunderus").join("snapshots");
+            Some(SnapshotCapture::new(true, snapshot_dir).with_mode(SnapshotMode::EveryState))
+        } else {
+            None
+        };
 
         Self {
             state,
@@ -98,6 +107,7 @@ impl App {
             pause_token: tokio_util::sync::CancellationToken::new(),
             last_snapshot_state: None,
             patch_queue_manager: None,
+            snapshot_capture,
         }
     }
 
@@ -112,6 +122,12 @@ impl App {
             .unwrap_or((None, None));
 
         let snapshot_manager = Some(SnapshotManager::new(state.cwd()));
+        let snapshot_capture = if state.is_test_mode() {
+            let snapshot_dir = state.cwd().join(".thunderus").join("snapshots");
+            Some(SnapshotCapture::new(true, snapshot_dir).with_mode(SnapshotMode::EveryState))
+        } else {
+            None
+        };
 
         Self {
             state,
@@ -133,6 +149,7 @@ impl App {
             pause_token: tokio_util::sync::CancellationToken::new(),
             last_snapshot_state: None,
             patch_queue_manager: None,
+            snapshot_capture,
         }
     }
 
@@ -186,6 +203,36 @@ impl App {
     /// Get the memory retriever (if set)
     pub fn memory_retriever(&self) -> Option<Arc<dyn MemoryRetriever>> {
         self.memory_retriever.clone()
+    }
+
+    /// Capture a TUI snapshot if test mode is enabled
+    fn capture_tui_snapshot(&mut self, event_type: &str, description: &str) {
+        if let Some(ref mut capture) = self.snapshot_capture {
+            let snapshot_content = format!(
+                "Active View: {:?}\n\
+                 Theme Variant: {:?}\n\
+                 Is Generating: {}\n\
+                 Is Paused: {}\n\
+                 Is First Session: {}\n\
+                 Sidebar Visible: {}\n\
+                 Inspector Visible: {}\n\
+                 Fuzzy Finder Active: {}\n\
+                 Memory Hits Visible: {}\n\
+                 Approval Pending: {}\n",
+                self.state.ui.active_view,
+                self.state.ui.theme_variant,
+                self.state.is_generating(),
+                self.state.is_paused(),
+                self.state.is_first_session(),
+                self.state.sidebar_visible(),
+                matches!(self.state.ui.active_view, MainView::Inspector),
+                self.state.is_fuzzy_finder_active(),
+                self.state.memory_hits.is_visible(),
+                self.state.pending_approval().is_some()
+            );
+
+            let _ = capture.capture(&snapshot_content, event_type, description);
+        }
     }
 
     /// Set the provider used for agent operations
@@ -998,6 +1045,10 @@ impl App {
 
     /// Draw the UI
     pub fn draw(&mut self, terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<()> {
+        if self.state.is_test_mode() {
+            self.capture_tui_snapshot("draw", "TUI state update");
+        }
+
         if self.state.is_generating() || self.state.approval_ui.pending_approval.is_some() {
             self.state.advance_animation_frame();
         }
@@ -1271,6 +1322,7 @@ impl Default for App {
             pause_token: tokio_util::sync::CancellationToken::new(),
             last_snapshot_state: None,
             patch_queue_manager: None,
+            snapshot_capture: None,
         }
     }
 }

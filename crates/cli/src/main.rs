@@ -5,12 +5,13 @@ use owo_colors::OwoColorize;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 use thunderus_core::{
     AgentDir, Config, ContextLoader, PatchQueueManager, Session,
     memory::{Gardener, MemoryPaths, MemoryRetriever, RetrievalPolicy},
 };
-use thunderus_core::{ApprovalGate, ApprovalProtocol, AutoApprove};
-use thunderus_providers::{CancelToken, ProviderFactory};
+use thunderus_core::{ApprovalGate, ApprovalProtocol, AutoApprove, init_debug};
+use thunderus_providers::{CancelToken, ProviderFactory, ProviderHealthChecker};
 use thunderus_store::{MemoryIndexer, MemoryStore, StoreRetriever};
 use thunderus_tools::{SessionToolDispatcher, ToolDispatcher, ToolRegistry};
 use thunderus_ui::state::AppState;
@@ -48,6 +49,10 @@ enum Commands {
         /// Working directory (default: current directory)
         #[arg(short, long, value_name = "DIR")]
         dir: Option<PathBuf>,
+
+        /// Deterministic test mode for TUI testing
+        #[arg(long)]
+        test_mode: bool,
     },
     /// Execute a single command and exit (non-interactive mode)
     Exec {
@@ -60,7 +65,11 @@ enum Commands {
         args: Vec<String>,
     },
     /// Show current status
-    Status,
+    Status {
+        /// Check provider connectivity
+        #[arg(long)]
+        check_providers: bool,
+    },
     /// Generate shell completion scripts
     Completions {
         /// Shell type to generate completions for
@@ -70,6 +79,8 @@ enum Commands {
 }
 
 fn main() {
+    init_debug();
+
     #[cfg(unix)]
     unsafe {
         libc::signal(libc::SIGPIPE, libc::SIG_DFL);
@@ -102,14 +113,16 @@ fn run() -> Result<()> {
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async {
         match cli.command {
-            None | Some(Commands::Start { dir: None }) => {
-                cmd_start(config, config_path.clone(), cli.dir, cli.profile, cli.verbose).await
+            None | Some(Commands::Start { dir: None, test_mode: false }) => {
+                cmd_start(config, config_path.clone(), cli.dir, cli.profile, cli.verbose, false).await
             }
-            Some(Commands::Start { dir }) => {
-                cmd_start(config, config_path.clone(), dir, cli.profile, cli.verbose).await
+            Some(Commands::Start { dir, test_mode }) => {
+                cmd_start(config, config_path.clone(), dir, cli.profile, cli.verbose, test_mode).await
             }
             Some(Commands::Exec { command, args }) => cmd_exec(config, command, args, cli.profile, cli.verbose),
-            Some(Commands::Status) => cmd_status(config, cli.verbose),
+            Some(Commands::Status { check_providers }) => {
+                cmd_status(config, cli.verbose, check_providers)
+            }
             Some(Commands::Completions { shell }) => print_completions(shell, &mut Cli::command()),
         }
     })
@@ -157,7 +170,12 @@ fn detect_git_branch(path: &Path) -> Option<String> {
 
 /// Start the interactive TUI session
 async fn cmd_start(
-    config: Config, config_path: PathBuf, dir: Option<PathBuf>, profile_name: Option<String>, verbose: bool,
+    config: Config,
+    config_path: PathBuf,
+    dir: Option<PathBuf>,
+    profile_name: Option<String>,
+    verbose: bool,
+    test_mode: bool,
 ) -> Result<()> {
     let working_dir = if let Some(d) = dir { d } else { std::env::current_dir()? };
 
@@ -387,6 +405,12 @@ async fn cmd_start(
             .add_system_message(format!("Session recovered: {}", session.id));
     }
 
+    if test_mode {
+        app.state_mut().set_test_mode(true);
+        app.transcript_mut()
+            .add_system_message("Test mode enabled: deterministic behavior for testing");
+    }
+
     match app.run().await {
         Ok(_) => {
             run_consolidation(&session, &agent_dir, &memory_paths, &working_dir, verbose)?;
@@ -584,7 +608,7 @@ fn cmd_exec(
 }
 
 /// Show current status
-fn cmd_status(config: Config, verbose: bool) -> Result<()> {
+fn cmd_status(config: Config, verbose: bool, check_providers: bool) -> Result<()> {
     println!("{}", "Thunderus Status".green().bold().underline());
     println!();
 
@@ -594,6 +618,64 @@ fn cmd_status(config: Config, verbose: bool) -> Result<()> {
     for profile_name in config.profile_names() {
         let profile = config.profile(&profile_name).unwrap();
         println!("    - {} ({:?})", profile_name.cyan(), profile.provider);
+    }
+
+    if check_providers {
+        println!();
+        println!("{} Provider Health Checks", "Info:".blue().bold());
+
+        let rt = tokio::runtime::Runtime::new()?;
+        rt.block_on(async {
+            for profile_name in config.profile_names() {
+                let profile = config.profile(&profile_name).unwrap();
+
+                match ProviderFactory::create_from_config(&profile.provider) {
+                    Ok(provider) => {
+                        let health_checker = ProviderHealthChecker::new(provider, Duration::from_secs(10));
+                        match health_checker.check().await {
+                            Ok(result) => {
+                                if result.healthy {
+                                    println!(
+                                        "  {} ({:?}): {} (latency: {}ms)",
+                                        profile_name.cyan(),
+                                        profile.provider,
+                                        "OK".green().bold(),
+                                        result.latency_ms.to_string().yellow()
+                                    );
+                                } else {
+                                    println!(
+                                        "  {} ({:?}): {} - {}",
+                                        profile_name.cyan(),
+                                        profile.provider,
+                                        "ERROR".red().bold(),
+                                        result.error.unwrap_or_else(|| "Unknown error".to_string()).red()
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                println!(
+                                    "  {} ({:?}): {} - {}",
+                                    profile_name.cyan(),
+                                    profile.provider,
+                                    "ERROR".red().bold(),
+                                    e.to_string().red()
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        println!(
+                            "  {} ({:?}): {} - {}",
+                            profile_name.cyan(),
+                            profile.provider,
+                            "ERROR".red().bold(),
+                            e.to_string().red()
+                        );
+                    }
+                }
+            }
+            Ok::<(), anyhow::Error>(())
+        })?;
     }
 
     if verbose {
@@ -671,7 +753,7 @@ mod tests {
         assert!(matches!(cli.command.unwrap(), Commands::Start { .. }));
 
         let cli = Cli::try_parse_from(["thunderus", "start", "--dir", "/workspace"]).unwrap();
-        if let Some(Commands::Start { dir }) = cli.command {
+        if let Some(Commands::Start { dir, test_mode: _ }) = cli.command {
             assert_eq!(dir, Some(PathBuf::from("/workspace")));
         } else {
             panic!("Expected Start command");
@@ -707,7 +789,7 @@ mod tests {
     #[test]
     fn test_cli_status_command() {
         let cli = Cli::try_parse_from(["thunderus", "status"]).unwrap();
-        assert!(matches!(cli.command.unwrap(), Commands::Status));
+        assert!(matches!(cli.command.unwrap(), Commands::Status { check_providers: _ }));
     }
 
     #[test]
@@ -749,14 +831,21 @@ mod tests {
     #[test]
     fn test_cmd_status() {
         let config = create_test_config();
-        let result = cmd_status(config, false);
+        let result = cmd_status(config, false, false);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_cmd_status_verbose() {
         let config = create_test_config();
-        let result = cmd_status(config, true);
+        let result = cmd_status(config, true, false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_cmd_status_check_providers() {
+        let config = create_test_config();
+        let result = cmd_status(config, false, true);
         assert!(result.is_ok());
     }
 
@@ -893,6 +982,7 @@ mod tests {
             config_path,
             Some(working_dir),
             Some("nonexistent".to_string()),
+            false,
             false,
         )
         .await;

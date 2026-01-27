@@ -2,6 +2,7 @@ pub mod approval;
 pub mod classification;
 pub mod config;
 pub mod context;
+pub mod debug;
 pub mod drift;
 pub mod error;
 pub mod layout;
@@ -16,6 +17,7 @@ pub mod teaching;
 pub mod trajectory;
 pub mod views;
 
+pub use debug::{DebugCategory, init_debug, is_debug_enabled};
 pub use trajectory::{TrajectoryNode, TrajectoryWalker};
 
 pub use approval::{
