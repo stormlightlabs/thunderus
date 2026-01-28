@@ -53,6 +53,15 @@ pub struct IndexResult {
     pub duration_ms: u64,
 }
 
+impl IndexResult {
+    /// Create a new index result
+    pub fn new(
+        docs_added: usize, docs_updated: usize, docs_deleted: usize, errors: Vec<IndexError>, duration_ms: u64,
+    ) -> Self {
+        Self { docs_added, docs_updated, docs_deleted, errors, duration_ms }
+    }
+}
+
 /// An error encountered during indexing
 #[derive(Debug, Clone)]
 pub struct IndexError {

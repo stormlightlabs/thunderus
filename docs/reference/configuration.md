@@ -8,6 +8,14 @@ Thunderus uses a single `config.toml` file containing one or more named profiles
 If the file is missing, the CLI creates it from the built-in example and exits
 so you can edit it.
 
+## Config File Locations
+
+The config file is searched in the following order (first match wins):
+
+1. **Explicit path**: `--config <path>` flag
+2. **Local project**: `.thunderus/config.toml` in the current directory
+3. **User config**: `~/.config/thunderus/config.toml` (or `$XDG_CONFIG_HOME/thunderus/config.toml`)
+
 ## Top-Level Fields
 
 - `default_profile`: The profile name used when none is specified on the CLI.

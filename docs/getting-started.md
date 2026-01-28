@@ -29,16 +29,17 @@ prebuilt binary, run the compiled target directly:
 
 ## Configure a Profile
 
-Copy `config.example.toml` to `config.toml` and update the paths and provider
-settings.
+When you first run Thunderus, it will automatically create a config file if one
+doesn't exist. The config file is searched in the following locations:
 
-```sh
-cp config.example.toml config.toml
-```
+1. `.thunderus/config.toml` in the current directory
+2. `~/.config/thunderus/config.toml` (or `$XDG_CONFIG_HOME/thunderus/config.toml`)
+
+You can also specify a custom config path with the `--config` flag.
 
 At minimum, set `working_root` and select a provider profile. The GLM and Gemini
-adapters are wired into the runtime, so model and API credentials are used
-directly by the CLI.
+adapters are wired into the runtime, so model and API credentials are used directly by
+the CLI.
 
 ## First Session Walkthrough
 

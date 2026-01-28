@@ -13,9 +13,38 @@ use thunderus_core::{
 };
 use thunderus_core::{ApprovalGate, ApprovalProtocol, AutoApprove, init_debug};
 use thunderus_providers::{CancelToken, ProviderFactory, ProviderHealthChecker};
-use thunderus_store::{MemoryIndexer, MemoryStore, StoreRetriever};
+use thunderus_store::{IndexResult, MemoryIndexer, MemoryStore, StoreRetriever};
 use thunderus_tools::{SessionToolDispatcher, ToolDispatcher, ToolRegistry};
 use thunderus_ui::state::AppState;
+
+/// Resolve the configuration file path based on priority:
+/// 1. Explicit --config flag (highest priority)
+/// 2. .thunderus/config.toml in current directory
+/// 3. ~/.config/thunderus/config.toml (XDG_CONFIG_HOME)
+fn resolve_config_path(explicit_path: Option<PathBuf>) -> PathBuf {
+    if let Some(path) = explicit_path {
+        return path;
+    }
+
+    let local_config = PathBuf::from(".thunderus/config.toml");
+    if local_config.exists() {
+        return local_config;
+    }
+
+    if let Ok(xdg_config_home) = std::env::var("XDG_CONFIG_HOME") {
+        let xdg_config = PathBuf::from(xdg_config_home).join("thunderus/config.toml");
+        if xdg_config.exists() {
+            return xdg_config;
+        }
+    } else if let Ok(home) = std::env::var("HOME") {
+        let home_config = PathBuf::from(home).join(".config/thunderus/config.toml");
+        if home_config.exists() {
+            return home_config;
+        }
+    }
+
+    local_config
+}
 
 /// Thunderus - A high-performance coding agent harness
 #[derive(Parser, Debug)]
@@ -23,7 +52,7 @@ use thunderus_ui::state::AppState;
 #[command(about = "A TUI-based coding agent harness built in Rust", long_about = None)]
 #[command(version = "0.1.0")]
 struct Cli {
-    /// Path to config.toml (default: ./config.toml)
+    /// Path to config.toml (default: .thunderus/config.toml or ~/.config/thunderus/config.toml)
     #[arg(short, long, value_name = "PATH")]
     config: Option<PathBuf>,
 
@@ -99,7 +128,7 @@ fn main() {
 
 fn run() -> Result<()> {
     let cli = Cli::parse();
-    let config_path = cli.config.unwrap_or_else(|| PathBuf::from("config.toml"));
+    let config_path = resolve_config_path(cli.config);
     let config = load_or_create_config(&config_path, cli.verbose)?;
 
     if cli.verbose {
@@ -142,6 +171,11 @@ fn load_or_create_config(path: &Path, verbose: bool) -> Result<Config> {
     } else {
         eprintln!("{} Config not found at {}", "Warning:".yellow().bold(), path.display());
         eprintln!("{} Creating config from example...", "Info:".blue().bold());
+
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).context("Failed to create config directory")?;
+        }
+
         std::fs::write(path, Config::example()).context("Failed to create config")?;
 
         eprintln!(
@@ -173,7 +207,6 @@ async fn cmd_start(
     test_mode: bool,
 ) -> Result<()> {
     let working_dir = if let Some(d) = dir { d } else { std::env::current_dir()? };
-
     let profile_name = profile_name.unwrap_or_else(|| config.default_profile.clone());
     let profile = config
         .profile(&profile_name)
@@ -299,14 +332,8 @@ async fn cmd_start(
                     if verbose {
                         eprintln!("{} Warning: Memory indexing failed: {}", "Warning:".yellow().bold(), e);
                     }
-                    let result = thunderus_store::IndexResult {
-                        docs_added: 0,
-                        docs_updated: 0,
-                        docs_deleted: 0,
-                        errors: vec![],
-                        duration_ms: 0,
-                    };
-                    (Some(store_clone), result)
+
+                    (Some(store_clone), IndexResult::default())
                 }
             }
         }
@@ -318,14 +345,7 @@ async fn cmd_start(
                     e
                 );
             }
-            let result = thunderus_store::IndexResult {
-                docs_added: 0,
-                docs_updated: 0,
-                docs_deleted: 0,
-                errors: vec![],
-                duration_ms: 0,
-            };
-            (None, result)
+            (None, IndexResult::default())
         }
     };
 
@@ -603,6 +623,8 @@ fn cmd_exec(
 }
 
 /// Show current status as JSON
+///
+/// TODO: This should be its own mod
 fn cmd_status(config: Config, verbose: bool, check_providers: bool) -> Result<()> {
     #[derive(Serialize)]
     struct StatusOutput {
