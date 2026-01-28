@@ -1,10 +1,11 @@
 format:
     cargo fmt
 
-
-# Lint AND fix
-lint:
+fix:
     cargo clippy --fix --allow-dirty
+
+# Format, Lint and fix
+lint: format fix
 
 compile:
     cargo check
@@ -15,7 +16,6 @@ check: format lint compile test
 # Finds comments
 find-comments:
     rg -n --pcre2 '^\s*//(?![!/])' -g '*.rs'
-
 
 test:
     cargo test --quiet

@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use clap::{Command, CommandFactory, Parser, Subcommand};
 use clap_complete::{Generator, Shell, generate};
 use owo_colors::OwoColorize;
+use serde::Serialize;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -120,9 +121,7 @@ fn run() -> Result<()> {
                 cmd_start(config, config_path.clone(), dir, cli.profile, cli.verbose, test_mode).await
             }
             Some(Commands::Exec { command, args }) => cmd_exec(config, command, args, cli.profile, cli.verbose),
-            Some(Commands::Status { check_providers }) => {
-                cmd_status(config, cli.verbose, check_providers)
-            }
+            Some(Commands::Status { check_providers }) => cmd_status(config, cli.verbose, check_providers),
             Some(Commands::Completions { shell }) => print_completions(shell, &mut Cli::command()),
         }
     })
@@ -170,11 +169,7 @@ fn detect_git_branch(path: &Path) -> Option<String> {
 
 /// Start the interactive TUI session
 async fn cmd_start(
-    config: Config,
-    config_path: PathBuf,
-    dir: Option<PathBuf>,
-    profile_name: Option<String>,
-    verbose: bool,
+    config: Config, config_path: PathBuf, dir: Option<PathBuf>, profile_name: Option<String>, verbose: bool,
     test_mode: bool,
 ) -> Result<()> {
     let working_dir = if let Some(d) = dir { d } else { std::env::current_dir()? };
@@ -607,106 +602,191 @@ fn cmd_exec(
     })
 }
 
-/// Show current status
+/// Show current status as JSON
 fn cmd_status(config: Config, verbose: bool, check_providers: bool) -> Result<()> {
-    println!("{}", "Thunderus Status".green().bold().underline());
-    println!();
+    #[derive(Serialize)]
+    struct StatusOutput {
+        title: String,
+        configuration: ConfigurationStatus,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        provider_health: Option<ProviderHealthSection>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        agent_directory: Option<AgentDirectoryStatus>,
+    }
 
-    println!("{} Configuration", "Info:".blue().bold());
-    println!("  Default profile: {}", config.default_profile.cyan());
-    println!("  Available profiles:");
+    #[derive(Serialize)]
+    struct ConfigurationStatus {
+        label: String,
+        default_profile: String,
+        available_profiles: Vec<ProfileInfo>,
+    }
+
+    #[derive(Serialize)]
+    struct ProfileInfo {
+        name: String,
+        provider: thunderus_core::ProviderConfig,
+    }
+
+    #[derive(Serialize)]
+    struct ProviderHealthSection {
+        label: String,
+        profiles: Vec<ProviderHealthStatus>,
+    }
+
+    #[derive(Serialize)]
+    struct ProviderHealthStatus {
+        profile: String,
+        provider: thunderus_core::ProviderConfig,
+        healthy: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        latency_ms: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    }
+
+    #[derive(Serialize)]
+    struct AgentDirectoryStatus {
+        label: String,
+        path: String,
+        exists: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sessions: Option<Vec<String>>,
+    }
+
+    let mut profiles = Vec::new();
     for profile_name in config.profile_names() {
         let profile = config.profile(&profile_name).unwrap();
-        println!("    - {} ({:?})", profile_name.cyan(), profile.provider);
+        profiles.push(ProfileInfo { name: profile_name, provider: profile.provider.clone() });
     }
 
-    if check_providers {
-        println!();
-        println!("{} Provider Health Checks", "Info:".blue().bold());
+    let configuration = ConfigurationStatus {
+        label: "Configuration".to_string(),
+        default_profile: config.default_profile.clone(),
+        available_profiles: profiles,
+    };
 
-        let rt = tokio::runtime::Runtime::new()?;
-        rt.block_on(async {
-            for profile_name in config.profile_names() {
-                let profile = config.profile(&profile_name).unwrap();
+    let provider_health = if check_providers {
+        let results = match tokio::runtime::Handle::try_current() {
+            Ok(_) => tokio::task::block_in_place(|| {
+                let handle = tokio::runtime::Handle::try_current()?;
+                handle.block_on(async {
+                    let mut health_statuses = Vec::new();
+                    for profile_name in config.profile_names() {
+                        let profile = config.profile(&profile_name).unwrap();
 
-                match ProviderFactory::create_from_config(&profile.provider) {
-                    Ok(provider) => {
-                        let health_checker = ProviderHealthChecker::new(provider, Duration::from_secs(10));
-                        match health_checker.check().await {
-                            Ok(result) => {
-                                if result.healthy {
-                                    println!(
-                                        "  {} ({:?}): {} (latency: {}ms)",
-                                        profile_name.cyan(),
-                                        profile.provider,
-                                        "OK".green().bold(),
-                                        result.latency_ms.to_string().yellow()
-                                    );
-                                } else {
-                                    println!(
-                                        "  {} ({:?}): {} - {}",
-                                        profile_name.cyan(),
-                                        profile.provider,
-                                        "ERROR".red().bold(),
-                                        result.error.unwrap_or_else(|| "Unknown error".to_string()).red()
-                                    );
-                                }
-                            }
-                            Err(e) => {
-                                println!(
-                                    "  {} ({:?}): {} - {}",
-                                    profile_name.cyan(),
-                                    profile.provider,
-                                    "ERROR".red().bold(),
-                                    e.to_string().red()
-                                );
-                            }
-                        }
+                        let status = match ProviderFactory::create_from_config(&profile.provider) {
+                            Ok(provider) => match ProviderHealthChecker::new(provider, Duration::from_secs(10))
+                                .check()
+                                .await
+                            {
+                                Ok(result) => ProviderHealthStatus {
+                                    profile: profile_name.clone(),
+                                    provider: profile.provider.clone(),
+                                    healthy: result.healthy,
+                                    latency_ms: if result.healthy { Some(result.latency_ms) } else { None },
+                                    error: if result.healthy { None } else { result.error },
+                                },
+                                Err(e) => ProviderHealthStatus {
+                                    profile: profile_name.clone(),
+                                    provider: profile.provider.clone(),
+                                    healthy: false,
+                                    latency_ms: None,
+                                    error: Some(e.to_string()),
+                                },
+                            },
+                            Err(e) => ProviderHealthStatus {
+                                profile: profile_name.clone(),
+                                provider: profile.provider.clone(),
+                                healthy: false,
+                                latency_ms: None,
+                                error: Some(e.to_string()),
+                            },
+                        };
+                        health_statuses.push(status);
                     }
-                    Err(e) => {
-                        println!(
-                            "  {} ({:?}): {} - {}",
-                            profile_name.cyan(),
-                            profile.provider,
-                            "ERROR".red().bold(),
-                            e.to_string().red()
-                        );
+                    Ok::<Vec<ProviderHealthStatus>, anyhow::Error>(health_statuses)
+                })
+            }),
+            Err(_) => {
+                let rt = tokio::runtime::Runtime::new()?;
+                rt.block_on(async {
+                    let mut health_statuses = Vec::new();
+                    for profile_name in config.profile_names() {
+                        let profile = config.profile(&profile_name).unwrap();
+
+                        let status = match ProviderFactory::create_from_config(&profile.provider) {
+                            Ok(provider) => match ProviderHealthChecker::new(provider, Duration::from_secs(10))
+                                .check()
+                                .await
+                            {
+                                Ok(result) => ProviderHealthStatus {
+                                    profile: profile_name.clone(),
+                                    provider: profile.provider.clone(),
+                                    healthy: result.healthy,
+                                    latency_ms: if result.healthy { Some(result.latency_ms) } else { None },
+                                    error: if result.healthy { None } else { result.error },
+                                },
+                                Err(e) => ProviderHealthStatus {
+                                    profile: profile_name.clone(),
+                                    provider: profile.provider.clone(),
+                                    healthy: false,
+                                    latency_ms: None,
+                                    error: Some(e.to_string()),
+                                },
+                            },
+                            Err(e) => ProviderHealthStatus {
+                                profile: profile_name.clone(),
+                                provider: profile.provider.clone(),
+                                healthy: false,
+                                latency_ms: None,
+                                error: Some(e.to_string()),
+                            },
+                        };
+                        health_statuses.push(status);
                     }
-                }
+                    Ok::<Vec<ProviderHealthStatus>, anyhow::Error>(health_statuses)
+                })
             }
-            Ok::<(), anyhow::Error>(())
-        })?;
-    }
+        }?;
+        Some(ProviderHealthSection { label: "Provider Health Checks".to_string(), profiles: results })
+    } else {
+        None
+    };
 
-    if verbose {
+    let agent_directory = if verbose {
         let agent_dir = AgentDir::from_current_dir().context("Failed to get current directory")?;
         let agent_dir_path = agent_dir.agent_dir();
-
-        if agent_dir_path.exists() {
-            println!();
-            println!("{} Agent directory", "Info:".blue().bold());
-            println!("  Path: {}", agent_dir_path.display().cyan());
-
+        let sessions = if agent_dir_path.exists() {
             let sessions_dir = agent_dir.sessions_dir();
-            if sessions_dir.exists() {
-                let sessions: Vec<_> = std::fs::read_dir(sessions_dir)
-                    .context("Failed to read sessions")?
-                    .filter_map(|entry| entry.ok())
-                    .filter(|entry| entry.path().is_dir())
-                    .collect();
-
-                println!("  Sessions: {}", sessions.len().to_string().cyan());
-                for session_entry in &sessions {
-                    if let Some(name) = session_entry.file_name().to_str() {
-                        println!("    - {}", name.cyan());
-                    }
-                }
+            match sessions_dir.exists() {
+                true => Some(
+                    std::fs::read_dir(sessions_dir)
+                        .context("Failed to read sessions")?
+                        .filter_map(|entry| entry.ok())
+                        .filter(|entry| entry.path().is_dir())
+                        .filter_map(|entry| entry.file_name().to_str().map(String::from))
+                        .collect::<Vec<_>>(),
+                ),
+                false => None,
             }
         } else {
-            println!("\n{} Agent directory not initialized", "Info:".yellow().bold());
-        }
-    }
+            None
+        };
 
+        Some(AgentDirectoryStatus {
+            label: "Agent directory".to_string(),
+            path: agent_dir_path.display().to_string(),
+            exists: agent_dir_path.exists(),
+            sessions,
+        })
+    } else {
+        None
+    };
+
+    let output =
+        StatusOutput { title: "Thunderus Status".to_string(), configuration, provider_health, agent_directory };
+
+    println!("{}", serde_json::to_string_pretty(&output)?);
     Ok(())
 }
 

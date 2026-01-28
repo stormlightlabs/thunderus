@@ -6,7 +6,7 @@ outline: deep
 
 Thunderus is built to be extended without compromising safety. Today, the main
 extension mechanism is the Skills system. Plugin hosting and additional runtime
-hooks are not implemented yet (as of 2026-01-24).
+hooks are not implemented yet.
 
 ## Skills
 

@@ -2955,6 +2955,8 @@ dependencies = [
  "clap_complete",
  "libc",
  "owo-colors",
+ "serde",
+ "serde_json",
  "tempfile",
  "thunderus-agent",
  "thunderus-core",

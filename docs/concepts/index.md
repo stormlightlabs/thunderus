@@ -6,5 +6,5 @@ outline: deep
 
 These pages explain the foundations of Thunderus.
 
-- [Core Concepts](/concepts/architecture)
+- [Architecture](/concepts/architecture)
 - [Trajectories & Inspector](/concepts/trajectories)

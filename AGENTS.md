@@ -4,9 +4,9 @@ This document helps agents work effectively in the Thunderus codebase.
 
 ## Overview
 
-Thunderus is a high-performance coding agent harness built in Rust.
-It aims to replicate the rigorous workflows of "Claude Code" and "Codex CLI" as a
-standalone, provider-agnostic TUI tool.
+Thunderus is a coding agent harness built in Rust.
+It replicates the workflows of "Claude Code" and "Codex CLI" as a standalone,
+provider-agnostic TUI tool.
 
 ### Key Design Principles
 
@@ -22,26 +22,32 @@ standalone, provider-agnostic TUI tool.
 ├── Cargo.toml                 # Workspace configuration
 ├── doc/
 │   ├── ROADMAP.txt           # Implementation roadmap
-│   └── user-flow.txt         # User flows and testing guide
+│   ├── DESIGN.txt            # UI/UX design guide
+│   ├── PROVIDERS.txt         # Provider adapter documentation
+│   ├── QA.txt                # User flows and QA testing
+│   └── REFS.txt              # External references
+├── docs/                      # VitePress documentation site
 └── crates/
     ├── agent/                # Agent orchestrator and event loop
     ├── cli/                  # Binary entry point
-    ├── core/                 # Core types and infrastructure
-    ├── providers/            # Provider-neutral types
-    ├── store/                # Session storage (placeholder)
+    ├── core/                 # Core types, memory, approval, session
+    ├── providers/            # LLM adapters (GLM-4.7, Gemini)
+    ├── skills/               # On-demand capability loading
+    ├── store/                # SQLite FTS5 memory store
     ├── tools/                # Tool execution framework
-    └── ui/                   # TUI library (components ready, not integrated)
+    └── ui/                   # TUI components and rendering
 ```
 
 ### Quick Reference: What's in Each Crate
 
 - **agent**: Agent orchestrator, event streaming, approval integration
-- **cli**: Command-line interface (start, exec, status), colored output, config loading
-- **core**: Configuration, session management, approval system, error handling
-- **providers**: Provider types and traits (adapters not implemented)
-- **store**: Session storage placeholder
-- **tools**: Tool execution framework, registry, dispatcher, command classification
-- **ui**: TUI components (header, sidebar, footer, transcript), event handling, syntax highlighting
+- **cli**: Command-line interface (start, exec, status, completions), colored output
+- **core**: Configuration, session (JSONL events), approval system, tiered memory, drift detection
+- **providers**: GLM-4.7 and Gemini adapters with streaming, mock, replay, retry support
+- **skills**: Skill discovery and loading from `.thunderus/skills/`
+- **store**: SQLite-backed memory store with FTS5 full-text search
+- **tools**: Tool registry, dispatcher, builtin tools (read, write, edit, glob, grep, shell, patch)
+- **ui**: TUI with Ratatui (header, sidebar, transcript, footer), themes, syntax highlighting
 
 ## Build and Development Commands
 
