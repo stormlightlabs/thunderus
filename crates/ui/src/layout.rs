@@ -78,7 +78,11 @@ impl TuiLayout {
 
             let main_chunks = Layout::default()
                 .direction(Direction::Horizontal)
-                .constraints([Constraint::Length(sidebar_width), Constraint::Length(1), Constraint::Min(0)])
+                .constraints([
+                    Constraint::Length(sidebar_width),
+                    Constraint::Length(1),
+                    Constraint::Min(0),
+                ])
                 .split(main);
 
             (Some(main_chunks[0]), main_chunks[2])
@@ -160,11 +164,11 @@ impl SidebarSections {
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(4),
-                Constraint::Length(5),
                 Constraint::Length(4),
                 Constraint::Length(4),
                 Constraint::Length(4),
-                Constraint::Length(5),
+                Constraint::Length(4),
+                Constraint::Length(4),
                 Constraint::Min(0),
             ])
             .split(area);
@@ -458,10 +462,10 @@ mod tests {
         assert!(sections.is_some());
 
         let sidebar = sections.unwrap();
-        assert_eq!(sidebar.session_events.height, 5);
+        assert_eq!(sidebar.session_events.height, 4);
         assert_eq!(sidebar.modified_files.height, 4);
         assert_eq!(sidebar.git_diff.height, 4);
-        assert_eq!(sidebar.context.height, 5);
+        assert_eq!(sidebar.context.height, 4);
     }
 
     #[test]
@@ -518,8 +522,8 @@ mod tests {
         assert!(layout.sidebar.is_none());
 
         assert_eq!(layout.header.height, 1);
-        assert_eq!(layout.footer.height, 6);
-        assert_eq!(layout.transcript.height, 8);
+        assert_eq!(layout.footer.height, 5);
+        assert_eq!(layout.transcript.height, 9);
     }
 
     #[test]

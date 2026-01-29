@@ -29,7 +29,8 @@ CONTENTS                                                      *roadmap-contents*
  XVIII. TUI TESTING FRAMEWORK .................................. |agent-XVIII|
    XIX. LAYOUT ................................................. |agent-XIX|
     XX. PARKING LOT............................................. |agent-XX|
-   XXI. REFERENCES ............................................. |agent-XXI|
+   XXI. UNIFIED LOGGING + OBSERVABILITY ........................ |agent-XXI|
+  XXII. REFERENCES ............................................. |agent-XXII|
 
 --------------------------------------------------------------------------------
 I. REPO SCAFFOLD + CONFIG + SESSION STORE                              *agent-I*
@@ -207,7 +208,42 @@ Session Recovery:
 - Session metadata (title, tags, description)
 
 --------------------------------------------------------------------------------
-XXI. REFERENCES                                                     *agent-XXI*
+XXI. UNIFIED LOGGING + OBSERVABILITY                                *agent-XXI*
+--------------------------------------------------------------------------------
+Implement production-grade logging and observability using tracing ecosystem.
+Inspired by Codex CLI logging support, LangSmith traces, and AI Observer patterns.
+
+See |.sandbox/LOGGING_SPEC.md| for full specification.
+
+- [x] Unified subscriber (tracing-subscriber with layer stack):
+      - EnvFilter from THUNDERUS_LOG (per-crate filtering)
+      - fmt layer for stderr (pretty/json/compact formats)
+      - JSON file layer for session logs
+- [x] Structured event taxonomy:
+      - Session events (start, end, resume)
+      - Provider events (request, response, error, stream)
+      - Tool events (dispatch, result, approval)
+      - Agent events (turn start/end, thinking)
+      - Memory events (store, retrieve, index)
+- [x] Session-scoped tracing:
+      - Root span per session (trace_id = session_id)
+      - Nested spans for turns, tool calls, provider requests
+      - Async span propagation with Instrument trait
+- [x] Privacy controls:
+      - Prompt content redaction by default
+      - Configurable tool argument sanitization
+      - Truncation for large outputs
+- [x] Migrate existing debug module:
+      - Convert debug_log! calls to tracing::debug!
+      - Map DebugCategory to tracing targets
+      - Remove custom debug module after migration
+
+DoD:
+- All crates instrument key operations with tracing.
+- THUNDERUS_LOG controls verbosity; JSON logs written to session directory.
+
+--------------------------------------------------------------------------------
+XXII. REFERENCES                                                   *agent-XXII*
 --------------------------------------------------------------------------------
 
 See |REFS.txt| for external resources, design inspirations, and footnotes.

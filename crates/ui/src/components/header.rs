@@ -51,10 +51,7 @@ impl<'a> Header<'a> {
             .map(|t| t.to_string())
             .unwrap_or_else(|| "New Session".to_string());
 
-        let title_spans = vec![Span::styled(
-            task_title,
-            Style::default().fg(theme.fg).bg(theme.bg),
-        )];
+        let title_spans = vec![Span::styled(task_title, Style::default().fg(theme.fg).bg(theme.bg))];
 
         let tokens = self.state.tokens_display();
         let percent = self.state.context_percentage();
@@ -63,18 +60,9 @@ impl<'a> Header<'a> {
 
         let stats_spans = vec![
             Span::styled(format!("{} ", tokens), Style::default().fg(theme.fg).bg(theme.bg)),
-            Span::styled(
-                format!("{}%", percent),
-                Style::default().fg(theme.cyan).bg(theme.bg),
-            ),
-            Span::styled(
-                format!(" ({})", cost),
-                Style::default().fg(theme.muted).bg(theme.bg),
-            ),
-            Span::styled(
-                format!(" v{}", version),
-                Style::default().fg(theme.muted).bg(theme.bg),
-            ),
+            Span::styled(format!("{}%", percent), Style::default().fg(theme.cyan).bg(theme.bg)),
+            Span::styled(format!(" ({})", cost), Style::default().fg(theme.muted).bg(theme.bg)),
+            Span::styled(format!(" v{}", version), Style::default().fg(theme.muted).bg(theme.bg)),
         ];
 
         let title_width = title_spans.iter().map(|s| s.content.width()).sum::<usize>();

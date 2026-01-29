@@ -535,11 +535,8 @@ impl App {
                 } else {
                     let mut msg = format!("Hygiene Check Results:\n\n{} violation(s):\n\n", violations.len());
                     for v in &violations {
-                        let severity = if matches!(v.severity, thunderus_core::memory::Severity::Error) {
-                            "[E]"
-                        } else {
-                            "[W]"
-                        };
+                        let severity =
+                            if matches!(v.severity, thunderus_core::memory::Severity::Error) { "[E]" } else { "[W]" };
                         msg.push_str(&format!("  {} [{}] {}\n", severity, v.doc_id, v.message));
                         if let Some(fix) = &v.suggested_fix {
                             msg.push_str(&format!("      Fix: {}\n", fix));

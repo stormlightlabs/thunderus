@@ -248,6 +248,97 @@ fn default_skills_auto_discovery() -> bool {
     true
 }
 
+/// Logging configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct LoggingConfig {
+    /// Default log level (default: warn)
+    #[serde(default = "default_logging_level")]
+    pub level: String,
+
+    /// Log output format: pretty, json, or compact
+    #[serde(default = "default_logging_format")]
+    pub format: String,
+
+    /// File logging configuration
+    #[serde(default)]
+    pub file: FileLoggingConfig,
+
+    /// Privacy controls for sensitive content
+    #[serde(default)]
+    pub privacy: PrivacyLoggingConfig,
+}
+
+fn default_logging_level() -> String {
+    "warn".to_string()
+}
+
+fn default_logging_format() -> String {
+    "pretty".to_string()
+}
+
+/// File logging configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct FileLoggingConfig {
+    /// Enable file logging (default: false)
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Log level for file output (can be more verbose than stderr)
+    #[serde(default = "default_file_logging_level")]
+    pub level: String,
+
+    /// Maximum file size in MB before rotation (default: 50)
+    #[serde(default = "default_max_size_mb")]
+    pub max_size_mb: usize,
+
+    /// Number of rotated files to keep (default: 5)
+    #[serde(default = "default_max_files")]
+    pub max_files: usize,
+}
+
+fn default_file_logging_level() -> String {
+    "debug".to_string()
+}
+
+fn default_max_size_mb() -> usize {
+    50
+}
+
+fn default_max_files() -> usize {
+    5
+}
+
+/// Privacy configuration for sensitive content in logs
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct PrivacyLoggingConfig {
+    /// Include tool arguments in trace logs (default: true)
+    #[serde(default = "default_log_tool_args")]
+    pub log_tool_args: bool,
+
+    /// How to handle tool output in logs (default: truncate)
+    #[serde(default = "default_log_tool_output")]
+    pub log_tool_output: String,
+
+    /// Maximum length for truncated content (default: 500)
+    #[serde(default = "default_truncate_length")]
+    pub truncate_length: usize,
+}
+
+fn default_log_tool_args() -> bool {
+    true
+}
+
+fn default_log_tool_output() -> String {
+    "truncate".to_string()
+}
+
+fn default_truncate_length() -> usize {
+    500
+}
+
 /// Profile configuration (Codex-like ergonomics)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -292,6 +383,10 @@ pub struct Profile {
     /// Skills configuration
     #[serde(default)]
     pub skills: SkillsConfig,
+
+    /// Logging configuration
+    #[serde(default)]
+    pub logging: LoggingConfig,
 
     /// Additional configuration options
     #[serde(default)]
@@ -840,6 +935,7 @@ mod tests {
             network: NetworkConfig::default(),
             memory: MemoryConfig::default(),
             skills: SkillsConfig::default(),
+            logging: LoggingConfig::default(),
             options: HashMap::new(),
         };
 
@@ -870,6 +966,7 @@ mod tests {
             network: NetworkConfig::default(),
             memory: MemoryConfig::default(),
             skills: SkillsConfig::default(),
+            logging: LoggingConfig::default(),
             options: HashMap::new(),
         };
 
@@ -1390,6 +1487,7 @@ model = "gemini-2.5-flash"
             network: NetworkConfig::default(),
             memory: MemoryConfig::default(),
             skills: SkillsConfig::default(),
+            logging: LoggingConfig::default(),
             options: HashMap::new(),
         }
     }

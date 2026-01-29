@@ -1261,6 +1261,8 @@ impl App {
 
     /// Open external editor for current input buffer
     fn open_external_editor(&mut self) {
+        self.transcript_mut().add_system_message("External editor invoked");
+
         let editor_cmd = env::var("VISUAL")
             .or_else(|_| env::var("EDITOR"))
             .unwrap_or_else(|_| "vi".to_string());

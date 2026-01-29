@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
+use tracing::{debug, info, instrument};
 
 /// Monotonically increasing sequence number for events
 pub type Seq = u64;
@@ -33,13 +34,18 @@ impl Session {
     /// Create a new session with a fresh SessionId
     ///
     /// This creates the session directory and initializes the events.jsonl file
+    #[instrument(skip(agent_dir))]
     pub fn new(agent_dir: AgentDir) -> Result<Self> {
-        Self::with_id(agent_dir, SessionId::new())
+        let id = SessionId::new();
+
+        info!(session_id = %id, "Creating new session");
+        Self::with_id(agent_dir, id)
     }
 
     /// Create a session with a specific SessionId
     ///
     /// This creates the session directory and initializes the events.jsonl file
+    #[instrument(skip(agent_dir), fields(session_id = %id))]
     pub fn with_id(agent_dir: AgentDir, id: SessionId) -> Result<Self> {
         let session_dir = agent_dir.session_dir(&id);
 
@@ -54,6 +60,8 @@ impl Session {
         }
 
         let next_seq = Self::load_next_seq(&events_file)?;
+
+        debug!(session_id = %id, "Session initialized");
 
         Ok(Self { id, agent_dir, next_seq, file_ownership: HashMap::new() })
     }
@@ -128,7 +136,10 @@ impl Session {
     /// Append an event to the session log
     ///
     /// The event is assigned a sequence number and written to the JSONL file
+    #[instrument(skip(self, event), fields(session_id = %self.id, seq = self.next_seq))]
     pub fn append_event(&mut self, event: Event) -> Result<Seq> {
+        let event_type = format!("{:?}", std::mem::discriminant(&event));
+
         let seq = self.next_seq;
         let logged_event = LoggedEvent::new(seq, &self.id, event);
 
@@ -140,6 +151,8 @@ impl Session {
         writeln!(file, "{}", json_line)?;
 
         self.next_seq += 1;
+        debug!(session_id = %self.id, seq, event_type, "Event appended");
+
         Ok(seq)
     }
 

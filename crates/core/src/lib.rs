@@ -2,10 +2,10 @@ pub mod approval;
 pub mod classification;
 pub mod config;
 pub mod context;
-pub mod debug;
 pub mod drift;
 pub mod error;
 pub mod layout;
+pub mod logging;
 pub mod memory;
 pub mod patch;
 pub mod patch_queue_manager;
@@ -17,7 +17,7 @@ pub mod teaching;
 pub mod trajectory;
 pub mod views;
 
-pub use debug::{DebugCategory, init_debug, is_debug_enabled};
+pub use logging::{LogFormat, PrivacyConfig, ToolOutputLogging, init_logging, redact_sensitive, sanitize_path};
 pub use trajectory::{TrajectoryNode, TrajectoryWalker};
 
 pub use approval::{
@@ -25,7 +25,9 @@ pub use approval::{
     ApprovalRequest, ApprovalResponse, ApprovalStats, AutoApprove, AutoReject,
 };
 pub use classification::{Classification, ToolRisk};
-pub use config::{ApprovalMode, Config, Profile, ProviderConfig, SandboxMode};
+pub use config::{
+    ApprovalMode, Config, FileLoggingConfig, LoggingConfig, PrivacyLoggingConfig, Profile, ProviderConfig, SandboxMode,
+};
 pub use context::{CONTEXT_FILES, ContextLoader, LOCAL_CONTEXT_PATTERN, LoadedContext};
 pub use drift::{DriftEvent, DriftMonitor, SnapshotManager};
 pub use error::{BlockedCommandError, Error, Result};

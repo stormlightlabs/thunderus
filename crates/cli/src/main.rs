@@ -7,11 +7,12 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
+use thunderus_core::logging::LoggingConfig;
 use thunderus_core::{
     AgentDir, Config, ContextLoader, PatchQueueManager, Session,
     memory::{Gardener, MemoryPaths, MemoryRetriever, RetrievalPolicy},
 };
-use thunderus_core::{ApprovalGate, ApprovalProtocol, AutoApprove, init_debug};
+use thunderus_core::{ApprovalGate, ApprovalProtocol, AutoApprove, init_logging};
 use thunderus_providers::{CancelToken, ProviderFactory, ProviderHealthChecker};
 use thunderus_store::{IndexResult, MemoryIndexer, MemoryStore, StoreRetriever};
 use thunderus_tools::{SessionToolDispatcher, ToolDispatcher, ToolRegistry};
@@ -64,6 +65,14 @@ struct Cli {
     #[arg(short, long)]
     verbose: bool,
 
+    /// Log level (e.g., warn, info, debug, trace)
+    #[arg(long, value_name = "LEVEL")]
+    log_level: Option<String>,
+
+    /// Log format (pretty, json, compact)
+    #[arg(long, value_name = "FORMAT")]
+    log_format: Option<String>,
+
     /// Working directory (for default start behavior)
     #[arg(short, long, value_name = "DIR")]
     dir: Option<PathBuf>,
@@ -109,8 +118,6 @@ enum Commands {
 }
 
 fn main() {
-    init_debug();
-
     #[cfg(unix)]
     unsafe {
         libc::signal(libc::SIGPIPE, libc::SIG_DFL);
@@ -128,8 +135,19 @@ fn main() {
 
 fn run() -> Result<()> {
     let cli = Cli::parse();
+
+    if let Some(level) = &cli.log_level {
+        unsafe { std::env::set_var("THUNDERUS_LOG", level) };
+    }
+    if let Some(format) = &cli.log_format {
+        unsafe { std::env::set_var("THUNDERUS_LOG_FORMAT", format) };
+    }
+
     let config_path = resolve_config_path(cli.config);
     let config = load_or_create_config(&config_path, cli.verbose)?;
+
+    let logging_config: LoggingConfig = config.default_profile()?.logging.clone().into();
+    init_logging(Some(logging_config))?;
 
     if cli.verbose {
         eprintln!("{} Using config: {}", "Info:".blue().bold(), config_path.display());
