@@ -7,6 +7,70 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+/// Driver type determines execution strategy for a skill.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SkillDriver {
+    /// Default: spawn subprocess (current behavior)
+    #[default]
+    Shell,
+    /// WASM plugin via Extism (future)
+    Wasm,
+    /// Lua script via mlua (future)
+    Lua,
+    /// Delegate to MCP server (future)
+    Mcp,
+}
+
+/// Filesystem access permissions for a skill.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct FilesystemPermissions {
+    /// Glob patterns for readable paths (relative to workspace)
+    #[serde(default)]
+    pub read: Vec<String>,
+    /// Glob patterns for writable paths (relative to workspace)
+    #[serde(default)]
+    pub write: Vec<String>,
+}
+
+/// Network access permissions for a skill.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct NetworkPermissions {
+    /// Allowed host patterns (supports wildcards)
+    #[serde(default)]
+    pub allowed_hosts: Vec<String>,
+}
+
+/// Capability-based security permissions for a skill.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct SkillPermissions {
+    /// Filesystem access permissions
+    #[serde(default)]
+    pub filesystem: FilesystemPermissions,
+    /// Network access permissions
+    #[serde(default)]
+    pub network: NetworkPermissions,
+    /// Environment variables the skill can read
+    #[serde(default)]
+    pub env_vars: Vec<String>,
+    /// Memory limit in MB (WASM only, future)
+    pub memory_limit_mb: Option<u32>,
+    /// CPU instruction limit (WASM only, future)
+    pub instruction_limit: Option<u64>,
+}
+
+/// A function exported by a plugin (for multi-function skills).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PluginFunction {
+    /// Function name
+    pub name: String,
+    /// Function description
+    pub description: String,
+    /// JSON Schema for parameters
+    #[serde(default)]
+    pub parameters: serde_json::Value,
+}
+
 /// Metadata about a skill, extracted from SKILL.md frontmatter.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SkillMeta {
@@ -39,6 +103,34 @@ pub struct SkillMeta {
     /// Risk level for approval gating
     #[serde(default)]
     pub risk_level: SkillRisk,
+
+    /// Execution driver (shell, wasm, lua, mcp)
+    #[serde(default)]
+    pub driver: SkillDriver,
+
+    /// Entry point file (e.g., plugin.wasm, script.lua, run.sh)
+    #[serde(default)]
+    pub entry: String,
+
+    /// For driver: mcp - MCP server name
+    #[serde(default)]
+    pub mcp_server: String,
+
+    /// For driver: mcp - MCP tool name
+    #[serde(default)]
+    pub mcp_tool: String,
+
+    /// Explicit permission requirements (capability-based security)
+    #[serde(default)]
+    pub permissions: SkillPermissions,
+
+    /// JSON Schema for tool parameters
+    #[serde(default)]
+    pub parameters: serde_json::Value,
+
+    /// Multiple functions from single plugin
+    #[serde(default)]
+    pub functions: Vec<PluginFunction>,
 }
 
 /// Risk level determines approval requirements for skill execution.

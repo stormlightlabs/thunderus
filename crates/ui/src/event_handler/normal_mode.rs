@@ -37,11 +37,16 @@ pub fn handle_normal_key(event: KeyEvent, state: &mut AppState) -> Option<KeyAct
             KeyCode::Right => state.input.move_right(),
             KeyCode::Home => state.input.move_home(),
             KeyCode::End => state.input.move_end(),
-            KeyCode::Char(c) if !has_ctrl_or_alt => state.input.insert_char(c),
+            KeyCode::Char(c) if !has_ctrl_or_alt => {
+                state.exit_first_session();
+                state.input.insert_char(c);
+            }
             _ => {}
         }
 
-        return None;
+        if !has_ctrl_or_alt {
+            return None;
+        }
     }
 
     if matches!(state.ui.active_view, crate::state::MainView::Inspector) {

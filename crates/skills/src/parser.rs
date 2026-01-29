@@ -15,7 +15,10 @@
 //! ...
 //! ```
 
-use crate::types::{Result, ScriptType, Skill, SkillMeta, SkillRisk, SkillScript};
+use crate::types::{
+    FilesystemPermissions, NetworkPermissions, PluginFunction, Result, ScriptType, Skill, SkillDriver, SkillMeta,
+    SkillPermissions, SkillRisk, SkillScript,
+};
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
@@ -81,6 +84,40 @@ fn extract_frontmatter(content: &str) -> Result<(SkillMeta, String)> {
         ));
     }
 
+    let driver = frontmatter
+        .driver
+        .and_then(|s| parse_driver(&s).ok())
+        .unwrap_or_default();
+
+    if driver == SkillDriver::Mcp {
+        if frontmatter.mcp_server.as_ref().is_none_or(|s| s.is_empty()) {
+            return Err(crate::types::SkillError::InvalidFrontmatter(
+                "mcp_server is required when driver: mcp".to_string(),
+            ));
+        }
+        if frontmatter.mcp_tool.as_ref().is_none_or(|s| s.is_empty()) {
+            return Err(crate::types::SkillError::InvalidFrontmatter(
+                "mcp_tool is required when driver: mcp".to_string(),
+            ));
+        }
+    }
+
+    let permissions = parse_permissions(frontmatter.permissions)?;
+
+    let functions = frontmatter
+        .functions
+        .map(|funcs| {
+            funcs
+                .into_iter()
+                .map(|f| PluginFunction {
+                    name: f.name,
+                    description: f.description,
+                    parameters: f.parameters.unwrap_or(serde_json::json!({})),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     let meta = SkillMeta {
         name: frontmatter.name,
         description: frontmatter.description,
@@ -93,6 +130,18 @@ fn extract_frontmatter(content: &str) -> Result<(SkillMeta, String)> {
             .risk_level
             .and_then(|s| parse_risk_level(&s).ok())
             .unwrap_or_default(),
+        driver,
+        entry: frontmatter.entry.unwrap_or_else(|| match driver {
+            SkillDriver::Shell => "run.sh".to_string(),
+            SkillDriver::Wasm => "plugin.wasm".to_string(),
+            SkillDriver::Lua => "script.lua".to_string(),
+            SkillDriver::Mcp => String::new(),
+        }),
+        mcp_server: frontmatter.mcp_server.unwrap_or_default(),
+        mcp_tool: frontmatter.mcp_tool.unwrap_or_default(),
+        permissions,
+        parameters: frontmatter.parameters.unwrap_or(serde_json::json!({})),
+        functions,
     };
 
     Ok((meta, body.trim().to_string()))
@@ -108,6 +157,47 @@ fn parse_risk_level(s: &str) -> Result<SkillRisk> {
             "invalid risk_level: {s}"
         ))),
     }
+}
+
+/// Parse driver string into SkillDriver enum.
+fn parse_driver(s: &str) -> Result<SkillDriver> {
+    match s.to_lowercase().as_str() {
+        "shell" => Ok(SkillDriver::Shell),
+        "wasm" => Ok(SkillDriver::Wasm),
+        "lua" => Ok(SkillDriver::Lua),
+        "mcp" => Ok(SkillDriver::Mcp),
+        _ => Err(crate::types::SkillError::InvalidFrontmatter(format!(
+            "invalid driver: {s} (must be shell, wasm, lua, or mcp)"
+        ))),
+    }
+}
+
+/// Parse permissions frontmatter into SkillPermissions.
+fn parse_permissions(perms: Option<FrontmatterPermissions>) -> Result<SkillPermissions> {
+    let Some(perms) = perms else {
+        return Ok(SkillPermissions::default());
+    };
+
+    let filesystem = perms
+        .filesystem
+        .map_or_else(FilesystemPermissions::default, |fs| FilesystemPermissions {
+            read: fs.read.unwrap_or_default(),
+            write: fs.write.unwrap_or_default(),
+        });
+
+    let network = perms
+        .network
+        .map_or_else(NetworkPermissions::default, |net| NetworkPermissions {
+            allowed_hosts: net.allowed_hosts.unwrap_or_default(),
+        });
+
+    Ok(SkillPermissions {
+        filesystem,
+        network,
+        env_vars: perms.env_vars.unwrap_or_default(),
+        memory_limit_mb: perms.memory_limit_mb,
+        instruction_limit: perms.instruction_limit,
+    })
 }
 
 /// Discover executable scripts in the skill directory.
@@ -178,6 +268,67 @@ struct Frontmatter {
 
     #[serde(default)]
     risk_level: Option<String>,
+
+    #[serde(default)]
+    driver: Option<String>,
+
+    #[serde(default)]
+    entry: Option<String>,
+
+    #[serde(default)]
+    mcp_server: Option<String>,
+
+    #[serde(default)]
+    mcp_tool: Option<String>,
+
+    #[serde(default)]
+    permissions: Option<FrontmatterPermissions>,
+
+    #[serde(default)]
+    parameters: Option<serde_json::Value>,
+
+    #[serde(default)]
+    functions: Option<Vec<FrontmatterFunction>>,
+}
+
+/// Permissions frontmatter (matches SkillPermissions structure).
+#[derive(Debug, serde::Deserialize)]
+struct FrontmatterPermissions {
+    #[serde(default)]
+    filesystem: Option<FrontmatterFilesystemPermissions>,
+    #[serde(default)]
+    network: Option<FrontmatterNetworkPermissions>,
+    #[serde(default)]
+    env_vars: Option<Vec<String>>,
+    #[serde(default)]
+    memory_limit_mb: Option<u32>,
+    #[serde(default)]
+    instruction_limit: Option<u64>,
+}
+
+/// Filesystem permissions frontmatter.
+#[derive(Debug, serde::Deserialize)]
+struct FrontmatterFilesystemPermissions {
+    #[serde(default)]
+    read: Option<Vec<String>>,
+    #[serde(default)]
+    write: Option<Vec<String>>,
+}
+
+/// Network permissions frontmatter.
+#[derive(Debug, serde::Deserialize)]
+struct FrontmatterNetworkPermissions {
+    #[serde(default)]
+    allowed_hosts: Option<Vec<String>>,
+}
+
+/// Function frontmatter for multi-function plugins.
+#[derive(Debug, serde::Deserialize)]
+struct FrontmatterFunction {
+    name: String,
+    description: String,
+    #[serde(default)]
+    parameters: Option<serde_json::Value>,
 }
 
 #[cfg(test)]

@@ -34,7 +34,7 @@
 //!
 //! ```no_run
 //! use thunderus_core::logging;
-//! use thunderus_core::config::LoggingConfig;
+//! use thunderus_core::logging::LoggingConfig;
 //!
 //! // Initialize logging with default settings
 //! logging::init_logging(None)?;

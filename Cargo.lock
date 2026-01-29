@@ -3114,6 +3114,7 @@ dependencies = [
  "anyhow",
  "dirs",
  "glob",
+ "regex",
  "serde",
  "serde_json",
  "serde_yml",

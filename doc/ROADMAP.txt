@@ -2,125 +2,97 @@
 
 CODING AGENT MVP                                                 *agent-harness*
 ================================================================================
-
 See |VISION.txt| for design philosophy, core principles, and milestone targets.
-
 --------------------------------------------------------------------------------
 CONTENTS                                                      *roadmap-contents*
 --------------------------------------------------------------------------------
 
-     I. Repo Scaffold + Config + Session Store ................. |agent-I|
-    II. Provider Harness...Execution Infrastructure ............ |agent-II|
-   III. TUI Harness ............................................ |agent-III|
-    IV. TUI + Agent + CLI Integration .......................... |agent-IV|
-     V. Core Text Processing Tools ............................. |agent-V|
-    VI. Approvals + Sandboxing (Shell-First, Still Safe) ....... |agent-VI|
-   VII. Diff-First Editing + Git Integration ................... |agent-VII|
-  VIII. Theming / UI ........................................... |agent-VIII|
-    IX. Markdown + JSONL Hybrid VCS ............................ |agent-IX|
-     X. TIERED MEMORY CORE + STORE ............................. |agent-X|
-    XI. LONG-TERM MEMORY STORE + RETRIEVAL ..................... |agent-XI|
-   XII. MEMORY GARDENER  ....................................... |agent-XII|
-  XIII. TRAJECTORY + INSPECTOR ................................. |agent-XIII|
-   XIV. MIXED-INITIATIVE COLLABORATION ......................... |agent-XIV|
-    XV. PROVIDER COMPLETION + DEVELOPER TOOLING ................ |agent-XV|
+     I. Repo Scaffold + Config + Session Store ................. |2026-01-12|
+    II. Provider Harness...Execution Infrastructure ............ |2026-01-13|
+   III. TUI Harness ............................................ |2026-01-15|
+    IV. TUI + Agent + CLI Integration .......................... |2026-01-15|
+     V. Core Text Processing Tools ............................. |2026-01-16|
+    VI. Approvals + Sandboxing (Shell-First, Still Safe) ....... |2026-01-18|
+   VII. Diff-First Editing + Git Integration ................... |2026-01-19|
+  VIII. Theming / UI ........................................... |2026-01-20|
+    IX. Markdown + JSONL Hybrid VCS ............................ |2026-01-21|
+     X. TIERED MEMORY CORE + STORE ............................. |2026-01-22|
+    XI. LONG-TERM MEMORY STORE + RETRIEVAL ..................... |2026-01-22|
+   XII. MEMORY GARDENER  ....................................... |2026-01-23|
+  XIII. TRAJECTORY + INSPECTOR ................................. |2026-01-23|
+   XIV. MIXED-INITIATIVE COLLABORATION ......................... |2026-01-24|
+    XV. PROVIDER COMPLETION + DEVELOPER TOOLING ................ |2026-01-26|
    XVI. EXTENSIBILITY .......................................... |agent-XVI|
   XVII. HARDENING .............................................. |agent-XVII|
  XVIII. TUI TESTING FRAMEWORK .................................. |agent-XVIII|
    XIX. LAYOUT ................................................. |agent-XIX|
     XX. PARKING LOT............................................. |agent-XX|
    XXI. UNIFIED LOGGING + OBSERVABILITY ........................ |agent-XXI|
-  XXII. REFERENCES ............................................. |agent-XXII|
+  XXII. REFERENCES ............................................. |REFS.txt|
 
---------------------------------------------------------------------------------
-I. REPO SCAFFOLD + CONFIG + SESSION STORE                              *agent-I*
---------------------------------------------------------------------------------
-See section |2026-01-12| for changes made.
---------------------------------------------------------------------------------
-II. PROVIDER HARNESS + MINIMAL INTERACTIVE TUI                        *agent-II*
---------------------------------------------------------------------------------
-See section |2026-01-13| for changes made.
---------------------------------------------------------------------------------
-III. TUI HARNESS                                                     *agent-III*
---------------------------------------------------------------------------------
-See section |2026-01-15| for changes made.
---------------------------------------------------------------------------------
-IV. TUI + AGENT + CLI INTEGRATION                                     *agent-IV*
---------------------------------------------------------------------------------
-See section |2026-01-15| for changes made.
---------------------------------------------------------------------------------
-V. CORE TEXT PROCESSING TOOLS                                          *agent-V*
---------------------------------------------------------------------------------
-See section |2026-01-16| for changes made.
---------------------------------------------------------------------------------
-VI. APPROVALS + SANDBOXING (SHELL-FIRST, STILL SAFE)                  *agent-VI*
---------------------------------------------------------------------------------
-See section |2026-01-18| for changes made.
---------------------------------------------------------------------------------
-VII. DIFF-FIRST EDITING + GIT INTEGRATION                            *agent-VII*
---------------------------------------------------------------------------------
-See section |2026-01-19| for changes made.
---------------------------------------------------------------------------------
-VIII. UI POLISH + THEMING                                           *agent-VIII*
---------------------------------------------------------------------------------
-See section |2026-01-20| for changes made.
---------------------------------------------------------------------------------
-IX. MARKDOWN + JSONL HYBRID VCS                                      *agent-IX*
---------------------------------------------------------------------------------
-See section |2026-01-21| for changes made.
---------------------------------------------------------------------------------
-X. TIERED MEMORY CORE + STORE (REPO-NATIVE, AUDITABLE)                 *agent-X*
---------------------------------------------------------------------------------
-See section |2026-01-22| for changes made.
---------------------------------------------------------------------------------
-XI. LONG-TERM MEMORY + RETRIEVAL (LEXICAL FIRST, VECTORS OPT-IN)      *agent-XI*
---------------------------------------------------------------------------------
-See section |2026-01-22| for changes made.
---------------------------------------------------------------------------------
-XII. MEMORY GARDENER  (CONSOLIDATION, DRIFT CONTROL, AND HYGIENE)    *agent-XII*
---------------------------------------------------------------------------------
-See section |2026-01-23| for changes made.
---------------------------------------------------------------------------------
-XIII. TRAJECTORY + INSPECTOR (DEBUGGABLE "WHY" FOR MEMORY)          *agent-XIII*
---------------------------------------------------------------------------------
-See section |2026-01-23| for changes made.
---------------------------------------------------------------------------------
-XIV. MIXED-INITIATIVE COLLABORATION                                  *agent-XIV*
---------------------------------------------------------------------------------
-See section |2026-01-24| for changes made.
---------------------------------------------------------------------------------
-XV. PROVIDER COMPLETION + DEVELOPER TOOLING                           *agent-XV*
---------------------------------------------------------------------------------
-See section |2026-01-26| for changes made.
 --------------------------------------------------------------------------------
 XVI. EXTENSIBILITY (SKILLS + PLUGINS)                                *agent-XVI*
 --------------------------------------------------------------------------------
-Make Thunderus extensible via on-demand capabilities and custom plugins.
-Inspired by Pi's Skills system and token-efficient design.
+Make Thunderus extensible via on-demand capabilities, runtime plugins, and
+external tool protocols.
 
+Phase 1: Skills System Enhancements
 - [x] Skills system (on-demand capability loading):
       - `.thunderus/skills/` directory structure
       - SKILL.md format with frontmatter (name, description)
       - `/skill:name` invocation
       - Agent auto-discovery based on task intent
-- [ ] Extension points (Rust trait-based):
-      - Custom tools via `ToolDefinition` trait
-      - Custom commands via `CommandHandler` trait
-      - Event hooks via `EventSubscriber` trait
-- [ ] Plugin loading (Runtime):
-      - Unified `PluginHost` abstraction
-      - WASM Support (Extism based): sandboxed, safe, polyglot
-      - Lua Support (mlua based): lightweight scripting
-      - Host API: `log`, `read_file`, `ask_user`, `kv_store`
-- [ ] Built-in extensions registry:
-      - Move web_search to skill
-      - Move fetch_url to skill
-- [ ] MCP client (opt-in extension):
-      - load MCP servers from config, import tool schemas, route calls
-      - respect approval/sandbox across MCP tools[^8]
+- [x] Enhanced SKILL.md format:
+      - `driver` field: shell | wasm | lua | mcp
+      - `permissions` block: filesystem (read/write globs), network (allowed_hosts)
+      - `functions` array for multi-function plugins
+      - `parameters` JSON Schema for tool invocation
+- [x] Permission model (capability-based security):
+      - `SkillPermissions` struct with filesystem/network controls
+      - Path resolution with traversal protection
+      - Permission checks in Host API layer
+
+Phase 2: WASM Runtime (Extism)
+- [ ] WasmEngine using Extism (wraps Wasmtime):
+      - Load `.wasm` files with manifest-based permissions
+      - `allowed_hosts` for HTTP, `allowed_paths` for filesystem
+      - Memory isolation by default
+- [ ] Host functions for WASM plugins:
+      - `thunderus_log`, `thunderus_read_file`, `thunderus_write_file`
+      - `thunderus_ask_user`, `thunderus_kv_get`, `thunderus_kv_set`
+- [ ] WasmTool adapter (surfaces as ToolDefinition)
+- [ ] Example Rust WASM plugin (compile with wasm32-wasip1)
+
+Phase 3: Lua Runtime (mlua)
+- [ ] LuaEngine using mlua with Luau sandboxing:
+      - Whitelist libraries: table, string, math, utf8
+      - Block dangerous: dofile, loadfile, load, os, io
+      - Isolated Lua state per plugin
+- [ ] Host API injection (`thunderus.*` globals)
+- [ ] LuaTool adapter (surfaces as ToolDefinition)
+- [ ] Example Lua plugin
+
+Phase 4: MCP Client
+- [ ] McpClient crate (`crates/mcp/`):
+      - stdio transport (spawn MCP server as subprocess)
+      - SSE transport (connect to remote MCP server)
+- [ ] Tool discovery from connected servers
+- [ ] McpTool adapter (surfaces as ToolDefinition)
+- [ ] Tool search mode (on-demand loading when tools > 10% context)
+- [ ] Resource support (@ mentions)
+
+Phase 5: Integration
+- [ ] Update approval system for plugin risk levels
+- [ ] Plugin hot-reload support
+- [ ] Move web_search and fetch_url to skills
+- [ ] Documentation and example plugins
 
 DoD:
-- Skills load on-demand; custom tools can be registered without recompiling.
+- SKILL.md supports `driver: wasm` and `driver: lua` fields.
+- WasmEngine loads `.wasm` files; LuaEngine loads `.lua` with sandboxing.
+- Host functions work in both runtimes with permission enforcement.
+- MCP client can connect to servers and import tools.
+- All plugin tools integrate with approval system.
 
 --------------------------------------------------------------------------------
 XVII. HARDENING (TESTS + EXEC MODE)                                 *agent-XVII*
@@ -179,7 +151,7 @@ DoD:
 - At least 3 major widgets have golden snapshots.
 
 --------------------------------------------------------------------------------
-XIX. LAYOUT                                                         *agent-XIX*
+XIX. LAYOUT                                                          *agent-XIX*
 --------------------------------------------------------------------------------
 Implement the final "Opening" and "Agent" layouts based on designated design
 artifacts, ensuring a premium, polished TUI experience.
@@ -208,10 +180,11 @@ Session Recovery:
 - Session metadata (title, tags, description)
 
 --------------------------------------------------------------------------------
-XXI. UNIFIED LOGGING + OBSERVABILITY                                *agent-XXI*
+XXI. UNIFIED LOGGING + OBSERVABILITY                                 *agent-XXI*
 --------------------------------------------------------------------------------
 Implement production-grade logging and observability using tracing ecosystem.
-Inspired by Codex CLI logging support, LangSmith traces, and AI Observer patterns.
+Inspired by Codex CLI logging support, LangSmith traces, and AI Observer
+patterns.
 
 See |.sandbox/LOGGING_SPEC.md| for full specification.
 
@@ -243,7 +216,6 @@ DoD:
 - THUNDERUS_LOG controls verbosity; JSON logs written to session directory.
 
 --------------------------------------------------------------------------------
-XXII. REFERENCES                                                   *agent-XXII*
+XXII. REFERENCES                                                    *agent-XXII*
 --------------------------------------------------------------------------------
-
 See |REFS.txt| for external resources, design inspirations, and footnotes.
