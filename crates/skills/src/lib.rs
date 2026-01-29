@@ -7,6 +7,7 @@
 mod host_api;
 mod loader;
 mod parser;
+mod runtimes;
 mod types;
 
 pub use host_api::{HostApiError, HostContext, KvStore};
@@ -16,3 +17,11 @@ pub use types::{
     FilesystemPermissions, NetworkPermissions, PluginFunction, Result, ScriptType, Skill, SkillDriver, SkillError,
     SkillMatch, SkillMeta, SkillPermissions, SkillRisk, SkillScript, SkillsConfig,
 };
+
+pub use runtimes::{Plugin, PluginError};
+
+#[cfg(feature = "wasm")]
+pub use runtimes::{WasmEngine, WasmPlugin};
+
+#[cfg(feature = "lua")]
+pub use runtimes::{LuaEngine, LuaPlugin};

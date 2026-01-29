@@ -18,7 +18,7 @@ find-comments:
     rg -n --pcre2 '^\s*//(?![!/])' -g '*.rs'
 
 test:
-    cargo test --quiet
+    cargo test --quiet --features=full
 
 # Run doc site dev server
 docs:

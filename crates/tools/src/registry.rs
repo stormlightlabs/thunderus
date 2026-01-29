@@ -2,7 +2,11 @@ use super::Tool;
 use super::builtin::{
     EchoTool, EditTool, GlobTool, GrepTool, MultiEditTool, NoopTool, PatchTool, ReadTool, ShellTool, WriteTool,
 };
+#[cfg(feature = "lua")]
+use super::lua_tool::LuaTool;
 use super::skill_tool::SkillTool;
+#[cfg(feature = "wasm")]
+use super::wasm_tool::WasmTool;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -10,7 +14,7 @@ use std::sync::{Arc, RwLock};
 use thunderus_core::config::PathAccessResult;
 use thunderus_core::{ApprovalGate, ApprovalMode, Profile, Result};
 use thunderus_providers::{ToolResult, ToolSpec};
-use thunderus_skills::SkillLoader;
+use thunderus_skills::{SkillDriver, SkillLoader};
 
 /// Registry that holds all available tools
 #[derive(Debug, Clone)]
@@ -319,10 +323,33 @@ impl ToolRegistry {
 
         for skill_meta in skills {
             if let Ok(skill) = skill_loader.load(&skill_meta.name) {
-                let tool = SkillTool::new((*skill).clone());
-
-                if self.register(tool).is_ok() {
-                    loaded += 1;
+                let skill = (*skill).clone();
+                match skill.meta.driver {
+                    SkillDriver::Shell | SkillDriver::Mcp => {
+                        if self.register(SkillTool::new(skill)).is_ok() {
+                            loaded += 1;
+                        }
+                    }
+                    SkillDriver::Wasm => {
+                        #[cfg(feature = "wasm")]
+                        {
+                            if let Some(tool) = WasmTool::new(skill)
+                                && self.register(tool).is_ok()
+                            {
+                                loaded += 1;
+                            }
+                        }
+                    }
+                    SkillDriver::Lua => {
+                        #[cfg(feature = "lua")]
+                        {
+                            if let Some(tool) = LuaTool::new(skill)
+                                && self.register(tool).is_ok()
+                            {
+                                loaded += 1;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -336,9 +363,29 @@ impl ToolRegistry {
     pub fn load_skill(&self, name: &str) -> Result<()> {
         let mut skill_loader = SkillLoader::new(thunderus_skills::SkillsConfig::default())?;
         let skill = skill_loader.load(name)?;
-
-        let tool = SkillTool::new((*skill).clone());
-        self.register(tool)?;
+        let skill = (*skill).clone();
+        match skill.meta.driver {
+            SkillDriver::Shell | SkillDriver::Mcp => {
+                let tool = SkillTool::new(skill);
+                self.register(tool)?;
+            }
+            SkillDriver::Wasm => {
+                #[cfg(feature = "wasm")]
+                {
+                    if let Some(tool) = WasmTool::new(skill) {
+                        self.register(tool)?;
+                    }
+                }
+            }
+            SkillDriver::Lua => {
+                #[cfg(feature = "lua")]
+                {
+                    if let Some(tool) = LuaTool::new(skill) {
+                        self.register(tool)?;
+                    }
+                }
+            }
+        }
 
         Ok(())
     }

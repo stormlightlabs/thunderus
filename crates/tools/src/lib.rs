@@ -15,6 +15,12 @@ pub mod skill_tool;
 pub mod teaching_errors;
 pub mod tool;
 
+#[cfg(feature = "wasm")]
+pub mod wasm_tool;
+
+#[cfg(feature = "lua")]
+pub mod lua_tool;
+
 pub use apply_engine::{ApplyEngine, ApplyResult, ConflictInfo, ConflictType};
 pub use backup::{BackupManager, BackupMetadata, BackupMode, command_requires_backup};
 pub use builtin::{
@@ -28,6 +34,8 @@ pub use full_access::{
     extract_files_for_backup, format_command_result, get_teaching_hint_for_command,
 };
 pub use hunk_labeler::{HunkLabel, HunkLabeler};
+#[cfg(feature = "lua")]
+pub use lua_tool::LuaTool;
 pub use patch_generator::{PatchGenerator, generate_unified_diff};
 pub use read_history::{ReadHistory, validate_read_before_edit};
 pub use registry::ToolRegistry;
@@ -42,6 +50,8 @@ pub use teaching_errors::{
 };
 pub use thunderus_core::ToolRisk;
 pub use tool::Tool;
+#[cfg(feature = "wasm")]
+pub use wasm_tool::WasmTool;
 
 #[cfg(test)]
 pub use builtin::test_helpers::{

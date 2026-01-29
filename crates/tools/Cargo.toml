@@ -18,5 +18,11 @@ thunderus-core = { path = "../core" }
 thunderus-providers = { path = "../providers" }
 thunderus-skills = { path = "../skills" }
 
+[features]
+default = []
+wasm = ["thunderus-skills/wasm"]
+lua = ["thunderus-skills/lua"]
+full = ["wasm", "lua"]
+
 [dev-dependencies]
 tempfile = { workspace = true }

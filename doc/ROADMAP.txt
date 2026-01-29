@@ -53,23 +53,23 @@ Phase 1: Skills System Enhancements
       - Permission checks in Host API layer
 
 Phase 2: WASM Runtime (Extism)
-- [ ] WasmEngine using Extism (wraps Wasmtime):
+- [x] WasmEngine using Extism (wraps Wasmtime):
       - Load `.wasm` files with manifest-based permissions
       - `allowed_hosts` for HTTP, `allowed_paths` for filesystem
       - Memory isolation by default
-- [ ] Host functions for WASM plugins:
+- [x] Host functions for WASM plugins:
       - `thunderus_log`, `thunderus_read_file`, `thunderus_write_file`
-      - `thunderus_ask_user`, `thunderus_kv_get`, `thunderus_kv_set`
-- [ ] WasmTool adapter (surfaces as ToolDefinition)
-- [ ] Example Rust WASM plugin (compile with wasm32-wasip1)
+      - `thunderus_kv_get`, `thunderus_kv_set`
+- [x] WasmTool adapter (surfaces as ToolDefinition)
+- [x] Example Rust WASM plugin (compile with wasm32-wasip1)
 
 Phase 3: Lua Runtime (mlua)
-- [ ] LuaEngine using mlua with Luau sandboxing:
+- [x] LuaEngine using mlua with Luau sandboxing:
       - Whitelist libraries: table, string, math, utf8
       - Block dangerous: dofile, loadfile, load, os, io
       - Isolated Lua state per plugin
-- [ ] Host API injection (`thunderus.*` globals)
-- [ ] LuaTool adapter (surfaces as ToolDefinition)
+- [x] Host API injection (`thunderus.*` globals)
+- [x] LuaTool adapter (surfaces as ToolDefinition)
 - [ ] Example Lua plugin
 
 Phase 4: MCP Client

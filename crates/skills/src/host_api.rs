@@ -7,6 +7,7 @@
 use crate::types::SkillPermissions;
 
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock};
 use thiserror::Error;
 
 /// Errors that can occur during permission checks or host API operations.
@@ -41,7 +42,7 @@ pub type Result<T> = std::result::Result<T, HostApiError>;
 ///
 /// This context is passed to host functions to provide them with the
 /// necessary information to perform permission checks and execute operations.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct HostContext {
     /// Plugin name (for logging and error messages)
     pub plugin_name: String,
@@ -53,38 +54,83 @@ pub struct HostContext {
     pub permissions: SkillPermissions,
 
     /// Plugin-scoped key-value store (for persistence)
-    pub kv_store: KvStore,
+    /// Wrapped in Arc<RwLock> for shared mutable access from host functions
+    pub kv_store: Arc<RwLock<KvStore>>,
 }
 
 /// Simple key-value store for plugin-scoped persistence.
 #[derive(Debug, Clone, Default)]
 pub struct KvStore {
-    // TODO: Implement persistent storage
     data: std::collections::HashMap<String, String>,
+    storage_path: Option<PathBuf>,
 }
 
 impl KvStore {
     pub fn new() -> Self {
-        Self::default()
+        Self { data: std::collections::HashMap::new(), storage_path: None }
+    }
+
+    pub fn with_path(storage_path: PathBuf) -> Self {
+        let mut store = Self { data: std::collections::HashMap::new(), storage_path: Some(storage_path) };
+        store.load_from_disk();
+        store
+    }
+
+    fn load_from_disk(&mut self) {
+        let Some(path) = &self.storage_path else {
+            return;
+        };
+        if !path.exists() {
+            return;
+        }
+        if let Ok(content) = std::fs::read_to_string(path)
+            && let Ok(map) = serde_json::from_str::<std::collections::HashMap<String, String>>(&content)
+        {
+            self.data = map;
+        }
+    }
+
+    fn persist_to_disk(&self) -> Result<()> {
+        let Some(path) = &self.storage_path else {
+            return Ok(());
+        };
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let payload = serde_json::to_string_pretty(&self.data)
+            .map_err(|e| HostApiError::OperationFailed(format!("Failed to serialize kv store: {e}")))?;
+        std::fs::write(path, payload)?;
+        Ok(())
     }
 
     pub fn get(&self, key: &str) -> Option<String> {
         self.data.get(key).cloned()
     }
 
-    pub fn set(&mut self, key: String, value: String) {
+    pub fn set(&mut self, key: String, value: String) -> Result<()> {
         self.data.insert(key, value);
+        self.persist_to_disk()
     }
 
-    pub fn delete(&mut self, key: &str) {
+    pub fn delete(&mut self, key: &str) -> Result<()> {
         self.data.remove(key);
+        self.persist_to_disk()
     }
 }
 
 impl HostContext {
     /// Create a new host context.
     pub fn new(plugin_name: String, workspace_root: PathBuf, permissions: SkillPermissions) -> Self {
-        Self { plugin_name, workspace_root, permissions, kv_store: KvStore::new() }
+        let kv_path = workspace_root
+            .join(".thunderus")
+            .join("kv")
+            .join(format!("{plugin_name}.json"));
+        Self {
+            plugin_name,
+            workspace_root,
+            permissions,
+            kv_store: Arc::new(RwLock::new(KvStore::with_path(kv_path))),
+        }
     }
 
     /// Get the canonicalized workspace root for comparison.
@@ -151,10 +197,46 @@ impl HostContext {
     /// attempts to traverse outside the workspace.
     fn resolve_path(&self, path: &str) -> Result<PathBuf> {
         let path = PathBuf::from(path);
+        if path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+            return Err(HostApiError::PathTraversal(format!(
+                "path '{}' contains parent directory traversal",
+                path.display()
+            )));
+        }
         let resolved = if path.is_absolute() { path.clone() } else { self.workspace_root.join(path.clone()) };
-        let canonical = resolved
-            .canonicalize()
-            .map_err(|e| HostApiError::Io(std::io::Error::new(e.kind(), format!("Failed to resolve path: {e}"))))?;
+        let canonical = match resolved.canonicalize() {
+            Ok(path) => path,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                let mut ancestor = resolved.as_path();
+                let mut missing: Vec<std::ffi::OsString> = Vec::new();
+
+                while !ancestor.exists() {
+                    let Some(parent) = ancestor.parent() else {
+                        break;
+                    };
+                    if let Some(name) = ancestor.file_name() {
+                        missing.push(name.to_os_string());
+                    }
+                    ancestor = parent;
+                }
+
+                let canonical_ancestor = ancestor.canonicalize().map_err(|e| {
+                    HostApiError::Io(std::io::Error::new(e.kind(), format!("Failed to resolve path: {e}")))
+                })?;
+
+                let mut rebuilt = canonical_ancestor;
+                for part in missing.iter().rev() {
+                    rebuilt.push(part);
+                }
+                rebuilt
+            }
+            Err(e) => {
+                return Err(HostApiError::Io(std::io::Error::new(
+                    e.kind(),
+                    format!("Failed to resolve path: {e}"),
+                )));
+            }
+        };
 
         let workspace_canonical = self
             .canonical_workspace_root()
@@ -328,10 +410,10 @@ mod tests {
         let mut store = KvStore::new();
         assert!(store.get("test").is_none());
 
-        store.set("test".to_string(), "value".to_string());
+        store.set("test".to_string(), "value".to_string()).unwrap();
         assert_eq!(store.get("test"), Some("value".to_string()));
 
-        store.delete("test");
+        store.delete("test").unwrap();
         assert!(store.get("test").is_none());
     }
 
