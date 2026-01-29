@@ -15,8 +15,8 @@ use ratatui::{
 ///
 /// OpenCode-style layout:
 /// - Row 1: Divider
-/// - Row 2-4: Input card with blue accent bar
-/// - Row 5: Model selector (left) + hints (right)
+/// - Row 2: Input card with blue accent bar
+/// - Row 3: Model selector (left) + hints (right)
 pub struct Footer<'a> {
     state: &'a AppState,
 }
@@ -40,12 +40,7 @@ impl<'a> Footer<'a> {
 
         let rows = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(1),
-                Constraint::Length(3),
-                Constraint::Length(1),
-                Constraint::Length(1),
-            ])
+            .constraints([Constraint::Length(1), Constraint::Length(3), Constraint::Length(1)])
             .split(padded_area);
 
         frame.render_widget(
@@ -57,8 +52,7 @@ impl<'a> Footer<'a> {
         );
 
         self.render_input_card(frame, rows[1], theme);
-        self.render_model_selector(frame, rows[2], theme);
-        self.render_hints(frame, rows[3], theme, padded_area.width);
+        self.render_bottom_row(frame, rows[2], theme, padded_area.width);
     }
 
     /// Render input card with blue accent bar (like welcome screen)
@@ -67,10 +61,10 @@ impl<'a> Footer<'a> {
             return;
         }
 
-        let panel_block = Block::default().style(Style::default().bg(theme.panel_bg));
+        let panel_block = Block::default().style(Style::default().bg(theme.bg));
         frame.render_widget(panel_block, area);
 
-        let accent_width = 2;
+        let accent_width = 1;
         let accent_area = Rect { x: area.x, y: area.y, width: accent_width, height: area.height };
         let accent_block = Block::default().style(Style::default().bg(theme.blue));
         frame.render_widget(accent_block, accent_area);
@@ -82,8 +76,11 @@ impl<'a> Footer<'a> {
             height: 1,
         };
 
-        let input_text = if self.state.input.buffer.is_empty() {
-            if self.state.input.is_in_fork_mode() {
+        let mut spans = Vec::new();
+
+        if self.state.input.buffer.is_empty() {
+            spans.push(Span::styled("█", Style::default().bg(theme.fg).fg(theme.fg)));
+            let placeholder = if self.state.input.is_in_fork_mode() {
                 format!(
                     "[FORK] Edit message #{}",
                     self.state.input.history_index.map(|i| i + 1).unwrap_or(1)
@@ -92,29 +89,17 @@ impl<'a> Footer<'a> {
                 "<no message>".to_string()
             } else {
                 "Type a message...".to_string()
-            }
-        } else {
-            self.state.input.buffer.clone()
-        };
-
-        let input_style = if self.state.input.buffer.is_empty() {
-            if self.state.input.is_in_fork_mode() {
-                Style::default().fg(theme.green).bg(theme.panel_bg)
+            };
+            let placeholder_style = if self.state.input.is_in_fork_mode() {
+                Style::default().fg(theme.green).bg(theme.bg)
             } else if self.state.input.is_navigating_history() {
-                Style::default().fg(theme.yellow).bg(theme.panel_bg)
+                Style::default().fg(theme.yellow).bg(theme.bg)
             } else {
-                Style::default().fg(theme.muted).bg(theme.panel_bg)
-            }
+                Style::default().fg(theme.muted).bg(theme.bg)
+            };
+            spans.push(Span::styled(placeholder, placeholder_style));
         } else {
-            Style::default().fg(theme.fg).bg(theme.panel_bg)
-        };
-
-        let mut spans = Vec::new();
-
-        if self.state.input.buffer.is_empty() {
-            spans.push(Span::styled(input_text, input_style));
-            spans.push(Span::styled("█", Style::default().bg(theme.fg).fg(theme.fg)));
-        } else {
+            let input_style = Style::default().fg(theme.fg).bg(theme.bg);
             let cursor_pos = self.state.input.cursor.min(self.state.input.buffer.len());
             let before_cursor = &self.state.input.buffer[..cursor_pos];
             let after_cursor = &self.state.input.buffer[cursor_pos..];
@@ -138,7 +123,7 @@ impl<'a> Footer<'a> {
         frame.render_widget(cursor_paragraph, input_area);
     }
 
-    /// Render model/agent selector row (left-aligned like OpenCode)
+    /// Render model/agent selector row (left-aligned)
     fn render_model_selector(&self, frame: &mut Frame<'_>, area: Rect, theme: ThemePalette) {
         let models = &self.state.model_selector.available_models;
         let current = &self.state.model_selector.current_model;
@@ -165,9 +150,20 @@ impl<'a> Footer<'a> {
             ));
         }
 
-        let paragraph = Paragraph::new(Line::from(spans)).alignment(Alignment::Center);
+        let paragraph = Paragraph::new(Line::from(spans)).alignment(Alignment::Left);
 
         frame.render_widget(paragraph, area);
+    }
+
+    /// Render model selector (left) and hints (right) on the same row
+    fn render_bottom_row(&self, frame: &mut Frame<'_>, area: Rect, theme: ThemePalette, width: u16) {
+        let columns = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
+            .split(area);
+
+        self.render_model_selector(frame, columns[0], theme);
+        self.render_hints(frame, columns[1], theme, width);
     }
 
     /// Render keyboard hints row (right-aligned, responsive)

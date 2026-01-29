@@ -48,12 +48,12 @@ impl<'a> Header<'a> {
             .state
             .task_title
             .as_ref()
-            .map(|t| format!("# {}", t))
-            .unwrap_or_else(|| "# New Session".to_string());
+            .map(|t| t.to_string())
+            .unwrap_or_else(|| "New Session".to_string());
 
         let title_spans = vec![Span::styled(
             task_title,
-            Style::default().fg(theme.fg).bg(theme.panel_bg),
+            Style::default().fg(theme.fg).bg(theme.bg),
         )];
 
         let tokens = self.state.tokens_display();
@@ -62,18 +62,18 @@ impl<'a> Header<'a> {
         let version = env!("CARGO_PKG_VERSION");
 
         let stats_spans = vec![
-            Span::styled(format!("{} ", tokens), Style::default().fg(theme.fg).bg(theme.panel_bg)),
+            Span::styled(format!("{} ", tokens), Style::default().fg(theme.fg).bg(theme.bg)),
             Span::styled(
                 format!("{}%", percent),
-                Style::default().fg(theme.cyan).bg(theme.panel_bg),
+                Style::default().fg(theme.cyan).bg(theme.bg),
             ),
             Span::styled(
                 format!(" ({})", cost),
-                Style::default().fg(theme.muted).bg(theme.panel_bg),
+                Style::default().fg(theme.muted).bg(theme.bg),
             ),
             Span::styled(
                 format!(" v{}", version),
-                Style::default().fg(theme.muted).bg(theme.panel_bg),
+                Style::default().fg(theme.muted).bg(theme.bg),
             ),
         ];
 
@@ -85,12 +85,12 @@ impl<'a> Header<'a> {
         if spacing > 0 {
             all_spans.push(Span::styled(
                 " ".repeat(spacing as usize),
-                Style::default().bg(theme.panel_bg),
+                Style::default().bg(theme.bg),
             ));
         }
         all_spans.extend(stats_spans);
 
-        let header = Paragraph::new(Line::from(all_spans)).block(ratatui::widgets::Block::default().bg(theme.panel_bg));
+        let header = Paragraph::new(Line::from(all_spans)).block(ratatui::widgets::Block::default().bg(theme.bg));
 
         frame.render_widget(header, padded_area);
     }

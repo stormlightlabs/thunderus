@@ -1059,21 +1059,15 @@ impl App {
         terminal.draw(|frame| {
             let size = frame.area();
             let theme = Theme::palette(self.state.theme_variant());
+            let content_area = Self::inset_area(size, 1, 1, 1, 1);
 
-            if !self.state.is_first_session() || !self.transcript.is_empty() {
-                frame.render_widget(
-                    ratatui::widgets::Block::default().style(ratatui::style::Style::default().bg(theme.panel_bg)),
-                    size,
-                );
-            } else {
-                frame.render_widget(
-                    ratatui::widgets::Block::default().style(ratatui::style::Style::default().bg(theme.bg)),
-                    size,
-                );
-            }
+            frame.render_widget(
+                ratatui::widgets::Block::default().style(ratatui::style::Style::default().bg(theme.bg)),
+                size,
+            );
 
-            if self.state.is_first_session() && self.transcript.is_empty() {
-                let welcome = WelcomeView::new(&self.state, size);
+            if self.state.is_first_session() {
+                let welcome = WelcomeView::new(&self.state, content_area);
                 welcome.render(frame);
                 if self.state.is_fuzzy_finder_active() {
                     let fuzzy_finder = FuzzyFinderComponent::new(&self.state);
@@ -1084,15 +1078,15 @@ impl App {
             }
 
             let layout = if matches!(self.state.ui.active_view, crate::state::MainView::Inspector) {
-                TuiLayout::calculate_inspector(size)
+                TuiLayout::calculate_inspector(content_area)
             } else {
                 TuiLayout::calculate(
-                    size,
+                    content_area,
                     self.state.ui.sidebar_visible,
                     self.state.ui.sidebar_width_override(),
                 )
             };
-            let header = Header::new(&self.state.session_header);
+            let header = Header::with_theme(&self.state.session_header, self.state.theme_variant());
             header.render(frame, layout.header);
 
             if matches!(self.state.ui.active_view, crate::state::MainView::Inspector) {
@@ -1131,6 +1125,7 @@ impl App {
                 if let Some(sidebar_area) = layout.sidebar {
                     let sidebar = Sidebar::new(&self.state);
                     sidebar.render(frame, sidebar_area);
+                    self.render_sidebar_divider(frame, layout.clone(), sidebar_area);
                 }
             }
 
@@ -1156,11 +1151,42 @@ impl App {
             if let Some(ref hint) = self.state.approval_ui.pending_hint {
                 let theme = Theme::palette(self.state.theme_variant());
                 let hint_popup = TeachingHintPopup::new(hint, theme);
-                hint_popup.render(frame, size);
+                hint_popup.render(frame, content_area);
             }
         })?;
 
         Ok(())
+    }
+
+    fn render_sidebar_divider(
+        &self, frame: &mut ratatui::Frame<'_>, layout: TuiLayout, sidebar: ratatui::layout::Rect,
+    ) {
+        let theme = Theme::palette(self.state.theme_variant());
+        let x = sidebar.x + sidebar.width;
+        let top = layout.header.y;
+        let bottom = layout.footer.y;
+        if x >= layout.footer.x + layout.footer.width || bottom <= top {
+            return;
+        }
+
+        for y in top..bottom {
+            frame.render_widget(
+                ratatui::widgets::Paragraph::new(ratatui::text::Line::from(vec![ratatui::text::Span::styled(
+                    "│",
+                    ratatui::style::Style::default().fg(theme.border).bg(theme.bg),
+                )])),
+                ratatui::layout::Rect::new(x, y, 1, 1),
+            );
+        }
+    }
+
+    fn inset_area(area: ratatui::layout::Rect, left: u16, right: u16, top: u16, bottom: u16) -> ratatui::layout::Rect {
+        let width = area.width.saturating_sub(left + right);
+        let height = area.height.saturating_sub(top + bottom);
+        if width == 0 || height == 0 {
+            return area;
+        }
+        ratatui::layout::Rect { x: area.x + left, y: area.y + top, width, height }
     }
 
     /// Execute a shell command and insert output as user-provided context

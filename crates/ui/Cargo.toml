@@ -30,3 +30,4 @@ thunderus-store = { path = "../store" }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+insta = { version = "1.39", features = ["redactions"] }

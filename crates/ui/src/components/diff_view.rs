@@ -2,7 +2,6 @@ use crate::state::AppState;
 use crate::theme::{Theme, ThemePalette};
 use ratatui::{
     Frame,
-    layout::Alignment,
     style::{Style, Stylize},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Wrap},
@@ -51,18 +50,13 @@ impl<'a> DiffView<'a> {
         }
     }
 
-    /// Render empty state when no patches
+    /// Render empty state when no patches (minimal, no box)
     fn render_empty(&self, frame: &mut Frame<'_>, area: ratatui::layout::Rect, theme: ThemePalette) {
-        let paragraph = Paragraph::new("No patches in queue")
-            .block(
-                Block::default()
-                    .title(Span::styled("Patches", Style::default().fg(theme.blue).bold()))
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(theme.border))
-                    .bg(theme.panel_bg),
-            )
-            .alignment(Alignment::Center)
-            .wrap(Wrap { trim: true });
+        let lines = vec![
+            Line::from(Span::styled(" Patches", Style::default().fg(theme.muted))),
+            Line::from(Span::styled(" -", Style::default().fg(theme.muted))),
+        ];
+        let paragraph = Paragraph::new(lines).wrap(Wrap { trim: true });
         frame.render_widget(paragraph, area);
     }
 
@@ -99,7 +93,7 @@ impl<'a> DiffView<'a> {
 
             lines.push(Line::from(vec![
                 Span::styled(format!("{} ", if is_selected { ">" } else { " " }), base_style),
-                Span::styled("🧠 ", Style::default().fg(theme.cyan)),
+                Span::styled("[M]", Style::default().fg(theme.cyan)),
                 Span::styled(format!("#{} ", global_idx + 1), Style::default().fg(theme.muted)),
                 Span::styled(status_text, status_color),
                 Span::styled(format!(" {} [{}]", patch.doc_id, patch.kind), base_style),
@@ -117,15 +111,10 @@ impl<'a> DiffView<'a> {
 
         lines.push(help_text);
 
-        let paragraph = Paragraph::new(lines)
-            .block(
-                Block::default()
-                    .title(Span::styled("Patches", Style::default().fg(theme.blue).bold()))
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(theme.border))
-                    .bg(theme.panel_bg),
-            )
-            .wrap(Wrap { trim: true });
+        let mut all_lines = vec![Line::from(Span::styled(" Patches", Style::default().fg(theme.muted)))];
+        all_lines.extend(lines);
+
+        let paragraph = Paragraph::new(all_lines).wrap(Wrap { trim: true });
         frame.render_widget(paragraph, area);
     }
 
@@ -283,7 +272,7 @@ impl<'a> DiffView<'a> {
         patch: &MemoryPatch,
     ) {
         let mut lines = vec![Line::from(vec![
-            Span::styled("🧠 ", Style::default().fg(theme.cyan)),
+            Span::styled("[M]", Style::default().fg(theme.cyan)),
             Span::styled(
                 format!("Memory Patch #{}: {}", patch_idx + 1, patch.doc_id),
                 Style::default().fg(theme.blue).bold(),

@@ -497,7 +497,7 @@ impl App {
 
                 if !memory_patches.is_empty() {
                     msg.push_str(&format!(
-                        "\n🧠 Added {} memory patch(es) to review queue\n",
+                        "\n[M] Added {} memory patch(es) to review queue\n",
                         patch_count
                     ));
                     self.state_mut().memory_patches_mut().extend(memory_patches);
@@ -508,7 +508,7 @@ impl App {
                 }
 
                 for warning in &warnings {
-                    msg.push_str(&format!("\n⚠️  {}\n", warning));
+                    msg.push_str(&format!("\n[!] {}\n", warning));
                 }
 
                 self.transcript_mut().add_system_message(msg);
@@ -531,14 +531,14 @@ impl App {
             Ok(violations) => {
                 if violations.is_empty() {
                     self.transcript_mut()
-                        .add_system_message("🧹 Hygiene Check: No violations found");
+                        .add_system_message("Hygiene Check: No violations found");
                 } else {
-                    let mut msg = format!("🧹 Hygiene Check Results:\n\n{} violation(s):\n\n", violations.len());
+                    let mut msg = format!("Hygiene Check Results:\n\n{} violation(s):\n\n", violations.len());
                     for v in &violations {
                         let severity = if matches!(v.severity, thunderus_core::memory::Severity::Error) {
-                            "🔴"
+                            "[E]"
                         } else {
-                            "⚠️ "
+                            "[W]"
                         };
                         msg.push_str(&format!("  {} [{}] {}\n", severity, v.doc_id, v.message));
                         if let Some(fix) = &v.suggested_fix {
@@ -566,17 +566,17 @@ impl App {
             Ok(drift_result) => {
                 if drift_result.stale_docs.is_empty() {
                     self.transcript_mut()
-                        .add_system_message("📊 Drift Detection: All documents verified");
+                        .add_system_message("Drift Detection: All documents verified");
                 } else {
                     let mut msg = format!(
-                        "📊 Drift Detection Results:\n\n{} stale document(s):\n\n",
+                        "Drift Detection Results:\n\n{} stale document(s):\n\n",
                         drift_result.stale_docs.len()
                     );
                     for doc in &drift_result.stale_docs {
                         let severity = match doc.severity {
-                            thunderus_core::memory::StalenessSeverity::Minor => "🟡",
-                            thunderus_core::memory::StalenessSeverity::Major => "🟠",
-                            thunderus_core::memory::StalenessSeverity::Critical => "🔴",
+                            thunderus_core::memory::StalenessSeverity::Minor => "[minor]",
+                            thunderus_core::memory::StalenessSeverity::Major => "[major]",
+                            thunderus_core::memory::StalenessSeverity::Critical => "[CRIT]",
                         };
                         msg.push_str(&format!(
                             "  {} {} (changed: {:?})\n",

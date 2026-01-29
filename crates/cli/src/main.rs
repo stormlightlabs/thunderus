@@ -259,20 +259,22 @@ async fn cmd_start(
         eprintln!("{} Loading context files...", "Info:".blue().bold());
     }
 
-    let mut context_loader = ContextLoader::new(working_dir.clone());
-    match context_loader.append_to_session(&mut session) {
-        Ok(count) => {
-            if verbose && count > 0 {
-                eprintln!("{} Loaded {} context file(s)", "Info:".green().bold(), count);
+    if !test_mode {
+        let mut context_loader = ContextLoader::new(working_dir.clone());
+        match context_loader.append_to_session(&mut session) {
+            Ok(count) => {
+                if verbose && count > 0 {
+                    eprintln!("{} Loaded {} context file(s)", "Info:".green().bold(), count);
+                }
             }
-        }
-        Err(e) => {
-            if verbose {
-                eprintln!(
-                    "{} Warning: Failed to load context files: {}",
-                    "Warning:".yellow().bold(),
-                    e
-                );
+            Err(e) => {
+                if verbose {
+                    eprintln!(
+                        "{} Warning: Failed to load context files: {}",
+                        "Warning:".yellow().bold(),
+                        e
+                    );
+                }
             }
         }
     }
@@ -366,7 +368,7 @@ async fn cmd_start(
         Arc::new(StoreRetriever::new(Arc::new(store), policy)) as Arc<dyn MemoryRetriever>
     });
 
-    if !is_recovery {
+    if !is_recovery && !test_mode {
         session
             .append_user_message("Session started")
             .context("Failed to log session start")?;
@@ -422,13 +424,11 @@ async fn cmd_start(
 
     if test_mode {
         app.state_mut().set_test_mode(true);
-        app.transcript_mut()
-            .add_system_message("Test mode enabled: deterministic behavior for testing");
     }
 
     match app.run().await {
         Ok(_) => {
-            run_consolidation(&session, &agent_dir, &memory_paths, &working_dir, verbose)?;
+            run_consolidation(&session, &agent_dir, &memory_paths, &working_dir, verbose).await?;
             Ok(())
         }
         Err(e) => {
@@ -439,18 +439,16 @@ async fn cmd_start(
 }
 
 /// Run consolidation on a completed session
-fn run_consolidation(
+async fn run_consolidation(
     session: &Session, agent_dir: &AgentDir, memory_paths: &MemoryPaths, _working_dir: &Path, verbose: bool,
 ) -> Result<()> {
     if verbose {
         eprintln!("{} Running memory consolidation...", "Info:".blue().bold());
     }
-
     let gardener = Gardener::new(memory_paths.clone());
     let session_id = session.id.to_string();
     let events_file = session.events_file();
-    let rt = tokio::runtime::Runtime::new().context("Failed to create runtime for consolidation")?;
-    let result = rt.block_on(async { gardener.consolidate_session(&session_id, &events_file).await });
+    let result = gardener.consolidate_session(&session_id, &events_file).await;
 
     match result {
         Ok(consolidation_result) => {

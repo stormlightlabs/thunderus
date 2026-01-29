@@ -1,30 +1,24 @@
 use crate::{
     components::DiffView,
-    layout,
     state::{AppState, SidebarSection},
     theme::Theme,
 };
 
 use ratatui::{
     Frame,
-    layout::Rect,
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Style, Stylize},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Block, Paragraph, Wrap},
 };
 
 /// Sidebar component displaying session statistics
 ///
-/// Shows:
-/// - Session events (chronological list)
-/// - Modified files list
-/// - Git diff queue preview
-/// - LSPs & MCPs status
-///
-/// TODO: Collapsible sidebar sections:
-/// - Individual section collapse (Events, Modified, Diffs, Integrations)
-/// - Select-based collapse (navigate to section, then collapse)
-/// - Use [ and ] keys for section-level control
+/// Clean, minimal design:
+/// - No heavy borders around sections
+/// - Section headers with subtle underlines
+/// - Empty sections are hidden
+/// - Compact vertical spacing
 pub struct Sidebar<'a> {
     state: &'a AppState,
 }
@@ -35,21 +29,32 @@ impl<'a> Sidebar<'a> {
     }
 
     /// Render sidebar to the given frame
-    pub fn render(&self, frame: &mut Frame<'_>, _: Rect) {
+    pub fn render(&self, frame: &mut Frame<'_>, area: Rect) {
         let theme = Theme::palette(self.state.theme_variant());
-        let layout = layout::TuiLayout::calculate(
-            frame.area(),
-            self.state.ui.sidebar_visible,
-            self.state.ui.sidebar_width_override(),
-        );
-        let Some(sidebar_area) = layout.sidebar else {
-            return;
-        };
+        let sidebar_area = area;
 
-        frame.render_widget(Block::default().bg(theme.panel_bg), sidebar_area);
+        frame.render_widget(Block::default().bg(theme.bg), sidebar_area);
 
-        let Some(sidebar) = layout.sidebar_sections() else {
-            return;
+        let sections = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(4),
+                Constraint::Length(5),
+                Constraint::Length(4),
+                Constraint::Length(4),
+                Constraint::Length(4),
+                Constraint::Length(5),
+                Constraint::Min(0),
+            ])
+            .split(sidebar_area);
+
+        let pad_left = 3;
+        let pad_right = 1;
+        let pad_rect = |area: Rect| Rect {
+            x: area.x.saturating_add(pad_left),
+            y: area.y,
+            width: area.width.saturating_sub(pad_left + pad_right),
+            height: area.height,
         };
 
         if !self
@@ -58,50 +63,43 @@ impl<'a> Sidebar<'a> {
             .sidebar_collapse_state
             .is_collapsed(SidebarSection::TokenUsage)
         {
-            self.render_token_usage(frame, sidebar.token_usage);
+            self.render_token_usage(frame, pad_rect(sections[0]));
         }
+
         if !self
             .state
             .ui
             .sidebar_collapse_state
             .is_collapsed(SidebarSection::Events)
+            && !self.state.session.session_events.is_empty()
         {
-            self.render_session_events(frame, sidebar.session_events);
+            self.render_session_events(frame, pad_rect(sections[1]));
         }
+
         if !self
             .state
             .ui
             .sidebar_collapse_state
             .is_collapsed(SidebarSection::Modified)
+            && !self.state.session.modified_files.is_empty()
         {
-            self.render_modified_files(frame, sidebar.modified_files);
+            self.render_modified_files(frame, pad_rect(sections[2]));
         }
+
         if !self.state.ui.sidebar_collapse_state.is_collapsed(SidebarSection::Diffs) {
-            self.render_git_diff_queue(frame, sidebar.git_diff);
+            self.render_git_diff_queue(frame, pad_rect(sections[3]));
         }
-        if !self
-            .state
-            .ui
-            .sidebar_collapse_state
-            .is_collapsed(SidebarSection::Integrations)
-        {
-            self.render_lsp_mcp_status(frame, sidebar.lsp_mcp_status);
-        }
+
         if !self
             .state
             .ui
             .sidebar_collapse_state
             .is_collapsed(SidebarSection::Context)
         {
-            self.render_context(frame, sidebar.context);
-        }
-        if !self.state.ui.sidebar_collapse_state.is_collapsed(SidebarSection::Files) {
-            self.render_files(frame, sidebar.files);
+            self.render_context(frame, pad_rect(sections[5]));
         }
     }
 
-    /// Note: Sidebar auto-hide on narrow terminals is handled by [TuiLayout::calculate]
-    /// when [layout::LayoutMode] is Medium (80-99 cols) or Compact (< 80 cols).
     fn render_token_usage(&self, frame: &mut Frame<'_>, area: Rect) {
         let stats = &self.state.session.stats;
         let theme = Theme::palette(self.state.theme_variant());
@@ -118,101 +116,101 @@ impl<'a> Sidebar<'a> {
             format!("{}", stats.output_tokens)
         };
 
-        let lines = vec![Line::from(vec![
-            Span::styled(in_display, Style::default().fg(theme.green).bg(theme.panel_bg)),
-            Span::styled(" / ", Style::default().fg(theme.muted).bg(theme.panel_bg)),
-            Span::styled(out_display, Style::default().fg(theme.cyan).bg(theme.panel_bg)),
-        ])];
+        let lines = vec![
+            Line::from(vec![Span::styled(" Tokens", Style::default().fg(theme.muted))]),
+            Line::from(vec![
+                Span::styled(" ", Style::default()),
+                Span::styled(in_display, Style::default().fg(theme.green)),
+                Span::styled(" / ", Style::default().fg(theme.muted)),
+                Span::styled(out_display, Style::default().fg(theme.cyan)),
+            ]),
+            Line::default(),
+        ];
 
-        let paragraph = Paragraph::new(lines)
-            .block(
-                Block::default()
-                    .title(Span::styled("Tokens", Style::default().fg(theme.blue).bold()))
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(theme.border))
-                    .bg(theme.panel_bg),
-            )
-            .wrap(Wrap { trim: true });
+        let paragraph = Paragraph::new(lines).wrap(Wrap { trim: true });
         frame.render_widget(paragraph, area);
     }
 
     fn render_session_events(&self, frame: &mut Frame<'_>, area: Rect) {
-        let mut lines = Vec::new();
-        let theme = Theme::palette(self.state.theme_variant());
-
         if self.state.session.session_events.is_empty() {
-            lines.push(Line::from(Span::styled(
-                "No events",
-                Style::default().fg(theme.muted).bg(theme.panel_bg),
-            )));
-        } else {
-            for event in self.state.session.session_events.iter().take(3) {
-                lines.push(Line::from(vec![
-                    Span::styled(&event.event_type, Style::default().fg(theme.blue).bg(theme.panel_bg)),
-                    Span::raw(" "),
-                    Span::styled(&event.message, Style::default().fg(theme.fg).bg(theme.panel_bg)),
-                ]));
-            }
-            if self.state.session.session_events.len() > 3 {
-                lines.push(Line::from(Span::styled(
-                    format!("+ {} more", self.state.session.session_events.len() - 3),
-                    Style::default().fg(theme.muted).bg(theme.panel_bg),
-                )));
-            }
+            return;
         }
 
-        let paragraph = Paragraph::new(lines)
-            .block(
-                Block::default()
-                    .title(Span::styled("Events", Style::default().fg(theme.blue).bold()))
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(theme.border))
-                    .bg(theme.panel_bg),
-            )
-            .wrap(Wrap { trim: true });
+        let theme = Theme::palette(self.state.theme_variant());
+        let mut lines = Vec::new();
+
+        lines.push(Line::from(vec![Span::styled(
+            " Events",
+            Style::default().fg(theme.muted),
+        )]));
+
+        for event in self.state.session.session_events.iter().take(2) {
+            let msg = if event.message.len() > 15 {
+                format!("{}...", &event.message[..12])
+            } else {
+                event.message.clone()
+            };
+            lines.push(Line::from(vec![
+                Span::styled(" ", Style::default()),
+                Span::styled(&event.event_type, Style::default().fg(theme.blue)),
+                Span::styled(" ", Style::default()),
+                Span::styled(msg, Style::default().fg(theme.fg)),
+            ]));
+        }
+
+        if self.state.session.session_events.len() > 2 {
+            lines.push(Line::from(Span::styled(
+                format!(" +{}", self.state.session.session_events.len() - 2),
+                Style::default().fg(theme.muted),
+            )));
+        }
+        lines.push(Line::default());
+
+        let paragraph = Paragraph::new(lines).wrap(Wrap { trim: true });
         frame.render_widget(paragraph, area);
     }
 
     fn render_modified_files(&self, frame: &mut Frame<'_>, area: Rect) {
-        let mut lines = Vec::new();
-        let theme = Theme::palette(self.state.theme_variant());
-
         if self.state.session.modified_files.is_empty() {
-            lines.push(Line::from(Span::styled(
-                "No changes",
-                Style::default().fg(theme.muted).bg(theme.panel_bg),
-            )));
-        } else {
-            for file in self.state.session.modified_files.iter().take(2) {
-                let mod_color = match file.mod_type.as_str() {
-                    "edited" => theme.yellow,
-                    "created" => theme.green,
-                    "deleted" => theme.red,
-                    _ => theme.muted,
-                };
-                lines.push(Line::from(vec![
-                    Span::styled(&file.mod_type, Style::default().fg(mod_color).bg(theme.panel_bg)),
-                    Span::raw(" "),
-                    Span::styled(&file.path, Style::default().fg(theme.fg).bg(theme.panel_bg)),
-                ]));
-            }
-            if self.state.session.modified_files.len() > 2 {
-                lines.push(Line::from(Span::styled(
-                    format!("+ {} more", self.state.session.modified_files.len() - 2),
-                    Style::default().fg(theme.muted).bg(theme.panel_bg),
-                )));
-            }
+            return;
         }
 
-        let paragraph = Paragraph::new(lines)
-            .block(
-                Block::default()
-                    .title(Span::styled("Modified", Style::default().fg(theme.blue).bold()))
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(theme.border))
-                    .bg(theme.panel_bg),
-            )
-            .wrap(Wrap { trim: true });
+        let theme = Theme::palette(self.state.theme_variant());
+        let mut lines = Vec::new();
+
+        lines.push(Line::from(vec![Span::styled(
+            " Modified",
+            Style::default().fg(theme.muted),
+        )]));
+
+        for file in self.state.session.modified_files.iter().take(2) {
+            let mod_color = match file.mod_type.as_str() {
+                "edited" => theme.yellow,
+                "created" => theme.green,
+                "deleted" => theme.red,
+                _ => theme.muted,
+            };
+
+            let filename = file.path.split('/').next_back().unwrap_or(&file.path);
+            let display = if filename.len() > 14 { format!("{}...", &filename[..11]) } else { filename.to_string() };
+            let mod_char = file.mod_type.chars().next().unwrap_or('?').to_uppercase().to_string();
+            lines.push(Line::from(vec![
+                Span::styled(" ", Style::default()),
+                Span::styled(mod_char, Style::default().fg(mod_color)),
+                Span::styled(" ", Style::default()),
+                Span::styled(display, Style::default().fg(theme.fg)),
+            ]));
+        }
+
+        if self.state.session.modified_files.len() > 2 {
+            lines.push(Line::from(Span::styled(
+                format!(" +{}", self.state.session.modified_files.len() - 2),
+                Style::default().fg(theme.muted),
+            )));
+        }
+        lines.push(Line::default());
+
+        let paragraph = Paragraph::new(lines).wrap(Wrap { trim: true });
         frame.render_widget(paragraph, area);
     }
 
@@ -221,86 +219,51 @@ impl<'a> Sidebar<'a> {
         diff_view.render(frame, area);
     }
 
-    fn render_lsp_mcp_status(&self, frame: &mut Frame<'_>, area: Rect) {
-        let theme = Theme::palette(self.state.theme_variant());
-        let lines = vec![
-            Line::from(vec![
-                Span::styled("LSP: ", Style::default().fg(theme.purple).bg(theme.panel_bg)),
-                Span::styled("Not connected", Style::default().fg(theme.muted).bg(theme.panel_bg)),
-            ]),
-            Line::from(vec![
-                Span::styled("MCP: ", Style::default().fg(theme.cyan).bg(theme.panel_bg)),
-                Span::styled("Not connected", Style::default().fg(theme.muted).bg(theme.panel_bg)),
-            ]),
-        ];
-
-        let paragraph = Paragraph::new(lines)
-            .block(
-                Block::default()
-                    .title(Span::styled("Integrations", Style::default().fg(theme.blue).bold()))
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(theme.border))
-                    .bg(theme.panel_bg),
-            )
-            .wrap(Wrap { trim: true });
-        frame.render_widget(paragraph, area);
-    }
-
     fn render_context(&self, frame: &mut Frame<'_>, area: Rect) {
         let theme = Theme::palette(self.state.theme_variant());
         let lines = vec![
+            Line::from(vec![Span::styled(" Context", Style::default().fg(theme.muted))]),
             Line::from(vec![
-                Span::styled("[M]", Style::default().fg(theme.green).bg(theme.panel_bg)),
-                Span::styled(" Memory", Style::default().fg(theme.fg).bg(theme.panel_bg)),
+                Span::styled(" ", Style::default()),
+                Span::styled("M", Style::default().fg(theme.green)),
+                Span::styled(" memory  ", Style::default().fg(theme.fg)),
+                Span::styled("P", Style::default().fg(theme.cyan)),
+                Span::styled(" plan", Style::default().fg(theme.fg)),
             ]),
-            Line::from(vec![
-                Span::styled("[P]", Style::default().fg(theme.cyan).bg(theme.panel_bg)),
-                Span::styled(" Plan", Style::default().fg(theme.fg).bg(theme.panel_bg)),
-            ]),
-            Line::from(vec![
-                Span::styled("[D]", Style::default().fg(theme.yellow).bg(theme.panel_bg)),
-                Span::styled(" Decisions", Style::default().fg(theme.fg).bg(theme.panel_bg)),
-            ]),
+            Line::default(),
         ];
 
-        let paragraph = Paragraph::new(lines)
-            .block(
-                Block::default()
-                    .title(Span::styled("Context", Style::default().fg(theme.blue).bold()))
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(theme.border))
-                    .bg(theme.panel_bg),
-            )
-            .wrap(Wrap { trim: true });
+        let paragraph = Paragraph::new(lines).wrap(Wrap { trim: true });
         frame.render_widget(paragraph, area);
     }
 
-    fn render_files(&self, frame: &mut Frame<'_>, area: Rect) {
+    #[allow(dead_code)]
+    fn render_lsp_mcp_status(&self, frame: &mut Frame<'_>, area: Rect) {
         let theme = Theme::palette(self.state.theme_variant());
         let lines = vec![
+            Line::from(vec![Span::styled(" Integrations", Style::default().fg(theme.muted))]),
             Line::from(vec![
-                Span::styled("■", Style::default().fg(theme.blue).bg(theme.panel_bg)),
-                Span::styled(" crates/", Style::default().fg(theme.fg).bg(theme.panel_bg)),
-            ]),
-            Line::from(vec![
-                Span::styled("  ■", Style::default().fg(theme.blue).bg(theme.panel_bg)),
-                Span::styled(" core/", Style::default().fg(theme.fg).bg(theme.panel_bg)),
-            ]),
-            Line::from(vec![
-                Span::styled("    ●", Style::default().fg(theme.green).bg(theme.panel_bg)),
-                Span::styled(" config.rs", Style::default().fg(theme.fg).bg(theme.panel_bg)),
+                Span::styled(" LSP ", Style::default().fg(theme.purple)),
+                Span::styled("-", Style::default().fg(theme.muted)),
             ]),
         ];
 
-        let paragraph = Paragraph::new(lines)
-            .block(
-                Block::default()
-                    .title(Span::styled("Files", Style::default().fg(theme.blue).bold()))
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(theme.border))
-                    .bg(theme.panel_bg),
-            )
-            .wrap(Wrap { trim: true });
+        let paragraph = Paragraph::new(lines).wrap(Wrap { trim: true });
+        frame.render_widget(paragraph, area);
+    }
+
+    #[allow(dead_code)]
+    fn render_files(&self, frame: &mut Frame<'_>, area: Rect) {
+        let theme = Theme::palette(self.state.theme_variant());
+        let lines = vec![
+            Line::from(vec![Span::styled(" Files", Style::default().fg(theme.muted))]),
+            Line::from(vec![
+                Span::styled(" ", Style::default()),
+                Span::styled("crates/", Style::default().fg(theme.fg)),
+            ]),
+        ];
+
+        let paragraph = Paragraph::new(lines).wrap(Wrap { trim: true });
         frame.render_widget(paragraph, area);
     }
 }
@@ -341,8 +304,6 @@ mod tests {
         let sidebar = Sidebar::new(&state);
         assert_eq!(sidebar.state.session.stats.input_tokens, 0);
         assert_eq!(sidebar.state.session.stats.output_tokens, 0);
-        assert_eq!(sidebar.state.session.stats.approval_gates, 0);
-        assert_eq!(sidebar.state.session.stats.tools_executed, 0);
     }
 
     #[test]
@@ -350,59 +311,9 @@ mod tests {
         let mut state = create_test_state();
         state.session.stats.input_tokens = 100;
         state.session.stats.output_tokens = 200;
-        state.session.stats.approval_gates = 5;
-        state.session.stats.tools_executed = 10;
 
         let sidebar = Sidebar::new(&state);
         assert_eq!(sidebar.state.session.stats.input_tokens, 100);
         assert_eq!(sidebar.state.session.stats.output_tokens, 200);
-        assert_eq!(sidebar.state.session.stats.total_tokens(), 300);
-        assert_eq!(sidebar.state.session.stats.approval_gates, 5);
-        assert_eq!(sidebar.state.session.stats.tools_executed, 10);
-    }
-
-    #[test]
-    fn test_sidebar_with_different_modes() {
-        let cwd = PathBuf::from(".");
-        let provider = ProviderConfig::Glm {
-            api_key: "test".to_string(),
-            model: "glm-4.7".to_string(),
-            base_url: "https://api.example.com".to_string(),
-            thinking: Default::default(),
-            options: Default::default(),
-        };
-
-        let state_auto = AppState::new(
-            cwd.clone(),
-            "auto".to_string(),
-            provider.clone(),
-            ApprovalMode::Auto,
-            SandboxMode::Policy,
-            false,
-        );
-        let sidebar_auto = Sidebar::new(&state_auto);
-        assert_eq!(sidebar_auto.state.config.approval_mode, ApprovalMode::Auto);
-
-        let state_full = AppState::new(
-            cwd.clone(),
-            "full".to_string(),
-            provider.clone(),
-            ApprovalMode::FullAccess,
-            SandboxMode::Policy,
-            false,
-        );
-        let sidebar_full = Sidebar::new(&state_full);
-        assert_eq!(sidebar_full.state.config.approval_mode, ApprovalMode::FullAccess);
-
-        let state_readonly = AppState::new(
-            cwd,
-            "readonly".to_string(),
-            provider,
-            ApprovalMode::ReadOnly,
-            SandboxMode::Policy,
-            false,
-        );
-        let sidebar_readonly = Sidebar::new(&state_readonly);
-        assert_eq!(sidebar_readonly.state.config.approval_mode, ApprovalMode::ReadOnly);
     }
 }

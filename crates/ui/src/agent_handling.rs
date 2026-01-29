@@ -511,19 +511,19 @@ impl App {
             .unwrap_or(false);
 
         if show_explainer {
-            self.transcript_mut().add_system_message("─".repeat(50));
+            self.transcript_mut().add_system_message("");
             self.transcript_mut()
-                .add_system_message("💡 MIXED-INITIATIVE COLLABORATION");
-            self.transcript_mut().add_system_message("─".repeat(50));
+                .add_system_message("MIXED-INITIATIVE COLLABORATION");
+            self.transcript_mut().add_system_message("");
             self.transcript_mut()
                 .add_system_message("You edited files while the agent was working. This is called 'drift'.");
             self.transcript_mut()
                 .add_system_message("The agent paused to avoid conflicts. You can:");
             self.transcript_mut()
-                .add_system_message("  • Press 'Esc' to reconcile - let the agent re-sync with your changes");
+                .add_system_message("  - Press 'Esc' to reconcile - let the agent re-sync with your changes");
             self.transcript_mut()
-                .add_system_message("  • Continue working - the agent will wait for you to finish");
-            self.transcript_mut().add_system_message("─".repeat(50));
+                .add_system_message("  - Continue working - the agent will wait for you to finish");
+            self.transcript_mut().add_system_message("");
             if let Some(ref mut session) = self.session {
                 let _ = session.mark_drift_explainer_shown();
             }
@@ -577,7 +577,7 @@ impl App {
     /// - "Stop/Reset": Stop the agent entirely
     pub fn start_reconcile_ritual(&mut self) {
         self.state_mut().start_reconcile();
-        self.transcript_mut().add_system_message("─── RECONCILE RITUAL ───");
+        self.transcript_mut().add_system_message("RECONCILE RITUAL");
 
         if let Some(ref sm) = self.snapshot_manager {
             match sm.get_current_state() {
@@ -608,14 +608,14 @@ impl App {
 
             if !user_files.is_empty() {
                 self.transcript_mut()
-                    .add_system_message(format!("\n📝 User-modified files ({}):", user_files.len()));
+                    .add_system_message(format!("\nUser-modified files ({}):", user_files.len()));
                 for file in &user_files {
-                    self.transcript_mut().add_system_message(format!("  • {}", file));
+                    self.transcript_mut().add_system_message(format!("  - {}", file));
                 }
             }
         }
 
-        self.transcript_mut().add_system_message("\n⚖️  Reconcile Options:");
+        self.transcript_mut().add_system_message("\nReconcile Options:");
         self.transcript_mut()
             .add_system_message("  [Enter] Update Plan & Continue - Agent will read your changes and re-assess");
         self.transcript_mut()
@@ -652,7 +652,7 @@ impl App {
     /// Discard user changes - reverts to last agent state (DESTRUCTIVE)
     pub fn reconcile_discard(&mut self) {
         self.transcript_mut()
-            .add_system_message("⚠️  Discarding user changes...");
+            .add_system_message("[!] Discarding user changes...");
         self.transcript_mut()
             .add_system_message("Reverting to last agent snapshot state...");
 

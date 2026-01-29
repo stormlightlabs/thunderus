@@ -70,7 +70,7 @@ impl Theme {
             ThemeVariant::Iceberg => ThemePalette {
                 bg: Color::Rgb(22, 24, 33),
                 fg: Color::Rgb(198, 200, 209),
-                panel_bg: Color::Rgb(30, 33, 50),
+                panel_bg: Color::Rgb(22, 24, 33),
                 active: Color::Rgb(39, 44, 66),
                 highlight: Color::Rgb(39, 44, 66),
                 comment: Color::Rgb(107, 112, 137),
@@ -87,7 +87,7 @@ impl Theme {
             ThemeVariant::Oxocarbon => ThemePalette {
                 bg: Color::Rgb(22, 22, 22),
                 fg: Color::Rgb(242, 244, 248),
-                panel_bg: Color::Rgb(38, 38, 38),
+                panel_bg: Color::Rgb(22, 22, 22),
                 active: Color::Rgb(57, 57, 57),
                 highlight: Color::Rgb(57, 57, 57),
                 comment: Color::Rgb(82, 82, 82),

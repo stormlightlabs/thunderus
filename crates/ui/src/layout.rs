@@ -4,16 +4,16 @@ use std::rc::Rc;
 /// Layout breakpoints for responsive TUI
 ///
 /// Based on terminal width, we render different layouts:
-/// - >= 140 cols: Full layout with sidebar (wide terminals)
-/// - 100-139 cols: Medium layout, sidebar hidden (typical terminals)
-/// - < 100 cols: Compact layout, minimal chrome (narrow terminals)
+/// - >= 100 cols: Full layout with sidebar (wide terminals)
+/// - 80-99 cols: Medium layout, sidebar hidden (typical terminals)
+/// - < 80 cols: Compact layout, minimal chrome (narrow terminals)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LayoutMode {
-    /// Full layout with sidebar (>= 140 columns)
+    /// Full layout with sidebar (>= 100 columns)
     Full,
-    /// Medium layout without sidebar (100-139 columns)
+    /// Medium layout without sidebar (80-99 columns)
     Medium,
-    /// Compact layout (< 100 columns)
+    /// Compact layout (< 80 columns)
     Compact,
     /// Inspector layout (Provenance & Trajectory)
     Inspector,
@@ -22,8 +22,8 @@ pub enum LayoutMode {
 impl From<u16> for LayoutMode {
     fn from(width: u16) -> Self {
         match width {
-            w if w >= 140 => Self::Full,
-            w if w >= 100 => Self::Medium,
+            w if w >= 100 => Self::Full,
+            w if w >= 80 => Self::Medium,
             _ => Self::Compact,
         }
     }
@@ -51,7 +51,7 @@ pub struct TuiLayout {
     pub evidence_detail: Option<Rect>,
     /// Left sidebar (only in Full mode)
     pub sidebar: Option<Rect>,
-    /// Footer area (1-3 lines)
+    /// Footer area (5 lines)
     pub footer: Rect,
 }
 
@@ -62,7 +62,7 @@ impl TuiLayout {
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Length(1), Constraint::Min(0), Constraint::Length(6)])
+            .constraints([Constraint::Length(1), Constraint::Min(0), Constraint::Length(5)])
             .split(area);
 
         let header = chunks[0];
@@ -73,15 +73,15 @@ impl TuiLayout {
         let effective_sidebar_visible = sidebar_visible && mode.has_sidebar() && sidebar_width > 0;
 
         let (sidebar, transcript) = if effective_sidebar_visible {
-            let width = main.width.saturating_sub(2);
-            let sidebar_width = sidebar_width.min(width);
+            let width = main.width.saturating_sub(1);
+            let sidebar_width = sidebar_width.min(width.saturating_sub(1));
 
             let main_chunks = Layout::default()
                 .direction(Direction::Horizontal)
-                .constraints([Constraint::Length(sidebar_width), Constraint::Min(0)])
+                .constraints([Constraint::Length(sidebar_width), Constraint::Length(1), Constraint::Min(0)])
                 .split(main);
 
-            (Some(main_chunks[0]), main_chunks[1])
+            (Some(main_chunks[0]), main_chunks[2])
         } else {
             (None, main)
         };
@@ -93,7 +93,7 @@ impl TuiLayout {
     pub fn calculate_inspector(area: Rect) -> Self {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Length(1), Constraint::Min(0), Constraint::Length(6)])
+            .constraints([Constraint::Length(1), Constraint::Min(0), Constraint::Length(5)])
             .split(area);
 
         let header = chunks[0];
@@ -159,12 +159,12 @@ impl SidebarSections {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(3),
                 Constraint::Length(4),
-                Constraint::Length(3),
-                Constraint::Length(3),
-                Constraint::Length(3),
+                Constraint::Length(5),
                 Constraint::Length(4),
+                Constraint::Length(4),
+                Constraint::Length(4),
+                Constraint::Length(5),
                 Constraint::Min(0),
             ])
             .split(area);
@@ -183,7 +183,6 @@ impl SidebarSections {
 
 enum HeaderSize {
     Full,
-    Large,
     Medium,
     Narrow,
     Compact,
@@ -192,10 +191,9 @@ enum HeaderSize {
 impl From<u16> for HeaderSize {
     fn from(width: u16) -> Self {
         match width {
-            w if w >= 140 => Self::Full,
-            w if w >= 120 => Self::Large,
-            w if w >= 100 => Self::Medium,
-            w if w >= 80 => Self::Narrow,
+            w if w >= 100 => Self::Full,
+            w if w >= 80 => Self::Medium,
+            w if w >= 60 => Self::Narrow,
             _ => Self::Compact,
         }
     }
@@ -233,15 +231,6 @@ impl HeaderSections {
                 Constraint::Length(8),
                 Constraint::Min(0),
             ],
-            HeaderSize::Large => vec![
-                Constraint::Length(20),
-                Constraint::Length(12),
-                Constraint::Length(20),
-                Constraint::Length(12),
-                Constraint::Length(12),
-                Constraint::Length(10),
-                Constraint::Length(8),
-            ],
             HeaderSize::Medium => vec![
                 Constraint::Length(12),
                 Constraint::Length(20),
@@ -264,11 +253,10 @@ impl HeaderSections {
     /// Calculate header section widths
     ///
     /// Header layout (responsive):
-    /// - Full (>= 140): cwd | profile | provider/model | approval | git | sandbox | network | verbosity
-    /// - Large (>= 120): cwd | profile | provider/model | approval | git | sandbox | network
-    /// - Medium (>= 100): profile | provider/model | approval | git | sandbox | network
-    /// - Narrow (>= 80): profile | provider/model | approval | git
-    /// - Compact (< 80): profile | approval
+    /// - Full (>= 100): cwd | profile | provider/model | approval | git | sandbox | network | verbosity
+    /// - Medium (>= 80): profile | provider/model | approval | git | sandbox | network
+    /// - Narrow (>= 60): profile | provider/model | approval | git
+    /// - Compact (< 60): profile | approval
     pub fn new(area: Rect) -> Self {
         let chunks = Self::layout(area);
 
@@ -282,16 +270,6 @@ impl HeaderSections {
                 sandbox: chunks[5],
                 network: chunks[6],
                 verbosity: chunks[7],
-            },
-            HeaderSize::Large => Self {
-                cwd: chunks[0],
-                profile: chunks[1],
-                provider: chunks[2],
-                approval: chunks[3],
-                git: chunks[4],
-                sandbox: chunks[5],
-                network: chunks[6],
-                ..Default::default()
             },
             HeaderSize::Medium => Self {
                 profile: chunks[0],
@@ -339,8 +317,8 @@ impl WelcomeLayout {
     /// Calculate layout based on terminal size and layout mode
     pub fn calculate(area: Rect, mode: LayoutMode) -> Self {
         let content_width = match mode {
-            LayoutMode::Full | LayoutMode::Inspector => 120.min(area.width.saturating_sub(4)),
-            LayoutMode::Medium => 100.min(area.width.saturating_sub(4)),
+            LayoutMode::Full | LayoutMode::Inspector => 80.min(area.width.saturating_sub(4)),
+            LayoutMode::Medium => 80.min(area.width.saturating_sub(4)),
             LayoutMode::Compact => area.width.saturating_sub(4),
         };
 
@@ -398,15 +376,13 @@ mod tests {
 
     #[test]
     fn test_layout_mode_from_width() {
-        assert_eq!(LayoutMode::from(140), LayoutMode::Full);
-        assert_eq!(LayoutMode::from(160), LayoutMode::Full);
+        assert_eq!(LayoutMode::from(100), LayoutMode::Full);
+        assert_eq!(LayoutMode::from(120), LayoutMode::Full);
 
-        assert_eq!(LayoutMode::from(139), LayoutMode::Medium);
-        assert_eq!(LayoutMode::from(120), LayoutMode::Medium);
-        assert_eq!(LayoutMode::from(100), LayoutMode::Medium);
+        assert_eq!(LayoutMode::from(99), LayoutMode::Medium);
+        assert_eq!(LayoutMode::from(80), LayoutMode::Medium);
 
-        assert_eq!(LayoutMode::from(99), LayoutMode::Compact);
-        assert_eq!(LayoutMode::from(80), LayoutMode::Compact);
+        assert_eq!(LayoutMode::from(79), LayoutMode::Compact);
         assert_eq!(LayoutMode::from(60), LayoutMode::Compact);
     }
 
@@ -419,14 +395,14 @@ mod tests {
 
     #[test]
     fn test_tui_layout_full_mode() {
-        let area = Rect::new(0, 0, 140, 30);
+        let area = Rect::new(0, 0, 100, 30);
         let layout = TuiLayout::calculate(area, true, Some(20));
         assert_eq!(layout.mode, LayoutMode::Full);
         assert!(layout.sidebar.is_some());
         assert_eq!(layout.header.height, 1);
-        assert_eq!(layout.header.width, 140);
-        assert_eq!(layout.footer.height, 6);
-        assert_eq!(layout.footer.width, 140);
+        assert_eq!(layout.header.width, 100);
+        assert_eq!(layout.footer.height, 5);
+        assert_eq!(layout.footer.width, 100);
 
         let sidebar = layout.sidebar.unwrap();
         assert!(sidebar.width > 0);
@@ -435,35 +411,35 @@ mod tests {
 
     #[test]
     fn test_tui_layout_medium_mode() {
-        let area = Rect::new(0, 0, 120, 30);
+        let area = Rect::new(0, 0, 90, 30);
         let layout = TuiLayout::calculate(area, true, Some(20));
 
         assert_eq!(layout.mode, LayoutMode::Medium);
         assert!(layout.sidebar.is_none());
 
-        assert_eq!(layout.transcript.width, 120);
+        assert_eq!(layout.transcript.width, 90);
     }
 
     #[test]
     fn test_tui_layout_compact_mode() {
-        let area = Rect::new(0, 0, 80, 20);
+        let area = Rect::new(0, 0, 60, 20);
         let layout = TuiLayout::calculate(area, true, Some(20));
         assert_eq!(layout.mode, LayoutMode::Compact);
         assert!(layout.sidebar.is_none());
-        assert_eq!(layout.transcript.width, 80);
+        assert_eq!(layout.transcript.width, 60);
     }
 
     #[test]
     fn test_tui_layout_sidebar_hidden() {
-        let area = Rect::new(0, 0, 140, 30);
+        let area = Rect::new(0, 0, 100, 30);
         let layout = TuiLayout::calculate(area, false, None);
         assert!(layout.sidebar.is_none());
-        assert_eq!(layout.transcript.width, 140);
+        assert_eq!(layout.transcript.width, 100);
     }
 
     #[test]
     fn test_footer_sections() {
-        let area = Rect::new(0, 0, 120, 30);
+        let area = Rect::new(0, 0, 90, 30);
         let layout = TuiLayout::calculate(area, true, Some(20));
         let input = layout.footer_input();
         let hints = layout.footer_hints();
@@ -471,26 +447,26 @@ mod tests {
         assert_eq!(input.y, layout.footer.y);
         assert_eq!(hints.y, layout.footer.y);
         assert_eq!(hints.width, 40);
-        assert_eq!(input.width, 80);
+        assert_eq!(input.width, 50);
     }
 
     #[test]
     fn test_sidebar_sections() {
-        let area = Rect::new(0, 0, 140, 30);
+        let area = Rect::new(0, 0, 100, 30);
         let layout = TuiLayout::calculate(area, true, Some(20));
         let sections = layout.sidebar_sections();
         assert!(sections.is_some());
 
         let sidebar = sections.unwrap();
-        assert_eq!(sidebar.session_events.height, 4);
-        assert_eq!(sidebar.modified_files.height, 3);
-        assert_eq!(sidebar.git_diff.height, 3);
-        assert_eq!(sidebar.context.height, 4);
+        assert_eq!(sidebar.session_events.height, 5);
+        assert_eq!(sidebar.modified_files.height, 4);
+        assert_eq!(sidebar.git_diff.height, 4);
+        assert_eq!(sidebar.context.height, 5);
     }
 
     #[test]
     fn test_header_sections_full() {
-        let area = Rect::new(0, 0, 140, 1);
+        let area = Rect::new(0, 0, 100, 1);
         let header = HeaderSections::new(area);
 
         assert_ne!(header.cwd.width, 0);
@@ -504,22 +480,8 @@ mod tests {
     }
 
     #[test]
-    fn test_header_sections_large() {
-        let area = Rect::new(0, 0, 120, 1);
-        let header = HeaderSections::new(area);
-
-        assert_ne!(header.cwd.width, 0);
-        assert_ne!(header.profile.width, 0);
-        assert_ne!(header.provider.width, 0);
-        assert_ne!(header.approval.width, 0);
-        assert_ne!(header.git.width, 0);
-        assert_ne!(header.sandbox.width, 0);
-        assert_ne!(header.network.width, 0);
-    }
-
-    #[test]
     fn test_header_sections_medium() {
-        let area = Rect::new(0, 0, 100, 1);
+        let area = Rect::new(0, 0, 80, 1);
         let header = HeaderSections::new(area);
 
         assert_eq!(header.cwd, Rect::default());
@@ -533,7 +495,7 @@ mod tests {
 
     #[test]
     fn test_header_sections_compact() {
-        let area = Rect::new(0, 0, 70, 1);
+        let area = Rect::new(0, 0, 50, 1);
         let header = HeaderSections::new(area);
 
         assert_eq!(header.cwd, Rect::default());
@@ -564,10 +526,10 @@ mod tests {
     fn test_welcome_layout_full() {
         let area = Rect::new(0, 0, 120, 30);
         let layout = WelcomeLayout::calculate(area, LayoutMode::Full);
-        assert_eq!(layout.logo.width, 116);
+        assert_eq!(layout.logo.width, 80);
         assert_eq!(layout.logo.height, 6);
 
-        assert_eq!(layout.input_card.width, 116);
+        assert_eq!(layout.input_card.width, 80);
         assert_eq!(layout.input_card.height, 3);
 
         assert_eq!(layout.recent_sessions.height, 1);
@@ -581,10 +543,10 @@ mod tests {
 
     #[test]
     fn test_welcome_layout_compact() {
-        let area = Rect::new(0, 0, 70, 25);
+        let area = Rect::new(0, 0, 60, 25);
         let layout = WelcomeLayout::calculate(area, LayoutMode::Compact);
-        assert_eq!(layout.logo.width, 66);
-        assert_eq!(layout.input_card.width, 66);
+        assert_eq!(layout.logo.width, 56);
+        assert_eq!(layout.input_card.width, 56);
         assert_eq!(layout.recent_sessions.height, 0);
         assert_eq!(layout.status_bar.height, 1);
         assert_eq!(layout.status_bar.y, 24);
@@ -592,8 +554,8 @@ mod tests {
 
     #[test]
     fn test_welcome_layout_centered() {
-        let area = Rect::new(0, 0, 100, 30);
-        let layout = WelcomeLayout::calculate(area, LayoutMode::Full);
+        let area = Rect::new(0, 0, 80, 30);
+        let layout = WelcomeLayout::calculate(area, LayoutMode::Medium);
         assert_eq!(layout.logo.x, 2);
         assert_eq!(layout.input_card.x, 2);
         assert_eq!(layout.shortcuts.x, 2);

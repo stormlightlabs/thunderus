@@ -11,21 +11,37 @@ use super::{KeyAction, slash_parser::parse_slash_command};
 /// with other keybindings.
 pub fn handle_normal_key(event: KeyEvent, state: &mut AppState) -> Option<KeyAction> {
     if state.is_first_session() {
-        let is_printable = matches!(event.code, KeyCode::Char(_));
-        let is_start_typing_key = matches!(event.code, KeyCode::Backspace | KeyCode::Delete);
+        let has_ctrl_or_alt =
+            event.modifiers.contains(KeyModifiers::CONTROL) || event.modifiers.contains(KeyModifiers::ALT);
 
-        if is_printable || is_start_typing_key {
-            let has_ctrl_or_alt =
-                event.modifiers.contains(KeyModifiers::CONTROL) || event.modifiers.contains(KeyModifiers::ALT);
+        match event.code {
+            KeyCode::Enter => {
+                if !state.input.buffer.is_empty() {
+                    state.exit_first_session();
+                    let message = state.input.take();
 
-            if !has_ctrl_or_alt {
-                state.exit_first_session();
-                if let KeyCode::Char(c) = event.code {
-                    state.input.insert_char(c);
+                    if let Some(command) = message.strip_prefix("!cmd ") {
+                        return Some(KeyAction::ExecuteShellCommand { command: command.to_string() });
+                    }
+
+                    if let Some(cmd) = message.strip_prefix('/') {
+                        return parse_slash_command(cmd.to_string());
+                    }
+
+                    return Some(KeyAction::SendMessage { message });
                 }
-                return None;
             }
+            KeyCode::Backspace => state.input.backspace(),
+            KeyCode::Delete => state.input.delete(),
+            KeyCode::Left => state.input.move_left(),
+            KeyCode::Right => state.input.move_right(),
+            KeyCode::Home => state.input.move_home(),
+            KeyCode::End => state.input.move_end(),
+            KeyCode::Char(c) if !has_ctrl_or_alt => state.input.insert_char(c),
+            _ => {}
         }
+
+        return None;
     }
 
     if matches!(state.ui.active_view, crate::state::MainView::Inspector) {

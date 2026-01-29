@@ -184,13 +184,13 @@ Implement the final "Opening" and "Agent" layouts based on designated design
 artifacts, ensuring a premium, polished TUI experience.
 
 Tasks:
-- [ ] Implement Opening Layout (see `doc/DESIGN.txt` |design-layout|):
+- [x] Implement Opening Layout (see `doc/DESIGN.txt` |design-layout|):
       - Clean, focused entry point
-- [ ] Implement Agent Layouts (see `doc/DESIGN.txt` |design-layout|):
+- [x] Implement Agent Layouts (see `doc/DESIGN.txt` |design-layout|):
       - "Inspire actual agent" interactions
       - Sidebar / Context panels
-- [ ] Verify TUI responsiveness and styling matches design intent
-- [ ] Finalize `doc/DESIGN.txt` with observed patterns
+- [x] Verify TUI responsiveness and styling matches design intent
+- [x] Finalize `doc/DESIGN.txt` with observed patterns
 
 DoD:
 - UI matches the visual target of `doc/DESIGN.txt`.

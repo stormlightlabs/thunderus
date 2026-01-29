@@ -1,3 +1,4 @@
+use crate::TranscriptEntry;
 use crate::theme::ThemePalette;
 use crate::transcript::ErrorType;
 use crate::{syntax::SyntaxHighlighter, transcript::entry::CardDetailLevel};
@@ -132,24 +133,20 @@ impl<'a> TranscriptRenderer<'a> {
     pub fn render(&self, frame: &mut Frame<'_>, area: Rect) {
         let entries = self.transcript.render_entries();
         let mut text_lines = Vec::new();
-        let padding_x = 2usize;
-        let padding_y = 1usize;
+        let padding_x = 1usize;
+        let padding_y = 0usize;
         let scrollbar_width = 1usize;
         let content_width = area.width.saturating_sub((padding_x * 2 + scrollbar_width) as u16) as usize;
 
         for (idx, entry) in entries.iter().enumerate() {
             if idx > 0 {
-                text_lines.push(Line::from(vec![Span::styled(
-                    "─".repeat(content_width),
-                    Style::default().fg(self.theme.muted),
-                )]));
                 text_lines.push(Line::default());
             }
             self.render_entry(entry, content_width, self.streaming_ellipsis, &mut text_lines);
         }
 
         let mut padded_lines = Vec::new();
-        let left_pad = Span::styled("  ", Style::default().bg(self.theme.bg));
+        let left_pad = Span::styled(" ", Style::default().bg(self.theme.bg));
         let right_pad = Span::styled("  ", Style::default().bg(self.theme.bg));
 
         for _ in 0..padding_y {
@@ -168,20 +165,17 @@ impl<'a> TranscriptRenderer<'a> {
             padded_lines.push(Line::from(vec![left_pad.clone()]));
         }
 
-        let line_count = padded_lines.len();
-
-        frame.render_widget(Block::default().style(Style::default().bg(self.theme.panel_bg)), area);
+        frame.render_widget(Block::default().style(Style::default().bg(self.theme.bg)), area);
 
         let paragraph = Paragraph::new(Text::from(padded_lines))
             .wrap(Wrap { trim: true })
             .scroll((0, self.scroll_vertical));
 
         frame.render_widget(paragraph, area);
-
-        self.render_scrollbar(frame, area, line_count);
     }
 
     /// Render scrollbar indicator on right edge of transcript
+    #[allow(dead_code)]
     fn render_scrollbar(&self, frame: &mut Frame<'_>, area: Rect, content_line_count: usize) {
         if area.height <= 1 || content_line_count == 0 {
             return;
@@ -204,10 +198,12 @@ impl<'a> TranscriptRenderer<'a> {
 
         for y in 0..scrollbar_height {
             let is_thumb = y >= thumb_position && y < thumb_position + thumb_size;
-            let symbol = if is_thumb { "▮" } else { "│" };
-            let style = Style::default()
-                .fg(if is_thumb { self.theme.fg } else { self.theme.muted })
-                .bg(self.theme.panel_bg);
+            let symbol = "|";
+            let style = if is_thumb {
+                Style::default().fg(self.theme.blue).bg(self.theme.bg)
+            } else {
+                Style::default().fg(self.theme.border).bg(self.theme.bg)
+            };
 
             frame.render_widget(
                 Paragraph::new(Line::from(vec![Span::styled(symbol, style)])),
@@ -217,15 +213,13 @@ impl<'a> TranscriptRenderer<'a> {
     }
 
     /// Render a single transcript entry
-    fn render_entry(
-        &self, entry: &super::TranscriptEntry, width: usize, ellipsis: &str, lines: &mut Vec<Line<'static>>,
-    ) {
+    fn render_entry(&self, entry: &TranscriptEntry, width: usize, ellipsis: &str, lines: &mut Vec<Line<'static>>) {
         match entry {
-            super::TranscriptEntry::UserMessage { content } => self.render_user_message(content, width, lines),
-            super::TranscriptEntry::ModelResponse { content, streaming } => {
+            TranscriptEntry::UserMessage { content } => self.render_user_message(content, width, lines),
+            TranscriptEntry::ModelResponse { content, streaming } => {
                 self.render_model_response(content, *streaming, ellipsis, width, lines)
             }
-            super::TranscriptEntry::ToolCall {
+            TranscriptEntry::ToolCall {
                 tool,
                 arguments,
                 risk,
@@ -244,24 +238,23 @@ impl<'a> TranscriptRenderer<'a> {
                 classification_reasoning: classification_reasoning.as_deref(),
                 rendering: RenderContext::new(width, *detail_level, lines, self.theme, self.options.animation_frame),
             }),
-            super::TranscriptEntry::ToolResult {
-                tool,
-                result,
-                success,
-                error,
-                exit_code,
-                next_steps,
-                detail_level,
-            } => self.render_tool_result(ToolResultContext {
-                tool,
-                result,
-                success: *success,
-                error: error.as_deref(),
-                exit_code: *exit_code,
-                next_steps: next_steps.as_ref(),
-                rendering: RenderContext::new(width, *detail_level, lines, self.theme, self.options.animation_frame),
-            }),
-            super::TranscriptEntry::PatchDisplay { patch_name, file_path, diff_content, hunk_labels, detail_level } => {
+            TranscriptEntry::ToolResult { tool, result, success, error, exit_code, next_steps, detail_level } => self
+                .render_tool_result(ToolResultContext {
+                    tool,
+                    result,
+                    success: *success,
+                    error: error.as_deref(),
+                    exit_code: *exit_code,
+                    next_steps: next_steps.as_ref(),
+                    rendering: RenderContext::new(
+                        width,
+                        *detail_level,
+                        lines,
+                        self.theme,
+                        self.options.animation_frame,
+                    ),
+                }),
+            TranscriptEntry::PatchDisplay { patch_name, file_path, diff_content, hunk_labels, detail_level } => {
                 self.render_patch_display(PatchDisplayContext {
                     patch_name,
                     file_path,
@@ -276,7 +269,7 @@ impl<'a> TranscriptRenderer<'a> {
                     ),
                 });
             }
-            super::TranscriptEntry::ApprovalPrompt {
+            TranscriptEntry::ApprovalPrompt {
                 action,
                 risk,
                 description,
@@ -295,14 +288,14 @@ impl<'a> TranscriptRenderer<'a> {
                 decision: *decision,
                 rendering: RenderContext::new(width, *detail_level, lines, self.theme, self.options.animation_frame),
             }),
-            super::TranscriptEntry::SystemMessage { content } => self.render_system_message(content, width, lines),
-            super::TranscriptEntry::ErrorEntry { message, error_type, can_retry, context } => {
+            TranscriptEntry::SystemMessage { content } => self.render_system_message(content, width, lines),
+            TranscriptEntry::ErrorEntry { message, error_type, can_retry, context } => {
                 self.render_error_entry(message, *error_type, *can_retry, context.as_deref(), width, lines)
             }
-            super::TranscriptEntry::ThinkingIndicator { duration_secs } => {
+            TranscriptEntry::ThinkingIndicator { duration_secs } => {
                 self.render_thinking_indicator(*duration_secs, lines)
             }
-            super::TranscriptEntry::StatusLine { message, status_type } => {
+            TranscriptEntry::StatusLine { message, status_type } => {
                 self.render_status_line(message, *status_type, lines)
             }
         }
@@ -314,7 +307,7 @@ impl<'a> TranscriptRenderer<'a> {
             Span::styled("● ", Style::default().fg(self.theme.blue)),
             Span::styled("User", Style::default().fg(self.theme.blue).bold()),
         ]));
-        self.render_accent_bar_message(content, self.theme.blue, self.theme.panel_bg, width, lines);
+        self.render_accent_bar_message(content, self.theme.blue, self.theme.bg, width, lines);
     }
 
     /// Render message with accent bar on the left
@@ -1108,14 +1101,31 @@ impl<'a> TranscriptRenderer<'a> {
         self.render_card(&title, self.theme.muted, width, code_lines, lines);
     }
 
-    /// Render system message
+    /// Render system message (subtle, muted styling)
     fn render_system_message(&self, content: &str, width: usize, lines: &mut Vec<Line<'static>>) {
         lines.push(Line::from(vec![
-            Span::styled("[", Style::default().fg(self.theme.muted)),
-            Span::styled("System", Style::default().fg(self.theme.purple)),
-            Span::styled("] ", Style::default().fg(self.theme.muted)),
+            Span::styled("• ", Style::default().fg(self.theme.muted)),
+            Span::styled("System", Style::default().fg(self.theme.muted).bold()),
         ]));
-        self.wrap_text(content, self.theme.fg, width, lines);
+        self.render_system_message_body(content, width, lines);
+    }
+
+    fn render_system_message_body(&self, content: &str, width: usize, lines: &mut Vec<Line<'static>>) {
+        let accent_bar = Span::styled("│", Style::default().fg(self.theme.cyan).bg(self.theme.bg));
+        let content_style = Style::default().fg(self.theme.fg).bg(self.theme.bg);
+        let content_width = width.saturating_sub(2);
+
+        for source_line in content.lines() {
+            if source_line.is_empty() {
+                continue;
+            }
+            for wrapped_line in self.wrap_text_to_width(source_line, content_width) {
+                lines.push(Line::from(vec![
+                    accent_bar.clone(),
+                    Span::styled(format!(" {}", wrapped_line), content_style),
+                ]));
+            }
+        }
     }
 
     /// Render thinking indicator (muted, indented)
@@ -1189,33 +1199,6 @@ impl<'a> TranscriptRenderer<'a> {
         }
     }
 
-    /// Wrap text into lines with proper word wrapping based on width
-    ///
-    /// This implementation:
-    /// - Respects newlines in the source text
-    /// - Wraps at word boundaries when possible
-    /// - Breaks long words if they exceed width
-    /// - Uses Unicode-aware width calculation
-    /// - Smart wrapping for file paths and URLs
-    fn wrap_text(&self, text: &str, color: ratatui::style::Color, max_width: usize, lines: &mut Vec<Line<'static>>) {
-        if max_width == 0 {
-            return;
-        }
-
-        for source_line in text.lines() {
-            if source_line.is_empty() {
-                lines.push(Line::default());
-                continue;
-            }
-
-            if self.is_path_or_url(source_line) {
-                self.smart_wrap_path(source_line, color, max_width, lines);
-            } else {
-                self.wrap_normal_text(source_line, color, max_width, lines);
-            }
-        }
-    }
-
     /// Check if text looks like a file path or URL
     fn is_path_or_url(&self, text: &str) -> bool {
         text.starts_with('/')
@@ -1225,44 +1208,6 @@ impl<'a> TranscriptRenderer<'a> {
             || text.starts_with("https://")
             || text.starts_with("git@")
             || text.starts_with("file://")
-    }
-
-    /// Smart wrap for paths and URLs (prefer breaking at path separators)
-    fn smart_wrap_path(
-        &self, path: &str, color: ratatui::style::Color, max_width: usize, lines: &mut Vec<Line<'static>>,
-    ) {
-        if path.width() <= max_width {
-            lines.push(Line::from(vec![Span::styled(
-                path.to_string(),
-                Style::default().fg(color),
-            )]));
-            return;
-        }
-
-        let mut remaining = path;
-        while remaining.width() > max_width {
-            if let Some(idx) = self.find_break_point(remaining, max_width) {
-                let chunk = &remaining[..idx];
-                lines.push(Line::from(vec![Span::styled(
-                    chunk.to_string(),
-                    Style::default().fg(color),
-                )]));
-                remaining = &remaining[idx..];
-            } else {
-                lines.push(Line::from(vec![Span::styled(
-                    remaining.to_string(),
-                    Style::default().fg(color),
-                )]));
-                break;
-            }
-        }
-
-        if !remaining.is_empty() {
-            lines.push(Line::from(vec![Span::styled(
-                remaining.to_string(),
-                Style::default().fg(color),
-            )]));
-        }
     }
 
     /// Find a good break point in path/URL (prefer /, ., etc.)
@@ -1280,76 +1225,6 @@ impl<'a> TranscriptRenderer<'a> {
             }
         }
         break_idx
-    }
-
-    /// Normal word-based text wrapping
-    fn wrap_normal_text(
-        &self, text: &str, color: ratatui::style::Color, max_width: usize, lines: &mut Vec<Line<'static>>,
-    ) {
-        let words: Vec<&str> = text.split_whitespace().collect();
-        if words.is_empty() {
-            lines.push(Line::default());
-            return;
-        }
-
-        let mut current_line = String::new();
-        let mut current_width = 0;
-
-        for word in words {
-            let word_width = word.width();
-            let space_width = if current_line.is_empty() { 0 } else { 1 };
-
-            if current_width + space_width + word_width > max_width {
-                if !current_line.is_empty() {
-                    lines.push(Line::from(vec![Span::styled(
-                        current_line.clone(),
-                        Style::default().fg(color),
-                    )]));
-                    current_line = String::new();
-                    current_width = 0;
-                }
-
-                if word_width > max_width {
-                    let chars = word.chars().peekable();
-                    let mut chunk_width = 0;
-                    let mut chunk = String::new();
-
-                    for ch in chars {
-                        let ch_width = ch.width().unwrap_or(0);
-
-                        if chunk_width + ch_width > max_width {
-                            lines.push(Line::from(vec![Span::styled(
-                                chunk.clone(),
-                                Style::default().fg(color),
-                            )]));
-                            chunk.clear();
-                            chunk_width = 0;
-                        }
-
-                        chunk.push(ch);
-                        chunk_width += ch_width;
-                    }
-
-                    if !chunk.is_empty() {
-                        lines.push(Line::from(vec![Span::styled(
-                            chunk.clone(),
-                            Style::default().fg(color),
-                        )]));
-                    }
-                    continue;
-                }
-            }
-            if !current_line.is_empty() {
-                current_line.push(' ');
-                current_width += 1;
-            }
-            current_line.push_str(word);
-            current_width += word_width;
-        }
-
-        if !current_line.is_empty() {
-            lines.push(Line::from(vec![Span::styled(current_line, Style::default().fg(color))]));
-        }
     }
 }
 
@@ -1372,81 +1247,5 @@ mod tests {
         transcript.add_model_response("Hi there");
         let theme = Theme::palette(ThemeVariant::Iceberg);
         let _ = TranscriptRenderer::new(&transcript, theme);
-    }
-
-    #[test]
-    fn test_wrap_text_basic() {
-        let transcript = Transcript::new();
-        let theme = Theme::palette(ThemeVariant::Iceberg);
-        let renderer = TranscriptRenderer::new(&transcript, theme);
-        let mut lines = Vec::new();
-
-        renderer.wrap_text("Hello world", theme.fg, 20, &mut lines);
-
-        assert_eq!(lines.len(), 1);
-        assert_eq!(lines[0].to_string(), "Hello world");
-    }
-
-    #[test]
-    fn test_wrap_text_with_wrap() {
-        let transcript = Transcript::new();
-        let theme = Theme::palette(ThemeVariant::Iceberg);
-        let renderer = TranscriptRenderer::new(&transcript, theme);
-        let mut lines = Vec::new();
-        renderer.wrap_text("This is a long line that should wrap", theme.fg, 20, &mut lines);
-        assert!(lines.len() > 1);
-        assert!(lines[0].to_string().contains("This"));
-    }
-
-    #[test]
-    fn test_wrap_text_empty() {
-        let transcript = Transcript::new();
-        let theme = Theme::palette(ThemeVariant::Iceberg);
-        let renderer = TranscriptRenderer::new(&transcript, theme);
-        let mut lines = Vec::new();
-        renderer.wrap_text("", theme.fg, 20, &mut lines);
-        assert_eq!(lines.len(), 0);
-    }
-
-    #[test]
-    fn test_wrap_text_newlines() {
-        let transcript = Transcript::new();
-        let theme = Theme::palette(ThemeVariant::Iceberg);
-        let renderer = TranscriptRenderer::new(&transcript, theme);
-        let mut lines = Vec::new();
-
-        renderer.wrap_text("Line 1\nLine 2\nLine 3", theme.fg, 20, &mut lines);
-
-        assert_eq!(lines.len(), 3);
-    }
-
-    #[test]
-    fn test_wrap_text_zero_width() {
-        let transcript = Transcript::new();
-        let theme = Theme::palette(ThemeVariant::Iceberg);
-        let renderer = TranscriptRenderer::new(&transcript, theme);
-        let mut lines = Vec::new();
-        renderer.wrap_text("Hello", theme.fg, 0, &mut lines);
-        assert_eq!(lines.len(), 0);
-    }
-
-    #[test]
-    fn test_wrap_text_long_word() {
-        let transcript = Transcript::new();
-        let theme = Theme::palette(ThemeVariant::Iceberg);
-        let renderer = TranscriptRenderer::new(&transcript, theme);
-        let mut lines = Vec::new();
-        renderer.wrap_text("supercalifragilisticexpialidocious", theme.fg, 10, &mut lines);
-        assert!(lines.len() > 1);
-    }
-
-    #[test]
-    fn test_wrap_text_unicode() {
-        let transcript = Transcript::new();
-        let theme = Theme::palette(ThemeVariant::Iceberg);
-        let renderer = TranscriptRenderer::new(&transcript, theme);
-        let mut lines = Vec::new();
-        renderer.wrap_text("Hello 世界 🌍", theme.fg, 20, &mut lines);
-        assert!(!lines.is_empty());
     }
 }

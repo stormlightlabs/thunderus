@@ -6,11 +6,12 @@ use crate::{
 
 use ratatui::{
     Frame,
-    layout::{Alignment, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::Style,
     text::{Line, Span},
     widgets::{Block, Paragraph},
 };
+use unicode_width::UnicodeWidthStr;
 
 const THUNDERUS_LOGO: [&str; 4] = [
     r"▐▖   ▀▛▘▌ ▌▌ ▌▙ ▌▛▀▖▛▀▘▛▀▖▌ ▌▞▀▖",
@@ -19,26 +20,25 @@ const THUNDERUS_LOGO: [&str; 4] = [
     r"▝     ▘ ▘ ▘▝▀ ▘ ▘▀▀ ▀▀▘▘ ▘▝▀ ▝▀ ",
 ];
 
-const INPUT_PLACEHOLDER: &str = "What do you want to build?";
+const INPUT_PLACEHOLDER: &str = "Type a message to start a session...";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Renders a clean, centered welcome screen without header/sidebar:
-/// - Gradient logo (cyan to blue)
-/// - Input card with blue accent bar
-/// - Recent sessions row
-/// - Centered keyboard shortcuts
-/// - Rotating tips with yellow indicator
-/// - Status bar (path:branch | version)
+/// Renders a clean, centered welcome screen following DESIGN.txt layout:
+///
+/// Header: thunderus | branch | model | approval
+/// Center: Welcome card with logo and message
+/// Footer: Input prompt with Esc hint
 pub struct WelcomeView<'a> {
     state: &'a AppState,
     layout: WelcomeLayout,
+    mode: LayoutMode,
 }
 
 impl<'a> WelcomeView<'a> {
     pub fn new(state: &'a AppState, area: Rect) -> Self {
         let mode = LayoutMode::from(area.width);
         let layout = WelcomeLayout::calculate(area, mode);
-        Self { state, layout }
+        Self { state, layout, mode }
     }
 
     /// Render the complete welcome screen
@@ -46,43 +46,159 @@ impl<'a> WelcomeView<'a> {
         let theme = Theme::palette(self.state.theme_variant());
         frame.render_widget(Block::default().style(Style::default().bg(theme.bg)), frame.area());
 
-        self.render_header(frame, theme);
-        self.render_logo(frame, theme);
-        self.render_input_card(frame, theme);
-        self.render_recent_sessions(frame, theme);
-        self.render_shortcuts(frame, theme);
-        self.render_tip(frame, theme);
-        self.render_status_bar(frame, theme);
+        self.render_header_bar(frame, theme);
+        self.render_welcome_card(frame, theme);
+        self.render_footer(frame, theme);
     }
 
-    /// Render the logo with gradient colors (cyan for top, blue for bottom)
-    fn render_logo(&self, frame: &mut Frame<'_>, theme: ThemePalette) {
-        let mut lines = Vec::new();
-
-        lines.push(Line::default());
-
-        for (idx, logo_line) in THUNDERUS_LOGO.iter().enumerate() {
-            let color = if idx < 2 { theme.cyan } else { theme.blue };
-            lines.push(Line::from(Span::styled(*logo_line, Style::default().fg(color))));
+    /// Render header bar: thunderus | branch | model | approval (left) + cwd (right)
+    fn render_header_bar(&self, frame: &mut Frame<'_>, theme: ThemePalette) {
+        let area = self.layout.header;
+        if area.height == 0 {
+            return;
         }
 
-        lines.push(Line::default());
+        let mut left_spans = Vec::new();
 
-        let paragraph = Paragraph::new(lines)
+        left_spans.push(Span::styled(" thunderus", Style::default().fg(theme.fg)));
+        left_spans.push(Span::styled(" | ", Style::default().fg(theme.muted)));
+
+        if let Some(branch) = self.state.git_branch() {
+            left_spans.push(Span::styled(branch, Style::default().fg(theme.cyan)));
+        } else {
+            let cwd = self.state.cwd();
+            let basename = cwd
+                .file_name()
+                .map(|n| n.to_string_lossy())
+                .unwrap_or_else(|| "~".into());
+            left_spans.push(Span::styled(basename.to_string(), Style::default().fg(theme.cyan)));
+        }
+        left_spans.push(Span::styled(" | ", Style::default().fg(theme.muted)));
+
+        left_spans.push(Span::styled(
+            self.state.model_selector.current_model.clone(),
+            Style::default().fg(theme.blue),
+        ));
+        left_spans.push(Span::styled(" | ", Style::default().fg(theme.muted)));
+
+        let approval_str = match self.state.config.approval_mode {
+            thunderus_core::ApprovalMode::ReadOnly => "read-only",
+            thunderus_core::ApprovalMode::Auto => "auto",
+            thunderus_core::ApprovalMode::FullAccess => "full-access",
+        };
+        let approval_color = Theme::approval_mode_color(theme, approval_str);
+        left_spans.push(Span::styled(approval_str, Style::default().fg(approval_color)));
+
+        let mut line = Line::from(left_spans);
+        let left_width = line.spans.iter().map(|s| s.content.width()).sum::<usize>() as u16;
+        let mut right = self.state.cwd().display().to_string();
+        let max_right = area.width.saturating_sub(left_width + 2);
+        if max_right > 0 {
+            if right.len() > max_right as usize {
+                let keep = max_right.saturating_sub(3) as usize;
+                if keep > 0 && keep < right.len() {
+                    right = format!("...{}", &right[right.len() - keep..]);
+                }
+            }
+            let pad = area.width.saturating_sub(left_width + right.len() as u16);
+            if pad > 0 {
+                line.spans
+                    .push(Span::styled(" ".repeat(pad as usize), Style::default().bg(theme.bg)));
+            }
+            line.spans.push(Span::styled(right, Style::default().fg(theme.muted)));
+        }
+
+        let paragraph = Paragraph::new(line)
             .block(Block::default().style(Style::default().bg(theme.bg)))
-            .alignment(Alignment::Center);
+            .alignment(Alignment::Left);
 
-        frame.render_widget(paragraph, self.layout.logo);
+        frame.render_widget(paragraph, area);
     }
 
-    /// Render the input card with blue accent bar on the left
-    fn render_input_card(&self, frame: &mut Frame<'_>, theme: ThemePalette) {
-        let area = self.layout.input_card;
+    /// Render centered welcome card with logo
+    fn render_welcome_card(&self, frame: &mut Frame<'_>, theme: ThemePalette) {
+        let area = frame.area();
+        let card_width = 50.min(area.width.saturating_sub(8));
+        let card_height = 10.min(area.height.saturating_sub(6));
+        let card_x = area.x + (area.width.saturating_sub(card_width)) / 2;
+        let card_y = area.y + (area.height.saturating_sub(card_height)) / 2;
+        let inner = Rect { x: card_x, y: card_y, width: card_width, height: card_height };
+
+        let mut lines = Vec::new();
+
+        match self.mode {
+            LayoutMode::Compact => {
+                if inner.height >= 8 {
+                    lines.push(Line::default());
+                    for (idx, logo_line) in THUNDERUS_LOGO.iter().enumerate() {
+                        let color = if idx < 2 { theme.cyan } else { theme.blue };
+                        lines.push(Line::from(Span::styled(*logo_line, Style::default().fg(color))));
+                    }
+                    lines.push(Line::default());
+                }
+            }
+            _ => {
+                lines.push(Line::default());
+                lines.push(Line::from(Span::styled(
+                    "Welcome to Thunderus",
+                    Style::default().fg(theme.fg),
+                )));
+                lines.push(Line::default());
+            }
+        }
+
+        let content = Paragraph::new(lines).alignment(Alignment::Center);
+        frame.render_widget(content, inner);
+    }
+
+    /// Render footer: input prompt and hints
+    fn render_footer(&self, frame: &mut Frame<'_>, theme: ThemePalette) {
+        let area = frame.area();
+
+        let footer_height = 4;
+        let footer_area = Rect {
+            x: area.x,
+            y: area.y + area.height.saturating_sub(footer_height),
+            width: area.width,
+            height: footer_height,
+        };
+
+        let rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(3), Constraint::Length(1)])
+            .split(footer_area);
+
+        self.render_input_card(frame, rows[0], theme);
+
+        let hints_area = Rect { x: rows[1].x + 2, y: rows[1].y, width: rows[1].width.saturating_sub(4), height: 1 };
+
+        let left_spans = vec![Span::styled(
+            format!("v{}  github.com/stormlightlabs/thunderus", VERSION),
+            Style::default().fg(theme.muted),
+        )];
+        let left = Paragraph::new(Line::from(left_spans)).alignment(Alignment::Left);
+
+        let right_spans = vec![
+            Span::styled("esc", Style::default().fg(theme.blue)),
+            Span::styled(" dismiss", Style::default().fg(theme.muted)),
+        ];
+        let right = Paragraph::new(Line::from(right_spans)).alignment(Alignment::Right);
+
+        let half_width = hints_area.width / 2;
+        let left_area = Rect { x: hints_area.x, y: hints_area.y, width: half_width, height: 1 };
+        let right_area = Rect { x: hints_area.x + half_width, y: hints_area.y, width: half_width, height: 1 };
+
+        frame.render_widget(left, left_area);
+        frame.render_widget(right, right_area);
+    }
+
+    /// Render input card styled like the main session input
+    fn render_input_card(&self, frame: &mut Frame<'_>, area: Rect, theme: ThemePalette) {
         if area.width < 10 || area.height < 1 {
             return;
         }
 
-        let panel_block = Block::default().style(Style::default().bg(theme.panel_bg));
+        let panel_block = Block::default().style(Style::default().bg(theme.active));
         frame.render_widget(panel_block, area);
 
         let accent_width = 1;
@@ -97,24 +213,15 @@ impl<'a> WelcomeView<'a> {
             height: 1,
         };
 
-        let input_text = if self.state.input.buffer.is_empty() {
-            INPUT_PLACEHOLDER.to_string()
-        } else {
-            self.state.input.buffer.clone()
-        };
-
-        let input_style = if self.state.input.buffer.is_empty() {
-            Style::default().fg(theme.muted).bg(theme.panel_bg)
-        } else {
-            Style::default().fg(theme.fg).bg(theme.panel_bg)
-        };
-
         let mut spans = Vec::new();
-
         if self.state.input.buffer.is_empty() {
-            spans.push(Span::styled(input_text, input_style));
             spans.push(Span::styled("█", Style::default().bg(theme.fg).fg(theme.fg)));
+            spans.push(Span::styled(
+                INPUT_PLACEHOLDER,
+                Style::default().fg(theme.muted).bg(theme.active),
+            ));
         } else {
+            let input_style = Style::default().fg(theme.fg).bg(theme.active);
             let cursor_pos = self.state.input.cursor.min(self.state.input.buffer.len());
             let before_cursor = &self.state.input.buffer[..cursor_pos];
             let after_cursor = &self.state.input.buffer[cursor_pos..];
@@ -130,172 +237,6 @@ impl<'a> WelcomeView<'a> {
 
         let input_paragraph = Paragraph::new(Line::from(spans));
         frame.render_widget(input_paragraph, input_area);
-    }
-
-    /// Render recent sessions as clickable cards
-    fn render_recent_sessions(&self, frame: &mut Frame<'_>, theme: ThemePalette) {
-        let area = self.layout.recent_sessions;
-        if area.height == 0 || self.state.welcome.recent_sessions.is_empty() {
-            return;
-        }
-
-        let mut spans = Vec::new();
-        spans.push(Span::styled("Recent: ", Style::default().fg(theme.muted)));
-
-        for (idx, session) in self.state.welcome.recent_sessions.iter().take(3).enumerate() {
-            if idx > 0 {
-                spans.push(Span::styled("  ", Style::default()));
-            }
-            let title = session
-                .title
-                .as_deref()
-                .unwrap_or(&session.id[..8.min(session.id.len())]);
-            let truncated = if title.len() > 20 { format!("{}...", &title[..17]) } else { title.to_string() };
-            spans.push(Span::styled(
-                format!("[{}]", truncated),
-                Style::default().fg(theme.cyan),
-            ));
-        }
-
-        let paragraph = Paragraph::new(Line::from(spans))
-            .block(Block::default().style(Style::default().bg(theme.bg)))
-            .alignment(Alignment::Center);
-
-        frame.render_widget(paragraph, area);
-    }
-
-    /// Render centered keyboard shortcuts
-    fn render_shortcuts(&self, frame: &mut Frame<'_>, theme: ThemePalette) {
-        let area = self.layout.shortcuts;
-        if area.height == 0 {
-            return;
-        }
-
-        let mode = LayoutMode::from(area.width + 20);
-        let shortcuts = match mode {
-            LayoutMode::Full | LayoutMode::Inspector => vec![
-                ("Enter", "send"),
-                ("Backspace", "start"),
-                ("Tab", "autocomplete"),
-                ("Ctrl+S", "sidebar"),
-                ("Ctrl+T", "theme"),
-                ("Esc", "exit"),
-            ],
-            LayoutMode::Medium => vec![
-                ("Enter", "send"),
-                ("Backspace", "start"),
-                ("Tab", "complete"),
-                ("Ctrl+T", "theme"),
-                ("Esc", "exit"),
-            ],
-            LayoutMode::Compact => vec![("Enter", "send"), ("Esc", "exit")],
-        };
-
-        let mut spans = Vec::new();
-        for (idx, (key, action)) in shortcuts.iter().enumerate() {
-            if idx > 0 {
-                spans.push(Span::styled("  ", Style::default()));
-            }
-            spans.push(Span::styled(*key, Style::default().fg(theme.blue)));
-            spans.push(Span::styled(format!(" {}", action), Style::default().fg(theme.muted)));
-        }
-
-        let paragraph = Paragraph::new(Line::from(spans))
-            .block(Block::default().style(Style::default().bg(theme.bg)))
-            .alignment(Alignment::Left);
-
-        let aligned_area =
-            Rect { x: area.x.saturating_add(2), y: area.y, width: area.width.saturating_sub(2), height: area.height };
-
-        frame.render_widget(paragraph, aligned_area);
-    }
-
-    /// Render tip with yellow indicator dot
-    fn render_tip(&self, frame: &mut Frame<'_>, theme: ThemePalette) {
-        let area = self.layout.tips;
-        if area.height == 0 {
-            return;
-        }
-
-        let tip = self.state.welcome.current_tip();
-
-        let spans = vec![
-            Span::styled("● ", Style::default().fg(theme.yellow)),
-            Span::styled(tip, Style::default().fg(theme.muted).italic()),
-        ];
-
-        let paragraph = Paragraph::new(Line::from(spans))
-            .block(Block::default().style(Style::default().bg(theme.bg)))
-            .alignment(Alignment::Center);
-
-        frame.render_widget(paragraph, area);
-    }
-
-    /// Render the header: git branch + working directory
-    fn render_header(&self, frame: &mut Frame<'_>, theme: ThemePalette) {
-        let area = self.layout.header;
-        if area.height == 0 {
-            return;
-        }
-
-        let cwd = self.state.cwd();
-        let cwd_display = cwd.to_string_lossy().replace(
-            dirs::home_dir()
-                .map(|h| h.to_string_lossy().to_string())
-                .unwrap_or_default()
-                .as_str(),
-            "~",
-        );
-
-        let mut spans = Vec::new();
-
-        if let Some(branch) = self.state.git_branch() {
-            spans.push(Span::styled("  λ ", Style::default().fg(theme.muted)));
-            spans.push(Span::styled(branch, Style::default().fg(theme.muted)));
-            spans.push(Span::styled("  ", Style::default()));
-        } else {
-            spans.push(Span::styled("  ", Style::default()));
-        }
-
-        spans.push(Span::styled(cwd_display, Style::default().fg(theme.muted)));
-
-        let paragraph = Paragraph::new(Line::from(spans))
-            .block(Block::default().style(Style::default().bg(theme.bg)))
-            .alignment(Alignment::Left);
-
-        frame.render_widget(paragraph, area);
-    }
-
-    /// Render status bar: github URL | version
-    fn render_status_bar(&self, frame: &mut Frame<'_>, theme: ThemePalette) {
-        let area = self.layout.status_bar;
-        if area.height == 0 {
-            return;
-        }
-
-        let left_spans = vec![Span::styled(
-            "  github.com/stormlightlabs/thunderus",
-            Style::default().fg(theme.muted),
-        )];
-
-        let left_paragraph = Paragraph::new(Line::from(left_spans))
-            .block(Block::default().style(Style::default().bg(theme.bg)))
-            .alignment(Alignment::Left);
-
-        let right_spans = vec![Span::styled(
-            format!("v{}  ", VERSION),
-            Style::default().fg(theme.muted),
-        )];
-
-        let right_paragraph = Paragraph::new(Line::from(right_spans))
-            .block(Block::default().style(Style::default().bg(theme.bg)))
-            .alignment(Alignment::Right);
-
-        let left_area = Rect { x: area.x, y: area.y, width: area.width / 2, height: area.height };
-        let right_area = Rect { x: area.x + area.width / 2, y: area.y, width: area.width / 2, height: area.height };
-
-        frame.render_widget(left_paragraph, left_area);
-        frame.render_widget(right_paragraph, right_area);
     }
 }
 
@@ -327,7 +268,7 @@ mod tests {
         let state = create_test_state();
         let area = Rect::new(0, 0, 100, 30);
         let view = WelcomeView::new(&state, area);
-        assert_eq!(view.layout.logo.width, 96);
+        assert_eq!(view.mode, LayoutMode::Full);
     }
 
     #[test]
@@ -343,12 +284,7 @@ mod tests {
         let state = create_test_state();
         let area = Rect::new(0, 0, 120, 30);
         let view = WelcomeView::new(&state, area);
-
-        assert!(view.layout.logo.height > 0);
-        assert!(view.layout.input_card.height > 0);
-        assert!(view.layout.shortcuts.height > 0);
-        assert!(view.layout.tips.height > 0);
-        assert!(view.layout.status_bar.height > 0);
+        assert!(view.layout.header.height > 0);
     }
 
     #[test]
@@ -356,6 +292,14 @@ mod tests {
         let state = create_test_state();
         let area = Rect::new(0, 0, 70, 25);
         let view = WelcomeView::new(&state, area);
-        assert_eq!(view.layout.recent_sessions.height, 0);
+        assert_eq!(view.mode, LayoutMode::Compact);
+    }
+
+    #[test]
+    fn test_welcome_medium_mode() {
+        let state = create_test_state();
+        let area = Rect::new(0, 0, 90, 30);
+        let view = WelcomeView::new(&state, area);
+        assert_eq!(view.mode, LayoutMode::Medium);
     }
 }
