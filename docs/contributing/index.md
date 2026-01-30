@@ -29,9 +29,6 @@ cargo clippy
 
 ## Project Structure
 
-- `crates/agent`: Agent orchestrator and event loop.
-- `crates/cli`: CLI entry point.
-- `crates/core`: Configuration, approvals, sessions, errors.
-- `crates/providers`: Provider-neutral types.
-- `crates/tools`: Tool execution framework.
-- `crates/ui`: TUI components.
+For crate responsibilities and boundaries, see [Development Architecture](/development/architecture).
+
+If you are new to the codebase, start with the [Development guide](/development/).

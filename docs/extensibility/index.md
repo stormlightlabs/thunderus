@@ -19,6 +19,8 @@ Key properties:
 - Each skill declares its name and description in frontmatter.
 - Skills can be toggled via profile configuration.
 
+For implementation details, see [Development Workflow](/development/development).
+
 ## Plugins & Extension Points
 
 Not implemented yet:

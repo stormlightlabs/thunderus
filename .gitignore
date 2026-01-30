@@ -26,3 +26,5 @@ docs/.vitepress/cache/
 docs/.vitepress/.temp/
 docs/.vitepress/dist/
 .pnpm-store/
+
+AGENTS.md

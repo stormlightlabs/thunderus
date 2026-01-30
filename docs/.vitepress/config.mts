@@ -9,6 +9,7 @@ export default defineConfig({
         nav: [
             { text: "Guide", link: "/guide/" },
             { text: "Concepts", link: "/concepts/" },
+            { text: "Development", link: "/development/" },
             { text: "Reference", link: "/reference/" },
         ],
         sidebar: [
@@ -29,8 +30,19 @@ export default defineConfig({
                 text: "Concepts",
                 items: [
                     { text: "Overview", link: "/concepts/" },
+                    { text: "System", link: "/concepts/system" },
                     { text: "Architecture", link: "/concepts/architecture" },
                     { text: "Trajectories", link: "/concepts/trajectories" },
+                ],
+            },
+            {
+                text: "Development",
+                items: [
+                    { text: "Overview", link: "/development/" },
+                    { text: "Architecture", link: "/development/architecture" },
+                    { text: "Data Flow", link: "/development/data-flow" },
+                    { text: "Patterns", link: "/development/patterns" },
+                    { text: "Workflow", link: "/development/development" },
                 ],
             },
             {

@@ -8,6 +8,8 @@ Thunderus is in active development. The TUI, approval system, tool framework,
 providers, and memory retrieval are wired end-to-end, with ongoing refinement as
 the product stabilizes.
 
+For more information, see the development [guide](/development/).
+
 ## Prerequisites
 
 - A Rust toolchain with 2024 edition support (latest stable is recommended).
