@@ -92,10 +92,13 @@ impl App {
                         *cr = Some(reasoning);
                     }
                 }
-                self.persist_tool_call(&name, &args);
+                if self.session.is_none() || self.profile().is_none() {
+                    self.persist_tool_call(&name, &args);
+                }
             }
             AgentEvent::ToolResult { name, result, success, error, metadata } => {
                 self.transcript_mut().add_tool_result(&name, &result, success);
+                let error_message = error.clone();
                 if let Some(err) = error
                     && let Some(entry) = self.transcript_mut().last_mut()
                     && let transcript::TranscriptEntry::ToolResult { error: e, .. } = entry
@@ -105,7 +108,9 @@ impl App {
                 let result_json = serde_json::json!({
                     "output": result
                 });
-                self.persist_tool_result(&name, &result_json, success, if success { None } else { Some("") });
+                if self.session.is_none() || self.profile().is_none() {
+                    self.persist_tool_result(&name, &result_json, success, error_message.as_deref());
+                }
 
                 if let Some(entry) = self.transcript_mut().last_mut()
                     && let transcript::TranscriptEntry::ToolResult { .. } = entry

@@ -206,7 +206,7 @@ impl Agent {
                     });
 
                     let memory_context = format_memory_context(&retrieval_result);
-                    system_message_content = format!("\n\n## Relevant Memory\n{}", memory_context);
+                    system_message_content.push_str(&format!("\n\n## Relevant Memory\n{}", memory_context));
                 }
                 Err(e) => {
                     let _ = tx.send(AgentEvent::Error(format!("Memory retrieval failed: {}", e)));
@@ -262,6 +262,7 @@ impl Agent {
         let messages = Arc::clone(&self.messages);
 
         tokio::spawn(async move {
+            let mut assistant_buffer = String::new();
             if cancel_token_clone.is_cancelled() {
                 let _ = tx.send(AgentEvent::Error("Cancelled before request".to_string()));
                 return;
@@ -285,6 +286,7 @@ impl Agent {
 
                 match event {
                     StreamEvent::Token(text) => {
+                        assistant_buffer.push_str(&text);
                         let _ = tx.send(AgentEvent::Token(text));
                     }
                     StreamEvent::ToolCall(calls) => {
@@ -331,6 +333,10 @@ impl Agent {
                         }
                     }
                     StreamEvent::Done => {
+                        if !assistant_buffer.is_empty() {
+                            let msg = ChatMessage::assistant(assistant_buffer);
+                            messages.lock().unwrap().push(msg);
+                        }
                         let _ = tx.send(AgentEvent::Done);
                         break;
                     }
@@ -690,9 +696,76 @@ mod tests {
     use super::*;
     use futures::stream;
     use std::pin::Pin;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use tempfile::TempDir;
+    use thunderus_core::memory::{MemoryKind, MemoryRetriever, RetrievalResult, RetrievedChunk};
     use thunderus_providers::Provider;
     use thunderus_tools::{EchoTool, SessionToolDispatcher, ToolDispatcher, ToolRegistry};
+
+    type R<'a, T> = Result<Pin<Box<dyn futures::Stream<Item = T> + Send + 'a>>>;
+
+    struct MockProvider {
+        events: Vec<StreamEvent>,
+    }
+
+    #[async_trait::async_trait]
+    impl Provider for MockProvider {
+        async fn stream_chat<'a>(&'a self, _request: ChatRequest, _cancel_token: CancelToken) -> R<StreamEvent, 'a> {
+            Ok(Box::pin(stream::iter(self.events.clone())))
+        }
+    }
+
+    #[derive(Debug)]
+    struct CaptureProvider {
+        events: Vec<StreamEvent>,
+        captured: Arc<Mutex<Option<ChatRequest>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl Provider for CaptureProvider {
+        async fn stream_chat<'a>(&'a self, request: ChatRequest, _cancel_token: CancelToken) -> R<StreamEvent, 'a> {
+            *self.captured.lock().unwrap() = Some(request);
+            Ok(Box::pin(stream::iter(self.events.clone())))
+        }
+    }
+
+    struct StubRetriever {
+        called: Arc<AtomicBool>,
+        policy: RetrievalPolicy,
+    }
+
+    impl StubRetriever {
+        fn new(called: Arc<AtomicBool>) -> Self {
+            Self { called, policy: RetrievalPolicy::default() }
+        }
+    }
+
+    type O = std::result::Result<RetrievalResult, thunderus_core::memory::RetrievalError>;
+
+    impl MemoryRetriever for StubRetriever {
+        fn query<'a>(&'a self, _task_intent: &'a str) -> Pin<Box<dyn std::future::Future<Output = O> + Send + 'a>> {
+            self.called.store(true, Ordering::SeqCst);
+            Box::pin(async move {
+                Ok(RetrievalResult {
+                    chunks: vec![RetrievedChunk {
+                        content: "Remember this".to_string(),
+                        path: "memory/core/CORE.md".to_string(),
+                        anchor: None,
+                        event_ids: vec![],
+                        kind: MemoryKind::Core,
+                        score: -1.0,
+                    }],
+                    total_tokens: 5,
+                    query: "test".to_string(),
+                    search_time_ms: 1,
+                })
+            })
+        }
+
+        fn policy(&self) -> &RetrievalPolicy {
+            &self.policy
+        }
+    }
 
     #[test]
     fn test_agent_creation() {
@@ -700,7 +773,6 @@ mod tests {
         let approval = Arc::new(InMemoryApprovalProtocol::new(true)) as Arc<dyn ApprovalProtocol>;
         let gate = ApprovalGate::new(ApprovalMode::Auto, false);
         let session_id = SessionId::new();
-
         let agent = Agent::new(provider, approval, gate, session_id);
         assert_eq!(agent.messages().len(), 0);
     }
@@ -711,7 +783,6 @@ mod tests {
         let approval = Arc::new(InMemoryApprovalProtocol::new(true)) as Arc<dyn ApprovalProtocol>;
         let gate = ApprovalGate::new(ApprovalMode::Auto, false);
         let session_id = SessionId::new();
-
         let agent = Agent::new(provider, approval, gate, session_id);
         assert_eq!(agent.approval_mode(), ApprovalMode::Auto);
     }
@@ -722,9 +793,7 @@ mod tests {
         let approval = Arc::new(InMemoryApprovalProtocol::new(true)) as Arc<dyn ApprovalProtocol>;
         let gate = ApprovalGate::new(ApprovalMode::Auto, false);
         let session_id = SessionId::new();
-
         let agent = Agent::new(provider, approval, gate, session_id);
-
         let old_mode = agent.set_approval_mode(ApprovalMode::ReadOnly).unwrap();
         assert_eq!(old_mode, ApprovalMode::Auto);
         assert_eq!(agent.approval_mode(), ApprovalMode::ReadOnly);
@@ -736,9 +805,7 @@ mod tests {
         let approval = Arc::new(InMemoryApprovalProtocol::new(true)) as Arc<dyn ApprovalProtocol>;
         let gate = ApprovalGate::new(ApprovalMode::FullAccess, true);
         let session_id = SessionId::new();
-
         let agent = Agent::new(provider, approval, gate, session_id);
-
         let agent_gate = agent.approval_gate();
         let gate_read = agent_gate.read().unwrap();
         assert_eq!(gate_read.mode(), ApprovalMode::FullAccess);
@@ -751,9 +818,7 @@ mod tests {
         let approval = Arc::new(InMemoryApprovalProtocol::new(true)) as Arc<dyn ApprovalProtocol>;
         let gate = ApprovalGate::new(ApprovalMode::Auto, false);
         let session_id = SessionId::new();
-
         let mut agent = Agent::new(provider, approval, gate, session_id);
-
         let result = ToolResult::success("call_1", "OK");
         agent.append_tool_result("test_tool".to_string(), "call_1".to_string(), result);
 
@@ -886,17 +951,72 @@ mod tests {
         assert_eq!(agent.messages().len(), 1);
     }
 
-    struct MockProvider {
-        events: Vec<StreamEvent>,
+    #[tokio::test]
+    async fn test_process_message_appends_assistant_response() {
+        let events = vec![StreamEvent::Token("Hello".to_string()), StreamEvent::Done];
+        let provider = Arc::new(MockProvider { events }) as Arc<dyn Provider>;
+        let approval = Arc::new(InMemoryApprovalProtocol::new(true)) as Arc<dyn ApprovalProtocol>;
+        let gate = ApprovalGate::new(ApprovalMode::Auto, false);
+        let session_id = SessionId::new();
+
+        let mut agent = Agent::new(provider, approval, gate, session_id);
+
+        let cancel = CancelToken::new();
+        let mut rx = agent.process_message("Hi", None, cancel, Vec::new()).await.unwrap();
+
+        while let Some(event) = rx.recv().await {
+            if matches!(event, AgentEvent::Done) {
+                break;
+            }
+        }
+
+        let messages = agent.messages();
+        assert!(
+            messages
+                .iter()
+                .any(|m| m.role == Role::Assistant && m.content == "Hello")
+        );
     }
 
-    #[async_trait::async_trait]
-    impl Provider for MockProvider {
-        async fn stream_chat<'a>(
-            &'a self, _request: ChatRequest, _cancel_token: CancelToken,
-        ) -> Result<Pin<Box<dyn futures::Stream<Item = StreamEvent> + Send + 'a>>> {
-            Ok(Box::pin(stream::iter(self.events.clone())))
+    #[tokio::test]
+    async fn test_system_message_includes_write_protection_and_memory() {
+        let captured = Arc::new(Mutex::new(None));
+        let provider = Arc::new(CaptureProvider { events: vec![StreamEvent::Done], captured: Arc::clone(&captured) })
+            as Arc<dyn Provider>;
+        let approval = Arc::new(InMemoryApprovalProtocol::new(true)) as Arc<dyn ApprovalProtocol>;
+        let gate = ApprovalGate::new(ApprovalMode::Auto, false);
+        let session_id = SessionId::new();
+
+        let called = Arc::new(AtomicBool::new(false));
+        let retriever = Arc::new(StubRetriever::new(Arc::clone(&called))) as Arc<dyn MemoryRetriever>;
+
+        let mut agent = Agent::new(provider, approval, gate, session_id).with_memory_retriever(retriever);
+
+        let cancel = CancelToken::new();
+        let mut rx = agent
+            .process_message("Hi", None, cancel, vec![std::path::PathBuf::from("/tmp/owned.txt")])
+            .await
+            .unwrap();
+
+        while let Some(event) = rx.recv().await {
+            if matches!(event, AgentEvent::Done) {
+                break;
+            }
         }
+
+        assert!(called.load(Ordering::SeqCst));
+
+        let request = captured.lock().unwrap().clone().expect("expected request capture");
+        let system = request
+            .messages
+            .iter()
+            .find(|m| m.role == Role::System)
+            .map(|m| m.content.clone())
+            .unwrap_or_default();
+
+        assert!(system.contains("Write Protection"));
+        assert!(system.contains("Relevant Memory"));
+        assert!(system.contains("Remember this"));
     }
 
     #[tokio::test]
