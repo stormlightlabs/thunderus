@@ -704,3 +704,75 @@ impl App {
             .add_system_message("Agent stopped. You can start fresh with a new message.");
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::app::create_test_app;
+    use crate::state::ApprovalState;
+    use crate::tui_approval::{TuiApprovalHandle, TuiApprovalProtocol};
+    use thunderus_core::ApprovalDecision;
+
+    #[test]
+    fn test_send_approval_response_with_handle() {
+        let mut app = create_test_app();
+
+        let (tui_approval, _rx) = TuiApprovalProtocol::new();
+        let handle = TuiApprovalHandle::from_protocol(&tui_approval);
+        app.approval_handle = Some(handle);
+
+        app.state_mut().approval_ui.pending_approval =
+            Some(ApprovalState::pending("test.action".to_string(), "safe".to_string()).with_request_id(123));
+
+        app.transcript_mut().add_approval_prompt("test.action", "safe");
+
+        app.send_approval_response(ApprovalDecision::Approved);
+        assert!(app.state().approval_ui.pending_approval.is_none());
+        assert!(app.transcript().len() >= 2);
+    }
+
+    #[test]
+    fn test_send_approval_response_without_handle() {
+        let mut app = create_test_app();
+
+        app.state_mut().approval_ui.pending_approval =
+            Some(ApprovalState::pending("test.action".to_string(), "safe".to_string()).with_request_id(456));
+
+        app.transcript_mut().add_approval_prompt("test.action", "safe");
+
+        app.send_approval_response(ApprovalDecision::Approved);
+        assert!(app.state().approval_ui.pending_approval.is_none());
+    }
+
+    #[test]
+    fn test_send_approval_response_reject() {
+        let mut app = create_test_app();
+        let (tui_approval, _rx) = TuiApprovalProtocol::new();
+        let handle = TuiApprovalHandle::from_protocol(&tui_approval);
+        app.approval_handle = Some(handle);
+
+        app.state_mut().approval_ui.pending_approval =
+            Some(ApprovalState::pending("delete.file".to_string(), "dangerous".to_string()).with_request_id(789));
+
+        app.transcript_mut().add_approval_prompt("delete.file", "dangerous");
+        app.send_approval_response(ApprovalDecision::Rejected);
+
+        assert!(app.state().approval_ui.pending_approval.is_none());
+    }
+
+    #[test]
+    fn test_send_approval_response_cancel() {
+        let mut app = create_test_app();
+
+        let (tui_approval, _rx) = TuiApprovalProtocol::new();
+        let handle = TuiApprovalHandle::from_protocol(&tui_approval);
+        app.approval_handle = Some(handle);
+
+        app.state_mut().approval_ui.pending_approval =
+            Some(ApprovalState::pending("install.crate".to_string(), "risky".to_string()).with_request_id(999));
+
+        app.transcript_mut().add_approval_prompt("install.crate", "risky");
+        app.send_approval_response(ApprovalDecision::Cancelled);
+
+        assert!(app.state().approval_ui.pending_approval.is_none());
+    }
+}

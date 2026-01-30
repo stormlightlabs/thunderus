@@ -646,3 +646,164 @@ impl App {
         self.transcript_mut().add_system_message(msg);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::app::create_test_app;
+    use crate::transcript;
+    use thunderus_core::ApprovalMode;
+
+    #[test]
+    fn test_handle_model_command_list() {
+        let mut app = create_test_app();
+        app.handle_model_command("list".to_string());
+
+        assert_eq!(app.transcript().len(), 1);
+        if let transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
+            assert!(content.contains("Available models"));
+            assert!(content.contains("Current"));
+        } else {
+            panic!("Expected SystemMessage");
+        }
+    }
+
+    #[test]
+    fn test_handle_model_command_unknown() {
+        let mut app = create_test_app();
+        app.handle_model_command("unknown-model".to_string());
+
+        assert_eq!(app.transcript().len(), 1);
+        if let transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
+            assert!(
+                content.contains("Cannot switch")
+                    || content.contains("Failed to switch")
+                    || content.contains("Unknown model")
+            );
+        } else {
+            panic!("Expected SystemMessage");
+        }
+    }
+
+    #[test]
+    fn test_handle_approvals_command_list() {
+        let mut app = create_test_app();
+        app.handle_approvals_command("list".to_string());
+
+        assert_eq!(app.transcript().len(), 1);
+        if let transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
+            assert!(content.contains("Available approval modes"));
+            assert!(content.contains("Current"));
+        } else {
+            panic!("Expected SystemMessage");
+        }
+    }
+
+    #[test]
+    fn test_handle_approvals_command_read_only() {
+        let mut app = create_test_app();
+        app.state_mut().config.approval_mode = ApprovalMode::Auto;
+
+        app.handle_approvals_command("read-only".to_string());
+
+        assert_eq!(app.state.config.approval_mode, ApprovalMode::ReadOnly);
+        assert_eq!(app.transcript().len(), 1);
+    }
+
+    #[test]
+    fn test_handle_approvals_command_auto() {
+        let mut app = create_test_app();
+        app.state_mut().config.approval_mode = ApprovalMode::ReadOnly;
+
+        app.handle_approvals_command("auto".to_string());
+
+        assert_eq!(app.state.config.approval_mode, ApprovalMode::Auto);
+        assert_eq!(app.transcript().len(), 1);
+    }
+
+    #[test]
+    fn test_handle_approvals_command_full_access() {
+        let mut app = create_test_app();
+        app.state_mut().config.approval_mode = ApprovalMode::Auto;
+
+        app.handle_approvals_command("full-access".to_string());
+
+        assert_eq!(app.state.config.approval_mode, ApprovalMode::FullAccess);
+        assert_eq!(app.transcript().len(), 1);
+    }
+
+    #[test]
+    fn test_handle_approvals_command_unknown() {
+        let mut app = create_test_app();
+        let original_mode = app.state.config.approval_mode;
+
+        app.handle_approvals_command("unknown-mode".to_string());
+
+        assert_eq!(app.state.config.approval_mode, original_mode);
+        assert_eq!(app.transcript().len(), 1);
+        if let transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
+            assert!(content.contains("Unknown approval mode"));
+        } else {
+            panic!("Expected SystemMessage");
+        }
+    }
+
+    #[test]
+    fn test_handle_status_command() {
+        let mut app = create_test_app();
+
+        app.handle_status_command();
+
+        assert_eq!(app.transcript().len(), 1);
+        if let transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
+            assert!(content.contains("Session Status"));
+            assert!(content.contains("Profile"));
+            assert!(content.contains("Provider"));
+            assert!(content.contains("Approval Mode"));
+            assert!(content.contains("Sandbox Mode"));
+        } else {
+            panic!("Expected SystemMessage");
+        }
+    }
+
+    #[test]
+    fn test_handle_plan_command() {
+        let mut app = create_test_app();
+
+        app.handle_plan_command();
+
+        assert_eq!(app.transcript().len(), 1);
+        if let transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
+            assert!(content.contains("No active session") || content.contains("Current Plan"));
+        } else {
+            panic!("Expected SystemMessage");
+        }
+    }
+
+    #[test]
+    fn test_handle_review_command() {
+        let mut app = create_test_app();
+
+        app.handle_review_command();
+
+        assert_eq!(app.transcript().len(), 1);
+        if let transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
+            assert!(content.contains("No pending patches"));
+        } else {
+            panic!("Expected SystemMessage");
+        }
+    }
+
+    #[test]
+    fn test_handle_memory_command() {
+        let mut app = create_test_app();
+
+        app.handle_memory_command();
+
+        assert_eq!(app.transcript().len(), 1);
+        if let transcript::TranscriptEntry::SystemMessage { content } = app.transcript().last().unwrap() {
+            assert!(content.contains("No active session") || content.contains("Project Memory"));
+        } else {
+            panic!("Expected SystemMessage");
+        }
+    }
+}
