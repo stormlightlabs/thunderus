@@ -13,9 +13,9 @@ use thunderus_core::{
 use thunderus_providers::{CancelToken, Provider};
 use tokio::sync::mpsc;
 
-mod event_handling;
 mod event_loop;
 mod external_editor;
+mod keybinds;
 mod rendering;
 mod session_replay;
 mod shell;
@@ -352,7 +352,7 @@ impl App {
 
     /// Handle an event and update state
     async fn handle_event(&mut self, event: crossterm::event::Event) {
-        event_handling::handle_event(self, event).await;
+        keybinds::handle_event(self, event).await;
     }
 
     /// Draw the UI

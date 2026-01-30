@@ -1,16 +1,14 @@
 mod approval;
 mod fuzzy_finder;
 mod key_action;
-mod normal_mode;
-mod slash_parser;
+mod normal;
 
 pub use key_action::KeyAction;
 
+use self::{approval::handle_approval_key, fuzzy_finder::handle_fuzzy_finder_key, normal::handle_normal_key};
 use crate::state::AppState;
 
 use crossterm::event::{Event, KeyEvent, KeyEventKind};
-
-use self::{approval::handle_approval_key, fuzzy_finder::handle_fuzzy_finder_key, normal_mode::handle_normal_key};
 
 /// Event handler for the TUI application
 pub struct EventHandler;

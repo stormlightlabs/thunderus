@@ -4,7 +4,7 @@ pub mod components;
 pub mod event_handler;
 pub mod fuzzy_finder;
 pub mod layout;
-pub mod slash_commands;
+pub mod slash;
 pub mod snapshot_capture;
 pub mod state;
 pub mod syntax;

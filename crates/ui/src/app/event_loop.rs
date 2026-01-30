@@ -1,7 +1,7 @@
 use super::App;
 use crate::event_handler::EventHandler;
 use crossterm;
-use ratatui::{backend::CrosstermBackend, Terminal};
+use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io::Result;
 use std::{panic, time::Duration};
 

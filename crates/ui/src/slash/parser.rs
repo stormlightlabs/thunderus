@@ -1,4 +1,4 @@
-use super::KeyAction;
+use crate::KeyAction;
 
 /// Parse a slash command and return the appropriate action
 pub fn parse_slash_command(cmd: String) -> Option<KeyAction> {

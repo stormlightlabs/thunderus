@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use crate::FuzzyFinder;
+
 /// Composer mode for input handling
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum ComposerMode {
@@ -16,7 +18,7 @@ pub struct ComposerState {
     /// Composer mode
     pub composer_mode: ComposerMode,
     /// Active fuzzy finder (if any)
-    pub fuzzy_finder: Option<super::FuzzyFinder>,
+    pub fuzzy_finder: Option<FuzzyFinder>,
 }
 
 impl ComposerState {
@@ -27,7 +29,7 @@ impl ComposerState {
     /// Enter fuzzy finder mode
     pub fn enter_fuzzy_finder(&mut self, cwd: PathBuf, original_input: String, original_cursor: usize) {
         self.composer_mode = ComposerMode::FuzzyFinder;
-        let mut finder = super::FuzzyFinder::new(cwd, original_input, original_cursor);
+        let mut finder = FuzzyFinder::new(cwd, original_input, original_cursor);
         if let Ok(()) = finder.discover_files() {
             self.fuzzy_finder = Some(finder);
         }
@@ -45,12 +47,12 @@ impl ComposerState {
     }
 
     /// Get mutable reference to fuzzy finder if active
-    pub fn fuzzy_finder_mut(&mut self) -> Option<&mut super::FuzzyFinder> {
+    pub fn fuzzy_finder_mut(&mut self) -> Option<&mut FuzzyFinder> {
         self.fuzzy_finder.as_mut()
     }
 
     /// Get reference to fuzzy finder if active
-    pub fn fuzzy_finder(&self) -> Option<&super::FuzzyFinder> {
+    pub fn fuzzy_finder(&self) -> Option<&FuzzyFinder> {
         self.fuzzy_finder.as_ref()
     }
 }

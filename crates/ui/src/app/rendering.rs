@@ -7,7 +7,7 @@ use crate::layout::{LayoutMode, TuiLayout};
 use crate::state::MainView;
 use crate::theme::Theme;
 use crate::transcript::RenderOptions;
-use ratatui::{backend::CrosstermBackend, Terminal};
+use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io::Result;
 
 pub fn draw(app: &mut App, terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<()> {
@@ -79,12 +79,7 @@ pub fn draw(app: &mut App, terminal: &mut Terminal<CrosstermBackend<std::io::Std
                     options,
                 )
             } else {
-                TranscriptComponent::with_vertical_scroll(
-                    &app.transcript,
-                    app.state.ui.scroll_vertical,
-                    theme,
-                    options,
-                )
+                TranscriptComponent::with_vertical_scroll(&app.transcript, app.state.ui.scroll_vertical, theme, options)
             };
             transcript_component.render(frame, layout.transcript);
 
@@ -154,10 +149,7 @@ fn capture_tui_snapshot(app: &mut App, event_type: &str, description: &str) {
 }
 
 fn render_sidebar_divider(
-    app: &App,
-    frame: &mut ratatui::Frame<'_>,
-    layout: TuiLayout,
-    sidebar: ratatui::layout::Rect,
+    app: &App, frame: &mut ratatui::Frame<'_>, layout: TuiLayout, sidebar: ratatui::layout::Rect,
 ) {
     let theme = Theme::palette(app.state.theme_variant());
     let x = sidebar.x + sidebar.width;

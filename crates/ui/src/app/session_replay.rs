@@ -18,8 +18,7 @@ pub fn reconstruct_transcript_from_session(app: &mut App) -> thunderus_core::Res
                 app.transcript_mut().add_tool_call(&tool, &args_str, "safe");
             }
             Event::ToolResult { tool, result, success, error } => {
-                let result_str =
-                    serde_json::to_string_pretty(&result).unwrap_or_else(|_| "Invalid JSON".to_string());
+                let result_str = serde_json::to_string_pretty(&result).unwrap_or_else(|_| "Invalid JSON".to_string());
                 app.transcript_mut().add_tool_result(&tool, &result_str, success);
 
                 if let Some(error_msg) = error {
@@ -45,11 +44,7 @@ pub fn reconstruct_transcript_from_session(app: &mut App) -> thunderus_core::Res
                 ));
             }
             Event::ShellCommand { command, args, working_dir, exit_code, output_ref } => {
-                let cmd_str = if args.is_empty() {
-                    command.clone()
-                } else {
-                    format!("{} {}", command, args.join(" "))
-                };
+                let cmd_str = if args.is_empty() { command.clone() } else { format!("{} {}", command, args.join(" ")) };
                 app.transcript_mut().add_system_message(format!(
                     "Shell: {} (in {})\nExit: {:?}",
                     cmd_str,

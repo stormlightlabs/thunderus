@@ -1,43 +1,8 @@
-use crate::transcript::{
-    ErrorType,
-    entry::{CardDetailLevel, TranscriptEntry},
-};
-
-use std::collections::VecDeque;
+use super::Transcript;
+use crate::transcript::{ErrorType, TranscriptEntry};
 use thunderus_core::ApprovalDecision;
 
-/// Transcript manages a conversation history with entries
-///
-/// Supports:
-/// - Adding entries (user messages, model responses, tool calls, etc.)
-/// - Streaming text updates for model responses
-/// - Setting approval decisions on pending prompts
-/// - Scrolling through history
-/// - Focusing and navigating between action cards
-#[derive(Debug, Clone, PartialEq)]
-pub struct Transcript {
-    entries: VecDeque<TranscriptEntry>,
-    max_entries: usize,
-    scroll_offset: usize,
-    focused_card_index: Option<usize>,
-}
-
 impl Transcript {
-    /// Create a new transcript with default max entries
-    pub fn new() -> Self {
-        Self { entries: VecDeque::with_capacity(100), max_entries: 1000, scroll_offset: 0, focused_card_index: None }
-    }
-
-    /// Create a new transcript with custom max entries
-    pub fn with_capacity(max_entries: usize) -> Self {
-        Self {
-            entries: VecDeque::with_capacity(max_entries.min(100)),
-            max_entries,
-            scroll_offset: 0,
-            focused_card_index: None,
-        }
-    }
-
     /// Add an entry to the transcript
     pub fn add(&mut self, entry: TranscriptEntry) {
         if self.entries.len() >= self.max_entries {
@@ -149,7 +114,7 @@ impl Transcript {
     }
 
     /// Get all entries
-    pub fn entries(&self) -> &VecDeque<TranscriptEntry> {
+    pub fn entries(&self) -> &std::collections::VecDeque<TranscriptEntry> {
         &self.entries
     }
 
@@ -178,127 +143,6 @@ impl Transcript {
         self.entries.iter().any(|e| e.is_pending())
     }
 
-    /// Get the index of the currently focused action card
-    pub fn focused_card_index(&self) -> Option<usize> {
-        self.focused_card_index
-    }
-
-    /// Get all action card indices in the transcript
-    fn get_action_card_indices(&self) -> Vec<usize> {
-        self.entries
-            .iter()
-            .enumerate()
-            .filter(|(_, e)| e.is_action_card())
-            .map(|(i, _)| i)
-            .collect()
-    }
-
-    /// Focus the first action card
-    pub fn focus_first_card(&mut self) -> bool {
-        let card_indices = self.get_action_card_indices();
-        if let Some(&first) = card_indices.first() {
-            self.focused_card_index = Some(first);
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Focus the last action card
-    pub fn focus_last_card(&mut self) -> bool {
-        let card_indices = self.get_action_card_indices();
-        if let Some(&last) = card_indices.last() {
-            self.focused_card_index = Some(last);
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Focus the next action card
-    pub fn focus_next_card(&mut self) -> bool {
-        let card_indices = self.get_action_card_indices();
-        if card_indices.is_empty() {
-            return false;
-        }
-
-        match self.focused_card_index {
-            Some(current) => {
-                if let Some(pos) = card_indices.iter().position(|&i| i == current)
-                    && pos + 1 < card_indices.len()
-                {
-                    self.focused_card_index = Some(card_indices[pos + 1]);
-                    return true;
-                }
-            }
-            None => {
-                if let Some(&first) = card_indices.first() {
-                    self.focused_card_index = Some(first);
-                    return true;
-                }
-            }
-        }
-        false
-    }
-
-    /// Focus the previous action card
-    pub fn focus_prev_card(&mut self) -> bool {
-        let card_indices = self.get_action_card_indices();
-        if card_indices.is_empty() {
-            return false;
-        }
-
-        match self.focused_card_index {
-            Some(current) => {
-                if let Some(pos) = card_indices.iter().position(|&i| i == current)
-                    && pos > 0
-                {
-                    self.focused_card_index = Some(card_indices[pos - 1]);
-                    return true;
-                }
-            }
-            None => {
-                if let Some(&last) = card_indices.last() {
-                    self.focused_card_index = Some(last);
-                    return true;
-                }
-            }
-        }
-        false
-    }
-
-    /// Toggle detail level of the currently focused card
-    pub fn toggle_focused_card_detail_level(&mut self) -> bool {
-        if let Some(idx) = self.focused_card_index
-            && let Some(entry) = self.entries.get_mut(idx)
-        {
-            entry.toggle_detail_level();
-            return true;
-        }
-        false
-    }
-
-    /// Set detail level of the currently focused card
-    pub fn set_focused_card_detail_level(&mut self, level: CardDetailLevel) -> bool {
-        if let Some(idx) = self.focused_card_index
-            && let Some(entry) = self.entries.get_mut(idx)
-        {
-            entry.set_detail_level(level);
-            return true;
-        }
-        false
-    }
-
-    /// Clear card focus
-    pub fn clear_card_focus(&mut self) {
-        self.focused_card_index = None;
-    }
-
-    /// Check if a specific entry is focused
-    pub fn is_entry_focused(&self, index: usize) -> bool {
-        self.focused_card_index.map(|i| i == index).unwrap_or(false)
-    }
-
     /// Clear all entries
     pub fn clear(&mut self) {
         self.entries.clear();
@@ -318,49 +162,6 @@ impl Transcript {
         }
     }
 
-    /// Scroll to bottom (most recent)
-    pub fn scroll_to_bottom(&mut self) {
-        self.scroll_offset = 0;
-    }
-
-    /// Scroll up
-    pub fn scroll_up(&mut self, lines: usize) {
-        self.scroll_offset = self.scroll_offset.saturating_add(lines);
-        self.scroll_offset = self.scroll_offset.min(self.entries.len().saturating_sub(1));
-    }
-
-    /// Scroll down
-    pub fn scroll_down(&mut self, lines: usize) {
-        self.scroll_offset = self.scroll_offset.saturating_sub(lines);
-    }
-
-    /// Get scroll offset
-    pub fn scroll_offset(&self) -> usize {
-        self.scroll_offset
-    }
-
-    /// Check if scrolled to bottom
-    pub fn is_at_bottom(&self) -> bool {
-        self.scroll_offset == 0
-    }
-
-    /// Get visible entries based on scroll offset
-    pub fn visible_entries(&self, max_visible: usize) -> Vec<&TranscriptEntry> {
-        if self.entries.is_empty() {
-            return vec![];
-        }
-
-        let start = self.scroll_offset;
-        let end = (start + max_visible).min(self.entries.len());
-        let entries_slice: Vec<&TranscriptEntry> = self.entries.iter().collect();
-        entries_slice[start..end].to_vec()
-    }
-
-    /// Get entries for rendering (handles VecDeque internals)
-    pub fn render_entries(&self) -> Vec<&TranscriptEntry> {
-        self.entries.iter().collect()
-    }
-
     /// Get all user messages from transcript for history navigation
     pub fn get_user_messages(&self) -> Vec<String> {
         self.entries
@@ -373,12 +174,6 @@ impl Transcript {
                 }
             })
             .collect()
-    }
-}
-
-impl Default for Transcript {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -499,19 +294,6 @@ mod tests {
     }
 
     #[test]
-    fn test_scroll_to_bottom() {
-        let mut transcript = Transcript::new();
-        for i in 0..10 {
-            transcript.add_user_message(format!("Message {}", i));
-        }
-        transcript.scroll_up(5);
-        transcript.scroll_to_bottom();
-
-        assert!(transcript.is_at_bottom());
-        assert_eq!(transcript.scroll_offset(), 0);
-    }
-
-    #[test]
     fn test_max_entries() {
         let mut transcript = Transcript::with_capacity(5);
         for i in 0..10 {
@@ -536,16 +318,6 @@ mod tests {
         assert!(matches!(entries[0], TranscriptEntry::UserMessage { .. }));
         assert!(matches!(entries[1], TranscriptEntry::ModelResponse { .. }));
         assert!(matches!(entries[2], TranscriptEntry::ToolCall { .. }));
-    }
-
-    #[test]
-    fn test_render_entries() {
-        let mut transcript = Transcript::new();
-        transcript.add_user_message("Hello");
-        transcript.add_model_response("Hi");
-
-        let entries = transcript.render_entries();
-        assert_eq!(entries.len(), 2);
     }
 
     #[test]
@@ -597,155 +369,5 @@ mod tests {
         assert_eq!(user_messages.len(), 5);
         assert_eq!(user_messages[0], "Message 5");
         assert_eq!(user_messages[4], "Message 9");
-    }
-
-    #[test]
-    fn test_card_focus_initial() {
-        let transcript = Transcript::new();
-        assert_eq!(transcript.focused_card_index(), None);
-    }
-
-    #[test]
-    fn test_card_focus_no_cards() {
-        let mut transcript = Transcript::new();
-        assert!(!transcript.focus_first_card());
-        assert!(!transcript.focus_last_card());
-        assert!(!transcript.focus_next_card());
-        assert!(!transcript.focus_prev_card());
-        assert_eq!(transcript.focused_card_index(), None);
-    }
-
-    #[test]
-    fn test_card_focus_single_card() {
-        let mut transcript = Transcript::new();
-        transcript.add_tool_call("test", "{}", "safe");
-
-        assert!(transcript.focus_first_card());
-        assert_eq!(transcript.focused_card_index(), Some(0));
-
-        transcript.clear_card_focus();
-        assert!(transcript.focus_last_card());
-        assert_eq!(transcript.focused_card_index(), Some(0));
-    }
-
-    #[test]
-    fn test_card_focus_multiple_cards() {
-        let mut transcript = Transcript::new();
-        transcript.add_user_message("Message 1");
-        transcript.add_tool_call("tool1", "{}", "safe");
-        transcript.add_model_response("Response 1");
-        transcript.add_tool_call("tool2", "{}", "safe");
-        transcript.add_tool_result("tool1", "result", true);
-        transcript.add_user_message("Message 2");
-
-        assert!(transcript.focus_first_card());
-        assert_eq!(transcript.focused_card_index(), Some(1));
-
-        assert!(transcript.focus_next_card());
-        assert_eq!(transcript.focused_card_index(), Some(3));
-
-        assert!(transcript.focus_next_card());
-        assert_eq!(transcript.focused_card_index(), Some(4));
-
-        assert!(!transcript.focus_next_card());
-        assert_eq!(transcript.focused_card_index(), Some(4));
-    }
-
-    #[test]
-    fn test_card_focus_prev() {
-        let mut transcript = Transcript::new();
-        transcript.add_tool_call("tool1", "{}", "safe");
-        transcript.add_tool_call("tool2", "{}", "safe");
-        transcript.add_tool_call("tool3", "{}", "safe");
-
-        transcript.focus_last_card();
-        assert_eq!(transcript.focused_card_index(), Some(2));
-
-        assert!(transcript.focus_prev_card());
-        assert_eq!(transcript.focused_card_index(), Some(1));
-
-        assert!(transcript.focus_prev_card());
-        assert_eq!(transcript.focused_card_index(), Some(0));
-
-        assert!(!transcript.focus_prev_card());
-        assert_eq!(transcript.focused_card_index(), Some(0));
-    }
-
-    #[test]
-    fn test_card_focus_clear() {
-        let mut transcript = Transcript::new();
-        transcript.add_tool_call("test", "{}", "safe");
-        transcript.focus_first_card();
-        assert_eq!(transcript.focused_card_index(), Some(0));
-
-        transcript.clear_card_focus();
-        assert_eq!(transcript.focused_card_index(), None);
-    }
-
-    #[test]
-    fn test_toggle_card_detail_level() {
-        let mut transcript = Transcript::new();
-        transcript.add_tool_call("test", "{}", "safe");
-        transcript.focus_first_card();
-
-        assert_eq!(
-            transcript.entries().front().unwrap().detail_level(),
-            CardDetailLevel::Brief
-        );
-
-        assert!(transcript.toggle_focused_card_detail_level());
-        assert_eq!(
-            transcript.entries().front().unwrap().detail_level(),
-            CardDetailLevel::Detailed
-        );
-
-        assert!(transcript.toggle_focused_card_detail_level());
-        assert_eq!(
-            transcript.entries().front().unwrap().detail_level(),
-            CardDetailLevel::Verbose
-        );
-    }
-
-    #[test]
-    fn test_toggle_card_detail_level_no_focus() {
-        let mut transcript = Transcript::new();
-        transcript.add_tool_call("test", "{}", "safe");
-        assert!(!transcript.toggle_focused_card_detail_level());
-    }
-
-    #[test]
-    fn test_set_card_detail_level() {
-        let mut transcript = Transcript::new();
-        transcript.add_tool_call("test", "{}", "safe");
-        transcript.focus_first_card();
-        assert!(transcript.set_focused_card_detail_level(CardDetailLevel::Verbose));
-        assert_eq!(
-            transcript.entries().front().unwrap().detail_level(),
-            CardDetailLevel::Verbose
-        );
-    }
-
-    #[test]
-    fn test_is_entry_focused() {
-        let mut transcript = Transcript::new();
-        transcript.add_user_message("Message");
-        transcript.add_tool_call("tool", "{}", "safe");
-        transcript.add_model_response("Response");
-        transcript.focus_first_card();
-
-        assert!(!transcript.is_entry_focused(0));
-        assert!(transcript.is_entry_focused(1));
-        assert!(!transcript.is_entry_focused(2));
-    }
-
-    #[test]
-    fn test_clear_clears_focus() {
-        let mut transcript = Transcript::new();
-        transcript.add_tool_call("test", "{}", "safe");
-        transcript.focus_first_card();
-        assert_eq!(transcript.focused_card_index(), Some(0));
-
-        transcript.clear();
-        assert_eq!(transcript.focused_card_index(), None);
     }
 }

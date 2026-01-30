@@ -189,8 +189,8 @@ pub fn suggest_concept(action_type: &str, risk_level: ToolRisk, context: &str) -
 
 #[cfg(test)]
 mod tests {
-    use super::super::classification::ToolRisk;
     use super::*;
+    use crate::classification::ToolRisk;
 
     #[test]
     fn test_teaching_state_new() {
