@@ -1,3 +1,4 @@
+pub mod config_editor;
 pub mod diff_view;
 pub mod footer;
 pub mod fuzzy_finder;
@@ -9,6 +10,7 @@ pub mod teaching_hint;
 pub mod transcript;
 pub mod welcome;
 
+pub use config_editor::ConfigEditorComponent;
 pub use diff_view::DiffView;
 pub use footer::Footer;
 pub use fuzzy_finder::FuzzyFinderComponent;

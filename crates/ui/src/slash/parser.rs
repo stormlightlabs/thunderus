@@ -93,6 +93,7 @@ pub fn parse_slash_command(cmd: String) -> Option<KeyAction> {
             }
         }
         "clear" => Some(KeyAction::SlashCommandClear),
+        "config" => Some(KeyAction::SlashCommandConfig),
         "garden" => {
             if parts.len() > 1 {
                 match parts[1] {
@@ -247,6 +248,12 @@ mod tests {
     fn test_parse_slash_command_clear() {
         let action = parse_slash_command("clear".to_string());
         assert!(matches!(action, Some(KeyAction::SlashCommandClear)));
+    }
+
+    #[test]
+    fn test_parse_slash_command_config() {
+        let action = parse_slash_command("config".to_string());
+        assert!(matches!(action, Some(KeyAction::SlashCommandConfig)));
     }
 
     #[test]

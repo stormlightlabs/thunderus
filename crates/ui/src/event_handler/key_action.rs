@@ -155,4 +155,10 @@ pub enum KeyAction {
     ReconcileStop,
     /// Rewind to previous message (undo last sent message)
     RewindLastMessage,
+    /// Slash command: open config editor
+    SlashCommandConfig,
+    /// Config editor: save and close
+    ConfigEditorSave,
+    /// Config editor: cancel and close
+    ConfigEditorCancel,
 }

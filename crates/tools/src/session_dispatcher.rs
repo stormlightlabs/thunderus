@@ -289,12 +289,14 @@ impl SessionToolDispatcher {
     }
 
     /// Extracts the target file path from tool arguments
+    ///
+    /// TODO: Multiedit handles multiple files
     fn get_target_path(&self, tool_name: &str, arguments: &serde_json::Value) -> Option<std::path::PathBuf> {
         let path_str = match tool_name {
             "write" | "read" => arguments.get("file_path").and_then(|v| v.as_str()),
             "patch" => arguments.get("file").and_then(|v| v.as_str()),
             "edit" => arguments.get("path").and_then(|v| v.as_str()),
-            "multiedit" => None, // Multiedit handles multiple files, might need special handling
+            "multiedit" => None,
             _ => None,
         };
 

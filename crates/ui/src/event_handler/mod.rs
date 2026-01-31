@@ -1,11 +1,15 @@
 mod approval;
+mod config_editor;
 mod fuzzy_finder;
 mod key_action;
 mod normal;
 
 pub use key_action::KeyAction;
 
-use self::{approval::handle_approval_key, fuzzy_finder::handle_fuzzy_finder_key, normal::handle_normal_key};
+use self::{
+    approval::handle_approval_key, config_editor::handle_config_editor_key, fuzzy_finder::handle_fuzzy_finder_key,
+    normal::handle_normal_key,
+};
 use crate::state::AppState;
 
 use crossterm::event::{Event, KeyEvent, KeyEventKind};
@@ -48,6 +52,10 @@ impl EventHandler {
 
         if state.is_fuzzy_finder_active() {
             return handle_fuzzy_finder_key(event, state);
+        }
+
+        if state.is_config_editor_open() {
+            return handle_config_editor_key(event, state);
         }
 
         match state.approval_ui.pending_approval {

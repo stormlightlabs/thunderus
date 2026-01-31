@@ -112,7 +112,7 @@ impl TuiLayout {
         Self {
             mode: LayoutMode::Inspector,
             header,
-            transcript: Rect::default(), // Not used in Inspector mode
+            transcript: Rect::default(),
             evidence_list: Some(main_chunks[0]),
             evidence_detail: Some(main_chunks[1]),
             sidebar: None,

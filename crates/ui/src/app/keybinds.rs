@@ -470,6 +470,40 @@ pub async fn handle_event(app: &mut App, event: crossterm::event::Event) {
                 }
             }
             KeyAction::NoOp => (),
+            KeyAction::SlashCommandConfig => {
+                app.state_mut().open_config_editor();
+            }
+            KeyAction::ConfigEditorSave => {
+                let editor_values = app.state().config_editor.as_ref().map(|editor| {
+                    (
+                        editor.approval_mode,
+                        editor.sandbox_mode,
+                        editor.network_access,
+                        editor.save(),
+                    )
+                });
+
+                match editor_values {
+                    Some((approval_mode, sandbox_mode, network_access, save_result)) => match save_result {
+                        Ok(msg) => {
+                            app.state_mut().config.approval_mode = approval_mode;
+                            app.state_mut().config.sandbox_mode = sandbox_mode;
+                            app.state_mut().config.allow_network = network_access;
+                            app.transcript_mut().add_system_message(msg);
+                        }
+                        Err(e) => app.transcript_mut().add_system_message(format!("Error: {}", e)),
+                    },
+                    None => {
+                        app.transcript_mut()
+                            .add_system_message("No config editor open".to_string());
+                    }
+                }
+                app.state_mut().close_config_editor();
+            }
+            KeyAction::ConfigEditorCancel => {
+                app.state_mut().close_config_editor();
+                app.transcript_mut().add_system_message("Config editor cancelled");
+            }
         }
     }
 }

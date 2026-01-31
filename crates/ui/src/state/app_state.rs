@@ -4,9 +4,10 @@ use std::path::PathBuf;
 use thunderus_core::{ApprovalMode, ProviderConfig, SandboxMode};
 
 use super::{
-    ApprovalState, ApprovalUIState, ComposerMode, ComposerState, ConfigState, DiffNavigationState, EvidenceState,
-    ExitState, GitDiff, HeaderState, InputState, MemoryHitsState, ModelSelectorState, ModifiedFile, SessionEvent,
-    SessionStats, SessionTrackingState, SidebarCollapseState, UIState, VerbosityLevel, WelcomeState,
+    ApprovalState, ApprovalUIState, ComposerMode, ComposerState, ConfigEditorState, ConfigState,
+    DiffNavigationState, EvidenceState, ExitState, GitDiff, HeaderState, InputState, MemoryHitsState,
+    ModelSelectorState, ModifiedFile, SessionEvent, SessionStats, SessionTrackingState, SidebarCollapseState,
+    UIState, VerbosityLevel, WelcomeState,
 };
 
 /// Main application state
@@ -36,6 +37,8 @@ pub struct AppState {
     pub memory_hits: MemoryHitsState,
     /// Evidence state for Inspector
     pub evidence: EvidenceState,
+    /// Config editor state (when open)
+    pub config_editor: Option<ConfigEditorState>,
     /// Test mode for deterministic TUI testing
     pub test_mode: bool,
 }
@@ -64,6 +67,7 @@ impl AppState {
             model_selector: ModelSelectorState::new(model_name),
             memory_hits: MemoryHitsState::new(),
             evidence: EvidenceState::new(),
+            config_editor: None,
             test_mode: false,
         }
     }
@@ -372,6 +376,28 @@ impl AppState {
     pub fn is_test_mode(&self) -> bool {
         self.test_mode
     }
+
+    /// Open the config editor with current settings
+    pub fn open_config_editor(&mut self) {
+        self.config_editor = Some(ConfigEditorState::new(
+            self.config.profile.clone(),
+            self.config.approval_mode,
+            self.config.sandbox_mode,
+            self.config.allow_network,
+            self.config.model_name(),
+            self.config.config_path.clone(),
+        ));
+    }
+
+    /// Close the config editor
+    pub fn close_config_editor(&mut self) {
+        self.config_editor = None;
+    }
+
+    /// Check if the config editor is open
+    pub fn is_config_editor_open(&self) -> bool {
+        self.config_editor.is_some()
+    }
 }
 
 impl Default for AppState {
@@ -402,6 +428,7 @@ impl Default for AppState {
             model_selector: ModelSelectorState::new("glm-4.7".to_string()),
             memory_hits: MemoryHitsState::default(),
             evidence: EvidenceState::default(),
+            config_editor: None,
             test_mode: false,
         }
     }

@@ -1,7 +1,7 @@
 use super::App;
 use crate::components::{
-    Footer, FuzzyFinderComponent, Header, Inspector, MemoryHitsPanel, Sidebar, TeachingHintPopup,
-    Transcript as TranscriptComponent, WelcomeView,
+    ConfigEditorComponent, Footer, FuzzyFinderComponent, Header, Inspector, MemoryHitsPanel, Sidebar,
+    TeachingHintPopup, Transcript as TranscriptComponent, WelcomeView,
 };
 use crate::layout::{LayoutMode, TuiLayout};
 use crate::state::MainView;
@@ -113,6 +113,11 @@ pub fn draw(app: &mut App, terminal: &mut Terminal<CrosstermBackend<std::io::Std
             let theme = Theme::palette(app.state.theme_variant());
             let hint_popup = TeachingHintPopup::new(hint, theme);
             hint_popup.render(frame, content_area);
+        }
+
+        if app.state.is_config_editor_open() {
+            let config_editor = ConfigEditorComponent::new(&app.state);
+            config_editor.render(frame);
         }
     })?;
 
