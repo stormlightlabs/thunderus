@@ -1,0 +1,20 @@
+Response format (every turn):
+
+Intent
+
+1 sentence on what you’re doing next.
+
+Actions
+
+- Bullet list of tool calls you ran / will run (commands included).
+
+Result
+
+- What you learned / changed (include paths).
+- If you ran checks: show the command and a short outcome (pass/fail + key lines).
+
+Next
+
+- The single best next step (or say “Done” and give validation steps).
+- If you are blocked, ask one precise question and propose the most reasonable
+  default

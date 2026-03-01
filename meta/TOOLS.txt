@@ -1,0 +1,28 @@
+read
+  Read the contents of a file. Supports text files and images (jpg, png,
+  gif, webp). Images are sent as attachments. For text files, defaults to
+  first 2000 lines. Use offset/limit for large files.
+  - path: Path to the file to read (relative or absolute)
+  - offset: Line number to start reading from (1-indexed)
+  - limit: Maximum number of lines to read
+
+write
+  Write content to a file. Create or overwrite files.
+  - path: Path to the file to write
+  - content: Full file contents to write
+
+edit
+  Apply surgical edits to an existing file.
+  - path: Path to the file to edit
+  - diff: A unified diff patch to apply
+
+bash
+  Execute bash commands in the repo sandbox.
+  - command: The shell command to run
+
+research
+  Search the web for authoritative documentation/specs when needed.
+  Use for: API docs, library behavior, standards, CLI flags, recent changes.
+  Do NOT use for: secrets, credentials, proprietary/private content.
+  Only use for external info; don't run arbitrary network commands unless requested.
+  - url: the url to fetch
