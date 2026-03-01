@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+
+{% block title %}Loading{% endblock %}
+
+{% block extra_css %}
+<style>
+    .loading-center {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 4rem 2rem;
+        gap: 2rem;
+    }
+
+    .loading-status {
+        color: var(--text-secondary);
+        font-size: 0.9375rem;
+    }
+
+    .tasks-container {
+        width: 100%;
+        max-width: 500px;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .task-row {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.75rem 1rem;
+        background: var(--bg-secondary);
+        border-radius: 4px;
+        border: 1px solid var(--border-color);
+    }
+
+    .task-indicator {
+        width: 16px;
+        height: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .task-indicator.spinning {
+        border: 2px solid var(--border-color);
+        border-top-color: var(--accent-cyan);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+    }
+
+    .task-indicator.done {
+        color: var(--accent-green);
+    }
+
+    .task-indicator.waiting {
+        color: var(--text-muted);
+    }
+
+    .task-label {
+        flex: 1;
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+    }
+
+    .task-state {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- User Input -->
+<div class="repl-line">
+    <span class="repl-prompt">❯</span>
+    <span class="repl-input">Analyze the codebase and find security vulnerabilities</span>
+</div>
+
+<!-- Intent Section -->
+<div class="section intent">
+    <div class="section-header">
+        <span class="section-icon">◉</span>
+        <span class="section-title">Intent</span>
+    </div>
+    <div class="section-content">
+        Perform comprehensive security analysis of the codebase to identify vulnerabilities.
+    </div>
+</div>
+
+<!-- Actions Section with Loading -->
+<div class="section actions">
+    <div class="section-header">
+        <span class="section-icon">⚡</span>
+        <span class="section-title">Actions</span>
+    </div>
+    <div class="section-content">
+        <div class="loading-center">
+            <div class="spinner"></div>
+
+            <div class="loading-status">
+                Running security analysis
+                <span class="loading-dots"></span>
+            </div>
+
+            <div class="tasks-container">
+                <div class="task-row">
+                    <span class="task-indicator done">✓</span>
+                    <span class="task-label">Scanning dependencies</span>
+                    <span class="task-state">Done</span>
+                </div>
+                <div class="task-row">
+                    <span class="task-indicator done">✓</span>
+                    <span class="task-label">Analyzing input validation</span>
+                    <span class="task-state">Done</span>
+                </div>
+                <div class="task-row">
+                    <span class="task-indicator spinning"></span>
+                    <span class="task-label">Checking authentication flows</span>
+                    <span class="task-state">In progress</span>
+                </div>
+                <div class="task-row">
+                    <span class="task-indicator waiting">○</span>
+                    <span class="task-label">Reviewing SQL queries</span>
+                    <span class="task-state">Pending</span>
+                </div>
+                <div class="task-row">
+                    <span class="task-indicator waiting">○</span>
+                    <span class="task-label">Generating report</span>
+                    <span class="task-state">Pending</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Input Area -->
+<div class="input-area">
+    <div class="repl-line input">
+        <span class="repl-prompt">❯</span>
+        <span class="repl-cursor"></span>
+    </div>
+</div>
+{% endblock %}

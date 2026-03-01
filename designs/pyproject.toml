@@ -1,0 +1,18 @@
+[project]
+name = "thunderus"
+version = "0.1.0"
+description = "Thunderus Terminal AI Assistant - Flask Web Interface"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "flask>=3.0.0",
+    "jinja2>=3.1.0",
+]
+
+[project.scripts]
+thunderus = "app:main"
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.0.0",
+]

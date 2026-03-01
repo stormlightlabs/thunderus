@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+
+{% block title %}Files{% endblock %}
+
+{% block content_style %}style="padding: 0;"{% endblock %}
+
+{% block extra_css %}
+<style>
+    .file-browser {
+        display: grid;
+        grid-template-columns: 250px 1fr;
+        gap: 1px;
+        background: var(--border-color);
+        border-radius: 6px;
+        overflow: hidden;
+        height: 100%;
+        min-height: 0;
+    }
+
+    .file-tree {
+        background: var(--bg-secondary);
+        padding: 1rem;
+        overflow-y: auto;
+        min-height: 0;
+    }
+
+    .file-content {
+        background: var(--bg-terminal);
+        padding: 1rem;
+        overflow: auto;
+        font-size: 0.875rem;
+        line-height: 1.5;
+        flex: 1;
+        min-height: 0;
+    }
+
+    .tree-item {
+        padding: 0.25rem 0;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .tree-item:hover, .tree-item.active {
+        background: var(--bg-tertiary);
+        border-radius: 3px;
+        margin: 0 -0.5rem;
+        padding-left: 0.5rem;
+        padding-right: 0.5rem;
+    }
+
+    .tree-folder { color: var(--accent-yellow); }
+    .tree-file { color: var(--text-secondary); }
+    .tree-indent { width: 1rem; }
+
+    .code-line { display: flex; }
+
+    .line-number {
+        color: var(--text-muted);
+        width: 3rem;
+        text-align: right;
+        padding-right: 1rem;
+        user-select: none;
+    }
+
+    .line-content { color: var(--text-secondary); }
+    .line-content.comment { color: var(--text-muted); }
+    .line-content.keyword { color: var(--accent-pink); }
+    .line-content.string { color: var(--accent-green); }
+    .line-content.function { color: var(--accent-cyan); }
+
+    .breadcrumb {
+        padding: 0.5rem 1rem;
+        background: var(--bg-tertiary);
+        border-bottom: 1px solid var(--border-color);
+        font-size: 0.8125rem;
+        color: var(--text-muted);
+        flex-shrink: 0;
+    }
+
+    .breadcrumb span { color: var(--accent-cyan); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="file-browser">
+    <div class="file-tree">
+        <div class="tree-item">
+            <span class="tree-folder">▶</span>
+            <span>my-project</span>
+        </div>
+        <div class="tree-item">
+            <span class="tree-indent"></span>
+            <span class="tree-folder">▶</span>
+            <span>src</span>
+        </div>
+        <div class="tree-item">
+            <span class="tree-indent"></span>
+            <span class="tree-indent"></span>
+            <span class="tree-folder">▶</span>
+            <span>components</span>
+        </div>
+        <div class="tree-item">
+            <span class="tree-indent"></span>
+            <span class="tree-indent"></span>
+            <span class="tree-indent"></span>
+            <span class="tree-file">⌸</span>
+            <span>Button.js</span>
+        </div>
+        <div class="tree-item active">
+            <span class="tree-indent"></span>
+            <span class="tree-indent"></span>
+            <span class="tree-indent"></span>
+            <span class="tree-file">⌸</span>
+            <span style="color: var(--accent-cyan);">utils.js</span>
+        </div>
+        <div class="tree-item">
+            <span class="tree-indent"></span>
+            <span class="tree-indent"></span>
+            <span class="tree-file">⌸</span>
+            <span>index.js</span>
+        </div>
+        <div class="tree-item">
+            <span class="tree-indent"></span>
+            <span class="tree-folder">▶</span>
+            <span>tests</span>
+        </div>
+        <div class="tree-item">
+            <span class="tree-indent"></span>
+            <span class="tree-file">⌸</span>
+            <span>package.json</span>
+        </div>
+        <div class="tree-item">
+            <span class="tree-indent"></span>
+            <span class="tree-file">⌸</span>
+            <span>README.md</span>
+        </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; min-height: 0; height: 100%;">
+        <div class="breadcrumb">
+            my-project > src > components > <span>utils.js</span>
+        </div>
+        <div class="file-content">
+            <div class="code-line">
+                <span class="line-number">1</span>
+                <span class="line-content comment">// Utility functions for data processing</span>
+            </div>
+            <div class="code-line">
+                <span class="line-number">2</span>
+                <span class="line-content"></span>
+            </div>
+            <div class="code-line">
+                <span class="line-number">3</span>
+                <span class="line-content comment">// TODO: Refactor this to use async/await</span>
+            </div>
+            <div class="code-line">
+                <span class="line-number">4</span>
+                <span class="line-content"></span>
+            </div>
+            <div class="code-line">
+                <span class="line-number">5</span>
+                <span class="line-content"></span>
+                <span class="line-content keyword">function</span>
+                <span class="line-content"> </span>
+                <span class="line-content function">processData</span>
+                <span class="line-content">(</span>
+                <span class="line-content">data</span>
+                <span class="line-content">) {</span>
+            </div>
+            <div class="code-line">
+                <span class="line-number">6</span>
+                <span class="line-content">  </span>
+                <span class="line-content keyword">if</span>
+                <span class="line-content"> (!data) {</span>
+            </div>
+            <div class="code-line">
+                <span class="line-number">7</span>
+                <span class="line-content">    </span>
+                <span class="line-content keyword">throw</span>
+                <span class="line-content"> </span>
+                <span class="line-content keyword">new</span>
+                <span class="line-content"> </span>
+                <span class="line-content function">Error</span>
+                <span class="line-content">(</span>
+                <span class="line-content string">"No data provided"</span>
+                <span class="line-content">);</span>
+            </div>
+            <div class="code-line">
+                <span class="line-number">8</span>
+                <span class="line-content">  }</span>
+            </div>
+            <div class="code-line">
+                <span class="line-number">9</span>
+                <span class="line-content">  </span>
+                <span class="line-content keyword">return</span>
+                <span class="line-content"> data.</span>
+                <span class="line-content function">map</span>
+                <span class="line-content">(</span>
+                <span class="line-content">x</span>
+                <span class="line-content"> =>></span>
+                <span class="line-content"> x * </span>
+                <span class="line-content">2</span>
+                <span class="line-content">);</span>
+            </div>
+            <div class="code-line">
+                <span class="line-number">10</span>
+                <span class="line-content">}</span>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

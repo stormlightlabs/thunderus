@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{% block title %}Thunderus{% endblock %} - Terminal AI Assistant</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@100..800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <nav class="wireframe-nav">
+        <a href="{{ url_for('welcome') }}" class="{% if request.endpoint == 'welcome' %}active{% endif %}">Welcome</a>
+        <a href="{{ url_for('tutorial') }}" class="{% if request.endpoint == 'tutorial' %}active{% endif %}">Tutorial</a>
+        <a href="{{ url_for('chat_active') }}" class="{% if request.endpoint == 'chat_active' %}active{% endif %}">Active</a>
+        <a href="{{ url_for('tools') }}" class="{% if request.endpoint == 'tools' %}active{% endif %}">Tools</a>
+        <a href="{{ url_for('files') }}" class="{% if request.endpoint == 'files' %}active{% endif %}">Files</a>
+        <a href="{{ url_for('loading') }}" class="{% if request.endpoint == 'loading' %}active{% endif %}">Loading</a>
+        <a href="{{ url_for('settings') }}" class="{% if request.endpoint == 'settings' %}active{% endif %}">Settings</a>
+        <a href="{{ url_for('help_page') }}" class="{% if request.endpoint == 'help_page' %}active{% endif %}">Help</a>
+    </nav>
+
+    <div class="wireframe-container">
+        <div class="terminal-window">
+            <div class="terminal-header">
+                <div class="terminal-controls">
+                    <button class="terminal-btn close"></button>
+                    <button class="terminal-btn minimize"></button>
+                    <button class="terminal-btn maximize"></button>
+                </div>
+                <span class="terminal-title">Thunderus</span>
+            </div>
+
+            <div class="terminal-content" {% block content_style %}{% endblock %}>
+                {% block content %}{% endblock %}
+            </div>
+        </div>
+    </div>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

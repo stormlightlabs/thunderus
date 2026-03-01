@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+
+{% block title %}Welcome{% endblock %}
+
+{% block extra_css %}
+<style>
+    .empty-logo {
+        color: var(--accent-cyan);
+        font-size: 0.625rem;
+        line-height: 1.2;
+        white-space: pre;
+        text-align: center;
+        opacity: 0.9;
+        font-family: "JetBrains Mono", monospace;
+        margin: 0;
+    }
+
+    .empty-greeting {
+        text-align: center;
+        color: var(--text-secondary);
+        font-size: 1rem;
+    }
+
+    .empty-greeting strong {
+        color: var(--text-primary);
+    }
+
+    .suggestions {
+        width: 100%;
+        max-width: 600px;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .suggestion-item {
+        text-align: left;
+    }
+
+    .suggestion-item::before {
+        content: "›";
+        color: var(--accent-cyan);
+        margin-right: 0.75rem;
+    }
+
+    .empty-hint {
+        margin-top: auto;
+        padding-top: 2rem;
+        color: var(--text-muted);
+        font-size: 0.8125rem;
+        text-align: center;
+    }
+
+    .empty-hint kbd {
+        background: var(--bg-tertiary);
+        padding: 0.125rem 0.375rem;
+        border-radius: 3px;
+        border: 1px solid var(--border-color);
+        color: var(--accent-cyan);
+        font-family: inherit;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="flex-center" style="padding: 2rem; gap: 2rem;">
+    <pre class="empty-logo">▐▖   ▀▛▘▌ ▌▌ ▌▙ ▌▛▀▖▛▀▘▛▀▖▌ ▌▞▀▖
+▐▝▚▖  ▌ ▙▄▌▌ ▌▌▌▌▌ ▌▙▄ ▙▄▘▌ ▌▚▄ 
+▐▞▘   ▌ ▌ ▌▌ ▌▌▝▌▌ ▌▌  ▌▚ ▌ ▌▖ ▌
+▝     ▘ ▘ ▘▝▀ ▘ ▘▀▀ ▀▀▘▘ ▘▝▀ ▝▀ </pre>
+
+    <div class="empty-greeting">
+        <strong>Thunderus</strong> — What can I help you build?
+    </div>
+
+    <div class="suggestions">
+        <div class="section-title-muted" style="text-align: center; margin-bottom: 0.5rem;">Try asking</div>
+
+        <div class="card-item suggestion-item">Refactor this function to use async/await</div>
+        <div class="card-item suggestion-item">Find all TODO comments in the codebase</div>
+        <div class="card-item suggestion-item">Write tests for the auth module</div>
+        <div class="card-item suggestion-item">Explain how the database connection works</div>
+        <div class="card-item suggestion-item">Fix the bug in src/utils.js line 42</div>
+    </div>
+
+    <div class="empty-hint">
+        Press <kbd>?</kbd> for help, <kbd>ctrl+n</kbd> for new chat, <kbd>@file</kbd> to reference files
+    </div>
+</div>
+
+<div class="input-area">
+    <div class="repl-line input">
+        <span class="repl-prompt">❯</span>
+        <span class="repl-cursor"></span>
+    </div>
+</div>
+{% endblock %}

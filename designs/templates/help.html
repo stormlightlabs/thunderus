@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+
+{% block title %}Help{% endblock %}
+
+{% block extra_css %}
+<style>
+    .help-content {
+        max-width: 800px;
+        margin: 0 auto;
+    }
+
+    .help-section {
+        margin-bottom: 2rem;
+    }
+
+    .help-section-title {
+        color: var(--accent-cyan);
+        font-size: 1rem;
+        font-weight: 600;
+        margin-bottom: 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .shortcut-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.75rem;
+    }
+
+    .shortcut-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.625rem 0;
+    }
+
+    .shortcut-name {
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+    }
+
+    .shortcut-keys {
+        display: flex;
+        gap: 0.375rem;
+    }
+
+    .command-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .command-item {
+        display: flex;
+        gap: 1rem;
+        padding: 0.75rem;
+        background: var(--bg-secondary);
+        border-radius: 6px;
+        border: 1px solid var(--border-color);
+    }
+
+    .command-trigger {
+        color: var(--accent-cyan);
+        font-family: inherit;
+        font-size: 0.875rem;
+        white-space: nowrap;
+    }
+
+    .command-desc {
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+    }
+
+    .tip-box {
+        background: rgba(51, 177, 255, 0.1);
+        border: 1px solid var(--accent-cyan);
+        border-radius: 6px;
+        padding: 1rem;
+        margin-top: 1rem;
+    }
+
+    .tip-title {
+        color: var(--accent-cyan);
+        font-weight: 600;
+        font-size: 0.875rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .tip-text {
+        color: var(--text-secondary);
+        font-size: 0.8125rem;
+        line-height: 1.5;
+    }
+
+    .help-nav {
+        display: flex;
+        gap: 1rem;
+        margin-bottom: 2rem;
+        padding-bottom: 1rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .help-nav-item {
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+        cursor: pointer;
+        padding: 0.25rem 0;
+        border-bottom: 2px solid transparent;
+        transition: all 0.15s ease;
+    }
+
+    .help-nav-item:hover {
+        color: var(--text-primary);
+    }
+
+    .help-nav-item.active {
+        color: var(--accent-cyan);
+        border-bottom-color: var(--accent-cyan);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="help-content">
+    <div class="help-nav">
+        <span class="help-nav-item active">Keyboard Shortcuts</span>
+        <span class="help-nav-item">Commands</span>
+        <span class="help-nav-item">Tips</span>
+        <span class="help-nav-item">About</span>
+    </div>
+
+    <div class="help-section">
+        <div class="help-section-title">Navigation</div>
+        <div class="shortcut-grid">
+            <div class="shortcut-item">
+                <span class="shortcut-name">New chat</span>
+                <div class="shortcut-keys">
+                    <span class="shortcut-key">Ctrl</span>
+                    <span class="shortcut-key">N</span>
+                </div>
+            </div>
+            <div class="shortcut-item">
+                <span class="shortcut-name">Close chat</span>
+                <div class="shortcut-keys">
+                    <span class="shortcut-key">Ctrl</span>
+                    <span class="shortcut-key">W</span>
+                </div>
+            </div>
+            <div class="shortcut-item">
+                <span class="shortcut-name">Next chat</span>
+                <div class="shortcut-keys">
+                    <span class="shortcut-key">Ctrl</span>
+                    <span class="shortcut-key">Tab</span>
+                </div>
+            </div>
+            <div class="shortcut-item">
+                <span class="shortcut-name">Previous chat</span>
+                <div class="shortcut-keys">
+                    <span class="shortcut-key">Ctrl</span>
+                    <span class="shortcut-key">Shift</span>
+                    <span class="shortcut-key">Tab</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="help-section">
+        <div class="help-section-title">Editing</div>
+        <div class="shortcut-grid">
+            <div class="shortcut-item">
+                <span class="shortcut-name">Send message</span>
+                <div class="shortcut-keys">
+                    <span class="shortcut-key">Enter</span>
+                </div>
+            </div>
+            <div class="shortcut-item">
+                <span class="shortcut-name">New line</span>
+                <div class="shortcut-keys">
+                    <span class="shortcut-key">Shift</span>
+                    <span class="shortcut-key">Enter</span>
+                </div>
+            </div>
+            <div class="shortcut-item">
+                <span class="shortcut-name">Clear input</span>
+                <div class="shortcut-keys">
+                    <span class="shortcut-key">Ctrl</span>
+                    <span class="shortcut-key">K</span>
+                </div>
+            </div>
+            <div class="shortcut-item">
+                <span class="shortcut-name">Focus input</span>
+                <div class="shortcut-keys">
+                    <span class="shortcut-key">Ctrl</span>
+                    <span class="shortcut-key">L</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="help-section">
+        <div class="help-section-title">Slash Commands</div>
+        <div class="command-list">
+            <div class="command-item">
+                <span class="command-trigger">/help</span>
+                <span class="command-desc">Show this help menu</span>
+            </div>
+            <div class="command-item">
+                <span class="command-trigger">/clear</span>
+                <span class="command-desc">Clear current conversation</span>
+            </div>
+            <div class="command-item">
+                <span class="command-trigger">/model</span>
+                <span class="command-desc">Switch AI model</span>
+            </div>
+            <div class="command-item">
+                <span class="command-trigger">/tokens</span>
+                <span class="command-desc">Show token usage</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="tip-box">
+        <div class="tip-title">Pro Tip</div>
+        <div class="tip-text">
+            Use @ to reference files in your workspace. Type @ followed by the filename
+            to include file context in your message. You can also use # to reference
+            specific line numbers.
+        </div>
+    </div>
+</div>
+{% endblock %}

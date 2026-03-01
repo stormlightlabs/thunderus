@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+
+{% block title %}Settings{% endblock %}
+
+{% block extra_css %}
+<style>
+    .settings-container {
+        display: grid;
+        grid-template-columns: 200px 1fr;
+        gap: 2rem;
+        height: 100%;
+    }
+
+    .settings-sidebar {
+        border-right: 1px solid var(--border-color);
+        padding-right: 1rem;
+    }
+
+    .settings-nav {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .settings-nav-item {
+        padding: 0.5rem 0.75rem;
+        border-radius: 4px;
+        cursor: pointer;
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+        transition: all 0.15s ease;
+    }
+
+    .settings-nav-item:hover {
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+    }
+
+    .settings-nav-item.active {
+        background: var(--bg-tertiary);
+        color: var(--accent-cyan);
+    }
+
+    .settings-content {
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+    }
+
+    .setting-group {
+        border-bottom: 1px solid var(--border-color);
+        padding-bottom: 1.5rem;
+    }
+
+    .setting-group:last-child {
+        border-bottom: none;
+    }
+
+    .setting-title {
+        color: var(--text-primary);
+        font-size: 1rem;
+        font-weight: 600;
+        margin-bottom: 1rem;
+    }
+
+    .setting-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.75rem 0;
+    }
+
+    .setting-label {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .setting-name {
+        color: var(--text-primary);
+        font-size: 0.875rem;
+    }
+
+    .setting-desc {
+        color: var(--text-muted);
+        font-size: 0.75rem;
+    }
+
+    .setting-control {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .settings-actions {
+        display: flex;
+        gap: 0.75rem;
+        margin-top: auto;
+        padding-top: 1rem;
+        border-top: 1px solid var(--border-color);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="settings-container">
+    <div class="settings-sidebar">
+        <div class="settings-nav">
+            <div class="settings-nav-item active">General</div>
+            <div class="settings-nav-item">Appearance</div>
+            <div class="settings-nav-item">Editor</div>
+            <div class="settings-nav-item">Keyboard</div>
+            <div class="settings-nav-item">AI Model</div>
+            <div class="settings-nav-item">Tools</div>
+            <div class="settings-nav-item">Privacy</div>
+        </div>
+    </div>
+
+    <div class="settings-content">
+        <div class="setting-group">
+            <div class="setting-title">General Settings</div>
+
+            <div class="setting-item">
+                <div class="setting-label">
+                    <span class="setting-name">Auto-save conversations</span>
+                    <span class="setting-desc">Automatically save chat history</span>
+                </div>
+                <div class="setting-control">
+                    <div class="toggle active">
+                        <div class="toggle-thumb"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="setting-item">
+                <div class="setting-label">
+                    <span class="setting-name">Show tool executions</span>
+                    <span class="setting-desc">Display tool calls in chat</span>
+                </div>
+                <div class="setting-control">
+                    <div class="toggle active">
+                        <div class="toggle-thumb"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="setting-item">
+                <div class="setting-label">
+                    <span class="setting-name">Sound effects</span>
+                    <span class="setting-desc">Play sounds on completion</span>
+                </div>
+                <div class="setting-control">
+                    <div class="toggle">
+                        <div class="toggle-thumb"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="setting-group">
+            <div class="setting-title">Appearance</div>
+
+            <div class="setting-item">
+                <div class="setting-label">
+                    <span class="setting-name">Theme</span>
+                    <span class="setting-desc">Select color scheme</span>
+                </div>
+                <div class="setting-control">
+                    <select class="select-box">
+                        <option>Oxocarbon Dark</option>
+                        <option>Oxocarbon Light</option>
+                        <option>Dracula</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="setting-item">
+                <div class="setting-label">
+                    <span class="setting-name">Font size</span>
+                    <span class="setting-desc">Editor font size</span>
+                </div>
+                <div class="setting-control">
+                    <select class="select-box">
+                        <option>12px</option>
+                        <option selected>14px</option>
+                        <option>16px</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="setting-group">
+            <div class="setting-title">AI Model</div>
+
+            <div class="setting-item">
+                <div class="setting-label">
+                    <span class="setting-name">Default model</span>
+                    <span class="setting-desc">Model for new conversations</span>
+                </div>
+                <div class="setting-control">
+                    <select class="select-box">
+                        <option selected>Claude 3.5 Sonnet</option>
+                        <option>Claude 3 Opus</option>
+                        <option>GPT-4</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="setting-item">
+                <div class="setting-label">
+                    <span class="setting-name">Temperature</span>
+                    <span class="setting-desc">Response creativity (0-1)</span>
+                </div>
+                <div class="setting-control">
+                    <select class="select-box">
+                        <option>0.0</option>
+                        <option>0.3</option>
+                        <option selected>0.7</option>
+                        <option>1.0</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="settings-actions">
+            <button class="btn">Reset to defaults</button>
+            <button class="btn btn-primary">Save changes</button>
+        </div>
+    </div>
+</div>
+{% endblock %}

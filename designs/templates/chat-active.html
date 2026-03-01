@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block title %}Active Conversation{% endblock %}
+
+{% block content %}
+<!-- User Input -->
+<div class="repl-line">
+    <span class="repl-prompt">❯</span>
+    <span class="repl-input">Refactor the auth module to use middleware pattern</span>
+</div>
+
+<!-- Intent Section -->
+<div class="section intent">
+    <div class="section-header">
+        <span class="section-icon">◉</span>
+        <span class="section-title">Intent</span>
+    </div>
+    <div class="section-content">
+        Refactor the authentication module to use a middleware pattern for better modularity and testability.
+    </div>
+</div>
+
+<!-- Actions Section -->
+<div class="section actions">
+    <div class="section-header">
+        <span class="section-icon">⚡</span>
+        <span class="section-title">Actions</span>
+    </div>
+    <div class="section-content">
+        <div class="tool-call">
+            <div class="tool-header">
+                <span class="tool-name">read</span>
+                <span class="tool-args">src/auth.js</span>
+                <span class="tool-status success">✓</span>
+            </div>
+        </div>
+
+        <div class="tool-call">
+            <div class="tool-header">
+                <span class="tool-name">read</span>
+                <span class="tool-args">src/middleware/</span>
+                <span class="tool-status success">✓</span>
+            </div>
+        </div>
+
+        <div class="tool-call">
+            <div class="tool-header">
+                <span class="tool-name">edit</span>
+                <span class="tool-args">src/auth.js</span>
+                <span class="tool-status success">✓</span>
+            </div>
+            <div class="tool-diff">
+                <div class="diff-line removed">- function authenticate(req) { ... }</div>
+                <div class="diff-line added">+ const authMiddleware = (req, res, next) => { ... }</div>
+                <div class="diff-line added">+ module.exports = { authMiddleware };</div>
+            </div>
+        </div>
+
+        <div class="tool-call">
+            <div class="tool-header">
+                <span class="tool-name">bash</span>
+                <span class="tool-args">npm test</span>
+                <span class="tool-status success">✓</span>
+            </div>
+            <div class="tool-output">
+                <div class="output-line">Test Suites: 1 passed, 1 total</div>
+                <div class="output-line">Tests:       12 passed, 12 total</div>
+                <div class="output-line success">✓ All tests passing</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Result Section -->
+<div class="section result">
+    <div class="section-header">
+        <span class="section-icon">✓</span>
+        <span class="section-title">Result</span>
+    </div>
+    <div class="section-content">
+        <p>Refactored <code>src/auth.js</code> to use middleware pattern:</p>
+
+        <div class="code-block">
+            <div class="code-header">
+                <span>src/auth.js</span>
+            </div>
+            <pre><code><span class="keyword">const</span> authMiddleware = (req, res, next) => {
+  <span class="keyword">const</span> token = req.headers.authorization?.split(<span class="string">' '</span>)[<span class="number">1</span>];
+
+  <span class="keyword">if</span> (!token) {
+    <span class="keyword">return</span> res.status(<span class="number">401</span>).json({ error: <span class="string">'Unauthorized'</span> });
+  }
+
+  <span class="comment">// Verify token and attach user to request</span>
+  req.user = verifyToken(token);
+  next();
+};
+
+module.exports = { authMiddleware };</code></pre>
+        </div>
+
+        <p><strong>Changes:</strong></p>
+        <ul class="result-list">
+            <li>Converted monolithic auth function to middleware</li>
+            <li>Added proper error handling</li>
+            <li>All 12 tests passing</li>
+        </ul>
+    </div>
+</div>
+
+<!-- Next Section -->
+<div class="section next">
+    <div class="section-header">
+        <span class="section-icon">→</span>
+        <span class="section-title">Next</span>
+    </div>
+    <div class="section-content">
+        Update the API routes to use the new middleware, or run the test suite to verify everything works.
+    </div>
+</div>
+
+<!-- Input Area -->
+<div class="input-area">
+    <div class="repl-line input">
+        <span class="repl-prompt">❯</span>
+        <span class="repl-cursor"></span>
+    </div>
+</div>
+{% endblock %}

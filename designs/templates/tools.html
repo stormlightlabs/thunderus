@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+
+{% block title %}Tools{% endblock %}
+
+{% block content %}
+<!-- User Input -->
+<div class="repl-line">
+    <span class="repl-prompt">❯</span>
+    <span class="repl-input">Find all TODO comments in the codebase and create a summary</span>
+</div>
+
+<!-- Intent Section -->
+<div class="section intent">
+    <div class="section-header">
+        <span class="section-icon">◉</span>
+        <span class="section-title">Intent</span>
+    </div>
+    <div class="section-content">
+        Search the codebase for TODO, FIXME, and XXX comments, then provide a summary of findings.
+    </div>
+</div>
+
+<!-- Actions Section -->
+<div class="section actions">
+    <div class="section-header">
+        <span class="section-icon">⚡</span>
+        <span class="section-title">Actions</span>
+    </div>
+    <div class="section-content">
+        <div class="tool-call">
+            <div class="tool-header">
+                <span class="tool-name">grep_search</span>
+                <span class="tool-args">TODO|FIXME|XXX -- ./src/**</span>
+                <span class="tool-status success">✓</span>
+            </div>
+            <div class="tool-output">
+                <div class="output-line">Found 12 matches across 8 files</div>
+                <div class="output-line">  ./src/components/Button.js:15: // TODO: Add aria-label</div>
+                <div class="output-line">  ./src/utils.js:23: // FIXME: Handle null case</div>
+                <div class="output-line">  ./src/api.js:45: // XXX: Temporary workaround</div>
+            </div>
+        </div>
+
+        <div class="tool-call">
+            <div class="tool-header">
+                <span class="tool-name">read_file</span>
+                <span class="tool-args">src/components/</span>
+                <span class="tool-status success">✓</span>
+            </div>
+            <div class="tool-output">
+                <div class="output-line">▶ Button/</div>
+                <div class="output-line">▶ Modal/</div>
+                <div class="output-line">▶ Input/</div>
+                <div class="output-line">⌸ index.js</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Result Section -->
+<div class="section result">
+    <div class="section-header">
+        <span class="section-icon">✓</span>
+        <span class="section-title">Result</span>
+    </div>
+    <div class="section-content">
+        <p>Found <strong>12 TODO comments</strong> across 8 files:</p>
+
+        <ul class="result-list">
+            <li><span style="color: var(--accent-yellow);">7 TODO</span> - General tasks</li>
+            <li><span style="color: var(--accent-red);">3 FIXME</span> - Bug fixes needed</li>
+            <li><span style="color: var(--accent-purple);">2 XXX</span> - Temporary workarounds</li>
+        </ul>
+
+        <p>Most items are in <code>src/components/</code> (5 items). Priority items:</p>
+
+        <div class="code-block">
+            <div class="code-header">
+                <span>High Priority</span>
+            </div>
+            <pre><code>src/utils.js:23    <span class="comment">// FIXME: Handle null case - causes crash</span>
+src/api.js:45     <span class="comment">// XXX: Temporary workaround - security risk</span></code></pre>
+        </div>
+    </div>
+</div>
+
+<!-- Next Section -->
+<div class="section next">
+    <div class="section-header">
+        <span class="section-icon">→</span>
+        <span class="section-title">Next</span>
+    </div>
+    <div class="section-content">
+        Create a task list to track these items, or start fixing the high-priority FIXME in src/utils.js
+    </div>
+</div>
+
+<!-- Input Area -->
+<div class="input-area">
+    <div class="repl-line input">
+        <span class="repl-prompt">❯</span>
+        <span class="repl-cursor"></span>
+    </div>
+</div>
+{% endblock %}
