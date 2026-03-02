@@ -1,6 +1,7 @@
 """Thunderus - Terminal AI Assistant Web Interface"""
 
 from flask import Flask, render_template
+import argparse
 
 app = Flask(__name__)
 
@@ -46,7 +47,12 @@ def help_page():
 
 
 def main():
-    app.run(debug=True, port=5000)
+    parser = argparse.ArgumentParser(description="Thunderus Web Interface")
+    parser.add_argument(
+        "--port", type=int, default=5000, help="Port to run the server on"
+    )
+    args = parser.parse_args()
+    app.run(debug=True, port=args.port)
 
 
 if __name__ == "__main__":

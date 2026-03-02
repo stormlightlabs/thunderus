@@ -23,7 +23,6 @@ Ship a binary that starts, renders a TUI, and talks to one provider.
 #### UI - Welcome Screen
 
 - Terminal window chrome (title bar, controls)
-- ASCII logo
 - Greeting text
 - Suggestion items
 - Input area with prompt cursor
@@ -51,7 +50,8 @@ Send messages, receive responses, render them in the TUI. The agent's personalit
 #### Core
 
 - Message history (in-memory conversation state)
-- System prompt assembly: base prompt (`meta/PROMPT.txt`) + response format (`meta/RESPONSE.txt`) + tool definitions (`meta/TOOLS.txt`) → single system message
+- System prompt assembly: base prompt (`meta/PROMPT.txt`) + response format (`meta/RESPONSE.txt`)
+  - tool definitions (`meta/TOOLS.txt`) → single system message
 - Temperature clamping per provider (0.0–1.0 for Moonshot/Zhipu)
 - Unsupported field stripping (`logprobs`, `logit_bias`, `n`)
 
@@ -189,7 +189,7 @@ User-facing configuration and documentation inside the TUI.
 - Setting groups: General, Appearance, Editor, Keyboard, AI Model, Tools, Privacy
 - Toggle switches, select dropdowns
 - Save/reset actions
-- Settings persist to `~/.thunderus/config.toml`
+- Settings persist to `~/.thunderus/config.toml` using toml crate
 
 *Reference: `designs/templates/settings.html`*
 
@@ -216,7 +216,7 @@ Resume, list, and manage conversations.
 
 #### UI - Tutorial / Home
 
-- ASCII logo + version
+- Version
 - Quick start shortcuts (ctrl+n, ctrl+o, ctrl+r)
 - Recent conversations list (numbered, with relative timestamps)
 - Tip rotation

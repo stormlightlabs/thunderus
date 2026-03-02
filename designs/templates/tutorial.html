@@ -1,190 +1,199 @@
-{% extends "base.html" %}
-
-{% block title %}Tutorial{% endblock %}
-
-{% block extra_css %}
+{% extends "base.html" %} {% block title %}Tutorial{% endblock %} {% block
+extra_css %}
 <style>
-    .tutorial-logo {
-        color: var(--accent-cyan);
-        font-size: 0.625rem;
-        line-height: 1.2;
-        margin-bottom: 1.5rem;
-        white-space: pre;
-        font-weight: 600;
-        font-family: "JetBrains Mono", monospace;
-    }
+  .tutorial-logo {
+    color: var(--accent-cyan);
+    font-size: 0.625rem;
+    line-height: 1.2;
+    margin-bottom: 1.5rem;
+    white-space: pre;
+    font-weight: 600;
+    font-family: "JetBrains Mono", monospace;
+  }
 
-    .version-tag {
-        color: var(--text-muted);
-        font-size: 0.8125rem;
-        margin-top: 0.5rem;
-    }
+  .version-tag {
+    color: var(--text-muted);
+    font-size: 0.8125rem;
+    margin-top: 0.5rem;
+  }
 
-    .quick-actions {
-        display: flex;
-        flex-direction: column;
-        gap: 0.75rem;
-        width: 100%;
-        max-width: 500px;
-    }
+  .quick-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    width: 100%;
+    max-width: 500px;
+  }
 
-    .action-item {
-        display: flex;
-        align-items: center;
-        gap: 1rem;
-        padding: 0.875rem 1rem;
-    }
+  .action-item {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.875rem 1rem;
+  }
 
-    .action-shortcut {
-        color: var(--accent-cyan);
-        font-size: 0.8125rem;
-        font-weight: 600;
-        min-width: 60px;
-    }
+  .action-shortcut {
+    color: var(--accent-cyan);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    min-width: 60px;
+  }
 
-    .action-desc {
-        flex: 1;
-    }
+  .action-desc {
+    flex: 1;
+  }
 
-    .recent-section {
-        width: 100%;
-        max-width: 500px;
-    }
+  .recent-section {
+    width: 100%;
+    max-width: 500px;
+  }
 
-    .recent-item {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        padding: 0.625rem 0.875rem;
-        background: var(--bg-secondary);
-        border-radius: 4px;
-        border: 1px solid transparent;
-        cursor: pointer;
-        transition: all 0.15s ease;
-    }
+  .recent-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.625rem 0.875rem;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
 
-    .recent-item:hover {
-        border-color: var(--border-color);
-    }
+  .recent-item:hover {
+    border-color: var(--border-color);
+  }
 
-    .recent-number {
-        color: var(--accent-cyan);
-        font-size: 0.8125rem;
-        font-weight: 600;
-        min-width: 24px;
-    }
+  .recent-number {
+    color: var(--accent-cyan);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    min-width: 24px;
+  }
 
-    .recent-name {
-        flex: 1;
-    }
+  .recent-name {
+    flex: 1;
+  }
 
-    .recent-time {
-        color: var(--text-muted);
-        font-size: 0.75rem;
-    }
+  .recent-time {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+  }
 
-    .tips-section {
-        margin-top: 1rem;
-        text-align: center;
-    }
+  .tips-section {
+    margin-top: 1rem;
+    text-align: center;
+  }
 
-    .tip-text {
-        color: var(--text-muted);
-        font-size: 0.8125rem;
-        font-style: italic;
-    }
+  .tip-text {
+    color: var(--text-muted);
+    font-size: 0.8125rem;
+    font-style: italic;
+  }
 
-    .tip-key {
-        color: var(--accent-cyan);
-        font-weight: 600;
-    }
+  .tip-key {
+    color: var(--accent-cyan);
+    font-weight: 600;
+  }
 
-    .footer-info {
-        margin-top: auto;
-        padding-top: 2rem;
-        text-align: center;
-        color: var(--text-muted);
-        font-size: 0.75rem;
-    }
+  .footer-info {
+    margin-top: auto;
+    padding-top: 2rem;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+  }
 
-    .footer-info a {
-        color: var(--accent-cyan);
-        text-decoration: none;
-    }
+  .footer-info a {
+    color: var(--accent-cyan);
+    text-decoration: none;
+  }
 
-    .footer-info a:hover {
-        text-decoration: underline;
-    }
+  .footer-info a:hover {
+    text-decoration: underline;
+  }
 </style>
-{% endblock %}
-
-{% block content %}
-<div class="flex-center" style="padding: 3rem 2rem; gap: 2.5rem;">
-    <div style="text-align: center;">
-        <pre class="tutorial-logo">▐▖   ▀▛▘▌ ▌▌ ▌▙ ▌▛▀▖▛▀▘▛▀▖▌ ▌▞▀▖
-▐▝▚▖  ▌ ▙▄▌▌ ▌▌▌▌▌ ▌▙▄ ▙▄▘▌ ▌▚▄ 
+{% endblock %} {% block content %}
+<div class="flex-center" style="padding: 3rem 2rem; gap: 2.5rem">
+  <div style="text-align: center">
+    <pre class="tutorial-logo">
+▐▖   ▀▛▘▌ ▌▌ ▌▙ ▌▛▀▖▛▀▘▛▀▖▌ ▌▞▀▖
+▐▝▚▖  ▌ ▙▄▌▌ ▌▌▌▌▌ ▌▙▄ ▙▄▘▌ ▌▚▄
 ▐▞▘   ▌ ▌ ▌▌ ▌▌▝▌▌ ▌▌  ▌▚ ▌ ▌▖ ▌
-▝     ▘ ▘ ▘▝▀ ▘ ▘▀▀ ▀▀▘▘ ▘▝▀ ▝▀ </pre>
-        <div class="version-tag">Version 0.1.0 | Build: 8f3a2d1</div>
-    </div>
+▝     ▘ ▘ ▘▝▀ ▘ ▘▀▀ ▀▀▘▘ ▘▝▀ ▝▀
+    </pre>
+    <div class="version-tag">Version 0.1.0 | Build: 8f3a2d1</div>
+  </div>
 
-    <div class="quick-actions">
-        <div class="section-title-muted" style="text-align: center; margin-bottom: 0.5rem;">Quick Start</div>
-        <div class="card-item action-item">
-            <span class="action-shortcut">ctrl+n</span>
-            <span class="action-desc">Start a new conversation</span>
-        </div>
-        <div class="card-item action-item">
-            <span class="action-shortcut">ctrl+o</span>
-            <span class="action-desc">Open a project folder</span>
-        </div>
-        <div class="card-item action-item">
-            <span class="action-shortcut">ctrl+r</span>
-            <span class="action-desc">Resume recent conversation</span>
-        </div>
-        <div class="card-item action-item">
-            <span class="action-shortcut">?</span>
-            <span class="action-desc">View keyboard shortcuts</span>
-        </div>
+  <div class="quick-actions">
+    <div
+      class="section-title-muted"
+      style="text-align: center; margin-bottom: 0.5rem"
+    >
+      Quick Start
     </div>
+    <div class="card-item action-item">
+      <span class="action-shortcut">ctrl+n</span>
+      <span class="action-desc">Start a new conversation</span>
+    </div>
+    <div class="card-item action-item">
+      <span class="action-shortcut">ctrl+o</span>
+      <span class="action-desc">Open a project folder</span>
+    </div>
+    <div class="card-item action-item">
+      <span class="action-shortcut">ctrl+r</span>
+      <span class="action-desc">Resume recent conversation</span>
+    </div>
+    <div class="card-item action-item">
+      <span class="action-shortcut">?</span>
+      <span class="action-desc">View keyboard shortcuts</span>
+    </div>
+  </div>
 
-    <div class="recent-section">
-        <div class="section-title-muted" style="text-align: center; margin-bottom: 0.75rem;">Recent Conversations</div>
-        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-            <div class="recent-item">
-                <span class="recent-number">1</span>
-                <span class="recent-name">Refactor auth module to middleware</span>
-                <span class="recent-time">2m ago</span>
-            </div>
-            <div class="recent-item">
-                <span class="recent-number">2</span>
-                <span class="recent-name">Find all TODO comments</span>
-                <span class="recent-time">1h ago</span>
-            </div>
-            <div class="recent-item">
-                <span class="recent-number">3</span>
-                <span class="recent-name">Security vulnerability analysis</span>
-                <span class="recent-time">3h ago</span>
-            </div>
-            <div class="recent-item">
-                <span class="recent-number">4</span>
-                <span class="recent-name">Setup React project structure</span>
-                <span class="recent-time">yesterday</span>
-            </div>
-        </div>
+  <div class="recent-section">
+    <div
+      class="section-title-muted"
+      style="text-align: center; margin-bottom: 0.75rem"
+    >
+      Recent Conversations
     </div>
+    <div style="display: flex; flex-direction: column; gap: 0.5rem">
+      <div class="recent-item">
+        <span class="recent-number">1</span>
+        <span class="recent-name">Refactor auth module to middleware</span>
+        <span class="recent-time">2m ago</span>
+      </div>
+      <div class="recent-item">
+        <span class="recent-number">2</span>
+        <span class="recent-name">Find all TODO comments</span>
+        <span class="recent-time">1h ago</span>
+      </div>
+      <div class="recent-item">
+        <span class="recent-number">3</span>
+        <span class="recent-name">Security vulnerability analysis</span>
+        <span class="recent-time">3h ago</span>
+      </div>
+      <div class="recent-item">
+        <span class="recent-number">4</span>
+        <span class="recent-name">Setup React project structure</span>
+        <span class="recent-time">yesterday</span>
+      </div>
+    </div>
+  </div>
 
-    <div class="tips-section">
-        <div class="tip-text">Tip: Press <span class="tip-key">ctrl+/</span> to search through your command history</div>
+  <div class="tips-section">
+    <div class="tip-text">
+      Tip: Press <span class="tip-key">ctrl+/</span> to search through your
+      command history
     </div>
+  </div>
 
-    <div class="footer-info">
-        <div>Thunderus - AI Coding Assistant</div>
-        <div style="margin-top: 0.5rem;">
-            <a href="#">Documentation</a> •
-            <a href="#">GitHub</a> •
-            <a href="#">Report Issue</a>
-        </div>
+  <div class="footer-info">
+    <div>Thunderus - AI Coding Assistant</div>
+    <div style="margin-top: 0.5rem">
+      <a href="#">Documentation</a> • <a href="#">GitHub</a> •
+      <a href="#">Report Issue</a>
     </div>
+  </div>
 </div>
 {% endblock %}

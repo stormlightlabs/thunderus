@@ -3,13 +3,14 @@ extra_css %}
 <style>
   .empty-logo {
     color: var(--accent-cyan);
-    font-size: 0.625rem;
-    line-height: 1.2;
+    line-height: 1.15;
     white-space: pre;
     text-align: center;
     opacity: 0.9;
     font-family: "JetBrains Mono", monospace;
     margin: 0;
+    font-size: 1rem;
+    letter-spacing: 0.05em;
   }
 
   .empty-greeting {
@@ -59,12 +60,7 @@ extra_css %}
 </style>
 {% endblock %} {% block content %}
 <div class="flex-center" style="padding: 2rem; gap: 2rem">
-  <pre class="empty-logo">
-▐▖   ▀▛▘▌ ▌▌ ▌▙ ▌▛▀▖▛▀▘▛▀▖▌ ▌▞▀▖
-▐▝▚▖  ▌ ▙▄▌▌ ▌▌▌▌▌ ▌▙▄ ▙▄▘▌ ▌▚▄
-▐▞▘   ▌ ▌ ▌▌ ▌▌▝▌▌ ▌▌  ▌▚ ▌ ▌▖ ▌
-▝     ▘ ▘ ▘▝▀ ▘ ▘▀▀ ▀▀▘▘ ▘▝▀ ▝▀ </pre
-  >
+  <div id="ascii-logo" class="empty-logo"></div>
 
   <div class="empty-greeting">
     <strong>Thunderus</strong> - What can I help you build?
@@ -105,4 +101,14 @@ extra_css %}
     <span class="repl-cursor"></span>
   </div>
 </div>
+{% endblock %}
+{% block scripts %}
+<script>
+  var logo =
+    '\u2590\u2596   \u2580\u259b\u2598\u258c \u258c\u258c \u258c\u2599 \u258c\u259b\u2580\u2596\u259b\u2580\u2598\u259b\u2580\u2596\u258c \u258c\u259e\u2580\u2596\n' +
+    '\u2590\u259d\u259a\u2596  \u258c \u2599\u2584\u258c\u258c \u258c\u258c\u258c\u258c\u258c \u258c\u2599\u2584 \u2599\u2584\u2598\u258c \u258c\u259a\u2584\n' +
+    '\u2590\u259e\u2598   \u258c \u258c \u258c\u258c \u258c\u258c\u259d\u258c\u258c \u258c\u258c  \u258c\u259a \u258c \u258c\u2596 \u258c\n' +
+    '\u259d     \u2598 \u2598 \u2598\u259d\u2580 \u2598 \u2598\u2580\u2580 \u2580\u2580\u2598\u2598 \u2598\u259d\u2580 \u259d\u2580';
+  document.getElementById('ascii-logo').textContent = logo;
+</script>
 {% endblock %}
