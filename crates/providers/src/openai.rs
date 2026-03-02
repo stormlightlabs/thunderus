@@ -2,8 +2,8 @@
 //!
 //! This module implements the OpenAI Chat Completions API.
 
-use crate::ProviderError;
-use crate::Result;
+use crate::streaming::{StreamResponse, collect_stream};
+use crate::{ProviderError, Result};
 use serde::{Deserialize, Serialize};
 
 /// HTTP client for OpenAI-compatible APIs
@@ -39,6 +39,31 @@ impl OpenAiClient {
         if status.is_success() {
             let body: OpenAiResponse = response.json().await?;
             Ok(body)
+        } else {
+            let error_text = response.text().await.unwrap_or_default();
+            Err(ProviderError::Api(format!("HTTP {}: {}", status.as_u16(), error_text)))
+        }
+    }
+
+    /// Send a streaming completion request
+    pub async fn complete_stream(&self, request: OpenAiRequest) -> Result<StreamResponse> {
+        let url = format!("{}/chat/completions", self.base_url);
+
+        let streaming_request = request.with_temperature(self.temperature).with_stream(true);
+
+        let response = self
+            .http
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Content-Type", "application/json")
+            .json(&streaming_request)
+            .send()
+            .await?;
+
+        let status = response.status();
+
+        if status.is_success() {
+            collect_stream(response).await
         } else {
             let error_text = response.text().await.unwrap_or_default();
             Err(ProviderError::Api(format!("HTTP {}: {}", status.as_u16(), error_text)))
@@ -115,6 +140,11 @@ impl OpenAiRequest {
 
     pub fn with_max_tokens(mut self, max: u32) -> Self {
         self.max_tokens = Some(max);
+        self
+    }
+
+    pub fn with_stream(mut self, stream: bool) -> Self {
+        self.stream = Some(stream);
         self
     }
 }
@@ -226,11 +256,9 @@ mod tests {
     #[test]
     fn test_temperature_clamping() {
         let request = OpenAiRequest::new("test", vec![]).with_temperature(1.5);
-
         assert_eq!(request.temperature, Some(1.0));
 
         let request2 = OpenAiRequest::new("test", vec![]).with_temperature(-0.5);
-
         assert_eq!(request2.temperature, Some(0.0));
     }
 

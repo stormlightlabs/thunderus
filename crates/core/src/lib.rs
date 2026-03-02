@@ -4,10 +4,14 @@
 //! - Configuration loading from TOML files
 //! - Common error types
 //! - Message and conversation types
+//! - System prompt assembly
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
+
+mod prompt;
+pub use prompt::{ResponseSections, build_system_message, build_system_prompt};
 
 /// Errors that can occur in core operations
 #[derive(Error, Debug)]
@@ -197,6 +201,10 @@ impl Conversation {
         Self { messages: vec![Message::system(prompt)] }
     }
 
+    pub fn with_default_system_prompt() -> Self {
+        Self::with_system_prompt(build_system_prompt())
+    }
+
     pub fn add_message(&mut self, message: Message) {
         self.messages.push(message);
     }
@@ -207,6 +215,34 @@ impl Conversation {
 
     pub fn add_assistant_message(&mut self, content: impl Into<String>) {
         self.add_message(Message::assistant(content));
+    }
+
+    pub fn last_user_message(&self) -> Option<&str> {
+        self.messages
+            .iter()
+            .rev()
+            .find(|m| m.role == Role::User)
+            .map(|m| m.content.as_str())
+    }
+
+    pub fn last_assistant_message(&self) -> Option<&str> {
+        self.messages
+            .iter()
+            .rev()
+            .find(|m| m.role == Role::Assistant)
+            .map(|m| m.content.as_str())
+    }
+
+    pub fn clear(&mut self) {
+        self.messages.clear();
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.messages.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.messages.len()
     }
 }
 
@@ -231,11 +267,11 @@ mod tests {
             default_model = "glm-5"
             temperature = 0.5
             max_tokens = 4096
-            
+
             [providers.moonshot]
             api_key = "sk-test-moonshot"
             default_model = "kimi-k2.5"
-            
+
             [providers.zhipu]
             api_key = "test.zhipu-key"
         "#;

@@ -51,6 +51,10 @@ enum DebugCommands {
         /// Test prompt to send
         #[arg(short, long, default_value = "Say hello and tell me your name.")]
         prompt: String,
+
+        /// Use streaming mode
+        #[arg(short, long)]
+        stream: bool,
     },
 }
 
@@ -83,20 +87,24 @@ async fn main() -> Result<()> {
 
 async fn handle_debug_command(command: DebugCommands, config: &Config) -> Result<()> {
     match command {
-        DebugCommands::Provider { provider, model, prompt } => {
-            debug_provider(config, &provider, model, &prompt).await?;
+        DebugCommands::Provider { provider, model, prompt, stream } => {
+            debug_provider(config, &provider, model, &prompt, stream).await?;
         }
     }
     Ok(())
 }
 
-async fn debug_provider(config: &Config, provider_name: &str, model: Option<String>, prompt: &str) -> Result<()> {
-    println!("🔍 Debugging provider: {}", provider_name);
+async fn debug_provider(
+    config: &Config, provider_name: &str, model: Option<String>, prompt: &str, stream: bool,
+) -> Result<()> {
+    println!("Debugging provider: {}", provider_name);
     println!("   Prompt: {}", prompt);
 
     if let Some(ref m) = model {
         println!("   Model: {}", m);
     }
+
+    println!("   Streaming: {}", if stream { "enabled" } else { "disabled" });
 
     let provider = create_provider(provider_name, config)
         .with_context(|| format!("Failed to create provider: {}", provider_name))?;
@@ -108,7 +116,14 @@ async fn debug_provider(config: &Config, provider_name: &str, model: Option<Stri
     println!("\nSending request...\n");
 
     let start = std::time::Instant::now();
-    let response = provider.complete(&messages).await.context("Provider request failed")?;
+    let response = if stream {
+        provider
+            .complete_stream(&messages)
+            .await
+            .context("Provider streaming request failed")?
+    } else {
+        provider.complete(&messages).await.context("Provider request failed")?
+    };
     let elapsed = start.elapsed();
 
     println!("Response received in {:?}\n", elapsed);
@@ -161,13 +176,15 @@ mod tests {
             "kimi-k2.5",
             "--prompt",
             "Test prompt",
+            "--stream",
         ]);
 
         match cli.command {
-            Some(Commands::Debug { command: DebugCommands::Provider { provider, model, prompt } }) => {
+            Some(Commands::Debug { command: DebugCommands::Provider { provider, model, prompt, stream } }) => {
                 assert_eq!(provider, "moonshot");
                 assert_eq!(model, Some("kimi-k2.5".to_string()));
                 assert_eq!(prompt, "Test prompt");
+                assert!(stream);
             }
             _ => panic!("Expected debug provider command"),
         }

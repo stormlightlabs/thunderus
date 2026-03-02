@@ -18,7 +18,10 @@ use ratatui::{
 use std::io;
 use thiserror::Error;
 
+pub mod chat;
 pub mod components;
+
+pub use chat::{ChatApp, ChatMessage, StreamingState, draw_chat_screen};
 
 /// UI Errors
 #[derive(Error, Debug)]
@@ -85,17 +88,32 @@ pub const SUGGESTIONS: [&str; 5] = [
     "Fix the bug in src/utils.js line 42",
 ];
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ScreenMode {
+    Welcome,
+    Chat,
+}
+
 /// The TUI application state
 pub struct App {
     pub running: bool,
     pub input_buffer: String,
     pub cursor_position: usize,
     pub selected_suggestion: Option<usize>,
+    pub screen_mode: ScreenMode,
+    pub chat: ChatApp,
 }
 
 impl Default for App {
     fn default() -> Self {
-        Self { running: true, input_buffer: String::new(), cursor_position: 0, selected_suggestion: None }
+        Self {
+            running: true,
+            input_buffer: String::new(),
+            cursor_position: 0,
+            selected_suggestion: None,
+            screen_mode: ScreenMode::Welcome,
+            chat: ChatApp::new(),
+        }
     }
 }
 
@@ -109,6 +127,13 @@ impl App {
             return;
         }
 
+        match self.screen_mode {
+            ScreenMode::Welcome => self.handle_welcome_input(key),
+            ScreenMode::Chat => self.chat.handle_input(key),
+        }
+    }
+
+    fn handle_welcome_input(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => self.running = false,
             KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => self.running = false,
@@ -133,13 +158,27 @@ impl App {
                     self.cursor_position += 1;
                 }
             }
-            KeyCode::Enter => todo!("Submit the input"),
+            KeyCode::Enter => {
+                if !self.input_buffer.is_empty() {
+                    let content = if let Some(idx) = self.selected_suggestion {
+                        SUGGESTIONS[idx].to_string()
+                    } else {
+                        self.input_buffer.clone()
+                    };
+                    self.chat.messages.push(ChatMessage::user(content));
+                    self.input_buffer.clear();
+                    self.cursor_position = 0;
+                    self.screen_mode = ScreenMode::Chat;
+                    self.chat.streaming_state = StreamingState::Streaming;
+                    self.chat.messages.push(ChatMessage::assistant_streaming(String::new()));
+                }
+            }
             KeyCode::Up => {
                 self.selected_suggestion = match self.selected_suggestion {
                     None => Some(0),
                     Some(0) => Some(SUGGESTIONS.len() - 1),
                     Some(idx) => Some(idx - 1),
-                };
+                }
             }
             KeyCode::Down => {
                 self.selected_suggestion = match self.selected_suggestion {
@@ -153,6 +192,10 @@ impl App {
     }
 
     pub fn handle_mouse(&mut self, mouse: MouseEvent, frame_size: Rect) {
+        if self.screen_mode != ScreenMode::Welcome {
+            return;
+        }
+
         if !matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
             return;
         }
@@ -195,9 +238,24 @@ pub fn run_welcome_app() -> Result<()> {
     result
 }
 
+/// Run the chat screen TUI
+pub fn run_chat_app() -> Result<()> {
+    let mut terminal = setup_terminal()?;
+    let mut app = App::new();
+    app.screen_mode = ScreenMode::Chat;
+    let result = run_app(&mut terminal, &mut app);
+
+    restore_terminal(&mut terminal)?;
+
+    result
+}
+
 fn run_app(terminal: &mut Terminal<impl Backend>, app: &mut App) -> Result<()> {
     loop {
-        terminal.draw(|f| draw_welcome_screen(f, app))?;
+        terminal.draw(|f| match app.screen_mode {
+            ScreenMode::Welcome => draw_welcome_screen(f, app),
+            ScreenMode::Chat => draw_chat_screen(f, &app.chat),
+        })?;
 
         if !app.running {
             break Ok(());
@@ -384,6 +442,7 @@ mod tests {
         assert!(app.running);
         assert!(app.input_buffer.is_empty());
         assert_eq!(app.cursor_position, 0);
+        assert_eq!(app.screen_mode, ScreenMode::Welcome);
     }
 
     #[test]
@@ -422,5 +481,19 @@ mod tests {
 
         app.handle_mouse(click_event, frame_area);
         assert_eq!(app.selected_suggestion, Some(2));
+    }
+
+    #[test]
+    fn test_enter_transitions_to_chat() {
+        let mut app = App::new();
+
+        app.handle_input(KeyEvent::from(KeyCode::Char('h')));
+        app.handle_input(KeyEvent::from(KeyCode::Char('i')));
+        app.handle_input(KeyEvent::from(KeyCode::Enter));
+
+        assert_eq!(app.screen_mode, ScreenMode::Chat);
+        assert_eq!(app.chat.messages.len(), 2);
+        assert_eq!(app.chat.messages[0].role, chat::MessageRole::User);
+        assert_eq!(app.chat.messages[0].content, "hi");
     }
 }
