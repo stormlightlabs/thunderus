@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD033 -->
 # Thunderus AI Agent
 
 ## Project Structure
@@ -15,18 +16,34 @@
 └── docs/            # Documentation, specs, provider details
 ```
 
-## Tech Stack
+## Configuration
 
-- **TUI**: ratatui
-- **CLI**: clap (derive, POSIX-compliant flags) + owo-colors
-- **Errors**: thiserror (libs), anyhow (cli)
-- **Async**: tokio
-- **Database**: tokio-rusqlite
-- **Syntax Highlighting**: syntect
+Thunderus loads config from `~/.thunderus/config.toml` by default. You can override with `--config <path>`.
 
-## Source of Truth
+<details>
+<summary>Example Config</summary>
 
-- `meta/PROMPT.txt` - system prompt (operating mode, guidelines, priorities)
-- `meta/RESPONSE.txt` - enforced response format (Intent → Actions → Result → Next)
-- `meta/TOOLS.txt` - tool definitions exposed to the model
-- `docs/` - provider, model, tool, and memory specs
+```toml
+default_provider = "moonshot"
+default_model = "kimi-k2.5"
+temperature = 0.7
+max_tokens = 4096
+
+[providers.moonshot]
+api_key = "sk-..."
+base_url = "https://api.moonshot.ai/v1"
+default_model = "kimi-k2.5"
+
+[providers.zhipu]
+api_key = "id.secret"
+base_url = "https://api.z.ai/api/coding/paas/v4"
+default_model = "glm-5"
+```
+
+### Notes
+
+- `default_provider` controls which backend the TUI uses on startup (`moonshot`/`kimi` or `zhipu`/`glm`).
+- `temperature` is clamped to `[0.0, 1.0]` for Moonshot and Zhipu providers.
+- If no default config file exists, Thunderus falls back to built-in defaults and provider calls will fail until API keys are configured.
+
+</details>

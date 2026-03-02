@@ -1,72 +1,5 @@
 # Roadmap
 
-## Part 1
-
-### Milestone 1 - Skeleton
-
-Ship a binary that starts, renders a TUI, and talks to one provider.
-
-#### CLI
-
-- `thunderus` - launch the TUI
-- `thunderus debug provider <provider> --model <model>` - send a hardcoded prompt, print the raw response. Validates auth, endpoint, and serialization for a given provider.
-- `--config <path>` global flag
-- Config file loading from `~/.thunderus/config.toml` (provider keys, default model, temperature)
-
-#### Providers
-
-- OpenAI Chat Completions protocol implementation (non-streaming)
-- Moonshot (Kimi K2.5) as the first concrete provider using the OpenAI Completions protocol
-- Request building, response parsing, error mapping
-- `debug provider` exercises this end-to-end
-
-#### UI - Welcome Screen
-
-- Terminal window chrome (title bar, controls)
-- Greeting text
-- Suggestion items
-- Input area with prompt cursor
-- Keybind hints
-
-*Reference: `designs/templates/welcome.html`*
-
-### Milestone 2 - Conversation Loop
-
-Send messages, receive responses, render them in the TUI. The agent's personality and response structure are defined here.
-
-#### Agent Behavior
-
-- System prompt from `meta/PROMPT.txt` - operating mode (Inspect → Change → Verify → Summarize), guidelines, priorities
-- Enforced response format from `meta/RESPONSE.txt` - every model turn must produce four sections: **Intent** (1 sentence), **Actions** (bullet list of tool calls), **Result** (what changed), **Next** (best next step or "Done")
-- The system prompt and response format are injected as the system message on every API call
-- Repo content treated as untrusted instructions (prompt injection defense from `meta/PROMPT.txt`)
-
-#### Providers
-
-- Streaming support (SSE parsing, delta reassembly) for OpenAI Completions protocol
-- Zhipu (GLM-5) as second provider on the same protocol via Coding Plan endpoint
-- `debug provider` gains `--stream` flag
-
-#### Core
-
-- Message history (in-memory conversation state)
-- System prompt assembly: base prompt (`meta/PROMPT.txt`) + response format (`meta/RESPONSE.txt`)
-  - tool definitions (`meta/TOOLS.txt`) → single system message
-- Temperature clamping per provider (0.0–1.0 for Moonshot/Zhipu)
-- Unsupported field stripping (`logprobs`, `logit_bias`, `n`)
-
-#### UI - Active Conversation
-
-- REPL input line with prompt (`❯`)
-- User message display
-- Intent section (model's stated plan, parsed from response format)
-- Actions section (tool calls, parsed from response format)
-- Result section with markdown-ish rendering
-- Next section (follow-up suggestions)
-- Streaming text rendering (character-by-character as deltas arrive)
-
-*Reference: `designs/templates/chat-active.html`, `meta/RESPONSE.txt`*
-
 ## Part 2
 
 ### Milestone 3 - Tools
@@ -107,6 +40,7 @@ Navigate the workspace visually, view files with highlighting.
 
 - File tree walker (respects `.gitignore`)
 - syntect integration for syntax highlighting
+- Fuzzy file finder triggered by `@` (nucleo for substring/fuzzy match against workspace file paths)
 
 #### UI - File Browser
 
@@ -115,6 +49,7 @@ Navigate the workspace visually, view files with highlighting.
 - Active file highlighting
 - Breadcrumb path bar
 - Line-numbered source view with syntax highlighting (syntect)
+- `@` fuzzy finder overlay: text input with ranked file matches, enter to open
 
 *Reference: `designs/templates/files.html`*
 

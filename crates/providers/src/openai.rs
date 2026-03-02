@@ -1,10 +1,52 @@
 //! OpenAI Chat Completions protocol implementation
 //!
-//! This module implements the OpenAI Chat Completions API.
+//! This module implements the OpenAI Chat Completions API with tool support.
 
-use crate::streaming::{StreamResponse, collect_stream};
+use crate::streaming::{StreamEvent, StreamResponse, collect_stream};
 use crate::{ProviderError, Result};
 use serde::{Deserialize, Serialize};
+
+/// Tool definition for function calling
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolDefinition {
+    #[serde(rename = "type")]
+    pub type_field: String,
+    pub function: FunctionDefinition,
+}
+
+impl ToolDefinition {
+    /// Create a new tool definition from a schema
+    pub fn from_schema(name: impl Into<String>, description: impl Into<String>, parameters: serde_json::Value) -> Self {
+        Self {
+            type_field: "function".to_string(),
+            function: FunctionDefinition { name: name.into(), description: description.into(), parameters },
+        }
+    }
+}
+
+/// Function definition within a tool
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FunctionDefinition {
+    pub name: String,
+    pub description: String,
+    pub parameters: serde_json::Value,
+}
+
+/// A tool call from the model
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolCall {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub type_field: String,
+    pub function: FunctionCall,
+}
+
+/// Function call details
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FunctionCall {
+    pub name: String,
+    pub arguments: String,
+}
 
 /// HTTP client for OpenAI-compatible APIs
 #[derive(Clone)]
@@ -47,6 +89,14 @@ impl OpenAiClient {
 
     /// Send a streaming completion request
     pub async fn complete_stream(&self, request: OpenAiRequest) -> Result<StreamResponse> {
+        let (event_tx, _event_rx) = std::sync::mpsc::channel::<StreamEvent>();
+        self.complete_stream_with_events(request, &event_tx).await
+    }
+
+    /// Send a streaming completion request and emit parsed stream events.
+    pub async fn complete_stream_with_events(
+        &self, request: OpenAiRequest, event_tx: &std::sync::mpsc::Sender<StreamEvent>,
+    ) -> Result<StreamResponse> {
         let url = format!("{}/chat/completions", self.base_url);
 
         let streaming_request = request.with_temperature(self.temperature).with_stream(true);
@@ -63,7 +113,7 @@ impl OpenAiClient {
         let status = response.status();
 
         if status.is_success() {
-            collect_stream(response).await
+            collect_stream(response, event_tx).await
         } else {
             let error_text = response.text().await.unwrap_or_default();
             Err(ProviderError::Api(format!("HTTP {}: {}", status.as_u16(), error_text)))
@@ -126,11 +176,33 @@ pub struct OpenAiRequest {
     pub top_p: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<ToolDefinition>>,
 }
 
 impl OpenAiRequest {
     pub fn new(model: impl Into<String>, messages: Vec<OpenAiMessage>) -> Self {
-        Self { model: model.into(), messages, temperature: None, max_tokens: None, top_p: None, stream: None }
+        Self {
+            model: model.into(),
+            messages,
+            temperature: None,
+            max_tokens: None,
+            top_p: None,
+            stream: None,
+            tools: None,
+        }
+    }
+
+    pub fn with_tools(model: impl Into<String>, messages: Vec<OpenAiMessage>, tools: &[ToolDefinition]) -> Self {
+        Self {
+            model: model.into(),
+            messages,
+            temperature: None,
+            max_tokens: None,
+            top_p: None,
+            stream: None,
+            tools: Some(tools.to_vec()),
+        }
     }
 
     pub fn with_temperature(mut self, temp: f32) -> Self {
@@ -153,9 +225,71 @@ impl OpenAiRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpenAiMessage {
     pub role: String,
-    pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<ToolCall>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+}
+
+impl OpenAiMessage {
+    /// Create a new system message
+    pub fn system(content: impl Into<String>) -> Self {
+        Self {
+            role: "system".to_string(),
+            content: Some(content.into()),
+            reasoning_content: None,
+            tool_calls: None,
+            tool_call_id: None,
+        }
+    }
+
+    /// Create a new user message
+    pub fn user(content: impl Into<String>) -> Self {
+        Self {
+            role: "user".to_string(),
+            content: Some(content.into()),
+            reasoning_content: None,
+            tool_calls: None,
+            tool_call_id: None,
+        }
+    }
+
+    /// Create a new assistant message
+    pub fn assistant(content: impl Into<String>) -> Self {
+        Self {
+            role: "assistant".to_string(),
+            content: Some(content.into()),
+            reasoning_content: None,
+            tool_calls: None,
+            tool_call_id: None,
+        }
+    }
+
+    /// Create a new assistant message with tool calls
+    pub fn assistant_with_tool_calls(content: Option<String>, tool_calls: Vec<ToolCall>) -> Self {
+        Self {
+            role: "assistant".to_string(),
+            content,
+            reasoning_content: None,
+            tool_calls: Some(tool_calls),
+            tool_call_id: None,
+        }
+    }
+
+    /// Create a new tool message
+    pub fn tool(tool_call_id: impl Into<String>, content: impl Into<String>) -> Self {
+        Self {
+            role: "tool".to_string(),
+            content: Some(content.into()),
+            reasoning_content: None,
+            tool_calls: None,
+            tool_call_id: Some(tool_call_id.into()),
+        }
+    }
 }
 
 /// Response from chat completions endpoint
@@ -194,18 +328,12 @@ mod tests {
     fn test_request_serialization() {
         let request = OpenAiRequest {
             model: "gpt-4".to_string(),
-            messages: vec![
-                OpenAiMessage {
-                    role: "system".to_string(),
-                    content: "You are helpful".to_string(),
-                    reasoning_content: None,
-                },
-                OpenAiMessage { role: "user".to_string(), content: "Hello".to_string(), reasoning_content: None },
-            ],
+            messages: vec![OpenAiMessage::system("You are helpful"), OpenAiMessage::user("Hello")],
             temperature: Some(0.7),
             max_tokens: Some(100),
             top_p: None,
             stream: None,
+            tools: None,
         };
 
         let json_str = serde_json::to_string(&request).unwrap();
@@ -215,6 +343,30 @@ mod tests {
         assert_eq!(parsed["temperature"], 0.7);
         assert_eq!(parsed["max_tokens"], 100);
         assert_eq!(parsed["messages"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn test_request_with_tools() {
+        let tool = ToolDefinition::from_schema(
+            "read",
+            "Read a file",
+            json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string" }
+                },
+                "required": ["path"]
+            }),
+        );
+
+        let request = OpenAiRequest::with_tools("gpt-4", vec![OpenAiMessage::user("Read test.txt")], &[tool]);
+
+        let json_str = serde_json::to_string(&request).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+
+        assert!(parsed["tools"].is_array());
+        assert_eq!(parsed["tools"][0]["type"], "function");
+        assert_eq!(parsed["tools"][0]["function"]["name"], "read");
     }
 
     #[test]
@@ -245,12 +397,60 @@ mod tests {
         assert_eq!(response.id, "chatcmpl-123");
         assert_eq!(response.model, "gpt-4");
         assert_eq!(response.choices.len(), 1);
-        assert_eq!(response.choices[0].message.content, "Hello! How can I help you today?");
+        assert_eq!(
+            response.choices[0].message.content,
+            Some("Hello! How can I help you today?".to_string())
+        );
         assert_eq!(
             response.choices[0].message.reasoning_content,
             Some("The user greeted me.".to_string())
         );
         assert_eq!(response.usage.total_tokens, 30);
+    }
+
+    #[test]
+    fn test_response_with_tool_calls() {
+        let json_response = json!({
+            "id": "chatcmpl-123",
+            "object": "chat.completion",
+            "created": 1677652288,
+            "model": "gpt-4",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [{
+                        "id": "call_123",
+                        "type": "function",
+                        "function": {
+                            "name": "read",
+                            "arguments": "{\"path\": \"/test.txt\"}"
+                        }
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }],
+            "usage": {
+                "prompt_tokens": 10,
+                "completion_tokens": 20,
+                "total_tokens": 30
+            }
+        });
+
+        let response: OpenAiResponse = serde_json::from_value(json_response).unwrap();
+
+        assert_eq!(response.choices.len(), 1);
+        let message = &response.choices[0].message;
+        assert!(message.content.is_none());
+        assert!(message.tool_calls.is_some());
+
+        let tool_calls = message.tool_calls.as_ref().unwrap();
+        assert_eq!(tool_calls.len(), 1);
+        assert_eq!(tool_calls[0].id, "call_123");
+        assert_eq!(tool_calls[0].type_field, "function");
+        assert_eq!(tool_calls[0].function.name, "read");
+        assert_eq!(tool_calls[0].function.arguments, "{\"path\": \"/test.txt\"}");
     }
 
     #[test]
@@ -274,5 +474,25 @@ mod tests {
         assert_eq!(client.base_url, "https://api.example.com/v1");
         assert_eq!(client.api_key, "sk-test");
         assert_eq!(client.temperature, 0.8);
+    }
+
+    #[test]
+    fn test_message_helpers() {
+        let system = OpenAiMessage::system("You are helpful");
+        assert_eq!(system.role, "system");
+        assert_eq!(system.content, Some("You are helpful".to_string()));
+
+        let user = OpenAiMessage::user("Hello");
+        assert_eq!(user.role, "user");
+        assert_eq!(user.content, Some("Hello".to_string()));
+
+        let assistant = OpenAiMessage::assistant("Hi there!");
+        assert_eq!(assistant.role, "assistant");
+        assert_eq!(assistant.content, Some("Hi there!".to_string()));
+
+        let tool = OpenAiMessage::tool("call_123", "File contents");
+        assert_eq!(tool.role, "tool");
+        assert_eq!(tool.content, Some("File contents".to_string()));
+        assert_eq!(tool.tool_call_id, Some("call_123".to_string()));
     }
 }

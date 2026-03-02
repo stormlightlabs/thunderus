@@ -31,36 +31,16 @@ pub struct ResponseSections {
 impl ResponseSections {
     pub fn parse(content: &str) -> Self {
         let mut sections = Self::default();
-        let mut current_section: Option<&mut Option<String>> = None;
+        let mut current_section: Option<SectionName> = None;
         let mut current_content = String::new();
 
         for line in content.lines() {
-            let trimmed = line.trim();
-
-            if trimmed.eq_ignore_ascii_case("Intent") {
-                if let Some(section) = current_section.take() {
-                    *section = Some(current_content.trim().to_string());
+            if let Some(next_section) = parse_section_heading(line) {
+                if let Some(section_name) = current_section.take() {
+                    sections.set_section(section_name, current_content.trim().to_string());
                 }
                 current_content = String::new();
-                current_section = Some(&mut sections.intent);
-            } else if trimmed.eq_ignore_ascii_case("Actions") {
-                if let Some(section) = current_section.take() {
-                    *section = Some(current_content.trim().to_string());
-                }
-                current_content = String::new();
-                current_section = Some(&mut sections.actions);
-            } else if trimmed.eq_ignore_ascii_case("Result") {
-                if let Some(section) = current_section.take() {
-                    *section = Some(current_content.trim().to_string());
-                }
-                current_content = String::new();
-                current_section = Some(&mut sections.result);
-            } else if trimmed.eq_ignore_ascii_case("Next") {
-                if let Some(section) = current_section.take() {
-                    *section = Some(current_content.trim().to_string());
-                }
-                current_content = String::new();
-                current_section = Some(&mut sections.next);
+                current_section = Some(next_section);
             } else if current_section.is_some() {
                 if !current_content.is_empty() {
                     current_content.push('\n');
@@ -69,8 +49,8 @@ impl ResponseSections {
             }
         }
 
-        if let Some(section) = current_section {
-            *section = Some(current_content.trim().to_string());
+        if let Some(section_name) = current_section {
+            sections.set_section(section_name, current_content.trim().to_string());
         }
 
         sections
@@ -78,6 +58,44 @@ impl ResponseSections {
 
     pub fn has_content(&self) -> bool {
         self.intent.is_some() || self.actions.is_some() || self.result.is_some() || self.next.is_some()
+    }
+
+    fn set_section(&mut self, section: SectionName, value: String) {
+        match section {
+            SectionName::Intent => self.intent = Some(value),
+            SectionName::Actions => self.actions = Some(value),
+            SectionName::Result => self.result = Some(value),
+            SectionName::Next => self.next = Some(value),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SectionName {
+    Intent,
+    Actions,
+    Result,
+    Next,
+}
+
+fn parse_section_heading(line: &str) -> Option<SectionName> {
+    let mut heading = line.trim();
+
+    if heading.starts_with('#') {
+        heading = heading.trim_start_matches('#').trim();
+    }
+
+    heading = heading.trim_end_matches(':').trim();
+    heading = heading.trim_matches('*').trim();
+    heading = heading.trim_matches('_').trim();
+    heading = heading.trim_matches('`').trim();
+
+    match heading.to_ascii_lowercase().as_str() {
+        "intent" => Some(SectionName::Intent),
+        "actions" => Some(SectionName::Actions),
+        "result" => Some(SectionName::Result),
+        "next" => Some(SectionName::Next),
+        _ => None,
     }
 }
 
@@ -163,5 +181,41 @@ Done."#;
 
         let with_content = ResponseSections { intent: Some("test".to_string()), ..Default::default() };
         assert!(with_content.has_content());
+    }
+
+    #[test]
+    fn test_parse_markdown_style_headings() {
+        let response = r#"## **Intent**:
+
+Use provider-backed conversation in the TUI.
+
+### **Actions**:
+
+- create provider from config
+- stream the response in chat
+
+**Result**
+
+Conversation now calls the configured provider.
+
+`Next`
+
+Done"#;
+
+        let sections = ResponseSections::parse(response);
+
+        assert_eq!(
+            sections.intent,
+            Some("Use provider-backed conversation in the TUI.".to_string())
+        );
+        assert_eq!(
+            sections.actions,
+            Some("- create provider from config\n- stream the response in chat".to_string())
+        );
+        assert_eq!(
+            sections.result,
+            Some("Conversation now calls the configured provider.".to_string())
+        );
+        assert_eq!(sections.next, Some("Done".to_string()));
     }
 }

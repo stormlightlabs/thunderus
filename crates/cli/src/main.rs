@@ -7,9 +7,10 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
-use thunderus_core::{Config, Message};
-use thunderus_providers::create_provider;
-use thunderus_ui::run_welcome_app;
+use std::sync::mpsc;
+use thunderus_core::{Config, Conversation, Message, build_system_message};
+use thunderus_providers::{StreamEvent, create_provider};
+use thunderus_ui::{IncomingStreamEvent, run_welcome_app_with_streaming};
 
 /// Thunderus - Terminal AI Assistant
 #[derive(Parser)]
@@ -78,9 +79,60 @@ async fn main() -> Result<()> {
         Some(Commands::Debug { command }) => handle_debug_command(command, &config).await?,
         None => {
             tracing::info!("Starting Thunderus TUI");
-            run_welcome_app().context("Failed to run TUI")?;
+            run_tui_with_provider(&config).context("Failed to run TUI")?;
         }
     }
+
+    Ok(())
+}
+
+fn run_tui_with_provider(config: &Config) -> Result<()> {
+    let provider_name = config.default_provider.clone();
+    let provider = create_provider(&provider_name, config)
+        .with_context(|| format!("Failed to create provider: {}", provider_name))?;
+
+    let (request_tx, request_rx) = mpsc::channel::<String>();
+    let (event_tx, event_rx) = mpsc::channel::<StreamEvent>();
+
+    let worker = std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("failed to build worker runtime");
+        let mut conversation = Conversation::with_default_system_prompt();
+
+        runtime.block_on(async move {
+            while let Ok(user_input) = request_rx.recv() {
+                conversation.add_user_message(user_input);
+                let messages = conversation.messages.clone();
+
+                match provider.complete_stream_with_events(&messages, &event_tx).await {
+                    Ok(response) => {
+                        conversation.add_assistant_message(response.content);
+                    }
+                    Err(error) => {
+                        let _ = event_tx.send(StreamEvent::Error(error.to_string()));
+                    }
+                }
+            }
+        });
+    });
+
+    let ui_result = run_welcome_app_with_streaming(
+        move |user_input| request_tx.send(user_input).map_err(|error| error.to_string()),
+        move || {
+            event_rx.try_recv().ok().map(|event| match event {
+                StreamEvent::Delta { content, reasoning_content } => {
+                    IncomingStreamEvent::Delta { content, reasoning_content }
+                }
+                StreamEvent::Done { usage: _ } => IncomingStreamEvent::Done,
+                StreamEvent::Error(error) => IncomingStreamEvent::Error(error),
+            })
+        },
+    );
+
+    let _ = worker.join();
+    ui_result?;
 
     Ok(())
 }
@@ -111,7 +163,7 @@ async fn debug_provider(
 
     println!("   Default model: {}", provider.default_model());
 
-    let messages = vec![Message::system("You are a helpful assistant."), Message::user(prompt)];
+    let messages = vec![build_system_message(), Message::user(prompt)];
 
     println!("\nSending request...\n");
 

@@ -61,22 +61,33 @@ pub struct StreamResponse {
     pub model: String,
 }
 
-pub async fn collect_stream(response: reqwest::Response) -> Result<StreamResponse> {
+pub async fn collect_stream(
+    response: reqwest::Response, event_tx: &std::sync::mpsc::Sender<StreamEvent>,
+) -> Result<StreamResponse> {
     let mut content = String::new();
     let mut reasoning_content = String::new();
     let mut finish_reason = None;
     let mut usage = None;
     let mut model = String::new();
+    let mut line_buffer = String::new();
+    let mut done_received = false;
 
     let mut stream = response.bytes_stream();
 
-    while let Some(chunk_result) = stream.next().await {
+    'outer: while let Some(chunk_result) = stream.next().await {
         let chunk = chunk_result?;
         let text = String::from_utf8_lossy(&chunk);
+        line_buffer.push_str(&text);
 
-        for line in text.lines() {
+        while let Some(newline_index) = line_buffer.find('\n') {
+            let mut line = line_buffer[..newline_index].to_string();
+            line_buffer = line_buffer[newline_index + 1..].to_string();
+
+            if line.ends_with('\r') {
+                line.pop();
+            }
+
             let line = line.trim();
-
             if line.is_empty() || !line.starts_with("data: ") {
                 continue;
             }
@@ -84,7 +95,8 @@ pub async fn collect_stream(response: reqwest::Response) -> Result<StreamRespons
             let data = &line[6..];
 
             if data == "[DONE]" {
-                break;
+                done_received = true;
+                break 'outer;
             }
 
             match serde_json::from_str::<StreamChunk>(data) {
@@ -92,6 +104,9 @@ pub async fn collect_stream(response: reqwest::Response) -> Result<StreamRespons
                     model = chunk.model;
 
                     if let Some(choice) = chunk.choices.first() {
+                        let delta_content = choice.delta.content.clone();
+                        let delta_reasoning = choice.delta.reasoning_content.clone();
+
                         if let Some(c) = &choice.delta.content {
                             content.push_str(c);
                         }
@@ -101,16 +116,33 @@ pub async fn collect_stream(response: reqwest::Response) -> Result<StreamRespons
                         if choice.finish_reason.is_some() {
                             finish_reason = choice.finish_reason.clone();
                         }
+
+                        if delta_content.is_some() || delta_reasoning.is_some() {
+                            let _ = event_tx.send(StreamEvent::Delta {
+                                content: delta_content,
+                                reasoning_content: delta_reasoning,
+                            });
+                        }
                     }
 
                     if let Some(u) = chunk.usage {
                         usage = Some(u);
                     }
                 }
-                Err(e) => tracing::debug!("Failed to parse stream chunk: {} - data: {}", e, data),
+                Err(e) => {
+                    let error_message = format!("Failed to parse stream chunk: {e}");
+                    let _ = event_tx.send(StreamEvent::Error(error_message.clone()));
+                    tracing::debug!("{error_message} - data: {data}");
+                }
             }
         }
     }
+
+    if !done_received && !line_buffer.trim().is_empty() {
+        tracing::debug!("Stream ended with trailing data: {}", line_buffer.trim());
+    }
+
+    let _ = event_tx.send(StreamEvent::Done { usage: usage.clone() });
 
     Ok(StreamResponse {
         content,

@@ -20,8 +20,14 @@ use thiserror::Error;
 
 pub mod chat;
 pub mod components;
+pub mod tool;
 
-pub use chat::{ChatApp, ChatMessage, StreamingState, draw_chat_screen};
+pub use chat::{
+    ChatApp, ChatMessage, IncomingStreamEvent, StreamingState, ToolCallDisplay, ToolCallStatus, draw_chat_screen,
+};
+
+type Submitter<'a> = dyn FnMut(String) -> std::result::Result<(), String> + 'a;
+type Poller<'a> = dyn FnMut() -> Option<IncomingStreamEvent> + 'a;
 
 /// UI Errors
 #[derive(Error, Debug)]
@@ -165,12 +171,10 @@ impl App {
                     } else {
                         self.input_buffer.clone()
                     };
-                    self.chat.messages.push(ChatMessage::user(content));
+                    self.chat.submit_user_message(content);
                     self.input_buffer.clear();
                     self.cursor_position = 0;
                     self.screen_mode = ScreenMode::Chat;
-                    self.chat.streaming_state = StreamingState::Streaming;
-                    self.chat.messages.push(ChatMessage::assistant_streaming(String::new()));
                 }
             }
             KeyCode::Up => {
@@ -231,7 +235,24 @@ pub fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -
 pub fn run_welcome_app() -> Result<()> {
     let mut terminal = setup_terminal()?;
     let mut app = App::new();
-    let result = run_app(&mut terminal, &mut app);
+    let result = run_app(&mut terminal, &mut app, None, None);
+
+    restore_terminal(&mut terminal)?;
+
+    result
+}
+
+/// Run the welcome screen TUI with streaming callbacks for conversation handling.
+pub fn run_welcome_app_with_streaming<S, P>(mut submit_message: S, mut poll_event: P) -> Result<()>
+where
+    S: FnMut(String) -> std::result::Result<(), String>,
+    P: FnMut() -> Option<IncomingStreamEvent>,
+{
+    let mut terminal = setup_terminal()?;
+    let mut app = App::new();
+    let submit_ref: &mut Submitter<'_> = &mut submit_message;
+    let poll_ref: &mut Poller<'_> = &mut poll_event;
+    let result = run_app(&mut terminal, &mut app, Some(submit_ref), Some(poll_ref));
 
     restore_terminal(&mut terminal)?;
 
@@ -243,15 +264,36 @@ pub fn run_chat_app() -> Result<()> {
     let mut terminal = setup_terminal()?;
     let mut app = App::new();
     app.screen_mode = ScreenMode::Chat;
-    let result = run_app(&mut terminal, &mut app);
+    let result = run_app(&mut terminal, &mut app, None, None);
 
     restore_terminal(&mut terminal)?;
 
     result
 }
 
-fn run_app(terminal: &mut Terminal<impl Backend>, app: &mut App) -> Result<()> {
+fn run_app(
+    terminal: &mut Terminal<impl Backend>, app: &mut App, mut submitter: Option<&mut Submitter<'_>>,
+    mut poller: Option<&mut Poller<'_>>,
+) -> Result<()> {
     loop {
+        if let Some(submitter) = submitter.as_deref_mut()
+            && let Some(pending_message) = app.chat.take_pending_user_message()
+            && let Err(error) = submitter(pending_message)
+        {
+            app.chat.handle_stream_event(IncomingStreamEvent::Error(error));
+        }
+        if submitter.is_none() && app.chat.take_pending_user_message().is_some() {
+            app.chat.handle_stream_event(IncomingStreamEvent::Error(
+                "No response backend configured for this UI mode.".to_string(),
+            ));
+        }
+
+        if let Some(poller) = poller.as_deref_mut() {
+            while let Some(event) = poller() {
+                app.chat.handle_stream_event(event);
+            }
+        }
+
         terminal.draw(|f| match app.screen_mode {
             ScreenMode::Welcome => draw_welcome_screen(f, app),
             ScreenMode::Chat => draw_chat_screen(f, &app.chat),

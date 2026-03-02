@@ -4,3 +4,25 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "process",
+    "time",
+] }
+reqwest = { version = "0.13", features = ["json"] }
+url = "2.5"
+regex = "1.10"
+base64 = "0.22"
+infer = "0.19.0"
+async-trait = "0.1"
+similar = { version = "2.7.0", features = ["text", "bytes", "inline"] }
+lectito-core = { git = "https://github.com/stormlightlabs/lectito", features = [
+    "markdown",
+] }
+
+[lints]
+workspace = true
