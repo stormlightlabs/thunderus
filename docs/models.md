@@ -67,13 +67,20 @@ This is a separate billing tier from the standard BigModel API. The wire format 
 
 ### Models
 
-| Model ID        | Type                            | Context | Max Output | Notes                                |
-| --------------- | ------------------------------- | ------- | ---------- | ------------------------------------ |
-| `glm-5`         | Flagship MoE (745B, 44B active) | 200K    | 128K       | SOTA coding + agents. Thinking mode. |
-| `glm-4.7`       | Code-optimized                  | 128K    | 4K–8K      | Available via Coding Plan            |
-| `glm-4.6`       | Code-optimized                  | 128K    | 4K–8K      | Available via Coding Plan            |
-| `glm-4.5`       | General                         | 128K    | 4K–8K      | Available via Coding Plan            |
-| `glm-4.5-flash` | Fast                            | 128K    | 4K         | Available via Coding Plan            |
+| Model ID              | Type                            | Context | Max Output | Notes                                |
+| --------------------- | ------------------------------- | ------- | ---------- | ------------------------------------ |
+| `glm-5`               | Flagship MoE (745B, 44B active) | 200K    | 128K       | SOTA coding + agents. Thinking mode. |
+| `glm-5-code`          | Code-specialized                | -       | -          | Higher coding-focused tier           |
+| `glm-4.7`             | Code-optimized                  | 128K    | 4K–8K      | Available via Coding Plan            |
+| `glm-4.7-flashx`      | Fast code tier                  | -       | -          | Lower-cost FlashX variant            |
+| `glm-4.7-flash`       | Fast free tier                  | -       | -          | Free tier                            |
+| `glm-4.6`             | Code-optimized                  | 128K    | 4K–8K      | Available via Coding Plan            |
+| `glm-4.5`             | General                         | 128K    | 4K–8K      | Available via Coding Plan            |
+| `glm-4.5-x`           | Premium                         | -       | -          | Higher quality/cost tier             |
+| `glm-4.5-air`         | Lightweight                     | -       | -          | Cost-efficient tier                  |
+| `glm-4.5-airx`        | Lightweight premium             | -       | -          | Mid-tier price/perf                  |
+| `glm-4.5-flash`       | Fast                            | 128K    | 4K         | Available via Coding Plan            |
+| `glm-4-32b-0414-128k` | 32B model                       | 128K    | -          | Legacy low-cost option               |
 
 GLM-5 (released Feb 2026) is a 745B MoE model trained entirely on Huawei Ascend chips. 256 experts, 8 active per token.
 

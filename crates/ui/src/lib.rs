@@ -23,7 +23,8 @@ pub mod components;
 pub mod tool;
 
 pub use chat::{
-    ChatApp, ChatMessage, IncomingStreamEvent, StreamingState, ToolCallDisplay, ToolCallStatus, draw_chat_screen,
+    ChatApp, ChatMessage, IncomingStreamEvent, StreamingState, TokenUsage, ToolCallDisplay, ToolCallStatus,
+    draw_chat_screen,
 };
 
 type Submitter<'a> = dyn FnMut(String) -> std::result::Result<(), String> + 'a;
@@ -86,12 +87,10 @@ pub mod colors {
 }
 
 /// Suggestion items shown on welcome screen
-pub const SUGGESTIONS: [&str; 5] = [
-    "Refactor this function to use async/await",
-    "Find all TODO comments in the codebase",
-    "Write tests for the auth module",
-    "Explain how the database connection works",
-    "Fix the bug in src/utils.js line 42",
+pub const SUGGESTIONS: [&str; 2] = [
+    "What is your name?",
+    // TODO: inject meta/INIT.txt
+    "Initialize a new project by creating a new AGENTS.md",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -135,7 +134,12 @@ impl App {
 
         match self.screen_mode {
             ScreenMode::Welcome => self.handle_welcome_input(key),
-            ScreenMode::Chat => self.chat.handle_input(key),
+            ScreenMode::Chat => {
+                self.chat.handle_input(key);
+                if !self.chat.running {
+                    self.running = false;
+                }
+            }
         }
     }
 
@@ -328,15 +332,13 @@ pub fn draw_welcome_screen(frame: &mut Frame, app: &App) {
         .constraints([
             Constraint::Min(0),
             Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(3),
+            Constraint::Length(components::single_line_top_bordered_row_height()),
         ])
         .split(size);
 
     draw_main_content(frame, main_layout[0], app);
     draw_hints(frame, main_layout[1]);
-    components::draw_input_separator(frame, main_layout[2]);
-    draw_input_area(frame, main_layout[3], app);
+    draw_input_area(frame, main_layout[2], app);
 }
 
 fn draw_main_content(frame: &mut Frame, area: Rect, app: &App) {
@@ -377,11 +379,7 @@ fn draw_logo(frame: &mut Frame, area: Rect) {
 
 /// Draws suggestions as bordered card items matching the design's .card-item
 fn draw_suggestions(frame: &mut Frame, area: Rect, app: &App) {
-    let mut constraints: Vec<Constraint> = vec![Constraint::Length(1)];
-    for _ in 0..SUGGESTIONS.len() {
-        constraints.push(Constraint::Length(3));
-    }
-    constraints.push(Constraint::Min(0));
+    let constraints = suggestion_constraints(area.width);
 
     let suggestions_layout = Layout::default()
         .direction(Direction::Vertical)
@@ -397,6 +395,37 @@ fn draw_suggestions(frame: &mut Frame, area: Rect, app: &App) {
     }
 }
 
+fn suggestion_constraints(area_width: u16) -> Vec<Constraint> {
+    let mut constraints: Vec<Constraint> = Vec::with_capacity(SUGGESTIONS.len() + 2);
+    constraints.push(Constraint::Length(1));
+    for suggestion in SUGGESTIONS {
+        constraints.push(Constraint::Length(suggestion_card_height(suggestion, area_width)));
+    }
+    constraints.push(Constraint::Min(0));
+    constraints
+}
+
+fn suggestion_card_height(label: &str, area_width: u16) -> u16 {
+    const MIN_CARD_HEIGHT: u16 = 3;
+    const LABEL_PREFIX_WIDTH: usize = 6; // "  ›   "
+
+    let inner_width = area_width.saturating_sub(2) as usize;
+    if inner_width == 0 {
+        return MIN_CARD_HEIGHT;
+    }
+
+    if inner_width <= LABEL_PREFIX_WIDTH {
+        return MIN_CARD_HEIGHT;
+    }
+
+    let label_width = label.chars().count();
+    let first_line_capacity = inner_width - LABEL_PREFIX_WIDTH;
+    let remaining = label_width.saturating_sub(first_line_capacity);
+    let extra_lines = if remaining == 0 { 0 } else { remaining.div_ceil(inner_width) };
+    let content_lines = 1 + extra_lines as u16;
+    (content_lines + 2).max(MIN_CARD_HEIGHT)
+}
+
 fn suggestion_areas(frame_area: Rect) -> Vec<Rect> {
     let (_, logo_height) = logo_dimensions();
     let main_layout = Layout::default()
@@ -404,8 +433,7 @@ fn suggestion_areas(frame_area: Rect) -> Vec<Rect> {
         .constraints([
             Constraint::Min(0),
             Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(3),
+            Constraint::Length(components::single_line_top_bordered_row_height()),
         ])
         .split(frame_area);
 
@@ -427,11 +455,7 @@ fn suggestion_areas(frame_area: Rect) -> Vec<Rect> {
         ])
         .split(content_area);
 
-    let mut constraints: Vec<Constraint> = vec![Constraint::Length(1)];
-    for _ in 0..SUGGESTIONS.len() {
-        constraints.push(Constraint::Length(3));
-    }
-    constraints.push(Constraint::Min(0));
+    let constraints = suggestion_constraints(content_layout[5].width);
 
     let suggestions_layout = Layout::default()
         .direction(Direction::Vertical)
@@ -457,7 +481,7 @@ fn draw_hints(frame: &mut Frame, area: Rect) {
         components::HintToken::Key("ctrl+n"),
         components::HintToken::Text(" for new chat, "),
         components::HintToken::Key("@file"),
-        components::HintToken::Text(" to reference files"),
+        components::HintToken::Text(" to reference files, "),
         components::HintToken::Key("ctrl+d"),
         components::HintToken::Text(" to quit"),
     ];
@@ -465,12 +489,7 @@ fn draw_hints(frame: &mut Frame, area: Rect) {
 }
 
 fn draw_input_area(frame: &mut Frame, area: Rect, app: &App) {
-    let input_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Length(1), Constraint::Length(1)])
-        .split(area);
-
-    components::draw_input_line(frame, input_layout[1], &app.input_buffer, true);
+    components::draw_input_container(frame, area, &app.input_buffer, true);
 }
 
 #[cfg(test)]
@@ -512,17 +531,18 @@ mod tests {
     fn test_mouse_click_selects_suggestion() {
         let mut app = App::new();
         let frame_area = Rect::new(0, 0, 120, 40);
-        let third_suggestion = suggestion_areas(frame_area)[2];
+        let target_idx = SUGGESTIONS.len().saturating_sub(1);
+        let target_suggestion = suggestion_areas(frame_area)[target_idx];
 
         let click_event = MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
-            column: third_suggestion.x + 1,
-            row: third_suggestion.y + 1,
+            column: target_suggestion.x + 1,
+            row: target_suggestion.y + 1,
             modifiers: KeyModifiers::NONE,
         };
 
         app.handle_mouse(click_event, frame_area);
-        assert_eq!(app.selected_suggestion, Some(2));
+        assert_eq!(app.selected_suggestion, Some(target_idx));
     }
 
     #[test]
@@ -537,5 +557,16 @@ mod tests {
         assert_eq!(app.chat.messages.len(), 2);
         assert_eq!(app.chat.messages[0].role, chat::MessageRole::User);
         assert_eq!(app.chat.messages[0].content, "hi");
+    }
+
+    #[test]
+    fn test_ctrl_d_quits_in_chat_mode() {
+        let mut app = App::new();
+        app.screen_mode = ScreenMode::Chat;
+
+        let quit_event = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL);
+        app.handle_input(quit_event);
+
+        assert!(!app.running);
     }
 }

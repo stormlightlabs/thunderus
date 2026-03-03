@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use thunderus_core::{Config, Conversation, Message, build_system_message};
 use thunderus_providers::{StreamEvent, create_provider};
-use thunderus_ui::{IncomingStreamEvent, run_welcome_app_with_streaming};
+use thunderus_ui::{IncomingStreamEvent, TokenUsage, run_welcome_app_with_streaming};
 
 /// Thunderus - Terminal AI Assistant
 #[derive(Parser)]
@@ -90,6 +90,7 @@ fn run_tui_with_provider(config: &Config) -> Result<()> {
     let provider_name = config.default_provider.clone();
     let provider = create_provider(&provider_name, config)
         .with_context(|| format!("Failed to create provider: {}", provider_name))?;
+    let provider_default_model = provider.default_model().to_string();
 
     let (request_tx, request_rx) = mpsc::channel::<String>();
     let (event_tx, event_rx) = mpsc::channel::<StreamEvent>();
@@ -125,7 +126,14 @@ fn run_tui_with_provider(config: &Config) -> Result<()> {
                 StreamEvent::Delta { content, reasoning_content } => {
                     IncomingStreamEvent::Delta { content, reasoning_content }
                 }
-                StreamEvent::Done { usage: _ } => IncomingStreamEvent::Done,
+                StreamEvent::Done { usage, model } => IncomingStreamEvent::Done {
+                    usage: usage.map(|u| TokenUsage {
+                        prompt_tokens: u.prompt_tokens,
+                        completion_tokens: u.completion_tokens,
+                        total_tokens: u.total_tokens,
+                    }),
+                    model: Some(model.unwrap_or_else(|| provider_default_model.clone())),
+                },
                 StreamEvent::Error(error) => IncomingStreamEvent::Error(error),
             })
         },

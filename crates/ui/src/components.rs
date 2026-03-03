@@ -6,7 +6,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, BorderType, Borders, Paragraph, Wrap},
+    widgets::{Block, BorderType, Borders, Padding, Paragraph, Wrap},
 };
 
 /// Semantic section styles used across chat-active, tools, and loading pages.
@@ -62,6 +62,18 @@ pub enum HintToken<'a> {
     Key(&'a str),
 }
 
+pub const TOP_BORDER_HEIGHT: u16 = 1;
+pub const SINGLE_LINE_CONTENT_HEIGHT: u16 = 1;
+pub const TOP_BORDERED_ROW_PADDING: Padding = Padding::uniform(1);
+
+pub const fn top_bordered_row_height(content_lines: u16) -> u16 {
+    TOP_BORDER_HEIGHT + TOP_BORDERED_ROW_PADDING.top + TOP_BORDERED_ROW_PADDING.bottom + content_lines
+}
+
+pub const fn single_line_top_bordered_row_height() -> u16 {
+    top_bordered_row_height(SINGLE_LINE_CONTENT_HEIGHT)
+}
+
 /// Draws the ASCII logo block.
 pub fn draw_ascii_logo(frame: &mut Frame, area: Rect, logo: &str) {
     let logo_text = Text::from(logo.trim_end_matches('\n')).style(Style::default().fg(colors::ACCENT_CYAN));
@@ -94,7 +106,6 @@ pub fn draw_section_title_muted(frame: &mut Frame, area: Rect, title: &str) {
 /// Draws a reusable card-item with optional selected state.
 pub fn draw_card_item(frame: &mut Frame, area: Rect, label: &str, is_selected: bool) {
     let border_color = if is_selected { colors::ACCENT_CYAN } else { colors::BORDER_COLOR };
-    let card_bg = if is_selected { colors::BG_TERTIARY } else { colors::BG_SECONDARY };
 
     let outer = Block::default()
         .borders(Borders::ALL)
@@ -104,7 +115,7 @@ pub fn draw_card_item(frame: &mut Frame, area: Rect, label: &str, is_selected: b
     frame.render_widget(outer.clone(), area);
 
     let inner = outer.inner(area);
-    let fill = Block::default().style(Style::default().bg(card_bg));
+    let fill = Block::default().style(Style::default());
     frame.render_widget(fill, inner);
 
     let content = Line::from(vec![
@@ -115,7 +126,9 @@ pub fn draw_card_item(frame: &mut Frame, area: Rect, label: &str, is_selected: b
         ),
     ]);
 
-    let card = Paragraph::new(content).style(Style::default().bg(card_bg));
+    let card = Paragraph::new(content)
+        .style(Style::default())
+        .wrap(Wrap { trim: true });
     frame.render_widget(card, inner);
 }
 
@@ -144,11 +157,28 @@ pub fn draw_input_separator(frame: &mut Frame, area: Rect) {
     frame.render_widget(separator, area);
 }
 
+/// Draws the shared input container with a top border and horizontal padding.
+pub fn draw_input_container(frame: &mut Frame, area: Rect, input: &str, show_cursor: bool) {
+    let inner = draw_top_bordered_container(frame, area);
+    draw_input_line(frame, inner, input, show_cursor);
+}
+
+pub fn draw_top_bordered_container(frame: &mut Frame, area: Rect) -> Rect {
+    let container = Block::default()
+        .borders(Borders::TOP)
+        .border_style(Style::default().fg(colors::BORDER_COLOR))
+        .style(Style::default().bg(colors::BG_TERMINAL))
+        .padding(TOP_BORDERED_ROW_PADDING);
+    frame.render_widget(container.clone(), area);
+
+    container.inner(area)
+}
+
 /// Draws a REPL-style input line with prompt and cursor.
 pub fn draw_input_line(frame: &mut Frame, area: Rect, input: &str, show_cursor: bool) {
     let cursor_char = if show_cursor { "\u{2588}" } else { " " };
     let input_line = Line::from(vec![
-        Span::styled(" \u{276f} ", Style::default().fg(colors::ACCENT_CYAN)),
+        Span::styled("\u{276f} ", Style::default().fg(colors::ACCENT_CYAN)),
         Span::styled(input, Style::default().fg(colors::TEXT_PRIMARY)),
         Span::styled(cursor_char, Style::default().fg(colors::ACCENT_CYAN)),
     ]);

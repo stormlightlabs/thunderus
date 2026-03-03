@@ -49,6 +49,7 @@ pub enum StreamEvent {
     },
     Done {
         usage: Option<StreamUsage>,
+        model: Option<String>,
     },
     Error(String),
 }
@@ -142,7 +143,8 @@ pub async fn collect_stream(
         tracing::debug!("Stream ended with trailing data: {}", line_buffer.trim());
     }
 
-    let _ = event_tx.send(StreamEvent::Done { usage: usage.clone() });
+    let done_model = if model.is_empty() { None } else { Some(model.clone()) };
+    let _ = event_tx.send(StreamEvent::Done { usage: usage.clone(), model: done_model });
 
     Ok(StreamResponse {
         content,

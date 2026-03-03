@@ -4,6 +4,10 @@
 //! - OpenAI Chat Completions
 //! - Moonshot (Kimi) - OpenAI-compatible
 //! - Z.ai (GLM) - OpenAI-compatible with quirks
+//!
+//! TODO: support GLM models - glm-5, glm-4.7, glm-4.7-flash, glm-4.7-flashx,
+//!                            glm-4.6, glm-4.5, glm-4.5-air, glm-4.5-x,
+//!                            glm-4.5-airx, glm-4.5-flash, glm-4-32b-0414-128k
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

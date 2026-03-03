@@ -15,6 +15,6 @@ Result
 
 Next
 
-- The single best next step (or say “Done” and give validation steps).
+- The single best next step (or say "Done" and give validation steps).
 - If you are blocked, ask one precise question and propose the most reasonable
   default

@@ -41,17 +41,23 @@ Navigate the workspace visually, view files with highlighting.
 - File tree walker (respects `.gitignore`)
 - syntect integration for syntax highlighting
 - Fuzzy file finder triggered by `@` (nucleo for substring/fuzzy match against workspace file paths)
+- Slash command implementation `/`
 
 #### UI - File Browser
 
-- Split pane: file tree (left) + file content (right)
-- Tree items with folder/file icons, indentation
+- Split pane: file tree (left) + file content (right) - should look like unix tree
+- Recursively rendered tree items with folder/file icons, indentation
 - Active file highlighting
 - Breadcrumb path bar
 - Line-numbered source view with syntax highlighting (syntect)
 - `@` fuzzy finder overlay: text input with ranked file matches, enter to open
 
 *Reference: `designs/templates/files.html`*
+
+#### UI - Debug
+
+- `/debug chat` shows a long, scrollable chat
+- `/debug files` shows a long, scrollable file tree
 
 ## Part 3
 

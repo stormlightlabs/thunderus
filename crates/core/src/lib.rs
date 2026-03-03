@@ -10,7 +10,9 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
+mod models;
 mod prompt;
+pub use models::{ModelPricing, STORED_MODELS, StoredModel, estimate_token_cost_usd, find_stored_model, stored_models};
 pub use prompt::{ResponseSections, build_system_message, build_system_prompt};
 
 /// Errors that can occur in core operations

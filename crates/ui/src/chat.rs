@@ -2,8 +2,8 @@
 
 use super::colors;
 use super::components::{
-    HintToken, SectionTone, ToolCallState, draw_hint_line, draw_input_line, draw_input_separator, draw_section_block,
-    draw_tool_call,
+    HintToken, SectionTone, ToolCallState, draw_hint_line, draw_input_container, draw_section_block, draw_tool_call,
+    draw_top_bordered_container, single_line_top_bordered_row_height,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{
@@ -11,9 +11,9 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::Style,
     text::{Line, Span, Text},
-    widgets::{Block, Paragraph, Wrap},
+    widgets::{Block, Padding, Paragraph, Wrap},
 };
-use thunderus_core::ResponseSections;
+use thunderus_core::{ResponseSections, estimate_token_cost_usd};
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum StreamingState {
@@ -68,13 +68,23 @@ impl ToolCallDisplay {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TokenUsage {
+    pub prompt_tokens: u32,
+    pub completion_tokens: u32,
+    pub total_tokens: u32,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum IncomingStreamEvent {
     Delta {
         content: Option<String>,
         reasoning_content: Option<String>,
     },
-    Done,
+    Done {
+        usage: Option<TokenUsage>,
+        model: Option<String>,
+    },
     Error(String),
     ToolCalling {
         name: String,
@@ -148,6 +158,8 @@ pub struct ChatApp {
     pub cursor_position: usize,
     pub streaming_state: StreamingState,
     pub scroll_offset: u16,
+    pub last_usage: Option<TokenUsage>,
+    pub last_model: Option<String>,
     pub running: bool,
     pending_user_message: Option<String>,
     /// Index of currently running tool call
@@ -229,7 +241,13 @@ impl ChatApp {
                 }
                 self.streaming_state = StreamingState::Streaming;
             }
-            IncomingStreamEvent::Done => self.finish_current_stream(),
+            IncomingStreamEvent::Done { usage, model } => {
+                self.last_usage = usage;
+                if let Some(model_id) = model {
+                    self.last_model = Some(model_id);
+                }
+                self.finish_current_stream();
+            }
             IncomingStreamEvent::Error(message) => {
                 self.append_stream(&format!("\n\n[provider error] {message}"), None);
                 self.finish_current_stream();
@@ -315,26 +333,36 @@ pub fn draw_chat_screen(frame: &mut Frame, app: &ChatApp) {
         .constraints([
             Constraint::Min(0),
             Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(3),
+            Constraint::Length(single_line_top_bordered_row_height()),
+            Constraint::Length(single_line_top_bordered_row_height()),
         ])
         .split(size);
 
     draw_messages(frame, main_layout[0], app);
     draw_hints(frame, main_layout[1]);
-    draw_input_separator(frame, main_layout[2]);
+    draw_token_usage_row(frame, main_layout[2], app);
     draw_input_area(frame, main_layout[3], app);
 }
 
 fn draw_messages(frame: &mut Frame, area: Rect, app: &ChatApp) {
+    let container = Block::default()
+        .style(Style::default().bg(colors::BG_TERMINAL))
+        .padding(Padding::new(1, 1, 0, 1));
+    frame.render_widget(container.clone(), area);
+
+    let inner = container.inner(area);
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
+
     if app.messages.is_empty() {
-        draw_empty_state(frame, area);
+        draw_empty_state(frame, inner);
         return;
     }
 
     let mut constraints = Vec::new();
     for msg in &app.messages {
-        let height = estimate_message_height(msg, area.width);
+        let height = estimate_message_height(msg, inner.width);
         constraints.push(Constraint::Length(height));
     }
     constraints.push(Constraint::Min(0));
@@ -342,7 +370,7 @@ fn draw_messages(frame: &mut Frame, area: Rect, app: &ChatApp) {
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints(constraints)
-        .split(area);
+        .split(inner);
 
     for (idx, msg) in app.messages.iter().enumerate() {
         if idx + 1 < layout.len() {
@@ -356,7 +384,7 @@ fn estimate_message_height(msg: &ChatMessage, width: u16) -> u16 {
 
     let line_count = msg.content.lines().count() as u16;
     let wrap_factor = if width > 0 { 1 + msg.content.len() as u16 / width } else { 1 };
-    height += line_count.max(wrap_factor) + 2;
+    height += line_count.max(wrap_factor) + 1;
 
     for tool_call in &msg.tool_calls {
         height += 3;
@@ -417,7 +445,7 @@ fn draw_message(frame: &mut Frame, area: Rect, msg: &ChatMessage, streaming_stat
 
 fn draw_user_message(frame: &mut Frame, area: Rect, content: &str) {
     let line = Line::from(vec![
-        Span::styled(" ❯ ", Style::default().fg(colors::ACCENT_CYAN)),
+        Span::styled("❯ ", Style::default().fg(colors::ACCENT_CYAN)),
         Span::styled(content, Style::default().fg(colors::TEXT_PRIMARY)),
     ]);
     let paragraph = Paragraph::new(line)
@@ -449,7 +477,7 @@ fn draw_tool_call_widget(frame: &mut Frame, area: Rect, tool_call: &ToolCallDisp
 }
 
 fn draw_assistant_raw(frame: &mut Frame, area: Rect, content: &str, is_streaming: bool) {
-    let mut spans = vec![Span::styled(" ◉ ", Style::default().fg(colors::ACCENT_PURPLE))];
+    let mut spans = vec![Span::styled("◉ ", Style::default().fg(colors::ACCENT_PURPLE))];
 
     if is_streaming && content.is_empty() {
         spans.push(Span::styled("Thinking...", Style::default().fg(colors::TEXT_MUTED)));
@@ -578,14 +606,63 @@ fn draw_hints(frame: &mut Frame, area: Rect) {
     draw_hint_line(frame, area, &tokens);
 }
 
-fn draw_input_area(frame: &mut Frame, area: Rect, app: &ChatApp) {
-    let input_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Length(1), Constraint::Length(1)])
-        .split(area);
+fn draw_token_usage_row(frame: &mut Frame, area: Rect, app: &ChatApp) {
+    let inner = draw_top_bordered_container(frame, area);
+    let row_text = build_token_usage_text(app);
+    let paragraph = Paragraph::new(row_text)
+        .style(Style::default().fg(colors::TEXT_MUTED).bg(colors::BG_TERMINAL))
+        .wrap(Wrap { trim: true });
+    frame.render_widget(paragraph, inner);
+}
 
+fn build_token_usage_text(app: &ChatApp) -> String {
+    let Some(usage) = app.last_usage else {
+        return "Token usage appears here after the first response.".to_string();
+    };
+
+    let mut parts = Vec::with_capacity(5);
+
+    if let Some(model) = app.last_model.as_deref() {
+        parts.push(format!("model: {model}"));
+    }
+
+    parts.push(format!("prompt: {}", format_u32_with_grouping(usage.prompt_tokens)));
+    parts.push(format!(
+        "completion: {}",
+        format_u32_with_grouping(usage.completion_tokens)
+    ));
+    parts.push(format!("total: {}", format_u32_with_grouping(usage.total_tokens)));
+
+    if let Some(model) = app.last_model.as_deref()
+        && let Some(cost) = estimate_token_cost_usd(model, usage.prompt_tokens, usage.completion_tokens)
+    {
+        parts.push(format!("est: {}", format_usd(cost)));
+    }
+
+    parts.join("  |  ")
+}
+
+fn format_u32_with_grouping(value: u32) -> String {
+    let mut out = String::new();
+    let digits = value.to_string();
+
+    for (idx, ch) in digits.chars().rev().enumerate() {
+        if idx > 0 && idx % 3 == 0 {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+
+    out.chars().rev().collect()
+}
+
+fn format_usd(value: f64) -> String {
+    if value < 0.0001 { format!("${value:.6}") } else { format!("${value:.4}") }
+}
+
+fn draw_input_area(frame: &mut Frame, area: Rect, app: &ChatApp) {
     let show_cursor = app.streaming_state == StreamingState::Idle;
-    draw_input_line(frame, input_layout[1], &app.input_buffer, show_cursor);
+    draw_input_container(frame, area, &app.input_buffer, show_cursor);
 }
 
 #[cfg(test)]
@@ -676,10 +753,25 @@ mod tests {
             content: Some("Intent\n\nDo it\n\nResult\n\nDone".to_string()),
             reasoning_content: None,
         });
-        app.handle_stream_event(IncomingStreamEvent::Done);
+        app.handle_stream_event(IncomingStreamEvent::Done { usage: None, model: None });
 
         assert_eq!(app.streaming_state, StreamingState::Idle);
         assert!(app.messages[1].sections.is_some());
+    }
+
+    #[test]
+    fn test_done_event_sets_usage_and_model() {
+        let mut app = ChatApp::new();
+        app.handle_stream_event(IncomingStreamEvent::Done {
+            usage: Some(TokenUsage { prompt_tokens: 1200, completion_tokens: 300, total_tokens: 1500 }),
+            model: Some("glm-5".to_string()),
+        });
+
+        assert_eq!(
+            app.last_usage,
+            Some(TokenUsage { prompt_tokens: 1200, completion_tokens: 300, total_tokens: 1500 })
+        );
+        assert_eq!(app.last_model, Some("glm-5".to_string()));
     }
 
     #[test]
