@@ -34,13 +34,17 @@ impl ToolResult {
 
     /// Convert to JSON format for provider consumption
     pub fn to_provider_format(&self) -> serde_json::Value {
-        serde_json::json!({
+        let mut result = serde_json::json!({
             "status": match self.status {
                 ToolStatus::Success => "success",
                 ToolStatus::Error => "error",
             },
             "content": &self.content
-        })
+        });
+        if let Some(id) = &self.tool_use_id {
+            result["tool_use_id"] = serde_json::json!(id);
+        }
+        result
     }
 }
 
@@ -160,8 +164,18 @@ pub async fn execute_read(arguments: &HashMap<String, serde_json::Value>, sandbo
         match std::fs::read(&path) {
             Ok(bytes) => {
                 use base64::Engine;
-                let base64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
-                ToolResult::success(format!("[Image: {} bytes, base64-encoded]", base64.len()))
+                let base64_data = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                let mime_type = infer::get_from_path(&path)
+                    .ok()
+                    .flatten()
+                    .map(|k| k.mime_type().to_string())
+                    .unwrap_or_else(|| "image/png".to_string());
+                ToolResult::success(format!(
+                    "[Image: {} bytes, mime: {}]\nbase64:{}",
+                    bytes.len(),
+                    mime_type,
+                    base64_data
+                ))
             }
             Err(e) => ToolResult::error(format!("Cannot read image: {e}")),
         }

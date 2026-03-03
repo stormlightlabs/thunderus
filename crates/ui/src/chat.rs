@@ -411,10 +411,7 @@ fn draw_message(frame: &mut Frame, area: Rect, msg: &ChatMessage, streaming_stat
                 }
             }
         }
-        MessageRole::Tool => {
-            // Tool output message
-            draw_tool_output(frame, area, &msg.content);
-        }
+        MessageRole::Tool => draw_tool_output(frame, area, &msg.content),
     }
 }
 

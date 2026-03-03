@@ -160,19 +160,25 @@ pub struct ProviderConfig {
 pub struct Message {
     pub role: Role,
     pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
 }
 
 impl Message {
     pub fn system(content: impl Into<String>) -> Self {
-        Self { role: Role::System, content: content.into() }
+        Self { role: Role::System, content: content.into(), tool_call_id: None }
     }
 
     pub fn user(content: impl Into<String>) -> Self {
-        Self { role: Role::User, content: content.into() }
+        Self { role: Role::User, content: content.into(), tool_call_id: None }
     }
 
     pub fn assistant(content: impl Into<String>) -> Self {
-        Self { role: Role::Assistant, content: content.into() }
+        Self { role: Role::Assistant, content: content.into(), tool_call_id: None }
+    }
+
+    pub fn tool(tool_call_id: impl Into<String>, content: impl Into<String>) -> Self {
+        Self { role: Role::Tool, content: content.into(), tool_call_id: Some(tool_call_id.into()) }
     }
 }
 
@@ -324,14 +330,22 @@ mod tests {
         let system = Message::system("You are a helpful assistant");
         assert_eq!(system.role, Role::System);
         assert_eq!(system.content, "You are a helpful assistant");
+        assert!(system.tool_call_id.is_none());
 
         let user = Message::user("Hello!");
         assert_eq!(user.role, Role::User);
         assert_eq!(user.content, "Hello!");
+        assert!(user.tool_call_id.is_none());
 
         let assistant = Message::assistant("Hi there!");
         assert_eq!(assistant.role, Role::Assistant);
         assert_eq!(assistant.content, "Hi there!");
+        assert!(assistant.tool_call_id.is_none());
+
+        let tool = Message::tool("call_123", "File contents");
+        assert_eq!(tool.role, Role::Tool);
+        assert_eq!(tool.content, "File contents");
+        assert_eq!(tool.tool_call_id, Some("call_123".to_string()));
     }
 
     #[test]

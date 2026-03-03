@@ -8,7 +8,7 @@
 
 use crate::{CompletionResponse, Provider, ToolResult};
 use std::path::Path;
-use thunderus_core::{Conversation, Message, Role};
+use thunderus_core::{Conversation, Message};
 use thunderus_tools::execute_tool;
 
 /// Event emitted during conversation loop
@@ -102,17 +102,15 @@ impl ConversationLoop {
                 let tool_results = self.process_tool_calls(&response, &mut event_handler).await?;
 
                 let assistant_message = if response.content.is_empty() {
-                    Message { role: Role::Assistant, content: String::new() }
+                    Message::assistant(String::new())
                 } else {
-                    Message { role: Role::Assistant, content: response.content.clone() }
+                    Message::assistant(&response.content)
                 };
                 self.conversation.add_message(assistant_message);
 
                 for result in tool_results {
-                    self.conversation.add_message(Message {
-                        role: Role::Tool,
-                        content: format!("Tool: {}\nResult: {}", result.tool_call_id, result.content),
-                    });
+                    self.conversation
+                        .add_message(Message::tool(&result.tool_call_id, &result.content));
                 }
             } else {
                 let content = response.content.clone();

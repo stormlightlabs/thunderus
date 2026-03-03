@@ -457,7 +457,7 @@ fn build_openai_request(model: &str, messages: &[Message]) -> OpenAiRequest {
                 content: Some(m.content.clone()),
                 reasoning_content: None,
                 tool_calls: None,
-                tool_call_id: None,
+                tool_call_id: m.tool_call_id.clone(),
             })
             .collect(),
     )
@@ -477,7 +477,7 @@ fn build_openai_request_with_tools(model: &str, messages: &[Message], tools: &[T
             content: Some(m.content.clone()),
             reasoning_content: None,
             tool_calls: None,
-            tool_call_id: None,
+            tool_call_id: m.tool_call_id.clone(),
         })
         .collect();
 
