@@ -5,12 +5,16 @@ edition = "2024"
 
 [dependencies]
 thunderus-core = { path = "../core" }
+thunderus-ui-macros = { path = "../ui-macros" }
 
 ratatui = { version = "0.29", features = ["all-widgets"] }
 crossterm = { version = "0.28", features = ["event-stream"] }
 thiserror = "2.0"
 tracing = "0.1"
 tokio = { version = "1", features = ["rt-multi-thread"] }
+ignore = "0.4"
+syntect = { version = "5", default-features = true }
+nucleo-matcher = "0.3"
 
 [dev-dependencies]
 

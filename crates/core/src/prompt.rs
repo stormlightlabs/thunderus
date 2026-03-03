@@ -3,6 +3,8 @@
 //! Combines PROMPT.txt and RESPONSE.txt into a system message,
 //! and parses model responses into structured sections.
 
+use super::Message;
+
 const DEFAULT_PROMPT: &str = include_str!("../../../meta/PROMPT.txt");
 const DEFAULT_RESPONSE_FORMAT: &str = include_str!("../../../meta/RESPONSE.txt");
 const DEFAULT_TOOLS: &str = include_str!("../../../meta/TOOLS.txt");
@@ -16,8 +18,8 @@ pub fn build_system_prompt() -> String {
     )
 }
 
-pub fn build_system_message() -> crate::Message {
-    crate::Message::system(build_system_prompt())
+pub fn build_system_message() -> Message {
+    Message::system(build_system_prompt())
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]

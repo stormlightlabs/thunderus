@@ -11,21 +11,29 @@ use crossterm::{
 use ratatui::{
     Frame, Terminal,
     backend::{Backend, CrosstermBackend},
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::Rect,
     style::Style,
-    widgets::Block,
+    text::{Line, Span},
+    widgets::{Block, Paragraph},
 };
 use std::io;
 use thiserror::Error;
 
 pub mod chat;
 pub mod components;
+pub mod elements;
+pub mod files;
+pub mod layout;
 pub mod tool;
 
 pub use chat::{
     ChatApp, ChatMessage, IncomingStreamEvent, StreamingState, TokenUsage, ToolCallDisplay, ToolCallStatus,
     draw_chat_screen,
 };
+use components::{AsciiLogo, BrandGreeting, CardItem, HintFooter, HintToken, MutedSectionTitle, TopBorderedInputRow};
+use elements::{Suggestions, WelcomeContent, WelcomeMainColumn, WelcomeShell};
+use files::{FileBrowserAction, FileBrowserApp, draw_file_browser_screen};
+use layout::{AreaSpec, ConstraintSpec};
 
 type Submitter<'a> = dyn FnMut(String) -> std::result::Result<(), String> + 'a;
 type Poller<'a> = dyn FnMut() -> Option<IncomingStreamEvent> + 'a;
@@ -88,8 +96,10 @@ pub mod colors {
 
 /// Suggestion items shown on welcome screen
 pub const SUGGESTIONS: [&str; 2] = [
+    // NOTE: This is for debugging
     "What is your name?",
     // TODO: inject meta/INIT.txt
+    // TODO: if AGENTS.md exists, don't show this
     "Initialize a new project by creating a new AGENTS.md",
 ];
 
@@ -97,6 +107,7 @@ pub const SUGGESTIONS: [&str; 2] = [
 pub enum ScreenMode {
     Welcome,
     Chat,
+    Files,
 }
 
 /// The TUI application state
@@ -107,6 +118,7 @@ pub struct App {
     pub selected_suggestion: Option<usize>,
     pub screen_mode: ScreenMode,
     pub chat: ChatApp,
+    pub file_browser: FileBrowserApp,
 }
 
 impl Default for App {
@@ -118,6 +130,7 @@ impl Default for App {
             selected_suggestion: None,
             screen_mode: ScreenMode::Welcome,
             chat: ChatApp::new(),
+            file_browser: FileBrowserApp::default(),
         }
     }
 }
@@ -136,49 +149,77 @@ impl App {
             ScreenMode::Welcome => self.handle_welcome_input(key),
             ScreenMode::Chat => {
                 self.chat.handle_input(key);
+                if let Some(command) = self.chat.take_pending_command() {
+                    self.execute_slash_command(&command);
+                }
                 if !self.chat.running {
                     self.running = false;
                 }
             }
+            ScreenMode::Files => match self.file_browser.handle_input(key) {
+                FileBrowserAction::None => {}
+                FileBrowserAction::Quit => self.running = false,
+                FileBrowserAction::ExitToChat => self.screen_mode = ScreenMode::Chat,
+            },
         }
     }
 
     fn handle_welcome_input(&mut self, key: KeyEvent) {
+        if self.chat.is_file_finder_active() {
+            self.chat.handle_input(key);
+            if !self.chat.running {
+                self.running = false;
+            }
+            return;
+        }
+
         match key.code {
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => self.running = false,
             KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => self.running = false,
             KeyCode::Char('q') if key.modifiers.contains(KeyModifiers::CONTROL) => self.running = false,
+            KeyCode::Char('@') => self.chat.activate_file_finder(),
             KeyCode::Char(c) => {
+                self.selected_suggestion = None;
                 self.input_buffer.insert(self.cursor_position, c);
                 self.cursor_position += 1;
             }
             KeyCode::Backspace => {
+                self.selected_suggestion = None;
                 if self.cursor_position > 0 {
                     self.cursor_position -= 1;
                     self.input_buffer.remove(self.cursor_position);
                 }
             }
             KeyCode::Left => {
+                self.selected_suggestion = None;
                 if self.cursor_position > 0 {
                     self.cursor_position -= 1;
                 }
             }
             KeyCode::Right => {
+                self.selected_suggestion = None;
                 if self.cursor_position < self.input_buffer.len() {
                     self.cursor_position += 1;
                 }
             }
             KeyCode::Enter => {
-                if !self.input_buffer.is_empty() {
-                    let content = if let Some(idx) = self.selected_suggestion {
+                if !self.input_buffer.is_empty() || self.selected_suggestion.is_some() {
+                    let content = if self.input_buffer.is_empty() {
+                        let idx = self.selected_suggestion.unwrap_or(0);
                         SUGGESTIONS[idx].to_string()
                     } else {
                         self.input_buffer.clone()
                     };
-                    self.chat.submit_user_message(content);
+
+                    if content.starts_with('/') {
+                        self.execute_slash_command(&content);
+                    } else {
+                        self.chat.submit_user_message(content);
+                        self.screen_mode = ScreenMode::Chat;
+                    }
+
                     self.input_buffer.clear();
                     self.cursor_position = 0;
-                    self.screen_mode = ScreenMode::Chat;
                 }
             }
             KeyCode::Up => {
@@ -196,6 +237,36 @@ impl App {
                 };
             }
             _ => {}
+        }
+    }
+
+    fn execute_slash_command(&mut self, command: &str) {
+        match parse_slash_command(command) {
+            SlashCommand::DebugChat => {
+                self.chat.load_debug_chat();
+                self.screen_mode = ScreenMode::Chat;
+            }
+            SlashCommand::DebugFiles => {
+                self.file_browser.load_debug_fixture();
+                self.screen_mode = ScreenMode::Files;
+            }
+            SlashCommand::Files => {
+                if let Err(error) = self.file_browser.reload_workspace() {
+                    self.chat.messages.push(ChatMessage::assistant(format!(
+                        "Unable to load workspace files: {error}"
+                    )));
+                    self.screen_mode = ScreenMode::Chat;
+                } else {
+                    self.screen_mode = ScreenMode::Files;
+                }
+            }
+            SlashCommand::Unknown(raw) => {
+                self.chat.messages.push(ChatMessage::assistant(format!(
+                    "Unknown command `{raw}`. Available: `/debug chat`, `/debug files`, `/files`."
+                )));
+                self.screen_mode = ScreenMode::Chat;
+            }
+            SlashCommand::Empty => {}
         }
     }
 
@@ -281,12 +352,12 @@ fn run_app(
 ) -> Result<()> {
     loop {
         if let Some(submitter) = submitter.as_deref_mut()
-            && let Some(pending_message) = app.chat.take_pending_user_message()
+            && let Some(pending_message) = app.chat.take_pending_submission()
             && let Err(error) = submitter(pending_message)
         {
             app.chat.handle_stream_event(IncomingStreamEvent::Error(error));
         }
-        if submitter.is_none() && app.chat.take_pending_user_message().is_some() {
+        if submitter.is_none() && app.chat.take_pending_submission().is_some() {
             app.chat.handle_stream_event(IncomingStreamEvent::Error(
                 "No response backend configured for this UI mode.".to_string(),
             ));
@@ -301,6 +372,7 @@ fn run_app(
         terminal.draw(|f| match app.screen_mode {
             ScreenMode::Welcome => draw_welcome_screen(f, app),
             ScreenMode::Chat => draw_chat_screen(f, &app.chat),
+            ScreenMode::Files => draw_file_browser_screen(f, &app.file_browser),
         })?;
 
         if !app.running {
@@ -327,42 +399,29 @@ pub fn draw_welcome_screen(frame: &mut Frame, app: &App) {
     let clear = Block::default().style(Style::default().bg(colors::BG_TERMINAL));
     frame.render_widget(clear, size);
 
-    let main_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Min(0),
-            Constraint::Length(1),
-            Constraint::Length(components::single_line_top_bordered_row_height()),
-        ])
-        .split(size);
+    let main_layout = WelcomeShell.split(size);
+    if main_layout.len() < 3 {
+        return;
+    }
 
     draw_main_content(frame, main_layout[0], app);
     draw_hints(frame, main_layout[1]);
     draw_input_area(frame, main_layout[2], app);
+
+    if app.chat.is_file_finder_active() {
+        chat::draw_file_finder_overlay(frame, size, &app.chat);
+    }
 }
 
 fn draw_main_content(frame: &mut Frame, area: Rect, app: &App) {
-    let (_, logo_height) = logo_dimensions();
-    let content_width = 60u16.min(area.width);
-    let content_x = area.x + (area.width.saturating_sub(content_width)) / 2;
-
-    let content_area = Rect::new(content_x, area.y, content_width, area.height);
-
-    let content_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Min(1),
-            Constraint::Length(logo_height),
-            Constraint::Length(2),
-            Constraint::Length(1),
-            Constraint::Length(2),
-            Constraint::Length(16),
-            Constraint::Min(1),
-        ])
-        .split(content_area);
+    let content_area = WelcomeMainColumn.area(area);
+    let content_layout = WelcomeContent.split(content_area);
+    if content_layout.len() < 6 {
+        return;
+    }
 
     draw_logo(frame, content_layout[1]);
-    components::draw_brand_greeting(frame, content_layout[3], "What can I help you build?");
+    BrandGreeting.render(frame, content_layout[3], "What can I help you build?");
     draw_suggestions(frame, content_layout[5], app);
 }
 
@@ -374,99 +433,64 @@ fn draw_logo(frame: &mut Frame, area: Rect) {
     let render_y = area.y + (area.height.saturating_sub(render_height)) / 2;
     let render_area = Rect::new(render_x, render_y, render_width, render_height);
 
-    components::draw_ascii_logo(frame, render_area, logo_text());
+    AsciiLogo.render(frame, render_area, logo_text());
 }
 
 /// Draws suggestions as bordered card items matching the design's .card-item
 fn draw_suggestions(frame: &mut Frame, area: Rect, app: &App) {
-    let constraints = suggestion_constraints(area.width);
+    let suggestions_layout = Suggestions.split(area);
+    if suggestions_layout.is_empty() {
+        return;
+    }
 
-    let suggestions_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints(constraints)
-        .split(area);
-
-    components::draw_section_title_muted(frame, suggestions_layout[0], "Try asking");
+    MutedSectionTitle.render(frame, suggestions_layout[0], "Try asking");
 
     for (idx, suggestion) in SUGGESTIONS.iter().enumerate() {
         let is_selected = app.selected_suggestion == Some(idx);
-        let slot_area = suggestions_layout[1 + idx];
-        components::draw_card_item(frame, slot_area, suggestion, is_selected);
+        if let Some(slot_area) = suggestions_layout.get(1 + idx) {
+            if slot_area.height >= 3 {
+                CardItem.render(frame, *slot_area, suggestion, is_selected);
+            } else {
+                draw_compact_suggestion(frame, *slot_area, suggestion, is_selected);
+            }
+        }
     }
 }
 
-fn suggestion_constraints(area_width: u16) -> Vec<Constraint> {
-    let mut constraints: Vec<Constraint> = Vec::with_capacity(SUGGESTIONS.len() + 2);
-    constraints.push(Constraint::Length(1));
-    for suggestion in SUGGESTIONS {
-        constraints.push(Constraint::Length(suggestion_card_height(suggestion, area_width)));
-    }
-    constraints.push(Constraint::Min(0));
-    constraints
-}
-
-fn suggestion_card_height(label: &str, area_width: u16) -> u16 {
-    const MIN_CARD_HEIGHT: u16 = 3;
-    const LABEL_PREFIX_WIDTH: usize = 6; // "  ›   "
-
-    let inner_width = area_width.saturating_sub(2) as usize;
-    if inner_width == 0 {
-        return MIN_CARD_HEIGHT;
+fn draw_compact_suggestion(frame: &mut Frame, area: Rect, label: &str, is_selected: bool) {
+    if area.height == 0 || area.width == 0 {
+        return;
     }
 
-    if inner_width <= LABEL_PREFIX_WIDTH {
-        return MIN_CARD_HEIGHT;
-    }
+    let prefix_style = if is_selected {
+        Style::default().fg(colors::ACCENT_CYAN)
+    } else {
+        Style::default().fg(colors::TEXT_MUTED)
+    };
+    let text_style = if is_selected {
+        Style::default().fg(colors::TEXT_PRIMARY)
+    } else {
+        Style::default().fg(colors::TEXT_SECONDARY)
+    };
 
-    let label_width = label.chars().count();
-    let first_line_capacity = inner_width - LABEL_PREFIX_WIDTH;
-    let remaining = label_width.saturating_sub(first_line_capacity);
-    let extra_lines = if remaining == 0 { 0 } else { remaining.div_ceil(inner_width) };
-    let content_lines = 1 + extra_lines as u16;
-    (content_lines + 2).max(MIN_CARD_HEIGHT)
+    let line = Line::from(vec![Span::styled("> ", prefix_style), Span::styled(label, text_style)]);
+    let paragraph = Paragraph::new(line).style(Style::default().bg(colors::BG_TERMINAL));
+    frame.render_widget(paragraph, area);
 }
 
 fn suggestion_areas(frame_area: Rect) -> Vec<Rect> {
-    let (_, logo_height) = logo_dimensions();
-    let main_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Min(0),
-            Constraint::Length(1),
-            Constraint::Length(components::single_line_top_bordered_row_height()),
-        ])
-        .split(frame_area);
+    let shell_layout = WelcomeShell.split(frame_area);
+    let Some(main_content_area) = shell_layout.first().copied() else {
+        return Vec::new();
+    };
 
-    let main_content_area = main_layout[0];
-    let content_width = 60u16.min(main_content_area.width);
-    let content_x = main_content_area.x + (main_content_area.width.saturating_sub(content_width)) / 2;
-    let content_area = Rect::new(content_x, main_content_area.y, content_width, main_content_area.height);
+    let centered = WelcomeMainColumn.area(main_content_area);
+    let content_layout = WelcomeContent.split(centered);
+    let Some(suggestions_area) = content_layout.get(5).copied() else {
+        return Vec::new();
+    };
 
-    let content_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Min(1),
-            Constraint::Length(logo_height),
-            Constraint::Length(2),
-            Constraint::Length(1),
-            Constraint::Length(2),
-            Constraint::Length(16),
-            Constraint::Min(1),
-        ])
-        .split(content_area);
-
-    let constraints = suggestion_constraints(content_layout[5].width);
-
-    let suggestions_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints(constraints)
-        .split(content_layout[5]);
-
-    SUGGESTIONS
-        .iter()
-        .enumerate()
-        .map(|(idx, _)| suggestions_layout[1 + idx])
-        .collect()
+    Suggestions.card_areas(suggestions_area)
 }
 
 fn point_in_rect(x: u16, y: u16, area: Rect) -> bool {
@@ -475,21 +499,44 @@ fn point_in_rect(x: u16, y: u16, area: Rect) -> bool {
 
 fn draw_hints(frame: &mut Frame, area: Rect) {
     let tokens = [
-        components::HintToken::Text("Press "),
-        components::HintToken::Key("?"),
-        components::HintToken::Text(" for help, "),
-        components::HintToken::Key("ctrl+n"),
-        components::HintToken::Text(" for new chat, "),
-        components::HintToken::Key("@file"),
-        components::HintToken::Text(" to reference files, "),
-        components::HintToken::Key("ctrl+d"),
-        components::HintToken::Text(" to quit"),
+        HintToken::Text("Press "),
+        HintToken::Key("?"),
+        HintToken::Text(" for help, "),
+        HintToken::Key("ctrl+n"),
+        HintToken::Text(" for new chat, "),
+        HintToken::Key("@"),
+        HintToken::Text(" to pin files, "),
+        HintToken::Key("ctrl+d"),
+        HintToken::Text(" to quit"),
     ];
-    components::draw_hint_line(frame, area, &tokens);
+    HintFooter.render(frame, area, &tokens);
 }
 
 fn draw_input_area(frame: &mut Frame, area: Rect, app: &App) {
-    components::draw_input_container(frame, area, &app.input_buffer, true);
+    TopBorderedInputRow.render(frame, area, &app.input_buffer, true);
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SlashCommand {
+    Empty,
+    DebugChat,
+    DebugFiles,
+    Files,
+    Unknown(String),
+}
+
+fn parse_slash_command(raw: &str) -> SlashCommand {
+    let command = raw.trim();
+    if command.is_empty() || command == "/" {
+        return SlashCommand::Empty;
+    }
+
+    match command {
+        "/debug chat" => SlashCommand::DebugChat,
+        "/debug files" => SlashCommand::DebugFiles,
+        "/files" => SlashCommand::Files,
+        _ => SlashCommand::Unknown(command.to_string()),
+    }
 }
 
 #[cfg(test)]
@@ -560,6 +607,26 @@ mod tests {
     }
 
     #[test]
+    fn test_enter_submits_selected_suggestion_without_input() {
+        let mut app = App::new();
+        app.selected_suggestion = Some(1);
+
+        app.handle_input(KeyEvent::from(KeyCode::Enter));
+
+        assert_eq!(app.screen_mode, ScreenMode::Chat);
+        assert_eq!(app.chat.messages.len(), 2);
+        assert_eq!(app.chat.messages[0].content, SUGGESTIONS[1]);
+    }
+
+    #[test]
+    fn test_at_from_welcome_opens_chat_file_picker() {
+        let mut app = App::new();
+        app.handle_input(KeyEvent::from(KeyCode::Char('@')));
+        assert_eq!(app.screen_mode, ScreenMode::Welcome);
+        assert!(app.chat.is_file_finder_active());
+    }
+
+    #[test]
     fn test_ctrl_d_quits_in_chat_mode() {
         let mut app = App::new();
         app.screen_mode = ScreenMode::Chat;
@@ -568,5 +635,16 @@ mod tests {
         app.handle_input(quit_event);
 
         assert!(!app.running);
+    }
+
+    #[test]
+    fn test_parse_slash_command() {
+        assert_eq!(parse_slash_command("/debug chat"), SlashCommand::DebugChat);
+        assert_eq!(parse_slash_command("/debug files"), SlashCommand::DebugFiles);
+        assert_eq!(parse_slash_command("/files"), SlashCommand::Files);
+        assert_eq!(
+            parse_slash_command("/unknown"),
+            SlashCommand::Unknown("/unknown".to_string())
+        );
     }
 }

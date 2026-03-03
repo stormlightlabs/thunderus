@@ -2,8 +2,8 @@
 //!
 //! This module implements the OpenAI Chat Completions API with tool support.
 
-use crate::streaming::{StreamEvent, StreamResponse, collect_stream};
-use crate::{ProviderError, Result};
+use super::streaming::{StreamEvent, StreamResponse, collect_stream};
+use super::{ProviderError, Result};
 use serde::{Deserialize, Serialize};
 
 /// Tool definition for function calling

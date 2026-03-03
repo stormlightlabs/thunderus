@@ -6,7 +6,7 @@
 //! 3. Receive tool results
 //! 4. Continue to final response
 
-use crate::{CompletionResponse, Provider, ToolResult};
+use super::{CompletionResponse, Provider, ToolDefinition, ToolResult};
 use std::path::Path;
 use thunderus_core::{Conversation, Message};
 use thunderus_tools::execute_tool;
@@ -87,7 +87,7 @@ impl ConversationLoop {
             iterations += 1;
 
             let tools = thunderus_tools::get_tool_schemas();
-            let tool_definitions: Vec<crate::ToolDefinition> = tools
+            let tool_definitions: Vec<ToolDefinition> = tools
                 .iter()
                 .map(|t| t.to_openai_function())
                 .map(|v| serde_json::from_value(v.get("function").unwrap().clone()).unwrap())

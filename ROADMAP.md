@@ -61,35 +61,24 @@ Navigate the workspace visually, view files with highlighting.
 
 ## Part 3
 
-### Milestone 5 - Web Search
+### Milestone 5 - Memory
 
-The agent gains web search through Brave Search.
-
-#### Tools
-
-- `web_search` tool - Brave Search API integration (`/res/v1/web/search`)
-- Response flattening (raw Brave response → trimmed result for model context)
-
-#### CLI
-
-- `thunderus debug search <query>` - exercise Brave Search directly, print flattened results
-- `BRAVE_API_KEY` env var support
-
-## Part 4
-
-### Milestone 6 - Memory
-
-Persistent agent memory across conversations.
+Persistent agent memory across conversations, and session management.
 
 #### Core
 
 - SQLite database per workspace (`~/.thunderus/memory/workspaces/{hash}.db`)
 - Global memory database (`~/.thunderus/memory/global.db`)
 - `memories` + `embeddings` tables (packed float32 BLOBs)
-- Embedding via local model (all-MiniLM-L6-v2, 384 dimensions)
+- Embedding via local model (all-MiniLM-L6-v2, 384 dimensions) if `THUNDERUS_EMBED_MODEL` is set
 - Brute-force cosine similarity search with SQL metadata pre-filtering
 - Deduplication (>0.95 similarity → update existing)
 - Decay on startup (archive memories unaccessed for 90+ days)
+- Conversation persistence to SQLite (messages, tool calls, metadata)
+- Session listing (title, timestamp, message count)
+- Session resume (reload history, restore context)
+- Session deletion
+- Log persistence to SQLite (level, timestamp, message)
 
 #### Tools
 
@@ -104,23 +93,23 @@ Persistent agent memory across conversations.
 
 - `thunderus debug memory recall <query>` - test recall directly
 - `thunderus debug memory stats` - row counts, DB size, model info
+- Add `dbg` alias to CLI definition (i.e. `thunderus dbg` is equivalent to `thunderus debug`)
 
-### Milestone 7 - Additional Providers
+#### TUI
 
-Full provider coverage as specced.
+- `/history` shows a list of sessions
+- `/resume <id>` resumes a session
+- `/clear` clears the chat
+- `/tokens` shows token usage
+- `/model` shows model info
+- `/debug memory stats` shows memory stats
+- `/debug memory recall <query>` shows memory recall results
+- `/debug log <id>` shows a session's logs:
+    ex. `[INFO] [runtime] 2024-01-01T00:00:00.000000 | Tool call: memory_recall`
 
-#### Providers
+## Part 4
 
-- Anthropic Messages protocol (separate wire format: content blocks, `x-api-key` auth, `anthropic-version` header)
-- Google Generative AI protocol (Gemini: `contents[]` with parts, model-in-URL, uppercase JSON Schema types)
-- OpenAI Responses protocol (`input` items, `instructions`, named SSE events)
-- Tool calling for all three new protocols
-- Streaming for all three new protocols
-- `debug provider` works for all providers
-
-## Part 5
-
-### Milestone 8 - Settings & Help
+### Milestone 7 - Settings & Help
 
 User-facing configuration and documentation inside the TUI.
 
@@ -143,18 +132,6 @@ User-facing configuration and documentation inside the TUI.
 
 *Reference: `designs/templates/help.html`*
 
-## Part 6
-
-### Milestone 9 - Session Management
-
-Resume, list, and manage conversations.
-
-#### Core
-
-- Conversation persistence to SQLite (messages, tool calls, metadata)
-- Session listing (title, timestamp, message count)
-- Session resume (reload history, restore context)
-
 #### UI - Tutorial / Home
 
 - Version
@@ -165,7 +142,41 @@ Resume, list, and manage conversations.
 
 *Reference: `designs/templates/tutorial.html`*
 
+## Part 5
+
+### Milestone 8 - Web Search
+
+The agent gains web search through Brave Search.
+
+#### Tools
+
+- `web_search` tool - Brave Search API integration (`/res/v1/web/search`)
+- Response flattening (raw Brave response → trimmed result for model context)
+
+#### CLI
+
+- `thunderus debug search <query>` - exercise Brave Search directly, print flattened results
+- `BRAVE_API_KEY` env var support
+
+### Milestone 9 - Additional Providers
+
+Full provider coverage as specced.
+
+#### Providers
+
+- Anthropic Messages protocol (separate wire format: content blocks, `x-api-key` auth, `anthropic-version` header)
+- Google Generative AI protocol (Gemini: `contents[]` with parts, model-in-URL, uppercase JSON Schema types)
+- OpenAI Responses protocol (`input` items, `instructions`, named SSE events)
+- Tool calling for all three new protocols
+- Streaming for all three new protocols
+- `debug provider` works for all providers
+
 #### CLI
 
 - `thunderus sessions` - list saved sessions
 - `thunderus resume <id>` - resume a session directly
+
+## Parking Lot
+
+- Fuzzy/autocomplete for slash commands
+- We need to unify keybinds and inject into every screen

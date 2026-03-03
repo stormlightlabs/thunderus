@@ -6,9 +6,10 @@
 //! - Bash output display
 
 use super::colors;
+use super::layout::{AreaSpec, ConstraintSpec, split as split_rects};
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, Rect},
     style::{Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Paragraph, Wrap},
@@ -44,26 +45,24 @@ impl TaskItem {
     }
 }
 
-/// Draw a task progress list
-pub fn draw_task_progress(frame: &mut Frame, area: Rect, tasks: &[TaskItem], title: &str) {
-    let block = Block::default()
-        .title(title)
-        .style(Style::default().bg(colors::BG_SECONDARY).fg(colors::TEXT_SECONDARY));
-    frame.render_widget(block.clone(), area);
+pub struct TaskProgressList;
 
-    let inner = block.inner(area);
+impl AreaSpec for TaskProgressList {}
 
-    let mut constraints: Vec<Constraint> = tasks.iter().map(|_| Constraint::Length(1)).collect();
-    constraints.push(Constraint::Min(0));
+impl TaskProgressList {
+    pub fn render(self, frame: &mut Frame, area: Rect, tasks: &[TaskItem], title: &str) {
+        let block = Block::default()
+            .title(title)
+            .style(Style::default().bg(colors::BG_SECONDARY).fg(colors::TEXT_SECONDARY));
+        frame.render_widget(block.clone(), area);
 
-    let layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints(constraints)
-        .split(inner);
+        let inner = block.inner(area);
+        let layout = split_rects(inner, Direction::Vertical, list_row_constraints(tasks.len()));
 
-    for (idx, task) in tasks.iter().enumerate() {
-        if idx < layout.len() {
-            draw_task_row(frame, layout[idx], task);
+        for (idx, task) in tasks.iter().enumerate() {
+            if idx < layout.len() {
+                draw_task_row(frame, layout[idx], task);
+            }
         }
     }
 }
@@ -91,24 +90,22 @@ fn draw_task_row(frame: &mut Frame, area: Rect, task: &TaskItem) {
     frame.render_widget(paragraph, area);
 }
 
-/// Draw a diff with red/green highlighting
-pub fn draw_diff(frame: &mut Frame, area: Rect, diff_lines: &[DiffLine]) {
-    let block = Block::default().style(Style::default().bg(colors::BG_TERMINAL));
-    frame.render_widget(block.clone(), area);
+pub struct DiffView;
 
-    let inner = block.inner(area);
+impl AreaSpec for DiffView {}
 
-    let mut constraints: Vec<Constraint> = diff_lines.iter().map(|_| Constraint::Length(1)).collect();
-    constraints.push(Constraint::Min(0));
+impl DiffView {
+    pub fn render(self, frame: &mut Frame, area: Rect, diff_lines: &[DiffLine]) {
+        let block = Block::default().style(Style::default().bg(colors::BG_TERMINAL));
+        frame.render_widget(block.clone(), area);
 
-    let layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints(constraints)
-        .split(inner);
+        let inner = block.inner(area);
+        let layout = split_rects(inner, Direction::Vertical, list_row_constraints(diff_lines.len()));
 
-    for (idx, line) in diff_lines.iter().enumerate() {
-        if idx < layout.len() {
-            draw_diff_line(frame, layout[idx], line);
+        for (idx, line) in diff_lines.iter().enumerate() {
+            if idx < layout.len() {
+                draw_diff_line(frame, layout[idx], line);
+            }
         }
     }
 }
@@ -177,57 +174,99 @@ pub fn parse_diff(diff_text: &str) -> Vec<DiffLine> {
         .collect()
 }
 
-/// Draw bash command output
-pub fn draw_bash_output(frame: &mut Frame, area: Rect, command: &str, output: &str, exit_code: i32) {
-    let block = Block::default().style(Style::default().bg(colors::BG_SECONDARY));
-    frame.render_widget(block.clone(), area);
+pub struct BashOutputView;
 
-    let inner = block.inner(area);
+impl AreaSpec for BashOutputView {}
 
-    let layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Min(0)])
-        .split(inner);
+impl ConstraintSpec for BashOutputView {
+    fn direction(&self) -> Direction {
+        Direction::Vertical
+    }
 
-    let cmd_line = Line::from(vec![
-        Span::styled("$ ", Style::default().fg(colors::ACCENT_CYAN)),
-        Span::styled(command, Style::default().fg(colors::TEXT_PRIMARY)),
-    ]);
-    let cmd_para = Paragraph::new(cmd_line).style(Style::default().bg(colors::BG_SECONDARY));
-    frame.render_widget(cmd_para, layout[0]);
-
-    let output_style = if exit_code == 0 {
-        Style::default().fg(colors::TEXT_SECONDARY)
-    } else {
-        Style::default().fg(colors::ACCENT_RED)
-    };
-
-    let output_text = Text::from(output).style(output_style);
-    let output_para = Paragraph::new(output_text)
-        .style(Style::default().bg(colors::BG_SECONDARY))
-        .wrap(Wrap { trim: false });
-    frame.render_widget(output_para, layout[1]);
+    fn constraints(&self, _area: Rect) -> Vec<Constraint> {
+        vec![Constraint::Length(1), Constraint::Min(0)]
+    }
 }
 
-/// Draw a collapsible section
-pub fn draw_collapsible(frame: &mut Frame, area: Rect, title: &str, expanded: bool, content: Text<'_>) -> Rect {
-    let indicator = if expanded { "▼" } else { "▶" };
+impl BashOutputView {
+    pub fn render(self, frame: &mut Frame, area: Rect, command: &str, output: &str, exit_code: i32) {
+        let block = Block::default().style(Style::default().bg(colors::BG_SECONDARY));
+        frame.render_widget(block.clone(), area);
 
-    let block = Block::default()
-        .title(format!("{} {}", indicator, title))
-        .style(Style::default().bg(colors::BG_SECONDARY).fg(colors::TEXT_SECONDARY));
-    frame.render_widget(block.clone(), area);
-
-    if expanded {
         let inner = block.inner(area);
-        let content_para = Paragraph::new(content)
-            .style(Style::default().fg(colors::TEXT_SECONDARY))
+        let layout = self.split(inner);
+        if layout.len() < 2 {
+            return;
+        }
+
+        let cmd_line = Line::from(vec![
+            Span::styled("$ ", Style::default().fg(colors::ACCENT_CYAN)),
+            Span::styled(command, Style::default().fg(colors::TEXT_PRIMARY)),
+        ]);
+        let cmd_para = Paragraph::new(cmd_line).style(Style::default().bg(colors::BG_SECONDARY));
+        frame.render_widget(cmd_para, layout[0]);
+
+        let output_style = if exit_code == 0 {
+            Style::default().fg(colors::TEXT_SECONDARY)
+        } else {
+            Style::default().fg(colors::ACCENT_RED)
+        };
+
+        let output_text = Text::from(output).style(output_style);
+        let output_para = Paragraph::new(output_text)
+            .style(Style::default().bg(colors::BG_SECONDARY))
             .wrap(Wrap { trim: false });
-        frame.render_widget(content_para, inner);
-        inner
-    } else {
-        area
+        frame.render_widget(output_para, layout[1]);
     }
+}
+
+pub struct CollapsibleSection;
+
+impl AreaSpec for CollapsibleSection {}
+
+impl CollapsibleSection {
+    pub fn render(self, frame: &mut Frame, area: Rect, title: &str, expanded: bool, content: Text<'_>) -> Rect {
+        let indicator = if expanded { "▼" } else { "▶" };
+
+        let block = Block::default()
+            .title(format!("{} {}", indicator, title))
+            .style(Style::default().bg(colors::BG_SECONDARY).fg(colors::TEXT_SECONDARY));
+        frame.render_widget(block.clone(), area);
+
+        if expanded {
+            let inner = block.inner(area);
+            let content_para = Paragraph::new(content)
+                .style(Style::default().fg(colors::TEXT_SECONDARY))
+                .wrap(Wrap { trim: false });
+            frame.render_widget(content_para, inner);
+            inner
+        } else {
+            area
+        }
+    }
+}
+
+fn list_row_constraints(row_count: usize) -> Vec<Constraint> {
+    let mut constraints = vec![Constraint::Length(1); row_count];
+    constraints.push(Constraint::Min(0));
+    constraints
+}
+
+/// Backward-compatible wrappers.
+pub fn draw_task_progress(frame: &mut Frame, area: Rect, tasks: &[TaskItem], title: &str) {
+    TaskProgressList.render(frame, area, tasks, title);
+}
+
+pub fn draw_diff(frame: &mut Frame, area: Rect, diff_lines: &[DiffLine]) {
+    DiffView.render(frame, area, diff_lines);
+}
+
+pub fn draw_bash_output(frame: &mut Frame, area: Rect, command: &str, output: &str, exit_code: i32) {
+    BashOutputView.render(frame, area, command, output, exit_code);
+}
+
+pub fn draw_collapsible(frame: &mut Frame, area: Rect, title: &str, expanded: bool, content: Text<'_>) -> Rect {
+    CollapsibleSection.render(frame, area, title, expanded, content)
 }
 
 #[cfg(test)]
@@ -257,5 +296,12 @@ mod tests {
 
         let done = TaskItem::new("Done task").done();
         assert_eq!(done.state, TaskState::Done);
+    }
+
+    #[test]
+    fn test_list_row_constraints_has_spacer() {
+        let constraints = list_row_constraints(2);
+        assert_eq!(constraints.len(), 3);
+        assert_eq!(constraints[2], Constraint::Min(0));
     }
 }
