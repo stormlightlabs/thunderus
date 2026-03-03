@@ -6,7 +6,7 @@ use super::{
     layout::{AreaSpec, ConstraintSpec},
 };
 use ratatui::layout::{Constraint, Direction, Rect};
-use thunderus_ui_macros::AreaSpec;
+use thndrs_ui_macros::AreaSpec;
 
 #[derive(AreaSpec)]
 pub struct WelcomeShell;
@@ -46,14 +46,11 @@ impl ConstraintSpec for WelcomeContent {
     fn constraints(&self, _area: Rect) -> Vec<Constraint> {
         vec![
             Constraint::Min(1),
-            Constraint::Length(4), // logo
+            Constraint::Length(4),
             Constraint::Length(1),
-            Constraint::Length(1), // greeting
             Constraint::Length(1),
-            // Keep enough vertical budget so both suggestion rows remain full cards
-            // in normal terminal sizes; compact fallback only applies when the terminal
-            // is truly too small to fit this minimum.
-            Constraint::Min(9), // suggestions
+            Constraint::Length(1),
+            Constraint::Min(9),
             Constraint::Min(1),
         ]
     }

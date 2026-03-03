@@ -1,5 +1,5 @@
 [package]
-name = "thunderus-ui-macros"
+name = "thndrs-ui-macros"
 version = "0.1.0"
 edition = "2024"
 

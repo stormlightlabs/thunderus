@@ -1,12 +1,12 @@
 [package]
-name = "thunderus-core"
+name = "thndrs-core"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
-dirs = "5.0"
+dirs = "6"
 thiserror = "2.0"
 tracing = "0.1"
 

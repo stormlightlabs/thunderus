@@ -70,7 +70,7 @@ Persistent agent memory across conversations, and session management.
 - SQLite database per workspace (`~/.thunderus/memory/workspaces/{hash}.db`)
 - Global memory database (`~/.thunderus/memory/global.db`)
 - `memories` + `embeddings` tables (packed float32 BLOBs)
-- Embedding via local model (all-MiniLM-L6-v2, 384 dimensions) if `THUNDERUS_EMBED_MODEL` is set
+- Embedding via SQLite Vector extension
 - Brute-force cosine similarity search with SQL metadata pre-filtering
 - Deduplication (>0.95 similarity → update existing)
 - Decay on startup (archive memories unaccessed for 90+ days)

@@ -11,8 +11,13 @@ pub mod schema;
 pub use runtime::{ToolExecutor, ToolResult, ToolStatus, generate_diff};
 pub use schema::{Tool, ToolParameter, ToolSchema};
 
-use runtime::{execute_bash, execute_edit, execute_read, execute_research, execute_write};
+use runtime::{
+    execute_bash, execute_edit, execute_memory_recall, execute_memory_store, execute_read, execute_research,
+    execute_write,
+};
 use std::collections::HashMap;
+
+pub use runtime::init_memory_store;
 
 /// Execute a tool call and return the result
 pub async fn execute_tool(
@@ -24,6 +29,8 @@ pub async fn execute_tool(
         "edit" => execute_edit(arguments, sandbox_path).await,
         "bash" => execute_bash(arguments, sandbox_path).await,
         "research" => execute_research(arguments).await,
+        "memory_store" => execute_memory_store(arguments).await,
+        "memory_recall" => execute_memory_recall(arguments).await,
         _ => ToolResult::error(format!("Unknown tool: {tool_name}")),
     }
 }
@@ -36,6 +43,8 @@ pub fn get_tool_schemas() -> Vec<Tool> {
         Tool::edit(),
         Tool::bash(),
         Tool::research(),
+        Tool::memory_store(),
+        Tool::memory_recall(),
     ]
 }
 
@@ -46,7 +55,7 @@ mod tests {
     #[test]
     fn test_get_tool_schemas() {
         let schemas = get_tool_schemas();
-        assert_eq!(schemas.len(), 5);
+        assert_eq!(schemas.len(), 7);
 
         let names: Vec<_> = schemas.iter().map(|t| t.name.clone()).collect();
         assert!(names.contains(&"read".to_string()));
@@ -54,5 +63,7 @@ mod tests {
         assert!(names.contains(&"edit".to_string()));
         assert!(names.contains(&"bash".to_string()));
         assert!(names.contains(&"research".to_string()));
+        assert!(names.contains(&"memory_store".to_string()));
+        assert!(names.contains(&"memory_recall".to_string()));
     }
 }

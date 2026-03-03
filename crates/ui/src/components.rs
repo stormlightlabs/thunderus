@@ -11,7 +11,7 @@ use ratatui::{
     text::{Line, Span, Text},
     widgets::{Block, BorderType, Borders, Padding, Paragraph, Wrap},
 };
-use thunderus_ui_macros::AreaSpec;
+use thndrs_ui_macros::AreaSpec;
 
 /// Semantic section styles used across chat-active, tools, and loading pages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

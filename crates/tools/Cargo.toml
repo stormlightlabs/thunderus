@@ -1,5 +1,5 @@
 [package]
-name = "thunderus-tools"
+name = "thndrs-tools"
 version = "0.1.0"
 edition = "2024"
 
@@ -23,6 +23,7 @@ similar = { version = "2.7.0", features = ["text", "bytes", "inline"] }
 lectito-core = { git = "https://github.com/stormlightlabs/lectito", features = [
     "markdown",
 ] }
+thndrs-mem = { path = "../memory" }
 
 [lints]
 workspace = true

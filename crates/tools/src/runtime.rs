@@ -7,6 +7,29 @@ use std::path::{Path, PathBuf};
 use tokio::process::Command;
 use tokio::time::{Duration, timeout};
 
+use thndrs_mem::{MemoryDatabase, MemoryKind, MemoryStore};
+
+/// Global memory store for tool execution
+static MEMORY_STORE: std::sync::OnceLock<std::sync::Mutex<Option<MemoryStore>>> = std::sync::OnceLock::new();
+
+/// Initialize the global memory store
+pub fn init_memory_store(workspace_path: &Path) -> Result<(), String> {
+    let db =
+        MemoryDatabase::for_workspace(workspace_path).map_err(|e| format!("Failed to open memory database: {}", e))?;
+    let store = MemoryStore::new(db);
+
+    let _ = MEMORY_STORE.set(std::sync::Mutex::new(Some(store)));
+    Ok(())
+}
+
+/// Get the global memory store
+fn get_memory_store() -> Result<std::sync::MutexGuard<'static, Option<MemoryStore>>, String> {
+    MEMORY_STORE
+        .get()
+        .ok_or_else(|| "Memory store not initialized".to_string())
+        .map(|m| m.lock().map_err(|e| format!("Lock error: {}", e)))?
+}
+
 /// Result of a tool execution
 #[derive(Debug, Clone)]
 pub struct ToolResult {
@@ -704,6 +727,107 @@ fn extract_text_from_html(html: &str) -> String {
     text = newline_regex.replace_all(&text, "\n\n").to_string();
 
     text.trim().to_string()
+}
+
+/// Execute the memory_store tool
+#[allow(clippy::await_holding_lock)]
+pub async fn execute_memory_store(arguments: &HashMap<String, serde_json::Value>) -> ToolResult {
+    let content = match arguments.get("content") {
+        Some(v) => v.as_str().unwrap_or_default(),
+        None => return ToolResult::error("Missing required argument: content"),
+    };
+
+    if content.is_empty() {
+        return ToolResult::error("Content cannot be empty");
+    }
+
+    let kind_str = arguments.get("kind").and_then(|v| v.as_str()).unwrap_or("fact");
+    let kind = match kind_str {
+        "fact" => MemoryKind::Fact,
+        "preference" => MemoryKind::Preference,
+        "procedure" => MemoryKind::Procedure,
+        "context" => MemoryKind::Context,
+        _ => MemoryKind::Fact,
+    };
+
+    let tags: Vec<String> = arguments
+        .get("tags")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+        .unwrap_or_default();
+
+    let mut store_guard = match get_memory_store() {
+        Ok(guard) => guard,
+        Err(e) => return ToolResult::error(format!("Memory store error: {}", e)),
+    };
+
+    let store = match store_guard.as_mut() {
+        Some(s) => s,
+        None => return ToolResult::error("Memory store not available"),
+    };
+
+    match store.store(content, kind, Some("tool"), tags).await {
+        Ok(id) => ToolResult::success(format!("Memory stored with ID: {}", id)),
+        Err(e) => ToolResult::error(format!("Failed to store memory: {}", e)),
+    }
+}
+
+/// Execute the memory_recall tool
+#[allow(clippy::await_holding_lock)]
+pub async fn execute_memory_recall(arguments: &HashMap<String, serde_json::Value>) -> ToolResult {
+    let query = match arguments.get("query") {
+        Some(v) => v.as_str().unwrap_or_default(),
+        None => return ToolResult::error("Missing required argument: query"),
+    };
+
+    if query.is_empty() {
+        return ToolResult::error("Query cannot be empty");
+    }
+
+    let kind = arguments.get("kind").and_then(|v| v.as_str()).and_then(|s| match s {
+        "fact" => Some(MemoryKind::Fact),
+        "preference" => Some(MemoryKind::Preference),
+        "procedure" => Some(MemoryKind::Procedure),
+        "context" => Some(MemoryKind::Context),
+        _ => None,
+    });
+
+    let count = arguments
+        .get("count")
+        .and_then(|v| v.as_u64())
+        .map(|c| c.clamp(1, 20) as usize)
+        .unwrap_or(5);
+
+    let mut store_guard = match get_memory_store() {
+        Ok(guard) => guard,
+        Err(e) => return ToolResult::error(format!("Memory store error: {}", e)),
+    };
+
+    let store = match store_guard.as_mut() {
+        Some(s) => s,
+        None => return ToolResult::error("Memory store not available"),
+    };
+
+    match store.recall(query, count, kind, None, 0.3).await {
+        Ok(memories) => {
+            if memories.is_empty() {
+                ToolResult::success("No relevant memories found.")
+            } else {
+                let results: Vec<String> = memories
+                    .iter()
+                    .map(|m| {
+                        let sim = m
+                            .similarity
+                            .map(|s| format!(" (similarity: {:.2})", s))
+                            .unwrap_or_default();
+                        format!("- [{}] {}{}", m.kind.as_str(), m.content, sim)
+                    })
+                    .collect();
+                ToolResult::success(format!("Found {} memories:\n{}", results.len(), results.join("\n")))
+            }
+        }
+        Err(e) => ToolResult::error(format!("Failed to recall memories: {}", e)),
+    }
 }
 
 #[cfg(test)]

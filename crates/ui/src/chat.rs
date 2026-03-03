@@ -17,7 +17,7 @@ use ratatui::{
     widgets::{Block, Borders, Padding, Paragraph, Wrap},
 };
 use std::path::{Path, PathBuf};
-use thunderus_core::{ResponseSections, estimate_token_cost_usd};
+use thndrs_core::{ResponseSections, estimate_token_cost_usd};
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum StreamingState {
@@ -416,6 +416,26 @@ impl ChatApp {
         self.pending_submission = None;
         self.pending_command = None;
         self.current_tool_call = None;
+    }
+
+    pub fn clear_chat(&mut self) {
+        self.messages.clear();
+        self.reset_streaming();
+        self.scroll_offset = 0;
+        self.last_usage = None;
+        self.last_model = None;
+    }
+
+    pub fn set_messages(&mut self, messages: Vec<ChatMessage>) {
+        self.messages = messages;
+        self.reset_streaming();
+        self.scroll_offset = 0;
+    }
+
+    pub fn queue_backend_command(&mut self, command: String) {
+        self.pending_submission = Some(command);
+        self.pending_user_message = None;
+        self.streaming_state = StreamingState::Idle;
     }
 
     pub fn submit_user_message(&mut self, content: String) {
@@ -1135,7 +1155,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("time should be valid")
             .as_nanos();
-        let workspace = std::env::temp_dir().join(format!("thunderus-ui-chat-{unique}"));
+        let workspace = std::env::temp_dir().join(format!("thndrs-ui-chat-{unique}"));
         std::fs::create_dir_all(&workspace).expect("workspace should be created");
         std::fs::write(workspace.join("sample.rs"), "fn demo() {}\n").expect("sample file should be written");
 

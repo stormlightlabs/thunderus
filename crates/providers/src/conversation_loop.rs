@@ -6,10 +6,11 @@
 //! 3. Receive tool results
 //! 4. Continue to final response
 
-use super::{CompletionResponse, Provider, ToolDefinition, ToolResult};
+use super::{CompletionResponse, Provider, ToolDefinition, ToolResult, Usage};
 use std::path::Path;
-use thunderus_core::{Conversation, Message};
-use thunderus_tools::execute_tool;
+use thndrs_core::{Conversation, Message, Role, build_system_prompt};
+use thndrs_mem::{MemoryDatabase, MemoryStore};
+use thndrs_tools::execute_tool;
 
 /// Event emitted during conversation loop
 #[derive(Debug, Clone)]
@@ -17,11 +18,24 @@ pub enum ConversationEvent {
     /// Assistant is thinking
     Thinking(String),
     /// Tool is being called
-    ToolCalling { name: String, arguments: String },
+    ToolCalling {
+        id: String,
+        name: String,
+        arguments: String,
+    },
     /// Tool execution completed
-    ToolCompleted { name: String, result: String },
+    ToolCompleted {
+        id: String,
+        name: String,
+        result: String,
+        is_error: bool,
+    },
     /// Assistant produced final content
-    Content(String),
+    Content {
+        content: String,
+        usage: Usage,
+        model: String,
+    },
     /// Error occurred
     Error(String),
 }
@@ -29,6 +43,8 @@ pub enum ConversationEvent {
 /// Handles multi-turn conversation with tool execution
 pub struct ConversationLoop {
     conversation: Conversation,
+    base_system_prompt: String,
+    memory_store: Option<MemoryStore>,
     sandbox_path: std::path::PathBuf,
     max_iterations: usize,
 }
@@ -36,18 +52,30 @@ pub struct ConversationLoop {
 impl ConversationLoop {
     /// Create a new conversation loop
     pub fn new(sandbox_path: impl Into<std::path::PathBuf>) -> Self {
+        let sandbox_path = sandbox_path.into();
+        let base_system_prompt = build_system_prompt();
+        let memory_store = MemoryDatabase::for_workspace(&sandbox_path).ok().map(MemoryStore::new);
+
         Self {
-            conversation: Conversation::with_default_system_prompt(),
-            sandbox_path: sandbox_path.into(),
+            conversation: Conversation::with_system_prompt(base_system_prompt.clone()),
+            base_system_prompt,
+            memory_store,
+            sandbox_path,
             max_iterations: 10,
         }
     }
 
     /// Create with custom system prompt
     pub fn with_system_prompt(sandbox_path: impl Into<std::path::PathBuf>, prompt: impl Into<String>) -> Self {
+        let sandbox_path = sandbox_path.into();
+        let base_system_prompt = prompt.into();
+        let memory_store = MemoryDatabase::for_workspace(&sandbox_path).ok().map(MemoryStore::new);
+
         Self {
-            conversation: Conversation::with_system_prompt(prompt),
-            sandbox_path: sandbox_path.into(),
+            conversation: Conversation::with_system_prompt(base_system_prompt.clone()),
+            base_system_prompt,
+            memory_store,
+            sandbox_path,
             max_iterations: 10,
         }
     }
@@ -63,6 +91,14 @@ impl ConversationLoop {
         &self.conversation
     }
 
+    /// Replace conversation history while preserving the dynamic system prompt slot.
+    pub fn set_history(&mut self, history: &[Message]) {
+        self.conversation = Conversation::with_system_prompt(self.base_system_prompt.clone());
+        self.conversation
+            .messages
+            .extend(history.iter().filter(|message| message.role != Role::System).cloned());
+    }
+
     /// Process a user message with tool support
     ///
     /// This implements the multi-turn loop where the model may call tools
@@ -71,10 +107,11 @@ impl ConversationLoop {
         &mut self, provider: &P, user_message: &str, mut event_handler: F,
     ) -> Result<String, String>
     where
-        P: Provider,
+        P: Provider + ?Sized,
         F: FnMut(ConversationEvent),
     {
         self.conversation.add_user_message(user_message);
+        self.inject_recalled_memories(user_message).await;
 
         let mut iterations = 0;
         loop {
@@ -86,7 +123,7 @@ impl ConversationLoop {
             }
             iterations += 1;
 
-            let tools = thunderus_tools::get_tool_schemas();
+            let tools = thndrs_tools::get_tool_schemas();
             let tool_definitions: Vec<ToolDefinition> = tools
                 .iter()
                 .map(|t| t.to_openai_function())
@@ -117,11 +154,62 @@ impl ConversationLoop {
 
                 self.conversation.add_assistant_message(&content);
 
-                event_handler(ConversationEvent::Content(content.clone()));
+                event_handler(ConversationEvent::Content {
+                    content: content.clone(),
+                    usage: response.usage.clone(),
+                    model: response.model.clone(),
+                });
 
                 return Ok(content);
             }
         }
+    }
+
+    async fn inject_recalled_memories(&mut self, user_message: &str) {
+        let Some(store) = self.memory_store.as_mut() else {
+            self.update_system_prompt(None);
+            return;
+        };
+
+        let memories = match store.recall(user_message, 3, None, None, 0.5).await {
+            Ok(results) => results,
+            Err(error) => {
+                tracing::warn!("Implicit memory recall failed: {}", error);
+                self.update_system_prompt(None);
+                return;
+            }
+        };
+
+        if memories.is_empty() {
+            self.update_system_prompt(None);
+            return;
+        }
+
+        let mut block = String::from("<memory>\n");
+        for memory in memories {
+            block.push_str(&memory.to_prompt_string());
+            block.push('\n');
+        }
+        block.push_str("</memory>");
+
+        self.update_system_prompt(Some(block));
+    }
+
+    fn update_system_prompt(&mut self, memory_block: Option<String>) {
+        let mut prompt = self.base_system_prompt.clone();
+        if let Some(block) = memory_block {
+            prompt.push_str("\n\n");
+            prompt.push_str(&block);
+        }
+
+        if let Some(first) = self.conversation.messages.first_mut()
+            && first.role == Role::System
+        {
+            first.content = prompt;
+            return;
+        }
+
+        self.conversation.messages.insert(0, Message::system(prompt));
     }
 
     /// Process tool calls from a response
@@ -136,6 +224,7 @@ impl ConversationLoop {
         for tool_call in &response.tool_calls {
             let args_json = serde_json::to_string(&tool_call.arguments).unwrap_or_default();
             event_handler(ConversationEvent::ToolCalling {
+                id: tool_call.id.clone(),
                 name: tool_call.name.clone(),
                 arguments: args_json.clone(),
             });
@@ -143,13 +232,15 @@ impl ConversationLoop {
             let result = execute_tool(&tool_call.name, &tool_call.arguments, &self.sandbox_path).await;
 
             let tool_result = match result.status {
-                thunderus_tools::ToolStatus::Success => ToolResult::success(&tool_call.id, result.content.clone()),
+                thndrs_tools::ToolStatus::Success => ToolResult::success(&tool_call.id, result.content.clone()),
                 _ => ToolResult::error(&tool_call.id, result.content.clone()),
             };
 
             event_handler(ConversationEvent::ToolCompleted {
+                id: tool_call.id.clone(),
                 name: tool_call.name.clone(),
                 result: result.content.clone(),
+                is_error: !matches!(result.status, thndrs_tools::ToolStatus::Success),
             });
 
             results.push(tool_result);
@@ -166,7 +257,7 @@ pub async fn run_conversation_loop<P, F>(
     provider: &P, sandbox_path: &Path, user_message: &str, event_handler: F,
 ) -> Result<String, String>
 where
-    P: Provider,
+    P: Provider + ?Sized,
     F: FnMut(ConversationEvent),
 {
     let mut loop_handler = ConversationLoop::new(sandbox_path);
@@ -197,11 +288,21 @@ mod tests {
         let events = vec![
             ConversationEvent::Thinking("Thinking...".to_string()),
             ConversationEvent::ToolCalling {
+                id: "tool_1".to_string(),
                 name: "read".to_string(),
                 arguments: r#"{"path": "/test.txt"}"#.to_string(),
             },
-            ConversationEvent::ToolCompleted { name: "read".to_string(), result: "file contents".to_string() },
-            ConversationEvent::Content("Final response".to_string()),
+            ConversationEvent::ToolCompleted {
+                id: "tool_1".to_string(),
+                name: "read".to_string(),
+                result: "file contents".to_string(),
+                is_error: false,
+            },
+            ConversationEvent::Content {
+                content: "Final response".to_string(),
+                usage: Usage::default(),
+                model: "test-model".to_string(),
+            },
             ConversationEvent::Error("Something went wrong".to_string()),
         ];
 
@@ -210,7 +311,7 @@ mod tests {
                 ConversationEvent::Thinking(_) => {}
                 ConversationEvent::ToolCalling { .. } => {}
                 ConversationEvent::ToolCompleted { .. } => {}
-                ConversationEvent::Content(_) => {}
+                ConversationEvent::Content { .. } => {}
                 ConversationEvent::Error(_) => {}
             }
         }

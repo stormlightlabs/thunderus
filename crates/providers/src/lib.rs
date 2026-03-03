@@ -12,7 +12,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use thiserror::Error;
-use thunderus_core::{Config, Message, Role};
+use thndrs_core::{Config, Message, Role};
 
 pub mod conversation_loop;
 mod openai;
@@ -540,7 +540,7 @@ fn map_finish_reason(reason: Option<&str>) -> FinishReason {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use thunderus_core::{ProviderConfig, ProvidersConfig};
+    use thndrs_core::{ProviderConfig, ProvidersConfig};
 
     #[test]
     fn test_create_provider_uses_global_default_model_when_set() {

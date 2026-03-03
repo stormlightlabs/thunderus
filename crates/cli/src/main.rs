@@ -6,11 +6,13 @@
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use serde_json::Value;
 use std::path::PathBuf;
 use std::sync::mpsc;
-use thunderus_core::{Config, Conversation, Message, build_system_message};
-use thunderus_providers::{StreamEvent, create_provider};
-use thunderus_ui::{IncomingStreamEvent, TokenUsage, run_welcome_app_with_streaming};
+use thndrs_core::{Config, Message, build_system_message};
+use thndrs_mem::{LogStore, SessionManager};
+use thndrs_providers::{ConversationEvent, ConversationLoop, create_provider};
+use thndrs_ui::{IncomingStreamEvent, TokenUsage, run_welcome_app_with_streaming};
 
 /// Thunderus - Terminal AI Assistant
 #[derive(Parser)]
@@ -30,6 +32,7 @@ struct Cli {
 }
 
 #[derive(Subcommand)]
+#[command(visible_alias = "dbg")]
 enum Commands {
     /// Debug utilities for testing components
     Debug {
@@ -57,6 +60,28 @@ enum DebugCommands {
         #[arg(short, long)]
         stream: bool,
     },
+
+    /// Memory debug utilities
+    Memory {
+        #[command(subcommand)]
+        command: MemoryCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum MemoryCommands {
+    /// Test memory recall with a query
+    Recall {
+        /// Query to search for
+        query: String,
+
+        /// Number of results to return
+        #[arg(short, long, default_value = "5")]
+        count: usize,
+    },
+
+    /// Show memory statistics
+    Stats,
 }
 
 #[tokio::main]
@@ -90,29 +115,150 @@ fn run_tui_with_provider(config: &Config) -> Result<()> {
     let provider_name = config.default_provider.clone();
     let provider = create_provider(&provider_name, config)
         .with_context(|| format!("Failed to create provider: {}", provider_name))?;
-    let provider_default_model = provider.default_model().to_string();
+    let workspace_path = std::env::current_dir().context("Failed to resolve workspace path")?;
 
     let (request_tx, request_rx) = mpsc::channel::<String>();
-    let (event_tx, event_rx) = mpsc::channel::<StreamEvent>();
+    let (event_tx, event_rx) = mpsc::channel::<IncomingStreamEvent>();
 
     let worker = std::thread::spawn(move || {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .expect("failed to build worker runtime");
-        let mut conversation = Conversation::with_default_system_prompt();
 
         runtime.block_on(async move {
-            while let Ok(user_input) = request_rx.recv() {
-                conversation.add_user_message(user_input);
-                let messages = conversation.messages.clone();
+            if let Err(error) = thndrs_tools::init_memory_store(&workspace_path) {
+                let _ = event_tx.send(IncomingStreamEvent::Error(format!(
+                    "Failed to initialize memory tools: {}",
+                    error
+                )));
+            }
 
-                match provider.complete_stream_with_events(&messages, &event_tx).await {
-                    Ok(response) => {
-                        conversation.add_assistant_message(response.content);
+            let (_store, mut sessions, mut logs) = match thndrs_mem::init(&workspace_path) {
+                Ok(parts) => parts,
+                Err(error) => {
+                    let _ = event_tx.send(IncomingStreamEvent::Error(format!(
+                        "Failed to initialize workspace memory: {}",
+                        error
+                    )));
+                    return;
+                }
+            };
+
+            let mut active_session_id: Option<String> = None;
+
+            while let Ok(user_input) = request_rx.recv() {
+                if let Some(command) = parse_backend_command(&user_input) {
+                    handle_backend_command(command, &mut sessions, &mut logs, &mut active_session_id);
+                    continue;
+                }
+
+                let session_id = match ensure_active_session(&mut sessions, &mut active_session_id, &user_input) {
+                    Ok(id) => id,
+                    Err(error) => {
+                        let _ = event_tx.send(IncomingStreamEvent::Error(format!(
+                            "Session initialization failed: {}",
+                            error
+                        )));
+                        continue;
+                    }
+                };
+
+                let _ = logs.info(
+                    Some(&session_id),
+                    "runtime",
+                    format!("User message received ({} chars)", user_input.chars().count()),
+                );
+
+                let history = match sessions.get_conversation_messages(&session_id) {
+                    Ok(messages) => messages,
+                    Err(error) => {
+                        let _ = event_tx.send(IncomingStreamEvent::Error(format!(
+                            "Failed to load session history: {}",
+                            error
+                        )));
+                        continue;
+                    }
+                };
+
+                let mut loop_handler = ConversationLoop::new(workspace_path.clone());
+                loop_handler.set_history(&history);
+
+                let mut pending_calls = std::collections::HashMap::<String, (String, String)>::new();
+                let mut completed_calls = Vec::<(String, String, String, String, bool)>::new();
+
+                let response = loop_handler
+                    .process_message(provider.as_ref(), &user_input, |event| match event {
+                        ConversationEvent::Thinking(content) => {
+                            let _ = event_tx.send(IncomingStreamEvent::Thinking(content));
+                        }
+                        ConversationEvent::ToolCalling { id, name, arguments } => {
+                            pending_calls.insert(id, (name.clone(), arguments.clone()));
+                            let _ = logs.info(
+                                Some(&session_id),
+                                "runtime",
+                                format!("Tool call: {} {}", name, arguments),
+                            );
+                            let _ = event_tx.send(IncomingStreamEvent::ToolCalling { name, arguments });
+                        }
+                        ConversationEvent::ToolCompleted { id, name, result, is_error } => {
+                            let arguments = pending_calls.remove(&id).map(|(_, args)| args).unwrap_or_default();
+                            completed_calls.push((id, name.clone(), arguments, result.clone(), is_error));
+                            let _ = logs.info(
+                                Some(&session_id),
+                                "runtime",
+                                format!("Tool result: {} (error={})", name, is_error),
+                            );
+                            let _ = event_tx.send(IncomingStreamEvent::ToolCompleted { name, result });
+                        }
+                        ConversationEvent::Content { content, usage, model } => {
+                            let _ = event_tx
+                                .send(IncomingStreamEvent::Delta { content: Some(content), reasoning_content: None });
+                            let _ = event_tx.send(IncomingStreamEvent::Done {
+                                usage: Some(TokenUsage {
+                                    prompt_tokens: usage.prompt_tokens,
+                                    completion_tokens: usage.completion_tokens,
+                                    total_tokens: usage.total_tokens,
+                                }),
+                                model: Some(model),
+                            });
+                        }
+                        ConversationEvent::Error(error) => {
+                            let _ = event_tx.send(IncomingStreamEvent::Error(error));
+                        }
+                    })
+                    .await;
+
+                match response {
+                    Ok(content) => {
+                        if let Err(error) = sessions.add_message(&session_id, &Message::user(&user_input)) {
+                            let _ = event_tx.send(IncomingStreamEvent::Error(format!(
+                                "Failed to persist user message: {}",
+                                error
+                            )));
+                        }
+
+                        for (tool_call_id, tool_name, arguments_json, result, is_error) in completed_calls {
+                            let arguments = serde_json::from_str::<Value>(&arguments_json)
+                                .unwrap_or_else(|_| Value::Object(serde_json::Map::new()));
+
+                            let status = if is_error { "error" } else { "success" };
+                            let _ = sessions.add_tool_call(&session_id, &tool_name, &arguments, Some(&result), status);
+                            let _ = sessions.add_message(&session_id, &Message::tool(&tool_call_id, &result));
+                        }
+
+                        if let Err(error) = sessions.add_message(&session_id, &Message::assistant(&content)) {
+                            let _ = event_tx.send(IncomingStreamEvent::Error(format!(
+                                "Failed to persist assistant message: {}",
+                                error
+                            )));
+                        } else {
+                            let _ = logs.info(Some(&session_id), "runtime", "Assistant response completed");
+                        }
                     }
                     Err(error) => {
-                        let _ = event_tx.send(StreamEvent::Error(error.to_string()));
+                        let _ = logs.error(Some(&session_id), "runtime", format!("Conversation error: {}", error));
+                        let _ = event_tx.send(IncomingStreamEvent::Error(error));
                     }
                 }
             }
@@ -121,22 +267,7 @@ fn run_tui_with_provider(config: &Config) -> Result<()> {
 
     let ui_result = run_welcome_app_with_streaming(
         move |user_input| request_tx.send(user_input).map_err(|error| error.to_string()),
-        move || {
-            event_rx.try_recv().ok().map(|event| match event {
-                StreamEvent::Delta { content, reasoning_content } => {
-                    IncomingStreamEvent::Delta { content, reasoning_content }
-                }
-                StreamEvent::Done { usage, model } => IncomingStreamEvent::Done {
-                    usage: usage.map(|u| TokenUsage {
-                        prompt_tokens: u.prompt_tokens,
-                        completion_tokens: u.completion_tokens,
-                        total_tokens: u.total_tokens,
-                    }),
-                    model: Some(model.unwrap_or_else(|| provider_default_model.clone())),
-                },
-                StreamEvent::Error(error) => IncomingStreamEvent::Error(error),
-            })
-        },
+        move || event_rx.try_recv().ok(),
     );
 
     let _ = worker.join();
@@ -145,12 +276,141 @@ fn run_tui_with_provider(config: &Config) -> Result<()> {
     Ok(())
 }
 
+#[derive(Debug, Clone)]
+enum BackendCommand {
+    Clear,
+    Resume(String),
+}
+
+fn parse_backend_command(raw: &str) -> Option<BackendCommand> {
+    let command = raw.trim();
+    if command == "/clear" {
+        return Some(BackendCommand::Clear);
+    }
+
+    command
+        .strip_prefix("/resume ")
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(|id| BackendCommand::Resume(id.to_string()))
+}
+
+fn ensure_active_session(
+    sessions: &mut SessionManager, active_session_id: &mut Option<String>, seed_message: &str,
+) -> std::result::Result<String, String> {
+    if let Some(session_id) = active_session_id.as_ref() {
+        match sessions.get_session(session_id) {
+            Ok(Some(_)) => return Ok(session_id.clone()),
+            Ok(None) => {
+                *active_session_id = None;
+            }
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+
+    let title = seed_message
+        .lines()
+        .next()
+        .unwrap_or("Session")
+        .trim()
+        .chars()
+        .take(72)
+        .collect::<String>();
+
+    let session = sessions
+        .create_session(Some(if title.is_empty() { "Session" } else { &title }))
+        .map_err(|error| error.to_string())?;
+
+    *active_session_id = Some(session.id.clone());
+    Ok(session.id)
+}
+
+fn handle_backend_command(
+    command: BackendCommand, sessions: &mut SessionManager, logs: &mut LogStore, active_session_id: &mut Option<String>,
+) {
+    match command {
+        BackendCommand::Clear => {
+            if let Some(session_id) = active_session_id.as_ref()
+                && let Ok(deleted) = sessions.clear_messages(session_id)
+            {
+                let _ = logs.info(
+                    Some(session_id),
+                    "runtime",
+                    format!("Cleared session history ({} rows)", deleted),
+                );
+            }
+        }
+        BackendCommand::Resume(session_id) => {
+            if sessions.get_session(&session_id).ok().flatten().is_some() {
+                let _ = logs.info(Some(&session_id), "runtime", format!("Resumed session {}", session_id));
+                *active_session_id = Some(session_id);
+            }
+        }
+    }
+}
+
 async fn handle_debug_command(command: DebugCommands, config: &Config) -> Result<()> {
     match command {
         DebugCommands::Provider { provider, model, prompt, stream } => {
             debug_provider(config, &provider, model, &prompt, stream).await?;
         }
+        DebugCommands::Memory { command } => {
+            handle_memory_command(command).await?;
+        }
     }
+    Ok(())
+}
+
+async fn handle_memory_command(command: MemoryCommands) -> Result<()> {
+    use std::env;
+    use thndrs_mem::{MemoryDatabase, MemoryStore};
+
+    let workspace_path = env::current_dir().context("Failed to get current directory")?;
+    let db = MemoryDatabase::for_workspace(&workspace_path).context("Failed to open memory database")?;
+    let mut store = MemoryStore::new(db);
+
+    match command {
+        MemoryCommands::Recall { query, count } => {
+            println!("Searching memory for: {}", query);
+            println!();
+
+            let results = store
+                .recall(&query, count, None, None, 0.3)
+                .await
+                .context("Failed to recall memories")?;
+
+            if results.is_empty() {
+                println!("No relevant memories found.");
+            } else {
+                println!("Found {} memories:", results.len());
+                for memory in results {
+                    let sim = memory
+                        .similarity
+                        .map(|s| format!(" (similarity: {:.2})", s))
+                        .unwrap_or_default();
+                    println!("  - [{}] {}{}", memory.kind.as_str(), memory.content, sim);
+                }
+            }
+        }
+        MemoryCommands::Stats => {
+            let stats = store.stats().context("Failed to get memory stats")?;
+
+            println!("Memory Statistics:");
+            println!("  Total memories: {}", stats.total_memories);
+            println!("  Archived memories: {}", stats.archived_memories);
+            println!("  Total sessions: {}", stats.total_sessions);
+            println!(
+                "  Database size: {} bytes ({:.2} MB)",
+                stats.database_size_bytes,
+                stats.database_size_bytes as f64 / 1_048_576.0
+            );
+            if let Some(ref model) = stats.embedding_model {
+                println!("  Embedding model: {}", model);
+            }
+            println!("  Embedding dimensions: {}", stats.embedding_dimensions);
+        }
+    }
+
     Ok(())
 }
 

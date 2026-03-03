@@ -27,7 +27,7 @@ use syntect::{
     highlighting::{Theme, ThemeSet},
     parsing::SyntaxSet,
 };
-use thunderus_ui_macros::AreaSpec;
+use thndrs_ui_macros::AreaSpec;
 
 const MAX_FINDER_RESULTS: usize = 12;
 const MAX_FILE_LINES: usize = 2_000;

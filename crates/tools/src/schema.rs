@@ -167,6 +167,102 @@ impl Tool {
             parameters: params,
         }
     }
+
+    /// Create the memory_store tool definition
+    pub fn memory_store() -> Self {
+        let mut params = ToolSchema::new();
+        params.add_property(
+            "content",
+            ToolParameter {
+                param_type: "string".to_string(),
+                description: "The information to remember. Be specific and self-contained.".to_string(),
+                required: true,
+                ..Default::default()
+            },
+        );
+        params.add_property(
+            "kind",
+            ToolParameter {
+                param_type: "string".to_string(),
+                description: "The type of memory: 'fact', 'preference', 'procedure', or 'context'.".to_string(),
+                required: true,
+                enum_values: Some(vec![
+                    "fact".to_string(),
+                    "preference".to_string(),
+                    "procedure".to_string(),
+                    "context".to_string(),
+                ]),
+                ..Default::default()
+            },
+        );
+        params.add_property(
+            "tags",
+            ToolParameter {
+                param_type: "array".to_string(),
+                description: "Tags for categorization (e.g., ['rust', 'testing', 'deployment']).".to_string(),
+                required: false,
+                items: Some(Box::new(ToolParameter {
+                    param_type: "string".to_string(),
+                    description: "A tag string".to_string(),
+                    required: true,
+                    ..Default::default()
+                })),
+                ..Default::default()
+            },
+        );
+
+        Self {
+            name: "memory_store".to_string(),
+            description: "Save information to persistent memory for future conversations. Use this to remember facts about the codebase, user preferences, procedures that worked, or important context.".to_string(),
+            parameters: params,
+        }
+    }
+
+    /// Create the memory_recall tool definition
+    pub fn memory_recall() -> Self {
+        let mut params = ToolSchema::new();
+        params.add_property(
+            "query",
+            ToolParameter {
+                param_type: "string".to_string(),
+                description: "What to search for. Describe the information you need.".to_string(),
+                required: true,
+                ..Default::default()
+            },
+        );
+        params.add_property(
+            "kind",
+            ToolParameter {
+                param_type: "string".to_string(),
+                description: "Filter by memory type: 'fact', 'preference', 'procedure', or 'context'.".to_string(),
+                required: false,
+                enum_values: Some(vec![
+                    "fact".to_string(),
+                    "preference".to_string(),
+                    "procedure".to_string(),
+                    "context".to_string(),
+                ]),
+                ..Default::default()
+            },
+        );
+        params.add_property(
+            "count",
+            ToolParameter {
+                param_type: "integer".to_string(),
+                description: "Number of results to return (1-20).".to_string(),
+                required: false,
+                minimum: Some(1.0),
+                maximum: Some(20.0),
+                ..Default::default()
+            },
+        );
+
+        Self {
+            name: "memory_recall".to_string(),
+            description: "Search persistent memory for relevant information from past conversations. Use this when you need context about the codebase, user preferences, or previously learned procedures.".to_string(),
+            parameters: params,
+        }
+    }
 }
 
 /// Schema for tool parameters
