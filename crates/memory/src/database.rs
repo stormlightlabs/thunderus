@@ -1,9 +1,8 @@
 //! Database connection and schema management with sqlite-vec support
 
+use super::{MemoryError, Result, global_db_path, hash_workspace, workspaces_dir};
 use rusqlite::{Connection, OpenFlags};
 use std::path::Path;
-
-use crate::{MemoryError, Result, global_db_path, hash_workspace, workspaces_dir};
 
 /// A connection to a memory database
 #[derive(Debug)]

@@ -38,7 +38,7 @@ pub enum CoreError {
 pub type Result<T> = std::result::Result<T, CoreError>;
 
 /// Complete configuration for Thunderus
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Config {
     /// Default provider to use
     #[serde(default = "default_provider")]
@@ -135,7 +135,7 @@ fn default_temperature() -> f32 {
 }
 
 /// Provider-specific configurations
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct ProvidersConfig {
     /// Moonshot (Kimi) provider configuration
     pub moonshot: Option<ProviderConfig>,
@@ -145,7 +145,7 @@ pub struct ProvidersConfig {
 }
 
 /// Configuration for a single provider
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ProviderConfig {
     /// API key for the provider
     pub api_key: Option<String>,

@@ -1,10 +1,9 @@
 //! Log persistence to SQLite
 
+use super::{MemoryDatabase, Result};
 use chrono::{DateTime, Utc};
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
-
-use crate::{MemoryDatabase, Result};
 
 /// Log level
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -195,7 +194,7 @@ impl LogStore {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{super::session::SessionManager, *};
     use tempfile::TempDir;
 
     fn create_test_store() -> (TempDir, LogStore) {
@@ -208,7 +207,7 @@ mod tests {
 
     #[test]
     fn test_log_entry() {
-        let (_temp, mut store) = create_test_store();
+        let (_, mut store) = create_test_store();
 
         let id = store.info(None, "test", "Test message").unwrap();
         assert!(id > 0);
@@ -237,8 +236,6 @@ mod tests {
 
     #[test]
     fn test_session_logs() {
-        use crate::session::SessionManager;
-
         let (temp, mut store) = create_test_store();
 
         let db_path = temp.path().join("test.db");

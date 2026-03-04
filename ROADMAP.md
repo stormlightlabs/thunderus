@@ -109,12 +109,13 @@ Persistent agent memory across conversations, and session management.
 
 ## Part 4
 
-### Milestone 7 - Settings & Help
+### Milestone 6 - Settings & Help
 
 User-facing configuration and documentation inside the TUI.
 
 #### UI - Settings
 
+- Show version
 - Split pane: sidebar nav (left) + settings content (right)
 - Setting groups: General, Appearance, Editor, Keyboard, AI Model, Tools, Privacy
 - Toggle switches, select dropdowns
@@ -125,7 +126,8 @@ User-facing configuration and documentation inside the TUI.
 
 #### UI - Help
 
-- Tabbed nav: Keyboard Shortcuts, Commands, Tips, About
+- Show version
+- Tabbed nav: Keyboard Shortcuts, Commands, Tips, About, Tutorial
 - Shortcut grid (two-column, key + description)
 - Slash command list (`/help`, `/clear`, `/model`, `/tokens`)
 - Tip box
@@ -134,7 +136,7 @@ User-facing configuration and documentation inside the TUI.
 
 #### UI - Tutorial / Home
 
-- Version
+- This is a tab in the Help Screen
 - Quick start shortcuts (ctrl+n, ctrl+o, ctrl+r)
 - Recent conversations list (numbered, with relative timestamps)
 - Tip rotation
@@ -144,7 +146,7 @@ User-facing configuration and documentation inside the TUI.
 
 ## Part 5
 
-### Milestone 8 - Web Search
+### Milestone 7 - Web Search
 
 The agent gains web search through Brave Search.
 
@@ -158,7 +160,7 @@ The agent gains web search through Brave Search.
 - `thunderus debug search <query>` - exercise Brave Search directly, print flattened results
 - `BRAVE_API_KEY` env var support
 
-### Milestone 9 - Additional Providers
+### Milestone 8 - Additional Providers
 
 Full provider coverage as specced.
 

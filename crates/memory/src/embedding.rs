@@ -2,9 +2,8 @@
 //!
 //! Embeddings are stored in sqlite-vec for efficient vector search.
 
+use super::{MemoryError, Result};
 use ndarray::Array1;
-
-use crate::{MemoryError, Result};
 
 /// Default embedding dimensions (text-embedding-3-small truncated)
 pub const DEFAULT_DIMENSIONS: usize = 256;

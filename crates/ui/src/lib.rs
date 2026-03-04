@@ -25,7 +25,9 @@ pub mod chat;
 pub mod components;
 pub mod elements;
 pub mod files;
+pub mod help;
 pub mod layout;
+pub mod settings;
 pub mod tool;
 
 pub use chat::{
@@ -35,7 +37,9 @@ pub use chat::{
 use components::{AsciiLogo, BrandGreeting, CardItem, HintFooter, HintToken, MutedSectionTitle, TopBorderedInputRow};
 use elements::{Suggestions, WelcomeContent, WelcomeMainColumn, WelcomeShell};
 use files::{FileBrowserAction, FileBrowserApp, draw_file_browser_screen};
+use help::{HelpApp, draw_help_screen};
 use layout::{AreaSpec, ConstraintSpec};
+use settings::{SettingsApp, draw_settings_screen};
 
 type Submitter<'a> = dyn FnMut(String) -> std::result::Result<(), String> + 'a;
 type Poller<'a> = dyn FnMut() -> Option<IncomingStreamEvent> + 'a;
@@ -110,6 +114,8 @@ pub enum ScreenMode {
     Welcome,
     Chat,
     Files,
+    Settings,
+    Help,
 }
 
 /// The TUI application state
@@ -121,6 +127,9 @@ pub struct App {
     pub screen_mode: ScreenMode,
     pub chat: ChatApp,
     pub file_browser: FileBrowserApp,
+    pub settings: SettingsApp,
+    pub help: HelpApp,
+    previous_screen: Option<ScreenMode>,
 }
 
 impl Default for App {
@@ -133,6 +142,9 @@ impl Default for App {
             screen_mode: ScreenMode::Welcome,
             chat: ChatApp::new(),
             file_browser: FileBrowserApp::default(),
+            settings: SettingsApp::new(),
+            help: HelpApp::new(),
+            previous_screen: None,
         }
     }
 }
@@ -145,6 +157,19 @@ impl App {
     pub fn handle_input(&mut self, key: KeyEvent) {
         if key.kind != KeyEventKind::Press {
             return;
+        }
+
+        // Global shortcuts that work from any screen
+        match key.code {
+            KeyCode::Char(',') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.open_settings();
+                return;
+            }
+            KeyCode::Char('?') | KeyCode::F(1) => {
+                self.open_help();
+                return;
+            }
+            _ => {}
         }
 
         match self.screen_mode {
@@ -161,9 +186,35 @@ impl App {
             ScreenMode::Files => match self.file_browser.handle_input(key) {
                 FileBrowserAction::None => {}
                 FileBrowserAction::Quit => self.running = false,
-                FileBrowserAction::ExitToChat => self.screen_mode = ScreenMode::Chat,
+                FileBrowserAction::ExitToChat => self.exit_to_previous_or_chat(),
             },
+            ScreenMode::Settings => {
+                self.settings.handle_input(key);
+                if key.code == KeyCode::Esc {
+                    self.exit_to_previous_or_chat();
+                }
+            }
+            ScreenMode::Help => {
+                self.help.handle_input(key);
+                if key.code == KeyCode::Esc {
+                    self.exit_to_previous_or_chat();
+                }
+            }
         }
+    }
+
+    fn open_settings(&mut self) {
+        self.previous_screen = Some(self.screen_mode);
+        self.screen_mode = ScreenMode::Settings;
+    }
+
+    fn open_help(&mut self) {
+        self.previous_screen = Some(self.screen_mode);
+        self.screen_mode = ScreenMode::Help;
+    }
+
+    fn exit_to_previous_or_chat(&mut self) {
+        self.screen_mode = self.previous_screen.take().unwrap_or(ScreenMode::Chat);
     }
 
     fn handle_welcome_input(&mut self, key: KeyEvent) {
@@ -314,9 +365,15 @@ impl App {
                     .unwrap_or_else(|error| format!("Failed to get logs for `{session_id}`: {error}"));
                 self.push_assistant_message(content);
             }
+            SlashCommand::Settings => {
+                self.open_settings();
+            }
+            SlashCommand::HelpCmd => {
+                self.open_help();
+            }
             SlashCommand::Unknown(raw) => {
                 self.chat.messages.push(ChatMessage::assistant(format!(
-                    "Unknown command `{raw}`. Available: `/debug chat`, `/debug files`, `/files`, `/history`, `/resume <id>`, `/clear`, `/tokens`, `/model`, `/debug memory stats`, `/debug memory recall <query>`, `/debug log <id>`."
+                    "Unknown command `{raw}`. Available: `/help`, `/settings`, `/debug chat`, `/debug files`, `/files`, `/history`, `/resume <id>`, `/clear`, `/tokens`, `/model`, `/debug memory stats`, `/debug memory recall <query>`, `/debug log <id>`."
                 )));
                 self.screen_mode = ScreenMode::Chat;
             }
@@ -432,6 +489,8 @@ fn run_app(
             ScreenMode::Welcome => draw_welcome_screen(f, app),
             ScreenMode::Chat => draw_chat_screen(f, &app.chat),
             ScreenMode::Files => draw_file_browser_screen(f, &app.file_browser),
+            ScreenMode::Settings => draw_settings_screen(f, &app.settings),
+            ScreenMode::Help => draw_help_screen(f, &app.help),
         })?;
 
         if !app.running {
@@ -561,6 +620,8 @@ fn draw_hints(frame: &mut Frame, area: Rect) {
         HintToken::Text("Press "),
         HintToken::Key("?"),
         HintToken::Text(" for help, "),
+        HintToken::Key("ctrl+,"),
+        HintToken::Text(" for settings, "),
         HintToken::Key("ctrl+n"),
         HintToken::Text(" for new chat, "),
         HintToken::Key("@"),
@@ -589,6 +650,8 @@ enum SlashCommand {
     DebugMemoryStats,
     DebugMemoryRecall(String),
     DebugLog(String),
+    Settings,
+    HelpCmd,
     Unknown(String),
 }
 
@@ -628,6 +691,8 @@ fn parse_slash_command(raw: &str) -> SlashCommand {
         "/tokens" => SlashCommand::Tokens,
         "/model" => SlashCommand::Model,
         "/debug memory stats" => SlashCommand::DebugMemoryStats,
+        "/settings" => SlashCommand::Settings,
+        "/help" => SlashCommand::HelpCmd,
         _ => SlashCommand::Unknown(command.to_string()),
     }
 }
@@ -873,9 +938,44 @@ mod tests {
             parse_slash_command("/debug log sess-1"),
             SlashCommand::DebugLog("sess-1".to_string())
         );
+        assert_eq!(parse_slash_command("/settings"), SlashCommand::Settings);
+        assert_eq!(parse_slash_command("/help"), SlashCommand::HelpCmd);
         assert_eq!(
             parse_slash_command("/unknown"),
             SlashCommand::Unknown("/unknown".to_string())
         );
+    }
+
+    #[test]
+    fn test_screen_modes() {
+        assert_ne!(ScreenMode::Welcome, ScreenMode::Chat);
+        assert_ne!(ScreenMode::Settings, ScreenMode::Help);
+        assert_eq!(ScreenMode::Files, ScreenMode::Files);
+    }
+
+    #[test]
+    fn test_app_has_settings_and_help() {
+        let app = App::new();
+        assert!(!app.settings.has_changes);
+    }
+
+    #[test]
+    fn test_open_settings_and_help() {
+        let mut app = App::new();
+        app.screen_mode = ScreenMode::Chat;
+
+        app.open_settings();
+        assert_eq!(app.screen_mode, ScreenMode::Settings);
+        assert_eq!(app.previous_screen, Some(ScreenMode::Chat));
+
+        app.exit_to_previous_or_chat();
+        assert_eq!(app.screen_mode, ScreenMode::Chat);
+        assert_eq!(app.previous_screen, None);
+
+        app.open_help();
+        assert_eq!(app.screen_mode, ScreenMode::Help);
+
+        app.exit_to_previous_or_chat();
+        assert_eq!(app.screen_mode, ScreenMode::Chat);
     }
 }

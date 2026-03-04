@@ -2,14 +2,13 @@
 //!
 //! Uses sqlite-vec for efficient vector similarity search.
 
-use chrono::{DateTime, Utc};
-use rusqlite::params;
-use serde::{Deserialize, Serialize};
-
-use crate::{
+use super::{
     Embedding, MemoryDatabase, MemoryError, MemoryStats, Result,
     embedding::{EmbeddingConfig, generate_embedding, generate_fallback_embedding},
 };
+use chrono::{DateTime, Utc};
+use rusqlite::params;
+use serde::{Deserialize, Serialize};
 
 /// Types of memories
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

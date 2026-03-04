@@ -3101,16 +3101,20 @@ dependencies = [
 name = "thndrs-ui"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "crossterm",
+ "dirs",
  "ignore",
  "nucleo-matcher",
  "ratatui",
+ "serde",
  "syntect",
  "thiserror 2.0.18",
  "thndrs-core",
  "thndrs-mem",
  "thndrs-ui-macros",
  "tokio",
+ "toml",
  "tracing",
 ]
 

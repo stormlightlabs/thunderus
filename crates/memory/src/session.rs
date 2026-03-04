@@ -1,12 +1,11 @@
 //! Session (conversation) persistence
 
+use super::{MemoryDatabase, MemoryError, Result};
 use chrono::{DateTime, Utc};
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use thndrs_core::{Message, Role};
 use uuid::Uuid;
-
-use crate::{MemoryDatabase, MemoryError, Result};
 
 /// A conversation session
 #[derive(Debug, Clone, Serialize, Deserialize)]
