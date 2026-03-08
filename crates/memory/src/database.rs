@@ -63,7 +63,6 @@ impl MemoryDatabase {
     fn init_schema(&mut self) -> Result<()> {
         self.conn.execute_batch(
             r#"
-            -- Memory entries
             CREATE TABLE IF NOT EXISTS memories (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 content     TEXT NOT NULL,
@@ -105,7 +104,6 @@ impl MemoryDatabase {
                 created_at  TEXT NOT NULL DEFAULT (datetime('now'))
             );
 
-            -- Tool calls
             CREATE TABLE IF NOT EXISTS tool_calls (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_id  TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -116,7 +114,6 @@ impl MemoryDatabase {
                 created_at  TEXT NOT NULL DEFAULT (datetime('now'))
             );
 
-            -- Logs
             CREATE TABLE IF NOT EXISTS logs (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_id  TEXT REFERENCES sessions(id) ON DELETE SET NULL,
@@ -132,7 +129,6 @@ impl MemoryDatabase {
                 value       TEXT
             );
 
-            -- Indexes
             CREATE INDEX IF NOT EXISTS idx_memories_kind ON memories(kind) WHERE archived = 0;
             CREATE INDEX IF NOT EXISTS idx_memories_tags ON memories(tags) WHERE archived = 0;
             CREATE INDEX IF NOT EXISTS idx_memories_accessed ON memories(accessed_at) WHERE archived = 0;
@@ -209,10 +205,11 @@ impl MemoryDatabase {
     }
 }
 
+/// sqlite-vec exposes sqlite3_vec_init as a C entrypoint.
+///
+/// Here we register it once as an auto-extension so new connections can use `vec0`.
 fn register_sqlite_vec_auto_extension() {
     SQLITE_VEC_REGISTER_ONCE.call_once(|| {
-        // sqlite-vec exposes sqlite3_vec_init as a C entrypoint.
-        // Register it once as an auto-extension so new connections can use `vec0`.
         let result = unsafe {
             let init: rusqlite::auto_extension::RawAutoExtension =
                 std::mem::transmute(sqlite_vec::sqlite3_vec_init as *const ());
@@ -220,7 +217,7 @@ fn register_sqlite_vec_auto_extension() {
         };
 
         if let Err(error) = result {
-            tracing::warn!("Failed to register sqlite-vec auto extension: {}", error);
+            tracing::warn!("Failed to register sqlite-vec auto extension: {}", error)
         }
     });
 }

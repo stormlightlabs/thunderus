@@ -1,21 +1,21 @@
 //! Chat screen components for active conversation
 
 use super::colors;
+use super::components::wrapped_line_count;
 use super::components::{
     HintFooter, HintToken, SectionBlock, SectionTone, ToolCallCard, ToolCallState, TopBorderedInputRow,
-    wrapped_line_count,
 };
 use super::elements::ChatShell;
 use super::files::{fuzzy_match_paths, read_file_for_prompt, workspace_files};
 use super::layout::{ConstraintSpec, split as split_rects};
+use chrono::{DateTime, Local, Utc};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use ratatui::{
-    Frame,
-    layout::{Alignment, Constraint, Direction, Rect},
-    style::{Modifier, Style},
-    text::{Line, Span, Text},
-    widgets::{Block, Borders, Padding, Paragraph, Wrap},
-};
+use ratatui::Frame;
+use ratatui::layout::{Alignment, Constraint, Direction, Rect};
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span, Text};
+use ratatui::widgets::{Block, Borders, Padding, Paragraph, Wrap};
+use serde_json::Value;
 use std::path::{Path, PathBuf};
 use thndrs_core::{ResponseSections, estimate_token_cost_usd};
 
@@ -35,6 +35,7 @@ pub struct ChatMessage {
     pub content: String,
     pub sections: Option<ResponseSections>,
     pub tool_calls: Vec<ToolCallDisplay>,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -111,10 +112,18 @@ struct ChatFileFinder {
 
 impl ChatMessage {
     pub fn user(content: String) -> Self {
-        Self { role: MessageRole::User, content, sections: None, tool_calls: Vec::new() }
+        Self::user_at(content, Utc::now())
+    }
+
+    pub fn user_at(content: String, created_at: DateTime<Utc>) -> Self {
+        Self { role: MessageRole::User, content, sections: None, tool_calls: Vec::new(), created_at }
     }
 
     pub fn assistant(content: String) -> Self {
+        Self::assistant_at(content, Utc::now())
+    }
+
+    pub fn assistant_at(content: String, created_at: DateTime<Utc>) -> Self {
         let sections = ResponseSections::parse(&content);
         let has_sections = sections.has_content();
         Self {
@@ -122,15 +131,26 @@ impl ChatMessage {
             content,
             sections: if has_sections { Some(sections) } else { None },
             tool_calls: Vec::new(),
+            created_at,
         }
     }
 
     pub fn assistant_streaming(content: String) -> Self {
-        Self { role: MessageRole::Assistant, content, sections: None, tool_calls: Vec::new() }
+        Self {
+            role: MessageRole::Assistant,
+            content,
+            sections: None,
+            tool_calls: Vec::new(),
+            created_at: Utc::now(),
+        }
     }
 
-    pub fn tool(_name: String, output: String) -> Self {
-        Self { role: MessageRole::Tool, content: output, sections: None, tool_calls: Vec::new() }
+    pub fn tool(name: String, output: String) -> Self {
+        Self::tool_at(name, output, Utc::now())
+    }
+
+    pub fn tool_at(_name: String, output: String, created_at: DateTime<Utc>) -> Self {
+        Self { role: MessageRole::Tool, content: output, sections: None, tool_calls: Vec::new(), created_at }
     }
 
     pub fn finalize(&mut self) {
@@ -159,6 +179,9 @@ impl ChatMessage {
         if let Some(tool_call) = self.tool_calls.get_mut(index) {
             tool_call.output = Some(output);
             tool_call.status = if success { ToolCallStatus::Success } else { ToolCallStatus::Error };
+            if tool_call.name == "memory_recall" {
+                tool_call.expanded = true;
+            }
         }
     }
 }
@@ -554,7 +577,7 @@ pub fn draw_chat_screen(frame: &mut Frame, app: &ChatApp) {
 fn draw_messages(frame: &mut Frame, area: Rect, app: &ChatApp) {
     let container = Block::default()
         .style(Style::default().bg(colors::BG_TERMINAL))
-        .padding(Padding::new(1, 1, 0, 1));
+        .padding(Padding::new(1, 1, 2, 1));
     frame.render_widget(container.clone(), area);
 
     let inner = container.inner(area);
@@ -567,20 +590,41 @@ fn draw_messages(frame: &mut Frame, area: Rect, app: &ChatApp) {
         return;
     }
 
-    let mut constraints = app
-        .messages
-        .iter()
-        .map(|message| Constraint::Length(estimate_message_height(message, inner.width)))
-        .collect::<Vec<_>>();
+    let mut constraints = Vec::new();
+    for (idx, message) in app.messages.iter().enumerate() {
+        constraints.push(Constraint::Length(estimate_message_height(message, inner.width)));
+        if idx + 1 < app.messages.len() {
+            constraints.push(Constraint::Length(1));
+        }
+    }
     constraints.push(Constraint::Min(0));
 
     let layout = split_rects(inner, Direction::Vertical, constraints);
 
+    let mut slot = 0usize;
     for (idx, msg) in app.messages.iter().enumerate() {
-        if idx + 1 < layout.len() {
-            draw_message(frame, layout[idx], msg, &app.streaming_state);
+        if slot >= layout.len() {
+            break;
+        }
+
+        draw_message(frame, layout[slot], msg, &app.streaming_state);
+        slot += 1;
+
+        if idx + 1 < app.messages.len() && slot < layout.len() {
+            draw_message_divider(frame, layout[slot]);
+            slot += 1;
         }
     }
+}
+
+fn draw_message_divider(frame: &mut Frame, area: Rect) {
+    if area.width == 0 {
+        return;
+    }
+
+    let divider = Paragraph::new("\u{2500}".repeat(area.width as usize))
+        .style(Style::default().fg(colors::BORDER_COLOR).bg(colors::BG_TERMINAL));
+    frame.render_widget(divider, area);
 }
 
 fn estimate_message_height(msg: &ChatMessage, width: u16) -> u16 {
@@ -595,10 +639,15 @@ fn estimate_message_height(msg: &ChatMessage, width: u16) -> u16 {
                     .map(constraint_length)
                     .sum::<u16>();
             } else {
-                height += wrapped_line_count(&msg.content, content_width.saturating_sub(2)) as u16;
+                let content = assistant_display_content(&msg.content);
+                height += wrapped_line_count(&content, content_width.saturating_sub(2)) as u16;
             }
         }
-        _ => {
+        MessageRole::Tool => {
+            let content = tool_display_content(&msg.content);
+            height += wrapped_line_count(&content, content_width.saturating_sub(2)) as u16;
+        }
+        MessageRole::User => {
             height += wrapped_line_count(&msg.content, content_width.saturating_sub(2)) as u16;
         }
     }
@@ -612,7 +661,7 @@ fn estimate_message_height(msg: &ChatMessage, width: u16) -> u16 {
 
 fn draw_message(frame: &mut Frame, area: Rect, msg: &ChatMessage, streaming_state: &StreamingState) {
     match msg.role {
-        MessageRole::User => draw_user_message(frame, area, &msg.content),
+        MessageRole::User => draw_user_message(frame, area, msg),
         MessageRole::Assistant => {
             let tool_constraints = msg
                 .tool_calls
@@ -642,78 +691,368 @@ fn draw_message(frame: &mut Frame, area: Rect, msg: &ChatMessage, streaming_stat
                 );
 
                 if let Some(ref sections) = msg.sections {
-                    draw_assistant_sections(frame, content_area, sections);
+                    draw_assistant_sections(frame, content_area, sections, msg.created_at);
                 } else {
                     let is_streaming = *streaming_state == StreamingState::Streaming;
-                    draw_assistant_raw(frame, content_area, &msg.content, is_streaming);
+                    draw_assistant_raw(frame, content_area, &msg.content, is_streaming, msg.created_at);
                 }
             }
         }
-        MessageRole::Tool => draw_tool_output(frame, area, &msg.content),
+        MessageRole::Tool => draw_tool_output(frame, area, msg),
     }
 }
 
-fn draw_user_message(frame: &mut Frame, area: Rect, content: &str) {
+fn draw_user_message(frame: &mut Frame, area: Rect, message: &ChatMessage) {
+    let sections = split_rects(
+        area,
+        Direction::Vertical,
+        vec![Constraint::Length(1), Constraint::Min(0)],
+    );
+    if sections.len() < 2 {
+        return;
+    }
+
+    frame.render_widget(
+        Paragraph::new(message_header_line(message.role, message.created_at))
+            .style(Style::default().bg(colors::BG_TERMINAL)),
+        sections[0],
+    );
+
     let line = Line::from(vec![
         Span::styled("❯ ", Style::default().fg(colors::ACCENT_CYAN)),
-        Span::styled(content, Style::default().fg(colors::TEXT_PRIMARY)),
+        Span::styled(&message.content, Style::default().fg(colors::TEXT_PRIMARY)),
     ]);
-    let paragraph = Paragraph::new(line)
-        .style(Style::default().bg(colors::BG_TERMINAL))
-        .wrap(Wrap { trim: false });
-    frame.render_widget(paragraph, area);
+    frame.render_widget(
+        Paragraph::new(line)
+            .style(Style::default().bg(colors::BG_TERMINAL))
+            .wrap(Wrap { trim: false }),
+        sections[1],
+    );
 }
 
-fn draw_tool_output(frame: &mut Frame, area: Rect, content: &str) {
-    let text = Text::from(vec![Line::from(vec![
-        Span::styled("  ", Style::default()),
-        Span::styled(content, Style::default().fg(colors::TEXT_MUTED)),
-    ])]);
-    let paragraph = Paragraph::new(text)
-        .style(Style::default().bg(colors::BG_TERMINAL))
-        .wrap(Wrap { trim: false });
-    frame.render_widget(paragraph, area);
+fn draw_tool_output(frame: &mut Frame, area: Rect, message: &ChatMessage) {
+    let sections = split_rects(
+        area,
+        Direction::Vertical,
+        vec![Constraint::Length(1), Constraint::Min(0)],
+    );
+    if sections.len() < 2 {
+        return;
+    }
+
+    frame.render_widget(
+        Paragraph::new(message_header_line(message.role, message.created_at))
+            .style(Style::default().bg(colors::BG_TERMINAL)),
+        sections[0],
+    );
+
+    let display_content = tool_display_content(&message.content);
+    let mut lines = Vec::new();
+
+    for line in display_content.lines() {
+        lines.push(Line::from(vec![
+            Span::styled("  ", Style::default()),
+            Span::styled(line.to_string(), Style::default().fg(colors::TEXT_MUTED)),
+        ]));
+    }
+
+    if lines.is_empty() {
+        lines.push(Line::from(vec![Span::styled("  ", Style::default())]));
+    }
+
+    let text = Text::from(lines);
+    frame.render_widget(
+        Paragraph::new(text)
+            .style(Style::default().bg(colors::BG_TERMINAL))
+            .wrap(Wrap { trim: false }),
+        sections[1],
+    );
 }
 
 fn draw_tool_call_widget(frame: &mut Frame, area: Rect, tool_call: &ToolCallDisplay) {
     let state = tool_call.to_ui_state();
     let details = if tool_call.expanded {
-        Text::from(tool_call.output.clone().unwrap_or_default())
+        Text::from(format_tool_output(
+            &tool_call.name,
+            tool_call.output.as_deref().unwrap_or_default(),
+        ))
     } else {
-        Text::from(format!("Args: {}", tool_call.arguments))
+        Text::from(format_tool_arguments(&tool_call.name, &tool_call.arguments))
     };
 
     ToolCallCard.render(frame, area, &tool_call.name, &tool_call.arguments, state, details);
 }
 
-fn draw_assistant_raw(frame: &mut Frame, area: Rect, content: &str, is_streaming: bool) {
-    let mut spans = vec![Span::styled("◉ ", Style::default().fg(colors::ACCENT_PURPLE))];
+fn draw_assistant_raw(frame: &mut Frame, area: Rect, content: &str, is_streaming: bool, created_at: DateTime<Utc>) {
+    let sections = split_rects(
+        area,
+        Direction::Vertical,
+        vec![Constraint::Length(1), Constraint::Min(0)],
+    );
+    if sections.len() < 2 {
+        return;
+    }
 
-    if is_streaming && content.is_empty() {
-        spans.push(Span::styled("Thinking...", Style::default().fg(colors::TEXT_MUTED)));
+    frame.render_widget(
+        Paragraph::new(message_header_line(MessageRole::Assistant, created_at))
+            .style(Style::default().bg(colors::BG_TERMINAL)),
+        sections[0],
+    );
+
+    let mut lines = Vec::new();
+    let display_content = assistant_display_content(content);
+
+    if is_streaming && display_content.is_empty() {
+        lines.push(Line::from(vec![
+            Span::styled("◉ ", Style::default().fg(colors::ACCENT_PURPLE)),
+            Span::styled("Thinking...", Style::default().fg(colors::TEXT_MUTED)),
+        ]));
     } else {
-        spans.push(Span::styled(content, Style::default().fg(colors::TEXT_SECONDARY)));
+        for (idx, raw_line) in display_content.lines().enumerate() {
+            let prefix = if idx == 0 { "◉ " } else { "  " };
+            let prefix_style = if idx == 0 {
+                Style::default().fg(colors::ACCENT_PURPLE)
+            } else {
+                Style::default().fg(colors::TEXT_MUTED)
+            };
+            let trimmed = raw_line.trim_start();
+
+            let line = if let Some(item) = trimmed.strip_prefix("- ").or_else(|| trimmed.strip_prefix("* ")) {
+                Line::from(vec![
+                    Span::styled(prefix, prefix_style),
+                    Span::styled("• ", Style::default().fg(colors::ACCENT_CYAN)),
+                    Span::styled(item.to_string(), Style::default().fg(colors::TEXT_SECONDARY)),
+                ])
+            } else if trimmed.is_empty() {
+                Line::from(vec![Span::styled(prefix, prefix_style)])
+            } else if trimmed.ends_with(':') {
+                Line::from(vec![
+                    Span::styled(prefix, prefix_style),
+                    Span::styled(
+                        trimmed.to_string(),
+                        Style::default().fg(colors::TEXT_PRIMARY).add_modifier(Modifier::BOLD),
+                    ),
+                ])
+            } else {
+                Line::from(vec![
+                    Span::styled(prefix, prefix_style),
+                    Span::styled(trimmed.to_string(), Style::default().fg(colors::TEXT_SECONDARY)),
+                ])
+            };
+
+            lines.push(line);
+        }
     }
 
-    if is_streaming {
-        spans.push(Span::styled(" █", Style::default().fg(colors::ACCENT_CYAN)));
+    if lines.is_empty() {
+        lines.push(Line::from(vec![Span::styled(
+            "◉ ",
+            Style::default().fg(colors::ACCENT_PURPLE),
+        )]));
     }
 
-    let line = Line::from(spans);
-    let paragraph = Paragraph::new(line)
-        .style(Style::default().bg(colors::BG_TERMINAL))
-        .wrap(Wrap { trim: false });
-    frame.render_widget(paragraph, area);
+    if is_streaming && let Some(last_line) = lines.last_mut() {
+        last_line
+            .spans
+            .push(Span::styled(" █", Style::default().fg(colors::ACCENT_CYAN)));
+    }
+
+    frame.render_widget(
+        Paragraph::new(Text::from(lines))
+            .style(Style::default().bg(colors::BG_TERMINAL))
+            .wrap(Wrap { trim: false }),
+        sections[1],
+    );
 }
 
-fn draw_assistant_sections(frame: &mut Frame, area: Rect, sections: &ResponseSections) {
-    let constraints = assistant_section_constraints(sections, area.width);
+fn message_header_line(role: MessageRole, created_at: DateTime<Utc>) -> Line<'static> {
+    let role_label = match role {
+        MessageRole::User => "YOU",
+        MessageRole::Assistant => "ASSISTANT",
+        MessageRole::Tool => "TOOL",
+    };
+
+    Line::from(vec![
+        Span::styled(role_label, Style::default().fg(colors::TEXT_MUTED)),
+        Span::styled("  ", Style::default().fg(colors::TEXT_MUTED)),
+        Span::styled(
+            format_message_timestamp(created_at),
+            Style::default().fg(colors::TEXT_MUTED),
+        ),
+    ])
+}
+
+fn format_message_timestamp(created_at: DateTime<Utc>) -> String {
+    let local_time = created_at.with_timezone(&Local);
+    let now_local = Local::now();
+    if local_time.date_naive() == now_local.date_naive() {
+        local_time.format("%H:%M").to_string()
+    } else {
+        local_time.format("%Y-%m-%d %H:%M").to_string()
+    }
+}
+
+fn assistant_display_content(content: &str) -> String {
+    normalize_display_content(content)
+}
+
+fn tool_display_content(content: &str) -> String {
+    normalize_display_content(content)
+}
+
+fn normalize_display_content(content: &str) -> String {
+    let normalized = content.replace("\r\n", "\n").replace('\r', "\n");
+    let normalized = normalized.replace(":- ", ":\n- ");
+    let normalized = normalized.replace(":-\n", ":\n- ");
+    let normalized = fix_missing_bullet_breaks(&normalized);
+    collapse_blank_lines(normalized.trim())
+}
+
+fn fix_missing_bullet_breaks(content: &str) -> String {
+    let chars: Vec<char> = content.chars().collect();
+    if chars.is_empty() {
+        return String::new();
+    }
+
+    let mut output = String::with_capacity(content.len() + 8);
+    for idx in 0..chars.len() {
+        let current = chars[idx];
+        let next = chars.get(idx + 1).copied();
+        let previous = if idx > 0 { Some(chars[idx - 1]) } else { None };
+
+        if current == '-'
+            && next == Some(' ')
+            && let Some(prev) = previous
+            && prev != '\n'
+            && prev != '\r'
+            && (prev == ':' || prev == ';' || prev == ')' || prev == ']' || prev == '"' || prev.is_alphanumeric())
+        {
+            output.push('\n');
+        }
+
+        output.push(current);
+    }
+
+    output
+}
+
+fn collapse_blank_lines(content: &str) -> String {
+    let mut lines = Vec::new();
+    let mut blank_run = 0usize;
+
+    for line in content.lines() {
+        if line.trim().is_empty() {
+            blank_run += 1;
+            if blank_run > 1 {
+                continue;
+            }
+            lines.push(String::new());
+            continue;
+        }
+
+        blank_run = 0;
+        lines.push(line.to_string());
+    }
+
+    lines.join("\n")
+}
+
+fn format_tool_arguments(name: &str, raw_arguments: &str) -> String {
+    let parsed = serde_json::from_str::<Value>(raw_arguments);
+    let Ok(value) = parsed else {
+        return format!("Args: {}", raw_arguments);
+    };
+
+    if name == "memory_recall"
+        && let Some(obj) = value.as_object()
+    {
+        let query = obj.get("query").and_then(Value::as_str).unwrap_or_default();
+        let count = obj.get("count").and_then(Value::as_u64).unwrap_or(5);
+        let kind = obj.get("kind").and_then(Value::as_str).unwrap_or("any");
+        return format!("query: {}  |  count: {}  |  kind: {}", query, count, kind);
+    }
+
+    if let Some(obj) = value.as_object() {
+        let mut parts = Vec::new();
+        for (idx, (key, value)) in obj.iter().enumerate() {
+            if idx >= 4 {
+                parts.push(format!("+{} more", obj.len().saturating_sub(idx)));
+                break;
+            }
+            parts.push(format!("{key}: {}", format_json_compact(value)));
+        }
+        return format!("Args: {}", parts.join("  |  "));
+    }
+
+    format!("Args: {}", format_json_compact(&value))
+}
+
+fn format_tool_output(name: &str, raw_output: &str) -> String {
+    let normalized = tool_display_content(raw_output);
+    if name == "memory_recall" {
+        return normalized.replacen(":\n- ", ":\n\n- ", 1);
+    }
+    normalized
+}
+
+fn format_json_compact(value: &Value) -> String {
+    match value {
+        Value::Null => "null".to_string(),
+        Value::Bool(v) => v.to_string(),
+        Value::Number(v) => v.to_string(),
+        Value::String(v) => v.clone(),
+        Value::Array(values) => {
+            let preview = values
+                .iter()
+                .take(3)
+                .map(format_json_compact)
+                .collect::<Vec<_>>()
+                .join(", ");
+            if values.len() > 3 {
+                format!("[{}, +{} more]", preview, values.len() - 3)
+            } else {
+                format!("[{}]", preview)
+            }
+        }
+        Value::Object(map) => {
+            let preview = map
+                .iter()
+                .take(3)
+                .map(|(key, value)| format!("{key}: {}", format_json_compact(value)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            if map.len() > 3 {
+                format!("{{{}, +{} more}}", preview, map.len() - 3)
+            } else {
+                format!("{{{}}}", preview)
+            }
+        }
+    }
+}
+
+fn draw_assistant_sections(frame: &mut Frame, area: Rect, sections: &ResponseSections, created_at: DateTime<Utc>) {
+    let outer = split_rects(
+        area,
+        Direction::Vertical,
+        vec![Constraint::Length(1), Constraint::Min(0)],
+    );
+    if outer.len() < 2 {
+        return;
+    }
+
+    frame.render_widget(
+        Paragraph::new(message_header_line(MessageRole::Assistant, created_at))
+            .style(Style::default().bg(colors::BG_TERMINAL)),
+        outer[0],
+    );
+
+    let constraints = assistant_section_constraints(sections, outer[1].width);
 
     if constraints.is_empty() {
         return;
     }
 
-    let layout = split_rects(area, Direction::Vertical, constraints);
+    let layout = split_rects(outer[1], Direction::Vertical, constraints);
 
     let mut slot = 0;
 
@@ -964,6 +1303,7 @@ pub(crate) fn draw_file_finder_overlay(frame: &mut Frame, area: Rect, app: &Chat
         .style(Style::default().bg(colors::BG_TERMINAL));
     frame.render_widget(block.clone(), panel);
     let inner = block.inner(panel);
+    frame.render_widget(Block::default().style(Style::default().bg(colors::BG_TERMINAL)), inner);
 
     let mut constraints = vec![Constraint::Length(1)];
     constraints.extend((0..app.file_finder.matches.len()).map(|_| Constraint::Length(1)));
@@ -984,7 +1324,10 @@ pub(crate) fn draw_file_finder_overlay(frame: &mut Frame, area: Rect, app: &Chat
         ),
         Span::styled("  (Enter pin/unpin)", Style::default().fg(colors::TEXT_MUTED)),
     ]);
-    frame.render_widget(Paragraph::new(input_line), layout[0]);
+    frame.render_widget(
+        Paragraph::new(input_line).style(Style::default().bg(colors::BG_TERMINAL)),
+        layout[0],
+    );
 
     for (idx, path) in app.file_finder.matches.iter().enumerate() {
         if let Some(slot) = layout.get(idx + 1).copied() {
@@ -1136,6 +1479,36 @@ mod tests {
 
         assert_eq!(app.messages[1].tool_calls[0].status, ToolCallStatus::Success);
         assert_eq!(app.messages[1].tool_calls[0].output, Some("File contents".to_string()));
+    }
+
+    #[test]
+    fn test_memory_recall_tool_auto_expands_when_completed() {
+        let mut app = ChatApp::new();
+        app.submit_user_message("What do you remember?".to_string());
+
+        app.handle_stream_event(IncomingStreamEvent::ToolCalling {
+            name: "memory_recall".to_string(),
+            arguments: r#"{"query":"name","count":3}"#.to_string(),
+        });
+        app.handle_stream_event(IncomingStreamEvent::ToolCompleted {
+            name: "memory_recall".to_string(),
+            result: "Found 1 memories:\n- [fact] Name is Thunderus".to_string(),
+        });
+
+        assert!(app.messages[1].tool_calls[0].expanded);
+    }
+
+    #[test]
+    fn test_assistant_display_content_inserts_missing_bullet_breaks() {
+        let formatted = assistant_display_content("I can help with:- one- two");
+        assert_eq!(formatted, "I can help with:\n- one\n- two");
+    }
+
+    #[test]
+    fn test_format_tool_arguments_memory_recall() {
+        let formatted = format_tool_arguments("memory_recall", r#"{"query":"style","count":5}"#);
+        assert!(formatted.contains("query: style"));
+        assert!(formatted.contains("count: 5"));
     }
 
     #[test]

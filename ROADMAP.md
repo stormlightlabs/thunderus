@@ -182,3 +182,6 @@ Full provider coverage as specced.
 
 - Fuzzy/autocomplete for slash commands
 - We need to unify keybinds and inject into every screen
+- Double escape to cancel current request.
+    - First escape should show a message that tells user to hit escape again to cancel
+      the request.

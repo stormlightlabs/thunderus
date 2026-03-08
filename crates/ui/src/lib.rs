@@ -1,21 +1,14 @@
 //! Terminal UI for Thunderus
 
-use crossterm::{
-    event::{
-        DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton,
-        MouseEvent, MouseEventKind,
-    },
-    execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
-};
-use ratatui::{
-    Frame, Terminal,
-    backend::{Backend, CrosstermBackend},
-    layout::Rect,
-    style::Style,
-    text::{Line, Span},
-    widgets::{Block, Paragraph},
-};
+use crossterm::event::{DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+use crossterm::execute;
+use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
+use ratatui::backend::{Backend, CrosstermBackend};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Paragraph};
+use ratatui::{Frame, Terminal};
+use ratatui::{layout::Rect, style::Style};
 use std::io;
 use thiserror::Error;
 use thndrs_core::Role;
@@ -30,10 +23,8 @@ pub mod layout;
 pub mod settings;
 pub mod tool;
 
-pub use chat::{
-    ChatApp, ChatMessage, IncomingStreamEvent, StreamingState, TokenUsage, ToolCallDisplay, ToolCallStatus,
-    draw_chat_screen,
-};
+pub use chat::{ChatApp, ChatMessage, IncomingStreamEvent, StreamingState, TokenUsage, draw_chat_screen};
+pub use chat::{ToolCallDisplay, ToolCallStatus};
 use components::{AsciiLogo, BrandGreeting, CardItem, HintFooter, HintToken, MutedSectionTitle, TopBorderedInputRow};
 use elements::{Suggestions, WelcomeContent, WelcomeMainColumn, WelcomeShell};
 use files::{FileBrowserAction, FileBrowserApp, draw_file_browser_screen};
@@ -159,7 +150,6 @@ impl App {
             return;
         }
 
-        // Global shortcuts that work from any screen
         match key.code {
             KeyCode::Char(',') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.open_settings();
@@ -398,6 +388,11 @@ impl App {
         for (idx, area) in suggestion_areas(frame_size).iter().enumerate() {
             if point_in_rect(mouse.column, mouse.row, *area) {
                 self.selected_suggestion = Some(idx);
+                let content = SUGGESTIONS[idx].to_string();
+                self.chat.submit_user_message(content);
+                self.screen_mode = ScreenMode::Chat;
+                self.input_buffer.clear();
+                self.cursor_position = 0;
                 break;
             }
         }
@@ -735,16 +730,18 @@ fn load_session_chat_messages(session_id: &str) -> std::result::Result<Vec<ChatM
         return Err("Session not found".to_string());
     }
 
-    let messages = manager
-        .get_conversation_messages(session_id)
-        .map_err(|error| error.to_string())?;
+    let messages = manager.get_messages(session_id).map_err(|error| error.to_string())?;
 
     let mut chat_messages = Vec::with_capacity(messages.len());
     for message in messages {
         match message.role {
-            Role::User => chat_messages.push(ChatMessage::user(message.content)),
-            Role::Assistant => chat_messages.push(ChatMessage::assistant(message.content)),
-            Role::Tool => chat_messages.push(ChatMessage::tool("tool".to_string(), message.content)),
+            Role::User => chat_messages.push(ChatMessage::user_at(message.content, message.created_at)),
+            Role::Assistant => chat_messages.push(ChatMessage::assistant_at(message.content, message.created_at)),
+            Role::Tool => chat_messages.push(ChatMessage::tool_at(
+                "tool".to_string(),
+                message.content,
+                message.created_at,
+            )),
             Role::System => {}
         }
     }
@@ -873,7 +870,7 @@ mod tests {
     }
 
     #[test]
-    fn test_mouse_click_selects_suggestion() {
+    fn test_mouse_click_submits_suggestion() {
         let mut app = App::new();
         let frame_area = Rect::new(0, 0, 120, 40);
         let target_idx = SUGGESTIONS.len().saturating_sub(1);
@@ -887,7 +884,11 @@ mod tests {
         };
 
         app.handle_mouse(click_event, frame_area);
+        assert_eq!(app.screen_mode, ScreenMode::Chat);
         assert_eq!(app.selected_suggestion, Some(target_idx));
+        assert_eq!(app.chat.messages.len(), 2);
+        assert_eq!(app.chat.messages[0].role, chat::MessageRole::User);
+        assert_eq!(app.chat.messages[0].content, SUGGESTIONS[target_idx]);
     }
 
     #[test]

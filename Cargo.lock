@@ -3118,6 +3118,7 @@ dependencies = [
  "nucleo-matcher",
  "ratatui",
  "serde",
+ "serde_json",
  "syntect",
  "thiserror 2.0.18",
  "thndrs-core",

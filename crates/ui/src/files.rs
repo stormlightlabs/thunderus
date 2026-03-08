@@ -1,32 +1,22 @@
 //! Workspace file browser, syntax highlighting, and fuzzy file finder.
 
-use super::{
-    colors,
-    components::{HintFooter, HintToken, TopBorderedInputRow},
-    layout::{ConstraintSpec, split as split_rects},
-};
+use super::colors;
+use super::components::{HintFooter, HintToken, TopBorderedInputRow};
+use super::layout::{ConstraintSpec, split as split_rects};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ignore::WalkBuilder;
-use nucleo_matcher::{
-    Config, Matcher, Utf32Str,
-    pattern::{CaseMatching, Normalization, Pattern},
-};
-use ratatui::{
-    Frame,
-    layout::{Constraint, Direction, Rect},
-    style::{Color, Modifier, Style},
-    text::{Line, Span, Text},
-    widgets::{Block, Borders, Paragraph, Wrap},
-};
-use std::{
-    collections::HashSet,
-    path::{Path, PathBuf},
-};
-use syntect::{
-    easy::HighlightLines,
-    highlighting::{Theme, ThemeSet},
-    parsing::SyntaxSet,
-};
+use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
+use nucleo_matcher::{Config, Matcher, Utf32Str};
+use ratatui::Frame;
+use ratatui::layout::{Constraint, Direction, Rect};
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span, Text};
+use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+use syntect::easy::HighlightLines;
+use syntect::highlighting::{Theme, ThemeSet};
+use syntect::parsing::SyntaxSet;
 use thndrs_ui_macros::AreaSpec;
 
 const MAX_FINDER_RESULTS: usize = 12;
@@ -650,6 +640,7 @@ fn draw_fuzzy_overlay(frame: &mut Frame, area: Rect, app: &FileBrowserApp) {
         .style(Style::default().bg(colors::BG_TERMINAL));
     frame.render_widget(overlay.clone(), panel);
     let inner = overlay.inner(panel);
+    frame.render_widget(Block::default().style(Style::default().bg(colors::BG_TERMINAL)), inner);
 
     let mut rows = Vec::with_capacity(app.finder.matches.len() + 2);
     rows.push(Constraint::Length(1));
@@ -734,7 +725,8 @@ fn build_workspace_index(root: &Path) -> std::io::Result<(FileNode, Vec<PathBuf>
         .git_ignore(true)
         .git_exclude(true)
         .git_global(true)
-        .parents(true);
+        .parents(true)
+        .filter_entry(|entry| entry.file_name() != ".git");
 
     for dent in walker.build() {
         let Ok(entry) = dent else {
@@ -754,6 +746,10 @@ fn build_workspace_index(root: &Path) -> std::io::Result<(FileNode, Vec<PathBuf>
             continue;
         }
 
+        if is_git_metadata_path(relative) {
+            continue;
+        }
+
         let is_dir = entry.file_type().map(|ty| ty.is_dir()).unwrap_or(false);
         insert_node(&mut tree, relative, is_dir);
 
@@ -768,6 +764,14 @@ fn build_workspace_index(root: &Path) -> std::io::Result<(FileNode, Vec<PathBuf>
 
 pub fn workspace_files(root: &Path) -> Vec<PathBuf> {
     build_workspace_index(root).map(|(_, files)| files).unwrap_or_default()
+}
+
+fn is_git_metadata_path(relative_path: &Path) -> bool {
+    relative_path
+        .components()
+        .next()
+        .map(|component| component.as_os_str() == ".git")
+        .unwrap_or(false)
 }
 
 fn insert_node(root: &mut FileNode, relative_path: &Path, is_dir: bool) {
@@ -962,6 +966,7 @@ fn choose_theme(themes: &ThemeSet) -> &Theme {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn test_insert_node_creates_nested_nodes() {
@@ -991,5 +996,25 @@ mod tests {
     fn test_highlight_file_returns_line_numbers() {
         let lines = highlight_file(Path::new("src/main.rs"), "fn main() {}\n");
         assert_eq!(lines[0].line_number, 1);
+    }
+
+    #[test]
+    fn test_workspace_files_excludes_git_metadata() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time should be valid")
+            .as_nanos();
+        let workspace = std::env::temp_dir().join(format!("thndrs-ui-files-{unique}"));
+        std::fs::create_dir_all(workspace.join(".git")).expect(".git directory should be created");
+        std::fs::create_dir_all(workspace.join("src")).expect("src directory should be created");
+        std::fs::write(workspace.join(".git/HEAD"), "ref: refs/heads/main\n").expect("git metadata should be written");
+        std::fs::write(workspace.join("src/main.rs"), "fn main() {}\n").expect("workspace file should be written");
+
+        let files = workspace_files(&workspace);
+
+        assert!(files.iter().all(|path| !path.starts_with(".git")));
+        assert!(files.iter().any(|path| path == Path::new("src/main.rs")));
+
+        std::fs::remove_dir_all(workspace).expect("workspace should be removed");
     }
 }

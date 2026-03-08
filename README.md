@@ -1,6 +1,11 @@
 <!-- markdownlint-disable MD033 -->
 # Thunderus AI Agent
 
+Thunderus is a coding agent harness built in Rust. It attempts to replicate and build upon the workflows of pi, OpenCode, Claude Code and Codex, as a standalone, provider-agnostic TUI tool.
+
+It is designed for developers who want to use open-source/open-weight models with fine
+grained control over context.
+
 ## Project Structure
 
 ```sh
