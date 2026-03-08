@@ -3,6 +3,9 @@
 use super::{MemoryError, Result, global_db_path, hash_workspace, workspaces_dir};
 use rusqlite::{Connection, OpenFlags};
 use std::path::Path;
+use std::sync::Once;
+
+static SQLITE_VEC_REGISTER_ONCE: Once = Once::new();
 
 /// A connection to a memory database
 #[derive(Debug)]
@@ -34,6 +37,8 @@ impl MemoryDatabase {
 
     /// Open a database and initialize schema
     pub fn open(path: &Path, is_global: bool) -> Result<Self> {
+        register_sqlite_vec_auto_extension();
+
         let conn =
             Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_CREATE | OpenFlags::SQLITE_OPEN_READ_WRITE)?;
 
@@ -202,6 +207,22 @@ impl MemoryDatabase {
         let metadata = std::fs::metadata(path)?;
         Ok(metadata.len())
     }
+}
+
+fn register_sqlite_vec_auto_extension() {
+    SQLITE_VEC_REGISTER_ONCE.call_once(|| {
+        // sqlite-vec exposes sqlite3_vec_init as a C entrypoint.
+        // Register it once as an auto-extension so new connections can use `vec0`.
+        let result = unsafe {
+            let init: rusqlite::auto_extension::RawAutoExtension =
+                std::mem::transmute(sqlite_vec::sqlite3_vec_init as *const ());
+            rusqlite::auto_extension::register_auto_extension(init)
+        };
+
+        if let Err(error) = result {
+            tracing::warn!("Failed to register sqlite-vec auto extension: {}", error);
+        }
+    });
 }
 
 impl MemoryDatabase {

@@ -49,7 +49,7 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
             ("Previous chat", "Ctrl+Shift+Tab"),
             ("Open file browser", "Ctrl+O"),
             ("Open settings", "Ctrl+,"),
-            ("Open help", "?"),
+            ("Open help", "/help or F1"),
             ("Quit", "Ctrl+D / Ctrl+Q"),
         ],
     ),
@@ -573,7 +573,7 @@ fn draw_tutorial_tab(frame: &mut Frame, area: Rect, app: &HelpApp) {
         ("Ctrl+N", "Start a new conversation"),
         ("Ctrl+O", "Open a project folder"),
         ("Ctrl+R", "Resume recent conversation"),
-        ("?", "View keyboard shortcuts"),
+        ("/help", "View keyboard shortcuts"),
     ];
 
     for (shortcut, desc) in &quick_actions {

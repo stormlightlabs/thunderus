@@ -165,7 +165,7 @@ impl App {
                 self.open_settings();
                 return;
             }
-            KeyCode::Char('?') | KeyCode::F(1) => {
+            KeyCode::F(1) => {
                 self.open_help();
                 return;
             }
@@ -617,8 +617,8 @@ fn point_in_rect(x: u16, y: u16, area: Rect) -> bool {
 
 fn draw_hints(frame: &mut Frame, area: Rect) {
     let tokens = [
-        HintToken::Text("Press "),
-        HintToken::Key("?"),
+        HintToken::Text("Type "),
+        HintToken::Key("/help"),
         HintToken::Text(" for help, "),
         HintToken::Key("ctrl+,"),
         HintToken::Text(" for settings, "),
@@ -848,6 +848,28 @@ mod tests {
         let quit_event = KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL);
         app.handle_input(quit_event);
         assert!(!app.running);
+    }
+
+    #[test]
+    fn test_question_mark_is_inserted_in_input() {
+        let mut app = App::new();
+
+        app.handle_input(KeyEvent::from(KeyCode::Char('?')));
+
+        assert_eq!(app.screen_mode, ScreenMode::Welcome);
+        assert_eq!(app.input_buffer, "?");
+        assert_eq!(app.cursor_position, 1);
+    }
+
+    #[test]
+    fn test_f1_opens_help() {
+        let mut app = App::new();
+        app.screen_mode = ScreenMode::Chat;
+
+        app.handle_input(KeyEvent::from(KeyCode::F(1)));
+
+        assert_eq!(app.screen_mode, ScreenMode::Help);
+        assert_eq!(app.previous_screen, Some(ScreenMode::Chat));
     }
 
     #[test]

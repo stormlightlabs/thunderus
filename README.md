@@ -47,3 +47,78 @@ default_model = "glm-5"
 - If no default config file exists, Thunderus falls back to built-in defaults and provider calls will fail until API keys are configured.
 
 </details>
+
+## Logs
+
+<details>
+<summary>
+Viewing Logs and Log Files
+</summary>
+
+Thunderus writes logs in two places:
+
+- Session logs in the workspace SQLite database (viewable inside the TUI)
+- Runtime tracing logs in rotating text log files (viewable from CLI)
+
+</details>
+
+<details>
+<summary>
+Session Logs (inside TUI)
+</summary>
+
+1. Start Thunderus.
+2. Run `/history` to list saved session IDs.
+3. Run `/debug log <session-id>` to view logs for that session.
+
+Example:
+
+```text
+/history
+/debug log 8c5d9f8b-...
+```
+
+</details>
+
+<details>
+<summary>
+Runtime Log Files (CLI)
+</summary>
+
+Use the debug commands from the workspace root:
+
+```sh
+thunderus debug tail --lines 120
+thunderus debug attach --lines 120 --poll-ms 250
+```
+
+If you run via Cargo during development:
+
+```sh
+cargo run -p cli -- debug tail --lines 120
+cargo run -p cli -- debug attach --lines 120 --poll-ms 250
+```
+
+`debug tail` prints recent lines, and `debug attach` follows new log output.
+
+</details>
+
+<details>
+<summary>
+Log Files
+</summary>
+
+Runtime logs are stored under:
+
+```text
+~/.thunderus/logs/workspaces/<workspace-hash>/runtime.log*
+```
+
+Workspace hash is the first 16 characters of SHA-256 of the absolute workspace path:
+
+```sh
+workspace_hash="$(printf '%s' "$(pwd)" | shasum -a 256 | awk '{print substr($1,1,16)}')"
+echo "$HOME/.thunderus/logs/workspaces/$workspace_hash"
+```
+
+</details>

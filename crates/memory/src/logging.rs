@@ -111,7 +111,7 @@ impl LogStore {
             SELECT id, session_id, level, component, message, created_at
             FROM logs
             WHERE session_id = ?1
-            ORDER BY created_at DESC
+            ORDER BY created_at DESC, id DESC
             LIMIT ?2
             "#,
         )?;
@@ -147,7 +147,7 @@ impl LogStore {
             FROM logs
             WHERE (?1 IS NULL OR level = ?1)
               AND (?2 IS NULL OR component = ?2)
-            ORDER BY created_at DESC
+            ORDER BY created_at DESC, id DESC
             LIMIT ?3
             "#,
         )?;

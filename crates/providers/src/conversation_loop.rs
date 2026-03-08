@@ -126,8 +126,13 @@ impl ConversationLoop {
             let tools = thndrs_tools::get_tool_schemas();
             let tool_definitions: Vec<ToolDefinition> = tools
                 .iter()
-                .map(|t| t.to_openai_function())
-                .map(|v| serde_json::from_value(v.get("function").unwrap().clone()).unwrap())
+                .map(|tool| {
+                    ToolDefinition::from_schema(
+                        tool.name.clone(),
+                        tool.description.clone(),
+                        tool.parameters.to_json_schema(),
+                    )
+                })
                 .collect();
 
             let response = provider
@@ -315,5 +320,23 @@ mod tests {
                 ConversationEvent::Error(_) => {}
             }
         }
+    }
+
+    #[test]
+    fn test_tool_definitions_build_without_deserialization() {
+        let tools = thndrs_tools::get_tool_schemas();
+        let tool_definitions: Vec<ToolDefinition> = tools
+            .iter()
+            .map(|tool| {
+                ToolDefinition::from_schema(
+                    tool.name.clone(),
+                    tool.description.clone(),
+                    tool.parameters.to_json_schema(),
+                )
+            })
+            .collect();
+
+        assert_eq!(tool_definitions.len(), tools.len());
+        assert!(tool_definitions.iter().all(|tool| tool.type_field == "function"));
     }
 }
