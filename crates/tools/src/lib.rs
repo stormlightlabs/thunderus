@@ -9,7 +9,7 @@ pub mod runtime;
 pub mod schema;
 
 pub use runtime::{ToolExecutor, ToolResult, ToolStatus, generate_diff};
-pub use schema::{Tool, ToolParameter, ToolSchema};
+pub use schema::{Tool, ToolParameter, ToolSchema, core_tools_from_meta};
 
 use runtime::{
     execute_bash, execute_edit, execute_memory_recall, execute_memory_store, execute_read, execute_research,
@@ -37,15 +37,10 @@ pub async fn execute_tool(
 
 /// Get all available tool schemas
 pub fn get_tool_schemas() -> Vec<Tool> {
-    vec![
-        Tool::read(),
-        Tool::write(),
-        Tool::edit(),
-        Tool::bash(),
-        Tool::research(),
-        Tool::memory_store(),
-        Tool::memory_recall(),
-    ]
+    let mut tools = core_tools_from_meta();
+    tools.push(Tool::memory_store());
+    tools.push(Tool::memory_recall());
+    tools
 }
 
 #[cfg(test)]

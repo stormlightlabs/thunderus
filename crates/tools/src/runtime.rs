@@ -2,12 +2,12 @@
 //!
 //! Provides safe execution of tools within a sandboxed environment.
 
+use similar::TextDiff;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use thndrs_mem::{MemoryDatabase, MemoryKind, MemoryStore};
 use tokio::process::Command;
 use tokio::time::{Duration, timeout};
-
-use thndrs_mem::{MemoryDatabase, MemoryKind, MemoryStore};
 
 /// Global memory store for tool execution
 static MEMORY_STORE: std::sync::OnceLock<std::sync::Mutex<Option<MemoryStore>>> = std::sync::OnceLock::new();
@@ -328,15 +328,95 @@ pub async fn execute_edit(arguments: &HashMap<String, serde_json::Value>, sandbo
 
     match apply_diff(&content, diff) {
         Ok(new_content) => match std::fs::write(&path, &new_content) {
-            Ok(_) => ToolResult::success(format!(
-                "Successfully edited {} ({} bytes)",
-                path.display(),
-                new_content.len()
-            )),
+            Ok(_) => {
+                let excerpt = build_edit_readback(&new_content, diff);
+                if excerpt.is_empty() {
+                    ToolResult::success(format!(
+                        "Successfully edited {} ({} bytes)",
+                        path.display(),
+                        new_content.len()
+                    ))
+                } else {
+                    ToolResult::success(format!(
+                        "Successfully edited {} ({} bytes)\n\n{}",
+                        path.display(),
+                        new_content.len(),
+                        excerpt
+                    ))
+                }
+            }
             Err(e) => ToolResult::error(format!("Failed to write file: {e}")),
         },
         Err(e) => ToolResult::error(format!("Patch failed: {e}")),
     }
+}
+
+fn build_edit_readback(content: &str, diff: &str) -> String {
+    let Some((start, end)) = parse_changed_new_range(diff) else {
+        return String::new();
+    };
+
+    let lines: Vec<&str> = content.lines().collect();
+    if lines.is_empty() {
+        return "File is now empty.".to_string();
+    }
+
+    if start > lines.len() {
+        return String::new();
+    }
+
+    let max_lines = 120usize;
+    let bounded_end = end.min(lines.len());
+    let excerpt_end = bounded_end.min(start + max_lines - 1);
+    let line_num_width = excerpt_end.to_string().len().max(2);
+
+    let mut out = format!("Updated lines {}-{}:\n", start, excerpt_end);
+    for line_num in start..=excerpt_end {
+        let idx = line_num - 1;
+        out.push_str(&format!("{: >line_num_width$}\t{}\n", line_num, lines[idx]));
+    }
+
+    if excerpt_end < bounded_end {
+        out.push_str(&format!(
+            "[... {} more changed lines omitted]",
+            bounded_end - excerpt_end
+        ));
+    }
+
+    out
+}
+
+fn parse_changed_new_range(diff: &str) -> Option<(usize, usize)> {
+    let mut min_start = usize::MAX;
+    let mut max_end = 0usize;
+
+    for line in diff.lines() {
+        if !line.starts_with("@@") {
+            continue;
+        }
+
+        let parts = line.split_whitespace().collect::<Vec<_>>();
+        let Some(new_range) = parts.get(2) else {
+            continue;
+        };
+
+        let range = new_range.trim_start_matches('+');
+        let mut segments = range.split(',');
+        let Some(start) = segments.next().and_then(|v| v.parse::<usize>().ok()) else {
+            continue;
+        };
+        let count = segments
+            .next()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(1)
+            .max(1);
+        let end = start.saturating_add(count.saturating_sub(1));
+
+        min_start = min_start.min(start);
+        max_end = max_end.max(end);
+    }
+
+    if min_start == usize::MAX { None } else { Some((min_start.max(1), max_end.max(min_start))) }
 }
 
 /// Apply a unified diff to content
@@ -400,8 +480,6 @@ fn apply_diff(old_content: &str, diff: &str) -> Result<String, String> {
 
 /// Generate a unified diff between old and new content using similar crate
 pub fn generate_diff(old_content: &str, new_content: &str, old_path: &str, new_path: &str) -> String {
-    use similar::TextDiff;
-
     let diff = TextDiff::from_lines(old_content, new_content);
     let mut output = String::new();
 
@@ -915,5 +993,22 @@ mod tests {
         assert!(diff.contains("Hello"));
         assert!(diff.contains("Rust"));
         assert!(diff.contains("World"));
+    }
+
+    #[test]
+    fn test_parse_changed_new_range() {
+        let diff = "@@ -3,2 +4,3 @@\n old\n+new\n@@ -12,1 +20,2 @@\n-old\n+new";
+        let range = parse_changed_new_range(diff).unwrap();
+        assert_eq!(range, (4, 21));
+    }
+
+    #[test]
+    fn test_build_edit_readback() {
+        let content = "a\nb\nc\nd\ne\nf";
+        let diff = "@@ -2,1 +2,2 @@\n-b\n+b\n+bb";
+        let readback = build_edit_readback(content, diff);
+        assert!(readback.contains("Updated lines 2-3:"));
+        assert!(readback.contains("2\tb"));
+        assert!(readback.contains("3\tc"));
     }
 }

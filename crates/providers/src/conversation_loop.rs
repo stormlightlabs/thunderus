@@ -235,17 +235,20 @@ impl ConversationLoop {
             });
 
             let result = execute_tool(&tool_call.name, &tool_call.arguments, &self.sandbox_path).await;
+            let is_error = !matches!(result.status, thndrs_tools::ToolStatus::Success);
+            let provider_payload = result.clone().with_id(&tool_call.id).to_provider_format().to_string();
 
-            let tool_result = match result.status {
-                thndrs_tools::ToolStatus::Success => ToolResult::success(&tool_call.id, result.content.clone()),
-                _ => ToolResult::error(&tool_call.id, result.content.clone()),
+            let tool_result = if is_error {
+                ToolResult::error(&tool_call.id, provider_payload)
+            } else {
+                ToolResult::success(&tool_call.id, provider_payload)
             };
 
             event_handler(ConversationEvent::ToolCompleted {
                 id: tool_call.id.clone(),
                 name: tool_call.name.clone(),
                 result: result.content.clone(),
-                is_error: !matches!(result.status, thndrs_tools::ToolStatus::Success),
+                is_error,
             });
 
             results.push(tool_result);

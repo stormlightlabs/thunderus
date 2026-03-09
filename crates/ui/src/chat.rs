@@ -2,12 +2,12 @@
 
 use super::colors;
 use super::components::wrapped_line_count;
-use super::components::{
-    HintFooter, HintToken, SectionBlock, SectionTone, ToolCallCard, ToolCallState, TopBorderedInputRow,
-};
+use super::components::{HintFooter, HintToken, ToolCallCard, ToolCallState};
+use super::components::{SectionBlock, SectionTone, TopBorderedInputRow};
 use super::elements::ChatShell;
 use super::files::{fuzzy_match_paths, read_file_for_prompt, workspace_files};
 use super::layout::{ConstraintSpec, split as split_rects};
+use super::tool::{TaskItem, draw_bash_output, draw_collapsible, draw_diff, draw_task_progress, parse_diff};
 use chrono::{DateTime, Local, Utc};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::Frame;
@@ -29,20 +29,21 @@ pub enum StreamingState {
     CallingTool(String),
 }
 
-#[derive(Debug, Clone)]
-pub struct ChatMessage {
-    pub role: MessageRole,
-    pub content: String,
-    pub sections: Option<ResponseSections>,
-    pub tool_calls: Vec<ToolCallDisplay>,
-    pub created_at: DateTime<Utc>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MessageRole {
     User,
     Assistant,
     Tool,
+}
+
+impl MessageRole {
+    pub fn label(self) -> &'static str {
+        match self {
+            MessageRole::User => "YOU",
+            MessageRole::Assistant => "ASSISTANT",
+            MessageRole::Tool => "TOOL",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -65,11 +66,7 @@ pub enum ToolCallStatus {
 
 impl ToolCallDisplay {
     pub fn to_ui_state(&self) -> ToolCallState {
-        match self.status {
-            ToolCallStatus::Pending | ToolCallStatus::Running => ToolCallState::Running,
-            ToolCallStatus::Success => ToolCallState::Success,
-            ToolCallStatus::Error => ToolCallState::Error,
-        }
+        self.status.into()
     }
 }
 
@@ -98,6 +95,7 @@ pub enum IncomingStreamEvent {
     ToolCompleted {
         name: String,
         result: String,
+        is_error: bool,
     },
     Thinking(String),
 }
@@ -108,6 +106,15 @@ struct ChatFileFinder {
     query: String,
     selected: usize,
     matches: Vec<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ChatMessage {
+    pub role: MessageRole,
+    pub content: String,
+    pub sections: Option<ResponseSections>,
+    pub tool_calls: Vec<ToolCallDisplay>,
+    pub created_at: DateTime<Utc>,
 }
 
 impl ChatMessage {
@@ -397,18 +404,22 @@ impl ChatApp {
                     self.current_tool_call = Some(idx);
                 }
             }
-            IncomingStreamEvent::ToolCompleted { name: _, result } => {
+            IncomingStreamEvent::ToolCompleted { name: _, result, is_error } => {
                 if let Some(last) = self.messages.last_mut()
                     && last.role == MessageRole::Assistant
                     && let Some(idx) = self.current_tool_call
                 {
-                    last.complete_tool_call(idx, result, true);
+                    last.complete_tool_call(idx, result, !is_error);
                 }
                 self.current_tool_call = None;
                 self.streaming_state = StreamingState::Streaming;
             }
-            // TODO: display thinking content
-            IncomingStreamEvent::Thinking(_content) => self.streaming_state = StreamingState::Thinking,
+            IncomingStreamEvent::Thinking(content) => {
+                if !content.trim().is_empty() {
+                    self.append_stream(&content, None);
+                }
+                self.streaming_state = StreamingState::Thinking;
+            }
         }
     }
 
@@ -632,24 +643,23 @@ fn estimate_message_height(msg: &ChatMessage, width: u16) -> u16 {
     let mut height = 1u16;
 
     match msg.role {
-        MessageRole::Assistant => {
-            if let Some(sections) = &msg.sections {
+        MessageRole::Assistant => match &msg.sections {
+            Some(sections) => {
                 height += assistant_section_constraints(sections, content_width)
                     .iter()
                     .map(constraint_length)
-                    .sum::<u16>();
-            } else {
+                    .sum::<u16>()
+            }
+            None => {
                 let content = assistant_display_content(&msg.content);
                 height += wrapped_line_count(&content, content_width.saturating_sub(2)) as u16;
             }
-        }
+        },
         MessageRole::Tool => {
             let content = tool_display_content(&msg.content);
             height += wrapped_line_count(&content, content_width.saturating_sub(2)) as u16;
         }
-        MessageRole::User => {
-            height += wrapped_line_count(&msg.content, content_width.saturating_sub(2)) as u16;
-        }
+        MessageRole::User => height += wrapped_line_count(&msg.content, content_width.saturating_sub(2)) as u16,
     }
 
     for tool_call in &msg.tool_calls {
@@ -736,6 +746,7 @@ fn draw_tool_output(frame: &mut Frame, area: Rect, message: &ChatMessage) {
         Direction::Vertical,
         vec![Constraint::Length(1), Constraint::Min(0)],
     );
+
     if sections.len() < 2 {
         return;
     }
@@ -771,16 +782,102 @@ fn draw_tool_output(frame: &mut Frame, area: Rect, message: &ChatMessage) {
 
 fn draw_tool_call_widget(frame: &mut Frame, area: Rect, tool_call: &ToolCallDisplay) {
     let state = tool_call.to_ui_state();
-    let details = if tool_call.expanded {
-        Text::from(format_tool_output(
-            &tool_call.name,
-            tool_call.output.as_deref().unwrap_or_default(),
-        ))
-    } else {
-        Text::from(format_tool_arguments(&tool_call.name, &tool_call.arguments))
+    let summary = Text::from(format_tool_arguments(&tool_call.name, &tool_call.arguments));
+
+    if !tool_call.expanded {
+        ToolCallCard.render(frame, area, &tool_call.name, &tool_call.arguments, state, summary);
+        return;
+    }
+
+    let layout = split_rects(
+        area,
+        Direction::Vertical,
+        vec![Constraint::Length(ToolCallCard::collapsed_height()), Constraint::Min(0)],
+    );
+
+    if layout.len() < 2 {
+        ToolCallCard.render(frame, area, &tool_call.name, &tool_call.arguments, state, summary);
+        return;
+    }
+
+    ToolCallCard.render(frame, layout[0], &tool_call.name, &tool_call.arguments, state, summary);
+    draw_expanded_tool_details(frame, layout[1], tool_call);
+}
+
+fn draw_expanded_tool_details(frame: &mut Frame, area: Rect, tool_call: &ToolCallDisplay) {
+    if matches!(tool_call.status, ToolCallStatus::Pending | ToolCallStatus::Running) {
+        let tasks = progress_tasks_for(tool_call);
+        draw_task_progress(frame, area, &tasks, "Tool progress");
+        return;
+    }
+
+    if tool_call.name == "edit"
+        && let Some(diff_text) = extract_edit_diff(&tool_call.arguments)
+    {
+        let diff_lines = parse_diff(&diff_text);
+        if !diff_lines.is_empty() {
+            draw_diff(frame, area, &diff_lines);
+            return;
+        }
+    }
+
+    if tool_call.name == "bash" {
+        let command = extract_bash_command(&tool_call.arguments).unwrap_or_else(|| "bash".to_string());
+        let (output, exit_code) = parse_bash_output(tool_call.output.as_deref().unwrap_or_default());
+        draw_bash_output(frame, area, &command, &output, exit_code);
+        return;
+    }
+
+    let content = Text::from(format_tool_output(
+        &tool_call.name,
+        tool_call.output.as_deref().unwrap_or_default(),
+    ));
+    draw_collapsible(frame, area, "Tool output", true, content);
+}
+
+fn progress_tasks_for(tool_call: &ToolCallDisplay) -> Vec<TaskItem> {
+    match tool_call.status {
+        ToolCallStatus::Pending => vec![
+            TaskItem::new("Queued").running(),
+            TaskItem::new(format!("Execute {}", tool_call.name)),
+            TaskItem::new("Collect output"),
+        ],
+        ToolCallStatus::Running => vec![
+            TaskItem::new("Queued").done(),
+            TaskItem::new(format!("Execute {}", tool_call.name)).running(),
+            TaskItem::new("Collect output"),
+        ],
+        ToolCallStatus::Success | ToolCallStatus::Error => vec![
+            TaskItem::new("Queued").done(),
+            TaskItem::new(format!("Execute {}", tool_call.name)).done(),
+            TaskItem::new("Collect output").done(),
+        ],
+    }
+}
+
+fn extract_bash_command(arguments: &str) -> Option<String> {
+    let value = serde_json::from_str::<Value>(arguments).ok()?;
+    let object = value.as_object()?;
+    object.get("command").and_then(Value::as_str).map(ToString::to_string)
+}
+
+fn extract_edit_diff(arguments: &str) -> Option<String> {
+    let value = serde_json::from_str::<Value>(arguments).ok()?;
+    let object = value.as_object()?;
+    object.get("diff").and_then(Value::as_str).map(ToString::to_string)
+}
+
+fn parse_bash_output(raw_output: &str) -> (String, i32) {
+    let Some(stripped) = raw_output.strip_prefix("Command exited with code ") else {
+        return (raw_output.to_string(), 0);
     };
 
-    ToolCallCard.render(frame, area, &tool_call.name, &tool_call.arguments, state, details);
+    let mut parts = stripped.splitn(2, '\n');
+    let code_str = parts.next().unwrap_or_default().trim();
+    let output = parts.next().unwrap_or_default().to_string();
+    let code = code_str.parse::<i32>().unwrap_or(-1);
+
+    (output, code)
 }
 
 fn draw_assistant_raw(frame: &mut Frame, area: Rect, content: &str, is_streaming: bool, created_at: DateTime<Utc>) {
@@ -866,14 +963,8 @@ fn draw_assistant_raw(frame: &mut Frame, area: Rect, content: &str, is_streaming
 }
 
 fn message_header_line(role: MessageRole, created_at: DateTime<Utc>) -> Line<'static> {
-    let role_label = match role {
-        MessageRole::User => "YOU",
-        MessageRole::Assistant => "ASSISTANT",
-        MessageRole::Tool => "TOOL",
-    };
-
     Line::from(vec![
-        Span::styled(role_label, Style::default().fg(colors::TEXT_MUTED)),
+        Span::styled(role.label(), Style::default().fg(colors::TEXT_MUTED)),
         Span::styled("  ", Style::default().fg(colors::TEXT_MUTED)),
         Span::styled(
             format_message_timestamp(created_at),
@@ -1149,12 +1240,30 @@ fn assistant_section_constraints(sections: &ResponseSections, width: u16) -> Vec
 }
 
 fn estimate_tool_call_height(tool_call: &ToolCallDisplay, width: u16) -> u16 {
-    if tool_call.expanded {
-        let output = tool_call.output.as_deref().unwrap_or("");
-        ToolCallCard::expanded_height(output, width, 10)
-    } else {
-        ToolCallCard::collapsed_height()
+    if !tool_call.expanded {
+        return ToolCallCard::collapsed_height();
     }
+
+    let body_height = if matches!(tool_call.status, ToolCallStatus::Pending | ToolCallStatus::Running) {
+        5
+    } else {
+        match tool_call.name.as_str() {
+            "edit" => extract_edit_diff(&tool_call.arguments)
+                .map(|diff| parse_diff(&diff).len() as u16)
+                .map(|line_count| line_count.clamp(1, 10) + 2)
+                .unwrap_or(6),
+            "bash" => {
+                let (output, _) = parse_bash_output(tool_call.output.as_deref().unwrap_or(""));
+                (wrapped_line_count(&output, width.saturating_sub(4)) as u16).clamp(1, 10) + 2
+            }
+            _ => {
+                let output = tool_call.output.as_deref().unwrap_or("");
+                (wrapped_line_count(output, width.saturating_sub(4)) as u16).clamp(1, 10) + 2
+            }
+        }
+    };
+
+    ToolCallCard::collapsed_height() + body_height
 }
 
 fn constraint_length(constraint: &Constraint) -> u16 {
@@ -1475,6 +1584,7 @@ mod tests {
         app.handle_stream_event(IncomingStreamEvent::ToolCompleted {
             name: "read".to_string(),
             result: "File contents".to_string(),
+            is_error: false,
         });
 
         assert_eq!(app.messages[1].tool_calls[0].status, ToolCallStatus::Success);
@@ -1493,9 +1603,37 @@ mod tests {
         app.handle_stream_event(IncomingStreamEvent::ToolCompleted {
             name: "memory_recall".to_string(),
             result: "Found 1 memories:\n- [fact] Name is Thunderus".to_string(),
+            is_error: false,
         });
 
         assert!(app.messages[1].tool_calls[0].expanded);
+    }
+
+    #[test]
+    fn test_tool_call_error_event_sets_error_status() {
+        let mut app = ChatApp::new();
+        app.submit_user_message("Run bad command".to_string());
+        app.handle_stream_event(IncomingStreamEvent::ToolCalling {
+            name: "bash".to_string(),
+            arguments: r#"{"command":"false"}"#.to_string(),
+        });
+        app.handle_stream_event(IncomingStreamEvent::ToolCompleted {
+            name: "bash".to_string(),
+            result: "Command exited with code 1".to_string(),
+            is_error: true,
+        });
+
+        assert_eq!(app.messages[1].tool_calls[0].status, ToolCallStatus::Error);
+    }
+
+    #[test]
+    fn test_thinking_event_appends_stream_content() {
+        let mut app = ChatApp::new();
+        app.submit_user_message("Explain your plan".to_string());
+        app.handle_stream_event(IncomingStreamEvent::Thinking("Drafting a short plan...".to_string()));
+
+        assert_eq!(app.streaming_state, StreamingState::Thinking);
+        assert!(app.messages[1].content.contains("Drafting a short plan"));
     }
 
     #[test]
@@ -1509,6 +1647,20 @@ mod tests {
         let formatted = format_tool_arguments("memory_recall", r#"{"query":"style","count":5}"#);
         assert!(formatted.contains("query: style"));
         assert!(formatted.contains("count: 5"));
+    }
+
+    #[test]
+    fn test_extract_edit_diff_from_arguments() {
+        let args = r#"{"path":"src/lib.rs","diff":"@@ -1,1 +1,1 @@\n-old\n+new"}"#;
+        let diff = extract_edit_diff(args).expect("diff should be present");
+        assert!(diff.contains("@@ -1,1 +1,1 @@"));
+    }
+
+    #[test]
+    fn test_parse_bash_output_with_error_prefix() {
+        let (output, code) = parse_bash_output("Command exited with code 2\nstderr text");
+        assert_eq!(code, 2);
+        assert_eq!(output, "stderr text");
     }
 
     #[test]

@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
 
+const META_TOOLS_SPEC: &str = include_str!("../../../meta/TOOLS.txt");
+
 /// A complete tool definition
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tool {
@@ -263,6 +265,72 @@ impl Tool {
             parameters: params,
         }
     }
+
+    pub fn from_core_name(name: &str) -> Option<Self> {
+        match name {
+            "read" => Some(Self::read()),
+            "write" => Some(Self::write()),
+            "edit" => Some(Self::edit()),
+            "bash" => Some(Self::bash()),
+            "research" => Some(Self::research()),
+            _ => None,
+        }
+    }
+}
+
+pub fn core_tools_from_meta() -> Vec<Tool> {
+    let names = parse_meta_tool_names(META_TOOLS_SPEC);
+    let mut tools = Vec::new();
+
+    for name in names {
+        if let Some(tool) = Tool::from_core_name(&name) {
+            tools.push(tool);
+        }
+    }
+
+    if tools.is_empty() {
+        return default_core_tools();
+    }
+
+    tools
+}
+
+fn default_core_tools() -> Vec<Tool> {
+    vec![
+        Tool::read(),
+        Tool::write(),
+        Tool::edit(),
+        Tool::bash(),
+        Tool::research(),
+    ]
+}
+
+fn parse_meta_tool_names(spec: &str) -> Vec<String> {
+    let mut names = Vec::new();
+
+    for line in spec.lines() {
+        if line.starts_with(' ') || line.starts_with('\t') {
+            continue;
+        }
+
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let is_name = trimmed
+            .chars()
+            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_');
+        if !is_name {
+            continue;
+        }
+
+        if !names.iter().any(|name| name == trimmed) {
+            names.push(trimmed.to_string());
+        }
+    }
+
+    names
 }
 
 /// Schema for tool parameters
@@ -376,5 +444,32 @@ mod tests {
         assert_eq!(json["type"], "integer");
         assert_eq!(json["description"], "A number");
         assert_eq!(json["minimum"], serde_json::json!(1.0));
+    }
+
+    #[test]
+    fn test_parse_meta_tool_names() {
+        let names = parse_meta_tool_names(
+            r#"
+read
+  - path: value
+write
+invalid line
+bash
+            "#,
+        );
+
+        assert_eq!(names, vec!["read".to_string(), "write".to_string(), "bash".to_string()]);
+    }
+
+    #[test]
+    fn test_core_tools_from_meta_includes_base_set() {
+        let tools = core_tools_from_meta();
+        let names = tools.iter().map(|tool| tool.name.as_str()).collect::<Vec<_>>();
+
+        assert!(names.contains(&"read"));
+        assert!(names.contains(&"write"));
+        assert!(names.contains(&"edit"));
+        assert!(names.contains(&"bash"));
+        assert!(names.contains(&"research"));
     }
 }

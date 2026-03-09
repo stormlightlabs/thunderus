@@ -10,6 +10,7 @@ use ratatui::widgets::{Block, Paragraph};
 use ratatui::{Frame, Terminal};
 use ratatui::{layout::Rect, style::Style};
 use std::io;
+use std::path::Path;
 use thiserror::Error;
 use thndrs_core::Role;
 use thndrs_mem::{LogStore, MemoryDatabase, MemoryStore, SessionManager};
@@ -29,7 +30,7 @@ use components::{AsciiLogo, BrandGreeting, CardItem, HintFooter, HintToken, Mute
 use elements::{Suggestions, WelcomeContent, WelcomeMainColumn, WelcomeShell};
 use files::{FileBrowserAction, FileBrowserApp, draw_file_browser_screen};
 use help::{HelpApp, draw_help_screen};
-use layout::{AreaSpec, ConstraintSpec};
+use layout::{AreaSpec, ConstraintSpec, DynamicConstraintSpec};
 use settings::{SettingsApp, draw_settings_screen};
 
 type Submitter<'a> = dyn FnMut(String) -> std::result::Result<(), String> + 'a;
@@ -91,14 +92,53 @@ pub mod colors {
     pub const BORDER_COLOR: Color = Color::Rgb(0x39, 0x39, 0x39);
 }
 
-/// Suggestion items shown on welcome screen
-pub const SUGGESTIONS: [&str; 2] = [
-    // NOTE: This is for debugging
-    "What is your name?",
-    // TODO: inject meta/INIT.txt
-    // TODO: if AGENTS.md exists, don't show this
-    "Initialize a new project by creating a new AGENTS.md",
-];
+fn build_welcome_suggestions(workspace_root: &Path) -> Vec<String> {
+    let mut suggestions = vec![DEFAULT_WELCOME_SUGGESTION.to_string()];
+
+    if has_agents_md(workspace_root) {
+        suggestions.push(README_IMPROVEMENT_SUGGESTION.to_string());
+    } else {
+        suggestions.push(init_prompt_suggestion());
+    }
+
+    suggestions
+}
+
+fn has_agents_md(workspace_root: &Path) -> bool {
+    workspace_root.join("AGENTS.md").exists() || workspace_root.join("agents.md").exists()
+}
+
+fn init_prompt_suggestion() -> String {
+    let mut first_candidate: Option<String> = None;
+
+    for line in INIT_PROMPT.lines() {
+        let trimmed = line.trim();
+
+        if trimmed.is_empty()
+            || trimmed.ends_with(':')
+            || trimmed.starts_with('-')
+            || trimmed.starts_with('`')
+            || trimmed.starts_with('"')
+            || trimmed.chars().next().is_some_and(|ch| ch.is_ascii_digit())
+        {
+            continue;
+        }
+
+        if first_candidate.is_none() {
+            first_candidate = Some(trimmed.to_string());
+        }
+
+        if trimmed.to_ascii_lowercase().contains("analyze this codebase") {
+            return trimmed.to_string();
+        }
+    }
+
+    first_candidate.unwrap_or_else(|| README_IMPROVEMENT_SUGGESTION.to_string())
+}
+
+const INIT_PROMPT: &str = include_str!("../../../meta/INIT.txt");
+const DEFAULT_WELCOME_SUGGESTION: &str = "What is your name?";
+const README_IMPROVEMENT_SUGGESTION: &str = "Read README.md and suggest improvements.";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ScreenMode {
@@ -115,6 +155,7 @@ pub struct App {
     pub input_buffer: String,
     pub cursor_position: usize,
     pub selected_suggestion: Option<usize>,
+    pub suggestions: Vec<String>,
     pub screen_mode: ScreenMode,
     pub chat: ChatApp,
     pub file_browser: FileBrowserApp,
@@ -125,11 +166,13 @@ pub struct App {
 
 impl Default for App {
     fn default() -> Self {
+        let workspace_root = std::env::current_dir().unwrap_or_default();
         Self {
             running: true,
             input_buffer: String::new(),
             cursor_position: 0,
             selected_suggestion: None,
+            suggestions: build_welcome_suggestions(&workspace_root),
             screen_mode: ScreenMode::Welcome,
             chat: ChatApp::new(),
             file_browser: FileBrowserApp::default(),
@@ -249,7 +292,11 @@ impl App {
                 if !self.input_buffer.is_empty() || self.selected_suggestion.is_some() {
                     let content = if self.input_buffer.is_empty() {
                         let idx = self.selected_suggestion.unwrap_or(0);
-                        SUGGESTIONS[idx].to_string()
+                        self.suggestions
+                            .get(idx)
+                            .cloned()
+                            .or_else(|| self.suggestions.first().cloned())
+                            .unwrap_or_default()
                     } else {
                         self.input_buffer.clone()
                     };
@@ -266,16 +313,24 @@ impl App {
                 }
             }
             KeyCode::Up => {
+                if self.suggestions.is_empty() {
+                    self.selected_suggestion = None;
+                    return;
+                }
                 self.selected_suggestion = match self.selected_suggestion {
                     None => Some(0),
-                    Some(0) => Some(SUGGESTIONS.len() - 1),
+                    Some(0) => Some(self.suggestions.len() - 1),
                     Some(idx) => Some(idx - 1),
                 }
             }
             KeyCode::Down => {
+                if self.suggestions.is_empty() {
+                    self.selected_suggestion = None;
+                    return;
+                }
                 self.selected_suggestion = match self.selected_suggestion {
                     None => Some(0),
-                    Some(idx) if idx >= SUGGESTIONS.len() - 1 => Some(0),
+                    Some(idx) if idx >= self.suggestions.len() - 1 => Some(0),
                     Some(idx) => Some(idx + 1),
                 };
             }
@@ -385,10 +440,12 @@ impl App {
             return;
         }
 
-        for (idx, area) in suggestion_areas(frame_size).iter().enumerate() {
+        for (idx, area) in suggestion_areas(frame_size, &self.suggestions).iter().enumerate() {
             if point_in_rect(mouse.column, mouse.row, *area) {
                 self.selected_suggestion = Some(idx);
-                let content = SUGGESTIONS[idx].to_string();
+                let Some(content) = self.suggestions.get(idx).cloned() else {
+                    continue;
+                };
                 self.chat.submit_user_message(content);
                 self.screen_mode = ScreenMode::Chat;
                 self.input_buffer.clear();
@@ -549,16 +606,20 @@ fn draw_logo(frame: &mut Frame, area: Rect) {
     AsciiLogo.render(frame, render_area, logo_text());
 }
 
-/// Draws suggestions as bordered card items matching the design's .card-item
+/// Draws suggestions as bordered card items
 fn draw_suggestions(frame: &mut Frame, area: Rect, app: &App) {
-    let suggestions_layout = Suggestions.split(area);
+    if app.suggestions.is_empty() {
+        return;
+    }
+
+    let suggestions_layout = Suggestions.split(area, &app.suggestions);
     if suggestions_layout.is_empty() {
         return;
     }
 
     MutedSectionTitle.render(frame, suggestions_layout[0], "Try asking");
 
-    for (idx, suggestion) in SUGGESTIONS.iter().enumerate() {
+    for (idx, suggestion) in app.suggestions.iter().enumerate() {
         let is_selected = app.selected_suggestion == Some(idx);
         if let Some(slot_area) = suggestions_layout.get(1 + idx) {
             if slot_area.height >= 3 {
@@ -591,7 +652,11 @@ fn draw_compact_suggestion(frame: &mut Frame, area: Rect, label: &str, is_select
     frame.render_widget(paragraph, area);
 }
 
-fn suggestion_areas(frame_area: Rect) -> Vec<Rect> {
+fn suggestion_areas(frame_area: Rect, suggestions: &Vec<String>) -> Vec<Rect> {
+    if suggestions.is_empty() {
+        return Vec::new();
+    }
+
     let shell_layout = WelcomeShell.split(frame_area);
     let Some(main_content_area) = shell_layout.first().copied() else {
         return Vec::new();
@@ -603,7 +668,7 @@ fn suggestion_areas(frame_area: Rect) -> Vec<Rect> {
         return Vec::new();
     };
 
-    Suggestions.card_areas(suggestions_area)
+    Suggestions.card_areas(suggestions_area, suggestions)
 }
 
 fn point_in_rect(x: u16, y: u16, area: Rect) -> bool {
@@ -824,6 +889,32 @@ mod tests {
         assert!(app.input_buffer.is_empty());
         assert_eq!(app.cursor_position, 0);
         assert_eq!(app.screen_mode, ScreenMode::Welcome);
+        assert!(!app.suggestions.is_empty());
+    }
+
+    #[test]
+    fn test_init_prompt_suggestion_is_loaded() {
+        let suggestion = init_prompt_suggestion();
+        assert!(suggestion.to_ascii_lowercase().contains("analyze this codebase"));
+    }
+
+    #[test]
+    fn test_build_welcome_suggestions_hides_agents_prompt_when_agents_exists() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time should be valid")
+            .as_nanos();
+        let workspace = std::env::temp_dir().join(format!("thndrs-ui-suggestions-{unique}"));
+        std::fs::create_dir_all(&workspace).expect("workspace should be created");
+
+        let without_agents = build_welcome_suggestions(&workspace);
+        assert!(without_agents[1].to_ascii_lowercase().contains("analyze this codebase"));
+
+        std::fs::write(workspace.join("AGENTS.md"), "# rules\n").expect("agents file should be created");
+        let with_agents = build_welcome_suggestions(&workspace);
+        assert_eq!(with_agents[1], README_IMPROVEMENT_SUGGESTION);
+
+        std::fs::remove_dir_all(workspace).expect("workspace should be removed");
     }
 
     #[test]
@@ -873,8 +964,8 @@ mod tests {
     fn test_mouse_click_submits_suggestion() {
         let mut app = App::new();
         let frame_area = Rect::new(0, 0, 120, 40);
-        let target_idx = SUGGESTIONS.len().saturating_sub(1);
-        let target_suggestion = suggestion_areas(frame_area)[target_idx];
+        let target_idx = app.suggestions.len().saturating_sub(1);
+        let target_suggestion = suggestion_areas(frame_area, &app.suggestions)[target_idx];
 
         let click_event = MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
@@ -888,7 +979,7 @@ mod tests {
         assert_eq!(app.selected_suggestion, Some(target_idx));
         assert_eq!(app.chat.messages.len(), 2);
         assert_eq!(app.chat.messages[0].role, chat::MessageRole::User);
-        assert_eq!(app.chat.messages[0].content, SUGGESTIONS[target_idx]);
+        assert_eq!(app.chat.messages[0].content, app.suggestions[target_idx]);
     }
 
     #[test]
@@ -908,13 +999,14 @@ mod tests {
     #[test]
     fn test_enter_submits_selected_suggestion_without_input() {
         let mut app = App::new();
-        app.selected_suggestion = Some(1);
+        let target_idx = app.suggestions.len().saturating_sub(1);
+        app.selected_suggestion = Some(target_idx);
 
         app.handle_input(KeyEvent::from(KeyCode::Enter));
 
         assert_eq!(app.screen_mode, ScreenMode::Chat);
         assert_eq!(app.chat.messages.len(), 2);
-        assert_eq!(app.chat.messages[0].content, SUGGESTIONS[1]);
+        assert_eq!(app.chat.messages[0].content, app.suggestions[target_idx]);
     }
 
     #[test]

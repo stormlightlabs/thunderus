@@ -1,9 +1,8 @@
 //! Higher-level layout elements composed from atomic components.
 
 use super::{
-    SUGGESTIONS,
     components::{CardItem, single_line_top_bordered_row_height},
-    layout::{AreaSpec, ConstraintSpec},
+    layout::{AreaSpec, ConstraintSpec, DynamicConstraintSpec},
 };
 use ratatui::layout::{Constraint, Direction, Rect};
 use thndrs_ui_macros::AreaSpec;
@@ -59,15 +58,17 @@ impl ConstraintSpec for WelcomeContent {
 #[derive(AreaSpec)]
 pub struct Suggestions;
 
-impl ConstraintSpec for Suggestions {
+impl DynamicConstraintSpec for Suggestions {
+    type Context = Vec<String>;
+
     fn direction(&self) -> Direction {
         Direction::Vertical
     }
 
-    fn constraints(&self, area: Rect) -> Vec<Constraint> {
-        let mut constraints = Vec::with_capacity(SUGGESTIONS.len() + 2);
+    fn constraints(&self, area: Rect, labels: &Self::Context) -> Vec<Constraint> {
+        let mut constraints = Vec::with_capacity(labels.len() + 2);
         constraints.push(Constraint::Length(1));
-        for label in SUGGESTIONS {
+        for label in labels {
             constraints.push(Constraint::Length(CardItem::required_height(label, area.width)));
         }
         constraints.push(Constraint::Min(0));
@@ -76,9 +77,9 @@ impl ConstraintSpec for Suggestions {
 }
 
 impl Suggestions {
-    pub fn card_areas(self, area: Rect) -> Vec<Rect> {
-        let layout = self.split(area);
-        SUGGESTIONS
+    pub fn card_areas(self, area: Rect, labels: &Vec<String>) -> Vec<Rect> {
+        let layout = self.split(area, labels);
+        labels
             .iter()
             .enumerate()
             .filter_map(|(idx, _)| layout.get(idx + 1).copied())

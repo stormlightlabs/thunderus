@@ -241,7 +241,7 @@ fn run_tui_with_provider(config: &Config, workspace_path: PathBuf) -> Result<()>
                                 "runtime",
                                 format!("Tool result: {} (error={})", name, is_error),
                             );
-                            let _ = event_tx.send(IncomingStreamEvent::ToolCompleted { name, result });
+                            let _ = event_tx.send(IncomingStreamEvent::ToolCompleted { name, result, is_error });
                         }
                         ConversationEvent::Content { content, usage, model } => {
                             let _ = event_tx

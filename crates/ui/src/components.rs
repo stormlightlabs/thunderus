@@ -1,9 +1,8 @@
 //! Reusable terminal UI components aligned with designs/templates and designs/static/styles.css.
 
-use super::{
-    colors,
-    layout::{AreaSpec, ConstraintSpec},
-};
+use super::colors;
+use super::layout::{AreaSpec, ConstraintSpec};
+use crate::ToolCallStatus;
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Rect},
@@ -39,6 +38,16 @@ pub enum ToolCallState {
     Success,
     Error,
     Running,
+}
+
+impl From<ToolCallStatus> for ToolCallState {
+    fn from(val: ToolCallStatus) -> Self {
+        match val {
+            ToolCallStatus::Pending | ToolCallStatus::Running => ToolCallState::Running,
+            ToolCallStatus::Success => ToolCallState::Success,
+            ToolCallStatus::Error => ToolCallState::Error,
+        }
+    }
 }
 
 impl ToolCallState {
