@@ -2,7 +2,8 @@ use std::path::{Path, PathBuf};
 use thndrs_mem::{hash_workspace, memory_dir};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::{self, Rotation};
-use tracing_subscriber::filter::LevelFilter;
+use tracing_subscriber::Layer;
+use tracing_subscriber::filter::{LevelFilter, filter_fn};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
@@ -14,6 +15,9 @@ pub struct TracingRuntime {
     pub _guard: WorkerGuard,
 }
 
+/// Initialize the tracing subscriber for the GUI.
+///
+/// Filters out iced_* logs from stdout and file if verbose is false.
 pub fn init_gui_tracing(verbose: bool, workspace_path: &Path) -> Result<TracingRuntime, String> {
     let log_dir = workspace_log_dir(workspace_path)?;
     let file_appender = rolling::RollingFileAppender::new(Rotation::HOURLY, &log_dir, LOG_FILE_BASENAME);
@@ -21,10 +25,17 @@ pub fn init_gui_tracing(verbose: bool, workspace_path: &Path) -> Result<TracingR
 
     let max_level = if verbose { tracing::Level::DEBUG } else { tracing::Level::INFO };
 
-    let stdout_layer = tracing_subscriber::fmt::layer().with_writer(std::io::stdout);
+    let stdout_layer = tracing_subscriber::fmt::layer()
+        .with_writer(std::io::stdout)
+        .with_filter(filter_fn(move |metadata| {
+            if verbose { true } else { !metadata.target().starts_with("iced") }
+        }));
     let file_layer = tracing_subscriber::fmt::layer()
         .with_ansi(false)
-        .with_writer(non_blocking_writer);
+        .with_writer(non_blocking_writer)
+        .with_filter(filter_fn(move |metadata| {
+            if verbose { true } else { !metadata.target().starts_with("iced") }
+        }));
 
     tracing_subscriber::registry()
         .with(LevelFilter::from_level(max_level))
@@ -56,8 +67,10 @@ pub fn latest_workspace_log_file(log_dir: &Path) -> Result<Option<PathBuf>, Stri
     let mut entries = Vec::new();
     let read_dir = match std::fs::read_dir(log_dir) {
         Ok(read_dir) => read_dir,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(format!("Failed to read {}: {error}", log_dir.display())),
+        Err(error) => match error.kind() {
+            std::io::ErrorKind::NotFound => return Ok(None),
+            _ => return Err(format!("Failed to read {}: {error}", log_dir.display())),
+        },
     };
 
     for entry in read_dir {

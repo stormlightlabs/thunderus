@@ -15,7 +15,9 @@ const MAX_FILE_TREE_ENTRIES: usize = 280;
 const MAX_FILE_TREE_DEPTH: usize = 3;
 const MAX_TOOL_PREVIEW_CHARS: usize = 2_400;
 const MAX_TOOL_PREVIEW_LINES: usize = 48;
+const MAX_RECENT_WORKSPACES: usize = 12;
 
+// TODO: This could be shared/moved to core between TUI and GUI
 const BUILTIN_SLASH_COMMANDS: [(&str, &str); 7] = [
     ("/help", "Show help, shortcuts, and command list"),
     ("/clear", "Clear the current session transcript"),
@@ -29,6 +31,7 @@ const BUILTIN_SLASH_COMMANDS: [(&str, &str); 7] = [
 #[derive(Debug, Clone, Default)]
 pub struct BootstrapState {
     pub workspace_root: Option<PathBuf>,
+    pub recent_workspaces: Vec<PathBuf>,
     pub composer_text: String,
     pub last_model: Option<String>,
     pub warning: Option<String>,
@@ -44,6 +47,8 @@ pub enum Message {
 pub enum ModelMessage {
     ComposerEdited(text_editor::Action),
     SubmitPrompt,
+    GoHome,
+    SwitchWorkspace(PathBuf),
     RequestWorkspacePicker,
     WorkspacePicked(Option<PathBuf>),
     WorkspaceFilesLoaded(Vec<FileTreeEntry>),
@@ -59,6 +64,7 @@ pub enum ModelMessage {
 pub enum Effect {
     DispatchPrompt(String),
     OpenWorkspacePicker,
+    DeactivateWorkspace,
     ActivateWorkspace(PathBuf),
     LoadWorkspaceFiles(PathBuf),
     PersistState,
@@ -83,11 +89,14 @@ pub struct AppModel {
     pub error_text: Option<String>,
     pub last_model: Option<String>,
     pub workspace_root: Option<PathBuf>,
+    pub recent_workspaces: Vec<PathBuf>,
 }
 
 impl AppModel {
     pub fn new(bootstrap: BootstrapState) -> Self {
-        let status_text = match (bootstrap.warning, &bootstrap.workspace_root) {
+        let workspace_root = bootstrap.workspace_root.filter(|path| path.is_dir());
+        let recent_workspaces = normalize_recent_workspaces(workspace_root.as_ref(), bootstrap.recent_workspaces);
+        let status_text = match (bootstrap.warning, &workspace_root) {
             (Some(warning), _) => Some(warning),
             (None, Some(_)) => Some("Ready".to_string()),
             (None, None) => Some("Select a workspace folder to start".to_string()),
@@ -110,7 +119,8 @@ impl AppModel {
             status_text,
             error_text: None,
             last_model: bootstrap.last_model,
-            workspace_root: bootstrap.workspace_root,
+            workspace_root,
+            recent_workspaces,
         };
 
         refresh_composer_suggestions(&mut model);
@@ -357,6 +367,8 @@ pub fn update_model(model: &mut AppModel, message: ModelMessage) -> Vec<Effect> 
             let prompt = model.composer_text.clone();
             submit_prompt(model, &prompt)
         }
+        ModelMessage::GoHome => go_home(model),
+        ModelMessage::SwitchWorkspace(path) => set_workspace(model, Some(path)),
         ModelMessage::RequestWorkspacePicker => vec![Effect::OpenWorkspacePicker],
         ModelMessage::WorkspacePicked(path) => set_workspace(model, path),
         ModelMessage::WorkspaceFilesLoaded(files) => {
@@ -399,13 +411,25 @@ fn set_workspace(model: &mut AppModel, workspace_root: Option<PathBuf>) -> Vec<E
         model.status_text = Some("Workspace selection canceled".to_string());
         return Vec::new();
     };
+    if !workspace_root.is_dir() {
+        model.status_text = Some("Workspace unavailable".to_string());
+        model.error_text = Some(format!("Workspace does not exist: {}", workspace_root.display()));
+        model.recent_workspaces.retain(|path| path != &workspace_root);
+        return vec![Effect::PersistState];
+    }
 
     model.workspace_root = Some(workspace_root.clone());
+    remember_recent_workspace(&mut model.recent_workspaces, &workspace_root);
+    model.conversation = Conversation::with_default_system_prompt();
     model.turns.clear();
     model.sessions.clear();
     model.selected_turn = None;
+    model.workspace_files.clear();
     model.active_turn = None;
     model.tool_call_lookup.clear();
+    model.composer = text_editor::Content::new();
+    model.composer_text.clear();
+    model.composer_suggestions.clear();
     model.streaming = false;
     model.activity = ActivityState::Idle;
     model.status_text = Some("Workspace ready".to_string());
@@ -416,6 +440,26 @@ fn set_workspace(model: &mut AppModel, workspace_root: Option<PathBuf>) -> Vec<E
         Effect::LoadWorkspaceFiles(workspace_root),
         Effect::PersistState,
     ]
+}
+
+fn go_home(model: &mut AppModel) -> Vec<Effect> {
+    model.workspace_root = None;
+    model.conversation = Conversation::with_default_system_prompt();
+    model.turns.clear();
+    model.sessions.clear();
+    model.selected_turn = None;
+    model.workspace_files.clear();
+    model.active_turn = None;
+    model.tool_call_lookup.clear();
+    model.composer = text_editor::Content::new();
+    model.composer_text.clear();
+    model.composer_suggestions.clear();
+    model.streaming = false;
+    model.activity = ActivityState::Idle;
+    model.error_text = None;
+    model.status_text = Some("Select a workspace folder to start".to_string());
+
+    vec![Effect::DeactivateWorkspace, Effect::PersistState]
 }
 
 fn submit_prompt(model: &mut AppModel, raw_prompt: &str) -> Vec<Effect> {
@@ -604,6 +648,28 @@ fn compose_session_title(prompt: &str) -> String {
     }
 
     truncate_with_ellipsis(line, 58)
+}
+
+fn normalize_recent_workspaces(current: Option<&PathBuf>, recent: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut normalized = Vec::new();
+    if let Some(path) = current {
+        remember_recent_workspace(&mut normalized, path);
+    }
+    for path in recent {
+        remember_recent_workspace(&mut normalized, &path);
+    }
+    normalized
+}
+
+fn remember_recent_workspace(recent_workspaces: &mut Vec<PathBuf>, workspace_root: &Path) {
+    if !workspace_root.is_dir() {
+        return;
+    }
+    recent_workspaces.retain(|path| path != workspace_root);
+    recent_workspaces.insert(0, workspace_root.to_path_buf());
+    if recent_workspaces.len() > MAX_RECENT_WORKSPACES {
+        recent_workspaces.truncate(MAX_RECENT_WORKSPACES);
+    }
 }
 
 fn truncate_with_ellipsis(input: &str, max_chars: usize) -> String {
@@ -927,9 +993,21 @@ pub fn color_hex(hex: &str) -> Color {
 mod tests {
     use super::*;
 
+    fn temp_workspace(name: &str) -> PathBuf {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        let path = std::env::temp_dir().join(format!("thndrs-gui-{name}-{}-{nonce}", std::process::id()));
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    }
+
     fn ready_model() -> AppModel {
+        let workspace = temp_workspace("ready");
         AppModel::new(BootstrapState {
-            workspace_root: Some(PathBuf::from("/tmp/workspace")),
+            workspace_root: Some(workspace.clone()),
+            recent_workspaces: vec![workspace],
             composer_text: String::new(),
             last_model: None,
             warning: None,
@@ -1048,7 +1126,7 @@ mod tests {
     #[test]
     fn workspace_selection_emits_activation_and_persistence_effects() {
         let mut model = AppModel::new(BootstrapState::default());
-        let path = PathBuf::from("/tmp/new-workspace");
+        let path = temp_workspace("selection");
 
         let effects = update_model(&mut model, ModelMessage::WorkspacePicked(Some(path.clone())));
 
@@ -1061,6 +1139,45 @@ mod tests {
             ]
         );
         assert_eq!(model.workspace_root, Some(path));
+    }
+
+    #[test]
+    fn go_home_clears_workspace_and_deactivates_backend() {
+        let mut model = ready_model();
+
+        let effects = update_model(&mut model, ModelMessage::GoHome);
+
+        assert_eq!(effects, vec![Effect::DeactivateWorkspace, Effect::PersistState]);
+        assert_eq!(model.workspace_root, None);
+        assert!(model.turns.is_empty());
+        assert!(model.workspace_files.is_empty());
+    }
+
+    #[test]
+    fn workspace_switch_reuses_recent_workspace() {
+        let workspace = temp_workspace("switch");
+        let other_workspace = temp_workspace("switch-other");
+        let mut model = AppModel::new(BootstrapState {
+            workspace_root: None,
+            recent_workspaces: vec![workspace.clone(), other_workspace],
+            composer_text: String::new(),
+            last_model: None,
+            warning: None,
+        });
+        let path = workspace;
+
+        let effects = update_model(&mut model, ModelMessage::SwitchWorkspace(path.clone()));
+
+        assert_eq!(
+            effects,
+            vec![
+                Effect::ActivateWorkspace(path.clone()),
+                Effect::LoadWorkspaceFiles(path.clone()),
+                Effect::PersistState
+            ]
+        );
+        assert_eq!(model.workspace_root, Some(path.clone()));
+        assert_eq!(model.recent_workspaces.first(), Some(&path));
     }
 
     #[test]

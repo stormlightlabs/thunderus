@@ -37,6 +37,7 @@ pub fn boot() -> DesktopApp {
 
     let bootstrap = BootstrapState {
         workspace_root: workspace_root.clone(),
+        recent_workspaces: persisted.recent_workspaces,
         composer_text: persisted.composer_text,
         last_model: persisted.last_model,
         warning,
@@ -91,6 +92,7 @@ impl DesktopApp {
                     .push(Task::perform(async { rfd::FileDialog::new().pick_folder() }, |path| {
                         Message::Model(ModelMessage::WorkspacePicked(path))
                     })),
+                Effect::DeactivateWorkspace => self.backend = None,
                 Effect::ActivateWorkspace(workspace_root) => {
                     tracing::info!("Activating workspace {}", workspace_root.display());
                     self.backend = Some(spawn_backend(workspace_root));
@@ -114,6 +116,7 @@ impl DesktopApp {
     fn persisted_state(&self) -> PersistedUiState {
         PersistedUiState {
             workspace_root: self.model.workspace_root.clone(),
+            recent_workspaces: self.model.recent_workspaces.clone(),
             composer_text: self.model.composer_text.clone(),
             last_model: self.model.last_model.clone(),
         }

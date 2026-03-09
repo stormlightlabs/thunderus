@@ -5,6 +5,8 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct PersistedUiState {
     pub workspace_root: Option<PathBuf>,
+    #[serde(default)]
+    pub recent_workspaces: Vec<PathBuf>,
     pub composer_text: String,
     pub last_model: Option<String>,
 }
@@ -53,6 +55,7 @@ mod tests {
     fn persisted_ui_state_round_trips_json() {
         let state = PersistedUiState {
             workspace_root: Some(PathBuf::from("/tmp/demo")),
+            recent_workspaces: vec![PathBuf::from("/tmp/demo"), PathBuf::from("/tmp/other")],
             composer_text: "draft".to_string(),
             last_model: Some("kimi-k2.5".to_string()),
         };
