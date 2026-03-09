@@ -1,4 +1,6 @@
 use crate::chat;
+use crate::files;
+use crate::help;
 use crate::welcome;
 use crate::{App, Msg, ScreenMode};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind};
@@ -33,9 +35,9 @@ pub(crate) fn map_key(app: &App, key: KeyEvent) -> Option<Msg> {
     match app.screen_mode {
         ScreenMode::Welcome => welcome::map_welcome_key_to_msg(key).map(Msg::Welcome),
         ScreenMode::Chat => chat::map_chat_key_to_msg(key, app.chat.is_file_finder_active()).map(Msg::Chat),
-        ScreenMode::Files => Some(Msg::Files(key)),
+        ScreenMode::Files => files::map_files_key_to_msg(key).map(Msg::Files),
         ScreenMode::Settings => Some(Msg::Settings(key)),
-        ScreenMode::Help => Some(Msg::Help(key)),
+        ScreenMode::Help => help::map_help_key_to_msg(key).map(Msg::Help),
     }
 }
 

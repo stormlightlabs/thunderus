@@ -88,9 +88,9 @@ pub enum Msg {
     OpenHelp,
     Welcome(welcome::WelcomeMsg),
     Chat(chat::ChatMsg),
-    Files(KeyEvent),
+    Files(files::FilesMsg),
     Settings(KeyEvent),
-    Help(KeyEvent),
+    Help(help::HelpMsg),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -164,7 +164,7 @@ impl App {
                 self.open_help();
             }
             Msg::Welcome(sub_msg) => {
-                let action = welcome::update_welcome(&mut self.welcome, sub_msg);
+                let action = welcome::update(&mut self.welcome, sub_msg);
                 self.apply_screen_action(action);
                 self.process_pending_actions();
             }
@@ -175,8 +175,8 @@ impl App {
                     self.process_pending_actions();
                 }
             }
-            Msg::Files(key) => {
-                let action = Screen::handle_input(&mut self.file_browser, key);
+            Msg::Files(sub_msg) => {
+                let action = files::update(&mut self.file_browser, sub_msg);
                 self.apply_screen_action(action);
                 self.process_pending_actions();
             }
@@ -185,8 +185,8 @@ impl App {
                 self.apply_screen_action(action);
                 self.process_pending_actions();
             }
-            Msg::Help(key) => {
-                let action = Screen::handle_input(&mut self.help, key);
+            Msg::Help(sub_msg) => {
+                let action = help::update(&mut self.help, sub_msg);
                 self.apply_screen_action(action);
                 self.process_pending_actions();
             }
@@ -353,7 +353,7 @@ fn run_app(
         terminal.draw(|frame| {
             match app.screen_mode {
                 ScreenMode::Welcome => {
-                    Screen::draw(&app.welcome, frame);
+                    welcome::view(frame, &app.welcome);
                     if app.chat.is_file_finder_active() {
                         app.chat.draw_file_finder_overlay(frame, frame.area());
                     }
@@ -362,9 +362,9 @@ fn run_app(
                     app.chat.sync_scroll_state_for_frame(frame.area());
                     Screen::draw(&app.chat, frame);
                 }
-                ScreenMode::Files => Screen::draw(&app.file_browser, frame),
+                ScreenMode::Files => files::view(frame, &app.file_browser),
                 ScreenMode::Settings => Screen::draw(&app.settings, frame),
-                ScreenMode::Help => Screen::draw(&app.help, frame),
+                ScreenMode::Help => help::view(frame, &app.help),
             }
 
             let frame_area = frame.area();

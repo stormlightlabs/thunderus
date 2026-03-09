@@ -5,7 +5,7 @@ mod render;
 mod tree;
 
 use super::layout::ConstraintSpec;
-use super::screen::{Screen, ScreenAction};
+use super::screen::ScreenAction;
 use crate::finder::FuzzyFinder;
 use crate::finder::fuzzy_match_items;
 use crate::scroll::ScrollState;
@@ -39,6 +39,13 @@ pub struct FileBrowserApp {
     finder: FuzzyFinder<PathBuf>,
     status_line: String,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FilesMsg {
+    Key(KeyEvent),
+}
+
+pub type FileBrowserModel = FileBrowserApp;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileBrowserAction {
@@ -359,18 +366,25 @@ impl FileBrowserApp {
     }
 }
 
-impl Screen for FileBrowserApp {
-    fn handle_input(&mut self, key: KeyEvent) -> ScreenAction {
-        match FileBrowserApp::handle_input(self, key) {
+pub(crate) fn map_files_key_to_msg(key: KeyEvent) -> Option<FilesMsg> {
+    if key.kind != KeyEventKind::Press {
+        return None;
+    }
+    Some(FilesMsg::Key(key))
+}
+
+pub(crate) fn update(model: &mut FileBrowserModel, msg: FilesMsg) -> ScreenAction {
+    match msg {
+        FilesMsg::Key(key) => match FileBrowserApp::handle_input(model, key) {
             FileBrowserAction::None => ScreenAction::None,
             FileBrowserAction::Quit => ScreenAction::Quit,
             FileBrowserAction::ExitToChat => ScreenAction::ReturnToPrevious,
-        }
+        },
     }
+}
 
-    fn draw(&self, frame: &mut Frame) {
-        draw_file_browser_screen(frame, self);
-    }
+pub fn view(frame: &mut Frame, model: &FileBrowserModel) {
+    draw_file_browser_screen(frame, model);
 }
 
 pub fn workspace_files(root: &Path) -> Vec<PathBuf> {

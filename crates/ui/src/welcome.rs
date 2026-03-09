@@ -6,7 +6,7 @@ use super::components::{
 };
 use super::elements::{Suggestions, WelcomeContent, WelcomeMainColumn};
 use super::layout::{AreaSpec, ConstraintSpec, DynamicConstraintSpec, split as split_rects};
-use super::screen::{Screen, ScreenAction};
+use super::screen::ScreenAction;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Rect};
@@ -44,6 +44,8 @@ pub enum WelcomeMsg {
     SelectNextSuggestion,
     SelectSuggestion(usize),
 }
+
+pub type WelcomeModel = WelcomeApp;
 
 #[derive(Debug, Clone)]
 pub struct WelcomeApp {
@@ -98,20 +100,14 @@ impl WelcomeApp {
         let Some(msg) = map_welcome_mouse_to_msg(mouse, frame_size, &self.suggestions, &self.input_buffer) else {
             return ScreenAction::None;
         };
-        update_welcome(self, msg)
+        update(self, msg)
     }
-}
 
-impl Screen for WelcomeApp {
-    fn handle_input(&mut self, key: KeyEvent) -> ScreenAction {
+    pub fn handle_input(&mut self, key: KeyEvent) -> ScreenAction {
         let Some(msg) = map_welcome_key_to_msg(key) else {
             return ScreenAction::None;
         };
-        update_welcome(self, msg)
-    }
-
-    fn draw(&self, frame: &mut Frame) {
-        draw_welcome_screen(frame, self);
+        update(self, msg)
     }
 }
 
@@ -165,127 +161,132 @@ pub(crate) fn map_welcome_mouse_to_msg(
     None
 }
 
-pub(crate) fn update_welcome(app: &mut WelcomeApp, msg: WelcomeMsg) -> ScreenAction {
+pub(crate) fn update(model: &mut WelcomeModel, msg: WelcomeMsg) -> ScreenAction {
     match msg {
         WelcomeMsg::Quit => ScreenAction::Quit,
         WelcomeMsg::ClearInput => {
-            app.input_buffer.clear();
-            app.cursor_position = 0;
-            app.selected_suggestion = None;
+            model.input_buffer.clear();
+            model.cursor_position = 0;
+            model.selected_suggestion = None;
             ScreenAction::None
         }
         WelcomeMsg::MoveCursorToEnd => {
-            app.cursor_position = app.input_buffer.len();
-            app.selected_suggestion = None;
+            model.cursor_position = model.input_buffer.len();
+            model.selected_suggestion = None;
             ScreenAction::None
         }
         WelcomeMsg::ActivateFileFinder => {
-            app.should_activate_file_finder = true;
+            model.should_activate_file_finder = true;
             ScreenAction::None
         }
         WelcomeMsg::InsertChar(ch) => {
-            app.selected_suggestion = None;
-            app.input_buffer.insert(app.cursor_position, ch);
-            app.cursor_position += 1;
+            model.selected_suggestion = None;
+            model.input_buffer.insert(model.cursor_position, ch);
+            model.cursor_position += 1;
             ScreenAction::None
         }
         WelcomeMsg::Backspace => {
-            app.selected_suggestion = None;
-            if app.cursor_position > 0 {
-                app.cursor_position -= 1;
-                app.input_buffer.remove(app.cursor_position);
+            model.selected_suggestion = None;
+            if model.cursor_position > 0 {
+                model.cursor_position -= 1;
+                model.input_buffer.remove(model.cursor_position);
             }
             ScreenAction::None
         }
         WelcomeMsg::MoveLeft => {
-            app.selected_suggestion = None;
-            if app.cursor_position > 0 {
-                app.cursor_position -= 1;
+            model.selected_suggestion = None;
+            if model.cursor_position > 0 {
+                model.cursor_position -= 1;
             }
             ScreenAction::None
         }
         WelcomeMsg::MoveRight => {
-            app.selected_suggestion = None;
-            if app.cursor_position < app.input_buffer.len() {
-                app.cursor_position += 1;
+            model.selected_suggestion = None;
+            if model.cursor_position < model.input_buffer.len() {
+                model.cursor_position += 1;
             }
             ScreenAction::None
         }
         WelcomeMsg::InsertNewline => {
-            app.selected_suggestion = None;
-            app.input_buffer.insert(app.cursor_position, '\n');
-            app.cursor_position += 1;
+            model.selected_suggestion = None;
+            model.input_buffer.insert(model.cursor_position, '\n');
+            model.cursor_position += 1;
             ScreenAction::None
         }
         WelcomeMsg::Submit => {
-            if app.input_buffer.is_empty() && app.selected_suggestion.is_none() {
+            if model.input_buffer.is_empty() && model.selected_suggestion.is_none() {
                 return ScreenAction::None;
             }
 
-            let content = if app.input_buffer.is_empty() {
-                let idx = app.selected_suggestion.unwrap_or(0);
-                app.suggestions
+            let content = if model.input_buffer.is_empty() {
+                let idx = model.selected_suggestion.unwrap_or(0);
+                model
+                    .suggestions
                     .get(idx)
                     .cloned()
-                    .or_else(|| app.suggestions.first().cloned())
+                    .or_else(|| model.suggestions.first().cloned())
                     .unwrap_or_default()
             } else {
-                app.input_buffer.clone()
+                model.input_buffer.clone()
             };
 
-            app.input_buffer.clear();
-            app.cursor_position = 0;
+            model.input_buffer.clear();
+            model.cursor_position = 0;
 
             if content.starts_with('/') {
-                app.pending_command = Some(content);
+                model.pending_command = Some(content);
                 ScreenAction::None
             } else {
-                app.pending_submission = Some(content);
+                model.pending_submission = Some(content);
                 ScreenAction::SwitchTo(ScreenMode::Chat)
             }
         }
         WelcomeMsg::SelectPreviousSuggestion => {
-            if app.suggestions.is_empty() {
-                app.selected_suggestion = None;
+            if model.suggestions.is_empty() {
+                model.selected_suggestion = None;
                 return ScreenAction::None;
             }
 
-            app.selected_suggestion = match app.selected_suggestion {
+            model.selected_suggestion = match model.selected_suggestion {
                 None => Some(0),
-                Some(0) => Some(app.suggestions.len() - 1),
+                Some(0) => Some(model.suggestions.len() - 1),
                 Some(idx) => Some(idx - 1),
             };
 
             ScreenAction::None
         }
         WelcomeMsg::SelectNextSuggestion => {
-            if app.suggestions.is_empty() {
-                app.selected_suggestion = None;
+            if model.suggestions.is_empty() {
+                model.selected_suggestion = None;
                 return ScreenAction::None;
             }
 
-            app.selected_suggestion = match app.selected_suggestion {
+            model.selected_suggestion = match model.selected_suggestion {
                 None => Some(0),
-                Some(idx) if idx >= app.suggestions.len() - 1 => Some(0),
+                Some(idx) if idx >= model.suggestions.len() - 1 => Some(0),
                 Some(idx) => Some(idx + 1),
             };
 
             ScreenAction::None
         }
         WelcomeMsg::SelectSuggestion(idx) => {
-            app.selected_suggestion = Some(idx);
-            let Some(content) = app.suggestions.get(idx).cloned() else {
+            model.selected_suggestion = Some(idx);
+            let Some(content) = model.suggestions.get(idx).cloned() else {
                 return ScreenAction::None;
             };
-            app.pending_submission = Some(content);
-            app.input_buffer.clear();
-            app.cursor_position = 0;
+            model.pending_submission = Some(content);
+            model.input_buffer.clear();
+            model.cursor_position = 0;
             ScreenAction::SwitchTo(ScreenMode::Chat)
         }
     }
 }
 
-pub fn draw_welcome_screen(frame: &mut Frame, app: &WelcomeApp) {
+pub fn view(frame: &mut Frame, model: &WelcomeModel) {
+    draw_welcome_screen(frame, model);
+}
+
+pub fn draw_welcome_screen(frame: &mut Frame, app: &WelcomeModel) {
     let size = frame.area();
 
     let clear = Block::default().style(Style::default().bg(colors::BG_TERMINAL));

@@ -13,7 +13,7 @@
 use super::colors;
 use super::components::{HintFooter, HintToken, TopBorderedInputRow, app_version_string};
 use super::layout::{ConstraintSpec, split as split_rects};
-use super::screen::{Screen, ScreenAction};
+use super::screen::ScreenAction;
 use super::scroll::ScrollState;
 use chrono::{DateTime, Utc};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -91,6 +91,13 @@ const COMMANDS: &[(&str, &str)] = &[
     ("/debug log <id>", "Show session logs"),
 ];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HelpMsg {
+    Key(KeyEvent),
+}
+
+pub type HelpModel = HelpApp;
+
 /// Help application state
 #[derive(Debug, Clone)]
 pub struct HelpApp {
@@ -133,49 +140,11 @@ impl HelpApp {
         Vec::new()
     }
 
-    pub fn handle_input(&mut self, key: KeyEvent) {
-        if key.kind != KeyEventKind::Press {
-            return;
-        }
-
-        match key.code {
-            KeyCode::Esc => {}
-            KeyCode::Left | KeyCode::Char('h') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                if self.selected_tab > 0 {
-                    self.selected_tab -= 1;
-                    self.scroll.set_offset(0);
-                    self.sync_scroll_state();
-                }
-            }
-            KeyCode::Right | KeyCode::Char('l') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                if self.selected_tab + 1 < HELP_TABS.len() {
-                    self.selected_tab += 1;
-                    self.scroll.set_offset(0);
-                    self.sync_scroll_state();
-                }
-            }
-            KeyCode::Tab => {
-                self.selected_tab = (self.selected_tab + 1) % HELP_TABS.len();
-                self.scroll.set_offset(0);
-                self.sync_scroll_state();
-            }
-            KeyCode::BackTab => {
-                if self.selected_tab == 0 {
-                    self.selected_tab = HELP_TABS.len() - 1;
-                } else {
-                    self.selected_tab -= 1;
-                }
-                self.scroll.set_offset(0);
-                self.sync_scroll_state();
-            }
-            KeyCode::Up => self.scroll.scroll_up(1),
-            KeyCode::Down => self.scroll.scroll_down(1),
-            KeyCode::PageUp => self.scroll.page_up(),
-            KeyCode::PageDown => self.scroll.page_down(),
-            KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => self.refresh_sessions(),
-            KeyCode::Char('t') if key.modifiers.contains(KeyModifiers::CONTROL) => self.next_tip(),
-            _ => {}
-        }
+    pub fn handle_input(&mut self, key: KeyEvent) -> ScreenAction {
+        let Some(msg) = map_help_key_to_msg(key) else {
+            return ScreenAction::None;
+        };
+        update(self, msg)
     }
 
     fn sync_scroll_state(&mut self) {
@@ -221,27 +190,80 @@ impl HelpApp {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HelpAction {
-    None,
-    ExitToChat,
-    ResumeSession(String),
-    Quit,
+pub(crate) fn map_help_key_to_msg(key: KeyEvent) -> Option<HelpMsg> {
+    if key.kind != KeyEventKind::Press {
+        return None;
+    }
+    Some(HelpMsg::Key(key))
 }
 
-impl Screen for HelpApp {
-    fn handle_input(&mut self, key: KeyEvent) -> ScreenAction {
-        HelpApp::handle_input(self, key);
-        if key.kind == KeyEventKind::Press && key.code == KeyCode::Esc {
-            ScreenAction::ReturnToPrevious
-        } else {
-            ScreenAction::None
-        }
+pub(crate) fn update(model: &mut HelpModel, msg: HelpMsg) -> ScreenAction {
+    match msg {
+        HelpMsg::Key(key) => match key.code {
+            KeyCode::Esc => ScreenAction::ReturnToPrevious,
+            KeyCode::Left | KeyCode::Char('h') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                if model.selected_tab > 0 {
+                    model.selected_tab -= 1;
+                    model.scroll.set_offset(0);
+                    model.sync_scroll_state();
+                }
+                ScreenAction::None
+            }
+            KeyCode::Right | KeyCode::Char('l') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                if model.selected_tab + 1 < HELP_TABS.len() {
+                    model.selected_tab += 1;
+                    model.scroll.set_offset(0);
+                    model.sync_scroll_state();
+                }
+                ScreenAction::None
+            }
+            KeyCode::Tab => {
+                model.selected_tab = (model.selected_tab + 1) % HELP_TABS.len();
+                model.scroll.set_offset(0);
+                model.sync_scroll_state();
+                ScreenAction::None
+            }
+            KeyCode::BackTab => {
+                if model.selected_tab == 0 {
+                    model.selected_tab = HELP_TABS.len() - 1;
+                } else {
+                    model.selected_tab -= 1;
+                }
+                model.scroll.set_offset(0);
+                model.sync_scroll_state();
+                ScreenAction::None
+            }
+            KeyCode::Up => {
+                model.scroll.scroll_up(1);
+                ScreenAction::None
+            }
+            KeyCode::Down => {
+                model.scroll.scroll_down(1);
+                ScreenAction::None
+            }
+            KeyCode::PageUp => {
+                model.scroll.page_up();
+                ScreenAction::None
+            }
+            KeyCode::PageDown => {
+                model.scroll.page_down();
+                ScreenAction::None
+            }
+            KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                model.refresh_sessions();
+                ScreenAction::None
+            }
+            KeyCode::Char('t') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                model.next_tip();
+                ScreenAction::None
+            }
+            _ => ScreenAction::None,
+        },
     }
+}
 
-    fn draw(&self, frame: &mut Frame) {
-        draw_help_screen(frame, self);
-    }
+pub fn view(frame: &mut Frame, model: &HelpModel) {
+    draw_help_screen(frame, model);
 }
 
 #[derive(AreaSpec)]
@@ -257,7 +279,7 @@ impl ConstraintSpec for HelpShell {
     }
 }
 
-pub fn draw_help_screen(frame: &mut Frame, app: &HelpApp) {
+pub fn draw_help_screen(frame: &mut Frame, app: &HelpModel) {
     let size = frame.area();
     let clear = Block::default().style(Style::default().bg(colors::BG_TERMINAL));
     frame.render_widget(clear, size);
