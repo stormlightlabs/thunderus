@@ -2,11 +2,15 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+use super::model::FileTreeEntry;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct PersistedUiState {
     pub workspace_root: Option<PathBuf>,
     #[serde(default)]
     pub recent_workspaces: Vec<PathBuf>,
+    #[serde(default)]
+    pub workspace_files: Vec<FileTreeEntry>,
     pub composer_text: String,
     pub last_model: Option<String>,
 }
@@ -56,6 +60,10 @@ mod tests {
         let state = PersistedUiState {
             workspace_root: Some(PathBuf::from("/tmp/demo")),
             recent_workspaces: vec![PathBuf::from("/tmp/demo"), PathBuf::from("/tmp/other")],
+            workspace_files: vec![
+                FileTreeEntry { relative_path: "src".to_string(), depth: 0, is_dir: true },
+                FileTreeEntry { relative_path: "src/main.rs".to_string(), depth: 1, is_dir: false },
+            ],
             composer_text: "draft".to_string(),
             last_model: Some("kimi-k2.5".to_string()),
         };

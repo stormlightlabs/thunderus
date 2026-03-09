@@ -1,6 +1,7 @@
 use iced::Color;
 use iced::widget::markdown;
 use iced::widget::text_editor;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -32,6 +33,7 @@ const BUILTIN_SLASH_COMMANDS: [(&str, &str); 7] = [
 pub struct BootstrapState {
     pub workspace_root: Option<PathBuf>,
     pub recent_workspaces: Vec<PathBuf>,
+    pub workspace_files: Vec<FileTreeEntry>,
     pub composer_text: String,
     pub last_model: Option<String>,
     pub warning: Option<String>,
@@ -147,6 +149,7 @@ impl AppModel {
     pub fn new(bootstrap: BootstrapState) -> Self {
         let workspace_root = bootstrap.workspace_root.filter(|path| path.is_dir());
         let recent_workspaces = normalize_recent_workspaces(workspace_root.as_ref(), bootstrap.recent_workspaces);
+        let workspace_files = if workspace_root.is_some() { bootstrap.workspace_files } else { Vec::new() };
         let status_text = match (bootstrap.warning, &workspace_root) {
             (Some(warning), _) => Some(warning),
             (None, Some(_)) => Some("Ready".to_string()),
@@ -158,7 +161,7 @@ impl AppModel {
             turns: Vec::new(),
             sessions: Vec::new(),
             selected_turn: None,
-            workspace_files: Vec::new(),
+            workspace_files,
             composer_suggestions: Vec::new(),
             composer: text_editor::Content::with_text(&bootstrap.composer_text),
             composer_text: bootstrap.composer_text,
@@ -388,7 +391,7 @@ impl SessionAgeGroup {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileTreeEntry {
     pub relative_path: String,
     pub depth: usize,
@@ -468,7 +471,7 @@ pub fn update_model(model: &mut AppModel, message: ModelMessage) -> Vec<Effect> 
         ModelMessage::WorkspaceFilesLoaded(files) => {
             model.workspace_files = files;
             refresh_composer_suggestions(model);
-            Vec::new()
+            vec![Effect::PersistState]
         }
         ModelMessage::ToggleToolAction { turn_index, action_index } => {
             if let Some(turn) = model.turns.get_mut(turn_index)
@@ -1220,6 +1223,7 @@ mod tests {
         AppModel::new(BootstrapState {
             workspace_root: Some(workspace.clone()),
             recent_workspaces: vec![workspace],
+            workspace_files: Vec::new(),
             composer_text: String::new(),
             last_model: None,
             warning: None,
@@ -1386,6 +1390,7 @@ mod tests {
         let mut model = AppModel::new(BootstrapState {
             workspace_root: None,
             recent_workspaces: vec![workspace.clone(), other_workspace],
+            workspace_files: Vec::new(),
             composer_text: String::new(),
             last_model: None,
             warning: None,
@@ -1420,6 +1425,17 @@ mod tests {
             model.error_text.as_deref(),
             Some("Select a workspace folder before sending prompts")
         );
+    }
+
+    #[test]
+    fn workspace_files_loaded_persists_state() {
+        let mut model = AppModel::new(BootstrapState::default());
+        let files = vec![FileTreeEntry { relative_path: "src/main.rs".to_string(), depth: 0, is_dir: false }];
+
+        let effects = update_model(&mut model, ModelMessage::WorkspaceFilesLoaded(files.clone()));
+
+        assert_eq!(model.workspace_files, files);
+        assert_eq!(effects, vec![Effect::PersistState]);
     }
 
     #[test]

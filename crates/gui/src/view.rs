@@ -47,14 +47,29 @@ fn render_welcome(app: &DesktopApp) -> Element<'_, Message> {
     let mut panel = column![
         text(contract.title)
             .size(34)
-            .color(color_hex(contract.palette.text_primary)),
+            .color(color_hex(contract.palette.text_primary))
+            .align_x(Horizontal::Center)
+            .width(Length::Fill),
         text("Desktop AI coding with tools and workspace context.")
             .size(16)
-            .color(color_hex(contract.palette.text_secondary)),
-        button(text("Select Workspace Folder")).on_press(Message::Model(ModelMessage::RequestWorkspacePicker))
+            .color(color_hex(contract.palette.text_secondary))
+            .align_x(Horizontal::Center)
+            .width(Length::Fill),
+        container(
+            button(text("Select Workspace Folder").size(14).color(color_hex("#0d0d0d")))
+                .padding([10, 20])
+                .on_press(Message::Model(ModelMessage::RequestWorkspacePicker))
+                .style(|_theme, _status| iced::widget::button::Style {
+                    background: Some(iced::Background::Color(color_hex("#33b1ff"))),
+                    text_color: color_hex("#0d0d0d"),
+                    border: border::rounded(10),
+                    ..Default::default()
+                }),
+        )
+        .align_x(Horizontal::Center)
+        .width(Length::Fill)
     ]
-    .spacing(18)
-    .align_x(iced::Alignment::Center);
+    .spacing(24);
 
     if let Some(status) = app.model.status_text.as_ref() {
         panel = panel.push(text(status).size(14).color(color_hex(contract.palette.text_secondary)));
@@ -66,7 +81,7 @@ fn render_welcome(app: &DesktopApp) -> Element<'_, Message> {
     let panel = container(panel)
         .width(Length::Fill)
         .max_width(680)
-        .padding([30, 28])
+        .padding([40, 36])
         .style(|_theme| {
             iced::widget::container::Style::default()
                 .background(color_hex("#121212"))
@@ -74,10 +89,11 @@ fn render_welcome(app: &DesktopApp) -> Element<'_, Message> {
         });
 
     container(panel)
+        .align_x(Horizontal::Center)
+        .align_y(iced::alignment::Vertical::Center)
         .width(Length::Fill)
         .height(Length::Fill)
-        .center_x(Length::Fill)
-        .center_y(Length::Fill)
+        .style(|_theme| iced::widget::container::Style::default().background(color_hex(contract.palette.bg_terminal)))
         .into()
 }
 
@@ -128,10 +144,11 @@ fn render_sidebar(app: &DesktopApp) -> Element<'_, Message> {
 
     let panel = column![workspace_section, sessions, file_tree]
         .spacing(CARD_GAP)
+        .width(Length::Fill)
         .height(Length::Fill);
 
     container(panel)
-        .width(Length::Fixed(332.0))
+        .width(Length::Fixed(300.0))
         .height(Length::Fill)
         .padding([12, 12])
         .style(|_theme| {
@@ -166,7 +183,7 @@ fn render_workspace_section(app: &DesktopApp) -> Element<'_, Message> {
         .style(|_theme| {
             iced::widget::container::Style::default()
                 .background(color_hex("#141414"))
-                .border(border::rounded(8).color(color_hex(contract.palette.border)).width(1.0))
+                .border(border::rounded(8).color(color_hex("#2a2a2a")).width(1.0))
         })
         .into()
     } else {
@@ -181,7 +198,17 @@ fn render_workspace_section(app: &DesktopApp) -> Element<'_, Message> {
     container(
         column![
             row![
-                button(text("⌂ Home")).on_press(Message::Model(ModelMessage::GoHome)),
+                button(text("⌂ Home").size(13).color(color_hex(contract.palette.accent_cyan)))
+                    .padding([6, 12])
+                    .on_press(Message::Model(ModelMessage::GoHome))
+                    .style(|_theme, _status| {
+                        iced::widget::button::Style {
+                            background: Some(iced::Background::Color(iced::Color::TRANSPARENT)),
+                            text_color: color_hex("#33b1ff"),
+                            border: border::rounded(8).color(color_hex("#2a2a2a")).width(1.0),
+                            ..Default::default()
+                        }
+                    }),
                 render_badge(
                     "Workspace",
                     color_hex(contract.palette.accent_cyan),
@@ -194,22 +221,15 @@ fn render_workspace_section(app: &DesktopApp) -> Element<'_, Message> {
                 .size(12)
                 .color(color_hex(contract.palette.text_secondary))
                 .wrapping(Wrapping::WordOrGlyph),
-            text("Other projects")
-                .size(12)
-                .color(color_hex(contract.palette.text_secondary)),
             switcher
         ]
         .spacing(SECTION_GAP),
     )
-    .padding([12, 12])
+    .padding([10, 10])
     .style(|_theme| {
         iced::widget::container::Style::default()
             .background(color_hex("#121212"))
-            .border(
-                border::rounded(CARD_RADIUS)
-                    .color(color_hex(contract.palette.border))
-                    .width(1.0),
-            )
+            .border(border::rounded(CARD_RADIUS).color(color_hex("#2a2a2a")).width(1.0))
     })
     .into()
 }
@@ -254,15 +274,11 @@ fn render_sessions_list(app: &DesktopApp) -> Element<'_, Message> {
 
     container(column![heading, search, scrollable(list).height(Length::Fill)].spacing(SECTION_GAP))
         .padding([12, 12])
-        .height(Length::FillPortion(2))
+        .height(Length::FillPortion(3))
         .style(|_theme| {
             iced::widget::container::Style::default()
                 .background(color_hex("#121212"))
-                .border(
-                    border::rounded(CARD_RADIUS)
-                        .color(color_hex(contract.palette.border))
-                        .width(1.0),
-                )
+                .border(border::rounded(CARD_RADIUS).color(color_hex("#2a2a2a")).width(1.0))
         })
         .into()
 }
@@ -305,7 +321,7 @@ fn render_session_item(session: &SessionSummary) -> Element<'_, Message> {
     let export_message = Message::Model(ModelMessage::ExportSession(session.id.clone()));
     let delete_message = Message::Model(ModelMessage::DeleteSession(session.id.clone()));
     let mut metadata_row = row![
-        text(format!("{} messages", session.message_count))
+        text(format_message_count_label(session.message_count))
             .size(11)
             .color(meta_color),
         text(session.updated_at_label.clone()).size(11).color(meta_color)
@@ -339,8 +355,32 @@ fn render_session_item(session: &SessionSummary) -> Element<'_, Message> {
                 .padding([6, 8])
                 .width(Length::Fill)
                 .on_press(open_message),
-                button(text("Export").size(11)).padding([4, 8]).on_press(export_message),
-                button(text("Delete").size(11)).padding([4, 8]).on_press(delete_message)
+                button(
+                    text("Export")
+                        .size(10)
+                        .color(color_hex(contract.palette.text_secondary))
+                )
+                .padding([3, 6])
+                .on_press(export_message)
+                .style(|_theme, _status| iced::widget::button::Style {
+                    background: Some(iced::Background::Color(iced::Color::TRANSPARENT)),
+                    text_color: color_hex("#525252"),
+                    border: border::rounded(6).color(color_hex("#2a2a2a")).width(1.0),
+                    ..Default::default()
+                }),
+                button(
+                    text("Delete")
+                        .size(10)
+                        .color(color_hex(contract.palette.text_secondary))
+                )
+                .padding([3, 6])
+                .on_press(delete_message)
+                .style(|_theme, _status| iced::widget::button::Style {
+                    background: Some(iced::Background::Color(iced::Color::TRANSPARENT)),
+                    text_color: color_hex("#525252"),
+                    border: border::rounded(6).color(color_hex("#2a2a2a")).width(1.0),
+                    ..Default::default()
+                })
             ]
             .align_y(iced::Alignment::Center)
             .spacing(6),
@@ -352,7 +392,7 @@ fn render_session_item(session: &SessionSummary) -> Element<'_, Message> {
     .style(|_theme| {
         iced::widget::container::Style::default()
             .background(color_hex("#141414"))
-            .border(border::rounded(8).color(color_hex(contract.palette.border)).width(1.0))
+            .border(border::rounded(8).color(color_hex("#2a2a2a")).width(1.0))
     })
     .into()
 }
@@ -372,6 +412,10 @@ fn format_token_count(value: u32) -> String {
     }
 
     grouped.chars().rev().collect()
+}
+
+fn format_message_count_label(message_count: i64) -> String {
+    if message_count == 1 { "1 message".to_string() } else { format!("{message_count} messages") }
 }
 
 fn render_file_tree(app: &DesktopApp) -> Element<'_, Message> {
@@ -413,15 +457,12 @@ fn render_file_tree(app: &DesktopApp) -> Element<'_, Message> {
 
     container(column![heading, scrollable(files).height(Length::Fill)].spacing(SECTION_GAP))
         .padding([12, 12])
-        .height(Length::FillPortion(3))
+        .width(Length::Fill)
+        .height(Length::FillPortion(2))
         .style(|_theme| {
             iced::widget::container::Style::default()
                 .background(color_hex("#121212"))
-                .border(
-                    border::rounded(CARD_RADIUS)
-                        .color(color_hex(contract.palette.border))
-                        .width(1.0),
-                )
+                .border(border::rounded(CARD_RADIUS).color(color_hex("#2a2a2a")).width(1.0))
         })
         .into()
 }
@@ -517,8 +558,21 @@ fn render_main_panel(app: &DesktopApp) -> Element<'_, Message> {
         .height(Length::Fixed(app.model.input_height()))
         .placeholder("Ask Thunderus to inspect, edit, or explain code in this workspace");
 
-    let send_button = button(text(send_label).width(Length::Fixed(74.0)).align_x(Horizontal::Center))
-        .on_press_maybe(send_enabled.then_some(Message::Model(ModelMessage::SubmitPrompt)));
+    let send_button = button(
+        text(send_label)
+            .size(13)
+            .width(Length::Fixed(74.0))
+            .align_x(Horizontal::Center)
+            .color(color_hex("#0d0d0d")),
+    )
+    .padding([8, 14])
+    .on_press_maybe(send_enabled.then_some(Message::Model(ModelMessage::SubmitPrompt)))
+    .style(|_theme, _status| iced::widget::button::Style {
+        background: Some(iced::Background::Color(color_hex("#33b1ff"))),
+        text_color: color_hex("#0d0d0d"),
+        border: border::rounded(10),
+        ..Default::default()
+    });
 
     let input_row = row![
         text(contract.prompt_symbol)
@@ -554,8 +608,8 @@ fn render_main_panel(app: &DesktopApp) -> Element<'_, Message> {
             suggestions_panel,
             rule::horizontal(1),
             text("Enter adds a new line. Use Send to dispatch.")
-                .size(12)
-                .color(color_hex(contract.palette.text_secondary)),
+                .size(11)
+                .color(color_hex(contract.palette.text_secondary).scale_alpha(0.6)),
             footer
         ]
         .spacing(CARD_GAP),
@@ -607,7 +661,7 @@ fn render_suggestions(app: &DesktopApp) -> Element<'_, Message> {
     .style(|_theme| {
         iced::widget::container::Style::default()
             .background(color_hex("#131313"))
-            .border(border::rounded(10).color(color_hex(contract.palette.border)).width(1.0))
+            .border(border::rounded(10).color(color_hex("#2a2a2a")).width(1.0))
     })
     .into()
 }
@@ -630,30 +684,25 @@ fn build_history_column(app: &DesktopApp) -> iced::widget::Column<'_, Message> {
     let contract = design_layout_contract();
 
     if app.model.turns.is_empty() {
-        return column![
-            container(
-                column![
-                    text("No conversation yet.")
-                        .size(18)
-                        .color(color_hex(contract.palette.text_primary)),
-                    text("Type a prompt below to start your first run.")
-                        .size(14)
-                        .color(color_hex(contract.palette.text_secondary))
-                ]
-                .spacing(SECTION_GAP),
-            )
-            .padding([22, 24])
-            .style(|_theme| {
-                iced::widget::container::Style::default()
-                    .background(color_hex("#111418"))
-                    .border(
-                        border::rounded(CARD_RADIUS)
-                            .color(color_hex(contract.palette.border))
-                            .width(1.0),
-                    )
-            })
-        ]
-        .spacing(18);
+        let card = container(
+            column![
+                text("No conversation yet.")
+                    .size(18)
+                    .color(color_hex(contract.palette.text_primary)),
+                text("Type a prompt below to start your first run.")
+                    .size(14)
+                    .color(color_hex(contract.palette.text_secondary))
+            ]
+            .spacing(SECTION_GAP),
+        )
+        .padding([22, 24])
+        .style(|_theme| {
+            iced::widget::container::Style::default()
+                .background(color_hex("#111418"))
+                .border(border::rounded(CARD_RADIUS).color(color_hex("#2a2a2a")).width(1.0))
+        });
+
+        return column![card.width(Length::Fill)].height(Length::Fill);
     }
 
     if let Some(selected) = app.model.selected_turn
@@ -718,11 +767,7 @@ fn render_turn<'a>(app: &'a DesktopApp, turn_index: usize, turn: &'a Conversatio
         .style(|_theme| {
             iced::widget::container::Style::default()
                 .background(color_hex("#111418"))
-                .border(
-                    border::rounded(CARD_RADIUS)
-                        .color(color_hex(contract.palette.border))
-                        .width(1.0),
-                )
+                .border(border::rounded(CARD_RADIUS).color(color_hex("#2a2a2a")).width(1.0))
         })
         .into()
 }
@@ -803,7 +848,7 @@ fn render_result_section<'a>(app: &'a DesktopApp, turn: &'a ConversationTurn) ->
         .style(|_theme| {
             iced::widget::container::Style::default()
                 .background(color_hex("#141414"))
-                .border(border::rounded(10).color(color_hex(contract.palette.border)).width(1.0))
+                .border(border::rounded(10).color(color_hex("#2a2a2a")).width(1.0))
         })
         .into()
 }
@@ -835,7 +880,7 @@ fn render_actions_section<'a>(
             .style(|_theme| {
                 iced::widget::container::Style::default()
                     .background(color_hex("#161616"))
-                    .border(border::rounded(8).color(color_hex(contract.palette.border)).width(1.0))
+                    .border(border::rounded(8).color(color_hex("#2a2a2a")).width(1.0))
             }),
         );
     }
@@ -922,7 +967,7 @@ fn render_tool_action(turn_index: usize, action_index: usize, action: &ToolActio
     .style(|_theme| {
         iced::widget::container::Style::default()
             .background(color_hex("#151515"))
-            .border(border::rounded(10).color(color_hex(contract.palette.border)).width(1.0))
+            .border(border::rounded(10).color(color_hex("#2a2a2a")).width(1.0))
     })
     .into()
 }
@@ -944,7 +989,7 @@ fn render_code_like_block(label: &'static str, content: String) -> Element<'stat
     .style(|_theme| {
         iced::widget::container::Style::default()
             .background(color_hex("#101316"))
-            .border(border::rounded(8).color(color_hex(contract.palette.border)).width(1.0))
+            .border(border::rounded(8).color(color_hex("#2a2a2a")).width(1.0))
     })
     .into()
 }
@@ -975,7 +1020,7 @@ fn render_diff_preview(preview: &DiffPreview) -> Element<'_, Message> {
     .style(|_theme| {
         iced::widget::container::Style::default()
             .background(color_hex("#121920"))
-            .border(border::rounded(8).color(color_hex(contract.palette.border)).width(1.0))
+            .border(border::rounded(8).color(color_hex("#2a2a2a")).width(1.0))
     })
     .into()
 }
@@ -987,7 +1032,7 @@ fn render_badge<'a>(label: impl Into<String>, fg: iced::Color, bg: iced::Color) 
         .style(move |_theme| {
             iced::widget::container::Style::default()
                 .background(bg)
-                .border(border::rounded(8).color(bg).width(1.0))
+                .border(border::rounded(12).color(fg.scale_alpha(0.2)).width(1.0))
         })
         .into()
 }
@@ -995,7 +1040,6 @@ fn render_badge<'a>(label: impl Into<String>, fg: iced::Color, bg: iced::Color) 
 fn render_text_section<'a>(
     icon: &'static str, title: &'static str, body: String, title_color: iced::Color, body_color: iced::Color,
 ) -> Element<'a, Message> {
-    let contract = design_layout_contract();
     container(
         column![
             row![text(icon).color(title_color), text(title).size(14).color(title_color)].spacing(8),
@@ -1007,7 +1051,7 @@ fn render_text_section<'a>(
     .style(|_theme| {
         iced::widget::container::Style::default()
             .background(color_hex("#141414"))
-            .border(border::rounded(10).color(color_hex(contract.palette.border)).width(1.0))
+            .border(border::rounded(10).color(color_hex("#2a2a2a")).width(1.0))
     })
     .into()
 }
@@ -1024,4 +1068,16 @@ fn markdown_settings() -> markdown::Settings {
             danger: color_hex("#fa4d56"),
         }),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_message_count_label;
+
+    #[test]
+    fn format_message_count_singular_and_plural() {
+        assert_eq!(format_message_count_label(0), "0 messages");
+        assert_eq!(format_message_count_label(1), "1 message");
+        assert_eq!(format_message_count_label(2), "2 messages");
+    }
 }

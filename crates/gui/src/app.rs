@@ -25,9 +25,16 @@ pub struct DesktopApp {
 pub fn boot() -> DesktopApp {
     let store = StateStore::new_default();
     let persisted = store.load();
+    let PersistedUiState {
+        workspace_root: persisted_workspace_root,
+        recent_workspaces,
+        workspace_files,
+        composer_text,
+        last_model,
+    } = persisted;
 
     let mut warning = None;
-    let workspace_root = persisted.workspace_root.and_then(|path| {
+    let workspace_root = persisted_workspace_root.and_then(|path| {
         if path.is_dir() {
             Some(path)
         } else {
@@ -38,9 +45,10 @@ pub fn boot() -> DesktopApp {
 
     let bootstrap = BootstrapState {
         workspace_root: workspace_root.clone(),
-        recent_workspaces: persisted.recent_workspaces,
-        composer_text: persisted.composer_text,
-        last_model: persisted.last_model,
+        recent_workspaces,
+        workspace_files: if workspace_root.is_some() { workspace_files } else { Vec::new() },
+        composer_text,
+        last_model,
         warning,
     };
 
@@ -50,6 +58,11 @@ pub fn boot() -> DesktopApp {
     if let Some(workspace_root) = workspace_root {
         app.backend = Some(spawn_backend(workspace_root.clone()));
         app.initialize_persistence(&workspace_root);
+        let effects = update_model(
+            &mut app.model,
+            ModelMessage::WorkspaceFilesLoaded(collect_workspace_files(&workspace_root)),
+        );
+        let _ = app.run_effects(effects);
     }
 
     app
@@ -388,8 +401,8 @@ impl DesktopApp {
             return;
         }
 
-        let refined_title =
-            llm_refined_title(prompt, assistant_content).unwrap_or_else(|| fallback_refined_title(prompt, assistant_content));
+        let refined_title = llm_refined_title(prompt, assistant_content)
+            .unwrap_or_else(|| fallback_refined_title(prompt, assistant_content));
 
         if let Some(summary) = self.model.sessions.iter_mut().find(|summary| summary.id == session_id) {
             summary.title = refined_title.clone();
@@ -605,6 +618,7 @@ impl DesktopApp {
         PersistedUiState {
             workspace_root: self.model.workspace_root.clone(),
             recent_workspaces: self.model.recent_workspaces.clone(),
+            workspace_files: self.model.workspace_files.clone(),
             composer_text: self.model.composer_text.clone(),
             last_model: self.model.last_model.clone(),
         }
