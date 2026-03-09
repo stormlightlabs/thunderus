@@ -29,11 +29,12 @@ const HELP_TABS: &[&str] = &["Keyboard Shortcuts", "Commands", "Tips", "About", 
 const TIPS: &[&str] = &[
     "Use @ to reference files in your workspace. Type @ followed by the filename to include file context.",
     "Use Up/Down to cycle previous prompts in chat and recover drafts",
+    "Use your terminal scrollback to review older conversation output",
     "Tab toggles the latest tool call, Shift+Tab toggles all tool calls in the latest assistant response",
     "Ctrl+N starts a new conversation instantly",
     "Ctrl+O opens the workspace file browser for multi-file context",
     "Ctrl+W returns to the welcome screen from chat and files",
-    "Use /debug chat to load a long chat for testing scroll behavior",
+    "Use /debug chat to load a long chat for transcript stress testing",
     "Recent conversations are automatically saved and can be resumed",
 ];
 
@@ -64,8 +65,7 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
         &[
             ("Previous input", "Up"),
             ("Next input", "Down"),
-            ("Scroll up", "PageUp"),
-            ("Scroll down", "PageDown"),
+            ("Conversation history", "Terminal scrollback"),
             ("Toggle tool", "Tab"),
             ("Toggle all tools", "Shift+Tab"),
             ("Clear chat", "/clear"),

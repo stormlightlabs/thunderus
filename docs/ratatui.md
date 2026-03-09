@@ -31,6 +31,24 @@ A `Layout` is:
 Constraints include `Length`, `Percentage`, `Ratio`, `Fill`, `Min`, `Max`, etc.
 Ratatui documents that **relative constraints (`Percentage`, `Ratio`) are computed relative to the entire area being divided** (not "leftover after fixed sizes"), and it documents a prioritization order. ([Docs.rs][4])
 
+## Architecture
+
+### TEA/Model-View-Update
+
+Thunderus UI follows a TEA-style structure:
+
+- **Model**: `App` owns all screen state (`welcome`, `chat`, `files`, `settings`, `help`).
+- **Update**: `update` functions handle messages and return commands.
+- **View**: each frame is redrawn from state using pure-ish screen `view` functions.
+
+This keeps event handling, state transitions, side-effect dispatch, and rendering
+separate, and aligns with Ratatui guidance on application patterns. ([Ratatui][9])
+
+### Chat transcript behavior
+
+The chat viewport auto-follows the latest content, while older output is expected
+to be reviewed via the terminal's native scrollback behavior.
+
 ## Core APIs
 
 ### `Layout` construction
@@ -275,6 +293,8 @@ This keeps layout deterministic and makes testing easier (you can unit test your
 - `Constraint` API on docs.rs (behavior + prioritization) ([Docs.rs][4])
 - `Rect` API on docs.rs (ergonomic layout helpers) ([Docs.rs][5])
 - Flex example + notes ([Ratatui][8])
+- Ratatui application patterns / TEA ([Ratatui][9])
+- The Elm Architecture overview ([Elm][10])
 
 [1]: https://ratatui.rs/concepts/layout/ "Layout"
 [2]: https://docs.rs/ratatui/latest/ratatui/struct.Frame.html "Frame in ratatui - Rust"
@@ -284,3 +304,5 @@ This keeps layout deterministic and makes testing easier (you can unit test your
 [6]: https://ratatui.rs/highlights/v026/ "v0.26.0"
 [7]: https://ratatui.rs/concepts/rendering/ "Rendering"
 [8]: https://ratatui.rs/examples/layout/flex/ "Flex"
+[9]: https://ratatui.rs/concepts/application-patterns/the-elm-architecture/ "The Elm Architecture"
+[10]: https://guide.elm-lang.org/architecture/ "The Elm Architecture"

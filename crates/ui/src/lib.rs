@@ -2,11 +2,10 @@
 
 mod commands;
 
-use crossterm::event::{DisableMouseCapture, EnableMouseCapture, KeyEvent, MouseEvent};
-use crossterm::execute;
-use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
+use crossterm::event::{KeyEvent, MouseEvent};
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use ratatui::backend::{Backend, CrosstermBackend};
-use ratatui::{Terminal, layout::Rect};
+use ratatui::{Terminal, TerminalOptions, Viewport, layout::Rect};
 use std::collections::VecDeque;
 use std::io;
 use thiserror::Error;
@@ -446,19 +445,92 @@ fn execute_cmd(cmd: Cmd, submitter: Option<&mut Submitter<'_>>) -> Option<Msg> {
 /// Setup terminal for TUI
 pub fn setup_terminal() -> Result<Terminal<CrosstermBackend<io::Stdout>>> {
     enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    let backend = CrosstermBackend::new(stdout);
-    let terminal = Terminal::new(backend)?;
+    let backend = CrosstermBackend::new(io::stdout());
+    let viewport_height = crossterm::terminal::size().map(|(_, h)| h.saturating_sub(1).max(1))?;
+    let terminal = Terminal::with_options(backend, TerminalOptions { viewport: Viewport::Inline(viewport_height) })?;
     Ok(terminal)
 }
 
 /// Restore terminal to normal state
 pub fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
     terminal.show_cursor()?;
     Ok(())
+}
+
+fn flush_chat_scrollback(terminal: &mut Terminal<impl Backend>, app: &mut App) -> Result<()> {
+    while app.chat.rendered_messages + 1 < app.chat.messages.len() {
+        let next_idx = app.chat.rendered_messages;
+        let next_message = &app.chat.messages[next_idx];
+
+        let lines = chat_scrollback_lines(next_message);
+        let height = lines.len().min(u16::MAX as usize) as u16;
+        terminal.insert_before(height.max(1), move |buf| {
+            let paragraph = ratatui::widgets::Paragraph::new(ratatui::text::Text::from(lines))
+                .style(ratatui::style::Style::default().bg(colors::BG_TERMINAL))
+                .wrap(ratatui::widgets::Wrap { trim: false });
+            <ratatui::widgets::Paragraph as ratatui::widgets::Widget>::render(paragraph, buf.area, buf);
+        })?;
+        app.chat.rendered_messages += 1;
+    }
+    Ok(())
+}
+
+fn chat_scrollback_lines(message: &ChatMessage) -> Vec<ratatui::text::Line<'static>> {
+    let mut lines = Vec::new();
+    lines.push(ratatui::text::Line::from(format!(
+        "[{} {}]",
+        message.role.label(),
+        message.created_at.format("%H:%M:%S")
+    )));
+
+    match message.role {
+        chat::MessageRole::User => {
+            for content_line in message.content.lines() {
+                lines.push(ratatui::text::Line::from(format!("❯ {}", content_line)));
+            }
+        }
+        chat::MessageRole::Assistant => {
+            for tool_call in &message.tool_calls {
+                lines.push(ratatui::text::Line::from(format!(
+                    "tool {} [{}]",
+                    tool_call.name,
+                    tool_call_status_label(tool_call.status)
+                )));
+            }
+            if let Some(reasoning) = message.reasoning_content.as_deref()
+                && !reasoning.trim().is_empty()
+            {
+                lines.push(ratatui::text::Line::from("Reasoning:"));
+                for reasoning_line in reasoning.lines() {
+                    lines.push(ratatui::text::Line::from(format!("  {}", reasoning_line)));
+                }
+            }
+            for content_line in message.content.lines() {
+                lines.push(ratatui::text::Line::from(content_line.to_string()));
+            }
+        }
+        chat::MessageRole::Tool => {
+            for content_line in message.content.lines() {
+                lines.push(ratatui::text::Line::from(format!("tool> {}", content_line)));
+            }
+        }
+    }
+
+    if lines.len() == 1 {
+        lines.push(ratatui::text::Line::from(""));
+    }
+    lines.push(ratatui::text::Line::from(""));
+    lines
+}
+
+fn tool_call_status_label(status: ToolCallStatus) -> &'static str {
+    match status {
+        ToolCallStatus::Pending => "pending",
+        ToolCallStatus::Running => "running",
+        ToolCallStatus::Success => "success",
+        ToolCallStatus::Error => "error",
+    }
 }
 
 /// Run the welcome screen TUI
@@ -527,6 +599,10 @@ fn run_app(
             }
         }
 
+        if app.screen_mode == ScreenMode::Chat {
+            flush_chat_scrollback(terminal, app)?;
+        }
+
         terminal.draw(|frame| {
             match app.screen_mode {
                 ScreenMode::Welcome => {
@@ -536,7 +612,6 @@ fn run_app(
                     }
                 }
                 ScreenMode::Chat => {
-                    app.chat.sync_scroll_state_for_frame(frame.area());
                     chat::view(frame, &app.chat);
                 }
                 ScreenMode::Files => files::view(frame, &app.file_browser),

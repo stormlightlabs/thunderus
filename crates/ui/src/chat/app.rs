@@ -5,7 +5,6 @@ use crate::colors;
 use crate::components::wrapped_line_count;
 use crate::files::{read_file_for_prompt_result, workspace_files};
 use crate::layout::split as split_rects;
-use crate::scroll::ScrollState;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Rect};
@@ -34,8 +33,6 @@ pub enum ChatMsg {
     Submit,
     NavigateUp,
     NavigateDown,
-    PageUp,
-    PageDown,
     ToggleLatestToolCall,
     ToggleAllLatestToolCalls,
     FinderClose,
@@ -52,10 +49,10 @@ pub type ChatModel = ChatApp;
 
 pub struct ChatApp {
     pub messages: Vec<ChatMessage>,
+    pub rendered_messages: usize,
     pub input_buffer: String,
     pub cursor_position: usize,
     pub streaming_state: StreamingState,
-    pub scroll: ScrollState,
     pub last_usage: Option<TokenUsage>,
     pub last_model: Option<String>,
     pub submission_warning: Option<String>,
@@ -81,10 +78,10 @@ impl Default for ChatApp {
 
         Self {
             messages: Vec::new(),
+            rendered_messages: 0,
             input_buffer: String::new(),
             cursor_position: 0,
             streaming_state: StreamingState::Idle,
-            scroll: ScrollState::with_viewport(0, 5),
             last_usage: None,
             last_model: None,
             submission_warning: None,
@@ -279,7 +276,6 @@ impl ChatApp {
             if !content.is_empty() {
                 last.content.push_str(content);
             }
-            self.scroll.scroll_to_bottom();
         }
     }
 
@@ -296,7 +292,6 @@ impl ChatApp {
         }
         self.streaming_state = StreamingState::Idle;
         self.current_tool_call = None;
-        self.scroll.scroll_to_bottom();
     }
 
     fn finish_current_stream(&mut self) {
@@ -307,7 +302,6 @@ impl ChatApp {
         }
         self.streaming_state = StreamingState::Idle;
         self.current_tool_call = None;
-        self.scroll.scroll_to_bottom();
     }
 
     pub fn reset_streaming(&mut self) {
@@ -320,8 +314,8 @@ impl ChatApp {
 
     pub fn clear_chat(&mut self) {
         self.messages.clear();
+        self.rendered_messages = 0;
         self.reset_streaming();
-        self.scroll.set_offset(0);
         self.last_usage = None;
         self.last_model = None;
         self.submission_warning = None;
@@ -335,9 +329,9 @@ impl ChatApp {
 
     pub fn set_messages(&mut self, messages: Vec<ChatMessage>) {
         self.messages = messages;
+        self.rendered_messages = 0;
         self.rebuild_input_history_from_messages();
         self.reset_streaming();
-        self.scroll.set_offset(0);
     }
 
     pub fn queue_backend_command(&mut self, command: String) {
@@ -359,7 +353,6 @@ impl ChatApp {
         self.messages.push(ChatMessage::user(content));
         self.messages.push(ChatMessage::assistant_streaming(String::new()));
         self.streaming_state = StreamingState::Streaming;
-        self.scroll.scroll_to_bottom();
     }
 
     pub fn take_pending_user_message(&mut self) -> Option<String> {
@@ -415,6 +408,7 @@ impl ChatApp {
 
     pub fn load_debug_chat(&mut self) {
         self.messages.clear();
+        self.rendered_messages = 0;
         self.pending_user_message = None;
         self.pending_submission = None;
         self.pending_command = None;
@@ -422,7 +416,6 @@ impl ChatApp {
         self.pinned_files.clear();
         self.current_tool_call = None;
         self.streaming_state = StreamingState::Idle;
-        self.scroll.set_offset(0);
 
         for idx in 0..40 {
             self.messages.push(ChatMessage::user(format!(
@@ -533,29 +526,6 @@ impl ChatApp {
         render::draw_chat_screen(frame, self);
     }
 
-    pub fn sync_scroll_state_for_frame(&mut self, frame_area: Rect) {
-        let main_layout = render::chat_main_layout(frame_area, self.chat_input_row_height(frame_area.width));
-        if main_layout.len() < 4 {
-            self.scroll.set_viewport(0, 0);
-            return;
-        }
-
-        let viewport = render::message_viewport_area(main_layout[0]);
-        let total_rows = self.transcript_row_count(viewport.width);
-        self.scroll.set_viewport(total_rows, viewport.height.max(1) as usize);
-    }
-
-    fn transcript_row_count(&self, content_width: u16) -> usize {
-        let mut rows = 0usize;
-        for (idx, message) in self.messages.iter().enumerate() {
-            rows = rows.saturating_add(message.estimate_height(content_width).max(1) as usize);
-            if idx + 1 < self.messages.len() {
-                rows = rows.saturating_add(1);
-            }
-        }
-        rows
-    }
-
     pub fn chat_input_row_height(&self, area_width: u16) -> u16 {
         input_render::chat_input_row_height(self.chat_input_content_line_count(area_width))
     }
@@ -629,8 +599,6 @@ pub(crate) fn map_chat_key_to_msg(key: KeyEvent, file_finder_active: bool) -> Op
         KeyCode::Enter => Some(ChatMsg::Submit),
         KeyCode::Up => Some(ChatMsg::NavigateUp),
         KeyCode::Down => Some(ChatMsg::NavigateDown),
-        KeyCode::PageUp => Some(ChatMsg::PageUp),
-        KeyCode::PageDown => Some(ChatMsg::PageDown),
         KeyCode::Tab => Some(ChatMsg::ToggleLatestToolCall),
         KeyCode::BackTab => Some(ChatMsg::ToggleAllLatestToolCalls),
         _ => None,
@@ -709,7 +677,6 @@ pub(crate) fn update(model: &mut ChatModel, msg: ChatMsg) -> ScreenAction {
         }
         ChatMsg::MoveCursorToEnd => {
             model.cursor_position = model.input_buffer.len();
-            model.scroll.scroll_to_bottom();
             model.reset_history_navigation();
             ScreenAction::None
         }
@@ -783,23 +750,11 @@ pub(crate) fn update(model: &mut ChatModel, msg: ChatMsg) -> ScreenAction {
             ScreenAction::None
         }
         ChatMsg::NavigateUp => {
-            if !model.try_navigate_history_up() {
-                model.scroll.scroll_up(1);
-            }
+            let _ = model.try_navigate_history_up();
             ScreenAction::None
         }
         ChatMsg::NavigateDown => {
-            if !model.try_navigate_history_down() {
-                model.scroll.scroll_down(1);
-            }
-            ScreenAction::None
-        }
-        ChatMsg::PageUp => {
-            model.scroll.page_up();
-            ScreenAction::None
-        }
-        ChatMsg::PageDown => {
-            model.scroll.page_down();
+            let _ = model.try_navigate_history_down();
             ScreenAction::None
         }
         ChatMsg::ToggleLatestToolCall => {

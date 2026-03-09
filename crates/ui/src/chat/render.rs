@@ -1,4 +1,5 @@
 use super::ChatApp;
+use super::ChatMessage;
 use super::input_render;
 use super::message_render;
 use crate::colors;
@@ -65,12 +66,17 @@ pub fn draw_messages(frame: &mut Frame, area: Rect, app: &ChatApp) {
         return;
     }
 
+    let start = app.rendered_messages.min(app.messages.len().saturating_sub(1));
+    let visible_messages = &app.messages[start..];
+
+    let total_rows = transcript_row_count(visible_messages, inner.width);
+    let viewport_top = total_rows.saturating_sub(inner.height as usize);
+
     let mut transcript_row = 0usize;
-    let viewport_top = app.scroll.offset;
     let inner_bottom = inner.y.saturating_add(inner.height);
     let mut cursor_y = inner.y;
 
-    for (idx, msg) in app.messages.iter().enumerate() {
+    for (idx, msg) in visible_messages.iter().enumerate() {
         let message_height = msg.estimate_height(inner.width).max(1) as usize;
         let message_bottom = transcript_row.saturating_add(message_height);
         let skip_rows = viewport_top.saturating_sub(transcript_row);
@@ -98,7 +104,7 @@ pub fn draw_messages(frame: &mut Frame, area: Rect, app: &ChatApp) {
 
         transcript_row = message_bottom;
 
-        if idx + 1 >= app.messages.len() {
+        if idx + 1 >= visible_messages.len() {
             continue;
         }
 
@@ -114,8 +120,18 @@ pub fn draw_messages(frame: &mut Frame, area: Rect, app: &ChatApp) {
 
         draw_message_divider(frame, Rect::new(inner.x, cursor_y, inner.width, 1));
         cursor_y = cursor_y.saturating_add(1);
-        transcript_row = transcript_row.saturating_add(1);
     }
+}
+
+fn transcript_row_count(messages: &[ChatMessage], content_width: u16) -> usize {
+    let mut rows = 0usize;
+    for (idx, message) in messages.iter().enumerate() {
+        rows = rows.saturating_add(message.estimate_height(content_width).max(1) as usize);
+        if idx + 1 < messages.len() {
+            rows = rows.saturating_add(1);
+        }
+    }
+    rows
 }
 
 fn draw_message_divider(frame: &mut Frame, area: Rect) {

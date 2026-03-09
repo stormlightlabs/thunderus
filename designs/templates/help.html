@@ -148,18 +148,17 @@
                 </div>
             </div>
             <div class="shortcut-item">
-                <span class="shortcut-name">Next chat</span>
+                <span class="shortcut-name">Open file browser</span>
                 <div class="shortcut-keys">
                     <span class="shortcut-key">Ctrl</span>
-                    <span class="shortcut-key">Tab</span>
+                    <span class="shortcut-key">O</span>
                 </div>
             </div>
             <div class="shortcut-item">
-                <span class="shortcut-name">Previous chat</span>
+                <span class="shortcut-name">Open settings</span>
                 <div class="shortcut-keys">
                     <span class="shortcut-key">Ctrl</span>
-                    <span class="shortcut-key">Shift</span>
-                    <span class="shortcut-key">Tab</span>
+                    <span class="shortcut-key">,</span>
                 </div>
             </div>
         </div>
@@ -199,6 +198,36 @@
     </div>
 
     <div class="help-section">
+        <div class="help-section-title">Chat</div>
+        <div class="shortcut-grid">
+            <div class="shortcut-item">
+                <span class="shortcut-name">Previous input</span>
+                <div class="shortcut-keys">
+                    <span class="shortcut-key">Up</span>
+                </div>
+            </div>
+            <div class="shortcut-item">
+                <span class="shortcut-name">Next input</span>
+                <div class="shortcut-keys">
+                    <span class="shortcut-key">Down</span>
+                </div>
+            </div>
+            <div class="shortcut-item">
+                <span class="shortcut-name">Conversation history</span>
+                <div class="shortcut-keys">
+                    <span class="shortcut-key">Terminal scrollback</span>
+                </div>
+            </div>
+            <div class="shortcut-item">
+                <span class="shortcut-name">Toggle tool details</span>
+                <div class="shortcut-keys">
+                    <span class="shortcut-key">Tab</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="help-section">
         <div class="help-section-title">Slash Commands</div>
         <div class="command-list">
             <div class="command-item">
@@ -211,7 +240,7 @@
             </div>
             <div class="command-item">
                 <span class="command-trigger">/model</span>
-                <span class="command-desc">Switch AI model</span>
+                <span class="command-desc">Show current AI model</span>
             </div>
             <div class="command-item">
                 <span class="command-trigger">/tokens</span>
@@ -223,9 +252,8 @@
     <div class="tip-box">
         <div class="tip-title">Pro Tip</div>
         <div class="tip-text">
-            Use @ to reference files in your workspace. Type @ followed by the filename
-            to include file context in your message. You can also use # to reference
-            specific line numbers.
+            Use your terminal's native scrollback to review earlier conversation output.
+            Keep Up/Down for prompt history and use @ to pin workspace files.
         </div>
     </div>
 </div>

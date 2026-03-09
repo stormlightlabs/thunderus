@@ -35,7 +35,7 @@ pub fn draw_hints(frame: &mut Frame, area: Rect) {
         HintToken::Key("Ctrl+R"),
         HintToken::Text(" toggle reasoning, "),
         HintToken::Key("Up/Down"),
-        HintToken::Text(" history, "),
+        HintToken::Text(" history, terminal scrollback for transcript, "),
         HintToken::Key("ctrl+k"),
         HintToken::Text(" clear input, "),
         HintToken::Key("ctrl+d"),
