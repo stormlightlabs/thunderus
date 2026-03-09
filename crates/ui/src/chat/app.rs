@@ -4,7 +4,7 @@ use crate::colors;
 use crate::components::wrapped_line_count;
 use crate::files::{read_file_for_prompt_result, workspace_files};
 use crate::layout::split as split_rects;
-use crate::screen::{Screen, ScreenAction};
+use crate::screen::ScreenAction;
 use crate::scroll::ScrollState;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::Frame;
@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 
 const MAX_INPUT_HISTORY: usize = 200;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ChatMsg {
     Quit,
     ClearInput,
@@ -45,7 +45,10 @@ pub enum ChatMsg {
     FinderMoveUp,
     FinderMoveDown,
     FinderSelect,
+    StreamEvent(IncomingStreamEvent),
 }
+
+pub type ChatModel = ChatApp;
 
 pub struct ChatApp {
     pub messages: Vec<ChatMessage>,
@@ -110,7 +113,7 @@ impl ChatApp {
         let Some(msg) = map_chat_key_to_msg(key, self.file_finder.active) else {
             return;
         };
-        let _ = update_chat(self, msg);
+        let _ = update(self, msg);
     }
 
     fn input_is_multiline(&self) -> bool {
@@ -281,57 +284,7 @@ impl ChatApp {
     }
 
     pub fn handle_stream_event(&mut self, event: IncomingStreamEvent) {
-        match event {
-            IncomingStreamEvent::Delta { content, reasoning_content } => {
-                let has_reasoning = reasoning_content
-                    .as_deref()
-                    .is_some_and(|reasoning| !reasoning.is_empty());
-                if let Some(delta) = content {
-                    self.append_stream(&delta, reasoning_content.as_deref());
-                } else if has_reasoning {
-                    self.append_stream("", reasoning_content.as_deref());
-                }
-                self.streaming_state = StreamingState::Streaming;
-            }
-            IncomingStreamEvent::Done { usage, model } => {
-                self.last_usage = usage;
-                if let Some(model_id) = model {
-                    self.last_model = Some(model_id);
-                }
-                self.submission_warning = None;
-                self.finish_current_stream();
-            }
-            IncomingStreamEvent::Error(message) => {
-                self.append_stream(&format!("\n\n[provider error] {message}"), None);
-                self.finish_current_stream();
-            }
-            IncomingStreamEvent::ToolCalling { name, arguments } => {
-                self.streaming_state = StreamingState::CallingTool(name.clone());
-
-                if let Some(last) = self.messages.last_mut()
-                    && last.role == MessageRole::Assistant
-                {
-                    let idx = last.add_tool_call(name, arguments);
-                    self.current_tool_call = Some(idx);
-                }
-            }
-            IncomingStreamEvent::ToolCompleted { name: _, result, is_error } => {
-                if let Some(last) = self.messages.last_mut()
-                    && last.role == MessageRole::Assistant
-                    && let Some(idx) = self.current_tool_call
-                {
-                    last.complete_tool_call(idx, result, !is_error);
-                }
-                self.current_tool_call = None;
-                self.streaming_state = StreamingState::Streaming;
-            }
-            IncomingStreamEvent::Thinking(content) => {
-                if !content.trim().is_empty() {
-                    self.append_stream("", Some(&content));
-                }
-                self.streaming_state = StreamingState::Thinking;
-            }
-        }
+        let _ = update(self, ChatMsg::StreamEvent(event));
     }
 
     pub fn finish_stream(&mut self, full_content: String) {
@@ -684,173 +637,222 @@ pub(crate) fn map_chat_key_to_msg(key: KeyEvent, file_finder_active: bool) -> Op
     }
 }
 
-pub(crate) fn update_chat(app: &mut ChatApp, msg: ChatMsg) -> ScreenAction {
+fn apply_stream_event(model: &mut ChatModel, event: IncomingStreamEvent) {
+    match event {
+        IncomingStreamEvent::Delta { content, reasoning_content } => {
+            let has_reasoning = reasoning_content
+                .as_deref()
+                .is_some_and(|reasoning| !reasoning.is_empty());
+            if let Some(delta) = content {
+                model.append_stream(&delta, reasoning_content.as_deref());
+            } else if has_reasoning {
+                model.append_stream("", reasoning_content.as_deref());
+            }
+            model.streaming_state = StreamingState::Streaming;
+        }
+        IncomingStreamEvent::Done { usage, model: event_model } => {
+            model.last_usage = usage;
+            if let Some(model_id) = event_model {
+                model.last_model = Some(model_id);
+            }
+            model.submission_warning = None;
+            model.finish_current_stream();
+        }
+        IncomingStreamEvent::Error(message) => {
+            model.append_stream(&format!("\n\n[provider error] {message}"), None);
+            model.finish_current_stream();
+        }
+        IncomingStreamEvent::ToolCalling { name, arguments } => {
+            model.streaming_state = StreamingState::CallingTool(name.clone());
+
+            if let Some(last) = model.messages.last_mut()
+                && last.role == MessageRole::Assistant
+            {
+                let idx = last.add_tool_call(name, arguments);
+                model.current_tool_call = Some(idx);
+            }
+        }
+        IncomingStreamEvent::ToolCompleted { name: _, result, is_error } => {
+            if let Some(last) = model.messages.last_mut()
+                && last.role == MessageRole::Assistant
+                && let Some(idx) = model.current_tool_call
+            {
+                last.complete_tool_call(idx, result, !is_error);
+            }
+            model.current_tool_call = None;
+            model.streaming_state = StreamingState::Streaming;
+        }
+        IncomingStreamEvent::Thinking(content) => {
+            if !content.trim().is_empty() {
+                model.append_stream("", Some(&content));
+            }
+            model.streaming_state = StreamingState::Thinking;
+        }
+    }
+}
+
+pub(crate) fn update(model: &mut ChatModel, msg: ChatMsg) -> ScreenAction {
     match msg {
         ChatMsg::Quit => {
-            app.running = false;
+            model.running = false;
             ScreenAction::Quit
         }
         ChatMsg::ClearInput => {
-            app.input_buffer.clear();
-            app.cursor_position = 0;
-            app.reset_history_navigation();
+            model.input_buffer.clear();
+            model.cursor_position = 0;
+            model.reset_history_navigation();
             ScreenAction::None
         }
         ChatMsg::ToggleLatestReasoning => {
-            app.toggle_latest_reasoning();
+            model.toggle_latest_reasoning();
             ScreenAction::None
         }
         ChatMsg::MoveCursorToEnd => {
-            app.cursor_position = app.input_buffer.len();
-            app.scroll.scroll_to_bottom();
-            app.reset_history_navigation();
+            model.cursor_position = model.input_buffer.len();
+            model.scroll.scroll_to_bottom();
+            model.reset_history_navigation();
             ScreenAction::None
         }
         ChatMsg::ActivateFileFinder => {
-            app.activate_file_finder();
+            model.activate_file_finder();
             ScreenAction::None
         }
         ChatMsg::InsertChar(c) => {
-            app.reset_history_navigation();
-            app.input_buffer.insert(app.cursor_position, c);
-            app.cursor_position += 1;
+            model.reset_history_navigation();
+            model.input_buffer.insert(model.cursor_position, c);
+            model.cursor_position += 1;
             ScreenAction::None
         }
         ChatMsg::Backspace => {
-            app.reset_history_navigation();
-            if app.cursor_position > 0 {
-                app.cursor_position -= 1;
-                app.input_buffer.remove(app.cursor_position);
+            model.reset_history_navigation();
+            if model.cursor_position > 0 {
+                model.cursor_position -= 1;
+                model.input_buffer.remove(model.cursor_position);
             } else {
-                app.unpin_last_file();
+                model.unpin_last_file();
             }
             ScreenAction::None
         }
         ChatMsg::Delete => {
-            app.reset_history_navigation();
-            if app.cursor_position < app.input_buffer.len() {
-                app.input_buffer.remove(app.cursor_position);
-            } else if app.cursor_position == 0 {
-                app.unpin_last_file();
+            model.reset_history_navigation();
+            if model.cursor_position < model.input_buffer.len() {
+                model.input_buffer.remove(model.cursor_position);
+            } else if model.cursor_position == 0 {
+                model.unpin_last_file();
             }
             ScreenAction::None
         }
         ChatMsg::MoveLeft => {
-            if app.cursor_position > 0 {
-                app.cursor_position -= 1;
+            if model.cursor_position > 0 {
+                model.cursor_position -= 1;
             }
             ScreenAction::None
         }
         ChatMsg::MoveRight => {
-            if app.cursor_position < app.input_buffer.len() {
-                app.cursor_position += 1;
+            if model.cursor_position < model.input_buffer.len() {
+                model.cursor_position += 1;
             }
             ScreenAction::None
         }
         ChatMsg::MoveHome => {
-            app.cursor_position = 0;
+            model.cursor_position = 0;
             ScreenAction::None
         }
         ChatMsg::MoveEnd => {
-            app.cursor_position = app.input_buffer.len();
+            model.cursor_position = model.input_buffer.len();
             ScreenAction::None
         }
         ChatMsg::InsertNewline => {
-            app.reset_history_navigation();
-            app.input_buffer.insert(app.cursor_position, '\n');
-            app.cursor_position += 1;
+            model.reset_history_navigation();
+            model.input_buffer.insert(model.cursor_position, '\n');
+            model.cursor_position += 1;
             ScreenAction::None
         }
         ChatMsg::Submit => {
-            if !app.input_buffer.is_empty() && app.streaming_state == StreamingState::Idle {
-                let content = app.input_buffer.clone();
+            if !model.input_buffer.is_empty() && model.streaming_state == StreamingState::Idle {
+                let content = model.input_buffer.clone();
                 if content.starts_with('/') {
-                    app.pending_command = Some(content);
+                    model.pending_command = Some(content);
                 } else {
-                    app.submit_user_message(content);
+                    model.submit_user_message(content);
                 }
-                app.input_buffer.clear();
-                app.cursor_position = 0;
-                app.reset_history_navigation();
+                model.input_buffer.clear();
+                model.cursor_position = 0;
+                model.reset_history_navigation();
             }
             ScreenAction::None
         }
         ChatMsg::NavigateUp => {
-            if !app.try_navigate_history_up() {
-                app.scroll.scroll_up(1);
+            if !model.try_navigate_history_up() {
+                model.scroll.scroll_up(1);
             }
             ScreenAction::None
         }
         ChatMsg::NavigateDown => {
-            if !app.try_navigate_history_down() {
-                app.scroll.scroll_down(1);
+            if !model.try_navigate_history_down() {
+                model.scroll.scroll_down(1);
             }
             ScreenAction::None
         }
         ChatMsg::PageUp => {
-            app.scroll.page_up();
+            model.scroll.page_up();
             ScreenAction::None
         }
         ChatMsg::PageDown => {
-            app.scroll.page_down();
+            model.scroll.page_down();
             ScreenAction::None
         }
         ChatMsg::ToggleLatestToolCall => {
-            app.toggle_latest_tool_call();
+            model.toggle_latest_tool_call();
             ScreenAction::None
         }
         ChatMsg::ToggleAllLatestToolCalls => {
-            app.toggle_all_latest_tool_calls();
+            model.toggle_all_latest_tool_calls();
             ScreenAction::None
         }
         ChatMsg::FinderClose => {
-            app.file_finder.deactivate();
+            model.file_finder.deactivate();
             ScreenAction::None
         }
         ChatMsg::FinderClearQuery => {
-            app.file_finder.query.clear();
-            app.update_file_finder_matches();
+            model.file_finder.query.clear();
+            model.update_file_finder_matches();
             ScreenAction::None
         }
         ChatMsg::FinderInsertChar(c) => {
-            app.file_finder.query.push(c);
-            app.update_file_finder_matches();
+            model.file_finder.query.push(c);
+            model.update_file_finder_matches();
             ScreenAction::None
         }
         ChatMsg::FinderBackspace => {
-            app.file_finder.query.pop();
-            app.update_file_finder_matches();
+            model.file_finder.query.pop();
+            model.update_file_finder_matches();
             ScreenAction::None
         }
         ChatMsg::FinderMoveUp => {
-            app.file_finder.move_up();
+            model.file_finder.move_up();
             ScreenAction::None
         }
         ChatMsg::FinderMoveDown => {
-            app.file_finder.move_down();
+            model.file_finder.move_down();
             ScreenAction::None
         }
         ChatMsg::FinderSelect => {
-            if let Some(path) = app.file_finder.selected_item().cloned() {
-                app.toggle_pin(&path);
+            if let Some(path) = model.file_finder.selected_item().cloned() {
+                model.toggle_pin(&path);
             }
-            app.file_finder.deactivate();
+            model.file_finder.deactivate();
+            ScreenAction::None
+        }
+        ChatMsg::StreamEvent(event) => {
+            apply_stream_event(model, event);
             ScreenAction::None
         }
     }
 }
 
-impl Screen for ChatApp {
-    fn handle_input(&mut self, key: KeyEvent) -> ScreenAction {
-        let Some(msg) = map_chat_key_to_msg(key, self.file_finder.active) else {
-            return ScreenAction::None;
-        };
-        update_chat(self, msg)
-    }
-
-    fn draw(&self, frame: &mut Frame) {
-        self.draw_chat_screen(frame);
-    }
+pub fn view(frame: &mut Frame, model: &ChatModel) {
+    render::draw_chat_screen(frame, model);
 }
 
 #[cfg(test)]

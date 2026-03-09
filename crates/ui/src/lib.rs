@@ -30,7 +30,6 @@ pub use chat::{ChatApp, ChatMessage, IncomingStreamEvent, StreamingState, TokenU
 pub use chat::{ToolCallDisplay, ToolCallStatus};
 use files::FileBrowserApp;
 use help::HelpApp;
-use screen::Screen;
 use settings::SettingsApp;
 use welcome::WelcomeApp;
 
@@ -169,7 +168,7 @@ impl App {
                 self.process_pending_actions();
             }
             Msg::Chat(sub_msg) => {
-                let action = chat::update_chat(&mut self.chat, sub_msg);
+                let action = chat::update(&mut self.chat, sub_msg);
                 self.apply_screen_action(action);
                 if self.screen_mode != ScreenMode::Welcome || !self.chat.is_file_finder_active() {
                     self.process_pending_actions();
@@ -335,18 +334,24 @@ fn run_app(
             && let Some(pending_message) = app.chat.take_pending_submission()
             && let Err(error) = submitter(pending_message)
         {
-            app.chat.handle_stream_event(IncomingStreamEvent::Error(error));
+            let _ = chat::update(
+                &mut app.chat,
+                chat::ChatMsg::StreamEvent(IncomingStreamEvent::Error(error)),
+            );
         }
 
         if submitter.is_none() && app.chat.take_pending_submission().is_some() {
-            app.chat.handle_stream_event(IncomingStreamEvent::Error(
-                "No response backend configured for this UI mode.".to_string(),
-            ));
+            let _ = chat::update(
+                &mut app.chat,
+                chat::ChatMsg::StreamEvent(IncomingStreamEvent::Error(
+                    "No response backend configured for this UI mode.".to_string(),
+                )),
+            );
         }
 
         if let Some(poller) = poller.as_deref_mut() {
             while let Some(event) = poller() {
-                app.chat.handle_stream_event(event);
+                let _ = chat::update(&mut app.chat, chat::ChatMsg::StreamEvent(event));
             }
         }
 
@@ -360,7 +365,7 @@ fn run_app(
                 }
                 ScreenMode::Chat => {
                     app.chat.sync_scroll_state_for_frame(frame.area());
-                    Screen::draw(&app.chat, frame);
+                    chat::view(frame, &app.chat);
                 }
                 ScreenMode::Files => files::view(frame, &app.file_browser),
                 ScreenMode::Settings => settings::view(frame, &app.settings),

@@ -7,7 +7,8 @@ members = [
     "crates/providers",
     "crates/tools",
     "crates/macros",
-    "crates/ui", "crates/gui",
+    "crates/ui",
+    "crates/gui",
 ]
 
 
