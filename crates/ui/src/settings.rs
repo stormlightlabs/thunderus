@@ -9,7 +9,7 @@
 
 use super::components::{HintFooter, HintToken, TopBorderedInputRow, app_version_string};
 use super::layout::{ConstraintSpec, split as split_rects};
-use super::screen::{Screen, ScreenAction};
+use super::screen::ScreenAction;
 use super::{colors, scroll::ScrollState};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{
@@ -36,6 +36,13 @@ const SETTING_GROUPS: &[&str] = &[
 ];
 const MAX_TEMPERATURE: f32 = 1.0;
 const MIN_TEMPERATURE: f32 = 0.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsMsg {
+    Key(KeyEvent),
+}
+
+pub type SettingsModel = SettingsApp;
 
 /// UI-specific settings that extend the core configuration
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -642,26 +649,24 @@ impl SettingsApp {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SettingsAction {
-    None,
-    ExitToChat,
-    Quit,
+pub(crate) fn map_settings_key_to_msg(key: KeyEvent) -> Option<SettingsMsg> {
+    if key.kind != KeyEventKind::Press {
+        return None;
+    }
+    Some(SettingsMsg::Key(key))
 }
 
-impl Screen for SettingsApp {
-    fn handle_input(&mut self, key: KeyEvent) -> ScreenAction {
-        SettingsApp::handle_input(self, key);
-        if key.kind == KeyEventKind::Press && key.code == KeyCode::Esc {
-            ScreenAction::ReturnToPrevious
-        } else {
-            ScreenAction::None
+pub(crate) fn update(model: &mut SettingsModel, msg: SettingsMsg) -> ScreenAction {
+    match msg {
+        SettingsMsg::Key(key) => {
+            model.handle_input(key);
+            if key.code == KeyCode::Esc { ScreenAction::ReturnToPrevious } else { ScreenAction::None }
         }
     }
+}
 
-    fn draw(&self, frame: &mut Frame) {
-        draw_settings_screen(frame, self);
-    }
+pub fn view(frame: &mut Frame, model: &SettingsModel) {
+    draw_settings_screen(frame, model);
 }
 
 #[derive(AreaSpec)]
@@ -677,7 +682,7 @@ impl ConstraintSpec for SettingsShell {
     }
 }
 
-pub fn draw_settings_screen(frame: &mut Frame, app: &SettingsApp) {
+pub fn draw_settings_screen(frame: &mut Frame, app: &SettingsModel) {
     let size = frame.area();
     let clear = Block::default().style(Style::default().bg(colors::BG_TERMINAL));
     frame.render_widget(clear, size);

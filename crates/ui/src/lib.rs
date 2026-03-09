@@ -89,7 +89,7 @@ pub enum Msg {
     Welcome(welcome::WelcomeMsg),
     Chat(chat::ChatMsg),
     Files(files::FilesMsg),
-    Settings(KeyEvent),
+    Settings(settings::SettingsMsg),
     Help(help::HelpMsg),
 }
 
@@ -180,8 +180,8 @@ impl App {
                 self.apply_screen_action(action);
                 self.process_pending_actions();
             }
-            Msg::Settings(key) => {
-                let action = Screen::handle_input(&mut self.settings, key);
+            Msg::Settings(sub_msg) => {
+                let action = settings::update(&mut self.settings, sub_msg);
                 self.apply_screen_action(action);
                 self.process_pending_actions();
             }
@@ -363,7 +363,7 @@ fn run_app(
                     Screen::draw(&app.chat, frame);
                 }
                 ScreenMode::Files => files::view(frame, &app.file_browser),
-                ScreenMode::Settings => Screen::draw(&app.settings, frame),
+                ScreenMode::Settings => settings::view(frame, &app.settings),
                 ScreenMode::Help => help::view(frame, &app.help),
             }
 
