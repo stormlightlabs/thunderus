@@ -6,14 +6,15 @@
 //! - Bash output display
 
 use super::colors;
-use super::layout::{AreaSpec, ConstraintSpec, split as split_rects};
-use ratatui::{
-    Frame,
-    layout::{Constraint, Direction, Rect},
-    style::{Modifier, Style},
-    text::{Line, Span, Text},
-    widgets::{Block, Paragraph, Wrap},
-};
+use super::layout::{ConstraintSpec, split as split_rects};
+use ratatui::Frame;
+use ratatui::layout::{Constraint, Direction, Rect};
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span, Text};
+use ratatui::widgets::{Block, Paragraph, Wrap};
+use thndrs_ui_macros::AreaSpec;
+
+const MAX_BASH_VISIBLE_LINES: usize = 50;
 
 /// A task in a progress list
 #[derive(Debug, Clone)]
@@ -45,9 +46,8 @@ impl TaskItem {
     }
 }
 
+#[derive(AreaSpec)]
 pub struct TaskProgressList;
-
-impl AreaSpec for TaskProgressList {}
 
 impl TaskProgressList {
     pub fn render(self, frame: &mut Frame, area: Rect, tasks: &[TaskItem], title: &str) {
@@ -90,9 +90,8 @@ fn draw_task_row(frame: &mut Frame, area: Rect, task: &TaskItem) {
     frame.render_widget(paragraph, area);
 }
 
+#[derive(AreaSpec)]
 pub struct DiffView;
-
-impl AreaSpec for DiffView {}
 
 impl DiffView {
     pub fn render(self, frame: &mut Frame, area: Rect, diff_lines: &[DiffLine]) {
@@ -104,56 +103,58 @@ impl DiffView {
 
         for (idx, line) in diff_lines.iter().enumerate() {
             if idx < layout.len() {
-                draw_diff_line(frame, layout[idx], line);
+                line.draw(frame, layout[idx])
             }
         }
     }
 }
 
-/// A line in a diff display
-#[derive(Debug, Clone)]
-pub struct DiffLine {
-    pub content: String,
-    pub line_type: DiffLineType,
-    pub line_number: Option<u32>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum DiffLineType {
+pub enum DiffLineKind {
     Context,
     Added,
     Removed,
     Header,
 }
 
-fn draw_diff_line(frame: &mut Frame, area: Rect, line: &DiffLine) {
-    let (prefix, style, bg) = match line.line_type {
-        DiffLineType::Context => (" ", Style::default().fg(colors::TEXT_SECONDARY), colors::BG_TERMINAL),
-        DiffLineType::Added => ("+", Style::default().fg(colors::ACCENT_GREEN), colors::BG_TERMINAL),
-        DiffLineType::Removed => ("-", Style::default().fg(colors::ACCENT_RED), colors::BG_TERMINAL),
-        DiffLineType::Header => (
-            "@",
-            Style::default().fg(colors::ACCENT_CYAN).add_modifier(Modifier::BOLD),
-            colors::BG_TERMINAL,
-        ),
-    };
+/// A line in a diff display
+#[derive(Debug, Clone)]
+pub struct DiffLine {
+    pub content: String,
+    pub line_kind: DiffLineKind,
+    pub line_number: Option<u32>,
+}
 
-    let line_num = line
-        .line_number
-        .map(|n| format!("{:4} ", n))
-        .unwrap_or_else(|| "     ".to_string());
+impl DiffLine {
+    fn draw(&self, frame: &mut Frame, area: Rect) {
+        let (prefix, style, bg) = match self.line_kind {
+            DiffLineKind::Context => (" ", Style::default().fg(colors::TEXT_SECONDARY), colors::BG_TERMINAL),
+            DiffLineKind::Added => ("+", Style::default().fg(colors::ACCENT_GREEN), colors::BG_TERMINAL),
+            DiffLineKind::Removed => ("-", Style::default().fg(colors::ACCENT_RED), colors::BG_TERMINAL),
+            DiffLineKind::Header => (
+                "@",
+                Style::default().fg(colors::ACCENT_CYAN).add_modifier(Modifier::BOLD),
+                colors::BG_TERMINAL,
+            ),
+        };
 
-    let text = Text::from(vec![Line::from(vec![
-        Span::styled(line_num, Style::default().fg(colors::TEXT_MUTED)),
-        Span::styled(prefix, style),
-        Span::styled(" ", Style::default()),
-        Span::styled(&line.content, style),
-    ])]);
+        let line_num = self
+            .line_number
+            .map(|n| format!("{:4} ", n))
+            .unwrap_or_else(|| "     ".to_string());
 
-    let paragraph = Paragraph::new(text)
-        .style(Style::default().bg(bg))
-        .wrap(Wrap { trim: false });
-    frame.render_widget(paragraph, area);
+        let text = Text::from(vec![Line::from(vec![
+            Span::styled(line_num, Style::default().fg(colors::TEXT_MUTED)),
+            Span::styled(prefix, style),
+            Span::styled(" ", Style::default()),
+            Span::styled(&self.content, style),
+        ])]);
+
+        let paragraph = Paragraph::new(text)
+            .style(Style::default().bg(bg))
+            .wrap(Wrap { trim: false });
+        frame.render_widget(paragraph, area);
+    }
 }
 
 /// Parse a unified diff string into displayable lines
@@ -163,20 +164,19 @@ pub fn parse_diff(diff_text: &str) -> Vec<DiffLine> {
         .map(|line| {
             let mut chars = line.chars();
             let (content, line_type) = match chars.next() {
-                Some('@') if line.starts_with("@@") => (line.to_string(), DiffLineType::Header),
-                Some('+') => (chars.as_str().to_string(), DiffLineType::Added),
-                Some('-') => (chars.as_str().to_string(), DiffLineType::Removed),
-                Some(' ') => (chars.as_str().to_string(), DiffLineType::Context),
-                _ => (line.to_string(), DiffLineType::Context),
+                Some('@') if line.starts_with("@@") => (line.to_string(), DiffLineKind::Header),
+                Some('+') => (chars.as_str().to_string(), DiffLineKind::Added),
+                Some('-') => (chars.as_str().to_string(), DiffLineKind::Removed),
+                Some(' ') => (chars.as_str().to_string(), DiffLineKind::Context),
+                _ => (line.to_string(), DiffLineKind::Context),
             };
-            DiffLine { content, line_type, line_number: None }
+            DiffLine { content, line_kind: line_type, line_number: None }
         })
         .collect()
 }
 
+#[derive(AreaSpec)]
 pub struct BashOutputView;
-
-impl AreaSpec for BashOutputView {}
 
 impl ConstraintSpec for BashOutputView {
     fn direction(&self) -> Direction {
@@ -199,9 +199,17 @@ impl BashOutputView {
             return;
         }
 
+        let exit_style = if exit_code == 0 {
+            Style::default().fg(colors::ACCENT_GREEN)
+        } else {
+            Style::default().fg(colors::ACCENT_RED)
+        };
+
         let cmd_line = Line::from(vec![
             Span::styled("$ ", Style::default().fg(colors::ACCENT_CYAN)),
             Span::styled(command, Style::default().fg(colors::TEXT_PRIMARY)),
+            Span::styled(" ", Style::default().fg(colors::TEXT_MUTED)),
+            Span::styled(format!("[exit {exit_code}]"), exit_style),
         ]);
         let cmd_para = Paragraph::new(cmd_line).style(Style::default().bg(colors::BG_SECONDARY));
         frame.render_widget(cmd_para, layout[0]);
@@ -212,6 +220,7 @@ impl BashOutputView {
             Style::default().fg(colors::ACCENT_RED)
         };
 
+        let output = truncate_bash_output(output, MAX_BASH_VISIBLE_LINES);
         let output_text = Text::from(output).style(output_style);
         let output_para = Paragraph::new(output_text)
             .style(Style::default().bg(colors::BG_SECONDARY))
@@ -220,9 +229,27 @@ impl BashOutputView {
     }
 }
 
-pub struct CollapsibleSection;
+fn truncate_bash_output(output: &str, max_visible_lines: usize) -> String {
+    if max_visible_lines == 0 {
+        return String::new();
+    }
 
-impl AreaSpec for CollapsibleSection {}
+    let lines: Vec<&str> = output.lines().collect();
+    if lines.len() <= max_visible_lines {
+        return output.to_string();
+    }
+
+    let hidden = lines.len() - max_visible_lines;
+    let mut visible = lines[..max_visible_lines].join("\n");
+    if !visible.is_empty() {
+        visible.push('\n');
+    }
+    visible.push_str(&format!("[{hidden} lines hidden]"));
+    visible
+}
+
+#[derive(AreaSpec)]
+pub struct CollapsibleSection;
 
 impl CollapsibleSection {
     pub fn render(self, frame: &mut Frame, area: Rect, title: &str, expanded: bool, content: Text<'_>) -> Rect {
@@ -279,11 +306,11 @@ mod tests {
         let lines = parse_diff(diff);
 
         assert_eq!(lines.len(), 5);
-        assert_eq!(lines[0].line_type, DiffLineType::Header);
-        assert_eq!(lines[1].line_type, DiffLineType::Context);
-        assert_eq!(lines[2].line_type, DiffLineType::Removed);
-        assert_eq!(lines[3].line_type, DiffLineType::Added);
-        assert_eq!(lines[4].line_type, DiffLineType::Context);
+        assert_eq!(lines[0].line_kind, DiffLineKind::Header);
+        assert_eq!(lines[1].line_kind, DiffLineKind::Context);
+        assert_eq!(lines[2].line_kind, DiffLineKind::Removed);
+        assert_eq!(lines[3].line_kind, DiffLineKind::Added);
+        assert_eq!(lines[4].line_kind, DiffLineKind::Context);
     }
 
     #[test]
@@ -303,5 +330,15 @@ mod tests {
         let constraints = list_row_constraints(2);
         assert_eq!(constraints.len(), 3);
         assert_eq!(constraints[2], Constraint::Min(0));
+    }
+
+    #[test]
+    fn test_truncate_bash_output_adds_hidden_line_indicator() {
+        let output = (0..55).map(|idx| format!("line {idx}")).collect::<Vec<_>>().join("\n");
+        let truncated = truncate_bash_output(&output, 50);
+
+        assert!(truncated.contains("[5 lines hidden]"));
+        assert!(truncated.contains("line 0"));
+        assert!(!truncated.contains("line 54"));
     }
 }

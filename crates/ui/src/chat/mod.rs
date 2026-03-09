@@ -1,9 +1,8 @@
 //! Chat screen components for active conversation
 
 use super::colors;
-use super::components::{
-    HintFooter, HintToken, SectionBlock, SectionTone, ToolCallCard, ToolCallState, TopBorderedInputRow,
-};
+use super::components::{HintFooter, HintToken, ToolCallCard, ToolCallState};
+use super::components::{SectionBlock, SectionTone, TopBorderedInputRow};
 use super::components::{top_bordered_row_height, wrapped_line_count};
 use super::files::{fuzzy_match_paths, read_file_for_prompt, workspace_files};
 use super::layout::split as split_rects;
@@ -20,6 +19,7 @@ use std::path::{Path, PathBuf};
 use thndrs_core::{ResponseSections, estimate_token_cost_usd};
 
 const INPUT_PROMPT_PREFIX: &str = "❯ ";
+const BASH_MAX_VISIBLE_LINES: usize = 50;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum StreamingState {
@@ -842,10 +842,11 @@ fn draw_tool_output(frame: &mut Frame, area: Rect, message: &ChatMessage) {
 
 fn draw_tool_call_widget(frame: &mut Frame, area: Rect, tool_call: &ToolCallDisplay) {
     let state = tool_call.to_ui_state();
-    let summary = Text::from(format_tool_arguments(&tool_call.name, &tool_call.arguments));
+    let formatted_args = format_tool_arguments(&tool_call.name, &tool_call.arguments, area.width);
+    let summary = Text::from(formatted_args.clone());
 
     if !tool_call.expanded {
-        ToolCallCard.render(frame, area, &tool_call.name, &tool_call.arguments, state, summary);
+        ToolCallCard.render(frame, area, &tool_call.name, &formatted_args, state, summary);
         return;
     }
 
@@ -856,43 +857,257 @@ fn draw_tool_call_widget(frame: &mut Frame, area: Rect, tool_call: &ToolCallDisp
     );
 
     if layout.len() < 2 {
-        ToolCallCard.render(frame, area, &tool_call.name, &tool_call.arguments, state, summary);
+        ToolCallCard.render(frame, area, &tool_call.name, &formatted_args, state, summary);
         return;
     }
 
-    ToolCallCard.render(frame, layout[0], &tool_call.name, &tool_call.arguments, state, summary);
+    ToolCallCard.render(frame, layout[0], &tool_call.name, &formatted_args, state, summary);
     draw_expanded_tool_details(frame, layout[1], tool_call);
 }
 
 fn draw_expanded_tool_details(frame: &mut Frame, area: Rect, tool_call: &ToolCallDisplay) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
     if matches!(tool_call.status, ToolCallStatus::Pending | ToolCallStatus::Running) {
         let tasks = progress_tasks_for(tool_call);
         draw_task_progress(frame, area, &tasks, "Tool progress");
         return;
     }
 
-    if tool_call.name == "edit"
-        && let Some(diff_text) = extract_edit_diff(&tool_call.arguments)
-    {
-        let diff_lines = parse_diff(&diff_text);
-        if !diff_lines.is_empty() {
-            draw_diff(frame, area, &diff_lines);
+    match tool_call.name.as_str() {
+        "read" => {
+            draw_read_tool_output(frame, area, tool_call);
             return;
         }
+        "write" => {
+            draw_write_tool_output(frame, area, tool_call);
+            return;
+        }
+        "edit" => {
+            if let Some(diff_text) = extract_edit_diff(&tool_call.arguments) {
+                let diff_lines = parse_diff(&diff_text);
+                if !diff_lines.is_empty() {
+                    let path = extract_diff_path(&diff_text)
+                        .or_else(|| extract_path_argument(&tool_call.arguments))
+                        .unwrap_or_else(|| "edited file".to_string());
+                    let layout = split_rects(
+                        area,
+                        Direction::Vertical,
+                        vec![Constraint::Length(1), Constraint::Min(0)],
+                    );
+                    if layout.len() == 2 {
+                        frame.render_widget(
+                            Paragraph::new(Line::from(vec![Span::styled(
+                                path,
+                                Style::default().fg(colors::ACCENT_CYAN).add_modifier(Modifier::BOLD),
+                            )]))
+                            .style(Style::default().bg(colors::BG_TERMINAL)),
+                            layout[0],
+                        );
+                        draw_diff(frame, layout[1], &diff_lines);
+                        return;
+                    }
+                }
+            }
+        }
+        "bash" => {
+            let command = extract_bash_command(&tool_call.arguments).unwrap_or_else(|| "bash".to_string());
+            let (output, exit_code) = parse_bash_output(
+                tool_call.output.as_deref().unwrap_or_default(),
+                tool_call.status == ToolCallStatus::Error,
+            );
+            let normalized = format_tool_output("bash", &output);
+            draw_bash_output(frame, area, &command, &normalized, exit_code);
+            return;
+        }
+        "research" => {
+            draw_research_tool_output(frame, area, tool_call);
+            return;
+        }
+        _ => {}
     }
 
-    if tool_call.name == "bash" {
-        let command = extract_bash_command(&tool_call.arguments).unwrap_or_else(|| "bash".to_string());
-        let (output, exit_code) = parse_bash_output(tool_call.output.as_deref().unwrap_or_default());
-        draw_bash_output(frame, area, &command, &output, exit_code);
+    let normalized = format_tool_output(&tool_call.name, tool_call.output.as_deref().unwrap_or_default());
+    let content = Text::from(normalized);
+    draw_collapsible(frame, area, "Tool output", true, content);
+}
+
+fn draw_read_tool_output(frame: &mut Frame, area: Rect, tool_call: &ToolCallDisplay) {
+    let path = extract_path_argument(&tool_call.arguments).unwrap_or_else(|| "read".to_string());
+    let output = format_tool_output("read", tool_call.output.as_deref().unwrap_or_default());
+    let layout = split_rects(
+        area,
+        Direction::Vertical,
+        vec![Constraint::Length(1), Constraint::Min(0)],
+    );
+    if layout.len() < 2 {
         return;
     }
 
-    let content = Text::from(format_tool_output(
-        &tool_call.name,
-        tool_call.output.as_deref().unwrap_or_default(),
-    ));
-    draw_collapsible(frame, area, "Tool output", true, content);
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![Span::styled(
+            path,
+            Style::default().fg(colors::ACCENT_CYAN).add_modifier(Modifier::BOLD),
+        )]))
+        .style(Style::default().bg(colors::BG_TERMINAL)),
+        layout[0],
+    );
+
+    let lines = if tool_call.status == ToolCallStatus::Error {
+        vec![Line::from(vec![Span::styled(
+            output,
+            Style::default().fg(colors::ACCENT_RED),
+        )])]
+    } else {
+        build_read_output_lines(&output)
+    };
+    draw_lines_with_truncation(frame, layout[1], lines, colors::TEXT_MUTED);
+}
+
+fn draw_write_tool_output(frame: &mut Frame, area: Rect, tool_call: &ToolCallDisplay) {
+    let output = format_tool_output("write", tool_call.output.as_deref().unwrap_or_default());
+    let line_text = if tool_call.status == ToolCallStatus::Success {
+        format_write_success_line(&output).unwrap_or_else(|| output.lines().next().unwrap_or_default().to_string())
+    } else {
+        output.lines().next().unwrap_or_default().to_string()
+    };
+    let style = if tool_call.status == ToolCallStatus::Success {
+        Style::default().fg(colors::ACCENT_GREEN)
+    } else {
+        Style::default().fg(colors::ACCENT_RED)
+    };
+
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![Span::styled(line_text, style)]))
+            .style(Style::default().bg(colors::BG_TERMINAL))
+            .wrap(Wrap { trim: false }),
+        area,
+    );
+}
+
+fn draw_research_tool_output(frame: &mut Frame, area: Rect, tool_call: &ToolCallDisplay) {
+    let url = extract_research_url(&tool_call.arguments).unwrap_or_else(|| "research".to_string());
+    let output = format_tool_output("research", tool_call.output.as_deref().unwrap_or_default());
+
+    let layout = split_rects(
+        area,
+        Direction::Vertical,
+        vec![Constraint::Length(1), Constraint::Min(0)],
+    );
+    if layout.len() < 2 {
+        return;
+    }
+
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![Span::styled(
+            url,
+            Style::default()
+                .fg(colors::ACCENT_CYAN)
+                .add_modifier(Modifier::UNDERLINED),
+        )]))
+        .style(Style::default().bg(colors::BG_TERMINAL)),
+        layout[0],
+    );
+
+    let wrapped = wrap_text_lines(&output, layout[1].width);
+    let lines = wrapped
+        .into_iter()
+        .map(|line| Line::from(vec![Span::styled(line, Style::default().fg(colors::TEXT_SECONDARY))]))
+        .collect::<Vec<_>>();
+    draw_lines_with_truncation(frame, layout[1], lines, colors::TEXT_MUTED);
+}
+
+fn build_read_output_lines(output: &str) -> Vec<Line<'static>> {
+    if let Some(placeholder) = parse_read_image_placeholder(output) {
+        return vec![Line::from(vec![Span::styled(
+            placeholder,
+            Style::default().fg(colors::TEXT_MUTED),
+        )])];
+    }
+
+    let number_width = output
+        .lines()
+        .filter_map(|line| split_numbered_line(line).map(|(number, _)| number.len()))
+        .max()
+        .unwrap_or(1);
+
+    let mut lines = Vec::new();
+    for raw_line in output.lines() {
+        if let Some((number, content)) = split_numbered_line(raw_line) {
+            lines.push(Line::from(vec![
+                Span::styled(
+                    format!("{number:>width$} ", width = number_width),
+                    Style::default().fg(colors::TEXT_MUTED),
+                ),
+                Span::styled(content.to_string(), Style::default().fg(colors::TEXT_SECONDARY)),
+            ]));
+            continue;
+        }
+
+        if let Some(name) = raw_line.strip_prefix("▶ ") {
+            lines.push(Line::from(vec![
+                Span::styled("▶ ", Style::default().fg(colors::ACCENT_YELLOW)),
+                Span::styled(name.to_string(), Style::default().fg(colors::TEXT_SECONDARY)),
+            ]));
+            continue;
+        }
+
+        if let Some(name) = raw_line.strip_prefix("⌸ ") {
+            lines.push(Line::from(vec![
+                Span::styled("⌸ ", Style::default().fg(colors::TEXT_SECONDARY)),
+                Span::styled(name.to_string(), Style::default().fg(colors::TEXT_SECONDARY)),
+            ]));
+            continue;
+        }
+
+        if raw_line.is_empty() {
+            lines.push(Line::from(vec![Span::raw("")]));
+            continue;
+        }
+
+        lines.push(Line::from(vec![Span::styled(
+            raw_line.to_string(),
+            Style::default().fg(colors::TEXT_SECONDARY),
+        )]));
+    }
+
+    if lines.is_empty() {
+        lines.push(Line::from(vec![Span::raw("")]));
+    }
+
+    lines
+}
+
+fn draw_lines_with_truncation(
+    frame: &mut Frame, area: Rect, mut lines: Vec<Line<'static>>, indicator_color: ratatui::style::Color,
+) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
+    if lines.is_empty() {
+        lines.push(Line::from(vec![Span::raw("")]));
+    }
+
+    let max_lines = area.height as usize;
+    if lines.len() > max_lines {
+        let keep = max_lines.saturating_sub(1);
+        let hidden = lines.len().saturating_sub(keep);
+        lines.truncate(keep);
+        lines.push(Line::from(vec![Span::styled(
+            format!("[{hidden} lines hidden]"),
+            Style::default().fg(indicator_color),
+        )]));
+    }
+
+    frame.render_widget(
+        Paragraph::new(Text::from(lines))
+            .style(Style::default().bg(colors::BG_TERMINAL))
+            .wrap(Wrap { trim: false }),
+        area,
+    );
 }
 
 fn progress_tasks_for(tool_call: &ToolCallDisplay) -> Vec<TaskItem> {
@@ -916,28 +1131,123 @@ fn progress_tasks_for(tool_call: &ToolCallDisplay) -> Vec<TaskItem> {
 }
 
 fn extract_bash_command(arguments: &str) -> Option<String> {
-    let value = serde_json::from_str::<Value>(arguments).ok()?;
-    let object = value.as_object()?;
-    object.get("command").and_then(Value::as_str).map(ToString::to_string)
+    extract_string_argument(arguments, "command")
 }
 
 fn extract_edit_diff(arguments: &str) -> Option<String> {
-    let value = serde_json::from_str::<Value>(arguments).ok()?;
-    let object = value.as_object()?;
-    object.get("diff").and_then(Value::as_str).map(ToString::to_string)
+    extract_string_argument(arguments, "diff")
 }
 
-fn parse_bash_output(raw_output: &str) -> (String, i32) {
-    let Some(stripped) = raw_output.strip_prefix("Command exited with code ") else {
+fn extract_path_argument(arguments: &str) -> Option<String> {
+    extract_string_argument(arguments, "path")
+}
+
+fn extract_research_url(arguments: &str) -> Option<String> {
+    extract_string_argument(arguments, "url")
+}
+
+fn extract_string_argument(arguments: &str, key: &str) -> Option<String> {
+    let value = serde_json::from_str::<Value>(arguments).ok()?;
+    let object = value.as_object()?;
+    object.get(key).and_then(Value::as_str).map(ToString::to_string)
+}
+
+fn parse_bash_output(raw_output: &str, is_error: bool) -> (String, i32) {
+    if !is_error {
         return (raw_output.to_string(), 0);
+    }
+
+    let Some(stripped) = raw_output.strip_prefix("Command exited with code ") else {
+        return (raw_output.to_string(), 1);
     };
 
     let mut parts = stripped.splitn(2, '\n');
-    let code_str = parts.next().unwrap_or_default().trim();
-    let output = parts.next().unwrap_or_default().to_string();
-    let code = code_str.parse::<i32>().unwrap_or(-1);
+    let Some(code) = parts.next().unwrap_or_default().trim().parse::<i32>().ok() else {
+        return (raw_output.to_string(), 1);
+    };
 
+    let output = parts.next().unwrap_or_default().to_string();
     (output, code)
+}
+
+fn bash_visible_line_count(output: &str, max_visible_lines: usize) -> usize {
+    if max_visible_lines == 0 {
+        return 1;
+    }
+
+    let lines = output.lines().count().max(1);
+    if lines <= max_visible_lines {
+        lines
+    } else {
+        // One extra line for the "[N lines hidden]" truncation marker.
+        max_visible_lines + 1
+    }
+}
+
+fn split_numbered_line(line: &str) -> Option<(&str, &str)> {
+    let (number_part, content) = line.split_once('\t')?;
+    let number = number_part.trim();
+    if number.is_empty() || !number.chars().all(|ch| ch.is_ascii_digit()) {
+        return None;
+    }
+    Some((number, content))
+}
+
+fn parse_read_image_placeholder(output: &str) -> Option<String> {
+    let header = output.lines().next()?.trim();
+    let body = header.strip_prefix("[Image: ")?.strip_suffix(']')?;
+
+    let mut size = "unknown size".to_string();
+    let mut mime = "unknown".to_string();
+    for part in body.split(',').map(str::trim) {
+        if part.ends_with("bytes") {
+            size = part.to_string();
+        } else if let Some(value) = part.strip_prefix("mime: ") {
+            mime = value.to_string();
+        }
+    }
+
+    Some(format!("[image: {mime}, {size}]"))
+}
+
+fn extract_diff_path(diff: &str) -> Option<String> {
+    for line in diff.lines() {
+        if let Some(path) = line.strip_prefix("+++ b/") {
+            return Some(path.to_string());
+        }
+    }
+    None
+}
+
+fn format_write_success_line(output: &str) -> Option<String> {
+    let line = output.lines().next()?.trim();
+    let rest = line.strip_prefix("Wrote ")?;
+    let (byte_part, path) = rest.split_once(" to ")?;
+    let bytes = byte_part.strip_suffix(" bytes")?;
+    Some(format!("Wrote {bytes} bytes -> {path}"))
+}
+
+fn wrap_text_lines(content: &str, width: u16) -> Vec<String> {
+    let width = width.max(1) as usize;
+    let mut wrapped = Vec::new();
+
+    for line in content.lines() {
+        let chars = line.chars().collect::<Vec<_>>();
+        if chars.is_empty() {
+            wrapped.push(String::new());
+            continue;
+        }
+
+        for chunk in chars.chunks(width) {
+            wrapped.push(chunk.iter().collect());
+        }
+    }
+
+    if wrapped.is_empty() {
+        wrapped.push(String::new());
+    }
+
+    wrapped
 }
 
 fn draw_assistant_raw(frame: &mut Frame, area: Rect, content: &str, is_streaming: bool, created_at: DateTime<Utc>) {
@@ -1108,34 +1418,65 @@ fn collapse_blank_lines(content: &str) -> String {
     lines.join("\n")
 }
 
-fn format_tool_arguments(name: &str, raw_arguments: &str) -> String {
+fn format_tool_arguments(name: &str, raw_arguments: &str, terminal_width: u16) -> String {
     let parsed = serde_json::from_str::<Value>(raw_arguments);
     let Ok(value) = parsed else {
-        return format!("Args: {}", raw_arguments);
+        return raw_arguments.to_string();
     };
 
-    if name == "memory_recall"
-        && let Some(obj) = value.as_object()
-    {
-        let query = obj.get("query").and_then(Value::as_str).unwrap_or_default();
-        let count = obj.get("count").and_then(Value::as_u64).unwrap_or(5);
-        let kind = obj.get("kind").and_then(Value::as_str).unwrap_or("any");
-        return format!("query: {}  |  count: {}  |  kind: {}", query, count, kind);
-    }
+    let Some(obj) = value.as_object() else {
+        return format_json_compact(&value);
+    };
 
-    if let Some(obj) = value.as_object() {
-        let mut parts = Vec::new();
-        for (idx, (key, value)) in obj.iter().enumerate() {
-            if idx >= 4 {
-                parts.push(format!("+{} more", obj.len().saturating_sub(idx)));
-                break;
+    match name {
+        "read" => {
+            let path = obj.get("path").and_then(Value::as_str).unwrap_or("<path>");
+            let offset = obj.get("offset").and_then(Value::as_u64).unwrap_or(1);
+            if let Some(limit) = obj.get("limit").and_then(Value::as_u64) {
+                return format!("{path}  ({offset}..{})", offset + limit);
             }
-            parts.push(format!("{key}: {}", format_json_compact(value)));
+            if obj.contains_key("offset") {
+                return format!("{path}  (from {offset})");
+            }
+            path.to_string()
         }
-        return format!("Args: {}", parts.join("  |  "));
+        "write" => obj.get("path").and_then(Value::as_str).unwrap_or("<path>").to_string(),
+        "edit" => obj
+            .get("diff")
+            .and_then(Value::as_str)
+            .and_then(extract_diff_path)
+            .or_else(|| obj.get("path").and_then(Value::as_str).map(ToString::to_string))
+            .unwrap_or_else(|| "<path>".to_string()),
+        "bash" => {
+            let command = obj.get("command").and_then(Value::as_str).unwrap_or("bash");
+            truncate_for_width(command, terminal_width.saturating_sub(18))
+        }
+        "research" => obj.get("url").and_then(Value::as_str).unwrap_or("<url>").to_string(),
+        "memory_store" => {
+            let kind = obj.get("kind").and_then(Value::as_str).unwrap_or("fact");
+            let content = obj.get("content").and_then(Value::as_str).unwrap_or("");
+            let snippet_width = terminal_width.saturating_sub(24).clamp(24, 64) as usize;
+            let snippet = truncate_text(content, snippet_width);
+            format!("{kind}: {snippet}")
+        }
+        "memory_recall" => {
+            let query = obj.get("query").and_then(Value::as_str).unwrap_or_default();
+            let count = obj.get("count").and_then(Value::as_u64).unwrap_or(5);
+            let kind = obj.get("kind").and_then(Value::as_str).unwrap_or("any");
+            format!("query: {query}  |  count: {count}  |  kind: {kind}")
+        }
+        _ => {
+            let mut parts = Vec::new();
+            for (idx, (key, value)) in obj.iter().enumerate() {
+                if idx >= 4 {
+                    parts.push(format!("+{} more", obj.len().saturating_sub(idx)));
+                    break;
+                }
+                parts.push(format!("{key}: {}", format_json_compact(value)));
+            }
+            format!("Args: {}", parts.join("  |  "))
+        }
     }
-
-    format!("Args: {}", format_json_compact(&value))
 }
 
 fn format_tool_output(name: &str, raw_output: &str) -> String {
@@ -1179,6 +1520,26 @@ fn format_json_compact(value: &Value) -> String {
             }
         }
     }
+}
+
+fn truncate_for_width(value: &str, width: u16) -> String {
+    truncate_text(value, width.max(8) as usize)
+}
+
+fn truncate_text(value: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
+    }
+
+    let chars = value.chars().collect::<Vec<_>>();
+    if chars.len() <= max_chars {
+        return value.to_string();
+    }
+
+    let keep = max_chars.saturating_sub(1);
+    let mut truncated = chars.into_iter().take(keep).collect::<String>();
+    truncated.push('…');
+    truncated
 }
 
 fn draw_assistant_sections(frame: &mut Frame, area: Rect, sections: &ResponseSections, created_at: DateTime<Utc>) {
@@ -1304,26 +1665,48 @@ fn estimate_tool_call_height(tool_call: &ToolCallDisplay, width: u16) -> u16 {
         return ToolCallCard::collapsed_height();
     }
 
-    let body_height = if matches!(tool_call.status, ToolCallStatus::Pending | ToolCallStatus::Running) {
-        5
-    } else {
-        match tool_call.name.as_str() {
-            "edit" => extract_edit_diff(&tool_call.arguments)
-                .map(|diff| parse_diff(&diff).len() as u16)
-                .map(|line_count| line_count.clamp(1, 10) + 2)
-                .unwrap_or(6),
-            "bash" => {
-                let (output, _) = parse_bash_output(tool_call.output.as_deref().unwrap_or(""));
-                (wrapped_line_count(&output, width.saturating_sub(4)) as u16).clamp(1, 10) + 2
-            }
-            _ => {
-                let output = tool_call.output.as_deref().unwrap_or("");
-                (wrapped_line_count(output, width.saturating_sub(4)) as u16).clamp(1, 10) + 2
-            }
-        }
-    };
+    let body_height = tool_call_expanded_height(tool_call, width);
 
     ToolCallCard::collapsed_height() + body_height
+}
+
+fn tool_call_expanded_height(tool_call: &ToolCallDisplay, width: u16) -> u16 {
+    if matches!(tool_call.status, ToolCallStatus::Pending | ToolCallStatus::Running) {
+        return 5;
+    }
+
+    match tool_call.name.as_str() {
+        "read" => {
+            let output = format_tool_output("read", tool_call.output.as_deref().unwrap_or_default());
+            let line_count = if tool_call.status == ToolCallStatus::Error {
+                output.lines().count().max(1)
+            } else {
+                build_read_output_lines(&output).len().max(1)
+            } as u16;
+            line_count.clamp(1, 20) + 1
+        }
+        "write" => 1,
+        "edit" => extract_edit_diff(&tool_call.arguments)
+            .map(|diff| parse_diff(&diff).len() as u16)
+            .map(|line_count| line_count.clamp(1, 15) + 1)
+            .unwrap_or(3),
+        "bash" => {
+            let (output, _) = parse_bash_output(
+                tool_call.output.as_deref().unwrap_or_default(),
+                tool_call.status == ToolCallStatus::Error,
+            );
+            let output = format_tool_output("bash", &output);
+            (bash_visible_line_count(&output, BASH_MAX_VISIBLE_LINES) as u16).clamp(1, 15) + 2
+        }
+        "research" => {
+            let output = format_tool_output("research", tool_call.output.as_deref().unwrap_or_default());
+            (wrapped_line_count(&output, width.saturating_sub(4)) as u16).clamp(1, 15) + 1
+        }
+        _ => {
+            let output = format_tool_output(&tool_call.name, tool_call.output.as_deref().unwrap_or_default());
+            (wrapped_line_count(&output, width.saturating_sub(4)) as u16).clamp(1, 10) + 2
+        }
+    }
 }
 
 fn constraint_length(constraint: &Constraint) -> u16 {
@@ -1865,9 +2248,38 @@ mod tests {
 
     #[test]
     fn test_format_tool_arguments_memory_recall() {
-        let formatted = format_tool_arguments("memory_recall", r#"{"query":"style","count":5}"#);
+        let formatted = format_tool_arguments("memory_recall", r#"{"query":"style","count":5}"#, 120);
         assert!(formatted.contains("query: style"));
         assert!(formatted.contains("count: 5"));
+    }
+
+    #[test]
+    fn test_format_tool_arguments_read_includes_range() {
+        let formatted = format_tool_arguments("read", r#"{"path":"src/lib.rs","offset":10,"limit":5}"#, 120);
+        assert_eq!(formatted, "src/lib.rs  (10..15)");
+    }
+
+    #[test]
+    fn test_format_tool_arguments_edit_prefers_diff_path() {
+        let formatted = format_tool_arguments(
+            "edit",
+            r#"{"path":"src/old.rs","diff":"--- a/src/old.rs\n+++ b/src/new.rs\n@@ -1 +1 @@\n-old\n+new"}"#,
+            120,
+        );
+        assert_eq!(formatted, "src/new.rs");
+    }
+
+    #[test]
+    fn test_parse_read_image_placeholder() {
+        let output = "[Image: 123 bytes, mime: image/png]\nbase64:AAAA";
+        let placeholder = parse_read_image_placeholder(output).expect("placeholder should parse");
+        assert_eq!(placeholder, "[image: image/png, 123 bytes]");
+    }
+
+    #[test]
+    fn test_format_write_success_line() {
+        let formatted = format_write_success_line("Wrote 42 bytes to src/main.rs").expect("line should parse");
+        assert_eq!(formatted, "Wrote 42 bytes -> src/main.rs");
     }
 
     #[test]
@@ -1879,9 +2291,24 @@ mod tests {
 
     #[test]
     fn test_parse_bash_output_with_error_prefix() {
-        let (output, code) = parse_bash_output("Command exited with code 2\nstderr text");
+        let (output, code) = parse_bash_output("Command exited with code 2\nstderr text", true);
         assert_eq!(code, 2);
         assert_eq!(output, "stderr text");
+    }
+
+    #[test]
+    fn test_parse_bash_output_success_keeps_literal_prefix_text() {
+        let literal = "Command exited with code 2\nbut this is command output";
+        let (output, code) = parse_bash_output(literal, false);
+        assert_eq!(code, 0);
+        assert_eq!(output, literal);
+    }
+
+    #[test]
+    fn test_parse_bash_output_error_without_prefix_defaults_to_non_zero_exit() {
+        let (output, code) = parse_bash_output("Command timed out after 120 seconds", true);
+        assert_eq!(code, 1);
+        assert_eq!(output, "Command timed out after 120 seconds");
     }
 
     #[test]
