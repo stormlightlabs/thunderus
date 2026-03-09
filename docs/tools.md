@@ -1,272 +1,102 @@
-# Tool Specification
+# Tool System Guide
 
-Tools are functions the agent can invoke during a conversation. Each tool is exposed to the LLM via the provider's tool-calling protocol (see `providers.md` for wire format per provider).
+This document describes how tools are registered, exposed to models, executed, and returned back into the conversation loop.
 
-## 1. Web Search - Brave Search API
+## Current Tool Inventory
 
-### Why Brave
+Thunderus currently exposes seven runtime tools:
 
-Privacy-respecting, independent index, generous free tier (2K queries/month), single API key auth, clean JSON responses. No Google/Bing dependency.
+| Tool            | Category | Defined In                   | Executed In                   |
+| --------------- | -------- | ---------------------------- | ----------------------------- |
+| `read`          | base     | `crates/tools/src/schema.rs` | `crates/tools/src/runtime.rs` |
+| `write`         | base     | `crates/tools/src/schema.rs` | `crates/tools/src/runtime.rs` |
+| `edit`          | base     | `crates/tools/src/schema.rs` | `crates/tools/src/runtime.rs` |
+| `bash`          | base     | `crates/tools/src/schema.rs` | `crates/tools/src/runtime.rs` |
+| `research`      | base     | `crates/tools/src/schema.rs` | `crates/tools/src/runtime.rs` |
+| `memory_store`  | memory   | `crates/tools/src/schema.rs` | `crates/tools/src/runtime.rs` |
+| `memory_recall` | memory   | `crates/tools/src/schema.rs` | `crates/tools/src/runtime.rs` |
 
-### API Reference
+There is no query-based `web_search` function tool in runtime today. Web/document retrieval is handled by `research` (URL fetch + extraction).
 
-**Base URL:** `https://api.search.brave.com/res/v1`
+## End-to-End Tool Flow
 
-**Auth:**
+1. System prompt assembly:
+    - `crates/core/src/prompt.rs` builds one system prompt from:
+        - `meta/PROMPT.txt`
+        - `meta/RESPONSE.txt`
+        - `meta/TOOLS.txt`
+2. Tool schema assembly:
+    - `thndrs_tools::get_tool_schemas()` is called in `crates/providers/src/conversation_loop.rs`.
+    - Core tools are read from `meta/TOOLS.txt` (`core_tools_from_meta()`), then memory tools are appended.
+3. Provider serialization:
+    - `ToolDefinition::from_schema(...)` converts each tool to provider wire format.
+    - Current provider implementation is OpenAI-compatible function calling.
+4. Model tool call:
+    - Provider returns tool calls with `id`, `name`, and parsed JSON arguments.
+5. Runtime execution:
+    - `thndrs_tools::execute_tool(...)` dispatches by tool name in `crates/tools/src/lib.rs`.
+6. Tool result return:
+    - Runtime returns `ToolResult { status, content }`.
+    - Conversation loop wraps this into provider payload and sends it back as a tool message.
+7. Iteration:
+    - Loop repeats until model returns final assistant content (or max tool iterations reached).
 
-```text
-X-Subscription-Token: {api_key}
-Accept: application/json
-```
+## Source Of Truth
 
-### Endpoints
+For tool setup, each file has a specific responsibility:
 
-| Endpoint     | Method | Path                 | Free Tier             |
-| ------------ | ------ | -------------------- | --------------------- |
-| Web Search   | GET    | `/web/search`        | Yes                   |
-| News Search  | GET    | `/news/search`       | No                    |
-| Image Search | GET    | `/images/search`     | No                    |
-| Video Search | GET    | `/videos/search`     | No                    |
-| Summarizer   | GET    | `/summarizer/search` | No (Data for AI plan) |
+- `meta/TOOLS.txt`: human-readable tool list shown in the system prompt.
+- `crates/tools/src/schema.rs`: actual JSON Schema and tool descriptions sent to the model.
+- `crates/tools/src/lib.rs`: registry + dispatch (`get_tool_schemas`, `execute_tool`).
+- `crates/tools/src/runtime.rs`: tool behavior, sandbox controls, limits, and error text.
+- `crates/providers/src/conversation_loop.rs`: orchestration of model calls and tool results.
 
-We use **Web Search** only. It returns web results, news, discussions, FAQ, and infobox in a single call - the other endpoints are redundant for agent use.
+Keep these in sync whenever adding/removing/renaming tools.
 
-### Request
+## Result Envelope
 
-```text
-GET /res/v1/web/search?q={query}&count={count}&...
-```
-
-| Parameter          | Type   | Required | Default      | Description                                                                               |
-| ------------------ | ------ | -------- | ------------ | ----------------------------------------------------------------------------------------- |
-| `q`                | string | Yes      | -            | Search query. Max 400 chars.                                                              |
-| `count`            | int    | No       | 20           | Results per page. 1–20.                                                                   |
-| `offset`           | int    | No       | 0            | Page offset. 0–9.                                                                         |
-| `country`          | string | No       | `"US"`       | ISO 3166-1 alpha-2                                                                        |
-| `search_lang`      | string | No       | `"en"`       | BCP 47 language                                                                           |
-| `safesearch`       | string | No       | `"moderate"` | `"off"` / `"moderate"` / `"strict"`                                                       |
-| `freshness`        | string | No       | -            | `"pd"` (day), `"pw"` (week), `"pm"` (month), `"py"` (year), or `"YYYY-MM-DDtoYYYY-MM-DD"` |
-| `result_filter`    | string | No       | -            | Comma-separated: `web`, `news`, `discussions`, `faq`, `infobox`, `videos`                 |
-| `extra_snippets`   | bool   | No       | false        | Up to 5 extra text snippets per result (paid)                                             |
-| `text_decorations` | bool   | No       | true         | Bold/italic markup in snippets                                                            |
-| `spellcheck`       | bool   | No       | true         | Suggest corrected query                                                                   |
-
-### Response (relevant fields only)
-
-```json
-{
-  "query": {
-    "original": "string",
-    "altered": "string | null",
-    "spellcheck_off": bool
-  },
-  "web": {
-    "results": [
-      {
-        "title": "string",
-        "url": "string",
-        "description": "string",
-        "age": "string",                    // "2 hours ago"
-        "page_age": "string",              // ISO 8601
-        "extra_snippets": ["string"],
-        "meta_url": {
-          "hostname": "string",
-          "favicon": "string"
-        }
-      }
-    ]
-  },
-  "news": {
-    "results": [
-      {
-        "title": "string",
-        "url": "string",
-        "description": "string",
-        "age": "string",
-        "meta_url": { "hostname": "string" }
-      }
-    ]
-  },
-  "discussions": {
-    "results": [
-      {
-        "title": "string",
-        "url": "string",
-        "description": "string",
-        "data": {
-          "forum_name": "string",
-          "num_answers": int,
-          "question": "string",
-          "top_comment": "string"
-        }
-      }
-    ]
-  },
-  "infobox": {
-    "results": [
-      {
-        "title": "string",
-        "description": "string",
-        "long_desc": "string",
-        "url": "string",
-        "attributes": [["label", "value"]]
-      }
-    ]
-  },
-  "faq": {
-    "results": [
-      {
-        "question": "string",
-        "answer": "string",
-        "title": "string",
-        "url": "string"
-      }
-    ]
-  }
-}
-```
-
-All sections (`web`, `news`, `discussions`, `infobox`, `faq`) are optional in the response - only present when results exist.
-
-### Error Response
+All runtime tool results are normalized to:
 
 ```json
 {
-  "status": int,
-  "code": int,
-  "detail": "string"
+  "status": "success" | "error",
+  "content": "string",
+  "tool_use_id": "string (optional)"
 }
 ```
 
-| Status | Meaning                       |
-| ------ | ----------------------------- |
-| 401    | Invalid API key               |
-| 403    | Plan doesn't support endpoint |
-| 422    | Parameter validation failed   |
-| 429    | Rate limit exceeded           |
+`tool_use_id` is populated when the conversation loop binds the result to a specific model-emitted tool call ID.
 
-### Rate Limits
+## Safety And Limits
 
-| Plan        | Queries/Month | $/Month         | Extra Snippets | Summarizer |
-| ----------- | ------------- | --------------- | -------------- | ---------- |
-| Free        | 2,000         | 0               | No             | No         |
-| Basic       | 20,000        | ~5              | Yes            | No         |
-| Pro         | Pay-per-use   | ~3–5/1K queries | Yes            | No         |
-| Data for AI | Enterprise    | Contact         | Yes            | Yes        |
+Safety controls are implemented in `crates/tools/src/runtime.rs`:
 
-Free tier: ~1 req/sec. Paid tiers have higher rate limits.
+- Path sandboxing for file tools (`ToolContext::resolve_path`).
+- Read limits: text reads capped at 2000 lines per call.
+- Write limits: content capped at 10 MB.
+- Shell limits: `bash` timeout 120 seconds, output capped at 100 KB.
+- Research limits: HTTPS only, private-host checks, 30-second timeout, 50 KB output cap.
 
-## Tool Definition (LLM-Facing)
+## Adding A New Tool
 
-This is the schema exposed to the model via the provider's tool-calling mechanism.
+1. Add schema constructor in `crates/tools/src/schema.rs`.
+2. Add runtime executor in `crates/tools/src/runtime.rs`.
+3. Register dispatch arm in `crates/tools/src/lib.rs::execute_tool`.
+4. Include it in `get_tool_schemas()`.
+5. Add docs in `docs/base-tools.md` (or the appropriate tool doc).
+6. Update `meta/TOOLS.txt` and `meta/PROMPT.txt` guidance.
+7. Add/extend tests:
+    - schema tests in `crates/tools/src/schema.rs`
+    - runtime tests in `crates/tools/src/runtime.rs`
+    - conversation-loop schema conversion tests in `crates/providers/src/conversation_loop.rs`
 
-### `web_search`
+## Verification Commands
 
-```json
-{
-  "name": "web_search",
-  "description": "Search the web for current information. Use this when you need up-to-date facts, recent events, documentation, or anything beyond your training data.",
-  "parameters": {
-    "type": "object",
-    "properties": {
-      "query": {
-        "type": "string",
-        "description": "The search query. Be specific and use keywords."
-      },
-      "count": {
-        "type": "integer",
-        "description": "Number of results to return (1-20).",
-        "default": 5
-      },
-      "freshness": {
-        "type": "string",
-        "description": "Filter by recency: 'pd' (past day), 'pw' (past week), 'pm' (past month), 'py' (past year)."
-      }
-    },
-    "required": ["query"]
-  }
-}
+From repo root:
+
+```bash
+cargo test -p tools
+cargo test -p core
 ```
 
-Keep the tool schema minimal. The agent doesn't need `country`, `search_lang`, `safesearch`, or `result_filter` - those are set by the runtime based on user config.
-
-### Parameter Mapping
-
-When the agent calls `web_search`, the runtime maps it to a Brave API request:
-
-| Tool Parameter  | Brave Parameter    | Notes                                        |
-| --------------- | ------------------ | -------------------------------------------- |
-| `query`         | `q`                | Direct pass-through                          |
-| `count`         | `count`            | Clamp to 1–20                                |
-| `freshness`     | `freshness`        | Pass-through if set                          |
-| _(from config)_ | `country`          | User config or default `"US"`                |
-| _(from config)_ | `search_lang`      | User config or default `"en"`                |
-| _(hardcoded)_   | `safesearch`       | Always `"moderate"`                          |
-| _(hardcoded)_   | `text_decorations` | Always `false` (cleaner for LLM consumption) |
-| _(hardcoded)_   | `result_filter`    | `"web,news,discussions,faq,infobox"`         |
-
-### Response Mapping
-
-The raw Brave response is too verbose for the model's context window. The runtime should flatten and trim it before returning as the tool result.
-
-**Flattened tool result format:**
-
-```json
-{
-  "results": [
-    {
-      "type": "web",
-      "title": "string",
-      "url": "string",
-      "snippet": "string",
-      "age": "string"
-    },
-    {
-      "type": "news",
-      "title": "string",
-      "url": "string",
-      "snippet": "string",
-      "age": "string"
-    },
-    {
-      "type": "discussion",
-      "title": "string",
-      "url": "string",
-      "forum": "string",
-      "question": "string",
-      "top_answer": "string"
-    },
-    {
-      "type": "faq",
-      "question": "string",
-      "answer": "string",
-      "url": "string"
-    }
-  ],
-  "infobox": {
-    "title": "string",
-    "description": "string",
-    "attributes": [["label", "value"]]
-  },
-  "query_corrected": "string | null"
-}
-```
-
-**Mapping rules:**
-
-1. Web results: `description` → `snippet`. Drop `meta_url`, `page_age`, `thumbnail`, `extra_snippets`.
-2. News: same as web.
-3. Discussions: extract `data.forum_name` → `forum`, `data.top_comment` → `top_answer`.
-4. FAQ: pass through as-is.
-5. Infobox: take first result only. Drop `profiles`, `ratings`, `images`.
-6. Set `query_corrected` from `query.altered` if present.
-7. Cap total results at 10 to limit token usage.
-
-## Implementation Notes
-
-1. **API key source.** Read from `BRAVE_API_KEY` env var or user config file. Never hardcode.
-2. **Timeout.** Set HTTP timeout to 10 seconds. Brave is fast but network issues happen.
-3. **Retry.** Retry once on 429 (rate limit) with a 1-second backoff. Don't retry on 4xx errors.
-4. **Token budget.** The flattened result for 10 results is ~1K–2K tokens. This leaves plenty of room in the context window.
-5. **No summarizer.** The summarizer endpoint requires an enterprise plan and a two-step flow. Skip it - the LLM can synthesize results itself.
-6. **`text_decorations: false`** - Brave adds `<strong>` tags to snippets by default. Disable for cleaner LLM input.
+Use `cargo check --workspace` for a broader compile check.

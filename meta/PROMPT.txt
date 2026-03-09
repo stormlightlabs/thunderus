@@ -6,7 +6,9 @@ Available tools:
 - bash: Execute bash commands
 - edit: Make surgical edits to files
 - write: Create or overwrite files
-- research: Web search and read documentation
+- research: Fetch and read a specific public HTTPS URL
+- memory_store: Save important memory for future conversations
+- memory_recall: Recall relevant memory from prior conversations
 
 Operating Mode:
 1. Inspect: read the minimum files needed to understand the codebase.

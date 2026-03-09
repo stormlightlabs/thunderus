@@ -148,17 +148,17 @@ User-facing configuration and documentation inside the TUI.
 
 ### Milestone 7 - Web Search
 
-The agent gains web search through Brave Search.
+The agent gains web search through Tavily Search.
 
 #### Tools
 
-- `web_search` tool - Brave Search API integration (`/res/v1/web/search`)
-- Response flattening (raw Brave response → trimmed result for model context)
+- `web_search` tool - Tavily Search API integration (`/res/v1/web/search`)
+- Response flattening (raw Tavily response → trimmed result for model context)
 
 #### CLI
 
-- `thunderus debug search <query>` - exercise Brave Search directly, print flattened results
-- `BRAVE_API_KEY` env var support
+- `thunderus debug search <query>` - exercise Tavily Search directly, print flattened results
+- `TAVILY_API_KEY` env var support
 
 ### Milestone 8 - Additional Providers
 

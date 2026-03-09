@@ -1,7 +1,7 @@
 read
   Read the contents of a file. Supports text files and images (jpg, png,
-  gif, webp). Images are sent as attachments. For text files, defaults to
-  first 2000 lines. Use offset/limit for large files.
+  gif, webp). Images are returned as base64 payloads. For text files,
+  defaults to first 2000 lines. Use offset/limit for large files.
   - path: Path to the file to read (relative or absolute)
   - offset: Line number to start reading from (1-indexed)
   - limit: Maximum number of lines to read
@@ -21,8 +21,21 @@ bash
   - command: The shell command to run
 
 research
-  Search the web for authoritative documentation/specs when needed.
+  Fetch and read a specific public HTTPS URL.
   Use for: API docs, library behavior, standards, CLI flags, recent changes.
   Do NOT use for: secrets, credentials, proprietary/private content.
-  Only use for external info; don't run arbitrary network commands unless requested.
-  - url: the url to fetch
+  - url: The URL to fetch
+
+memory_store
+  Save durable memory for future conversations.
+  Use for: facts, preferences, procedures, or persistent context.
+  - content: The memory content to store
+  - kind: One of fact, preference, procedure, context
+  - tags: Optional list of tag strings
+
+memory_recall
+  Search previously stored memory.
+  Use for: recalling preferences, prior decisions, known facts, or procedures.
+  - query: Search query for relevant memory
+  - kind: Optional filter (fact, preference, procedure, context)
+  - count: Optional result count (1-20)

@@ -64,7 +64,7 @@ impl Tool {
 
         Self {
             name: "read".to_string(),
-            description: "Read the contents of a file. Returns line-numbered text for text files, or an image attachment for image files. Defaults to the first 2000 lines. Use offset and limit to paginate large files.".to_string(),
+            description: "Read the contents of a file. Returns line-numbered text for text files, or a base64-encoded image payload for image files. Defaults to the first 2000 lines. Use offset and limit to paginate large files.".to_string(),
             parameters: params,
         }
     }

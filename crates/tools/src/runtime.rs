@@ -4,7 +4,7 @@
 
 use similar::TextDiff;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use thndrs_mem::{MemoryDatabase, MemoryKind, MemoryStore};
 use tokio::process::Command;
 use tokio::time::{Duration, timeout};
@@ -94,22 +94,48 @@ impl ToolContext {
     pub fn resolve_path(&self, path: impl AsRef<Path>) -> Result<PathBuf, String> {
         let path = path.as_ref();
         let resolved = if path.is_absolute() { path.to_path_buf() } else { self.sandbox_path.join(path) };
-
-        let canonical = resolved.canonicalize().unwrap_or_else(|_| resolved.clone());
+        let normalized = normalize_path(&resolved);
         let canonical_sandbox = self
             .sandbox_path
             .canonicalize()
-            .unwrap_or_else(|_| self.sandbox_path.clone());
+            .unwrap_or_else(|_| normalize_path(&self.sandbox_path));
 
-        if !canonical.starts_with(&canonical_sandbox) {
+        let candidate = if normalized.exists() {
+            normalized.canonicalize().unwrap_or_else(|_| normalized.clone())
+        } else {
+            let Some(parent) = normalized.parent() else {
+                return Err(format!("Invalid path: {}", path.display()));
+            };
+            parent.canonicalize().unwrap_or_else(|_| normalize_path(parent))
+        };
+
+        if !candidate.starts_with(&canonical_sandbox) {
             return Err(format!(
                 "Path traversal detected: {} is outside sandbox",
                 path.display()
             ));
         }
 
-        Ok(resolved)
+        Ok(normalized)
     }
+}
+
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+
+    for component in path.components() {
+        match component {
+            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            Component::RootDir => normalized.push(component.as_os_str()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            Component::Normal(part) => normalized.push(part),
+        }
+    }
+
+    normalized
 }
 
 /// Trait for tool executors
@@ -938,6 +964,39 @@ mod tests {
         let ctx = ToolContext::new("/home/user/repo");
         let result = ctx.resolve_path("src/main.rs");
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_tool_context_rejects_parent_traversal_for_missing_target() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let sandbox = std::env::temp_dir().join(format!("thunderus-sandbox-{}", unique));
+        std::fs::create_dir_all(&sandbox).unwrap();
+
+        let ctx = ToolContext::new(&sandbox);
+        let result = ctx.resolve_path("../outside.txt");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_tool_context_rejects_absolute_outside_for_missing_target() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let sandbox = std::env::temp_dir().join(format!("thunderus-sandbox-{}", unique));
+        std::fs::create_dir_all(&sandbox).unwrap();
+
+        let outside = sandbox
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("/"))
+            .join(format!("outside-{}.txt", unique));
+
+        let ctx = ToolContext::new(&sandbox);
+        let result = ctx.resolve_path(&outside);
+        assert!(result.is_err());
     }
 
     #[test]
