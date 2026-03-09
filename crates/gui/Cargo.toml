@@ -6,13 +6,17 @@ edition = "2024"
 [dependencies]
 thndrs-core = { path = "../core" }
 thndrs-providers = { path = "../providers" }
+thndrs-mem = { path = "../memory" }
 
-iced = { version = "0.14", features = ["tokio"] }
+iced = { version = "0.14", features = ["tokio", "markdown", "highlighter"] }
 rfd = "0.17"
 dirs = "6"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1", features = ["rt-multi-thread", "time"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+tracing-appender = "0.2"
 
 [lints]
 workspace = true

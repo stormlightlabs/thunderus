@@ -1,13 +1,30 @@
 use iced::Color;
+use iced::widget::markdown;
 use iced::widget::text_editor;
+use serde_json::Value;
+use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 use thndrs_core::Conversation;
 
 const INPUT_MIN_LINES: usize = 2;
 const INPUT_MAX_LINES: usize = 10;
 const INPUT_LINE_HEIGHT: f32 = 20.0;
+const MAX_FILE_TREE_ENTRIES: usize = 280;
+const MAX_FILE_TREE_DEPTH: usize = 3;
+const MAX_TOOL_PREVIEW_CHARS: usize = 2_400;
+const MAX_TOOL_PREVIEW_LINES: usize = 48;
+
+const BUILTIN_SLASH_COMMANDS: [(&str, &str); 7] = [
+    ("/help", "Show help, shortcuts, and command list"),
+    ("/clear", "Clear the current session transcript"),
+    ("/model", "Switch or inspect active model"),
+    ("/tokens", "Show token usage details"),
+    ("/mcp", "List active MCP servers and tools"),
+    ("/skills", "List available skills"),
+    ("/debug log", "Show recent session logs"),
+];
 
 #[derive(Debug, Clone, Default)]
 pub struct BootstrapState {
@@ -29,6 +46,12 @@ pub enum ModelMessage {
     SubmitPrompt,
     RequestWorkspacePicker,
     WorkspacePicked(Option<PathBuf>),
+    WorkspaceFilesLoaded(Vec<FileTreeEntry>),
+    SelectTurn(usize),
+    ToggleToolAction { turn_index: usize, action_index: usize },
+    ApplyComposerSuggestion(ComposerSuggestion),
+    OpenMarkdownLink(String),
+    Tick,
     BackendEvent(BackendEvent),
 }
 
@@ -37,6 +60,7 @@ pub enum Effect {
     DispatchPrompt(String),
     OpenWorkspacePicker,
     ActivateWorkspace(PathBuf),
+    LoadWorkspaceFiles(PathBuf),
     PersistState,
 }
 
@@ -44,11 +68,17 @@ pub enum Effect {
 pub struct AppModel {
     pub conversation: Conversation,
     pub turns: Vec<ConversationTurn>,
+    pub sessions: Vec<SessionSummary>,
+    pub selected_turn: Option<usize>,
+    pub workspace_files: Vec<FileTreeEntry>,
+    pub composer_suggestions: Vec<ComposerSuggestion>,
     pub composer: text_editor::Content,
     pub composer_text: String,
     pub active_turn: Option<usize>,
     pub tool_call_lookup: HashMap<String, usize>,
     pub streaming: bool,
+    pub activity: ActivityState,
+    pub animation_tick: u64,
     pub status_text: Option<String>,
     pub error_text: Option<String>,
     pub last_model: Option<String>,
@@ -63,19 +93,28 @@ impl AppModel {
             (None, None) => Some("Select a workspace folder to start".to_string()),
         };
 
-        Self {
+        let mut model = Self {
             conversation: Conversation::with_default_system_prompt(),
             turns: Vec::new(),
+            sessions: Vec::new(),
+            selected_turn: None,
+            workspace_files: Vec::new(),
+            composer_suggestions: Vec::new(),
             composer: text_editor::Content::with_text(&bootstrap.composer_text),
             composer_text: bootstrap.composer_text,
             active_turn: None,
             tool_call_lookup: HashMap::new(),
             streaming: false,
+            activity: ActivityState::Idle,
+            animation_tick: 0,
             status_text,
             error_text: None,
             last_model: bootstrap.last_model,
             workspace_root: bootstrap.workspace_root,
-        }
+        };
+
+        refresh_composer_suggestions(&mut model);
+        model
     }
 
     fn current_turn_mut(&mut self) -> Option<&mut ConversationTurn> {
@@ -95,14 +134,22 @@ impl AppModel {
     pub fn input_height(&self) -> f32 {
         self.input_line_count() as f32 * INPUT_LINE_HEIGHT + 16.0
     }
+
+    pub fn spinner_frame(&self) -> &'static str {
+        const FRAMES: [&str; 8] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"];
+        FRAMES[(self.animation_tick as usize) % FRAMES.len()]
+    }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct ConversationTurn {
     pub prompt: String,
     pub intent: String,
+    pub thinking: Vec<String>,
     pub actions: Vec<ToolAction>,
     pub result: String,
+    pub result_markdown: Vec<markdown::Item>,
+    pub error: Option<String>,
     pub next: String,
     pub state: TurnState,
 }
@@ -112,21 +159,45 @@ impl ConversationTurn {
         Self {
             intent: derive_intent(&prompt),
             prompt,
+            thinking: Vec::new(),
             actions: Vec::new(),
             result: String::new(),
-            next: "Waiting for completion".to_string(),
+            result_markdown: Vec::new(),
+            error: None,
+            next: "Agent is analyzing your request.".to_string(),
             state: TurnState::Running,
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct ToolAction {
     pub id: String,
     pub name: String,
     pub arguments: String,
     pub result: String,
     pub status: ToolActionStatus,
+    pub expanded: bool,
+    pub diff_preview: Option<DiffPreview>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiffPreview {
+    pub title: String,
+    pub lines: Vec<DiffLine>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiffLine {
+    pub kind: DiffLineKind,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiffLineKind {
+    Added,
+    Removed,
+    Context,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,6 +211,16 @@ pub enum ToolActionStatus {
 pub enum TurnState {
     Running,
     Completed,
+    Failed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActivityState {
+    Idle,
+    Dispatching,
+    Thinking,
+    RunningTools,
+    Streaming,
     Failed,
 }
 
@@ -196,6 +277,34 @@ pub struct LayoutContract {
     pub palette: PaletteContract,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionSummary {
+    pub turn_index: usize,
+    pub title: String,
+    pub state: TurnState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileTreeEntry {
+    pub relative_path: String,
+    pub depth: usize,
+    pub is_dir: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ComposerSuggestion {
+    pub label: String,
+    pub detail: String,
+    pub insert_text: String,
+    pub mode: ComposerSuggestionMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComposerSuggestionMode {
+    SlashCommand,
+    FileMention,
+}
+
 pub const DESIGN_LAYOUT_CONTRACT: LayoutContract = LayoutContract {
     sections: [
         SectionKind::Intent,
@@ -241,6 +350,7 @@ pub fn update_model(model: &mut AppModel, message: ModelMessage) -> Vec<Effect> 
         ModelMessage::ComposerEdited(action) => {
             model.composer.perform(action);
             model.composer_text = model.composer.text();
+            refresh_composer_suggestions(model);
             vec![Effect::PersistState]
         }
         ModelMessage::SubmitPrompt => {
@@ -249,6 +359,37 @@ pub fn update_model(model: &mut AppModel, message: ModelMessage) -> Vec<Effect> 
         }
         ModelMessage::RequestWorkspacePicker => vec![Effect::OpenWorkspacePicker],
         ModelMessage::WorkspacePicked(path) => set_workspace(model, path),
+        ModelMessage::WorkspaceFilesLoaded(files) => {
+            model.workspace_files = files;
+            refresh_composer_suggestions(model);
+            Vec::new()
+        }
+        ModelMessage::SelectTurn(turn_index) => {
+            if turn_index < model.turns.len() {
+                model.selected_turn = Some(turn_index);
+            }
+            Vec::new()
+        }
+        ModelMessage::ToggleToolAction { turn_index, action_index } => {
+            if let Some(turn) = model.turns.get_mut(turn_index)
+                && let Some(action) = turn.actions.get_mut(action_index)
+            {
+                action.expanded = !action.expanded;
+            }
+            Vec::new()
+        }
+        ModelMessage::ApplyComposerSuggestion(suggestion) => {
+            apply_composer_suggestion(model, &suggestion);
+            vec![Effect::PersistState]
+        }
+        ModelMessage::OpenMarkdownLink(uri) => {
+            model.status_text = Some(format!("Link clicked: {uri}"));
+            Vec::new()
+        }
+        ModelMessage::Tick => {
+            model.animation_tick = model.animation_tick.wrapping_add(1);
+            Vec::new()
+        }
         ModelMessage::BackendEvent(event) => apply_backend_event(model, event),
     }
 }
@@ -260,10 +401,21 @@ fn set_workspace(model: &mut AppModel, workspace_root: Option<PathBuf>) -> Vec<E
     };
 
     model.workspace_root = Some(workspace_root.clone());
+    model.turns.clear();
+    model.sessions.clear();
+    model.selected_turn = None;
+    model.active_turn = None;
+    model.tool_call_lookup.clear();
+    model.streaming = false;
+    model.activity = ActivityState::Idle;
     model.status_text = Some("Workspace ready".to_string());
     model.error_text = None;
 
-    vec![Effect::ActivateWorkspace(workspace_root), Effect::PersistState]
+    vec![
+        Effect::ActivateWorkspace(workspace_root.clone()),
+        Effect::LoadWorkspaceFiles(workspace_root),
+        Effect::PersistState,
+    ]
 }
 
 fn submit_prompt(model: &mut AppModel, raw_prompt: &str) -> Vec<Effect> {
@@ -284,12 +436,21 @@ fn submit_prompt(model: &mut AppModel, raw_prompt: &str) -> Vec<Effect> {
 
     model.conversation.add_user_message(&prompt);
     model.turns.push(ConversationTurn::new(prompt.clone()));
-    model.active_turn = Some(model.turns.len() - 1);
+    let turn_index = model.turns.len() - 1;
+    model.sessions.push(SessionSummary {
+        turn_index,
+        title: compose_session_title(&prompt),
+        state: TurnState::Running,
+    });
+    model.selected_turn = Some(turn_index);
+    model.active_turn = Some(turn_index);
     model.tool_call_lookup.clear();
     model.composer = text_editor::Content::new();
     model.composer_text.clear();
+    model.composer_suggestions.clear();
     model.streaming = true;
-    model.status_text = Some("Waiting for provider response".to_string());
+    model.activity = ActivityState::Dispatching;
+    model.status_text = Some("Dispatching prompt to provider".to_string());
     model.error_text = None;
 
     vec![Effect::DispatchPrompt(prompt), Effect::PersistState]
@@ -298,9 +459,17 @@ fn submit_prompt(model: &mut AppModel, raw_prompt: &str) -> Vec<Effect> {
 fn apply_backend_event(model: &mut AppModel, event: BackendEvent) -> Vec<Effect> {
     match event {
         BackendEvent::Thinking(thinking) => {
-            model.status_text = Some(thinking);
+            if let Some(turn) = model.current_turn_mut()
+                && !thinking.trim().is_empty()
+                && turn.thinking.last() != Some(&thinking)
+            {
+                turn.thinking.push(thinking);
+            }
+            model.activity = ActivityState::Thinking;
+            model.status_text = Some("Agent is reasoning".to_string());
         }
         BackendEvent::ToolCalling { id, name, arguments } => {
+            let diff_preview = infer_diff_preview(&name, &arguments, "");
             if let Some(turn) = model.current_turn_mut() {
                 turn.actions.push(ToolAction {
                     id: id.clone(),
@@ -308,9 +477,12 @@ fn apply_backend_event(model: &mut AppModel, event: BackendEvent) -> Vec<Effect>
                     arguments,
                     result: String::new(),
                     status: ToolActionStatus::Running,
+                    expanded: true,
+                    diff_preview,
                 });
                 let index = turn.actions.len() - 1;
                 model.tool_call_lookup.insert(id, index);
+                model.activity = ActivityState::RunningTools;
                 model.status_text = Some("Executing tools".to_string());
             }
         }
@@ -322,6 +494,12 @@ fn apply_backend_event(model: &mut AppModel, event: BackendEvent) -> Vec<Effect>
                 {
                     action.result = result;
                     action.status = if is_error { ToolActionStatus::Error } else { ToolActionStatus::Success };
+                    if action.diff_preview.is_none() {
+                        action.diff_preview = infer_diff_preview(&action.name, &action.arguments, &action.result);
+                    }
+                    if is_error {
+                        action.expanded = true;
+                    }
                 }
                 model.status_text = Some("Tool execution completed".to_string());
             }
@@ -329,32 +507,58 @@ fn apply_backend_event(model: &mut AppModel, event: BackendEvent) -> Vec<Effect>
         BackendEvent::ContentDelta(delta) => {
             if let Some(turn) = model.current_turn_mut() {
                 turn.result.push_str(&delta);
-                model.status_text = Some("Streaming response".to_string());
+                turn.result_markdown = parse_markdown_items(&turn.result);
             }
+            model.activity = ActivityState::Streaming;
+            model.status_text = Some("Streaming response".to_string());
         }
         BackendEvent::ContentDone { model: backend_model } => {
             let mut assistant_content = None;
+            let completed_turn = model.active_turn;
             if let Some(turn) = model.current_turn_mut() {
                 turn.state = TurnState::Completed;
                 turn.next = "Continue with a follow-up or refine the request.".to_string();
+                turn.error = None;
+                turn.result_markdown = parse_markdown_items(&turn.result);
                 assistant_content = Some(turn.result.clone());
             }
             if let Some(content) = assistant_content {
                 model.conversation.add_assistant_message(content);
             }
+            if let Some(index) = completed_turn {
+                update_session_state(model, index, TurnState::Completed);
+            }
             model.active_turn = None;
             model.streaming = false;
+            model.activity = ActivityState::Idle;
             model.status_text = Some("Ready".to_string());
+            model.error_text = None;
             model.last_model = Some(backend_model);
             return vec![Effect::PersistState];
         }
         BackendEvent::Error(error) => {
+            let failed_turn = model.active_turn;
             if let Some(turn) = model.current_turn_mut() {
+                for action in &mut turn.actions {
+                    if action.status == ToolActionStatus::Running {
+                        action.status = ToolActionStatus::Error;
+                        if action.result.is_empty() {
+                            action.result = "Interrupted after backend error".to_string();
+                        }
+                        action.expanded = true;
+                    }
+                }
+
                 turn.state = TurnState::Failed;
-                turn.next = "Inspect the error details and retry with a narrower prompt.".to_string();
+                turn.error = Some(error.clone());
+                turn.next = "Review the error, tighten scope, or retry with fewer tool steps.".to_string();
+            }
+            if let Some(index) = failed_turn {
+                update_session_state(model, index, TurnState::Failed);
             }
             model.active_turn = None;
             model.streaming = false;
+            model.activity = ActivityState::Failed;
             model.status_text = Some("Backend error".to_string());
             model.error_text = Some(error);
             return vec![Effect::PersistState];
@@ -362,6 +566,348 @@ fn apply_backend_event(model: &mut AppModel, event: BackendEvent) -> Vec<Effect>
     }
 
     Vec::new()
+}
+
+fn apply_composer_suggestion(model: &mut AppModel, suggestion: &ComposerSuggestion) {
+    match suggestion.mode {
+        ComposerSuggestionMode::SlashCommand => {
+            model.composer_text = format!("{} ", suggestion.insert_text.trim());
+        }
+        ComposerSuggestionMode::FileMention => {
+            let target = format!("@{}", suggestion.insert_text.trim());
+            model.composer_text = replace_last_mention(&model.composer_text, &target);
+        }
+    }
+
+    model.composer = text_editor::Content::with_text(&model.composer_text);
+    refresh_composer_suggestions(model);
+}
+
+fn refresh_composer_suggestions(model: &mut AppModel) {
+    model.composer_suggestions = compute_suggestions(&model.composer_text, &model.workspace_files);
+}
+
+fn update_session_state(model: &mut AppModel, turn_index: usize, state: TurnState) {
+    if let Some(session) = model
+        .sessions
+        .iter_mut()
+        .find(|session| session.turn_index == turn_index)
+    {
+        session.state = state;
+    }
+}
+
+fn compose_session_title(prompt: &str) -> String {
+    let line = prompt.lines().next().unwrap_or_default().trim();
+    if line.is_empty() {
+        return "Untitled prompt".to_string();
+    }
+
+    truncate_with_ellipsis(line, 58)
+}
+
+fn truncate_with_ellipsis(input: &str, max_chars: usize) -> String {
+    if input.chars().count() <= max_chars {
+        return input.to_string();
+    }
+
+    let mut out = String::new();
+    for ch in input.chars().take(max_chars.saturating_sub(1)) {
+        out.push(ch);
+    }
+    out.push('…');
+    out
+}
+
+fn compute_suggestions(composer_text: &str, workspace_files: &[FileTreeEntry]) -> Vec<ComposerSuggestion> {
+    let trimmed = composer_text.trim_end();
+
+    if let Some(command_prefix) = slash_prefix(trimmed) {
+        let mut suggestions = BUILTIN_SLASH_COMMANDS
+            .iter()
+            .filter(|(command, _description)| command.starts_with(command_prefix))
+            .map(|(command, description)| ComposerSuggestion {
+                label: (*command).to_string(),
+                detail: (*description).to_string(),
+                insert_text: (*command).to_string(),
+                mode: ComposerSuggestionMode::SlashCommand,
+            })
+            .collect::<Vec<_>>();
+
+        suggestions.truncate(6);
+        return suggestions;
+    }
+
+    if let Some(file_prefix) = file_mention_prefix(trimmed) {
+        let normalized = file_prefix.to_lowercase();
+        let mut matches =
+            workspace_files
+                .iter()
+                .filter(|entry| !entry.is_dir)
+                .filter(|entry| {
+                    if normalized.is_empty() { true } else { entry.relative_path.to_lowercase().contains(&normalized) }
+                })
+                .map(|entry| ComposerSuggestion {
+                    label: format!("@{}", entry.relative_path),
+                    detail: "Mention workspace file".to_string(),
+                    insert_text: entry.relative_path.clone(),
+                    mode: ComposerSuggestionMode::FileMention,
+                })
+                .collect::<Vec<_>>();
+
+        matches.sort_by(|a, b| a.insert_text.cmp(&b.insert_text));
+        matches.truncate(8);
+        return matches;
+    }
+
+    Vec::new()
+}
+
+fn slash_prefix(composer_text: &str) -> Option<&str> {
+    let trimmed_start = composer_text.trim_start();
+    if !trimmed_start.starts_with('/') {
+        return None;
+    }
+
+    let token = trimmed_start.split_whitespace().next().unwrap_or(trimmed_start);
+    if token.contains(' ') {
+        return None;
+    }
+
+    Some(token)
+}
+
+fn file_mention_prefix(composer_text: &str) -> Option<&str> {
+    let token = composer_text
+        .split(|ch: char| ch.is_whitespace() || ch == '\n')
+        .next_back()
+        .unwrap_or_default();
+    let prefix = token.strip_prefix('@')?;
+    if prefix.contains('@') {
+        return None;
+    }
+
+    Some(prefix)
+}
+
+fn replace_last_mention(input: &str, replacement: &str) -> String {
+    let mut split_index = input.len();
+    for (index, ch) in input.char_indices().rev() {
+        if ch.is_whitespace() || ch == '\n' {
+            split_index = index + ch.len_utf8();
+            break;
+        }
+        split_index = index;
+    }
+
+    let prefix = &input[..split_index];
+    format!("{prefix}{replacement} ")
+}
+
+pub fn collect_workspace_files(workspace_root: &Path) -> Vec<FileTreeEntry> {
+    let mut entries = Vec::new();
+    collect_workspace_files_inner(workspace_root, workspace_root, 0, &mut entries);
+    entries
+}
+
+fn collect_workspace_files_inner(root: &Path, current: &Path, depth: usize, output: &mut Vec<FileTreeEntry>) {
+    if depth > MAX_FILE_TREE_DEPTH || output.len() >= MAX_FILE_TREE_ENTRIES {
+        return;
+    }
+
+    let read_dir = match std::fs::read_dir(current) {
+        Ok(read_dir) => read_dir,
+        Err(_) => return,
+    };
+
+    let mut children = Vec::new();
+    for entry in read_dir.flatten() {
+        let path = entry.path();
+        let file_name = entry.file_name().to_string_lossy().to_string();
+        if should_skip_workspace_entry(&file_name) {
+            continue;
+        }
+
+        let is_dir = path.is_dir();
+        children.push((file_name, path, is_dir));
+    }
+
+    children.sort_by(|left, right| match (left.2, right.2) {
+        (true, false) => Ordering::Less,
+        (false, true) => Ordering::Greater,
+        _ => left.0.cmp(&right.0),
+    });
+
+    for (_name, path, is_dir) in children {
+        if output.len() >= MAX_FILE_TREE_ENTRIES {
+            return;
+        }
+
+        let relative = path
+            .strip_prefix(root)
+            .ok()
+            .map(|path| path.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.display().to_string());
+
+        output.push(FileTreeEntry { relative_path: relative, depth, is_dir });
+
+        if is_dir {
+            collect_workspace_files_inner(root, &path, depth + 1, output);
+        }
+    }
+}
+
+fn should_skip_workspace_entry(name: &str) -> bool {
+    matches!(name, ".git" | ".jj" | "target" | "node_modules" | ".sandbox")
+}
+
+pub fn parse_markdown_items(content: &str) -> Vec<markdown::Item> {
+    if content.trim().is_empty() { Vec::new() } else { markdown::parse(content).collect() }
+}
+
+pub fn normalize_tool_text(raw: &str) -> String {
+    let pretty_json = serde_json::from_str::<Value>(raw)
+        .ok()
+        .and_then(|value| serde_json::to_string_pretty(&value).ok())
+        .unwrap_or_else(|| raw.to_string());
+
+    let mut out = String::new();
+    for (line_count, line) in pretty_json.lines().enumerate() {
+        if line_count >= MAX_TOOL_PREVIEW_LINES {
+            out.push_str("\n… truncated …");
+            break;
+        }
+
+        if !out.is_empty() {
+            out.push('\n');
+        }
+
+        let shortened = truncate_with_ellipsis(line, MAX_TOOL_PREVIEW_CHARS / MAX_TOOL_PREVIEW_LINES);
+        out.push_str(&shortened);
+
+        if out.chars().count() >= MAX_TOOL_PREVIEW_CHARS {
+            out.push_str("\n… truncated …");
+            break;
+        }
+    }
+
+    if out.is_empty() { truncate_with_ellipsis(&pretty_json, MAX_TOOL_PREVIEW_CHARS) } else { out }
+}
+
+fn infer_diff_preview(tool_name: &str, arguments: &str, result: &str) -> Option<DiffPreview> {
+    let from_result = extract_unified_diff(result);
+    if !from_result.is_empty() {
+        return Some(DiffPreview { title: "Tool diff output".to_string(), lines: from_result });
+    }
+
+    let normalized = tool_name.to_ascii_lowercase();
+    if !matches!(normalized.as_str(), "write" | "edit" | "patch" | "apply_patch") {
+        return None;
+    }
+
+    let value = serde_json::from_str::<Value>(arguments).ok()?;
+    let path = value.get("path").and_then(Value::as_str).unwrap_or("<unknown>");
+
+    if let (Some(old), Some(new)) = (
+        value.get("old").and_then(Value::as_str),
+        value.get("new").and_then(Value::as_str),
+    ) {
+        return Some(diff_from_before_after(path, old, new));
+    }
+
+    if let (Some(old), Some(new)) = (
+        value.get("old_str").and_then(Value::as_str),
+        value.get("new_str").and_then(Value::as_str),
+    ) {
+        return Some(diff_from_before_after(path, old, new));
+    }
+
+    if let Some(content) = value
+        .get("content")
+        .and_then(Value::as_str)
+        .or_else(|| value.get("text").and_then(Value::as_str))
+    {
+        let mut lines = vec![DiffLine { kind: DiffLineKind::Context, text: format!("+++ {path}") }];
+
+        for line in content.lines().take(12) {
+            lines.push(DiffLine { kind: DiffLineKind::Added, text: format!("+ {line}") });
+        }
+
+        if content.lines().count() > 12 {
+            lines.push(DiffLine { kind: DiffLineKind::Context, text: "… more lines omitted …".to_string() });
+        }
+
+        return Some(DiffPreview { title: format!("Planned write: {path}"), lines });
+    }
+
+    None
+}
+
+fn extract_unified_diff(raw: &str) -> Vec<DiffLine> {
+    let mut lines = Vec::new();
+
+    for line in raw.lines().take(80) {
+        if line.starts_with("+++") {
+            lines.push(DiffLine { kind: DiffLineKind::Added, text: line.to_string() });
+            continue;
+        }
+
+        if line.starts_with("---") {
+            lines.push(DiffLine { kind: DiffLineKind::Removed, text: line.to_string() });
+            continue;
+        }
+
+        if line.starts_with("+") {
+            lines.push(DiffLine { kind: DiffLineKind::Added, text: line.to_string() });
+            continue;
+        }
+
+        if line.starts_with("-") {
+            lines.push(DiffLine { kind: DiffLineKind::Removed, text: line.to_string() });
+            continue;
+        }
+
+        if line.starts_with("@@") || line.starts_with("diff --git") {
+            lines.push(DiffLine { kind: DiffLineKind::Context, text: line.to_string() });
+        }
+    }
+
+    lines
+}
+
+fn diff_from_before_after(path: &str, before: &str, after: &str) -> DiffPreview {
+    let before_lines = before.lines().collect::<Vec<_>>();
+    let after_lines = after.lines().collect::<Vec<_>>();
+    let max = before_lines.len().max(after_lines.len());
+
+    let mut lines = vec![
+        DiffLine { kind: DiffLineKind::Removed, text: format!("--- {path}") },
+        DiffLine { kind: DiffLineKind::Added, text: format!("+++ {path}") },
+    ];
+
+    for index in 0..max.min(20) {
+        let before_line = before_lines.get(index).copied();
+        let after_line = after_lines.get(index).copied();
+
+        match (before_line, after_line) {
+            (Some(left), Some(right)) if left == right => {
+                lines.push(DiffLine { kind: DiffLineKind::Context, text: format!("  {left}") })
+            }
+            (Some(left), Some(right)) => {
+                lines.push(DiffLine { kind: DiffLineKind::Removed, text: format!("- {left}") });
+                lines.push(DiffLine { kind: DiffLineKind::Added, text: format!("+ {right}") });
+            }
+            (Some(left), None) => lines.push(DiffLine { kind: DiffLineKind::Removed, text: format!("- {left}") }),
+            (None, Some(right)) => lines.push(DiffLine { kind: DiffLineKind::Added, text: format!("+ {right}") }),
+            (None, None) => break,
+        }
+    }
+
+    if max > 20 {
+        lines.push(DiffLine { kind: DiffLineKind::Context, text: "… more lines omitted …".to_string() });
+    }
+
+    DiffPreview { title: format!("Diff preview: {path}"), lines }
 }
 
 pub fn color_hex(hex: &str) -> Color {
@@ -508,7 +1054,11 @@ mod tests {
 
         assert_eq!(
             effects,
-            vec![Effect::ActivateWorkspace(path.clone()), Effect::PersistState]
+            vec![
+                Effect::ActivateWorkspace(path.clone()),
+                Effect::LoadWorkspaceFiles(path.clone()),
+                Effect::PersistState
+            ]
         );
         assert_eq!(model.workspace_root, Some(path));
     }
@@ -526,5 +1076,36 @@ mod tests {
             model.error_text.as_deref(),
             Some("Select a workspace folder before sending prompts")
         );
+    }
+
+    #[test]
+    fn suggestion_engine_recommends_slash_commands() {
+        let suggestions = compute_suggestions("/he", &[]);
+        assert!(!suggestions.is_empty());
+        assert_eq!(suggestions[0].mode, ComposerSuggestionMode::SlashCommand);
+    }
+
+    #[test]
+    fn normalize_tool_text_pretty_prints_json() {
+        let normalized = normalize_tool_text(r#"{"path":"src/main.rs","flag":true}"#);
+        assert!(normalized.contains("\"path\""));
+        assert!(normalized.contains("src/main.rs"));
+    }
+
+    #[test]
+    fn error_event_marks_turn_failed() {
+        let mut model = ready_model();
+        model.composer = text_editor::Content::with_text("Trigger error");
+        model.composer_text = "Trigger error".to_string();
+        let _ = update_model(&mut model, ModelMessage::SubmitPrompt);
+
+        let _ = update_model(
+            &mut model,
+            ModelMessage::BackendEvent(BackendEvent::Error("boom".to_string())),
+        );
+
+        assert_eq!(model.turns[0].state, TurnState::Failed);
+        assert_eq!(model.turns[0].error.as_deref(), Some("boom"));
+        assert!(!model.streaming);
     }
 }

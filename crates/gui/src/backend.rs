@@ -17,11 +17,13 @@ pub struct BackendBridge {
 pub fn spawn_backend(workspace_root: PathBuf) -> BackendBridge {
     let (request_tx, request_rx) = mpsc::channel::<String>();
     let (event_tx, event_rx) = mpsc::channel::<BackendEvent>();
+    tracing::info!("Spawning GUI backend worker workspace={}", workspace_root.display());
 
     std::thread::spawn(move || {
         let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
             Ok(runtime) => runtime,
             Err(error) => {
+                tracing::error!("Failed to create GUI worker runtime: {error}");
                 let _ = event_tx.send(BackendEvent::Error(format!(
                     "Failed to create async runtime: {}",
                     error
@@ -32,9 +34,11 @@ pub fn spawn_backend(workspace_root: PathBuf) -> BackendBridge {
 
         let config = Config::load_default().unwrap_or_default();
         let provider_name = config.default_provider.clone();
+        tracing::info!("Initializing provider provider={provider_name}");
         let provider = match create_provider(&provider_name, &config) {
             Ok(provider) => Some(provider),
             Err(error) => {
+                tracing::error!("Provider initialization failed provider={provider_name} error={error}");
                 let _ = event_tx.send(BackendEvent::Error(format!(
                     "Provider initialization failed: {}",
                     error
@@ -50,6 +54,7 @@ pub fn spawn_backend(workspace_root: PathBuf) -> BackendBridge {
             if prompt.is_empty() {
                 continue;
             }
+            tracing::info!("Dispatching GUI prompt chars={}", prompt.chars().count());
 
             let Some(provider) = provider.as_deref() else {
                 let _ = event_tx.send(BackendEvent::ContentDelta(
@@ -66,18 +71,23 @@ pub fn spawn_backend(workspace_root: PathBuf) -> BackendBridge {
             let mut final_content: Option<(String, String)> = None;
             let result = runtime.block_on(loop_handler.process_message(provider, &prompt, |event| match event {
                 ConversationEvent::Thinking(thinking) => {
+                    tracing::debug!("Provider thinking: {thinking}");
                     let _ = event_tx.send(BackendEvent::Thinking(thinking));
                 }
                 ConversationEvent::ToolCalling { id, name, arguments } => {
+                    tracing::info!("Tool calling id={id} name={name}");
                     let _ = event_tx.send(BackendEvent::ToolCalling { id, name, arguments });
                 }
                 ConversationEvent::ToolCompleted { id, name, result, is_error } => {
+                    tracing::info!("Tool completed id={id} name={name} error={is_error}");
                     let _ = event_tx.send(BackendEvent::ToolCompleted { id, name, result, is_error });
                 }
                 ConversationEvent::Content { content, reasoning_content: _reasoning_content, usage: _usage, model } => {
+                    tracing::info!("Provider completed model={model} chars={}", content.chars().count());
                     final_content = Some((content, model));
                 }
                 ConversationEvent::Error(error) => {
+                    tracing::error!("Conversation loop event error: {error}");
                     let _ = event_tx.send(BackendEvent::Error(error));
                 }
             }));
@@ -92,15 +102,20 @@ pub fn spawn_backend(workspace_root: PathBuf) -> BackendBridge {
                             });
                         }
                         let _ = event_tx.send(BackendEvent::ContentDone { model });
+                        tracing::info!("GUI prompt completed");
                     } else {
+                        tracing::error!("Provider finished without content");
                         let _ = event_tx.send(BackendEvent::Error("Provider finished without content".to_string()));
                     }
                 }
                 Err(error) => {
+                    tracing::error!("Conversation processing error: {error}");
                     let _ = event_tx.send(BackendEvent::Error(error));
                 }
             }
         }
+
+        tracing::info!("GUI backend worker channel closed");
     });
 
     BackendBridge { request_tx, event_rx }

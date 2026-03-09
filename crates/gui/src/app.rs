@@ -1,5 +1,6 @@
 use super::backend::{BackendBridge, spawn_backend};
-use super::model::{AppModel, BackendEvent, BootstrapState, Effect, Message, ModelMessage, color_hex, update_model};
+use super::model::{AppModel, BackendEvent, BootstrapState, Effect, Message, ModelMessage};
+use super::model::{collect_workspace_files, color_hex, update_model};
 use super::storage::{PersistedUiState, StateStore};
 use iced::font::Family;
 use iced::task::Task;
@@ -46,6 +47,8 @@ pub fn boot() -> DesktopApp {
 
 impl DesktopApp {
     fn drain_backend(&mut self) -> Task<Message> {
+        let _ = update_model(&mut self.model, ModelMessage::Tick);
+
         let Some(backend) = self.backend.as_mut() else {
             return Task::none();
         };
@@ -70,9 +73,11 @@ impl DesktopApp {
         for effect in effects {
             match effect {
                 Effect::DispatchPrompt(prompt) => {
+                    tracing::info!("Dispatching prompt from GUI shell chars={}", prompt.chars().count());
                     if let Some(backend) = self.backend.as_ref()
                         && let Err(error) = backend.request_tx.send(prompt)
                     {
+                        tracing::error!("Backend request send failed: {error}");
                         let _ = update_model(
                             &mut self.model,
                             ModelMessage::BackendEvent(BackendEvent::Error(format!(
@@ -86,9 +91,17 @@ impl DesktopApp {
                     .push(Task::perform(async { rfd::FileDialog::new().pick_folder() }, |path| {
                         Message::Model(ModelMessage::WorkspacePicked(path))
                     })),
-                Effect::ActivateWorkspace(workspace_root) => self.backend = Some(spawn_backend(workspace_root)),
+                Effect::ActivateWorkspace(workspace_root) => {
+                    tracing::info!("Activating workspace {}", workspace_root.display());
+                    self.backend = Some(spawn_backend(workspace_root));
+                }
+                Effect::LoadWorkspaceFiles(workspace_root) => tasks.push(Task::perform(
+                    async move { collect_workspace_files(&workspace_root) },
+                    |files| Message::Model(ModelMessage::WorkspaceFilesLoaded(files)),
+                )),
                 Effect::PersistState => {
                     if let Err(error) = self.store.save(&self.persisted_state()) {
+                        tracing::error!("Failed to persist desktop state: {error}");
                         self.model.error_text = Some(format!("Failed to persist desktop state: {error}"));
                     }
                 }
