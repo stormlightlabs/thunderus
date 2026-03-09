@@ -1,10 +1,10 @@
 //! Thunderus CLI - Terminal AI Assistant
 //!
 //! Commands:
-//! - `thunderus` - Launch the TUI
-//! - `thunderus debug provider <provider> --model <model>` - Test provider connectivity
-//! - `thunderus debug tail` - Print recent runtime logs for this workspace
-//! - `thunderus debug attach` - Stream runtime logs for this workspace
+//! - `thndrs` - Launch the TUI
+//! - `thndrs debug provider <provider> --model <model>` - Test provider connectivity
+//! - `thndrs debug tail` - Print recent runtime logs for this workspace
+//! - `thndrs debug attach` - Stream runtime logs for this workspace
 
 use anyhow::anyhow;
 use anyhow::{Context, Result};
@@ -33,7 +33,7 @@ const DEFAULT_ATTACH_POLL_MS: u64 = 250;
 
 /// Thunderus - Terminal AI Assistant
 #[derive(Parser)]
-#[command(name = "thunderus")]
+#[command(name = "thndrs")]
 #[command(about = "Terminal AI Assistant", version = "0.1.0")]
 struct Cli {
     /// Config file path (defaults to ~/.thunderus/config.toml)
@@ -692,7 +692,7 @@ mod tests {
 
     #[test]
     fn test_cli_parse_no_args() {
-        let cli = Cli::parse_from([&"thunderus"]);
+        let cli = Cli::parse_from([&"thndrs"]);
         assert!(cli.config.is_none());
         assert!(!cli.verbose);
         assert!(cli.command.is_none());
@@ -700,7 +700,7 @@ mod tests {
 
     #[test]
     fn test_cli_parse_with_config() {
-        let cli = Cli::parse_from(["thunderus", "--config", "/path/to/config.toml", "--verbose"]);
+        let cli = Cli::parse_from(["thndrs", "--config", "/path/to/config.toml", "--verbose"]);
         assert_eq!(cli.config, Some(PathBuf::from("/path/to/config.toml")));
         assert!(cli.verbose);
     }
@@ -708,7 +708,7 @@ mod tests {
     #[test]
     fn test_cli_parse_debug_provider() {
         let cli = Cli::parse_from([
-            "thunderus",
+            "thndrs",
             "debug",
             "provider",
             "moonshot",
@@ -732,7 +732,7 @@ mod tests {
 
     #[test]
     fn test_cli_parse_debug_tail() {
-        let cli = Cli::parse_from(["thunderus", "debug", "tail", "--lines", "42"]);
+        let cli = Cli::parse_from(["thndrs", "debug", "tail", "--lines", "42"]);
 
         match cli.command {
             Some(Commands::Debug { command: DebugCommands::Tail { lines } }) => {
@@ -744,7 +744,7 @@ mod tests {
 
     #[test]
     fn test_cli_parse_debug_attach() {
-        let cli = Cli::parse_from(["thunderus", "debug", "attach", "--lines", "25", "--poll-ms", "100"]);
+        let cli = Cli::parse_from(["thndrs", "debug", "attach", "--lines", "25", "--poll-ms", "100"]);
 
         match cli.command {
             Some(Commands::Debug { command: DebugCommands::Attach { lines, poll_ms } }) => {

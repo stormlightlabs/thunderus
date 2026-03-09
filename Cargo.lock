@@ -3016,7 +3016,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "thndrs-cli"
+name = "thndrs"
 version = "0.1.0"
 dependencies = [
  "anyhow",

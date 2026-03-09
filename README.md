@@ -12,7 +12,7 @@ grained control over context.
 git clone git@github.com:stormlightlabs/thunderus.git
 cd thunderus
 cargo build
-cargo run -p thndrs-cli
+cargo run -p thndrs
 ```
 
 <details>
@@ -107,15 +107,15 @@ Runtime Log Files (CLI)
 Use the debug commands from the workspace root:
 
 ```sh
-thunderus debug tail --lines 120
-thunderus debug attach --lines 120 --poll-ms 250
+thndrs debug tail --lines 120
+thndrs debug attach --lines 120 --poll-ms 250
 ```
 
 If you run via Cargo during development:
 
 ```sh
-cargo run -p cli -- debug tail --lines 120
-cargo run -p cli -- debug attach --lines 120 --poll-ms 250
+cargo run -p thndrs -- debug tail --lines 120
+cargo run -p thndrs -- debug attach --lines 120 --poll-ms 250
 ```
 
 `debug tail` prints recent lines, and `debug attach` follows new log output.
