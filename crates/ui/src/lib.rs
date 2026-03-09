@@ -2,8 +2,7 @@
 
 mod commands;
 
-use crossterm::event::{DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use crossterm::event::{MouseEvent, MouseEventKind};
+use crossterm::event::{DisableMouseCapture, EnableMouseCapture, KeyEvent, MouseEvent};
 use crossterm::execute;
 use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
 use ratatui::backend::{Backend, CrosstermBackend};
@@ -17,6 +16,7 @@ use thiserror::Error;
 pub mod chat;
 pub mod components;
 pub mod elements;
+pub mod event;
 pub mod files;
 pub mod finder;
 pub mod help;
@@ -78,6 +78,27 @@ pub enum ScreenMode {
     Help,
 }
 
+#[derive(Debug, Clone)]
+pub enum Msg {
+    Quit,
+    OpenSettings,
+    StartNewChat,
+    OpenFiles,
+    CloseActiveChat,
+    OpenHelp,
+    Welcome(welcome::WelcomeMsg),
+    Chat(chat::ChatMsg),
+    Files(KeyEvent),
+    Settings(KeyEvent),
+    Help(KeyEvent),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Cmd {
+    #[default]
+    None,
+}
+
 /// The TUI application state
 pub struct App {
     pub running: bool,
@@ -111,67 +132,67 @@ impl App {
     }
 
     pub fn handle_input(&mut self, key: KeyEvent) {
-        if key.kind != KeyEventKind::Press {
-            return;
+        if let Some(msg) = event::map_key(self, key) {
+            let _ = self.update(msg);
         }
-
-        match key.code {
-            KeyCode::Char(',') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.open_settings();
-                return;
-            }
-            KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.start_new_chat();
-                return;
-            }
-            KeyCode::Char('o') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                commands::execute_slash_command(self, "/files");
-                return;
-            }
-            KeyCode::Char('w') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.close_active_chat();
-                return;
-            }
-            KeyCode::F(1) => {
-                self.open_help();
-                return;
-            }
-            _ => {}
-        }
-
-        if self.screen_mode == ScreenMode::Welcome && self.chat.is_file_finder_active() {
-            let action = Screen::handle_input(&mut self.chat, key);
-            self.apply_screen_action(action);
-            return;
-        }
-
-        let action = match self.screen_mode {
-            ScreenMode::Welcome => Screen::handle_input(&mut self.welcome, key),
-            ScreenMode::Chat => Screen::handle_input(&mut self.chat, key),
-            ScreenMode::Files => Screen::handle_input(&mut self.file_browser, key),
-            ScreenMode::Settings => Screen::handle_input(&mut self.settings, key),
-            ScreenMode::Help => Screen::handle_input(&mut self.help, key),
-        };
-        self.apply_screen_action(action);
-        self.process_pending_actions();
     }
 
     pub fn handle_mouse(&mut self, mouse: MouseEvent, frame_size: Rect) {
-        if self.screen_mode != ScreenMode::Welcome {
-            return;
+        if let Some(msg) = event::map_mouse(self, mouse, frame_size) {
+            let _ = self.update(msg);
+        }
+    }
+
+    pub fn update(&mut self, msg: Msg) -> Cmd {
+        match msg {
+            Msg::Quit => {
+                self.running = false;
+            }
+            Msg::OpenSettings => {
+                self.open_settings();
+            }
+            Msg::StartNewChat => {
+                self.start_new_chat();
+            }
+            Msg::OpenFiles => {
+                commands::execute_slash_command(self, "/files");
+            }
+            Msg::CloseActiveChat => {
+                self.close_active_chat();
+            }
+            Msg::OpenHelp => {
+                self.open_help();
+            }
+            Msg::Welcome(sub_msg) => {
+                let action = welcome::update_welcome(&mut self.welcome, sub_msg);
+                self.apply_screen_action(action);
+                self.process_pending_actions();
+            }
+            Msg::Chat(sub_msg) => {
+                let action = chat::update_chat(&mut self.chat, sub_msg);
+                self.apply_screen_action(action);
+                if self.screen_mode != ScreenMode::Welcome || !self.chat.is_file_finder_active() {
+                    self.process_pending_actions();
+                }
+            }
+            Msg::Files(key) => {
+                let action = Screen::handle_input(&mut self.file_browser, key);
+                self.apply_screen_action(action);
+                self.process_pending_actions();
+            }
+            Msg::Settings(key) => {
+                let action = Screen::handle_input(&mut self.settings, key);
+                self.apply_screen_action(action);
+                self.process_pending_actions();
+            }
+            Msg::Help(key) => {
+                let action = Screen::handle_input(&mut self.help, key);
+                self.apply_screen_action(action);
+                self.process_pending_actions();
+            }
         }
 
-        if self.chat.is_file_finder_active() {
-            return;
-        }
-
-        if !matches!(mouse.kind, MouseEventKind::Down(_)) {
-            return;
-        }
-
-        let action = self.welcome.handle_mouse(mouse, frame_size);
-        self.apply_screen_action(action);
-        self.process_pending_actions();
+        Cmd::None
     }
 
     pub(crate) fn open_settings(&mut self) {
@@ -357,13 +378,10 @@ fn run_app(
         }
 
         if crossterm::event::poll(std::time::Duration::from_millis(50))? {
-            match crossterm::event::read()? {
-                Event::Key(key) => app.handle_input(key),
-                Event::Mouse(mouse) => {
-                    let size = terminal.size()?;
-                    app.handle_mouse(mouse, Rect::new(0, 0, size.width, size.height));
-                }
-                _ => {}
+            let frame_size = terminal.size()?;
+            let event = crossterm::event::read()?;
+            if let Some(msg) = event::map_event(app, event, Rect::new(0, 0, frame_size.width, frame_size.height)) {
+                let _ = app.update(msg);
             }
         }
     }

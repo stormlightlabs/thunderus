@@ -16,6 +16,37 @@ use std::path::{Path, PathBuf};
 
 const MAX_INPUT_HISTORY: usize = 200;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChatMsg {
+    Quit,
+    ClearInput,
+    ToggleLatestReasoning,
+    MoveCursorToEnd,
+    ActivateFileFinder,
+    InsertChar(char),
+    Backspace,
+    Delete,
+    MoveLeft,
+    MoveRight,
+    MoveHome,
+    MoveEnd,
+    InsertNewline,
+    Submit,
+    NavigateUp,
+    NavigateDown,
+    PageUp,
+    PageDown,
+    ToggleLatestToolCall,
+    ToggleAllLatestToolCalls,
+    FinderClose,
+    FinderClearQuery,
+    FinderInsertChar(char),
+    FinderBackspace,
+    FinderMoveUp,
+    FinderMoveDown,
+    FinderSelect,
+}
+
 pub struct ChatApp {
     pub messages: Vec<ChatMessage>,
     pub input_buffer: String,
@@ -76,122 +107,10 @@ impl ChatApp {
     }
 
     pub fn handle_input(&mut self, key: KeyEvent) {
-        if key.kind != KeyEventKind::Press {
+        let Some(msg) = map_chat_key_to_msg(key, self.file_finder.active) else {
             return;
-        }
-
-        if self.file_finder.active {
-            self.handle_file_finder_input(key);
-            return;
-        }
-
-        match key.code {
-            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => self.running = false,
-            KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => self.running = false,
-            KeyCode::Char('q') if key.modifiers.contains(KeyModifiers::CONTROL) => self.running = false,
-            KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.input_buffer.clear();
-                self.cursor_position = 0;
-                self.reset_history_navigation();
-            }
-            KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.toggle_latest_reasoning();
-            }
-            KeyCode::Char('l') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.cursor_position = self.input_buffer.len();
-                self.scroll.scroll_to_bottom();
-                self.reset_history_navigation();
-            }
-            KeyCode::Char('@') => self.activate_file_finder(),
-            KeyCode::Char(c)
-                if !key.modifiers.contains(KeyModifiers::CONTROL)
-                    && !key.modifiers.contains(KeyModifiers::ALT)
-                    && !key.modifiers.contains(KeyModifiers::SUPER) =>
-            {
-                self.reset_history_navigation();
-                self.input_buffer.insert(self.cursor_position, c);
-                self.cursor_position += 1;
-            }
-            KeyCode::Backspace => {
-                self.reset_history_navigation();
-                if self.cursor_position > 0 {
-                    self.cursor_position -= 1;
-                    self.input_buffer.remove(self.cursor_position);
-                } else {
-                    self.unpin_last_file();
-                }
-            }
-            KeyCode::Delete => {
-                self.reset_history_navigation();
-                if self.cursor_position < self.input_buffer.len() {
-                    self.input_buffer.remove(self.cursor_position);
-                } else if self.cursor_position == 0 {
-                    self.unpin_last_file();
-                }
-            }
-            KeyCode::Left => {
-                if self.cursor_position > 0 {
-                    self.cursor_position -= 1;
-                }
-            }
-            KeyCode::Right => {
-                if self.cursor_position < self.input_buffer.len() {
-                    self.cursor_position += 1;
-                }
-            }
-            KeyCode::Home => {
-                self.cursor_position = 0;
-            }
-            KeyCode::End => {
-                self.cursor_position = self.input_buffer.len();
-            }
-            KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => {
-                self.reset_history_navigation();
-                self.input_buffer.insert(self.cursor_position, '\n');
-                self.cursor_position += 1;
-            }
-            KeyCode::Char('j') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.reset_history_navigation();
-                self.input_buffer.insert(self.cursor_position, '\n');
-                self.cursor_position += 1;
-            }
-            KeyCode::Enter => {
-                if !self.input_buffer.is_empty() && self.streaming_state == StreamingState::Idle {
-                    let content = self.input_buffer.clone();
-                    if content.starts_with('/') {
-                        self.pending_command = Some(content);
-                    } else {
-                        self.submit_user_message(content);
-                    }
-                    self.input_buffer.clear();
-                    self.cursor_position = 0;
-                    self.reset_history_navigation();
-                }
-            }
-            KeyCode::Up => {
-                if !self.try_navigate_history_up() {
-                    self.scroll.scroll_up(1);
-                }
-            }
-            KeyCode::Down => {
-                if !self.try_navigate_history_down() {
-                    self.scroll.scroll_down(1);
-                }
-            }
-            KeyCode::PageUp => {
-                self.scroll.page_up();
-            }
-            KeyCode::PageDown => {
-                self.scroll.page_down();
-            }
-            KeyCode::Tab => {
-                self.toggle_latest_tool_call();
-            }
-            KeyCode::BackTab => {
-                self.toggle_all_latest_tool_calls();
-            }
-            _ => {}
-        }
+        };
+        let _ = update_chat(self, msg);
     }
 
     fn input_is_multiline(&self) -> bool {
@@ -274,43 +193,6 @@ impl ChatApp {
             self.input_history.drain(0..overflow);
         }
         self.reset_history_navigation();
-    }
-
-    fn handle_file_finder_input(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Esc => {
-                self.file_finder.deactivate();
-            }
-            KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.file_finder.query.clear();
-                self.update_file_finder_matches();
-            }
-            KeyCode::Char(c)
-                if !key.modifiers.contains(KeyModifiers::CONTROL)
-                    && !key.modifiers.contains(KeyModifiers::ALT)
-                    && !key.modifiers.contains(KeyModifiers::SUPER) =>
-            {
-                self.file_finder.query.push(c);
-                self.update_file_finder_matches();
-            }
-            KeyCode::Backspace => {
-                self.file_finder.query.pop();
-                self.update_file_finder_matches();
-            }
-            KeyCode::Up => {
-                self.file_finder.move_up();
-            }
-            KeyCode::Down => {
-                self.file_finder.move_down();
-            }
-            KeyCode::Enter => {
-                if let Some(path) = self.file_finder.selected_item().cloned() {
-                    self.toggle_pin(&path);
-                }
-                self.file_finder.deactivate();
-            }
-            _ => {}
-        }
     }
 
     pub fn activate_file_finder(&mut self) {
@@ -744,10 +626,226 @@ impl ChatApp {
     }
 }
 
+pub(crate) fn map_chat_key_to_msg(key: KeyEvent, file_finder_active: bool) -> Option<ChatMsg> {
+    if key.kind != KeyEventKind::Press {
+        return None;
+    }
+
+    if file_finder_active {
+        return match key.code {
+            KeyCode::Esc => Some(ChatMsg::FinderClose),
+            KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(ChatMsg::FinderClearQuery),
+            KeyCode::Char(c)
+                if !key.modifiers.contains(KeyModifiers::CONTROL)
+                    && !key.modifiers.contains(KeyModifiers::ALT)
+                    && !key.modifiers.contains(KeyModifiers::SUPER) =>
+            {
+                Some(ChatMsg::FinderInsertChar(c))
+            }
+            KeyCode::Backspace => Some(ChatMsg::FinderBackspace),
+            KeyCode::Up => Some(ChatMsg::FinderMoveUp),
+            KeyCode::Down => Some(ChatMsg::FinderMoveDown),
+            KeyCode::Enter => Some(ChatMsg::FinderSelect),
+            _ => None,
+        };
+    }
+
+    match key.code {
+        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(ChatMsg::Quit),
+        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(ChatMsg::Quit),
+        KeyCode::Char('q') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(ChatMsg::Quit),
+        KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(ChatMsg::ClearInput),
+        KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(ChatMsg::ToggleLatestReasoning),
+        KeyCode::Char('l') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(ChatMsg::MoveCursorToEnd),
+        KeyCode::Char('@') => Some(ChatMsg::ActivateFileFinder),
+        KeyCode::Char(c)
+            if !key.modifiers.contains(KeyModifiers::CONTROL)
+                && !key.modifiers.contains(KeyModifiers::ALT)
+                && !key.modifiers.contains(KeyModifiers::SUPER) =>
+        {
+            Some(ChatMsg::InsertChar(c))
+        }
+        KeyCode::Backspace => Some(ChatMsg::Backspace),
+        KeyCode::Delete => Some(ChatMsg::Delete),
+        KeyCode::Left => Some(ChatMsg::MoveLeft),
+        KeyCode::Right => Some(ChatMsg::MoveRight),
+        KeyCode::Home => Some(ChatMsg::MoveHome),
+        KeyCode::End => Some(ChatMsg::MoveEnd),
+        KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => Some(ChatMsg::InsertNewline),
+        KeyCode::Char('j') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(ChatMsg::InsertNewline),
+        KeyCode::Enter => Some(ChatMsg::Submit),
+        KeyCode::Up => Some(ChatMsg::NavigateUp),
+        KeyCode::Down => Some(ChatMsg::NavigateDown),
+        KeyCode::PageUp => Some(ChatMsg::PageUp),
+        KeyCode::PageDown => Some(ChatMsg::PageDown),
+        KeyCode::Tab => Some(ChatMsg::ToggleLatestToolCall),
+        KeyCode::BackTab => Some(ChatMsg::ToggleAllLatestToolCalls),
+        _ => None,
+    }
+}
+
+pub(crate) fn update_chat(app: &mut ChatApp, msg: ChatMsg) -> ScreenAction {
+    match msg {
+        ChatMsg::Quit => {
+            app.running = false;
+            ScreenAction::Quit
+        }
+        ChatMsg::ClearInput => {
+            app.input_buffer.clear();
+            app.cursor_position = 0;
+            app.reset_history_navigation();
+            ScreenAction::None
+        }
+        ChatMsg::ToggleLatestReasoning => {
+            app.toggle_latest_reasoning();
+            ScreenAction::None
+        }
+        ChatMsg::MoveCursorToEnd => {
+            app.cursor_position = app.input_buffer.len();
+            app.scroll.scroll_to_bottom();
+            app.reset_history_navigation();
+            ScreenAction::None
+        }
+        ChatMsg::ActivateFileFinder => {
+            app.activate_file_finder();
+            ScreenAction::None
+        }
+        ChatMsg::InsertChar(c) => {
+            app.reset_history_navigation();
+            app.input_buffer.insert(app.cursor_position, c);
+            app.cursor_position += 1;
+            ScreenAction::None
+        }
+        ChatMsg::Backspace => {
+            app.reset_history_navigation();
+            if app.cursor_position > 0 {
+                app.cursor_position -= 1;
+                app.input_buffer.remove(app.cursor_position);
+            } else {
+                app.unpin_last_file();
+            }
+            ScreenAction::None
+        }
+        ChatMsg::Delete => {
+            app.reset_history_navigation();
+            if app.cursor_position < app.input_buffer.len() {
+                app.input_buffer.remove(app.cursor_position);
+            } else if app.cursor_position == 0 {
+                app.unpin_last_file();
+            }
+            ScreenAction::None
+        }
+        ChatMsg::MoveLeft => {
+            if app.cursor_position > 0 {
+                app.cursor_position -= 1;
+            }
+            ScreenAction::None
+        }
+        ChatMsg::MoveRight => {
+            if app.cursor_position < app.input_buffer.len() {
+                app.cursor_position += 1;
+            }
+            ScreenAction::None
+        }
+        ChatMsg::MoveHome => {
+            app.cursor_position = 0;
+            ScreenAction::None
+        }
+        ChatMsg::MoveEnd => {
+            app.cursor_position = app.input_buffer.len();
+            ScreenAction::None
+        }
+        ChatMsg::InsertNewline => {
+            app.reset_history_navigation();
+            app.input_buffer.insert(app.cursor_position, '\n');
+            app.cursor_position += 1;
+            ScreenAction::None
+        }
+        ChatMsg::Submit => {
+            if !app.input_buffer.is_empty() && app.streaming_state == StreamingState::Idle {
+                let content = app.input_buffer.clone();
+                if content.starts_with('/') {
+                    app.pending_command = Some(content);
+                } else {
+                    app.submit_user_message(content);
+                }
+                app.input_buffer.clear();
+                app.cursor_position = 0;
+                app.reset_history_navigation();
+            }
+            ScreenAction::None
+        }
+        ChatMsg::NavigateUp => {
+            if !app.try_navigate_history_up() {
+                app.scroll.scroll_up(1);
+            }
+            ScreenAction::None
+        }
+        ChatMsg::NavigateDown => {
+            if !app.try_navigate_history_down() {
+                app.scroll.scroll_down(1);
+            }
+            ScreenAction::None
+        }
+        ChatMsg::PageUp => {
+            app.scroll.page_up();
+            ScreenAction::None
+        }
+        ChatMsg::PageDown => {
+            app.scroll.page_down();
+            ScreenAction::None
+        }
+        ChatMsg::ToggleLatestToolCall => {
+            app.toggle_latest_tool_call();
+            ScreenAction::None
+        }
+        ChatMsg::ToggleAllLatestToolCalls => {
+            app.toggle_all_latest_tool_calls();
+            ScreenAction::None
+        }
+        ChatMsg::FinderClose => {
+            app.file_finder.deactivate();
+            ScreenAction::None
+        }
+        ChatMsg::FinderClearQuery => {
+            app.file_finder.query.clear();
+            app.update_file_finder_matches();
+            ScreenAction::None
+        }
+        ChatMsg::FinderInsertChar(c) => {
+            app.file_finder.query.push(c);
+            app.update_file_finder_matches();
+            ScreenAction::None
+        }
+        ChatMsg::FinderBackspace => {
+            app.file_finder.query.pop();
+            app.update_file_finder_matches();
+            ScreenAction::None
+        }
+        ChatMsg::FinderMoveUp => {
+            app.file_finder.move_up();
+            ScreenAction::None
+        }
+        ChatMsg::FinderMoveDown => {
+            app.file_finder.move_down();
+            ScreenAction::None
+        }
+        ChatMsg::FinderSelect => {
+            if let Some(path) = app.file_finder.selected_item().cloned() {
+                app.toggle_pin(&path);
+            }
+            app.file_finder.deactivate();
+            ScreenAction::None
+        }
+    }
+}
+
 impl Screen for ChatApp {
     fn handle_input(&mut self, key: KeyEvent) -> ScreenAction {
-        ChatApp::handle_input(self, key);
-        if self.running { ScreenAction::None } else { ScreenAction::Quit }
+        let Some(msg) = map_chat_key_to_msg(key, self.file_finder.active) else {
+            return ScreenAction::None;
+        };
+        update_chat(self, msg)
     }
 
     fn draw(&self, frame: &mut Frame) {

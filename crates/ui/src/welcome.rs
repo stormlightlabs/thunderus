@@ -28,6 +28,23 @@ const DEFAULT_WELCOME_SUGGESTION: &str = "What is your name?";
 const README_IMPROVEMENT_SUGGESTION: &str = "Read README.md and suggest improvements.";
 const INPUT_PROMPT_PREFIX: &str = "❯ ";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WelcomeMsg {
+    Quit,
+    ClearInput,
+    MoveCursorToEnd,
+    ActivateFileFinder,
+    InsertChar(char),
+    Backspace,
+    MoveLeft,
+    MoveRight,
+    InsertNewline,
+    Submit,
+    SelectPreviousSuggestion,
+    SelectNextSuggestion,
+    SelectSuggestion(usize),
+}
+
 #[derive(Debug, Clone)]
 pub struct WelcomeApp {
     pub input_buffer: String,
@@ -78,160 +95,193 @@ impl WelcomeApp {
     }
 
     pub fn handle_mouse(&mut self, mouse: MouseEvent, frame_size: Rect) -> ScreenAction {
-        if !matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+        let Some(msg) = map_welcome_mouse_to_msg(mouse, frame_size, &self.suggestions, &self.input_buffer) else {
             return ScreenAction::None;
-        }
-
-        for (idx, area) in suggestion_areas(frame_size, &self.suggestions, &self.input_buffer)
-            .iter()
-            .enumerate()
-        {
-            if point_in_rect(mouse.column, mouse.row, *area) {
-                self.selected_suggestion = Some(idx);
-                let Some(content) = self.suggestions.get(idx).cloned() else {
-                    continue;
-                };
-                self.pending_submission = Some(content);
-                self.input_buffer.clear();
-                self.cursor_position = 0;
-                return ScreenAction::SwitchTo(ScreenMode::Chat);
-            }
-        }
-
-        ScreenAction::None
+        };
+        update_welcome(self, msg)
     }
 }
 
 impl Screen for WelcomeApp {
     fn handle_input(&mut self, key: KeyEvent) -> ScreenAction {
-        if key.kind != KeyEventKind::Press {
+        let Some(msg) = map_welcome_key_to_msg(key) else {
             return ScreenAction::None;
-        }
-
-        match key.code {
-            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => ScreenAction::Quit,
-            KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => ScreenAction::Quit,
-            KeyCode::Char('q') if key.modifiers.contains(KeyModifiers::CONTROL) => ScreenAction::Quit,
-            KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.input_buffer.clear();
-                self.cursor_position = 0;
-                self.selected_suggestion = None;
-                ScreenAction::None
-            }
-            KeyCode::Char('l') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.cursor_position = self.input_buffer.len();
-                self.selected_suggestion = None;
-                ScreenAction::None
-            }
-            KeyCode::Char('@') => {
-                self.should_activate_file_finder = true;
-                ScreenAction::None
-            }
-            KeyCode::Char(ch)
-                if !key.modifiers.contains(KeyModifiers::CONTROL)
-                    && !key.modifiers.contains(KeyModifiers::ALT)
-                    && !key.modifiers.contains(KeyModifiers::SUPER) =>
-            {
-                self.selected_suggestion = None;
-                self.input_buffer.insert(self.cursor_position, ch);
-                self.cursor_position += 1;
-                ScreenAction::None
-            }
-            KeyCode::Backspace => {
-                self.selected_suggestion = None;
-                if self.cursor_position > 0 {
-                    self.cursor_position -= 1;
-                    self.input_buffer.remove(self.cursor_position);
-                }
-                ScreenAction::None
-            }
-            KeyCode::Left => {
-                self.selected_suggestion = None;
-                if self.cursor_position > 0 {
-                    self.cursor_position -= 1;
-                }
-                ScreenAction::None
-            }
-            KeyCode::Right => {
-                self.selected_suggestion = None;
-                if self.cursor_position < self.input_buffer.len() {
-                    self.cursor_position += 1;
-                }
-                ScreenAction::None
-            }
-            KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => {
-                self.selected_suggestion = None;
-                self.input_buffer.insert(self.cursor_position, '\n');
-                self.cursor_position += 1;
-                ScreenAction::None
-            }
-            KeyCode::Char('j') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.selected_suggestion = None;
-                self.input_buffer.insert(self.cursor_position, '\n');
-                self.cursor_position += 1;
-                ScreenAction::None
-            }
-            KeyCode::Enter => {
-                if self.input_buffer.is_empty() && self.selected_suggestion.is_none() {
-                    return ScreenAction::None;
-                }
-
-                let content = if self.input_buffer.is_empty() {
-                    let idx = self.selected_suggestion.unwrap_or(0);
-                    self.suggestions
-                        .get(idx)
-                        .cloned()
-                        .or_else(|| self.suggestions.first().cloned())
-                        .unwrap_or_default()
-                } else {
-                    self.input_buffer.clone()
-                };
-
-                self.input_buffer.clear();
-                self.cursor_position = 0;
-
-                if content.starts_with('/') {
-                    self.pending_command = Some(content);
-                    ScreenAction::None
-                } else {
-                    self.pending_submission = Some(content);
-                    ScreenAction::SwitchTo(ScreenMode::Chat)
-                }
-            }
-            KeyCode::Up => {
-                if self.suggestions.is_empty() {
-                    self.selected_suggestion = None;
-                    return ScreenAction::None;
-                }
-
-                self.selected_suggestion = match self.selected_suggestion {
-                    None => Some(0),
-                    Some(0) => Some(self.suggestions.len() - 1),
-                    Some(idx) => Some(idx - 1),
-                };
-
-                ScreenAction::None
-            }
-            KeyCode::Down => {
-                if self.suggestions.is_empty() {
-                    self.selected_suggestion = None;
-                    return ScreenAction::None;
-                }
-
-                self.selected_suggestion = match self.selected_suggestion {
-                    None => Some(0),
-                    Some(idx) if idx >= self.suggestions.len() - 1 => Some(0),
-                    Some(idx) => Some(idx + 1),
-                };
-
-                ScreenAction::None
-            }
-            _ => ScreenAction::None,
-        }
+        };
+        update_welcome(self, msg)
     }
 
     fn draw(&self, frame: &mut Frame) {
         draw_welcome_screen(frame, self);
+    }
+}
+
+pub(crate) fn map_welcome_key_to_msg(key: KeyEvent) -> Option<WelcomeMsg> {
+    if key.kind != KeyEventKind::Press {
+        return None;
+    }
+
+    match key.code {
+        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(WelcomeMsg::Quit),
+        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(WelcomeMsg::Quit),
+        KeyCode::Char('q') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(WelcomeMsg::Quit),
+        KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(WelcomeMsg::ClearInput),
+        KeyCode::Char('l') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(WelcomeMsg::MoveCursorToEnd),
+        KeyCode::Char('@') => Some(WelcomeMsg::ActivateFileFinder),
+        KeyCode::Char(ch)
+            if !key.modifiers.contains(KeyModifiers::CONTROL)
+                && !key.modifiers.contains(KeyModifiers::ALT)
+                && !key.modifiers.contains(KeyModifiers::SUPER) =>
+        {
+            Some(WelcomeMsg::InsertChar(ch))
+        }
+        KeyCode::Backspace => Some(WelcomeMsg::Backspace),
+        KeyCode::Left => Some(WelcomeMsg::MoveLeft),
+        KeyCode::Right => Some(WelcomeMsg::MoveRight),
+        KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => Some(WelcomeMsg::InsertNewline),
+        KeyCode::Char('j') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(WelcomeMsg::InsertNewline),
+        KeyCode::Enter => Some(WelcomeMsg::Submit),
+        KeyCode::Up => Some(WelcomeMsg::SelectPreviousSuggestion),
+        KeyCode::Down => Some(WelcomeMsg::SelectNextSuggestion),
+        _ => None,
+    }
+}
+
+pub(crate) fn map_welcome_mouse_to_msg(
+    mouse: MouseEvent, frame_size: Rect, suggestions: &Vec<String>, input_buffer: &str,
+) -> Option<WelcomeMsg> {
+    if !matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+        return None;
+    }
+
+    for (idx, area) in suggestion_areas(frame_size, suggestions, input_buffer)
+        .iter()
+        .enumerate()
+    {
+        if point_in_rect(mouse.column, mouse.row, *area) {
+            return Some(WelcomeMsg::SelectSuggestion(idx));
+        }
+    }
+
+    None
+}
+
+pub(crate) fn update_welcome(app: &mut WelcomeApp, msg: WelcomeMsg) -> ScreenAction {
+    match msg {
+        WelcomeMsg::Quit => ScreenAction::Quit,
+        WelcomeMsg::ClearInput => {
+            app.input_buffer.clear();
+            app.cursor_position = 0;
+            app.selected_suggestion = None;
+            ScreenAction::None
+        }
+        WelcomeMsg::MoveCursorToEnd => {
+            app.cursor_position = app.input_buffer.len();
+            app.selected_suggestion = None;
+            ScreenAction::None
+        }
+        WelcomeMsg::ActivateFileFinder => {
+            app.should_activate_file_finder = true;
+            ScreenAction::None
+        }
+        WelcomeMsg::InsertChar(ch) => {
+            app.selected_suggestion = None;
+            app.input_buffer.insert(app.cursor_position, ch);
+            app.cursor_position += 1;
+            ScreenAction::None
+        }
+        WelcomeMsg::Backspace => {
+            app.selected_suggestion = None;
+            if app.cursor_position > 0 {
+                app.cursor_position -= 1;
+                app.input_buffer.remove(app.cursor_position);
+            }
+            ScreenAction::None
+        }
+        WelcomeMsg::MoveLeft => {
+            app.selected_suggestion = None;
+            if app.cursor_position > 0 {
+                app.cursor_position -= 1;
+            }
+            ScreenAction::None
+        }
+        WelcomeMsg::MoveRight => {
+            app.selected_suggestion = None;
+            if app.cursor_position < app.input_buffer.len() {
+                app.cursor_position += 1;
+            }
+            ScreenAction::None
+        }
+        WelcomeMsg::InsertNewline => {
+            app.selected_suggestion = None;
+            app.input_buffer.insert(app.cursor_position, '\n');
+            app.cursor_position += 1;
+            ScreenAction::None
+        }
+        WelcomeMsg::Submit => {
+            if app.input_buffer.is_empty() && app.selected_suggestion.is_none() {
+                return ScreenAction::None;
+            }
+
+            let content = if app.input_buffer.is_empty() {
+                let idx = app.selected_suggestion.unwrap_or(0);
+                app.suggestions
+                    .get(idx)
+                    .cloned()
+                    .or_else(|| app.suggestions.first().cloned())
+                    .unwrap_or_default()
+            } else {
+                app.input_buffer.clone()
+            };
+
+            app.input_buffer.clear();
+            app.cursor_position = 0;
+
+            if content.starts_with('/') {
+                app.pending_command = Some(content);
+                ScreenAction::None
+            } else {
+                app.pending_submission = Some(content);
+                ScreenAction::SwitchTo(ScreenMode::Chat)
+            }
+        }
+        WelcomeMsg::SelectPreviousSuggestion => {
+            if app.suggestions.is_empty() {
+                app.selected_suggestion = None;
+                return ScreenAction::None;
+            }
+
+            app.selected_suggestion = match app.selected_suggestion {
+                None => Some(0),
+                Some(0) => Some(app.suggestions.len() - 1),
+                Some(idx) => Some(idx - 1),
+            };
+
+            ScreenAction::None
+        }
+        WelcomeMsg::SelectNextSuggestion => {
+            if app.suggestions.is_empty() {
+                app.selected_suggestion = None;
+                return ScreenAction::None;
+            }
+
+            app.selected_suggestion = match app.selected_suggestion {
+                None => Some(0),
+                Some(idx) if idx >= app.suggestions.len() - 1 => Some(0),
+                Some(idx) => Some(idx + 1),
+            };
+
+            ScreenAction::None
+        }
+        WelcomeMsg::SelectSuggestion(idx) => {
+            app.selected_suggestion = Some(idx);
+            let Some(content) = app.suggestions.get(idx).cloned() else {
+                return ScreenAction::None;
+            };
+            app.pending_submission = Some(content);
+            app.input_buffer.clear();
+            app.cursor_position = 0;
+            ScreenAction::SwitchTo(ScreenMode::Chat)
+        }
     }
 }
 
