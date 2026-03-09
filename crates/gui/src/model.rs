@@ -83,13 +83,13 @@ impl AppModel {
     }
 
     pub fn input_line_count(&self) -> usize {
-        let count = self
-            .composer_text
-            .lines()
-            .filter(|line| !line.is_empty())
-            .count()
-            .max(1);
-        count.clamp(INPUT_MIN_LINES, INPUT_MAX_LINES)
+        let line_count = if self.composer_text.is_empty() {
+            1
+        } else {
+            self.composer_text.chars().filter(|ch| *ch == '\n').count() + 1
+        };
+
+        line_count.clamp(INPUT_MIN_LINES, INPUT_MAX_LINES)
     }
 
     pub fn input_height(&self) -> f32 {
@@ -243,7 +243,10 @@ pub fn update_model(model: &mut AppModel, message: ModelMessage) -> Vec<Effect> 
             model.composer_text = model.composer.text();
             vec![Effect::PersistState]
         }
-        ModelMessage::SubmitPrompt => submit_prompt(model, model.composer_text.clone().as_str()),
+        ModelMessage::SubmitPrompt => {
+            let prompt = model.composer_text.clone();
+            submit_prompt(model, &prompt)
+        }
         ModelMessage::RequestWorkspacePicker => vec![Effect::OpenWorkspacePicker],
         ModelMessage::WorkspacePicked(path) => set_workspace(model, path),
         ModelMessage::BackendEvent(event) => apply_backend_event(model, event),
