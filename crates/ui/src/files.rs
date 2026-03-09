@@ -11,7 +11,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use syntect::easy::HighlightLines;
@@ -633,6 +633,7 @@ fn draw_fuzzy_overlay(frame: &mut Frame, area: Rect, app: &FileBrowserApp) {
     }
 
     let panel = cols[1];
+    frame.render_widget(Clear, panel);
     let overlay = Block::default()
         .title(" open file ")
         .borders(Borders::ALL)

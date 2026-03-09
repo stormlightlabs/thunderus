@@ -58,8 +58,8 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
         &[
             ("Send message", "Enter"),
             ("New line", "Shift+Enter"),
-            ("Clear input", "Ctrl+K"),
-            ("Focus input", "Ctrl+L"),
+            ("Clear current line", "Ctrl+U"),
+            ("Clear input", "Ctrl+L"),
             ("Pin file", "@"),
             ("Open file finder", "@"),
         ],

@@ -6,7 +6,19 @@ Thunderus is a coding agent harness built in Rust. It attempts to replicate and 
 It is designed for developers who want to use open-source/open-weight models with fine
 grained control over context.
 
-## Project Structure
+## Setup
+
+```sh
+git clone git@github.com:stormlightlabs/thunderus.git
+cd thunderus
+cargo build
+cargo run -p thndrs-cli
+```
+
+<details>
+<summary>
+Project Structure
+</summary>
 
 ```sh
 .
@@ -20,6 +32,8 @@ grained control over context.
 ├── meta/            # Source of truth (prompts, tools, response format)
 └── docs/            # Documentation, specs, provider details
 ```
+
+</details>
 
 ## Configuration
 

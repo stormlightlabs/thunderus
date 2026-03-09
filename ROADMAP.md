@@ -107,9 +107,72 @@ Persistent agent memory across conversations, and session management.
 - `/debug log <id>` shows a session's logs:
     ex. `[INFO] [runtime] 2024-01-01T00:00:00.000000 | Tool call: memory_recall`
 
+### Milestone 6 - Tool Output Formatting
+
+Polished, tool-aware rendering of tool call results in the chat view.
+Currently tool outputs fall through to a generic `CollapsibleSection` with plain muted text.
+
+*Reference*: `designs/templates/chat-active.html`, `designs/templates/tools.html`, `designs/static/styles.css`
+
+#### Tool Argument Display
+
+- Per-tool compact argument formatting in `format_tool_arguments` (`chat.rs`):
+    - `read`  -> file path (and `offset..offset+limit` when present)
+    - `write` -> file path
+    - `edit`  -> file path (extracted from `diff` header `+++ b/{path}`)
+    - `bash`  -> command string (truncated at terminal width)
+    - `research` -> URL
+    - `memory_store` -> kind + first N chars of content
+    - `memory_recall` -> query (already handled, keep as-is)
+- Remove generic `"Args: key: value | ..."` fallback for known tool names
+
+#### Read Tool Output
+
+- Line-numbered text display matching `cat -n` style used by the tool result envelope
+- Muted line numbers (right-aligned), secondary-colored content
+- Directory listings: folder icon (▶) in yellow, file icon (⌸) in secondary text
+- Image results: render placeholder line `[image: {mime}, {size}]` in muted text
+- Truncation indicator when output exceeds display height
+
+#### Write Tool Output
+
+- Single success line: `Wrote {byte_count} bytes -> {path}` in green
+- Error line in red when status is error
+
+#### Edit Tool Diff Output
+
+- Add file path header line above diff (cyan, bold) extracted from `+++ b/{path}`
+- Existing `DiffView` + `parse_diff` already handle line rendering; wire path header into `draw_expanded_tool_details`
+
+#### Bash Tool Output
+
+- Existing `BashOutputView` handles command + output; enhance with:
+    - Truncation indicator (`[{n} lines hidden]`) when output exceeds 50 visible lines
+    - Exit code badge after command line: `[exit {code}]` in green (0) or red (non-zero)
+
+#### Research Tool Output
+
+- URL header line (cyan, underlined)
+- Body text in secondary color, wrapped
+- Truncation indicator when content exceeds display height
+
+#### Generic Fallback
+
+- Unknown/future tools still use `CollapsibleSection` with formatted output
+- Ensure `format_tool_output` normalisation (CRLF fix, blank-line collapse, bullet breaks) applies to all paths
+
+#### Height Calculation
+
+- Update `tool_call_expanded_height` in `chat.rs` to account for per-tool layout:
+    - `read`: line count (clamped 1-20) + 1 (header)
+    - `write`: 1 line
+    - `edit`: diff line count (clamped 1-15) + 1 (path header)
+    - `bash`: output line count (clamped 1-15) + 2 (command + exit badge)
+    - `research`: line count (clamped 1-15) + 1 (URL header)
+
 ## Part 4
 
-### Milestone 6 - Settings & Help
+### Milestone 7 - Settings & Help
 
 User-facing configuration and documentation inside the TUI.
 
@@ -146,7 +209,7 @@ User-facing configuration and documentation inside the TUI.
 
 ## Part 5
 
-### Milestone 7 - Web Search
+### Milestone 8 - Web Search
 
 The agent gains web search through Tavily Search.
 
@@ -160,7 +223,7 @@ The agent gains web search through Tavily Search.
 - `thunderus debug search <query>` - exercise Tavily Search directly, print flattened results
 - `TAVILY_API_KEY` env var support
 
-### Milestone 8 - Additional Providers
+### Milestone 9 - Additional Providers
 
 Full provider coverage as specced.
 

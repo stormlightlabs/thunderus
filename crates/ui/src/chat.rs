@@ -1,12 +1,12 @@
 //! Chat screen components for active conversation
 
 use super::colors;
-use super::components::wrapped_line_count;
-use super::components::{HintFooter, HintToken, ToolCallCard, ToolCallState};
-use super::components::{SectionBlock, SectionTone, TopBorderedInputRow};
-use super::elements::ChatShell;
+use super::components::{
+    HintFooter, HintToken, SectionBlock, SectionTone, ToolCallCard, ToolCallState, TopBorderedInputRow,
+};
+use super::components::{top_bordered_row_height, wrapped_line_count};
 use super::files::{fuzzy_match_paths, read_file_for_prompt, workspace_files};
-use super::layout::{ConstraintSpec, split as split_rects};
+use super::layout::split as split_rects;
 use super::tool::{TaskItem, draw_bash_output, draw_collapsible, draw_diff, draw_task_progress, parse_diff};
 use chrono::{DateTime, Local, Utc};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -14,10 +14,12 @@ use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, Padding, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, Clear, Padding, Paragraph, Wrap};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use thndrs_core::{ResponseSections, estimate_token_cost_usd};
+
+const INPUT_PROMPT_PREFIX: &str = "❯ ";
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum StreamingState {
@@ -258,6 +260,8 @@ impl ChatApp {
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => self.running = false,
             KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => self.running = false,
             KeyCode::Char('q') if key.modifiers.contains(KeyModifiers::CONTROL) => self.running = false,
+            KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => self.clear_current_input_line(),
+            KeyCode::Char('l') if key.modifiers.contains(KeyModifiers::CONTROL) => self.clear_input_buffer(),
             KeyCode::Char('@') => self.activate_file_finder(),
             KeyCode::Char(c) => {
                 self.input_buffer.insert(self.cursor_position, c);
@@ -267,6 +271,15 @@ impl ChatApp {
                 if self.cursor_position > 0 {
                     self.cursor_position -= 1;
                     self.input_buffer.remove(self.cursor_position);
+                } else {
+                    self.unpin_last_file();
+                }
+            }
+            KeyCode::Delete => {
+                if self.cursor_position < self.input_buffer.len() {
+                    self.input_buffer.remove(self.cursor_position);
+                } else if self.cursor_position == 0 {
+                    self.unpin_last_file();
                 }
             }
             KeyCode::Left => {
@@ -278,6 +291,10 @@ impl ChatApp {
                 if self.cursor_position < self.input_buffer.len() {
                     self.cursor_position += 1;
                 }
+            }
+            KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                self.input_buffer.insert(self.cursor_position, '\n');
+                self.cursor_position += 1;
             }
             KeyCode::Enter => {
                 if !self.input_buffer.is_empty() && self.streaming_state == StreamingState::Idle {
@@ -361,6 +378,40 @@ impl ChatApp {
         } else {
             self.pinned_files.push(path.to_path_buf());
         }
+    }
+
+    fn unpin_last_file(&mut self) -> bool {
+        self.pinned_files.pop().is_some()
+    }
+
+    fn clear_current_input_line(&mut self) {
+        if self.input_buffer.is_empty() {
+            return;
+        }
+
+        let len = self.input_buffer.len();
+        let cursor = self.cursor_position.min(len);
+        let line_start = self.input_buffer[..cursor].rfind('\n').map(|idx| idx + 1).unwrap_or(0);
+        let line_end = self.input_buffer[cursor..]
+            .find('\n')
+            .map(|idx| cursor + idx)
+            .unwrap_or(len);
+
+        let (remove_start, remove_end) = if line_start == 0 && line_end == len {
+            (0, len)
+        } else if line_start > 0 {
+            (line_start - 1, line_end)
+        } else {
+            (line_start, (line_end + 1).min(len))
+        };
+
+        self.input_buffer.replace_range(remove_start..remove_end, "");
+        self.cursor_position = remove_start.min(self.input_buffer.len());
+    }
+
+    fn clear_input_buffer(&mut self) {
+        self.input_buffer.clear();
+        self.cursor_position = 0;
     }
 
     pub fn is_file_finder_active(&self) -> bool {
@@ -570,7 +621,16 @@ pub fn draw_chat_screen(frame: &mut Frame, app: &ChatApp) {
     let clear = Block::default().style(Style::default().bg(colors::BG_TERMINAL));
     frame.render_widget(clear, size);
 
-    let main_layout = ChatShell.split(size);
+    let main_layout = split_rects(
+        size,
+        Direction::Vertical,
+        vec![
+            Constraint::Min(0),
+            Constraint::Length(1),
+            Constraint::Length(top_bordered_row_height(1)),
+            Constraint::Length(chat_input_row_height(app, size.width)),
+        ],
+    );
     if main_layout.len() < 4 {
         return;
     }
@@ -1290,6 +1350,12 @@ fn draw_hints(frame: &mut Frame, area: Rect) {
         HintToken::Text("Press "),
         HintToken::Key("Enter"),
         HintToken::Text(" to send, "),
+        HintToken::Key("Shift+Enter"),
+        HintToken::Text(" newline, "),
+        HintToken::Key("Ctrl+U"),
+        HintToken::Text(" clear line, "),
+        HintToken::Key("Ctrl+L"),
+        HintToken::Text(" clear input, "),
         HintToken::Key("@"),
         HintToken::Text(" to pin files, "),
         HintToken::Key("Tab"),
@@ -1375,9 +1441,116 @@ fn format_usd(value: f64) -> String {
     if value < 0.0001 { format!("${value:.6}") } else { format!("${value:.4}") }
 }
 
+fn chat_input_row_height(app: &ChatApp, area_width: u16) -> u16 {
+    top_bordered_row_height(chat_input_content_line_count(app, area_width))
+}
+
+fn chat_input_content_line_count(app: &ChatApp, area_width: u16) -> u16 {
+    let inner_width = area_width.saturating_sub(2).max(1);
+    let mut lines = wrapped_multiline_input_line_count(
+        &app.input_buffer,
+        inner_width
+            .saturating_sub(INPUT_PROMPT_PREFIX.chars().count() as u16)
+            .max(1),
+        inner_width,
+    ) as u16;
+
+    if !app.pinned_files().is_empty() {
+        lines += wrapped_line_count(&pinned_files_input_text(app.pinned_files()), inner_width) as u16;
+    }
+
+    lines.max(1)
+}
+
+fn wrapped_multiline_input_line_count(input: &str, first_width: u16, continuation_width: u16) -> usize {
+    fn wrapped_segment_line_count(segment: &str, width: u16) -> usize {
+        if width == 0 {
+            return 1;
+        }
+        segment.chars().count().div_ceil(width as usize).max(1)
+    }
+
+    let mut segments = input.split('\n');
+    let mut total = 0usize;
+
+    if let Some(first) = segments.next() {
+        total += wrapped_segment_line_count(first, first_width.max(1));
+    } else {
+        return 1;
+    }
+
+    for segment in segments {
+        total += wrapped_segment_line_count(segment, continuation_width.max(1));
+    }
+
+    total.max(1)
+}
+
+fn pinned_files_input_text(pinned_files: &[PathBuf]) -> String {
+    let mut out = String::new();
+    out.push('@');
+    out.push(' ');
+    for (idx, path) in pinned_files.iter().enumerate() {
+        if idx > 0 {
+            out.push(' ');
+        }
+        out.push('[');
+        out.push_str(&path.display().to_string());
+        out.push(']');
+    }
+    out
+}
+
 fn draw_input_area(frame: &mut Frame, area: Rect, app: &ChatApp) {
     let show_cursor = app.streaming_state == StreamingState::Idle;
-    TopBorderedInputRow.render(frame, area, &app.input_buffer, show_cursor);
+    let inner = TopBorderedInputRow.render_container(frame, area);
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
+
+    let mut lines = Vec::new();
+
+    if !app.pinned_files().is_empty() {
+        lines.push(Line::from(vec![Span::styled(
+            pinned_files_input_text(app.pinned_files()),
+            Style::default().fg(colors::ACCENT_GREEN),
+        )]));
+    }
+
+    let cursor_char = if show_cursor { "\u{2588}" } else { " " };
+    let input_segments = app.input_buffer.split('\n').collect::<Vec<_>>();
+
+    for (idx, segment) in input_segments.iter().enumerate() {
+        let prefix = if idx == 0 { INPUT_PROMPT_PREFIX } else { "  " };
+        let prefix_style = if idx == 0 {
+            Style::default().fg(colors::ACCENT_CYAN)
+        } else {
+            Style::default().fg(colors::TEXT_MUTED)
+        };
+
+        let mut spans = vec![
+            Span::styled(prefix, prefix_style),
+            Span::styled(*segment, Style::default().fg(colors::TEXT_PRIMARY)),
+        ];
+
+        if idx + 1 == input_segments.len() {
+            spans.push(Span::styled(cursor_char, Style::default().fg(colors::ACCENT_CYAN)));
+        }
+
+        lines.push(Line::from(spans));
+    }
+
+    if lines.is_empty() {
+        lines.push(Line::from(vec![
+            Span::styled(INPUT_PROMPT_PREFIX, Style::default().fg(colors::ACCENT_CYAN)),
+            Span::styled(cursor_char, Style::default().fg(colors::ACCENT_CYAN)),
+        ]));
+    }
+
+    let paragraph = Paragraph::new(Text::from(lines))
+        .style(Style::default().bg(colors::BG_TERMINAL))
+        .wrap(Wrap { trim: false });
+    frame.render_widget(paragraph, inner);
 }
 
 pub(crate) fn draw_file_finder_overlay(frame: &mut Frame, area: Rect, app: &ChatApp) {
@@ -1405,6 +1578,7 @@ pub(crate) fn draw_file_finder_overlay(frame: &mut Frame, area: Rect, app: &Chat
     }
 
     let panel = cols[1];
+    frame.render_widget(Clear, panel);
     let block = Block::default()
         .title(" pin file to chat ")
         .borders(Borders::ALL)
@@ -1502,6 +1676,53 @@ mod tests {
         assert_eq!(app.messages.len(), 2);
         assert_eq!(app.messages[0].role, MessageRole::User);
         assert_eq!(app.messages[1].role, MessageRole::Assistant);
+    }
+
+    #[test]
+    fn test_shift_enter_inserts_newline_without_submitting() {
+        let mut app = ChatApp::new();
+        app.handle_input(KeyEvent::from(KeyCode::Char('a')));
+        app.handle_input(KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT));
+        app.handle_input(KeyEvent::from(KeyCode::Char('b')));
+
+        assert_eq!(app.input_buffer, "a\nb");
+        assert!(app.messages.is_empty());
+        assert_eq!(app.streaming_state, StreamingState::Idle);
+    }
+
+    #[test]
+    fn test_ctrl_u_clears_current_input_line() {
+        let mut app = ChatApp::new();
+        app.input_buffer = "alpha\nbeta\ngamma".to_string();
+        app.cursor_position = 8;
+
+        app.handle_input(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
+
+        assert_eq!(app.input_buffer, "alpha\ngamma");
+    }
+
+    #[test]
+    fn test_ctrl_l_clears_input_buffer() {
+        let mut app = ChatApp::new();
+        app.input_buffer = "line one\nline two".to_string();
+        app.cursor_position = app.input_buffer.len();
+
+        app.handle_input(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL));
+
+        assert!(app.input_buffer.is_empty());
+        assert_eq!(app.cursor_position, 0);
+    }
+
+    #[test]
+    fn test_backspace_at_prompt_start_unpins_last_file() {
+        let mut app = ChatApp::new();
+        app.toggle_pin(Path::new("sample.rs"));
+        app.toggle_pin(Path::new("README.md"));
+        app.cursor_position = 0;
+
+        app.handle_input(KeyEvent::from(KeyCode::Backspace));
+
+        assert_eq!(app.pinned_files(), &[PathBuf::from("sample.rs")]);
     }
 
     #[test]
