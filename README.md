@@ -1,7 +1,7 @@
 <!-- markdownlint-disable MD033 -->
 # Thunderus AI Agent
 
-Thunderus is a coding agent harness built in Rust. It attempts to replicate and build upon the workflows of pi, OpenCode, Claude Code and Codex, as a standalone, provider-agnostic TUI tool.
+Thunderus is a coding agent harness built in Rust. It attempts to replicate and build upon the workflows of pi, OpenCode, Claude Code and Codex, as standalone, provider-agnostic terminal and desktop apps.
 
 It is designed for developers who want to use open-source/open-weight models with fine
 grained control over context.
@@ -11,9 +11,37 @@ grained control over context.
 ```sh
 git clone git@github.com:stormlightlabs/thunderus.git
 cd thunderus
-cargo build
+cargo build --workspace
+```
+
+## Applications
+
+Thunderus currently ships two frontends:
+
+- `thndrs` (TUI/CLI): terminal interface and debug commands.
+- `thndrs-desktop` (GUI): Iced-based desktop app.
+
+### Run TUI
+
+```sh
 cargo run -p thndrs
 ```
+
+### Run Desktop
+
+```sh
+cargo run -p thndrs-desktop
+```
+
+On first launch, desktop opens a welcome screen and requires selecting a workspace folder via native file dialog before chat input is enabled.
+
+Desktop persists last-opened workspace and basic UI state in:
+
+```text
+~/.thunderus/desktop_state.json
+```
+
+If the saved workspace path no longer exists, desktop falls back to the welcome screen and prompts for a new workspace.
 
 <details>
 <summary>
@@ -23,11 +51,14 @@ Project Structure
 ```sh
 .
 ├── crates/
-│   ├── cli/         # CLI entry point, clap, owo-colors
+│   ├── cli/         # TUI (ratatui)/CLI entry point
 │   ├── core/        # Core logic, conversation state, message handling
+│   ├── gui/         # Desktop app (Iced)
+│   ├── macros/      # Shared macros for UI crates
 │   ├── memory/      # Memory management, SQLite, embeddings
 │   ├── providers/   # LLM provider integrations
-│   └── tools/       # Tool definitions and execution
+│   ├── tools/       # Tool definitions and execution
+│   └── ui/          # Terminal UI rendering and screens
 ├── designs/         # Design mockups and templates
 ├── meta/            # Source of truth (prompts, tools, response format)
 └── docs/            # Documentation, specs, provider details
@@ -61,7 +92,7 @@ default_model = "glm-5"
 
 ### Notes
 
-- `default_provider` controls which backend the TUI uses on startup (`moonshot`/`kimi` or `zhipu`/`glm`).
+- `default_provider` controls which backend UI apps use on startup (`moonshot`/`kimi` or `zhipu`/`glm`).
 - `temperature` is clamped to `[0.0, 1.0]` for Moonshot and Zhipu providers.
 - If no default config file exists, Thunderus falls back to built-in defaults and provider calls will fail until API keys are configured.
 
