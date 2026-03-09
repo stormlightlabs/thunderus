@@ -6,7 +6,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
-use thndrs_core::Conversation;
+use thndrs_core::{Conversation, Role};
 
 const INPUT_MIN_LINES: usize = 2;
 const INPUT_MAX_LINES: usize = 10;
@@ -52,10 +52,26 @@ pub enum ModelMessage {
     RequestWorkspacePicker,
     WorkspacePicked(Option<PathBuf>),
     WorkspaceFilesLoaded(Vec<FileTreeEntry>),
-    SelectTurn(usize),
-    ToggleToolAction { turn_index: usize, action_index: usize },
+    ToggleToolAction {
+        turn_index: usize,
+        action_index: usize,
+    },
     ApplyComposerSuggestion(ComposerSuggestion),
     OpenMarkdownLink(String),
+    SessionsLoaded(Vec<SessionSummary>),
+    SessionActivated(String),
+    SessionResumed {
+        session_id: String,
+        title: String,
+        messages: Vec<thndrs_core::Message>,
+    },
+    SessionDeleted(String),
+    ResumeSession(String),
+    DeleteSession(String),
+    ExportSession(String),
+    SessionExported(String),
+    SessionSearchEdited(String),
+    PersistenceFailed(String),
     Tick,
     BackendEvent(BackendEvent),
 }
@@ -67,6 +83,39 @@ pub enum Effect {
     DeactivateWorkspace,
     ActivateWorkspace(PathBuf),
     LoadWorkspaceFiles(PathBuf),
+    LoadSessions,
+    PersistUserPrompt {
+        prompt: String,
+        title: String,
+    },
+    PersistAssistantMessage {
+        content: String,
+    },
+    PersistToolCall {
+        name: String,
+        arguments: String,
+        result: Option<String>,
+        status: String,
+    },
+    PersistSessionMetadata {
+        session_id: String,
+        model: String,
+        usage: TokenUsageSummary,
+    },
+    RefineSessionTitle {
+        session_id: String,
+        prompt: String,
+        assistant_content: String,
+    },
+    ExtractSessionMemories {
+        session_id: String,
+        prompt: String,
+        assistant_content: String,
+    },
+    SearchSessions(String),
+    ExportSession(String),
+    ResumeSession(String),
+    DeleteSession(String),
     PersistState,
 }
 
@@ -90,6 +139,8 @@ pub struct AppModel {
     pub last_model: Option<String>,
     pub workspace_root: Option<PathBuf>,
     pub recent_workspaces: Vec<PathBuf>,
+    pub active_session_id: Option<String>,
+    pub session_search_query: String,
 }
 
 impl AppModel {
@@ -121,6 +172,8 @@ impl AppModel {
             last_model: bootstrap.last_model,
             workspace_root,
             recent_workspaces,
+            active_session_id: None,
+            session_search_query: String::new(),
         };
 
         refresh_composer_suggestions(&mut model);
@@ -234,6 +287,23 @@ pub enum ActivityState {
     Failed,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct TokenUsageSummary {
+    pub prompt_tokens: u32,
+    pub completion_tokens: u32,
+    pub total_tokens: u32,
+}
+
+impl From<thndrs_providers::Usage> for TokenUsageSummary {
+    fn from(value: thndrs_providers::Usage) -> Self {
+        Self {
+            prompt_tokens: value.prompt_tokens,
+            completion_tokens: value.completion_tokens,
+            total_tokens: value.total_tokens,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BackendEvent {
     Thinking(String),
@@ -251,6 +321,7 @@ pub enum BackendEvent {
     ContentDelta(String),
     ContentDone {
         model: String,
+        usage: TokenUsageSummary,
     },
     Error(String),
 }
@@ -289,9 +360,32 @@ pub struct LayoutContract {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionSummary {
-    pub turn_index: usize,
+    pub id: String,
     pub title: String,
-    pub state: TurnState,
+    pub message_count: i64,
+    pub updated_at_label: String,
+    pub model: Option<String>,
+    pub total_tokens: Option<u32>,
+    pub workspace: Option<String>,
+    pub age_group: SessionAgeGroup,
+    pub is_active: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionAgeGroup {
+    Today,
+    Yesterday,
+    Older,
+}
+
+impl SessionAgeGroup {
+    pub fn label(self) -> &'static str {
+        match self {
+            SessionAgeGroup::Today => "Today",
+            SessionAgeGroup::Yesterday => "Yesterday",
+            SessionAgeGroup::Older => "Older",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -376,12 +470,6 @@ pub fn update_model(model: &mut AppModel, message: ModelMessage) -> Vec<Effect> 
             refresh_composer_suggestions(model);
             Vec::new()
         }
-        ModelMessage::SelectTurn(turn_index) => {
-            if turn_index < model.turns.len() {
-                model.selected_turn = Some(turn_index);
-            }
-            Vec::new()
-        }
         ModelMessage::ToggleToolAction { turn_index, action_index } => {
             if let Some(turn) = model.turns.get_mut(turn_index)
                 && let Some(action) = turn.actions.get_mut(action_index)
@@ -396,6 +484,53 @@ pub fn update_model(model: &mut AppModel, message: ModelMessage) -> Vec<Effect> 
         }
         ModelMessage::OpenMarkdownLink(uri) => {
             model.status_text = Some(format!("Link clicked: {uri}"));
+            Vec::new()
+        }
+        ModelMessage::SessionsLoaded(summaries) => {
+            model.sessions = summaries;
+            update_active_session_marker(model);
+            Vec::new()
+        }
+        ModelMessage::SessionActivated(session_id) => {
+            model.active_session_id = Some(session_id);
+            update_active_session_marker(model);
+            Vec::new()
+        }
+        ModelMessage::SessionResumed { session_id, title, messages } => {
+            apply_resumed_session(model, &session_id, &title, messages);
+            Vec::new()
+        }
+        ModelMessage::SessionDeleted(session_id) => {
+            model.sessions.retain(|summary| summary.id != session_id);
+            if model.active_session_id.as_deref() == Some(session_id.as_str()) {
+                model.active_session_id = None;
+                model.turns.clear();
+                model.selected_turn = None;
+                model.active_turn = None;
+                model.conversation = Conversation::with_default_system_prompt();
+            }
+            update_active_session_marker(model);
+            Vec::new()
+        }
+        ModelMessage::SessionSearchEdited(query) => {
+            model.session_search_query = query.clone();
+            if query.trim().is_empty() {
+                vec![Effect::LoadSessions]
+            } else {
+                vec![Effect::SearchSessions(query)]
+            }
+        }
+        ModelMessage::SessionExported(path) => {
+            model.status_text = Some(format!("Session exported to {path}"));
+            model.error_text = None;
+            Vec::new()
+        }
+        ModelMessage::ExportSession(session_id) => vec![Effect::ExportSession(session_id)],
+        ModelMessage::ResumeSession(session_id) => vec![Effect::ResumeSession(session_id)],
+        ModelMessage::DeleteSession(session_id) => vec![Effect::DeleteSession(session_id)],
+        ModelMessage::PersistenceFailed(error) => {
+            model.status_text = Some("Persistence error".to_string());
+            model.error_text = Some(error);
             Vec::new()
         }
         ModelMessage::Tick => {
@@ -423,12 +558,14 @@ fn set_workspace(model: &mut AppModel, workspace_root: Option<PathBuf>) -> Vec<E
     model.conversation = Conversation::with_default_system_prompt();
     model.turns.clear();
     model.sessions.clear();
+    model.active_session_id = None;
     model.selected_turn = None;
     model.workspace_files.clear();
     model.active_turn = None;
     model.tool_call_lookup.clear();
     model.composer = text_editor::Content::new();
     model.composer_text.clear();
+    model.session_search_query.clear();
     model.composer_suggestions.clear();
     model.streaming = false;
     model.activity = ActivityState::Idle;
@@ -438,6 +575,7 @@ fn set_workspace(model: &mut AppModel, workspace_root: Option<PathBuf>) -> Vec<E
     vec![
         Effect::ActivateWorkspace(workspace_root.clone()),
         Effect::LoadWorkspaceFiles(workspace_root),
+        Effect::LoadSessions,
         Effect::PersistState,
     ]
 }
@@ -447,12 +585,14 @@ fn go_home(model: &mut AppModel) -> Vec<Effect> {
     model.conversation = Conversation::with_default_system_prompt();
     model.turns.clear();
     model.sessions.clear();
+    model.active_session_id = None;
     model.selected_turn = None;
     model.workspace_files.clear();
     model.active_turn = None;
     model.tool_call_lookup.clear();
     model.composer = text_editor::Content::new();
     model.composer_text.clear();
+    model.session_search_query.clear();
     model.composer_suggestions.clear();
     model.streaming = false;
     model.activity = ActivityState::Idle;
@@ -481,11 +621,6 @@ fn submit_prompt(model: &mut AppModel, raw_prompt: &str) -> Vec<Effect> {
     model.conversation.add_user_message(&prompt);
     model.turns.push(ConversationTurn::new(prompt.clone()));
     let turn_index = model.turns.len() - 1;
-    model.sessions.push(SessionSummary {
-        turn_index,
-        title: compose_session_title(&prompt),
-        state: TurnState::Running,
-    });
     model.selected_turn = Some(turn_index);
     model.active_turn = Some(turn_index);
     model.tool_call_lookup.clear();
@@ -497,10 +632,16 @@ fn submit_prompt(model: &mut AppModel, raw_prompt: &str) -> Vec<Effect> {
     model.status_text = Some("Dispatching prompt to provider".to_string());
     model.error_text = None;
 
-    vec![Effect::DispatchPrompt(prompt), Effect::PersistState]
+    vec![
+        Effect::PersistUserPrompt { prompt: prompt.clone(), title: compose_session_title(&prompt) },
+        Effect::DispatchPrompt(prompt.clone()),
+        Effect::PersistState,
+    ]
 }
 
 fn apply_backend_event(model: &mut AppModel, event: BackendEvent) -> Vec<Effect> {
+    let mut effects = Vec::new();
+
     match event {
         BackendEvent::Thinking(thinking) => {
             if let Some(turn) = model.current_turn_mut()
@@ -517,8 +658,8 @@ fn apply_backend_event(model: &mut AppModel, event: BackendEvent) -> Vec<Effect>
             if let Some(turn) = model.current_turn_mut() {
                 turn.actions.push(ToolAction {
                     id: id.clone(),
-                    name,
-                    arguments,
+                    name: name.clone(),
+                    arguments: arguments.clone(),
                     result: String::new(),
                     status: ToolActionStatus::Running,
                     expanded: true,
@@ -529,14 +670,17 @@ fn apply_backend_event(model: &mut AppModel, event: BackendEvent) -> Vec<Effect>
                 model.activity = ActivityState::RunningTools;
                 model.status_text = Some("Executing tools".to_string());
             }
+            effects.push(Effect::PersistToolCall { name, arguments, result: None, status: "running".to_string() });
         }
-        BackendEvent::ToolCompleted { id, name: _name, result, is_error } => {
+        BackendEvent::ToolCompleted { id, name, result, is_error } => {
             let lookup_index = model.tool_call_lookup.get(&id).copied();
+            let mut tool_arguments = String::new();
             if let Some(turn) = model.current_turn_mut() {
                 if let Some(index) = lookup_index
                     && let Some(action) = turn.actions.get_mut(index)
                 {
-                    action.result = result;
+                    tool_arguments = action.arguments.clone();
+                    action.result = result.clone();
                     action.status = if is_error { ToolActionStatus::Error } else { ToolActionStatus::Success };
                     if action.diff_preview.is_none() {
                         action.diff_preview = infer_diff_preview(&action.name, &action.arguments, &action.result);
@@ -547,6 +691,12 @@ fn apply_backend_event(model: &mut AppModel, event: BackendEvent) -> Vec<Effect>
                 }
                 model.status_text = Some("Tool execution completed".to_string());
             }
+            effects.push(Effect::PersistToolCall {
+                name,
+                arguments: tool_arguments,
+                result: Some(result),
+                status: if is_error { "error".to_string() } else { "success".to_string() },
+            });
         }
         BackendEvent::ContentDelta(delta) => {
             if let Some(turn) = model.current_turn_mut() {
@@ -556,21 +706,34 @@ fn apply_backend_event(model: &mut AppModel, event: BackendEvent) -> Vec<Effect>
             model.activity = ActivityState::Streaming;
             model.status_text = Some("Streaming response".to_string());
         }
-        BackendEvent::ContentDone { model: backend_model } => {
+        BackendEvent::ContentDone { model: backend_model, usage } => {
             let mut assistant_content = None;
-            let completed_turn = model.active_turn;
+            let mut prompt = None;
             if let Some(turn) = model.current_turn_mut() {
                 turn.state = TurnState::Completed;
                 turn.next = "Continue with a follow-up or refine the request.".to_string();
                 turn.error = None;
                 turn.result_markdown = parse_markdown_items(&turn.result);
                 assistant_content = Some(turn.result.clone());
+                prompt = Some(turn.prompt.clone());
             }
-            if let Some(content) = assistant_content {
-                model.conversation.add_assistant_message(content);
-            }
-            if let Some(index) = completed_turn {
-                update_session_state(model, index, TurnState::Completed);
+            if let (Some(content), Some(prompt)) = (assistant_content, prompt) {
+                model.conversation.add_assistant_message(content.clone());
+                effects.push(Effect::PersistAssistantMessage { content: content.clone() });
+
+                if let Some(session_id) = model.active_session_id.clone() {
+                    effects.push(Effect::PersistSessionMetadata {
+                        session_id: session_id.clone(),
+                        model: backend_model.clone(),
+                        usage,
+                    });
+                    effects.push(Effect::RefineSessionTitle {
+                        session_id: session_id.clone(),
+                        prompt: prompt.clone(),
+                        assistant_content: content.clone(),
+                    });
+                    effects.push(Effect::ExtractSessionMemories { session_id, prompt, assistant_content: content });
+                }
             }
             model.active_turn = None;
             model.streaming = false;
@@ -578,10 +741,10 @@ fn apply_backend_event(model: &mut AppModel, event: BackendEvent) -> Vec<Effect>
             model.status_text = Some("Ready".to_string());
             model.error_text = None;
             model.last_model = Some(backend_model);
-            return vec![Effect::PersistState];
+            effects.push(Effect::PersistState);
+            return effects;
         }
         BackendEvent::Error(error) => {
-            let failed_turn = model.active_turn;
             if let Some(turn) = model.current_turn_mut() {
                 for action in &mut turn.actions {
                     if action.status == ToolActionStatus::Running {
@@ -597,19 +760,17 @@ fn apply_backend_event(model: &mut AppModel, event: BackendEvent) -> Vec<Effect>
                 turn.error = Some(error.clone());
                 turn.next = "Review the error, tighten scope, or retry with fewer tool steps.".to_string();
             }
-            if let Some(index) = failed_turn {
-                update_session_state(model, index, TurnState::Failed);
-            }
             model.active_turn = None;
             model.streaming = false;
             model.activity = ActivityState::Failed;
             model.status_text = Some("Backend error".to_string());
             model.error_text = Some(error);
-            return vec![Effect::PersistState];
+            effects.push(Effect::PersistState);
+            return effects;
         }
     }
 
-    Vec::new()
+    effects
 }
 
 fn apply_composer_suggestion(model: &mut AppModel, suggestion: &ComposerSuggestion) {
@@ -631,14 +792,65 @@ fn refresh_composer_suggestions(model: &mut AppModel) {
     model.composer_suggestions = compute_suggestions(&model.composer_text, &model.workspace_files);
 }
 
-fn update_session_state(model: &mut AppModel, turn_index: usize, state: TurnState) {
-    if let Some(session) = model
-        .sessions
-        .iter_mut()
-        .find(|session| session.turn_index == turn_index)
-    {
-        session.state = state;
+fn update_active_session_marker(model: &mut AppModel) {
+    let active = model.active_session_id.as_deref();
+    for summary in &mut model.sessions {
+        summary.is_active = active == Some(summary.id.as_str());
     }
+}
+
+fn apply_resumed_session(model: &mut AppModel, session_id: &str, title: &str, messages: Vec<thndrs_core::Message>) {
+    model.active_session_id = Some(session_id.to_string());
+    model.conversation = Conversation::with_default_system_prompt();
+    model.turns = reconstruct_turns_from_messages(&messages);
+    model.active_turn = None;
+    model.selected_turn = None;
+    model.streaming = false;
+    model.activity = ActivityState::Idle;
+    model.error_text = None;
+    model.status_text = Some(format!("Resumed session {title}"));
+
+    for message in messages {
+        if message.role == Role::System {
+            continue;
+        }
+        model.conversation.add_message(message);
+    }
+
+    if let Some(summary) = model.sessions.iter_mut().find(|summary| summary.id == session_id) {
+        summary.is_active = true;
+    }
+    update_active_session_marker(model);
+}
+
+fn reconstruct_turns_from_messages(messages: &[thndrs_core::Message]) -> Vec<ConversationTurn> {
+    let mut turns = Vec::new();
+
+    for message in messages {
+        match message.role {
+            Role::User => turns.push(ConversationTurn {
+                intent: derive_intent(&message.content),
+                prompt: message.content.clone(),
+                thinking: Vec::new(),
+                actions: Vec::new(),
+                result: String::new(),
+                result_markdown: Vec::new(),
+                error: None,
+                next: "Continue with a follow-up or refine the request.".to_string(),
+                state: TurnState::Completed,
+            }),
+            Role::Assistant => {
+                if let Some(turn) = turns.last_mut() {
+                    turn.result = message.content.clone();
+                    turn.result_markdown = parse_markdown_items(&turn.result);
+                    turn.state = TurnState::Completed;
+                }
+            }
+            Role::System | Role::Tool => {}
+        }
+    }
+
+    turns
 }
 
 fn compose_session_title(prompt: &str) -> String {
@@ -1024,6 +1236,10 @@ mod tests {
         assert_eq!(
             effects,
             vec![
+                Effect::PersistUserPrompt {
+                    prompt: "Refactor the auth module to use middleware pattern".to_string(),
+                    title: "Refactor the auth module to use middleware pattern".to_string(),
+                },
                 Effect::DispatchPrompt("Refactor the auth module to use middleware pattern".to_string()),
                 Effect::PersistState
             ]
@@ -1085,10 +1301,19 @@ mod tests {
         );
         let effects = update_model(
             &mut model,
-            ModelMessage::BackendEvent(BackendEvent::ContentDone { model: "kimi-k2.5".to_string() }),
+            ModelMessage::BackendEvent(BackendEvent::ContentDone {
+                model: "kimi-k2.5".to_string(),
+                usage: TokenUsageSummary::default(),
+            }),
         );
 
-        assert_eq!(effects, vec![Effect::PersistState]);
+        assert_eq!(
+            effects,
+            vec![
+                Effect::PersistAssistantMessage { content: "All tests passing.".to_string() },
+                Effect::PersistState
+            ]
+        );
         assert!(!model.streaming);
         assert_eq!(model.turns[0].state, TurnState::Completed);
         assert_eq!(model.turns[0].result, "All tests passing.");
@@ -1135,6 +1360,7 @@ mod tests {
             vec![
                 Effect::ActivateWorkspace(path.clone()),
                 Effect::LoadWorkspaceFiles(path.clone()),
+                Effect::LoadSessions,
                 Effect::PersistState
             ]
         );
@@ -1173,6 +1399,7 @@ mod tests {
             vec![
                 Effect::ActivateWorkspace(path.clone()),
                 Effect::LoadWorkspaceFiles(path.clone()),
+                Effect::LoadSessions,
                 Effect::PersistState
             ]
         );

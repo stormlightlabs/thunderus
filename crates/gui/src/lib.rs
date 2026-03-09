@@ -5,6 +5,17 @@ mod model;
 mod storage;
 mod view;
 
+const POLL_INTERVAL_MS: u64 = 16;
+const WINDOW_WIDTH: f32 = 1280.0;
+const WINDOW_HEIGHT: f32 = 840.0;
+
+const JETBRAINS_MONO: iced::Font =
+    iced::Font { family: iced::font::Family::Name("JetBrains Mono"), ..iced::Font::MONOSPACE };
+
+fn default_font() -> iced::Font {
+    JETBRAINS_MONO
+}
+
 pub fn run() -> iced::Result {
     let initial_workspace = storage::StateStore::new_default()
         .load()
@@ -41,7 +52,7 @@ pub fn run() -> iced::Result {
         .title(app::title)
         .theme(app::theme)
         .subscription(app::subscription)
-        .default_font(app::default_font())
+        .default_font(default_font())
         .window(app::window_settings())
         .run()
 }

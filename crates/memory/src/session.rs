@@ -182,6 +182,43 @@ impl SessionManager {
         Ok(sessions)
     }
 
+    /// Search sessions by title or message content.
+    pub fn search_sessions(&self, query: &str, limit: usize) -> Result<Vec<Session>> {
+        let normalized = format!("%{}%", query.trim().to_lowercase());
+        let mut stmt = self.db.conn().prepare(
+            r#"
+            SELECT s.id, s.title, s.created_at, s.updated_at, s.message_count, s.metadata
+            FROM sessions s
+            LEFT JOIN messages m ON m.session_id = s.id
+            WHERE lower(coalesce(s.title, '')) LIKE ?1 OR lower(m.content) LIKE ?1
+            GROUP BY s.id
+            ORDER BY s.updated_at DESC
+            LIMIT ?2
+            "#,
+        )?;
+
+        let rows = stmt.query_map(params![normalized, limit as i64], |row| {
+            let metadata_str: Option<String> = row.get(5)?;
+            let metadata = metadata_str.and_then(|s| serde_json::from_str(&s).ok());
+
+            Ok(Session {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                created_at: row.get(2)?,
+                updated_at: row.get(3)?,
+                message_count: row.get(4)?,
+                metadata,
+            })
+        })?;
+
+        let mut sessions = Vec::new();
+        for row in rows {
+            sessions.push(row?);
+        }
+
+        Ok(sessions)
+    }
+
     /// Update session title
     pub fn update_title(&mut self, id: &str, title: impl Into<String>) -> Result<bool> {
         let rows = self.db.conn_mut().execute(
@@ -189,6 +226,26 @@ impl SessionManager {
             params![title.into(), id],
         )?;
         Ok(rows > 0)
+    }
+
+    /// Replace session metadata JSON payload.
+    pub fn update_metadata(&mut self, id: &str, metadata: &serde_json::Value) -> Result<bool> {
+        let rows = self.db.conn_mut().execute(
+            "UPDATE sessions SET metadata = ?1, updated_at = datetime('now') WHERE id = ?2",
+            params![metadata.to_string(), id],
+        )?;
+        Ok(rows > 0)
+    }
+
+    /// Merge metadata keys into the existing session metadata object.
+    pub fn merge_metadata(&mut self, id: &str, patch: &serde_json::Value) -> Result<bool> {
+        let session = self
+            .get_session(id)?
+            .ok_or_else(|| MemoryError::SessionNotFound(id.to_string()))?;
+
+        let mut merged = session.metadata.unwrap_or_else(|| serde_json::json!({}));
+        merge_json_object(&mut merged, patch);
+        self.update_metadata(id, &merged)
     }
 
     /// Delete a session
@@ -346,6 +403,30 @@ impl SessionManager {
     }
 }
 
+fn merge_json_object(target: &mut serde_json::Value, patch: &serde_json::Value) {
+    let serde_json::Value::Object(target_map) = target else {
+        *target = serde_json::json!({});
+        merge_json_object(target, patch);
+        return;
+    };
+    let serde_json::Value::Object(patch_map) = patch else {
+        return;
+    };
+
+    for (key, value) in patch_map {
+        match (target_map.get_mut(key), value) {
+            (Some(serde_json::Value::Object(_)), serde_json::Value::Object(_)) => {
+                if let Some(existing) = target_map.get_mut(key) {
+                    merge_json_object(existing, value);
+                }
+            }
+            _ => {
+                target_map.insert(key.clone(), value.clone());
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -423,5 +504,55 @@ mod tests {
 
         let messages = manager.get_messages(&session.id).unwrap();
         assert!(messages.is_empty());
+    }
+
+    #[test]
+    fn test_search_sessions_by_message_content() {
+        let (_temp, mut manager) = create_test_manager();
+
+        let first = manager.create_session(Some("Alpha run")).unwrap();
+        let second = manager.create_session(Some("Beta run")).unwrap();
+        manager
+            .add_message(&first.id, &Message::user("Refactor authentication flow"))
+            .unwrap();
+        manager
+            .add_message(&second.id, &Message::user("Add pagination to API list endpoint"))
+            .unwrap();
+
+        let sessions = manager.search_sessions("pagination", 10).unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].id, second.id);
+    }
+
+    #[test]
+    fn test_merge_metadata_updates_nested_keys() {
+        let (_temp, mut manager) = create_test_manager();
+        let session = manager.create_session(Some("Metadata merge")).unwrap();
+
+        manager
+            .update_metadata(
+                &session.id,
+                &serde_json::json!({
+                    "workspace_path": "/tmp/project",
+                    "usage": { "total_tokens": 10 }
+                }),
+            )
+            .unwrap();
+        manager
+            .merge_metadata(
+                &session.id,
+                &serde_json::json!({
+                    "usage": { "total_tokens": 42, "prompt_tokens": 20 },
+                    "model": "glm-5"
+                }),
+            )
+            .unwrap();
+
+        let session = manager.get_session(&session.id).unwrap().unwrap();
+        let metadata = session.metadata.unwrap();
+        assert_eq!(metadata["workspace_path"], "/tmp/project");
+        assert_eq!(metadata["model"], "glm-5");
+        assert_eq!(metadata["usage"]["total_tokens"], 42);
+        assert_eq!(metadata["usage"]["prompt_tokens"], 20);
     }
 }

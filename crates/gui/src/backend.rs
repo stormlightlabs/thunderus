@@ -1,4 +1,4 @@
-use super::model::BackendEvent;
+use super::model::{BackendEvent, TokenUsageSummary};
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
@@ -60,7 +60,10 @@ pub fn spawn_backend(workspace_root: PathBuf) -> BackendBridge {
                 let _ = event_tx.send(BackendEvent::ContentDelta(
                     "Provider is unavailable. Configure ~/.thunderus/config.toml with a valid API key.".to_string(),
                 ));
-                let _ = event_tx.send(BackendEvent::ContentDone { model: "offline".to_string() });
+                let _ = event_tx.send(BackendEvent::ContentDone {
+                    model: "offline".to_string(),
+                    usage: TokenUsageSummary::default(),
+                });
                 continue;
             };
 
@@ -68,7 +71,7 @@ pub fn spawn_backend(workspace_root: PathBuf) -> BackendBridge {
                 "Running provider loop with tool orchestration".to_string(),
             ));
 
-            let mut final_content: Option<(String, String)> = None;
+            let mut final_content: Option<(String, String, TokenUsageSummary)> = None;
             let result = runtime.block_on(loop_handler.process_message(provider, &prompt, |event| match event {
                 ConversationEvent::Thinking(thinking) => {
                     tracing::debug!("Provider thinking: {thinking}");
@@ -82,9 +85,9 @@ pub fn spawn_backend(workspace_root: PathBuf) -> BackendBridge {
                     tracing::info!("Tool completed id={id} name={name} error={is_error}");
                     let _ = event_tx.send(BackendEvent::ToolCompleted { id, name, result, is_error });
                 }
-                ConversationEvent::Content { content, reasoning_content: _reasoning_content, usage: _usage, model } => {
+                ConversationEvent::Content { content, reasoning_content: _reasoning_content, usage, model } => {
                     tracing::info!("Provider completed model={model} chars={}", content.chars().count());
-                    final_content = Some((content, model));
+                    final_content = Some((content, model, usage.into()));
                 }
                 ConversationEvent::Error(error) => {
                     tracing::error!("Conversation loop event error: {error}");
@@ -94,14 +97,14 @@ pub fn spawn_backend(workspace_root: PathBuf) -> BackendBridge {
 
             match result {
                 Ok(_) => {
-                    if let Some((content, model)) = final_content {
+                    if let Some((content, model, usage)) = final_content {
                         for chunk in chunk_text(&content, STREAM_CHUNK_BYTES) {
                             let _ = event_tx.send(BackendEvent::ContentDelta(chunk));
                             runtime.block_on(async {
                                 tokio::time::sleep(Duration::from_millis(14)).await;
                             });
                         }
-                        let _ = event_tx.send(BackendEvent::ContentDone { model });
+                        let _ = event_tx.send(BackendEvent::ContentDone { model, usage });
                         tracing::info!("GUI prompt completed");
                     } else {
                         tracing::error!("Provider finished without content");

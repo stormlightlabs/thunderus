@@ -2,13 +2,15 @@ use super::app::DesktopApp;
 use super::model::{ActivityState, ComposerSuggestion, ConversationTurn, TurnState};
 use super::model::{DiffLineKind, DiffPreview};
 use super::model::{Message, ModelMessage};
-use super::model::{SectionKind, SessionSummary, ToolAction, ToolActionStatus};
+use super::model::{SectionKind, SessionAgeGroup, SessionSummary, ToolAction, ToolActionStatus};
 use super::model::{color_hex, design_layout_contract, normalize_tool_text};
 use iced::alignment::Horizontal;
 use iced::border;
 use iced::theme::Palette;
 use iced::widget::text::Wrapping;
-use iced::widget::{button, column, container, markdown, pick_list, row, rule, scrollable, text, text_editor};
+use iced::widget::{
+    button, column, container, markdown, pick_list, row, rule, scrollable, text, text_editor, text_input,
+};
 use iced::{Element, Length};
 use std::fmt::{Display, Formatter};
 use std::path::{Path, PathBuf};
@@ -225,6 +227,10 @@ fn render_sessions_list(app: &DesktopApp) -> Element<'_, Message> {
     ]
     .align_y(iced::Alignment::Center)
     .spacing(8);
+    let search = text_input("Search sessions", &app.model.session_search_query)
+        .on_input(|value| Message::Model(ModelMessage::SessionSearchEdited(value)))
+        .size(12)
+        .padding([6, 8]);
 
     let list = if app.model.sessions.is_empty() {
         column![
@@ -233,15 +239,20 @@ fn render_sessions_list(app: &DesktopApp) -> Element<'_, Message> {
                 .color(color_hex(contract.palette.text_secondary))
         ]
     } else {
-        app.model
-            .sessions
-            .iter()
-            .fold(column![].spacing(SECTION_GAP), |col, session| {
-                col.push(render_session_item(app, session))
-            })
+        let mut grouped = column![].spacing(CARD_GAP);
+        for group in [
+            SessionAgeGroup::Today,
+            SessionAgeGroup::Yesterday,
+            SessionAgeGroup::Older,
+        ] {
+            if let Some(section) = render_session_group(app, group) {
+                grouped = grouped.push(section);
+            }
+        }
+        grouped
     };
 
-    container(column![heading, scrollable(list).height(Length::Fill)].spacing(SECTION_GAP))
+    container(column![heading, search, scrollable(list).height(Length::Fill)].spacing(SECTION_GAP))
         .padding([12, 12])
         .height(Length::FillPortion(2))
         .style(|_theme| {
@@ -256,36 +267,111 @@ fn render_sessions_list(app: &DesktopApp) -> Element<'_, Message> {
         .into()
 }
 
-fn render_session_item<'a>(app: &'a DesktopApp, session: &'a SessionSummary) -> Element<'a, Message> {
+fn render_session_group(app: &DesktopApp, group: SessionAgeGroup) -> Option<Element<'_, Message>> {
     let contract = design_layout_contract();
-    let selected = app.model.selected_turn == Some(session.turn_index);
 
-    let (prefix, state_color) = match session.state {
-        TurnState::Running => (
-            app.model.spinner_frame().to_string(),
-            color_hex(contract.palette.accent_yellow),
-        ),
-        TurnState::Completed => ("✓".to_string(), color_hex(contract.palette.accent_green)),
-        TurnState::Failed => ("✗".to_string(), color_hex(contract.palette.accent_red)),
-    };
+    let mut items = column![].spacing(SECTION_GAP);
+    let mut count = 0;
+    for session in app.model.sessions.iter().filter(|session| session.age_group == group) {
+        items = items.push(render_session_item(session));
+        count += 1;
+    }
 
-    let label = if selected {
-        format!("▶ {} {}", prefix, session.title)
-    } else {
-        format!("{} {}", prefix, session.title)
-    };
+    if count == 0 {
+        return None;
+    }
 
-    button(
-        text(label)
-            .size(13)
-            .color(state_color)
-            .width(Length::Fill)
-            .align_x(Horizontal::Left),
+    Some(
+        column![
+            text(group.label())
+                .size(11)
+                .color(color_hex(contract.palette.text_secondary)),
+            items
+        ]
+        .spacing(6)
+        .into(),
     )
-    .padding([8, 10])
-    .width(Length::Fill)
-    .on_press(Message::Model(ModelMessage::SelectTurn(session.turn_index)))
+}
+
+fn render_session_item(session: &SessionSummary) -> Element<'_, Message> {
+    let contract = design_layout_contract();
+    let title_color = if session.is_active {
+        color_hex(contract.palette.accent_cyan)
+    } else {
+        color_hex(contract.palette.text_primary)
+    };
+    let meta_color = color_hex(contract.palette.text_secondary);
+    let open_message = Message::Model(ModelMessage::ResumeSession(session.id.clone()));
+    let export_message = Message::Model(ModelMessage::ExportSession(session.id.clone()));
+    let delete_message = Message::Model(ModelMessage::DeleteSession(session.id.clone()));
+    let mut metadata_row = row![
+        text(format!("{} messages", session.message_count))
+            .size(11)
+            .color(meta_color),
+        text(session.updated_at_label.clone()).size(11).color(meta_color)
+    ]
+    .spacing(10);
+
+    if let Some(model) = session.model.as_ref() {
+        metadata_row = metadata_row.push(text(format!("model: {model}")).size(11).color(meta_color));
+    }
+    if let Some(tokens) = session.total_tokens {
+        metadata_row = metadata_row.push(
+            text(format!("tokens: {}", format_token_count(tokens)))
+                .size(11)
+                .color(meta_color),
+        );
+    }
+    if let Some(workspace) = session.workspace.as_ref() {
+        metadata_row = metadata_row.push(text(format!("workspace: {workspace}")).size(11).color(meta_color));
+    }
+
+    container(
+        column![
+            row![
+                button(
+                    text(&session.title)
+                        .size(13)
+                        .color(title_color)
+                        .width(Length::Fill)
+                        .align_x(Horizontal::Left),
+                )
+                .padding([6, 8])
+                .width(Length::Fill)
+                .on_press(open_message),
+                button(text("Export").size(11)).padding([4, 8]).on_press(export_message),
+                button(text("Delete").size(11)).padding([4, 8]).on_press(delete_message)
+            ]
+            .align_y(iced::Alignment::Center)
+            .spacing(6),
+            metadata_row
+        ]
+        .spacing(4),
+    )
+    .padding([6, 6])
+    .style(|_theme| {
+        iced::widget::container::Style::default()
+            .background(color_hex("#141414"))
+            .border(border::rounded(8).color(color_hex(contract.palette.border)).width(1.0))
+    })
     .into()
+}
+
+fn format_token_count(value: u32) -> String {
+    let raw = value.to_string();
+    if raw.len() <= 3 {
+        return raw;
+    }
+
+    let mut grouped = String::new();
+    for (index, ch) in raw.chars().rev().enumerate() {
+        if index > 0 && index % 3 == 0 {
+            grouped.push(',');
+        }
+        grouped.push(ch);
+    }
+
+    grouped.chars().rev().collect()
 }
 
 fn render_file_tree(app: &DesktopApp) -> Element<'_, Message> {
