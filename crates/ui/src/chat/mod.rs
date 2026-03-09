@@ -1,27 +1,24 @@
 //! Chat screen components for active conversation
 
 mod app;
-mod extractors;
 mod formatters;
+mod input_render;
+mod measure;
+mod message_render;
 mod render;
+mod tool_render;
 
 use super::components::ToolCallState;
-use crate::colors;
-use crate::components::{ToolCallCard, wrapped_line_count};
-use crate::tool::{TaskItem, parse_diff};
+use crate::components::wrapped_line_count;
 use chrono::{DateTime, Utc};
-use ratatui::{
-    Frame,
-    layout::Rect,
-    style::Style,
-    text::{Line, Span},
-    widgets::{Paragraph, Wrap},
-};
 use std::path::PathBuf;
 use thndrs_core::ResponseSections;
+use tool_render::TaskItem;
 
 pub use app::ChatApp;
 pub use render::draw_chat_screen;
+
+type ChatFileFinder = crate::finder::FuzzyFinder<PathBuf>;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum StreamingState {
@@ -62,78 +59,21 @@ pub struct ToolCallDisplay {
 
 impl ToolCallDisplay {
     pub fn to_ui_state(&self) -> ToolCallState {
-        self.status.into()
-    }
-
-    pub fn draw_write_output(&self, frame: &mut Frame, area: Rect) {
-        let output = formatters::tool_output("write", self.output.as_deref().unwrap_or_default());
-        let line_text = if self.status == ToolCallStatus::Success {
-            formatters::write_success_ln(&output)
-                .unwrap_or_else(|| output.lines().next().unwrap_or_default().to_string())
-        } else {
-            output.lines().next().unwrap_or_default().to_string()
-        };
-        let style = if self.status == ToolCallStatus::Success {
-            Style::default().fg(colors::ACCENT_GREEN)
-        } else {
-            Style::default().fg(colors::ACCENT_RED)
-        };
-
-        frame.render_widget(
-            Paragraph::new(Line::from(vec![Span::styled(line_text, style)]))
-                .style(Style::default().bg(colors::BG_TERMINAL))
-                .wrap(Wrap { trim: false }),
-            area,
-        );
+        tool_render::tool_call_state(self.status)
     }
 
     pub fn estimate_height(&self, width: u16) -> u16 {
         if !&self.expanded {
-            return ToolCallCard::collapsed_height();
+            return crate::components::ToolCallCard::collapsed_height();
         }
 
         let body_height = self.tool_call_expanded_height(width);
 
-        ToolCallCard::collapsed_height() + body_height
+        crate::components::ToolCallCard::collapsed_height() + body_height
     }
 
     pub fn tool_call_expanded_height(&self, width: u16) -> u16 {
-        if matches!(self.status, ToolCallStatus::Pending | ToolCallStatus::Running) {
-            return 5;
-        }
-
-        match self.name.as_str() {
-            "read" => {
-                let output = formatters::tool_output("read", self.output.as_deref().unwrap_or_default());
-                let line_count = if self.status == ToolCallStatus::Error {
-                    output.lines().count().max(1)
-                } else {
-                    render::build_read_output_lines(&output).len().max(1)
-                } as u16;
-                line_count.clamp(1, 20) + 1
-            }
-            "write" => 1,
-            "edit" => extractors::edit_diff(&self.arguments)
-                .map(|diff| parse_diff(&diff).len() as u16)
-                .map(|line_count: u16| line_count.clamp(1, 15) + 1)
-                .unwrap_or(3),
-            "bash" => {
-                let (output, _) = render::parse_bash_output(
-                    self.output.as_deref().unwrap_or_default(),
-                    self.status == ToolCallStatus::Error,
-                );
-                let output = formatters::tool_output("bash", &output);
-                (render::bash_visible_line_count(&output, render::BASH_MAX_VISIBLE_LINES) as u16).clamp(1, 15) + 2
-            }
-            "research" => {
-                let output = formatters::tool_output("research", self.output.as_deref().unwrap_or_default());
-                (wrapped_line_count(&output, width.saturating_sub(4)) as u16).clamp(1, 15) + 1
-            }
-            _ => {
-                let output = formatters::tool_output(&self.name, self.output.as_deref().unwrap_or_default());
-                (wrapped_line_count(&output, width.saturating_sub(4)) as u16).clamp(1, 10) + 2
-            }
-        }
+        tool_render::tool_call_expanded_height(self, width)
     }
 
     pub fn progress_tasks(&self) -> Vec<TaskItem> {
@@ -193,14 +133,6 @@ pub enum IncomingStreamEvent {
         is_error: bool,
     },
     Thinking(String),
-}
-
-#[derive(Debug, Clone, Default)]
-struct ChatFileFinder {
-    active: bool,
-    query: String,
-    selected: usize,
-    matches: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -322,9 +254,9 @@ impl ChatMessage {
         match self.role {
             MessageRole::Assistant => match &self.sections {
                 Some(sections) => {
-                    height += render::assistant_section_constraints(sections, content_width)
+                    height += message_render::assistant_section_constraints(sections, content_width)
                         .iter()
-                        .map(render::constraint_length)
+                        .map(message_render::constraint_length)
                         .sum::<u16>()
                 }
                 None => {
@@ -342,7 +274,7 @@ impl ChatMessage {
         if let Some(reasoning) = self.reasoning_content.as_deref()
             && !reasoning.trim().is_empty()
         {
-            height += render::assistant_reasoning_height(reasoning, content_width);
+            height += message_render::assistant_reasoning_height(reasoning, content_width);
         }
 
         for tool_call in &self.tool_calls {

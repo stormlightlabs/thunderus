@@ -7,11 +7,10 @@
 //! - Save/reset actions
 //! - Persistence to ~/.thunderus/config.toml
 
-use super::{
-    colors,
-    components::{HintFooter, HintToken, TopBorderedInputRow},
-    layout::{ConstraintSpec, split as split_rects},
-};
+use super::components::{HintFooter, HintToken, TopBorderedInputRow};
+use super::layout::{ConstraintSpec, split as split_rects};
+use super::screen::{Screen, ScreenAction};
+use super::{colors, scroll::ScrollState};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{
     Frame,
@@ -247,7 +246,7 @@ pub struct SettingsApp {
     pub show_save_dialog: bool,
     pub show_reset_dialog: bool,
     pub status_message: Option<String>,
-    pub scroll_offset: u16,
+    pub scroll: ScrollState,
     active_setting_index: usize,
     temp_settings: Settings,
 }
@@ -260,18 +259,24 @@ impl Default for SettingsApp {
 
 impl SettingsApp {
     pub fn new() -> Self {
-        let settings = Settings::load_default().unwrap_or_default();
-        Self {
+        let (settings, status_message) = match Settings::load_default() {
+            Ok(settings) => (settings, None),
+            Err(error) => (Settings::default(), Some(format!("Failed to load settings: {error}"))),
+        };
+
+        let mut app = Self {
             temp_settings: settings.clone(),
             settings,
             selected_group: 0,
             has_changes: false,
             show_save_dialog: false,
             show_reset_dialog: false,
-            status_message: None,
-            scroll_offset: 0,
+            status_message,
+            scroll: ScrollState::with_viewport(0, 8),
             active_setting_index: 0,
-        }
+        };
+        app.sync_scroll_state();
+        app
     }
 
     pub fn handle_input(&mut self, key: KeyEvent) {
@@ -319,14 +324,16 @@ impl SettingsApp {
                 if self.selected_group > 0 {
                     self.selected_group -= 1;
                     self.active_setting_index = 0;
-                    self.scroll_offset = 0;
+                    self.scroll.offset = 0;
+                    self.sync_scroll_state();
                 }
             }
             KeyCode::Down | KeyCode::Char('j') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 if self.selected_group + 1 < SETTING_GROUPS.len() {
                     self.selected_group += 1;
                     self.active_setting_index = 0;
-                    self.scroll_offset = 0;
+                    self.scroll.offset = 0;
+                    self.sync_scroll_state();
                 }
             }
             KeyCode::Up => {
@@ -357,6 +364,14 @@ impl SettingsApp {
             }
             _ => {}
         }
+
+        self.sync_scroll_state();
+    }
+
+    fn sync_scroll_state(&mut self) {
+        let total = self.current_group_settings().len();
+        self.scroll.set_viewport(total, 8);
+        self.scroll.ensure_visible(self.active_setting_index);
     }
 
     fn current_group_settings(&self) -> Vec<SettingItem> {
@@ -637,6 +652,21 @@ pub enum SettingsAction {
     Quit,
 }
 
+impl Screen for SettingsApp {
+    fn handle_input(&mut self, key: KeyEvent) -> ScreenAction {
+        SettingsApp::handle_input(self, key);
+        if key.kind == KeyEventKind::Press && key.code == KeyCode::Esc {
+            ScreenAction::ReturnToPrevious
+        } else {
+            ScreenAction::None
+        }
+    }
+
+    fn draw(&self, frame: &mut Frame) {
+        draw_settings_screen(frame, self);
+    }
+}
+
 #[derive(AreaSpec)]
 pub struct SettingsShell;
 
@@ -747,15 +777,12 @@ fn draw_settings_content(frame: &mut Frame, area: Rect, app: &SettingsApp) {
         return;
     }
 
-    let mut constraints = vec![Constraint::Length(1)];
-    for _ in &settings {
-        constraints.push(Constraint::Length(3));
-    }
-    constraints.push(Constraint::Min(0));
-    constraints.push(Constraint::Length(2));
-
-    let layout = split_rects(inner, Direction::Vertical, constraints);
-    if layout.len() < 2 {
+    let layout = split_rects(
+        inner,
+        Direction::Vertical,
+        vec![Constraint::Length(1), Constraint::Min(0), Constraint::Length(2)],
+    );
+    if layout.len() < 3 {
         return;
     }
 
@@ -766,14 +793,24 @@ fn draw_settings_content(frame: &mut Frame, area: Rect, app: &SettingsApp) {
     ));
     frame.render_widget(title, layout[0]);
 
-    for (idx, setting) in settings.iter().enumerate() {
-        if let Some(slot) = layout.get(idx + 1) {
-            let is_active = idx == app.active_setting_index;
+    let settings_area = layout[1];
+    let visible_slots = (settings_area.height / 3).max(1) as usize;
+    let start = app.scroll.offset.min(settings.len().saturating_sub(1));
+    let end = (start + visible_slots).min(settings.len());
+    let visible_count = end.saturating_sub(start);
+    let mut row_constraints = vec![Constraint::Length(3); visible_count];
+    row_constraints.push(Constraint::Min(0));
+    let setting_rows = split_rects(settings_area, Direction::Vertical, row_constraints);
+
+    for (visible_idx, setting_idx) in (start..end).enumerate() {
+        if let Some(slot) = setting_rows.get(visible_idx) {
+            let setting = &settings[setting_idx];
+            let is_active = setting_idx == app.active_setting_index;
             draw_setting_item(frame, *slot, setting, is_active);
         }
     }
 
-    if let Some(actions_area) = layout.get(layout.len().saturating_sub(1)) {
+    if let Some(actions_area) = layout.get(2) {
         let hint_style = Style::default().fg(colors::TEXT_MUTED);
         let key_style = Style::default().fg(colors::ACCENT_CYAN);
 

@@ -13,6 +13,8 @@
 use super::colors;
 use super::components::{HintFooter, HintToken, TopBorderedInputRow};
 use super::layout::{ConstraintSpec, split as split_rects};
+use super::screen::{Screen, ScreenAction};
+use super::scroll::ScrollState;
 use chrono::{DateTime, Utc};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::Frame;
@@ -95,7 +97,7 @@ const COMMANDS: &[(&str, &str)] = &[
 #[derive(Debug, Clone)]
 pub struct HelpApp {
     pub selected_tab: usize,
-    pub scroll_offset: u16,
+    pub scroll: ScrollState,
     pub tip_index: usize,
     pub recent_sessions: Vec<Session>,
     pub status_message: Option<String>,
@@ -110,7 +112,15 @@ impl Default for HelpApp {
 impl HelpApp {
     pub fn new() -> Self {
         let recent_sessions = Self::load_recent_sessions();
-        Self { selected_tab: 0, scroll_offset: 0, tip_index: 0, recent_sessions, status_message: None }
+        let mut app = Self {
+            selected_tab: 0,
+            scroll: ScrollState::with_viewport(0, 20),
+            tip_index: 0,
+            recent_sessions,
+            status_message: None,
+        };
+        app.sync_scroll_state();
+        app
     }
 
     fn load_recent_sessions() -> Vec<Session> {
@@ -135,18 +145,21 @@ impl HelpApp {
             KeyCode::Left | KeyCode::Char('h') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 if self.selected_tab > 0 {
                     self.selected_tab -= 1;
-                    self.scroll_offset = 0;
+                    self.scroll.offset = 0;
+                    self.sync_scroll_state();
                 }
             }
             KeyCode::Right | KeyCode::Char('l') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 if self.selected_tab + 1 < HELP_TABS.len() {
                     self.selected_tab += 1;
-                    self.scroll_offset = 0;
+                    self.scroll.offset = 0;
+                    self.sync_scroll_state();
                 }
             }
             KeyCode::Tab => {
                 self.selected_tab = (self.selected_tab + 1) % HELP_TABS.len();
-                self.scroll_offset = 0;
+                self.scroll.offset = 0;
+                self.sync_scroll_state();
             }
             KeyCode::BackTab => {
                 if self.selected_tab == 0 {
@@ -154,31 +167,38 @@ impl HelpApp {
                 } else {
                     self.selected_tab -= 1;
                 }
-                self.scroll_offset = 0;
+                self.scroll.offset = 0;
+                self.sync_scroll_state();
             }
-            KeyCode::Up => {
-                if self.scroll_offset > 0 {
-                    self.scroll_offset -= 1;
-                }
-            }
-            KeyCode::Down => self.scroll_offset += 1,
-            KeyCode::PageUp => self.scroll_offset = self.scroll_offset.saturating_sub(5),
-            KeyCode::PageDown => {
-                self.scroll_offset += 5;
-            }
-            KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.refresh_sessions();
-            }
-            KeyCode::Char('t') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.next_tip();
-            }
+            KeyCode::Up => self.scroll.scroll_up(1),
+            KeyCode::Down => self.scroll.scroll_down(1),
+            KeyCode::PageUp => self.scroll.page_up(),
+            KeyCode::PageDown => self.scroll.page_down(),
+            KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => self.refresh_sessions(),
+            KeyCode::Char('t') if key.modifiers.contains(KeyModifiers::CONTROL) => self.next_tip(),
             _ => {}
+        }
+    }
+
+    fn sync_scroll_state(&mut self) {
+        self.scroll.set_viewport(self.tab_line_count(), 20);
+    }
+
+    fn tab_line_count(&self) -> usize {
+        match HELP_TABS[self.selected_tab] {
+            "Keyboard Shortcuts" => SHORTCUTS.iter().map(|(_, rows)| rows.len() + 3).sum::<usize>() + 3,
+            "Commands" => COMMANDS.len() + 4,
+            "Tips" => TIPS.len() + 10,
+            "About" => 30,
+            "Tutorial" => 24 + self.recent_sessions.len().min(5),
+            _ => 20,
         }
     }
 
     fn refresh_sessions(&mut self) {
         self.recent_sessions = Self::load_recent_sessions();
         self.status_message = Some("Session list refreshed".to_string());
+        self.sync_scroll_state();
     }
 
     fn next_tip(&mut self) {
@@ -190,6 +210,7 @@ impl HelpApp {
     }
 
     pub fn version_string() -> String {
+        // TODO: bake this in to build.rs
         match option_env!("CARGO_PKG_VERSION") {
             Some(version) => format!("Thunderus v{}", version),
             None => "Thunderus v0.1.0".to_string(),
@@ -214,6 +235,21 @@ pub enum HelpAction {
     Quit,
 }
 
+impl Screen for HelpApp {
+    fn handle_input(&mut self, key: KeyEvent) -> ScreenAction {
+        HelpApp::handle_input(self, key);
+        if key.kind == KeyEventKind::Press && key.code == KeyCode::Esc {
+            ScreenAction::ReturnToPrevious
+        } else {
+            ScreenAction::None
+        }
+    }
+
+    fn draw(&self, frame: &mut Frame) {
+        draw_help_screen(frame, self);
+    }
+}
+
 #[derive(AreaSpec)]
 pub struct HelpShell;
 
@@ -222,7 +258,7 @@ impl ConstraintSpec for HelpShell {
         Direction::Vertical
     }
 
-    fn constraints(&self, _area: Rect) -> Vec<Constraint> {
+    fn constraints(&self, _: Rect) -> Vec<Constraint> {
         vec![Constraint::Min(0), Constraint::Length(1), Constraint::Length(3)]
     }
 }
@@ -342,7 +378,7 @@ fn draw_shortcuts_tab(frame: &mut Frame, area: Rect, _app: &HelpApp) {
     let text = Text::from(lines);
     let paragraph = Paragraph::new(text)
         .style(Style::default().bg(colors::BG_TERMINAL))
-        .scroll((_app.scroll_offset, 0))
+        .scroll((_app.scroll.offset.min(u16::MAX as usize) as u16, 0))
         .wrap(Wrap { trim: false });
     frame.render_widget(paragraph, inner);
 }
@@ -378,7 +414,7 @@ fn draw_commands_tab(frame: &mut Frame, area: Rect, _app: &HelpApp) {
     let text = Text::from(lines);
     let paragraph = Paragraph::new(text)
         .style(Style::default().bg(colors::BG_TERMINAL))
-        .scroll((_app.scroll_offset, 0));
+        .scroll((_app.scroll.offset.min(u16::MAX as usize) as u16, 0));
     frame.render_widget(paragraph, inner);
 }
 
@@ -438,7 +474,7 @@ fn draw_tips_tab(frame: &mut Frame, area: Rect, app: &HelpApp) {
     let text = Text::from(lines);
     let paragraph = Paragraph::new(text)
         .style(Style::default().bg(colors::BG_TERMINAL))
-        .scroll((app.scroll_offset, 0))
+        .scroll((app.scroll.offset.min(u16::MAX as usize) as u16, 0))
         .wrap(Wrap { trim: false });
     frame.render_widget(paragraph, inner);
 }
@@ -529,7 +565,7 @@ fn draw_about_tab(frame: &mut Frame, area: Rect, _app: &HelpApp) {
     let text = Text::from(lines);
     let paragraph = Paragraph::new(text)
         .style(Style::default().bg(colors::BG_TERMINAL))
-        .scroll((_app.scroll_offset, 0))
+        .scroll((_app.scroll.offset.min(u16::MAX as usize) as u16, 0))
         .wrap(Wrap { trim: false });
     frame.render_widget(paragraph, inner);
 }
@@ -640,7 +676,7 @@ fn draw_tutorial_tab(frame: &mut Frame, area: Rect, app: &HelpApp) {
     let text = Text::from(lines);
     let paragraph = Paragraph::new(text)
         .style(Style::default().bg(colors::BG_TERMINAL))
-        .scroll((app.scroll_offset, 0))
+        .scroll((app.scroll.offset.min(u16::MAX as usize) as u16, 0))
         .wrap(Wrap { trim: false });
     frame.render_widget(paragraph, inner);
 }
@@ -695,7 +731,7 @@ mod tests {
     fn test_help_app_new() {
         let app = HelpApp::new();
         assert_eq!(app.selected_tab, 0);
-        assert_eq!(app.scroll_offset, 0);
+        assert_eq!(app.scroll.offset, 0);
     }
 
     #[test]

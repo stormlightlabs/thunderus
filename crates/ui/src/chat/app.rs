@@ -1,17 +1,17 @@
-use super::render;
 use super::{ChatFileFinder, ChatMessage, IncomingStreamEvent, MessageRole, StreamingState, TokenUsage};
+use super::{input_render, measure, render};
 use crate::colors;
-use crate::components::{top_bordered_row_height, wrapped_line_count};
-use crate::files::{fuzzy_match_paths, read_file_for_prompt, workspace_files};
+use crate::components::wrapped_line_count;
+use crate::files::{read_file_for_prompt_result, workspace_files};
 use crate::layout::split as split_rects;
+use crate::screen::{Screen, ScreenAction};
+use crate::scroll::ScrollState;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use ratatui::{
-    Frame,
-    layout::{Constraint, Direction, Rect},
-    style::{Modifier, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph},
-};
+use ratatui::Frame;
+use ratatui::layout::{Constraint, Direction, Rect};
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use std::path::{Path, PathBuf};
 
 const MAX_INPUT_HISTORY: usize = 200;
@@ -21,9 +21,10 @@ pub struct ChatApp {
     pub input_buffer: String,
     pub cursor_position: usize,
     pub streaming_state: StreamingState,
-    pub scroll_offset: u16,
+    pub scroll: ScrollState,
     pub last_usage: Option<TokenUsage>,
     pub last_model: Option<String>,
+    pub submission_warning: Option<String>,
     pub running: bool,
     pending_user_message: Option<String>,
     pending_submission: Option<String>,
@@ -49,9 +50,10 @@ impl Default for ChatApp {
             input_buffer: String::new(),
             cursor_position: 0,
             streaming_state: StreamingState::Idle,
-            scroll_offset: 0,
+            scroll: ScrollState::with_viewport(0, 5),
             last_usage: None,
             last_model: None,
+            submission_warning: None,
             running: true,
             pending_user_message: None,
             pending_submission: None,
@@ -141,20 +143,20 @@ impl ChatApp {
                 }
             }
             KeyCode::Up => {
-                if !self.try_navigate_history_up() && self.scroll_offset > 0 {
-                    self.scroll_offset -= 1;
+                if !self.try_navigate_history_up() {
+                    self.scroll.scroll_up(1);
                 }
             }
             KeyCode::Down => {
                 if !self.try_navigate_history_down() {
-                    self.scroll_offset += 1;
+                    self.scroll.scroll_down(1);
                 }
             }
             KeyCode::PageUp => {
-                self.scroll_offset = self.scroll_offset.saturating_sub(5);
+                self.scroll.page_up();
             }
             KeyCode::PageDown => {
-                self.scroll_offset += 5;
+                self.scroll.page_down();
             }
             KeyCode::Tab => {
                 if let Some(last_msg) = self.messages.last_mut()
@@ -252,7 +254,7 @@ impl ChatApp {
     fn handle_file_finder_input(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc => {
-                self.file_finder = ChatFileFinder::default();
+                self.file_finder.deactivate();
             }
             KeyCode::Char(c) => {
                 self.file_finder.query.push(c);
@@ -263,18 +265,16 @@ impl ChatApp {
                 self.update_file_finder_matches();
             }
             KeyCode::Up => {
-                self.file_finder.selected = self.file_finder.selected.saturating_sub(1);
+                self.file_finder.move_up();
             }
             KeyCode::Down => {
-                if self.file_finder.selected + 1 < self.file_finder.matches.len() {
-                    self.file_finder.selected += 1;
-                }
+                self.file_finder.move_down();
             }
             KeyCode::Enter => {
-                if let Some(path) = self.file_finder.matches.get(self.file_finder.selected).cloned() {
+                if let Some(path) = self.file_finder.selected_item().cloned() {
                     self.toggle_pin(&path);
                 }
-                self.file_finder = ChatFileFinder::default();
+                self.file_finder.deactivate();
             }
             _ => {}
         }
@@ -282,18 +282,12 @@ impl ChatApp {
 
     pub fn activate_file_finder(&mut self) {
         self.workspace_files = workspace_files(&self.workspace_root);
-        self.file_finder.active = true;
-        self.file_finder.query.clear();
-        self.file_finder.selected = 0;
-        self.file_finder.matches = self.workspace_files.iter().take(10).cloned().collect();
+        self.file_finder.activate_with_items(self.workspace_files.clone());
+        self.update_file_finder_matches();
     }
 
     fn update_file_finder_matches(&mut self) {
-        self.file_finder.matches = fuzzy_match_paths(&self.file_finder.query, &self.workspace_files, 10);
-        self.file_finder.selected = self
-            .file_finder
-            .selected
-            .min(self.file_finder.matches.len().saturating_sub(1));
+        self.file_finder.refresh(|path| path.display().to_string(), 10);
     }
 
     pub(super) fn toggle_pin(&mut self, path: &Path) {
@@ -376,6 +370,7 @@ impl ChatApp {
                 if let Some(model_id) = model {
                     self.last_model = Some(model_id);
                 }
+                self.submission_warning = None;
                 self.finish_current_stream();
             }
             IncomingStreamEvent::Error(message) => {
@@ -443,9 +438,10 @@ impl ChatApp {
     pub fn clear_chat(&mut self) {
         self.messages.clear();
         self.reset_streaming();
-        self.scroll_offset = 0;
+        self.scroll.offset = 0;
         self.last_usage = None;
         self.last_model = None;
+        self.submission_warning = None;
         self.input_history.clear();
         self.reset_history_navigation();
     }
@@ -454,7 +450,7 @@ impl ChatApp {
         self.messages = messages;
         self.rebuild_input_history_from_messages();
         self.reset_streaming();
-        self.scroll_offset = 0;
+        self.scroll.offset = 0;
     }
 
     pub fn queue_backend_command(&mut self, command: String) {
@@ -466,7 +462,13 @@ impl ChatApp {
     pub fn submit_user_message(&mut self, content: String) {
         self.record_input_history(&content);
         self.pending_user_message = Some(content.clone());
-        self.pending_submission = Some(self.build_submission_with_pins(&content));
+        let (submission, warnings) = self.prepare_submission(&content);
+        self.pending_submission = Some(submission);
+        self.submission_warning = if warnings.is_empty() {
+            None
+        } else {
+            Some(format!("Pinned file warning: {}", warnings.join(" | ")))
+        };
         self.messages.push(ChatMessage::user(content));
         self.messages.push(ChatMessage::assistant_streaming(String::new()));
         self.streaming_state = StreamingState::Streaming;
@@ -492,17 +494,22 @@ impl ChatApp {
         &self.pinned_files
     }
 
-    fn build_submission_with_pins(&self, content: &str) -> String {
+    fn prepare_submission(&self, content: &str) -> (String, Vec<String>) {
         if self.pinned_files.is_empty() {
-            return content.to_string();
+            return (content.to_string(), Vec::new());
         }
 
         let mut out = String::from(content);
         out.push_str("\n\n[Pinned workspace files]\n");
+        let mut warnings = Vec::new();
 
         for path in &self.pinned_files {
-            let Some(file_content) = read_file_for_prompt(&self.workspace_root, path) else {
-                continue;
+            let file_content = match read_file_for_prompt_result(&self.workspace_root, path) {
+                Ok(content) => content,
+                Err(error) => {
+                    warnings.push(format!("{} ({error})", path.display()));
+                    continue;
+                }
             };
 
             let language = path.extension().and_then(|ext| ext.to_str()).unwrap_or("text");
@@ -515,7 +522,7 @@ impl ChatApp {
             ));
         }
 
-        out
+        (out, warnings)
     }
 
     pub fn load_debug_chat(&mut self) {
@@ -523,11 +530,11 @@ impl ChatApp {
         self.pending_user_message = None;
         self.pending_submission = None;
         self.pending_command = None;
-        self.file_finder = ChatFileFinder::default();
+        self.file_finder.deactivate();
         self.pinned_files.clear();
         self.current_tool_call = None;
         self.streaming_state = StreamingState::Idle;
-        self.scroll_offset = 0;
+        self.scroll.offset = 0;
 
         for idx in 0..40 {
             self.messages.push(ChatMessage::user(format!(
@@ -592,7 +599,7 @@ impl ChatApp {
         frame.render_widget(Block::default().style(Style::default().bg(colors::BG_TERMINAL)), inner);
 
         let mut constraints = vec![Constraint::Length(1)];
-        constraints.extend((0..self.file_finder.matches.len()).map(|_| Constraint::Length(1)));
+        constraints.extend((0..self.file_finder.filtered_len()).map(|_| Constraint::Length(1)));
         constraints.push(Constraint::Min(0));
         let layout = split_rects(inner, Direction::Vertical, constraints);
         if layout.is_empty() {
@@ -615,7 +622,7 @@ impl ChatApp {
             layout[0],
         );
 
-        for (idx, path) in self.file_finder.matches.iter().enumerate() {
+        for (idx, path) in self.file_finder.filtered_items().enumerate() {
             if let Some(slot) = layout.get(idx + 1).copied() {
                 let selected = idx == self.file_finder.selected;
                 let pinned = self.pinned_files().iter().any(|p| p == path);
@@ -635,54 +642,40 @@ impl ChatApp {
     }
 
     pub fn draw_chat_screen(&self, frame: &mut Frame) {
-        let size = frame.area();
-
-        let clear = Block::default().style(Style::default().bg(colors::BG_TERMINAL));
-        frame.render_widget(clear, size);
-
-        let main_layout = split_rects(
-            size,
-            Direction::Vertical,
-            vec![
-                Constraint::Min(0),
-                Constraint::Length(1),
-                Constraint::Length(top_bordered_row_height(1)),
-                Constraint::Length(self.chat_input_row_height(size.width)),
-            ],
-        );
-        if main_layout.len() < 4 {
-            return;
-        }
-
-        render::draw_messages(frame, main_layout[0], self);
-        render::draw_hints(frame, main_layout[1]);
-        render::draw_token_usage_row(frame, main_layout[2], self);
-        render::draw_input_area(frame, main_layout[3], self);
-
-        if self.file_finder.active {
-            self.draw_file_finder_overlay(frame, size);
-        }
+        render::draw_chat_screen(frame, self);
     }
 
     pub fn chat_input_row_height(&self, area_width: u16) -> u16 {
-        top_bordered_row_height(self.chat_input_content_line_count(area_width))
+        input_render::chat_input_row_height(self.chat_input_content_line_count(area_width))
     }
 
     fn chat_input_content_line_count(&self, area_width: u16) -> u16 {
         let inner_width = area_width.saturating_sub(2).max(1);
-        let mut lines = render::wrapped_multiline_input_line_count(
+        let mut lines = measure::wrapped_multiline_input_line_count(
             &self.input_buffer,
             inner_width
-                .saturating_sub(render::INPUT_PROMPT_PREFIX.chars().count() as u16)
+                .saturating_sub(input_render::INPUT_PROMPT_PREFIX.chars().count() as u16)
                 .max(1),
             inner_width,
         ) as u16;
 
         if !self.pinned_files().is_empty() {
-            lines += wrapped_line_count(&render::pinned_files_input_text(self.pinned_files()), inner_width) as u16;
+            lines +=
+                wrapped_line_count(&input_render::pinned_files_input_text(self.pinned_files()), inner_width) as u16;
         }
 
         lines.max(1)
+    }
+}
+
+impl Screen for ChatApp {
+    fn handle_input(&mut self, key: KeyEvent) -> ScreenAction {
+        ChatApp::handle_input(self, key);
+        if self.running { ScreenAction::None } else { ScreenAction::Quit }
+    }
+
+    fn draw(&self, frame: &mut Frame) {
+        self.draw_chat_screen(frame);
     }
 }
 
