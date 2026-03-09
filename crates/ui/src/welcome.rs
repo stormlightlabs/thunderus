@@ -1,3 +1,4 @@
+use super::ScreenAction;
 use super::ScreenMode;
 use super::colors;
 use super::components::{
@@ -6,7 +7,6 @@ use super::components::{
 };
 use super::elements::{Suggestions, WelcomeContent, WelcomeMainColumn};
 use super::layout::{AreaSpec, ConstraintSpec, DynamicConstraintSpec, split as split_rects};
-use super::screen::ScreenAction;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Rect};

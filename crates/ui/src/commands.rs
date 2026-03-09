@@ -1,10 +1,10 @@
-use super::chat::{ChatMessage, u32_with_grouping};
-use super::{App, ScreenMode};
+use super::Cmd;
+use super::chat::ChatMessage;
 use thndrs_core::Role;
 use thndrs_mem::{LogStore, MemoryDatabase, MemoryStore, SessionManager};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum SlashCommand {
+pub enum SlashCommand {
     Empty,
     DebugChat,
     DebugFiles,
@@ -22,91 +22,10 @@ enum SlashCommand {
     Unknown(String),
 }
 
-pub(crate) fn execute_slash_command(app: &mut App, command: &str) {
-    match parse_slash_command(command) {
-        SlashCommand::DebugChat => {
-            app.chat.load_debug_chat();
-            app.screen_mode = ScreenMode::Chat;
-        }
-        SlashCommand::DebugFiles => {
-            app.file_browser.load_debug_fixture();
-            app.screen_mode = ScreenMode::Files;
-        }
-        SlashCommand::Files => {
-            if let Err(error) = app.file_browser.reload_workspace() {
-                app.chat.messages.push(ChatMessage::assistant(format!(
-                    "Unable to load workspace files: {error}"
-                )));
-                app.screen_mode = ScreenMode::Chat;
-            } else {
-                app.screen_mode = ScreenMode::Files;
-            }
-        }
-        SlashCommand::History => {
-            let content = format_session_history().unwrap_or_else(|error| format!("Failed to load history: {error}"));
-            app.push_assistant_message(content);
-        }
-        SlashCommand::Resume(session_id) => match load_session_chat_messages(&session_id) {
-            Ok(messages) => {
-                app.chat.set_messages(messages);
-                app.chat.queue_backend_command(format!("/resume {}", session_id));
-                app.screen_mode = ScreenMode::Chat;
-            }
-            Err(error) => {
-                app.push_assistant_message(format!("Failed to resume session `{session_id}`: {error}"));
-            }
-        },
-        SlashCommand::Clear => {
-            app.chat.clear_chat();
-            app.chat.queue_backend_command("/clear".to_string());
-            app.screen_mode = ScreenMode::Chat;
-        }
-        SlashCommand::Tokens => {
-            let content = match app.chat.last_usage {
-                Some(usage) => format!(
-                    "Token usage:\n- prompt: {}\n- completion: {}\n- total: {}",
-                    u32_with_grouping(usage.prompt_tokens),
-                    u32_with_grouping(usage.completion_tokens),
-                    u32_with_grouping(usage.total_tokens)
-                ),
-                None => "No token usage recorded yet in this chat.".to_string(),
-            };
-            app.push_assistant_message(content);
-        }
-        SlashCommand::Model => {
-            let content = match app.chat.last_model.as_deref() {
-                Some(model) => format!("Current model: {}", model),
-                None => "Model information is not available yet.".to_string(),
-            };
-            app.push_assistant_message(content);
-        }
-        SlashCommand::DebugMemoryStats => {
-            let content = format_memory_stats().unwrap_or_else(|error| format!("Failed to get memory stats: {error}"));
-            app.push_assistant_message(content);
-        }
-        SlashCommand::DebugMemoryRecall(query) => {
-            let content = format_memory_recall(&query)
-                .unwrap_or_else(|error| format!("Failed to recall memory for `{query}`: {error}"));
-            app.push_assistant_message(content);
-        }
-        SlashCommand::DebugLog(session_id) => {
-            let content = format_session_logs(&session_id)
-                .unwrap_or_else(|error| format!("Failed to get logs for `{session_id}`: {error}"));
-            app.push_assistant_message(content);
-        }
-        SlashCommand::Settings => {
-            app.open_settings();
-        }
-        SlashCommand::HelpCmd => {
-            app.open_help();
-        }
-        SlashCommand::Unknown(raw) => {
-            app.chat.messages.push(ChatMessage::assistant(format!(
-                "Unknown command `{raw}`. Available: `/help`, `/settings`, `/debug chat`, `/debug files`, `/files`, `/history`, `/resume <id>`, `/clear`, `/tokens`, `/model`, `/debug memory stats`, `/debug memory recall <query>`, `/debug log <id>`."
-            )));
-            app.screen_mode = ScreenMode::Chat;
-        }
-        SlashCommand::Empty => {}
+pub(crate) fn dispatch(raw: &str) -> Cmd {
+    match parse_slash_command(raw) {
+        SlashCommand::Empty => Cmd::None,
+        command => Cmd::RunSlash(command),
     }
 }
 
@@ -157,7 +76,7 @@ fn workspace_memory_database() -> std::result::Result<MemoryDatabase, String> {
     MemoryDatabase::for_workspace(&workspace_path).map_err(|error| error.to_string())
 }
 
-fn format_session_history() -> std::result::Result<String, String> {
+pub(crate) fn format_session_history() -> std::result::Result<String, String> {
     let db = workspace_memory_database()?;
     let sessions = SessionManager::new(db)
         .list_sessions(50)
@@ -181,7 +100,7 @@ fn format_session_history() -> std::result::Result<String, String> {
     Ok(lines.join("\n"))
 }
 
-fn load_session_chat_messages(session_id: &str) -> std::result::Result<Vec<ChatMessage>, String> {
+pub(crate) fn load_session_chat_messages(session_id: &str) -> std::result::Result<Vec<ChatMessage>, String> {
     let db = workspace_memory_database()?;
     let manager = SessionManager::new(db);
     let session = manager.get_session(session_id).map_err(|error| error.to_string())?;
@@ -209,7 +128,7 @@ fn load_session_chat_messages(session_id: &str) -> std::result::Result<Vec<ChatM
     Ok(chat_messages)
 }
 
-fn format_memory_stats() -> std::result::Result<String, String> {
+pub(crate) fn format_memory_stats() -> std::result::Result<String, String> {
     let db = workspace_memory_database()?;
     let store = MemoryStore::new(db);
     let stats = store.stats().map_err(|error| error.to_string())?;
@@ -226,7 +145,7 @@ fn format_memory_stats() -> std::result::Result<String, String> {
     ))
 }
 
-fn format_memory_recall(query: &str) -> std::result::Result<String, String> {
+pub(crate) fn format_memory_recall(query: &str) -> std::result::Result<String, String> {
     let db = workspace_memory_database()?;
     let mut store = MemoryStore::new(db);
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -254,7 +173,7 @@ fn format_memory_recall(query: &str) -> std::result::Result<String, String> {
     Ok(lines.join("\n"))
 }
 
-fn format_session_logs(session_id: &str) -> std::result::Result<String, String> {
+pub(crate) fn format_session_logs(session_id: &str) -> std::result::Result<String, String> {
     let db = workspace_memory_database()?;
     let logs = LogStore::new(db)
         .get_session_logs(session_id, 200)
@@ -313,5 +232,11 @@ mod tests {
             parse_slash_command("/unknown"),
             SlashCommand::Unknown("/unknown".to_string())
         );
+    }
+
+    #[test]
+    fn test_dispatch_returns_cmd() {
+        assert_eq!(dispatch("/"), Cmd::None);
+        assert_eq!(dispatch("/debug chat"), Cmd::RunSlash(SlashCommand::DebugChat));
     }
 }

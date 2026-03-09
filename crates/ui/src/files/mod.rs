@@ -4,8 +4,8 @@ mod highlight;
 mod render;
 mod tree;
 
+use super::ScreenAction;
 use super::layout::ConstraintSpec;
-use super::screen::ScreenAction;
 use crate::finder::FuzzyFinder;
 use crate::finder::fuzzy_match_items;
 use crate::scroll::ScrollState;

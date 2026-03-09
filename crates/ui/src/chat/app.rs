@@ -1,10 +1,10 @@
 use super::{ChatFileFinder, ChatMessage, IncomingStreamEvent, MessageRole, StreamingState, TokenUsage};
 use super::{input_render, measure, render};
+use crate::ScreenAction;
 use crate::colors;
 use crate::components::wrapped_line_count;
 use crate::files::{read_file_for_prompt_result, workspace_files};
 use crate::layout::split as split_rects;
-use crate::screen::ScreenAction;
 use crate::scroll::ScrollState;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::Frame;

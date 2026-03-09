@@ -7,10 +7,10 @@ use crate::{App, Msg, ScreenMode};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 
-pub(crate) fn map_event(app: &App, event: Event, frame_size: Rect) -> Option<Msg> {
+pub(crate) fn map_event(app: &App, event: &Event, frame_size: Rect) -> Option<Msg> {
     match event {
-        Event::Key(key) => map_key(app, key),
-        Event::Mouse(mouse) => map_mouse(app, mouse, frame_size),
+        Event::Key(key) => map_key(app, *key),
+        Event::Mouse(mouse) => map_mouse(app, *mouse, frame_size),
         _ => None,
     }
 }

@@ -10,10 +10,10 @@
 //! - Recent conversations list
 //! - Footer links
 
+use super::ScreenAction;
 use super::colors;
 use super::components::{HintFooter, HintToken, TopBorderedInputRow, app_version_string};
 use super::layout::{ConstraintSpec, split as split_rects};
-use super::screen::ScreenAction;
 use super::scroll::ScrollState;
 use chrono::{DateTime, Utc};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};

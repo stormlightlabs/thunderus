@@ -6,10 +6,8 @@ use crossterm::event::{DisableMouseCapture, EnableMouseCapture, KeyEvent, MouseE
 use crossterm::execute;
 use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
 use ratatui::backend::{Backend, CrosstermBackend};
-use ratatui::style::{Modifier, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::Paragraph;
 use ratatui::{Terminal, layout::Rect};
+use std::collections::VecDeque;
 use std::io;
 use thiserror::Error;
 
@@ -21,9 +19,9 @@ pub mod files;
 pub mod finder;
 pub mod help;
 pub mod layout;
-pub mod screen;
 pub mod scroll;
 pub mod settings;
+mod status_bar;
 pub mod welcome;
 
 pub use chat::{ChatApp, ChatMessage, IncomingStreamEvent, StreamingState, TokenUsage, draw_chat_screen};
@@ -77,6 +75,14 @@ pub enum ScreenMode {
     Help,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScreenAction {
+    None,
+    Quit,
+    SwitchTo(ScreenMode),
+    ReturnToPrevious,
+}
+
 #[derive(Debug, Clone)]
 pub enum Msg {
     Quit,
@@ -90,12 +96,16 @@ pub enum Msg {
     Files(files::FilesMsg),
     Settings(settings::SettingsMsg),
     Help(help::HelpMsg),
+    RunSlash(commands::SlashCommand),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum Cmd {
     #[default]
     None,
+    Batch(Vec<Cmd>),
+    SubmitToBackend(String),
+    RunSlash(commands::SlashCommand),
 }
 
 /// The TUI application state
@@ -132,66 +142,159 @@ impl App {
 
     pub fn handle_input(&mut self, key: KeyEvent) {
         if let Some(msg) = event::map_key(self, key) {
-            let _ = self.update(msg);
+            let cmd = self.update(msg);
+            self.process_cmds_inline(cmd);
         }
     }
 
     pub fn handle_mouse(&mut self, mouse: MouseEvent, frame_size: Rect) {
         if let Some(msg) = event::map_mouse(self, mouse, frame_size) {
-            let _ = self.update(msg);
+            let cmd = self.update(msg);
+            self.process_cmds_inline(cmd);
         }
     }
 
     pub fn update(&mut self, msg: Msg) -> Cmd {
-        match msg {
+        let cmd = match msg {
             Msg::Quit => {
                 self.running = false;
+                Cmd::None
             }
             Msg::OpenSettings => {
                 self.open_settings();
+                Cmd::None
             }
             Msg::StartNewChat => {
                 self.start_new_chat();
+                Cmd::None
             }
-            Msg::OpenFiles => {
-                commands::execute_slash_command(self, "/files");
-            }
+            Msg::OpenFiles => commands::dispatch("/files"),
             Msg::CloseActiveChat => {
                 self.close_active_chat();
+                Cmd::None
             }
             Msg::OpenHelp => {
                 self.open_help();
+                Cmd::None
             }
             Msg::Welcome(sub_msg) => {
                 let action = welcome::update(&mut self.welcome, sub_msg);
                 self.apply_screen_action(action);
-                self.process_pending_actions();
+                Cmd::None
             }
             Msg::Chat(sub_msg) => {
                 let action = chat::update(&mut self.chat, sub_msg);
                 self.apply_screen_action(action);
-                if self.screen_mode != ScreenMode::Welcome || !self.chat.is_file_finder_active() {
-                    self.process_pending_actions();
-                }
+                Cmd::None
             }
             Msg::Files(sub_msg) => {
                 let action = files::update(&mut self.file_browser, sub_msg);
                 self.apply_screen_action(action);
-                self.process_pending_actions();
+                Cmd::None
             }
             Msg::Settings(sub_msg) => {
                 let action = settings::update(&mut self.settings, sub_msg);
                 self.apply_screen_action(action);
-                self.process_pending_actions();
+                Cmd::None
             }
             Msg::Help(sub_msg) => {
                 let action = help::update(&mut self.help, sub_msg);
                 self.apply_screen_action(action);
-                self.process_pending_actions();
+                Cmd::None
             }
-        }
+            Msg::RunSlash(command) => {
+                match command {
+                    commands::SlashCommand::Empty => {}
+                    commands::SlashCommand::DebugChat => {
+                        self.chat.load_debug_chat();
+                        self.screen_mode = ScreenMode::Chat;
+                    }
+                    commands::SlashCommand::DebugFiles => {
+                        self.file_browser.load_debug_fixture();
+                        self.screen_mode = ScreenMode::Files;
+                    }
+                    commands::SlashCommand::Files => {
+                        if let Err(error) = self.file_browser.reload_workspace() {
+                            self.push_assistant_message(format!("Unable to load workspace files: {error}"));
+                        } else {
+                            self.screen_mode = ScreenMode::Files;
+                        }
+                    }
+                    commands::SlashCommand::History => {
+                        let content = commands::format_session_history()
+                            .unwrap_or_else(|error| format!("Failed to load history: {error}"));
+                        self.push_assistant_message(content);
+                    }
+                    commands::SlashCommand::Resume(session_id) => {
+                        match commands::load_session_chat_messages(&session_id) {
+                            Ok(messages) => {
+                                self.chat.set_messages(messages);
+                                self.chat.queue_backend_command(format!("/resume {}", session_id));
+                                self.screen_mode = ScreenMode::Chat;
+                            }
+                            Err(error) => {
+                                self.push_assistant_message(format!(
+                                    "Failed to resume session `{session_id}`: {error}"
+                                ));
+                            }
+                        }
+                    }
+                    commands::SlashCommand::Clear => {
+                        self.chat.clear_chat();
+                        self.chat.queue_backend_command("/clear".to_string());
+                        self.screen_mode = ScreenMode::Chat;
+                    }
+                    commands::SlashCommand::Tokens => {
+                        let content = match self.chat.last_usage {
+                            Some(usage) => format!(
+                                "Token usage:\n- prompt: {}\n- completion: {}\n- total: {}",
+                                chat::u32_with_grouping(usage.prompt_tokens),
+                                chat::u32_with_grouping(usage.completion_tokens),
+                                chat::u32_with_grouping(usage.total_tokens)
+                            ),
+                            None => "No token usage recorded yet in this chat.".to_string(),
+                        };
+                        self.push_assistant_message(content);
+                    }
+                    commands::SlashCommand::Model => {
+                        let content = match self.chat.last_model.as_deref() {
+                            Some(model) => format!("Current model: {}", model),
+                            None => "Model information is not available yet.".to_string(),
+                        };
+                        self.push_assistant_message(content);
+                    }
+                    commands::SlashCommand::DebugMemoryStats => {
+                        let content = commands::format_memory_stats()
+                            .unwrap_or_else(|error| format!("Failed to get memory stats: {error}"));
+                        self.push_assistant_message(content);
+                    }
+                    commands::SlashCommand::DebugMemoryRecall(query) => {
+                        let content = commands::format_memory_recall(&query)
+                            .unwrap_or_else(|error| format!("Failed to recall memory for `{query}`: {error}"));
+                        self.push_assistant_message(content);
+                    }
+                    commands::SlashCommand::DebugLog(session_id) => {
+                        let content = commands::format_session_logs(&session_id)
+                            .unwrap_or_else(|error| format!("Failed to get logs for `{session_id}`: {error}"));
+                        self.push_assistant_message(content);
+                    }
+                    commands::SlashCommand::Settings => {
+                        self.open_settings();
+                    }
+                    commands::SlashCommand::HelpCmd => {
+                        self.open_help();
+                    }
+                    commands::SlashCommand::Unknown(raw) => {
+                        self.push_assistant_message(format!(
+                            "Unknown command `{raw}`. Available: `/help`, `/settings`, `/debug chat`, `/debug files`, `/files`, `/history`, `/resume <id>`, `/clear`, `/tokens`, `/model`, `/debug memory stats`, `/debug memory recall <query>`, `/debug log <id>`."
+                        ));
+                    }
+                }
+                Cmd::None
+            }
+        };
 
-        Cmd::None
+        combine_cmds(cmd, self.collect_pending_cmds())
     }
 
     pub(crate) fn open_settings(&mut self) {
@@ -228,21 +331,23 @@ impl App {
         }
     }
 
-    fn apply_screen_action(&mut self, action: screen::ScreenAction) {
+    fn apply_screen_action(&mut self, action: ScreenAction) {
         match action {
-            screen::ScreenAction::None => {}
-            screen::ScreenAction::Quit => self.running = false,
-            screen::ScreenAction::SwitchTo(mode) => {
+            ScreenAction::None => {}
+            ScreenAction::Quit => self.running = false,
+            ScreenAction::SwitchTo(mode) => {
                 if matches!(mode, ScreenMode::Settings | ScreenMode::Help) {
                     self.previous_screen = Some(self.screen_mode);
                 }
                 self.screen_mode = mode;
             }
-            screen::ScreenAction::ReturnToPrevious => self.exit_to_previous_or_chat(),
+            ScreenAction::ReturnToPrevious => self.exit_to_previous_or_chat(),
         }
     }
 
-    fn process_pending_actions(&mut self) {
+    fn collect_pending_cmds(&mut self) -> Cmd {
+        let mut cmds = Vec::new();
+
         if self.welcome.take_activate_file_finder() {
             self.chat.activate_file_finder();
         }
@@ -252,18 +357,89 @@ impl App {
             self.screen_mode = ScreenMode::Chat;
         }
 
+        if let Some(submission) = self.chat.take_pending_submission() {
+            cmds.push(Cmd::SubmitToBackend(submission));
+        }
+
         if let Some(command) = self.welcome.take_pending_command() {
-            commands::execute_slash_command(self, &command);
+            cmds.push(commands::dispatch(&command));
         }
 
         if let Some(command) = self.chat.take_pending_command() {
-            commands::execute_slash_command(self, &command);
+            cmds.push(commands::dispatch(&command));
         }
+
+        if cmds.is_empty() { Cmd::None } else { Cmd::Batch(cmds) }
     }
 
     pub(crate) fn push_assistant_message(&mut self, content: String) {
         self.chat.messages.push(ChatMessage::assistant(content));
         self.screen_mode = ScreenMode::Chat;
+    }
+
+    fn process_cmds_inline(&mut self, cmd: Cmd) {
+        let mut queue = VecDeque::new();
+        enqueue_cmd(&mut queue, cmd);
+
+        while let Some(next) = queue.pop_front() {
+            if let Some(msg) = execute_cmd(next, None) {
+                let follow_up = self.update(msg);
+                enqueue_cmd(&mut queue, follow_up);
+            }
+        }
+    }
+}
+
+fn combine_cmds(first: Cmd, second: Cmd) -> Cmd {
+    match (first, second) {
+        (Cmd::None, other) => other,
+        (other, Cmd::None) => other,
+        (Cmd::Batch(mut left), Cmd::Batch(right)) => {
+            left.extend(right);
+            Cmd::Batch(left)
+        }
+        (Cmd::Batch(mut left), right) => {
+            left.push(right);
+            Cmd::Batch(left)
+        }
+        (left, Cmd::Batch(mut right)) => {
+            let mut cmds = vec![left];
+            cmds.append(&mut right);
+            Cmd::Batch(cmds)
+        }
+        (left, right) => Cmd::Batch(vec![left, right]),
+    }
+}
+
+fn enqueue_cmd(queue: &mut VecDeque<Cmd>, cmd: Cmd) {
+    match cmd {
+        Cmd::None => {}
+        Cmd::Batch(cmds) => {
+            for entry in cmds {
+                enqueue_cmd(queue, entry);
+            }
+        }
+        other => queue.push_back(other),
+    }
+}
+
+fn execute_cmd(cmd: Cmd, submitter: Option<&mut Submitter<'_>>) -> Option<Msg> {
+    match cmd {
+        Cmd::None => None,
+        Cmd::Batch(_) => None,
+        Cmd::SubmitToBackend(payload) => {
+            if let Some(submitter) = submitter {
+                match submitter(payload) {
+                    Ok(()) => None,
+                    Err(error) => Some(Msg::Chat(chat::ChatMsg::StreamEvent(IncomingStreamEvent::Error(error)))),
+                }
+            } else {
+                Some(Msg::Chat(chat::ChatMsg::StreamEvent(IncomingStreamEvent::Error(
+                    "No response backend configured for this UI mode.".to_string(),
+                ))))
+            }
+        }
+        Cmd::RunSlash(command) => Some(Msg::RunSlash(command)),
     }
 }
 
@@ -329,29 +505,25 @@ fn run_app(
     terminal: &mut Terminal<impl Backend>, app: &mut App, mut submitter: Option<&mut Submitter<'_>>,
     mut poller: Option<&mut Poller<'_>>,
 ) -> Result<()> {
-    loop {
-        if let Some(submitter) = submitter.as_deref_mut()
-            && let Some(pending_message) = app.chat.take_pending_submission()
-            && let Err(error) = submitter(pending_message)
-        {
-            let _ = chat::update(
-                &mut app.chat,
-                chat::ChatMsg::StreamEvent(IncomingStreamEvent::Error(error)),
-            );
-        }
+    let mut cmd_queue: VecDeque<Cmd> = VecDeque::new();
 
-        if submitter.is_none() && app.chat.take_pending_submission().is_some() {
-            let _ = chat::update(
-                &mut app.chat,
-                chat::ChatMsg::StreamEvent(IncomingStreamEvent::Error(
-                    "No response backend configured for this UI mode.".to_string(),
-                )),
-            );
+    loop {
+        while let Some(cmd) = cmd_queue.pop_front() {
+            let next_msg = {
+                let submitter_ref = submitter.as_deref_mut();
+                execute_cmd(cmd, submitter_ref)
+            };
+
+            if let Some(msg) = next_msg {
+                let next_cmd = app.update(msg);
+                enqueue_cmd(&mut cmd_queue, next_cmd);
+            }
         }
 
         if let Some(poller) = poller.as_deref_mut() {
             while let Some(event) = poller() {
-                let _ = chat::update(&mut app.chat, chat::ChatMsg::StreamEvent(event));
+                let cmd = app.update(Msg::Chat(chat::ChatMsg::StreamEvent(event)));
+                enqueue_cmd(&mut cmd_queue, cmd);
             }
         }
 
@@ -374,7 +546,7 @@ fn run_app(
 
             let frame_area = frame.area();
             if frame_area.height > 0 {
-                draw_status_bar(frame, Rect::new(frame_area.x, frame_area.y, frame_area.width, 1), app);
+                status_bar::draw_status_bar(frame, Rect::new(frame_area.x, frame_area.y, frame_area.width, 1), app);
             }
         })?;
 
@@ -385,55 +557,11 @@ fn run_app(
         if crossterm::event::poll(std::time::Duration::from_millis(50))? {
             let frame_size = terminal.size()?;
             let event = crossterm::event::read()?;
-            if let Some(msg) = event::map_event(app, event, Rect::new(0, 0, frame_size.width, frame_size.height)) {
-                let _ = app.update(msg);
+            if let Some(msg) = event::map_event(app, &event, Rect::new(0, 0, frame_size.width, frame_size.height)) {
+                let cmd = app.update(msg);
+                enqueue_cmd(&mut cmd_queue, cmd);
             }
         }
-    }
-}
-
-fn draw_status_bar(frame: &mut ratatui::Frame, area: Rect, app: &App) {
-    if area.width == 0 || area.height == 0 {
-        return;
-    }
-
-    let left = format!(" {} ", screen_label(app.screen_mode));
-    let right = if app.screen_mode == ScreenMode::Chat {
-        app.chat
-            .last_model
-            .as_deref()
-            .map(|model| format!(" model: {model} "))
-            .unwrap_or_else(|| format!(" {} ", components::app_version_string()))
-    } else {
-        format!(" {} ", components::app_version_string())
-    };
-
-    let total_width = area.width as usize;
-    let used_width = left.chars().count() + right.chars().count();
-    let spacer = " ".repeat(total_width.saturating_sub(used_width).max(1));
-
-    let line = Line::from(vec![
-        Span::styled(
-            left,
-            Style::default().fg(colors::ACCENT_CYAN).add_modifier(Modifier::BOLD),
-        ),
-        Span::raw(spacer),
-        Span::styled(right, Style::default().fg(colors::TEXT_MUTED)),
-    ]);
-
-    frame.render_widget(
-        Paragraph::new(line).style(Style::default().bg(colors::BG_SECONDARY)),
-        area,
-    );
-}
-
-fn screen_label(mode: ScreenMode) -> &'static str {
-    match mode {
-        ScreenMode::Welcome => "WELCOME",
-        ScreenMode::Chat => "CHAT",
-        ScreenMode::Files => "FILES",
-        ScreenMode::Settings => "SETTINGS",
-        ScreenMode::Help => "HELP",
     }
 }
 

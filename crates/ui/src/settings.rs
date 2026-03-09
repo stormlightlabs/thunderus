@@ -7,9 +7,9 @@
 //! - Save/reset actions
 //! - Persistence to ~/.thunderus/config.toml
 
+use super::ScreenAction;
 use super::components::{HintFooter, HintToken, TopBorderedInputRow, app_version_string};
 use super::layout::{ConstraintSpec, split as split_rects};
-use super::screen::ScreenAction;
 use super::{colors, scroll::ScrollState};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{

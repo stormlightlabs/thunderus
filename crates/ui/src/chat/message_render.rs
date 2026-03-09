@@ -301,7 +301,6 @@ fn draw_assistant_message_scrolled(
         let segment_height = tool_call.estimate_height(area.width);
         viewport.draw_segment(frame, segment_height, |frame, segment, skip| {
             if skip > 0 {
-                // Preserve row alignment when clipping through complex tool card internals.
                 frame.render_widget(
                     Paragraph::new("")
                         .style(Style::default().bg(colors::BG_TERMINAL))
