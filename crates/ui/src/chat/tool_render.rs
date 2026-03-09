@@ -56,15 +56,14 @@ pub struct DiffLine {
 }
 
 impl DiffLine {
-    fn draw(&self, frame: &mut Frame, area: Rect) {
-        let (prefix, style, bg) = match self.line_kind {
-            DiffLineKind::Context => (" ", Style::default().fg(colors::TEXT_SECONDARY), colors::BG_TERMINAL),
-            DiffLineKind::Added => ("+", Style::default().fg(colors::ACCENT_GREEN), colors::BG_TERMINAL),
-            DiffLineKind::Removed => ("-", Style::default().fg(colors::ACCENT_RED), colors::BG_TERMINAL),
+    fn to_line(&self) -> Line<'static> {
+        let (prefix, style) = match self.line_kind {
+            DiffLineKind::Context => (" ", Style::default().fg(colors::TEXT_SECONDARY)),
+            DiffLineKind::Added => ("+", Style::default().fg(colors::ACCENT_GREEN)),
+            DiffLineKind::Removed => ("-", Style::default().fg(colors::ACCENT_RED)),
             DiffLineKind::Header => (
                 "@",
                 Style::default().fg(colors::ACCENT_CYAN).add_modifier(Modifier::BOLD),
-                colors::BG_TERMINAL,
             ),
         };
 
@@ -73,17 +72,12 @@ impl DiffLine {
             .map(|number| format!("{:4} ", number))
             .unwrap_or_else(|| "     ".to_string());
 
-        let text = Text::from(vec![Line::from(vec![
+        Line::from(vec![
             Span::styled(line_num, Style::default().fg(colors::TEXT_MUTED)),
             Span::styled(prefix, style),
             Span::styled(" ", Style::default()),
-            Span::styled(&self.content, style),
-        ])]);
-
-        let paragraph = Paragraph::new(text)
-            .style(Style::default().bg(bg))
-            .wrap(Wrap { trim: false });
-        frame.render_widget(paragraph, area);
+            Span::styled(self.content.clone(), style),
+        ])
     }
 }
 
@@ -281,13 +275,29 @@ pub fn build_read_output_lines(output: &str) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     for raw_line in output.lines() {
         if let Some((number, content)) = split_numbered_line(raw_line) {
-            lines.push(Line::from(vec![
-                Span::styled(
-                    format!("{number:>width$} ", width = number_width),
-                    Style::default().fg(colors::TEXT_MUTED),
-                ),
-                Span::styled(content.to_string(), Style::default().fg(colors::TEXT_SECONDARY)),
-            ]));
+            let number_span = Span::styled(
+                format!("{number:>width$} ", width = number_width),
+                Style::default().fg(colors::TEXT_MUTED),
+            );
+
+            if let Some(name) = content.strip_prefix("▶ ") {
+                lines.push(Line::from(vec![
+                    number_span,
+                    Span::styled("▶ ", Style::default().fg(colors::ACCENT_YELLOW)),
+                    Span::styled(name.to_string(), Style::default().fg(colors::TEXT_SECONDARY)),
+                ]));
+            } else if let Some(name) = content.strip_prefix("⌸ ") {
+                lines.push(Line::from(vec![
+                    number_span,
+                    Span::styled("⌸ ", Style::default().fg(colors::TEXT_SECONDARY)),
+                    Span::styled(name.to_string(), Style::default().fg(colors::TEXT_SECONDARY)),
+                ]));
+            } else {
+                lines.push(Line::from(vec![
+                    number_span,
+                    Span::styled(content.to_string(), Style::default().fg(colors::TEXT_SECONDARY)),
+                ]));
+            }
             continue;
         }
 
@@ -383,20 +393,58 @@ pub fn bash_visible_line_count(output: &str, max_visible_lines: usize) -> usize 
 }
 
 pub fn parse_diff(diff_text: &str) -> Vec<DiffLine> {
-    diff_text
-        .lines()
-        .map(|line| {
-            let mut chars = line.chars();
-            let (content, line_type) = match chars.next() {
-                Some('@') if line.starts_with("@@") => (line.to_string(), DiffLineKind::Header),
-                Some('+') => (chars.as_str().to_string(), DiffLineKind::Added),
-                Some('-') => (chars.as_str().to_string(), DiffLineKind::Removed),
-                Some(' ') => (chars.as_str().to_string(), DiffLineKind::Context),
-                _ => (line.to_string(), DiffLineKind::Context),
-            };
-            DiffLine { content, line_kind: line_type, line_number: None }
-        })
-        .collect()
+    let mut result = Vec::new();
+    let mut new_line = 0u32;
+
+    for line in diff_text.lines() {
+        let mut chars = line.chars();
+        match chars.next() {
+            Some('@') if line.starts_with("@@") => {
+                if let Some(parsed) = parse_new_hunk_line(line) {
+                    new_line = parsed;
+                }
+                result.push(DiffLine { content: line.to_string(), line_kind: DiffLineKind::Header, line_number: None });
+            }
+            Some('+') if !line.starts_with("+++") => {
+                let line_number = if new_line == 0 { None } else { Some(new_line) };
+                result.push(DiffLine {
+                    content: chars.as_str().to_string(),
+                    line_kind: DiffLineKind::Added,
+                    line_number,
+                });
+                if new_line > 0 {
+                    new_line += 1;
+                }
+            }
+            Some('-') if !line.starts_with("---") => {
+                result.push(DiffLine {
+                    content: chars.as_str().to_string(),
+                    line_kind: DiffLineKind::Removed,
+                    line_number: None,
+                });
+            }
+            Some(' ') => {
+                let line_number = if new_line == 0 { None } else { Some(new_line) };
+                result.push(DiffLine {
+                    content: chars.as_str().to_string(),
+                    line_kind: DiffLineKind::Context,
+                    line_number,
+                });
+                if new_line > 0 {
+                    new_line += 1;
+                }
+            }
+            _ => {
+                result.push(DiffLine {
+                    content: line.to_string(),
+                    line_kind: DiffLineKind::Context,
+                    line_number: None,
+                });
+            }
+        }
+    }
+
+    result
 }
 
 pub fn draw_task_progress(frame: &mut Frame, area: Rect, tasks: &[TaskItem], title: &str) {
@@ -439,17 +487,8 @@ fn draw_task_row(frame: &mut Frame, area: Rect, task: &TaskItem) {
 }
 
 pub fn draw_diff(frame: &mut Frame, area: Rect, diff_lines: &[DiffLine]) {
-    let block = Block::default().style(Style::default().bg(colors::BG_TERMINAL));
-    frame.render_widget(block.clone(), area);
-
-    let inner = block.inner(area);
-    let layout = split_rects(inner, Direction::Vertical, list_row_constraints(diff_lines.len()));
-
-    for (idx, line) in diff_lines.iter().enumerate() {
-        if idx < layout.len() {
-            line.draw(frame, layout[idx]);
-        }
-    }
+    let lines = diff_lines.iter().map(DiffLine::to_line).collect();
+    draw_lines_with_truncation(frame, area, lines, colors::TEXT_MUTED);
 }
 
 pub fn draw_bash_output(frame: &mut Frame, area: Rect, command: &str, output: &str, exit_code: i32) {
@@ -552,14 +591,44 @@ fn wrap_text_lines(content: &str, width: u16) -> Vec<String> {
     let mut wrapped = Vec::new();
 
     for line in content.lines() {
-        let chars = line.chars().collect::<Vec<_>>();
-        if chars.is_empty() {
+        if line.is_empty() {
             wrapped.push(String::new());
             continue;
         }
 
-        for chunk in chars.chunks(width) {
-            wrapped.push(chunk.iter().collect());
+        let mut current = String::new();
+        for word in line.split_whitespace() {
+            let word_len = word.chars().count();
+
+            if current.is_empty() {
+                if word_len <= width {
+                    current.push_str(word);
+                } else {
+                    for chunk in word.chars().collect::<Vec<_>>().chunks(width) {
+                        wrapped.push(chunk.iter().collect());
+                    }
+                }
+                continue;
+            }
+
+            if current.chars().count() + 1 + word_len <= width {
+                current.push(' ');
+                current.push_str(word);
+            } else {
+                wrapped.push(current);
+                current = String::new();
+                if word_len <= width {
+                    current.push_str(word);
+                } else {
+                    for chunk in word.chars().collect::<Vec<_>>().chunks(width) {
+                        wrapped.push(chunk.iter().collect());
+                    }
+                }
+            }
+        }
+
+        if !current.is_empty() {
+            wrapped.push(current);
         }
     }
 
@@ -615,7 +684,7 @@ pub fn tool_call_expanded_height(tool_call: &ToolCallDisplay, width: u16) -> u16
                 tool_call.status == ToolCallStatus::Error,
             );
             let output = formatters::tool_output("bash", &output);
-            (bash_visible_line_count(&output, BASH_MAX_VISIBLE_LINES) as u16).clamp(1, 15) + 2
+            (bash_visible_line_count(&output, BASH_MAX_VISIBLE_LINES) as u16).clamp(1, 15) + 1
         }
         "research" => {
             let output = formatters::tool_output("research", tool_call.output.as_deref().unwrap_or_default());
@@ -630,6 +699,19 @@ pub fn tool_call_expanded_height(tool_call: &ToolCallDisplay, width: u16) -> u16
 
 pub fn tool_call_state(status: ToolCallStatus) -> ToolCallState {
     status.into()
+}
+
+fn parse_new_hunk_line(line: &str) -> Option<u32> {
+    let plus_idx = line.find('+')?;
+    let after_plus = &line[plus_idx + 1..];
+    let digits = after_plus
+        .chars()
+        .take_while(|ch| ch.is_ascii_digit())
+        .collect::<String>();
+    if digits.is_empty() {
+        return None;
+    }
+    digits.parse::<u32>().ok()
 }
 
 #[cfg(test)]
@@ -672,10 +754,21 @@ mod tests {
 
         assert_eq!(lines.len(), 5);
         assert_eq!(lines[0].line_kind, DiffLineKind::Header);
+        assert_eq!(lines[0].line_number, None);
         assert_eq!(lines[1].line_kind, DiffLineKind::Context);
+        assert_eq!(lines[1].line_number, Some(1));
         assert_eq!(lines[2].line_kind, DiffLineKind::Removed);
+        assert_eq!(lines[2].line_number, None);
         assert_eq!(lines[3].line_kind, DiffLineKind::Added);
+        assert_eq!(lines[3].line_number, Some(2));
         assert_eq!(lines[4].line_kind, DiffLineKind::Context);
+        assert_eq!(lines[4].line_number, Some(3));
+    }
+
+    #[test]
+    fn test_wrap_text_lines_wraps_on_word_boundaries() {
+        let wrapped = wrap_text_lines("alpha beta gamma", 10);
+        assert_eq!(wrapped, vec!["alpha beta".to_string(), "gamma".to_string()]);
     }
 
     #[test]

@@ -69,11 +69,11 @@ pub fn draw_messages(frame: &mut Frame, area: Rect, app: &ChatApp) {
     let viewport_top = app.scroll.offset;
     let inner_bottom = inner.y.saturating_add(inner.height);
     let mut cursor_y = inner.y;
-    let mut rendered_message = false;
 
     for (idx, msg) in app.messages.iter().enumerate() {
         let message_height = msg.estimate_height(inner.width).max(1) as usize;
         let message_bottom = transcript_row.saturating_add(message_height);
+        let skip_rows = viewport_top.saturating_sub(transcript_row);
 
         if message_bottom > viewport_top {
             let available = inner_bottom.saturating_sub(cursor_y);
@@ -81,11 +81,19 @@ pub fn draw_messages(frame: &mut Frame, area: Rect, app: &ChatApp) {
                 break;
             }
 
-            let draw_height = (message_height as u16).min(available);
+            let visible_rows = message_height.saturating_sub(skip_rows);
+            let draw_height = (visible_rows as u16).min(available);
+            if draw_height == 0 {
+                transcript_row = message_bottom;
+                continue;
+            }
             let area = Rect::new(inner.x, cursor_y, inner.width, draw_height);
-            message_render::draw_message(frame, area, msg, &app.streaming_state);
+            if skip_rows == 0 {
+                message_render::draw_message(frame, area, msg, &app.streaming_state);
+            } else {
+                message_render::draw_message_with_offset(frame, area, msg, &app.streaming_state, skip_rows);
+            }
             cursor_y = cursor_y.saturating_add(draw_height);
-            rendered_message = true;
         }
 
         transcript_row = message_bottom;
@@ -94,13 +102,9 @@ pub fn draw_messages(frame: &mut Frame, area: Rect, app: &ChatApp) {
             continue;
         }
 
-        if transcript_row < viewport_top {
-            transcript_row = transcript_row.saturating_add(1);
-            continue;
-        }
-
-        if !rendered_message {
-            transcript_row = transcript_row.saturating_add(1);
+        let divider_row = transcript_row;
+        transcript_row = transcript_row.saturating_add(1);
+        if divider_row < viewport_top {
             continue;
         }
 

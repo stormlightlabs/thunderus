@@ -58,13 +58,13 @@ Currently tool outputs fall through to a generic `CollapsibleSection` with plain
 #### Tool Argument Display
 
 - Per-tool compact argument formatting in `format_tool_arguments` (`chat.rs`):
-    - `read`  -> file path (and `offset..offset+limit` when present)
-    - `write` -> file path
-    - `edit`  -> file path (extracted from `diff` header `+++ b/{path}`)
-    - `bash`  -> command string (truncated at terminal width)
-    - `research` -> URL
-    - `memory_store` -> kind + first N chars of content
-    - `memory_recall` -> query (already handled, keep as-is)
+  - `read`  -> file path (and `offset..offset+limit` when present)
+  - `write` -> file path
+  - `edit`  -> file path (extracted from `diff` header `+++ b/{path}`)
+  - `bash`  -> command string (truncated at terminal width)
+  - `research` -> URL
+  - `memory_store` -> kind + first N chars of content
+  - `memory_recall` -> query (already handled, keep as-is)
 - Remove generic `"Args: key: value | ..."` fallback for known tool names
 
 #### Read Tool Output
@@ -88,8 +88,8 @@ Currently tool outputs fall through to a generic `CollapsibleSection` with plain
 #### Bash Tool Output
 
 - Existing `BashOutputView` handles command + output; enhance with:
-    - Truncation indicator (`[{n} lines hidden]`) when output exceeds 50 visible lines
-    - Exit code badge after command line: `[exit {code}]` in green (0) or red (non-zero)
+  - Truncation indicator (`[{n} lines hidden]`) when output exceeds 50 visible lines
+  - Exit code badge after command line: `[exit {code}]` in green (0) or red (non-zero)
 
 #### Research Tool Output
 
@@ -105,15 +105,54 @@ Currently tool outputs fall through to a generic `CollapsibleSection` with plain
 #### Height Calculation
 
 - Update `tool_call_expanded_height` in `chat.rs` to account for per-tool layout:
-    - `read`: line count (clamped 1-20) + 1 (header)
-    - `write`: 1 line
-    - `edit`: diff line count (clamped 1-15) + 1 (path header)
-    - `bash`: output line count (clamped 1-15) + 2 (command + exit badge)
-    - `research`: line count (clamped 1-15) + 1 (URL header)
+  - `read`: line count (clamped 1-20) + 1 (header)
+  - `write`: 1 line
+  - `edit`: diff line count (clamped 1-15) + 1 (path header)
+  - `bash`: output line count (clamped 1-15) + 2 (command + exit badge)
+  - `research`: line count (clamped 1-15) + 1 (URL header)
 
 ## Part 4
 
-### Milestone 7 - Settings & Help
+### Milestone 7 - GUI Foundation
+
+Cross-platform desktop application using [Iced.rs](https://iced.rs/) 0.14.
+
+#### Core Integration
+
+- Initialize `thndrs-desktop` crate with `iced` 0.14
+- Implement `The Elm Architecture` (TEA) loop
+- Connect GUI to `crates/core` for state and message management
+- Asynchronous message streaming from `crates/providers`
+- Tool execution orchestration via `crates/tools`
+
+#### UI - Components
+
+- Main chat view with scrollable message history
+- Multi-line auto-expanding input field
+- Theme system (Oxocarbon Dark)
+- Window management (title bar, initial size/position)
+
+### Milestone 8 - GUI Advanced Features
+
+Polishing the desktop experience with interactive elements and deep workspace integration.
+
+#### UI - Content
+
+- Markdown rendering for messages (GFM, tables, task lists)
+- Syntax highlighting for code blocks
+- Interactive tool call widgets (thinking/results)
+- Diff viewer for file edits
+
+#### UI - Navigation
+
+- Sidebar for session history and navigation
+- Integrated file explorer tree
+- Slash command autocomplete and file picker (@)
+- Subtle animations for UI transitions
+
+## Part 5
+
+### Milestone 9 - Settings & Help
 
 User-facing configuration and documentation inside the TUI.
 
@@ -148,9 +187,9 @@ User-facing configuration and documentation inside the TUI.
 
 *Reference: `designs/templates/tutorial.html`*
 
-## Part 5
+## Part 6
 
-### Milestone 8 - MCP Servers
+### Milestone 10 - MCP Servers
 
 External tool providers via the Model Context Protocol (JSON-RPC 2.0).
 
@@ -190,7 +229,7 @@ External tool providers via the Model Context Protocol (JSON-RPC 2.0).
 - `/mcp` lists active servers and their tools
 - MCP tools render with server name prefix in tool call output
 
-### Milestone 9 - Skills
+### Milestone 11 - Skills
 
 Markdown-based prompt extensions following the Agent Skills open standard. Compatible with Claude Code, Codex, Gemini CLI, and OpenCode skill directories.
 
@@ -231,9 +270,9 @@ Markdown-based prompt extensions following the Agent Skills open standard. Compa
 - `/skills` lists available skills with descriptions
 - Skill slash commands integrate with existing command system
 
-## Part 6
+## Part 7
 
-### Milestone 10 - Web Search
+### Milestone 12 - Web Search
 
 The agent gains web search through Tavily Search.
 
@@ -247,7 +286,7 @@ The agent gains web search through Tavily Search.
 - `thunderus debug search <query>` - exercise Tavily Search directly, print flattened results
 - `TAVILY_API_KEY` env var support
 
-### Milestone 11 - Additional Providers
+### Milestone 13 - Additional Providers
 
 Full provider coverage as specced.
 
@@ -270,5 +309,5 @@ Full provider coverage as specced.
 - Fuzzy/autocomplete for slash commands
 - We need to unify keybinds and inject into every screen
 - Double escape to cancel current request.
-    - First escape should show a message that tells user to hit escape again to cancel
+  - First escape should show a message that tells user to hit escape again to cancel
       the request.

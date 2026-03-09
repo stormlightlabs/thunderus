@@ -300,7 +300,7 @@ fn draw_main_content(frame: &mut Frame, area: Rect, app: &WelcomeApp) {
     }
 
     draw_logo(frame, content_layout[1]);
-    BrandGreeting.render(frame, content_layout[3], "What can I help you build?");
+    BrandGreeting.render(frame, content_layout[3], "Thunderus - What can I help you build?");
     draw_suggestions(frame, content_layout[5], app);
 }
 

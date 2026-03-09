@@ -146,8 +146,8 @@ impl FileBrowserApp {
 
         self.rebuild_visible_entries();
         self.selected_index = 0;
-        self.tree_scroll.offset = 0;
-        self.content_scroll.offset = 0;
+        self.tree_scroll.set_offset(0);
+        self.content_scroll.set_offset(0);
         self.finder.deactivate();
         self.status_line = "Debug fixture loaded. Use Up/Down to scroll the tree and content.".to_string();
 
@@ -321,7 +321,7 @@ impl FileBrowserApp {
 
         self.active_file = Some(relative_path.to_path_buf());
         self.highlighted_lines = highlight::highlight_file(&absolute_path, &content);
-        self.content_scroll.offset = 0;
+        self.content_scroll.set_offset(0);
         self.content_scroll.set_total(self.highlighted_lines.len());
         self.status_line = format!("Opened {}", relative_path.display());
     }

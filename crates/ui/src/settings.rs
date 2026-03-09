@@ -7,7 +7,7 @@
 //! - Save/reset actions
 //! - Persistence to ~/.thunderus/config.toml
 
-use super::components::{HintFooter, HintToken, TopBorderedInputRow};
+use super::components::{HintFooter, HintToken, TopBorderedInputRow, app_version_string};
 use super::layout::{ConstraintSpec, split as split_rects};
 use super::screen::{Screen, ScreenAction};
 use super::{colors, scroll::ScrollState};
@@ -324,7 +324,7 @@ impl SettingsApp {
                 if self.selected_group > 0 {
                     self.selected_group -= 1;
                     self.active_setting_index = 0;
-                    self.scroll.offset = 0;
+                    self.scroll.set_offset(0);
                     self.sync_scroll_state();
                 }
             }
@@ -332,7 +332,7 @@ impl SettingsApp {
                 if self.selected_group + 1 < SETTING_GROUPS.len() {
                     self.selected_group += 1;
                     self.active_setting_index = 0;
-                    self.scroll.offset = 0;
+                    self.scroll.set_offset(0);
                     self.sync_scroll_state();
                 }
             }
@@ -638,10 +638,7 @@ impl SettingsApp {
     }
 
     pub fn version_string() -> String {
-        match option_env!("CARGO_PKG_VERSION") {
-            Some(version) => format!("Version {}", version),
-            None => "Version 0.1.0".to_string(),
-        }
+        app_version_string()
     }
 }
 

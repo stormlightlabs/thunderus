@@ -3047,6 +3047,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "thndrs-desktop"
+version = "0.1.0"
+
+[[package]]
 name = "thndrs-mem"
 version = "0.1.0"
 dependencies = [

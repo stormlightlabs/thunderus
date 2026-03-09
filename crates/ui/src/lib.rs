@@ -7,6 +7,9 @@ use crossterm::event::{MouseEvent, MouseEventKind};
 use crossterm::execute;
 use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
 use ratatui::backend::{Backend, CrosstermBackend};
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
 use ratatui::{Terminal, layout::Rect};
 use std::io;
 use thiserror::Error;
@@ -326,20 +329,27 @@ fn run_app(
             }
         }
 
-        terminal.draw(|frame| match app.screen_mode {
-            ScreenMode::Welcome => {
-                Screen::draw(&app.welcome, frame);
-                if app.chat.is_file_finder_active() {
-                    app.chat.draw_file_finder_overlay(frame, frame.area());
+        terminal.draw(|frame| {
+            match app.screen_mode {
+                ScreenMode::Welcome => {
+                    Screen::draw(&app.welcome, frame);
+                    if app.chat.is_file_finder_active() {
+                        app.chat.draw_file_finder_overlay(frame, frame.area());
+                    }
                 }
+                ScreenMode::Chat => {
+                    app.chat.sync_scroll_state_for_frame(frame.area());
+                    Screen::draw(&app.chat, frame);
+                }
+                ScreenMode::Files => Screen::draw(&app.file_browser, frame),
+                ScreenMode::Settings => Screen::draw(&app.settings, frame),
+                ScreenMode::Help => Screen::draw(&app.help, frame),
             }
-            ScreenMode::Chat => {
-                app.chat.sync_scroll_state_for_frame(frame.area());
-                Screen::draw(&app.chat, frame);
+
+            let frame_area = frame.area();
+            if frame_area.height > 0 {
+                draw_status_bar(frame, Rect::new(frame_area.x, frame_area.y, frame_area.width, 1), app);
             }
-            ScreenMode::Files => Screen::draw(&app.file_browser, frame),
-            ScreenMode::Settings => Screen::draw(&app.settings, frame),
-            ScreenMode::Help => Screen::draw(&app.help, frame),
         })?;
 
         if !app.running {
@@ -356,6 +366,51 @@ fn run_app(
                 _ => {}
             }
         }
+    }
+}
+
+fn draw_status_bar(frame: &mut ratatui::Frame, area: Rect, app: &App) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
+    let left = format!(" {} ", screen_label(app.screen_mode));
+    let right = if app.screen_mode == ScreenMode::Chat {
+        app.chat
+            .last_model
+            .as_deref()
+            .map(|model| format!(" model: {model} "))
+            .unwrap_or_else(|| format!(" {} ", components::app_version_string()))
+    } else {
+        format!(" {} ", components::app_version_string())
+    };
+
+    let total_width = area.width as usize;
+    let used_width = left.chars().count() + right.chars().count();
+    let spacer = " ".repeat(total_width.saturating_sub(used_width).max(1));
+
+    let line = Line::from(vec![
+        Span::styled(
+            left,
+            Style::default().fg(colors::ACCENT_CYAN).add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(spacer),
+        Span::styled(right, Style::default().fg(colors::TEXT_MUTED)),
+    ]);
+
+    frame.render_widget(
+        Paragraph::new(line).style(Style::default().bg(colors::BG_SECONDARY)),
+        area,
+    );
+}
+
+fn screen_label(mode: ScreenMode) -> &'static str {
+    match mode {
+        ScreenMode::Welcome => "WELCOME",
+        ScreenMode::Chat => "CHAT",
+        ScreenMode::Files => "FILES",
+        ScreenMode::Settings => "SETTINGS",
+        ScreenMode::Help => "HELP",
     }
 }
 

@@ -94,9 +94,12 @@ impl ChatApp {
                 self.cursor_position = 0;
                 self.reset_history_navigation();
             }
+            KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.toggle_latest_reasoning();
+            }
             KeyCode::Char('l') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.cursor_position = self.input_buffer.len();
-                self.scroll.offset = usize::MAX;
+                self.scroll.scroll_to_bottom();
                 self.reset_history_navigation();
             }
             KeyCode::Char('@') => self.activate_file_finder(),
@@ -331,6 +334,16 @@ impl ChatApp {
             .find(|message| message.role == MessageRole::Assistant && !message.tool_calls.is_empty())
     }
 
+    fn latest_assistant_with_reasoning_mut(&mut self) -> Option<&mut ChatMessage> {
+        self.messages.iter_mut().rev().find(|message| {
+            message.role == MessageRole::Assistant
+                && message
+                    .reasoning_content
+                    .as_deref()
+                    .is_some_and(|reasoning| !reasoning.trim().is_empty())
+        })
+    }
+
     fn toggle_latest_tool_call(&mut self) {
         if let Some(message) = self.latest_assistant_with_tools_mut()
             && let Some(tool_call) = message.tool_calls.last_mut()
@@ -345,6 +358,12 @@ impl ChatApp {
             for tool_call in &mut message.tool_calls {
                 tool_call.expanded = should_expand;
             }
+        }
+    }
+
+    fn toggle_latest_reasoning(&mut self) {
+        if let Some(message) = self.latest_assistant_with_reasoning_mut() {
+            message.toggle_reasoning();
         }
     }
 
@@ -375,7 +394,7 @@ impl ChatApp {
             if !content.is_empty() {
                 last.content.push_str(content);
             }
-            self.scroll.offset = usize::MAX;
+            self.scroll.scroll_to_bottom();
         }
     }
 
@@ -442,7 +461,7 @@ impl ChatApp {
         }
         self.streaming_state = StreamingState::Idle;
         self.current_tool_call = None;
-        self.scroll.offset = usize::MAX;
+        self.scroll.scroll_to_bottom();
     }
 
     fn finish_current_stream(&mut self) {
@@ -453,7 +472,7 @@ impl ChatApp {
         }
         self.streaming_state = StreamingState::Idle;
         self.current_tool_call = None;
-        self.scroll.offset = usize::MAX;
+        self.scroll.scroll_to_bottom();
     }
 
     pub fn reset_streaming(&mut self) {
@@ -467,7 +486,7 @@ impl ChatApp {
     pub fn clear_chat(&mut self) {
         self.messages.clear();
         self.reset_streaming();
-        self.scroll.offset = 0;
+        self.scroll.set_offset(0);
         self.last_usage = None;
         self.last_model = None;
         self.submission_warning = None;
@@ -483,7 +502,7 @@ impl ChatApp {
         self.messages = messages;
         self.rebuild_input_history_from_messages();
         self.reset_streaming();
-        self.scroll.offset = 0;
+        self.scroll.set_offset(0);
     }
 
     pub fn queue_backend_command(&mut self, command: String) {
@@ -505,7 +524,7 @@ impl ChatApp {
         self.messages.push(ChatMessage::user(content));
         self.messages.push(ChatMessage::assistant_streaming(String::new()));
         self.streaming_state = StreamingState::Streaming;
-        self.scroll.offset = usize::MAX;
+        self.scroll.scroll_to_bottom();
     }
 
     pub fn take_pending_user_message(&mut self) -> Option<String> {
@@ -568,7 +587,7 @@ impl ChatApp {
         self.pinned_files.clear();
         self.current_tool_call = None;
         self.streaming_state = StreamingState::Idle;
-        self.scroll.offset = 0;
+        self.scroll.set_offset(0);
 
         for idx in 0..40 {
             self.messages.push(ChatMessage::user(format!(
@@ -1067,6 +1086,22 @@ mod tests {
         });
 
         assert!(app.messages[1].tool_calls[0].expanded);
+    }
+
+    #[test]
+    fn test_ctrl_r_toggles_latest_reasoning_section() {
+        let mut app = ChatApp::new();
+        let mut assistant = ChatMessage::assistant_streaming(String::new());
+        assistant.append_reasoning_delta("Gathering context");
+        assistant.finalize();
+        assert!(!assistant.expanded_reasoning);
+
+        app.messages.push(assistant);
+        app.handle_input(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL));
+        assert!(app.messages[0].expanded_reasoning);
+
+        app.handle_input(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL));
+        assert!(!app.messages[0].expanded_reasoning);
     }
 
     #[test]

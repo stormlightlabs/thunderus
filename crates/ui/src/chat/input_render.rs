@@ -1,5 +1,5 @@
 use super::ChatApp;
-use super::{StreamingState, formatters};
+use super::formatters;
 use crate::colors;
 use crate::components::top_bordered_row_height;
 use crate::components::{HintFooter, HintToken, TopBorderedInputRow};
@@ -32,6 +32,8 @@ pub fn draw_hints(frame: &mut Frame, area: Rect) {
         HintToken::Text(" toggle tool, "),
         HintToken::Key("Shift+Tab"),
         HintToken::Text(" toggle all, "),
+        HintToken::Key("Ctrl+R"),
+        HintToken::Text(" toggle reasoning, "),
         HintToken::Key("Up/Down"),
         HintToken::Text(" history, "),
         HintToken::Key("ctrl+k"),
@@ -52,7 +54,7 @@ pub fn draw_token_usage_row(frame: &mut Frame, area: Rect, app: &ChatApp) {
 }
 
 pub fn draw_input_area(frame: &mut Frame, area: Rect, app: &ChatApp) {
-    let show_cursor = app.streaming_state == StreamingState::Idle;
+    let show_cursor = true;
     let inner = TopBorderedInputRow.render_container(frame, area);
     if inner.width == 0 || inner.height == 0 {
         return;
@@ -146,10 +148,11 @@ fn build_token_usage_text(app: &ChatApp) -> String {
     };
 
     let Some(usage) = app.last_usage else {
+        let mut parts = vec!["Awaiting response".to_string(), pinned_summary];
         if let Some(warning) = app.submission_warning.as_deref() {
-            return format!("Token usage appears here after the first response.  |  {pinned_summary}  |  {warning}");
+            parts.push(warning.to_string());
         }
-        return format!("Token usage appears here after the first response.  |  {pinned_summary}");
+        return parts.join("  |  ");
     };
 
     let mut parts = Vec::with_capacity(5);

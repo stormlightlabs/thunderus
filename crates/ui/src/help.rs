@@ -11,7 +11,7 @@
 //! - Footer links
 
 use super::colors;
-use super::components::{HintFooter, HintToken, TopBorderedInputRow};
+use super::components::{HintFooter, HintToken, TopBorderedInputRow, app_version_string};
 use super::layout::{ConstraintSpec, split as split_rects};
 use super::screen::{Screen, ScreenAction};
 use super::scroll::ScrollState;
@@ -57,7 +57,6 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
             ("Clear input", "Ctrl+K"),
             ("Focus latest", "Ctrl+L"),
             ("Pin file", "@"),
-            ("Open file finder", "@"),
         ],
     ),
     (
@@ -144,20 +143,20 @@ impl HelpApp {
             KeyCode::Left | KeyCode::Char('h') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 if self.selected_tab > 0 {
                     self.selected_tab -= 1;
-                    self.scroll.offset = 0;
+                    self.scroll.set_offset(0);
                     self.sync_scroll_state();
                 }
             }
             KeyCode::Right | KeyCode::Char('l') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 if self.selected_tab + 1 < HELP_TABS.len() {
                     self.selected_tab += 1;
-                    self.scroll.offset = 0;
+                    self.scroll.set_offset(0);
                     self.sync_scroll_state();
                 }
             }
             KeyCode::Tab => {
                 self.selected_tab = (self.selected_tab + 1) % HELP_TABS.len();
-                self.scroll.offset = 0;
+                self.scroll.set_offset(0);
                 self.sync_scroll_state();
             }
             KeyCode::BackTab => {
@@ -166,7 +165,7 @@ impl HelpApp {
                 } else {
                     self.selected_tab -= 1;
                 }
-                self.scroll.offset = 0;
+                self.scroll.set_offset(0);
                 self.sync_scroll_state();
             }
             KeyCode::Up => self.scroll.scroll_up(1),
@@ -209,11 +208,7 @@ impl HelpApp {
     }
 
     pub fn version_string() -> String {
-        // TODO: bake this in to build.rs
-        match option_env!("CARGO_PKG_VERSION") {
-            Some(version) => format!("Thunderus v{}", version),
-            None => "Thunderus v0.1.0".to_string(),
-        }
+        app_version_string()
     }
 
     pub fn build_info() -> String {
@@ -358,16 +353,17 @@ fn draw_shortcuts_tab(frame: &mut Frame, area: Rect, _app: &HelpApp) {
         lines.push(Line::from(""));
 
         for (name, keys) in *shortcuts {
-            let row_layout = split_rects(
-                Rect::new(inner.x, 0, inner.width, 1),
-                Direction::Horizontal,
-                vec![Constraint::Percentage(50), Constraint::Percentage(50)],
-            );
+            let name_text = format!("  {}", name);
+            let keys_text = (*keys).to_string();
+            let row_width = inner.width as usize;
+            let name_width = name_text.chars().count();
+            let keys_width = keys_text.chars().count();
+            let padding = row_width.saturating_sub(name_width + keys_width).max(1);
 
             lines.push(Line::from(vec![
-                Span::styled(format!("  {}", name), Style::default().fg(colors::TEXT_SECONDARY)),
-                Span::raw(" ".repeat(row_layout[0].width as usize)),
-                Span::styled(*keys, Style::default().fg(colors::ACCENT_CYAN)),
+                Span::styled(name_text, Style::default().fg(colors::TEXT_SECONDARY)),
+                Span::raw(" ".repeat(padding)),
+                Span::styled(keys_text, Style::default().fg(colors::ACCENT_CYAN)),
             ]));
         }
 
@@ -626,11 +622,14 @@ fn draw_tutorial_tab(frame: &mut Frame, area: Rect, app: &HelpApp) {
             let time_ago = format_time_ago(&session.updated_at);
             let title = session.display_title();
             let truncated_title = if title.len() > 40 { format!("{}...", &title[..37]) } else { title.to_string() };
+            let session_id = if session.id.len() > 8 { &session.id[..8] } else { &session.id };
 
             lines.push(Line::from(vec![
                 Span::styled(format!("  {}.", idx + 1), Style::default().fg(colors::ACCENT_CYAN)),
                 Span::styled(" ", Style::default()),
                 Span::styled(truncated_title, Style::default().fg(colors::TEXT_SECONDARY)),
+                Span::styled(" — ", Style::default().fg(colors::TEXT_MUTED)),
+                Span::styled(session_id.to_string(), Style::default().fg(colors::TEXT_MUTED)),
                 Span::styled(" — ", Style::default().fg(colors::TEXT_MUTED)),
                 Span::styled(time_ago, Style::default().fg(colors::TEXT_MUTED)),
             ]));
@@ -689,6 +688,10 @@ fn draw_help_hints(frame: &mut Frame, area: Rect) {
         HintToken::Text(" switch tabs, "),
         HintToken::Key("↑/↓"),
         HintToken::Text(" scroll, "),
+        HintToken::Key("Ctrl+T"),
+        HintToken::Text(" next tip, "),
+        HintToken::Key("Ctrl+R"),
+        HintToken::Text(" refresh, "),
         HintToken::Key("Esc"),
         HintToken::Text(" exit"),
     ];

@@ -16,6 +16,7 @@ use thndrs_core::ResponseSections;
 use tool_render::TaskItem;
 
 pub use app::ChatApp;
+pub(crate) use formatters::u32_with_grouping;
 pub use render::draw_chat_screen;
 
 type ChatFileFinder = crate::finder::FuzzyFinder<PathBuf>;
@@ -140,6 +141,7 @@ pub struct ChatMessage {
     pub role: MessageRole,
     pub content: String,
     pub reasoning_content: Option<String>,
+    pub expanded_reasoning: bool,
     pub sections: Option<ResponseSections>,
     pub tool_calls: Vec<ToolCallDisplay>,
     pub created_at: DateTime<Utc>,
@@ -155,6 +157,7 @@ impl ChatMessage {
             role: MessageRole::User,
             content,
             reasoning_content: None,
+            expanded_reasoning: false,
             sections: None,
             tool_calls: Vec::new(),
             created_at,
@@ -172,6 +175,7 @@ impl ChatMessage {
             role: MessageRole::Assistant,
             content,
             reasoning_content: None,
+            expanded_reasoning: false,
             sections: if has_sections { Some(sections) } else { None },
             tool_calls: Vec::new(),
             created_at,
@@ -183,6 +187,7 @@ impl ChatMessage {
             role: MessageRole::Assistant,
             content,
             reasoning_content: None,
+            expanded_reasoning: true,
             sections: None,
             tool_calls: Vec::new(),
             created_at: Utc::now(),
@@ -198,6 +203,7 @@ impl ChatMessage {
             role: MessageRole::Tool,
             content: output,
             reasoning_content: None,
+            expanded_reasoning: false,
             sections: None,
             tool_calls: Vec::new(),
             created_at,
@@ -213,6 +219,7 @@ impl ChatMessage {
             Some(reasoning) => reasoning.push_str(delta),
             None => self.reasoning_content = Some(delta.to_string()),
         }
+        self.expanded_reasoning = true;
     }
 
     pub fn finalize(&mut self) {
@@ -221,6 +228,14 @@ impl ChatMessage {
             if sections.has_content() {
                 self.sections = Some(sections);
             }
+        }
+        if self.role == MessageRole::Assistant
+            && self
+                .reasoning_content
+                .as_deref()
+                .is_some_and(|reasoning| !reasoning.trim().is_empty())
+        {
+            self.expanded_reasoning = false;
         }
     }
 
@@ -239,10 +254,27 @@ impl ChatMessage {
 
     pub fn complete_tool_call(&mut self, index: usize, output: String, success: bool) {
         if let Some(tool_call) = self.tool_calls.get_mut(index) {
+            let auto_expand = should_auto_expand_tool_call(&tool_call.name, &output);
             tool_call.output = Some(output);
             tool_call.status = if success { ToolCallStatus::Success } else { ToolCallStatus::Error };
-            tool_call.expanded = true;
+            tool_call.expanded = auto_expand;
         }
+    }
+
+    pub fn toggle_reasoning(&mut self) -> bool {
+        if self.role != MessageRole::Assistant {
+            return false;
+        }
+        if self
+            .reasoning_content
+            .as_deref()
+            .map(|reasoning| reasoning.trim().is_empty())
+            .unwrap_or(true)
+        {
+            return false;
+        }
+        self.expanded_reasoning = !self.expanded_reasoning;
+        true
     }
 
     pub fn estimate_height(&self, width: u16) -> u16 {
@@ -272,7 +304,8 @@ impl ChatMessage {
         if let Some(reasoning) = self.reasoning_content.as_deref()
             && !reasoning.trim().is_empty()
         {
-            height += message_render::assistant_reasoning_height(reasoning, content_width);
+            height +=
+                message_render::assistant_reasoning_block_height(reasoning, content_width, self.expanded_reasoning);
         }
 
         for tool_call in &self.tool_calls {
@@ -281,6 +314,16 @@ impl ChatMessage {
 
         height
     }
+}
+
+fn should_auto_expand_tool_call(name: &str, output: &str) -> bool {
+    if matches!(name, "memory_recall" | "write") {
+        return true;
+    }
+
+    let line_count = output.lines().count().max(1);
+    let char_count = output.chars().count();
+    line_count <= 3 && char_count <= 240
 }
 
 #[cfg(test)]
@@ -314,5 +357,17 @@ mod tests {
 
         msg.tool_calls[idx].expanded = true;
         assert!(msg.tool_calls[idx].expanded);
+    }
+
+    #[test]
+    fn test_complete_tool_call_auto_expand_policy() {
+        let mut msg = ChatMessage::assistant_streaming(String::new());
+        let read_idx = msg.add_tool_call("read".to_string(), r#"{"path":"a.rs"}"#.to_string());
+        msg.complete_tool_call(read_idx, "line1\nline2\nline3\nline4".to_string(), true);
+        assert!(!msg.tool_calls[read_idx].expanded);
+
+        let recall_idx = msg.add_tool_call("memory_recall".to_string(), r#"{"query":"x"}"#.to_string());
+        msg.complete_tool_call(recall_idx, "Found memory".to_string(), true);
+        assert!(msg.tool_calls[recall_idx].expanded);
     }
 }

@@ -1,4 +1,4 @@
-use super::chat::ChatMessage;
+use super::chat::{ChatMessage, u32_with_grouping};
 use super::{App, ScreenMode};
 use thndrs_core::Role;
 use thndrs_mem::{LogStore, MemoryDatabase, MemoryStore, SessionManager};
@@ -65,7 +65,9 @@ pub(crate) fn execute_slash_command(app: &mut App, command: &str) {
             let content = match app.chat.last_usage {
                 Some(usage) => format!(
                     "Token usage:\n- prompt: {}\n- completion: {}\n- total: {}",
-                    usage.prompt_tokens, usage.completion_tokens, usage.total_tokens
+                    u32_with_grouping(usage.prompt_tokens),
+                    u32_with_grouping(usage.completion_tokens),
+                    u32_with_grouping(usage.total_tokens)
                 ),
                 None => "No token usage recorded yet in this chat.".to_string(),
             };
@@ -264,7 +266,13 @@ fn format_session_logs(session_id: &str) -> std::result::Result<String, String> 
 
     let mut lines = vec![format!("Logs for session `{}`:", session_id)];
     for entry in logs {
-        lines.push(entry.to_string());
+        lines.push(format!(
+            "[{}] [{}] {} | {}",
+            entry.level.as_str(),
+            entry.component.as_deref().unwrap_or("runtime"),
+            entry.created_at.format("%Y-%m-%dT%H:%M:%S%.6f"),
+            entry.message
+        ));
     }
 
     Ok(lines.join("\n"))

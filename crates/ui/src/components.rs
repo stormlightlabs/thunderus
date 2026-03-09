@@ -87,6 +87,13 @@ pub const fn single_line_top_bordered_row_height() -> u16 {
     top_bordered_row_height(SINGLE_LINE_CONTENT_HEIGHT)
 }
 
+pub fn app_version_string() -> String {
+    match option_env!("CARGO_PKG_VERSION") {
+        Some(version) => format!("Thunderus v{}", version),
+        None => "Thunderus v0.1.0".to_string(),
+    }
+}
+
 #[derive(AreaSpec)]
 pub struct AsciiLogo;
 
