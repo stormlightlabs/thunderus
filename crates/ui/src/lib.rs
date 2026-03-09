@@ -579,7 +579,7 @@ pub fn draw_welcome_screen(frame: &mut Frame, app: &App) {
     draw_input_area(frame, main_layout[2], app);
 
     if app.chat.is_file_finder_active() {
-        chat::draw_file_finder_overlay(frame, size, &app.chat);
+        app.chat.draw_file_finder_overlay(frame, size);
     }
 }
 
