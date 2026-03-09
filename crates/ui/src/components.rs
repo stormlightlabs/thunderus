@@ -325,7 +325,7 @@ impl ToolCallCard {
         let outer = Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(colors::BORDER_COLOR))
-            .style(Style::default().bg(colors::BG_SECONDARY));
+            .style(Style::default().bg(colors::BG_TERMINAL));
         frame.render_widget(outer.clone(), area);
 
         let inner = outer.inner(area);
@@ -334,7 +334,7 @@ impl ToolCallCard {
             return;
         }
 
-        let header_fill = Block::default().style(Style::default().bg(colors::BG_TERTIARY));
+        let header_fill = Block::default().style(Style::default().bg(colors::BG_TERMINAL));
         frame.render_widget(header_fill, layout[0]);
 
         let header = Line::from(vec![
@@ -353,7 +353,7 @@ impl ToolCallCard {
         let header_paragraph = Paragraph::new(header);
         frame.render_widget(header_paragraph, layout[0]);
 
-        let details_fill = Block::default().style(Style::default().bg(colors::BG_SECONDARY));
+        let details_fill = Block::default().style(Style::default().bg(colors::BG_TERMINAL));
         frame.render_widget(details_fill, layout[1]);
         let details_paragraph = Paragraph::new(details)
             .style(Style::default().fg(colors::TEXT_SECONDARY))

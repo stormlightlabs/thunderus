@@ -1,16 +1,18 @@
 use super::ScreenMode;
 use super::colors;
-use super::components::{AsciiLogo, BrandGreeting, CardItem, MutedSectionTitle, TopBorderedInputRow};
-use super::components::{HintFooter, HintToken};
-use super::elements::{Suggestions, WelcomeContent, WelcomeMainColumn, WelcomeShell};
-use super::layout::{AreaSpec, ConstraintSpec, DynamicConstraintSpec};
+use super::components::{
+    AsciiLogo, BrandGreeting, CardItem, HintFooter, HintToken, MutedSectionTitle, TopBorderedInputRow,
+    top_bordered_row_height, wrapped_line_count,
+};
+use super::elements::{Suggestions, WelcomeContent, WelcomeMainColumn};
+use super::layout::{AreaSpec, ConstraintSpec, DynamicConstraintSpec, split as split_rects};
 use super::screen::{Screen, ScreenAction};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::Frame;
-use ratatui::layout::Rect;
+use ratatui::layout::{Constraint, Direction, Rect};
 use ratatui::style::Style;
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Paragraph};
+use ratatui::text::{Line, Span, Text};
+use ratatui::widgets::{Block, Paragraph, Wrap};
 use std::path::Path;
 
 /// The Thunderus ASCII logo
@@ -24,6 +26,7 @@ const ASCII_LOGO: &str = r#"
 const INIT_PROMPT: &str = include_str!("../../../meta/INIT.txt");
 const DEFAULT_WELCOME_SUGGESTION: &str = "What is your name?";
 const README_IMPROVEMENT_SUGGESTION: &str = "Read README.md and suggest improvements.";
+const INPUT_PROMPT_PREFIX: &str = "❯ ";
 
 #[derive(Debug, Clone)]
 pub struct WelcomeApp {
@@ -56,6 +59,10 @@ impl WelcomeApp {
         Self::default()
     }
 
+    fn input_row_height(&self, area_width: u16) -> u16 {
+        welcome_input_row_height(area_width, &self.input_buffer)
+    }
+
     pub fn take_pending_submission(&mut self) -> Option<String> {
         self.pending_submission.take()
     }
@@ -75,7 +82,10 @@ impl WelcomeApp {
             return ScreenAction::None;
         }
 
-        for (idx, area) in suggestion_areas(frame_size, &self.suggestions).iter().enumerate() {
+        for (idx, area) in suggestion_areas(frame_size, &self.suggestions, &self.input_buffer)
+            .iter()
+            .enumerate()
+        {
             if point_in_rect(mouse.column, mouse.row, *area) {
                 self.selected_suggestion = Some(idx);
                 let Some(content) = self.suggestions.get(idx).cloned() else {
@@ -102,11 +112,26 @@ impl Screen for WelcomeApp {
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => ScreenAction::Quit,
             KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => ScreenAction::Quit,
             KeyCode::Char('q') if key.modifiers.contains(KeyModifiers::CONTROL) => ScreenAction::Quit,
+            KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.input_buffer.clear();
+                self.cursor_position = 0;
+                self.selected_suggestion = None;
+                ScreenAction::None
+            }
+            KeyCode::Char('l') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.cursor_position = self.input_buffer.len();
+                self.selected_suggestion = None;
+                ScreenAction::None
+            }
             KeyCode::Char('@') => {
                 self.should_activate_file_finder = true;
                 ScreenAction::None
             }
-            KeyCode::Char(ch) => {
+            KeyCode::Char(ch)
+                if !key.modifiers.contains(KeyModifiers::CONTROL)
+                    && !key.modifiers.contains(KeyModifiers::ALT)
+                    && !key.modifiers.contains(KeyModifiers::SUPER) =>
+            {
                 self.selected_suggestion = None;
                 self.input_buffer.insert(self.cursor_position, ch);
                 self.cursor_position += 1;
@@ -132,6 +157,18 @@ impl Screen for WelcomeApp {
                 if self.cursor_position < self.input_buffer.len() {
                     self.cursor_position += 1;
                 }
+                ScreenAction::None
+            }
+            KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                self.selected_suggestion = None;
+                self.input_buffer.insert(self.cursor_position, '\n');
+                self.cursor_position += 1;
+                ScreenAction::None
+            }
+            KeyCode::Char('j') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.selected_suggestion = None;
+                self.input_buffer.insert(self.cursor_position, '\n');
+                self.cursor_position += 1;
                 ScreenAction::None
             }
             KeyCode::Enter => {
@@ -204,7 +241,7 @@ pub fn draw_welcome_screen(frame: &mut Frame, app: &WelcomeApp) {
     let clear = Block::default().style(Style::default().bg(colors::BG_TERMINAL));
     frame.render_widget(clear, size);
 
-    let main_layout = WelcomeShell.split(size);
+    let main_layout = welcome_shell_layout(size, app.input_row_height(size.width));
     if main_layout.len() < 3 {
         return;
     }
@@ -212,6 +249,47 @@ pub fn draw_welcome_screen(frame: &mut Frame, app: &WelcomeApp) {
     draw_main_content(frame, main_layout[0], app);
     draw_hints(frame, main_layout[1]);
     draw_input_area(frame, main_layout[2], app);
+}
+
+fn welcome_shell_layout(area: Rect, input_row_height: u16) -> Vec<Rect> {
+    split_rects(
+        area,
+        Direction::Vertical,
+        vec![
+            Constraint::Min(0),
+            Constraint::Length(1),
+            Constraint::Length(input_row_height),
+        ],
+    )
+}
+
+fn welcome_input_row_height(area_width: u16, input_buffer: &str) -> u16 {
+    top_bordered_row_height(welcome_input_content_line_count(area_width, input_buffer))
+}
+
+fn welcome_input_content_line_count(area_width: u16, input_buffer: &str) -> u16 {
+    let inner_width = area_width.saturating_sub(2).max(1);
+    let first_width = inner_width
+        .saturating_sub(INPUT_PROMPT_PREFIX.chars().count() as u16)
+        .max(1);
+    wrapped_multiline_input_line_count(input_buffer, first_width, inner_width) as u16
+}
+
+fn wrapped_multiline_input_line_count(input: &str, first_width: u16, continuation_width: u16) -> usize {
+    let mut segments = input.split('\n');
+    let mut total = 0usize;
+
+    if let Some(first) = segments.next() {
+        total += wrapped_line_count(first, first_width.max(1));
+    } else {
+        return 1;
+    }
+
+    for segment in segments {
+        total += wrapped_line_count(segment, continuation_width.max(1));
+    }
+
+    total.max(1)
 }
 
 fn draw_main_content(frame: &mut Frame, area: Rect, app: &WelcomeApp) {
@@ -291,6 +369,12 @@ fn draw_hints(frame: &mut Frame, area: Rect) {
         HintToken::Text(" for settings, "),
         HintToken::Key("ctrl+n"),
         HintToken::Text(" for new chat, "),
+        HintToken::Key("ctrl+o"),
+        HintToken::Text(" for files, "),
+        HintToken::Key("Shift+Enter"),
+        HintToken::Text("/"),
+        HintToken::Key("ctrl+j"),
+        HintToken::Text(" newline, "),
         HintToken::Key("@"),
         HintToken::Text(" to pin files, "),
         HintToken::Key("ctrl+d"),
@@ -300,7 +384,48 @@ fn draw_hints(frame: &mut Frame, area: Rect) {
 }
 
 fn draw_input_area(frame: &mut Frame, area: Rect, app: &WelcomeApp) {
-    TopBorderedInputRow.render(frame, area, &app.input_buffer, true);
+    let inner = TopBorderedInputRow.render_container(frame, area);
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
+
+    let input_for_display = input_with_cursor(&app.input_buffer, app.cursor_position);
+    let input_segments = input_for_display.split('\n').collect::<Vec<_>>();
+    let mut lines = Vec::new();
+
+    for (idx, segment) in input_segments.iter().enumerate() {
+        let prefix = if idx == 0 { INPUT_PROMPT_PREFIX } else { "  " };
+        let prefix_style = if idx == 0 {
+            Style::default().fg(colors::ACCENT_CYAN)
+        } else {
+            Style::default().fg(colors::TEXT_MUTED)
+        };
+
+        let spans = vec![
+            Span::styled(prefix, prefix_style),
+            Span::styled(*segment, Style::default().fg(colors::TEXT_PRIMARY)),
+        ];
+        lines.push(Line::from(spans));
+    }
+
+    if lines.is_empty() {
+        lines.push(Line::from(vec![
+            Span::styled(INPUT_PROMPT_PREFIX, Style::default().fg(colors::ACCENT_CYAN)),
+            Span::styled("\u{2588}", Style::default().fg(colors::ACCENT_CYAN)),
+        ]));
+    }
+
+    let paragraph = Paragraph::new(Text::from(lines))
+        .style(Style::default().bg(colors::BG_TERMINAL))
+        .wrap(Wrap { trim: false });
+    frame.render_widget(paragraph, inner);
+}
+
+fn input_with_cursor(input: &str, cursor_position: usize) -> String {
+    let mut out = input.to_string();
+    let cursor = cursor_position.min(out.len());
+    out.insert(cursor, '\u{2588}');
+    out
 }
 
 fn logo_text() -> &'static str {
@@ -363,12 +488,12 @@ fn init_prompt_suggestion() -> String {
     first_candidate.unwrap_or_else(|| README_IMPROVEMENT_SUGGESTION.to_string())
 }
 
-pub(crate) fn suggestion_areas(frame_area: Rect, suggestions: &Vec<String>) -> Vec<Rect> {
+pub(crate) fn suggestion_areas(frame_area: Rect, suggestions: &Vec<String>, input_buffer: &str) -> Vec<Rect> {
     if suggestions.is_empty() {
         return Vec::new();
     }
 
-    let shell_layout = WelcomeShell.split(frame_area);
+    let shell_layout = welcome_shell_layout(frame_area, welcome_input_row_height(frame_area.width, input_buffer));
     let Some(main_content_area) = shell_layout.first().copied() else {
         return Vec::new();
     };
@@ -389,7 +514,7 @@ fn point_in_rect(x: u16, y: u16, area: Rect) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crossterm::event::{KeyCode, KeyEvent};
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     #[test]
     fn test_welcome_default() {
@@ -434,5 +559,36 @@ mod tests {
 
         assert_eq!(action, ScreenAction::SwitchTo(ScreenMode::Chat));
         assert_eq!(app.take_pending_submission().as_deref(), Some("hi"));
+    }
+
+    #[test]
+    fn test_shift_enter_inserts_newline_without_submitting() {
+        let mut app = WelcomeApp::new();
+        app.handle_input(KeyEvent::from(KeyCode::Char('h')));
+        let action = app.handle_input(KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT));
+        app.handle_input(KeyEvent::from(KeyCode::Char('i')));
+
+        assert_eq!(action, ScreenAction::None);
+        assert_eq!(app.input_buffer, "h\ni");
+        assert!(app.take_pending_submission().is_none());
+    }
+
+    #[test]
+    fn test_ctrl_j_inserts_newline_without_submitting() {
+        let mut app = WelcomeApp::new();
+        app.handle_input(KeyEvent::from(KeyCode::Char('h')));
+        let action = app.handle_input(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL));
+        app.handle_input(KeyEvent::from(KeyCode::Char('i')));
+
+        assert_eq!(action, ScreenAction::None);
+        assert_eq!(app.input_buffer, "h\ni");
+        assert!(app.take_pending_submission().is_none());
+    }
+
+    #[test]
+    fn test_multiline_input_row_height_grows_with_content() {
+        let single = welcome_input_row_height(80, "single line");
+        let multiline = welcome_input_row_height(80, "line one\nline two");
+        assert!(multiline > single);
     }
 }

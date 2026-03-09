@@ -402,7 +402,7 @@ pub fn parse_diff(diff_text: &str) -> Vec<DiffLine> {
 pub fn draw_task_progress(frame: &mut Frame, area: Rect, tasks: &[TaskItem], title: &str) {
     let block = Block::default()
         .title(title)
-        .style(Style::default().bg(colors::BG_SECONDARY).fg(colors::TEXT_SECONDARY));
+        .style(Style::default().bg(colors::BG_TERMINAL).fg(colors::TEXT_SECONDARY));
     frame.render_widget(block.clone(), area);
 
     let inner = block.inner(area);
@@ -434,7 +434,7 @@ fn draw_task_row(frame: &mut Frame, area: Rect, task: &TaskItem) {
         ),
     ]);
 
-    let paragraph = Paragraph::new(line).style(Style::default().bg(colors::BG_SECONDARY));
+    let paragraph = Paragraph::new(line).style(Style::default().bg(colors::BG_TERMINAL));
     frame.render_widget(paragraph, area);
 }
 
@@ -453,7 +453,7 @@ pub fn draw_diff(frame: &mut Frame, area: Rect, diff_lines: &[DiffLine]) {
 }
 
 pub fn draw_bash_output(frame: &mut Frame, area: Rect, command: &str, output: &str, exit_code: i32) {
-    let block = Block::default().style(Style::default().bg(colors::BG_SECONDARY));
+    let block = Block::default().style(Style::default().bg(colors::BG_TERMINAL));
     frame.render_widget(block.clone(), area);
 
     let inner = block.inner(area);
@@ -478,7 +478,7 @@ pub fn draw_bash_output(frame: &mut Frame, area: Rect, command: &str, output: &s
         Span::styled(" ", Style::default().fg(colors::TEXT_MUTED)),
         Span::styled(format!("[exit {exit_code}]"), exit_style),
     ]);
-    let cmd_para = Paragraph::new(cmd_line).style(Style::default().bg(colors::BG_SECONDARY));
+    let cmd_para = Paragraph::new(cmd_line).style(Style::default().bg(colors::BG_TERMINAL));
     frame.render_widget(cmd_para, layout[0]);
 
     let output_style = if exit_code == 0 {
@@ -490,7 +490,7 @@ pub fn draw_bash_output(frame: &mut Frame, area: Rect, command: &str, output: &s
     let output = truncate_bash_output(output, BASH_MAX_VISIBLE_LINES);
     let output_text = Text::from(output).style(output_style);
     let output_para = Paragraph::new(output_text)
-        .style(Style::default().bg(colors::BG_SECONDARY))
+        .style(Style::default().bg(colors::BG_TERMINAL))
         .wrap(Wrap { trim: false });
     frame.render_widget(output_para, layout[1]);
 }
@@ -500,13 +500,13 @@ pub fn draw_collapsible(frame: &mut Frame, area: Rect, title: &str, expanded: bo
 
     let block = Block::default()
         .title(format!("{} {}", indicator, title))
-        .style(Style::default().bg(colors::BG_SECONDARY).fg(colors::TEXT_SECONDARY));
+        .style(Style::default().bg(colors::BG_TERMINAL).fg(colors::TEXT_SECONDARY));
     frame.render_widget(block.clone(), area);
 
     if expanded {
         let inner = block.inner(area);
         let content_para = Paragraph::new(content)
-            .style(Style::default().fg(colors::TEXT_SECONDARY))
+            .style(Style::default().fg(colors::TEXT_SECONDARY).bg(colors::BG_TERMINAL))
             .wrap(Wrap { trim: false });
         frame.render_widget(content_para, inner);
         inner

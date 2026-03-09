@@ -28,11 +28,11 @@ use thndrs_ui_macros::AreaSpec;
 const HELP_TABS: &[&str] = &["Keyboard Shortcuts", "Commands", "Tips", "About", "Tutorial"];
 const TIPS: &[&str] = &[
     "Use @ to reference files in your workspace. Type @ followed by the filename to include file context.",
-    "Press Ctrl+/ to search through your command history",
-    "Use # to reference specific line numbers when discussing code",
-    "Tab expands tool call outputs to show full results",
+    "Use Up/Down to cycle previous prompts in chat and recover drafts",
+    "Tab toggles the latest tool call, Shift+Tab toggles all tool calls in the latest assistant response",
     "Ctrl+N starts a new conversation instantly",
-    "Ctrl+O opens a project folder for multi-file context",
+    "Ctrl+O opens the workspace file browser for multi-file context",
+    "Ctrl+W returns to the welcome screen from chat and files",
     "Use /debug chat to load a long chat for testing scroll behavior",
     "Recent conversations are automatically saved and can be resumed",
 ];
@@ -43,8 +43,6 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
         &[
             ("New chat", "Ctrl+N"),
             ("Close chat", "Ctrl+W"),
-            ("Next chat", "Ctrl+Tab"),
-            ("Previous chat", "Ctrl+Shift+Tab"),
             ("Open file browser", "Ctrl+O"),
             ("Open settings", "Ctrl+,"),
             ("Open help", "/help or F1"),
@@ -55,9 +53,9 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
         "Editing",
         &[
             ("Send message", "Enter"),
-            ("New line", "Shift+Enter"),
-            ("Clear current line", "Ctrl+U"),
-            ("Clear input", "Ctrl+L"),
+            ("New line", "Shift+Enter / Ctrl+J"),
+            ("Clear input", "Ctrl+K"),
+            ("Focus latest", "Ctrl+L"),
             ("Pin file", "@"),
             ("Open file finder", "@"),
         ],
@@ -69,7 +67,8 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
             ("Next input", "Down"),
             ("Scroll up", "PageUp"),
             ("Scroll down", "PageDown"),
-            ("Expand tool", "Tab"),
+            ("Toggle tool", "Tab"),
+            ("Toggle all tools", "Shift+Tab"),
             ("Clear chat", "/clear"),
             ("Show history", "/history"),
             ("Show tokens", "/tokens"),
@@ -601,8 +600,8 @@ fn draw_tutorial_tab(frame: &mut Frame, area: Rect, app: &HelpApp) {
 
     let quick_actions = [
         ("Ctrl+N", "Start a new conversation"),
-        ("Ctrl+O", "Open a project folder"),
-        ("Ctrl+R", "Resume recent conversation"),
+        ("Ctrl+O", "Open the workspace file browser"),
+        ("Ctrl+W", "Return to welcome from chat/files"),
         ("/help", "View keyboard shortcuts"),
     ];
 

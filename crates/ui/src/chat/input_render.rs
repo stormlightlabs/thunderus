@@ -23,17 +23,19 @@ pub fn draw_hints(frame: &mut Frame, area: Rect) {
         HintToken::Key("Enter"),
         HintToken::Text(" to send, "),
         HintToken::Key("Shift+Enter"),
+        HintToken::Text("/"),
+        HintToken::Key("Ctrl+J"),
         HintToken::Text(" newline, "),
-        HintToken::Key("Ctrl+U"),
-        HintToken::Text(" clear line, "),
-        HintToken::Key("Ctrl+L"),
-        HintToken::Text(" clear input, "),
         HintToken::Key("@"),
         HintToken::Text(" to pin files, "),
         HintToken::Key("Tab"),
-        HintToken::Text(" to expand tools, "),
+        HintToken::Text(" toggle tool, "),
+        HintToken::Key("Shift+Tab"),
+        HintToken::Text(" toggle all, "),
         HintToken::Key("Up/Down"),
         HintToken::Text(" history, "),
+        HintToken::Key("ctrl+k"),
+        HintToken::Text(" clear input, "),
         HintToken::Key("ctrl+d"),
         HintToken::Text(" to quit"),
     ];
@@ -65,8 +67,8 @@ pub fn draw_input_area(frame: &mut Frame, area: Rect, app: &ChatApp) {
         )]));
     }
 
-    let cursor_char = if show_cursor { "\u{2588}" } else { " " };
-    let input_segments = app.input_buffer.split('\n').collect::<Vec<_>>();
+    let input_for_display = input_with_cursor(&app.input_buffer, app.cursor_position, show_cursor);
+    let input_segments = input_for_display.split('\n').collect::<Vec<_>>();
 
     for (idx, segment) in input_segments.iter().enumerate() {
         let prefix = if idx == 0 { INPUT_PROMPT_PREFIX } else { "  " };
@@ -76,19 +78,16 @@ pub fn draw_input_area(frame: &mut Frame, area: Rect, app: &ChatApp) {
             Style::default().fg(colors::TEXT_MUTED)
         };
 
-        let mut spans = vec![
+        let spans = vec![
             Span::styled(prefix, prefix_style),
             Span::styled(*segment, Style::default().fg(colors::TEXT_PRIMARY)),
         ];
-
-        if idx + 1 == input_segments.len() {
-            spans.push(Span::styled(cursor_char, Style::default().fg(colors::ACCENT_CYAN)));
-        }
 
         lines.push(Line::from(spans));
     }
 
     if lines.is_empty() {
+        let cursor_char = if show_cursor { "\u{2588}" } else { " " };
         lines.push(Line::from(vec![
             Span::styled(INPUT_PROMPT_PREFIX, Style::default().fg(colors::ACCENT_CYAN)),
             Span::styled(cursor_char, Style::default().fg(colors::ACCENT_CYAN)),
@@ -99,6 +98,17 @@ pub fn draw_input_area(frame: &mut Frame, area: Rect, app: &ChatApp) {
         .style(Style::default().bg(colors::BG_TERMINAL))
         .wrap(Wrap { trim: false });
     frame.render_widget(paragraph, inner);
+}
+
+fn input_with_cursor(input: &str, cursor_position: usize, show_cursor: bool) -> String {
+    if !show_cursor {
+        return input.to_string();
+    }
+
+    let mut out = input.to_string();
+    let cursor = cursor_position.min(out.len());
+    out.insert(cursor, '\u{2588}');
+    out
 }
 
 pub fn pinned_files_input_text(pinned_files: &[PathBuf]) -> String {

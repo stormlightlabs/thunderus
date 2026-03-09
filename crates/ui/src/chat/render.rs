@@ -14,16 +14,7 @@ pub fn draw_chat_screen(frame: &mut Frame, app: &ChatApp) {
     let clear = Block::default().style(Style::default().bg(colors::BG_TERMINAL));
     frame.render_widget(clear, size);
 
-    let main_layout = split_rects(
-        size,
-        Direction::Vertical,
-        vec![
-            Constraint::Min(0),
-            Constraint::Length(1),
-            Constraint::Length(input_render::chat_input_row_height(1)),
-            Constraint::Length(app.chat_input_row_height(size.width)),
-        ],
-    );
+    let main_layout = chat_main_layout(size, app.chat_input_row_height(size.width));
     if main_layout.len() < 4 {
         return;
     }
@@ -38,13 +29,33 @@ pub fn draw_chat_screen(frame: &mut Frame, app: &ChatApp) {
     }
 }
 
+pub(super) fn chat_main_layout(area: Rect, input_row_height: u16) -> Vec<Rect> {
+    split_rects(
+        area,
+        Direction::Vertical,
+        vec![
+            Constraint::Min(0),
+            Constraint::Length(1),
+            Constraint::Length(input_render::chat_input_row_height(1)),
+            Constraint::Length(input_row_height),
+        ],
+    )
+}
+
+pub(super) fn message_viewport_area(area: Rect) -> Rect {
+    Block::default()
+        .style(Style::default().bg(colors::BG_TERMINAL))
+        .padding(ratatui::widgets::Padding::new(1, 1, 2, 1))
+        .inner(area)
+}
+
 pub fn draw_messages(frame: &mut Frame, area: Rect, app: &ChatApp) {
     let container = Block::default()
         .style(Style::default().bg(colors::BG_TERMINAL))
         .padding(ratatui::widgets::Padding::new(1, 1, 2, 1));
     frame.render_widget(container.clone(), area);
 
-    let inner = container.inner(area);
+    let inner = message_viewport_area(area);
     if inner.width == 0 || inner.height == 0 {
         return;
     }
@@ -54,30 +65,52 @@ pub fn draw_messages(frame: &mut Frame, area: Rect, app: &ChatApp) {
         return;
     }
 
-    let mut constraints = Vec::new();
+    let mut transcript_row = 0usize;
+    let viewport_top = app.scroll.offset;
+    let inner_bottom = inner.y.saturating_add(inner.height);
+    let mut cursor_y = inner.y;
+    let mut rendered_message = false;
+
     for (idx, msg) in app.messages.iter().enumerate() {
-        constraints.push(Constraint::Length(msg.estimate_height(inner.width)));
-        if idx + 1 < app.messages.len() {
-            constraints.push(Constraint::Length(1));
+        let message_height = msg.estimate_height(inner.width).max(1) as usize;
+        let message_bottom = transcript_row.saturating_add(message_height);
+
+        if message_bottom > viewport_top {
+            let available = inner_bottom.saturating_sub(cursor_y);
+            if available == 0 {
+                break;
+            }
+
+            let draw_height = (message_height as u16).min(available);
+            let area = Rect::new(inner.x, cursor_y, inner.width, draw_height);
+            message_render::draw_message(frame, area, msg, &app.streaming_state);
+            cursor_y = cursor_y.saturating_add(draw_height);
+            rendered_message = true;
         }
-    }
-    constraints.push(Constraint::Min(0));
 
-    let layout = split_rects(inner, Direction::Vertical, constraints);
+        transcript_row = message_bottom;
 
-    let mut slot = 0usize;
-    for (idx, msg) in app.messages.iter().enumerate() {
-        if slot >= layout.len() {
+        if idx + 1 >= app.messages.len() {
+            continue;
+        }
+
+        if transcript_row < viewport_top {
+            transcript_row = transcript_row.saturating_add(1);
+            continue;
+        }
+
+        if !rendered_message {
+            transcript_row = transcript_row.saturating_add(1);
+            continue;
+        }
+
+        if cursor_y >= inner_bottom {
             break;
         }
 
-        message_render::draw_message(frame, layout[slot], msg, &app.streaming_state);
-        slot += 1;
-
-        if idx + 1 < app.messages.len() && slot < layout.len() {
-            draw_message_divider(frame, layout[slot]);
-            slot += 1;
-        }
+        draw_message_divider(frame, Rect::new(inner.x, cursor_y, inner.width, 1));
+        cursor_y = cursor_y.saturating_add(1);
+        transcript_row = transcript_row.saturating_add(1);
     }
 }
 

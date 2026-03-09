@@ -241,9 +241,7 @@ impl ChatMessage {
         if let Some(tool_call) = self.tool_calls.get_mut(index) {
             tool_call.output = Some(output);
             tool_call.status = if success { ToolCallStatus::Success } else { ToolCallStatus::Error };
-            if tool_call.name == "memory_recall" {
-                tool_call.expanded = true;
-            }
+            tool_call.expanded = true;
         }
     }
 

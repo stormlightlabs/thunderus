@@ -117,6 +117,18 @@ impl App {
                 self.open_settings();
                 return;
             }
+            KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.start_new_chat();
+                return;
+            }
+            KeyCode::Char('o') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                commands::execute_slash_command(self, "/files");
+                return;
+            }
+            KeyCode::Char('w') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.close_active_chat();
+                return;
+            }
             KeyCode::F(1) => {
                 self.open_help();
                 return;
@@ -171,6 +183,26 @@ impl App {
 
     fn exit_to_previous_or_chat(&mut self) {
         self.screen_mode = self.previous_screen.take().unwrap_or(ScreenMode::Chat);
+    }
+
+    fn start_new_chat(&mut self) {
+        self.chat.clear_chat();
+        self.chat.deactivate_file_finder();
+        self.screen_mode = ScreenMode::Chat;
+        self.previous_screen = None;
+    }
+
+    fn close_active_chat(&mut self) {
+        self.chat.deactivate_file_finder();
+        if matches!(
+            self.screen_mode,
+            ScreenMode::Chat | ScreenMode::Files | ScreenMode::Welcome
+        ) {
+            self.screen_mode = ScreenMode::Welcome;
+            self.previous_screen = None;
+        } else {
+            self.exit_to_previous_or_chat();
+        }
     }
 
     fn apply_screen_action(&mut self, action: screen::ScreenAction) {
@@ -301,7 +333,10 @@ fn run_app(
                     app.chat.draw_file_finder_overlay(frame, frame.area());
                 }
             }
-            ScreenMode::Chat => Screen::draw(&app.chat, frame),
+            ScreenMode::Chat => {
+                app.chat.sync_scroll_state_for_frame(frame.area());
+                Screen::draw(&app.chat, frame);
+            }
             ScreenMode::Files => Screen::draw(&app.file_browser, frame),
             ScreenMode::Settings => Screen::draw(&app.settings, frame),
             ScreenMode::Help => Screen::draw(&app.help, frame),
@@ -364,7 +399,8 @@ mod tests {
         let mut app = App::new();
         let frame_area = Rect::new(0, 0, 120, 40);
         let target_idx = app.welcome.suggestions.len().saturating_sub(1);
-        let target_suggestion = welcome::suggestion_areas(frame_area, &app.welcome.suggestions)[target_idx];
+        let target_suggestion =
+            welcome::suggestion_areas(frame_area, &app.welcome.suggestions, &app.welcome.input_buffer)[target_idx];
         let click_event = MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
             column: target_suggestion.x + 1,
@@ -410,6 +446,40 @@ mod tests {
         app.handle_input(quit_event);
 
         assert!(!app.running);
+    }
+
+    #[test]
+    fn test_ctrl_n_starts_new_chat() {
+        let mut app = App::new();
+        app.screen_mode = ScreenMode::Welcome;
+        app.chat.messages.push(ChatMessage::user("old".to_string()));
+        app.chat.input_buffer = "draft".to_string();
+
+        app.handle_input(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::CONTROL));
+
+        assert_eq!(app.screen_mode, ScreenMode::Chat);
+        assert!(app.chat.messages.is_empty());
+        assert!(app.chat.input_buffer.is_empty());
+    }
+
+    #[test]
+    fn test_ctrl_o_opens_file_browser() {
+        let mut app = App::new();
+        app.screen_mode = ScreenMode::Chat;
+
+        app.handle_input(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL));
+
+        assert_eq!(app.screen_mode, ScreenMode::Files);
+    }
+
+    #[test]
+    fn test_ctrl_w_returns_to_welcome() {
+        let mut app = App::new();
+        app.screen_mode = ScreenMode::Chat;
+
+        app.handle_input(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
+
+        assert_eq!(app.screen_mode, ScreenMode::Welcome);
     }
 
     #[test]

@@ -89,10 +89,22 @@ impl ChatApp {
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => self.running = false,
             KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => self.running = false,
             KeyCode::Char('q') if key.modifiers.contains(KeyModifiers::CONTROL) => self.running = false,
-            KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => self.clear_current_input_line(),
-            KeyCode::Char('l') if key.modifiers.contains(KeyModifiers::CONTROL) => self.clear_input_buffer(),
+            KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.input_buffer.clear();
+                self.cursor_position = 0;
+                self.reset_history_navigation();
+            }
+            KeyCode::Char('l') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.cursor_position = self.input_buffer.len();
+                self.scroll.offset = usize::MAX;
+                self.reset_history_navigation();
+            }
             KeyCode::Char('@') => self.activate_file_finder(),
-            KeyCode::Char(c) => {
+            KeyCode::Char(c)
+                if !key.modifiers.contains(KeyModifiers::CONTROL)
+                    && !key.modifiers.contains(KeyModifiers::ALT)
+                    && !key.modifiers.contains(KeyModifiers::SUPER) =>
+            {
                 self.reset_history_navigation();
                 self.input_buffer.insert(self.cursor_position, c);
                 self.cursor_position += 1;
@@ -124,7 +136,18 @@ impl ChatApp {
                     self.cursor_position += 1;
                 }
             }
+            KeyCode::Home => {
+                self.cursor_position = 0;
+            }
+            KeyCode::End => {
+                self.cursor_position = self.input_buffer.len();
+            }
             KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                self.reset_history_navigation();
+                self.input_buffer.insert(self.cursor_position, '\n');
+                self.cursor_position += 1;
+            }
+            KeyCode::Char('j') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.reset_history_navigation();
                 self.input_buffer.insert(self.cursor_position, '\n');
                 self.cursor_position += 1;
@@ -159,11 +182,10 @@ impl ChatApp {
                 self.scroll.page_down();
             }
             KeyCode::Tab => {
-                if let Some(last_msg) = self.messages.last_mut()
-                    && let Some(last_tool) = last_msg.tool_calls.last_mut()
-                {
-                    last_tool.expanded = !last_tool.expanded;
-                }
+                self.toggle_latest_tool_call();
+            }
+            KeyCode::BackTab => {
+                self.toggle_all_latest_tool_calls();
             }
             _ => {}
         }
@@ -256,7 +278,15 @@ impl ChatApp {
             KeyCode::Esc => {
                 self.file_finder.deactivate();
             }
-            KeyCode::Char(c) => {
+            KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.file_finder.query.clear();
+                self.update_file_finder_matches();
+            }
+            KeyCode::Char(c)
+                if !key.modifiers.contains(KeyModifiers::CONTROL)
+                    && !key.modifiers.contains(KeyModifiers::ALT)
+                    && !key.modifiers.contains(KeyModifiers::SUPER) =>
+            {
                 self.file_finder.query.push(c);
                 self.update_file_finder_matches();
             }
@@ -290,6 +320,34 @@ impl ChatApp {
         self.file_finder.refresh(|path| path.display().to_string(), 10);
     }
 
+    pub fn deactivate_file_finder(&mut self) {
+        self.file_finder.deactivate();
+    }
+
+    fn latest_assistant_with_tools_mut(&mut self) -> Option<&mut ChatMessage> {
+        self.messages
+            .iter_mut()
+            .rev()
+            .find(|message| message.role == MessageRole::Assistant && !message.tool_calls.is_empty())
+    }
+
+    fn toggle_latest_tool_call(&mut self) {
+        if let Some(message) = self.latest_assistant_with_tools_mut()
+            && let Some(tool_call) = message.tool_calls.last_mut()
+        {
+            tool_call.expanded = !tool_call.expanded;
+        }
+    }
+
+    fn toggle_all_latest_tool_calls(&mut self) {
+        if let Some(message) = self.latest_assistant_with_tools_mut() {
+            let should_expand = message.tool_calls.iter().any(|tool_call| !tool_call.expanded);
+            for tool_call in &mut message.tool_calls {
+                tool_call.expanded = should_expand;
+            }
+        }
+    }
+
     pub(super) fn toggle_pin(&mut self, path: &Path) {
         if let Some(idx) = self.pinned_files.iter().position(|p| p == path) {
             self.pinned_files.remove(idx);
@@ -300,38 +358,6 @@ impl ChatApp {
 
     fn unpin_last_file(&mut self) -> bool {
         self.pinned_files.pop().is_some()
-    }
-
-    fn clear_current_input_line(&mut self) {
-        if self.input_buffer.is_empty() {
-            return;
-        }
-        self.reset_history_navigation();
-
-        let len = self.input_buffer.len();
-        let cursor = self.cursor_position.min(len);
-        let line_start = self.input_buffer[..cursor].rfind('\n').map(|idx| idx + 1).unwrap_or(0);
-        let line_end = self.input_buffer[cursor..]
-            .find('\n')
-            .map(|idx| cursor + idx)
-            .unwrap_or(len);
-
-        let (remove_start, remove_end) = if line_start == 0 && line_end == len {
-            (0, len)
-        } else if line_start > 0 {
-            (line_start - 1, line_end)
-        } else {
-            (line_start, (line_end + 1).min(len))
-        };
-
-        self.input_buffer.replace_range(remove_start..remove_end, "");
-        self.cursor_position = remove_start.min(self.input_buffer.len());
-    }
-
-    fn clear_input_buffer(&mut self) {
-        self.reset_history_navigation();
-        self.input_buffer.clear();
-        self.cursor_position = 0;
     }
 
     pub fn is_file_finder_active(&self) -> bool {
@@ -349,6 +375,7 @@ impl ChatApp {
             if !content.is_empty() {
                 last.content.push_str(content);
             }
+            self.scroll.offset = usize::MAX;
         }
     }
 
@@ -415,6 +442,7 @@ impl ChatApp {
         }
         self.streaming_state = StreamingState::Idle;
         self.current_tool_call = None;
+        self.scroll.offset = usize::MAX;
     }
 
     fn finish_current_stream(&mut self) {
@@ -425,6 +453,7 @@ impl ChatApp {
         }
         self.streaming_state = StreamingState::Idle;
         self.current_tool_call = None;
+        self.scroll.offset = usize::MAX;
     }
 
     pub fn reset_streaming(&mut self) {
@@ -442,6 +471,10 @@ impl ChatApp {
         self.last_usage = None;
         self.last_model = None;
         self.submission_warning = None;
+        self.input_buffer.clear();
+        self.cursor_position = 0;
+        self.file_finder.deactivate();
+        self.pinned_files.clear();
         self.input_history.clear();
         self.reset_history_navigation();
     }
@@ -472,6 +505,7 @@ impl ChatApp {
         self.messages.push(ChatMessage::user(content));
         self.messages.push(ChatMessage::assistant_streaming(String::new()));
         self.streaming_state = StreamingState::Streaming;
+        self.scroll.offset = usize::MAX;
     }
 
     pub fn take_pending_user_message(&mut self) -> Option<String> {
@@ -645,6 +679,29 @@ impl ChatApp {
         render::draw_chat_screen(frame, self);
     }
 
+    pub fn sync_scroll_state_for_frame(&mut self, frame_area: Rect) {
+        let main_layout = render::chat_main_layout(frame_area, self.chat_input_row_height(frame_area.width));
+        if main_layout.len() < 4 {
+            self.scroll.set_viewport(0, 0);
+            return;
+        }
+
+        let viewport = render::message_viewport_area(main_layout[0]);
+        let total_rows = self.transcript_row_count(viewport.width);
+        self.scroll.set_viewport(total_rows, viewport.height.max(1) as usize);
+    }
+
+    fn transcript_row_count(&self, content_width: u16) -> usize {
+        let mut rows = 0usize;
+        for (idx, message) in self.messages.iter().enumerate() {
+            rows = rows.saturating_add(message.estimate_height(content_width).max(1) as usize);
+            if idx + 1 < self.messages.len() {
+                rows = rows.saturating_add(1);
+            }
+        }
+        rows
+    }
+
     pub fn chat_input_row_height(&self, area_width: u16) -> u16 {
         input_render::chat_input_row_height(self.chat_input_content_line_count(area_width))
     }
@@ -724,6 +781,18 @@ mod tests {
     }
 
     #[test]
+    fn test_ctrl_j_inserts_newline_without_submitting() {
+        let mut app = ChatApp::new();
+        app.handle_input(KeyEvent::from(KeyCode::Char('a')));
+        app.handle_input(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL));
+        app.handle_input(KeyEvent::from(KeyCode::Char('b')));
+
+        assert_eq!(app.input_buffer, "a\nb");
+        assert!(app.messages.is_empty());
+        assert_eq!(app.streaming_state, StreamingState::Idle);
+    }
+
+    #[test]
     fn test_up_down_navigate_input_history_and_restore_draft() {
         let mut app = ChatApp::new();
         app.submit_user_message("first".to_string());
@@ -766,6 +835,59 @@ mod tests {
     }
 
     #[test]
+    fn test_ctrl_k_clears_input_buffer() {
+        let mut app = ChatApp::new();
+        app.input_buffer = "draft input".to_string();
+        app.cursor_position = app.input_buffer.len();
+
+        app.handle_input(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL));
+
+        assert!(app.input_buffer.is_empty());
+        assert_eq!(app.cursor_position, 0);
+    }
+
+    #[test]
+    fn test_tab_toggles_latest_assistant_tool_call() {
+        let mut app = ChatApp::new();
+
+        let mut assistant = ChatMessage::assistant_streaming(String::new());
+        let idx = assistant.add_tool_call("read".to_string(), r#"{"path":"src/lib.rs"}"#.to_string());
+        assistant.complete_tool_call(idx, "fn main() {}".to_string(), true);
+        assistant.tool_calls[idx].expanded = false;
+
+        app.messages.push(assistant);
+        app.messages.push(ChatMessage::user("follow-up".to_string()));
+
+        app.handle_input(KeyEvent::from(KeyCode::Tab));
+        assert!(app.messages[0].tool_calls[0].expanded);
+
+        app.handle_input(KeyEvent::from(KeyCode::Tab));
+        assert!(!app.messages[0].tool_calls[0].expanded);
+    }
+
+    #[test]
+    fn test_backtab_toggles_all_latest_assistant_tool_calls() {
+        let mut app = ChatApp::new();
+        let mut assistant = ChatMessage::assistant_streaming(String::new());
+
+        let first = assistant.add_tool_call("read".to_string(), r#"{"path":"a.rs"}"#.to_string());
+        assistant.complete_tool_call(first, "a".to_string(), true);
+        assistant.tool_calls[first].expanded = false;
+
+        let second = assistant.add_tool_call("bash".to_string(), r#"{"command":"echo hi"}"#.to_string());
+        assistant.complete_tool_call(second, "hi".to_string(), true);
+        assistant.tool_calls[second].expanded = true;
+
+        app.messages.push(assistant);
+
+        app.handle_input(KeyEvent::from(KeyCode::BackTab));
+        assert!(app.messages[0].tool_calls.iter().all(|tool| tool.expanded));
+
+        app.handle_input(KeyEvent::from(KeyCode::BackTab));
+        assert!(app.messages[0].tool_calls.iter().all(|tool| !tool.expanded));
+    }
+
+    #[test]
     fn test_set_messages_rebuilds_input_history_from_user_messages() {
         let mut app = ChatApp::new();
         app.set_messages(vec![
@@ -782,29 +904,6 @@ mod tests {
     }
 
     #[test]
-    fn test_ctrl_u_clears_current_input_line() {
-        let mut app = ChatApp::new();
-        app.input_buffer = "alpha\nbeta\ngamma".to_string();
-        app.cursor_position = 8;
-
-        app.handle_input(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
-
-        assert_eq!(app.input_buffer, "alpha\ngamma");
-    }
-
-    #[test]
-    fn test_ctrl_l_clears_input_buffer() {
-        let mut app = ChatApp::new();
-        app.input_buffer = "line one\nline two".to_string();
-        app.cursor_position = app.input_buffer.len();
-
-        app.handle_input(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL));
-
-        assert!(app.input_buffer.is_empty());
-        assert_eq!(app.cursor_position, 0);
-    }
-
-    #[test]
     fn test_backspace_at_prompt_start_unpins_last_file() {
         let mut app = ChatApp::new();
         app.toggle_pin(Path::new("sample.rs"));
@@ -814,6 +913,22 @@ mod tests {
         app.handle_input(KeyEvent::from(KeyCode::Backspace));
 
         assert_eq!(app.pinned_files(), &[PathBuf::from("sample.rs")]);
+    }
+
+    #[test]
+    fn test_clear_chat_resets_input_and_pins() {
+        let mut app = ChatApp::new();
+        app.input_buffer = "pending".to_string();
+        app.cursor_position = 3;
+        app.toggle_pin(Path::new("sample.rs"));
+        app.messages.push(ChatMessage::user("hi".to_string()));
+
+        app.clear_chat();
+
+        assert!(app.messages.is_empty());
+        assert!(app.input_buffer.is_empty());
+        assert_eq!(app.cursor_position, 0);
+        assert!(app.pinned_files().is_empty());
     }
 
     #[test]
