@@ -33,6 +33,7 @@ pub enum ConversationEvent {
     /// Assistant produced final content
     Content {
         content: String,
+        reasoning_content: Option<String>,
         usage: Usage,
         model: String,
     },
@@ -161,6 +162,7 @@ impl ConversationLoop {
 
                 event_handler(ConversationEvent::Content {
                     content: content.clone(),
+                    reasoning_content: response.reasoning_content.clone(),
                     usage: response.usage.clone(),
                     model: response.model.clone(),
                 });
@@ -308,6 +310,7 @@ mod tests {
             },
             ConversationEvent::Content {
                 content: "Final response".to_string(),
+                reasoning_content: Some("Brief reasoning".to_string()),
                 usage: Usage::default(),
                 model: "test-model".to_string(),
             },

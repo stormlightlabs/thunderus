@@ -207,6 +207,7 @@ struct ChatFileFinder {
 pub struct ChatMessage {
     pub role: MessageRole,
     pub content: String,
+    pub reasoning_content: Option<String>,
     pub sections: Option<ResponseSections>,
     pub tool_calls: Vec<ToolCallDisplay>,
     pub created_at: DateTime<Utc>,
@@ -218,7 +219,14 @@ impl ChatMessage {
     }
 
     pub fn user_at(content: String, created_at: DateTime<Utc>) -> Self {
-        Self { role: MessageRole::User, content, sections: None, tool_calls: Vec::new(), created_at }
+        Self {
+            role: MessageRole::User,
+            content,
+            reasoning_content: None,
+            sections: None,
+            tool_calls: Vec::new(),
+            created_at,
+        }
     }
 
     pub fn assistant(content: String) -> Self {
@@ -231,6 +239,7 @@ impl ChatMessage {
         Self {
             role: MessageRole::Assistant,
             content,
+            reasoning_content: None,
             sections: if has_sections { Some(sections) } else { None },
             tool_calls: Vec::new(),
             created_at,
@@ -241,6 +250,7 @@ impl ChatMessage {
         Self {
             role: MessageRole::Assistant,
             content,
+            reasoning_content: None,
             sections: None,
             tool_calls: Vec::new(),
             created_at: Utc::now(),
@@ -252,7 +262,25 @@ impl ChatMessage {
     }
 
     pub fn tool_at(_name: String, output: String, created_at: DateTime<Utc>) -> Self {
-        Self { role: MessageRole::Tool, content: output, sections: None, tool_calls: Vec::new(), created_at }
+        Self {
+            role: MessageRole::Tool,
+            content: output,
+            reasoning_content: None,
+            sections: None,
+            tool_calls: Vec::new(),
+            created_at,
+        }
+    }
+
+    pub fn append_reasoning_delta(&mut self, delta: &str) {
+        if delta.is_empty() {
+            return;
+        }
+
+        match self.reasoning_content.as_mut() {
+            Some(reasoning) => reasoning.push_str(delta),
+            None => self.reasoning_content = Some(delta.to_string()),
+        }
     }
 
     pub fn finalize(&mut self) {
@@ -309,6 +337,12 @@ impl ChatMessage {
                 height += wrapped_line_count(&content, content_width.saturating_sub(2)) as u16;
             }
             MessageRole::User => height += wrapped_line_count(&self.content, content_width.saturating_sub(2)) as u16,
+        }
+
+        if let Some(reasoning) = self.reasoning_content.as_deref()
+            && !reasoning.trim().is_empty()
+        {
+            height += render::assistant_reasoning_height(reasoning, content_width);
         }
 
         for tool_call in &self.tool_calls {

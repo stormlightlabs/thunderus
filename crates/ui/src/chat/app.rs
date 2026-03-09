@@ -14,6 +14,8 @@ use ratatui::{
 };
 use std::path::{Path, PathBuf};
 
+const MAX_INPUT_HISTORY: usize = 200;
+
 pub struct ChatApp {
     pub messages: Vec<ChatMessage>,
     pub input_buffer: String,
@@ -26,6 +28,9 @@ pub struct ChatApp {
     pending_user_message: Option<String>,
     pending_submission: Option<String>,
     pending_command: Option<String>,
+    input_history: Vec<String>,
+    history_cursor: Option<usize>,
+    history_draft: Option<String>,
     workspace_root: PathBuf,
     workspace_files: Vec<PathBuf>,
     pub(super) file_finder: ChatFileFinder,
@@ -51,6 +56,9 @@ impl Default for ChatApp {
             pending_user_message: None,
             pending_submission: None,
             pending_command: None,
+            input_history: Vec::new(),
+            history_cursor: None,
+            history_draft: None,
             workspace_root,
             workspace_files,
             file_finder: ChatFileFinder::default(),
@@ -83,10 +91,12 @@ impl ChatApp {
             KeyCode::Char('l') if key.modifiers.contains(KeyModifiers::CONTROL) => self.clear_input_buffer(),
             KeyCode::Char('@') => self.activate_file_finder(),
             KeyCode::Char(c) => {
+                self.reset_history_navigation();
                 self.input_buffer.insert(self.cursor_position, c);
                 self.cursor_position += 1;
             }
             KeyCode::Backspace => {
+                self.reset_history_navigation();
                 if self.cursor_position > 0 {
                     self.cursor_position -= 1;
                     self.input_buffer.remove(self.cursor_position);
@@ -95,6 +105,7 @@ impl ChatApp {
                 }
             }
             KeyCode::Delete => {
+                self.reset_history_navigation();
                 if self.cursor_position < self.input_buffer.len() {
                     self.input_buffer.remove(self.cursor_position);
                 } else if self.cursor_position == 0 {
@@ -112,6 +123,7 @@ impl ChatApp {
                 }
             }
             KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                self.reset_history_navigation();
                 self.input_buffer.insert(self.cursor_position, '\n');
                 self.cursor_position += 1;
             }
@@ -125,14 +137,25 @@ impl ChatApp {
                     }
                     self.input_buffer.clear();
                     self.cursor_position = 0;
+                    self.reset_history_navigation();
                 }
             }
             KeyCode::Up => {
-                if self.scroll_offset > 0 {
+                if !self.try_navigate_history_up() && self.scroll_offset > 0 {
                     self.scroll_offset -= 1;
                 }
             }
-            KeyCode::Down => self.scroll_offset += 1,
+            KeyCode::Down => {
+                if !self.try_navigate_history_down() {
+                    self.scroll_offset += 1;
+                }
+            }
+            KeyCode::PageUp => {
+                self.scroll_offset = self.scroll_offset.saturating_sub(5);
+            }
+            KeyCode::PageDown => {
+                self.scroll_offset += 5;
+            }
             KeyCode::Tab => {
                 if let Some(last_msg) = self.messages.last_mut()
                     && let Some(last_tool) = last_msg.tool_calls.last_mut()
@@ -142,6 +165,88 @@ impl ChatApp {
             }
             _ => {}
         }
+    }
+
+    fn input_is_multiline(&self) -> bool {
+        self.input_buffer.contains('\n')
+    }
+
+    fn try_navigate_history_up(&mut self) -> bool {
+        if self.input_is_multiline() || self.input_history.is_empty() {
+            return false;
+        }
+
+        let next_index = match self.history_cursor {
+            Some(0) => 0,
+            Some(idx) => idx.saturating_sub(1),
+            None => {
+                self.history_draft = Some(self.input_buffer.clone());
+                self.input_history.len().saturating_sub(1)
+            }
+        };
+
+        self.set_input_from_history(next_index);
+        true
+    }
+
+    fn try_navigate_history_down(&mut self) -> bool {
+        if self.input_is_multiline() || self.input_history.is_empty() {
+            return false;
+        }
+
+        let Some(current) = self.history_cursor else {
+            return false;
+        };
+
+        if current + 1 < self.input_history.len() {
+            self.set_input_from_history(current + 1);
+            return true;
+        }
+
+        self.history_cursor = None;
+        self.input_buffer = self.history_draft.take().unwrap_or_default();
+        self.cursor_position = self.input_buffer.len();
+        true
+    }
+
+    fn set_input_from_history(&mut self, index: usize) {
+        if let Some(entry) = self.input_history.get(index) {
+            self.input_buffer = entry.clone();
+            self.cursor_position = self.input_buffer.len();
+            self.history_cursor = Some(index);
+        }
+    }
+
+    fn reset_history_navigation(&mut self) {
+        self.history_cursor = None;
+        self.history_draft = None;
+    }
+
+    fn record_input_history(&mut self, content: &str) {
+        if content.is_empty() {
+            return;
+        }
+
+        self.input_history.push(content.to_string());
+        if self.input_history.len() > MAX_INPUT_HISTORY {
+            let overflow = self.input_history.len() - MAX_INPUT_HISTORY;
+            self.input_history.drain(0..overflow);
+        }
+        self.reset_history_navigation();
+    }
+
+    fn rebuild_input_history_from_messages(&mut self) {
+        self.input_history = self
+            .messages
+            .iter()
+            .filter(|message| message.role == MessageRole::User)
+            .map(|message| message.content.clone())
+            .collect();
+        if self.input_history.len() > MAX_INPUT_HISTORY {
+            let overflow = self.input_history.len() - MAX_INPUT_HISTORY;
+            self.input_history.drain(0..overflow);
+        }
+        self.reset_history_navigation();
     }
 
     fn handle_file_finder_input(&mut self, key: KeyEvent) {
@@ -207,6 +312,7 @@ impl ChatApp {
         if self.input_buffer.is_empty() {
             return;
         }
+        self.reset_history_navigation();
 
         let len = self.input_buffer.len();
         let cursor = self.cursor_position.min(len);
@@ -229,6 +335,7 @@ impl ChatApp {
     }
 
     fn clear_input_buffer(&mut self) {
+        self.reset_history_navigation();
         self.input_buffer.clear();
         self.cursor_position = 0;
     }
@@ -237,19 +344,30 @@ impl ChatApp {
         self.file_finder.active
     }
 
-    pub fn append_stream(&mut self, content: &str, _reasoning: Option<&str>) {
+    pub fn append_stream(&mut self, content: &str, reasoning: Option<&str>) {
         if let Some(last) = self.messages.last_mut()
             && last.role == MessageRole::Assistant
         {
-            last.content.push_str(content);
+            if let Some(reasoning_delta) = reasoning {
+                last.append_reasoning_delta(reasoning_delta);
+            }
+
+            if !content.is_empty() {
+                last.content.push_str(content);
+            }
         }
     }
 
     pub fn handle_stream_event(&mut self, event: IncomingStreamEvent) {
         match event {
             IncomingStreamEvent::Delta { content, reasoning_content } => {
+                let has_reasoning = reasoning_content
+                    .as_deref()
+                    .is_some_and(|reasoning| !reasoning.is_empty());
                 if let Some(delta) = content {
                     self.append_stream(&delta, reasoning_content.as_deref());
+                } else if has_reasoning {
+                    self.append_stream("", reasoning_content.as_deref());
                 }
                 self.streaming_state = StreamingState::Streaming;
             }
@@ -286,7 +404,7 @@ impl ChatApp {
             }
             IncomingStreamEvent::Thinking(content) => {
                 if !content.trim().is_empty() {
-                    self.append_stream(&content, None);
+                    self.append_stream("", Some(&content));
                 }
                 self.streaming_state = StreamingState::Thinking;
             }
@@ -328,10 +446,13 @@ impl ChatApp {
         self.scroll_offset = 0;
         self.last_usage = None;
         self.last_model = None;
+        self.input_history.clear();
+        self.reset_history_navigation();
     }
 
     pub fn set_messages(&mut self, messages: Vec<ChatMessage>) {
         self.messages = messages;
+        self.rebuild_input_history_from_messages();
         self.reset_streaming();
         self.scroll_offset = 0;
     }
@@ -343,6 +464,7 @@ impl ChatApp {
     }
 
     pub fn submit_user_message(&mut self, content: String) {
+        self.record_input_history(&content);
         self.pending_user_message = Some(content.clone());
         self.pending_submission = Some(self.build_submission_with_pins(&content));
         self.messages.push(ChatMessage::user(content));
@@ -431,6 +553,7 @@ impl ChatApp {
 
             self.messages.push(assistant);
         }
+        self.rebuild_input_history_from_messages();
     }
 
     pub fn draw_file_finder_overlay(&self, frame: &mut Frame, area: Rect) {
@@ -608,6 +731,64 @@ mod tests {
     }
 
     #[test]
+    fn test_up_down_navigate_input_history_and_restore_draft() {
+        let mut app = ChatApp::new();
+        app.submit_user_message("first".to_string());
+        app.submit_user_message("second".to_string());
+        app.streaming_state = StreamingState::Idle;
+        app.input_buffer = "draft".to_string();
+        app.cursor_position = app.input_buffer.len();
+
+        app.handle_input(KeyEvent::from(KeyCode::Up));
+        assert_eq!(app.input_buffer, "second");
+
+        app.handle_input(KeyEvent::from(KeyCode::Up));
+        assert_eq!(app.input_buffer, "first");
+
+        app.handle_input(KeyEvent::from(KeyCode::Down));
+        assert_eq!(app.input_buffer, "second");
+
+        app.handle_input(KeyEvent::from(KeyCode::Down));
+        assert_eq!(app.input_buffer, "draft");
+        assert_eq!(app.cursor_position, 5);
+    }
+
+    #[test]
+    fn test_up_down_do_not_trigger_history_for_multiline_input() {
+        let mut app = ChatApp::new();
+        app.submit_user_message("first".to_string());
+        app.submit_user_message("second".to_string());
+        app.streaming_state = StreamingState::Idle;
+
+        app.input_buffer = "line one\nline two".to_string();
+        app.cursor_position = app.input_buffer.len();
+
+        app.handle_input(KeyEvent::from(KeyCode::Up));
+        assert_eq!(app.input_buffer, "line one\nline two");
+        assert_eq!(app.history_cursor, None);
+
+        app.handle_input(KeyEvent::from(KeyCode::Down));
+        assert_eq!(app.input_buffer, "line one\nline two");
+        assert_eq!(app.history_cursor, None);
+    }
+
+    #[test]
+    fn test_set_messages_rebuilds_input_history_from_user_messages() {
+        let mut app = ChatApp::new();
+        app.set_messages(vec![
+            ChatMessage::assistant("ready".to_string()),
+            ChatMessage::user("persisted first".to_string()),
+            ChatMessage::assistant("ack".to_string()),
+            ChatMessage::user("persisted second".to_string()),
+        ]);
+
+        app.handle_input(KeyEvent::from(KeyCode::Up));
+        assert_eq!(app.input_buffer, "persisted second");
+        app.handle_input(KeyEvent::from(KeyCode::Up));
+        assert_eq!(app.input_buffer, "persisted first");
+    }
+
+    #[test]
     fn test_ctrl_u_clears_current_input_line() {
         let mut app = ChatApp::new();
         app.input_buffer = "alpha\nbeta\ngamma".to_string();
@@ -661,6 +842,39 @@ mod tests {
         app.append_stream(" there", None);
 
         assert_eq!(app.messages[1].content, "Hi there");
+    }
+
+    #[test]
+    fn test_append_stream_tracks_reasoning_delta() {
+        let mut app = ChatApp::new();
+        app.messages.push(ChatMessage::user("Hello".to_string()));
+        app.messages.push(ChatMessage::assistant_streaming(String::new()));
+
+        app.append_stream("", Some("Thinking step 1. "));
+        app.append_stream("", Some("Thinking step 2."));
+
+        assert_eq!(
+            app.messages[1].reasoning_content.as_deref(),
+            Some("Thinking step 1. Thinking step 2.")
+        );
+        assert!(app.messages[1].content.is_empty());
+    }
+
+    #[test]
+    fn test_delta_event_with_reasoning_only_is_rendered() {
+        let mut app = ChatApp::new();
+        app.submit_user_message("Why?".to_string());
+
+        app.handle_stream_event(IncomingStreamEvent::Delta {
+            content: None,
+            reasoning_content: Some("Because this is the rationale.".to_string()),
+        });
+
+        assert_eq!(
+            app.messages[1].reasoning_content.as_deref(),
+            Some("Because this is the rationale.")
+        );
+        assert!(app.messages[1].content.is_empty());
     }
 
     #[test]
@@ -765,13 +979,19 @@ mod tests {
     }
 
     #[test]
-    fn test_thinking_event_appends_stream_content() {
+    fn test_thinking_event_appends_reasoning_content() {
         let mut app = ChatApp::new();
         app.submit_user_message("Explain your plan".to_string());
         app.handle_stream_event(IncomingStreamEvent::Thinking("Drafting a short plan...".to_string()));
 
         assert_eq!(app.streaming_state, StreamingState::Thinking);
-        assert!(app.messages[1].content.contains("Drafting a short plan"));
+        assert!(
+            app.messages[1]
+                .reasoning_content
+                .as_deref()
+                .is_some_and(|reasoning| reasoning.contains("Drafting a short plan"))
+        );
+        assert!(app.messages[1].content.is_empty());
     }
 
     #[test]

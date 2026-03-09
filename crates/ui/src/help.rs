@@ -10,20 +10,16 @@
 //! - Recent conversations list
 //! - Footer links
 
-use super::{
-    colors,
-    components::{HintFooter, HintToken, TopBorderedInputRow},
-    layout::{ConstraintSpec, split as split_rects},
-};
+use super::colors;
+use super::components::{HintFooter, HintToken, TopBorderedInputRow};
+use super::layout::{ConstraintSpec, split as split_rects};
 use chrono::{DateTime, Utc};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use ratatui::{
-    Frame,
-    layout::{Alignment, Constraint, Direction, Rect},
-    style::{Modifier, Style},
-    text::{Line, Span, Text},
-    widgets::{Block, Borders, Paragraph, Wrap},
-};
+use ratatui::Frame;
+use ratatui::layout::{Alignment, Constraint, Direction, Rect};
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span, Text};
+use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use thndrs_mem::{Session, SessionManager};
 use thndrs_ui_macros::AreaSpec;
 
@@ -67,8 +63,10 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
     (
         "Chat",
         &[
-            ("Scroll up", "Up / PageUp"),
-            ("Scroll down", "Down / PageDown"),
+            ("Previous input", "Up"),
+            ("Next input", "Down"),
+            ("Scroll up", "PageUp"),
+            ("Scroll down", "PageDown"),
             ("Expand tool", "Tab"),
             ("Clear chat", "/clear"),
             ("Show history", "/history"),
@@ -163,12 +161,8 @@ impl HelpApp {
                     self.scroll_offset -= 1;
                 }
             }
-            KeyCode::Down => {
-                self.scroll_offset += 1;
-            }
-            KeyCode::PageUp => {
-                self.scroll_offset = self.scroll_offset.saturating_sub(5);
-            }
+            KeyCode::Down => self.scroll_offset += 1,
+            KeyCode::PageUp => self.scroll_offset = self.scroll_offset.saturating_sub(5),
             KeyCode::PageDown => {
                 self.scroll_offset += 5;
             }

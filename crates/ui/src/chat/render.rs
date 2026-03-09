@@ -2,7 +2,9 @@ use super::{ChatApp, ChatMessage, MessageRole, StreamingState, ToolCallDisplay, 
 use super::{extractors, formatters};
 use crate::colors;
 use crate::components::top_bordered_row_height;
-use crate::components::{HintFooter, HintToken, SectionBlock, SectionTone, ToolCallCard, TopBorderedInputRow};
+use crate::components::{
+    HintFooter, HintToken, SectionBlock, SectionTone, ToolCallCard, TopBorderedInputRow, wrapped_line_count,
+};
 use crate::layout::split as split_rects;
 use crate::tool::{draw_bash_output, draw_collapsible, draw_diff, draw_task_progress, parse_diff};
 use chrono::{DateTime, Utc};
@@ -106,7 +108,7 @@ pub fn draw_hints(frame: &mut Frame, area: Rect) {
         HintToken::Key("Tab"),
         HintToken::Text(" to expand tools, "),
         HintToken::Key("Up/Down"),
-        HintToken::Text(" to scroll, "),
+        HintToken::Text(" history, "),
         HintToken::Key("ctrl+d"),
         HintToken::Text(" to quit"),
     ];
@@ -216,10 +218,25 @@ fn draw_message(frame: &mut Frame, area: Rect, msg: &ChatMessage, streaming_stat
                 );
 
                 if let Some(ref sections) = msg.sections {
-                    draw_assistant_sections(frame, content_area, sections, msg.created_at);
+                    draw_assistant_sections(
+                        frame,
+                        content_area,
+                        sections,
+                        msg.reasoning_content.as_deref(),
+                        msg.created_at,
+                        *streaming_state == StreamingState::Thinking,
+                    );
                 } else {
                     let is_streaming = *streaming_state == StreamingState::Streaming;
-                    draw_assistant_raw(frame, content_area, &msg.content, is_streaming, msg.created_at);
+                    draw_assistant_raw(
+                        frame,
+                        content_area,
+                        &msg.content,
+                        msg.reasoning_content.as_deref(),
+                        is_streaming,
+                        *streaming_state == StreamingState::Thinking,
+                        msg.created_at,
+                    );
                 }
             }
         }
@@ -642,7 +659,10 @@ fn wrap_text_lines(content: &str, width: u16) -> Vec<String> {
     wrapped
 }
 
-fn draw_assistant_raw(frame: &mut Frame, area: Rect, content: &str, is_streaming: bool, created_at: DateTime<Utc>) {
+fn draw_assistant_raw(
+    frame: &mut Frame, area: Rect, content: &str, reasoning_content: Option<&str>, is_streaming: bool,
+    is_thinking: bool, created_at: DateTime<Utc>,
+) {
     let sections = split_rects(
         area,
         Direction::Vertical,
@@ -657,6 +677,23 @@ fn draw_assistant_raw(frame: &mut Frame, area: Rect, content: &str, is_streaming
             .style(Style::default().bg(colors::BG_TERMINAL)),
         sections[0],
     );
+
+    let content_area = if let Some(reasoning) = reasoning_content.filter(|value| !value.trim().is_empty()) {
+        let reasoning_height = assistant_reasoning_height(reasoning, sections[1].width);
+        let split = split_rects(
+            sections[1],
+            Direction::Vertical,
+            vec![Constraint::Length(reasoning_height), Constraint::Min(0)],
+        );
+        if split.len() == 2 {
+            draw_assistant_reasoning(frame, split[0], reasoning, is_thinking);
+            split[1]
+        } else {
+            sections[1]
+        }
+    } else {
+        sections[1]
+    };
 
     let mut lines = Vec::new();
     let display_content = formatters::normalize_display_content(content);
@@ -720,7 +757,7 @@ fn draw_assistant_raw(frame: &mut Frame, area: Rect, content: &str, is_streaming
         Paragraph::new(Text::from(lines))
             .style(Style::default().bg(colors::BG_TERMINAL))
             .wrap(Wrap { trim: false }),
-        sections[1],
+        content_area,
     );
 }
 
@@ -735,7 +772,10 @@ fn message_header_line(role: MessageRole, created_at: DateTime<Utc>) -> Line<'st
     ])
 }
 
-fn draw_assistant_sections(frame: &mut Frame, area: Rect, sections: &ResponseSections, created_at: DateTime<Utc>) {
+fn draw_assistant_sections(
+    frame: &mut Frame, area: Rect, sections: &ResponseSections, reasoning_content: Option<&str>,
+    created_at: DateTime<Utc>, is_thinking: bool,
+) {
     let outer = split_rects(
         area,
         Direction::Vertical,
@@ -751,13 +791,30 @@ fn draw_assistant_sections(frame: &mut Frame, area: Rect, sections: &ResponseSec
         outer[0],
     );
 
-    let constraints = assistant_section_constraints(sections, outer[1].width);
+    let sections_area = if let Some(reasoning) = reasoning_content.filter(|value| !value.trim().is_empty()) {
+        let reasoning_height = assistant_reasoning_height(reasoning, outer[1].width);
+        let split = split_rects(
+            outer[1],
+            Direction::Vertical,
+            vec![Constraint::Length(reasoning_height), Constraint::Min(0)],
+        );
+        if split.len() == 2 {
+            draw_assistant_reasoning(frame, split[0], reasoning, is_thinking);
+            split[1]
+        } else {
+            outer[1]
+        }
+    } else {
+        outer[1]
+    };
+
+    let constraints = assistant_section_constraints(sections, sections_area.width);
 
     if constraints.is_empty() {
         return;
     }
 
-    let layout = split_rects(outer[1], Direction::Vertical, constraints);
+    let layout = split_rects(sections_area, Direction::Vertical, constraints);
 
     let mut slot = 0;
 
@@ -851,6 +908,63 @@ pub fn assistant_section_constraints(sections: &ResponseSections, width: u16) ->
     }
 
     constraints
+}
+
+pub fn assistant_reasoning_height(reasoning: &str, width: u16) -> u16 {
+    let content = formatters::normalize_display_content(reasoning);
+    let content_width = width.saturating_sub(2).max(1);
+    let content_lines = wrapped_line_count(&content, content_width) as u16;
+    1 + content_lines.max(1)
+}
+
+fn draw_assistant_reasoning(frame: &mut Frame, area: Rect, reasoning: &str, is_thinking: bool) {
+    let sections = split_rects(
+        area,
+        Direction::Vertical,
+        vec![Constraint::Length(1), Constraint::Min(0)],
+    );
+    if sections.len() < 2 {
+        return;
+    }
+
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled("◌ ", Style::default().fg(colors::TEXT_MUTED)),
+            Span::styled(
+                "Thinking",
+                Style::default().fg(colors::TEXT_MUTED).add_modifier(Modifier::BOLD),
+            ),
+        ]))
+        .style(Style::default().bg(colors::BG_TERMINAL)),
+        sections[0],
+    );
+
+    let mut lines = Vec::new();
+    for raw_line in formatters::normalize_display_content(reasoning).lines() {
+        lines.push(Line::from(vec![
+            Span::styled("  ", Style::default().fg(colors::TEXT_MUTED)),
+            Span::styled(raw_line.to_string(), Style::default().fg(colors::TEXT_MUTED)),
+        ]));
+    }
+    if lines.is_empty() {
+        lines.push(Line::from(vec![Span::styled(
+            "  ",
+            Style::default().fg(colors::TEXT_MUTED),
+        )]));
+    }
+
+    if is_thinking && let Some(last_line) = lines.last_mut() {
+        last_line
+            .spans
+            .push(Span::styled(" █", Style::default().fg(colors::ACCENT_CYAN)));
+    }
+
+    frame.render_widget(
+        Paragraph::new(Text::from(lines))
+            .style(Style::default().bg(colors::BG_TERMINAL))
+            .wrap(Wrap { trim: false }),
+        sections[1],
+    );
 }
 
 pub fn constraint_length(constraint: &Constraint) -> u16 {

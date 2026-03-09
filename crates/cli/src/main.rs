@@ -243,9 +243,9 @@ fn run_tui_with_provider(config: &Config, workspace_path: PathBuf) -> Result<()>
                             );
                             let _ = event_tx.send(IncomingStreamEvent::ToolCompleted { name, result, is_error });
                         }
-                        ConversationEvent::Content { content, usage, model } => {
-                            let _ = event_tx
-                                .send(IncomingStreamEvent::Delta { content: Some(content), reasoning_content: None });
+                        ConversationEvent::Content { content, reasoning_content, usage, model } => {
+                            let _ =
+                                event_tx.send(IncomingStreamEvent::Delta { content: Some(content), reasoning_content });
                             let _ = event_tx.send(IncomingStreamEvent::Done {
                                 usage: Some(TokenUsage {
                                     prompt_tokens: usage.prompt_tokens,
