@@ -1087,6 +1087,37 @@ mod tests {
     }
 
     #[test]
+    fn chat_screen_renders_sections_reasoning_and_tool_output() {
+        let mut initial_chat = ChatApp::new();
+        let mut assistant = ChatMessage::assistant(
+            "Intent\n\nRender the migration review.\n\nActions\n\n- Port the file browser\n- Add tests\n\nResult\n\nPhase 4 is implemented.\n\nNext\n\nWire the entry point later."
+                .to_string(),
+        );
+        assistant.reasoning_content = Some("Checking the remaining migration work.".to_string());
+        assistant.expanded_reasoning = true;
+        let idx = assistant.add_tool_call("read".to_string(), r#"{"path":"docs/iocraft.md"}"#.to_string());
+        assistant.complete_tool_call(idx, "Loaded reference".to_string(), true);
+
+        initial_chat.set_messages(vec![ChatMessage::user("Review phase 3".to_string()), assistant]);
+
+        let actual = element! {
+            ChatScreen(
+                initial_chat: Some(initial_chat),
+                viewport_width: 72u16,
+                viewport_height: 20u16,
+            )
+        }
+        .to_string();
+
+        assert!(actual.contains("REASONING"));
+        assert!(actual.contains("INTENT"));
+        assert!(actual.contains("ACTIONS"));
+        assert!(actual.contains("RESULT"));
+        assert!(actual.contains("NEXT"));
+        assert!(actual.contains("Loaded reference"));
+    }
+
+    #[test]
     fn visible_transcript_lines_tracks_scroll_offset() {
         let transcript = vec![
             super::RenderedLine::new("one", Color::White),

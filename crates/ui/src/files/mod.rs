@@ -40,6 +40,16 @@ pub struct FileBrowserApp {
     status_line: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileTreeRow {
+    pub name: String,
+    pub depth: u16,
+    pub is_dir: bool,
+    pub expanded: bool,
+    pub selected: bool,
+    pub active: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FilesMsg {
     Key(KeyEvent),
@@ -363,6 +373,96 @@ impl FileBrowserApp {
         self.selected_index = self.selected_index.min(self.visible_entries.len().saturating_sub(1));
         self.tree_scroll.set_total(self.visible_entries.len());
         self.tree_scroll.ensure_visible(self.selected_index);
+    }
+
+    pub fn sync_viewports(&mut self, tree_page_size: usize, content_page_size: usize) -> bool {
+        let tree_page_size = tree_page_size.max(1);
+        let content_page_size = content_page_size.max(1);
+        let changed =
+            self.tree_scroll.page_size != tree_page_size || self.content_scroll.page_size != content_page_size;
+
+        if changed {
+            self.tree_scroll.set_page_size(tree_page_size);
+            self.content_scroll.set_page_size(content_page_size);
+        }
+
+        changed
+    }
+
+    pub fn workspace_title(&self) -> String {
+        self.workspace_root.display().to_string()
+    }
+
+    pub fn tree_rows(&self) -> Vec<FileTreeRow> {
+        self.visible_entries
+            .iter()
+            .enumerate()
+            .skip(self.tree_scroll.offset)
+            .take(self.tree_scroll.page_size.max(1))
+            .map(|(idx, entry)| FileTreeRow {
+                name: entry.name.clone(),
+                depth: entry.depth,
+                is_dir: entry.is_dir,
+                expanded: entry.expanded,
+                selected: idx == self.selected_index,
+                active: self.active_file.as_deref() == Some(entry.path.as_path()),
+            })
+            .collect()
+    }
+
+    pub fn breadcrumb(&self) -> String {
+        let root = self
+            .workspace_root
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| self.workspace_root.display().to_string());
+
+        let Some(active) = self.active_file.as_ref() else {
+            return format!("{root} > (no file selected)");
+        };
+
+        let mut parts = vec![root];
+        parts.extend(
+            active
+                .components()
+                .map(|component| component.as_os_str().to_string_lossy().into_owned()),
+        );
+
+        parts.join(" > ")
+    }
+
+    pub fn content_rows(&self) -> Vec<HighlightedLine> {
+        self.highlighted_lines
+            .iter()
+            .skip(self.content_scroll.offset)
+            .take(self.content_scroll.page_size.max(1))
+            .cloned()
+            .collect()
+    }
+
+    pub fn content_line_number_width(&self) -> usize {
+        self.highlighted_lines.len().to_string().len().max(3)
+    }
+
+    pub fn status_line(&self) -> &str {
+        &self.status_line
+    }
+
+    pub fn is_finder_active(&self) -> bool {
+        self.finder.active
+    }
+
+    pub fn finder_query(&self) -> &str {
+        &self.finder.query
+    }
+
+    pub fn finder_rows(&self) -> Vec<(bool, String)> {
+        self.finder
+            .filtered_items()
+            .enumerate()
+            .map(|(idx, path)| (idx == self.finder.selected, path.display().to_string()))
+            .collect()
     }
 }
 

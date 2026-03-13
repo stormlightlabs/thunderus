@@ -1,5 +1,6 @@
 pub mod card;
 pub mod chat;
+pub mod files;
 pub mod hint_bar;
 pub mod input_field;
 pub mod section_block;
@@ -10,6 +11,7 @@ pub mod welcome;
 
 pub use card::{SuggestionCard, SuggestionCardProps, required_height};
 pub use chat::{ChatScreen, ChatScreenProps};
+pub use files::{FileBrowser, FileBrowserProps};
 pub use hint_bar::{HintBar, HintBarProps, HintToken};
 pub use input_field::{InputField, InputFieldProps};
 pub use section_block::{SectionBlock, SectionBlockProps, SectionTone, estimate_height};
