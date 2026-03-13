@@ -5331,6 +5331,7 @@ dependencies = [
  "chrono",
  "crossterm",
  "dirs",
+ "futures",
  "ignore",
  "iocraft",
  "nucleo-matcher",

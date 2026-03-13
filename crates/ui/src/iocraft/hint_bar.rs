@@ -25,7 +25,12 @@ pub fn HintBar(hooks: Hooks, props: &HintBarProps) -> impl Into<AnyElement<'stat
         .collect::<Vec<_>>();
 
     element! {
-        View(height: 1, justify_content: JustifyContent::Center, background_color: theme.bg_secondary) {
+        View(
+            width: 100pct,
+            height: 1,
+            justify_content: JustifyContent::Center,
+            background_color: theme.bg_secondary,
+        ) {
             MixedText(align: TextAlign::Center, contents: contents)
         }
     }
@@ -50,6 +55,6 @@ mod tests {
         }
         .to_string();
 
-        assert_eq!(actual, "↑/↓ move Enter submit\n");
+        assert_eq!(actual, " ↑/↓ move Enter submit\n");
     }
 }

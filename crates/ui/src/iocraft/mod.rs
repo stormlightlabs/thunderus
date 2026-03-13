@@ -5,6 +5,7 @@ pub mod section_block;
 pub mod shell;
 pub mod status_bar;
 pub mod theme;
+pub mod welcome;
 
 pub use card::{SuggestionCard, SuggestionCardProps, required_height};
 pub use hint_bar::{HintBar, HintBarProps, HintToken};
@@ -13,6 +14,7 @@ pub use section_block::{SectionBlock, SectionBlockProps, SectionTone, estimate_h
 pub use shell::{AppShell, AppShellProps};
 pub use status_bar::{StatusBar, StatusBarProps, status_parts};
 pub use theme::{Theme, ThemeProvider, ThemeProviderProps, resolve_theme};
+pub use welcome::{WelcomeScreen, WelcomeScreenProps};
 
 pub(crate) fn wrapped_line_count(content: &str, width: u16) -> usize {
     if width == 0 {

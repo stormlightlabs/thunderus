@@ -25,6 +25,7 @@ iocraft = "0.7.18"
 smol = "2.0.2"
 
 [dev-dependencies]
+futures = "0.3"
 
 [lints]
 workspace = true
