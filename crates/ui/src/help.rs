@@ -25,8 +25,8 @@ use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use thndrs_mem::{Session, SessionManager};
 use thndrs_ui_macros::AreaSpec;
 
-const HELP_TABS: &[&str] = &["Keyboard Shortcuts", "Commands", "Tips", "About", "Tutorial"];
-const TIPS: &[&str] = &[
+pub(crate) const HELP_TABS: &[&str] = &["Keyboard Shortcuts", "Commands", "Tips", "About", "Tutorial"];
+pub(crate) const TIPS: &[&str] = &[
     "Use @ to reference files in your workspace. Type @ followed by the filename to include file context.",
     "Use Up/Down to cycle previous prompts in chat and recover drafts",
     "Use your terminal scrollback to review older conversation output",
@@ -38,7 +38,7 @@ const TIPS: &[&str] = &[
     "Recent conversations are automatically saved and can be resumed",
 ];
 
-const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
+pub(crate) const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
     (
         "Navigation",
         &[
@@ -75,7 +75,7 @@ const SHORTCUTS: &[(&str, &[(&str, &str)])] = &[
     ),
 ];
 
-const COMMANDS: &[(&str, &str)] = &[
+pub(crate) const COMMANDS: &[(&str, &str)] = &[
     ("/help", "Show this help menu"),
     ("/clear", "Clear current conversation"),
     ("/model", "Show current AI model"),
@@ -744,6 +744,14 @@ fn format_time_ago(timestamp: &DateTime<Utc>) -> String {
     } else {
         timestamp.format("%Y-%m-%d").to_string()
     }
+}
+
+pub(crate) fn help_tabs() -> &'static [&'static str] {
+    HELP_TABS
+}
+
+pub(crate) fn format_help_time_ago(timestamp: &DateTime<Utc>) -> String {
+    format_time_ago(timestamp)
 }
 
 #[cfg(test)]

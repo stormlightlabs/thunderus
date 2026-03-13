@@ -1,23 +1,17 @@
 //! Workspace file browser, syntax highlighting, and fuzzy file finder.
 
 mod highlight;
-mod render;
 mod tree;
 
 use super::ScreenAction;
-use super::layout::ConstraintSpec;
 use crate::finder::FuzzyFinder;
 use crate::finder::fuzzy_match_items;
 use crate::scroll::ScrollState;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use ratatui::Frame;
-use ratatui::layout::{Constraint, Direction, Rect};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use thndrs_ui_macros::AreaSpec;
 
 pub use highlight::{HighlightSegment, HighlightedLine};
-pub use render::draw_file_browser_screen;
 
 const MAX_FINDER_RESULTS: usize = 12;
 const MAX_PROMPT_FILE_BYTES: usize = 16_384;
@@ -62,19 +56,6 @@ pub enum FileBrowserAction {
     None,
     Quit,
     ExitToChat,
-}
-
-#[derive(AreaSpec)]
-pub struct FileBrowserShell;
-
-impl ConstraintSpec for FileBrowserShell {
-    fn direction(&self) -> Direction {
-        Direction::Vertical
-    }
-
-    fn constraints(&self, _area: Rect) -> Vec<Constraint> {
-        vec![Constraint::Min(0), Constraint::Length(1), Constraint::Length(3)]
-    }
 }
 
 impl Default for FileBrowserApp {
@@ -481,10 +462,6 @@ pub(crate) fn update(model: &mut FileBrowserModel, msg: FilesMsg) -> ScreenActio
             FileBrowserAction::ExitToChat => ScreenAction::ReturnToPrevious,
         },
     }
-}
-
-pub fn view(frame: &mut Frame, model: &FileBrowserModel) {
-    draw_file_browser_screen(frame, model);
 }
 
 pub fn workspace_files(root: &Path) -> Vec<PathBuf> {

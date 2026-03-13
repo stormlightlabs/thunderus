@@ -13,12 +13,29 @@ const HINT_ROW_HEIGHT: u16 = 1;
 const STATUS_ROW_HEIGHT: u16 = 2;
 const FINDER_HEIGHT: u16 = 12;
 
-#[derive(Default, Props)]
+#[derive(Props)]
 pub struct FileBrowserProps {
     pub initial_browser: Option<FileBrowserApp>,
+    pub revision: u64,
+    pub active: bool,
+    pub handle_events: bool,
     pub viewport_width: u16,
     pub viewport_height: u16,
     pub on_action: HandlerMut<'static, ScreenAction>,
+}
+
+impl Default for FileBrowserProps {
+    fn default() -> Self {
+        Self {
+            initial_browser: None,
+            revision: 0,
+            active: true,
+            handle_events: true,
+            viewport_width: 0,
+            viewport_height: 0,
+            on_action: HandlerMut::default(),
+        }
+    }
 }
 
 struct FileBrowserCallbacks {
@@ -37,10 +54,26 @@ pub fn FileBrowser(mut hooks: Hooks, props: &mut FileBrowserProps) -> impl Into<
     });
     let callbacks = hooks.use_ref(|| FileBrowserCallbacks { on_action: props.on_action.take() });
 
+    hooks.use_effect(
+        {
+            let mut model = model;
+            let initial_browser = props.initial_browser.clone();
+            move || {
+                model.set(initial_browser.clone().unwrap_or_default());
+            }
+        },
+        [props.revision],
+    );
+
     hooks.use_terminal_events({
         let mut model = model;
         let mut callbacks = callbacks;
+        let active = props.active;
+        let handle_events = props.handle_events;
         move |event| {
+            if !active || !handle_events {
+                return;
+            }
             if let TerminalEvent::Key(key) = event
                 && key.kind == KeyEventKind::Press
             {

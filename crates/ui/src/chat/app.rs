@@ -1,5 +1,5 @@
 use super::{ChatFileFinder, ChatMessage, IncomingStreamEvent, MessageRole, StreamingState, TokenUsage};
-use super::{input_render, measure, render};
+use super::{input_render, measure};
 use crate::ScreenAction;
 use crate::colors;
 use crate::components::wrapped_line_count;
@@ -544,10 +544,6 @@ impl ChatApp {
         }
     }
 
-    pub fn draw_chat_screen(&self, frame: &mut Frame) {
-        render::draw_chat_screen(frame, self);
-    }
-
     pub fn chat_input_row_height(&self, area_width: u16) -> u16 {
         input_render::chat_input_row_height(self.chat_input_content_line_count(area_width))
     }
@@ -826,10 +822,6 @@ pub(crate) fn update(model: &mut ChatModel, msg: ChatMsg) -> ScreenAction {
             ScreenAction::None
         }
     }
-}
-
-pub fn view(frame: &mut Frame, model: &ChatModel) {
-    render::draw_chat_screen(frame, model);
 }
 
 #[cfg(test)]

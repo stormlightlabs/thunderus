@@ -5,7 +5,6 @@ mod formatters;
 mod input_render;
 mod measure;
 mod message_render;
-mod render;
 mod tool_render;
 
 use super::components::ToolCallState;
@@ -15,10 +14,9 @@ use std::path::PathBuf;
 use thndrs_core::ResponseSections;
 use tool_render::TaskItem;
 
-pub use app::{ChatApp, ChatModel, ChatMsg, view};
+pub use app::{ChatApp, ChatModel, ChatMsg};
 pub(crate) use app::{map_chat_key_to_msg, update};
 pub(crate) use formatters::u32_with_grouping;
-pub use render::draw_chat_screen;
 
 type ChatFileFinder = crate::finder::FuzzyFinder<PathBuf>;
 

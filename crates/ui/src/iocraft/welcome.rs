@@ -15,14 +15,35 @@ const PROMPT_PREFIX: &str = "❯ ";
 const CONTINUATION_PREFIX: &str = "  ";
 const WELCOME_GREETING: &str = "Thunderus - What can I help you build?";
 
-#[derive(Default, Props)]
+#[derive(Props)]
 pub struct WelcomeScreenProps<'a> {
+    pub initial_model: Option<legacy_welcome::WelcomeApp>,
+    pub revision: u64,
+    pub active: bool,
+    pub handle_events: bool,
     pub suggestions: Vec<String>,
     pub overlay: Option<AnyElement<'a>>,
     pub on_submit: HandlerMut<'static, String>,
     pub on_command: HandlerMut<'static, String>,
     pub on_action: HandlerMut<'static, ScreenAction>,
     pub on_activate_file_finder: HandlerMut<'static, ()>,
+}
+
+impl Default for WelcomeScreenProps<'_> {
+    fn default() -> Self {
+        Self {
+            initial_model: None,
+            revision: 0,
+            active: true,
+            handle_events: true,
+            suggestions: Vec::new(),
+            overlay: None,
+            on_submit: HandlerMut::from(|_| {}),
+            on_command: HandlerMut::from(|_| {}),
+            on_action: HandlerMut::from(|_| {}),
+            on_activate_file_finder: HandlerMut::from(|_| {}),
+        }
+    }
 }
 
 struct WelcomeCallbacks {
@@ -49,7 +70,7 @@ enum RenderedPrefixColor {
 pub fn WelcomeScreen<'a>(mut hooks: Hooks, props: &mut WelcomeScreenProps<'a>) -> impl Into<AnyElement<'a>> {
     let theme = resolve_theme(&hooks);
     let suggestions_override = if props.suggestions.is_empty() { None } else { Some(props.suggestions.clone()) };
-    let model = hooks.use_state(move || initial_model(suggestions_override));
+    let model = hooks.use_state(move || build_initial_model(suggestions_override));
     let callbacks = hooks.use_ref(|| WelcomeCallbacks {
         on_submit: props.on_submit.take(),
         on_command: props.on_command.take(),
@@ -57,10 +78,32 @@ pub fn WelcomeScreen<'a>(mut hooks: Hooks, props: &mut WelcomeScreenProps<'a>) -
         on_activate_file_finder: props.on_activate_file_finder.take(),
     });
 
+    hooks.use_effect(
+        {
+            let mut model = model;
+            let next_model = props.initial_model.clone();
+            let suggestions_override =
+                if props.suggestions.is_empty() { None } else { Some(props.suggestions.clone()) };
+            move || {
+                if let Some(initial_model) = next_model.clone() {
+                    model.set(initial_model);
+                } else {
+                    model.set(build_initial_model(suggestions_override.clone()));
+                }
+            }
+        },
+        [props.revision],
+    );
+
     hooks.use_terminal_events({
         let mut model = model;
         let mut callbacks = callbacks;
+        let active = props.active;
+        let handle_events = props.handle_events;
         move |event| {
+            if !active || !handle_events {
+                return;
+            }
             if let TerminalEvent::Key(key) = event
                 && let Some(msg) = map_terminal_key_to_msg(&key)
             {
@@ -167,7 +210,7 @@ pub fn WelcomeScreen<'a>(mut hooks: Hooks, props: &mut WelcomeScreenProps<'a>) -
     }
 }
 
-fn initial_model(suggestions: Option<Vec<String>>) -> legacy_welcome::WelcomeApp {
+fn build_initial_model(suggestions: Option<Vec<String>>) -> legacy_welcome::WelcomeApp {
     let mut model = legacy_welcome::WelcomeApp::new();
     if let Some(suggestions) = suggestions {
         model.suggestions = suggestions;

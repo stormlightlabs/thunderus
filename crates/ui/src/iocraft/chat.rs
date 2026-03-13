@@ -21,15 +21,37 @@ const HINT_ROW_HEIGHT: u16 = 1;
 const FILE_FINDER_HEIGHT: u16 = 12;
 const FILE_FINDER_MAX_ITEMS: usize = 8;
 
-#[derive(Default, Props)]
+#[derive(Props)]
 pub struct ChatScreenProps {
     pub initial_chat: Option<ChatApp>,
+    pub revision: u64,
+    pub active: bool,
+    pub handle_events: bool,
+    pub handle_stream: bool,
     pub viewport_width: u16,
     pub viewport_height: u16,
     pub stream_rx: Option<Arc<Mutex<Receiver<IncomingStreamEvent>>>>,
     pub on_submit: HandlerMut<'static, String>,
     pub on_command: HandlerMut<'static, String>,
     pub on_action: HandlerMut<'static, ScreenAction>,
+}
+
+impl Default for ChatScreenProps {
+    fn default() -> Self {
+        Self {
+            initial_chat: None,
+            revision: 0,
+            active: true,
+            handle_events: true,
+            handle_stream: true,
+            viewport_width: 0,
+            viewport_height: 0,
+            stream_rx: None,
+            on_submit: HandlerMut::default(),
+            on_command: HandlerMut::default(),
+            on_action: HandlerMut::default(),
+        }
+    }
 }
 
 struct ChatCallbacks {
@@ -43,6 +65,13 @@ struct RenderedLine {
     text: String,
     color: Color,
     weight: Weight,
+}
+
+#[derive(Default, Props)]
+pub struct ChatFileFinderOverlayProps {
+    pub chat: ChatApp,
+    pub viewport_width: u16,
+    pub viewport_height: u16,
 }
 
 impl RenderedLine {
@@ -120,11 +149,27 @@ pub fn ChatScreen(mut hooks: Hooks, props: &mut ChatScreenProps) -> impl Into<An
         on_action: props.on_action.take(),
     });
 
+    hooks.use_effect(
+        {
+            let mut model = model;
+            let initial_chat = props.initial_chat.clone();
+            move || {
+                model.set(initial_chat.clone().unwrap_or_default());
+            }
+        },
+        [props.revision],
+    );
+
     hooks.use_terminal_events({
         let mut model = model;
         let mut callbacks = callbacks;
         let mut scroll_rows = scroll_rows;
+        let active = props.active;
+        let handle_events = props.handle_events;
         move |event| {
+            if !active || !handle_events {
+                return;
+            }
             if let TerminalEvent::Key(key) = event {
                 match key.code {
                     KeyCode::PageUp if key.kind == KeyEventKind::Press => {
@@ -165,7 +210,11 @@ pub fn ChatScreen(mut hooks: Hooks, props: &mut ChatScreenProps) -> impl Into<An
         let mut callbacks = callbacks;
         let mut scroll_rows = scroll_rows;
         let stream_rx = props.stream_rx.clone();
+        let handle_stream = props.handle_stream;
         async move {
+            if !handle_stream {
+                return;
+            }
             let Some(stream_rx) = stream_rx else {
                 return;
             };
@@ -726,6 +775,13 @@ fn file_finder_overlay(
         }
     }
     .into_any()
+}
+
+#[component]
+pub fn ChatFileFinderOverlay(hooks: Hooks, props: &ChatFileFinderOverlayProps) -> impl Into<AnyElement<'static>> {
+    let theme = resolve_theme(&hooks);
+
+    file_finder_overlay(&props.chat, props.viewport_width, props.viewport_height, theme)
 }
 
 fn prefixed_lines(

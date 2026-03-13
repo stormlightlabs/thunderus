@@ -1,20 +1,26 @@
+pub mod app;
 pub mod card;
 pub mod chat;
 pub mod files;
+pub mod help;
 pub mod hint_bar;
 pub mod input_field;
 pub mod section_block;
+pub mod settings;
 pub mod shell;
 pub mod status_bar;
 pub mod theme;
 pub mod welcome;
 
+pub use app::{AppRoot, AppRootProps, run_iocraft_app};
 pub use card::{SuggestionCard, SuggestionCardProps, required_height};
-pub use chat::{ChatScreen, ChatScreenProps};
+pub use chat::{ChatFileFinderOverlay, ChatFileFinderOverlayProps, ChatScreen, ChatScreenProps};
 pub use files::{FileBrowser, FileBrowserProps};
+pub use help::{HelpScreen, HelpScreenProps};
 pub use hint_bar::{HintBar, HintBarProps, HintToken};
 pub use input_field::{InputField, InputFieldProps};
 pub use section_block::{SectionBlock, SectionBlockProps, SectionTone, estimate_height};
+pub use settings::{SettingsScreen, SettingsScreenProps};
 pub use shell::{AppShell, AppShellProps};
 pub use status_bar::{StatusBar, StatusBarProps, status_parts};
 pub use theme::{Theme, ThemeProvider, ThemeProviderProps, resolve_theme};

@@ -244,6 +244,10 @@ impl SettingItem {
     }
 }
 
+pub(crate) fn setting_groups() -> &'static [&'static str] {
+    SETTING_GROUPS
+}
+
 /// Settings application state
 #[derive(Debug, Clone)]
 pub struct SettingsApp {
@@ -381,7 +385,7 @@ impl SettingsApp {
         self.scroll.ensure_visible(self.active_setting_index);
     }
 
-    fn current_group_settings(&self) -> Vec<SettingItem> {
+    pub(crate) fn current_group_settings(&self) -> Vec<SettingItem> {
         match SETTING_GROUPS[self.selected_group] {
             "General" => self.general_settings(),
             "Appearance" => self.appearance_settings(),
@@ -646,6 +650,20 @@ impl SettingsApp {
 
     pub fn version_string() -> String {
         app_version_string()
+    }
+
+    pub(crate) fn current_group_name(&self) -> &'static str {
+        SETTING_GROUPS[self.selected_group]
+    }
+
+    pub(crate) fn active_setting_index(&self) -> usize {
+        self.active_setting_index
+    }
+
+    pub(crate) fn status_text(&self) -> String {
+        self.status_message
+            .as_deref()
+            .map_or_else(|| "Settings".to_string(), ToOwned::to_owned)
     }
 }
 
