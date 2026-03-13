@@ -47,6 +47,7 @@ pub enum ChatMsg {
 
 pub type ChatModel = ChatApp;
 
+#[derive(Debug, Clone)]
 pub struct ChatApp {
     pub messages: Vec<ChatMessage>,
     pub rendered_messages: usize,
@@ -263,6 +264,27 @@ impl ChatApp {
 
     pub fn is_file_finder_active(&self) -> bool {
         self.file_finder.active
+    }
+
+    pub fn file_finder_query(&self) -> &str {
+        &self.file_finder.query
+    }
+
+    pub fn file_finder_rows(&self, limit: usize) -> Vec<(bool, bool, String)> {
+        self.file_finder
+            .filtered_items()
+            .take(limit)
+            .enumerate()
+            .map(|(idx, path)| {
+                let selected = idx == self.file_finder.selected;
+                let pinned = self.pinned_files.iter().any(|candidate| candidate == path);
+                (selected, pinned, path.display().to_string())
+            })
+            .collect()
+    }
+
+    pub fn submission_warning(&self) -> Option<&str> {
+        self.submission_warning.as_deref()
     }
 
     pub fn append_stream(&mut self, content: &str, reasoning: Option<&str>) {
