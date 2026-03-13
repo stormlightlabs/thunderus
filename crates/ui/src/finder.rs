@@ -18,10 +18,6 @@ impl<T> FuzzyFinder<T> {
         self.selected = 0;
     }
 
-    pub fn filtered_len(&self) -> usize {
-        self.filtered.len()
-    }
-
     pub fn move_up(&mut self) {
         self.selected = self.selected.saturating_sub(1);
     }
@@ -64,14 +60,6 @@ impl<T: Clone> FuzzyFinder<T> {
     {
         self.filtered = fuzzy_match_items(&self.query, &self.items, limit, key);
         self.clamp_selection();
-    }
-
-    pub fn update_query<F>(&mut self, query: String, key: F, limit: usize)
-    where
-        F: Fn(&T) -> String,
-    {
-        self.query = query;
-        self.refresh(key, limit);
     }
 }
 
@@ -125,9 +113,10 @@ mod tests {
         let mut finder = FuzzyFinder::default();
         finder.activate_with_items(vec!["src/main.rs".to_string(), "src/lib.rs".to_string()]);
         finder.selected = 10;
-        finder.update_query("main".to_string(), |value| value.clone(), 10);
+        finder.query = "main".to_string();
+        finder.refresh(|value| value.clone(), 10);
 
-        assert_eq!(finder.filtered_len(), 1);
+        assert_eq!(finder.filtered.len(), 1);
         assert_eq!(finder.selected, 0);
         assert_eq!(finder.selected_item().map(String::as_str), Some("src/main.rs"));
     }

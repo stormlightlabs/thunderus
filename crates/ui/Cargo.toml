@@ -5,10 +5,8 @@ edition = "2024"
 
 [dependencies]
 thndrs-core = { path = "../core" }
-thndrs-ui-macros = { path = "../macros" }
 thndrs-mem = { path = "../memory" }
 
-ratatui = { version = "0.29", features = ["all-widgets"] }
 crossterm = { version = "0.28", features = ["event-stream"] }
 thiserror = "2.0"
 tracing = "0.1"

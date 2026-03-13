@@ -1,17 +1,17 @@
 //! Workspace file browser, syntax highlighting, and fuzzy file finder.
 
 mod highlight;
+mod screen;
 mod tree;
 
-use super::ScreenAction;
 use crate::finder::FuzzyFinder;
-use crate::finder::fuzzy_match_items;
 use crate::scroll::ScrollState;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-pub use highlight::{HighlightSegment, HighlightedLine};
+pub(crate) use highlight::{HighlightSegment, HighlightedLine};
+pub(crate) use screen::FileBrowser;
 
 const MAX_FINDER_RESULTS: usize = 12;
 const MAX_PROMPT_FILE_BYTES: usize = 16_384;
@@ -19,7 +19,7 @@ const DEFAULT_TREE_PAGE_SIZE: usize = 10;
 const DEFAULT_CONTENT_PAGE_SIZE: usize = 20;
 
 #[derive(Debug, Clone)]
-pub struct FileBrowserApp {
+pub(crate) struct FileBrowserApp {
     workspace_root: PathBuf,
     root: tree::FileNode,
     files: Vec<PathBuf>,
@@ -35,7 +35,7 @@ pub struct FileBrowserApp {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FileTreeRow {
+pub(crate) struct FileTreeRow {
     pub name: String,
     pub depth: u16,
     pub is_dir: bool,
@@ -45,14 +45,7 @@ pub struct FileTreeRow {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FilesMsg {
-    Key(KeyEvent),
-}
-
-pub type FileBrowserModel = FileBrowserApp;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FileBrowserAction {
+pub(crate) enum FileBrowserAction {
     None,
     Quit,
     ExitToChat,
@@ -66,7 +59,7 @@ impl Default for FileBrowserApp {
 }
 
 impl FileBrowserApp {
-    pub fn new(workspace_root: PathBuf) -> Self {
+    pub(crate) fn new(workspace_root: PathBuf) -> Self {
         let root_name = workspace_root
             .file_name()
             .and_then(|name| name.to_str())
@@ -95,7 +88,7 @@ impl FileBrowserApp {
         app
     }
 
-    pub fn reload_workspace(&mut self) -> std::io::Result<()> {
+    pub(crate) fn reload_workspace(&mut self) -> std::io::Result<()> {
         let (mut root, files) = tree::build_workspace_index(&self.workspace_root)?;
         root.sort_recursive();
 
@@ -127,7 +120,7 @@ impl FileBrowserApp {
         Ok(())
     }
 
-    pub fn load_debug_fixture(&mut self) {
+    pub(crate) fn load_debug_fixture(&mut self) {
         self.root = tree::build_debug_tree();
         self.files = tree::collect_files(&self.root);
         self.expanded_dirs.clear();
@@ -154,7 +147,7 @@ impl FileBrowserApp {
         }
     }
 
-    pub fn handle_input(&mut self, key: KeyEvent) -> FileBrowserAction {
+    pub(crate) fn handle_input(&mut self, key: KeyEvent) -> FileBrowserAction {
         if key.kind != KeyEventKind::Press {
             return FileBrowserAction::None;
         }
@@ -356,7 +349,7 @@ impl FileBrowserApp {
         self.tree_scroll.ensure_visible(self.selected_index);
     }
 
-    pub fn sync_viewports(&mut self, tree_page_size: usize, content_page_size: usize) -> bool {
+    pub(crate) fn sync_viewports(&mut self, tree_page_size: usize, content_page_size: usize) -> bool {
         let tree_page_size = tree_page_size.max(1);
         let content_page_size = content_page_size.max(1);
         let changed =
@@ -370,11 +363,11 @@ impl FileBrowserApp {
         changed
     }
 
-    pub fn workspace_title(&self) -> String {
+    pub(crate) fn workspace_title(&self) -> String {
         self.workspace_root.display().to_string()
     }
 
-    pub fn tree_rows(&self) -> Vec<FileTreeRow> {
+    pub(crate) fn tree_rows(&self) -> Vec<FileTreeRow> {
         self.visible_entries
             .iter()
             .enumerate()
@@ -391,7 +384,7 @@ impl FileBrowserApp {
             .collect()
     }
 
-    pub fn breadcrumb(&self) -> String {
+    pub(crate) fn breadcrumb(&self) -> String {
         let root = self
             .workspace_root
             .file_name()
@@ -413,7 +406,7 @@ impl FileBrowserApp {
         parts.join(" > ")
     }
 
-    pub fn content_rows(&self) -> Vec<HighlightedLine> {
+    pub(crate) fn content_rows(&self) -> Vec<HighlightedLine> {
         self.highlighted_lines
             .iter()
             .skip(self.content_scroll.offset)
@@ -422,23 +415,23 @@ impl FileBrowserApp {
             .collect()
     }
 
-    pub fn content_line_number_width(&self) -> usize {
+    pub(crate) fn content_line_number_width(&self) -> usize {
         self.highlighted_lines.len().to_string().len().max(3)
     }
 
-    pub fn status_line(&self) -> &str {
+    pub(crate) fn status_line(&self) -> &str {
         &self.status_line
     }
 
-    pub fn is_finder_active(&self) -> bool {
+    pub(crate) fn is_finder_active(&self) -> bool {
         self.finder.active
     }
 
-    pub fn finder_query(&self) -> &str {
+    pub(crate) fn finder_query(&self) -> &str {
         &self.finder.query
     }
 
-    pub fn finder_rows(&self) -> Vec<(bool, String)> {
+    pub(crate) fn finder_rows(&self) -> Vec<(bool, String)> {
         self.finder
             .filtered_items()
             .enumerate()
@@ -447,60 +440,15 @@ impl FileBrowserApp {
     }
 }
 
-pub(crate) fn map_files_key_to_msg(key: KeyEvent) -> Option<FilesMsg> {
-    if key.kind != KeyEventKind::Press {
-        return None;
-    }
-    Some(FilesMsg::Key(key))
-}
-
-pub(crate) fn update(model: &mut FileBrowserModel, msg: FilesMsg) -> ScreenAction {
-    match msg {
-        FilesMsg::Key(key) => match FileBrowserApp::handle_input(model, key) {
-            FileBrowserAction::None => ScreenAction::None,
-            FileBrowserAction::Quit => ScreenAction::Quit,
-            FileBrowserAction::ExitToChat => ScreenAction::ReturnToPrevious,
-        },
-    }
-}
-
-pub fn workspace_files(root: &Path) -> Vec<PathBuf> {
+pub(crate) fn workspace_files(root: &Path) -> Vec<PathBuf> {
     tree::workspace_files(root)
 }
 
-pub fn fuzzy_match_paths(query: &str, candidates: &[PathBuf], limit: usize) -> Vec<PathBuf> {
-    fuzzy_match_items(query, candidates, limit, |path| path.display().to_string())
-        .into_iter()
-        .filter_map(|(idx, _)| candidates.get(idx).cloned())
-        .collect()
-}
-
-pub fn read_file_for_prompt(root: &Path, relative_path: &Path) -> Option<String> {
-    read_file_for_prompt_result(root, relative_path).ok()
-}
-
-pub fn read_file_for_prompt_result(root: &Path, relative_path: &Path) -> std::io::Result<String> {
+pub(crate) fn read_file_for_prompt_result(root: &Path, relative_path: &Path) -> std::io::Result<String> {
     let absolute = root.join(relative_path);
     let mut content = std::fs::read_to_string(absolute)?;
     if content.len() > MAX_PROMPT_FILE_BYTES {
         content.truncate(MAX_PROMPT_FILE_BYTES);
     }
     Ok(content)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_fuzzy_match_paths_returns_expected_matches() {
-        let candidates = vec![
-            PathBuf::from("src/main.rs"),
-            PathBuf::from("src/lib.rs"),
-            PathBuf::from("README.md"),
-        ];
-
-        let results = fuzzy_match_paths("main", &candidates, 10);
-        assert!(results.iter().any(|path| path == Path::new("src/main.rs")));
-    }
 }

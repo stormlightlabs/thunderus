@@ -1,5 +1,4 @@
-use super::Cmd;
-use super::chat::ChatMessage;
+use crate::chat::ChatMessage;
 use thndrs_core::Role;
 use thndrs_mem::{LogStore, MemoryDatabase, MemoryStore, SessionManager};
 
@@ -22,14 +21,7 @@ pub enum SlashCommand {
     Unknown(String),
 }
 
-pub(crate) fn dispatch(raw: &str) -> Cmd {
-    match parse_slash_command(raw) {
-        SlashCommand::Empty => Cmd::None,
-        command => Cmd::RunSlash(command),
-    }
-}
-
-fn parse_slash_command(raw: &str) -> SlashCommand {
+pub(crate) fn parse(raw: &str) -> SlashCommand {
     let command = raw.trim();
     if command.is_empty() || command == "/" {
         return SlashCommand::Empty;
@@ -202,41 +194,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_slash_command() {
-        assert_eq!(parse_slash_command("/debug chat"), SlashCommand::DebugChat);
-        assert_eq!(parse_slash_command("/debug files"), SlashCommand::DebugFiles);
-        assert_eq!(parse_slash_command("/files"), SlashCommand::Files);
-        assert_eq!(parse_slash_command("/history"), SlashCommand::History);
+    fn parse_slash_command() {
+        assert_eq!(parse("/debug chat"), SlashCommand::DebugChat);
+        assert_eq!(parse("/debug files"), SlashCommand::DebugFiles);
+        assert_eq!(parse("/files"), SlashCommand::Files);
+        assert_eq!(parse("/history"), SlashCommand::History);
+        assert_eq!(parse("/resume abc123"), SlashCommand::Resume("abc123".to_string()));
+        assert_eq!(parse("/clear"), SlashCommand::Clear);
+        assert_eq!(parse("/tokens"), SlashCommand::Tokens);
+        assert_eq!(parse("/model"), SlashCommand::Model);
+        assert_eq!(parse("/debug memory stats"), SlashCommand::DebugMemoryStats);
         assert_eq!(
-            parse_slash_command("/resume abc123"),
-            SlashCommand::Resume("abc123".to_string())
-        );
-        assert_eq!(parse_slash_command("/clear"), SlashCommand::Clear);
-        assert_eq!(parse_slash_command("/tokens"), SlashCommand::Tokens);
-        assert_eq!(parse_slash_command("/model"), SlashCommand::Model);
-        assert_eq!(
-            parse_slash_command("/debug memory stats"),
-            SlashCommand::DebugMemoryStats
-        );
-        assert_eq!(
-            parse_slash_command("/debug memory recall rust sqlite"),
+            parse("/debug memory recall rust sqlite"),
             SlashCommand::DebugMemoryRecall("rust sqlite".to_string())
         );
-        assert_eq!(
-            parse_slash_command("/debug log sess-1"),
-            SlashCommand::DebugLog("sess-1".to_string())
-        );
-        assert_eq!(parse_slash_command("/settings"), SlashCommand::Settings);
-        assert_eq!(parse_slash_command("/help"), SlashCommand::HelpCmd);
-        assert_eq!(
-            parse_slash_command("/unknown"),
-            SlashCommand::Unknown("/unknown".to_string())
-        );
-    }
-
-    #[test]
-    fn test_dispatch_returns_cmd() {
-        assert_eq!(dispatch("/"), Cmd::None);
-        assert_eq!(dispatch("/debug chat"), Cmd::RunSlash(SlashCommand::DebugChat));
+        assert_eq!(parse("/debug log sess-1"), SlashCommand::DebugLog("sess-1".to_string()));
+        assert_eq!(parse("/settings"), SlashCommand::Settings);
+        assert_eq!(parse("/help"), SlashCommand::HelpCmd);
+        assert_eq!(parse("/unknown"), SlashCommand::Unknown("/unknown".to_string()));
+        assert_eq!(parse("/"), SlashCommand::Empty);
     }
 }

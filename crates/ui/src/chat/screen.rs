@@ -1,11 +1,11 @@
-use super::hint_bar::HintToken;
-use super::theme::{Theme, resolve_theme};
-use super::{HintBar, InputField};
-use crate::ScreenAction;
+use crate::app::ScreenAction;
 use crate::chat::{
     ChatApp, ChatMessage, ChatMsg, IncomingStreamEvent, MessageRole, StreamingState, ToolCallStatus,
     map_chat_key_to_msg, u32_with_grouping, update as update_chat_model,
 };
+use crate::hint_bar::HintToken;
+use crate::theme::{Theme, resolve_theme};
+use crate::{HintBar, InputField};
 use ::iocraft::prelude::*;
 use chrono::{DateTime, Local, Utc};
 use std::cmp;
@@ -22,18 +22,18 @@ const FILE_FINDER_HEIGHT: u16 = 12;
 const FILE_FINDER_MAX_ITEMS: usize = 8;
 
 #[derive(Props)]
-pub struct ChatScreenProps {
-    pub initial_chat: Option<ChatApp>,
-    pub revision: u64,
-    pub active: bool,
-    pub handle_events: bool,
-    pub handle_stream: bool,
-    pub viewport_width: u16,
-    pub viewport_height: u16,
-    pub stream_rx: Option<Arc<Mutex<Receiver<IncomingStreamEvent>>>>,
-    pub on_submit: HandlerMut<'static, String>,
-    pub on_command: HandlerMut<'static, String>,
-    pub on_action: HandlerMut<'static, ScreenAction>,
+pub(crate) struct ChatScreenProps {
+    pub(crate) initial_chat: Option<ChatApp>,
+    pub(crate) revision: u64,
+    pub(crate) active: bool,
+    pub(crate) handle_events: bool,
+    pub(crate) handle_stream: bool,
+    pub(crate) viewport_width: u16,
+    pub(crate) viewport_height: u16,
+    pub(crate) stream_rx: Option<Arc<Mutex<Receiver<IncomingStreamEvent>>>>,
+    pub(crate) on_submit: HandlerMut<'static, String>,
+    pub(crate) on_command: HandlerMut<'static, String>,
+    pub(crate) on_action: HandlerMut<'static, ScreenAction>,
 }
 
 impl Default for ChatScreenProps {
@@ -68,10 +68,10 @@ struct RenderedLine {
 }
 
 #[derive(Default, Props)]
-pub struct ChatFileFinderOverlayProps {
-    pub chat: ChatApp,
-    pub viewport_width: u16,
-    pub viewport_height: u16,
+pub(crate) struct ChatFileFinderOverlayProps {
+    pub(crate) chat: ChatApp,
+    pub(crate) viewport_width: u16,
+    pub(crate) viewport_height: u16,
 }
 
 impl RenderedLine {
@@ -133,7 +133,7 @@ fn ChatInput(_hooks: Hooks, props: &ChatInputProps) -> impl Into<AnyElement<'sta
 }
 
 #[component]
-pub fn ChatScreen(mut hooks: Hooks, props: &mut ChatScreenProps) -> impl Into<AnyElement<'static>> {
+pub(crate) fn ChatScreen(mut hooks: Hooks, props: &mut ChatScreenProps) -> impl Into<AnyElement<'static>> {
     let theme = resolve_theme(&hooks);
     let (terminal_width, terminal_height) = hooks.use_terminal_size();
     let viewport_width = resolve_dimension(props.viewport_width, terminal_width, DEFAULT_VIEWPORT_WIDTH);
@@ -492,7 +492,7 @@ fn message_lines(
     lines
 }
 
-fn tool_call_lines(tool_call: &crate::ToolCallDisplay, width: u16, theme: Theme) -> Vec<RenderedLine> {
+fn tool_call_lines(tool_call: &super::ToolCallDisplay, width: u16, theme: Theme) -> Vec<RenderedLine> {
     let mut lines = Vec::new();
     let (glyph, color) = tool_call_status_glyph(tool_call.status, theme);
     let summary = if tool_call.arguments.trim().is_empty() {
@@ -521,7 +521,7 @@ fn tool_call_lines(tool_call: &crate::ToolCallDisplay, width: u16, theme: Theme)
                     if tool_call.status == ToolCallStatus::Error { theme.accent_red } else { theme.text_secondary };
                 lines.extend(prefixed_lines("    ", "    ", output, width, output_color));
             }
-            _ if matches!(tool_call.status, ToolCallStatus::Pending | ToolCallStatus::Running) => {
+            _ if tool_call.status == ToolCallStatus::Running => {
                 lines.push(RenderedLine::new("  waiting for tool output", theme.text_muted));
             }
             _ => {}
@@ -533,7 +533,7 @@ fn tool_call_lines(tool_call: &crate::ToolCallDisplay, width: u16, theme: Theme)
 
 fn tool_call_status_glyph(status: ToolCallStatus, theme: Theme) -> (&'static str, Color) {
     match status {
-        ToolCallStatus::Pending | ToolCallStatus::Running => ("◌", theme.accent_yellow),
+        ToolCallStatus::Running => ("◌", theme.accent_yellow),
         ToolCallStatus::Success => ("✓", theme.accent_green),
         ToolCallStatus::Error => ("✕", theme.accent_red),
     }
@@ -778,7 +778,9 @@ fn file_finder_overlay(
 }
 
 #[component]
-pub fn ChatFileFinderOverlay(hooks: Hooks, props: &ChatFileFinderOverlayProps) -> impl Into<AnyElement<'static>> {
+pub(crate) fn ChatFileFinderOverlay(
+    hooks: Hooks, props: &ChatFileFinderOverlayProps,
+) -> impl Into<AnyElement<'static>> {
     let theme = resolve_theme(&hooks);
 
     file_finder_overlay(&props.chat, props.viewport_width, props.viewport_height, theme)
@@ -893,7 +895,7 @@ fn usd(value: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::{ChatScreen, hint_tokens, visible_transcript_lines};
-    use crate::ScreenAction;
+    use crate::app::ScreenAction;
     use crate::chat::{ChatApp, ChatMessage, IncomingStreamEvent, TokenUsage};
     use ::iocraft::prelude::*;
     use futures::stream::{self, StreamExt};

@@ -3,12 +3,11 @@ pub struct ScrollState {
     pub offset: usize,
     pub page_size: usize,
     pub total: usize,
-    follow_tail: bool,
 }
 
 impl ScrollState {
     pub fn with_viewport(total: usize, page_size: usize) -> Self {
-        let mut state = Self { offset: 0, page_size, total, follow_tail: false };
+        let mut state = Self { offset: 0, page_size, total };
         state.clamp();
         state
     }
@@ -30,14 +29,8 @@ impl ScrollState {
     }
 
     pub fn set_offset(&mut self, offset: usize) {
-        self.follow_tail = false;
         self.offset = offset;
         self.clamp();
-    }
-
-    pub fn scroll_to_bottom(&mut self) {
-        self.follow_tail = true;
-        self.offset = self.max_offset();
     }
 
     pub fn max_offset(&self) -> usize {
@@ -45,20 +38,14 @@ impl ScrollState {
     }
 
     pub fn clamp(&mut self) {
-        if self.follow_tail {
-            self.offset = self.max_offset();
-        } else {
-            self.offset = self.offset.min(self.max_offset());
-        }
+        self.offset = self.offset.min(self.max_offset());
     }
 
     pub fn scroll_up(&mut self, n: usize) {
-        self.follow_tail = false;
         self.offset = self.offset.saturating_sub(n);
     }
 
     pub fn scroll_down(&mut self, n: usize) {
-        self.follow_tail = false;
         self.offset = self.offset.saturating_add(n).min(self.max_offset());
     }
 
@@ -73,7 +60,6 @@ impl ScrollState {
     }
 
     pub fn ensure_visible(&mut self, index: usize) {
-        self.follow_tail = false;
         if self.page_size == 0 {
             self.offset = index.min(self.max_offset());
             return;
@@ -98,7 +84,7 @@ mod tests {
 
     #[test]
     fn clamp_keeps_offset_within_bounds() {
-        let mut state = ScrollState { offset: 20, page_size: 5, total: 12, follow_tail: false };
+        let mut state = ScrollState { offset: 20, page_size: 5, total: 12 };
         state.clamp();
         assert_eq!(state.offset, 7);
     }
@@ -119,19 +105,5 @@ mod tests {
         assert_eq!(state.offset, 5);
         state.ensure_visible(3);
         assert_eq!(state.offset, 3);
-    }
-
-    #[test]
-    fn scroll_to_bottom_follows_tail_on_resize() {
-        let mut state = ScrollState::with_viewport(100, 10);
-        state.scroll_to_bottom();
-        assert_eq!(state.offset, 90);
-
-        state.set_viewport(120, 10);
-        assert_eq!(state.offset, 110);
-
-        state.scroll_up(1);
-        state.set_viewport(130, 10);
-        assert_eq!(state.offset, 109);
     }
 }

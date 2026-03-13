@@ -1,22 +1,14 @@
 //! Chat screen components for active conversation
 
 mod app;
-mod formatters;
-mod input_render;
-mod measure;
-mod message_render;
-mod tool_render;
-
-use super::components::ToolCallState;
-use crate::components::wrapped_line_count;
+mod screen;
 use chrono::{DateTime, Utc};
 use std::path::PathBuf;
 use thndrs_core::ResponseSections;
-use tool_render::TaskItem;
 
-pub use app::{ChatApp, ChatModel, ChatMsg};
+pub(crate) use app::{ChatApp, ChatMsg};
 pub(crate) use app::{map_chat_key_to_msg, update};
-pub(crate) use formatters::u32_with_grouping;
+pub(crate) use screen::{ChatFileFinderOverlay, ChatScreen};
 
 type ChatFileFinder = crate::finder::FuzzyFinder<PathBuf>;
 
@@ -49,7 +41,6 @@ impl MessageRole {
 
 #[derive(Debug, Clone)]
 pub struct ToolCallDisplay {
-    pub id: String,
     pub name: String,
     pub arguments: String,
     pub status: ToolCallStatus,
@@ -57,49 +48,8 @@ pub struct ToolCallDisplay {
     pub expanded: bool,
 }
 
-impl ToolCallDisplay {
-    pub fn to_ui_state(&self) -> ToolCallState {
-        tool_render::tool_call_state(self.status)
-    }
-
-    pub fn estimate_height(&self, width: u16) -> u16 {
-        if !&self.expanded {
-            return crate::components::ToolCallCard::collapsed_height();
-        }
-
-        let body_height = self.tool_call_expanded_height(width);
-
-        crate::components::ToolCallCard::collapsed_height() + body_height
-    }
-
-    pub fn tool_call_expanded_height(&self, width: u16) -> u16 {
-        tool_render::tool_call_expanded_height(self, width)
-    }
-
-    pub fn progress_tasks(&self) -> Vec<TaskItem> {
-        match self.status {
-            ToolCallStatus::Pending => vec![
-                TaskItem::new("Queued").running(),
-                TaskItem::new(format!("Execute {}", self.name)),
-                TaskItem::new("Collect output"),
-            ],
-            ToolCallStatus::Running => vec![
-                TaskItem::new("Queued").done(),
-                TaskItem::new(format!("Execute {}", self.name)).running(),
-                TaskItem::new("Collect output"),
-            ],
-            ToolCallStatus::Success | ToolCallStatus::Error => vec![
-                TaskItem::new("Queued").done(),
-                TaskItem::new(format!("Execute {}", self.name)).done(),
-                TaskItem::new("Collect output").done(),
-            ],
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ToolCallStatus {
-    Pending,
     Running,
     Success,
     Error,
@@ -133,6 +83,20 @@ pub enum IncomingStreamEvent {
         is_error: bool,
     },
     Thinking(String),
+}
+
+pub(crate) fn u32_with_grouping(value: u32) -> String {
+    let mut out = String::new();
+    let digits = value.to_string();
+
+    for (idx, ch) in digits.chars().rev().enumerate() {
+        if idx > 0 && idx % 3 == 0 {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+
+    out.chars().rev().collect()
 }
 
 #[derive(Debug, Clone)]
@@ -193,10 +157,6 @@ impl ChatMessage {
         }
     }
 
-    pub fn tool(name: String, output: String) -> Self {
-        Self::tool_at(name, output, Utc::now())
-    }
-
     pub fn tool_at(_name: String, output: String, created_at: DateTime<Utc>) -> Self {
         Self {
             role: MessageRole::Tool,
@@ -239,9 +199,7 @@ impl ChatMessage {
     }
 
     pub fn add_tool_call(&mut self, name: String, arguments: String) -> usize {
-        let id = format!("call_{}", self.tool_calls.len());
         self.tool_calls.push(ToolCallDisplay {
-            id,
             name,
             arguments,
             status: ToolCallStatus::Running,
@@ -274,44 +232,6 @@ impl ChatMessage {
         }
         self.expanded_reasoning = !self.expanded_reasoning;
         true
-    }
-
-    pub fn estimate_height(&self, width: u16) -> u16 {
-        let content_width = width.max(1);
-        let mut height = 1u16;
-
-        match self.role {
-            MessageRole::Assistant => match &self.sections {
-                Some(sections) => {
-                    height += message_render::assistant_section_constraints(sections, content_width)
-                        .iter()
-                        .map(message_render::constraint_length)
-                        .sum::<u16>()
-                }
-                None => {
-                    let content = formatters::normalize_display_content(&self.content);
-                    height += wrapped_line_count(&content, content_width.saturating_sub(2)) as u16;
-                }
-            },
-            MessageRole::Tool => {
-                let content = formatters::normalize_display_content(&self.content);
-                height += wrapped_line_count(&content, content_width.saturating_sub(2)) as u16;
-            }
-            MessageRole::User => height += wrapped_line_count(&self.content, content_width.saturating_sub(2)) as u16,
-        }
-
-        if let Some(reasoning) = self.reasoning_content.as_deref()
-            && !reasoning.trim().is_empty()
-        {
-            height +=
-                message_render::assistant_reasoning_block_height(reasoning, content_width, self.expanded_reasoning);
-        }
-
-        for tool_call in &self.tool_calls {
-            height += tool_call.estimate_height(content_width);
-        }
-
-        height
     }
 }
 

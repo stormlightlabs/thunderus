@@ -1,5 +1,4 @@
 use super::theme::resolve_theme;
-use super::wrapped_line_count;
 use ::iocraft::prelude::*;
 
 #[derive(Default, Props)]
@@ -32,35 +31,10 @@ pub fn SuggestionCard(hooks: Hooks, props: &SuggestionCardProps) -> impl Into<An
     }
 }
 
-pub fn required_height(label: &str, area_width: u16) -> u16 {
-    const MIN_CARD_HEIGHT: u16 = 3;
-    const LABEL_PREFIX_WIDTH: u16 = 3;
-
-    let inner_width = area_width.saturating_sub(2);
-    if inner_width <= LABEL_PREFIX_WIDTH {
-        return MIN_CARD_HEIGHT;
-    }
-
-    let label_width = inner_width - LABEL_PREFIX_WIDTH;
-    let label_lines = wrapped_line_count(label, label_width);
-    (label_lines as u16 + 2).max(MIN_CARD_HEIGHT)
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{SuggestionCard, required_height};
+    use super::SuggestionCard;
     use ::iocraft::prelude::*;
-
-    #[test]
-    fn card_required_height_respects_minimums() {
-        assert_eq!(required_height("hello", 0), 3);
-        assert_eq!(required_height("hello", 5), 3);
-    }
-
-    #[test]
-    fn card_required_height_grows_for_wrapped_labels() {
-        assert!(required_height("this wraps across multiple lines", 10) > 3);
-    }
 
     #[test]
     fn card_renders_icon_label_and_border() {

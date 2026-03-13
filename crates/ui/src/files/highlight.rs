@@ -1,4 +1,4 @@
-use ratatui::style::Color;
+use ::iocraft::prelude::Color;
 use std::path::Path;
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{Theme, ThemeSet};
@@ -11,7 +11,6 @@ pub struct HighlightSegment {
     pub text: String,
     pub fg: Color,
     pub bold: bool,
-    pub italic: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -43,9 +42,8 @@ pub fn highlight_file(path: &Path, content: &str) -> Vec<HighlightedLine> {
             .into_iter()
             .map(|(style, text)| HighlightSegment {
                 text: text.to_string(),
-                fg: Color::Rgb(style.foreground.r, style.foreground.g, style.foreground.b),
+                fg: Color::Rgb { r: style.foreground.r, g: style.foreground.g, b: style.foreground.b },
                 bold: style.font_style.contains(syntect::highlighting::FontStyle::BOLD),
-                italic: style.font_style.contains(syntect::highlighting::FontStyle::ITALIC),
             })
             .collect::<Vec<_>>();
 

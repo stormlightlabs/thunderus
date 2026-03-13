@@ -1,1046 +1,468 @@
-//! Settings screen and configuration management for Thunderus
-//!
-//! Provides a TUI settings interface with:
-//! - Split pane layout: sidebar navigation + settings content
-//! - Setting groups: General, Appearance, Editor, Keyboard, AI Model, Tools, Privacy
-//! - Toggle switches, select dropdowns
-//! - Save/reset actions
-//! - Persistence to ~/.thunderus/config.toml
+use crate::app::ScreenAction;
+use crate::hint_bar::HintToken;
+use crate::settings_state::{SettingItem, SettingsApp, SettingsMsg, setting_groups, update as update_settings_model};
+use crate::theme::{Theme, resolve_theme};
+use crate::{HintBar, InputField};
+use ::iocraft::prelude::*;
 
-use super::ScreenAction;
-use super::components::{HintFooter, HintToken, TopBorderedInputRow, app_version_string};
-use super::layout::{ConstraintSpec, split as split_rects};
-use super::{colors, scroll::ScrollState};
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use ratatui::{
-    Frame,
-    layout::{Constraint, Direction, Rect},
-    style::{Modifier, Style},
-    text::{Line, Span, Text},
-    widgets::{Block, Borders, Clear, Paragraph, Wrap},
-};
-use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
-use thndrs_core::{Config as CoreConfig, CoreError};
-use thndrs_ui_macros::AreaSpec;
+const DEFAULT_VIEWPORT_WIDTH: u16 = 100;
+const DEFAULT_VIEWPORT_HEIGHT: u16 = 28;
+const HINT_ROW_HEIGHT: u16 = 1;
+const STATUS_ROW_HEIGHT: u16 = 2;
+const SIDEBAR_WIDTH: u16 = 20;
 
-const SIDEBAR_WIDTH: u16 = 18;
-const SETTING_GROUPS: &[&str] = &[
-    "General",
-    "Appearance",
-    "Editor",
-    "Keyboard",
-    "AI Model",
-    "Tools",
-    "Privacy",
-];
-const MAX_TEMPERATURE: f32 = 1.0;
-const MIN_TEMPERATURE: f32 = 0.0;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SettingsMsg {
-    Key(KeyEvent),
+#[derive(Props)]
+pub(crate) struct SettingsScreenProps {
+    pub(crate) initial_settings: Option<SettingsApp>,
+    pub(crate) revision: u64,
+    pub(crate) active: bool,
+    pub(crate) handle_events: bool,
+    pub(crate) viewport_width: u16,
+    pub(crate) viewport_height: u16,
+    pub(crate) on_action: HandlerMut<'static, ScreenAction>,
 }
 
-pub type SettingsModel = SettingsApp;
-
-/// UI-specific settings that extend the core configuration
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct UiSettings {
-    /// Auto-save conversations to memory
-    #[serde(default = "default_auto_save")]
-    pub auto_save_conversations: bool,
-
-    /// Show tool executions in chat
-    #[serde(default = "default_show_tools")]
-    pub show_tool_executions: bool,
-
-    /// Play terminal bell sounds for key events
-    #[serde(default = "default_false")]
-    pub sound_effects: bool,
-
-    /// Preferred UI theme label
-    #[serde(default = "default_theme")]
-    pub theme: String,
-
-    /// Preferred editor font size label
-    #[serde(default = "default_font_size")]
-    pub font_size: String,
-
-    /// Line numbers in file view
-    #[serde(default = "default_true")]
-    pub show_line_numbers: bool,
-
-    /// Word wrap in file view
-    #[serde(default = "default_true")]
-    pub word_wrap: bool,
-
-    /// Keyboard mode for navigation and editing
-    #[serde(default = "default_keymap")]
-    pub keymap: String,
-
-    /// Ask for confirmation before exiting the app
-    #[serde(default = "default_true")]
-    pub confirm_before_quit: bool,
-
-    /// Allow tool calls without confirmation prompts
-    #[serde(default = "default_false")]
-    pub auto_approve_safe_tools: bool,
-
-    /// Enable web/network-connected tools when available
-    #[serde(default = "default_true")]
-    pub enable_network_tools: bool,
-
-    /// Redact workspace paths in diagnostics and logs
-    #[serde(default = "default_true")]
-    pub redact_workspace_paths: bool,
-
-    /// Share anonymous usage metrics
-    #[serde(default = "default_false")]
-    pub anonymous_metrics: bool,
-}
-
-impl Default for UiSettings {
+impl Default for SettingsScreenProps {
     fn default() -> Self {
         Self {
-            auto_save_conversations: default_auto_save(),
-            show_tool_executions: default_show_tools(),
-            sound_effects: default_false(),
-            theme: default_theme(),
-            font_size: default_font_size(),
-            show_line_numbers: true,
-            word_wrap: true,
-            keymap: default_keymap(),
-            confirm_before_quit: default_true(),
-            auto_approve_safe_tools: default_false(),
-            enable_network_tools: default_true(),
-            redact_workspace_paths: default_true(),
-            anonymous_metrics: default_false(),
+            initial_settings: None,
+            revision: 0,
+            active: true,
+            handle_events: true,
+            viewport_width: 0,
+            viewport_height: 0,
+            on_action: HandlerMut::default(),
         }
     }
 }
 
-fn default_auto_save() -> bool {
-    true
+struct SettingsCallbacks {
+    on_action: HandlerMut<'static, ScreenAction>,
 }
 
-fn default_show_tools() -> bool {
-    true
-}
+#[component]
+pub(crate) fn SettingsScreen(mut hooks: Hooks, props: &mut SettingsScreenProps) -> impl Into<AnyElement<'static>> {
+    let theme = resolve_theme(&hooks);
+    let (terminal_width, terminal_height) = hooks.use_terminal_size();
+    let viewport_width = resolve_dimension(props.viewport_width, terminal_width, DEFAULT_VIEWPORT_WIDTH);
+    let viewport_height = resolve_dimension(props.viewport_height, terminal_height, DEFAULT_VIEWPORT_HEIGHT);
+    let mut model = hooks.use_state({
+        let initial_settings = props.initial_settings.clone();
+        move || initial_settings.unwrap_or_default()
+    });
+    let callbacks = hooks.use_ref(|| SettingsCallbacks { on_action: props.on_action.take() });
 
-fn default_true() -> bool {
-    true
-}
+    hooks.use_effect(
+        {
+            let mut model = model;
+            let initial_settings = props.initial_settings.clone();
+            move || {
+                model.set(initial_settings.clone().unwrap_or_default());
+            }
+        },
+        [props.revision],
+    );
 
-fn default_false() -> bool {
-    false
-}
-
-fn default_theme() -> String {
-    "Oxocarbon Dark".to_string()
-}
-
-fn default_font_size() -> String {
-    "14px".to_string()
-}
-
-fn default_keymap() -> String {
-    "Default".to_string()
-}
-
-/// Complete settings including core config and UI settings
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-pub struct Settings {
-    #[serde(flatten)]
-    pub core: CoreConfig,
-
-    #[serde(default)]
-    pub ui: UiSettings,
-}
-
-impl Settings {
-    /// Load settings from the default location (~/.thunderus/config.toml)
-    pub fn load_default() -> Result<Self, CoreError> {
-        let path = Self::config_path()?;
-        if path.exists() {
-            let content = std::fs::read_to_string(&path)?;
-            let settings: Settings = toml::from_str(&content).map_err(CoreError::ConfigParse)?;
-            Ok(settings)
-        } else {
-            Ok(Self::default())
-        }
-    }
-
-    /// Save settings to the default location
-    pub fn save_default(&self) -> Result<(), CoreError> {
-        let path = Self::config_path()?;
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let content = toml::to_string_pretty(self).map_err(CoreError::ConfigSerialize)?;
-        std::fs::write(&path, content)?;
-        Ok(())
-    }
-
-    /// Get the configuration file path
-    pub fn config_path() -> Result<PathBuf, CoreError> {
-        let home = dirs::home_dir()
-            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "Home directory not found"))?;
-        Ok(home.join(".thunderus").join("config.toml"))
-    }
-
-    /// Reset to default settings
-    pub fn reset_to_defaults(&mut self) {
-        *self = Self::default();
-    }
-}
-
-/// A setting item that can be rendered and edited
-#[derive(Debug, Clone)]
-pub enum SettingItem {
-    Toggle {
-        name: String,
-        description: String,
-        value: bool,
-        key: String,
-    },
-    Select {
-        name: String,
-        description: String,
-        value: String,
-        options: Vec<String>,
-        key: String,
-    },
-    Number {
-        name: String,
-        description: String,
-        value: f32,
-        min: f32,
-        max: f32,
-        step: f32,
-        key: String,
-    },
-}
-
-impl SettingItem {
-    pub fn key(&self) -> &str {
-        match self {
-            Self::Toggle { key, .. } | Self::Select { key, .. } | Self::Number { key, .. } => key,
-        }
-    }
-
-    pub fn name(&self) -> &str {
-        match self {
-            Self::Toggle { name, .. } | Self::Select { name, .. } | Self::Number { name, .. } => name,
-        }
-    }
-
-    pub fn description(&self) -> &str {
-        match self {
-            Self::Toggle { description, .. } | Self::Select { description, .. } | Self::Number { description, .. } => {
-                description
+    hooks.use_terminal_events({
+        let mut model = model;
+        let mut callbacks = callbacks;
+        let active = props.active;
+        let handle_events = props.handle_events;
+        move |event| {
+            if !active || !handle_events {
+                return;
+            }
+            if let TerminalEvent::Key(key) = event
+                && let Some(msg) = map_terminal_key_to_msg(&key)
+            {
+                dispatch_settings_message(&mut model, &mut callbacks, msg);
             }
         }
+    });
+
+    let mut snapshot = model.read().clone();
+    let main_height = viewport_height
+        .saturating_sub(HINT_ROW_HEIGHT)
+        .saturating_sub(STATUS_ROW_HEIGHT)
+        .max(1);
+    let visible_rows = main_height.saturating_sub(4).max(1) as usize / 3;
+    let visible_rows = visible_rows.max(1);
+    let settings = snapshot.current_group_settings();
+    if snapshot.scroll.page_size != visible_rows || snapshot.scroll.total != settings.len() {
+        snapshot.scroll.set_viewport(settings.len(), visible_rows);
+        model.set(snapshot.clone());
     }
-}
+    let status_line = truncate_text(&snapshot.status_text(), viewport_width.saturating_sub(4) as usize);
 
-pub(crate) fn setting_groups() -> &'static [&'static str] {
-    SETTING_GROUPS
-}
-
-/// Settings application state
-#[derive(Debug, Clone)]
-pub struct SettingsApp {
-    pub settings: Settings,
-    pub selected_group: usize,
-    pub has_changes: bool,
-    pub show_save_dialog: bool,
-    pub show_reset_dialog: bool,
-    pub status_message: Option<String>,
-    pub scroll: ScrollState,
-    active_setting_index: usize,
-    temp_settings: Settings,
-}
-
-impl Default for SettingsApp {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl SettingsApp {
-    pub fn new() -> Self {
-        let (settings, status_message) = match Settings::load_default() {
-            Ok(settings) => (settings, None),
-            Err(error) => (Settings::default(), Some(format!("Failed to load settings: {error}"))),
-        };
-
-        let mut app = Self {
-            temp_settings: settings.clone(),
-            settings,
-            selected_group: 0,
-            has_changes: false,
-            show_save_dialog: false,
-            show_reset_dialog: false,
-            status_message,
-            scroll: ScrollState::with_viewport(0, 8),
-            active_setting_index: 0,
-        };
-        app.sync_scroll_state();
-        app
-    }
-
-    pub fn handle_input(&mut self, key: KeyEvent) {
-        if key.kind != KeyEventKind::Press {
-            return;
-        }
-
-        if self.show_save_dialog {
-            match key.code {
-                KeyCode::Char('y') | KeyCode::Char('Y') => {
-                    if let Err(e) = self.save_settings() {
-                        self.status_message = Some(format!("Error saving: {}", e));
+    element! {
+        View(
+            width: viewport_width,
+            height: viewport_height,
+            flex_direction: FlexDirection::Column,
+            background_color: theme.bg_terminal,
+            position: Position::Relative,
+        ) {
+            View(
+                height: main_height,
+                width: 100pct,
+                flex_direction: FlexDirection::Row,
+                gap: 1,
+                padding_left: 1,
+                padding_right: 1,
+                padding_top: 1,
+            ) {
+                #(settings_sidebar(&snapshot, theme))
+                #(settings_content(&snapshot, &settings, theme))
+            }
+            HintBar(tokens: hint_tokens())
+            View(height: STATUS_ROW_HEIGHT, width: 100pct) {
+                InputField(prompt: "", value: "", has_focus: false, multiline: false, on_change: |_| {}) {
+                    Text(content: status_line, color: theme.text_muted, wrap: TextWrap::NoWrap)
+                }
+            }
+            #(if snapshot.show_save_dialog || snapshot.show_reset_dialog {
+                Some(confirm_dialog(
+                    if snapshot.show_save_dialog {
+                        "Save changes?"
                     } else {
-                        self.status_message = Some("Settings saved successfully".to_string());
-                    }
-                    self.show_save_dialog = false;
-                }
-                KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
-                    self.show_save_dialog = false;
-                }
-                _ => {}
-            }
-            return;
-        }
-
-        if self.show_reset_dialog {
-            match key.code {
-                KeyCode::Char('y') | KeyCode::Char('Y') => {
-                    self.temp_settings.reset_to_defaults();
-                    self.has_changes = true;
-                    self.status_message = Some("Settings reset to defaults. Press Ctrl+S to save.".to_string());
-                    self.show_reset_dialog = false;
-                }
-                KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
-                    self.show_reset_dialog = false;
-                }
-                _ => {}
-            }
-            return;
-        }
-
-        match key.code {
-            KeyCode::Esc => {}
-            KeyCode::Up | KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                if self.selected_group > 0 {
-                    self.selected_group -= 1;
-                    self.active_setting_index = 0;
-                    self.scroll.set_offset(0);
-                    self.sync_scroll_state();
-                }
-            }
-            KeyCode::Down | KeyCode::Char('j') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                if self.selected_group + 1 < SETTING_GROUPS.len() {
-                    self.selected_group += 1;
-                    self.active_setting_index = 0;
-                    self.scroll.set_offset(0);
-                    self.sync_scroll_state();
-                }
-            }
-            KeyCode::Up => {
-                if self.active_setting_index > 0 {
-                    self.active_setting_index -= 1;
-                }
-            }
-            KeyCode::Down => {
-                let count = self.current_group_settings().len();
-                if self.active_setting_index + 1 < count {
-                    self.active_setting_index += 1;
-                }
-            }
-            KeyCode::Enter | KeyCode::Char(' ') => {
-                self.toggle_current_setting();
-            }
-            KeyCode::Left => {
-                self.decrement_current_setting();
-            }
-            KeyCode::Right => {
-                self.increment_current_setting();
-            }
-            KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.show_save_dialog = true;
-            }
-            KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.show_reset_dialog = true;
-            }
-            _ => {}
-        }
-
-        self.sync_scroll_state();
-    }
-
-    fn sync_scroll_state(&mut self) {
-        let total = self.current_group_settings().len();
-        self.scroll.set_viewport(total, 8);
-        self.scroll.ensure_visible(self.active_setting_index);
-    }
-
-    pub(crate) fn current_group_settings(&self) -> Vec<SettingItem> {
-        match SETTING_GROUPS[self.selected_group] {
-            "General" => self.general_settings(),
-            "Appearance" => self.appearance_settings(),
-            "Editor" => self.editor_settings(),
-            "Keyboard" => self.keyboard_settings(),
-            "AI Model" => self.ai_model_settings(),
-            "Tools" => self.tools_settings(),
-            "Privacy" => self.privacy_settings(),
-            _ => Vec::new(),
-        }
-    }
-
-    fn general_settings(&self) -> Vec<SettingItem> {
-        vec![
-            SettingItem::Toggle {
-                name: "Auto-save conversations".to_string(),
-                description: "Automatically save chat history".to_string(),
-                value: self.temp_settings.ui.auto_save_conversations,
-                key: "auto_save_conversations".to_string(),
-            },
-            SettingItem::Toggle {
-                name: "Show tool executions".to_string(),
-                description: "Display tool calls in chat".to_string(),
-                value: self.temp_settings.ui.show_tool_executions,
-                key: "show_tool_executions".to_string(),
-            },
-            SettingItem::Toggle {
-                name: "Sound effects".to_string(),
-                description: "Play sounds on completion".to_string(),
-                value: self.temp_settings.ui.sound_effects,
-                key: "sound_effects".to_string(),
-            },
-        ]
-    }
-
-    fn appearance_settings(&self) -> Vec<SettingItem> {
-        let themes = vec![
-            "Oxocarbon Dark".to_string(),
-            "Oxocarbon Light".to_string(),
-            "Dracula".to_string(),
-        ];
-        let font_sizes = vec!["12px".to_string(), "14px".to_string(), "16px".to_string()];
-
-        vec![
-            SettingItem::Select {
-                name: "Theme".to_string(),
-                description: "Select color scheme".to_string(),
-                value: self.temp_settings.ui.theme.clone(),
-                options: themes,
-                key: "theme".to_string(),
-            },
-            SettingItem::Select {
-                name: "Font size".to_string(),
-                description: "Editor font size".to_string(),
-                value: self.temp_settings.ui.font_size.clone(),
-                options: font_sizes,
-                key: "font_size".to_string(),
-            },
-        ]
-    }
-
-    fn editor_settings(&self) -> Vec<SettingItem> {
-        vec![
-            SettingItem::Toggle {
-                name: "Show line numbers".to_string(),
-                description: "Display line numbers in file view".to_string(),
-                value: self.temp_settings.ui.show_line_numbers,
-                key: "show_line_numbers".to_string(),
-            },
-            SettingItem::Toggle {
-                name: "Word wrap".to_string(),
-                description: "Wrap long lines in editor".to_string(),
-                value: self.temp_settings.ui.word_wrap,
-                key: "word_wrap".to_string(),
-            },
-        ]
-    }
-
-    fn keyboard_settings(&self) -> Vec<SettingItem> {
-        let keymaps = vec!["Default".to_string(), "Vim".to_string()];
-
-        vec![
-            SettingItem::Select {
-                name: "Keyboard preset".to_string(),
-                description: "Navigation/editing keymap".to_string(),
-                value: self.temp_settings.ui.keymap.clone(),
-                options: keymaps,
-                key: "keymap".to_string(),
-            },
-            SettingItem::Toggle {
-                name: "Confirm before quit".to_string(),
-                description: "Require confirmation before exit".to_string(),
-                value: self.temp_settings.ui.confirm_before_quit,
-                key: "confirm_before_quit".to_string(),
-            },
-        ]
-    }
-
-    fn ai_model_settings(&self) -> Vec<SettingItem> {
-        let providers = vec!["moonshot".to_string(), "zhipu".to_string()];
-        let models = vec![
-            "kimi-k2.5".to_string(),
-            "glm-5".to_string(),
-            "glm-5-code".to_string(),
-            "glm-4.7".to_string(),
-            "glm-4.7-flashx".to_string(),
-        ];
-
-        vec![
-            SettingItem::Select {
-                name: "Default provider".to_string(),
-                description: "Provider for new conversations".to_string(),
-                value: self.temp_settings.core.default_provider.clone(),
-                options: providers,
-                key: "default_provider".to_string(),
-            },
-            SettingItem::Select {
-                name: "Default model".to_string(),
-                description: "Model for new conversations".to_string(),
-                value: self
-                    .temp_settings
-                    .core
-                    .default_model
-                    .clone()
-                    .unwrap_or_else(|| "kimi-k2.5".to_string()),
-                options: models,
-                key: "default_model".to_string(),
-            },
-            SettingItem::Number {
-                name: "Temperature".to_string(),
-                description: "Response creativity (0-1)".to_string(),
-                value: self.temp_settings.core.temperature,
-                min: MIN_TEMPERATURE,
-                max: MAX_TEMPERATURE,
-                step: 0.1,
-                key: "temperature".to_string(),
-            },
-        ]
-    }
-
-    fn tools_settings(&self) -> Vec<SettingItem> {
-        vec![
-            SettingItem::Toggle {
-                name: "Auto-approve safe tools".to_string(),
-                description: "Skip confirmation for safe tool calls".to_string(),
-                value: self.temp_settings.ui.auto_approve_safe_tools,
-                key: "auto_approve_safe_tools".to_string(),
-            },
-            SettingItem::Toggle {
-                name: "Enable network tools".to_string(),
-                description: "Allow web/network based tools".to_string(),
-                value: self.temp_settings.ui.enable_network_tools,
-                key: "enable_network_tools".to_string(),
-            },
-        ]
-    }
-
-    fn privacy_settings(&self) -> Vec<SettingItem> {
-        vec![
-            SettingItem::Toggle {
-                name: "Redact workspace paths".to_string(),
-                description: "Hide local paths in logs and diagnostics".to_string(),
-                value: self.temp_settings.ui.redact_workspace_paths,
-                key: "redact_workspace_paths".to_string(),
-            },
-            SettingItem::Toggle {
-                name: "Anonymous metrics".to_string(),
-                description: "Share anonymized usage diagnostics".to_string(),
-                value: self.temp_settings.ui.anonymous_metrics,
-                key: "anonymous_metrics".to_string(),
-            },
-        ]
-    }
-
-    fn toggle_current_setting(&mut self) {
-        let settings = self.current_group_settings();
-        if let Some(item) = settings.get(self.active_setting_index) {
-            match item {
-                SettingItem::Toggle { key, value, .. } => {
-                    let new_value = !value;
-                    self.set_setting_value(key, new_value.to_string());
-                }
-                SettingItem::Select { key, options, value, .. } => {
-                    let current_idx = options.iter().position(|o| o == value).unwrap_or(0);
-                    let next_idx = (current_idx + 1) % options.len();
-                    self.set_setting_value(key, options[next_idx].clone());
-                }
-                _ => {}
-            }
-        }
-    }
-
-    fn increment_current_setting(&mut self) {
-        let settings = self.current_group_settings();
-        if let Some(item) = settings.get(self.active_setting_index) {
-            match item {
-                SettingItem::Number { key, value, max, step, .. } => {
-                    let new_value = (*value + *step).min(*max);
-                    self.set_setting_value(key, new_value.to_string());
-                }
-                SettingItem::Select { key, options, value, .. } => {
-                    let current_idx = options.iter().position(|o| o == value).unwrap_or(0);
-                    let next_idx = (current_idx + 1) % options.len();
-                    self.set_setting_value(key, options[next_idx].clone());
-                }
-                _ => {}
-            }
-        }
-    }
-
-    fn decrement_current_setting(&mut self) {
-        let settings = self.current_group_settings();
-        if let Some(item) = settings.get(self.active_setting_index) {
-            match item {
-                SettingItem::Number { key, value, min, step, .. } => {
-                    let new_value = (*value - *step).max(*min);
-                    self.set_setting_value(key, new_value.to_string());
-                }
-                SettingItem::Select { key, options, value, .. } => {
-                    let current_idx = options.iter().position(|o| o == value).unwrap_or(0);
-                    let prev_idx = if current_idx == 0 { options.len() - 1 } else { current_idx - 1 };
-                    self.set_setting_value(key, options[prev_idx].clone());
-                }
-                _ => {}
-            }
-        }
-    }
-
-    fn set_setting_value(&mut self, key: &str, value: String) {
-        match key {
-            "auto_save_conversations" => self.temp_settings.ui.auto_save_conversations = value.parse().unwrap_or(true),
-            "show_tool_executions" => self.temp_settings.ui.show_tool_executions = value.parse().unwrap_or(true),
-            "sound_effects" => self.temp_settings.ui.sound_effects = value.parse().unwrap_or(false),
-            "theme" => self.temp_settings.ui.theme = value,
-            "font_size" => self.temp_settings.ui.font_size = value,
-            "show_line_numbers" => self.temp_settings.ui.show_line_numbers = value.parse().unwrap_or(true),
-            "word_wrap" => self.temp_settings.ui.word_wrap = value.parse().unwrap_or(true),
-            "keymap" => self.temp_settings.ui.keymap = value,
-            "confirm_before_quit" => self.temp_settings.ui.confirm_before_quit = value.parse().unwrap_or(true),
-            "default_provider" => self.temp_settings.core.default_provider = value,
-            "default_model" => self.temp_settings.core.default_model = Some(value),
-            "temperature" => {
-                if let Ok(temp) = value.parse::<f32>() {
-                    self.temp_settings.core.temperature = temp.clamp(MIN_TEMPERATURE, MAX_TEMPERATURE);
-                }
-            }
-            "auto_approve_safe_tools" => self.temp_settings.ui.auto_approve_safe_tools = value.parse().unwrap_or(false),
-            "enable_network_tools" => self.temp_settings.ui.enable_network_tools = value.parse().unwrap_or(true),
-            "redact_workspace_paths" => self.temp_settings.ui.redact_workspace_paths = value.parse().unwrap_or(true),
-            "anonymous_metrics" => self.temp_settings.ui.anonymous_metrics = value.parse().unwrap_or(false),
-            _ => {}
-        }
-        self.has_changes = self.temp_settings != self.settings;
-    }
-
-    fn save_settings(&mut self) -> Result<(), CoreError> {
-        self.temp_settings.save_default()?;
-        self.settings = self.temp_settings.clone();
-        self.has_changes = false;
-        Ok(())
-    }
-
-    pub fn version_string() -> String {
-        app_version_string()
-    }
-
-    pub(crate) fn current_group_name(&self) -> &'static str {
-        SETTING_GROUPS[self.selected_group]
-    }
-
-    pub(crate) fn active_setting_index(&self) -> usize {
-        self.active_setting_index
-    }
-
-    pub(crate) fn status_text(&self) -> String {
-        self.status_message
-            .as_deref()
-            .map_or_else(|| "Settings".to_string(), ToOwned::to_owned)
-    }
-}
-
-pub(crate) fn map_settings_key_to_msg(key: KeyEvent) -> Option<SettingsMsg> {
-    if key.kind != KeyEventKind::Press {
-        return None;
-    }
-    Some(SettingsMsg::Key(key))
-}
-
-pub(crate) fn update(model: &mut SettingsModel, msg: SettingsMsg) -> ScreenAction {
-    match msg {
-        SettingsMsg::Key(key) => {
-            model.handle_input(key);
-            if key.code == KeyCode::Esc { ScreenAction::ReturnToPrevious } else { ScreenAction::None }
+                        "Reset to defaults?"
+                    },
+                    "y: yes / n: no",
+                    viewport_width,
+                    viewport_height,
+                    theme,
+                ))
+            } else {
+                None
+            })
         }
     }
 }
 
-pub fn view(frame: &mut Frame, model: &SettingsModel) {
-    draw_settings_screen(frame, model);
-}
-
-#[derive(AreaSpec)]
-pub struct SettingsShell;
-
-impl ConstraintSpec for SettingsShell {
-    fn direction(&self) -> Direction {
-        Direction::Vertical
-    }
-
-    fn constraints(&self, _area: Rect) -> Vec<Constraint> {
-        vec![Constraint::Min(0), Constraint::Length(1), Constraint::Length(3)]
-    }
-}
-
-pub fn draw_settings_screen(frame: &mut Frame, app: &SettingsModel) {
-    let size = frame.area();
-    let clear = Block::default().style(Style::default().bg(colors::BG_TERMINAL));
-    frame.render_widget(clear, size);
-
-    let shell = SettingsShell.split(size);
-    if shell.len() < 3 {
-        return;
-    }
-
-    draw_settings_main(frame, shell[0], app);
-    draw_settings_hints(frame, shell[1]);
-    draw_settings_status(frame, shell[2], app);
-
-    if app.show_save_dialog {
-        draw_confirm_dialog(frame, size, "Save changes?", "y: yes / n: no");
-    } else if app.show_reset_dialog {
-        draw_confirm_dialog(frame, size, "Reset to defaults?", "y: yes / n: no");
-    }
-}
-
-fn draw_settings_main(frame: &mut Frame, area: Rect, app: &SettingsApp) {
-    let layout = split_rects(
-        area,
-        Direction::Horizontal,
-        vec![Constraint::Length(SIDEBAR_WIDTH), Constraint::Min(0)],
-    );
-
-    if layout.len() < 2 {
-        return;
-    }
-
-    draw_sidebar(frame, layout[0], app);
-    draw_settings_content(frame, layout[1], app);
-}
-
-fn draw_sidebar(frame: &mut Frame, area: Rect, app: &SettingsApp) {
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(colors::BORDER_COLOR))
-        .style(Style::default().bg(colors::BG_TERMINAL));
-    frame.render_widget(block.clone(), area);
-
-    let inner = block.inner(area);
-    if inner.width == 0 || inner.height == 0 {
-        return;
-    }
-
-    let mut lines = Vec::new();
-
-    lines.push(Line::from(vec![Span::styled(
-        SettingsApp::version_string(),
-        Style::default().fg(colors::TEXT_MUTED).add_modifier(Modifier::BOLD),
-    )]));
-    lines.push(Line::from(""));
-
-    for (idx, group) in SETTING_GROUPS.iter().enumerate() {
-        let is_selected = idx == app.selected_group;
-        let style = if is_selected {
-            Style::default().fg(colors::ACCENT_CYAN).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(colors::TEXT_SECONDARY)
-        };
-
-        let prefix = if is_selected { "› " } else { "  " };
-        lines.push(Line::from(vec![
-            Span::styled(prefix, style),
-            Span::styled((*group).to_string(), style),
-        ]));
-    }
-
-    let text = Text::from(lines);
-    let paragraph = Paragraph::new(text).style(Style::default().bg(colors::BG_TERMINAL));
-    frame.render_widget(paragraph, inner);
-}
-
-fn draw_settings_content(frame: &mut Frame, area: Rect, app: &SettingsApp) {
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(colors::BORDER_COLOR))
-        .style(Style::default().bg(colors::BG_TERMINAL));
-    frame.render_widget(block.clone(), area);
-
-    let inner = block.inner(area);
-    if inner.width == 0 || inner.height == 0 {
-        return;
-    }
-
-    let settings = app.current_group_settings();
-    if settings.is_empty() {
-        let placeholder = Paragraph::new("No settings available for this category")
-            .style(Style::default().fg(colors::TEXT_MUTED))
-            .alignment(ratatui::layout::Alignment::Center);
-        frame.render_widget(placeholder, inner);
-        return;
-    }
-
-    let layout = split_rects(
-        inner,
-        Direction::Vertical,
-        vec![Constraint::Length(1), Constraint::Min(0), Constraint::Length(2)],
-    );
-    if layout.len() < 3 {
-        return;
-    }
-
-    let group_title = SETTING_GROUPS[app.selected_group];
-    let title = Paragraph::new(Span::styled(
-        group_title.to_string(),
-        Style::default().fg(colors::TEXT_PRIMARY).add_modifier(Modifier::BOLD),
-    ));
-    frame.render_widget(title, layout[0]);
-
-    let settings_area = layout[1];
-    let visible_slots = (settings_area.height / 3).max(1) as usize;
-    let start = app.scroll.offset.min(settings.len().saturating_sub(1));
-    let end = (start + visible_slots).min(settings.len());
-    let visible_count = end.saturating_sub(start);
-    let mut row_constraints = vec![Constraint::Length(3); visible_count];
-    row_constraints.push(Constraint::Min(0));
-    let setting_rows = split_rects(settings_area, Direction::Vertical, row_constraints);
-
-    for (visible_idx, setting_idx) in (start..end).enumerate() {
-        if let Some(slot) = setting_rows.get(visible_idx) {
-            let setting = &settings[setting_idx];
-            let is_active = setting_idx == app.active_setting_index;
-            draw_setting_item(frame, *slot, setting, is_active);
-        }
-    }
-
-    if let Some(actions_area) = layout.get(2) {
-        let hint_style = Style::default().fg(colors::TEXT_MUTED);
-        let key_style = Style::default().fg(colors::ACCENT_CYAN);
-
-        let actions_text = if app.has_changes {
-            Line::from(vec![
-                Span::styled("Press ", hint_style),
-                Span::styled("Ctrl+S", key_style),
-                Span::styled(" to save or ", hint_style),
-                Span::styled("Ctrl+R", key_style),
-                Span::styled(" to reset", hint_style),
-            ])
-        } else {
-            Line::from(vec![
-                Span::styled("Press ", hint_style),
-                Span::styled("Ctrl+R", key_style),
-                Span::styled(" to reset to defaults", hint_style),
-            ])
-        };
-
-        let actions = Paragraph::new(actions_text);
-        frame.render_widget(actions, *actions_area);
-    }
-}
-
-fn draw_setting_item(frame: &mut Frame, area: Rect, item: &SettingItem, is_active: bool) {
-    let bg_style = if is_active {
-        Style::default().bg(colors::BG_TERTIARY)
+fn resolve_dimension(explicit: u16, measured: u16, fallback: u16) -> u16 {
+    if explicit > 0 {
+        explicit
+    } else if measured > 0 {
+        measured
     } else {
-        Style::default().bg(colors::BG_TERMINAL)
+        fallback
+    }
+}
+
+fn map_terminal_key_to_msg(key: &KeyEvent) -> Option<SettingsMsg> {
+    Some(SettingsMsg::Key(crossterm_key_event(key)))
+}
+
+fn crossterm_key_event(key: &KeyEvent) -> crossterm::event::KeyEvent {
+    crossterm::event::KeyEvent {
+        code: key.code,
+        modifiers: key.modifiers,
+        kind: match key.kind {
+            KeyEventKind::Press => crossterm::event::KeyEventKind::Press,
+            KeyEventKind::Repeat => crossterm::event::KeyEventKind::Repeat,
+            KeyEventKind::Release => crossterm::event::KeyEventKind::Release,
+        },
+        state: crossterm::event::KeyEventState::NONE,
+    }
+}
+
+fn dispatch_settings_message(model: &mut State<SettingsApp>, callbacks: &mut Ref<SettingsCallbacks>, msg: SettingsMsg) {
+    let mut next = model.read().clone();
+    let action = update_settings_model(&mut next, msg);
+
+    if action != ScreenAction::None {
+        let mut callbacks = callbacks.write();
+        (callbacks.on_action)(action);
+    }
+
+    model.set(next);
+}
+
+fn settings_sidebar(snapshot: &SettingsApp, theme: Theme) -> AnyElement<'static> {
+    element! {
+        View(
+            width: SIDEBAR_WIDTH,
+            flex_direction: FlexDirection::Column,
+            border_style: BorderStyle::Round,
+            border_color: theme.border_color,
+            padding_left: 1,
+            padding_right: 1,
+            gap: 1,
+        ) {
+            Text(content: SettingsApp::version_string(), color: theme.text_muted, weight: Weight::Bold)
+            #(setting_groups().iter().enumerate().map(|(idx, group)| {
+                let selected = idx == snapshot.selected_group;
+                let prefix = if selected { "› " } else { "  " };
+                let color = if selected { theme.accent_cyan } else { theme.text_secondary };
+                let weight = if selected { Weight::Bold } else { Weight::Normal };
+
+                element! {
+                    Text(content: format!("{prefix}{group}"), color: color, weight: weight)
+                }
+            }))
+        }
+    }
+    .into_any()
+}
+
+fn settings_content(snapshot: &SettingsApp, settings: &[SettingItem], theme: Theme) -> AnyElement<'static> {
+    let start = snapshot.scroll.offset.min(settings.len().saturating_sub(1));
+    let end = (start + snapshot.scroll.page_size.max(1)).min(settings.len());
+    let rows = if settings.is_empty() { &[][..] } else { &settings[start..end] };
+    let actions = if snapshot.has_changes {
+        "Press Ctrl+S to save or Ctrl+R to reset"
+    } else {
+        "Press Ctrl+R to reset to defaults"
     };
 
-    let fill = Block::default().style(bg_style);
-    frame.render_widget(fill, area);
-
-    let layout = split_rects(
-        area,
-        Direction::Horizontal,
-        vec![Constraint::Percentage(60), Constraint::Percentage(40)],
-    );
-    if layout.len() < 2 {
-        return;
+    element! {
+        View(
+            flex_grow: 1.0,
+            flex_direction: FlexDirection::Column,
+            border_style: BorderStyle::Round,
+            border_color: theme.border_color,
+            padding_left: 1,
+            padding_right: 1,
+            gap: 1,
+        ) {
+            Text(content: snapshot.current_group_name(), color: theme.text_primary, weight: Weight::Bold)
+            #(if rows.is_empty() {
+                Some(element! {
+                    Text(content: "No settings available for this category", color: theme.text_muted)
+                }.into_any())
+            } else {
+                None
+            })
+            #(rows.iter().enumerate().map(|(idx, item)| {
+                let is_active = start + idx == snapshot.active_setting_index();
+                setting_row(item, is_active, theme)
+            }))
+            View(flex_grow: 1.0, justify_content: JustifyContent::FlexEnd) {
+                Text(content: actions, color: theme.text_muted, wrap: TextWrap::Wrap)
+            }
+        }
     }
+    .into_any()
+}
 
-    let name_style = Style::default().fg(colors::TEXT_PRIMARY).add_modifier(Modifier::BOLD);
-    let desc_style = Style::default().fg(colors::TEXT_MUTED);
+fn setting_row(item: &SettingItem, is_active: bool, theme: Theme) -> AnyElement<'static> {
+    let background_color = if is_active { theme.bg_tertiary } else { theme.bg_terminal };
 
-    let label_lines = vec![
-        Line::from(vec![Span::styled(item.name().to_string(), name_style)]),
-        Line::from(vec![Span::styled(item.description().to_string(), desc_style)]),
-    ];
-    let label_text = Text::from(label_lines);
-    let label = Paragraph::new(label_text).style(bg_style).wrap(Wrap { trim: true });
-    frame.render_widget(label, layout[0]);
+    element! {
+        View(
+            height: 3,
+            width: 100pct,
+            flex_direction: FlexDirection::Row,
+            background_color: background_color,
+            padding_left: 1,
+            padding_right: 1,
+        ) {
+            View(width: 60pct, flex_direction: FlexDirection::Column) {
+                Text(content: item.name(), color: theme.text_primary, weight: Weight::Bold, wrap: TextWrap::Wrap)
+                Text(content: item.description(), color: theme.text_muted, wrap: TextWrap::Wrap)
+            }
+            View(width: 40pct, justify_content: JustifyContent::Center, align_items: AlignItems::FlexEnd) {
+                Text(content: setting_value(item), color: value_color(item, theme), wrap: TextWrap::Wrap)
+            }
+        }
+    }
+    .into_any()
+}
 
+fn setting_value(item: &SettingItem) -> String {
     match item {
         SettingItem::Toggle { value, .. } => {
-            let toggle_style = Style::default().fg(colors::ACCENT_CYAN);
-            let off_style = Style::default().fg(colors::TEXT_MUTED);
-
-            let toggle_text =
-                if *value { Span::styled("[ON]", toggle_style) } else { Span::styled("[OFF]", off_style) };
-
-            let control = Paragraph::new(Line::from(vec![toggle_text])).style(bg_style);
-            frame.render_widget(control, layout[1]);
-        }
-        SettingItem::Select { value, options, .. } => {
-            let current_idx = options.iter().position(|o| o == value).unwrap_or(0);
-
-            let mut spans = vec![];
-            for (idx, option) in options.iter().enumerate() {
-                if idx == current_idx {
-                    spans.push(Span::styled(
-                        format!(" [{}] ", option),
-                        Style::default().fg(colors::ACCENT_CYAN).add_modifier(Modifier::BOLD),
-                    ));
-                } else {
-                    spans.push(Span::styled(
-                        format!("  {}  ", option),
-                        Style::default().fg(colors::TEXT_MUTED),
-                    ));
-                }
+            if *value {
+                "[ON]".to_string()
+            } else {
+                "[OFF]".to_string()
             }
-
-            let control = Paragraph::new(Line::from(spans)).style(bg_style);
-            frame.render_widget(control, layout[1]);
         }
-        SettingItem::Number { value, min, max, .. } => {
-            let value_text = format!("{:.1}", value);
-            let control_text = Line::from(vec![
-                Span::styled(format!("{:.1} ", min), Style::default().fg(colors::TEXT_MUTED)),
-                Span::styled(
-                    "◀ ",
-                    Style::default().fg(if *value > *min { colors::ACCENT_CYAN } else { colors::TEXT_MUTED }),
-                ),
-                Span::styled(
-                    value_text,
-                    Style::default().fg(colors::ACCENT_CYAN).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    " ▶",
-                    Style::default().fg(if *value < *max { colors::ACCENT_CYAN } else { colors::TEXT_MUTED }),
-                ),
-                Span::styled(format!(" {:.1}", max), Style::default().fg(colors::TEXT_MUTED)),
-            ]);
-
-            let control = Paragraph::new(control_text).style(bg_style);
-            frame.render_widget(control, layout[1]);
-        }
+        SettingItem::Select { value, .. } => value.clone(),
+        SettingItem::Number { value, min, max, .. } => format!("{min:.1} ◀ {value:.1} ▶ {max:.1}"),
     }
 }
 
-fn draw_settings_hints(frame: &mut Frame, area: Rect) {
-    let tokens = [
-        HintToken::Text("Press "),
-        HintToken::Key("Ctrl+↑/↓"),
-        HintToken::Text(" switch groups, "),
-        HintToken::Key("↑/↓"),
-        HintToken::Text(" navigate, "),
-        HintToken::Key("Enter"),
-        HintToken::Text(" toggle, "),
-        HintToken::Key("Esc"),
-        HintToken::Text(" exit"),
-    ];
-    HintFooter.render(frame, area, &tokens);
+fn value_color(item: &SettingItem, theme: Theme) -> Color {
+    match item {
+        SettingItem::Toggle { value, .. } => {
+            if *value {
+                theme.accent_cyan
+            } else {
+                theme.text_muted
+            }
+        }
+        SettingItem::Select { .. } | SettingItem::Number { .. } => theme.accent_cyan,
+    }
 }
 
-fn draw_settings_status(frame: &mut Frame, area: Rect, app: &SettingsApp) {
-    let status = app
-        .status_message
-        .as_deref()
-        .map_or_else(|| "Settings".to_string(), |s| s.to_string());
-
-    TopBorderedInputRow.render(frame, area, &status, false);
+fn hint_tokens() -> Vec<HintToken> {
+    vec![
+        HintToken::Text("Press ".to_string()),
+        HintToken::Key("Ctrl+↑/↓".to_string()),
+        HintToken::Text(" switch groups, ".to_string()),
+        HintToken::Key("↑/↓".to_string()),
+        HintToken::Text(" navigate, ".to_string()),
+        HintToken::Key("Enter".to_string()),
+        HintToken::Text(" toggle, ".to_string()),
+        HintToken::Key("Esc".to_string()),
+        HintToken::Text(" exit".to_string()),
+    ]
 }
 
-fn draw_confirm_dialog(frame: &mut Frame, area: Rect, title: &str, hint: &str) {
-    let dialog_width = 40u16.min(area.width.saturating_sub(4)).max(20);
-    let dialog_height = 5u16.min(area.height.saturating_sub(2));
+fn confirm_dialog(
+    title: &str, hint: &str, viewport_width: u16, viewport_height: u16, theme: Theme,
+) -> AnyElement<'static> {
+    let dialog_width = 40u16.min(viewport_width.saturating_sub(4)).max(20);
+    let dialog_height = 5u16.min(viewport_height.saturating_sub(2)).max(4);
+    let left = viewport_width.saturating_sub(dialog_width) / 2;
+    let top = viewport_height.saturating_sub(dialog_height) / 2;
 
-    let dialog_x = area.x + (area.width.saturating_sub(dialog_width)) / 2;
-    let dialog_y = area.y + (area.height.saturating_sub(dialog_height)) / 2;
-    let dialog_area = Rect::new(dialog_x, dialog_y, dialog_width, dialog_height);
+    element! {
+        View(
+            position: Position::Absolute,
+            left: left,
+            top: top,
+            width: dialog_width,
+            height: dialog_height,
+            border_style: BorderStyle::Round,
+            border_color: theme.accent_cyan,
+            background_color: theme.bg_secondary,
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            flex_direction: FlexDirection::Column,
+        ) {
+            Text(content: title, color: theme.text_primary, weight: Weight::Bold, align: TextAlign::Center)
+            Text(content: hint, color: theme.text_secondary, align: TextAlign::Center)
+        }
+    }
+    .into_any()
+}
 
-    frame.render_widget(Clear, dialog_area);
-
-    let block = Block::default()
-        .title(title.to_string())
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(colors::ACCENT_CYAN))
-        .style(Style::default().bg(colors::BG_SECONDARY));
-    frame.render_widget(block.clone(), dialog_area);
-
-    let inner = block.inner(dialog_area);
-    if inner.width == 0 || inner.height == 0 {
-        return;
+fn truncate_text(value: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
     }
 
-    let hint_style = Style::default().fg(colors::TEXT_SECONDARY);
-    let hint_para = Paragraph::new(hint.to_string())
-        .style(hint_style)
-        .alignment(ratatui::layout::Alignment::Center);
-    frame.render_widget(hint_para, inner);
+    let chars = value.chars().collect::<Vec<_>>();
+    if chars.len() <= max_chars {
+        return value.to_string();
+    }
+
+    let keep = max_chars.saturating_sub(1);
+    let mut truncated = chars.into_iter().take(keep).collect::<String>();
+    truncated.push('…');
+    truncated
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::SettingsScreen;
+    use crate::app::ScreenAction;
+    use crate::settings::SettingsApp;
+    use ::iocraft::prelude::*;
+    use futures::stream::{self, StreamExt};
+    use std::time::Duration;
 
-    #[test]
-    fn test_settings_default() {
-        let settings = Settings::default();
-        assert!(settings.ui.auto_save_conversations);
-        assert!(settings.ui.show_tool_executions);
-        assert!(!settings.ui.sound_effects);
-        assert_eq!(settings.ui.theme, "Oxocarbon Dark");
-        assert_eq!(settings.ui.font_size, "14px");
-        assert!(settings.ui.show_line_numbers);
-        assert!(settings.ui.word_wrap);
-        assert_eq!(settings.ui.keymap, "Default");
-        assert!(settings.ui.confirm_before_quit);
-        assert!(!settings.ui.auto_approve_safe_tools);
-        assert!(settings.ui.enable_network_tools);
-        assert!(settings.ui.redact_workspace_paths);
-        assert!(!settings.ui.anonymous_metrics);
+    #[derive(Default, Props)]
+    struct SettingsHarnessProps {
+        initial_settings: Option<SettingsApp>,
+        mode: HarnessMode,
+    }
+
+    #[derive(Clone, Copy, Default, PartialEq, Eq)]
+    enum HarnessMode {
+        #[default]
+        TimedExit,
+        Exit,
+    }
+
+    #[component]
+    fn SettingsHarness(props: &SettingsHarnessProps, mut hooks: Hooks) -> impl Into<AnyElement<'static>> {
+        let mut system = hooks.use_context_mut::<SystemContext>();
+        let mut exit = hooks.use_state(|| false);
+        let mut timed_exit = hooks.use_state(|| false);
+
+        if props.mode == HarnessMode::TimedExit {
+            hooks.use_future(async move {
+                smol::Timer::after(Duration::from_millis(40)).await;
+                timed_exit.set(true);
+            });
+        }
+
+        if exit.get() || timed_exit.get() {
+            system.exit();
+            return element! {
+                Text(content: if exit.get() { "exit" } else { "timed" })
+            }
+            .into_any();
+        }
+
+        let mode = props.mode;
+
+        element! {
+            SettingsScreen(
+                initial_settings: props.initial_settings.clone(),
+                viewport_width: 96u16,
+                viewport_height: 24u16,
+                on_action: move |action| {
+                    if mode == HarnessMode::Exit && action == ScreenAction::ReturnToPrevious {
+                        exit.set(true);
+                    }
+                },
+            )
+        }
+        .into_any()
     }
 
     #[test]
-    fn test_settings_app_new() {
-        let app = SettingsApp::new();
-        assert_eq!(app.selected_group, 0);
-        assert!(!app.has_changes);
+    fn settings_screen_renders_sidebar_and_general_settings() {
+        let actual = element! {
+            SettingsScreen(viewport_width: 96u16, viewport_height: 24u16)
+        }
+        .to_string();
+
+        assert!(actual.contains("General"));
+        assert!(actual.contains("Auto-save conversations"));
     }
 
     #[test]
-    fn test_setting_groups() {
-        assert_eq!(SETTING_GROUPS.len(), 7);
-        assert_eq!(SETTING_GROUPS[0], "General");
-        assert_eq!(SETTING_GROUPS[3], "Keyboard");
-        assert_eq!(SETTING_GROUPS[4], "AI Model");
-        assert_eq!(SETTING_GROUPS[6], "Privacy");
+    fn settings_screen_switches_groups_and_updates_values() {
+        smol::block_on(async {
+            let canvases = element! {
+                SettingsHarness
+            }
+            .mock_terminal_render_loop(MockTerminalConfig::with_events(stream::iter(vec![
+                TerminalEvent::Key({
+                    let mut key = KeyEvent::new(KeyEventKind::Press, KeyCode::Char('j'));
+                    key.modifiers = KeyModifiers::CONTROL;
+                    key
+                }),
+                TerminalEvent::Key(KeyEvent::new(KeyEventKind::Press, KeyCode::Enter)),
+            ])))
+            .map(|canvas| canvas.to_string())
+            .collect::<Vec<_>>()
+            .await;
+
+            assert!(canvases.iter().any(|canvas| canvas.contains("Appearance")));
+            assert!(canvases.iter().any(|canvas| canvas.contains("Oxocarbon Light")));
+        });
     }
 
     #[test]
-    fn test_setting_item_key() {
-        let item = SettingItem::Toggle {
-            name: "Test".to_string(),
-            description: "Description".to_string(),
-            value: true,
-            key: "test_key".to_string(),
-        };
-        assert_eq!(item.key(), "test_key");
+    fn settings_screen_emits_return_action_on_escape() {
+        smol::block_on(async {
+            let canvases = element! {
+                SettingsHarness(mode: HarnessMode::Exit)
+            }
+            .mock_terminal_render_loop(MockTerminalConfig::with_events(stream::iter(vec![TerminalEvent::Key(
+                KeyEvent::new(KeyEventKind::Press, KeyCode::Esc),
+            )])))
+            .map(|canvas| canvas.to_string())
+            .collect::<Vec<_>>()
+            .await;
+
+            assert!(canvases.iter().any(|canvas| canvas.contains("exit")));
+        });
     }
 }

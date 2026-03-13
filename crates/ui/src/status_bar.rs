@@ -1,11 +1,11 @@
-use super::super::ScreenMode;
 use super::theme::resolve_theme;
+use crate::app::ScreenMode;
 use ::iocraft::prelude::*;
 
 #[derive(Props)]
-pub struct StatusBarProps {
-    pub mode: ScreenMode,
-    pub chat_model: Option<String>,
+pub(crate) struct StatusBarProps {
+    pub(crate) mode: ScreenMode,
+    pub(crate) chat_model: Option<String>,
 }
 
 impl Default for StatusBarProps {
@@ -15,7 +15,7 @@ impl Default for StatusBarProps {
 }
 
 #[component]
-pub fn StatusBar(hooks: Hooks, props: &StatusBarProps) -> impl Into<AnyElement<'static>> {
+pub(crate) fn StatusBar(hooks: Hooks, props: &StatusBarProps) -> impl Into<AnyElement<'static>> {
     let theme = resolve_theme(&hooks);
     let (left, right) = status_parts(props.mode, props.chat_model.as_deref());
 
@@ -38,7 +38,7 @@ pub fn StatusBar(hooks: Hooks, props: &StatusBarProps) -> impl Into<AnyElement<'
     }
 }
 
-pub fn status_parts(mode: ScreenMode, chat_model: Option<&str>) -> (String, String) {
+fn status_parts(mode: ScreenMode, chat_model: Option<&str>) -> (String, String) {
     let left = format!("{} ", screen_label(mode));
     let right = if mode == ScreenMode::Chat {
         chat_model
@@ -71,7 +71,7 @@ fn screen_label(mode: ScreenMode) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{StatusBar, status_parts};
-    use crate::ScreenMode;
+    use crate::app::ScreenMode;
     use ::iocraft::prelude::*;
 
     #[test]

@@ -1,10 +1,9 @@
-use super::hint_bar::HintToken;
-use super::theme::{Theme, resolve_theme};
-use super::{HintBar, InputField};
-use crate::ScreenAction;
+use crate::app::ScreenAction;
 use crate::files::{FileBrowserAction, FileBrowserApp, FileTreeRow, HighlightSegment, HighlightedLine};
+use crate::hint_bar::HintToken;
+use crate::theme::{Theme, resolve_theme};
+use crate::{HintBar, InputField};
 use ::iocraft::prelude::*;
-use ratatui::style::Color as RatatuiColor;
 use std::cmp;
 
 const DEFAULT_VIEWPORT_WIDTH: u16 = 100;
@@ -14,14 +13,14 @@ const STATUS_ROW_HEIGHT: u16 = 2;
 const FINDER_HEIGHT: u16 = 12;
 
 #[derive(Props)]
-pub struct FileBrowserProps {
-    pub initial_browser: Option<FileBrowserApp>,
-    pub revision: u64,
-    pub active: bool,
-    pub handle_events: bool,
-    pub viewport_width: u16,
-    pub viewport_height: u16,
-    pub on_action: HandlerMut<'static, ScreenAction>,
+pub(crate) struct FileBrowserProps {
+    pub(crate) initial_browser: Option<FileBrowserApp>,
+    pub(crate) revision: u64,
+    pub(crate) active: bool,
+    pub(crate) handle_events: bool,
+    pub(crate) viewport_width: u16,
+    pub(crate) viewport_height: u16,
+    pub(crate) on_action: HandlerMut<'static, ScreenAction>,
 }
 
 impl Default for FileBrowserProps {
@@ -43,7 +42,7 @@ struct FileBrowserCallbacks {
 }
 
 #[component]
-pub fn FileBrowser(mut hooks: Hooks, props: &mut FileBrowserProps) -> impl Into<AnyElement<'static>> {
+pub(crate) fn FileBrowser(mut hooks: Hooks, props: &mut FileBrowserProps) -> impl Into<AnyElement<'static>> {
     let theme = resolve_theme(&hooks);
     let (terminal_width, terminal_height) = hooks.use_terminal_size();
     let viewport_width = resolve_dimension(props.viewport_width, terminal_width, DEFAULT_VIEWPORT_WIDTH);
@@ -280,16 +279,9 @@ fn content_row(line: &HighlightedLine, line_number_width: usize, theme: Theme) -
     .into_any()
 }
 
-fn highlight_segment_content(segment: &HighlightSegment, theme: Theme) -> MixedTextContent {
-    let content = MixedTextContent::new(segment.text.clone()).color(iocraft_color(segment.fg, theme.text_secondary));
+fn highlight_segment_content(segment: &HighlightSegment, _theme: Theme) -> MixedTextContent {
+    let content = MixedTextContent::new(segment.text.clone()).color(segment.fg);
     if segment.bold { content.weight(Weight::Bold) } else { content }
-}
-
-fn iocraft_color(color: RatatuiColor, fallback: Color) -> Color {
-    match color {
-        RatatuiColor::Rgb(r, g, b) => Color::Rgb { r, g, b },
-        _ => fallback,
-    }
 }
 
 fn hint_tokens(finder_active: bool) -> Vec<HintToken> {
@@ -378,7 +370,7 @@ fn truncate_text(value: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::FileBrowser;
-    use crate::ScreenAction;
+    use crate::app::ScreenAction;
     use crate::files::FileBrowserApp;
     use ::iocraft::prelude::*;
     use futures::stream::{self, StreamExt};

@@ -1,16 +1,7 @@
 use super::{ChatFileFinder, ChatMessage, IncomingStreamEvent, MessageRole, StreamingState, TokenUsage};
-use super::{input_render, measure};
-use crate::ScreenAction;
-use crate::colors;
-use crate::components::wrapped_line_count;
+use crate::app::ScreenAction;
 use crate::files::{read_file_for_prompt_result, workspace_files};
-use crate::layout::split as split_rects;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use ratatui::Frame;
-use ratatui::layout::{Constraint, Direction, Rect};
-use ratatui::style::{Modifier, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use std::path::{Path, PathBuf};
 
 const MAX_INPUT_HISTORY: usize = 200;
@@ -58,7 +49,6 @@ pub struct ChatApp {
     pub last_model: Option<String>,
     pub submission_warning: Option<String>,
     pub running: bool,
-    pending_user_message: Option<String>,
     pending_submission: Option<String>,
     pending_command: Option<String>,
     input_history: Vec<String>,
@@ -87,7 +77,6 @@ impl Default for ChatApp {
             last_model: None,
             submission_warning: None,
             running: true,
-            pending_user_message: None,
             pending_submission: None,
             pending_command: None,
             input_history: Vec::new(),
@@ -305,17 +294,6 @@ impl ChatApp {
         let _ = update(self, ChatMsg::StreamEvent(event));
     }
 
-    pub fn finish_stream(&mut self, full_content: String) {
-        if let Some(last) = self.messages.last_mut()
-            && last.role == MessageRole::Assistant
-        {
-            last.content = full_content;
-            last.finalize();
-        }
-        self.streaming_state = StreamingState::Idle;
-        self.current_tool_call = None;
-    }
-
     fn finish_current_stream(&mut self) {
         if let Some(last) = self.messages.last_mut()
             && last.role == MessageRole::Assistant
@@ -328,7 +306,6 @@ impl ChatApp {
 
     pub fn reset_streaming(&mut self) {
         self.streaming_state = StreamingState::Idle;
-        self.pending_user_message = None;
         self.pending_submission = None;
         self.pending_command = None;
         self.current_tool_call = None;
@@ -356,15 +333,8 @@ impl ChatApp {
         self.reset_streaming();
     }
 
-    pub fn queue_backend_command(&mut self, command: String) {
-        self.pending_submission = Some(command);
-        self.pending_user_message = None;
-        self.streaming_state = StreamingState::Idle;
-    }
-
     pub fn submit_user_message(&mut self, content: String) {
         self.record_input_history(&content);
-        self.pending_user_message = Some(content.clone());
         let (submission, warnings) = self.prepare_submission(&content);
         self.pending_submission = Some(submission);
         self.submission_warning = if warnings.is_empty() {
@@ -375,10 +345,6 @@ impl ChatApp {
         self.messages.push(ChatMessage::user(content));
         self.messages.push(ChatMessage::assistant_streaming(String::new()));
         self.streaming_state = StreamingState::Streaming;
-    }
-
-    pub fn take_pending_user_message(&mut self) -> Option<String> {
-        self.pending_user_message.take()
     }
 
     pub fn take_pending_command(&mut self) -> Option<String> {
@@ -431,7 +397,6 @@ impl ChatApp {
     pub fn load_debug_chat(&mut self) {
         self.messages.clear();
         self.rendered_messages = 0;
-        self.pending_user_message = None;
         self.pending_submission = None;
         self.pending_command = None;
         self.file_finder.deactivate();
@@ -464,106 +429,6 @@ impl ChatApp {
             self.messages.push(assistant);
         }
         self.rebuild_input_history_from_messages();
-    }
-
-    pub fn draw_file_finder_overlay(&self, frame: &mut Frame, area: Rect) {
-        let rows = split_rects(
-            area,
-            Direction::Vertical,
-            vec![Constraint::Fill(1), Constraint::Length(12), Constraint::Fill(1)],
-        );
-        if rows.len() < 2 {
-            return;
-        }
-
-        let overlay_width = 72u16.min(area.width.saturating_sub(2)).max(24);
-        let cols = split_rects(
-            rows[1],
-            Direction::Horizontal,
-            vec![
-                Constraint::Fill(1),
-                Constraint::Length(overlay_width),
-                Constraint::Fill(1),
-            ],
-        );
-        if cols.len() < 2 {
-            return;
-        }
-
-        let panel = cols[1];
-        frame.render_widget(Clear, panel);
-        let block = Block::default()
-            .title(" pin file to chat ")
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(colors::ACCENT_CYAN))
-            .style(Style::default().bg(colors::BG_TERMINAL));
-        frame.render_widget(block.clone(), panel);
-        let inner = block.inner(panel);
-        frame.render_widget(Block::default().style(Style::default().bg(colors::BG_TERMINAL)), inner);
-
-        let mut constraints = vec![Constraint::Length(1)];
-        constraints.extend((0..self.file_finder.filtered_len()).map(|_| Constraint::Length(1)));
-        constraints.push(Constraint::Min(0));
-        let layout = split_rects(inner, Direction::Vertical, constraints);
-        if layout.is_empty() {
-            return;
-        }
-
-        let input_line = Line::from(vec![
-            Span::styled(
-                "@",
-                Style::default().fg(colors::ACCENT_CYAN).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                &self.file_finder.query,
-                Style::default().fg(colors::TEXT_PRIMARY).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("  (Enter pin/unpin)", Style::default().fg(colors::TEXT_MUTED)),
-        ]);
-        frame.render_widget(
-            Paragraph::new(input_line).style(Style::default().bg(colors::BG_TERMINAL)),
-            layout[0],
-        );
-
-        for (idx, path) in self.file_finder.filtered_items().enumerate() {
-            if let Some(slot) = layout.get(idx + 1).copied() {
-                let selected = idx == self.file_finder.selected;
-                let pinned = self.pinned_files().iter().any(|p| p == path);
-                let row_style = Style::default().bg(colors::BG_TERMINAL);
-
-                let line = Line::from(vec![
-                    Span::styled(if selected { "> " } else { "  " }, row_style.fg(colors::ACCENT_CYAN)),
-                    Span::styled(
-                        if pinned { "* " } else { "  " },
-                        row_style.fg(if pinned { colors::ACCENT_GREEN } else { colors::TEXT_MUTED }),
-                    ),
-                    Span::styled(path.display().to_string(), row_style.fg(colors::TEXT_SECONDARY)),
-                ]);
-                frame.render_widget(Paragraph::new(line).style(row_style), slot);
-            }
-        }
-    }
-
-    pub fn chat_input_row_height(&self, area_width: u16) -> u16 {
-        input_render::chat_input_row_height(self.chat_input_content_line_count(area_width))
-    }
-
-    fn chat_input_content_line_count(&self, area_width: u16) -> u16 {
-        let inner_width = area_width.saturating_sub(2).max(1);
-        let mut lines = measure::wrapped_multiline_input_line_count(
-            &self.input_buffer,
-            inner_width
-                .saturating_sub(input_render::INPUT_PROMPT_PREFIX.chars().count() as u16)
-                .max(1),
-            inner_width,
-        ) as u16;
-
-        if !self.pinned_files().is_empty() {
-            lines +=
-                wrapped_line_count(&input_render::pinned_files_input_text(self.pinned_files()), inner_width) as u16;
-        }
-
-        lines.max(1)
     }
 }
 
@@ -827,7 +692,7 @@ pub(crate) fn update(model: &mut ChatModel, msg: ChatMsg) -> ScreenAction {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ToolCallStatus;
+    use crate::chat::ToolCallStatus;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -839,7 +704,6 @@ mod tests {
         assert!(app.input_buffer.is_empty());
         assert_eq!(app.cursor_position, 0);
         assert_eq!(app.streaming_state, StreamingState::Idle);
-        assert!(app.pending_user_message.is_none());
     }
 
     #[test]
@@ -1020,15 +884,6 @@ mod tests {
     }
 
     #[test]
-    fn test_submit_user_message_marks_pending() {
-        let mut app = ChatApp::new();
-        app.submit_user_message("Hello".to_string());
-
-        assert_eq!(app.take_pending_user_message(), Some("Hello".to_string()));
-        assert_eq!(app.take_pending_user_message(), None);
-    }
-
-    #[test]
     fn test_append_stream() {
         let mut app = ChatApp::new();
         app.messages.push(ChatMessage::user("Hello".to_string()));
@@ -1071,19 +926,6 @@ mod tests {
             Some("Because this is the rationale.")
         );
         assert!(app.messages[1].content.is_empty());
-    }
-
-    #[test]
-    fn test_finish_stream() {
-        let mut app = ChatApp::new();
-        app.streaming_state = StreamingState::Streaming;
-        app.messages
-            .push(ChatMessage::assistant_streaming("Partial".to_string()));
-
-        app.finish_stream("Full response\n\nIntent\n\nDo x\n\nResult\n\nDone".to_string());
-
-        assert_eq!(app.streaming_state, StreamingState::Idle);
-        assert!(app.messages[0].sections.is_some());
     }
 
     #[test]
