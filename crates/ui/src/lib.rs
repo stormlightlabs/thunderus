@@ -17,6 +17,7 @@ pub mod event;
 pub mod files;
 pub mod finder;
 pub mod help;
+pub mod iocraft;
 pub mod layout;
 pub mod scroll;
 pub mod settings;
