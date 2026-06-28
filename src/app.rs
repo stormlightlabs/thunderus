@@ -7,7 +7,6 @@ use std::path::PathBuf;
 
 use crate::cli::{Cli, WebSearchMode};
 
-use crossterm::event::KeyCode;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 
@@ -199,10 +198,8 @@ pub enum AgentEvent {
 }
 
 /// The single message type fed into `update`.
-///
-/// TODO: Submit/Clear/Agent
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[allow(dead_code)]
+#[allow(dead_code)] // Agent is wired from Phase 3 onward.
 pub enum Msg {
     /// A raw key event from the terminal.
     Key(crossterm::event::KeyEvent),
@@ -220,34 +217,98 @@ pub enum Msg {
 
 /// The only mutation path. Returns an optional follow-up message.
 ///
-/// `q`, `Ctrl+D`, and `Ctrl+C` quit
-///
-/// TODO: All other input, submit, clear, and agent behavior
-/// FIXME: don't allow this
+/// - Printable chars append to the input buffer.
+/// - `Backspace` removes the last char.
+/// - `Enter` submits: slash commands (`/clear`, `/quit`) are routed, otherwise
+///   the input is appended as `Entry::User` and cleared.
+/// - `q` quits only when the input is empty (so it stays usable while typing).
+/// - `Ctrl+C` and `Ctrl+D` always quit.
 #[allow(clippy::needless_pass_by_value)]
 pub fn update(app: &mut App, msg: Msg) -> Option<Msg> {
     match msg {
-        Msg::Key(key) => match key.code {
-            KeyCode::Char('q') => {
-                app.quit = true;
-                Some(Msg::Quit)
-            }
-            KeyCode::Char('c') if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => {
-                app.quit = true;
-                Some(Msg::Quit)
-            }
-            KeyCode::Char('d') if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => {
-                app.quit = true;
-                Some(Msg::Quit)
-            }
-            _ => None,
-        },
+        Msg::Key(key) => handle_key(app, key),
+        Msg::Submit => handle_submit(app),
         Msg::Quit => {
             app.quit = true;
             None
         }
         Msg::Tick => None,
-        Msg::Submit | Msg::Clear | Msg::Agent(_) => None,
+        Msg::Clear => {
+            app.transcript.clear();
+            None
+        }
+        Msg::Agent(_) => None,
+    }
+}
+
+/// - Ctrl+C and Ctrl+D always quit, even mid-input.
+/// - `q` quits only when the input buffer is empty, so it doesn't fight typing.
+/// - Printable characters append to the input buffer.
+/// - Backspace removes the last character.
+/// - Enter submits the current input.
+fn handle_key(app: &mut App, key: crossterm::event::KeyEvent) -> Option<Msg> {
+    use crossterm::event::{KeyCode, KeyModifiers};
+
+    match key.code {
+        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.quit = true;
+            Some(Msg::Quit)
+        }
+        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.quit = true;
+            Some(Msg::Quit)
+        }
+        KeyCode::Char('q') if app.input.is_empty() => {
+            app.quit = true;
+            Some(Msg::Quit)
+        }
+        KeyCode::Char(ch) => {
+            app.input.push(ch);
+            None
+        }
+        KeyCode::Backspace => {
+            app.input.pop();
+            None
+        }
+        KeyCode::Enter => handle_submit(app),
+        _ => None,
+    }
+}
+
+/// Handle an `Enter` submit. Slash commands are routed; otherwise the input is
+/// appended as `Entry::User` and cleared.
+///
+/// Returns an optional follow-up `Msg`.
+fn handle_submit(app: &mut App) -> Option<Msg> {
+    let text = app.input.trim().to_string();
+    if text.is_empty() {
+        app.input.clear();
+        return None;
+    }
+
+    if let Some(command) = text.strip_prefix('/') {
+        return handle_command(app, command);
+    }
+
+    app.transcript.push(Entry::User { text });
+    app.input.clear();
+    None
+}
+
+/// Route a slash command (the part after `/`).
+fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
+    match command {
+        "clear" => {
+            app.transcript.clear();
+            app.input.clear();
+            None
+        }
+        "quit" | "exit" => {
+            app.input.clear();
+            app.quit = true;
+            Some(Msg::Quit)
+        }
+        _ => None,
     }
 }
 
@@ -315,5 +376,138 @@ mod tests {
         let sidebar = Sidebar::placeholder();
         assert_eq!(sidebar.sessions, vec!["scratch"]);
         assert_eq!(sidebar.active, Some(0));
+    }
+
+    #[test]
+    fn printable_chars_append_to_input() {
+        let mut app = fresh_app();
+        for ch in "hello".chars() {
+            update(&mut app, Msg::Key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE)));
+        }
+        assert_eq!(app.input, "hello");
+        assert!(app.transcript.is_empty());
+    }
+
+    #[test]
+    fn backspace_removes_last_char() {
+        let mut app = fresh_app();
+        app.input = String::from("abc");
+        update(
+            &mut app,
+            Msg::Key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)),
+        );
+        assert_eq!(app.input, "ab");
+    }
+
+    #[test]
+    fn backspace_on_empty_input_is_noop() {
+        let mut app = fresh_app();
+        update(
+            &mut app,
+            Msg::Key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)),
+        );
+        assert_eq!(app.input, "");
+    }
+
+    #[test]
+    fn enter_submits_user_entry_and_clears_input() {
+        let mut app = fresh_app();
+        app.input = String::from("explain this repo");
+        update(&mut app, Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+        assert_eq!(app.input, "");
+        assert_eq!(app.transcript.len(), 1);
+        assert_eq!(
+            app.transcript[0],
+            Entry::User { text: String::from("explain this repo") }
+        );
+    }
+
+    #[test]
+    fn enter_on_empty_input_does_nothing() {
+        let mut app = fresh_app();
+        update(&mut app, Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+        assert_eq!(app.input, "");
+        assert!(app.transcript.is_empty());
+    }
+
+    #[test]
+    fn enter_trims_whitespace_before_submit() {
+        let mut app = fresh_app();
+        app.input = String::from("  hello  ");
+        update(&mut app, Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+        assert_eq!(app.input, "");
+        assert_eq!(app.transcript.len(), 1);
+        assert_eq!(app.transcript[0], Entry::User { text: String::from("hello") });
+    }
+
+    #[test]
+    fn slash_clear_clears_transcript_and_input() {
+        let mut app = fresh_app();
+        app.transcript.push(Entry::User { text: String::from("old") });
+        app.input = String::from("/clear");
+        update(&mut app, Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+        assert!(app.transcript.is_empty());
+        assert_eq!(app.input, "");
+        assert!(!app.quit);
+    }
+
+    #[test]
+    fn slash_quit_sets_quit_flag() {
+        let mut app = fresh_app();
+        app.input = String::from("/quit");
+        let follow = update(&mut app, Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+        assert!(app.quit);
+        assert_eq!(follow, Some(Msg::Quit));
+        assert_eq!(app.input, "");
+    }
+
+    #[test]
+    fn slash_exit_also_quits() {
+        let mut app = fresh_app();
+        app.input = String::from("/exit");
+        update(&mut app, Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+        assert!(app.quit);
+    }
+
+    #[test]
+    fn unknown_slash_command_is_ignored() {
+        let mut app = fresh_app();
+        app.input = String::from("/bogus");
+        update(&mut app, Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+        assert!(!app.quit);
+        assert!(app.transcript.is_empty());
+        assert_eq!(app.input, "/bogus");
+    }
+
+    #[test]
+    fn msg_clear_clears_transcript() {
+        let mut app = fresh_app();
+        app.transcript.push(Entry::User { text: String::from("a") });
+        app.transcript.push(Entry::User { text: String::from("b") });
+        update(&mut app, Msg::Clear);
+        assert!(app.transcript.is_empty());
+    }
+
+    #[test]
+    fn q_does_not_quit_while_typing() {
+        let mut app = fresh_app();
+        app.input = String::from("query");
+        update(
+            &mut app,
+            Msg::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
+        );
+        assert!(!app.quit);
+        assert_eq!(app.input, "queryq");
+    }
+
+    #[test]
+    fn q_quits_when_input_empty() {
+        let mut app = fresh_app();
+        let follow = update(
+            &mut app,
+            Msg::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
+        );
+        assert!(app.quit);
+        assert_eq!(follow, Some(Msg::Quit));
     }
 }

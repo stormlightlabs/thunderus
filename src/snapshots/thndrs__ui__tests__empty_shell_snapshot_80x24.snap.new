@@ -1,5 +1,6 @@
 ---
 source: src/ui.rs
+assertion_line: 240
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"

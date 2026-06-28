@@ -23,16 +23,16 @@
 
 ### Phase 2: Prompt and Transcript
 
-- [ ] Handle printable character input.
-- [ ] Handle Backspace.
-- [ ] Handle Enter submit.
-- [ ] Append submitted text as `Entry::User`.
-- [ ] Clear input after submit.
-- [ ] Implement `/clear`.
-- [ ] Implement `/quit`.
-- [ ] Render newest transcript entries in available height.
-- [ ] Add unit tests for `update` submit, clear, quit, and backspace behavior.
-- [ ] Add a snapshot for one submitted prompt in the transcript.
+- [x] Handle printable character input.
+- [x] Handle Backspace.
+- [x] Handle Enter submit.
+- [x] Append submitted text as `Entry::User`.
+- [x] Clear input after submit.
+- [x] Implement `/clear`.
+- [x] Implement `/quit`.
+- [x] Render newest transcript entries in available height.
+- [x] Add unit tests for `update` submit, clear, quit, and backspace behavior.
+- [x] Add a snapshot for one submitted prompt in the transcript.
 
 ### Phase 3: Fake Agent Stream
 

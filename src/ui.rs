@@ -182,6 +182,8 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
 mod tests {
     use super::*;
     use crate::cli::Cli;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
 
     fn app() -> App {
         App::from_cli(&Cli::default())
@@ -214,7 +216,6 @@ mod tests {
         let area = Rect::new(0, 0, 20, 5);
         let view = compute_view(area);
         assert!(!view.sidebar_visible);
-        // Prompt and footer are reserved even when small.
         assert_eq!(view.prompt.height, PROMPT_HEIGHT);
         assert_eq!(view.footer.height, FOOTER_HEIGHT);
     }
@@ -230,13 +231,24 @@ mod tests {
 
     #[test]
     fn empty_shell_snapshot_80x24() {
-        use ratatui::Terminal;
-        use ratatui::backend::TestBackend;
-
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).expect("create test terminal");
         let app = app();
         terminal.draw(|f| render(f, &app)).expect("draw empty shell");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
+    fn submitted_prompt_snapshot_80x24() {
+        use crate::app::Entry;
+
+        let mut app = app();
+        app.transcript
+            .push(Entry::User { text: String::from("explain this repo") });
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw submitted prompt");
         insta::assert_snapshot!(terminal.backend().to_string());
     }
 }

@@ -1,9 +1,10 @@
 ---
 source: src/ui.rs
+assertion_line: 255
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││No messages yet. Type a prompt below.                   │"
+"│Sessions            ││user     explain this repo                              │"
 "│> scratch           ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
