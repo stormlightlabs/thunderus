@@ -7,19 +7,19 @@
 - [x] Add dependencies: `ratatui`, `crossterm`, and `clap` with `derive`.
 - [x] Add dev dependency: `insta`.
 - [x] Create `src/cli.rs`.
-- [ ] Define `Cli` with `cwd`, `model`, `websearch`, `tick_rate_ms`, and `no_alt_screen`.
-- [ ] Define `WebSearchMode` as a Clap `ValueEnum`: `native`, `exa`, `none`.
-- [ ] Parse CLI args in `src/main.rs`.
-- [ ] `src/app.rs`: `App`, `Mode`, `RunState`, `Entry`, `Msg`, and `update`.
-- [ ] `src/ui.rs`: `ViewState`, `compute_view`, and `render`.
-- [ ] `src/lib.rs`: terminal setup, draw loop, event polling, and cleanup.
-  - [ ] `src/main.rs` just runs
-- [ ] Render static sidebar, transcript placeholder, prompt line, and footer.
-- [ ] Support clean exit on `q`, `Ctrl+D`, & `Ctrl+C`.
-- [ ] Unit-test CLI defaults.
-- [ ] Unit-test invalid `--websearch` handling.
-- [ ] Add an `80x24` empty-shell `TestBackend` snapshot.
-- [ ] Run `cargo check`.
+- [x] Define `Cli` with `cwd`, `model`, `websearch`, `tick_rate_ms`, and `no_alt_screen`.
+- [x] Define `WebSearchMode` as a Clap `ValueEnum`: `native`, `exa`, `none`.
+- [x] Parse CLI args in `src/main.rs`.
+- [x] `src/app.rs`: `App`, `Mode`, `RunState`, `Entry`, `Msg`, and `update`.
+- [x] `src/ui.rs`: `ViewState`, `compute_view`, and `render`.
+- [x] `src/lib.rs`: terminal setup, draw loop, event polling, and cleanup.
+  - [x] `src/main.rs` just runs
+- [x] Render static sidebar, transcript placeholder, prompt line, and footer.
+- [x] Support clean exit on `q`, `Ctrl+D`, & `Ctrl+C`.
+- [x] Unit-test CLI defaults.
+- [x] Unit-test invalid `--websearch` handling.
+- [x] Add an `80x24` empty-shell `TestBackend` snapshot.
+- [x] Run `cargo check`.
 
 ### Phase 2: Prompt and Transcript
 
