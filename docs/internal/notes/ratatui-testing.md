@@ -1,10 +1,11 @@
-# Notes: Testing with insta snapshots
-
+---
+Title: Testing with insta snapshots
 Source: https://ratatui.rs/recipes/testing/snapshots/
 Author: Ratatui project
-Date: not listed on page
+Date: 2026-06-28
 Captured: 2026-06-28
-Tags: ratatui, testing, snapshots, insta, tui
+Tags: [ratatui, testing, snapshots, insta, tui]
+---
 
 ## Summary
 

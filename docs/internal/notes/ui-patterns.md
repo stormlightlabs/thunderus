@@ -1,4 +1,10 @@
-# Notes: Gridland AI Chat UI Patterns
+---
+Title: Gridland AI Chat UI Patterns
+Author: Thoughtful LLC / Gridland project
+Date: 2026-06-28
+Captured: 2026-06-28
+Tags: [tui, chat-ui, layout, gridland, ai-agent]
+---
 
 Source:
 
@@ -7,10 +13,6 @@ Source:
 - https://www.gridland.io/docs/core-concepts/cells-and-layout
 - https://www.gridland.io/docs/components/message
 - https://www.gridland.io/docs/components/prompt-input
-  Author: Thoughtful LLC / Gridland project
-  Date: Not specified on docs pages
-  Captured: 2026-06-28
-  Tags: tui, chat-ui, layout, gridland, ai-agent
 
 ## Summary
 

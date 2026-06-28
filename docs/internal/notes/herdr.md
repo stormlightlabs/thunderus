@@ -1,4 +1,10 @@
-# Notes: Herdr Agent Multiplexer
+---
+Title: Herdr Agent Multiplexer
+Author: Ogulcan Celik / Herdr project
+Date: 2026-06-28
+Captured: 2026-06-28
+Tags: [rust, ratatui, terminal-multiplexer, agents, panes, tui]
+---
 
 Source:
 
@@ -8,10 +14,6 @@ Source:
 - https://herdr.dev/docs/session-state/
 - https://herdr.dev/docs/socket-api/
 - https://herdr.dev/docs/keyboard/
-  Author: Ogulcan Celik / Herdr project
-  Date: Docs current as fetched on 2026-06-28
-  Captured: 2026-06-28
-  Tags: rust, ratatui, terminal-multiplexer, agents, panes, tui
 
 ## Summary
 

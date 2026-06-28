@@ -1,4 +1,10 @@
-# Notes: Pi Coding Agent Harness Lessons
+---
+Title: Pi Coding Agent Harness Lessons
+Author: Mario Zechner / Earendil Works
+Date: 2025-11-30 for the article; docs current as fetched on 2026-06-28
+Captured: 2026-06-28
+Tags: [coding-agent, harness, terminal-ui, agent-loop, minimalism]
+---
 
 Source:
 
@@ -9,10 +15,6 @@ Source:
 - https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md
 - https://github.com/earendil-works/pi/blob/main/packages/agent/README.md
 - https://github.com/earendil-works/pi/blob/main/packages/tui/README.md
-  Author: Mario Zechner / Earendil Works
-  Date: 2025-11-30 for the article; docs current as fetched on 2026-06-28
-  Captured: 2026-06-28
-  Tags: coding-agent, harness, terminal-ui, agent-loop, minimalism
 
 ## Summary
 

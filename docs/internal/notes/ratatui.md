@@ -1,4 +1,10 @@
-# Notes: Ratatui Application Patterns
+---
+Title: Ratatui Application Patterns
+Author: Ratatui project
+Date: 2026-06-28
+Captured: 2026-06-28
+Tags: [rust, ratatui, tui, elm-architecture, event-loop]
+---
 
 Source:
 
@@ -6,10 +12,6 @@ Source:
 - https://ratatui.rs/concepts/application-patterns/component-architecture/
 - https://ratatui.rs/concepts/application-patterns/flux-architecture/
 - https://ratatui.rs/recipes/apps/terminal-and-event-handler/
-  Author: Ratatui project
-  Date: Not specified on pages
-  Captured: 2026-06-28
-  Tags: rust, ratatui, tui, elm-architecture, event-loop
 
 ## Summary
 
