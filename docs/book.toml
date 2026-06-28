@@ -1,0 +1,6 @@
+[book]
+authors = ["Owais Jamil"]
+language = "en"
+multilingual = false
+src = "src"
+title = "Thunderus"
