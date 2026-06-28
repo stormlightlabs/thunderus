@@ -436,7 +436,7 @@ Acceptance:
 
 - `cargo run` opens the workbench.
 - `cargo run -- --help` prints Clap help.
-- `q` and `Ctrl+C` exit cleanly.
+- `q`, `Ctrl+D`, `Ctrl+C` exit cleanly.
 - `cargo check` passes.
 
 Testing:

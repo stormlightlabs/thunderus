@@ -4,18 +4,18 @@
 
 ### Phase 1: CLI and Ratatui Shell
 
-- [ ] Add dependencies: `ratatui`, `crossterm`, and `clap` with `derive`.
-- [ ] Add dev dependency: `insta`.
-- [ ] Create `src/cli.rs`.
+- [x] Add dependencies: `ratatui`, `crossterm`, and `clap` with `derive`.
+- [x] Add dev dependency: `insta`.
+- [x] Create `src/cli.rs`.
 - [ ] Define `Cli` with `cwd`, `model`, `websearch`, `tick_rate_ms`, and `no_alt_screen`.
 - [ ] Define `WebSearchMode` as a Clap `ValueEnum`: `native`, `exa`, `none`.
 - [ ] Parse CLI args in `src/main.rs`.
-- [ ] Create `src/app.rs` with `App`, `Mode`, `RunState`, `Entry`, `Msg`, and `update`.
-- [ ] Create `src/ui.rs` with `ViewState`, `compute_view`, and `render`.
-- [ ] Create `src/lib.rs` with terminal setup, draw loop, event polling, and cleanup.
+- [ ] `src/app.rs`: `App`, `Mode`, `RunState`, `Entry`, `Msg`, and `update`.
+- [ ] `src/ui.rs`: `ViewState`, `compute_view`, and `render`.
+- [ ] `src/lib.rs`: terminal setup, draw loop, event polling, and cleanup.
   - [ ] `src/main.rs` just runs
 - [ ] Render static sidebar, transcript placeholder, prompt line, and footer.
-- [ ] Support clean exit on `q` and `Ctrl+C`.
+- [ ] Support clean exit on `q`, `Ctrl+D`, & `Ctrl+C`.
 - [ ] Unit-test CLI defaults.
 - [ ] Unit-test invalid `--websearch` handling.
 - [ ] Add an `80x24` empty-shell `TestBackend` snapshot.
