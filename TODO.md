@@ -37,7 +37,42 @@
 - [ ] Add a no-network unit test for model metadata parsing.
 - [ ] Add an ignored/manual live smoke test gated on `UMANS_API_KEY`.
 
-### Phase 7: Search and Extraction
+### Phase 7: Agent Event Loop and Tool UI
+
+- [ ] Define one agent loop path for fake and Umans runs.
+- [ ] Convert provider stream deltas, reasoning deltas, tool-use requests, tool
+      results, errors, cancellation, and done states into `AgentEvent`.
+- [ ] Dispatch Phase 5 read-only tools from provider tool-use requests.
+- [ ] Append tool results to the transcript before continuing the provider turn.
+- [ ] Prevent recursive or unbounded tool-call loops with a small per-turn cap.
+- [ ] Keep tool execution async/non-blocking relative to TUI input and redraw.
+- [ ] Add a cancel path that stops the provider stream or active tool call and
+      returns to an editable prompt.
+- [ ] Render an agent status line for idle, sending, thinking, streaming, running
+      tool, cancelled, failed, and done states.
+- [ ] Render tool calls as first-class transcript entries with name, arguments
+      summary, status, duration, truncation state, and error text.
+- [ ] Keep reasoning, assistant text, context sources, and tool output visually
+      distinct in the transcript.
+- [ ] Align the shell with Gridland's AI chat pattern: fixed session sidebar,
+      vertical transcript, pinned prompt, and stable footer/status line.
+- [ ] Add prompt UI states for editable, submitted, streaming, stopped, and
+      errored runs.
+- [ ] Show active model, search mode, and workspace path in stable chrome without
+      crowding narrow terminals.
+- [ ] Add a small `thndrs` banner component using `figlet-rs` and a committed
+      `src/fonts/*.flf` font loaded with `include_str!`.
+- [ ] Fall back to plain title text when the selected FIGlet font cannot parse or
+      the terminal is too narrow.
+- [ ] Preserve keyboard behavior while the agent is running: scroll transcript,
+      cancel, and quit remain available.
+- [ ] Unit-test provider-to-agent event conversion.
+- [ ] Unit-test tool dispatch success, failure, cancellation, and loop-cap behavior.
+- [ ] Add snapshots for thinking, streaming, running-tool, tool-success,
+      tool-failure, cancelled, and provider-error UI states.
+- [ ] Add snapshots for normal-width and narrow-width banner/header rendering.
+
+### Phase 8: Search and Extraction
 
 - [ ] Add search mode config: `native`, `exa`, `none`.
 - [ ] Default search mode to `native`.
@@ -71,7 +106,7 @@
 - [ ] Unit-test oversized-document failure.
 - [ ] Unit-test Lectito extraction with local HTML fixtures.
 
-### Phase 8: Session Persistence
+### Phase 9: Session Persistence
 
 - [ ] Define the JSONL session record format.
 - [ ] Save transcript entries append-only.
@@ -85,7 +120,7 @@
 - [ ] Unit-test resume ordering.
 - [ ] Add a snapshot for sidebar session-list rendering.
 
-### Phase 9: Safe File Operations
+### Phase 10: Safe File Operations
 
 - [ ] Define write transcript event shape.
 - [ ] Implement create-file operation.
@@ -102,7 +137,7 @@
 
 ## v1: Supported Release
 
-### Phase 10: Config, Inspect, and Export
+### Phase 11: Config, Inspect, and Export
 
 - [ ] Define config file path.
 - [ ] Define config keys for model, web search mode, session path, and tick rate.
@@ -122,7 +157,7 @@
 - [ ] Integration-test inspect/export against fixture sessions.
 - [ ] Integration-test inspect/export includes AGENTS.md context metadata.
 
-### Phase 11: v1 Release Hardening
+### Phase 12: v1 Release Hardening
 
 - [ ] Add `CHANGELOG.md` using Keep a Changelog categories.
 - [ ] Document install flow.
