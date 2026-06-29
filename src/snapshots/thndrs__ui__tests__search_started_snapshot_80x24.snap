@@ -1,11 +1,10 @@
 ---
 source: src/ui.rs
-assertion_line: 693
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││ user  search for rust async patterns                   │"
-"│●  scratch          ││ tool  ⠋ web_search#search-0 [running]  query: rust asyn│"
+"│Sessions            ││User (owais)               search for rust async pattern│"
+"│ ● scratch          ││ tool  ⠋ web_search#search-0 [running]  query: rust asyn│"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
@@ -21,9 +20,9 @@ expression: terminal.backend().to_string()
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
-"│⠋  running tool     ││                                                        │"
+"│  ⠋  running tool   ││                                                        │"
 "│                    ││                                                        │"
 "└────────────────────┘└────────────────────────────────────────────────────────┘"
 "────────────────────────────────────────────────────────────────────────────────"
-"⠋   running tool… esc to cancel                                                 "
+"  ⠋   running tool… esc to cancel                                               "
 " model: umans-coder   search: native  cwd: .                                    "

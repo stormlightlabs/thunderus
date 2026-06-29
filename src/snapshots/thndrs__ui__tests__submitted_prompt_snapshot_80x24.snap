@@ -1,11 +1,10 @@
 ---
 source: src/ui.rs
-assertion_line: 445
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││ user  explain this repo                                │"
-"│●  scratch          ││                                                        │"
+"│Sessions            ││User (owais)               explain this repo            │"
+"│ ● scratch          ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
@@ -21,9 +20,9 @@ expression: terminal.backend().to_string()
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
-"│·  idle             ││                                                        │"
+"│  ·  idle           ││                                                        │"
 "│                    ││                                                        │"
 "└────────────────────┘└────────────────────────────────────────────────────────┘"
 "────────────────────────────────────────────────────────────────────────────────"
-">                                                                               "
+"  ▌ ▶                                                                           "
 " model: umans-coder   search: native  cwd: .                                    "

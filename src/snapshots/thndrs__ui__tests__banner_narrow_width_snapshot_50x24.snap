@@ -1,11 +1,10 @@
 ---
 source: src/ui.rs
-assertion_line: 674
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript────────────────┐"
-"│Sessions            ││  No messages yet. Type a │"
-"│●  scratch          ││       prompt below.      │"
+"│Sessions            ││ No messages yet.         │"
+"│ ● scratch          ││ Type your message below. │"
 "│                    ││                          │"
 "│                    ││                          │"
 "│                    ││                          │"
@@ -21,9 +20,9 @@ expression: terminal.backend().to_string()
 "│                    ││                          │"
 "│                    ││                          │"
 "│                    ││                          │"
-"│·  idle             ││                          │"
+"│  ·  idle           ││                          │"
 "│                    ││                          │"
 "└────────────────────┘└──────────────────────────┘"
 "──────────────────────────────────────────────────"
-">                                                 "
+"  ▌ ▶                                             "
 " model: umans-coder   search: native  cwd: .      "

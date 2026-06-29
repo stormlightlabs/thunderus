@@ -1,12 +1,11 @@
 ---
 source: src/ui.rs
-assertion_line: 737
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││ user  search for something                             │"
-"│●  scratch          ││ tool  ✕ web_search#search-0 [failed]  query: something │"
-"│                    ││ error  ⚠ search backend unavailable                    │"
+"│Sessions            ││User (owais)               search for something         │"
+"│ ● scratch          ││ tool  ✕ web_search#search-0 [failed]  query: something │"
+"│                    ││Error                      ⚠ search backend unavailable │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
@@ -21,9 +20,9 @@ expression: terminal.backend().to_string()
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
-"│✕  failed           ││                                                        │"
+"│  ✕  failed         ││                                                        │"
 "│                    ││                                                        │"
 "└────────────────────┘└────────────────────────────────────────────────────────┘"
 "────────────────────────────────────────────────────────────────────────────────"
-"✕   error                                                                       "
+"  ✕   error                                                                     "
 " model: umans-coder   search: native  cwd: .                                    "

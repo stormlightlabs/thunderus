@@ -1,11 +1,10 @@
 ---
 source: src/ui.rs
-assertion_line: 561
 expression: terminal.backend().to_string()
 ---
 "┌Transcript────────────────────────────┐"
-"│ user  explain this repo              │"
-"│ assistant  response                  │"
+"│User (owais)               explain thi│"
+"│Assistant                  response   │"
 "│                                      │"
 "│                                      │"
 "│                                      │"
@@ -25,5 +24,5 @@ expression: terminal.backend().to_string()
 "│                                      │"
 "└──────────────────────────────────────┘"
 "────────────────────────────────────────"
-"> hello                                 "
+"  ▌ ▶  hello                            "
 " model: umans-coder   search: native  cw"

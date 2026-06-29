@@ -530,7 +530,10 @@ mod tests {
 
         for (schema, def) in arr.iter().zip(defs.iter()) {
             assert_eq!(schema["name"], def.name, "schema name should match");
-            assert_eq!(schema["description"], def.description, "schema description should match");
+            assert_eq!(
+                schema["description"], def.description,
+                "schema description should match"
+            );
             assert!(
                 schema.get("input_schema").is_some(),
                 "schema should have input_schema for {}",

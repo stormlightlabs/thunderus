@@ -1,12 +1,11 @@
 ---
 source: src/ui.rs
-assertion_line: 607
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││ user  read /etc/passwd                                 │"
-"│●  scratch          ││ tool  ✕ read_file_range#0 [failed]  path: /etc/passwd  │"
-"│                    ││ error  ⚠ path escapes workspace root: /etc/passwd      │"
+"│Sessions            ││User (owais)               read /etc/passwd             │"
+"│ ● scratch          ││ tool  ✕ read_file_range#0 [failed]  path: /etc/passwd  │"
+"│                    ││Error                      ⚠ path escapes workspace root│"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
@@ -21,9 +20,9 @@ expression: terminal.backend().to_string()
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
-"│✕  failed           ││                                                        │"
+"│  ✕  failed         ││                                                        │"
 "│                    ││                                                        │"
 "└────────────────────┘└────────────────────────────────────────────────────────┘"
 "────────────────────────────────────────────────────────────────────────────────"
-"✕   error                                                                       "
+"  ✕   error                                                                     "
 " model: umans-coder   search: native  cwd: .                                    "

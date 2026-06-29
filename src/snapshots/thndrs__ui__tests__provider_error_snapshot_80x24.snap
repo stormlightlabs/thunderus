@@ -1,11 +1,10 @@
 ---
 source: src/ui.rs
-assertion_line: 636
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││ user  explain this repo                                │"
-"│●  scratch          ││ error  ⚠ authentication failed (HTTP 401)              │"
+"│Sessions            ││User (owais)               explain this repo            │"
+"│ ● scratch          ││Error                      ⚠ authentication failed (HTTP│"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
@@ -21,9 +20,9 @@ expression: terminal.backend().to_string()
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
-"│✕  failed           ││                                                        │"
+"│  ✕  failed         ││                                                        │"
 "│                    ││                                                        │"
 "└────────────────────┘└────────────────────────────────────────────────────────┘"
 "────────────────────────────────────────────────────────────────────────────────"
-"✕   error                                                                       "
+"  ✕   error                                                                     "
 " model: umans-coder   search: native  cwd: .                                    "

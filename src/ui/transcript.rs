@@ -5,12 +5,14 @@ use crate::app::{Entry, ToolStatus};
 use crate::ui::MAX_TOOL_OUTPUT_LINES;
 use crate::ui::style::{self, P};
 
-pub fn entry_lines(entry: &Entry, tick: u64) -> Vec<Line<'static>> {
+const ROLE_WIDTH: usize = 27;
+
+pub fn entry_lines(entry: &Entry, tick: u64, user_label: &str) -> Vec<Line<'static>> {
     match entry {
-        Entry::User { text } => vec![message_line("user", P.blue, P.surface0, text)],
+        Entry::User { text } => vec![message_line(user_label, P.blue, text)],
         Entry::Assistant { text, streaming } => {
-            let label = if *streaming { style::spinner_frame(tick) } else { "assistant" };
-            vec![message_line(label, P.green, P.surface0, text)]
+            let label = if *streaming { style::spinner_frame(tick) } else { "Assistant" };
+            vec![message_line(label, P.green, text)]
         }
         Entry::Reasoning { text, streaming } => {
             let label = if *streaming { style::spinner_frame(tick) } else { "thought" };
@@ -21,21 +23,27 @@ pub fn entry_lines(entry: &Entry, tick: u64) -> Vec<Line<'static>> {
             ])]
         }
         Entry::Tool { name, arguments, status, output } => tool_lines(name, arguments, *status, output, tick),
-        Entry::Status { text } => vec![message_line("status", P.overlay1, P.surface_dim, text)],
+        Entry::Status { text } => vec![message_line("Status", P.overlay1, text)],
         Entry::Error { text } => vec![Line::from(vec![
-            chip("error", P.red, P.surface0),
-            Span::styled(" ⚠ ", Style::default().fg(P.red).bg(P.panel_bg)),
+            role_label("Error", P.red),
+            Span::styled("⚠ ", Style::default().fg(P.red).bg(P.panel_bg)),
             Span::styled(text.clone(), Style::default().fg(P.red).bg(P.panel_bg)),
         ])],
     }
 }
 
-fn message_line(label: &str, fg: Color, bg: Color, text: &str) -> Line<'static> {
+fn message_line(label: &str, fg: Color, text: &str) -> Line<'static> {
     Line::from(vec![
-        chip(label, fg, bg),
-        Span::styled(" ", style::text_style()),
+        role_label(label, fg),
         Span::styled(text.to_string(), style::text_style()),
     ])
+}
+
+fn role_label(label: &str, fg: Color) -> Span<'static> {
+    Span::styled(
+        format!("{label:<ROLE_WIDTH$}"),
+        Style::default().fg(fg).bg(P.panel_bg).add_modifier(Modifier::BOLD),
+    )
 }
 
 fn tool_lines(name: &str, arguments: &str, status: ToolStatus, output: &[String], tick: u64) -> Vec<Line<'static>> {

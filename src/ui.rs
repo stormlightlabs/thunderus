@@ -125,9 +125,10 @@ fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
                 style::subtle_style()
             };
             ListItem::new(Line::from(vec![
+                Span::styled(" ", style::text_style()),
                 Span::styled(marker, marker_style),
                 Span::styled(" ", style::text_style()),
-                Span::styled(format!(" {name} "), name_style),
+                Span::styled(name.clone(), name_style),
             ]))
         })
         .collect();
@@ -141,12 +142,16 @@ fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
     let label = app.status_label();
     let status_color = style::status_color(label);
     let status_text = Line::from(vec![
+        Span::styled("  ", style::text_style()),
         Span::styled(
             style::status_icon(label, app.ui_tick),
             Style::default().fg(status_color).bg(style::P.panel_bg),
         ),
-        Span::styled(" ", style::text_style()),
-        style::label_chip(label, status_color, style::P.surface0),
+        Span::styled("  ", style::text_style()),
+        Span::styled(
+            label.to_string(),
+            Style::default().fg(status_color).bg(style::P.panel_bg),
+        ),
     ]);
 
     frame.render_widget(Paragraph::new(status_text), status_area);
@@ -185,10 +190,13 @@ fn render_transcript(frame: &mut Frame, app: &App, area: Rect) {
             );
             frame.render_widget(Paragraph::new(banner_text).wrap(Wrap { trim: false }).centered(), inner);
         } else {
-            let placeholder = Paragraph::new("No messages yet. Type a prompt below.")
-                .style(style::muted_style())
-                .wrap(Wrap { trim: false })
-                .centered();
+            let placeholder = Paragraph::new(Text::from(vec![
+                Line::styled(" No messages yet.", style::muted_style()),
+                Line::styled(" Type your message below.", style::muted_style()),
+            ]))
+            .style(style::muted_style())
+            .wrap(Wrap { trim: false })
+            .left_aligned();
             frame.render_widget(placeholder, inner);
         }
         return;
@@ -197,7 +205,7 @@ fn render_transcript(frame: &mut Frame, app: &App, area: Rect) {
     let lines: Vec<Line> = app
         .transcript
         .iter()
-        .flat_map(|e| entry_lines(e, app.ui_tick))
+        .flat_map(|e| entry_lines(e, app.ui_tick, &app.user_label))
         .collect();
     let available = inner.height as usize;
     let from_bottom = app.scroll_offset.min(lines.len().saturating_sub(1));
@@ -225,7 +233,7 @@ fn render_prompt(frame: &mut Frame, app: &App, area: Rect) {
 
     let state = app.prompt_state();
     let (prompt_color, show_input, icon) = match state {
-        PromptState::Editable => (style::P.yellow, true, ">"),
+        PromptState::Editable => (style::P.yellow, true, "▌ ▶"),
         PromptState::Submitted => (style::P.yellow, false, style::spinner_frame(app.ui_tick)),
         PromptState::Streaming | PromptState::RunningTool => (style::P.teal, false, style::spinner_frame(app.ui_tick)),
         PromptState::Stopped => (style::P.teal, true, "○"),
@@ -234,15 +242,15 @@ fn render_prompt(frame: &mut Frame, app: &App, area: Rect) {
 
     let hint = state.hint();
     let mut spans = vec![
+        Span::styled("  ", style::text_style()),
         Span::styled(icon, Style::default().fg(prompt_color).bg(style::P.panel_bg)),
-        Span::styled(" ", style::text_style()),
+        Span::styled("  ", style::text_style()),
     ];
 
     if show_input {
         spans.push(Span::styled(app.input.clone(), style::text_style()));
     }
     if !hint.is_empty() {
-        spans.push(Span::styled(" ", style::text_style()));
         spans.push(style::label_chip(
             hint.trim_matches(['(', ')']),
             prompt_color,
@@ -308,7 +316,9 @@ mod tests {
     use ratatui::backend::TestBackend;
 
     fn app() -> App {
-        App::from_cli(&Cli::default())
+        let mut app = App::from_cli(&Cli::default());
+        app.user_label = String::from("User (owais)");
+        app
     }
 
     #[test]

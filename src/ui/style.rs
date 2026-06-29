@@ -21,7 +21,29 @@ pub struct Palette {
     pub peach: Color,
 }
 
-pub const P: Palette = Palette {
+pub const P: Palette = ICEBERG_DARK;
+
+pub const ICEBERG_DARK: Palette = Palette {
+    accent: Color::Rgb(132, 160, 198),
+    panel_bg: Color::Rgb(22, 24, 33),
+    surface0: Color::Rgb(30, 33, 50),
+    surface1: Color::Rgb(39, 44, 66),
+    surface_dim: Color::Rgb(15, 17, 23),
+    overlay0: Color::Rgb(68, 75, 113),
+    overlay1: Color::Rgb(107, 112, 137),
+    text: Color::Rgb(198, 200, 209),
+    subtext0: Color::Rgb(129, 133, 150),
+    mauve: Color::Rgb(160, 147, 199),
+    green: Color::Rgb(180, 190, 130),
+    yellow: Color::Rgb(226, 164, 120),
+    red: Color::Rgb(226, 120, 120),
+    blue: Color::Rgb(132, 160, 198),
+    teal: Color::Rgb(137, 184, 194),
+    peach: Color::Rgb(226, 164, 120),
+};
+
+#[allow(dead_code)]
+pub const CATPPUCCIN_MOCHA: Palette = Palette {
     accent: Color::Rgb(137, 180, 250),
     panel_bg: Color::Rgb(24, 24, 37),
     surface0: Color::Rgb(49, 50, 68),

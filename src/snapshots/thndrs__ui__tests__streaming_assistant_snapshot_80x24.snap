@@ -1,11 +1,10 @@
 ---
 source: src/ui.rs
-assertion_line: 461
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││ user  explain this repo                                │"
-"│●  scratch          ││ ⠋  This is a fake streaming res...                     │"
+"│Sessions            ││User (owais)               explain this repo            │"
+"│ ● scratch          ││⠋                          This is a fake streaming res.│"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
@@ -21,9 +20,9 @@ expression: terminal.backend().to_string()
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
-"│⠋  streaming        ││                                                        │"
+"│  ⠋  streaming      ││                                                        │"
 "│                    ││                                                        │"
 "└────────────────────┘└────────────────────────────────────────────────────────┘"
 "────────────────────────────────────────────────────────────────────────────────"
-"⠋   streaming… esc to cancel                                                    "
+"  ⠋   streaming… esc to cancel                                                  "
 " model: umans-coder   search: native  cwd: .                                    "

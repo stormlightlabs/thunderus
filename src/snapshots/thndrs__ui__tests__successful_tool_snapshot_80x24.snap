@@ -1,11 +1,10 @@
 ---
 source: src/ui.rs
-assertion_line: 587
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││ user  list files in src                                │"
-"│●  scratch          ││ tool  ✓ find_files#0 [ok]  pattern: *.rs               │"
+"│Sessions            ││User (owais)               list files in src            │"
+"│ ● scratch          ││ tool  ✓ find_files#0 [ok]  pattern: *.rs               │"
 "│                    ││      │ src/main.rs                                     │"
 "│                    ││      │ src/cli.rs                                      │"
 "│                    ││      │ src/app.rs                                      │"
@@ -21,9 +20,9 @@ expression: terminal.backend().to_string()
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
-"│✓  done             ││                                                        │"
+"│  ✓  done           ││                                                        │"
 "│                    ││                                                        │"
 "└────────────────────┘└────────────────────────────────────────────────────────┘"
 "────────────────────────────────────────────────────────────────────────────────"
-">                                                                               "
+"  ▌ ▶                                                                           "
 " model: umans-coder   search: native  cwd: .                                    "

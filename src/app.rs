@@ -124,7 +124,10 @@ impl Entry {
     /// Single-line rendering, kept for backwards-compatible callers.
     #[allow(dead_code)]
     pub fn to_line(&self) -> ratatui::text::Line<'_> {
-        crate::ui::entry_lines(self, 0).into_iter().next().unwrap_or_default()
+        crate::ui::entry_lines(self, 0, "You")
+            .into_iter()
+            .next()
+            .unwrap_or_default()
     }
 }
 
@@ -194,6 +197,7 @@ pub struct App {
     pub view: crate::ui::ViewState,
     pub cwd: PathBuf,
     pub model: String,
+    pub user_label: String,
     pub websearch: WebSearchMode,
     /// Loaded context sources (e.g. AGENTS.md).
     pub context_sources: Vec<crate::context::ContextSource>,
@@ -234,6 +238,7 @@ impl App {
             view: crate::ui::ViewState::default(),
             cwd: cli.cwd.clone(),
             model: cli.model.clone(),
+            user_label: default_user_label(),
             websearch: cli.websearch,
             context_sources,
             scroll_offset: 0,
@@ -517,6 +522,13 @@ fn finalize_streaming(app: &mut App) {
             _ => {}
         }
     }
+}
+
+fn default_user_label() -> String {
+    std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .map(|name| format!("User ({name})"))
+        .unwrap_or_else(|_| String::from("You"))
 }
 
 #[cfg(test)]
