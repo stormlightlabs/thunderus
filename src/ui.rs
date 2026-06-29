@@ -486,9 +486,8 @@ mod tests {
             status: ToolStatus::Failed,
             output: Vec::new(),
         });
-        app.transcript.push(Entry::Error {
-            text: String::from("path escapes workspace root: /etc/passwd"),
-        });
+        app.transcript
+            .push(Entry::Error { text: String::from("path escapes workspace root: /etc/passwd") });
 
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).expect("create test terminal");

@@ -239,12 +239,9 @@ pub enum Msg {
 ///   the input is appended as [`Entry::User`] and cleared.
 /// - `q` quits only when the input is empty (so it stays usable while typing).
 /// - `Ctrl+C` and `Ctrl+D` always quit.
-///
-/// FIXME: Get rid of this clippy warning/address it
-#[allow(clippy::needless_pass_by_value)]
-pub fn update(app: &mut App, msg: Msg) -> Option<Msg> {
+pub fn update(app: &mut App, msg: &Msg) -> Option<Msg> {
     match msg {
-        Msg::Key(key) => handle_key(app, key),
+        Msg::Key(key) => handle_key(app, *key),
         Msg::Submit => handle_submit(app),
         Msg::Quit => {
             app.quit = true;
@@ -255,7 +252,7 @@ pub fn update(app: &mut App, msg: Msg) -> Option<Msg> {
             app.transcript.clear();
             None
         }
-        Msg::Agent(event) => handle_agent_event(app, event),
+        Msg::Agent(event) => handle_agent_event(app, event.clone()),
     }
 }
 
@@ -428,7 +425,7 @@ mod tests {
         let mut app = fresh_app();
         let follow = update(
             &mut app,
-            Msg::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
+            &Msg::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
         );
         assert!(app.quit);
         assert_eq!(follow, Some(Msg::Quit));
@@ -439,7 +436,7 @@ mod tests {
         let mut app = fresh_app();
         update(
             &mut app,
-            Msg::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
+            &Msg::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
         );
         assert!(app.quit);
     }
@@ -449,7 +446,7 @@ mod tests {
         let mut app = fresh_app();
         update(
             &mut app,
-            Msg::Key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL)),
+            &Msg::Key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL)),
         );
         assert!(app.quit);
     }
@@ -459,17 +456,17 @@ mod tests {
         let mut app = fresh_app();
         update(
             &mut app,
-            Msg::Key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)),
+            &Msg::Key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)),
         );
         assert!(!app.quit);
-        update(&mut app, Msg::Tick);
+        update(&mut app, &Msg::Tick);
         assert!(!app.quit);
     }
 
     #[test]
     fn quit_message_sets_quit_flag() {
         let mut app = fresh_app();
-        update(&mut app, Msg::Quit);
+        update(&mut app, &Msg::Quit);
         assert!(app.quit);
     }
 
@@ -484,7 +481,10 @@ mod tests {
     fn printable_chars_append_to_input() {
         let mut app = fresh_app();
         for ch in "hello".chars() {
-            update(&mut app, Msg::Key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE)));
+            update(
+                &mut app,
+                &Msg::Key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE)),
+            );
         }
         assert_eq!(app.input, "hello");
         assert!(app.transcript.is_empty());
@@ -496,7 +496,7 @@ mod tests {
         app.input = String::from("abc");
         update(
             &mut app,
-            Msg::Key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)),
+            &Msg::Key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)),
         );
         assert_eq!(app.input, "ab");
     }
@@ -506,7 +506,7 @@ mod tests {
         let mut app = fresh_app();
         update(
             &mut app,
-            Msg::Key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)),
+            &Msg::Key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)),
         );
         assert_eq!(app.input, "");
     }
@@ -515,7 +515,7 @@ mod tests {
     fn enter_submits_user_entry_and_clears_input() {
         let mut app = fresh_app();
         app.input = String::from("explain this repo");
-        update(&mut app, Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+        update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
         assert_eq!(app.input, "");
         assert_eq!(app.transcript.len(), 1);
         assert_eq!(
@@ -527,7 +527,7 @@ mod tests {
     #[test]
     fn enter_on_empty_input_does_nothing() {
         let mut app = fresh_app();
-        update(&mut app, Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+        update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
         assert_eq!(app.input, "");
         assert!(app.transcript.is_empty());
     }
@@ -536,7 +536,7 @@ mod tests {
     fn enter_trims_whitespace_before_submit() {
         let mut app = fresh_app();
         app.input = String::from("  hello  ");
-        update(&mut app, Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+        update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
         assert_eq!(app.input, "");
         assert_eq!(app.transcript.len(), 1);
         assert_eq!(app.transcript[0], Entry::User { text: String::from("hello") });
@@ -547,7 +547,7 @@ mod tests {
         let mut app = fresh_app();
         app.transcript.push(Entry::User { text: String::from("old") });
         app.input = String::from("/clear");
-        update(&mut app, Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+        update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
         assert!(app.transcript.is_empty());
         assert_eq!(app.input, "");
         assert!(!app.quit);
@@ -557,7 +557,7 @@ mod tests {
     fn slash_quit_sets_quit_flag() {
         let mut app = fresh_app();
         app.input = String::from("/quit");
-        let follow = update(&mut app, Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+        let follow = update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
         assert!(app.quit);
         assert_eq!(follow, Some(Msg::Quit));
         assert_eq!(app.input, "");
@@ -567,7 +567,7 @@ mod tests {
     fn slash_exit_also_quits() {
         let mut app = fresh_app();
         app.input = String::from("/exit");
-        update(&mut app, Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+        update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
         assert!(app.quit);
     }
 
@@ -575,7 +575,7 @@ mod tests {
     fn unknown_slash_command_is_ignored() {
         let mut app = fresh_app();
         app.input = String::from("/bogus");
-        update(&mut app, Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+        update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
         assert!(!app.quit);
         assert!(app.transcript.is_empty());
         assert_eq!(app.input, "/bogus");
@@ -586,7 +586,7 @@ mod tests {
         let mut app = fresh_app();
         app.transcript.push(Entry::User { text: String::from("a") });
         app.transcript.push(Entry::User { text: String::from("b") });
-        update(&mut app, Msg::Clear);
+        update(&mut app, &Msg::Clear);
         assert!(app.transcript.is_empty());
     }
 
@@ -596,7 +596,7 @@ mod tests {
         app.input = String::from("query");
         update(
             &mut app,
-            Msg::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
+            &Msg::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
         );
         assert!(!app.quit);
         assert_eq!(app.input, "queryq");
@@ -607,7 +607,7 @@ mod tests {
         let mut app = fresh_app();
         let follow = update(
             &mut app,
-            Msg::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
+            &Msg::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
         );
         assert!(app.quit);
         assert_eq!(follow, Some(Msg::Quit));
@@ -616,14 +616,14 @@ mod tests {
     #[test]
     fn agent_started_sets_working() {
         let mut app = fresh_app();
-        update(&mut app, Msg::Agent(AgentEvent::Started));
+        update(&mut app, &Msg::Agent(AgentEvent::Started));
         assert_eq!(app.run_state, RunState::Working);
     }
 
     #[test]
     fn assistant_delta_creates_streaming_entry() {
         let mut app = fresh_app();
-        update(&mut app, Msg::Agent(AgentEvent::AssistantDelta(String::from("Hello"))));
+        update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(String::from("Hello"))));
         assert_eq!(app.transcript.len(), 1);
         assert_eq!(
             app.transcript[0],
@@ -634,8 +634,11 @@ mod tests {
     #[test]
     fn assistant_delta_appends_to_existing_streaming_entry() {
         let mut app = fresh_app();
-        update(&mut app, Msg::Agent(AgentEvent::AssistantDelta(String::from("Hello "))));
-        update(&mut app, Msg::Agent(AgentEvent::AssistantDelta(String::from("world"))));
+        update(
+            &mut app,
+            &Msg::Agent(AgentEvent::AssistantDelta(String::from("Hello "))),
+        );
+        update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(String::from("world"))));
         assert_eq!(app.transcript.len(), 1);
         assert_eq!(
             app.transcript[0],
@@ -646,9 +649,12 @@ mod tests {
     #[test]
     fn assistant_delta_creates_new_entry_after_finished() {
         let mut app = fresh_app();
-        update(&mut app, Msg::Agent(AgentEvent::AssistantDelta(String::from("first"))));
-        update(&mut app, Msg::Agent(AgentEvent::Finished));
-        update(&mut app, Msg::Agent(AgentEvent::AssistantDelta(String::from("second"))));
+        update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(String::from("first"))));
+        update(&mut app, &Msg::Agent(AgentEvent::Finished));
+        update(
+            &mut app,
+            &Msg::Agent(AgentEvent::AssistantDelta(String::from("second"))),
+        );
         assert_eq!(app.transcript.len(), 2);
         assert_eq!(
             app.transcript[0],
@@ -665,7 +671,7 @@ mod tests {
         let mut app = fresh_app();
         update(
             &mut app,
-            Msg::Agent(AgentEvent::ReasoningDelta(String::from("Thinking..."))),
+            &Msg::Agent(AgentEvent::ReasoningDelta(String::from("Thinking..."))),
         );
         assert_eq!(app.transcript.len(), 1);
         assert_eq!(
@@ -679,11 +685,11 @@ mod tests {
         let mut app = fresh_app();
         update(
             &mut app,
-            Msg::Agent(AgentEvent::ReasoningDelta(String::from("Step 1. "))),
+            &Msg::Agent(AgentEvent::ReasoningDelta(String::from("Step 1. "))),
         );
         update(
             &mut app,
-            Msg::Agent(AgentEvent::ReasoningDelta(String::from("Step 2."))),
+            &Msg::Agent(AgentEvent::ReasoningDelta(String::from("Step 2."))),
         );
         assert_eq!(app.transcript.len(), 1);
         assert_eq!(
@@ -697,7 +703,7 @@ mod tests {
         let mut app = fresh_app();
         update(
             &mut app,
-            Msg::Agent(AgentEvent::ToolStarted { name: String::from("read_file") }),
+            &Msg::Agent(AgentEvent::ToolStarted { name: String::from("read_file") }),
         );
         assert_eq!(app.transcript.len(), 1);
         assert_eq!(
@@ -711,15 +717,15 @@ mod tests {
         let mut app = fresh_app();
         update(
             &mut app,
-            Msg::Agent(AgentEvent::ToolStarted { name: String::from("read_file") }),
+            &Msg::Agent(AgentEvent::ToolStarted { name: String::from("read_file") }),
         );
         update(
             &mut app,
-            Msg::Agent(AgentEvent::ToolOutput { line: String::from("line 1") }),
+            &Msg::Agent(AgentEvent::ToolOutput { line: String::from("line 1") }),
         );
         update(
             &mut app,
-            Msg::Agent(AgentEvent::ToolOutput { line: String::from("line 2") }),
+            &Msg::Agent(AgentEvent::ToolOutput { line: String::from("line 2") }),
         );
         assert_eq!(app.transcript.len(), 1);
 
@@ -734,9 +740,9 @@ mod tests {
         let mut app = fresh_app();
         update(
             &mut app,
-            Msg::Agent(AgentEvent::ToolStarted { name: String::from("read_file") }),
+            &Msg::Agent(AgentEvent::ToolStarted { name: String::from("read_file") }),
         );
-        update(&mut app, Msg::Agent(AgentEvent::ToolFinished));
+        update(&mut app, &Msg::Agent(AgentEvent::ToolFinished));
         match &app.transcript[0] {
             Entry::Tool { status, .. } => assert_eq!(*status, ToolStatus::Ok),
             _ => panic!("expected Tool entry"),
@@ -746,15 +752,15 @@ mod tests {
     #[test]
     fn finished_marks_streaming_false_and_returns_to_idle() {
         let mut app = fresh_app();
-        update(&mut app, Msg::Agent(AgentEvent::Started));
-        update(&mut app, Msg::Agent(AgentEvent::AssistantDelta(String::from("text"))));
+        update(&mut app, &Msg::Agent(AgentEvent::Started));
+        update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(String::from("text"))));
         update(
             &mut app,
-            Msg::Agent(AgentEvent::ReasoningDelta(String::from("thoughts"))),
+            &Msg::Agent(AgentEvent::ReasoningDelta(String::from("thoughts"))),
         );
 
         assert_eq!(app.run_state, RunState::Working);
-        update(&mut app, Msg::Agent(AgentEvent::Finished));
+        update(&mut app, &Msg::Agent(AgentEvent::Finished));
         assert_eq!(app.run_state, RunState::Idle);
 
         if let Entry::Assistant { streaming, .. } = &app.transcript[0] {
@@ -772,16 +778,16 @@ mod tests {
     #[test]
     fn failed_adds_error_entry_and_returns_to_idle() {
         let mut app = fresh_app();
-        update(&mut app, Msg::Agent(AgentEvent::Started));
+        update(&mut app, &Msg::Agent(AgentEvent::Started));
         update(
             &mut app,
-            Msg::Agent(AgentEvent::AssistantDelta(String::from("partial"))),
+            &Msg::Agent(AgentEvent::AssistantDelta(String::from("partial"))),
         );
         assert_eq!(app.run_state, RunState::Working);
 
         update(
             &mut app,
-            Msg::Agent(AgentEvent::Failed(String::from("connection lost"))),
+            &Msg::Agent(AgentEvent::Failed(String::from("connection lost"))),
         );
         assert_eq!(app.run_state, RunState::Idle);
         assert!(matches!(app.transcript.last(), Some(Entry::Error { text }) if text == "connection lost"));
@@ -795,14 +801,14 @@ mod tests {
     #[test]
     fn escape_cancels_working_stream() {
         let mut app = fresh_app();
-        update(&mut app, Msg::Agent(AgentEvent::Started));
+        update(&mut app, &Msg::Agent(AgentEvent::Started));
         update(
             &mut app,
-            Msg::Agent(AgentEvent::AssistantDelta(String::from("partial"))),
+            &Msg::Agent(AgentEvent::AssistantDelta(String::from("partial"))),
         );
         assert_eq!(app.run_state, RunState::Working);
 
-        update(&mut app, Msg::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+        update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
         assert_eq!(app.run_state, RunState::Idle);
 
         match &app.transcript[0] {
@@ -814,7 +820,7 @@ mod tests {
     #[test]
     fn escape_does_nothing_when_idle() {
         let mut app = fresh_app();
-        update(&mut app, Msg::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+        update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
         assert_eq!(app.run_state, RunState::Idle);
         assert!(app.transcript.is_empty());
     }
@@ -824,7 +830,7 @@ mod tests {
         let mut app = fresh_app();
         app.run_state = RunState::Working;
         app.input = String::from("queued message");
-        update(&mut app, Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+        update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
         assert_eq!(app.input, "queued message");
         assert!(app.transcript.is_empty());
     }
@@ -833,7 +839,7 @@ mod tests {
     fn submit_kicks_off_agent_via_followup() {
         let mut app = fresh_app();
         app.input = String::from("explain this repo");
-        let follow = update(&mut app, Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+        let follow = update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
         assert_eq!(app.input, "");
         assert_eq!(app.transcript.len(), 1);
         assert_eq!(follow, Some(Msg::Agent(AgentEvent::Started)));

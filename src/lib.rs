@@ -145,7 +145,7 @@ fn handle_key(app: &mut App, key: KeyEvent, terminal: &mut DefaultTerminal) -> i
 fn handle_msg(app: &mut App, msg: Msg, terminal: &mut DefaultTerminal) -> io::Result<()> {
     let mut next = Some(msg);
     while let Some(m) = next {
-        next = update(app, m);
+        next = update(app, &m);
         if app.quit {
             return Ok(());
         }
