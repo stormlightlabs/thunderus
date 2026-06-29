@@ -101,11 +101,8 @@ pub fn discover_workspace_root(cwd: &Path) -> PathBuf {
 pub fn load_agents_md(workspace_root: &Path) -> Option<ContextSource> {
     let path = workspace_root.join("AGENTS.md");
     let metadata = fs::metadata(&path).ok()?;
-
     let byte_count = metadata.len() as usize;
     let content = fs::read_to_string(&path).ok()?;
-
-    // Hash the full content before truncation.
     let content_hash = hash_content(&content);
 
     let (content, truncated) = if byte_count > AGENTS_MD_SIZE_CAP {

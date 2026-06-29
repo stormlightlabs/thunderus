@@ -24,19 +24,20 @@
 - [x] Include AGENTS.md path, scope, content hash, and truncation state in context
       metadata.
 - [ ] Implement read-only `find_files` backed by `fd` with `find` fallback.
-- [ ] Implement read-only `list_searchable_files` backed by `rg --files` or
+- [x] Implement read-only `find_files` backed by `fd` with `find` fallback.
+- [x] Implement read-only `list_searchable_files` backed by `rg --files` or
       `fd --type file` with `grep` or `find` fallbacks, respectively.
-- [ ] Implement read-only `search_text` backed by `rg --json`.
-- [ ] Implement `read_file_range` in Rust.
-- [ ] Define typed tool inputs for pattern, root, globs, extensions, depth, context,
+- [x] Implement read-only `search_text` backed by `rg --json`.
+- [x] Implement `read_file_range` in Rust.
+- [x] Define typed tool inputs for pattern, root, globs, extensions, depth, context,
       and max results.
-- [ ] Invoke `fd`/`rg` with `std::process::Command` argv arrays, not shell strings.
-- [ ] Enforce workspace-root containment after path normalization.
-- [ ] Default to respecting ignore rules and skipping hidden files.
-- [ ] Keep hidden files, ignored files, symlink following, and unrestricted searches
+- [x] Invoke `fd`/`rg` with `std::process::Command` argv arrays, not shell strings.
+- [x] Enforce workspace-root containment after path normalization.
+- [x] Default to respecting ignore rules and skipping hidden files.
+- [x] Keep hidden files, ignored files, symlink following, and unrestricted searches
       opt-in.
-- [ ] Enforce timeout, result-count, stdout/stderr byte, and transcript truncation caps.
-- [ ] Treat `rg` exit code `1` as no matches.
+- [x] Enforce timeout, result-count, stdout/stderr byte, and transcript truncation caps.
+- [x] Treat `rg` exit code `1` as no matches.
 - [ ] Do not expose `fd --exec`, `fd --exec-batch`, `rg --pre`, arbitrary `sed`,
       arbitrary `awk`, `sed -i`, or `awk system()`.
 - [ ] Add optional `summarize_text` only as canned output-only templates if needed.
@@ -46,13 +47,13 @@
 - [ ] Unit-test missing AGENTS.md behavior.
 - [ ] Unit-test oversized AGENTS.md truncation.
 - [ ] Unit-test AGENTS.md cannot override user prompt or harness policy.
-- [ ] Unit-test read-only tool success and failure paths.
-- [ ] Unit-test root containment and path normalization.
-- [ ] Unit-test `fd` output parsing with fixture output.
-- [ ] Unit-test `rg --json` parsing with fixture output.
-- [ ] Unit-test `rg` match, no-match, and failure exit handling.
-- [ ] Unit-test output truncation.
-- [ ] Add snapshots for successful and failed tool entries.
+- [x] Unit-test read-only tool success and failure paths.
+- [x] Unit-test root containment and path normalization.
+- [x] Unit-test `fd` output parsing with fixture output.
+- [x] Unit-test `rg --json` parsing with fixture output.
+- [x] Unit-test `rg` match, no-match, and failure exit handling.
+- [x] Unit-test output truncation.
+- [x] Add snapshots for successful and failed tool entries.
 
 ### Phase 6: Umans Provider
 

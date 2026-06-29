@@ -450,4 +450,49 @@ mod tests {
         terminal.draw(|f| render(f, &app)).expect("draw narrow width layout");
         insta::assert_snapshot!(terminal.backend().to_string());
     }
+
+    #[test]
+    fn successful_tool_snapshot_80x24() {
+        let mut app = app();
+        app.transcript
+            .push(Entry::User { text: String::from("list files in src") });
+        app.transcript.push(Entry::Tool {
+            name: String::from("find_files"),
+            status: ToolStatus::Ok,
+            output: vec![
+                String::from("src/main.rs"),
+                String::from("src/cli.rs"),
+                String::from("src/app.rs"),
+                String::from("src/ui.rs"),
+                String::from("src/agent.rs"),
+                String::from("src/context.rs"),
+                String::from("src/tools.rs"),
+            ],
+        });
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw successful tool");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
+    fn failed_tool_snapshot_80x24() {
+        let mut app = app();
+        app.transcript
+            .push(Entry::User { text: String::from("read /etc/passwd") });
+        app.transcript.push(Entry::Tool {
+            name: String::from("read_file_range"),
+            status: ToolStatus::Failed,
+            output: Vec::new(),
+        });
+        app.transcript.push(Entry::Error {
+            text: String::from("path escapes workspace root: /etc/passwd"),
+        });
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw failed tool");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
 }
