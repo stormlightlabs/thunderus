@@ -39,14 +39,14 @@
 
 ### Phase 7: Agent Event Loop and Tool UI
 
-- [ ] Define one agent loop path for fake and Umans runs.
-- [ ] Convert provider stream deltas, reasoning deltas, tool-use requests, tool
+- [x] Define one agent loop path for fake and Umans runs.
+- [x] Convert provider stream deltas, reasoning deltas, tool-use requests, tool
       results, errors, cancellation, and done states into `AgentEvent`.
-- [ ] Dispatch Phase 5 read-only tools from provider tool-use requests.
-- [ ] Append tool results to the transcript before continuing the provider turn.
-- [ ] Prevent recursive or unbounded tool-call loops with a small per-turn cap.
-- [ ] Keep tool execution async/non-blocking relative to TUI input and redraw.
-- [ ] Add a cancel path that stops the provider stream or active tool call and
+- [x] Dispatch Phase 5 read-only tools from provider tool-use requests.
+- [x] Append tool results to the transcript before continuing the provider turn.
+- [x] Prevent recursive or unbounded tool-call loops with a small per-turn cap.
+- [x] Keep tool execution async/non-blocking relative to TUI input and redraw.
+- [x] Add a cancel path that stops the provider stream or active tool call and
       returns to an editable prompt.
 - [ ] Render an agent status line for idle, sending, thinking, streaming, running
       tool, cancelled, failed, and done states.

@@ -5,10 +5,10 @@
 
 use std::path::PathBuf;
 
-use crate::cli::{Cli, WebSearchMode};
-
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
+
+use crate::cli::{Cli, WebSearchMode};
 
 /// Top-level interaction mode.
 ///
@@ -26,10 +26,7 @@ pub enum Mode {
 }
 
 /// Semantic run state, used for the sidebar/status line.
-///
-/// TODO: Stopping/Error
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
-#[allow(dead_code)]
 pub enum RunState {
     /// Nothing in flight.
     #[default]
@@ -37,8 +34,10 @@ pub enum RunState {
     /// Agent stream active.
     Working,
     /// A stop has been requested; stream is winding down.
+    #[allow(dead_code)]
     Stopping,
     /// A recoverable error occurred.
+    #[allow(dead_code)]
     Error(String),
 }
 
@@ -54,10 +53,7 @@ impl RunState {
 }
 
 /// Status of a tool entry in the transcript.
-///
-/// TODO: Failed
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
-#[allow(dead_code)]
 pub enum ToolStatus {
     /// Tool started, not yet finished.
     #[default]
@@ -80,6 +76,7 @@ pub enum Entry {
     /// A tool call block.
     Tool {
         name: String,
+        arguments: String,
         status: ToolStatus,
         output: Vec<String>,
     },
@@ -104,15 +101,23 @@ impl Entry {
                 Span::styled("reasoning ", Style::default().fg(Color::Magenta)),
                 Span::raw(text.as_str()),
             ]),
-            Entry::Tool { name, status, .. } => {
+            Entry::Tool { name, arguments, status, .. } => {
                 let status_label = match status {
                     crate::app::ToolStatus::Running => "running",
                     crate::app::ToolStatus::Ok => "ok",
                     crate::app::ToolStatus::Failed => "failed",
                 };
+                let args_summary = summarize_tool_args(arguments);
+                let args_span = if args_summary.is_empty() {
+                    Span::raw(String::new())
+                } else {
+                    Span::raw(format!(" {args_summary}"))
+                };
                 Line::from(vec![
                     Span::styled("tool     ", Style::default().fg(Color::Yellow)),
-                    Span::raw(format!("{name} [{status_label}]")),
+                    Span::raw(name.as_str()),
+                    Span::raw(format!(" [{status_label}]")),
+                    args_span,
                 ])
             }
             Entry::Status { text } => Line::from(vec![
@@ -125,6 +130,46 @@ impl Entry {
             ]),
         }
     }
+}
+
+/// Events from the background agent stream.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AgentEvent {
+    Started,
+    AssistantDelta(String),
+    ReasoningDelta(String),
+    ToolStarted {
+        id: String,
+        name: String,
+        arguments: String,
+    },
+    ToolFinished {
+        id: String,
+        output: Vec<String>,
+        status: ToolStatus,
+    },
+    Finished,
+    Failed(String),
+    Cancelled,
+}
+
+/// The single message type fed into `update`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Msg {
+    /// A raw key event from the terminal.
+    Key(crossterm::event::KeyEvent),
+    /// Periodic tick.
+    Tick,
+    /// Submit the current input.
+    #[allow(dead_code)]
+    Submit,
+    /// Clear the transcript.
+    #[allow(dead_code)]
+    Clear,
+    /// Quit the app.
+    Quit,
+    /// An agent stream event.
+    Agent(AgentEvent),
 }
 
 /// Sidebar model
@@ -193,42 +238,6 @@ impl App {
             quit: false,
         }
     }
-}
-
-/// Events from the background agent stream.
-///
-/// TODO: Failed
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[allow(dead_code)]
-pub enum AgentEvent {
-    Started,
-    AssistantDelta(String),
-    ReasoningDelta(String),
-    ToolStarted { name: String },
-    ToolOutput { line: String },
-    ToolFinished,
-    Finished,
-    Failed(String),
-}
-
-/// The single message type fed into `update`.
-///
-/// TODO: Submit/Clear
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[allow(dead_code)]
-pub enum Msg {
-    /// A raw key event from the terminal.
-    Key(crossterm::event::KeyEvent),
-    /// Periodic tick.
-    Tick,
-    /// Submit the current input.
-    Submit,
-    /// Clear the transcript.
-    Clear,
-    /// Quit the app.
-    Quit,
-    /// An agent stream event.
-    Agent(AgentEvent),
 }
 
 /// The only mutation path. Returns an optional follow-up message.
@@ -359,20 +368,24 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             }
             None
         }
-        AgentEvent::ToolStarted { name } => {
-            app.transcript
-                .push(Entry::Tool { name, status: ToolStatus::Running, output: Vec::new() });
+        AgentEvent::ToolStarted { id, name, arguments } => {
+            app.transcript.push(Entry::Tool {
+                name: format!("{name}#{id}"),
+                arguments,
+                status: ToolStatus::Running,
+                output: Vec::new(),
+            });
             None
         }
-        AgentEvent::ToolOutput { line } => {
-            if let Some(Entry::Tool { output, .. }) = app.transcript.last_mut() {
-                output.push(line);
-            }
-            None
-        }
-        AgentEvent::ToolFinished => {
-            if let Some(Entry::Tool { status, .. }) = app.transcript.last_mut() {
-                *status = ToolStatus::Ok;
+        AgentEvent::ToolFinished { id, output, status } => {
+            for entry in app.transcript.iter_mut().rev() {
+                if let Entry::Tool { name, output: out, status: s, .. } = entry
+                    && name.ends_with(&format!("#{id}"))
+                {
+                    *out = output;
+                    *s = status;
+                    break;
+                }
             }
             None
         }
@@ -387,15 +400,23 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             app.run_state = RunState::Idle;
             None
         }
+        AgentEvent::Cancelled => {
+            finalize_streaming(app);
+            app.transcript.push(Entry::Status { text: String::from("cancelled") });
+            app.run_state = RunState::Idle;
+            None
+        }
     }
 }
 
-/// Cancel an active stream by marking all streaming entries complete and
-/// returning to idle.
+/// Cancel an active stream by marking all streaming entries complete,
+/// recording a cancelled status entry, and returning to idle.
 ///
-/// The app loop drops the channel receiver after this.
+/// The app loop observes the transition out of `Working` and drops the
+/// background receiver, which stops the agent thread on its next failed send.
 fn cancel_stream(app: &mut App) {
     finalize_streaming(app);
+    app.transcript.push(Entry::Status { text: String::from("cancelled") });
     app.run_state = RunState::Idle;
 }
 
@@ -408,6 +429,53 @@ fn finalize_streaming(app: &mut App) {
             _ => {}
         }
     }
+}
+
+/// Produce a short, single-line summary of a tool's arguments for the
+/// transcript line. Returns an empty string when there is nothing useful to
+/// show.
+///
+/// The model sends arguments as JSON. We extract the first scalar field value
+/// (e.g. a `pattern`, `path`, or `query`) and truncate it so the transcript
+/// stays readable. Object/array values are rendered as compact JSON and
+/// truncated.
+fn summarize_tool_args(arguments: &str) -> String {
+    let trimmed = arguments.trim();
+    if trimmed.is_empty() || trimmed == "{}" {
+        return String::new();
+    }
+
+    let v: serde_json::Value = match serde_json::from_str(trimmed) {
+        Ok(v) => v,
+        Err(_) => return truncate_chars(trimmed, 48),
+    };
+
+    let Some(obj) = v.as_object() else {
+        return truncate_chars(trimmed, 48);
+    };
+
+    for key in &["pattern", "path", "query", "root", "glob", "file"] {
+        if let Some(val) = obj.get(*key).and_then(|f| f.as_str()) {
+            return format!("{key}: {}", truncate_chars(val, 40));
+        }
+    }
+
+    for (k, val) in obj {
+        if let Some(s) = val.as_str() {
+            return format!("{k}: {}", truncate_chars(s, 40));
+        }
+    }
+
+    truncate_chars(trimmed, 48)
+}
+
+/// Truncate a string to at most `max_chars` chars, appending `...` if truncated.
+fn truncate_chars(s: &str, max_chars: usize) -> String {
+    if s.chars().count() <= max_chars {
+        return s.to_string();
+    }
+    let truncated: String = s.chars().take(max_chars).collect();
+    format!("{truncated}...")
 }
 
 #[cfg(test)]
@@ -703,49 +771,94 @@ mod tests {
         let mut app = fresh_app();
         update(
             &mut app,
-            &Msg::Agent(AgentEvent::ToolStarted { name: String::from("read_file") }),
+            &Msg::Agent(AgentEvent::ToolStarted {
+                id: String::from("0"),
+                name: String::from("read_file"),
+                arguments: String::from("{}"),
+            }),
         );
         assert_eq!(app.transcript.len(), 1);
-        assert_eq!(
-            app.transcript[0],
-            Entry::Tool { name: String::from("read_file"), status: ToolStatus::Running, output: Vec::new() }
-        );
-    }
-
-    #[test]
-    fn tool_output_appends_to_last_tool_entry() {
-        let mut app = fresh_app();
-        update(
-            &mut app,
-            &Msg::Agent(AgentEvent::ToolStarted { name: String::from("read_file") }),
-        );
-        update(
-            &mut app,
-            &Msg::Agent(AgentEvent::ToolOutput { line: String::from("line 1") }),
-        );
-        update(
-            &mut app,
-            &Msg::Agent(AgentEvent::ToolOutput { line: String::from("line 2") }),
-        );
-        assert_eq!(app.transcript.len(), 1);
-
         match &app.transcript[0] {
-            Entry::Tool { output, .. } => assert_eq!(*output, vec!["line 1", "line 2"]),
+            Entry::Tool { name, arguments, status, output } => {
+                assert_eq!(name, "read_file#0");
+                assert_eq!(arguments, "{}");
+                assert_eq!(*status, ToolStatus::Running);
+                assert!(output.is_empty());
+            }
             _ => panic!("expected Tool entry"),
         }
     }
 
     #[test]
-    fn tool_finished_sets_status_ok() {
+    fn tool_finished_sets_output_and_status() {
         let mut app = fresh_app();
         update(
             &mut app,
-            &Msg::Agent(AgentEvent::ToolStarted { name: String::from("read_file") }),
+            &Msg::Agent(AgentEvent::ToolStarted {
+                id: String::from("0"),
+                name: String::from("read_file"),
+                arguments: String::from("{}"),
+            }),
         );
-        update(&mut app, &Msg::Agent(AgentEvent::ToolFinished));
+        update(
+            &mut app,
+            &Msg::Agent(AgentEvent::ToolFinished {
+                id: String::from("0"),
+                output: vec![String::from("line 1"), String::from("line 2")],
+                status: ToolStatus::Ok,
+            }),
+        );
         match &app.transcript[0] {
-            Entry::Tool { status, .. } => assert_eq!(*status, ToolStatus::Ok),
+            Entry::Tool { status, output, .. } => {
+                assert_eq!(*status, ToolStatus::Ok);
+                assert_eq!(*output, vec!["line 1", "line 2"]);
+            }
             _ => panic!("expected Tool entry"),
+        }
+    }
+
+    #[test]
+    fn tool_finished_marks_failed_status() {
+        let mut app = fresh_app();
+        update(
+            &mut app,
+            &Msg::Agent(AgentEvent::ToolStarted {
+                id: String::from("0"),
+                name: String::from("read_file"),
+                arguments: String::from("{}"),
+            }),
+        );
+        update(
+            &mut app,
+            &Msg::Agent(AgentEvent::ToolFinished {
+                id: String::from("0"),
+                output: Vec::new(),
+                status: ToolStatus::Failed,
+            }),
+        );
+        match &app.transcript[0] {
+            Entry::Tool { status, .. } => assert_eq!(*status, ToolStatus::Failed),
+            _ => panic!("expected Tool entry"),
+        }
+    }
+
+    #[test]
+    fn cancelled_event_adds_status_and_returns_to_idle() {
+        let mut app = fresh_app();
+        update(&mut app, &Msg::Agent(AgentEvent::Started));
+        update(
+            &mut app,
+            &Msg::Agent(AgentEvent::AssistantDelta(String::from("partial"))),
+        );
+        assert_eq!(app.run_state, RunState::Working);
+
+        update(&mut app, &Msg::Agent(AgentEvent::Cancelled));
+        assert_eq!(app.run_state, RunState::Idle);
+        assert!(matches!(app.transcript.last(), Some(Entry::Status { text }) if text == "cancelled"));
+
+        match &app.transcript[0] {
+            Entry::Assistant { streaming, .. } => assert!(!*streaming),
+            _ => panic!("expected Assistant entry"),
         }
     }
 

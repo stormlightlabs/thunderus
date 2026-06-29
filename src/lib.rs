@@ -24,6 +24,13 @@ use ratatui::init::DefaultTerminal;
 
 use crate::app::{App, Msg, RunState, update};
 use crate::cli::Cli;
+use crate::tools::AgentRunConfig;
+
+/// State carried by the main loop for a single agent run.
+struct AgentSlot {
+    receiver: Receiver<crate::app::AgentEvent>,
+    cancel: crate::agent::CancelToken,
+}
 
 /// Run the TUI to completion using the given CLI configuration.
 ///
@@ -65,14 +72,14 @@ fn run_inline(tick: Duration, cli: &Cli) -> io::Result<()> {
 /// 3. Tick.
 fn main_loop(terminal: &mut DefaultTerminal, tick: Duration, cli: &Cli) -> io::Result<()> {
     let mut app = App::from_cli(cli);
-    let mut agent_rx: Option<Receiver<crate::app::AgentEvent>> = None;
+    let mut agent: Option<AgentSlot> = None;
     terminal.draw(|f| ui::render(f, &app))?;
 
     loop {
         let deadline = Instant::now() + tick;
         while Instant::now() < deadline {
-            drain_agent_events(&mut app, &mut agent_rx, terminal)?;
-            manage_agent_lifecycle(&app, &mut agent_rx);
+            drain_agent_events(&mut app, &mut agent, terminal)?;
+            manage_agent_lifecycle(&app, &mut agent);
 
             if app.quit {
                 return Ok(());
@@ -83,14 +90,14 @@ fn main_loop(terminal: &mut DefaultTerminal, tick: Duration, cli: &Cli) -> io::R
                 break;
             }
             match event::read()? {
-                Event::Key(key) => handle_key(&mut app, key, terminal)?,
+                Event::Key(key) => handle_key(&mut app, key, terminal, &mut agent)?,
                 Event::Resize(_, _) => {
                     terminal.draw(|f| ui::render(f, &app))?;
                 }
                 _ => {}
             }
 
-            maybe_spawn_agent(&app, &mut agent_rx);
+            maybe_spawn_agent(&app, cli, &mut agent);
 
             if app.quit {
                 return Ok(());
@@ -103,29 +110,54 @@ fn main_loop(terminal: &mut DefaultTerminal, tick: Duration, cli: &Cli) -> io::R
     }
 }
 
-/// Spawn the fake agent stream if the app is in [`RunState::Working`] state and
-/// no stream receiver exists yet.
-fn maybe_spawn_agent(app: &App, agent_rx: &mut Option<Receiver<crate::app::AgentEvent>>) {
-    if app.run_state == RunState::Working && agent_rx.is_none() {
-        *agent_rx = Some(crate::agent::spawn_fake_stream());
+/// Spawn the unified agent stream if the app is in [`RunState::Working`] state
+/// and no agent slot exists yet.
+///
+/// The run uses the fake provider for now; the Umans provider is wired but
+/// gated on `UMANS_API_KEY` and will be selected once the provider trait is
+/// connected. The [`crate::agent::CancelToken`] is retained so `Escape` can
+/// signal cooperative cancellation.
+fn maybe_spawn_agent(app: &App, cli: &Cli, agent: &mut Option<AgentSlot>) {
+    if app.run_state != RunState::Working {
+        return;
     }
+    if agent.is_some() {
+        return;
+    }
+
+    let workspace_root = crate::context::discover_workspace_root(&cli.cwd);
+    let config = AgentRunConfig::new(workspace_root, cli.model.clone(), cli.websearch);
+
+    // Derive the prompt from the last user entry in the transcript.
+    let prompt = app
+        .transcript
+        .iter()
+        .rev()
+        .find_map(|e| match e {
+            crate::app::Entry::User { text } => Some(text.clone()),
+            _ => None,
+        })
+        .unwrap_or_default();
+
+    let handle = crate::agent::RunHandle::fake(config, prompt);
+    let cancel = handle.cancel.clone();
+    let receiver = crate::agent::spawn_run(handle);
+    *agent = Some(AgentSlot { receiver, cancel });
 }
 
 /// Drain all pending agent stream events from the channel and dispatch them as
 /// [`Msg::Agent`].
-fn drain_agent_events(
-    app: &mut App, agent_rx: &mut Option<Receiver<crate::app::AgentEvent>>, term: &mut DefaultTerminal,
-) -> io::Result<()> {
-    let Some(rx) = agent_rx else { return Ok(()) };
+fn drain_agent_events(app: &mut App, agent: &mut Option<AgentSlot>, term: &mut DefaultTerminal) -> io::Result<()> {
+    let Some(slot) = agent else { return Ok(()) };
 
     loop {
-        match rx.try_recv() {
+        match slot.receiver.try_recv() {
             Ok(event) => {
                 handle_msg(app, Msg::Agent(event), term)?;
             }
             Err(std::sync::mpsc::TryRecvError::Empty) => break,
             Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                *agent_rx = None;
+                *agent = None;
                 break;
             }
         }
@@ -133,16 +165,26 @@ fn drain_agent_events(
     Ok(())
 }
 
-/// If the app is no longer in `Working` state but a receiver still exists,
-/// drop it (user cancelled via Escape).
-fn manage_agent_lifecycle(app: &App, agent_rx: &mut Option<Receiver<crate::app::AgentEvent>>) {
-    if app.run_state != RunState::Working && agent_rx.is_some() {
-        *agent_rx = None;
+/// If the app is no longer in `Working` state but an agent slot still exists,
+/// cancel it and drop the slot (user cancelled via Escape or the run finished).
+fn manage_agent_lifecycle(app: &App, agent: &mut Option<AgentSlot>) {
+    if app.run_state != RunState::Working
+        && let Some(slot) = agent.take()
+    {
+        slot.cancel.cancel();
     }
 }
 
-fn handle_key(app: &mut App, key: KeyEvent, terminal: &mut DefaultTerminal) -> io::Result<()> {
-    handle_msg(app, Msg::Key(key), terminal)
+fn handle_key(
+    app: &mut App, key: KeyEvent, term: &mut DefaultTerminal, agent: &mut Option<AgentSlot>,
+) -> io::Result<()> {
+    if key.code == crossterm::event::KeyCode::Esc
+        && app.run_state == RunState::Working
+        && let Some(slot) = agent
+    {
+        slot.cancel.cancel();
+    }
+    handle_msg(app, Msg::Key(key), term)
 }
 
 /// Process the message and any chained follow-ups.

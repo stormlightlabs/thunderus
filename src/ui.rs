@@ -382,7 +382,8 @@ mod tests {
             .push(Entry::Reasoning { text: String::from("Let me read the Cargo.toml first."), streaming: false });
 
         app.transcript.push(Entry::Tool {
-            name: String::from("read_file"),
+            name: String::from("read_file#0"),
+            arguments: String::from("{\"path\":\"Cargo.toml\"}"),
             status: ToolStatus::Running,
             output: vec![String::from("Cargo.toml: 47 lines")],
         });
@@ -405,7 +406,8 @@ mod tests {
         });
 
         app.transcript.push(Entry::Tool {
-            name: String::from("read_file"),
+            name: String::from("read_file#0"),
+            arguments: String::from("{\"path\":\"Cargo.toml\"}"),
             status: ToolStatus::Ok,
             output: vec![String::from("Cargo.toml: 47 lines")],
         });
@@ -457,7 +459,8 @@ mod tests {
         app.transcript
             .push(Entry::User { text: String::from("list files in src") });
         app.transcript.push(Entry::Tool {
-            name: String::from("find_files"),
+            name: String::from("find_files#0"),
+            arguments: String::from("{\"pattern\":\"*.rs\"}"),
             status: ToolStatus::Ok,
             output: vec![
                 String::from("src/main.rs"),
@@ -482,7 +485,8 @@ mod tests {
         app.transcript
             .push(Entry::User { text: String::from("read /etc/passwd") });
         app.transcript.push(Entry::Tool {
-            name: String::from("read_file_range"),
+            name: String::from("read_file_range#0"),
+            arguments: String::from("{\"path\":\"/etc/passwd\"}"),
             status: ToolStatus::Failed,
             output: Vec::new(),
         });

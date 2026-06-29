@@ -5,7 +5,7 @@ expression: terminal.backend().to_string()
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
 "│Sessions            ││user     explain this repo                              │"
 "│> scratch           ││reasoning Let me read the Cargo.toml first.             │"
-"│                    ││tool     read_file [running]                            │"
+"│                    ││tool     read_file#0 [running] path: Cargo.toml         │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

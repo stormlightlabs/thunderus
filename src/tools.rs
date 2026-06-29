@@ -23,7 +23,121 @@ mod subproc;
 
 use std::path::{Path, PathBuf};
 
-use crate::{app::ToolStatus, tools::find_files::FindFiles};
+use crate::app::ToolStatus;
+use crate::tools::find_files::FindFiles;
+
+/// Maximum number of tool-call iterations per agent turn before the loop
+/// stops with a cap-exceeded error.
+///
+/// This prevents recursive or unbounded tool-call loops (e.g. a model that
+/// keeps requesting tools without converging on a final answer).
+pub const MAX_TOOL_ITERATIONS: usize = 8;
+
+/// A tool definition exposed to the provider/model.
+///
+/// The `name` is what the model uses in a `tool_use` block; `description` and
+/// `input_schema` are sent in the request so the model knows how to call it.
+#[allow(dead_code)]
+#[derive(Clone, Debug)]
+pub struct ToolDefinition {
+    pub name: &'static str,
+    pub description: &'static str,
+    pub input_schema: serde_json::Value,
+}
+
+/// The catalog of read-only filesystem tools exposed to the model.
+///
+/// These map directly to tool implementations. The model sees typed tool definitions;
+/// the harness dispatches `tool_use` requests to the matching [`ToolInput`] and executes it.
+#[allow(dead_code)]
+pub fn tool_definitions() -> Vec<ToolDefinition> {
+    vec![
+        ToolDefinition {
+            name: "find_files",
+            description: "Find files by name pattern within the workspace. Returns relative paths.",
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "pattern": { "type": "string", "description": "File name or glob pattern to search for." },
+                    "glob": { "type": "string", "description": "Optional additional glob filter." },
+                    "extensions": { "type": "array", "items": { "type": "string" } },
+                    "max_depth": { "type": "integer" },
+                    "include_hidden": { "type": "boolean" },
+                    "follow_symlinks": { "type": "boolean" }
+                },
+                "required": ["pattern"]
+            }),
+        },
+        ToolDefinition {
+            name: "list_searchable_files",
+            description: "List searchable files in the workspace, respecting ignore rules.",
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "glob": { "type": "string" },
+                    "include_hidden": { "type": "boolean" }
+                }
+            }),
+        },
+        ToolDefinition {
+            name: "search_text",
+            description: "Search file contents with a regex pattern. Returns matching lines with file:line:text.",
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "pattern": { "type": "string", "description": "Regex pattern to search for." },
+                    "glob": { "type": "string" },
+                    "extensions": { "type": "array", "items": { "type": "string" } },
+                    "context_lines": { "type": "integer" },
+                    "include_hidden": { "type": "boolean" }
+                },
+                "required": ["pattern"]
+            }),
+        },
+        ToolDefinition {
+            name: "read_file_range",
+            description: "Read a range of lines from a file within the workspace. Lines are 1-indexed.",
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Path relative to the workspace root." },
+                    "start_line": { "type": "integer" },
+                    "end_line": { "type": "integer" }
+                },
+                "required": ["path", "start_line"]
+            }),
+        },
+    ]
+}
+
+/// Configuration for an agent run, shared by the fake and Umans providers.
+#[derive(Clone, Debug)]
+pub struct AgentRunConfig {
+    /// Workspace root for tool containment and file reads.
+    pub root: PathBuf,
+    /// Selected model name.
+    pub model: String,
+    /// Web search mode.
+    #[allow(dead_code)]
+    pub search_mode: crate::cli::WebSearchMode,
+    /// Maximum tool-call iterations per turn.
+    pub max_tool_iterations: usize,
+}
+
+impl AgentRunConfig {
+    pub fn new(root: PathBuf, model: String, search_mode: crate::cli::WebSearchMode) -> Self {
+        AgentRunConfig { root, model, search_mode, max_tool_iterations: MAX_TOOL_ITERATIONS }
+    }
+}
+
+/// A tool-use request from the provider: a name and a JSON arguments object.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ToolUseRequest {
+    /// Tool name, matching a [`ToolDefinition::name`].
+    pub name: String,
+    /// Raw JSON arguments string as sent by the model.
+    pub arguments: String,
+}
 
 /// Structured output from a tool execution.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -47,6 +161,76 @@ impl ToolOutput {
     /// Create a failed tool output.
     pub fn failed(name: &str, error: String) -> Self {
         ToolOutput { name: name.to_string(), status: ToolStatus::Failed, output: Vec::new(), error: Some(error) }
+    }
+}
+
+/// Dispatch a provider tool-use request to the matching read-only tool
+/// and execute it against `root`.
+///
+/// Unknown tool names produce a failed [`ToolOutput`]. Argument parsing is
+/// best-effort: missing fields fall back to safe defaults rather than failing
+/// the whole turn.
+pub fn dispatch_tool(request: &ToolUseRequest, root: &Path) -> ToolOutput {
+    let args: serde_json::Value = serde_json::from_str(&request.arguments).unwrap_or(serde_json::Value::Null);
+
+    match request.name.as_str() {
+        "find_files" => {
+            let pattern = args.get("pattern").and_then(|v| v.as_str()).unwrap_or("");
+            let glob = args.get("glob").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let extensions: Vec<String> = args
+                .get("extensions")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                .unwrap_or_default();
+            let max_depth = args.get("max_depth").and_then(|v| v.as_u64()).map(|n| n as u32);
+            let include_hidden = args.get("include_hidden").and_then(|v| v.as_bool()).unwrap_or(false);
+            let follow_symlinks = args.get("follow_symlinks").and_then(|v| v.as_bool()).unwrap_or(false);
+
+            FindFiles {
+                pattern,
+                root,
+                glob: glob.as_deref(),
+                extensions: &extensions,
+                max_depth,
+                max_results: caps::MAX_RESULTS,
+                include_hidden,
+                follow_symlinks,
+            }
+            .run()
+        }
+        "list_searchable_files" => {
+            let glob = args.get("glob").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let include_hidden = args.get("include_hidden").and_then(|v| v.as_bool()).unwrap_or(false);
+            list_searchable_files::exec(root, glob.as_deref(), caps::MAX_RESULTS, include_hidden)
+        }
+        "search_text" => {
+            let pattern = args.get("pattern").and_then(|v| v.as_str()).unwrap_or("");
+            let glob = args.get("glob").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let extensions: Vec<String> = args
+                .get("extensions")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                .unwrap_or_default();
+            let context_lines = args.get("context_lines").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+            let include_hidden = args.get("include_hidden").and_then(|v| v.as_bool()).unwrap_or(false);
+            search_text::exec(
+                pattern,
+                root,
+                glob.as_deref(),
+                &extensions,
+                caps::MAX_RESULTS,
+                context_lines,
+                include_hidden,
+            )
+        }
+        "read_file_range" => {
+            let path_str = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let path = path::resolve_within_root(root, path_str).unwrap_or_else(|_| PathBuf::from(path_str));
+            let start_line = args.get("start_line").and_then(|v| v.as_u64()).unwrap_or(1) as u32;
+            let end_line = args.get("end_line").and_then(|v| v.as_u64()).map(|n| n as u32);
+            read_file_range::exec(&path, root, start_line, end_line)
+        }
+        other => ToolOutput::failed(other, format!("unknown tool: {other}")),
     }
 }
 

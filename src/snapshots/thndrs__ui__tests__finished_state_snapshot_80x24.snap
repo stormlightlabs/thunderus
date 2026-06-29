@@ -5,7 +5,7 @@ expression: terminal.backend().to_string()
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
 "│Sessions            ││user     explain this repo                              │"
 "│> scratch           ││reasoning Let me think about this... The repo is a Rust │"
-"│                    ││tool     read_file [ok]                                 │"
+"│                    ││tool     read_file#0 [ok] path: Cargo.toml              │"
 "│                    ││assistant This is a fake streaming response.            │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
