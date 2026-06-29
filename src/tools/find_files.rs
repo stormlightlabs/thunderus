@@ -6,97 +6,131 @@ use std::time::Duration;
 use super::ToolOutput;
 use crate::tools::subproc::CommandResult;
 
-/// Find files by name pattern.
-///
-/// Backed by `fd` with `find` fallback. Uses argv arrays, never shell strings.
-/// Respects ignore rules and skips hidden files by default; both are opt-in.
-/// Enforces workspace-root containment, result-count, output-byte, and timeout
-/// caps.
-///
-/// FIXME: Mirrors the typed ToolInput fields, should use a params struct.
-#[allow(clippy::too_many_arguments)]
-pub fn exec(
-    pattern: &str, root: &Path, glob: Option<&str>, extensions: &[String], max_depth: Option<u32>, max_results: usize,
-    include_hidden: bool, follow_symlinks: bool,
-) -> ToolOutput {
-    if !super::path::is_within_root(root, root) {
-        return ToolOutput::failed("find_files", "invalid workspace root".to_string());
+/// Parameters for find_files execution
+pub struct FindFiles<'a> {
+    pattern: &'a str,
+    root: &'a Path,
+    glob: Option<&'a str>,
+    extensions: &'a [String],
+    max_depth: Option<u32>,
+    max_results: usize,
+    include_hidden: bool,
+    follow_symlinks: bool,
+}
+
+impl<'a> FindFiles<'a> {
+    pub fn new(
+        pattern: &'a str, root: &'a Path, glob: Option<&'a str>, extensions: &'a [String], max_depth: Option<u32>,
+        max_results: usize, include_hidden: bool, follow_symlinks: bool,
+    ) -> Self {
+        Self { pattern, root, glob, extensions, max_depth, max_results, include_hidden, follow_symlinks }
     }
+}
 
-    let timeout = Duration::from_secs(super::caps::TIMEOUT_SECS);
-    let result = if super::subproc::command_exists("fd") {
-        run_fd_find(
-            pattern,
-            root,
-            glob,
-            extensions,
-            max_depth,
-            include_hidden,
-            follow_symlinks,
-            timeout,
-        )
-    } else {
-        run_find_fallback(pattern, root, extensions, max_depth, include_hidden, timeout)
-    };
-
-    match result {
-        Ok(output) => {
-            let paths: Vec<String> = output
-                .stdout
-                .lines()
-                .filter(|l| !l.is_empty())
-                .map(|s| s.to_string())
-                .collect();
-            let paths = super::subproc::truncate_results(paths, max_results);
-            ToolOutput::ok("find_files", paths)
+impl FindFiles<'_> {
+    /// Find files by name pattern.
+    ///
+    /// Backed by `fd` with `find` fallback. Uses argv arrays, never shell strings.
+    /// Respects ignore rules and skips hidden files by default; both are opt-in.
+    ///
+    /// Enforces workspace-root containment, result-count, output-byte, and timeout caps.
+    pub fn run(&self) -> ToolOutput {
+        if !super::path::is_within_root(self.root, self.root) {
+            return ToolOutput::failed("find_files", "invalid workspace root".to_string());
         }
-        Err(e) => ToolOutput::failed("find_files", format!("find_files failed: {e}")),
+
+        let timeout = Duration::from_secs(super::caps::TIMEOUT_SECS);
+        let result = if super::subproc::command_exists("fd") {
+            FdFind::new(
+                self.pattern,
+                self.root,
+                self.glob,
+                self.extensions,
+                self.max_depth,
+                self.include_hidden,
+                self.follow_symlinks,
+                timeout,
+            )
+            .run()
+        } else {
+            self.fallback(timeout)
+        };
+
+        match result {
+            Ok(output) => {
+                let paths: Vec<String> = output
+                    .stdout
+                    .lines()
+                    .filter(|l| !l.is_empty())
+                    .map(|s| s.to_string())
+                    .collect();
+                let paths = super::subproc::truncate_results(paths, self.max_results);
+                ToolOutput::ok("find_files", paths)
+            }
+            Err(e) => ToolOutput::failed("find_files", format!("find_files failed: {e}")),
+        }
+    }
+
+    fn fallback(&self, timeout: Duration) -> io::Result<CommandResult> {
+        let mut cmd = Command::new("find");
+        cmd.arg(self.root).arg("-type").arg("f");
+        if !self.include_hidden {
+            cmd.arg("-not").arg("-path").arg("*/.*");
+        }
+        if let Some(depth) = self.max_depth {
+            cmd.arg("-maxdepth").arg(depth.to_string());
+        }
+        cmd.arg("-name").arg(self.pattern);
+        for ext in self.extensions {
+            cmd.arg("-o").arg("-name").arg(format!("*.{ext}"));
+        }
+        super::subproc::run_with_timeout(cmd, timeout)
     }
 }
 
-/// FIXME: use a params struct that mirrors the typed ToolInput fields.
-#[allow(clippy::too_many_arguments)]
-fn run_fd_find(
-    pattern: &str, root: &Path, glob: Option<&str>, extensions: &[String], max_depth: Option<u32>,
-    include_hidden: bool, follow_symlinks: bool, timeout: Duration,
-) -> io::Result<CommandResult> {
-    let mut cmd = Command::new("fd");
-    cmd.arg("--type").arg("f");
-    if include_hidden {
-        cmd.arg("--hidden");
-    }
-    if follow_symlinks {
-        cmd.arg("--follow");
-    }
-    if let Some(depth) = max_depth {
-        cmd.arg("--max-depth").arg(depth.to_string());
-    }
-    if let Some(g) = glob {
-        cmd.arg("--glob").arg(g);
-    }
-    for ext in extensions {
-        cmd.arg("--extension").arg(ext);
-    }
-    cmd.arg(pattern).arg(root);
-    super::subproc::run_with_timeout(cmd, timeout)
+/// Encapsulates `fd` command arguments
+pub struct FdFind<'a> {
+    pattern: &'a str,
+    root: &'a Path,
+    glob: Option<&'a str>,
+    extensions: &'a [String],
+    max_depth: Option<u32>,
+    include_hidden: bool,
+    follow_symlinks: bool,
+    timeout: Duration,
 }
 
-fn run_find_fallback(
-    pattern: &str, root: &Path, extensions: &[String], max_depth: Option<u32>, include_hidden: bool, timeout: Duration,
-) -> io::Result<CommandResult> {
-    let mut cmd = Command::new("find");
-    cmd.arg(root).arg("-type").arg("f");
-    if !include_hidden {
-        cmd.arg("-not").arg("-path").arg("*/.*");
+impl<'a> FdFind<'a> {
+    pub fn new(
+        pattern: &'a str, root: &'a Path, glob: Option<&'a str>, extensions: &'a [String], max_depth: Option<u32>,
+        include_hidden: bool, follow_symlinks: bool, timeout: Duration,
+    ) -> Self {
+        Self { pattern, root, glob, extensions, max_depth, include_hidden, follow_symlinks, timeout }
     }
-    if let Some(depth) = max_depth {
-        cmd.arg("-maxdepth").arg(depth.to_string());
+}
+
+impl FdFind<'_> {
+    pub fn run(&self) -> io::Result<CommandResult> {
+        let mut cmd = Command::new("fd");
+        cmd.arg("--type").arg("f");
+        if self.include_hidden {
+            cmd.arg("--hidden");
+        }
+        if self.follow_symlinks {
+            cmd.arg("--follow");
+        }
+        if let Some(depth) = self.max_depth {
+            cmd.arg("--max-depth").arg(depth.to_string());
+        }
+        if let Some(g) = self.glob {
+            cmd.arg("--glob").arg(g);
+        }
+        for ext in self.extensions {
+            cmd.arg("--extension").arg(ext);
+        }
+        cmd.arg(self.pattern).arg(self.root);
+        super::subproc::run_with_timeout(cmd, self.timeout)
     }
-    cmd.arg("-name").arg(pattern);
-    for ext in extensions {
-        cmd.arg("-o").arg("-name").arg(format!("*.{ext}"));
-    }
-    super::subproc::run_with_timeout(cmd, timeout)
 }
 
 #[cfg(test)]
@@ -106,7 +140,7 @@ mod tests {
 
     #[test]
     fn find_files_finds_cli_rs() {
-        let output = exec(
+        let output = FindFiles::new(
             "cli",
             Path::new("src"),
             None,
@@ -115,14 +149,15 @@ mod tests {
             caps::MAX_RESULTS,
             false,
             false,
-        );
+        )
+        .run();
         assert_eq!(output.status, ToolStatus::Ok);
         assert!(output.output.iter().any(|p| p.contains("cli.rs")));
     }
 
     #[test]
     fn find_files_no_matches_returns_empty() {
-        let output = exec(
+        let output = FindFiles::new(
             "zzz_nonexistent_zzz",
             Path::new("src"),
             None,
@@ -131,7 +166,8 @@ mod tests {
             caps::MAX_RESULTS,
             false,
             false,
-        );
+        )
+        .run();
         assert_eq!(output.status, ToolStatus::Ok);
         assert!(output.output.is_empty());
     }

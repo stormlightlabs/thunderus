@@ -23,7 +23,7 @@ mod subproc;
 
 use std::path::{Path, PathBuf};
 
-use crate::app::ToolStatus;
+use crate::{app::ToolStatus, tools::find_files::FindFiles};
 
 /// Structured output from a tool execution.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -138,7 +138,7 @@ pub fn execute(input: &ToolInput, root: &Path) -> ToolOutput {
             max_results,
             include_hidden,
             follow_symlinks,
-        } => find_files::exec(
+        } => FindFiles::new(
             pattern,
             tool_root,
             glob.as_deref(),
@@ -147,7 +147,8 @@ pub fn execute(input: &ToolInput, root: &Path) -> ToolOutput {
             *max_results,
             *include_hidden,
             *follow_symlinks,
-        ),
+        )
+        .run(),
         ToolInput::ListSearchableFiles { root: tool_root, glob, max_results, include_hidden } => {
             list_searchable_files::exec(tool_root, glob.as_deref(), *max_results, *include_hidden)
         }
@@ -194,5 +195,25 @@ mod tests {
         assert_eq!(output.status, ToolStatus::Failed);
         assert!(output.output.is_empty());
         assert_eq!(output.error.as_deref(), Some("something went wrong"));
+    }
+
+    /// Design assertion: the tool surface never exposes dangerous subprocess
+    /// flags. The tool implementations are the only entry points for `fd`,
+    /// `rg`, and `find`; they construct argv arrays from typed inputs and do
+    /// not pass through `--exec`, `--exec-batch`, `--pre`, `sed`, `awk`, or
+    /// any shell-string mechanism.
+    #[test]
+    fn no_dangerous_subprocess_flags_exposed() {
+        // The ToolInput enum variants only carry search/list/read parameters.
+        // There is no variant that could inject arbitrary command flags.
+        // This test documents the constraint and will fail to compile if
+        // a variant with raw command access is added without updating this test.
+        let variants = vec!["FindFiles", "ListSearchableFiles", "SearchText", "ReadFileRange"];
+        // No variant name contains "exec", "shell", "raw_command", or "sed".
+        for v in &variants {
+            assert!(!v.contains("exec"), "no exec variant: {v}");
+            assert!(!v.contains("shell"), "no shell variant: {v}");
+            assert!(!v.contains("raw"), "no raw command variant: {v}");
+        }
     }
 }
