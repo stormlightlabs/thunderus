@@ -138,16 +138,16 @@ pub fn execute(input: &ToolInput, root: &Path) -> ToolOutput {
             max_results,
             include_hidden,
             follow_symlinks,
-        } => FindFiles::new(
+        } => FindFiles {
             pattern,
-            tool_root,
-            glob.as_deref(),
+            root: tool_root,
+            glob: glob.as_deref(),
             extensions,
-            *max_depth,
-            *max_results,
-            *include_hidden,
-            *follow_symlinks,
-        )
+            max_depth: *max_depth,
+            max_results: *max_results,
+            include_hidden: *include_hidden,
+            follow_symlinks: *follow_symlinks,
+        }
         .run(),
         ToolInput::ListSearchableFiles { root: tool_root, glob, max_results, include_hidden } => {
             list_searchable_files::exec(tool_root, glob.as_deref(), *max_results, *include_hidden)

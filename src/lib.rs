@@ -8,9 +8,12 @@ pub mod cli;
 mod agent;
 mod app;
 mod context;
-mod providers;
 mod tools;
 mod ui;
+
+#[allow(dead_code)]
+// TODO: Wire into app loop
+mod providers;
 
 use std::io;
 use std::sync::mpsc::Receiver;

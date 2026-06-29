@@ -20,14 +20,14 @@
 ### Phase 6: Umans Provider
 
 - [x] Create `src/providers/{mod,umans}.rs`.
-- [ ] Read `UMANS_API_KEY` from the environment.
-- [ ] Store Umans base URL as `https://api.code.umans.ai`.
-- [ ] Implement `GET /v1/models/info` metadata fetch.
-- [ ] Parse model capabilities for `umans-coder` and `umans-glm-5.2`.
-- [ ] Default selected model to `umans-coder`.
-- [ ] Add a simple model switch path for `umans-glm-5.2`.
-- [ ] Implement Anthropic-compatible `POST /v1/messages`.
-- [ ] Send `x-api-key` and `anthropic-version: 2023-06-01`.
+- [x] Read `UMANS_API_KEY` from the environment.
+- [x] Store Umans base URL as `https://api.code.umans.ai`.
+- [x] Implement `GET /v1/models/info` metadata fetch.
+- [x] Parse model capabilities for `umans-coder` and `umans-glm-5.2`.
+- [x] Default selected model to `umans-coder`.
+- [x] Add a simple model switch path for `umans-glm-5.2`.
+- [x] Implement Anthropic-compatible `POST /v1/messages`.
+- [x] Send `x-api-key` and `anthropic-version: 2023-06-01`.
 - [ ] Stream response events into `AgentEvent`.
 - [ ] Render reasoning/thinking deltas separately from final assistant text if the API
       emits them.

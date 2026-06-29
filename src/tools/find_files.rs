@@ -6,25 +6,19 @@ use std::time::Duration;
 use super::ToolOutput;
 use crate::tools::subproc::CommandResult;
 
-/// Parameters for find_files execution
+/// Parameters for `find_files` execution.
+///
+/// Construct with `FindFiles { pattern, root, .. }` or `FindFiles::default()`.
+#[derive(Clone, Debug)]
 pub struct FindFiles<'a> {
-    pattern: &'a str,
-    root: &'a Path,
-    glob: Option<&'a str>,
-    extensions: &'a [String],
-    max_depth: Option<u32>,
-    max_results: usize,
-    include_hidden: bool,
-    follow_symlinks: bool,
-}
-
-impl<'a> FindFiles<'a> {
-    pub fn new(
-        pattern: &'a str, root: &'a Path, glob: Option<&'a str>, extensions: &'a [String], max_depth: Option<u32>,
-        max_results: usize, include_hidden: bool, follow_symlinks: bool,
-    ) -> Self {
-        Self { pattern, root, glob, extensions, max_depth, max_results, include_hidden, follow_symlinks }
-    }
+    pub pattern: &'a str,
+    pub root: &'a Path,
+    pub glob: Option<&'a str>,
+    pub extensions: &'a [String],
+    pub max_depth: Option<u32>,
+    pub max_results: usize,
+    pub include_hidden: bool,
+    pub follow_symlinks: bool,
 }
 
 impl FindFiles<'_> {
@@ -41,16 +35,16 @@ impl FindFiles<'_> {
 
         let timeout = Duration::from_secs(super::caps::TIMEOUT_SECS);
         let result = if super::subproc::command_exists("fd") {
-            FdFind::new(
-                self.pattern,
-                self.root,
-                self.glob,
-                self.extensions,
-                self.max_depth,
-                self.include_hidden,
-                self.follow_symlinks,
+            FdFind {
+                pattern: self.pattern,
+                root: self.root,
+                glob: self.glob,
+                extensions: self.extensions,
+                max_depth: self.max_depth,
+                include_hidden: self.include_hidden,
+                follow_symlinks: self.follow_symlinks,
                 timeout,
-            )
+            }
             .run()
         } else {
             self.fallback(timeout)
@@ -88,25 +82,17 @@ impl FindFiles<'_> {
     }
 }
 
-/// Encapsulates `fd` command arguments
+/// Encapsulates `fd` command arguments.
+#[derive(Clone, Debug)]
 pub struct FdFind<'a> {
-    pattern: &'a str,
-    root: &'a Path,
-    glob: Option<&'a str>,
-    extensions: &'a [String],
-    max_depth: Option<u32>,
-    include_hidden: bool,
-    follow_symlinks: bool,
-    timeout: Duration,
-}
-
-impl<'a> FdFind<'a> {
-    pub fn new(
-        pattern: &'a str, root: &'a Path, glob: Option<&'a str>, extensions: &'a [String], max_depth: Option<u32>,
-        include_hidden: bool, follow_symlinks: bool, timeout: Duration,
-    ) -> Self {
-        Self { pattern, root, glob, extensions, max_depth, include_hidden, follow_symlinks, timeout }
-    }
+    pub pattern: &'a str,
+    pub root: &'a Path,
+    pub glob: Option<&'a str>,
+    pub extensions: &'a [String],
+    pub max_depth: Option<u32>,
+    pub include_hidden: bool,
+    pub follow_symlinks: bool,
+    pub timeout: Duration,
 }
 
 impl FdFind<'_> {
@@ -140,16 +126,16 @@ mod tests {
 
     #[test]
     fn find_files_finds_cli_rs() {
-        let output = FindFiles::new(
-            "cli",
-            Path::new("src"),
-            None,
-            &[],
-            None,
-            caps::MAX_RESULTS,
-            false,
-            false,
-        )
+        let output = FindFiles {
+            pattern: "cli",
+            root: Path::new("src"),
+            glob: None,
+            extensions: &[],
+            max_depth: None,
+            max_results: caps::MAX_RESULTS,
+            include_hidden: false,
+            follow_symlinks: false,
+        }
         .run();
         assert_eq!(output.status, ToolStatus::Ok);
         assert!(output.output.iter().any(|p| p.contains("cli.rs")));
@@ -157,16 +143,16 @@ mod tests {
 
     #[test]
     fn find_files_no_matches_returns_empty() {
-        let output = FindFiles::new(
-            "zzz_nonexistent_zzz",
-            Path::new("src"),
-            None,
-            &[],
-            None,
-            caps::MAX_RESULTS,
-            false,
-            false,
-        )
+        let output = FindFiles {
+            pattern: "zzz_nonexistent_zzz",
+            root: Path::new("src"),
+            glob: None,
+            extensions: &[],
+            max_depth: None,
+            max_results: caps::MAX_RESULTS,
+            include_hidden: false,
+            follow_symlinks: false,
+        }
         .run();
         assert_eq!(output.status, ToolStatus::Ok);
         assert!(output.output.is_empty());
