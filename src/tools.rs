@@ -318,14 +318,13 @@ pub enum Cap {
 
 impl Cap {
     pub fn timeout() -> u64 {
-        let to: usize = Self::TimeoutSecs.into();
-        to as u64
+        usize::from(Self::TimeoutSecs) as u64
     }
 }
 
-impl Into<usize> for Cap {
-    fn into(self) -> usize {
-        match self {
+impl From<Cap> for usize {
+    fn from(cap: Cap) -> Self {
+        match cap {
             Cap::MaxResults => 100,
             Cap::MaxOutputBytes => 65_536,
             Cap::TimeoutSecs => 10,
@@ -417,7 +416,7 @@ mod tests {
     /// any shell-string mechanism.
     #[test]
     fn no_dangerous_subprocess_flags_exposed() {
-        for v in &vec!["FindFiles", "ListSearchableFiles", "SearchText", "ReadFileRange"] {
+        for v in &["FindFiles", "ListSearchableFiles", "SearchText", "ReadFileRange"] {
             assert!(!v.contains("exec"), "no exec variant: {v}");
             assert!(!v.contains("shell"), "no shell variant: {v}");
             assert!(!v.contains("raw"), "no raw command variant: {v}");

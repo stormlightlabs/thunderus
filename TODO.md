@@ -46,14 +46,14 @@
 - [x] Unit-test header selection for `native`, `exa`, and `none`.
 - [x] Add snapshots for search-started, search-result, and search-error transcript
       states.
-- [ ] Inspect Lectito's crate/CLI API before adding any dependency.
-- [ ] Prefer a path dependency on the local `lectito` crate if its public API is stable
+- [x] Inspect Lectito's crate/CLI API before adding any dependency.
+- [x] Prefer a path dependency on the local `lectito` crate if its public API is stable
       enough.
-- [ ] Reuse Lectito extraction for already-fetched HTML.
-- [ ] Port Lectito MCP's DuckDuckGo HTML search only if provider-native search is
+- [x] Reuse Lectito extraction for already-fetched HTML.
+- [x] Port Lectito MCP's DuckDuckGo HTML search only if provider-native search is
       insufficient.
-  - [ ] Keep local search result limits small.
-  - [ ] Detect DuckDuckGo bot-challenge pages.
+  - [x] Keep local search result limits small.
+  - [x] Detect DuckDuckGo bot-challenge pages.
 - [ ] Fetch only public `http`/`https` URLs.
 - [ ] Reject private-network targets by default.
 - [ ] Enforce redirect, timeout, content-type, and response-size limits.
