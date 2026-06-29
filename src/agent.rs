@@ -443,7 +443,7 @@ fn step() {
 mod tests {
     use super::*;
     use crate::app::ToolStatus;
-    use crate::tools::{AgentRunConfig, MAX_TOOL_ITERATIONS, dispatch_tool};
+    use crate::tools::{self, AgentRunConfig, MAX_TOOL_ITERATIONS, dispatch_tool};
     use std::path::Path;
 
     fn config() -> AgentRunConfig {
@@ -480,7 +480,6 @@ mod tests {
             events.push(event);
         }
 
-        // Should contain a web_search ToolStarted event.
         let has_search = events
             .iter()
             .any(|e| matches!(e, AgentEvent::ToolStarted { name, .. } if name == "web_search"));
@@ -499,13 +498,11 @@ mod tests {
             events.push(event);
         }
 
-        // Should NOT contain a web_search tool event.
         let has_search = events
             .iter()
             .any(|e| matches!(e, AgentEvent::ToolStarted { name, .. } if name == "web_search"));
         assert!(!has_search, "none search should not emit web_search tool event");
 
-        // Should still contain normal assistant text.
         assert!(
             events.iter().any(|e| matches!(e, AgentEvent::AssistantDelta(_))),
             "search-disabled prompt should still return assistant text"
@@ -525,6 +522,7 @@ mod tests {
     fn cancel_token_signals_cancellation() {
         let token = CancelToken::new();
         assert!(!token.is_cancelled());
+
         token.cancel();
         assert!(token.is_cancelled());
     }
@@ -533,8 +531,8 @@ mod tests {
     fn cancel_terminates_run_without_finishing() {
         let handle = RunHandle::fake(config(), String::new());
         handle.cancel.cancel();
-        let rx = spawn_run(handle);
 
+        let rx = spawn_run(handle);
         let mut events = Vec::new();
         while let Ok(event) = rx.recv() {
             events.push(event);
@@ -561,7 +559,12 @@ mod tests {
     fn dispatch_tool_read_file_range_success() {
         let req = ToolUseRequest {
             name: String::from("read_file_range"),
-            arguments: serde_json::json!({ "path": "Cargo.toml", "start_line": 1, "end_line": 3 }).to_string(),
+            arguments: serde_json::json!({
+                "path": "Cargo.toml",
+                "start_line": 1,
+                "end_line": 3
+            })
+            .to_string(),
         };
         let output = dispatch_tool(&req, Path::new("."));
         assert_eq!(output.status, ToolStatus::Ok);
@@ -604,20 +607,32 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_web_search_returns_server_side_status() {
+    fn dispatch_read_url_rejects_private_network() {
         let req = ToolUseRequest {
-            name: String::from("web_search"),
-            arguments: serde_json::json!({ "query": "rust async patterns" }).to_string(),
+            name: String::from("read_url"),
+            arguments: serde_json::json!({ "url": "http://127.0.0.1/secret" }).to_string(),
         };
         let output = dispatch_tool(&req, Path::new("."));
-        assert_eq!(output.status, ToolStatus::Ok);
-        assert!(output.output.iter().any(|l| l.contains("server-side search")));
-        assert!(output.output.iter().any(|l| l.contains("rust async patterns")));
+        assert_eq!(output.status, ToolStatus::Failed);
+        assert!(output.error.as_ref().is_some_and(|e| e.contains("private network")));
     }
 
     #[test]
-    fn tool_definitions_include_web_search() {
-        let defs = crate::tools::tool_definitions();
-        assert!(defs.iter().map(|d| d.name).any(|x| x == "web_search"));
+    fn dispatch_read_url_rejects_non_public_scheme() {
+        let req = ToolUseRequest {
+            name: String::from("read_url"),
+            arguments: serde_json::json!({ "url": "file:///etc/passwd" }).to_string(),
+        };
+        let output = dispatch_tool(&req, Path::new("."));
+        assert_eq!(output.status, ToolStatus::Failed);
+        assert!(output.error.as_ref().is_some_and(|e| e.contains("unsupported")));
+    }
+
+    #[test]
+    fn tool_definitions_include_web_search_and_read_url() {
+        let defs = tools::tool_definitions();
+        let names = defs.iter().map(|d| d.name).collect::<Vec<&str>>();
+        assert!(names.contains(&"web_search"));
+        assert!(names.contains(&"read_url"));
     }
 }

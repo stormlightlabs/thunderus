@@ -30,41 +30,14 @@
   unit coverage, and snapshots for streaming, tools, errors, cancellation, and
   banner states.
 
+### Search and Extraction
+
+- Added native/Exa/disabled Umans web-search modes, transcript rendering for
+  search events, Lectito-backed extraction and DuckDuckGo fallback plumbing,
+  public-URL safety limits, private-network rejection, truncation metadata, local
+  fixture tests, and snapshots for search success and failure states.
+
 ## alpha: Usable Coding Assistant
-
-### Phase 8: Search and Extraction
-
-- [x] Add search mode config: `native`, `exa`, `none`.
-- [x] Default search mode to `native`.
-- [x] Send `X-Umans-Websearch-Provider: native` when search is enabled.
-- [x] Allow `X-Umans-Websearch-Provider: exa` for manual experiments.
-- [x] Allow `X-Umans-Websearch-Provider: none` to pass a local `web_search` tool
-      through unchanged.
-- [x] Represent server-side search as transcript tool events.
-- [x] Verify a search-using prompt still returns normal assistant text when search is
-      disabled.
-- [x] Unit-test header selection for `native`, `exa`, and `none`.
-- [x] Add snapshots for search-started, search-result, and search-error transcript
-      states.
-- [x] Inspect Lectito's crate/CLI API before adding any dependency.
-- [x] Prefer a path dependency on the local `lectito` crate if its public API is stable
-      enough.
-- [x] Reuse Lectito extraction for already-fetched HTML.
-- [x] Port Lectito MCP's DuckDuckGo HTML search only if provider-native search is
-      insufficient.
-  - [x] Keep local search result limits small.
-  - [x] Detect DuckDuckGo bot-challenge pages.
-- [ ] Fetch only public `http`/`https` URLs.
-- [ ] Reject private-network targets by default.
-- [ ] Enforce redirect, timeout, content-type, and response-size limits.
-- [ ] Return title, final URL, truncation state, and Markdown/text content.
-- [ ] Render Lectito search and extraction through the same tool event path as Umans
-      search.
-- [ ] Unit-test DuckDuckGo HTML parsing with local fixtures.
-- [ ] Unit-test bot-challenge detection.
-- [ ] Unit-test private-network URL rejection.
-- [ ] Unit-test oversized-document failure.
-- [ ] Unit-test Lectito extraction with local HTML fixtures.
 
 ### Phase 9: Prompt Assembly and Context Contract
 

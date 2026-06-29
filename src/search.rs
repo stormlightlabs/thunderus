@@ -14,6 +14,7 @@
 #![allow(dead_code)]
 
 use scraper::{Html, Selector};
+use ureq::ResponseExt;
 
 /// Maximum number of local search results returned by default.
 pub const DEFAULT_SEARCH_LIMIT: usize = 5;
@@ -23,6 +24,9 @@ pub const DUCKDUCKGO_HTML_URL: &str = "https://html.duckduckgo.com/html/";
 
 /// Maximum article content length before truncation.
 const MAX_ARTICLE_CONTENT_LEN: usize = 65_536;
+
+/// Maximum response body size for fetched URLs (1 MiB).
+const MAX_RESPONSE_BYTES: usize = 1_048_576;
 
 /// User agent string for DuckDuckGo requests.
 const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)  \
@@ -48,6 +52,18 @@ pub enum SearchError {
     /// A hard-coded selector failed to parse.
     #[error("invalid CSS selector: {0}")]
     InvalidSelector(&'static str),
+    /// The URL scheme is not `http` or `https`.
+    #[error("unsupported URL scheme: {0}")]
+    UnsupportedScheme(String),
+    /// The URL points to a private/loopback network address.
+    #[error("private network target rejected: {0}")]
+    PrivateNetwork(String),
+    /// The response exceeded the maximum allowed size.
+    #[error("response too large (>{max} bytes)")]
+    Oversized { max: usize },
+    /// The response content type is not HTML.
+    #[error("unexpected content type: {0}")]
+    BadContentType(String),
 }
 
 /// One result from DuckDuckGo's HTML search page.
@@ -72,6 +88,122 @@ pub struct ArticleContent {
     pub text_content: String,
     /// Whether the content was truncated to fit the size cap.
     pub truncated: bool,
+}
+
+/// Content fetched from a public URL.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FetchedContent {
+    /// The final URL after redirects.
+    pub final_url: String,
+    /// The page title (from Lectito extraction, if available).
+    pub title: String,
+    /// Markdown-formatted content.
+    pub markdown: String,
+    /// Plain text content.
+    pub text_content: String,
+    /// Whether the content was truncated.
+    pub truncated: bool,
+}
+
+/// Check whether a URL string uses a public scheme (`http` or `https`).
+pub fn is_public_scheme(url_str: &str) -> bool {
+    url_str.starts_with("http://") || url_str.starts_with("https://")
+}
+
+/// Check whether a URL points to a private or loopback network address.
+///
+/// Rejects: `localhost`, `127.x.x.x`, `10.x.x.x`, `172.16-31.x.x`,
+/// `192.168.x.x`, `169.254.x.x` (link-local), `::1`, `fc00::`/`fd00::`
+/// (IPv6 private), and `0.0.0.0`.
+pub fn is_private_url(url_str: &str) -> bool {
+    let Ok(parsed) = url::Url::parse(url_str) else {
+        return true;
+    };
+
+    let scheme = parsed.scheme();
+    if scheme != "http" && scheme != "https" {
+        return true;
+    }
+
+    let host = match parsed.host_str() {
+        Some(h) => h,
+        None => return true,
+    };
+
+    if host == "localhost" || host == "localhost." {
+        return true;
+    }
+
+    match parsed.host() {
+        Some(url::Host::Ipv4(v4)) => is_private_ipv4(v4),
+        Some(url::Host::Ipv6(v6)) => is_private_ipv6(v6),
+        Some(url::Host::Domain(_)) => false,
+        None => true,
+    }
+}
+
+/// Fetch a public URL and extract readable content.
+///
+/// ## Safety guards
+///
+/// - Only `http`/`https` schemes are allowed.
+/// - Private/loopback/link-local addresses are rejected.
+/// - Response size is capped at `MAX_RESPONSE_BYTES`.
+/// - Content type must be `text/html` or `application/xhtml`.
+/// - Redirects are followed by ureq's default agent (up to its built-in limit).
+/// - Content is extracted via Lectito after fetching.
+pub fn fetch_url(url_str: &str) -> Result<FetchedContent> {
+    if !is_public_scheme(url_str) {
+        return Err(SearchError::UnsupportedScheme(url_str.to_string()));
+    }
+    if is_private_url(url_str) {
+        return Err(SearchError::PrivateNetwork(url_str.to_string()));
+    }
+
+    let agent = ureq::Agent::new_with_defaults();
+    let response = agent
+        .get(url_str)
+        .header("User-Agent", USER_AGENT)
+        .header("Accept", "text/html,application/xhtml+xml")
+        .call();
+
+    let response = match response {
+        Ok(r) => r,
+        Err(ureq::Error::StatusCode(code)) => {
+            return Err(SearchError::HttpStatus { status: code, body: String::new() });
+        }
+        Err(e) => return Err(SearchError::Http(e.to_string())),
+    };
+
+    let content_type = response
+        .headers()
+        .get("Content-Type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+
+    if !content_type.contains("text/html") && !content_type.contains("application/xhtml") {
+        return Err(SearchError::BadContentType(content_type));
+    }
+
+    let final_url = response.get_uri().to_string();
+
+    let body = response.into_body().read_to_string().unwrap_or_default();
+    if body.len() > MAX_RESPONSE_BYTES {
+        return Err(SearchError::Oversized { max: MAX_RESPONSE_BYTES });
+    }
+
+    let article = extract_article(&body, Some(&final_url))?;
+    match article {
+        Some(a) => Ok(FetchedContent {
+            final_url,
+            title: a.title,
+            markdown: a.markdown,
+            text_content: a.text_content,
+            truncated: a.truncated,
+        }),
+        None => Err(SearchError::Extraction("page is not readable".to_string())),
+    }
 }
 
 /// Search DuckDuckGo and return up to `limit` parsed results.
@@ -108,11 +240,9 @@ pub fn search_duckduckgo(query: &str, limit: usize) -> Result<Vec<SearchResult>>
 
     let status = response.status().as_u16();
     let body = response.into_body().read_to_string().unwrap_or_default();
-
-    if status >= 400 {
-        Err(SearchError::HttpStatus { status, body: body.chars().take(500).collect() })
-    } else {
-        parse_duckduckgo_html(&body, limit)
+    match status >= 400 {
+        true => Err(SearchError::HttpStatus { status, body: body.chars().take(500).collect() }),
+        false => parse_duckduckgo_html(&body, limit),
     }
 }
 
@@ -214,6 +344,30 @@ pub fn format_search_results(results: &[SearchResult]) -> Vec<String> {
             format!("{}. {} — {} ({})", i + 1, r.title, snippet, r.url)
         })
         .collect()
+}
+
+/// Check if an IPv4 address is private/loopback/link-local.
+///
+/// In order, check loopback, private 10.0.0.0/8, 0.0.0.0/8
+/// private 172.16/12, private 192.168/16, link-local 169.254/16
+fn is_private_ipv4(ip: std::net::Ipv4Addr) -> bool {
+    let octets = ip.octets();
+    octets[0] == 127
+        || octets[0] == 10
+        || octets[0] == 0
+        || (octets[0] == 172 && (16..=31).contains(&octets[1]))
+        || (octets[0] == 192 && octets[1] == 168)
+        || (octets[0] == 169 && octets[1] == 254)
+}
+
+/// Check if an IPv6 address is private/loopback/link-local.
+///
+/// In order, check ::1, ::, unique local fc00::/7, link-local fe80::/10
+fn is_private_ipv6(ip: std::net::Ipv6Addr) -> bool {
+    ip.is_loopback()
+        || ip.is_unspecified()
+        || (ip.segments()[0] & 0xfe00) == 0xfc00
+        || (ip.segments()[0] & 0xffc0) == 0xfe80
 }
 
 /// Minimal percent-decoding without an extra dependency.
@@ -380,7 +534,7 @@ mod tests {
 
     #[test]
     fn format_search_results_produces_lines() {
-        let results = vec![
+        let lines = format_search_results(&vec![
             SearchResult {
                 title: "Rust Async".to_string(),
                 url: "https://tokio.rs".to_string(),
@@ -391,8 +545,7 @@ mod tests {
                 url: "https://rust-lang.org/async".to_string(),
                 snippet: None,
             },
-        ];
-        let lines = format_search_results(&results);
+        ]);
         assert_eq!(lines.len(), 2);
         assert!(lines[0].contains("Rust Async"));
         assert!(lines[0].contains("tokio.rs"));
@@ -401,8 +554,11 @@ mod tests {
 
     #[test]
     fn extract_article_returns_none_for_empty_html() {
-        let result = extract_article("<html><body></body></html>", None).expect("should not error");
-        assert!(result.is_none());
+        assert!(
+            extract_article("<html><body></body></html>", None)
+                .expect("should not error")
+                .is_none()
+        );
     }
 
     #[test]
@@ -418,8 +574,104 @@ mod tests {
         "#;
         let result = extract_article(html, Some("https://example.com/post")).expect("should extract");
         assert!(result.is_some(), "should extract readable article");
+
         let article = result.unwrap();
         assert!(!article.markdown.is_empty());
         assert!(!article.text_content.is_empty());
+    }
+
+    #[test]
+    fn is_private_url_rejects_localhost() {
+        assert!(is_private_url("http://localhost:8080/test"));
+        assert!(is_private_url("https://localhost./path"));
+    }
+
+    #[test]
+    fn is_private_url_rejects_loopback_ipv4() {
+        assert!(is_private_url("http://127.0.0.1/test"));
+        assert!(is_private_url("http://127.255.255.255/test"));
+    }
+
+    #[test]
+    fn is_private_url_rejects_private_ranges() {
+        assert!(is_private_url("http://10.0.0.1/test"));
+        assert!(is_private_url("http://10.255.255.255/test"));
+        assert!(is_private_url("http://172.16.0.1/test"));
+        assert!(is_private_url("http://172.31.255.255/test"));
+        assert!(is_private_url("http://192.168.1.1/test"));
+        assert!(is_private_url("http://192.168.0.0/test"));
+    }
+
+    #[test]
+    fn is_private_url_rejects_link_local() {
+        assert!(is_private_url("http://169.254.1.1/test"));
+        assert!(is_private_url("http://169.254.169.254/latest/meta-data"));
+    }
+
+    #[test]
+    fn is_private_url_rejects_zero_address() {
+        assert!(is_private_url("http://0.0.0.0/test"));
+    }
+
+    #[test]
+    fn is_private_url_rejects_ipv6_loopback() {
+        assert!(is_private_url("http://[::1]/test"));
+    }
+
+    #[test]
+    fn is_private_url_rejects_non_http_schemes() {
+        assert!(is_private_url("file:///etc/passwd"));
+        assert!(is_private_url("ftp://example.com/file"));
+        assert!(is_private_url("javascript:alert(1)"));
+    }
+
+    #[test]
+    fn is_private_url_rejects_unparseable() {
+        assert!(is_private_url("not a url"));
+        assert!(is_private_url(""));
+    }
+
+    #[test]
+    fn is_private_url_allows_public_addresses() {
+        assert!(!is_private_url("https://example.com/article"));
+        assert!(!is_private_url("http://93.184.216.34/test"));
+        assert!(!is_private_url("https://blog.rust-lang.org/2024/01/01/post"));
+    }
+
+    #[test]
+    fn is_public_scheme_checks_prefix() {
+        assert!(is_public_scheme("http://example.com"));
+        assert!(is_public_scheme("https://example.com"));
+        assert!(!is_public_scheme("file:///etc/passwd"));
+        assert!(!is_public_scheme("ftp://example.com"));
+    }
+
+    #[test]
+    fn fetch_url_rejects_non_public_scheme() {
+        let result = fetch_url("file:///etc/passwd");
+        assert!(matches!(result, Err(SearchError::UnsupportedScheme(_))));
+    }
+
+    #[test]
+    fn fetch_url_rejects_private_network() {
+        let result = fetch_url("http://127.0.0.1:8080/secret");
+        assert!(matches!(result, Err(SearchError::PrivateNetwork(_))));
+
+        let result = fetch_url("http://localhost/admin");
+        assert!(matches!(result, Err(SearchError::PrivateNetwork(_))));
+    }
+
+    #[test]
+    fn max_response_bytes_is_reasonable() {
+        let max = MAX_RESPONSE_BYTES;
+        assert!(max >= 65_536, "should allow at least 64 KiB");
+        assert!(max <= 2_097_152, "should cap at 2 MiB");
+    }
+
+    #[test]
+    fn search_error_oversized_displays_message() {
+        let err = SearchError::Oversized { max: 1024 };
+        assert!(err.to_string().contains("too large"));
+        assert!(err.to_string().contains("1024"));
     }
 }

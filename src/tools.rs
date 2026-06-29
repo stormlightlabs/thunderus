@@ -25,6 +25,7 @@ use std::path::{Path, PathBuf};
 
 use crate::app::ToolStatus;
 use crate::cli::WebSearchMode;
+use crate::search;
 use crate::tools::find_files::FindFiles;
 
 /// Maximum number of tool-call iterations per agent turn before the loop
@@ -33,6 +34,77 @@ use crate::tools::find_files::FindFiles;
 /// This prevents recursive or unbounded tool-call loops (e.g. a model that
 /// keeps requesting tools without converging on a final answer).
 pub const MAX_TOOL_ITERATIONS: usize = 8;
+
+/// Caps enforced on tool execution to prevent runaway output.
+pub enum Cap {
+    /// Default maximum number of results from a search or list operation.
+    MaxResults,
+    /// Maximum stdout/stderr bytes captured from a subprocess.
+    MaxOutputBytes,
+    /// Timeout in seconds for subprocess execution.
+    TimeoutSecs,
+    /// Maximum line length before truncation in tool output.
+    MaxLineLen,
+}
+
+impl Cap {
+    pub fn timeout() -> u64 {
+        usize::from(Self::TimeoutSecs) as u64
+    }
+}
+
+impl From<Cap> for usize {
+    fn from(cap: Cap) -> Self {
+        match cap {
+            Cap::MaxResults => 100,
+            Cap::MaxOutputBytes => 65_536,
+            Cap::TimeoutSecs => 10,
+            Cap::MaxLineLen => 512,
+        }
+    }
+}
+
+/// Typed tool inputs. Each variant maps to a read-only filesystem tool.
+///
+/// TODO: Construct by the agent/tool dispatch
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[allow(dead_code)]
+pub enum ToolInput {
+    /// Find files by name pattern, backed by `fd` with `find` fallback.
+    FindFiles {
+        pattern: String,
+        root: PathBuf,
+        glob: Option<String>,
+        extensions: Vec<String>,
+        max_depth: Option<u32>,
+        max_results: usize,
+        include_hidden: bool,
+        follow_symlinks: bool,
+    },
+    /// List searchable files, backed by `rg --files` or `fd --type file`.
+    ListSearchableFiles {
+        root: PathBuf,
+        glob: Option<String>,
+        max_results: usize,
+        include_hidden: bool,
+    },
+    /// Search file contents, backed by `rg --json`.
+    SearchText {
+        pattern: String,
+        root: PathBuf,
+        glob: Option<String>,
+        extensions: Vec<String>,
+        max_results: usize,
+        context_lines: u32,
+        include_hidden: bool,
+    },
+    /// Read a line range from a file, implemented in Rust.
+    ReadFileRange {
+        path: PathBuf,
+        start_line: u32,
+        end_line: Option<u32>,
+    },
+}
 
 /// A tool definition exposed to the provider/model.
 ///
@@ -44,6 +116,71 @@ pub struct ToolDefinition {
     pub name: &'static str,
     pub description: &'static str,
     pub input_schema: serde_json::Value,
+}
+
+/// Configuration for an agent run, shared by the fake and Umans providers.
+#[derive(Clone, Debug)]
+pub struct AgentRunConfig {
+    /// Workspace root for tool containment and file reads.
+    pub root: PathBuf,
+    /// Selected model name.
+    pub model: String,
+    /// Web search mode.
+    #[allow(dead_code)]
+    pub search_mode: WebSearchMode,
+    /// Maximum tool-call iterations per turn.
+    pub max_tool_iterations: usize,
+}
+
+impl AgentRunConfig {
+    pub fn new(root: PathBuf, model: String, search_mode: WebSearchMode) -> Self {
+        AgentRunConfig { root, model, search_mode, max_tool_iterations: MAX_TOOL_ITERATIONS }
+    }
+}
+
+/// A tool-use request from the provider: a name and a JSON arguments object.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ToolUseRequest {
+    /// Tool name, matching a [`ToolDefinition::name`].
+    pub name: String,
+    /// Raw JSON arguments string as sent by the model.
+    pub arguments: String,
+}
+
+/// Structured output from a tool execution.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ToolOutput {
+    /// Tool name (e.g. "read_file_range", "search_text").
+    pub name: String,
+    /// Execution status.
+    pub status: ToolStatus,
+    /// Output lines (for display and model content).
+    pub output: Vec<String>,
+    /// Error message, if the tool failed.
+    pub error: Option<String>,
+}
+
+impl ToolOutput {
+    /// Create a successful tool output.
+    pub fn ok(name: &str, output: Vec<String>) -> Self {
+        ToolOutput { name: name.to_string(), status: ToolStatus::Ok, output, error: None }
+    }
+
+    /// Create a failed tool output.
+    pub fn failed(name: &str, error: String) -> Self {
+        ToolOutput { name: name.to_string(), status: ToolStatus::Failed, output: Vec::new(), error: Some(error) }
+    }
+}
+
+/// A single search match from `rg --json`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SearchMatch {
+    /// File path (relative to root, as reported by rg).
+    pub path: String,
+    /// 1-based line number.
+    pub line_number: u32,
+    /// Matched line text.
+    pub text: String,
 }
 
 /// The catalog of read-only filesystem tools exposed to the model.
@@ -110,7 +247,7 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "web_search",
-            description: "Search the web for information. When Umans server-side search is enabled (native/exa), Umans executes the search and returns results. When disabled (none), this tool is passed through to the model unchanged.",
+            description: "Search the web for information. When Umans server-side search is enabled (native/exa), Umans executes the search and returns results. When disabled (none), a local DuckDuckGo search is used.",
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -120,61 +257,18 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
                 "required": ["query"]
             }),
         },
+        ToolDefinition {
+            name: "read_url",
+            description: "Fetch a public HTTP/HTTPS URL and extract readable content as Markdown. Private-network targets are rejected. Response size and content type are enforced.",
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "url": { "type": "string", "description": "The public HTTP/HTTPS URL to fetch." }
+                },
+                "required": ["url"]
+            }),
+        },
     ]
-}
-
-/// Configuration for an agent run, shared by the fake and Umans providers.
-#[derive(Clone, Debug)]
-pub struct AgentRunConfig {
-    /// Workspace root for tool containment and file reads.
-    pub root: PathBuf,
-    /// Selected model name.
-    pub model: String,
-    /// Web search mode.
-    #[allow(dead_code)]
-    pub search_mode: WebSearchMode,
-    /// Maximum tool-call iterations per turn.
-    pub max_tool_iterations: usize,
-}
-
-impl AgentRunConfig {
-    pub fn new(root: PathBuf, model: String, search_mode: WebSearchMode) -> Self {
-        AgentRunConfig { root, model, search_mode, max_tool_iterations: MAX_TOOL_ITERATIONS }
-    }
-}
-
-/// A tool-use request from the provider: a name and a JSON arguments object.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ToolUseRequest {
-    /// Tool name, matching a [`ToolDefinition::name`].
-    pub name: String,
-    /// Raw JSON arguments string as sent by the model.
-    pub arguments: String,
-}
-
-/// Structured output from a tool execution.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ToolOutput {
-    /// Tool name (e.g. "read_file_range", "search_text").
-    pub name: String,
-    /// Execution status.
-    pub status: ToolStatus,
-    /// Output lines (for display and model content).
-    pub output: Vec<String>,
-    /// Error message, if the tool failed.
-    pub error: Option<String>,
-}
-
-impl ToolOutput {
-    /// Create a successful tool output.
-    pub fn ok(name: &str, output: Vec<String>) -> Self {
-        ToolOutput { name: name.to_string(), status: ToolStatus::Ok, output, error: None }
-    }
-
-    /// Create a failed tool output.
-    pub fn failed(name: &str, error: String) -> Self {
-        ToolOutput { name: name.to_string(), status: ToolStatus::Failed, output: Vec::new(), error: Some(error) }
-    }
 }
 
 /// Dispatch a provider tool-use request to the matching read-only tool
@@ -245,91 +339,34 @@ pub fn dispatch_tool(request: &ToolUseRequest, root: &Path) -> ToolOutput {
         }
         "web_search" => {
             let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
-            ToolOutput::ok("web_search", vec![format!("server-side search: {query}")])
+            let max_results = args
+                .get("max_results")
+                .and_then(|v| v.as_u64())
+                .map(|n| n as usize)
+                .unwrap_or(search::DEFAULT_SEARCH_LIMIT);
+
+            match search::search_duckduckgo(query, max_results) {
+                Ok(results) if results.is_empty() => ToolOutput::ok("web_search", vec!["no results found".to_string()]),
+                Ok(results) => ToolOutput::ok("web_search", search::format_search_results(&results)),
+                Err(e) => ToolOutput::failed("web_search", e.to_string()),
+            }
+        }
+        "read_url" => {
+            let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("");
+            match search::fetch_url(url) {
+                Ok(content) => {
+                    let mut lines = vec![format!("title: {}", content.title)];
+                    lines.push(format!("url: {}", content.final_url));
+                    if content.truncated {
+                        lines.push("(content truncated)".to_string());
+                    }
+                    lines.push(content.markdown);
+                    ToolOutput::ok("read_url", lines)
+                }
+                Err(e) => ToolOutput::failed("read_url", e.to_string()),
+            }
         }
         other => ToolOutput::failed(other, format!("unknown tool: {other}")),
-    }
-}
-
-/// Typed tool inputs. Each variant maps to a read-only filesystem tool.
-///
-/// TODO: Construct by the agent/tool dispatch
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[allow(dead_code)]
-pub enum ToolInput {
-    /// Find files by name pattern, backed by `fd` with `find` fallback.
-    FindFiles {
-        pattern: String,
-        root: PathBuf,
-        glob: Option<String>,
-        extensions: Vec<String>,
-        max_depth: Option<u32>,
-        max_results: usize,
-        include_hidden: bool,
-        follow_symlinks: bool,
-    },
-    /// List searchable files, backed by `rg --files` or `fd --type file`.
-    ListSearchableFiles {
-        root: PathBuf,
-        glob: Option<String>,
-        max_results: usize,
-        include_hidden: bool,
-    },
-    /// Search file contents, backed by `rg --json`.
-    SearchText {
-        pattern: String,
-        root: PathBuf,
-        glob: Option<String>,
-        extensions: Vec<String>,
-        max_results: usize,
-        context_lines: u32,
-        include_hidden: bool,
-    },
-    /// Read a line range from a file, implemented in Rust.
-    ReadFileRange {
-        path: PathBuf,
-        start_line: u32,
-        end_line: Option<u32>,
-    },
-}
-
-/// A single search match from `rg --json`.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SearchMatch {
-    /// File path (relative to root, as reported by rg).
-    pub path: String,
-    /// 1-based line number.
-    pub line_number: u32,
-    /// Matched line text.
-    pub text: String,
-}
-
-/// Caps enforced on tool execution to prevent runaway output.
-pub enum Cap {
-    /// Default maximum number of results from a search or list operation.
-    MaxResults,
-    /// Maximum stdout/stderr bytes captured from a subprocess.
-    MaxOutputBytes,
-    /// Timeout in seconds for subprocess execution.
-    TimeoutSecs,
-    /// Maximum line length before truncation in tool output.
-    MaxLineLen,
-}
-
-impl Cap {
-    pub fn timeout() -> u64 {
-        usize::from(Self::TimeoutSecs) as u64
-    }
-}
-
-impl From<Cap> for usize {
-    fn from(cap: Cap) -> Self {
-        match cap {
-            Cap::MaxResults => 100,
-            Cap::MaxOutputBytes => 65_536,
-            Cap::TimeoutSecs => 10,
-            Cap::MaxLineLen => 512,
-        }
     }
 }
 
