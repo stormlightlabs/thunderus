@@ -177,18 +177,23 @@ fn render_transcript(frame: &mut Frame, app: &App, area: Rect) {
     }
 
     if app.transcript.is_empty() {
-        let banner_lines = banner::banner_lines(area.width);
+        // Use inner width (excluding borders) so the banner fits within the
+        // available rendering area.
+        let banner_lines = banner::banner_lines(inner.width);
         let banner_height = banner_lines.len() as u16;
-        let show_banner = banner_height > 1 && inner.height > banner_height;
+        let banner_max_width = banner_lines.iter().map(|l| l.len()).max().unwrap_or(0) as u16;
+        let show_banner = banner_height > 1
+            && inner.height > banner_height
+            && banner_max_width <= inner.width;
 
         if show_banner {
             let banner_text = Text::from(
                 banner_lines
                     .iter()
-                    .map(|l| Line::styled(l.clone(), Style::default().fg(style::P.accent).bg(style::P.panel_bg)))
+                    .map(|l| Line::styled(format!("  {l}"), Style::default().fg(style::P.accent).bg(style::P.panel_bg)))
                     .collect::<Vec<Line>>(),
             );
-            frame.render_widget(Paragraph::new(banner_text).wrap(Wrap { trim: false }).centered(), inner);
+            frame.render_widget(Paragraph::new(banner_text).wrap(Wrap { trim: false }).left_aligned(), inner);
         } else {
             let placeholder = Paragraph::new(Text::from(vec![
                 Line::styled(" No messages yet.", style::muted_style()),

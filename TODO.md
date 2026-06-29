@@ -37,57 +37,21 @@
   public-URL safety limits, private-network rejection, truncation metadata, local
   fixture tests, and snapshots for search success and failure states.
 
+### Prompt Assembly and Context Contract
+
+- Added structured prompt bundles, short thndrs-specific prompt fragments,
+  rounded environment metadata, loaded `AGENTS.md` context, provider-native tool
+  schemas, model-visible transcript projection, `--print-prompt` redaction, Umans
+  message lowering, unit coverage, and prompt snapshot coverage.
+
+### Session Persistence
+
+- Added append-only JSONL session records, persisted `AGENTS.md` context
+  metadata, latest-session resume, sidebar session-list rendering, encode/decode
+  and corrupt-line tests, resume-ordering coverage, and session sidebar
+  snapshots.
+
 ## alpha: Usable Coding Assistant
-
-### Phase 9: Prompt Assembly and Context Contract
-
-- [x] Define a structured `PromptBundle` with base identity, harness policy,
-      environment metadata, project context, tool catalog, transcript tail, and
-      current user turn.
-- [x] Keep base prompt text short and specific to `thndrs` instead of copying a
-      larger agent prompt wholesale.
-- [x] Round current date/time in prompt context for cache stability.
-- [x] Lower `PromptBundle` into Umans Anthropic-compatible messages.
-- [x] Add `--print-prompt` to print the assembled prompt bundle/lowered messages
-      with secrets redacted and no provider call.
-- [x] Include loaded `AGENTS.md` context below harness policy and direct user
-      instructions.
-- [x] Use Umans/provider-native tool schemas for local tools.
-- [x] Keep text tool descriptions minimal: name, purpose, safety limits, and
-      truncation behavior.
-- [x] Send the compact, stably ordered tool schema every provider turn unless
-      reusable-history or prompt-cache support is explicit.
-- [x] Preserve a projected model-visible transcript tail that excludes UI-only
-      status entries, live-only stream deltas, sidebar state, and renderer
-      artifacts.
-- [x] Include full `AGENTS.md` text only when its content hash changes and the
-      provider supports history reuse.
-- [x] Fall back to active size-capped `AGENTS.md` context when history reuse is
-      unavailable.
-- [x] Record prompt metadata in session JSONL later without storing full raw
-      provider payloads by default.
-- [x] Unit-test prompt-bundle ordering and precedence.
-- [x] Unit-test Umans message lowering with fixture context and transcript tails.
-- [x] Add snapshots for prompt debug/inspect output if a debug view exists.
-- [x] Split prompt assembly into named fragments for base identity,
-      communication style, action safety, project context, tool catalog,
-      transcript context, and web/source guidance.
-- [x] Move tool-specific behavior into tool descriptions where possible.
-- [x] Add snapshot coverage for important prompt-fragment combinations.
-
-### Phase 10: Session Persistence
-
-- [x] Define the JSONL session record format.
-- [x] Save transcript entries append-only.
-- [x] Save loaded AGENTS.md context metadata: path, scope, content hash, and
-      truncation state.
-- [x] Resume the latest session on startup.
-- [x] Render saved sessions in the sidebar.
-- [x] Unit-test JSONL encode/decode round trips.
-- [x] Unit-test AGENTS.md context metadata round trips.
-- [x] Unit-test corrupt-line handling.
-- [x] Unit-test resume ordering.
-- [x] Add a snapshot for sidebar session-list rendering.
 
 ### Phase 11: Safe File Operations
 
@@ -103,16 +67,8 @@
 - [ ] Unit-test failed edits leave files unchanged.
 - [ ] Add snapshots for write success and write failure transcript entries.
 
-### Phase 12: `read_url` and Shell Process Manager
+### Phase 12: Shell Process Manager
 
-- [ ] Add a `read_url` tool with public `http`/`https` support.
-- [ ] Reject private, loopback, link-local, local-file, and unsupported URL
-      schemes.
-- [ ] Enforce redirect, timeout, content-type, and response-size limits.
-- [ ] Return final URL, status, title, readable text, truncation state, and
-      diagnostics.
-- [ ] Record `read_url` calls as structured transcript/tool events.
-- [ ] Reuse existing Lectito-style extraction where it fits.
 - [ ] Define shell/process transcript event shapes.
 - [ ] Run commands from the workspace by default.
 - [ ] Show command, working directory, status, stdout, stderr, and elapsed time.
@@ -131,16 +87,28 @@
       operations where deterministic policy can identify them.
 - [ ] Redact known secrets from displayed and recorded command output where
       deterministic redaction is possible.
-- [ ] Unit-test `read_url` public URL success and private URL rejection.
 - [ ] Unit-test process success, failure, timeout, and cancellation.
 - [ ] Unit-test process registry handling for one-shot and background commands.
 - [ ] Unit-test approval classification for destructive, network, and
       outside-workspace commands.
-- [ ] Add snapshots for `read_url` and shell/process transcript entries.
+- [ ] Add snapshots for shell/process transcript entries.
+
+### Phase 13: `read_url`
+
+- [ ] Add a `read_url` tool with public `http`/`https` support.
+- [ ] Reject private, loopback, link-local, local-file, and unsupported URL
+      schemes.
+- [ ] Enforce redirect, timeout, content-type, and response-size limits.
+- [ ] Return final URL, status, title, readable text, truncation state, and
+      diagnostics.
+- [ ] Record `read_url` calls as structured transcript/tool events.
+- [ ] Reuse existing Lectito-style extraction where it fits.
+- [ ] Unit-test `read_url` public URL success and private URL rejection.
+- [ ] Add snapshots for `read_url` transcript entries.
 
 ## v1: Supported Release
 
-### Phase 13: Config, Inspect, and Export
+### Phase 14: Config, Inspect, and Export
 
 - [ ] Define config file path.
 - [ ] Define config keys for model, web search mode, session path, and tick rate.
@@ -160,7 +128,7 @@
 - [ ] Integration-test inspect/export against fixture sessions.
 - [ ] Integration-test inspect/export includes AGENTS.md context metadata.
 
-### Phase 14: LSP and Code Intelligence
+### Phase 15: LSP and Code Intelligence
 
 - [ ] Define read-only LSP tool names, inputs, outputs, and fallback behavior.
 - [ ] Support document symbols.
@@ -177,7 +145,7 @@
 - [ ] Unit-test no-server fallback behavior.
 - [ ] Add snapshots for LSP transcript entries.
 
-### Phase 15: v1 Release Hardening
+### Phase 16: v1 Release Hardening
 
 - [ ] Add `CHANGELOG.md` using Keep a Changelog categories.
 - [ ] Document install flow.

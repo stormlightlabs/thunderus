@@ -10,13 +10,13 @@ use figlet_rs::FIGlet;
 
 /// The committed FIGlet font file, loaded at compile time via `include_str!`
 /// so the app does not depend on runtime font paths.
-const FONT_CONTENT: &str = include_str!("fonts/ansi_shadow.flf");
+const FONT_CONTENT: &str = include_str!("fonts/colossal.flf");
 
 /// Minimum terminal width required to render the FIGlet banner.
 ///
-/// The ANSI Shadow font renders "thndrs" at ~40 columns. Below this width we
+/// The Colossal font renders "thndrs" at ~45 columns. Below this width we
 /// fall back to plain text so the output is not garbled.
-pub const BANNER_MIN_WIDTH: u16 = 42;
+pub const BANNER_MIN_WIDTH: u16 = 38;
 
 /// Render the `thndrs` banner as a multi-line string.
 ///
@@ -37,11 +37,40 @@ pub fn render_banner(width: u16) -> String {
 }
 
 /// Split the banner into lines for rendering, trimming trailing whitespace.
+///
+/// Also trims leading and trailing lines that are entirely blank (only spaces
+/// or hardblank characters), since some FIGlet fonts leave empty rows at the
+/// top and bottom of each character cell. Leading whitespace is trimmed so
+/// the banner is left-aligned and doesn't appear scattered.
 pub fn banner_lines(width: u16) -> Vec<String> {
-    render_banner(width)
+    let raw = render_banner(width);
+
+    // First pass: trim trailing whitespace from each line.
+    let lines: Vec<String> = raw
         .lines()
         .map(|l| l.trim_end().to_string())
+        .collect();
+
+    // Find the first and last lines that have actual content (non-blank).
+    let first_content = lines.iter().position(|l| !l.trim().is_empty()).unwrap_or(0);
+    let last_content = lines.iter().rposition(|l| !l.trim().is_empty()).map(|i| i + 1).unwrap_or(0);
+
+    // Trim leading whitespace and filter blanks, collecting first so we can
+    // compute the max width for padding.
+    let trimmed: Vec<String> = lines
+        .into_iter()
+        .skip(first_content)
+        .take(last_content.saturating_sub(first_content))
         .filter(|l| !l.is_empty())
+        .map(|l| l.trim_start().to_string())
+        .collect();
+
+    // Pad all lines to the max width so the banner forms a neat block with
+    // consistent trailing whitespace.
+    let max_len = trimmed.iter().map(|l| l.len()).max().unwrap_or(0);
+    trimmed
+        .into_iter()
+        .map(|l| format!("{l:<max_len$}"))
         .collect()
 }
 
@@ -54,8 +83,8 @@ mod tests {
         let lines = banner_lines(80);
         assert!(!lines.is_empty(), "banner should produce lines");
         assert!(
-            lines.len() <= 7,
-            "ansi shadow height should be <= 7, got {}",
+            lines.len() <= 8,
+            "colossal height should be <= 8, got {}",
             lines.len()
         );
     }
@@ -82,6 +111,6 @@ mod tests {
     #[test]
     fn committed_font_parses_successfully() {
         let font = FIGlet::from_content(FONT_CONTENT);
-        assert!(font.is_ok(), "committed ansi_shadow.flf should parse");
+        assert!(font.is_ok(), "committed colossal.flf should parse");
     }
 }

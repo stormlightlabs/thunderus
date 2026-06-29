@@ -1,4 +1,4 @@
-flf2a$ 11 8 20 32 13
+flf2a$ 11 8 20 0 17
 Colossal.flf (Jonathon - jon@mq.edu.au)
 8 June 1994
 
@@ -12,17 +12,21 @@ $    - the "hardblank" -- prints as a blank, but can't be smushed
 32   - default smushmode for this font
 13   - number of comment lines
 
-$  $@
-$  $@
-$  $@
-$  $@
-$  $@
-$  $@
-$  $@
-$  $@
-$  $@
-$  $@
-$  $@@
+---
+
+Font modified June 17, 2007 by patorjk
+This was to widen the space character.
+$    $@
+$    $@
+$    $@
+$    $@
+$    $@
+$    $@
+$    $@
+$    $@
+$    $@
+$    $@
+$    $@@
 888$@
 888$@
 888$@
@@ -943,7 +947,7 @@ $88888P'$@
 888 $  @
 888 $  @
 Y88b.$ @
- "Y888$@
+ "Y888$$@
        @
        @
        @@
