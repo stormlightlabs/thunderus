@@ -69,11 +69,11 @@
 - [x] Unit-test prompt-bundle ordering and precedence.
 - [x] Unit-test Umans message lowering with fixture context and transcript tails.
 - [x] Add snapshots for prompt debug/inspect output if a debug view exists.
-- [ ] Split prompt assembly into named fragments for base identity,
+- [x] Split prompt assembly into named fragments for base identity,
       communication style, action safety, project context, tool catalog,
       transcript context, and web/source guidance.
-- [ ] Move tool-specific behavior into tool descriptions where possible.
-- [ ] Add snapshot coverage for important prompt-fragment combinations.
+- [x] Move tool-specific behavior into tool descriptions where possible.
+- [x] Add snapshot coverage for important prompt-fragment combinations.
 
 ### Phase 10: Session Persistence
 

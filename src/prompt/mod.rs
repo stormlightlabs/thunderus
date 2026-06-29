@@ -4,16 +4,20 @@
 //! Umans Anthropic-compatible messages. The bundle is data, not ad hoc string
 //! concatenation, so it can be inspected, tested, and serialized.
 //!
-//! ## Ordering
+//! ## Fragment Ordering
 //!
-//! 1. Base identity — short `thndrs`-specific behavior.
-//! 2. Harness policy — tool boundary, workspace containment, no raw shell.
-//! 3. Environment metadata — cwd, model, search mode, rounded date.
-//! 4. Project context — loaded `AGENTS.md` text (below policy and user
+//! The system prompt is assembled from named fragments in a fixed order:
+//!
+//! 1. **base_identity** — short `thndrs`-specific identity.
+//! 2. **communication_style** — how to talk to the user.
+//! 3. **action_safety** — tool boundaries, workspace containment, no shell.
+//! 4. **web_source_guidance** — when and how to use web tools.
+//! 5. Environment metadata — cwd, model, search mode, rounded date.
+//! 6. Project context — loaded `AGENTS.md` text (below policy and user
 //!    instructions).
-//! 5. Tool catalog — provider-native schemas for local tools.
-//! 6. Transcript tail — projected model-visible entries.
-//! 7. User turn — current prompt text.
+//! 7. Tool catalog — provider-native schemas for local tools.
+//! 8. Transcript tail — projected model-visible entries.
+//! 9. User turn — current prompt text.
 
 use std::path::Path;
 
@@ -25,6 +29,42 @@ use crate::providers::umans::Message;
 use crate::tools;
 use crate::tools::ToolDefinition;
 
+/// A named prompt fragment — one focused piece of model-visible context.
+///
+/// Fragments are assembled in order into the system prompt. Each fragment owns
+/// a specific concern (identity, communication style, action safety, etc.) so
+/// that prompt assembly stays modular and testable.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PromptFragment {
+    /// Short label for debugging and testing (e.g. `"base_identity"`).
+    pub name: &'static str,
+    /// The fragment text, included verbatim in the system prompt.
+    pub content: String,
+}
+
+impl PromptFragment {
+    /// Create a fragment from a static name and content string.
+    pub fn new(name: &'static str, content: impl Into<String>) -> Self {
+        PromptFragment { name, content: content.into() }
+    }
+}
+
+/// Build the default ordered set of prompt fragments.
+///
+/// Each fragment is a separate concern:
+/// 1. **base_identity** — who thndrs is.
+/// 2. **communication_style** — how to talk to the user.
+/// 3. **action_safety** — tool boundaries, workspace containment, no shell.
+/// 4. **web_source_guidance** — when and how to use web tools.
+pub fn default_fragments() -> Vec<PromptFragment> {
+    vec![
+        PromptFragment::new("base_identity", include_str!("fragments/base_identity.md")),
+        PromptFragment::new("communication_style", include_str!("fragments/communication_style.md")),
+        PromptFragment::new("action_safety", include_str!("fragments/action_safety.md")),
+        PromptFragment::new("web_source_guidance", include_str!("fragments/web_source_guidance.md")),
+    ]
+}
+
 /// The structured prompt bundle before provider-specific lowering.
 ///
 /// Each field is a separate piece of model context. The [`Display`] impl
@@ -32,10 +72,9 @@ use crate::tools::ToolDefinition;
 /// converts it to Anthropic-compatible messages.
 #[derive(Clone, Debug)]
 pub struct PromptBundle {
-    /// Base identity and behavior.
-    pub base: String,
-    /// Harness policy: tool boundary, safety limits.
-    pub policy: String,
+    /// Ordered prompt fragments: base identity, communication style, action
+    /// safety, web/source guidance.
+    pub fragments: Vec<PromptFragment>,
     /// Environment: cwd, model, search mode, rounded date.
     pub environment: EnvironmentMetadata,
     /// Loaded AGENTS.md context sources.
@@ -66,8 +105,7 @@ impl PromptBundle {
         let tool_catalog = crate::tools::tool_definitions();
         let transcript_tail = project_transcript_tail(transcript);
         PromptBundle {
-            base: base_prompt(),
-            policy: policy_prompt(),
+            fragments: default_fragments(),
             environment: EnvironmentMetadata::new(cwd, model, mode),
             project_context: context_sources.to_vec(),
             tool_catalog,
@@ -148,29 +186,18 @@ impl EnvironmentMetadata {
     }
 }
 
-/// The short base identity prompt for `thndrs`.
-///
-/// Kept concise and specific to this harness — not copied from a larger agent
-/// prompt wholesale. Covers identity, output style, and work approach.
-pub fn base_prompt() -> String {
-    include_str!("base.txt").to_string()
-}
-
-/// The harness policy prompt with tool boundaries, safety limits, and editing rules.
-pub fn policy_prompt() -> String {
-    include_str!("policy.md").to_string()
-}
-
 /// Render the system prompt text from the bundle.
 ///
-/// This is the concatenation of base, policy, environment, and project context
+/// Assembles the ordered fragments, environment metadata, and project context
 /// in the correct precedence order. Tool catalog and transcript tail are
 /// rendered as separate message blocks during lowering.
 ///
 /// 1. Base identity
-/// 2. Harness policy.
-/// 3. Environment metadata.
-/// 4. Project context (AGENTS.md) — below harness policy and user instructions.
+/// 2. Communication style
+/// 3. Action safety
+/// 4. Web/source guidance
+/// 5. Environment metadata.
+/// 6. Project context (AGENTS.md) — below harness policy and user instructions.
 ///
 /// ## AGENTS.md inclusion
 ///
@@ -180,18 +207,17 @@ pub fn policy_prompt() -> String {
 /// content. When the hash differs or history reuse is unavailable, the active
 /// size-capped content is always included.
 pub fn render_system_prompt(bundle: &PromptBundle) -> String {
-    let mut parts: Vec<String> = vec![
-        bundle.base.clone(),
-        bundle.policy.clone(),
-        format!(
-            "## Environment\n\
-                 - workspace: {}\n\
-                 - model: {}\n\
-                 - search: {}\n\
-                 - date: {}",
-            bundle.environment.cwd, bundle.environment.model, bundle.environment.search_mode, bundle.environment.date
-        ),
-    ];
+    let mut parts: Vec<String> = bundle.fragments.iter().map(|f| f.content.clone()).collect();
+
+    parts.push(format!(
+        r#"## Environment
+
+- workspace: {}
+- model: {}
+- search: {}
+- date: {}"#,
+        bundle.environment.cwd, bundle.environment.model, bundle.environment.search_mode, bundle.environment.date
+    ));
 
     if !bundle.project_context.is_empty() {
         let mut context_lines = vec!["## Project Context".to_string()];
@@ -239,10 +265,9 @@ pub fn lower_to_umans_messages(bundle: &PromptBundle) -> Vec<Message> {
             Entry::Assistant { text, streaming: false, .. } => messages.push(Message::assistant(text)),
             Entry::Reasoning { text, streaming: false, .. } => messages.push(Message::assistant(text)),
             Entry::Tool { name, output, status, .. } if *status != ToolStatus::Running => messages.push(Message::user(
-                &(if output.is_empty() {
-                    format!("[tool: {name} — no output]")
-                } else {
-                    format!("[tool: {name}]\n{}", output.join("\n"))
+                &(match output.is_empty() {
+                    true => format!("[tool: {name} — no output]"),
+                    false => format!("[tool: {name}]\n{}", output.join("\n")),
                 }),
             )),
             _ => (),
@@ -301,8 +326,9 @@ fn date_from_days_since_epoch(days: u64) -> String {
 /// Excludes UI-only entries (`Status`, `Error`) and live-only stream artifacts:
 /// assistant/reasoning entries still flagged as `streaming` (partial text the
 /// model has not finalized) and tool entries that are still `Running` (no
-/// output yet). Only finalized `User`, `Assistant`, `Reasoning`, and `Tool`
-/// entries reach the model.
+/// output yet).
+///
+/// Only finalized `User`, `Assistant`, `Reasoning`, and `Tool` entries reach the model.
 fn project_transcript_tail(transcript: &[Entry]) -> Vec<Entry> {
     transcript
         .iter()
@@ -330,8 +356,7 @@ mod tests {
 
     fn test_bundle() -> PromptBundle {
         PromptBundle {
-            base: base_prompt(),
-            policy: policy_prompt(),
+            fragments: default_fragments(),
             environment: EnvironmentMetadata {
                 cwd: "/repo".to_string(),
                 model: "umans-coder".to_string(),
@@ -348,22 +373,30 @@ mod tests {
     }
 
     #[test]
-    fn base_prompt_is_short_and_specific() {
-        let base = base_prompt();
-        assert!(base.contains("thndrs"), "should mention thndrs");
+    fn base_identity_fragment_is_short_and_specific() {
+        let fragments = default_fragments();
+        let base = fragments
+            .iter()
+            .find(|f| f.name == "base_identity")
+            .expect("base_identity fragment");
+        assert!(base.content.contains("thndrs"), "should mention thndrs");
         assert!(
-            base.len() < 600,
-            "base prompt should be concise, got {} chars",
-            base.len()
+            base.content.len() < 600,
+            "base identity fragment should be concise, got {} chars",
+            base.content.len()
         );
     }
 
     #[test]
-    fn policy_prompt_mentions_tools_and_safety() {
-        let policy = policy_prompt();
-        assert!(policy.contains("read-only"));
-        assert!(policy.contains("workspace"));
-        assert!(policy.contains("AGENTS.md"));
+    fn action_safety_fragment_mentions_tools_and_safety() {
+        let fragments = default_fragments();
+        let safety = fragments
+            .iter()
+            .find(|f| f.name == "action_safety")
+            .expect("action_safety fragment");
+        assert!(safety.content.contains("tools"), "action_safety should mention tools");
+        assert!(safety.content.contains("workspace"));
+        assert!(safety.content.contains("AGENTS.md"));
     }
 
     #[test]
@@ -390,10 +423,10 @@ mod tests {
         let bundle = test_bundle();
         let prompt = render_system_prompt(&bundle);
         let base_pos = prompt.find("thndrs").unwrap();
-        let policy_pos = prompt.find("Harness Policy").unwrap();
+        let policy_pos = prompt.find("Action Safety").unwrap();
         let env_pos = prompt.find("Environment").unwrap();
-        assert!(base_pos < policy_pos, "base should come before policy");
-        assert!(policy_pos < env_pos, "policy should come before environment");
+        assert!(base_pos < policy_pos, "base should come before action safety");
+        assert!(policy_pos < env_pos, "action safety should come before environment");
     }
 
     #[test]
@@ -409,9 +442,9 @@ mod tests {
         }];
 
         let prompt = render_system_prompt(&bundle);
-        let policy_pos = prompt.find("Harness Policy").unwrap();
+        let policy_pos = prompt.find("Action Safety").unwrap();
         let context_pos = prompt.find("Project Context").unwrap();
-        assert!(policy_pos < context_pos, "AGENTS.md should be below harness policy");
+        assert!(policy_pos < context_pos, "AGENTS.md should be below action safety");
         assert!(prompt.contains("# Project"), "should include AGENTS.md content");
         assert!(prompt.contains("12345"), "should include content hash");
     }
@@ -759,8 +792,17 @@ mod tests {
             "hello",
         );
 
-        assert!(bundle.base.contains("thndrs"));
-        assert!(bundle.policy.contains("Harness Policy"));
+        assert!(
+            bundle.fragments.iter().any(|f| f.content.contains("thndrs")),
+            "should have a base_identity fragment mentioning thndrs"
+        );
+        assert!(
+            bundle
+                .fragments
+                .iter()
+                .any(|f| f.content.contains("Action Safety") || f.content.contains("action")),
+            "should have an action_safety fragment"
+        );
         assert_eq!(bundle.environment.model, "umans-coder");
         assert!(!bundle.tool_catalog.is_empty());
         assert_eq!(bundle.user_turn, "hello");
@@ -785,20 +827,20 @@ mod tests {
         let prompt = render_system_prompt(&bundle);
 
         let base_pos = prompt.find("thndrs").unwrap();
-        let policy_pos = prompt.find("Harness Policy").unwrap();
+        let policy_pos = prompt.find("Action Safety").unwrap();
         let env_pos = prompt.find("## Environment").unwrap();
         let ctx_pos = prompt.find("## Project Context").unwrap();
         let guidance_pos = prompt.find("Guidance here").unwrap();
 
-        assert!(base_pos < policy_pos, "base must precede policy");
-        assert!(policy_pos < env_pos, "policy must precede environment");
+        assert!(base_pos < policy_pos, "base must precede action safety");
+        assert!(policy_pos < env_pos, "action safety must precede environment");
         assert!(env_pos < ctx_pos, "environment must precede project context");
         assert!(ctx_pos < guidance_pos, "context header must precede content");
     }
 
-    /// AGENTS.md precedence is below harness policy *and* below the user
+    /// AGENTS.md precedence is below action safety *and* below the user
     /// turn. The user turn is a separate message, so we verify the AGENTS.md
-    /// section appears after policy in the system prompt.
+    /// section appears after safety in the system prompt.
     #[test]
     fn agents_md_below_harness_policy_and_user_instructions() {
         let mut bundle = test_bundle();
@@ -813,11 +855,11 @@ mod tests {
         }];
 
         let prompt = render_system_prompt(&bundle);
-        let policy_pos = prompt.find("Harness Policy").unwrap();
+        let policy_pos = prompt.find("Action Safety").unwrap();
         let ctx_pos = prompt.find("Project Context").unwrap();
         assert!(
             policy_pos < ctx_pos,
-            "AGENTS.md must sit below harness policy in the system prompt"
+            "AGENTS.md must sit below action safety in the system prompt"
         );
     }
 
@@ -1032,5 +1074,106 @@ mod tests {
         assert_eq!(date_from_days_since_epoch(0), "1970-01-01");
         let d = date_from_days_since_epoch(20_745);
         assert!(d.starts_with("2026"), "day 20745 should be in 2026, got {d}");
+    }
+
+    // TODO: do we need these fragment snapshots?
+
+    #[test]
+    fn snapshot_system_prompt_with_all_fragments() {
+        let bundle = test_bundle();
+        let prompt = render_system_prompt(&bundle);
+        insta::assert_snapshot!(prompt);
+    }
+
+    #[test]
+    fn snapshot_system_prompt_with_agents_md_context() {
+        let mut bundle = test_bundle();
+        bundle.project_context = vec![ContextSource {
+            path: PathBuf::from("/repo/AGENTS.md"),
+            scope: ".".to_string(),
+            content: "# Project\n\nBuild with cargo. Run tests with cargo test.\n".to_string(),
+            content_hash: 4242,
+            truncated: false,
+            byte_count: 50,
+        }];
+        let prompt = render_system_prompt(&bundle);
+        insta::assert_snapshot!(prompt);
+    }
+
+    #[test]
+    fn snapshot_tool_catalog_json() {
+        let bundle = test_bundle();
+        let catalog = render_tool_catalog(&bundle);
+        let json = serde_json::to_string_pretty(&catalog).unwrap_or_default();
+        insta::assert_snapshot!(json);
+    }
+
+    #[test]
+    fn snapshot_fragment_base_identity() {
+        let fragments = default_fragments();
+        let base = fragments
+            .iter()
+            .find(|f| f.name == "base_identity")
+            .expect("base_identity fragment");
+        insta::assert_snapshot!(base.content);
+    }
+
+    #[test]
+    fn snapshot_fragment_communication_style() {
+        let fragments = default_fragments();
+        let style = fragments
+            .iter()
+            .find(|f| f.name == "communication_style")
+            .expect("communication_style fragment");
+        insta::assert_snapshot!(style.content);
+    }
+
+    #[test]
+    fn snapshot_fragment_action_safety() {
+        let fragments = default_fragments();
+        let safety = fragments
+            .iter()
+            .find(|f| f.name == "action_safety")
+            .expect("action_safety fragment");
+        insta::assert_snapshot!(safety.content);
+    }
+
+    #[test]
+    fn snapshot_fragment_web_source_guidance() {
+        let fragments = default_fragments();
+        let web = fragments
+            .iter()
+            .find(|f| f.name == "web_source_guidance")
+            .expect("web_source_guidance fragment");
+        insta::assert_snapshot!(web.content);
+    }
+
+    #[test]
+    fn default_fragments_are_in_expected_order() {
+        let fragments = default_fragments();
+        let names: Vec<&str> = fragments.iter().map(|f| f.name).collect();
+        assert_eq!(
+            names,
+            vec![
+                "base_identity",
+                "communication_style",
+                "action_safety",
+                "web_source_guidance"
+            ],
+            "fragments must be in the documented precedence order"
+        );
+    }
+
+    #[test]
+    fn default_fragments_are_non_empty() {
+        let fragments = default_fragments();
+        assert_eq!(fragments.len(), 4, "should have 4 default fragments");
+        for f in &fragments {
+            assert!(
+                !f.content.trim().is_empty(),
+                "fragment `{}` should not be empty",
+                f.name
+            );
+        }
     }
 }

@@ -27,15 +27,15 @@ use std::time::{Duration, Instant};
 use crossterm::event::{self, Event, KeyEvent};
 use ratatui::init::DefaultTerminal;
 
-use crate::app::{App, Msg, RunState, update};
-use crate::cli::Cli;
-use crate::prompt::PromptBundle;
-use crate::tools::AgentRunConfig;
+use app::{App, Msg, RunState, update};
+use cli::Cli;
+use prompt::PromptBundle;
+use tools::AgentRunConfig;
 
 /// State carried by the main loop for a single agent run.
 struct AgentSlot {
-    receiver: mpsc::Receiver<crate::app::AgentEvent>,
-    cancel: crate::agent::CancelToken,
+    receiver: mpsc::Receiver<app::AgentEvent>,
+    cancel: agent::CancelToken,
 }
 
 /// Run the TUI to completion using the given CLI configuration.
@@ -56,8 +56,8 @@ pub fn run(cli: &Cli) -> io::Result<()> {
 /// Print the assembled prompt bundle with secrets redacted, without calling
 /// the provider. This is the `--print-prompt` debug path.
 fn run_print_prompt(cli: &Cli) -> io::Result<()> {
-    let workspace_root = crate::context::discover_workspace_root(&cli.cwd);
-    let context_sources = match crate::context::load_agents_md(&workspace_root) {
+    let workspace_root = context::discover_workspace_root(&cli.cwd);
+    let context_sources = match context::load_agents_md(&workspace_root) {
         Some(source) => vec![source],
         None => Vec::new(),
     };
@@ -84,9 +84,9 @@ fn run_print_prompt(cli: &Cli) -> io::Result<()> {
 /// (`sk-` prefixed values) are redacted. The date is replaced with `[date]` so
 /// the output is stable for snapshot testing.
 pub fn render_print_prompt(bundle: &PromptBundle) -> String {
-    let system_prompt = crate::prompt::render_system_prompt(bundle);
-    let messages = crate::prompt::lower_to_umans_messages(bundle);
-    let tool_catalog = crate::prompt::render_tool_catalog(bundle);
+    let system_prompt = prompt::render_system_prompt(bundle);
+    let messages = prompt::lower_to_umans_messages(bundle);
+    let tool_catalog = prompt::render_tool_catalog(bundle);
 
     let mut out = String::new();
 
@@ -192,7 +192,7 @@ fn main_loop(terminal: &mut DefaultTerminal, tick: Duration, cli: &Cli) -> io::R
 ///
 /// The run uses the fake provider for now; the Umans provider is wired but
 /// gated on `UMANS_API_KEY` and will be selected once the provider trait is
-/// connected. The [`crate::agent::CancelToken`] is retained so `Escape` can
+/// connected. The [`agent::CancelToken`] is retained so `Escape` can
 /// signal cooperative cancellation.
 fn maybe_spawn_agent(app: &App, cli: &Cli, agent: &mut Option<AgentSlot>) {
     if app.run_state != RunState::Working {
@@ -202,7 +202,7 @@ fn maybe_spawn_agent(app: &App, cli: &Cli, agent: &mut Option<AgentSlot>) {
         return;
     }
 
-    let workspace_root = crate::context::discover_workspace_root(&cli.cwd);
+    let workspace_root = context::discover_workspace_root(&cli.cwd);
     let config = AgentRunConfig::new(workspace_root, cli.model.clone(), cli.websearch);
 
     let prompt = app
@@ -210,14 +210,14 @@ fn maybe_spawn_agent(app: &App, cli: &Cli, agent: &mut Option<AgentSlot>) {
         .iter()
         .rev()
         .find_map(|e| match e {
-            crate::app::Entry::User { text } => Some(text.clone()),
+            app::Entry::User { text } => Some(text.clone()),
             _ => None,
         })
         .unwrap_or_default();
 
-    let handle = crate::agent::RunHandle::fake(config, prompt);
+    let handle = agent::RunHandle::fake(config, prompt);
     let cancel = handle.cancel.clone();
-    let receiver = crate::agent::spawn_run(handle);
+    let receiver = agent::spawn_run(handle);
     *agent = Some(AgentSlot { receiver, cancel });
 }
 
@@ -279,8 +279,8 @@ fn handle_msg(app: &mut App, msg: Msg, terminal: &mut DefaultTerminal) -> io::Re
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::context::ContextSource;
-    use crate::prompt::PromptBundle;
+    use context::ContextSource;
+    use prompt::PromptBundle;
     use std::path::PathBuf;
 
     /// Build a deterministic bundle for snapshot testing — no workspace
@@ -295,19 +295,18 @@ mod tests {
             byte_count: 50,
         };
         PromptBundle {
-            base: crate::prompt::base_prompt(),
-            policy: crate::prompt::policy_prompt(),
-            environment: crate::prompt::EnvironmentMetadata {
+            fragments: prompt::default_fragments(),
+            environment: prompt::EnvironmentMetadata {
                 cwd: "/repo".to_string(),
                 model: "umans-coder".to_string(),
                 search_mode: "native".to_string(),
                 date: "2026-06-29".to_string(),
             },
             project_context: vec![source],
-            tool_catalog: crate::tools::tool_definitions(),
+            tool_catalog: tools::tool_definitions(),
             transcript_tail: Vec::new(),
             user_turn: "explain this repo".to_string(),
-            history_reuse: crate::prompt::HistoryReuse::Unavailable,
+            history_reuse: prompt::HistoryReuse::Unavailable,
             prev_context_hash: None,
         }
     }
