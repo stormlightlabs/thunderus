@@ -1,0 +1,178 @@
+@import url("https://cdn.jsdelivr.net/npm/@fontsource/ibm-plex-sans@5/index.css");
+@import url("https://cdn.jsdelivr.net/npm/@fontsource/azeret-mono@5/index.css");
+@import url("https://cdn.jsdelivr.net/npm/@fontsource/merriweather@5/index.css");
+
+:root,
+.coal {
+    --bg: #161821;
+    --fg: #c6c8d1;
+    --sidebar-bg: #0f1117;
+    --sidebar-fg: #c6c8d1;
+    --sidebar-active: #eff0f4;
+    --sidebar-active-bg: #272c42;
+    --sidebar-non-existant: #6b7089;
+    --sidebar-spacer: #3e445e;
+    --scrollbar: #3d425b;
+    --icons: #818596;
+    --icons-hover: #d2d4de;
+    --links: #89b8c2;
+    --inline-code-color: #e2a478;
+    --theme-popup-bg: #1e2132;
+    --theme-popup-border: #3e445e;
+    --theme-hover: #272c42;
+    --quote-bg: #1e2132;
+    --quote-border: #84a0c6;
+    --table-border-color: #3e445e;
+    --table-header-bg: #1e2132;
+    --table-alternate-bg: #1e2132;
+    --searchbar-border-color: #3e445e;
+    --searchbar-bg: #1e2132;
+    --searchbar-fg: #c6c8d1;
+    --searchbar-shadow-color: #0f1117;
+    --searchresults-header-fg: #818596;
+    --searchresults-border-color: #3e445e;
+    --searchresults-li-bg: #1e2132;
+    --search-mark-bg: #e2a478;
+    --warning-border: #e2a478;
+    --color-scheme: dark;
+}
+
+html {
+    font-family:
+        "IBM Plex Sans",
+        system-ui,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+}
+
+body,
+button,
+input {
+    font-family:
+        "IBM Plex Sans",
+        system-ui,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+.chapter li.chapter-item,
+.menu-title {
+    font-family: "Merriweather", Georgia, serif;
+    font-weight: 600;
+}
+
+h1,
+h2 {
+    color: #d2d4de;
+    letter-spacing: 0;
+}
+
+h3,
+h4,
+h5,
+h6 {
+    color: #c6c8d1;
+    letter-spacing: 0;
+}
+
+code,
+pre,
+.hljs {
+    font-family: "Azeret Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+a,
+a:visited {
+    color: #89b8c2;
+}
+
+a:hover {
+    color: #95c4ce;
+}
+
+.content main {
+    line-height: 1.65;
+}
+
+.content main > h1:first-child {
+    margin-top: 0.25rem;
+}
+
+.chapter {
+    padding: 0.5rem 0.65rem;
+}
+
+.chapter li.part-title {
+    color: #818596;
+    font-family: "Merriweather", Georgia, serif;
+    font-size: 1.25rem;
+    font-weight: 600;
+    letter-spacing: 0.025em;
+    margin-top: 1.15rem;
+    text-transform: uppercase;
+}
+
+.chapter li.chapter-item {
+    margin-block-start: 0.25rem;
+}
+
+.chapter li a {
+    border-left: 3px solid transparent;
+    border-radius: 4px;
+    color: #c6c8d1;
+    padding: 0.22rem 0.5rem;
+}
+
+.chapter li a:hover {
+    background: #1e2132;
+    color: #d2d4de;
+}
+
+.chapter li a.active {
+    background: var(--sidebar-active-bg);
+    border-left-color: #89b8c2;
+    color: var(--sidebar-active);
+    font-weight: 700;
+}
+
+.chapter li a.active strong {
+    color: #95c4ce;
+}
+
+pre {
+    background: #0f1117;
+    border: 1px solid #3e445e;
+    border-radius: 6px;
+}
+
+:not(pre) > .hljs,
+:not(pre) > code {
+    background: #1e2132;
+    border: 1px solid #3e445e;
+    border-radius: 4px;
+    color: #e2a478;
+    padding: 0.05rem 0.25rem;
+}
+
+blockquote {
+    background: #1e2132;
+    border-left-color: #84a0c6;
+}
+
+table {
+    border-color: #3e445e;
+}
+
+th {
+    background: #1e2132;
+}

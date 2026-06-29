@@ -60,84 +60,6 @@ rather than arbitrary model-controlled shell programs.
 | Tool wrapper             | Rust function that maps typed input to a fixed command invocation and structured output.                                                |
 | Project root containment | Rejecting paths that escape the selected workspace root after canonicalization.                                                         |
 
-## Integration Plan
-
-### Tool Set
-
-Add these as read-only alpha tools before any write-capable operations:
-
-- `find_files`: backed by `fd`.
-- `search_text`: backed by `rg --json`.
-- `list_searchable_files`: backed by `rg --files` or `fd --type file`.
-- `read_file_range`: implement in Rust first; optionally allow `sed -n` only as
-  a compatibility fallback.
-- `summarize_text`: optional canned `awk` templates for safe, bounded summaries.
-
-Do not expose:
-
-- `fd --exec` or `fd --exec-batch`.
-- `rg --pre`, `--pre-glob`, or compressed search initially.
-- `sed -i`, `sed -I`, `sed w`, GNU `sed e`, or arbitrary sed scripts.
-- arbitrary `awk` programs, `awk system()`, redirections, or pipes.
-
-### `fd` Wrapper
-
-Inputs:
-
-- `pattern: Option<String>`
-- `root: Option<PathBuf>`
-- `kind: file | directory | symlink | any`
-- `glob: bool`
-- `extensions: Vec<String>`
-- `include_hidden: bool`
-- `include_ignored: bool`
-- `max_depth: Option<u32>`
-- `max_results: u32`
-
-Default command shape:
-
-```text
-fd --color never --type file --max-results N PATTERN ROOT
-```
-
-Rules:
-
-- Default to hidden and ignored files excluded.
-- Only enable hidden/ignored files when explicitly requested.
-- Prefer relative paths for transcript readability.
-- Normalize and reject paths outside the selected root.
-- Do not follow symlinks by default.
-- Consider `--one-file-system` for large or mounted workspaces.
-
-### `rg` Wrapper
-
-Inputs:
-
-- `pattern: String`
-- `paths: Vec<PathBuf>`
-- `globs: Vec<String>`
-- `file_type: Option<String>`
-- `context: u8`
-- `case_mode: sensitive | insensitive | smart`
-- `max_matches: u32`
-- `max_columns: u32`
-
-Default command shape:
-
-```text
-rg --json --line-number --column --color never --max-columns N PATTERN PATH...
-```
-
-Rules:
-
-- Parse JSON Lines into match records: path, line, column, text, submatches.
-- Treat exit code `1` as no matches.
-- Keep `--hidden`, `--no-ignore`, `--text`, and `--follow` opt-in.
-- Use `--glob`/`--type` for bounded searches instead of searching everything.
-- Cap output even when `rg` would produce many matches.
-- Avoid `--vimgrep` as the primary integration; `rg --help` recommends JSON for
-  editor integrations over `--vimgrep` when possible.
-
 ### `sed` Role
 
 Use cases:
@@ -175,57 +97,6 @@ Recommendation:
   awk ever becomes a human-approved advanced mode.
 - Default to Rust-native parsing when the format is known.
 
-## Agent Tool Design
-
-The model should see high-level tools, not command lines:
-
-```text
-find_files(pattern, kind, extensions, max_depth, max_results)
-search_text(pattern, paths, globs, context, max_matches)
-read_file_range(path, start_line, end_line)
-summarize_text(path, mode)
-```
-
-Each tool result should include:
-
-- `command`: sanitized display command, not necessarily the exact argv.
-- `cwd`: workspace-relative root.
-- `exit_status`: numeric status or killed/timeout.
-- `truncated`: whether output was capped.
-- `results`: structured records.
-- `stderr`: capped diagnostic text.
-
-Execution rules:
-
-- Use `std::process::Command` with argv arrays, not shell strings.
-- Run from the selected workspace root.
-- Clear or tightly control environment variables.
-- Enforce timeout and output-byte limits.
-- Enforce max result counts in the wrapper even if the child command supports
-  its own limit.
-- Treat paths as data, not shell syntax.
-- Reject absolute paths or `..` escapes after canonicalization unless explicitly
-  allowed by a future workspace config.
-
-## Release Mapping
-
-- fake/v0: no shell-backed traversal required. Fake tool entries are enough.
-- alpha: add `find_files`, `search_text`, `list_searchable_files`, and
-  `read_file_range` as read-only tools.
-- alpha later: add Lectito-backed web extraction/search separately from local fs
-  traversal.
-- v1: document command availability, output caps, path containment, and
-  portability assumptions. Add integration tests with fixture directories.
-
-## Claims To Preserve In Specs/TODO
-
-- `fd` and `rg` are alpha read-only tooling, not v1-only polish.
-- `sed` and `awk` should not be exposed as arbitrary raw programs in the first
-  usable release.
-- Safe file edits should remain separate from search/traversal tools.
-- Tool output should be structured so the TUI can render search results without
-  parsing terminal text.
-
 ## Questions for Review
 
 - Should `search_text` use `rg --json` from day one, or a simpler line parser
@@ -258,10 +129,3 @@ Execution rules:
 ## Notable Quotes
 
 > "ripgrep will never modify your files."
-
-## Takeaways
-
-- Make `fd` and `rg` first-class structured read-only tools for alpha.
-- Keep `sed` and `awk` constrained to safe, output-only, template-driven use.
-- Build safety into the Rust wrappers: no shell, root containment, timeouts,
-  output caps, and structured results.

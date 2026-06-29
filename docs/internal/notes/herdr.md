@@ -69,22 +69,7 @@ control surface for both humans and agents.
 | Snapshot restore | Recreate workspace/tab/pane shape after server restart, without preserving original processes.     |
 | Live handoff     | Experimental transfer of live panes from an old server to a new server.                            |
 
-## Lessons for `thndrs`
-
-- Borrow Herdr's **mode enum** idea early: `Prompt`, `Running`, `Command`, `Help`, maybe later
-  `Navigate`.
-- Borrow Herdr's **semantic agent state** naming for the sidebar/status line: `idle`, `working`,
-  `blocked`, `done`, `error`.
-- Borrow Herdr's **compute view first, render second** split: calculate layout areas from terminal
-  `Rect` before drawing widgets.
-- Borrow Herdr's **pure layout tests** when adding panes: test rectangles and navigation without
-  spawning terminal processes.
-- Do not borrow Herdr's server/client split, socket protocol, PTY runtime, plugins, worktrees, or
-  handoff until there is real demand.
-- If `thndrs` ever embeds child terminals, use Herdr as evidence that terminal/process lifecycle
-  should be its own subsystem, not mixed into UI drawing.
-
-## Questions for Review
+## Open Questions
 
 - Does `thndrs` need true terminal panes, or only a chat transcript and tool-output blocks?
 - Should the first key model be direct app keys, or should we start with a prefix-style command
@@ -110,10 +95,3 @@ control surface for both humans and agents.
 - If tool execution becomes long-running, should it appear as transcript blocks or real terminal
   panes?
 - Should session restore be transcript-first like Pi or process-first like Herdr?
-
-## Takeaways
-
-- Herdr is a strong reference for Ratatui state, layout, and mode discipline.
-- Its process persistence and socket control surface are later-stage features, not v0 requirements.
-- For `thndrs`, copy the small patterns: explicit modes, semantic statuses, precomputed view
-  geometry, and tested layout math.

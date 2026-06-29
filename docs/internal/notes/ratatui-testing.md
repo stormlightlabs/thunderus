@@ -42,7 +42,7 @@ review` to inspect and accept the new snapshot.
 | `cargo-insta` | CLI helper for reviewing and accepting snapshot changes.                  |
 | Snapshot      | Saved expected output used as the comparison target for future test runs. |
 
-## Questions for Review
+## Open Questions
 
 - Why should TUI snapshot tests use fixed terminal dimensions?
 - What object should be passed to `assert_snapshot!` after drawing a Ratatui UI?
@@ -70,9 +70,3 @@ review` to inspect and accept the new snapshot.
 ## Notable Quotes
 
 > "Use a consistent terminal size"
-
-## Takeaways
-
-- Use `TestBackend` plus `insta` for stable visual regression tests.
-- Snapshot only deterministic states; keep dynamic data out or redact it.
-- Pair snapshot tests with smaller unit tests for update logic and layout rects.

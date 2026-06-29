@@ -4,3 +4,11 @@ language = "en"
 multilingual = false
 src = "src"
 title = "Thunderus"
+
+[output.html]
+git-repository-url = "https://github.com/stormlightlabs/thndrs"
+default-theme = "coal"
+preferred-dark-theme = "coal"
+site-url = "/docs/"
+additional-css = ["src/assets/css/site-fonts.css"]
+additional-js = ["src/assets/js/theme.js"]

@@ -56,19 +56,7 @@ suggestions, model/status display, and keyboard-first focus handling.
 | ChainOfThought | Expandable reasoning block shown separately from normal text content.                           |
 | Cell           | Terminal character position; all layout widths, padding, borders, and gaps are integer cells.   |
 
-## Layout Notes for `thndrs`
-
-- Sidebar: fixed `22-28` columns, title optional, rows for `new`, active session,
-  recent sessions.
-- Transcript: full remaining width, vertical scroll state, newest content near bottom,
-  one-row gaps between entries.
-- Prompt: bottom block with top divider, prompt marker, editable text, optional
-  suggestions, model/status line.
-- Status/footer: one line for cwd, model, tokens/cost later, and current mode/status.
-- Modal later: model picker or session switcher centered over main area; not needed for
-  first playable harness.
-
-## Questions for Review
+## Open Questions
 
 - Which parts of Gridland's prompt input are essential for v0: slash commands, file
   mentions, history, model label, or stop?
@@ -94,11 +82,3 @@ suggestions, model/status display, and keyboard-first focus handling.
 - How much scrollback should be kept in memory before persistence exists?
 - Which command set should exist on day one: `/clear`, `/model`, `/quit`, `/help`,
   maybe `/run`?
-
-## Takeaways
-
-- Build the actual first screen as a workbench, not a landing page: sidebar, transcript,
-  prompt, footer.
-- Keep message rendering composable: normal text, reasoning, tool call, and error entries
-  should be separate variants.
-- Implement static command suggestions only after basic text input and submit work.

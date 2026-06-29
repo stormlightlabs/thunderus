@@ -110,9 +110,3 @@ workflows instead of baking in heavyweight modes and hidden orchestration.
   processes?
 - How should abort/stop propagate through async model streams and tools?
 - What session format will be stable enough to inspect and replay?
-
-## Takeaways
-
-- Preserve observability: every context source, model event, and tool call should be visible.
-- Keep v0 fake or narrow: prove the UI and event loop before adding provider complexity.
-- Let files and shell conventions do work before inventing app modes.

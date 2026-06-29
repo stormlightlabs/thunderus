@@ -78,7 +78,7 @@ configuration, safe file changes, packaging, and release hygiene.
 - Related ideas: Pi's visible context and event stream; Herdr's durable session
   discipline; Gridland's chat layout; Ratatui snapshot tests; Umans as first provider.
 - Related sources: [pi](pi.md), [herdr](herdr.md), [ui-patterns](ui-patterns.md),
-  [umans](providers/umans.md), [ratatui-testing](ratatui-testing.md).
+  [umans](./providers/umans.md), [ratatui-testing](ratatui-testing.md).
 - Contradictions or tensions: alpha/v1 need write/edit tools to be a coding harness,
   but the project guidance strongly prefers avoiding permission theater. The
   compromise is simple explicit confirmation plus narrow file operations, not a
@@ -94,10 +94,3 @@ configuration, safe file changes, packaging, and release hygiene.
   reliable enough?
 - What install channel is the first v1 target: `cargo install`, GitHub release
   binaries, or both?
-
-## Takeaways
-
-- The existing roadmap is enough for fake/v0, not enough for v1.
-- Alpha should mean "real provider and real repo use," not "all planned features."
-- v1 should be defined by stable contracts, safe file operations, packaging,
-  documentation, and a release process.

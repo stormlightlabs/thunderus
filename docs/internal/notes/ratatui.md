@@ -81,10 +81,3 @@ only later splitting into components if local state proves necessary.
   append-to-scrollback approach even though Ratatui is usually full-screen?
 - Which text editor/input crate should handle multi-line prompt editing, if any?
 - How much async infrastructure is needed before real model/tool streaming exists?
-
-## Takeaways
-
-- Start with `App`, `Msg`, `update`, `view`, and a small `run` loop.
-- Isolate terminal setup, event polling, cleanup, and tick/render scheduling.
-- Defer component traits and Flux-style dispatcher/store structure until the app has
-  enough complexity to pay for them.
