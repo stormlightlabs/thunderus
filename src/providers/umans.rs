@@ -95,15 +95,27 @@ impl UmansClient {
     /// Build the request body for `POST /v1/messages`.
     ///
     /// This is a pure function — no network — making it testable in isolation.
+    ///
+    /// When `tools` is `Some`, the tool schemas are included in the `tools`
+    /// field so the model can issue `tool_use` blocks.
+    ///
+    /// The schema is sent every turn because Umans does not expose reusable-history
+    /// for tool definitions.
     pub fn build_messages_request_body(
-        model: &str, messages: &[Message], max_tokens: u32, stream: bool,
+        model: &str, messages: &[Message], max_tokens: u32, stream: bool, tools: Option<&serde_json::Value>,
     ) -> serde_json::Value {
-        serde_json::json!({
+        let mut body = serde_json::json!({
             "model": model,
             "messages": messages,
             "max_tokens": max_tokens,
             "stream": stream,
-        })
+        });
+        if let Some(t) = tools
+            && !t.as_array().is_some_and(|arr| arr.is_empty())
+        {
+            body["tools"] = t.clone();
+        }
+        body
     }
 
     /// Build the HTTP headers map for a Messages API request.
@@ -115,10 +127,7 @@ impl UmansClient {
             ("x-api-key".to_string(), self.api_key.clone()),
             ("anthropic-version".to_string(), ANTHROPIC_VERSION.to_string()),
             ("Content-Type".to_string(), "application/json".to_string()),
-            (
-                WEBSEARCH_HEADER.to_string(),
-                websearch_header_value(search_mode).to_string(),
-            ),
+            (WEBSEARCH_HEADER.to_string(), search_mode.header_value().to_string()),
         ]
     }
 
@@ -129,13 +138,18 @@ impl UmansClient {
     /// search backend to use (or `none` to pass a local `web_search` tool
     /// through unchanged).
     ///
+    /// When `tools` is `Some`, the compact tool schema is included in the
+    /// request body so the model can issue `tool_use` blocks. The schema is
+    /// sent every turn.
+    ///
     /// The caller reads lines from the response body and feeds them to
     /// [`parse_sse_chunk`] and [`parse_sse_event`].
     pub fn send_streaming_request(
-        &self, model: &str, messages: &[Message], max_tokens: u32, search_mode: WebSearchMode,
+        &self, model: &str, messages: &[Message], max_tokens: u32, mode: WebSearchMode,
+        tools: Option<&serde_json::Value>,
     ) -> Result<ureq::http::Response<ureq::Body>> {
         let url = format!("{}/v1/messages", self.base_url);
-        let body = Self::build_messages_request_body(model, messages, max_tokens, true);
+        let body = Self::build_messages_request_body(model, messages, max_tokens, true, tools);
 
         let response = self
             .agent
@@ -143,7 +157,7 @@ impl UmansClient {
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", ANTHROPIC_VERSION)
             .header("Content-Type", "application/json")
-            .header(WEBSEARCH_HEADER, websearch_header_value(search_mode))
+            .header(WEBSEARCH_HEADER, mode.header_value())
             .send_json(&body)
             .map_err(|e| match e {
                 ureq::Error::StatusCode(code) => UmansError::Status { code, body: format!("HTTP {code}") },
@@ -151,21 +165,6 @@ impl UmansClient {
             })?;
 
         Ok(response)
-    }
-}
-
-/// Map a [`WebSearchMode`] to the header value
-/// expected by `X-Umans-Websearch-Provider`.
-///
-/// - `Native` → `"native"` (Kimi-backed server-side search)
-/// - `Exa` → `"exa"` (Exa-backed server-side search)
-/// - `None` → `"none"` (disable server-side search; pass a local `web_search`
-///   tool through unchanged)
-pub fn websearch_header_value(mode: WebSearchMode) -> &'static str {
-    match mode {
-        WebSearchMode::Native => "native",
-        WebSearchMode::Exa => "exa",
-        WebSearchMode::None => "none",
     }
 }
 
@@ -469,27 +468,50 @@ pub fn spawn_stream_reader(response: ureq::http::Response<ureq::Body>) -> Receiv
 
 #[cfg(test)]
 mod tests {
-    use crate::cli::WebSearchMode;
-
     use super::*;
+    use crate::cli::WebSearchMode;
 
     #[test]
     fn build_messages_request_body_has_required_fields() {
         let messages = vec![Message::user("Hello!")];
-        let body = UmansClient::build_messages_request_body("umans-coder", &messages, 4096, true);
+        let body = UmansClient::build_messages_request_body("umans-coder", &messages, 4096, true, None);
         assert_eq!(body["model"], "umans-coder");
         assert_eq!(body["max_tokens"], 4096);
         assert_eq!(body["stream"], true);
         assert_eq!(body["messages"][0]["role"], "user");
         assert_eq!(body["messages"][0]["content"], "Hello!");
+        assert!(body.get("tools").is_none(), "no tools when None passed");
     }
 
     #[test]
     fn build_messages_request_body_non_stream() {
         let messages = vec![Message::user("test")];
-        let body = UmansClient::build_messages_request_body("umans-glm-5.2", &messages, 8192, false);
+        let body = UmansClient::build_messages_request_body("umans-glm-5.2", &messages, 8192, false, None);
         assert_eq!(body["model"], "umans-glm-5.2");
         assert_eq!(body["stream"], false);
+    }
+
+    #[test]
+    fn build_messages_request_body_includes_tools() {
+        let messages = vec![Message::user("find files")];
+        let tools = serde_json::json!([{
+            "name": "find_files",
+            "description": "locate files",
+            "input_schema": {"type": "object"}
+        }]);
+        let body = UmansClient::build_messages_request_body("umans-coder", &messages, 4096, true, Some(&tools));
+        assert_eq!(
+            body["tools"][0]["name"], "find_files",
+            "tools should be included when provided"
+        );
+    }
+
+    #[test]
+    fn build_messages_request_body_omits_empty_tools() {
+        let messages = vec![Message::user("hi")];
+        let empty_tools = serde_json::json!([]);
+        let body = UmansClient::build_messages_request_body("umans-coder", &messages, 4096, true, Some(&empty_tools));
+        assert!(body.get("tools").is_none(), "empty tool array should be omitted");
     }
 
     #[test]
@@ -501,21 +523,6 @@ mod tests {
         assert_eq!(header_map.get("anthropic-version").unwrap(), ANTHROPIC_VERSION);
         assert_eq!(header_map.get("Content-Type").unwrap(), "application/json");
         assert_eq!(header_map.get(WEBSEARCH_HEADER).unwrap(), "native");
-    }
-
-    #[test]
-    fn websearch_header_value_native() {
-        assert_eq!(websearch_header_value(WebSearchMode::Native), "native");
-    }
-
-    #[test]
-    fn websearch_header_value_exa() {
-        assert_eq!(websearch_header_value(WebSearchMode::Exa), "exa");
-    }
-
-    #[test]
-    fn websearch_header_value_none() {
-        assert_eq!(websearch_header_value(WebSearchMode::None), "none");
     }
 
     #[test]
@@ -779,7 +786,7 @@ mod tests {
     #[test]
     fn no_network_request_construction() {
         let messages = vec![Message::user("test"), Message::assistant("response")];
-        let body = UmansClient::build_messages_request_body("umans-coder", &messages, 8192, true);
+        let body = UmansClient::build_messages_request_body("umans-coder", &messages, 8192, true, None);
         assert_eq!(body["model"], "umans-coder");
         assert_eq!(body["messages"].as_array().unwrap().len(), 2);
         assert_eq!(body["stream"], true);

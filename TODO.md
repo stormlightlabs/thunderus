@@ -53,16 +53,16 @@
 - [x] Include loaded `AGENTS.md` context below harness policy and direct user
       instructions.
 - [x] Use Umans/provider-native tool schemas for local tools.
-- [ ] Keep text tool descriptions minimal: name, purpose, safety limits, and
+- [x] Keep text tool descriptions minimal: name, purpose, safety limits, and
       truncation behavior.
-- [ ] Send the compact, stably ordered tool schema every provider turn unless
+- [x] Send the compact, stably ordered tool schema every provider turn unless
       reusable-history or prompt-cache support is explicit.
-- [ ] Preserve a projected model-visible transcript tail that excludes UI-only
+- [x] Preserve a projected model-visible transcript tail that excludes UI-only
       status entries, live-only stream deltas, sidebar state, and renderer
       artifacts.
-- [ ] Include full `AGENTS.md` text only when its content hash changes and the
+- [x] Include full `AGENTS.md` text only when its content hash changes and the
       provider supports history reuse.
-- [ ] Fall back to active size-capped `AGENTS.md` context when history reuse is
+- [x] Fall back to active size-capped `AGENTS.md` context when history reuse is
       unavailable.
 - [ ] Record prompt metadata in session JSONL later without storing full raw
       provider payloads by default.

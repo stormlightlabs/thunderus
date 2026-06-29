@@ -192,7 +192,7 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition {
             name: "find_files",
-            description: "Find files by name pattern within the workspace. Returns relative paths.",
+            description: "find_files — locate files by name/glob under the workspace root. Paths are contained to the root; hidden files and symlinks are off unless requested. Capped at 100 results; long lines truncate at 512 chars.",
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -208,7 +208,7 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "list_searchable_files",
-            description: "List searchable files in the workspace, respecting ignore rules.",
+            description: "list_searchable_files — enumerate searchable files under the workspace root. Respects ignore rules and skips hidden files by default. Capped at 100 results.",
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -219,7 +219,7 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "search_text",
-            description: "Search file contents with a regex pattern. Returns matching lines with file:line:text.",
+            description: "search_text — grep file contents by regex under the workspace root. Returns matching lines as file:line:text. Paths are contained to the root; hidden files are off unless requested. Capped at 100 matches; lines truncate at 512 chars.",
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -234,7 +234,7 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "read_file_range",
-            description: "Read a range of lines from a file within the workspace. Lines are 1-indexed.",
+            description: "read_file_range — read 1-indexed line range from a file under the workspace root. Paths are contained to the root; escapes are rejected. Output is capped at 65536 bytes; long lines truncate at 512 chars.",
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -247,7 +247,7 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "web_search",
-            description: "Search the web for information. When Umans server-side search is enabled (native/exa), Umans executes the search and returns results. When disabled (none), a local DuckDuckGo search is used.",
+            description: "web_search — search the web for current information. With native/exa modes, Umans executes server-side search; with none, a local DuckDuckGo fallback is used. Capped at 10 results by default.",
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -259,7 +259,7 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "read_url",
-            description: "Fetch a public HTTP/HTTPS URL and extract readable content as Markdown. Private-network targets are rejected. Response size and content type are enforced.",
+            description: "read_url — fetch a public HTTP/HTTPS URL and extract readable Markdown. Private-network targets are rejected; non-http(s) schemes are unsupported. Response size is capped and content type is enforced; output may truncate.",
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -269,6 +269,29 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
             }),
         },
     ]
+}
+
+/// Convert the tool catalog into Anthropic-compatible tool schemas.
+///
+/// Returns a compact, stably-ordered JSON array of tool definitions suitable
+/// for the `tools` field of a `/v1/messages` request. Each entry carries
+/// `name`, `description`, and `input_schema`.
+///
+/// Send this schema every provider turn. Umans does not expose explicit
+/// reusable-history or prompt-cache behavior for tool definitions, so we do
+/// not rely on hidden provider memory for them.
+pub fn tool_catalog_schemas(defs: &[ToolDefinition]) -> serde_json::Value {
+    serde_json::Value::Array(
+        defs.iter()
+            .map(|t| {
+                serde_json::json!({
+                    "name": t.name,
+                    "description": t.description,
+                    "input_schema": t.input_schema,
+                })
+            })
+            .collect(),
+    )
 }
 
 /// Dispatch a provider tool-use request to the matching read-only tool
@@ -458,5 +481,84 @@ mod tests {
             assert!(!v.contains("shell"), "no shell variant: {v}");
             assert!(!v.contains("raw"), "no raw command variant: {v}");
         }
+    }
+
+    /// Design assertion: every tool description is minimal but complete.
+    ///
+    /// Each description must lead with the tool name, state its purpose, and
+    /// mention at least one safety limit (containment, caps, truncation, or
+    /// rejection). Descriptions stay short so the tool catalog remains compact
+    /// when sent every provider turn.
+    #[test]
+    fn tool_descriptions_are_minimal_and_complete() {
+        let defs = tool_definitions();
+        assert!(!defs.is_empty(), "tool catalog should not be empty");
+
+        for def in &defs {
+            let desc = def.description;
+            assert!(
+                desc.starts_with(def.name),
+                "description for `{}` should lead with its name, got: {desc}",
+                def.name
+            );
+            assert!(
+                desc.len() < 300,
+                "description for `{}` should be concise (<300 chars), got {} chars",
+                def.name,
+                desc.len()
+            );
+            let lower = desc.to_lowercase();
+            let mentions_safety = lower.contains("cap")
+                || lower.contains("reject")
+                || lower.contains("contain")
+                || lower.contains("truncat")
+                || lower.contains("enforce");
+            assert!(
+                mentions_safety,
+                "description for `{}` should mention a safety limit (caps/rejection/containment/truncation/enforcement), got: {desc}",
+                def.name
+            );
+        }
+    }
+
+    #[test]
+    fn tool_catalog_schemas_produces_anthropic_format() {
+        let defs = tool_definitions();
+        let schemas = tool_catalog_schemas(&defs);
+        let arr = schemas.as_array().expect("schemas should be a JSON array");
+        assert_eq!(arr.len(), defs.len(), "schema count should match definition count");
+
+        for (schema, def) in arr.iter().zip(defs.iter()) {
+            assert_eq!(schema["name"], def.name, "schema name should match");
+            assert_eq!(schema["description"], def.description, "schema description should match");
+            assert!(
+                schema.get("input_schema").is_some(),
+                "schema should have input_schema for {}",
+                def.name
+            );
+        }
+    }
+
+    #[test]
+    fn tool_catalog_schemas_is_stably_ordered() {
+        let defs = tool_definitions();
+        let schemas_a = tool_catalog_schemas(&defs);
+        let schemas_b = tool_catalog_schemas(&defs);
+        assert_eq!(schemas_a, schemas_b, "repeated calls should produce identical ordering");
+
+        let names_a: Vec<&str> = schemas_a
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["name"].as_str().unwrap())
+            .collect();
+        let names_defs: Vec<&str> = defs.iter().map(|d| d.name).collect();
+        assert_eq!(names_a, names_defs, "schema order should match definition order");
+    }
+
+    #[test]
+    fn tool_catalog_schemas_empty_for_no_definitions() {
+        let schemas = tool_catalog_schemas(&[]);
+        assert!(schemas.as_array().unwrap().is_empty());
     }
 }

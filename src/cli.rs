@@ -48,6 +48,23 @@ pub enum WebSearchMode {
     None,
 }
 
+impl WebSearchMode {
+    /// Map a [`WebSearchMode`] to the header value expected by
+    /// `X-Umans-Websearch-Provider`.
+    ///
+    /// - `Native` → `"native"` (Kimi-backed server-side search)
+    /// - `Exa` → `"exa"` (Exa-backed server-side search)
+    /// - `None` → `"none"` (disable server-side search; pass a local `web_search`
+    ///   tool through unchanged)
+    pub fn header_value(self) -> &'static str {
+        match self {
+            WebSearchMode::Native => "native",
+            WebSearchMode::Exa => "exa",
+            WebSearchMode::None => "none",
+        }
+    }
+}
+
 impl Default for Cli {
     /// Used by tests and as the implicit baseline before flag overrides.
     fn default() -> Self {
@@ -124,5 +141,20 @@ mod tests {
     fn print_prompt_defaults_false() {
         let cli = Cli::try_parse_from(["thndrs"]).expect("parse");
         assert!(!cli.print_prompt);
+    }
+
+    #[test]
+    fn websearch_header_value_native() {
+        assert_eq!(WebSearchMode::Native.header_value(), "native");
+    }
+
+    #[test]
+    fn websearch_header_value_exa() {
+        assert_eq!(WebSearchMode::Exa.header_value(), "exa");
+    }
+
+    #[test]
+    fn websearch_header_value_none() {
+        assert_eq!(WebSearchMode::None.header_value(), "none");
     }
 }
