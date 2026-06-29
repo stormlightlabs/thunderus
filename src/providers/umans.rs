@@ -5,6 +5,9 @@
 
 use std::collections::HashMap;
 use std::env;
+use std::io::{BufRead, BufReader};
+use std::sync::mpsc::{self, Receiver};
+use std::thread;
 
 use serde::{Deserialize, Serialize};
 
@@ -356,6 +359,85 @@ pub fn parse_sse_chunk(chunk: &str) -> Vec<(String, String)> {
     events
 }
 
+/// Convert an [`UmansError`] into an [`AgentEvent::Failed`] with a
+/// human-readable message.
+///
+/// HTTP status errors include the status code.
+///
+/// Auth errors (401/403) and rate-limit errors (429) are labeled distinctly.
+pub fn error_to_agent_event(err: &UmansError) -> AgentEvent {
+    let msg = match err {
+        UmansError::MissingApiKey => "UMANS_API_KEY is not set".to_string(),
+        UmansError::Status { code, body } => match code {
+            401 | 403 => format!("authentication failed (HTTP {code})"),
+            429 => "rate limit exceeded".to_string(),
+            500..=599 => format!("server error (HTTP {code}): {body}"),
+            _ => format!("HTTP {code}: {body}"),
+        },
+        UmansError::Http(e) => format!("network error: {e}"),
+        UmansError::Json(e) => format!("response parse error: {e}"),
+        UmansError::Stream(e) => format!("stream error: {e}"),
+    };
+    AgentEvent::Failed(msg)
+}
+
+/// Read an SSE response body on a background thread, parsing events and
+/// sending [`AgentEvent`] instances through a channel.
+///
+/// The thread reads lines from the response body, accumulates SSE events,
+/// and sends `AgentEvent`s.
+///
+/// When the stream ends, the sender is dropped so the receiver gets `Disconnected`.
+pub fn spawn_stream_reader(response: ureq::http::Response<ureq::Body>) -> Receiver<AgentEvent> {
+    let (tx, rx) = mpsc::channel::<AgentEvent>();
+
+    thread::spawn(move || {
+        let reader = BufReader::new(response.into_body().into_reader());
+        let mut buffer = String::new();
+
+        for line_result in reader.lines() {
+            match line_result {
+                Ok(line) => {
+                    buffer.push_str(&line);
+                    buffer.push('\n');
+
+                    if line.is_empty() {
+                        let events = parse_sse_chunk(&buffer);
+                        buffer.clear();
+
+                        for (event_type, data) in events {
+                            let sse_event = parse_sse_event(&event_type, &data);
+                            if let Some(agent_event) = sse_to_agent_event(&sse_event)
+                                && tx.send(agent_event).is_err()
+                            {
+                                return;
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send(AgentEvent::Failed(format!("stream read error: {e}")));
+                    return;
+                }
+            }
+        }
+
+        if !buffer.is_empty() {
+            let events = parse_sse_chunk(&buffer);
+            for (event_type, data) in events {
+                let sse_event = parse_sse_event(&event_type, &data);
+                if let Some(agent_event) = sse_to_agent_event(&sse_event)
+                    && tx.send(agent_event).is_err()
+                {
+                    return;
+                }
+            }
+        }
+    });
+
+    rx
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -583,26 +665,7 @@ mod tests {
 
     #[test]
     fn parse_full_stream_fixture_into_agent_events() {
-        // TODO: convert to fixture file
-        let sse = "\
-event: message_start\ndata: {}\n\
-\n\
-event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\"}}\n\
-\n\
-event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"Analyzing...\"}}\n\
-\n\
-event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\
-\n\
-event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\
-\n\
-event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello world\"}}\n\
-\n\
-event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":1}\n\
-\n\
-event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}\n\
-\n\
-event: message_stop\ndata: {}\n\
-\n";
+        let sse = include_str!("./fixtures/stream_response.sse");
 
         let chunks = parse_sse_chunk(sse);
         let agent_events: Vec<AgentEvent> = chunks
@@ -618,6 +681,77 @@ event: message_stop\ndata: {}\n\
         assert_eq!(agent_events[1], AgentEvent::ReasoningDelta("Analyzing...".to_string()));
         assert_eq!(agent_events[2], AgentEvent::AssistantDelta("Hello world".to_string()));
         assert_eq!(agent_events[3], AgentEvent::Finished);
+    }
+
+    #[test]
+    fn error_to_agent_event_missing_api_key() {
+        let event = error_to_agent_event(&UmansError::MissingApiKey);
+        assert!(matches!(event, AgentEvent::Failed(msg) if msg.contains("UMANS_API_KEY")));
+    }
+
+    #[test]
+    fn error_to_agent_event_auth_failure() {
+        let event = error_to_agent_event(&UmansError::Status { code: 401, body: "Unauthorized".into() });
+        assert!(matches!(event, AgentEvent::Failed(msg) if msg.contains("authentication failed")));
+    }
+
+    #[test]
+    fn error_to_agent_event_rate_limit() {
+        let event = error_to_agent_event(&UmansError::Status { code: 429, body: "Too Many Requests".into() });
+        assert!(matches!(event, AgentEvent::Failed(msg) if msg.contains("rate limit")));
+    }
+
+    #[test]
+    fn error_to_agent_event_server_error() {
+        let event = error_to_agent_event(&UmansError::Status { code: 500, body: "Internal Server Error".into() });
+        assert!(matches!(event, AgentEvent::Failed(msg) if msg.contains("server error")));
+    }
+
+    #[test]
+    fn error_to_agent_event_network_error() {
+        let event = error_to_agent_event(&UmansError::Http("connection refused".into()));
+        assert!(matches!(event, AgentEvent::Failed(msg) if msg.contains("network error")));
+    }
+
+    #[test]
+    fn no_network_request_construction() {
+        let messages = vec![Message::user("test"), Message::assistant("response")];
+        let body = UmansClient::build_messages_request_body("umans-coder", &messages, 8192, true);
+        assert_eq!(body["model"], "umans-coder");
+        assert_eq!(body["messages"].as_array().unwrap().len(), 2);
+        assert_eq!(body["stream"], true);
+    }
+
+    #[test]
+    fn no_network_stream_parsing_from_fixture() {
+        let sse = include_str!("./fixtures/stream_response.sse");
+        let chunks = parse_sse_chunk(sse);
+        assert!(!chunks.is_empty());
+
+        let events: Vec<SseEvent> = chunks.iter().map(|(et, data)| parse_sse_event(et, data)).collect();
+        assert!(events.iter().any(|e| matches!(e, SseEvent::ThinkingDelta(_))));
+        assert!(events.iter().any(|e| matches!(e, SseEvent::TextDelta(_))));
+        assert!(events.contains(&SseEvent::MessageStart));
+        assert!(events.contains(&SseEvent::MessageStop));
+    }
+
+    #[test]
+    fn no_network_metadata_parsing_from_fixture() {
+        let json = include_str!("./fixtures/model_info.json");
+        let models: HashMap<String, ModelInfo> = serde_json::from_str(json).expect("parse");
+        assert!(models.contains_key("umans-coder"));
+
+        let coder = &models["umans-coder"];
+        assert!(coder.capabilities.supports_tools);
+        assert!(!coder.capabilities.reasoning.can_disable);
+    }
+
+    #[test]
+    #[ignore = "requires UMANS_API_KEY and network access"]
+    fn live_smoke_test_models_info() {
+        let client = UmansClient::from_env().expect("UMANS_API_KEY must be set");
+        let models = client.fetch_models_info().expect("fetch models info");
+        assert!(models.contains_key("umans-coder"));
     }
 
     #[test]

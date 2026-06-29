@@ -28,14 +28,14 @@
 - [x] Add a simple model switch path for `umans-glm-5.2`.
 - [x] Implement Anthropic-compatible `POST /v1/messages`.
 - [x] Send `x-api-key` and `anthropic-version: 2023-06-01`.
-- [ ] Stream response events into `AgentEvent`.
-- [ ] Render reasoning/thinking deltas separately from final assistant text if the API
+- [x] Stream response events into `AgentEvent`.
+- [x] Render reasoning/thinking deltas separately from final assistant text if the API
       emits them.
-- [ ] Convert provider HTTP/auth/rate-limit/stream errors into transcript errors.
-- [ ] Add a no-network unit test for request construction.
-- [ ] Add a no-network unit test for stream event parsing using fixtures.
-- [ ] Add a no-network unit test for model metadata parsing.
-- [ ] Add an ignored/manual live smoke test gated on `UMANS_API_KEY`.
+- [x] Convert provider HTTP/auth/rate-limit/stream errors into transcript errors.
+- [x] Add a no-network unit test for request construction.
+- [x] Add a no-network unit test for stream event parsing using fixtures.
+- [x] Add a no-network unit test for model metadata parsing.
+- [x] Add an ignored/manual live smoke test gated on `UMANS_API_KEY`.
 
 ### Phase 7: Agent Event Loop and Tool UI
 
