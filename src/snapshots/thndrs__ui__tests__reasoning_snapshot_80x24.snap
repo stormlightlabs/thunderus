@@ -1,11 +1,10 @@
 ---
 source: src/ui.rs
-assertion_line: 240
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││No messages yet. Type a prompt below.                   │"
-"│> scratch           ││                                                        │"
+"│Sessions            ││user     explain this repo                              │"
+"│> scratch           ││reasoning Let me think about this... The repo is a Rust │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
@@ -21,7 +20,7 @@ expression: terminal.backend().to_string()
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
-"│Status: idle        ││                                                        │"
+"│Status: working     ││                                                        │"
 "│                    ││                                                        │"
 "└────────────────────┘└────────────────────────────────────────────────────────┘"
 "────────────────────────────────────────────────────────────────────────────────"

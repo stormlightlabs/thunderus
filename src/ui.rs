@@ -181,6 +181,7 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::{Entry, RunState, ToolStatus};
     use crate::cli::Cli;
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
@@ -240,8 +241,6 @@ mod tests {
 
     #[test]
     fn submitted_prompt_snapshot_80x24() {
-        use crate::app::Entry;
-
         let mut app = app();
         app.transcript
             .push(Entry::User { text: String::from("explain this repo") });
@@ -249,6 +248,81 @@ mod tests {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).expect("create test terminal");
         terminal.draw(|f| render(f, &app)).expect("draw submitted prompt");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
+    fn streaming_assistant_snapshot_80x24() {
+        let mut app = app();
+        app.run_state = RunState::Working;
+        app.transcript
+            .push(Entry::User { text: String::from("explain this repo") });
+        app.transcript
+            .push(Entry::Assistant { text: String::from("This is a fake streaming res..."), streaming: true });
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw streaming assistant");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
+    fn reasoning_snapshot_80x24() {
+        let mut app = app();
+        app.run_state = RunState::Working;
+        app.transcript
+            .push(Entry::User { text: String::from("explain this repo") });
+        app.transcript.push(Entry::Reasoning {
+            text: String::from("Let me think about this... The repo is a Rust + Ratatui harness."),
+            streaming: true,
+        });
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw reasoning");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
+    fn running_tool_snapshot_80x24() {
+        let mut app = app();
+        app.run_state = RunState::Working;
+        app.transcript
+            .push(Entry::User { text: String::from("explain this repo") });
+        app.transcript
+            .push(Entry::Reasoning { text: String::from("Let me read the Cargo.toml first."), streaming: false });
+        app.transcript.push(Entry::Tool {
+            name: String::from("read_file"),
+            status: ToolStatus::Running,
+            output: vec![String::from("Cargo.toml: 47 lines")],
+        });
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw running tool");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
+    fn finished_state_snapshot_80x24() {
+        let mut app = app();
+        app.transcript
+            .push(Entry::User { text: String::from("explain this repo") });
+        app.transcript.push(Entry::Reasoning {
+            text: String::from("Let me think about this... The repo is a Rust + Ratatui harness."),
+            streaming: false,
+        });
+        app.transcript.push(Entry::Tool {
+            name: String::from("read_file"),
+            status: ToolStatus::Ok,
+            output: vec![String::from("Cargo.toml: 47 lines")],
+        });
+        app.transcript
+            .push(Entry::Assistant { text: String::from("This is a fake streaming response."), streaming: false });
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw finished state");
         insta::assert_snapshot!(terminal.backend().to_string());
     }
 }

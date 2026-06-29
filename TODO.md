@@ -36,17 +36,17 @@
 
 ### Phase 3: Fake Agent Stream
 
-- [ ] Create `src/agent.rs`.
-- [ ] Define `AgentEvent`.
-- [ ] Include `ReasoningDelta` in `AgentEvent` before the real provider lands.
-- [ ] Add a deterministic fake response stream.
-- [ ] Send fake stream events into the app loop over a channel.
-- [ ] Append assistant deltas into one streaming assistant entry.
-- [ ] Append reasoning deltas into one separate streaming reasoning entry.
-- [ ] Render fake tool start/output/end as one tool entry.
-- [ ] Add stop/cancel behavior for an active fake stream.
-- [ ] Test `AgentEvent` handling in `update`.
-- [ ] Add snapshots for streaming assistant, reasoning, running tool, and finished
+- [x] Create `src/agent.rs`.
+- [x] Define `AgentEvent`.
+- [x] Include `ReasoningDelta` in `AgentEvent` before the real provider lands.
+- [x] Add a deterministic fake response stream.
+- [x] Send fake stream events into the app loop over a channel.
+- [x] Append assistant deltas into one streaming assistant entry.
+- [x] Append reasoning deltas into one separate streaming reasoning entry.
+- [x] Render fake tool start/output/end as one tool entry.
+- [x] Add stop/cancel behavior for an active fake stream.
+- [x] Test `AgentEvent` handling in `update`.
+- [x] Add snapshots for streaming assistant, reasoning, running tool, and finished
       states.
 
 ### Phase 4: Layout Hardening
