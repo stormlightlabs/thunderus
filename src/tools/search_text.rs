@@ -2,7 +2,7 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
-use crate::tools::{SearchMatch, ToolOutput};
+use crate::tools::{Cap, SearchMatch, ToolOutput};
 
 /// Search file contents using `rg --json`.
 ///
@@ -13,7 +13,7 @@ pub fn exec(
     pattern: &str, root: &Path, glob: Option<&str>, extensions: &[String], max_results: usize, context_lines: u32,
     include_hidden: bool,
 ) -> ToolOutput {
-    let timeout = Duration::from_secs(super::caps::TIMEOUT_SECS);
+    let timeout = Duration::from_secs(Cap::timeout());
 
     let mut cmd = Command::new("rg");
     cmd.arg("--json");
@@ -93,7 +93,7 @@ pub fn parse_rg_json(output: &str) -> Vec<SearchMatch> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{app::ToolStatus, tools::caps};
+    use crate::{app::ToolStatus, tools::Cap};
 
     #[test]
     fn parse_rg_json_extracts_matches() {
@@ -159,7 +159,7 @@ mod tests {
             Path::new("Cargo.toml"),
             None,
             &[],
-            caps::MAX_RESULTS,
+            Cap::MaxResults.into(),
             0,
             false,
         );
@@ -174,7 +174,7 @@ mod tests {
             Path::new("Cargo.toml"),
             None,
             &[],
-            caps::MAX_RESULTS,
+            Cap::MaxResults.into(),
             0,
             false,
         );

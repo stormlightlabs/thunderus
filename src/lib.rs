@@ -9,6 +9,7 @@ mod agent;
 mod app;
 mod banner;
 mod context;
+mod search;
 mod tools;
 mod ui;
 

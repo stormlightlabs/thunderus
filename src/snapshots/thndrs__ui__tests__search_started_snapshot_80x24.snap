@@ -1,0 +1,28 @@
+---
+source: src/ui.rs
+expression: terminal.backend().to_string()
+---
+"┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
+"│Sessions            ││user     search for rust async patterns                 │"
+"│> scratch           ││tool     web_search#search-0 [running] query: rust async│"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│Status: running tool││                                                        │"
+"│                    ││                                                        │"
+"└────────────────────┘└────────────────────────────────────────────────────────┘"
+"────────────────────────────────────────────────────────────────────────────────"
+">  (running tool… esc to cancel)                                                "
+"model: umans-coder search: native  cwd: .                                       "

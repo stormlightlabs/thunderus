@@ -1,0 +1,28 @@
+---
+source: src/ui.rs
+expression: terminal.backend().to_string()
+---
+"┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
+"│Sessions            ││user     search for something                           │"
+"│> scratch           ││tool     web_search#search-0 [failed] query: something  │"
+"│                    ││error    search backend unavailable                     │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│Status: failed      ││                                                        │"
+"│                    ││                                                        │"
+"└────────────────────┘└────────────────────────────────────────────────────────┘"
+"────────────────────────────────────────────────────────────────────────────────"
+">  (error)                                                                      "
+"model: umans-coder search: native  cwd: .                                       "

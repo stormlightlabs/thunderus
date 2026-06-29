@@ -153,6 +153,41 @@ fn run_fake(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
     }
     step();
 
+    if handle.config.search_mode != WebSearchMode::None {
+        let search_req = ToolUseRequest {
+            name: String::from("web_search"),
+            arguments: serde_json::json!({ "query": "rust ratatui coding harness" }).to_string(),
+        };
+        let search_id = String::from("search-0");
+        if send(
+            tx,
+            AgentEvent::ToolStarted {
+                id: search_id.clone(),
+                name: search_req.name.clone(),
+                arguments: search_req.arguments.clone(),
+            },
+            cancel,
+        )
+        .is_none()
+        {
+            return;
+        }
+        step();
+
+        let search_output = dispatch_tool(&search_req, &handle.config.root);
+        let search_status = search_output.status;
+        match send(
+            tx,
+            AgentEvent::ToolFinished { id: search_id, output: search_output.output, status: search_status },
+            cancel,
+        ) {
+            None => return,
+            Some(_) => {
+                step();
+            }
+        }
+    }
+
     let tool_req = ToolUseRequest {
         name: String::from("read_file_range"),
         arguments: serde_json::json!({ "path": "Cargo.toml", "start_line": 1, "end_line": 5 }).to_string(),
@@ -211,8 +246,6 @@ fn run_fake(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
 ///
 /// If `UMANS_API_KEY` is not set, emits a `Failed` event and returns.
 fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
-    use crate::providers::umans;
-
     let client = match umans::UmansClient::from_env() {
         Ok(c) => c,
         Err(e) => {
@@ -240,14 +273,15 @@ fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
             return;
         }
 
-        let response = match client.send_streaming_request(&handle.config.model, &messages, 4096) {
-            Ok(r) => r,
-            Err(e) => {
-                let event = umans::error_to_agent_event(&e);
-                let _ = send(tx, event, cancel);
-                return;
-            }
-        };
+        let response =
+            match client.send_streaming_request(&handle.config.model, &messages, 4096, handle.config.search_mode) {
+                Ok(r) => r,
+                Err(e) => {
+                    let event = umans::error_to_agent_event(&e);
+                    let _ = send(tx, event, cancel);
+                    return;
+                }
+            };
 
         let tool_requests = match stream_umans_response(response, tx, cancel) {
             Ok(reqs) => reqs,
@@ -434,6 +468,51 @@ mod tests {
         assert!(events.iter().any(|e| matches!(e, AgentEvent::ToolFinished { .. })));
     }
 
+    #[test]
+    fn fake_stream_with_native_search_emits_search_tool_event() {
+        let mut cfg = config();
+        cfg.search_mode = WebSearchMode::Native;
+        let handle = RunHandle::fake(cfg, String::new());
+        let rx = spawn_run(handle);
+
+        let mut events = Vec::new();
+        while let Ok(event) = rx.recv() {
+            events.push(event);
+        }
+
+        // Should contain a web_search ToolStarted event.
+        let has_search = events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::ToolStarted { name, .. } if name == "web_search"));
+        assert!(has_search, "native search should emit web_search tool event");
+    }
+
+    #[test]
+    fn fake_stream_with_none_search_skips_search_and_returns_assistant_text() {
+        let mut cfg = config();
+        cfg.search_mode = WebSearchMode::None;
+        let handle = RunHandle::fake(cfg, String::new());
+        let rx = spawn_run(handle);
+
+        let mut events = Vec::new();
+        while let Ok(event) = rx.recv() {
+            events.push(event);
+        }
+
+        // Should NOT contain a web_search tool event.
+        let has_search = events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::ToolStarted { name, .. } if name == "web_search"));
+        assert!(!has_search, "none search should not emit web_search tool event");
+
+        // Should still contain normal assistant text.
+        assert!(
+            events.iter().any(|e| matches!(e, AgentEvent::AssistantDelta(_))),
+            "search-disabled prompt should still return assistant text"
+        );
+        assert_eq!(events.last(), Some(&AgentEvent::Finished));
+    }
+
     /// Drop the receiver immediately; the thread should exit without panic.
     #[test]
     fn fake_stream_drops_cleanly_when_receiver_dropped() {
@@ -522,5 +601,23 @@ mod tests {
         let req = extract_tool_use(data).expect("should extract");
         assert_eq!(req.name, "find_files");
         assert!(req.arguments.contains("cli"));
+    }
+
+    #[test]
+    fn dispatch_web_search_returns_server_side_status() {
+        let req = ToolUseRequest {
+            name: String::from("web_search"),
+            arguments: serde_json::json!({ "query": "rust async patterns" }).to_string(),
+        };
+        let output = dispatch_tool(&req, Path::new("."));
+        assert_eq!(output.status, ToolStatus::Ok);
+        assert!(output.output.iter().any(|l| l.contains("server-side search")));
+        assert!(output.output.iter().any(|l| l.contains("rust async patterns")));
+    }
+
+    #[test]
+    fn tool_definitions_include_web_search() {
+        let defs = crate::tools::tool_definitions();
+        assert!(defs.iter().map(|d| d.name).any(|x| x == "web_search"));
     }
 }

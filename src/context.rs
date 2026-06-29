@@ -34,6 +34,8 @@ use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::cli::WebSearchMode;
+
 /// Maximum bytes read from an AGENTS.md file.
 ///
 /// Content beyond this is truncated and the truncation is marked visibly.
@@ -155,7 +157,7 @@ pub struct RequestShape {
     /// Selected model name.
     pub model: String,
     /// Web search mode.
-    pub search_mode: crate::cli::WebSearchMode,
+    pub search_mode: WebSearchMode,
 }
 
 #[cfg(test)]

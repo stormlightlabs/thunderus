@@ -6,7 +6,7 @@
 //! If the font cannot parse, or the terminal is too narrow for the banner, the
 //! banner falls back to plain `thndrs` text.
 
-use figlet_rs::FIGfont;
+use figlet_rs::FIGlet;
 
 /// The committed FIGlet font file, loaded at compile time via `include_str!`
 /// so the app does not depend on runtime font paths.
@@ -26,7 +26,7 @@ pub fn render_banner(width: u16) -> String {
     if width < BANNER_MIN_WIDTH {
         String::from("thndrs")
     } else {
-        match FIGfont::from_content(FONT_CONTENT) {
+        match FIGlet::from_content(FONT_CONTENT) {
             Ok(font) => match font.convert("thndrs") {
                 Some(figure) => figure.to_string(),
                 None => String::from("thndrs"),
@@ -81,7 +81,7 @@ mod tests {
 
     #[test]
     fn committed_font_parses_successfully() {
-        let font = FIGfont::from_content(FONT_CONTENT);
+        let font = FIGlet::from_content(FONT_CONTENT);
         assert!(font.is_ok(), "committed ansi_shadow.flf should parse");
     }
 }

@@ -24,6 +24,7 @@ mod subproc;
 use std::path::{Path, PathBuf};
 
 use crate::app::ToolStatus;
+use crate::cli::WebSearchMode;
 use crate::tools::find_files::FindFiles;
 
 /// Maximum number of tool-call iterations per agent turn before the loop
@@ -107,6 +108,18 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
                 "required": ["path", "start_line"]
             }),
         },
+        ToolDefinition {
+            name: "web_search",
+            description: "Search the web for information. When Umans server-side search is enabled (native/exa), Umans executes the search and returns results. When disabled (none), this tool is passed through to the model unchanged.",
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "The search query." },
+                    "max_results": { "type": "integer", "description": "Maximum number of results to return." }
+                },
+                "required": ["query"]
+            }),
+        },
     ]
 }
 
@@ -119,13 +132,13 @@ pub struct AgentRunConfig {
     pub model: String,
     /// Web search mode.
     #[allow(dead_code)]
-    pub search_mode: crate::cli::WebSearchMode,
+    pub search_mode: WebSearchMode,
     /// Maximum tool-call iterations per turn.
     pub max_tool_iterations: usize,
 }
 
 impl AgentRunConfig {
-    pub fn new(root: PathBuf, model: String, search_mode: crate::cli::WebSearchMode) -> Self {
+    pub fn new(root: PathBuf, model: String, search_mode: WebSearchMode) -> Self {
         AgentRunConfig { root, model, search_mode, max_tool_iterations: MAX_TOOL_ITERATIONS }
     }
 }
@@ -192,7 +205,7 @@ pub fn dispatch_tool(request: &ToolUseRequest, root: &Path) -> ToolOutput {
                 glob: glob.as_deref(),
                 extensions: &extensions,
                 max_depth,
-                max_results: caps::MAX_RESULTS,
+                max_results: Cap::MaxResults.into(),
                 include_hidden,
                 follow_symlinks,
             }
@@ -201,7 +214,7 @@ pub fn dispatch_tool(request: &ToolUseRequest, root: &Path) -> ToolOutput {
         "list_searchable_files" => {
             let glob = args.get("glob").and_then(|v| v.as_str()).map(|s| s.to_string());
             let include_hidden = args.get("include_hidden").and_then(|v| v.as_bool()).unwrap_or(false);
-            list_searchable_files::exec(root, glob.as_deref(), caps::MAX_RESULTS, include_hidden)
+            list_searchable_files::exec(root, glob.as_deref(), Cap::MaxResults.into(), include_hidden)
         }
         "search_text" => {
             let pattern = args.get("pattern").and_then(|v| v.as_str()).unwrap_or("");
@@ -218,7 +231,7 @@ pub fn dispatch_tool(request: &ToolUseRequest, root: &Path) -> ToolOutput {
                 root,
                 glob.as_deref(),
                 &extensions,
-                caps::MAX_RESULTS,
+                Cap::MaxResults.into(),
                 context_lines,
                 include_hidden,
             )
@@ -229,6 +242,10 @@ pub fn dispatch_tool(request: &ToolUseRequest, root: &Path) -> ToolOutput {
             let start_line = args.get("start_line").and_then(|v| v.as_u64()).unwrap_or(1) as u32;
             let end_line = args.get("end_line").and_then(|v| v.as_u64()).map(|n| n as u32);
             read_file_range::exec(&path, root, start_line, end_line)
+        }
+        "web_search" => {
+            let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
+            ToolOutput::ok("web_search", vec![format!("server-side search: {query}")])
         }
         other => ToolOutput::failed(other, format!("unknown tool: {other}")),
     }
@@ -288,23 +305,33 @@ pub struct SearchMatch {
 }
 
 /// Caps enforced on tool execution to prevent runaway output.
-///
-/// TODO: this should be an enum
-///
-/// TODO: reference by tool callers
-#[allow(dead_code)]
-pub mod caps {
+pub enum Cap {
     /// Default maximum number of results from a search or list operation.
-    pub const MAX_RESULTS: usize = 100;
-
+    MaxResults,
     /// Maximum stdout/stderr bytes captured from a subprocess.
-    pub const MAX_OUTPUT_BYTES: usize = 65_536;
-
+    MaxOutputBytes,
     /// Timeout in seconds for subprocess execution.
-    pub const TIMEOUT_SECS: u64 = 10;
-
+    TimeoutSecs,
     /// Maximum line length before truncation in tool output.
-    pub const MAX_LINE_LENGTH: usize = 512;
+    MaxLineLen,
+}
+
+impl Cap {
+    pub fn timeout() -> u64 {
+        let to: usize = Self::TimeoutSecs.into();
+        to as u64
+    }
+}
+
+impl Into<usize> for Cap {
+    fn into(self) -> usize {
+        match self {
+            Cap::MaxResults => 100,
+            Cap::MaxOutputBytes => 65_536,
+            Cap::TimeoutSecs => 10,
+            Cap::MaxLineLen => 512,
+        }
+    }
 }
 
 /// Execute a [`ToolInput`] and return structured [`ToolOutput`].
@@ -382,19 +409,15 @@ mod tests {
     }
 
     /// Design assertion: the tool surface never exposes dangerous subprocess
-    /// flags. The tool implementations are the only entry points for `fd`,
+    /// flags.
+    ///
+    /// The tool implementations are the only entry points for `fd`,
     /// `rg`, and `find`; they construct argv arrays from typed inputs and do
     /// not pass through `--exec`, `--exec-batch`, `--pre`, `sed`, `awk`, or
     /// any shell-string mechanism.
     #[test]
     fn no_dangerous_subprocess_flags_exposed() {
-        // The ToolInput enum variants only carry search/list/read parameters.
-        // There is no variant that could inject arbitrary command flags.
-        // This test documents the constraint and will fail to compile if
-        // a variant with raw command access is added without updating this test.
-        let variants = vec!["FindFiles", "ListSearchableFiles", "SearchText", "ReadFileRange"];
-        // No variant name contains "exec", "shell", "raw_command", or "sed".
-        for v in &variants {
+        for v in &vec!["FindFiles", "ListSearchableFiles", "SearchText", "ReadFileRange"] {
             assert!(!v.contains("exec"), "no exec variant: {v}");
             assert!(!v.contains("shell"), "no shell variant: {v}");
             assert!(!v.contains("raw"), "no raw command variant: {v}");

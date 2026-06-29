@@ -3,8 +3,8 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
-use crate::tools::ToolOutput;
 use crate::tools::subproc::CommandResult;
+use crate::tools::{Cap, ToolOutput};
 
 /// List searchable files in a directory tree.
 ///
@@ -12,7 +12,7 @@ use crate::tools::subproc::CommandResult;
 /// and skips hidden files by default. Enforces containment, result-count,
 /// output-byte, and timeout caps.
 pub fn exec(root: &Path, glob: Option<&str>, max_results: usize, include_hidden: bool) -> ToolOutput {
-    let timeout = Duration::from_secs(super::caps::TIMEOUT_SECS);
+    let timeout = Duration::from_secs(Cap::timeout());
     let result = if super::subproc::command_exists("rg") {
         run_rg_files(root, include_hidden, timeout)
     } else if super::subproc::command_exists("fd") {
@@ -94,11 +94,11 @@ fn matches_glob(path: &str, glob: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{app::ToolStatus, tools::caps};
+    use crate::{app::ToolStatus, tools::Cap};
 
     #[test]
     fn list_searchable_files_lists_source_files() {
-        let output = exec(Path::new("src"), None, caps::MAX_RESULTS, false);
+        let output = exec(Path::new("src"), None, Cap::MaxResults.into(), false);
         assert_eq!(output.status, ToolStatus::Ok);
         assert!(!output.output.is_empty());
         assert!(output.output.iter().any(|p| p.contains(".rs")));
@@ -106,7 +106,7 @@ mod tests {
 
     #[test]
     fn list_searchable_files_with_glob_filter() {
-        let output = exec(Path::new("src"), Some("*.rs"), caps::MAX_RESULTS, false);
+        let output = exec(Path::new("src"), Some("*.rs"), Cap::MaxResults.into(), false);
         assert_eq!(output.status, ToolStatus::Ok);
         assert!(output.output.iter().all(|p| p.ends_with(".rs")));
     }

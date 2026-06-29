@@ -4,6 +4,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+use super::Cap;
+
 /// Result of a capped subprocess execution.
 pub struct CommandResult {
     pub exit_code: i32,
@@ -34,11 +36,11 @@ pub fn run_with_timeout(mut cmd: Command, timeout: Duration) -> io::Result<Comma
                 stdout.read_to_end(&mut stdout_buf)?;
                 stderr.read_to_end(&mut stderr_buf)?;
 
-                if stdout_buf.len() > super::caps::MAX_OUTPUT_BYTES {
-                    stdout_buf.truncate(super::caps::MAX_OUTPUT_BYTES);
+                if stdout_buf.len() > Cap::MaxOutputBytes.into() {
+                    stdout_buf.truncate(Cap::MaxOutputBytes.into());
                 }
-                if stderr_buf.len() > super::caps::MAX_OUTPUT_BYTES {
-                    stderr_buf.truncate(super::caps::MAX_OUTPUT_BYTES);
+                if stderr_buf.len() > Cap::MaxOutputBytes.into() {
+                    stderr_buf.truncate(Cap::MaxOutputBytes.into());
                 }
 
                 return Ok(CommandResult {
@@ -62,10 +64,10 @@ pub fn run_with_timeout(mut cmd: Command, timeout: Duration) -> io::Result<Comma
 
 /// Truncate a string to [`caps::MAX_LINE_LENGTH`] chars, adding `...` if truncated.
 pub fn truncate_line(s: &str) -> String {
-    if s.chars().count() <= super::caps::MAX_LINE_LENGTH {
+    if s.chars().count() <= Cap::MaxLineLen.into() {
         s.to_string()
     } else {
-        let truncated: String = s.chars().take(super::caps::MAX_LINE_LENGTH).collect();
+        let truncated: String = s.chars().take(Cap::MaxLineLen.into()).collect();
         format!("{truncated}...")
     }
 }
@@ -88,7 +90,7 @@ pub fn command_exists(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tools::caps;
+    use crate::tools::Cap;
 
     #[test]
     fn truncate_line_short_unchanged() {
@@ -97,10 +99,11 @@ mod tests {
 
     #[test]
     fn truncate_line_long_truncated() {
-        let long = "x".repeat(caps::MAX_LINE_LENGTH + 100);
+        let c: usize = Cap::MaxLineLen.into();
+        let long = "x".repeat(c + 100);
         let result = truncate_line(&long);
         assert!(result.ends_with("..."));
-        assert!(result.chars().count() <= caps::MAX_LINE_LENGTH + 3);
+        assert!(result.chars().count() <= c + 3);
     }
 
     #[test]

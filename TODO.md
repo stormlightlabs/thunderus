@@ -34,26 +34,26 @@
 
 ### Phase 8: Search and Extraction
 
-- [ ] Add search mode config: `native`, `exa`, `none`.
-- [ ] Default search mode to `native`.
-- [ ] Send `X-Umans-Websearch-Provider: native` when search is enabled.
-- [ ] Allow `X-Umans-Websearch-Provider: exa` for manual experiments.
-- [ ] Allow `X-Umans-Websearch-Provider: none` to pass a local `web_search` tool
+- [x] Add search mode config: `native`, `exa`, `none`.
+- [x] Default search mode to `native`.
+- [x] Send `X-Umans-Websearch-Provider: native` when search is enabled.
+- [x] Allow `X-Umans-Websearch-Provider: exa` for manual experiments.
+- [x] Allow `X-Umans-Websearch-Provider: none` to pass a local `web_search` tool
       through unchanged.
-- [ ] Represent server-side search as transcript tool events.
-- [ ] Verify a search-using prompt still returns normal assistant text when search is
+- [x] Represent server-side search as transcript tool events.
+- [x] Verify a search-using prompt still returns normal assistant text when search is
       disabled.
-- [ ] Unit-test header selection for `native`, `exa`, and `none`.
-- [ ] Add snapshots for search-started, search-result, and search-error transcript
+- [x] Unit-test header selection for `native`, `exa`, and `none`.
+- [x] Add snapshots for search-started, search-result, and search-error transcript
       states.
 - [ ] Inspect Lectito's crate/CLI API before adding any dependency.
 - [ ] Prefer a path dependency on the local `lectito` crate if its public API is stable
       enough.
 - [ ] Reuse Lectito extraction for already-fetched HTML.
-- [ ] Port or depend on Lectito MCP's DuckDuckGo HTML search only if provider-native
-      search is insufficient.
-- [ ] Keep local search result limits small.
-- [ ] Detect DuckDuckGo bot-challenge pages.
+- [ ] Port Lectito MCP's DuckDuckGo HTML search only if provider-native search is
+      insufficient.
+  - [ ] Keep local search result limits small.
+  - [ ] Detect DuckDuckGo bot-challenge pages.
 - [ ] Fetch only public `http`/`https` URLs.
 - [ ] Reject private-network targets by default.
 - [ ] Enforce redirect, timeout, content-type, and response-size limits.
@@ -66,7 +66,27 @@
 - [ ] Unit-test oversized-document failure.
 - [ ] Unit-test Lectito extraction with local HTML fixtures.
 
-### Phase 9: Session Persistence
+### Phase 9: Prompt Assembly and Context Contract
+
+- [ ] Define a structured `PromptBundle` with base identity, harness policy,
+      environment metadata, project context, tool catalog, transcript tail, and
+      current user turn.
+- [ ] Keep base prompt text short and specific to `thndrs` instead of copying a
+      larger agent prompt wholesale.
+- [ ] Lower `PromptBundle` into Umans Anthropic-compatible messages.
+- [ ] Include loaded `AGENTS.md` context below harness policy and direct user
+      instructions.
+- [ ] Include read-only tool names, input schemas, limits, and truncation behavior
+      in the tool catalog.
+- [ ] Preserve a model-visible transcript tail that excludes UI-only status
+      entries.
+- [ ] Record prompt metadata in session JSONL later without storing full raw
+      provider payloads by default.
+- [ ] Unit-test prompt-bundle ordering and precedence.
+- [ ] Unit-test Umans message lowering with fixture context and transcript tails.
+- [ ] Add snapshots for prompt debug/inspect output if a debug view exists.
+
+### Phase 10: Session Persistence
 
 - [ ] Define the JSONL session record format.
 - [ ] Save transcript entries append-only.
@@ -80,7 +100,7 @@
 - [ ] Unit-test resume ordering.
 - [ ] Add a snapshot for sidebar session-list rendering.
 
-### Phase 10: Safe File Operations
+### Phase 11: Safe File Operations
 
 - [ ] Define write transcript event shape.
 - [ ] Implement create-file operation.
@@ -97,7 +117,7 @@
 
 ## v1: Supported Release
 
-### Phase 11: Config, Inspect, and Export
+### Phase 12: Config, Inspect, and Export
 
 - [ ] Define config file path.
 - [ ] Define config keys for model, web search mode, session path, and tick rate.
@@ -117,7 +137,7 @@
 - [ ] Integration-test inspect/export against fixture sessions.
 - [ ] Integration-test inspect/export includes AGENTS.md context metadata.
 
-### Phase 12: v1 Release Hardening
+### Phase 13: v1 Release Hardening
 
 - [ ] Add `CHANGELOG.md` using Keep a Changelog categories.
 - [ ] Document install flow.

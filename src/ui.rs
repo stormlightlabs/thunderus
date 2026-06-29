@@ -13,6 +13,7 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
 
 use crate::app::{App, PromptState};
+use crate::banner;
 use crate::cli::WebSearchMode;
 
 /// Fixed sidebar width in columns.
@@ -144,7 +145,7 @@ fn render_transcript(frame: &mut Frame, app: &App, area: Rect) {
     }
 
     if app.transcript.is_empty() {
-        let banner_lines = crate::banner::banner_lines(area.width);
+        let banner_lines = banner::banner_lines(area.width);
         let banner_height = banner_lines.len() as u16;
         let show_banner = banner_height > 1 && inner.height > banner_height;
 
@@ -649,6 +650,69 @@ mod tests {
         let backend = TestBackend::new(50, 24);
         let mut terminal = Terminal::new(backend).expect("create test terminal");
         terminal.draw(|f| render(f, &app)).expect("draw banner narrow width");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
+    fn search_started_snapshot_80x24() {
+        let mut app = app();
+        app.run_state = RunState::Working;
+        app.transcript
+            .push(Entry::User { text: String::from("search for rust async patterns") });
+        app.transcript.push(Entry::Tool {
+            name: String::from("web_search#search-0"),
+            arguments: String::from("{\"query\":\"rust async patterns\"}"),
+            status: ToolStatus::Running,
+            output: Vec::new(),
+        });
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw search started");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
+    fn search_result_snapshot_80x24() {
+        let mut app = app();
+        app.transcript
+            .push(Entry::User { text: String::from("search for rust async patterns") });
+        app.transcript.push(Entry::Tool {
+            name: String::from("web_search#search-0"),
+            arguments: String::from("{\"query\":\"rust async patterns\"}"),
+            status: ToolStatus::Ok,
+            output: vec![
+                String::from("server-side search: rust async patterns"),
+                String::from("result: https://tokio.rs/tutorial/async"),
+                String::from("result: https://rust-lang.org/async-book/"),
+            ],
+        });
+        app.transcript
+            .push(Entry::Assistant { text: String::from("Here are the results..."), streaming: false });
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw search result");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
+    fn search_error_snapshot_80x24() {
+        let mut app = app();
+        app.transcript
+            .push(Entry::User { text: String::from("search for something") });
+        app.transcript.push(Entry::Tool {
+            name: String::from("web_search#search-0"),
+            arguments: String::from("{\"query\":\"something\"}"),
+            status: ToolStatus::Failed,
+            output: Vec::new(),
+        });
+        app.transcript
+            .push(Entry::Error { text: String::from("search backend unavailable") });
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw search error");
         insta::assert_snapshot!(terminal.backend().to_string());
     }
 }
