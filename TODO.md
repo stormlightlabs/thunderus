@@ -48,17 +48,17 @@
 - [x] Keep tool execution async/non-blocking relative to TUI input and redraw.
 - [x] Add a cancel path that stops the provider stream or active tool call and
       returns to an editable prompt.
-- [ ] Render an agent status line for idle, sending, thinking, streaming, running
+- [x] Render an agent status line for idle, sending, thinking, streaming, running
       tool, cancelled, failed, and done states.
-- [ ] Render tool calls as first-class transcript entries with name, arguments
+- [x] Render tool calls as first-class transcript entries with name, arguments
       summary, status, duration, truncation state, and error text.
-- [ ] Keep reasoning, assistant text, context sources, and tool output visually
+- [x] Keep reasoning, assistant text, context sources, and tool output visually
       distinct in the transcript.
-- [ ] Align the shell with Gridland's AI chat pattern: fixed session sidebar,
+- [x] Align the shell with Gridland's AI chat pattern: fixed session sidebar,
       vertical transcript, pinned prompt, and stable footer/status line.
-- [ ] Add prompt UI states for editable, submitted, streaming, stopped, and
+- [x] Add prompt UI states for editable, submitted, streaming, stopped, and
       errored runs.
-- [ ] Show active model, search mode, and workspace path in stable chrome without
+- [x] Show active model, search mode, and workspace path in stable chrome without
       crowding narrow terminals.
 - [ ] Add a small `thndrs` banner component using `figlet-rs` and a committed
       `src/fonts/*.flf` font loaded with `include_str!`.

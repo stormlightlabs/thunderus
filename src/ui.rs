@@ -6,13 +6,14 @@
 //! This keeps draw code stateless and makes layout testable with plain [`Rect`]
 //! assertions.
 
-use crate::app::App;
-
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
+
+use crate::app::{App, PromptState};
+use crate::cli::WebSearchMode;
 
 /// Fixed sidebar width in columns.
 pub const SIDEBAR_WIDTH: u16 = 22;
@@ -20,6 +21,10 @@ pub const SIDEBAR_WIDTH: u16 = 22;
 /// Below this total width the sidebar is hidden so prompt/status text
 /// does not wrap or overlap.
 pub const SIDEBAR_HIDE_THRESHOLD: u16 = 50;
+
+/// Maximum tool output lines rendered in the transcript before a truncation
+/// marker is shown.
+pub const MAX_TOOL_OUTPUT_LINES: usize = 6;
 
 /// Prompt region height: one divider line plus one input line.
 const PROMPT_HEIGHT: u16 = 2;
@@ -106,12 +111,20 @@ fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
 
     frame.render_widget(list, sessions_area);
 
-    let status_text = Line::from(format!("Status: {}", app.run_state.label()));
+    let label = app.status_label();
+    let status_color = match label {
+        "idle" | "done" => Color::DarkGray,
+        "sending" | "thinking" | "streaming" | "running tool" => Color::Yellow,
+        "cancelled" => Color::Cyan,
+        "failed" => Color::Red,
+        _ => Color::DarkGray,
+    };
+    let status_text = Line::from(vec![
+        Span::styled("Status: ", Style::default().fg(Color::DarkGray)),
+        Span::styled(label, Style::default().fg(status_color)),
+    ]);
 
-    frame.render_widget(
-        Paragraph::new(status_text).style(Style::default().fg(Color::DarkGray)),
-        status_area,
-    );
+    frame.render_widget(Paragraph::new(status_text), status_area);
 }
 
 /// Render newest entries fitting the viewport.
@@ -133,7 +146,8 @@ fn render_transcript(frame: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
-    let lines: Vec<Line> = app.transcript.iter().map(|e| e.to_line()).collect();
+    // Flatten entries into lines (tool entries produce multiple lines).
+    let lines: Vec<Line> = app.transcript.iter().flat_map(|e| e.to_lines()).collect();
     let available = inner.height as usize;
     let start = lines.len().saturating_sub(available);
     let visible: Vec<Line> = lines[start..].to_vec();
@@ -155,11 +169,26 @@ fn render_prompt(frame: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
-    let prompt_line = Line::from(vec![
-        Span::styled("> ", Style::default().fg(Color::Yellow)),
-        Span::raw(app.input.as_str()),
-    ]);
+    let state = app.prompt_state();
+    let (prompt_color, show_input) = match state {
+        PromptState::Editable => (Color::Yellow, true),
+        PromptState::Submitted => (Color::DarkGray, false),
+        PromptState::Streaming | PromptState::RunningTool => (Color::Cyan, false),
+        PromptState::Stopped => (Color::Cyan, true),
+        PromptState::Errored => (Color::Red, true),
+    };
 
+    let hint = state.hint();
+    let mut spans = vec![Span::styled("> ", Style::default().fg(prompt_color))];
+
+    if show_input {
+        spans.push(Span::raw(app.input.as_str()));
+    }
+    if !hint.is_empty() {
+        spans.push(Span::styled(format!(" {hint}"), Style::default().fg(prompt_color)));
+    }
+
+    let prompt_line = Line::from(spans);
     frame.render_widget(Paragraph::new(prompt_line), inner);
 }
 
@@ -168,14 +197,51 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
+    let model_span = Span::styled(
+        format!("model: {} ", app.model),
+        Style::default().add_modifier(Modifier::BOLD),
+    );
+
+    let search_label = match app.websearch {
+        WebSearchMode::Native => "native",
+        WebSearchMode::Exa => "exa",
+        WebSearchMode::None => "none",
+    };
+    let search_span = Span::styled(
+        format!("search: {search_label}  "),
+        Style::default().fg(Color::DarkGray),
+    );
+
     let cwd_display = app.cwd.display().to_string();
-    let footer = Line::from(vec![
-        Span::styled(
-            format!("model: {} ", app.model),
-            Style::default().add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(format!("cwd: {}", cwd_display), Style::default().fg(Color::DarkGray)),
-    ]);
+    let cwd_span = Span::styled(format!("cwd: {cwd_display}"), Style::default().fg(Color::DarkGray));
+
+    let model_len = format!("model: {} ", app.model).len();
+    let search_len = format!("search: {search_label}  ",).len();
+    let min_cwd_prefix = "cwd: ".len();
+    let used = model_len + search_len + min_cwd_prefix;
+    let footer = if (used + cwd_display.len()) as u16 > area.width && area.width > used as u16 + 4 {
+        let keep = (area.width as usize).saturating_sub(used + 3);
+        Line::from(vec![
+            model_span,
+            search_span,
+            Span::styled(
+                format!(
+                    "cwd: …{}",
+                    cwd_display
+                        .chars()
+                        .rev()
+                        .take(keep)
+                        .collect::<String>()
+                        .chars()
+                        .rev()
+                        .collect::<String>()
+                ),
+                Style::default().fg(Color::DarkGray),
+            ),
+        ])
+    } else {
+        Line::from(vec![model_span, search_span, cwd_span])
+    };
 
     frame.render_widget(Paragraph::new(footer), area);
 }
@@ -496,6 +562,54 @@ mod tests {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).expect("create test terminal");
         terminal.draw(|f| render(f, &app)).expect("draw failed tool");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
+    fn cancelled_state_snapshot_80x24() {
+        let mut app = app();
+        app.transcript
+            .push(Entry::User { text: String::from("explain this repo") });
+        app.transcript
+            .push(Entry::Assistant { text: String::from("partial"), streaming: false });
+        app.transcript.push(Entry::Status { text: String::from("cancelled") });
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw cancelled state");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
+    fn provider_error_snapshot_80x24() {
+        let mut app = app();
+        app.transcript
+            .push(Entry::User { text: String::from("explain this repo") });
+        app.transcript
+            .push(Entry::Error { text: String::from("authentication failed (HTTP 401)") });
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw provider error");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
+    fn tool_output_truncation_snapshot_80x24() {
+        let mut app = app();
+        app.transcript
+            .push(Entry::User { text: String::from("list all files") });
+        let many: Vec<String> = (0..12).map(|i| format!("src/file_{i}.rs")).collect();
+        app.transcript.push(Entry::Tool {
+            name: String::from("find_files#0"),
+            arguments: String::from("{\"pattern\":\"*.rs\"}"),
+            status: ToolStatus::Ok,
+            output: many,
+        });
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw truncated tool output");
         insta::assert_snapshot!(terminal.backend().to_string());
     }
 }

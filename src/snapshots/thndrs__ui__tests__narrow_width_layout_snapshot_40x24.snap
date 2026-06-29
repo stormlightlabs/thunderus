@@ -25,4 +25,4 @@ expression: terminal.backend().to_string()
 "└──────────────────────────────────────┘"
 "────────────────────────────────────────"
 "> hello                                 "
-"model: umans-coder cwd: .               "
+"model: umans-coder search: native  cwd: "

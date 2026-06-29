@@ -1,7 +1,8 @@
 //! Application state, message types, and the `update` function.
 //!
 //! This follows the Elm architecture (TEA):
-//! - `update(&mut App, Msg) -> Option<Msg>` is the only mutation path.
+//!
+//!     `update(&mut App, Msg) -> Option<Msg>` is the only mutation path.
 
 use std::path::PathBuf;
 
@@ -42,12 +43,48 @@ pub enum RunState {
 }
 
 impl RunState {
+    #[allow(dead_code)]
     pub fn label(&self) -> &'static str {
         match self {
             RunState::Idle => "idle",
             RunState::Working => "working",
             RunState::Stopping => "stopping",
             RunState::Error(_) => "error",
+        }
+    }
+}
+
+/// The user-facing prompt state, derived from [`RunState`] and the transcript.
+///
+/// This drives prompt-line styling (color, hint text) to show editable,
+/// submitted, streaming, stopped, errored.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
+pub enum PromptState {
+    /// Idle — user can type and submit.
+    #[default]
+    Editable,
+    /// Prompt submitted; waiting for the first agent event.
+    Submitted,
+    /// Agent is actively streaming reasoning or assistant text.
+    Streaming,
+    /// Agent is executing a tool call.
+    RunningTool,
+    /// Run was cancelled; prompt is editable again.
+    Stopped,
+    /// Run failed with an error; prompt is editable again.
+    Errored,
+}
+
+impl PromptState {
+    /// A short hint shown at the prompt when not editable.
+    pub fn hint(&self) -> &'static str {
+        match self {
+            PromptState::Editable => "",
+            PromptState::Submitted => "(sending…)",
+            PromptState::Streaming => "(streaming… esc to cancel)",
+            PromptState::RunningTool => "(running tool… esc to cancel)",
+            PromptState::Stopped => "(stopped)",
+            PromptState::Errored => "(error)",
         }
     }
 }
@@ -87,25 +124,35 @@ pub enum Entry {
 }
 
 impl Entry {
-    pub fn to_line(&self) -> Line<'_> {
+    /// Render this entry as one or more transcript lines.
+    ///
+    /// Most entries are a single line. Tool entries render as a header line
+    /// (name, status, args summary) followed by indented output lines, with a
+    /// truncation marker when output exceeds the display cap.
+    pub fn to_lines(&self) -> Vec<Line<'_>> {
         match self {
-            Entry::User { text } => Line::from(vec![
+            Entry::User { text } => vec![Line::from(vec![
                 Span::styled("user     ", Style::default().fg(Color::Blue)),
                 Span::raw(text.as_str()),
-            ]),
-            Entry::Assistant { text, streaming: _ } => Line::from(vec![
+            ])],
+            Entry::Assistant { text, streaming: _ } => vec![Line::from(vec![
                 Span::styled("assistant ", Style::default().fg(Color::Green)),
                 Span::raw(text.as_str()),
-            ]),
-            Entry::Reasoning { text, streaming: _ } => Line::from(vec![
+            ])],
+            Entry::Reasoning { text, streaming: _ } => vec![Line::from(vec![
                 Span::styled("reasoning ", Style::default().fg(Color::Magenta)),
                 Span::raw(text.as_str()),
-            ]),
-            Entry::Tool { name, arguments, status, .. } => {
+            ])],
+            Entry::Tool { name, arguments, status, output } => {
                 let status_label = match status {
-                    crate::app::ToolStatus::Running => "running",
-                    crate::app::ToolStatus::Ok => "ok",
-                    crate::app::ToolStatus::Failed => "failed",
+                    ToolStatus::Running => "running",
+                    ToolStatus::Ok => "ok",
+                    ToolStatus::Failed => "failed",
+                };
+                let status_color = match status {
+                    ToolStatus::Running => Color::Yellow,
+                    ToolStatus::Ok => Color::Green,
+                    ToolStatus::Failed => Color::Red,
                 };
                 let args_summary = summarize_tool_args(arguments);
                 let args_span = if args_summary.is_empty() {
@@ -113,22 +160,46 @@ impl Entry {
                 } else {
                     Span::raw(format!(" {args_summary}"))
                 };
-                Line::from(vec![
+                let mut lines = vec![Line::from(vec![
                     Span::styled("tool     ", Style::default().fg(Color::Yellow)),
                     Span::raw(name.as_str()),
-                    Span::raw(format!(" [{status_label}]")),
+                    Span::styled(format!(" [{status_label}]"), Style::default().fg(status_color)),
                     args_span,
-                ])
+                ])];
+
+                let max_output_lines = crate::ui::MAX_TOOL_OUTPUT_LINES;
+                let total = output.len();
+                let visible = output.iter().take(max_output_lines);
+                for line in visible {
+                    lines.push(Line::from(vec![
+                        Span::styled("           ", Style::default().fg(Color::DarkGray)),
+                        Span::raw(line.as_str()),
+                    ]));
+                }
+
+                if total > max_output_lines {
+                    lines.push(Line::from(vec![Span::styled(
+                        format!("           …({} more lines)", total - max_output_lines),
+                        Style::default().fg(Color::DarkGray),
+                    )]));
+                }
+                lines
             }
-            Entry::Status { text } => Line::from(vec![
+            Entry::Status { text } => vec![Line::from(vec![
                 Span::styled("status   ", Style::default().fg(Color::DarkGray)),
                 Span::raw(text.as_str()),
-            ]),
-            Entry::Error { text } => Line::from(vec![
+            ])],
+            Entry::Error { text } => vec![Line::from(vec![
                 Span::styled("error    ", Style::default().fg(Color::Red)),
                 Span::raw(text.as_str()),
-            ]),
+            ])],
         }
+    }
+
+    /// Single-line rendering, kept for backwards-compatible callers.
+    #[allow(dead_code)]
+    pub fn to_line(&self) -> Line<'_> {
+        self.to_lines().into_iter().next().unwrap_or_default()
     }
 }
 
@@ -236,6 +307,48 @@ impl App {
             websearch: cli.websearch,
             context_sources,
             quit: false,
+        }
+    }
+
+    /// Derive the granular status label for the sidebar/status line.
+    ///
+    /// Maps `RunState` plus the last transcript entry into one of:
+    /// idle, sending, thinking, streaming, running tool, cancelled, failed, done.
+    pub fn status_label(&self) -> &'static str {
+        if self.run_state == RunState::Working {
+            match self.transcript.last() {
+                Some(Entry::Reasoning { streaming: true, .. }) => "thinking",
+                Some(Entry::Assistant { streaming: true, .. }) => "streaming",
+                Some(Entry::Tool { status: ToolStatus::Running, .. }) => "running tool",
+                Some(Entry::User { .. }) | None => "sending",
+                _ => "streaming",
+            }
+        } else {
+            match self.transcript.last() {
+                Some(Entry::Status { text }) if text == "cancelled" => "cancelled",
+                Some(Entry::Error { .. }) => "failed",
+                Some(Entry::Assistant { streaming: false, .. })
+                | Some(Entry::Tool { status: ToolStatus::Ok | ToolStatus::Failed, .. }) => "done",
+                _ => "idle",
+            }
+        }
+    }
+
+    /// Derive the prompt UI state from `run_state` and the transcript.
+    pub fn prompt_state(&self) -> PromptState {
+        match self.run_state {
+            RunState::Working => match self.transcript.last() {
+                Some(Entry::Reasoning { streaming: true, .. }) | Some(Entry::Assistant { streaming: true, .. }) => {
+                    PromptState::Streaming
+                }
+                Some(Entry::Tool { status: ToolStatus::Running, .. }) => PromptState::RunningTool,
+                _ => PromptState::Submitted,
+            },
+            _ => match self.transcript.last() {
+                Some(Entry::Status { text }) if text == "cancelled" => PromptState::Stopped,
+                Some(Entry::Error { .. }) => PromptState::Errored,
+                _ => PromptState::Editable,
+            },
         }
     }
 }
@@ -1024,5 +1137,120 @@ mod tests {
 
         assert_eq!(app.model, "umans-coder");
         assert!(app.context_sources[0].content.contains("Model: gpt-4"));
+    }
+
+    #[test]
+    fn status_label_idle_when_no_transcript() {
+        let app = fresh_app();
+        assert_eq!(app.status_label(), "idle");
+    }
+
+    #[test]
+    fn status_label_sending_after_user_submit() {
+        let mut app = fresh_app();
+        update(&mut app, &Msg::Agent(AgentEvent::Started));
+        app.transcript.push(Entry::User { text: String::from("hi") });
+        assert_eq!(app.status_label(), "sending");
+    }
+
+    #[test]
+    fn status_label_thinking_during_reasoning_stream() {
+        let mut app = fresh_app();
+        update(&mut app, &Msg::Agent(AgentEvent::Started));
+        update(&mut app, &Msg::Agent(AgentEvent::ReasoningDelta(String::from("hmm"))));
+        assert_eq!(app.status_label(), "thinking");
+    }
+
+    #[test]
+    fn status_label_streaming_during_assistant_stream() {
+        let mut app = fresh_app();
+        update(&mut app, &Msg::Agent(AgentEvent::Started));
+        update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(String::from("hi"))));
+        assert_eq!(app.status_label(), "streaming");
+    }
+
+    #[test]
+    fn status_label_running_tool_when_tool_active() {
+        let mut app = fresh_app();
+        update(&mut app, &Msg::Agent(AgentEvent::Started));
+        update(
+            &mut app,
+            &Msg::Agent(AgentEvent::ToolStarted {
+                id: String::from("0"),
+                name: String::from("read_file"),
+                arguments: String::from("{}"),
+            }),
+        );
+        assert_eq!(app.status_label(), "running tool");
+    }
+
+    #[test]
+    fn status_label_done_after_finished() {
+        let mut app = fresh_app();
+        update(&mut app, &Msg::Agent(AgentEvent::Started));
+        update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(String::from("done"))));
+        update(&mut app, &Msg::Agent(AgentEvent::Finished));
+        assert_eq!(app.status_label(), "done");
+    }
+
+    #[test]
+    fn status_label_failed_after_error() {
+        let mut app = fresh_app();
+        update(&mut app, &Msg::Agent(AgentEvent::Started));
+        update(&mut app, &Msg::Agent(AgentEvent::Failed(String::from("boom"))));
+        assert_eq!(app.status_label(), "failed");
+    }
+
+    #[test]
+    fn status_label_cancelled_after_cancel() {
+        let mut app = fresh_app();
+        update(&mut app, &Msg::Agent(AgentEvent::Started));
+        update(&mut app, &Msg::Agent(AgentEvent::Cancelled));
+        assert_eq!(app.status_label(), "cancelled");
+    }
+
+    #[test]
+    fn prompt_state_editable_when_idle() {
+        let app = fresh_app();
+        assert_eq!(app.prompt_state(), PromptState::Editable);
+    }
+
+    #[test]
+    fn prompt_state_streaming_during_assistant_delta() {
+        let mut app = fresh_app();
+        update(&mut app, &Msg::Agent(AgentEvent::Started));
+        update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(String::from("hi"))));
+        assert_eq!(app.prompt_state(), PromptState::Streaming);
+    }
+
+    #[test]
+    fn prompt_state_running_tool_when_tool_active() {
+        let mut app = fresh_app();
+        update(&mut app, &Msg::Agent(AgentEvent::Started));
+        update(
+            &mut app,
+            &Msg::Agent(AgentEvent::ToolStarted {
+                id: String::from("0"),
+                name: String::from("read_file"),
+                arguments: String::from("{}"),
+            }),
+        );
+        assert_eq!(app.prompt_state(), PromptState::RunningTool);
+    }
+
+    #[test]
+    fn prompt_state_stopped_after_cancel() {
+        let mut app = fresh_app();
+        update(&mut app, &Msg::Agent(AgentEvent::Started));
+        update(&mut app, &Msg::Agent(AgentEvent::Cancelled));
+        assert_eq!(app.prompt_state(), PromptState::Stopped);
+    }
+
+    #[test]
+    fn prompt_state_errored_after_failure() {
+        let mut app = fresh_app();
+        update(&mut app, &Msg::Agent(AgentEvent::Started));
+        update(&mut app, &Msg::Agent(AgentEvent::Failed(String::from("boom"))));
+        assert_eq!(app.prompt_state(), PromptState::Errored);
     }
 }
