@@ -77,17 +77,17 @@
 
 ### Phase 10: Session Persistence
 
-- [ ] Define the JSONL session record format.
-- [ ] Save transcript entries append-only.
-- [ ] Save loaded AGENTS.md context metadata: path, scope, content hash, and
+- [x] Define the JSONL session record format.
+- [x] Save transcript entries append-only.
+- [x] Save loaded AGENTS.md context metadata: path, scope, content hash, and
       truncation state.
-- [ ] Resume the latest session on startup.
-- [ ] Render saved sessions in the sidebar.
-- [ ] Unit-test JSONL encode/decode round trips.
-- [ ] Unit-test AGENTS.md context metadata round trips.
-- [ ] Unit-test corrupt-line handling.
-- [ ] Unit-test resume ordering.
-- [ ] Add a snapshot for sidebar session-list rendering.
+- [x] Resume the latest session on startup.
+- [x] Render saved sessions in the sidebar.
+- [x] Unit-test JSONL encode/decode round trips.
+- [x] Unit-test AGENTS.md context metadata round trips.
+- [x] Unit-test corrupt-line handling.
+- [x] Unit-test resume ordering.
+- [x] Add a snapshot for sidebar session-list rendering.
 
 ### Phase 11: Safe File Operations
 

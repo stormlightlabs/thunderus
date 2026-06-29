@@ -6,7 +6,10 @@
 
 use std::path::PathBuf;
 
-use crate::cli::{Cli, WebSearchMode};
+use crate::{
+    cli::{Cli, WebSearchMode},
+    context, session,
+};
 
 /// Number of UI ticks the user has to press Ctrl+D a second time before the
 /// quit confirmation expires and a fresh double-press is needed.
@@ -93,7 +96,7 @@ impl PromptState {
 }
 
 /// Status of a tool entry in the transcript.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 pub enum ToolStatus {
     /// Tool started, not yet finished.
     #[default]
@@ -105,7 +108,7 @@ pub enum ToolStatus {
 }
 
 /// One transcript row.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Entry {
     /// User-submitted text.
     User { text: String },
@@ -217,6 +220,11 @@ pub struct App {
     /// quit. The value is the tick deadline at which the pending confirmation
     /// expires.
     pub ctrl_d_pending: Option<u64>,
+    /// Append-only session writer. `None` when persistence is disabled
+    /// (e.g. the sessions directory is not writable).
+    pub session_writer: Option<crate::session::SessionWriter>,
+    /// Monotonic turn counter for session record correlation.
+    pub turn_count: u64,
     /// When true the loop should stop and the app exit.
     pub quit: bool,
 }
@@ -228,11 +236,23 @@ impl App {
     /// loads root `AGENTS.md` if present, and adds a transcript status entry
     /// showing loaded context sources.
     pub fn from_cli(cli: &Cli) -> Self {
-        let workspace_root = crate::context::discover_workspace_root(&cli.cwd);
-        let context_sources = match crate::context::load_agents_md(&workspace_root) {
+        let workspace_root = context::discover_workspace_root(&cli.cwd);
+        let context_sources = match context::load_agents_md(&workspace_root) {
             Some(source) => vec![source],
             None => Vec::new(),
         };
+
+        let sessions_dir = session::sessions_dir(&workspace_root);
+        let session_titles = session::list_session_titles(&sessions_dir);
+        let sidebar = if session_titles.is_empty() {
+            Sidebar::placeholder()
+        } else {
+            Sidebar { sessions: session_titles, active: Some(0) }
+        };
+
+        let resumed_transcript = session::latest_session_file(&sessions_dir)
+            .map(|p| session::SessionReader::read_transcript(&p))
+            .unwrap_or_default();
 
         let mut transcript = Vec::new();
         if !context_sources.is_empty() {
@@ -240,12 +260,32 @@ impl App {
             transcript.push(Entry::Status { text: format!("context  {}", summaries.join(", ")) });
         }
 
+        transcript.extend(resumed_transcript);
+
+        let mut session_writer = session::SessionWriter::create(
+            &sessions_dir,
+            &session::generate_session_id(),
+            &workspace_root.display().to_string(),
+            "scratch",
+            "umans",
+            &cli.model,
+            &format!("{:?}", cli.websearch).to_lowercase(),
+            env!("CARGO_PKG_VERSION"),
+        )
+        .ok();
+
+        if let Some(ref mut writer) = session_writer.as_mut()
+            && !context_sources.is_empty()
+        {
+            let _ = writer.append_context(&context_sources);
+        }
+
         App {
             mode: Mode::default(),
             run_state: RunState::default(),
             input: String::new(),
             transcript,
-            sidebar: Sidebar::placeholder(),
+            sidebar,
             view: crate::ui::ViewState::default(),
             cwd: cli.cwd.clone(),
             model: cli.model.clone(),
@@ -255,6 +295,8 @@ impl App {
             scroll_offset: 0,
             ui_tick: 0,
             ctrl_d_pending: None,
+            session_writer,
+            turn_count: 0,
             quit: false,
         }
     }
@@ -427,6 +469,11 @@ fn handle_submit(app: &mut App) -> Option<Msg> {
 
     app.transcript.push(Entry::User { text });
     app.input.clear();
+    app.turn_count += 1;
+    let turn_id = format!("turn_{}", app.turn_count);
+    if let Some(ref mut writer) = app.session_writer {
+        let _ = writer.append_entry(app.transcript.last().unwrap(), &turn_id);
+    }
     Some(Msg::Agent(AgentEvent::Started))
 }
 
@@ -492,23 +539,27 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
                     break;
                 }
             }
+            persist_last_entry(app);
             None
         }
         AgentEvent::Finished => {
             finalize_streaming(app);
             app.run_state = RunState::Idle;
+            persist_last_entry(app);
             None
         }
         AgentEvent::Failed(msg) => {
             finalize_streaming(app);
             app.transcript.push(Entry::Error { text: msg });
             app.run_state = RunState::Idle;
+            persist_last_entry(app);
             None
         }
         AgentEvent::Cancelled => {
             finalize_streaming(app);
             app.transcript.push(Entry::Status { text: String::from("cancelled") });
             app.run_state = RunState::Idle;
+            persist_last_entry(app);
             None
         }
     }
@@ -523,12 +574,26 @@ fn cancel_stream(app: &mut App) {
     finalize_streaming(app);
     app.transcript.push(Entry::Status { text: String::from("cancelled") });
     app.run_state = RunState::Idle;
+    persist_last_entry(app);
     pin_to_bottom(app);
 }
 
 /// Reset the scroll offset to pin the transcript to the newest entries.
 fn pin_to_bottom(app: &mut App) {
     app.scroll_offset = 0;
+}
+
+/// Persist the last transcript entry to the session file, if a writer exists.
+///
+/// Only finalized entries are written — streaming/running entries are skipped
+/// by `SessionRecord::from_entry`.
+fn persist_last_entry(app: &mut App) {
+    if let Some(ref mut writer) = app.session_writer
+        && let Some(entry) = app.transcript.last()
+    {
+        let turn_id = format!("turn_{}", app.turn_count);
+        let _ = writer.append_entry(entry, &turn_id);
+    }
 }
 
 /// Whether `ui_tick` is at or past `deadline`, accounting for wrap-around.
@@ -565,7 +630,11 @@ mod tests {
     use std::io::Write;
 
     fn fresh_app() -> App {
-        App::from_cli(&Cli::default())
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
+        let mut app = App::from_cli(&cli);
+        app.session_writer = None;
+        app
     }
 
     #[test]

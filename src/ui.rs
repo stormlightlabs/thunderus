@@ -314,10 +314,15 @@ mod tests {
     use crate::cli::Cli;
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
+    use std::path::PathBuf;
 
     fn app() -> App {
-        let mut app = App::from_cli(&Cli::default());
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
+        let mut app = App::from_cli(&cli);
         app.user_label = String::from("User (owais)");
+        app.session_writer = None;
+        app.cwd = PathBuf::from(".");
         app
     }
 
@@ -755,6 +760,61 @@ mod tests {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).expect("create test terminal");
         terminal.draw(|f| render(f, &app)).expect("draw search error");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
+    fn sidebar_session_list_snapshot_80x24() {
+        // Create a temp sessions dir with three session files.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let sessions_dir = crate::session::sessions_dir(dir.path());
+
+        let _w1 = crate::session::SessionWriter::create(
+            &sessions_dir,
+            "session-aaa",
+            "/repo",
+            "first session",
+            "umans",
+            "umans-coder",
+            "native",
+            "0.1.0",
+        )
+        .expect("create writer 1");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let _w2 = crate::session::SessionWriter::create(
+            &sessions_dir,
+            "session-bbb",
+            "/repo",
+            "second session",
+            "umans",
+            "umans-coder",
+            "native",
+            "0.1.0",
+        )
+        .expect("create writer 2");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let _w3 = crate::session::SessionWriter::create(
+            &sessions_dir,
+            "session-ccc",
+            "/repo",
+            "third session",
+            "umans",
+            "umans-coder",
+            "native",
+            "0.1.0",
+        )
+        .expect("create writer 3");
+
+        // Build an app from the temp dir so the sidebar picks up the sessions.
+        let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
+        let mut app = App::from_cli(&cli);
+        app.user_label = String::from("User (owais)");
+        app.session_writer = None;
+        app.cwd = PathBuf::from(".");
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw sidebar");
         insta::assert_snapshot!(terminal.backend().to_string());
     }
 }

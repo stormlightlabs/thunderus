@@ -9,6 +9,7 @@ mod agent;
 mod app;
 mod banner;
 mod context;
+mod datetime;
 mod prompt;
 mod search;
 mod tools;

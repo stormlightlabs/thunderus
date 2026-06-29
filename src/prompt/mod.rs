@@ -25,6 +25,7 @@ use crate::app::Entry;
 use crate::app::ToolStatus;
 use crate::cli::WebSearchMode;
 use crate::context::ContextSource;
+use crate::datetime;
 use crate::providers::umans::Message;
 use crate::tools;
 use crate::tools::ToolDefinition;
@@ -181,7 +182,7 @@ impl EnvironmentMetadata {
             cwd: cwd.display().to_string(),
             model: model.to_string(),
             search_mode: search_mode_label.to_string(),
-            date: rounded_date(),
+            date: datetime::rounded_date(),
         }
     }
 }
@@ -288,37 +289,6 @@ pub fn lower_to_umans_messages(bundle: &PromptBundle) -> Vec<Message> {
 /// so the prompt-bundle view and the provider request body stay in sync.
 pub fn render_tool_catalog(bundle: &PromptBundle) -> serde_json::Value {
     tools::tool_catalog_schemas(&bundle.tool_catalog)
-}
-
-/// Get the current date rounded to the day (YYYY-MM-DD) for cache stability.
-///
-/// The exact timestamp stays in session JSONL metadata when needed for audit.
-///
-/// TODO: chrono
-fn rounded_date() -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
-    date_from_days_since_epoch(now / 86_400)
-}
-
-/// Convert days since Unix epoch (1970-01-01) to a YYYY-MM-DD string.
-///
-/// Uses the Howard Hinnant algorithm for date calculation.
-fn date_from_days_since_epoch(days: u64) -> String {
-    let z = days as i64 + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
-    format!("{y:04}-{m:02}-{d:02}")
 }
 
 /// Project the model-visible transcript tail from the full UI transcript.
@@ -1067,13 +1037,6 @@ mod tests {
         let messages = lower_to_umans_messages(&bundle);
         let roles: Vec<&str> = messages.iter().map(|m| m.role.as_str()).collect();
         assert_eq!(roles, vec!["user", "user", "assistant", "user"]);
-    }
-
-    #[test]
-    fn date_from_days_since_epoch_known_values() {
-        assert_eq!(date_from_days_since_epoch(0), "1970-01-01");
-        let d = date_from_days_since_epoch(20_745);
-        assert!(d.starts_with("2026"), "day 20745 should be in 2026, got {d}");
     }
 
     // TODO: do we need these fragment snapshots?
