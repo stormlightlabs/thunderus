@@ -1362,7 +1362,6 @@ mod tests {
     fn scroll_does_not_interfere_with_typing() {
         let mut app = fresh_app();
         app.input = String::from("typing");
-        // 'k' should append to input, not scroll, when input is non-empty.
         update(
             &mut app,
             &Msg::Key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE)),

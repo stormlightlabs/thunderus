@@ -41,18 +41,29 @@
 
 ### Phase 9: Prompt Assembly and Context Contract
 
-- [ ] Define a structured `PromptBundle` with base identity, harness policy,
+- [x] Define a structured `PromptBundle` with base identity, harness policy,
       environment metadata, project context, tool catalog, transcript tail, and
       current user turn.
-- [ ] Keep base prompt text short and specific to `thndrs` instead of copying a
+- [x] Keep base prompt text short and specific to `thndrs` instead of copying a
       larger agent prompt wholesale.
-- [ ] Lower `PromptBundle` into Umans Anthropic-compatible messages.
-- [ ] Include loaded `AGENTS.md` context below harness policy and direct user
+- [x] Round current date/time in prompt context for cache stability.
+- [x] Lower `PromptBundle` into Umans Anthropic-compatible messages.
+- [x] Add `--print-prompt` to print the assembled prompt bundle/lowered messages
+      with secrets redacted and no provider call.
+- [x] Include loaded `AGENTS.md` context below harness policy and direct user
       instructions.
-- [ ] Include read-only tool names, input schemas, limits, and truncation behavior
-      in the tool catalog.
-- [ ] Preserve a model-visible transcript tail that excludes UI-only status
-      entries.
+- [x] Use Umans/provider-native tool schemas for local tools.
+- [ ] Keep text tool descriptions minimal: name, purpose, safety limits, and
+      truncation behavior.
+- [ ] Send the compact, stably ordered tool schema every provider turn unless
+      reusable-history or prompt-cache support is explicit.
+- [ ] Preserve a projected model-visible transcript tail that excludes UI-only
+      status entries, live-only stream deltas, sidebar state, and renderer
+      artifacts.
+- [ ] Include full `AGENTS.md` text only when its content hash changes and the
+      provider supports history reuse.
+- [ ] Fall back to active size-capped `AGENTS.md` context when history reuse is
+      unavailable.
 - [ ] Record prompt metadata in session JSONL later without storing full raw
       provider payloads by default.
 - [ ] Unit-test prompt-bundle ordering and precedence.

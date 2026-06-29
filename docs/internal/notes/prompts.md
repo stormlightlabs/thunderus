@@ -5,6 +5,7 @@ Sources:
   - https://github.com/sst/opencode/
   - https://github.com/block/goose/blob/
   - https://github.com/Aider-AI/aider/
+  - https://app.umans.ai/offers/code/docs
   - https://code.claude.com/docs/en/memory
   - https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/overview
   - https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices
@@ -101,15 +102,22 @@ Rules for alpha:
   direct user/developer instructions stay above project guidance.
 - Keep edit instructions minimal until safe file operations exist.
 
-## Questions for Review
+## Harness Comparison
 
-- Should `thndrs` expose the base prompt through `--print-prompt` or wait until
-  v1 inspect/export?
-- Should the current date be exact per run or rounded for cache stability?
-- Should prompt construction include the full transcript tail or a projected
-  model-visible view that omits UI-only status entries?
-- Should read-only tool schemas be included in prompt text, provider-native tool
-  definitions, or both for Umans?
+- Codex separates rollout/event history from model-visible reconstruction:
+  persisted events can feed UI replay, while base instructions, dynamic tools,
+  and turn context are recovered separately for model requests.
+- OpenCode uses projected Session messages for durable history and treats live
+  text/reasoning fragments as ephemeral. Its session spec calls out canonical
+  model-visible lowering and policy-filtered tool materialization per turn.
+- Goose stores typed conversation parts and can filter content by audience, so
+  reasoning or tool content can be visible to the assistant without necessarily
+  being visible to the user.
+- Aider keeps model messages as role/content pairs and summarizes older history;
+  it does not feed UI-only transcript decorations into the model.
+- Across these harnesses, tools are represented as structured tool definitions
+  or tool request/response parts when the provider/runtime supports them. Prompt
+  text still carries operating policy, but does not replace native schemas.
 
 ## Connections
 
@@ -122,14 +130,27 @@ Rules for alpha:
 - Useful applications: prompt assembly, search integration, session persistence,
   v1 inspect/export.
 
-## Open Questions
+## Decisions
 
-- Does Umans support provider-native tool schemas closely enough that text tool
-  descriptions can stay minimal?
-- How much of the tool catalog should be repeated every turn versus cached by
-  the provider?
-- Should `AGENTS.md` text be included every turn or only when the context hash
-  changes and the provider supports history reuse?
+- Expose the assembled prompt through `--print-prompt` for debugging before v1
+  inspect/export. The command should print the prompt bundle/lowered messages
+  with secrets redacted and should not call the provider.
+- Round the current date/time used in prompt context for cache stability. The
+  exact timestamp can stay in session JSONL metadata when needed for audit.
+- Use a projected model-visible transcript tail, not the full UI transcript.
+  Omit UI-only status rows, live-only stream deltas, sidebar state, and other
+  renderer artifacts.
+- Umans supports Anthropic/OpenAI-compatible request shapes and its web-search
+  docs describe requests carrying a `web_search` tool, so `thndrs` should use
+  provider-native tool schemas for local tools. Keep text descriptions minimal:
+  names, purpose, safety limits, and truncation semantics only.
+- Best practice is to treat the tool catalog as part of each model request
+  contract: send the compact, stably ordered tool schema every provider turn
+  unless the provider exposes explicit reusable-history or prompt-cache behavior.
+  Do not rely on hidden provider memory for tool definitions.
+- Include `AGENTS.md` text only when the content hash changes and the provider
+  supports history reuse. Otherwise include the active `AGENTS.md` context in
+  the request, but keep it size-capped and record hash/truncation metadata.
 
 ## Takeaways
 

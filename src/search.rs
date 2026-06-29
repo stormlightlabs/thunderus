@@ -534,7 +534,7 @@ mod tests {
 
     #[test]
     fn format_search_results_produces_lines() {
-        let lines = format_search_results(&vec![
+        let lines = format_search_results(&[
             SearchResult {
                 title: "Rust Async".to_string(),
                 url: "https://tokio.rs".to_string(),
@@ -580,6 +580,7 @@ mod tests {
         assert!(!article.text_content.is_empty());
     }
 
+    // TODO: is_private_url_* tests should be table-driven
     #[test]
     fn is_private_url_rejects_localhost() {
         assert!(is_private_url("http://localhost:8080/test"));

@@ -30,6 +30,11 @@ pub struct Cli {
     /// Run without the alternate screen buffer (for debugging and terminal-capture tests).
     #[arg(long, default_value_t = false)]
     pub no_alt_screen: bool,
+
+    /// Print the assembled prompt bundle/lowered messages with secrets redacted
+    /// and exit without calling the provider.
+    #[arg(long, default_value_t = false)]
+    pub print_prompt: bool,
 }
 
 /// Maps directly to `X-Umans-Websearch-Provider`.
@@ -52,6 +57,7 @@ impl Default for Cli {
             websearch: WebSearchMode::Native,
             tick_rate_ms: 100,
             no_alt_screen: false,
+            print_prompt: false,
         }
     }
 }
@@ -106,5 +112,17 @@ mod tests {
         assert_eq!(cli.model, "umans-glm-5.2");
         assert_eq!(cli.tick_rate_ms, 250);
         assert!(cli.no_alt_screen);
+    }
+
+    #[test]
+    fn print_prompt_flag_parses() {
+        let cli = Cli::try_parse_from(["thndrs", "--print-prompt"]).expect("parse");
+        assert!(cli.print_prompt);
+    }
+
+    #[test]
+    fn print_prompt_defaults_false() {
+        let cli = Cli::try_parse_from(["thndrs"]).expect("parse");
+        assert!(!cli.print_prompt);
     }
 }
