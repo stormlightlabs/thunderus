@@ -1,4 +1,4 @@
-# Read-Only Tools
+# Tools
 
 `thndrs` exposes typed, bounded tools to the model. The model does not receive
 raw shell access.

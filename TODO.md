@@ -69,6 +69,11 @@
 - [x] Unit-test prompt-bundle ordering and precedence.
 - [x] Unit-test Umans message lowering with fixture context and transcript tails.
 - [x] Add snapshots for prompt debug/inspect output if a debug view exists.
+- [ ] Split prompt assembly into named fragments for base identity,
+      communication style, action safety, project context, tool catalog,
+      transcript context, and web/source guidance.
+- [ ] Move tool-specific behavior into tool descriptions where possible.
+- [ ] Add snapshot coverage for important prompt-fragment combinations.
 
 ### Phase 10: Session Persistence
 
@@ -92,16 +97,50 @@
 - [ ] Implement unified patch apply operation.
 - [ ] Record file path, operation type, and result for every write.
 - [ ] Preserve enough before/after metadata for session audit.
-- [ ] Keep long-running shell/process execution out of scope.
 - [ ] Unit-test create-file success and already-exists failure.
 - [ ] Unit-test exact-range replace success and stale-range failure.
 - [ ] Unit-test patch apply success and rejected patch failure.
 - [ ] Unit-test failed edits leave files unchanged.
 - [ ] Add snapshots for write success and write failure transcript entries.
 
+### Phase 12: `read_url` and Shell Process Manager
+
+- [ ] Add a `read_url` tool with public `http`/`https` support.
+- [ ] Reject private, loopback, link-local, local-file, and unsupported URL
+      schemes.
+- [ ] Enforce redirect, timeout, content-type, and response-size limits.
+- [ ] Return final URL, status, title, readable text, truncation state, and
+      diagnostics.
+- [ ] Record `read_url` calls as structured transcript/tool events.
+- [ ] Reuse existing Lectito-style extraction where it fits.
+- [ ] Define shell/process transcript event shapes.
+- [ ] Run commands from the workspace by default.
+- [ ] Show command, working directory, status, stdout, stderr, and elapsed time.
+- [ ] Stream process output without blocking the TUI.
+- [ ] Support command timeouts and cancellation.
+- [ ] Keep a process registry for active commands.
+- [ ] Track long-lived background processes separately from one-shot commands.
+- [ ] Record command start, output summary, exit status, timeout, and
+      cancellation as structured transcript/tool events.
+- [ ] Prefer narrower built-in tools for file search, file reads, edits, and URL
+      reads when they fit.
+- [ ] Require approval for commands that write outside the workspace.
+- [ ] Require approval for commands that access the network.
+- [ ] Require approval for destructive commands.
+- [ ] Detect and block shell-based attempts to bypass denied file or network
+      operations where deterministic policy can identify them.
+- [ ] Redact known secrets from displayed and recorded command output where
+      deterministic redaction is possible.
+- [ ] Unit-test `read_url` public URL success and private URL rejection.
+- [ ] Unit-test process success, failure, timeout, and cancellation.
+- [ ] Unit-test process registry handling for one-shot and background commands.
+- [ ] Unit-test approval classification for destructive, network, and
+      outside-workspace commands.
+- [ ] Add snapshots for `read_url` and shell/process transcript entries.
+
 ## v1: Supported Release
 
-### Phase 12: Config, Inspect, and Export
+### Phase 13: Config, Inspect, and Export
 
 - [ ] Define config file path.
 - [ ] Define config keys for model, web search mode, session path, and tick rate.
@@ -121,7 +160,24 @@
 - [ ] Integration-test inspect/export against fixture sessions.
 - [ ] Integration-test inspect/export includes AGENTS.md context metadata.
 
-### Phase 13: v1 Release Hardening
+### Phase 14: LSP and Code Intelligence
+
+- [ ] Define read-only LSP tool names, inputs, outputs, and fallback behavior.
+- [ ] Support document symbols.
+- [ ] Support workspace symbols.
+- [ ] Support go to definition.
+- [ ] Support find references.
+- [ ] Support hover.
+- [ ] Support find implementations where the language server supports it.
+- [ ] Degrade clearly when no language server is available.
+- [ ] Keep LSP startup and indexing bounded with visible diagnostics.
+- [ ] Record LSP calls as structured transcript/tool events.
+- [ ] Preserve plain file search as the fallback path.
+- [ ] Unit-test LSP fixture responses.
+- [ ] Unit-test no-server fallback behavior.
+- [ ] Add snapshots for LSP transcript entries.
+
+### Phase 15: v1 Release Hardening
 
 - [ ] Add `CHANGELOG.md` using Keep a Changelog categories.
 - [ ] Document install flow.
@@ -129,6 +185,9 @@
 - [ ] Document session storage and inspect/export.
 - [ ] Document Umans provider setup.
 - [ ] Document search modes.
+- [ ] Document `read_url`.
+- [ ] Document shell/process manager behavior and approval rules.
+- [ ] Document LSP/code-intelligence behavior and fallback rules.
 - [ ] Document file-operation safety limits.
 - [ ] Confirm packaging with `cargo package`.
 - [ ] Confirm install path with local `cargo install --path .`.
