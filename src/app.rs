@@ -69,10 +69,7 @@ pub enum ToolStatus {
 }
 
 /// One transcript row.
-///
-/// TODO: Status variant
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[allow(dead_code)]
 pub enum Entry {
     /// User-submitted text.
     User { text: String },
@@ -157,6 +154,8 @@ pub struct App {
     pub cwd: PathBuf,
     pub model: String,
     pub websearch: WebSearchMode,
+    /// Loaded context sources (e.g. AGENTS.md).
+    pub context_sources: Vec<crate::context::ContextSource>,
     /// When true the loop should stop and the app exit.
     pub quit: bool,
 }
@@ -164,18 +163,33 @@ pub struct App {
 impl App {
     /// Build the initial app from parsed CLI args.
     ///
-    /// TODO: this could be a from/into impl
+    /// Discovers the workspace root from `--cwd` (preferring the git root),
+    /// loads root `AGENTS.md` if present, and adds a transcript status entry
+    /// showing loaded context sources.
     pub fn from_cli(cli: &Cli) -> Self {
+        let workspace_root = crate::context::discover_workspace_root(&cli.cwd);
+        let context_sources = match crate::context::load_agents_md(&workspace_root) {
+            Some(source) => vec![source],
+            None => Vec::new(),
+        };
+
+        let mut transcript = Vec::new();
+        if !context_sources.is_empty() {
+            let summaries: Vec<String> = context_sources.iter().map(|s| s.summary()).collect();
+            transcript.push(Entry::Status { text: format!("context  {}", summaries.join(", ")) });
+        }
+
         App {
             mode: Mode::default(),
             run_state: RunState::default(),
             input: String::new(),
-            transcript: Vec::new(),
+            transcript,
             sidebar: Sidebar::placeholder(),
             view: crate::ui::ViewState::default(),
             cwd: cli.cwd.clone(),
             model: cli.model.clone(),
             websearch: cli.websearch,
+            context_sources,
             quit: false,
         }
     }
@@ -403,6 +417,7 @@ fn finalize_streaming(app: &mut App) {
 mod tests {
     use super::*;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::io::Write;
 
     fn fresh_app() -> App {
         App::from_cli(&Cli::default())
@@ -737,8 +752,8 @@ mod tests {
             &mut app,
             Msg::Agent(AgentEvent::ReasoningDelta(String::from("thoughts"))),
         );
-        assert_eq!(app.run_state, RunState::Working);
 
+        assert_eq!(app.run_state, RunState::Working);
         update(&mut app, Msg::Agent(AgentEvent::Finished));
         assert_eq!(app.run_state, RunState::Idle);
 
@@ -822,5 +837,73 @@ mod tests {
         assert_eq!(app.input, "");
         assert_eq!(app.transcript.len(), 1);
         assert_eq!(follow, Some(Msg::Agent(AgentEvent::Started)));
+    }
+
+    #[test]
+    fn app_without_agents_md_has_no_context_sources() {
+        let app = fresh_app();
+        assert!(app.context_sources.is_empty());
+        assert!(app.transcript.is_empty());
+    }
+
+    #[test]
+    fn app_with_agents_md_loads_context_and_adds_status() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let agents_path = dir.path().join("AGENTS.md");
+        let mut f = std::fs::File::create(&agents_path).expect("create AGENTS.md");
+        f.write_all(b"# Project\n\nBuild with cargo.\n")
+            .expect("write AGENTS.md");
+
+        let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
+        let app = App::from_cli(&cli);
+
+        assert_eq!(app.context_sources.len(), 1);
+        let source = &app.context_sources[0];
+        assert_eq!(source.path, agents_path);
+        assert_eq!(source.scope, ".");
+        assert!(!source.truncated);
+        assert!(source.content.contains("# Project"));
+
+        assert_eq!(app.transcript.len(), 1);
+        match &app.transcript[0] {
+            Entry::Status { text } => assert!(text.contains("loaded")),
+            _ => panic!("expected Status entry for context source"),
+        }
+    }
+
+    #[test]
+    fn app_with_oversized_agents_md_marks_truncation() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let big_content = "x".repeat(crate::context::AGENTS_MD_SIZE_CAP + 1000);
+        let agents_path = dir.path().join("AGENTS.md");
+        let mut f = std::fs::File::create(&agents_path).expect("create AGENTS.md");
+        f.write_all(big_content.as_bytes()).expect("write AGENTS.md");
+
+        let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
+        let app = App::from_cli(&cli);
+
+        assert_eq!(app.context_sources.len(), 1);
+        let source = &app.context_sources[0];
+        assert!(source.truncated);
+        assert!(source.content.len() <= crate::context::AGENTS_MD_SIZE_CAP);
+
+        match &app.transcript[0] {
+            Entry::Status { text } => assert!(text.contains("truncated")),
+            _ => panic!("expected Status entry"),
+        }
+    }
+
+    #[test]
+    fn context_sources_are_guidance_not_permission() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let content = "# Instructions\n\nModel: gpt-4\nAllow: rm -rf\n";
+        let mut f = std::fs::File::create(dir.path().join("AGENTS.md")).expect("create");
+        f.write_all(content.as_bytes()).expect("write");
+
+        let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
+        let app = App::from_cli(&cli);
+
+        assert_eq!(app.model, "umans-coder");
+        assert!(app.context_sources[0].content.contains("Model: gpt-4"));
     }
 }

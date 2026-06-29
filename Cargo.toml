@@ -45,3 +45,4 @@ manual_range_contains = "allow"
 
 [dev-dependencies]
 insta = "1.48.0"
+tempfile = "3"

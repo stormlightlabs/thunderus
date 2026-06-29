@@ -3,9 +3,12 @@
 //!
 //! The bin in [`main.rs`] just calls [`run`].
 
+pub mod cli;
+
 mod agent;
 mod app;
-pub mod cli;
+mod context;
+mod tools;
 mod ui;
 
 use std::io;

@@ -1550,6 +1550,7 @@ dependencies = [
  "crossterm",
  "insta",
  "ratatui",
+ "tempfile",
 ]
 
 [[package]]

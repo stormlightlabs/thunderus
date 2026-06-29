@@ -12,16 +12,16 @@
 
 ### Phase 5: Context and Read-Only Tool Boundary
 
-- [ ] Add explicit context loading for root `AGENTS.md`.
-- [ ] Discover workspace root from `--cwd`; prefer git root when available.
-- [ ] Treat AGENTS.md as guidance only, not permission/config.
-- [ ] Enforce an AGENTS.md size cap.
-- [ ] Mark AGENTS.md truncation visibly in context metadata and transcript status.
-- [ ] Add transcript entry showing loaded context sources.
-- [ ] Define structured tool output before implementing any write-capable tool.
-- [ ] Define a small internal request shape: prompt, transcript tail, context sources,
+- [x] Add explicit context loading for root `AGENTS.md`.
+- [x] Discover workspace root from `--cwd`; prefer git root when available.
+- [x] Treat AGENTS.md as guidance only, not permission/config.
+- [x] Enforce an AGENTS.md size cap.
+- [x] Mark AGENTS.md truncation visibly in context metadata and transcript status.
+- [x] Add transcript entry showing loaded context sources.
+- [x] Define structured tool output before implementing any write-capable tool.
+- [x] Define a small internal request shape: prompt, transcript tail, context sources,
       selected model, search mode.
-- [ ] Include AGENTS.md path, scope, content hash, and truncation state in context
+- [x] Include AGENTS.md path, scope, content hash, and truncation state in context
       metadata.
 - [ ] Implement read-only `find_files` backed by `fd` with `find` fallback.
 - [ ] Implement read-only `list_searchable_files` backed by `rg --files` or
