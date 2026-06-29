@@ -1,79 +1,57 @@
 # TODO
 
-## fake/v0: Harness Proof
+## Completed
 
-### Phase 1: CLI and Ratatui Shell
+### fake/v0 harness proof of concept
 
-- [x] Add dependencies: `ratatui`, `crossterm`, and `clap` with `derive`.
-- [x] Add dev dependency: `insta`.
-- [x] Create `src/cli.rs`.
-- [x] Define `Cli` with `cwd`, `model`, `websearch`, `tick_rate_ms`, and `no_alt_screen`.
-- [x] Define `WebSearchMode` as a Clap `ValueEnum`: `native`, `exa`, `none`.
-- [x] Parse CLI args in `src/main.rs`.
-- [x] `src/app.rs`: `App`, `Mode`, `RunState`, `Entry`, `Msg`, and `update`.
-- [x] `src/ui.rs`: `ViewState`, `compute_view`, and `render`.
-- [x] `src/lib.rs`: terminal setup, draw loop, event polling, and cleanup.
-  - [x] `src/main.rs` just runs
-- [x] Render static sidebar, transcript placeholder, prompt line, and footer.
-- [x] Support clean exit on `q`, `Ctrl+D`, & `Ctrl+C`.
-- [x] Unit-test CLI defaults.
-- [x] Unit-test invalid `--websearch` handling.
-- [x] Add an `80x24` empty-shell `TestBackend` snapshot.
-- [x] Run `cargo check`.
-
-### Phase 2: Prompt and Transcript
-
-- [x] Handle printable character input.
-- [x] Handle Backspace.
-- [x] Handle Enter submit.
-- [x] Append submitted text as `Entry::User`.
-- [x] Clear input after submit.
-- [x] Implement `/clear`.
-- [x] Implement `/quit`.
-- [x] Render newest transcript entries in available height.
-- [x] Add unit tests for `update` submit, clear, quit, and backspace behavior.
-- [x] Add a snapshot for one submitted prompt in the transcript.
-
-### Phase 3: Fake Agent Stream
-
-- [x] Create `src/agent.rs`.
-- [x] Define `AgentEvent`.
-- [x] Include `ReasoningDelta` in `AgentEvent` before the real provider lands.
-- [x] Add a deterministic fake response stream.
-- [x] Send fake stream events into the app loop over a channel.
-- [x] Append assistant deltas into one streaming assistant entry.
-- [x] Append reasoning deltas into one separate streaming reasoning entry.
-- [x] Render fake tool start/output/end as one tool entry.
-- [x] Add stop/cancel behavior for an active fake stream.
-- [x] Test `AgentEvent` handling in `update`.
-- [x] Add snapshots for streaming assistant, reasoning, running tool, and finished
-      states.
-
-### Phase 4: Layout Hardening
-
-- [ ] Move all rectangle calculation into `compute_view`.
-- [ ] Hide sidebar below the chosen narrow-width threshold.
-- [ ] Add a normal-width Ratatui `TestBackend` render test.
-- [ ] Add a narrow-width Ratatui `TestBackend` render test.
-- [ ] Add pure `compute_view` tests for normal, narrow, and tiny terminal rects.
-- [ ] Verify prompt/footer text does not overlap at small sizes.
+- Added the Clap entrypoint, Ratatui shell, prompt/transcript flow, deterministic
+  fake agent stream, reasoning/tool transcript entries, narrow-layout handling, unit
+  tests, snapshots, and `cargo check` coverage.
 
 ## alpha: Usable Coding Assistant
 
 ### Phase 5: Context and Read-Only Tool Boundary
 
 - [ ] Add explicit context loading for root `AGENTS.md`.
+- [ ] Discover workspace root from `--cwd`; prefer git root when available.
+- [ ] Treat AGENTS.md as guidance only, not permission/config.
+- [ ] Enforce an AGENTS.md size cap.
+- [ ] Mark AGENTS.md truncation visibly in context metadata and transcript status.
 - [ ] Add transcript entry showing loaded context sources.
 - [ ] Define structured tool output before implementing any write-capable tool.
 - [ ] Define a small internal request shape: prompt, transcript tail, context sources,
       selected model, search mode.
-- [ ] Implement read-only `list_files`.
-- [ ] Implement read-only `read_file`.
-- [ ] Implement read-only `grep`.
+- [ ] Include AGENTS.md path, scope, content hash, and truncation state in context
+      metadata.
+- [ ] Implement read-only `find_files` backed by `fd` with `find` fallback.
+- [ ] Implement read-only `list_searchable_files` backed by `rg --files` or
+      `fd --type file` with `grep` or `find` fallbacks, respectively.
+- [ ] Implement read-only `search_text` backed by `rg --json`.
+- [ ] Implement `read_file_range` in Rust.
+- [ ] Define typed tool inputs for pattern, root, globs, extensions, depth, context,
+      and max results.
+- [ ] Invoke `fd`/`rg` with `std::process::Command` argv arrays, not shell strings.
+- [ ] Enforce workspace-root containment after path normalization.
+- [ ] Default to respecting ignore rules and skipping hidden files.
+- [ ] Keep hidden files, ignored files, symlink following, and unrestricted searches
+      opt-in.
+- [ ] Enforce timeout, result-count, stdout/stderr byte, and transcript truncation caps.
+- [ ] Treat `rg` exit code `1` as no matches.
+- [ ] Do not expose `fd --exec`, `fd --exec-batch`, `rg --pre`, arbitrary `sed`,
+      arbitrary `awk`, `sed -i`, or `awk system()`.
+- [ ] Add optional `summarize_text` only as canned output-only templates if needed.
 - [ ] Render context sources before the model response starts.
 - [ ] Keep the first client concrete; do not add a generic provider trait yet.
 - [ ] Unit-test context-source collection with and without root `AGENTS.md`.
+- [ ] Unit-test missing AGENTS.md behavior.
+- [ ] Unit-test oversized AGENTS.md truncation.
+- [ ] Unit-test AGENTS.md cannot override user prompt or harness policy.
 - [ ] Unit-test read-only tool success and failure paths.
+- [ ] Unit-test root containment and path normalization.
+- [ ] Unit-test `fd` output parsing with fixture output.
+- [ ] Unit-test `rg --json` parsing with fixture output.
+- [ ] Unit-test `rg` match, no-match, and failure exit handling.
+- [ ] Unit-test output truncation.
 - [ ] Add snapshots for successful and failed tool entries.
 
 ### Phase 6: Umans Provider
@@ -134,9 +112,12 @@
 
 - [ ] Define the JSONL session record format.
 - [ ] Save transcript entries append-only.
+- [ ] Save loaded AGENTS.md context metadata: path, scope, content hash, and
+      truncation state.
 - [ ] Resume the latest session on startup.
 - [ ] Render saved sessions in the sidebar.
 - [ ] Unit-test JSONL encode/decode round trips.
+- [ ] Unit-test AGENTS.md context metadata round trips.
 - [ ] Unit-test corrupt-line handling.
 - [ ] Unit-test resume ordering.
 - [ ] Add a snapshot for sidebar session-list rendering.
@@ -167,10 +148,16 @@
       config overrides built-in defaults.
 - [ ] Add non-TUI session inspect/export command after sessions exist.
 - [ ] Keep inspect/export output JSON or JSONL.
+- [ ] Include loaded AGENTS.md files, scopes, hashes, and truncation state in
+      inspect/export output.
 - [ ] Document session/config compatibility expectations.
+- [ ] Document AGENTS.md precedence: harness policy, user prompt, CLI/config,
+      nearest AGENTS.md, broader AGENTS.md, defaults.
+- [ ] Document nested AGENTS.md scoping for v1 or mark it explicitly deferred.
 - [ ] Unit-test config precedence.
 - [ ] Integration-test `--help`.
 - [ ] Integration-test inspect/export against fixture sessions.
+- [ ] Integration-test inspect/export includes AGENTS.md context metadata.
 
 ### Phase 11: v1 Release Hardening
 

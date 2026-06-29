@@ -83,8 +83,8 @@ configuration, safe file changes, packaging, and release hygiene.
   but the project guidance strongly prefers avoiding permission theater. The
   compromise is simple explicit confirmation plus narrow file operations, not a
   complex policy engine.
-- Useful applications: Release gates in `ROADMAP.md`, actionable grouped tasks
-  in `TODO.md`, and future `CHANGELOG.md`/packaging checklist.
+- Useful applications: Release gates in `docs/internal/specs/`, actionable
+  grouped tasks in `TODO.md`, and future `CHANGELOG.md`/packaging checklist.
 
 ## Open Questions
 

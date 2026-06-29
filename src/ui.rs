@@ -1,9 +1,10 @@
 //! View geometry computation and rendering.
 //!
-//! Layout follows the Herdr lesson: compute all rectangles in `compute_view`
-//! before drawing, then `render` reads the stored `ViewState`.
+//! Layout follows the Herdr lesson: compute all rectangles in [`compute_view`]
+//! before drawing, then [`render`] reads the stored [`ViewState`].
 //!
-//! This keeps draw code stateless and makes layout testable with plain `Rect` assertions.
+//! This keeps draw code stateless and makes layout testable with plain [`Rect`]
+//! assertions.
 
 use crate::app::App;
 
@@ -16,8 +17,8 @@ use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
 /// Fixed sidebar width in columns.
 pub const SIDEBAR_WIDTH: u16 = 22;
 
-/// Below this total width the sidebar is hidden so prompt/status text does
-/// not wrap or overlap.
+/// Below this total width the sidebar is hidden so prompt/status text
+/// does not wrap or overlap.
 pub const SIDEBAR_HIDE_THRESHOLD: u16 = 50;
 
 /// Prompt region height: one divider line plus one input line.
@@ -118,6 +119,7 @@ fn render_transcript(frame: &mut Frame, app: &App, area: Rect) {
     if area.width == 0 || area.height == 0 {
         return;
     }
+
     let block = Block::bordered().title("Transcript");
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -231,6 +233,90 @@ mod tests {
     }
 
     #[test]
+    fn compute_view_normal_rect_full_layout() {
+        let area = Rect::new(0, 0, 80, 24);
+        let view = compute_view(area);
+        assert!(view.sidebar_visible);
+
+        assert_eq!(view.sidebar.x, 0);
+        assert_eq!(view.sidebar.width, SIDEBAR_WIDTH);
+        assert_eq!(view.transcript.x, SIDEBAR_WIDTH);
+        assert_eq!(view.transcript.width, 80 - SIDEBAR_WIDTH);
+
+        assert!(view.transcript.y + view.transcript.height <= view.prompt.y);
+        assert_eq!(view.prompt.height, PROMPT_HEIGHT);
+        assert_eq!(view.prompt.y + view.prompt.height, view.footer.y);
+        assert_eq!(view.footer.height, FOOTER_HEIGHT);
+        assert_eq!(view.footer.y + view.footer.height, area.height);
+    }
+
+    #[test]
+    fn compute_view_narrow_rect_hides_sidebar_full_width() {
+        let area = Rect::new(0, 0, 40, 24);
+        let view = compute_view(area);
+        assert!(!view.sidebar_visible);
+        assert_eq!(view.sidebar.width, 0);
+        assert_eq!(view.transcript.x, 0);
+        assert_eq!(view.transcript.width, 40);
+    }
+
+    #[test]
+    fn compute_view_tiny_rect_reserves_prompt_and_footer() {
+        let area = Rect::new(0, 0, 20, 5);
+        let view = compute_view(area);
+        assert!(!view.sidebar_visible);
+        assert_eq!(view.prompt.height, PROMPT_HEIGHT);
+        assert_eq!(view.footer.height, FOOTER_HEIGHT);
+        assert_no_overlap(&view);
+    }
+
+    #[test]
+    fn compute_view_extreme_tiny_height() {
+        let area = Rect::new(0, 0, 30, PROMPT_HEIGHT + FOOTER_HEIGHT);
+        let view = compute_view(area);
+        assert_no_overlap(&view);
+        assert_eq!(view.prompt.height + view.footer.height, area.height);
+    }
+
+    #[test]
+    fn compute_view_below_prompt_plus_footer() {
+        let area = Rect::new(0, 0, 30, 1);
+        let view = compute_view(area);
+        assert_no_overlap(&view);
+    }
+
+    #[test]
+    fn compute_view_single_column_width() {
+        let area = Rect::new(0, 0, 1, 24);
+        let view = compute_view(area);
+        assert!(!view.sidebar_visible);
+        assert_no_overlap(&view);
+    }
+
+    /// Assert that prompt and footer rects do not overlap each other or
+    /// the transcript, and that no rect extends past the area boundary.
+    fn assert_no_overlap(view: &ViewState) {
+        assert!(view.sidebar.right() <= view.area.right());
+        assert!(view.transcript.right() <= view.area.right());
+        assert!(view.prompt.right() <= view.area.right());
+        assert!(view.footer.right() <= view.area.right());
+        assert!(view.sidebar.bottom() <= view.area.bottom());
+        assert!(view.transcript.bottom() <= view.area.bottom());
+        assert!(view.prompt.bottom() <= view.area.bottom());
+        assert!(view.footer.bottom() <= view.area.bottom());
+
+        assert!(
+            view.prompt.y >= view.transcript.y + view.transcript.height,
+            "prompt overlaps transcript"
+        );
+
+        assert!(
+            view.footer.y >= view.prompt.y + view.prompt.height,
+            "footer overlaps prompt"
+        );
+    }
+
+    #[test]
     fn empty_shell_snapshot_80x24() {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).expect("create test terminal");
@@ -257,6 +343,7 @@ mod tests {
         app.run_state = RunState::Working;
         app.transcript
             .push(Entry::User { text: String::from("explain this repo") });
+
         app.transcript
             .push(Entry::Assistant { text: String::from("This is a fake streaming res..."), streaming: true });
 
@@ -272,6 +359,7 @@ mod tests {
         app.run_state = RunState::Working;
         app.transcript
             .push(Entry::User { text: String::from("explain this repo") });
+
         app.transcript.push(Entry::Reasoning {
             text: String::from("Let me think about this... The repo is a Rust + Ratatui harness."),
             streaming: true,
@@ -289,8 +377,10 @@ mod tests {
         app.run_state = RunState::Working;
         app.transcript
             .push(Entry::User { text: String::from("explain this repo") });
+
         app.transcript
             .push(Entry::Reasoning { text: String::from("Let me read the Cargo.toml first."), streaming: false });
+
         app.transcript.push(Entry::Tool {
             name: String::from("read_file"),
             status: ToolStatus::Running,
@@ -308,21 +398,56 @@ mod tests {
         let mut app = app();
         app.transcript
             .push(Entry::User { text: String::from("explain this repo") });
+
         app.transcript.push(Entry::Reasoning {
             text: String::from("Let me think about this... The repo is a Rust + Ratatui harness."),
             streaming: false,
         });
+
         app.transcript.push(Entry::Tool {
             name: String::from("read_file"),
             status: ToolStatus::Ok,
             output: vec![String::from("Cargo.toml: 47 lines")],
         });
+
         app.transcript
             .push(Entry::Assistant { text: String::from("This is a fake streaming response."), streaming: false });
 
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).expect("create test terminal");
         terminal.draw(|f| render(f, &app)).expect("draw finished state");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
+    fn normal_width_layout_snapshot_80x24() {
+        let mut app = app();
+        app.input = String::from("hello");
+        app.transcript
+            .push(Entry::User { text: String::from("explain this repo") });
+
+        app.transcript
+            .push(Entry::Assistant { text: String::from("response"), streaming: false });
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw normal width layout");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
+    fn narrow_width_layout_snapshot_40x24() {
+        let mut app = app();
+        app.input = String::from("hello");
+        app.transcript
+            .push(Entry::User { text: String::from("explain this repo") });
+
+        app.transcript
+            .push(Entry::Assistant { text: String::from("response"), streaming: false });
+
+        let backend = TestBackend::new(40, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw narrow width layout");
         insta::assert_snapshot!(terminal.backend().to_string());
     }
 }

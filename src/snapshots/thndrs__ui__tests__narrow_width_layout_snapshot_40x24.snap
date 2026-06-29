@@ -1,0 +1,28 @@
+---
+source: src/ui.rs
+expression: terminal.backend().to_string()
+---
+"┌Transcript────────────────────────────┐"
+"│user     explain this repo            │"
+"│assistant response                    │"
+"│                                      │"
+"│                                      │"
+"│                                      │"
+"│                                      │"
+"│                                      │"
+"│                                      │"
+"│                                      │"
+"│                                      │"
+"│                                      │"
+"│                                      │"
+"│                                      │"
+"│                                      │"
+"│                                      │"
+"│                                      │"
+"│                                      │"
+"│                                      │"
+"│                                      │"
+"└──────────────────────────────────────┘"
+"────────────────────────────────────────"
+"> hello                                 "
+"model: umans-coder cwd: .               "
