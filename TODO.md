@@ -55,10 +55,10 @@
 
 ### Phase 11: Safe File Operations
 
-- [ ] Define write transcript event shape.
-- [ ] Implement create-file operation.
-- [ ] Implement exact-range replace operation.
-- [ ] Implement unified patch apply operation.
+- [x] Define write transcript event shape.
+- [x] Implement create-file operation.
+- [x] Implement exact-range replace operation.
+- [x] Implement unified patch apply operation.
 - [ ] Record file path, operation type, and result for every write.
 - [ ] Preserve enough before/after metadata for session audit.
 - [ ] Unit-test create-file success and already-exists failure.

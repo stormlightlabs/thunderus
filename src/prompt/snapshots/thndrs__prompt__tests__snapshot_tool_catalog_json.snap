@@ -142,5 +142,90 @@ expression: json
       "type": "object"
     },
     "name": "read_url"
+  },
+  {
+    "description": "create_file\n\nCreate a new file with the given content.\n\nUse this when you need to write a new file that does not yet exist. Fails if the\nfile already exists — use this to avoid accidental overwrites. Paths are contained\nto the workspace root; escapes are rejected. Parent directories are created if needed.",
+    "input_schema": {
+      "properties": {
+        "content": {
+          "description": "The full file content to write.",
+          "type": "string"
+        },
+        "path": {
+          "description": "Path relative to the workspace root.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "content"
+      ],
+      "type": "object"
+    },
+    "name": "create_file"
+  },
+  {
+    "description": "replace_range\n\nReplace a unique exact string occurrence in an existing file.\n\nUse this when you need to edit part of a file. Provide the exact old_string to\nfind and the new_string to replace it with. Fails if old_string appears zero or\nmultiple times, ensuring unambiguous edits. Paths are contained to the workspace\nroot; escapes are rejected. Failed edits leave the file unchanged.",
+    "input_schema": {
+      "properties": {
+        "new_string": {
+          "description": "The replacement string.",
+          "type": "string"
+        },
+        "old_string": {
+          "description": "The exact string to find. Must appear exactly once.",
+          "type": "string"
+        },
+        "path": {
+          "description": "Path relative to the workspace root.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "old_string",
+        "new_string"
+      ],
+      "type": "object"
+    },
+    "name": "replace_range"
+  },
+  {
+    "description": "write_patch\n\nApply a structured patch to create, replace, or edit a file.\n\nUse this as the unified entry point for file writes. Set op to create (new file,\nfails if exists), replace (overwrite full content), or edit (replace a unique exact\nstring). Paths are contained to the workspace root; escapes are rejected. Failed\npatches leave the file unchanged.",
+    "input_schema": {
+      "properties": {
+        "content": {
+          "description": "Full file content for create/replace ops.",
+          "type": "string"
+        },
+        "new_string": {
+          "description": "The replacement string for edit ops.",
+          "type": "string"
+        },
+        "old_string": {
+          "description": "The exact string to find for edit ops.",
+          "type": "string"
+        },
+        "op": {
+          "description": "The patch operation.",
+          "enum": [
+            "create",
+            "replace",
+            "edit"
+          ],
+          "type": "string"
+        },
+        "path": {
+          "description": "Path relative to the workspace root.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "path"
+      ],
+      "type": "object"
+    },
+    "name": "write_patch"
   }
 ]

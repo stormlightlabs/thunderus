@@ -177,23 +177,27 @@ fn render_transcript(frame: &mut Frame, app: &App, area: Rect) {
     }
 
     if app.transcript.is_empty() {
-        // Use inner width (excluding borders) so the banner fits within the
-        // available rendering area.
         let banner_lines = banner::banner_lines(inner.width);
         let banner_height = banner_lines.len() as u16;
         let banner_max_width = banner_lines.iter().map(|l| l.len()).max().unwrap_or(0) as u16;
-        let show_banner = banner_height > 1
-            && inner.height > banner_height
-            && banner_max_width <= inner.width;
+        let show_banner = banner_height > 1 && inner.height > banner_height && banner_max_width <= inner.width;
 
         if show_banner {
             let banner_text = Text::from(
                 banner_lines
                     .iter()
-                    .map(|l| Line::styled(format!("  {l}"), Style::default().fg(style::P.accent).bg(style::P.panel_bg)))
+                    .map(|l| {
+                        Line::styled(
+                            format!("  {l}"),
+                            Style::default().fg(style::P.accent).bg(style::P.panel_bg),
+                        )
+                    })
                     .collect::<Vec<Line>>(),
             );
-            frame.render_widget(Paragraph::new(banner_text).wrap(Wrap { trim: false }).left_aligned(), inner);
+            frame.render_widget(
+                Paragraph::new(banner_text).wrap(Wrap { trim: false }).left_aligned(),
+                inner,
+            );
         } else {
             let placeholder = Paragraph::new(Text::from(vec![
                 Line::styled(" No messages yet.", style::muted_style()),
@@ -770,7 +774,6 @@ mod tests {
 
     #[test]
     fn sidebar_session_list_snapshot_80x24() {
-        // Create a temp sessions dir with three session files.
         let dir = tempfile::tempdir().expect("temp dir");
         let sessions_dir = crate::session::sessions_dir(dir.path());
 
@@ -810,7 +813,6 @@ mod tests {
         )
         .expect("create writer 3");
 
-        // Build an app from the temp dir so the sidebar picks up the sessions.
         let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
         let mut app = App::from_cli(&cli);
         app.user_label = String::from("User (owais)");

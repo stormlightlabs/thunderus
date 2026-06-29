@@ -14,14 +14,19 @@
 //! - `fd --exec`, `fd --exec-batch`, `rg --pre`, arbitrary `sed`/`awk`, `sed -i`,
 //!   and `awk system()` are never exposed.
 
+mod create_file;
 mod find_files;
 mod list_searchable_files;
 mod path;
 mod read_file_range;
+mod replace_range;
 mod search_text;
 mod subproc;
+mod write_patch;
 
 use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
 
 use crate::app::ToolStatus;
 use crate::cli::WebSearchMode;
@@ -106,6 +111,31 @@ pub enum ToolInput {
     },
 }
 
+/// The kind of write operation performed on a file.
+///
+/// Used by [`WriteResult`] and the session record to audit what changed.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WriteOp {
+    /// Create a new file that did not previously exist.
+    Create,
+    /// Replace the entire contents of an existing file.
+    Replace,
+    /// Edit a file by replacing a unique exact string occurrence.
+    Edit,
+}
+
+impl WriteOp {
+    /// Lowercase label used in transcript display and session records.
+    pub fn label(&self) -> &'static str {
+        match self {
+            WriteOp::Create => "create",
+            WriteOp::Replace => "replace",
+            WriteOp::Edit => "edit",
+        }
+    }
+}
+
 /// A tool definition exposed to the provider/model.
 ///
 /// The `name` is what the model uses in a `tool_use` block; `description` and
@@ -181,6 +211,55 @@ pub struct SearchMatch {
     pub line_number: u32,
     /// Matched line text.
     pub text: String,
+}
+
+/// Structured result of a file write operation.
+///
+/// Captures the operation type, target path, and before/after metadata needed
+/// for session audit. The actual file content is never stored — only hashes
+/// and byte counts, so secrets and large files are not persisted.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WriteResult {
+    /// Operation performed.
+    pub op: WriteOp,
+    /// Absolute path to the target file.
+    pub path: PathBuf,
+    /// Hash of the file content before the operation, if it existed.
+    pub before_hash: Option<u64>,
+    /// Byte count before the operation, if the file existed.
+    pub before_bytes: Option<usize>,
+    /// Hash of the file content after the operation.
+    pub after_hash: u64,
+    /// Byte count after the operation.
+    pub after_bytes: usize,
+}
+
+impl WriteResult {
+    /// Render a compact single-line summary for transcript display.
+    pub fn summary(&self) -> String {
+        let before = match (self.before_hash.is_some(), self.before_bytes) {
+            (true, Some(n)) => format!("from {n} bytes"),
+            _ => "new file".to_string(),
+        };
+        format!(
+            "{} {} ({} → {} bytes)",
+            self.op.label(),
+            self.path.display(),
+            before,
+            self.after_bytes
+        )
+    }
+}
+
+/// Compute a stable hash of content using the standard library hasher.
+///
+/// Shared by context loading and write operations so hashes are comparable.
+pub fn hash_content(content: &str) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    content.hash(&mut hasher);
+    hasher.finish()
 }
 
 /// The catalog of read-only filesystem tools exposed to the model.
@@ -305,6 +384,66 @@ unsupported. Response size is capped and content type is enforced; output may tr
                     "url": { "type": "string", "description": "The public HTTP/HTTPS URL to fetch." }
                 },
                 "required": ["url"]
+            }),
+        },
+        ToolDefinition {
+            name: "create_file",
+            description: r#"create_file
+
+Create a new file with the given content.
+
+Use this when you need to write a new file that does not yet exist. Fails if the
+file already exists — use this to avoid accidental overwrites. Paths are contained
+to the workspace root; escapes are rejected. Parent directories are created if needed."#,
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Path relative to the workspace root." },
+                    "content": { "type": "string", "description": "The full file content to write." }
+                },
+                "required": ["path", "content"]
+            }),
+        },
+        ToolDefinition {
+            name: "replace_range",
+            description: r#"replace_range
+
+Replace a unique exact string occurrence in an existing file.
+
+Use this when you need to edit part of a file. Provide the exact old_string to
+find and the new_string to replace it with. Fails if old_string appears zero or
+multiple times, ensuring unambiguous edits. Paths are contained to the workspace
+root; escapes are rejected. Failed edits leave the file unchanged."#,
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Path relative to the workspace root." },
+                    "old_string": { "type": "string", "description": "The exact string to find. Must appear exactly once." },
+                    "new_string": { "type": "string", "description": "The replacement string." }
+                },
+                "required": ["path", "old_string", "new_string"]
+            }),
+        },
+        ToolDefinition {
+            name: "write_patch",
+            description: r#"write_patch
+
+Apply a structured patch to create, replace, or edit a file.
+
+Use this as the unified entry point for file writes. Set op to create (new file,
+fails if exists), replace (overwrite full content), or edit (replace a unique exact
+string). Paths are contained to the workspace root; escapes are rejected. Failed
+patches leave the file unchanged."#,
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "op": { "type": "string", "enum": ["create", "replace", "edit"], "description": "The patch operation." },
+                    "path": { "type": "string", "description": "Path relative to the workspace root." },
+                    "content": { "type": "string", "description": "Full file content for create/replace ops." },
+                    "old_string": { "type": "string", "description": "The exact string to find for edit ops." },
+                    "new_string": { "type": "string", "description": "The replacement string for edit ops." }
+                },
+                "required": ["op", "path"]
             }),
         },
     ]
@@ -432,7 +571,51 @@ pub fn dispatch_tool(request: &ToolUseRequest, root: &Path) -> ToolOutput {
                 Err(e) => ToolOutput::failed("read_url", e.to_string()),
             }
         }
+        "create_file" => {
+            let path_str = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
+            create_file::exec(path_str, root, content).0
+        }
+        "replace_range" => {
+            let path_str = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let old_string = args.get("old_string").and_then(|v| v.as_str()).unwrap_or("");
+            let new_string = args.get("new_string").and_then(|v| v.as_str()).unwrap_or("");
+            replace_range::exec(path_str, root, old_string, new_string).0
+        }
+        "write_patch" => match write_patch::Patch::from_json(&request.arguments) {
+            Ok(patch) => write_patch::exec(&patch, root).0,
+            Err(e) => ToolOutput::failed("write_patch", e),
+        },
         other => ToolOutput::failed(other, format!("unknown tool: {other}")),
+    }
+}
+
+/// Dispatch a tool-use request that may produce a file write.
+///
+/// Write-capable tools return both a [`ToolOutput`] for the transcript and an
+/// optional [`WriteResult`] for session audit persistence. Non-write tools
+/// delegate to [`dispatch_tool`] and return `None` for the write result.
+#[allow(dead_code)]
+pub fn dispatch_write(request: &ToolUseRequest, root: &Path) -> (ToolOutput, Option<WriteResult>) {
+    let args = serde_json::from_str(&request.arguments).unwrap_or(serde_json::Value::Null);
+
+    match request.name.as_str() {
+        "create_file" => {
+            let path_str = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
+            create_file::exec(path_str, root, content)
+        }
+        "replace_range" => {
+            let path_str = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let old_string = args.get("old_string").and_then(|v| v.as_str()).unwrap_or("");
+            let new_string = args.get("new_string").and_then(|v| v.as_str()).unwrap_or("");
+            replace_range::exec(path_str, root, old_string, new_string)
+        }
+        "write_patch" => match write_patch::Patch::from_json(&request.arguments) {
+            Ok(patch) => write_patch::exec(&patch, root),
+            Err(e) => (ToolOutput::failed("write_patch", e), None),
+        },
+        _ => (dispatch_tool(request, root), None),
     }
 }
 

@@ -1,32 +1,66 @@
 use std::{
     io,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 
-/// Check whether `path` is within `root` after normalization/canonicalization.
+/// Check whether `path` is within `root` after normalization.
 ///
-/// Both paths are canonicalized if possible. If canonicalization fails (e.g.
-/// the path doesn't exist yet), the raw path is checked with `starts_with`.
+/// The root is canonicalized to resolve symlinks (e.g. macOS `/var` → `/private/var`).
+///
+/// The candidate path is made absolute against the canonical root (if relative)
+/// and normalized lexically.
+///
+///  `.` and `..` are resolved without touching the filesystem so non-existent paths
+/// (e.g. files about to be created) are handled correctly.
 pub fn is_within_root(path: &Path, root: &Path) -> bool {
     let canonical_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-    let canonical_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    canonical_path.starts_with(&canonical_root)
+    let absolute = if path.is_absolute() { path.to_path_buf() } else { canonical_root.join(path) };
+    let normalized = lexical_normalize(&absolute);
+    normalized.starts_with(&canonical_root)
 }
 
 /// Normalize a relative path against a root, then verify containment.
 ///
-/// Returns the absolute path if it is within root, or an error otherwise.
+/// Returns the normalized absolute path if it is within root, or an error
+/// otherwise. The root is canonicalized; the candidate is normalized lexically
+/// so non-existent paths work correctly.
 ///
 /// TODO: tool dispatch
 #[allow(dead_code)]
 pub fn resolve_within_root(root: &Path, relative: &str) -> io::Result<PathBuf> {
-    let candidate = if Path::new(relative).is_absolute() { PathBuf::from(relative) } else { root.join(relative) };
-    if !is_within_root(&candidate, root) {
+    let canonical_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let candidate = if Path::new(relative).is_absolute() {
+        PathBuf::from(relative)
+    } else {
+        canonical_root.join(relative)
+    };
+    let normalized = lexical_normalize(&candidate);
+    if !normalized.starts_with(&canonical_root) {
         let kind = io::ErrorKind::PermissionDenied;
         Err(io::Error::new(kind, format!("path escapes workspace root: {relative}")))
     } else {
-        Ok(candidate)
+        Ok(normalized)
     }
+}
+
+/// Lexically normalize a path by resolving `.` and `..` components without
+/// touching the filesystem.
+///
+/// This handles non-existent paths (e.g. files about to be created) and paths
+/// under symlinked roots consistently. It does not resolve symlinks in the
+/// path itself — that is acceptable for alpha containment checks.
+fn lexical_normalize(path: &Path) -> PathBuf {
+    let mut result = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::ParentDir => {
+                result.pop();
+            }
+            Component::CurDir => {}
+            other => result.push(other.as_os_str()),
+        }
+    }
+    result
 }
 
 #[cfg(test)]

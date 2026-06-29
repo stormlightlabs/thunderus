@@ -485,7 +485,6 @@ fn context_metadata_write_read_round_trip() {
     let path = writer.path().to_path_buf();
     drop(writer);
 
-    // Read back the context record and verify all metadata fields.
     let records = SessionReader::read_records(&path);
     let context_record = records
         .iter()
@@ -497,21 +496,18 @@ fn context_metadata_write_read_round_trip() {
     };
     assert_eq!(metas.len(), 2);
 
-    // First source — not truncated.
     assert_eq!(metas[0].path, "/repo/AGENTS.md");
     assert_eq!(metas[0].scope, ".");
     assert_eq!(metas[0].content_hash, 4242);
     assert!(!metas[0].truncated);
     assert_eq!(metas[0].byte_count, 25);
 
-    // Second source — truncated.
     assert_eq!(metas[1].path, "/repo/sub/AGENTS.md");
     assert_eq!(metas[1].scope, "sub");
     assert_eq!(metas[1].content_hash, 17171);
     assert!(metas[1].truncated);
     assert_eq!(metas[1].byte_count, 40_000);
 
-    // Content must not be persisted — only metadata.
     let json = context_record.to_json().expect("serialize");
     assert!(
         !json.contains("Build with cargo"),

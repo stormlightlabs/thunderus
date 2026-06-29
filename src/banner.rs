@@ -44,19 +44,14 @@ pub fn render_banner(width: u16) -> String {
 /// the banner is left-aligned and doesn't appear scattered.
 pub fn banner_lines(width: u16) -> Vec<String> {
     let raw = render_banner(width);
-
-    // First pass: trim trailing whitespace from each line.
-    let lines: Vec<String> = raw
-        .lines()
-        .map(|l| l.trim_end().to_string())
-        .collect();
-
-    // Find the first and last lines that have actual content (non-blank).
+    let lines: Vec<String> = raw.lines().map(|l| l.trim_end().to_string()).collect();
     let first_content = lines.iter().position(|l| !l.trim().is_empty()).unwrap_or(0);
-    let last_content = lines.iter().rposition(|l| !l.trim().is_empty()).map(|i| i + 1).unwrap_or(0);
+    let last_content = lines
+        .iter()
+        .rposition(|l| !l.trim().is_empty())
+        .map(|i| i + 1)
+        .unwrap_or(0);
 
-    // Trim leading whitespace and filter blanks, collecting first so we can
-    // compute the max width for padding.
     let trimmed: Vec<String> = lines
         .into_iter()
         .skip(first_content)
@@ -65,13 +60,8 @@ pub fn banner_lines(width: u16) -> Vec<String> {
         .map(|l| l.trim_start().to_string())
         .collect();
 
-    // Pad all lines to the max width so the banner forms a neat block with
-    // consistent trailing whitespace.
     let max_len = trimmed.iter().map(|l| l.len()).max().unwrap_or(0);
-    trimmed
-        .into_iter()
-        .map(|l| format!("{l:<max_len$}"))
-        .collect()
+    trimmed.into_iter().map(|l| format!("{l:<max_len$}")).collect()
 }
 
 #[cfg(test)]
@@ -82,11 +72,7 @@ mod tests {
     fn banner_renders_figlet_at_normal_width() {
         let lines = banner_lines(80);
         assert!(!lines.is_empty(), "banner should produce lines");
-        assert!(
-            lines.len() <= 8,
-            "colossal height should be <= 8, got {}",
-            lines.len()
-        );
+        assert!(lines.len() <= 8, "colossal height should be <= 8, got {}", lines.len());
     }
 
     #[test]

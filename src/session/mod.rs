@@ -21,6 +21,7 @@
 //! - `reasoning_finished`: final replayable reasoning text.
 //! - `tool_started`: tool call id, name, input.
 //! - `tool_finished`: tool call id, status, output.
+//! - `file_write`: file write audit (op, path, before/after hash+bytes, status).
 //! - `cancelled`: turn id and reason.
 //! - `failed`: turn id and error message.
 //! - `session_renamed`: new title (latest wins).
@@ -36,6 +37,7 @@ use crate::app::{Entry, ToolStatus};
 use crate::context::ContextSource;
 use crate::datetime;
 use crate::prompt::{EnvironmentMetadata, HistoryReuse, PromptBundle};
+use crate::tools::WriteOp;
 
 /// Current JSONL schema version.
 pub const SCHEMA_VERSION: u32 = 1;
@@ -145,6 +147,25 @@ pub enum SessionRecord {
         time: String,
         title: String,
     },
+    /// A file write operation completed.
+    ///
+    /// Records the operation type, target path, and before/after metadata
+    /// for session audit. Only hashes and byte counts are persisted but
+    /// not file content.
+    #[serde(rename = "file_write")]
+    FileWrite {
+        schema_version: u32,
+        seq: u64,
+        time: String,
+        turn_id: String,
+        op: WriteOp,
+        path: String,
+        before_hash: Option<u64>,
+        before_bytes: Option<usize>,
+        after_hash: u64,
+        after_bytes: usize,
+        status: ToolStatus,
+    },
 }
 
 impl SessionRecord {
@@ -160,7 +181,8 @@ impl SessionRecord {
             | SessionRecord::ToolFinished { seq, .. }
             | SessionRecord::Cancelled { seq, .. }
             | SessionRecord::Failed { seq, .. }
-            | SessionRecord::SessionRenamed { seq, .. } => *seq,
+            | SessionRecord::SessionRenamed { seq, .. }
+            | SessionRecord::FileWrite { seq, .. } => *seq,
         }
     }
 
@@ -243,6 +265,9 @@ impl SessionRecord {
             }),
             SessionRecord::Cancelled { reason, .. } => Some(Entry::Status { text: reason.clone() }),
             SessionRecord::Failed { error, .. } => Some(Entry::Error { text: error.clone() }),
+            SessionRecord::FileWrite { op, path, status, .. } => {
+                Some(Entry::Status { text: format!("{} {}: {path}", status.icon(), op.label()) })
+            }
             _ => None,
         }
     }
@@ -442,6 +467,35 @@ impl SessionWriter {
         Ok(())
     }
 
+    /// Append a file-write audit record.
+    ///
+    /// Records the operation type, path, before/after hashes and byte counts,
+    /// and status. File content is never stored — only hashes and byte counts,
+    /// so secrets and large files are not persisted.
+    pub fn append_file_write(
+        &mut self, turn_id: &str, result: &crate::tools::WriteResult, status: ToolStatus,
+    ) -> std::io::Result<()> {
+        let record = SessionRecord::FileWrite {
+            schema_version: SCHEMA_VERSION,
+            seq: self.seq,
+            time: datetime::now_iso8601(),
+            turn_id: turn_id.to_string(),
+            op: result.op,
+            path: result.path.display().to_string(),
+            before_hash: result.before_hash,
+            before_bytes: result.before_bytes,
+            after_hash: result.after_hash,
+            after_bytes: result.after_bytes,
+            status,
+        };
+        self.seq += 1;
+        let line = record.to_json().map_err(io_err)?;
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new().append(true).open(&self.path)?;
+        writeln!(file, "{line}")?;
+        Ok(())
+    }
+
     /// The session file path.
     pub fn path(&self) -> &Path {
         &self.path
@@ -465,7 +519,8 @@ fn set_seq(record: &mut SessionRecord, seq: u64) {
         | SessionRecord::ToolFinished { seq: s, .. }
         | SessionRecord::Cancelled { seq: s, .. }
         | SessionRecord::Failed { seq: s, .. }
-        | SessionRecord::SessionRenamed { seq: s, .. } => *s = seq,
+        | SessionRecord::SessionRenamed { seq: s, .. }
+        | SessionRecord::FileWrite { seq: s, .. } => *s = seq,
     }
 }
 

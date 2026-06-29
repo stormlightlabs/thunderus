@@ -6,10 +6,10 @@
 
 use std::path::PathBuf;
 
-use crate::{
-    cli::{Cli, WebSearchMode},
-    context, session,
-};
+use serde::{Deserialize, Serialize};
+
+use crate::cli::{Cli, WebSearchMode};
+use crate::{context, session};
 
 /// Number of UI ticks the user has to press Ctrl+D a second time before the
 /// quit confirmation expires and a fresh double-press is needed.
@@ -96,7 +96,7 @@ impl PromptState {
 }
 
 /// Status of a tool entry in the transcript.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Default, Serialize, Deserialize)]
 pub enum ToolStatus {
     /// Tool started, not yet finished.
     #[default]
@@ -107,8 +107,19 @@ pub enum ToolStatus {
     Failed,
 }
 
+impl ToolStatus {
+    /// TODO: use unicode symbols
+    pub fn icon(&self) -> &'static str {
+        match self {
+            ToolStatus::Ok => "wrote",
+            ToolStatus::Failed => "write failed",
+            ToolStatus::Running => "writing",
+        }
+    }
+}
+
 /// One transcript row.
-#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Entry {
     /// User-submitted text.
     User { text: String },
