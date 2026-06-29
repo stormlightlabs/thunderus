@@ -1,10 +1,11 @@
 ---
 source: src/ui.rs
+assertion_line: 479
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││user     explain this repo                              │"
-"│> scratch           ││reasoning Let me think about this... The repo is a Rust │"
+"│Sessions            ││ user  explain this repo                                │"
+"│●  scratch          ││ ⠋  │ Let me think about this... The repo is a Rust + Ra│"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
@@ -20,9 +21,9 @@ expression: terminal.backend().to_string()
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
-"│Status: thinking    ││                                                        │"
+"│⠋  thinking         ││                                                        │"
 "│                    ││                                                        │"
 "└────────────────────┘└────────────────────────────────────────────────────────┘"
 "────────────────────────────────────────────────────────────────────────────────"
-">  (streaming… esc to cancel)                                                   "
-"model: umans-coder search: native  cwd: .                                       "
+"⠋   streaming… esc to cancel                                                    "
+" model: umans-coder   search: native  cwd: .                                    "

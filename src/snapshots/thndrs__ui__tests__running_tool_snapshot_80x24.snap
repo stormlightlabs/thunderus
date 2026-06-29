@@ -1,12 +1,13 @@
 ---
 source: src/ui.rs
+assertion_line: 502
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││user     explain this repo                              │"
-"│> scratch           ││reasoning Let me read the Cargo.toml first.             │"
-"│                    ││tool     read_file#0 [running] path: Cargo.toml         │"
-"│                    ││           Cargo.toml: 47 lines                         │"
+"│Sessions            ││ user  explain this repo                                │"
+"│●  scratch          ││ thought  │ Let me read the Cargo.toml first.           │"
+"│                    ││ tool  ⠋ read_file#0 [running]  path: Cargo.toml        │"
+"│                    ││      │ Cargo.toml: 47 lines                            │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
@@ -20,9 +21,9 @@ expression: terminal.backend().to_string()
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
-"│Status: running tool││                                                        │"
+"│⠋  running tool     ││                                                        │"
 "│                    ││                                                        │"
 "└────────────────────┘└────────────────────────────────────────────────────────┘"
 "────────────────────────────────────────────────────────────────────────────────"
-">  (running tool… esc to cancel)                                                "
-"model: umans-coder search: native  cwd: .                                       "
+"⠋   running tool… esc to cancel                                                 "
+" model: umans-coder   search: native  cwd: .                                    "

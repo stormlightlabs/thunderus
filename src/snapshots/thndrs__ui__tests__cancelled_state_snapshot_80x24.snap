@@ -1,11 +1,12 @@
 ---
 source: src/ui.rs
+assertion_line: 622
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││user     explain this repo                              │"
-"│> scratch           ││assistant partial                                       │"
-"│                    ││status   cancelled                                      │"
+"│Sessions            ││ user  explain this repo                                │"
+"│●  scratch          ││ assistant  partial                                     │"
+"│                    ││ status  cancelled                                      │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
@@ -20,9 +21,9 @@ expression: terminal.backend().to_string()
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
-"│Status: cancelled   ││                                                        │"
+"│○  cancelled        ││                                                        │"
 "│                    ││                                                        │"
 "└────────────────────┘└────────────────────────────────────────────────────────┘"
 "────────────────────────────────────────────────────────────────────────────────"
-">  (stopped)                                                                    "
-"model: umans-coder search: native  cwd: .                                       "
+"○   stopped                                                                     "
+" model: umans-coder   search: native  cwd: .                                    "

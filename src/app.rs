@@ -2,12 +2,9 @@
 //!
 //! This follows the Elm architecture (TEA):
 //!
-//!     `update(&mut App, Msg) -> Option<Msg>` is the only mutation path.
+//! `update(&mut App, Msg) -> Option<Msg>` is the only mutation path.
 
 use std::path::PathBuf;
-
-use ratatui::style::{Color, Style};
-use ratatui::text::{Line, Span};
 
 use crate::cli::{Cli, WebSearchMode};
 
@@ -124,82 +121,10 @@ pub enum Entry {
 }
 
 impl Entry {
-    /// Render this entry as one or more transcript lines.
-    ///
-    /// Most entries are a single line. Tool entries render as a header line
-    /// (name, status, args summary) followed by indented output lines, with a
-    /// truncation marker when output exceeds the display cap.
-    pub fn to_lines(&self) -> Vec<Line<'_>> {
-        match self {
-            Entry::User { text } => vec![Line::from(vec![
-                Span::styled("user     ", Style::default().fg(Color::Blue)),
-                Span::raw(text.as_str()),
-            ])],
-            Entry::Assistant { text, streaming: _ } => vec![Line::from(vec![
-                Span::styled("assistant ", Style::default().fg(Color::Green)),
-                Span::raw(text.as_str()),
-            ])],
-            Entry::Reasoning { text, streaming: _ } => vec![Line::from(vec![
-                Span::styled("reasoning ", Style::default().fg(Color::Magenta)),
-                Span::raw(text.as_str()),
-            ])],
-            Entry::Tool { name, arguments, status, output } => {
-                let status_label = match status {
-                    ToolStatus::Running => "running",
-                    ToolStatus::Ok => "ok",
-                    ToolStatus::Failed => "failed",
-                };
-                let status_color = match status {
-                    ToolStatus::Running => Color::Yellow,
-                    ToolStatus::Ok => Color::Green,
-                    ToolStatus::Failed => Color::Red,
-                };
-                let args_summary = summarize_tool_args(arguments);
-                let args_span = if args_summary.is_empty() {
-                    Span::raw(String::new())
-                } else {
-                    Span::raw(format!(" {args_summary}"))
-                };
-                let mut lines = vec![Line::from(vec![
-                    Span::styled("tool     ", Style::default().fg(Color::Yellow)),
-                    Span::raw(name.as_str()),
-                    Span::styled(format!(" [{status_label}]"), Style::default().fg(status_color)),
-                    args_span,
-                ])];
-
-                let max_output_lines = crate::ui::MAX_TOOL_OUTPUT_LINES;
-                let total = output.len();
-                let visible = output.iter().take(max_output_lines);
-                for line in visible {
-                    lines.push(Line::from(vec![
-                        Span::styled("           ", Style::default().fg(Color::DarkGray)),
-                        Span::raw(line.as_str()),
-                    ]));
-                }
-
-                if total > max_output_lines {
-                    lines.push(Line::from(vec![Span::styled(
-                        format!("           …({} more lines)", total - max_output_lines),
-                        Style::default().fg(Color::DarkGray),
-                    )]));
-                }
-                lines
-            }
-            Entry::Status { text } => vec![Line::from(vec![
-                Span::styled("status   ", Style::default().fg(Color::DarkGray)),
-                Span::raw(text.as_str()),
-            ])],
-            Entry::Error { text } => vec![Line::from(vec![
-                Span::styled("error    ", Style::default().fg(Color::Red)),
-                Span::raw(text.as_str()),
-            ])],
-        }
-    }
-
     /// Single-line rendering, kept for backwards-compatible callers.
     #[allow(dead_code)]
-    pub fn to_line(&self) -> Line<'_> {
-        self.to_lines().into_iter().next().unwrap_or_default()
+    pub fn to_line(&self) -> ratatui::text::Line<'_> {
+        crate::ui::entry_lines(self, 0).into_iter().next().unwrap_or_default()
     }
 }
 
@@ -275,6 +200,8 @@ pub struct App {
     /// Scroll offset in transcript lines from the bottom. 0 = pinned to newest.
     /// Positive values scroll up (toward older entries).
     pub scroll_offset: usize,
+    /// Monotonic UI tick used for lightweight animated affordances.
+    pub ui_tick: u64,
     /// When true the loop should stop and the app exit.
     pub quit: bool,
 }
@@ -310,14 +237,16 @@ impl App {
             websearch: cli.websearch,
             context_sources,
             scroll_offset: 0,
+            ui_tick: 0,
             quit: false,
         }
     }
 
     /// Derive the granular status label for the sidebar/status line.
     ///
-    /// Maps `RunState` plus the last transcript entry into one of:
-    /// idle, sending, thinking, streaming, running tool, cancelled, failed, done.
+    /// Maps `RunState` plus the last transcript entry into one of
+    /// idle, sending, thinking, streaming, running tool, cancelled,
+    /// failed, done.
     pub fn status_label(&self) -> &'static str {
         if self.run_state == RunState::Working {
             match self.transcript.last() {
@@ -373,7 +302,10 @@ pub fn update(app: &mut App, msg: &Msg) -> Option<Msg> {
             app.quit = true;
             None
         }
-        Msg::Tick => None,
+        Msg::Tick => {
+            app.ui_tick = app.ui_tick.wrapping_add(1);
+            None
+        }
         Msg::Clear => {
             app.transcript.clear();
             None
@@ -587,53 +519,6 @@ fn finalize_streaming(app: &mut App) {
     }
 }
 
-/// Produce a short, single-line summary of a tool's arguments for the
-/// transcript line. Returns an empty string when there is nothing useful to
-/// show.
-///
-/// The model sends arguments as JSON. We extract the first scalar field value
-/// (e.g. a `pattern`, `path`, or `query`) and truncate it so the transcript
-/// stays readable. Object/array values are rendered as compact JSON and
-/// truncated.
-fn summarize_tool_args(arguments: &str) -> String {
-    let trimmed = arguments.trim();
-    if trimmed.is_empty() || trimmed == "{}" {
-        return String::new();
-    }
-
-    let v: serde_json::Value = match serde_json::from_str(trimmed) {
-        Ok(v) => v,
-        Err(_) => return truncate_chars(trimmed, 48),
-    };
-
-    let Some(obj) = v.as_object() else {
-        return truncate_chars(trimmed, 48);
-    };
-
-    for key in &["pattern", "path", "query", "root", "glob", "file"] {
-        if let Some(val) = obj.get(*key).and_then(|f| f.as_str()) {
-            return format!("{key}: {}", truncate_chars(val, 40));
-        }
-    }
-
-    for (k, val) in obj {
-        if let Some(s) = val.as_str() {
-            return format!("{k}: {}", truncate_chars(s, 40));
-        }
-    }
-
-    truncate_chars(trimmed, 48)
-}
-
-/// Truncate a string to at most `max_chars` chars, appending `...` if truncated.
-fn truncate_chars(s: &str, max_chars: usize) -> String {
-    if s.chars().count() <= max_chars {
-        return s.to_string();
-    }
-    let truncated: String = s.chars().take(max_chars).collect();
-    format!("{truncated}...")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -685,6 +570,14 @@ mod tests {
         assert!(!app.quit);
         update(&mut app, &Msg::Tick);
         assert!(!app.quit);
+    }
+
+    #[test]
+    fn tick_increments_ui_tick() {
+        let mut app = fresh_app();
+        assert_eq!(app.ui_tick, 0);
+        update(&mut app, &Msg::Tick);
+        assert_eq!(app.ui_tick, 1);
     }
 
     #[test]

@@ -1,14 +1,15 @@
 ---
 source: src/ui.rs
+assertion_line: 717
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││user     search for rust async patterns                 │"
-"│> scratch           ││tool     web_search#search-0 [ok] query: rust async patt│"
-"│                    ││           server-side search: rust async patterns      │"
-"│                    ││           result: https://tokio.rs/tutorial/async      │"
-"│                    ││           result: https://rust-lang.org/async-book/    │"
-"│                    ││assistant Here are the results...                       │"
+"│Sessions            ││ user  search for rust async patterns                   │"
+"│●  scratch          ││ tool  ✓ web_search#search-0 [ok]  query: rust async pat│"
+"│                    ││      │ server-side search: rust async patterns         │"
+"│                    ││      │ result: https://tokio.rs/tutorial/async         │"
+"│                    ││      │ result: https://rust-lang.org/async-book/       │"
+"│                    ││ assistant  Here are the results...                     │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
@@ -20,9 +21,9 @@ expression: terminal.backend().to_string()
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
-"│Status: done        ││                                                        │"
+"│✓  done             ││                                                        │"
 "│                    ││                                                        │"
 "└────────────────────┘└────────────────────────────────────────────────────────┘"
 "────────────────────────────────────────────────────────────────────────────────"
 ">                                                                               "
-"model: umans-coder search: native  cwd: .                                       "
+" model: umans-coder   search: native  cwd: .                                    "

@@ -1,13 +1,14 @@
 ---
 source: src/ui.rs
+assertion_line: 529
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││user     explain this repo                              │"
-"│> scratch           ││reasoning Let me think about this... The repo is a Rust │"
-"│                    ││tool     read_file#0 [ok] path: Cargo.toml              │"
-"│                    ││           Cargo.toml: 47 lines                         │"
-"│                    ││assistant This is a fake streaming response.            │"
+"│Sessions            ││ user  explain this repo                                │"
+"│●  scratch          ││ thought  │ Let me think about this... The repo is a Rus│"
+"│                    ││ tool  ✓ read_file#0 [ok]  path: Cargo.toml             │"
+"│                    ││      │ Cargo.toml: 47 lines                            │"
+"│                    ││ assistant  This is a fake streaming response.          │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
@@ -20,9 +21,9 @@ expression: terminal.backend().to_string()
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
-"│Status: done        ││                                                        │"
+"│✓  done             ││                                                        │"
 "│                    ││                                                        │"
 "└────────────────────┘└────────────────────────────────────────────────────────┘"
 "────────────────────────────────────────────────────────────────────────────────"
 ">                                                                               "
-"model: umans-coder search: native  cwd: .                                       "
+" model: umans-coder   search: native  cwd: .                                    "

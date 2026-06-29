@@ -8,13 +8,18 @@
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
 
 use crate::app::{App, PromptState};
 use crate::banner;
 use crate::cli::WebSearchMode;
+
+mod style;
+mod transcript;
+
+pub use transcript::entry_lines;
 
 /// Fixed sidebar width in columns.
 pub const SIDEBAR_WIDTH: u16 = 22;
@@ -86,7 +91,10 @@ fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
-    let block = Block::bordered().title("thndrs");
+    let block = Block::bordered()
+        .title(Line::styled("thndrs", style::title_style()))
+        .border_style(style::border_style())
+        .style(style::panel_style());
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -101,28 +109,44 @@ fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
         .iter()
         .enumerate()
         .map(|(i, name)| {
-            let prefix = if app.sidebar.active == Some(i) { "> " } else { "  " };
-            ListItem::new(format!("{prefix}{name}"))
+            let active = app.sidebar.active == Some(i);
+            let marker = if active { "●" } else { "○" };
+            let marker_style = if active {
+                Style::default().fg(style::P.accent).bg(style::P.panel_bg)
+            } else {
+                style::muted_style()
+            };
+            let name_style = if active {
+                Style::default()
+                    .fg(style::P.text)
+                    .bg(style::P.surface0)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                style::subtle_style()
+            };
+            ListItem::new(Line::from(vec![
+                Span::styled(marker, marker_style),
+                Span::styled(" ", style::text_style()),
+                Span::styled(format!(" {name} "), name_style),
+            ]))
         })
         .collect();
 
     let list = List::new(items)
-        .style(Style::default().fg(Color::Cyan))
-        .block(Block::new().title(Line::from("Sessions")));
+        .style(style::text_style())
+        .block(Block::new().title(Line::styled("Sessions", style::muted_style())));
 
     frame.render_widget(list, sessions_area);
 
     let label = app.status_label();
-    let status_color = match label {
-        "idle" | "done" => Color::DarkGray,
-        "sending" | "thinking" | "streaming" | "running tool" => Color::Yellow,
-        "cancelled" => Color::Cyan,
-        "failed" => Color::Red,
-        _ => Color::DarkGray,
-    };
+    let status_color = style::status_color(label);
     let status_text = Line::from(vec![
-        Span::styled("Status: ", Style::default().fg(Color::DarkGray)),
-        Span::styled(label, Style::default().fg(status_color)),
+        Span::styled(
+            style::status_icon(label, app.ui_tick),
+            Style::default().fg(status_color).bg(style::P.panel_bg),
+        ),
+        Span::styled(" ", style::text_style()),
+        style::label_chip(label, status_color, style::P.surface0),
     ]);
 
     frame.render_widget(Paragraph::new(status_text), status_area);
@@ -137,7 +161,10 @@ fn render_transcript(frame: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
-    let block = Block::bordered().title("Transcript");
+    let block = Block::bordered()
+        .title(Line::styled("Transcript", style::title_style()))
+        .border_style(style::border_style())
+        .style(style::panel_style());
     let inner = block.inner(area);
     frame.render_widget(block, area);
     if inner.height == 0 {
@@ -153,12 +180,13 @@ fn render_transcript(frame: &mut Frame, app: &App, area: Rect) {
             let banner_text = Text::from(
                 banner_lines
                     .iter()
-                    .map(|l| Line::styled(l.as_str(), Style::default().fg(Color::Cyan)))
+                    .map(|l| Line::styled(l.clone(), Style::default().fg(style::P.accent).bg(style::P.panel_bg)))
                     .collect::<Vec<Line>>(),
             );
             frame.render_widget(Paragraph::new(banner_text).wrap(Wrap { trim: false }).centered(), inner);
         } else {
             let placeholder = Paragraph::new("No messages yet. Type a prompt below.")
+                .style(style::muted_style())
                 .wrap(Wrap { trim: false })
                 .centered();
             frame.render_widget(placeholder, inner);
@@ -166,7 +194,11 @@ fn render_transcript(frame: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
-    let lines: Vec<Line> = app.transcript.iter().flat_map(|e| e.to_lines()).collect();
+    let lines: Vec<Line> = app
+        .transcript
+        .iter()
+        .flat_map(|e| entry_lines(e, app.ui_tick))
+        .collect();
     let available = inner.height as usize;
     let from_bottom = app.scroll_offset.min(lines.len().saturating_sub(1));
     let end = lines.len().saturating_sub(from_bottom);
@@ -182,7 +214,8 @@ fn render_prompt(frame: &mut Frame, app: &App, area: Rect) {
 
     let block = Block::new()
         .borders(Borders::TOP)
-        .border_style(Style::default().fg(Color::DarkGray));
+        .border_style(style::border_style())
+        .style(style::panel_style());
 
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -191,22 +224,30 @@ fn render_prompt(frame: &mut Frame, app: &App, area: Rect) {
     }
 
     let state = app.prompt_state();
-    let (prompt_color, show_input) = match state {
-        PromptState::Editable => (Color::Yellow, true),
-        PromptState::Submitted => (Color::DarkGray, false),
-        PromptState::Streaming | PromptState::RunningTool => (Color::Cyan, false),
-        PromptState::Stopped => (Color::Cyan, true),
-        PromptState::Errored => (Color::Red, true),
+    let (prompt_color, show_input, icon) = match state {
+        PromptState::Editable => (style::P.yellow, true, ">"),
+        PromptState::Submitted => (style::P.yellow, false, style::spinner_frame(app.ui_tick)),
+        PromptState::Streaming | PromptState::RunningTool => (style::P.teal, false, style::spinner_frame(app.ui_tick)),
+        PromptState::Stopped => (style::P.teal, true, "○"),
+        PromptState::Errored => (style::P.red, true, "✕"),
     };
 
     let hint = state.hint();
-    let mut spans = vec![Span::styled("> ", Style::default().fg(prompt_color))];
+    let mut spans = vec![
+        Span::styled(icon, Style::default().fg(prompt_color).bg(style::P.panel_bg)),
+        Span::styled(" ", style::text_style()),
+    ];
 
     if show_input {
-        spans.push(Span::raw(app.input.as_str()));
+        spans.push(Span::styled(app.input.clone(), style::text_style()));
     }
     if !hint.is_empty() {
-        spans.push(Span::styled(format!(" {hint}"), Style::default().fg(prompt_color)));
+        spans.push(Span::styled(" ", style::text_style()));
+        spans.push(style::label_chip(
+            hint.trim_matches(['(', ')']),
+            prompt_color,
+            style::P.surface0,
+        ));
     }
 
     let prompt_line = Line::from(spans);
@@ -218,53 +259,44 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
-    let model_span = Span::styled(
-        format!("model: {} ", app.model),
-        Style::default().add_modifier(Modifier::BOLD),
-    );
-
     let search_label = match app.websearch {
         WebSearchMode::Native => "native",
         WebSearchMode::Exa => "exa",
         WebSearchMode::None => "none",
     };
-    let search_span = Span::styled(
-        format!("search: {search_label}  "),
-        Style::default().fg(Color::DarkGray),
-    );
-
     let cwd_display = app.cwd.display().to_string();
-    let cwd_span = Span::styled(format!("cwd: {cwd_display}"), Style::default().fg(Color::DarkGray));
 
-    let model_len = format!("model: {} ", app.model).len();
-    let search_len = format!("search: {search_label}  ",).len();
+    let model_label = format!("model: {}", app.model);
+    let search_text = format!("search: {search_label}");
+    let model_len = model_label.len() + 2;
+    let search_len = search_text.len() + 3;
     let min_cwd_prefix = "cwd: ".len();
     let used = model_len + search_len + min_cwd_prefix;
-    let footer = if (used + cwd_display.len()) as u16 > area.width && area.width > used as u16 + 4 {
+    let cwd_text = if (used + cwd_display.len()) as u16 > area.width && area.width > used as u16 + 4 {
         let keep = (area.width as usize).saturating_sub(used + 3);
-        Line::from(vec![
-            model_span,
-            search_span,
-            Span::styled(
-                format!(
-                    "cwd: …{}",
-                    cwd_display
-                        .chars()
-                        .rev()
-                        .take(keep)
-                        .collect::<String>()
-                        .chars()
-                        .rev()
-                        .collect::<String>()
-                ),
-                Style::default().fg(Color::DarkGray),
-            ),
-        ])
+        format!(
+            "cwd: …{}",
+            cwd_display
+                .chars()
+                .rev()
+                .take(keep)
+                .collect::<String>()
+                .chars()
+                .rev()
+                .collect::<String>()
+        )
     } else {
-        Line::from(vec![model_span, search_span, cwd_span])
+        format!("cwd: {cwd_display}")
     };
+    let footer = Line::from(vec![
+        style::muted_chip(&model_label),
+        Span::styled(" ", style::text_style()),
+        style::muted_chip(&search_text),
+        Span::styled(" ", style::text_style()),
+        Span::styled(cwd_text, style::muted_style()),
+    ]);
 
-    frame.render_widget(Paragraph::new(footer), area);
+    frame.render_widget(Paragraph::new(footer).style(style::panel_style()), area);
 }
 
 #[cfg(test)]
