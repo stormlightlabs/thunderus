@@ -15,7 +15,9 @@ mod tools;
 mod ui;
 
 #[allow(dead_code)]
-// TODO: Wire into app loop
+mod session;
+
+#[allow(dead_code)]
 mod providers;
 
 use std::io;
@@ -70,34 +72,53 @@ fn run_print_prompt(cli: &Cli) -> io::Result<()> {
         &user_turn,
     );
 
-    let system_prompt = crate::prompt::render_system_prompt(&bundle);
-    let messages = crate::prompt::lower_to_umans_messages(&bundle);
-    let tool_catalog = crate::prompt::render_tool_catalog(&bundle);
-
-    println!("=== System Prompt ===");
-    println!("{system_prompt}");
-    println!();
-    println!("=== Tool Catalog ({} tools) ===", bundle.tool_catalog.len());
-    println!("{}", serde_json::to_string_pretty(&tool_catalog).unwrap_or_default());
-    println!();
-    println!("=== Lowered Umans Messages ({} messages) ===", messages.len());
-    for (i, msg) in messages.iter().enumerate() {
-        let redacted = msg.content.replace("sk-", "sk-[REDACTED]");
-        println!(
-            "[{i}] {}: {}",
-            msg.role,
-            if redacted.len() > 200 { format!("{}...", &redacted[..200]) } else { redacted }
-        );
-    }
-    println!();
-    println!("=== Environment ===");
-    println!("  cwd: {}", bundle.environment.cwd);
-    println!("  model: {}", bundle.environment.model);
-    println!("  search: {}", bundle.environment.search_mode);
-    println!("  date: {}", bundle.environment.date);
-    println!("  context_sources: {}", bundle.project_context.len());
-
+    let output = render_print_prompt(&bundle);
+    print!("{output}");
     Ok(())
+}
+
+/// Render the `--print-prompt` debug view as a string.
+///
+/// Produces a human-readable dump of the assembled prompt bundle: system prompt,
+/// tool catalog, lowered Umans messages, and environment metadata. Secrets
+/// (`sk-` prefixed values) are redacted. The date is replaced with `[date]` so
+/// the output is stable for snapshot testing.
+pub fn render_print_prompt(bundle: &PromptBundle) -> String {
+    let system_prompt = crate::prompt::render_system_prompt(bundle);
+    let messages = crate::prompt::lower_to_umans_messages(bundle);
+    let tool_catalog = crate::prompt::render_tool_catalog(bundle);
+
+    let mut out = String::new();
+
+    out.push_str("=== System Prompt ===\n");
+    out.push_str(&system_prompt);
+    out.push_str("\n\n");
+    out.push_str(&format!("=== Tool Catalog ({} tools) ===\n", bundle.tool_catalog.len()));
+    out.push_str(&serde_json::to_string_pretty(&tool_catalog).unwrap_or_default());
+    out.push_str("\n\n");
+    out.push_str(&format!(
+        "=== Lowered Umans Messages ({} messages) ===\n",
+        messages.len()
+    ));
+    for (i, msg) in messages.iter().enumerate() {
+        let redacted = redact_secret(&msg.content);
+        let truncated = if redacted.len() > 200 { format!("{}...", &redacted[..200]) } else { redacted };
+        out.push_str(&format!("[{i}] {}: {truncated}\n", msg.role));
+    }
+    out.push('\n');
+    out.push_str("=== Environment ===\n");
+    out.push_str(&format!("  cwd: {}\n", bundle.environment.cwd));
+    out.push_str(&format!("  model: {}\n", bundle.environment.model));
+    out.push_str(&format!("  search: {}\n", bundle.environment.search_mode));
+    out.push_str("  date: [date]\n");
+    out.push_str(&format!("  context_sources: {}\n", bundle.project_context.len()));
+
+    out
+}
+
+/// Redact secret-like values from prompt content for debug display.
+fn redact_secret(text: &str) -> String {
+    text.replace("sk-", "sk-[REDACTED]")
 }
 
 /// [`ratatui::init`] enables raw mode, enters the alternate screen, installs a
@@ -253,4 +274,96 @@ fn handle_msg(app: &mut App, msg: Msg, terminal: &mut DefaultTerminal) -> io::Re
     }
     terminal.draw(|f| ui::render(f, app))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::ContextSource;
+    use crate::prompt::PromptBundle;
+    use std::path::PathBuf;
+
+    /// Build a deterministic bundle for snapshot testing — no workspace
+    /// discovery, no live date, fixed context.
+    fn snapshot_bundle() -> PromptBundle {
+        let source = ContextSource {
+            path: PathBuf::from("/repo/AGENTS.md"),
+            scope: ".".to_string(),
+            content: "# Project\n\nBuild with cargo. Run tests with cargo test.\n".to_string(),
+            content_hash: 12345,
+            truncated: false,
+            byte_count: 50,
+        };
+        PromptBundle {
+            base: crate::prompt::base_prompt(),
+            policy: crate::prompt::policy_prompt(),
+            environment: crate::prompt::EnvironmentMetadata {
+                cwd: "/repo".to_string(),
+                model: "umans-coder".to_string(),
+                search_mode: "native".to_string(),
+                date: "2026-06-29".to_string(),
+            },
+            project_context: vec![source],
+            tool_catalog: crate::tools::tool_definitions(),
+            transcript_tail: Vec::new(),
+            user_turn: "explain this repo".to_string(),
+            history_reuse: crate::prompt::HistoryReuse::Unavailable,
+            prev_context_hash: None,
+        }
+    }
+
+    #[test]
+    fn render_print_prompt_snapshot() {
+        let bundle = snapshot_bundle();
+        let output = render_print_prompt(&bundle);
+        insta::assert_snapshot!(output);
+    }
+
+    #[test]
+    fn render_print_prompt_redacts_secrets() {
+        let mut bundle = snapshot_bundle();
+        bundle.user_turn = "my key is sk-test123".to_string();
+        let output = render_print_prompt(&bundle);
+        assert!(
+            !output.contains("sk-test123"),
+            "secrets should be redacted in print-prompt output"
+        );
+        assert!(output.contains("sk-[REDACTED]"), "redacted marker should appear");
+    }
+
+    #[test]
+    fn render_print_prompt_includes_all_sections() {
+        let bundle = snapshot_bundle();
+        let output = render_print_prompt(&bundle);
+        assert!(
+            output.contains("=== System Prompt ==="),
+            "should have system prompt section"
+        );
+        assert!(output.contains("=== Tool Catalog"), "should have tool catalog section");
+        assert!(
+            output.contains("=== Lowered Umans Messages"),
+            "should have messages section"
+        );
+        assert!(
+            output.contains("=== Environment ==="),
+            "should have environment section"
+        );
+    }
+
+    #[test]
+    fn render_print_prompt_date_is_redacted() {
+        let bundle = snapshot_bundle();
+        let output = render_print_prompt(&bundle);
+        let env_section = output.split("=== Environment ===").nth(1).unwrap_or("");
+        assert!(
+            env_section.contains("date: [date]"),
+            "date in env section should be redacted to [date] for snapshot stability"
+        );
+    }
+
+    #[test]
+    fn redact_secret_replaces_sk_prefix() {
+        let result = redact_secret("token: sk-abc123 rest");
+        assert_eq!(result, "token: sk-[REDACTED]abc123 rest");
+    }
 }

@@ -64,11 +64,11 @@
       provider supports history reuse.
 - [x] Fall back to active size-capped `AGENTS.md` context when history reuse is
       unavailable.
-- [ ] Record prompt metadata in session JSONL later without storing full raw
+- [x] Record prompt metadata in session JSONL later without storing full raw
       provider payloads by default.
-- [ ] Unit-test prompt-bundle ordering and precedence.
-- [ ] Unit-test Umans message lowering with fixture context and transcript tails.
-- [ ] Add snapshots for prompt debug/inspect output if a debug view exists.
+- [x] Unit-test prompt-bundle ordering and precedence.
+- [x] Unit-test Umans message lowering with fixture context and transcript tails.
+- [x] Add snapshots for prompt debug/inspect output if a debug view exists.
 
 ### Phase 10: Session Persistence
 

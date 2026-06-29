@@ -255,13 +255,8 @@ fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
         }
     };
 
-    // Build the compact, stably-ordered tool schema once and send it on every
-    // provider turn. Umans does not expose explicit reusable-history or
-    // prompt-cache behavior for tool definitions, so we do not rely on
-    // hidden provider memory for them.
     let tool_defs = crate::tools::tool_definitions();
     let tool_schemas = crate::tools::tool_catalog_schemas(&tool_defs);
-
     let messages = vec![umans::Message::user(&handle.prompt)];
     let mut iterations = 0usize;
 
