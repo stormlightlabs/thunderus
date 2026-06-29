@@ -8,6 +8,12 @@ use std::path::PathBuf;
 
 use crate::cli::{Cli, WebSearchMode};
 
+/// Number of UI ticks the user has to press Ctrl+D a second time before the
+/// quit confirmation expires and a fresh double-press is needed.
+///
+/// With the default 100 ms tick rate this is roughly 3 seconds.
+const QUIT_CONFIRM_TIMEOUT_TICKS: u64 = 30;
+
 /// Top-level interaction mode.
 ///
 /// TODO: Command/Help
@@ -206,6 +212,11 @@ pub struct App {
     pub scroll_offset: usize,
     /// Monotonic UI tick used for lightweight animated affordances.
     pub ui_tick: u64,
+    /// When `Some`, the user pressed Ctrl+D once and we are waiting for a
+    /// second press within [`QUIT_CONFIRM_TIMEOUT_TICKS`] ticks to actually
+    /// quit. The value is the tick deadline at which the pending confirmation
+    /// expires.
+    pub ctrl_d_pending: Option<u64>,
     /// When true the loop should stop and the app exit.
     pub quit: bool,
 }
@@ -243,6 +254,7 @@ impl App {
             context_sources,
             scroll_offset: 0,
             ui_tick: 0,
+            ctrl_d_pending: None,
             quit: false,
         }
     }
@@ -297,8 +309,11 @@ impl App {
 /// - `Backspace` removes the last char.
 /// - `Enter` submits: slash commands (`/clear`, `/quit`) are routed, otherwise
 ///   the input is appended as [`Entry::User`] and cleared.
-/// - `q` quits only when the input is empty (so it stays usable while typing).
-/// - `Ctrl+C` and `Ctrl+D` always quit.
+/// - `Ctrl+C` always quits immediately.
+/// - `Ctrl+D` requires a double-press: the first press shows a confirmation
+///   message, the second press within [`QUIT_CONFIRM_TIMEOUT_TICKS`] ticks
+///   quits. The pending state is cleared on timeout or any other key.
+/// - `q` is a normal input character (no longer quits).
 pub fn update(app: &mut App, msg: &Msg) -> Option<Msg> {
     match msg {
         Msg::Key(key) => handle_key(app, *key),
@@ -309,6 +324,11 @@ pub fn update(app: &mut App, msg: &Msg) -> Option<Msg> {
         }
         Msg::Tick => {
             app.ui_tick = app.ui_tick.wrapping_add(1);
+            if let Some(deadline) = app.ctrl_d_pending
+                && now_or_after_deadline(app.ui_tick, deadline)
+            {
+                app.ctrl_d_pending = None;
+            }
             None
         }
         Msg::Clear => {
@@ -319,8 +339,10 @@ pub fn update(app: &mut App, msg: &Msg) -> Option<Msg> {
     }
 }
 
-/// - Ctrl+C and Ctrl+D always quit, even mid-input.
-/// - `q` quits only when the input buffer is empty, so it doesn't fight typing.
+/// - Ctrl+C always quits immediately, even mid-input.
+/// - Ctrl+D requires a double-press: the first press shows a confirmation
+///   message; the second press within [`QUIT_CONFIRM_TIMEOUT_TICKS`] ticks
+///   quits. Any other key (or timeout) cancels the pending state.
 /// - Printable characters append to the input buffer.
 /// - Backspace removes the last character.
 /// - Enter submits the current input.
@@ -340,51 +362,47 @@ fn handle_key(app: &mut App, key: crossterm::event::KeyEvent) -> Option<Msg> {
             Some(Msg::Quit)
         }
         KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            app.quit = true;
-            Some(Msg::Quit)
-        }
-        KeyCode::Char('q') if app.input.is_empty() => {
-            app.quit = true;
-            Some(Msg::Quit)
-        }
-
-        KeyCode::Up | KeyCode::Char('k') if app.input.is_empty() => {
-            app.scroll_offset = app.scroll_offset.saturating_add(1);
-            None
-        }
-
-        KeyCode::Down | KeyCode::Char('j') if app.input.is_empty() => {
-            app.scroll_offset = app.scroll_offset.saturating_sub(1);
-            None
-        }
-
-        KeyCode::PageUp => {
-            app.scroll_offset = app.scroll_offset.saturating_add(10);
-            None
-        }
-
-        KeyCode::PageDown => {
-            if app.scroll_offset > 10 {
-                app.scroll_offset -= 10;
+            if let Some(deadline) = app.ctrl_d_pending
+                && !now_or_after_deadline(app.ui_tick, deadline)
+            {
+                app.ctrl_d_pending = None;
+                app.quit = true;
+                Some(Msg::Quit)
             } else {
-                app.scroll_offset = 0;
+                let deadline = app.ui_tick.wrapping_add(QUIT_CONFIRM_TIMEOUT_TICKS);
+                app.ctrl_d_pending = Some(deadline);
+                app.transcript
+                    .push(Entry::Status { text: String::from("Press CTRL+D again to quit.") });
+                pin_to_bottom(app);
+                None
+            }
+        }
+
+        _ => {
+            app.ctrl_d_pending = None;
+
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') if app.input.is_empty() => {
+                    app.scroll_offset = app.scroll_offset.saturating_add(1);
+                }
+                KeyCode::Down | KeyCode::Char('j') if app.input.is_empty() => {
+                    app.scroll_offset = app.scroll_offset.saturating_sub(1);
+                }
+                KeyCode::PageUp => app.scroll_offset = app.scroll_offset.saturating_add(10),
+                KeyCode::PageDown => match app.scroll_offset > 10 {
+                    true => app.scroll_offset -= 10,
+                    false => app.scroll_offset = 0,
+                },
+                KeyCode::Char(ch) => app.input.push(ch),
+                KeyCode::Backspace => {
+                    app.input.pop();
+                }
+                KeyCode::Enter => return handle_submit(app),
+                KeyCode::Esc if app.run_state == RunState::Working => cancel_stream(app),
+                _ => {}
             }
             None
         }
-        KeyCode::Char(ch) => {
-            app.input.push(ch);
-            None
-        }
-        KeyCode::Backspace => {
-            app.input.pop();
-            None
-        }
-        KeyCode::Enter => handle_submit(app),
-        KeyCode::Esc if app.run_state == RunState::Working => {
-            cancel_stream(app);
-            None
-        }
-        _ => None,
     }
 }
 
@@ -513,6 +531,15 @@ fn pin_to_bottom(app: &mut App) {
     app.scroll_offset = 0;
 }
 
+/// Whether `ui_tick` is at or past `deadline`, accounting for wrap-around.
+///
+/// If `deadline` has wrapped (e.g. `ui_tick` is small and `deadline` is near
+/// `u64::MAX`), we treat the deadline as already passed — a wrap is so rare
+/// that expiring early is the safe choice.
+fn now_or_after_deadline(ui_tick: u64, deadline: u64) -> bool {
+    if deadline >= ui_tick { deadline.wrapping_sub(ui_tick) > u64::MAX / 2 } else { true }
+}
+
 /// Mark all streaming `Assistant` and `Reasoning` entries as complete.
 fn finalize_streaming(app: &mut App) {
     for entry in &mut app.transcript {
@@ -542,14 +569,15 @@ mod tests {
     }
 
     #[test]
-    fn quit_key_sets_quit_flag() {
+    fn q_appends_to_input_and_does_not_quit() {
         let mut app = fresh_app();
         let follow = update(
             &mut app,
             &Msg::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
         );
-        assert!(app.quit);
-        assert_eq!(follow, Some(Msg::Quit));
+        assert!(!app.quit, "q should not quit");
+        assert_eq!(app.input, "q", "q should append to input");
+        assert_eq!(follow, None);
     }
 
     #[test]
@@ -563,13 +591,103 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_d_sets_quit_flag() {
+    fn ctrl_d_first_press_shows_confirmation() {
         let mut app = fresh_app();
         update(
             &mut app,
             &Msg::Key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL)),
         );
-        assert!(app.quit);
+        assert!(!app.quit, "first Ctrl+D should not quit");
+        assert!(app.ctrl_d_pending.is_some(), "should arm pending confirmation");
+        assert!(
+            app.transcript.iter().any(|e| matches!(
+                e,
+                Entry::Status { text } if text.contains("Press CTRL+D again to quit")
+            )),
+            "should show confirmation message"
+        );
+    }
+
+    #[test]
+    fn ctrl_d_second_press_quits() {
+        let mut app = fresh_app();
+        update(
+            &mut app,
+            &Msg::Key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL)),
+        );
+        assert!(!app.quit);
+        assert!(app.ctrl_d_pending.is_some());
+
+        let follow = update(
+            &mut app,
+            &Msg::Key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL)),
+        );
+        assert!(app.quit, "second Ctrl+D should quit");
+        assert!(app.ctrl_d_pending.is_none(), "pending should be cleared on quit");
+        assert_eq!(follow, Some(Msg::Quit));
+    }
+
+    #[test]
+    fn ctrl_d_timeout_expires_and_requires_double_press_again() {
+        let mut app = fresh_app();
+        update(
+            &mut app,
+            &Msg::Key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL)),
+        );
+        assert!(app.ctrl_d_pending.is_some());
+
+        for _ in 0..QUIT_CONFIRM_TIMEOUT_TICKS + 1 {
+            update(&mut app, &Msg::Tick);
+        }
+        assert!(app.ctrl_d_pending.is_none(), "pending should expire after timeout");
+
+        update(
+            &mut app,
+            &Msg::Key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL)),
+        );
+        assert!(!app.quit, "expired second press should not quit");
+        assert!(app.ctrl_d_pending.is_some(), "should arm a fresh confirmation");
+    }
+
+    #[test]
+    fn ctrl_d_cancelled_by_other_key() {
+        let mut app = fresh_app();
+        update(
+            &mut app,
+            &Msg::Key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL)),
+        );
+        assert!(app.ctrl_d_pending.is_some());
+
+        update(
+            &mut app,
+            &Msg::Key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)),
+        );
+        assert!(app.ctrl_d_pending.is_none(), "other key should cancel pending Ctrl+D");
+
+        update(
+            &mut app,
+            &Msg::Key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL)),
+        );
+        assert!(!app.quit, "should not quit after cancellation");
+        assert!(app.ctrl_d_pending.is_some());
+    }
+
+    #[test]
+    fn ctrl_d_works_even_with_input() {
+        let mut app = fresh_app();
+        app.input = String::from("some text");
+        update(
+            &mut app,
+            &Msg::Key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL)),
+        );
+        assert!(!app.quit);
+        assert!(app.ctrl_d_pending.is_some());
+
+        update(
+            &mut app,
+            &Msg::Key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL)),
+        );
+        assert!(app.quit, "Ctrl+D should quit even with input present");
     }
 
     #[test]
@@ -720,26 +838,15 @@ mod tests {
     }
 
     #[test]
-    fn q_does_not_quit_while_typing() {
-        let mut app = fresh_app();
-        app.input = String::from("query");
-        update(
-            &mut app,
-            &Msg::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
-        );
-        assert!(!app.quit);
-        assert_eq!(app.input, "queryq");
-    }
-
-    #[test]
-    fn q_quits_when_input_empty() {
+    fn q_does_not_quit_even_when_input_empty() {
         let mut app = fresh_app();
         let follow = update(
             &mut app,
             &Msg::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
         );
-        assert!(app.quit);
-        assert_eq!(follow, Some(Msg::Quit));
+        assert!(!app.quit, "q should never quit");
+        assert_eq!(follow, None);
+        assert_eq!(app.input, "q");
     }
 
     #[test]
