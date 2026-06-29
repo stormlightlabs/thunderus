@@ -10,7 +10,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
 
 use crate::app::{App, PromptState};
 use crate::cli::WebSearchMode;
@@ -128,6 +128,9 @@ fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 /// Render newest entries fitting the viewport.
+///
+/// We show the FIGlet banner in the empty transcript state when the
+/// transcript area is wide enough; otherwise plain placeholder text.
 fn render_transcript(frame: &mut Frame, app: &App, area: Rect) {
     if area.width == 0 || area.height == 0 {
         return;
@@ -141,16 +144,33 @@ fn render_transcript(frame: &mut Frame, app: &App, area: Rect) {
     }
 
     if app.transcript.is_empty() {
-        let placeholder = Paragraph::new("No messages yet. Type a prompt below.");
-        frame.render_widget(placeholder, inner);
+        let banner_lines = crate::banner::banner_lines(area.width);
+        let banner_height = banner_lines.len() as u16;
+        let show_banner = banner_height > 1 && inner.height > banner_height;
+
+        if show_banner {
+            let banner_text = Text::from(
+                banner_lines
+                    .iter()
+                    .map(|l| Line::styled(l.as_str(), Style::default().fg(Color::Cyan)))
+                    .collect::<Vec<Line>>(),
+            );
+            frame.render_widget(Paragraph::new(banner_text).wrap(Wrap { trim: false }).centered(), inner);
+        } else {
+            let placeholder = Paragraph::new("No messages yet. Type a prompt below.")
+                .wrap(Wrap { trim: false })
+                .centered();
+            frame.render_widget(placeholder, inner);
+        }
         return;
     }
 
-    // Flatten entries into lines (tool entries produce multiple lines).
     let lines: Vec<Line> = app.transcript.iter().flat_map(|e| e.to_lines()).collect();
     let available = inner.height as usize;
-    let start = lines.len().saturating_sub(available);
-    let visible: Vec<Line> = lines[start..].to_vec();
+    let from_bottom = app.scroll_offset.min(lines.len().saturating_sub(1));
+    let end = lines.len().saturating_sub(from_bottom);
+    let start = end.saturating_sub(available);
+    let visible: Vec<Line> = lines[start..end].to_vec();
     frame.render_widget(Paragraph::new(Text::from(visible)), inner);
 }
 
@@ -599,6 +619,7 @@ mod tests {
         let mut app = app();
         app.transcript
             .push(Entry::User { text: String::from("list all files") });
+
         let many: Vec<String> = (0..12).map(|i| format!("src/file_{i}.rs")).collect();
         app.transcript.push(Entry::Tool {
             name: String::from("find_files#0"),
@@ -610,6 +631,24 @@ mod tests {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).expect("create test terminal");
         terminal.draw(|f| render(f, &app)).expect("draw truncated tool output");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
+    fn banner_normal_width_snapshot_80x24() {
+        let app = app();
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw banner normal width");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
+    fn banner_narrow_width_snapshot_50x24() {
+        let app = app();
+        let backend = TestBackend::new(50, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw banner narrow width");
         insta::assert_snapshot!(terminal.backend().to_string());
     }
 }

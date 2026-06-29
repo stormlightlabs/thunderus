@@ -1,0 +1,28 @@
+---
+source: src/ui.rs
+expression: terminal.backend().to_string()
+---
+"┌thndrs──────────────┐┌Transcript────────────────┐"
+"│Sessions            ││  No messages yet. Type a │"
+"│> scratch           ││       prompt below.      │"
+"│                    ││                          │"
+"│                    ││                          │"
+"│                    ││                          │"
+"│                    ││                          │"
+"│                    ││                          │"
+"│                    ││                          │"
+"│                    ││                          │"
+"│                    ││                          │"
+"│                    ││                          │"
+"│                    ││                          │"
+"│                    ││                          │"
+"│                    ││                          │"
+"│                    ││                          │"
+"│                    ││                          │"
+"│                    ││                          │"
+"│Status: idle        ││                          │"
+"│                    ││                          │"
+"└────────────────────┘└──────────────────────────┘"
+"──────────────────────────────────────────────────"
+">                                                 "
+"model: umans-coder search: native  cwd: .         "

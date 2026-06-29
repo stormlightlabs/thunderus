@@ -7,6 +7,7 @@ pub mod cli;
 
 mod agent;
 mod app;
+mod banner;
 mod context;
 mod tools;
 mod ui;

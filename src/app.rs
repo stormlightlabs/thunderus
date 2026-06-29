@@ -272,6 +272,9 @@ pub struct App {
     pub websearch: WebSearchMode,
     /// Loaded context sources (e.g. AGENTS.md).
     pub context_sources: Vec<crate::context::ContextSource>,
+    /// Scroll offset in transcript lines from the bottom. 0 = pinned to newest.
+    /// Positive values scroll up (toward older entries).
+    pub scroll_offset: usize,
     /// When true the loop should stop and the app exit.
     pub quit: bool,
 }
@@ -306,6 +309,7 @@ impl App {
             model: cli.model.clone(),
             websearch: cli.websearch,
             context_sources,
+            scroll_offset: 0,
             quit: false,
         }
     }
@@ -384,6 +388,12 @@ pub fn update(app: &mut App, msg: &Msg) -> Option<Msg> {
 /// - Backspace removes the last character.
 /// - Enter submits the current input.
 /// - Escape cancels an active agent stream.
+/// - Up/Down/PageUp/PageDown scroll the transcript (available even while the
+///   agent is running, so cancel/quit stay usable).
+///     - Scroll up (toward older entries). Works while the agent is running.
+///     - Scroll down (toward newer entries).
+///     - Page up: jump by 10 lines.
+///     - Page down: jump by 10 lines, or reset to newest.
 fn handle_key(app: &mut App, key: crossterm::event::KeyEvent) -> Option<Msg> {
     use crossterm::event::{KeyCode, KeyModifiers};
 
@@ -399,6 +409,30 @@ fn handle_key(app: &mut App, key: crossterm::event::KeyEvent) -> Option<Msg> {
         KeyCode::Char('q') if app.input.is_empty() => {
             app.quit = true;
             Some(Msg::Quit)
+        }
+
+        KeyCode::Up | KeyCode::Char('k') if app.input.is_empty() => {
+            app.scroll_offset = app.scroll_offset.saturating_add(1);
+            None
+        }
+
+        KeyCode::Down | KeyCode::Char('j') if app.input.is_empty() => {
+            app.scroll_offset = app.scroll_offset.saturating_sub(1);
+            None
+        }
+
+        KeyCode::PageUp => {
+            app.scroll_offset = app.scroll_offset.saturating_add(10);
+            None
+        }
+
+        KeyCode::PageDown => {
+            if app.scroll_offset > 10 {
+                app.scroll_offset -= 10;
+            } else {
+                app.scroll_offset = 0;
+            }
+            None
         }
         KeyCode::Char(ch) => {
             app.input.push(ch);
@@ -420,7 +454,7 @@ fn handle_key(app: &mut App, key: crossterm::event::KeyEvent) -> Option<Msg> {
 /// Handle an `Enter` submit. Slash commands are routed; otherwise the input is
 /// appended as [`Entry::User`] and cleared, and the fake agent stream is started.
 ///
-/// Returns an optional follow-up `Msg`.
+/// Returns an optional follow-up [`Msg`].
 fn handle_submit(app: &mut App) -> Option<Msg> {
     if app.run_state != RunState::Idle {
         return None;
@@ -471,6 +505,7 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             } else {
                 app.transcript.push(Entry::Assistant { text: delta, streaming: true });
             }
+            pin_to_bottom(app);
             None
         }
         AgentEvent::ReasoningDelta(delta) => {
@@ -479,6 +514,7 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             } else {
                 app.transcript.push(Entry::Reasoning { text: delta, streaming: true });
             }
+            pin_to_bottom(app);
             None
         }
         AgentEvent::ToolStarted { id, name, arguments } => {
@@ -488,6 +524,7 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
                 status: ToolStatus::Running,
                 output: Vec::new(),
             });
+            pin_to_bottom(app);
             None
         }
         AgentEvent::ToolFinished { id, output, status } => {
@@ -531,6 +568,12 @@ fn cancel_stream(app: &mut App) {
     finalize_streaming(app);
     app.transcript.push(Entry::Status { text: String::from("cancelled") });
     app.run_state = RunState::Idle;
+    pin_to_bottom(app);
+}
+
+/// Reset the scroll offset to pin the transcript to the newest entries.
+fn pin_to_bottom(app: &mut App) {
+    app.scroll_offset = 0;
 }
 
 /// Mark all streaming `Assistant` and `Reasoning` entries as complete.
@@ -1252,5 +1295,90 @@ mod tests {
         update(&mut app, &Msg::Agent(AgentEvent::Started));
         update(&mut app, &Msg::Agent(AgentEvent::Failed(String::from("boom"))));
         assert_eq!(app.prompt_state(), PromptState::Errored);
+    }
+
+    #[test]
+    fn scroll_offset_starts_at_zero() {
+        let app = fresh_app();
+        assert_eq!(app.scroll_offset, 0);
+    }
+
+    #[test]
+    fn up_arrow_increases_scroll_offset() {
+        let mut app = fresh_app();
+        app.transcript.push(Entry::User { text: String::from("line 1") });
+        app.transcript.push(Entry::User { text: String::from("line 2") });
+        update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)));
+        assert_eq!(app.scroll_offset, 1);
+    }
+
+    #[test]
+    fn down_arrow_decreases_scroll_offset() {
+        let mut app = fresh_app();
+        app.scroll_offset = 3;
+        update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)));
+        assert_eq!(app.scroll_offset, 2);
+    }
+
+    #[test]
+    fn page_up_jumps_by_ten() {
+        let mut app = fresh_app();
+        update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE)));
+        assert_eq!(app.scroll_offset, 10);
+    }
+
+    #[test]
+    fn page_down_resets_to_zero_when_small() {
+        let mut app = fresh_app();
+        app.scroll_offset = 5;
+        update(
+            &mut app,
+            &Msg::Key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE)),
+        );
+        assert_eq!(app.scroll_offset, 0);
+    }
+
+    #[test]
+    fn page_down_subtracts_ten_when_large() {
+        let mut app = fresh_app();
+        app.scroll_offset = 15;
+        update(
+            &mut app,
+            &Msg::Key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE)),
+        );
+        assert_eq!(app.scroll_offset, 5);
+    }
+
+    #[test]
+    fn assistant_delta_resets_scroll_to_bottom() {
+        let mut app = fresh_app();
+        app.scroll_offset = 5;
+        update(&mut app, &Msg::Agent(AgentEvent::Started));
+        update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(String::from("hi"))));
+        assert_eq!(app.scroll_offset, 0);
+    }
+
+    #[test]
+    fn scroll_does_not_interfere_with_typing() {
+        let mut app = fresh_app();
+        app.input = String::from("typing");
+        // 'k' should append to input, not scroll, when input is non-empty.
+        update(
+            &mut app,
+            &Msg::Key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE)),
+        );
+        assert_eq!(app.input, "typingk");
+        assert_eq!(app.scroll_offset, 0);
+    }
+
+    #[test]
+    fn vim_j_scroll_works_when_input_empty() {
+        let mut app = fresh_app();
+        app.scroll_offset = 2;
+        update(
+            &mut app,
+            &Msg::Key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)),
+        );
+        assert_eq!(app.scroll_offset, 1);
     }
 }

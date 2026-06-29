@@ -8,69 +8,29 @@
   fake agent stream, reasoning/tool transcript entries, narrow-layout handling, unit
   tests, snapshots, and `cargo check` coverage.
 
-### Phase 5: Context and read-only tool boundary
+### Context and read-only tool boundary
 
 - Added visible root `AGENTS.md` context loading, structured request/tool output
   shapes, bounded read-only repository tools backed by `fd`, `rg --json`, and
   Rust-native file range reads, workspace containment, output caps, transcript
   rendering, fixture/unit coverage, and tool-entry snapshots.
 
+### Umans Provider
+
+- Added the concrete Umans provider client, model metadata support for
+  `umans-coder` and `umans-glm-5.2`, Anthropic-compatible message requests,
+  streaming `AgentEvent` conversion, provider error mapping, no-network fixture
+  tests, and a gated live smoke test.
+
+### Agent Event Loop and Tool UI
+
+- Added the shared fake/Umans agent loop, bounded tool-call dispatch,
+  cancellation, non-blocking UI updates, Gridland-style sidebar/transcript/prompt
+  layout, model/search/workspace chrome, `figlet-rs` banner fallback, event-loop
+  unit coverage, and snapshots for streaming, tools, errors, cancellation, and
+  banner states.
+
 ## alpha: Usable Coding Assistant
-
-### Phase 6: Umans Provider
-
-- [x] Create `src/providers/{mod,umans}.rs`.
-- [x] Read `UMANS_API_KEY` from the environment.
-- [x] Store Umans base URL as `https://api.code.umans.ai`.
-- [x] Implement `GET /v1/models/info` metadata fetch.
-- [x] Parse model capabilities for `umans-coder` and `umans-glm-5.2`.
-- [x] Default selected model to `umans-coder`.
-- [x] Add a simple model switch path for `umans-glm-5.2`.
-- [x] Implement Anthropic-compatible `POST /v1/messages`.
-- [x] Send `x-api-key` and `anthropic-version: 2023-06-01`.
-- [x] Stream response events into `AgentEvent`.
-- [x] Render reasoning/thinking deltas separately from final assistant text if the API
-      emits them.
-- [x] Convert provider HTTP/auth/rate-limit/stream errors into transcript errors.
-- [x] Add a no-network unit test for request construction.
-- [x] Add a no-network unit test for stream event parsing using fixtures.
-- [x] Add a no-network unit test for model metadata parsing.
-- [x] Add an ignored/manual live smoke test gated on `UMANS_API_KEY`.
-
-### Phase 7: Agent Event Loop and Tool UI
-
-- [x] Define one agent loop path for fake and Umans runs.
-- [x] Convert provider stream deltas, reasoning deltas, tool-use requests, tool
-      results, errors, cancellation, and done states into `AgentEvent`.
-- [x] Dispatch Phase 5 read-only tools from provider tool-use requests.
-- [x] Append tool results to the transcript before continuing the provider turn.
-- [x] Prevent recursive or unbounded tool-call loops with a small per-turn cap.
-- [x] Keep tool execution async/non-blocking relative to TUI input and redraw.
-- [x] Add a cancel path that stops the provider stream or active tool call and
-      returns to an editable prompt.
-- [x] Render an agent status line for idle, sending, thinking, streaming, running
-      tool, cancelled, failed, and done states.
-- [x] Render tool calls as first-class transcript entries with name, arguments
-      summary, status, duration, truncation state, and error text.
-- [x] Keep reasoning, assistant text, context sources, and tool output visually
-      distinct in the transcript.
-- [x] Align the shell with Gridland's AI chat pattern: fixed session sidebar,
-      vertical transcript, pinned prompt, and stable footer/status line.
-- [x] Add prompt UI states for editable, submitted, streaming, stopped, and
-      errored runs.
-- [x] Show active model, search mode, and workspace path in stable chrome without
-      crowding narrow terminals.
-- [ ] Add a small `thndrs` banner component using `figlet-rs` and a committed
-      `src/fonts/*.flf` font loaded with `include_str!`.
-- [ ] Fall back to plain title text when the selected FIGlet font cannot parse or
-      the terminal is too narrow.
-- [ ] Preserve keyboard behavior while the agent is running: scroll transcript,
-      cancel, and quit remain available.
-- [ ] Unit-test provider-to-agent event conversion.
-- [ ] Unit-test tool dispatch success, failure, cancellation, and loop-cap behavior.
-- [ ] Add snapshots for thinking, streaming, running-tool, tool-success,
-      tool-failure, cancelled, and provider-error UI states.
-- [ ] Add snapshots for normal-width and narrow-width banner/header rendering.
 
 ### Phase 8: Search and Extraction
 
