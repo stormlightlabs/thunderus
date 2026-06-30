@@ -36,14 +36,7 @@ pub fn entry_lines_with_width(entry: &Entry, tick: u64, user_label: &str, max_wi
         ])],
         Entry::Tool { name, arguments, status, output } => tool_lines(name, arguments, *status, output, tick, avail),
         Entry::Status { text } => vec![message_line("Status", P.overlay1, text, avail)],
-        Entry::Error { text } => vec![Line::from(vec![
-            role_label("Error", P.red),
-            Span::styled("⚠ ", Style::default().fg(P.red).bg(P.panel_bg)),
-            Span::styled(
-                if avail > 0 { truncate_ellipsis(text, avail) } else { text.clone() },
-                Style::default().fg(P.red).bg(P.panel_bg),
-            ),
-        ])],
+        Entry::Error { text } => error_lines(text, avail),
     }
 }
 
@@ -57,6 +50,20 @@ fn role_label(label: &str, fg: Color) -> Span<'static> {
         format!("{label:<ROLE_WIDTH$}"),
         Style::default().fg(fg).bg(P.panel_bg).add_modifier(Modifier::BOLD),
     )
+}
+
+/// Render an error entry with the `⚠` icon as part of the label and the
+/// error text aligned in the message body.
+///
+/// The icon sits in the label column so the error text aligns under the
+/// message body of other rows. Long text is truncated with `…`.
+fn error_lines(text: &str, avail: usize) -> Vec<Line<'static>> {
+    let err_style = Style::default().fg(P.red).bg(P.panel_bg);
+    let display = if avail > 0 { truncate_ellipsis(text, avail) } else { text.to_string() };
+    vec![Line::from(vec![
+        role_label("⚠ Error", P.red),
+        Span::styled(display, err_style),
+    ])]
 }
 
 fn tool_lines(

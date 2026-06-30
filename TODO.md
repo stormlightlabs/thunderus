@@ -116,7 +116,7 @@
 - [x] Redesign tool output blocks so command summaries, stdout/stderr headers,
       nested output lines, and truncation markers share one aligned gutter and
       keep section headers visually distinct from output content.
-- [ ] Fix error row layout: error icons and wrapped/continued error text should
+- [x] Fix error row layout: error icons and wrapped/continued error text should
       align under the message body, not after a large role-label gap or clipped
       hard at the panel edge.
 - [ ] Tune narrow-width layout: hide the sidebar earlier or compress footer

@@ -4,7 +4,7 @@ expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
 "│Sessions            ││User (owais)               explain this repo            │"
-"│ ● scratch          ││Error                      ⚠ authentication failed (HTTP│"
+"│ ● scratch          ││⚠ Error                    authentication failed (HTTP …│"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
