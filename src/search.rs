@@ -763,63 +763,44 @@ mod tests {
         assert!(!article.text_content.is_empty());
     }
 
-    // TODO: is_private_url_* tests should be table-driven
     #[test]
-    fn is_private_url_rejects_localhost() {
-        assert!(is_private_url("http://localhost:8080/test"));
-        assert!(is_private_url("https://localhost./path"));
-    }
+    fn is_private_url_table() {
+        let rejected: &[(&str, &str)] = &[
+            ("localhost", "http://localhost:8080/test"),
+            ("localhost dot", "https://localhost./path"),
+            ("loopback ipv4", "http://127.0.0.1/test"),
+            ("loopback ipv4 high", "http://127.255.255.255/test"),
+            ("private 10.x", "http://10.0.0.1/test"),
+            ("private 10.x high", "http://10.255.255.255/test"),
+            ("private 172.16.x", "http://172.16.0.1/test"),
+            ("private 172.31.x high", "http://172.31.255.255/test"),
+            ("private 192.168.x", "http://192.168.1.1/test"),
+            ("private 192.168.0", "http://192.168.0.0/test"),
+            ("link-local", "http://169.254.1.1/test"),
+            ("link-local metadata", "http://169.254.169.254/latest/meta-data"),
+            ("zero address", "http://0.0.0.0/test"),
+            ("ipv6 loopback", "http://[::1]/test"),
+            ("file scheme", "file:///etc/passwd"),
+            ("ftp scheme", "ftp://example.com/file"),
+            ("javascript scheme", "javascript:alert(1)"),
+            ("unparseable", "not a url"),
+            ("empty", ""),
+        ];
+        for (label, url) in rejected {
+            assert!(
+                is_private_url(url),
+                "{label}: expected private/rejected, got allowed: {url}"
+            );
+        }
 
-    #[test]
-    fn is_private_url_rejects_loopback_ipv4() {
-        assert!(is_private_url("http://127.0.0.1/test"));
-        assert!(is_private_url("http://127.255.255.255/test"));
-    }
-
-    #[test]
-    fn is_private_url_rejects_private_ranges() {
-        assert!(is_private_url("http://10.0.0.1/test"));
-        assert!(is_private_url("http://10.255.255.255/test"));
-        assert!(is_private_url("http://172.16.0.1/test"));
-        assert!(is_private_url("http://172.31.255.255/test"));
-        assert!(is_private_url("http://192.168.1.1/test"));
-        assert!(is_private_url("http://192.168.0.0/test"));
-    }
-
-    #[test]
-    fn is_private_url_rejects_link_local() {
-        assert!(is_private_url("http://169.254.1.1/test"));
-        assert!(is_private_url("http://169.254.169.254/latest/meta-data"));
-    }
-
-    #[test]
-    fn is_private_url_rejects_zero_address() {
-        assert!(is_private_url("http://0.0.0.0/test"));
-    }
-
-    #[test]
-    fn is_private_url_rejects_ipv6_loopback() {
-        assert!(is_private_url("http://[::1]/test"));
-    }
-
-    #[test]
-    fn is_private_url_rejects_non_http_schemes() {
-        assert!(is_private_url("file:///etc/passwd"));
-        assert!(is_private_url("ftp://example.com/file"));
-        assert!(is_private_url("javascript:alert(1)"));
-    }
-
-    #[test]
-    fn is_private_url_rejects_unparseable() {
-        assert!(is_private_url("not a url"));
-        assert!(is_private_url(""));
-    }
-
-    #[test]
-    fn is_private_url_allows_public_addresses() {
-        assert!(!is_private_url("https://example.com/article"));
-        assert!(!is_private_url("http://93.184.216.34/test"));
-        assert!(!is_private_url("https://blog.rust-lang.org/2024/01/01/post"));
+        let allowed: &[(&str, &str)] = &[
+            ("public domain", "https://example.com/article"),
+            ("public ipv4", "http://93.184.216.34/test"),
+            ("public blog", "https://blog.rust-lang.org/2024/01/01/post"),
+        ];
+        for (label, url) in allowed {
+            assert!(!is_private_url(url), "{label}: expected allowed, got rejected: {url}");
+        }
     }
 
     #[test]

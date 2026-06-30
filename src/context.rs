@@ -32,7 +32,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::cli::WebSearchMode;
 use crate::tools;
 
 /// Maximum bytes read from an AGENTS.md file.
@@ -130,26 +129,6 @@ fn trim_to_char_boundary(s: &str, max_bytes: usize) -> String {
         end -= 1;
     }
     s[..end].to_string()
-}
-
-/// Internal request shape sent to a provider. Contains everything the model
-/// needs: the prompt, a transcript tail for context, loaded context sources,
-/// the selected model, and the search mode.
-///
-/// TODO: provider implementation
-#[allow(dead_code)]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RequestShape {
-    /// The current user prompt.
-    pub prompt: String,
-    /// Recent transcript entries for context.
-    pub transcript_tail: Vec<crate::app::Entry>,
-    /// Loaded context sources (e.g. AGENTS.md).
-    pub context_sources: Vec<ContextSource>,
-    /// Selected model name.
-    pub model: String,
-    /// Web search mode.
-    pub search_mode: WebSearchMode,
 }
 
 #[cfg(test)]

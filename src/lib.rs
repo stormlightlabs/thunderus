@@ -4,6 +4,7 @@
 //! The bin in [`main.rs`] just calls [`run`].
 
 pub mod cli;
+pub mod session;
 
 mod agent;
 mod app;
@@ -11,16 +12,11 @@ mod banner;
 mod context;
 mod datetime;
 mod prompt;
+mod providers;
 mod search;
 mod tools;
 mod ui;
 mod utils;
-
-#[allow(dead_code)]
-pub mod session;
-
-#[allow(dead_code)]
-mod providers;
 
 use std::io;
 use std::sync::mpsc;

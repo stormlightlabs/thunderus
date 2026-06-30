@@ -42,6 +42,7 @@ pub const ICEBERG_DARK: Palette = Palette {
     peach: Color::Rgb(226, 164, 120),
 };
 
+/// Alternative theme, not yet selectable. Retained for future theme switching.
 #[allow(dead_code)]
 pub const CATPPUCCIN_MOCHA: Palette = Palette {
     accent: Color::Rgb(137, 180, 250),

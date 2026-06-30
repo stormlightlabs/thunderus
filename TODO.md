@@ -91,19 +91,16 @@
 - [x] Wire existing background-process registry controls into the live app:
       start, list, inspect, cancel, and clean up background commands through
       transcripted process events.
-- [ ] Remove or justify every remaining `#[allow(dead_code)]` after the above
+- [x] Remove or justify every remaining `#[allow(dead_code)]` after the above
       wiring, including provider/session module exports, shell registry helpers,
       theme constants, write-patch helpers, and search module-level suppression.
-- [ ] Resolve adjacent TODOs that mark broken-ground surfaces: provider request
+- [x] Resolve adjacent TODOs that mark broken-ground surfaces: provider request
       shape, Unicode status icons, `sse_to_agent_event` conversion cleanup,
       prompt snapshot intent, private-URL test table cleanup, and path dispatch.
-- [ ] Add an alpha smoke workflow that covers prompt assembly, a read-only tool,
-      a file write, `read_url`, one shell success, one shell failure, session
-      resume, and cancellation.
-- [ ] Add `syntect`-backed syntax highlighting for code-oriented transcript
+- [x] Add `syntect`-backed syntax highlighting for code-oriented transcript
       blocks using cached syntax/theme sets, extension/language detection, and
       a small mapping from syntect colors/styles into Ratatui spans.
-- [ ] Highlight only code fences, file snippets, diffs, and command output that
+- [x] Highlight only code fences, file snippets, diffs, and command output that
       benefits from it; keep plain prose and status rows unhighlighted.
 - [ ] Fix run-state/status consistency in snapshots: running shell/tool states
       should show `running tool`, completed `read_url` should not leave the
@@ -157,6 +154,9 @@
       highlighting does not color gutters, borders, or status chips.
 - [ ] Run and document the alpha readiness checks: `cargo fmt`, `cargo check`,
       clippy, unit tests, and snapshot review.
+- [ ] Add an alpha smoke workflow that covers prompt assembly, a read-only tool,
+      a file write, `read_url`, one shell success, one shell failure, session
+      resume, and cancellation.
 
 ## v1: Supported Release
 

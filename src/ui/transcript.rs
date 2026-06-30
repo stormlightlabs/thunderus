@@ -69,13 +69,37 @@ fn tool_lines(name: &str, arguments: &str, status: ToolStatus, output: &[String]
         spans.push(Span::styled(format!("  {args_summary}"), style::muted_style()));
     }
 
+    let base_name = name.split('#').next().unwrap_or(name);
+    let lang = tool_output_language(base_name, arguments);
+
+    let gutter = "      │ ";
+    let gutter_style = Style::default().fg(P.overlay0).bg(P.panel_bg);
+
     let mut lines = vec![Line::from(spans)];
-    for line in output.iter().take(MAX_TOOL_OUTPUT_LINES) {
-        lines.push(Line::from(vec![
-            Span::styled("      │ ", Style::default().fg(P.overlay0).bg(P.panel_bg)),
-            Span::styled(line.clone(), style::subtle_style()),
-        ]));
-    }
+
+    match lang {
+        Some(lang_str) => {
+            let joined: String = output
+                .iter()
+                .take(MAX_TOOL_OUTPUT_LINES)
+                .map(|l| format!("{l}\n"))
+                .collect();
+            let highlighted = crate::ui::highlight_lines(&joined, Some(lang_str));
+            for hl in highlighted {
+                let mut line_spans = vec![Span::styled(gutter, gutter_style)];
+                line_spans.extend(hl.spans);
+                lines.push(Line::from(line_spans));
+            }
+        }
+        None => {
+            for line in output.iter().take(MAX_TOOL_OUTPUT_LINES) {
+                lines.push(Line::from(vec![
+                    Span::styled(gutter, gutter_style),
+                    Span::styled(line.clone(), style::subtle_style()),
+                ]));
+            }
+        }
+    };
 
     if output.len() > MAX_TOOL_OUTPUT_LINES {
         lines.push(Line::from(vec![Span::styled(
@@ -85,6 +109,53 @@ fn tool_lines(name: &str, arguments: &str, status: ToolStatus, output: &[String]
     }
 
     lines
+}
+
+/// Determine the syntax highlighting language for a tool's output.
+///
+/// Returns `Some(lang)` for code-oriented tools, `None` for plain text.
+///
+/// - `read_file_range` / `create_file` / `replace_range` / `write_patch`:
+///   detect from the file path extension in arguments.
+/// - `run_shell`: highlight as shell script when output looks like compiler
+///   output or command output. For simplicity, use `bash` for shell output.
+/// - `search_text` / `find_files` / `web_search` / `read_url` / others:
+///   no highlighting (plain text results).
+fn tool_output_language(tool_name: &str, arguments: &str) -> Option<&'static str> {
+    match tool_name {
+        "read_file_range" | "create_file" | "replace_range" | "write_patch" => {
+            let v: serde_json::Value = serde_json::from_str(arguments).unwrap_or(serde_json::Value::Null);
+            let path = v.get("path").and_then(|p| p.as_str())?;
+            path_extension_language(path)
+        }
+        "run_shell" => Some("bash"),
+        _ => None,
+    }
+}
+
+/// Map a file path extension to a syntect language token.
+///
+/// TODO: this could be more exhaustive
+fn path_extension_language(path: &str) -> Option<&'static str> {
+    let ext = path.rsplit('.').next()?;
+    match ext {
+        "rs" => Some("rs"),
+        "py" => Some("py"),
+        "js" | "jsx" => Some("js"),
+        "ts" | "tsx" => Some("ts"),
+        "json" => Some("json"),
+        "toml" => Some("toml"),
+        "yaml" | "yml" => Some("yaml"),
+        "sh" | "bash" => Some("bash"),
+        "go" => Some("go"),
+        "c" | "h" => Some("c"),
+        "cpp" | "hpp" | "cc" => Some("cpp"),
+        "html" | "htm" => Some("html"),
+        "css" => Some("css"),
+        "md" => Some("md"),
+        "sql" => Some("sql"),
+        _ => None,
+    }
 }
 
 fn chip(label: &str, fg: Color, bg: Color) -> Span<'static> {

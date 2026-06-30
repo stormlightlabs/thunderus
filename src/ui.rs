@@ -16,9 +16,11 @@ use crate::app::{App, Mode, PromptState};
 use crate::banner;
 use crate::cli::WebSearchMode;
 
+mod highlight;
 mod style;
 mod transcript;
 
+pub use highlight::highlight_lines;
 pub use transcript::entry_lines;
 
 /// Fixed sidebar width in columns.
@@ -1104,6 +1106,79 @@ mod tests {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).expect("create test terminal");
         terminal.draw(|f| render(f, &app)).expect("draw command mode prompt");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
+    fn rust_code_highlight_snapshot_80x24() {
+        let mut app = app();
+        app.transcript.push(Entry::User { text: String::from("read main.rs") });
+        app.transcript.push(Entry::Tool {
+            name: String::from("read_file_range#0"),
+            arguments: String::from(r#"{"path":"src/main.rs","start_line":1,"end_line":5}"#),
+            status: ToolStatus::Ok,
+            output: vec![
+                String::from("fn main() {"),
+                String::from("    println!(\"hello\");"),
+                String::from("}"),
+            ],
+        });
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw rust code highlight");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
+    fn json_output_highlight_snapshot_80x24() {
+        let mut app = app();
+        app.transcript.push(Entry::Tool {
+            name: String::from("read_file_range#1"),
+            arguments: String::from(r#"{"path":"Cargo.toml","start_line":1,"end_line":5}"#),
+            status: ToolStatus::Ok,
+            output: vec![
+                String::from("[package]"),
+                String::from("name = \"thndrs\""),
+                String::from("version = \"0.1.0\""),
+            ],
+        });
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw toml highlight");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
+    fn shell_output_highlight_snapshot_80x24() {
+        let mut app = app();
+        app.transcript.push(Entry::Tool {
+            name: String::from("run_shell#0"),
+            arguments: String::from(r#"{"program":"echo","args":["hello"]}"#),
+            status: ToolStatus::Ok,
+            output: vec![String::from("hello")],
+        });
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw shell output highlight");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
+    fn plain_text_tool_no_highlight_snapshot_80x24() {
+        let mut app = app();
+        app.transcript.push(Entry::Tool {
+            name: String::from("find_files#0"),
+            arguments: String::from(r#"{"pattern":"main"}"#),
+            status: ToolStatus::Ok,
+            output: vec![String::from("src/main.rs"), String::from("src/lib.rs")],
+        });
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw plain text tool");
         insta::assert_snapshot!(terminal.backend().to_string());
     }
 }

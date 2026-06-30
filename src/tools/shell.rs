@@ -58,9 +58,8 @@ enum WaitOutcome {
 /// Mirrors [`ToolStatus`] but adds `Timeout` and `Cancelled` which are
 /// process-specific terminal states.
 ///
-/// `Running` and the registry-facing methods are exercised by unit tests and
-/// will be wired into the live app loop when background process support lands.
-#[allow(dead_code)]
+/// `Running` is only reached for background processes tracked by the registry;
+/// one-shot commands always complete before the status is observed.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum ProcessStatus {
     /// Still running.
@@ -75,7 +74,6 @@ pub enum ProcessStatus {
     Cancelled,
 }
 
-#[allow(dead_code)]
 impl ProcessStatus {
     /// One-word label used in transcript display and session records.
     pub fn label(&self) -> &'static str {
@@ -89,6 +87,8 @@ impl ProcessStatus {
     }
 
     /// Map to the transcript [`ToolStatus`].
+    ///
+    /// TODO: From/Into impl
     pub fn to_tool_status(self) -> ToolStatus {
         match self {
             ProcessStatus::Running => ToolStatus::Running,
@@ -100,10 +100,6 @@ impl ProcessStatus {
 
 /// Whether a command is a one-shot (waited for completion) or a long-lived
 /// background process (tracked separately by the registry).
-///
-/// `Background` is exercised by unit tests and will be wired into the live app
-/// loop when background process support lands.
-#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum ProcessKind {
     /// Waited for completion; result is captured synchronously by the caller.
@@ -114,6 +110,8 @@ pub enum ProcessKind {
 
 impl ProcessKind {
     /// Lowercase label used in display and records.
+    ///
+    /// TODO: Display impl
     pub fn label(&self) -> &'static str {
         match self {
             ProcessKind::OneShot => "one-shot",
@@ -124,14 +122,9 @@ impl ProcessKind {
 
 /// Shared cancellation flag for a single process. Checked cooperatively by
 /// the worker thread between reads; when set, the process is killed.
-///
-/// Not yet wired into the live app loop — the cancellation API is exercised by
-/// unit tests and will be connected when background process support lands.
-#[allow(dead_code)]
 #[derive(Clone, Debug, Default)]
 pub struct CancelFlag(Arc<AtomicBool>);
 
-#[allow(dead_code)]
 impl CancelFlag {
     /// Create a new uncancelled flag.
     pub fn new() -> Self {
@@ -219,17 +212,13 @@ impl ProcessResult {
 }
 
 /// A running process tracked by the registry.
-///
-/// Not yet wired into the live app loop — the registry API is exercised by
-/// unit tests and will be connected when background process support lands.
-#[allow(dead_code)]
 #[derive(Debug)]
 pub struct ActiveProcess {
     /// Unique id assigned by the registry.
     pub id: u64,
     /// The argv that was run.
     pub command: Vec<String>,
-    /// Working directory.
+    /// Working directory. Stored for audit/display; not read by the live loop.
     #[allow(dead_code)]
     pub cwd: PathBuf,
     /// One-shot or background.
@@ -242,7 +231,6 @@ pub struct ActiveProcess {
 
 impl ActiveProcess {
     /// Elapsed time since the process started.
-    #[allow(dead_code)]
     pub fn elapsed(&self) -> Duration {
         self.started.elapsed()
     }
@@ -267,8 +255,9 @@ pub struct ProcessRegistry {
     active: HashMap<u64, ActiveProcess>,
 }
 
-/// Registry methods. Some are not yet called from the live app loop but
-/// form the complete registry API for inspecting/cancelling processes.
+/// Registry methods. `len`, `is_empty`, `one_shot_count`, `cancel`, `remove`,
+/// and `ids` are not yet called from the live app but form the complete
+/// registry API for inspecting/cancelling processes.
 #[allow(dead_code)]
 impl ProcessRegistry {
     /// Create an empty registry.
@@ -371,6 +360,9 @@ pub struct ShellArgs {
 
 impl ShellArgs {
     /// Build one-shot args with default timeout.
+    ///
+    /// Convenience constructor; the live dispatch path builds `ShellArgs`
+    /// directly from tool arguments.
     #[allow(dead_code)]
     pub fn one_shot(program: &str, args: Vec<String>) -> Self {
         ShellArgs { program: program.to_string(), args, cwd: None, timeout_secs: None, kind: ProcessKind::OneShot }

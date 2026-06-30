@@ -61,12 +61,15 @@ impl CancelToken {
 }
 
 /// Which provider drives this agent run.
-#[allow(dead_code)]
+///
+/// The `Umans` variant and [`RunHandle::umans`] are not yet selected by the
+/// live app (it always spawns `Fake`), but they form the provider selection
+/// API for when the provider trait is connected.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProviderKind {
-    /// Deterministic fake provider — no network, scripted events.
+    /// Deterministic fake provider, i.e. no network, scripted events.
     Fake,
-    /// Umans Code provider — real network calls.
+    /// Umans Code provider
     Umans,
 }
 
@@ -86,6 +89,9 @@ impl RunHandle {
     }
 
     /// Create an Umans-provider run handle.
+    ///
+    /// Not yet called from the live app — the provider selection layer will
+    /// use this once the provider trait is connected.
     #[allow(dead_code)]
     pub fn umans(config: AgentRunConfig, prompt: String) -> Self {
         RunHandle { provider: ProviderKind::Umans, config, prompt, cancel: CancelToken::new() }
@@ -109,7 +115,8 @@ pub fn spawn_run(handle: RunHandle) -> Receiver<AgentEvent> {
 
 /// Backwards-compatible entrypoint: spawn the deterministic fake stream.
 ///
-/// This keeps existing callers working while the unified loop is wired in.
+/// Kept for external callers and future smoke tests; the live app uses
+/// [`spawn_run`] with a [`RunHandle::fake`] handle directly.
 #[allow(dead_code)]
 pub fn spawn_fake_stream() -> Receiver<AgentEvent> {
     let config = AgentRunConfig::new(PathBuf::from("."), String::from("fake-agent"), WebSearchMode::Native);

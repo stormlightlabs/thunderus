@@ -92,12 +92,12 @@ pub enum ToolStatus {
 }
 
 impl ToolStatus {
-    /// TODO: use unicode symbols
+    /// Unicode icon & label used in session-record transcript entries for file writes.
     pub fn icon(&self) -> &'static str {
         match self {
-            ToolStatus::Ok => "wrote",
-            ToolStatus::Failed => "write failed",
-            ToolStatus::Running => "writing",
+            ToolStatus::Ok => "✓ wrote",
+            ToolStatus::Failed => "✕ write failed",
+            ToolStatus::Running => "⠋ writing",
         }
     }
 }
@@ -126,6 +126,9 @@ pub enum Entry {
 
 impl Entry {
     /// Single-line rendering, kept for backwards-compatible callers.
+    ///
+    /// The live TUI uses `entry_lines` directly, but this is retained as a
+    /// convenience for tests and future non-TUI consumers.
     #[allow(dead_code)]
     pub fn to_line(&self) -> ratatui::text::Line<'_> {
         crate::ui::entry_lines(self, 0, "You")
@@ -170,9 +173,15 @@ pub enum Msg {
     /// Periodic tick.
     Tick,
     /// Submit the current input.
+    ///
+    /// Not yet emitted by the live key handler (Enter goes through
+    /// `handle_submit`), but part of the public message API.
     #[allow(dead_code)]
     Submit,
     /// Clear the transcript.
+    ///
+    /// Not yet emitted by the live key handler, but part of the public
+    /// message API for programmatic use.
     #[allow(dead_code)]
     Clear,
     /// Quit the app.
@@ -204,6 +213,8 @@ pub struct App {
     pub input: String,
     pub transcript: Vec<Entry>,
     pub sidebar: Sidebar,
+    /// View layout cache. Currently recomputed each frame in `ui::render`;
+    /// retained for future incremental layout optimization.
     #[allow(dead_code)]
     pub view: ui::ViewState,
     pub cwd: PathBuf,
@@ -211,6 +222,10 @@ pub struct App {
     pub user_label: String,
     pub websearch: WebSearchMode,
     /// Loaded context sources (e.g. AGENTS.md).
+    ///
+    /// Read in tests and used by `App::from_cli` to build the initial
+    /// transcript status entry; the live render path does not read this
+    /// field directly (it relies on the transcript entry instead).
     #[allow(dead_code)]
     pub context_sources: Vec<crate::context::ContextSource>,
     /// Scroll offset in transcript lines from the bottom. 0 = pinned to newest.

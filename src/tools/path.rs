@@ -24,9 +24,6 @@ pub fn is_within_root(path: &Path, root: &Path) -> bool {
 /// Returns the normalized absolute path if it is within root, or an error
 /// otherwise. The root is canonicalized; the candidate is normalized lexically
 /// so non-existent paths work correctly.
-///
-/// TODO: tool dispatch
-#[allow(dead_code)]
 pub fn resolve_within_root(root: &Path, relative: &str) -> io::Result<PathBuf> {
     let canonical_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
     let candidate = if Path::new(relative).is_absolute() {
@@ -36,8 +33,10 @@ pub fn resolve_within_root(root: &Path, relative: &str) -> io::Result<PathBuf> {
     };
     let normalized = lexical_normalize(&candidate);
     if !normalized.starts_with(&canonical_root) {
-        let kind = io::ErrorKind::PermissionDenied;
-        Err(io::Error::new(kind, format!("path escapes workspace root: {relative}")))
+        Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("path escapes workspace root: {relative}"),
+        ))
     } else {
         Ok(normalized)
     }
@@ -56,7 +55,7 @@ fn lexical_normalize(path: &Path) -> PathBuf {
             Component::ParentDir => {
                 result.pop();
             }
-            Component::CurDir => {}
+            Component::CurDir => (),
             other => result.push(other.as_os_str()),
         }
     }

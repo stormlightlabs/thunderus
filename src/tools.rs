@@ -99,7 +99,6 @@ impl WriteOp {
 ///
 /// The `name` is what the model uses in a `tool_use` block; `description` and
 /// `input_schema` are sent in the request so the model knows how to call it.
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct ToolDefinition {
     pub name: &'static str,
@@ -115,7 +114,6 @@ pub struct AgentRunConfig {
     /// Selected model name.
     pub model: String,
     /// Web search mode.
-    #[allow(dead_code)]
     pub search_mode: WebSearchMode,
     /// Maximum tool-call iterations per turn.
     pub max_tool_iterations: usize,
@@ -616,7 +614,6 @@ pub fn dispatch_tool(request: &ToolUseRequest, root: &Path) -> ToolOutput {
 /// Write-capable tools return both a [`ToolOutput`] for the transcript and an
 /// optional [`WriteResult`] for session audit persistence. Non-write tools
 /// delegate to [`dispatch_tool`] and return `None` for the write result.
-#[allow(dead_code)]
 pub fn dispatch_write(request: &ToolUseRequest, root: &Path) -> (ToolOutput, Option<WriteResult>) {
     let args = serde_json::from_str(&request.arguments).unwrap_or(serde_json::Value::Null);
 
@@ -647,7 +644,6 @@ pub fn dispatch_write(request: &ToolUseRequest, root: &Path) -> (ToolOutput, Opt
 /// [`dispatch_write`] for file-write tools and [`shell::run_command`] for
 /// `run_shell`, returning all structured side effects alongside the
 /// [`ToolOutput`].
-#[allow(dead_code)]
 pub fn dispatch_full(
     request: &ToolUseRequest, root: &Path,
 ) -> (ToolOutput, Option<WriteResult>, Option<shell::ProcessResult>) {

@@ -48,6 +48,8 @@ pub enum Patch {
 
 impl Patch {
     /// The operation kind this patch represents.
+    ///
+    /// Accessor retained for callers that need the op without pattern-matching.
     #[allow(dead_code)]
     pub fn op(&self) -> WriteOp {
         match self {
@@ -58,6 +60,8 @@ impl Patch {
     }
 
     /// The target file path (relative to root).
+    ///
+    /// Accessor retained for callers that need the path without pattern-matching.
     #[allow(dead_code)]
     pub fn path(&self) -> &str {
         match self {

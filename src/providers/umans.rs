@@ -5,9 +5,6 @@
 
 use std::collections::HashMap;
 use std::env;
-use std::io::{BufRead, BufReader};
-use std::sync::mpsc::{self, Receiver};
-use std::thread;
 
 use serde::{Deserialize, Serialize};
 
@@ -29,7 +26,12 @@ pub const API_KEY_ENV: &str = "UMANS_API_KEY";
 type Result<T> = std::result::Result<T, UmansError>;
 
 /// Errors from the Umans client.
+///
+/// `Json` and `Stream` variants are not yet constructed by the live agent
+/// loop (which uses string error messages), but are retained for API
+/// completeness when the provider error handling is hardened.
 #[derive(Debug, thiserror::Error)]
+#[allow(dead_code)]
 pub enum UmansError {
     /// `UMANS_API_KEY` is not set.
     #[error("UMANS_API_KEY is not set")]
@@ -75,7 +77,9 @@ impl UmansClient {
 
     /// Fetch model metadata from `GET /v1/models/info`.
     ///
-    /// This is a public endpoint that does not require authentication.
+    /// Used by the ignored live smoke test and the model-info fixture test;
+    /// not yet called from the live app loop.
+    #[allow(dead_code)]
     pub fn fetch_models_info(&self) -> Result<HashMap<String, ModelInfo>> {
         let url = format!("{}/v1/models/info", self.base_url);
         let mut resp = self
@@ -121,7 +125,9 @@ impl UmansClient {
     /// Build the HTTP headers map for a Messages API request.
     ///
     /// Returns `x-api-key`, `anthropic-version`, `Content-Type`, and the
-    /// web search provider header.
+    /// web search provider header. Used by the header fixture tests; the live
+    /// request path sets headers inline in `send_streaming_request`.
+    #[allow(dead_code)]
     pub fn build_headers(&self, search_mode: WebSearchMode) -> Vec<(String, String)> {
         vec![
             ("x-api-key".to_string(), self.api_key.clone()),
@@ -169,6 +175,9 @@ impl UmansClient {
 }
 
 /// Model information from `GET /v1/models/info`.
+///
+/// Parsed by the model-info fixture tests; not yet used by the live app loop.
+#[allow(dead_code)]
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct ModelInfo {
     pub name: String,
@@ -181,6 +190,7 @@ pub struct ModelInfo {
 }
 
 /// Base model descriptor.
+#[allow(dead_code)]
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct BaseModel {
     pub name: String,
@@ -193,6 +203,7 @@ pub struct BaseModel {
 }
 
 /// Model capabilities.
+#[allow(dead_code)]
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Capabilities {
     pub max_completion_tokens: u64,
@@ -204,6 +215,7 @@ pub struct Capabilities {
 }
 
 /// Reasoning configuration.
+#[allow(dead_code)]
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Reasoning {
     pub supported: bool,
@@ -450,17 +462,22 @@ pub fn parse_sse_event(event_type: &str, data: &str) -> SseEvent {
 ///
 /// `TextDelta` → `AssistantDelta`, `ThinkingDelta` → `ReasoningDelta`,
 /// `MessageStop` → `Finished`, `Error` → `Failed`.
-///
-/// TODO: convert to a From/Into implementation
-pub fn sse_to_agent_event(event: &SseEvent) -> Option<AgentEvent> {
-    match event {
-        SseEvent::MessageStart => Some(AgentEvent::Started),
-        SseEvent::TextDelta(text) => Some(AgentEvent::AssistantDelta(text.clone())),
-        SseEvent::ThinkingDelta(text) => Some(AgentEvent::ReasoningDelta(text.clone())),
-        SseEvent::MessageStop => Some(AgentEvent::Finished),
-        SseEvent::Error(msg) => Some(AgentEvent::Failed(msg.clone())),
-        _ => None,
+impl From<&SseEvent> for Option<AgentEvent> {
+    fn from(event: &SseEvent) -> Self {
+        match event {
+            SseEvent::MessageStart => Some(AgentEvent::Started),
+            SseEvent::TextDelta(text) => Some(AgentEvent::AssistantDelta(text.clone())),
+            SseEvent::ThinkingDelta(text) => Some(AgentEvent::ReasoningDelta(text.clone())),
+            SseEvent::MessageStop => Some(AgentEvent::Finished),
+            SseEvent::Error(msg) => Some(AgentEvent::Failed(msg.clone())),
+            _ => None,
+        }
     }
+}
+
+/// Convenience wrapper for `Option<AgentEvent>::from(&sse_event)`.
+pub fn sse_to_agent_event(event: &SseEvent) -> Option<AgentEvent> {
+    event.into()
 }
 
 /// Parse a raw SSE chunk (multiple lines) and extract any event/data pairs.
@@ -521,63 +538,6 @@ pub fn error_to_agent_event(err: &UmansError) -> AgentEvent {
         UmansError::Stream(e) => format!("stream error: {e}"),
     };
     AgentEvent::Failed(msg)
-}
-
-/// Read an SSE response body on a background thread, parsing events and
-/// sending [`AgentEvent`] instances through a channel.
-///
-/// The thread reads lines from the response body, accumulates SSE events,
-/// and sends `AgentEvent`s.
-///
-/// When the stream ends, the sender is dropped so the receiver gets `Disconnected`.
-pub fn spawn_stream_reader(response: ureq::http::Response<ureq::Body>) -> Receiver<AgentEvent> {
-    let (tx, rx) = mpsc::channel::<AgentEvent>();
-
-    thread::spawn(move || {
-        let reader = BufReader::new(response.into_body().into_reader());
-        let mut buffer = String::new();
-
-        for line_result in reader.lines() {
-            match line_result {
-                Ok(line) => {
-                    buffer.push_str(&line);
-                    buffer.push('\n');
-
-                    if line.is_empty() {
-                        let events = parse_sse_chunk(&buffer);
-                        buffer.clear();
-
-                        for (event_type, data) in events {
-                            let sse_event = parse_sse_event(&event_type, &data);
-                            if let Some(agent_event) = sse_to_agent_event(&sse_event)
-                                && tx.send(agent_event).is_err()
-                            {
-                                return;
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    let _ = tx.send(AgentEvent::Failed(format!("stream read error: {e}")));
-                    return;
-                }
-            }
-        }
-
-        if !buffer.is_empty() {
-            let events = parse_sse_chunk(&buffer);
-            for (event_type, data) in events {
-                let sse_event = parse_sse_event(&event_type, &data);
-                if let Some(agent_event) = sse_to_agent_event(&sse_event)
-                    && tx.send(agent_event).is_err()
-                {
-                    return;
-                }
-            }
-        }
-    });
-
-    rx
 }
 
 #[cfg(test)]
