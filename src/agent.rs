@@ -21,6 +21,7 @@
 //!    between events, lines, and tool executions. When cancelled, it emits
 //!    [`AgentEvent::Cancelled`] and stops.
 
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -31,7 +32,7 @@ use std::time::Duration;
 use ureq::http::Response;
 
 use crate::app::AgentEvent;
-use crate::providers::umans;
+use crate::providers::{ProviderTurn, umans};
 use crate::tools::{self, AgentRunConfig, ToolUseRequest};
 
 /// Shared cancellation flag. Checked cooperatively by the agent loop.
@@ -71,12 +72,13 @@ pub enum ProviderKind {
 }
 
 /// Handle for a single agent run: provider kind, config, prompt, and cancel.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct RunHandle {
     pub provider: ProviderKind,
     pub config: AgentRunConfig,
     pub prompt: String,
     pub messages: Vec<umans::Message>,
+    pub steering: Option<Receiver<String>>,
     pub cancel: CancelToken,
 }
 
@@ -84,12 +86,28 @@ impl RunHandle {
     /// Create a fake-provider run handle.
     #[cfg(test)]
     pub fn fake(config: AgentRunConfig, prompt: String) -> Self {
-        RunHandle { provider: ProviderKind::Fake, config, prompt, messages: Vec::new(), cancel: CancelToken::new() }
+        RunHandle {
+            provider: ProviderKind::Fake,
+            config,
+            prompt,
+            messages: Vec::new(),
+            steering: None,
+            cancel: CancelToken::new(),
+        }
     }
 
-    /// Create an Umans-provider run handle.
-    pub fn umans(config: AgentRunConfig, messages: Vec<umans::Message>) -> Self {
-        RunHandle { provider: ProviderKind::Umans, config, prompt: String::new(), messages, cancel: CancelToken::new() }
+    /// Create an Umans-provider run handle with a steering-message receiver.
+    pub fn umans_with_steering(
+        config: AgentRunConfig, messages: Vec<umans::Message>, steering: Receiver<String>,
+    ) -> Self {
+        RunHandle {
+            provider: ProviderKind::Umans,
+            config,
+            prompt: String::new(),
+            messages,
+            steering: Some(steering),
+            cancel: CancelToken::new(),
+        }
     }
 }
 
@@ -309,6 +327,9 @@ fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
         };
 
         if turn.tool_requests.is_empty() {
+            if append_steering_messages(&mut messages, handle) {
+                continue;
+            }
             let _ = send(tx, AgentEvent::Finished, cancel);
             return;
         }
@@ -374,7 +395,25 @@ fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
 
         messages.push(umans::Message::assistant_blocks(assistant_blocks));
         messages.extend(tool_results);
+        append_steering_messages(&mut messages, handle);
     }
+}
+
+fn append_steering_messages(messages: &mut Vec<umans::Message>, handle: &RunHandle) -> bool {
+    let Some(rx) = handle.steering.as_ref() else {
+        return false;
+    };
+
+    let mut appended = false;
+    while let Ok(text) = rx.try_recv() {
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        messages.push(umans::Message::user(&format!("[steering]\n{trimmed}")));
+        appended = true;
+    }
+    appended
 }
 
 /// Read an Umans SSE streaming response, converting events to [`AgentEvent`]
@@ -384,10 +423,11 @@ fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
 /// assistant text, or an error message if the stream failed.
 fn stream_umans_response(
     resp: Response<ureq::Body>, tx: &Sender<AgentEvent>, cancel: &CancelToken,
-) -> Result<TurnOutput, String> {
+) -> Result<ProviderTurn, String> {
     let reader = BufReader::new(resp.into_body().into_reader());
     let mut buffer = String::new();
     let mut tool_requests = Vec::new();
+    let mut tool_blocks: HashMap<usize, ToolUseBuilder> = HashMap::new();
     let mut assistant_text = String::new();
 
     for line_result in reader.lines() {
@@ -405,24 +445,15 @@ fn stream_umans_response(
                     buffer.clear();
 
                     for (event_type, data) in events {
-                        let sse_event = umans::parse_sse_event(&event_type, &data);
-
-                        if let umans::SseEvent::Other(ref t) = sse_event
-                            && t.starts_with("content_block_start")
-                            && let Some(req) = extract_tool_use(&data)
-                        {
-                            tool_requests.push(req);
-                        }
-
-                        if let umans::SseEvent::TextDelta(ref text) = sse_event {
-                            assistant_text.push_str(text);
-                        }
-
-                        if let Some(agent_event) = umans::sse_to_agent_event(&sse_event)
-                            && send(tx, agent_event, cancel).is_none()
-                        {
-                            return Err("cancelled".to_string());
-                        }
+                        collect_umans_event(
+                            &event_type,
+                            &data,
+                            &mut tool_blocks,
+                            &mut tool_requests,
+                            &mut assistant_text,
+                            tx,
+                            cancel,
+                        )?;
                     }
                 }
             }
@@ -433,49 +464,113 @@ fn stream_umans_response(
     if !buffer.is_empty() {
         let events = umans::parse_sse_chunk(&buffer);
         for (event_type, data) in events {
-            let sse_event = umans::parse_sse_event(&event_type, &data);
-            if let umans::SseEvent::Other(ref t) = sse_event
-                && t.starts_with("content_block_start")
-                && let Some(req) = extract_tool_use(&data)
-            {
-                tool_requests.push(req);
-            }
-            if let umans::SseEvent::TextDelta(ref text) = sse_event {
-                assistant_text.push_str(text);
-            }
-            if let Some(agent_event) = umans::sse_to_agent_event(&sse_event) {
-                let _ = send(tx, agent_event, cancel);
-            }
+            collect_umans_event(
+                &event_type,
+                &data,
+                &mut tool_blocks,
+                &mut tool_requests,
+                &mut assistant_text,
+                tx,
+                cancel,
+            )?;
         }
     }
 
-    Ok(TurnOutput { tool_requests, assistant_text })
+    for (_, block) in tool_blocks {
+        if let Some(req) = block.finish() {
+            tool_requests.push(req);
+        }
+    }
+
+    Ok(ProviderTurn { tool_requests, assistant_text })
 }
 
-/// Output collected from streaming one provider turn.
-struct TurnOutput {
-    tool_requests: Vec<ToolUseRequest>,
-    assistant_text: String,
+fn collect_umans_event(
+    event_type: &str, data: &str, tool_blocks: &mut HashMap<usize, ToolUseBuilder>,
+    tool_requests: &mut Vec<ToolUseRequest>, assistant_text: &mut String, tx: &Sender<AgentEvent>,
+    cancel: &CancelToken,
+) -> Result<(), String> {
+    let sse_event = umans::parse_sse_event(event_type, data);
+
+    if event_type == "content_block_start"
+        && let Some((index, block)) = extract_tool_use_start(data)
+    {
+        tool_blocks.insert(index, block);
+    }
+
+    match &sse_event {
+        umans::SseEvent::TextDelta(text) => assistant_text.push_str(text),
+        umans::SseEvent::InputJsonDelta { index, partial_json } => {
+            if let Some(block) = tool_blocks.get_mut(index) {
+                block.input_json.push_str(partial_json);
+            }
+        }
+        umans::SseEvent::ContentBlockStop { index } => {
+            if let Some(index) = index
+                && let Some(block) = tool_blocks.remove(index)
+                && let Some(req) = block.finish()
+            {
+                tool_requests.push(req);
+            }
+        }
+        _ => {}
+    }
+
+    if let Some(agent_event) = umans::sse_to_agent_event(&sse_event)
+        && send(tx, agent_event, cancel).is_none()
+    {
+        return Err("cancelled".to_string());
+    }
+
+    Ok(())
 }
 
-/// Extract a tool-use request from a `content_block_start` data payload,
-/// if the content block type is `tool_use`.
-fn extract_tool_use(data: &str) -> Option<ToolUseRequest> {
+#[derive(Clone, Debug)]
+struct ToolUseBuilder {
+    id: String,
+    name: String,
+    initial_input: serde_json::Value,
+    input_json: String,
+}
+
+impl ToolUseBuilder {
+    fn finish(self) -> Option<ToolUseRequest> {
+        let input = if self.input_json.trim().is_empty() {
+            self.initial_input
+        } else {
+            serde_json::from_str(&self.input_json).unwrap_or(serde_json::Value::Null)
+        };
+        let arguments = if input.is_null() {
+            String::from("{}")
+        } else {
+            serde_json::to_string(&input).unwrap_or_else(|_| String::from("{}"))
+        };
+        Some(ToolUseRequest::new(self.name, arguments, self.id))
+    }
+}
+
+fn extract_tool_use_start(data: &str) -> Option<(usize, ToolUseBuilder)> {
     let v: serde_json::Value = serde_json::from_str(data).ok()?;
+    let index = v.get("index").and_then(|i| i.as_u64()).unwrap_or(0) as usize;
     let cb = v.get("content_block")?;
     let block_type = cb.get("type").and_then(|t| t.as_str())?;
     if block_type != "tool_use" {
         return None;
     }
     let name = cb.get("name").and_then(|n| n.as_str())?.to_string();
-    let tool_use_id = cb.get("id").and_then(|n| n.as_str()).unwrap_or("").to_string();
-    let input = cb.get("input").cloned().unwrap_or(serde_json::Value::Null);
-    let arguments = if input.is_null() {
-        String::from("{}")
-    } else {
-        serde_json::to_string(&input).unwrap_or_else(|_| String::from("{}"))
-    };
-    Some(ToolUseRequest::new(name, arguments, tool_use_id))
+    let id = cb.get("id").and_then(|n| n.as_str()).unwrap_or("").to_string();
+    let initial_input = cb.get("input").cloned().unwrap_or(serde_json::Value::Null);
+    Some((
+        index,
+        ToolUseBuilder { id, name, initial_input, input_json: String::new() },
+    ))
+}
+
+/// Extract a tool-use request from a `content_block_start` data payload,
+/// if the content block type is `tool_use`.
+#[cfg(test)]
+fn extract_tool_use(data: &str) -> Option<ToolUseRequest> {
+    extract_tool_use_start(data).and_then(|(_, block)| block.finish())
 }
 
 /// Send an event, respecting cancellation. Returns `Some(())` on success, or
@@ -700,6 +795,93 @@ mod tests {
         assert_eq!(req.tool_use_id, "toolu_01");
         assert!(req.arguments.contains("Cargo"));
         assert_eq!(assistant_text, "Let me look that up.");
+    }
+
+    #[test]
+    fn collect_umans_event_reconstructs_streamed_tool_input_json() {
+        let (tx, _rx) = mpsc::channel();
+        let cancel = CancelToken::new();
+        let mut tool_blocks = HashMap::new();
+        let mut tool_requests = Vec::new();
+        let mut assistant_text = String::new();
+
+        collect_umans_event(
+            "content_block_start",
+            r#"{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_1","name":"find_files","input":{}}}"#,
+            &mut tool_blocks,
+            &mut tool_requests,
+            &mut assistant_text,
+            &tx,
+            &cancel,
+        )
+        .expect("start");
+        collect_umans_event(
+            "content_block_delta",
+            &serde_json::json!({
+                "type": "content_block_delta",
+                "index": 1,
+                "delta": {
+                    "type": "input_json_delta",
+                    "partial_json": "{\"pattern\""
+                }
+            })
+            .to_string(),
+            &mut tool_blocks,
+            &mut tool_requests,
+            &mut assistant_text,
+            &tx,
+            &cancel,
+        )
+        .expect("delta 1");
+        collect_umans_event(
+            "content_block_delta",
+            &serde_json::json!({
+                "type": "content_block_delta",
+                "index": 1,
+                "delta": {
+                    "type": "input_json_delta",
+                    "partial_json": ":\"Cargo\"}"
+                }
+            })
+            .to_string(),
+            &mut tool_blocks,
+            &mut tool_requests,
+            &mut assistant_text,
+            &tx,
+            &cancel,
+        )
+        .expect("delta 2");
+        collect_umans_event(
+            "content_block_stop",
+            r#"{"type":"content_block_stop","index":1}"#,
+            &mut tool_blocks,
+            &mut tool_requests,
+            &mut assistant_text,
+            &tx,
+            &cancel,
+        )
+        .expect("stop");
+
+        assert_eq!(tool_requests.len(), 1);
+        assert_eq!(tool_requests[0].name, "find_files");
+        assert_eq!(tool_requests[0].tool_use_id, "toolu_1");
+        assert_eq!(tool_requests[0].arguments, r#"{"pattern":"Cargo"}"#);
+    }
+
+    #[test]
+    fn append_steering_messages_adds_user_messages() {
+        let (tx, rx) = mpsc::channel();
+        tx.send("look at tests first".to_string()).expect("send steering");
+        drop(tx);
+
+        let handle = RunHandle::umans_with_steering(config(), Vec::new(), rx);
+        let mut messages = Vec::new();
+
+        assert!(append_steering_messages(&mut messages, &handle));
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].role, "user");
+        assert!(messages[0].as_text().contains("[steering]"));
+        assert!(messages[0].as_text().contains("look at tests first"));
     }
 
     #[test]

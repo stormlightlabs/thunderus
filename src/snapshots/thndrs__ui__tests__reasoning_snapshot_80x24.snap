@@ -23,6 +23,6 @@ expression: terminal.backend().to_string()
 "│                    ││                                                        │"
 "└────────────────────┘└────────────────────────────────────────────────────────┘"
 "────────────────────────────────────────────────────────────────────────────────"
-"  ⠋                                                                             "
-"  streaming… esc to cancel                                                      "
+"  ⠋  █                                                                          "
+"  streaming… esc to cancel  target: follow-up  steering: 0  follow-up: 0  Ctrl+T"
 " model: umans-coder   search: native  cwd: .                                    "

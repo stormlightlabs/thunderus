@@ -105,6 +105,10 @@ fn render_help_overlay(frame: &mut Frame, area: Rect) {
             Span::styled("cancel stream / close overlay", style::text_style()),
         ]),
         Line::from(vec![
+            Span::styled("  Ctrl+T       ", style::subtle_style()),
+            Span::styled("toggle running input target", style::text_style()),
+        ]),
+        Line::from(vec![
             Span::styled("  Up/Down k/j  ", style::subtle_style()),
             Span::styled("scroll transcript (empty input)", style::text_style()),
         ]),
@@ -386,7 +390,7 @@ fn render_prompt(frame: &mut Frame, app: &App, area: Rect) {
     let (prompt_color, show_input, icon) = match state {
         PromptState::Editable => (style::P.yellow, true, "›"),
         PromptState::Submitted => (style::P.yellow, false, style::spinner_frame(app.ui_tick)),
-        PromptState::Streaming | PromptState::RunningTool => (style::P.teal, false, style::spinner_frame(app.ui_tick)),
+        PromptState::Streaming | PromptState::RunningTool => (style::P.teal, true, style::spinner_frame(app.ui_tick)),
         PromptState::Stopped => (style::P.teal, true, "○"),
         PromptState::Errored => (style::P.red, true, "✕"),
     };
@@ -400,6 +404,9 @@ fn render_prompt(frame: &mut Frame, app: &App, area: Rect) {
     ];
 
     if show_input {
+        let prefix_width = if app.mode == Mode::Command { 5 } else { 4 };
+        let input_width = input_area.width as usize;
+        let visible_input_width = input_width.saturating_sub(prefix_width + 1);
         if app.mode == Mode::Command {
             input_spans.push(Span::styled(
                 ":",
@@ -407,8 +414,12 @@ fn render_prompt(frame: &mut Frame, app: &App, area: Rect) {
             ));
         }
         input_spans.push(Span::styled(
-            utils::truncate_ellipsis(&app.input, input_area.width as usize),
+            utils::truncate_ellipsis(&app.input, visible_input_width),
             style::text_style(),
+        ));
+        input_spans.push(Span::styled(
+            "█",
+            Style::default().fg(prompt_color).bg(style::P.panel_bg),
         ));
     }
 
@@ -452,6 +463,19 @@ fn render_prompt(frame: &mut Frame, app: &App, area: Rect) {
                 label.to_string(),
                 Style::default().fg(prompt_color).bg(style::P.panel_bg),
             ));
+        }
+
+        if matches!(
+            state,
+            PromptState::Submitted | PromptState::Streaming | PromptState::RunningTool
+        ) {
+            let queue = format!(
+                "  target: {}  steering: {}  follow-up: {}  Ctrl+T toggles",
+                app.queue_target.label(),
+                app.queued_steering.len(),
+                app.queued_followups.len()
+            );
+            status_spans.push(Span::styled(queue, style::subtle_style()));
         }
 
         if status_spans.is_empty() {

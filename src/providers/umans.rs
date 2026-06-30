@@ -402,8 +402,10 @@ pub enum SseEvent {
     ThinkingDelta(String),
     /// `event: content_block_delta` with a text delta.
     TextDelta(String),
+    /// `event: content_block_delta` with a partial tool input JSON delta.
+    InputJsonDelta { index: usize, partial_json: String },
     /// `event: content_block_stop`
-    ContentBlockStop,
+    ContentBlockStop { index: Option<usize> },
     /// `event: message_delta` with stop reason.
     MessageDelta { stop_reason: Option<String> },
     /// `event: message_stop`
@@ -438,6 +440,7 @@ pub fn parse_sse_event(event_type: &str, data: &str) -> SseEvent {
         }
         "content_block_delta" => {
             let v: serde_json::Value = serde_json::from_str(data).unwrap_or(serde_json::Value::Null);
+            let index = v.get("index").and_then(|i| i.as_u64()).unwrap_or(0) as usize;
             let delta_type = v
                 .get("delta")
                 .and_then(|d| d.get("type"))
@@ -462,10 +465,22 @@ pub fn parse_sse_event(event_type: &str, data: &str) -> SseEvent {
                         .to_string();
                     SseEvent::TextDelta(text)
                 }
+                "input_json_delta" => {
+                    let partial_json = v
+                        .get("delta")
+                        .and_then(|d| d.get("partial_json"))
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    SseEvent::InputJsonDelta { index, partial_json }
+                }
                 _ => SseEvent::Other(format!("content_block_delta: {delta_type}")),
             }
         }
-        "content_block_stop" => SseEvent::ContentBlockStop,
+        "content_block_stop" => {
+            let v: serde_json::Value = serde_json::from_str(data).unwrap_or(serde_json::Value::Null);
+            SseEvent::ContentBlockStop { index: v.get("index").and_then(|i| i.as_u64()).map(|i| i as usize) }
+        }
         "message_delta" => {
             let v: serde_json::Value = serde_json::from_str(data).unwrap_or(serde_json::Value::Null);
             let stop_reason = v
@@ -493,14 +508,17 @@ pub fn parse_sse_event(event_type: &str, data: &str) -> SseEvent {
 /// Convert an [`SseEvent`] into an [`AgentEvent`].
 ///
 /// `TextDelta` → `AssistantDelta`, `ThinkingDelta` → `ReasoningDelta`,
-/// `MessageStop` → `Finished`, `Error` → `Failed`.
+/// `Error` → `Failed`.
+///
+/// `MessageStop` is intentionally not converted here. Only the agent loop
+/// knows whether a provider turn ended because the assistant is done or
+/// because tool calls must be dispatched and fed back.
 impl From<&SseEvent> for Option<AgentEvent> {
     fn from(event: &SseEvent) -> Self {
         match event {
             SseEvent::MessageStart => Some(AgentEvent::Started),
             SseEvent::TextDelta(text) => Some(AgentEvent::AssistantDelta(text.clone())),
             SseEvent::ThinkingDelta(text) => Some(AgentEvent::ReasoningDelta(text.clone())),
-            SseEvent::MessageStop => Some(AgentEvent::Finished),
             SseEvent::Error(msg) => Some(AgentEvent::Failed(msg.clone())),
             _ => None,
         }
@@ -788,6 +806,31 @@ mod tests {
     }
 
     #[test]
+    fn parse_sse_event_input_json_delta() {
+        let data = serde_json::json!({
+            "type": "content_block_delta",
+            "index": 1,
+            "delta": {
+                "type": "input_json_delta",
+                "partial_json": "{\"pattern\""
+            }
+        })
+        .to_string();
+        let event = parse_sse_event("content_block_delta", &data);
+        assert_eq!(
+            event,
+            SseEvent::InputJsonDelta { index: 1, partial_json: "{\"pattern\"".to_string() }
+        );
+    }
+
+    #[test]
+    fn parse_sse_event_content_block_stop_with_index() {
+        let data = r#"{"type":"content_block_stop","index":2}"#;
+        let event = parse_sse_event("content_block_stop", data);
+        assert_eq!(event, SseEvent::ContentBlockStop { index: Some(2) });
+    }
+
+    #[test]
     fn parse_sse_event_error() {
         let data = r#"{"type":"error","error":{"type":"overloaded_error","message":"Server overloaded"}}"#;
         let event = parse_sse_event("error", data);
@@ -829,7 +872,7 @@ mod tests {
 
     #[test]
     fn sse_to_agent_message_stop() {
-        assert_eq!(sse_to_agent_event(&SseEvent::MessageStop), Some(AgentEvent::Finished));
+        assert_eq!(sse_to_agent_event(&SseEvent::MessageStop), None);
     }
 
     #[test]
@@ -883,11 +926,10 @@ mod tests {
             })
             .collect();
 
-        assert_eq!(agent_events.len(), 4);
+        assert_eq!(agent_events.len(), 3);
         assert_eq!(agent_events[0], AgentEvent::Started);
         assert_eq!(agent_events[1], AgentEvent::ReasoningDelta("Analyzing...".to_string()));
         assert_eq!(agent_events[2], AgentEvent::AssistantDelta("Hello world".to_string()));
-        assert_eq!(agent_events[3], AgentEvent::Finished);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 # Tools
 
 `thndrs` exposes typed, bounded tools to the model. The model does not receive
-raw shell access.
+raw shell-string access.
 
 ## File Discovery
 
@@ -34,3 +34,30 @@ files, symlink following, and unrestricted searches are not default behavior.
 
 Tool calls render as structured transcript entries with the tool name, status,
 arguments summary, output summary, and truncation state.
+
+## File Writes
+
+The write tools are `create_file`, `replace_range`, and `write_patch`.
+`create_file` fails if the file already exists. `replace_range` edits one
+unique exact string occurrence. `write_patch` is the unified create, replace,
+or edit entry point. All write paths must stay inside the workspace root.
+
+## Shell
+
+`run_shell` runs a program plus argv list in the workspace. Prefer narrower
+tools for file discovery, search, reads, edits, and URL reads. Use shell for
+builds, tests, formatters, and commands that do not fit a narrower tool.
+
+The shell tool is not a sandbox. Commands run as the local `thndrs` process.
+If shell syntax is required, the model must invoke an explicit shell program in
+argv, such as `sh` with `-c`; `thndrs` does not add a separate command-string
+tool.
+
+## Running Input
+
+While the agent is running, typed input can be queued instead of ignored.
+`Ctrl+T` toggles the target between steering and follow-up. Steering is sent
+before the next model request in the active run. Follow-up is submitted as a
+new user turn after the active run finishes. `Esc` cancels the active run and
+clears pending steering for that run; queued follow-ups remain until submitted
+or cleared with `/clear`.

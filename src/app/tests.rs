@@ -556,13 +556,82 @@ fn escape_does_nothing_when_idle() {
 }
 
 #[test]
-fn submit_while_working_is_ignored() {
+fn submit_while_working_queues_followup_by_default() {
     let mut app = fresh_app();
     app.run_state = RunState::Working;
     app.input = String::from("queued message");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
-    assert_eq!(app.input, "queued message");
-    assert!(app.transcript.is_empty());
+    assert!(app.input.is_empty());
+    assert_eq!(app.queued_followups, vec!["queued message".to_string()]);
+    assert!(
+        app.transcript
+            .iter()
+            .any(|e| matches!(e, Entry::Status { text } if text.contains("queued follow-up")))
+    );
+}
+
+#[test]
+fn ctrl_t_toggles_running_queue_target() {
+    let mut app = fresh_app();
+    app.run_state = RunState::Working;
+    assert_eq!(app.queue_target, QueueTarget::FollowUp);
+
+    update(
+        &mut app,
+        &Msg::Key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL)),
+    );
+    assert_eq!(app.queue_target, QueueTarget::Steering);
+
+    update(
+        &mut app,
+        &Msg::Key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL)),
+    );
+    assert_eq!(app.queue_target, QueueTarget::FollowUp);
+}
+
+#[test]
+fn submit_while_working_queues_steering_when_selected() {
+    let mut app = fresh_app();
+    app.run_state = RunState::Working;
+    app.queue_target = QueueTarget::Steering;
+    app.input = String::from("look at tests first");
+
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+
+    assert!(app.input.is_empty());
+    assert_eq!(app.queued_steering, vec!["look at tests first".to_string()]);
+    assert!(
+        app.transcript
+            .iter()
+            .any(|e| matches!(e, Entry::Status { text } if text.contains("queued steering")))
+    );
+}
+
+#[test]
+fn finished_starts_next_followup_turn() {
+    let mut app = fresh_app();
+    app.run_state = RunState::Working;
+    app.queued_followups.push("next task".to_string());
+
+    let next = update(&mut app, &Msg::Agent(AgentEvent::Finished));
+
+    assert_eq!(next, Some(Msg::Agent(AgentEvent::Started)));
+    assert!(app.queued_followups.is_empty());
+    assert_eq!(app.turn_count, 1);
+    assert!(matches!(app.transcript.last(), Some(Entry::User { text }) if text == "next task"));
+}
+
+#[test]
+fn cancelled_clears_queued_steering_but_keeps_followups() {
+    let mut app = fresh_app();
+    app.run_state = RunState::Working;
+    app.queued_steering.push("steer".to_string());
+    app.queued_followups.push("after".to_string());
+
+    update(&mut app, &Msg::Agent(AgentEvent::Cancelled));
+
+    assert!(app.queued_steering.is_empty());
+    assert_eq!(app.queued_followups, vec!["after".to_string()]);
 }
 
 #[test]

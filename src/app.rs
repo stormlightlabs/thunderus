@@ -83,6 +83,32 @@ impl PromptState {
     }
 }
 
+/// Where input submitted during an active run should be queued.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
+pub enum QueueTarget {
+    /// Inject before the next provider request in the active run.
+    Steering,
+    /// Submit as a new user turn after the active run finishes.
+    #[default]
+    FollowUp,
+}
+
+impl QueueTarget {
+    pub fn toggle(self) -> Self {
+        match self {
+            QueueTarget::Steering => QueueTarget::FollowUp,
+            QueueTarget::FollowUp => QueueTarget::Steering,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            QueueTarget::Steering => "steering",
+            QueueTarget::FollowUp => "follow-up",
+        }
+    }
+}
+
 /// Status of a tool entry in the transcript.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Default, Serialize, Deserialize)]
 pub enum ToolStatus {
@@ -222,6 +248,12 @@ pub struct App {
     /// The last submitted prompt text, retained so it can be restored on
     /// provider failure. Cleared on successful completion.
     pub last_input: Option<String>,
+    /// Current target for input submitted while the agent is running.
+    pub queue_target: QueueTarget,
+    /// Steering messages waiting to be sent to the active agent thread.
+    pub queued_steering: Vec<String>,
+    /// Follow-up prompts to submit as new turns after the active run completes.
+    pub queued_followups: Vec<String>,
     /// When true the loop should stop and the app exit.
     pub quit: bool,
 }
@@ -296,6 +328,9 @@ impl App {
             process_registry: ProcessRegistry::new(),
             sidebar_focused: false,
             last_input: None,
+            queue_target: QueueTarget::default(),
+            queued_steering: Vec::new(),
+            queued_followups: Vec::new(),
             quit: false,
         }
     }
@@ -420,6 +455,16 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
             pin_to_bottom(app);
             return None;
         }
+    }
+
+    if key.code == KeyCode::Char('t') && key.modifiers.contains(KeyModifiers::CONTROL) {
+        if app.run_state == RunState::Working {
+            app.queue_target = app.queue_target.toggle();
+            app.transcript
+                .push(Entry::Status { text: format!("queue target: {}", app.queue_target.label()) });
+            pin_to_bottom(app);
+        }
+        return None;
     }
 
     app.ctrl_d_pending = None;
@@ -569,6 +614,11 @@ fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
 ///
 /// Returns an optional follow-up [`Msg`].
 fn handle_submit(app: &mut App) -> Option<Msg> {
+    if app.run_state == RunState::Working {
+        queue_running_input(app);
+        return None;
+    }
+
     if !matches!(app.run_state, RunState::Idle | RunState::Error(_)) {
         return None;
     }
@@ -583,6 +633,33 @@ fn handle_submit(app: &mut App) -> Option<Msg> {
         return handle_command(app, command);
     }
 
+    submit_user_turn(app, text)
+}
+
+fn queue_running_input(app: &mut App) {
+    let text = app.input.trim().to_string();
+    if text.is_empty() {
+        app.input.clear();
+        return;
+    }
+
+    app.input.clear();
+    match app.queue_target {
+        QueueTarget::Steering => {
+            app.queued_steering.push(text);
+            app.transcript
+                .push(Entry::Status { text: format!("queued steering ({})", app.queued_steering.len()) });
+        }
+        QueueTarget::FollowUp => {
+            app.queued_followups.push(text);
+            app.transcript
+                .push(Entry::Status { text: format!("queued follow-up ({})", app.queued_followups.len()) });
+        }
+    }
+    pin_to_bottom(app);
+}
+
+fn submit_user_turn(app: &mut App, text: String) -> Option<Msg> {
     app.transcript.push(Entry::User { text: text.clone() });
     app.input.clear();
     app.last_input = Some(text);
@@ -600,6 +677,8 @@ fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
         "clear" => {
             app.transcript.clear();
             app.input.clear();
+            app.queued_steering.clear();
+            app.queued_followups.clear();
             Some(Msg::Clear)
         }
         "quit" | "exit" => {
@@ -725,7 +804,12 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             app.run_state = RunState::Idle;
             app.last_input = None;
             persist_last_entry(app);
-            None
+            if app.queued_followups.is_empty() {
+                None
+            } else {
+                let next = app.queued_followups.remove(0);
+                submit_user_turn(app, next)
+            }
         }
         AgentEvent::Failed(msg) => {
             finalize_streaming(app);
@@ -744,6 +828,7 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             }
             app.run_state = RunState::Idle;
             app.last_input = None;
+            app.queued_steering.clear();
             persist_last_entry(app);
             None
         }

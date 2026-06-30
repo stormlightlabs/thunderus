@@ -34,6 +34,7 @@ use tools::AgentRunConfig;
 struct AgentSlot {
     receiver: mpsc::Receiver<app::AgentEvent>,
     cancel: agent::CancelToken,
+    steering: mpsc::Sender<String>,
 }
 
 /// Run the TUI to completion using the given CLI configuration.
@@ -155,6 +156,8 @@ fn main_loop(terminal: &mut DefaultTerminal, tick: Duration, cli: &Cli) -> io::R
         while Instant::now() < deadline {
             drain_agent_events(&mut app, &mut agent, terminal)?;
             manage_agent_lifecycle(&app, &mut agent);
+            maybe_spawn_agent(&app, cli, &mut agent);
+            flush_steering(&mut app, &agent);
 
             if app.quit {
                 return Ok(());
@@ -173,6 +176,7 @@ fn main_loop(terminal: &mut DefaultTerminal, tick: Duration, cli: &Cli) -> io::R
             }
 
             maybe_spawn_agent(&app, cli, &mut agent);
+            flush_steering(&mut app, &agent);
 
             if app.quit {
                 return Ok(());
@@ -220,10 +224,24 @@ fn maybe_spawn_agent(app: &App, cli: &Cli, agent: &mut Option<AgentSlot>) {
         &prompt,
     );
     let messages = prompt::lower_to_umans_messages(&bundle);
-    let handle = agent::RunHandle::umans(config, messages);
+    let (steering_tx, steering_rx) = mpsc::channel();
+    let handle = agent::RunHandle::umans_with_steering(config, messages, steering_rx);
     let cancel = handle.cancel.clone();
     let receiver = agent::spawn_run(handle);
-    *agent = Some(AgentSlot { receiver, cancel });
+    *agent = Some(AgentSlot { receiver, cancel, steering: steering_tx });
+}
+
+fn flush_steering(app: &mut App, agent: &Option<AgentSlot>) {
+    let Some(slot) = agent else {
+        return;
+    };
+    let mut unsent = Vec::new();
+    for message in app.queued_steering.drain(..) {
+        if slot.steering.send(message.clone()).is_err() {
+            unsent.push(message);
+        }
+    }
+    app.queued_steering = unsent;
 }
 
 /// Drain all pending agent stream events from the channel and dispatch them as
