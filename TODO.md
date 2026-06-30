@@ -84,11 +84,11 @@
 - [x] Remove the redundant legacy `ToolInput`/`execute` path or make it the
       single dispatch path; provider dispatch, transcript rendering, and session
       records should share one obvious tool execution route.
-- [ ] Wire the existing command/help mode scaffolding into the TUI instead of
+- [x] Wire the existing command/help mode scaffolding into the TUI instead of
       leaving `Mode::Command` and `Mode::Help` dormant.
-- [ ] Wire existing stop/error run states into cancellation/failure rendering so
+- [x] Wire existing stop/error run states into cancellation/failure rendering so
       `RunState::Stopping` and `RunState::Error` represent real app states.
-- [ ] Wire existing background-process registry controls into the live app:
+- [x] Wire existing background-process registry controls into the live app:
       start, list, inspect, cancel, and clean up background commands through
       transcripted process events.
 - [ ] Remove or justify every remaining `#[allow(dead_code)]` after the above

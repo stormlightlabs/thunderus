@@ -10,9 +10,9 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap};
 
-use crate::app::{App, PromptState};
+use crate::app::{App, Mode, PromptState};
 use crate::banner;
 use crate::cli::WebSearchMode;
 
@@ -83,6 +83,90 @@ pub fn render(frame: &mut Frame, app: &App) {
     render_transcript(frame, app, view.transcript);
     render_prompt(frame, app, view.prompt);
     render_footer(frame, app, view.footer);
+
+    if app.mode == Mode::Help {
+        render_help_overlay(frame, frame.area());
+    }
+}
+
+/// Render a centered help overlay listing available commands and keybindings.
+fn render_help_overlay(frame: &mut Frame, area: Rect) {
+    let help_lines = vec![
+        Line::from(vec![Span::styled("  Key          Action", style::title_style())]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  Enter        ", style::subtle_style()),
+            Span::styled("submit prompt / execute command", style::text_style()),
+        ]),
+        Line::from(vec![
+            Span::styled("  Esc          ", style::subtle_style()),
+            Span::styled("cancel stream / close overlay", style::text_style()),
+        ]),
+        Line::from(vec![
+            Span::styled("  Up/Down k/j  ", style::subtle_style()),
+            Span::styled("scroll transcript (empty input)", style::text_style()),
+        ]),
+        Line::from(vec![
+            Span::styled("  PgUp/PgDn    ", style::subtle_style()),
+            Span::styled("scroll by 10 lines", style::text_style()),
+        ]),
+        Line::from(vec![
+            Span::styled("  Ctrl+C       ", style::subtle_style()),
+            Span::styled("quit immediately", style::text_style()),
+        ]),
+        Line::from(vec![
+            Span::styled("  Ctrl+D x2    ", style::subtle_style()),
+            Span::styled("quit (double-press within 3s)", style::text_style()),
+        ]),
+        Line::from(""),
+        Line::from(vec![Span::styled("  Command      Description", style::title_style())]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  :            ", style::subtle_style()),
+            Span::styled("enter command mode", style::text_style()),
+        ]),
+        Line::from(vec![
+            Span::styled("  ?            ", style::subtle_style()),
+            Span::styled("toggle this help overlay", style::text_style()),
+        ]),
+        Line::from(vec![
+            Span::styled("  /clear       ", style::subtle_style()),
+            Span::styled("clear the transcript", style::text_style()),
+        ]),
+        Line::from(vec![
+            Span::styled("  /quit  /exit ", style::subtle_style()),
+            Span::styled("quit the app", style::text_style()),
+        ]),
+        Line::from(vec![
+            Span::styled("  :help        ", style::subtle_style()),
+            Span::styled("show this help overlay", style::text_style()),
+        ]),
+        Line::from(vec![
+            Span::styled("  :bg          ", style::subtle_style()),
+            Span::styled("list background processes", style::text_style()),
+        ]),
+        Line::from(""),
+        Line::styled("  Press ? or Esc to close.", style::muted_style()),
+    ];
+
+    let overlay_height = help_lines.len() as u16 + 2;
+    let overlay_width = 56.min(area.width);
+    let overlay_y = area.height.saturating_sub(overlay_height) / 2;
+    let overlay_x = (area.width.saturating_sub(overlay_width)) / 2;
+
+    let overlay_area = Rect::new(overlay_x, overlay_y, overlay_width, overlay_height);
+
+    frame.render_widget(Clear, overlay_area);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(Line::styled(" Help ", style::title_style()))
+        .border_style(style::border_style())
+        .style(Style::default().bg(style::P.panel_bg));
+    let inner = block.inner(overlay_area);
+    frame.render_widget(block, overlay_area);
+    frame.render_widget(Paragraph::new(Text::from(help_lines)).style(style::text_style()), inner);
+
+    let _ = Layout::vertical([Constraint::Length(0)]);
 }
 
 /// Sessions list on top, status at the bottom.
@@ -257,6 +341,12 @@ fn render_prompt(frame: &mut Frame, app: &App, area: Rect) {
     ];
 
     if show_input {
+        if app.mode == Mode::Command {
+            spans.push(Span::styled(
+                ":",
+                Style::default().fg(style::P.accent).bg(style::P.panel_bg),
+            ));
+        }
         spans.push(Span::styled(app.input.clone(), style::text_style()));
     }
     if !hint.is_empty() {
@@ -319,8 +409,9 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::{Entry, RunState, ToolStatus};
+    use crate::app::{Entry, Mode, RunState, ToolStatus};
     use crate::cli::Cli;
+    use crate::session;
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use std::path::PathBuf;
@@ -820,9 +911,9 @@ mod tests {
     #[test]
     fn sidebar_session_list_snapshot_80x24() {
         let dir = tempfile::tempdir().expect("temp dir");
-        let sessions_dir = crate::session::sessions_dir(dir.path());
+        let sessions_dir = session::sessions_dir(dir.path());
 
-        let _w1 = crate::session::SessionWriter::create(
+        let _w1 = session::SessionWriter::create(
             &sessions_dir,
             "session-aaa",
             "/repo",
@@ -834,7 +925,7 @@ mod tests {
         )
         .expect("create writer 1");
         std::thread::sleep(std::time::Duration::from_millis(50));
-        let _w2 = crate::session::SessionWriter::create(
+        let _w2 = session::SessionWriter::create(
             &sessions_dir,
             "session-bbb",
             "/repo",
@@ -846,7 +937,7 @@ mod tests {
         )
         .expect("create writer 2");
         std::thread::sleep(std::time::Duration::from_millis(50));
-        let _w3 = crate::session::SessionWriter::create(
+        let _w3 = session::SessionWriter::create(
             &sessions_dir,
             "session-ccc",
             "/repo",
@@ -990,6 +1081,29 @@ mod tests {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).expect("create test terminal");
         terminal.draw(|f| render(f, &app)).expect("draw shell running");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
+    fn help_overlay_snapshot_80x24() {
+        let mut app = app();
+        app.mode = Mode::Help;
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw help overlay");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
+    fn command_mode_prompt_snapshot_80x24() {
+        let mut app = app();
+        app.mode = Mode::Command;
+        app.input = String::from("cle");
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw command mode prompt");
         insta::assert_snapshot!(terminal.backend().to_string());
     }
 }

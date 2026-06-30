@@ -9,7 +9,8 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::cli::{Cli, WebSearchMode};
-use crate::{context, session};
+use crate::tools::shell::ProcessRegistry;
+use crate::{context, session, ui};
 
 /// Number of UI ticks the user has to press Ctrl+D a second time before the
 /// quit confirmation expires and a fresh double-press is needed.
@@ -18,17 +19,14 @@ use crate::{context, session};
 const QUIT_CONFIRM_TIMEOUT_TICKS: u64 = 30;
 
 /// Top-level interaction mode.
-///
-/// TODO: Command/Help
-#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
 pub enum Mode {
     /// Normal prompt entry.
     #[default]
     Prompt,
-    /// Slash-command entry.
+    /// Slash-command entry, entered with `:`.
     Command,
-    /// Help overlay.
+    /// Help overlay, entered with `?`.
     Help,
 }
 
@@ -40,24 +38,10 @@ pub enum RunState {
     Idle,
     /// Agent stream active.
     Working,
-    /// A stop has been requested; stream is winding down.
-    #[allow(dead_code)]
+    /// A stop has been requested via Escape; stream is winding down.
     Stopping,
-    /// A recoverable error occurred.
-    #[allow(dead_code)]
+    /// A recoverable error occurred; the prompt is editable again.
     Error(String),
-}
-
-impl RunState {
-    #[allow(dead_code)]
-    pub fn label(&self) -> &'static str {
-        match self {
-            RunState::Idle => "idle",
-            RunState::Working => "working",
-            RunState::Stopping => "stopping",
-            RunState::Error(_) => "error",
-        }
-    }
 }
 
 /// The user-facing prompt state, derived from [`RunState`] and the transcript.
@@ -213,19 +197,21 @@ impl Sidebar {
 }
 
 /// The full application state used to draw the screen.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug)]
 pub struct App {
     pub mode: Mode,
     pub run_state: RunState,
     pub input: String,
     pub transcript: Vec<Entry>,
     pub sidebar: Sidebar,
-    pub view: crate::ui::ViewState,
+    #[allow(dead_code)]
+    pub view: ui::ViewState,
     pub cwd: PathBuf,
     pub model: String,
     pub user_label: String,
     pub websearch: WebSearchMode,
     /// Loaded context sources (e.g. AGENTS.md).
+    #[allow(dead_code)]
     pub context_sources: Vec<crate::context::ContextSource>,
     /// Scroll offset in transcript lines from the bottom. 0 = pinned to newest.
     /// Positive values scroll up (toward older entries).
@@ -239,9 +225,11 @@ pub struct App {
     pub ctrl_d_pending: Option<u64>,
     /// Append-only session writer. `None` when persistence is disabled
     /// (e.g. the sessions directory is not writable).
-    pub session_writer: Option<crate::session::SessionWriter>,
+    pub session_writer: Option<session::SessionWriter>,
     /// Monotonic turn counter for session record correlation.
     pub turn_count: u64,
+    /// Registry of background processes started via `run_shell`.
+    pub process_registry: ProcessRegistry,
     /// When true the loop should stop and the app exit.
     pub quit: bool,
 }
@@ -314,6 +302,7 @@ impl App {
             ctrl_d_pending: None,
             session_writer,
             turn_count: 0,
+            process_registry: ProcessRegistry::new(),
             quit: false,
         }
     }
@@ -321,25 +310,26 @@ impl App {
     /// Derive the granular status label for the sidebar/status line.
     ///
     /// Maps `RunState` plus the last transcript entry into one of
-    /// idle, sending, thinking, streaming, running tool, cancelled,
-    /// failed, done.
+    /// idle, sending, thinking, streaming, running tool, stopping,
+    /// cancelled, failed, error, done.
     pub fn status_label(&self) -> &'static str {
-        if self.run_state == RunState::Working {
-            match self.transcript.last() {
+        match self.run_state {
+            RunState::Working => match self.transcript.last() {
                 Some(Entry::Reasoning { streaming: true, .. }) => "thinking",
                 Some(Entry::Assistant { streaming: true, .. }) => "streaming",
                 Some(Entry::Tool { status: ToolStatus::Running, .. }) => "running tool",
                 Some(Entry::User { .. }) | None => "sending",
                 _ => "streaming",
-            }
-        } else {
-            match self.transcript.last() {
+            },
+            RunState::Stopping => "stopping",
+            RunState::Error(_) => "failed",
+            RunState::Idle => match self.transcript.last() {
                 Some(Entry::Status { text }) if text == "cancelled" => "cancelled",
                 Some(Entry::Error { .. }) => "failed",
                 Some(Entry::Assistant { streaming: false, .. })
                 | Some(Entry::Tool { status: ToolStatus::Ok | ToolStatus::Failed, .. }) => "done",
                 _ => "idle",
-            }
+            },
         }
     }
 
@@ -353,7 +343,9 @@ impl App {
                 Some(Entry::Tool { status: ToolStatus::Running, .. }) => PromptState::RunningTool,
                 _ => PromptState::Submitted,
             },
-            _ => match self.transcript.last() {
+            RunState::Stopping => PromptState::Stopped,
+            RunState::Error(_) => PromptState::Errored,
+            RunState::Idle => match self.transcript.last() {
                 Some(Entry::Status { text }) if text == "cancelled" => PromptState::Stopped,
                 Some(Entry::Error { .. }) => PromptState::Errored,
                 _ => PromptState::Editable,
@@ -378,6 +370,7 @@ pub fn update(app: &mut App, msg: &Msg) -> Option<Msg> {
         Msg::Key(key) => handle_key(app, *key),
         Msg::Submit => handle_submit(app),
         Msg::Quit => {
+            app.process_registry.cancel_all();
             app.quit = true;
             None
         }
@@ -415,53 +408,128 @@ pub fn update(app: &mut App, msg: &Msg) -> Option<Msg> {
 fn handle_key(app: &mut App, key: crossterm::event::KeyEvent) -> Option<Msg> {
     use crossterm::event::{KeyCode, KeyModifiers};
 
-    match key.code {
-        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            app.quit = true;
-            Some(Msg::Quit)
-        }
-        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            if let Some(deadline) = app.ctrl_d_pending
-                && !now_or_after_deadline(app.ui_tick, deadline)
-            {
-                app.ctrl_d_pending = None;
-                app.quit = true;
-                Some(Msg::Quit)
-            } else {
-                let deadline = app.ui_tick.wrapping_add(QUIT_CONFIRM_TIMEOUT_TICKS);
-                app.ctrl_d_pending = Some(deadline);
-                app.transcript
-                    .push(Entry::Status { text: String::from("Press CTRL+D again to quit.") });
-                pin_to_bottom(app);
-                None
-            }
-        }
+    if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+        app.quit = true;
+        return Some(Msg::Quit);
+    }
 
-        _ => {
+    if key.code == KeyCode::Char('d') && key.modifiers.contains(KeyModifiers::CONTROL) {
+        if let Some(deadline) = app.ctrl_d_pending
+            && !now_or_after_deadline(app.ui_tick, deadline)
+        {
             app.ctrl_d_pending = None;
+            app.quit = true;
+            return Some(Msg::Quit);
+        } else {
+            let deadline = app.ui_tick.wrapping_add(QUIT_CONFIRM_TIMEOUT_TICKS);
+            app.ctrl_d_pending = Some(deadline);
+            app.transcript
+                .push(Entry::Status { text: String::from("Press CTRL+D again to quit.") });
+            pin_to_bottom(app);
+            return None;
+        }
+    }
 
-            match key.code {
-                KeyCode::Up | KeyCode::Char('k') if app.input.is_empty() => {
-                    app.scroll_offset = app.scroll_offset.saturating_add(1);
-                }
-                KeyCode::Down | KeyCode::Char('j') if app.input.is_empty() => {
-                    app.scroll_offset = app.scroll_offset.saturating_sub(1);
-                }
-                KeyCode::PageUp => app.scroll_offset = app.scroll_offset.saturating_add(10),
-                KeyCode::PageDown => match app.scroll_offset > 10 {
-                    true => app.scroll_offset -= 10,
-                    false => app.scroll_offset = 0,
-                },
-                KeyCode::Char(ch) => app.input.push(ch),
-                KeyCode::Backspace => {
-                    app.input.pop();
-                }
-                KeyCode::Enter => return handle_submit(app),
-                KeyCode::Esc if app.run_state == RunState::Working => cancel_stream(app),
-                _ => {}
+    app.ctrl_d_pending = None;
+
+    match app.mode {
+        Mode::Help => handle_help_key(app, key),
+        Mode::Command => handle_command_key(app, key),
+        Mode::Prompt => handle_prompt_key(app, key),
+    }
+}
+
+/// Handle keys in Help overlay mode: Esc or `?` returns to the previous mode.
+fn handle_help_key(app: &mut App, key: crossterm::event::KeyEvent) -> Option<Msg> {
+    use crossterm::event::KeyCode;
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('?') | KeyCode::Enter => {
+            app.mode = Mode::Prompt;
+            None
+        }
+        _ => None,
+    }
+}
+
+/// Handle keys in Command mode: typed chars build the command buffer,
+/// Enter executes, Esc/Backspace-on-empty returns to Prompt.
+fn handle_command_key(app: &mut App, key: crossterm::event::KeyEvent) -> Option<Msg> {
+    use crossterm::event::KeyCode;
+    match key.code {
+        KeyCode::Esc => {
+            app.mode = Mode::Prompt;
+            app.input.clear();
+            None
+        }
+        KeyCode::Backspace => {
+            if app.input.is_empty() {
+                app.mode = Mode::Prompt;
+            } else {
+                app.input.pop();
             }
             None
         }
+        KeyCode::Enter => {
+            let text = app.input.trim().to_string();
+            app.input.clear();
+            app.mode = Mode::Prompt;
+            if text.is_empty() { None } else { handle_command(app, &text) }
+        }
+        KeyCode::Char(ch) => {
+            app.input.push(ch);
+            None
+        }
+        _ => None,
+    }
+}
+
+/// Handle keys in normal Prompt mode.
+fn handle_prompt_key(app: &mut App, key: crossterm::event::KeyEvent) -> Option<Msg> {
+    use crossterm::event::KeyCode;
+
+    match key.code {
+        KeyCode::Char('?') if app.input.is_empty() => {
+            app.mode = Mode::Help;
+            None
+        }
+        KeyCode::Char(':') if app.input.is_empty() && matches!(app.run_state, RunState::Idle | RunState::Error(_)) => {
+            app.mode = Mode::Command;
+            None
+        }
+        KeyCode::Up | KeyCode::Char('k') if app.input.is_empty() => {
+            app.scroll_offset = app.scroll_offset.saturating_add(1);
+            None
+        }
+        KeyCode::Down | KeyCode::Char('j') if app.input.is_empty() => {
+            app.scroll_offset = app.scroll_offset.saturating_sub(1);
+            None
+        }
+        KeyCode::PageUp => {
+            app.scroll_offset = app.scroll_offset.saturating_add(10);
+            None
+        }
+        KeyCode::PageDown => {
+            if app.scroll_offset > 10 {
+                app.scroll_offset -= 10;
+            } else {
+                app.scroll_offset = 0;
+            }
+            None
+        }
+        KeyCode::Char(ch) => {
+            app.input.push(ch);
+            None
+        }
+        KeyCode::Backspace => {
+            app.input.pop();
+            None
+        }
+        KeyCode::Enter => handle_submit(app),
+        KeyCode::Esc if app.run_state == RunState::Working => {
+            cancel_stream(app);
+            None
+        }
+        _ => None,
     }
 }
 
@@ -470,7 +538,7 @@ fn handle_key(app: &mut App, key: crossterm::event::KeyEvent) -> Option<Msg> {
 ///
 /// Returns an optional follow-up [`Msg`].
 fn handle_submit(app: &mut App) -> Option<Msg> {
-    if app.run_state != RunState::Idle {
+    if !matches!(app.run_state, RunState::Idle | RunState::Error(_)) {
         return None;
     }
 
@@ -494,7 +562,7 @@ fn handle_submit(app: &mut App) -> Option<Msg> {
     Some(Msg::Agent(AgentEvent::Started))
 }
 
-/// Route a slash command (the part after `/`).
+/// Route a slash command (the part after `/` or the text after `:`).
 fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
     match command {
         "clear" => {
@@ -507,8 +575,39 @@ fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
             app.quit = true;
             Some(Msg::Quit)
         }
+        "help" => {
+            app.mode = Mode::Help;
+            None
+        }
+        "bg" => {
+            list_background_processes(app);
+            None
+        }
         _ => None,
     }
+}
+
+/// List background processes in the transcript.
+fn list_background_processes(app: &mut App) {
+    let bg_ids: Vec<u64> = app.process_registry.background_ids().collect();
+    if bg_ids.is_empty() {
+        app.transcript
+            .push(Entry::Status { text: String::from("no background processes") });
+    } else {
+        let lines: Vec<String> = bg_ids
+            .iter()
+            .filter_map(|id| {
+                app.process_registry.get(*id).map(|p| {
+                    let elapsed = p.elapsed().as_secs();
+                    let cmd = p.command.join(" ");
+                    format!("[{id}] {cmd} ({elapsed}s)")
+                })
+            })
+            .collect();
+        app.transcript
+            .push(Entry::Status { text: format!("background processes:\n{}", lines.join("\n")) });
+    }
+    pin_to_bottom(app);
 }
 
 /// Process an [`AgentEvent`] and mutate `app` accordingly.
@@ -570,11 +669,22 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
                 let _ = writer.append_file_write(&turn_id, &result, status);
             }
 
-            if let Some(result) = shell_result
-                && let Some(ref mut writer) = app.session_writer
-            {
-                let turn_id = format!("turn_{}", app.turn_count);
-                let _ = writer.append_shell_exec(&turn_id, &result);
+            if let Some(result) = shell_result {
+                if result.kind == crate::tools::shell::ProcessKind::Background {
+                    let cancel = crate::tools::shell::CancelFlag::new();
+                    let id =
+                        app.process_registry
+                            .register(result.command.clone(), result.cwd.clone(), result.kind, cancel);
+                    app.transcript.push(Entry::Status {
+                        text: format!("background process [{id}] started: {}", result.command.join(" ")),
+                    });
+                    pin_to_bottom(app);
+                }
+
+                if let Some(ref mut writer) = app.session_writer {
+                    let turn_id = format!("turn_{}", app.turn_count);
+                    let _ = writer.append_shell_exec(&turn_id, &result);
+                }
             }
             None
         }
@@ -586,14 +696,16 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
         }
         AgentEvent::Failed(msg) => {
             finalize_streaming(app);
-            app.transcript.push(Entry::Error { text: msg });
-            app.run_state = RunState::Idle;
+            app.transcript.push(Entry::Error { text: msg.clone() });
+            app.run_state = RunState::Error(msg);
             persist_last_entry(app);
             None
         }
         AgentEvent::Cancelled => {
             finalize_streaming(app);
-            app.transcript.push(Entry::Status { text: String::from("cancelled") });
+            if app.run_state == RunState::Working {
+                app.transcript.push(Entry::Status { text: String::from("cancelled") });
+            }
             app.run_state = RunState::Idle;
             persist_last_entry(app);
             None
@@ -602,14 +714,16 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
 }
 
 /// Cancel an active stream by marking all streaming entries complete,
-/// recording a cancelled status entry, and returning to idle.
+/// recording a cancelled status entry, and transitioning to `Stopping`.
 ///
 /// The app loop observes the transition out of `Working` and drops the
 /// background receiver, which stops the agent thread on its next failed send.
+/// When the `Cancelled` agent event arrives (or the channel disconnects), the
+/// state transitions from `Stopping` to `Idle`.
 fn cancel_stream(app: &mut App) {
     finalize_streaming(app);
     app.transcript.push(Entry::Status { text: String::from("cancelled") });
-    app.run_state = RunState::Idle;
+    app.run_state = RunState::Stopping;
     persist_last_entry(app);
     pin_to_bottom(app);
 }
@@ -1166,7 +1280,7 @@ mod tests {
     }
 
     #[test]
-    fn failed_adds_error_entry_and_returns_to_idle() {
+    fn failed_adds_error_entry_and_sets_error_state() {
         let mut app = fresh_app();
         update(&mut app, &Msg::Agent(AgentEvent::Started));
         update(
@@ -1179,7 +1293,7 @@ mod tests {
             &mut app,
             &Msg::Agent(AgentEvent::Failed(String::from("connection lost"))),
         );
-        assert_eq!(app.run_state, RunState::Idle);
+        assert_eq!(app.run_state, RunState::Error("connection lost".to_string()));
         assert!(matches!(app.transcript.last(), Some(Entry::Error { text }) if text == "connection lost"));
 
         match &app.transcript[0] {
@@ -1199,6 +1313,9 @@ mod tests {
         assert_eq!(app.run_state, RunState::Working);
 
         update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+        assert_eq!(app.run_state, RunState::Stopping);
+
+        update(&mut app, &Msg::Agent(AgentEvent::Cancelled));
         assert_eq!(app.run_state, RunState::Idle);
 
         match &app.transcript[0] {
@@ -1419,6 +1536,54 @@ mod tests {
     }
 
     #[test]
+    fn stopping_state_after_escape() {
+        let mut app = fresh_app();
+        update(&mut app, &Msg::Agent(AgentEvent::Started));
+        update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(String::from("hi"))));
+        update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+        assert_eq!(app.run_state, RunState::Stopping);
+        assert_eq!(app.status_label(), "stopping");
+        assert_eq!(app.prompt_state(), PromptState::Stopped);
+    }
+
+    #[test]
+    fn stopping_transitions_to_idle_on_cancelled_event() {
+        let mut app = fresh_app();
+        update(&mut app, &Msg::Agent(AgentEvent::Started));
+        update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+        assert_eq!(app.run_state, RunState::Stopping);
+        update(&mut app, &Msg::Agent(AgentEvent::Cancelled));
+        assert_eq!(app.run_state, RunState::Idle);
+    }
+
+    #[test]
+    fn error_state_all_resubmission() {
+        let mut app = fresh_app();
+        update(&mut app, &Msg::Agent(AgentEvent::Started));
+        update(&mut app, &Msg::Agent(AgentEvent::Failed(String::from("boom"))));
+        assert_eq!(app.run_state, RunState::Error("boom".to_string()));
+        app.input = String::from("retry");
+        let follow = update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+        assert!(follow.is_some());
+        if let Some(msg) = follow {
+            update(&mut app, &msg);
+        }
+        assert_eq!(app.run_state, RunState::Working);
+    }
+
+    #[test]
+    fn colon_enters_command_mode_from_error_state() {
+        let mut app = fresh_app();
+        update(&mut app, &Msg::Agent(AgentEvent::Started));
+        update(&mut app, &Msg::Agent(AgentEvent::Failed(String::from("boom"))));
+        update(
+            &mut app,
+            &Msg::Key(KeyEvent::new(KeyCode::Char(':'), KeyModifiers::NONE)),
+        );
+        assert_eq!(app.mode, Mode::Command);
+    }
+
+    #[test]
     fn scroll_offset_starts_at_zero() {
         let app = fresh_app();
         assert_eq!(app.scroll_offset, 0);
@@ -1500,5 +1665,248 @@ mod tests {
             &Msg::Key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)),
         );
         assert_eq!(app.scroll_offset, 1);
+    }
+
+    #[test]
+    fn question_key_enters_help_mode() {
+        let mut app = fresh_app();
+        update(
+            &mut app,
+            &Msg::Key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE)),
+        );
+        assert_eq!(app.mode, Mode::Help);
+    }
+
+    #[test]
+    fn esc_exits_help_mode() {
+        let mut app = fresh_app();
+        app.mode = Mode::Help;
+        update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+        assert_eq!(app.mode, Mode::Prompt);
+    }
+
+    #[test]
+    fn question_key_exits_help_mode() {
+        let mut app = fresh_app();
+        app.mode = Mode::Help;
+        update(
+            &mut app,
+            &Msg::Key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE)),
+        );
+        assert_eq!(app.mode, Mode::Prompt);
+    }
+
+    #[test]
+    fn colon_enters_command_mode() {
+        let mut app = fresh_app();
+        update(
+            &mut app,
+            &Msg::Key(KeyEvent::new(KeyCode::Char(':'), KeyModifiers::NONE)),
+        );
+        assert_eq!(app.mode, Mode::Command);
+        assert!(app.input.is_empty());
+    }
+
+    #[test]
+    fn colon_does_not_enter_command_mode_while_working() {
+        let mut app = fresh_app();
+        app.run_state = RunState::Working;
+        update(
+            &mut app,
+            &Msg::Key(KeyEvent::new(KeyCode::Char(':'), KeyModifiers::NONE)),
+        );
+        assert_eq!(app.mode, Mode::Prompt, "should not enter command mode while working");
+    }
+
+    #[test]
+    fn command_mode_typing_appends_to_input() {
+        let mut app = fresh_app();
+        app.mode = Mode::Command;
+        update(
+            &mut app,
+            &Msg::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE)),
+        );
+        update(
+            &mut app,
+            &Msg::Key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE)),
+        );
+        assert_eq!(app.input, "cl");
+        assert_eq!(app.mode, Mode::Command);
+    }
+
+    #[test]
+    fn command_mode_enter_executes_and_returns_to_prompt() {
+        let mut app = fresh_app();
+        app.mode = Mode::Command;
+        app.input = "clear".to_string();
+        update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+        assert_eq!(app.mode, Mode::Prompt);
+        assert!(app.input.is_empty());
+        assert!(app.transcript.is_empty(), "clear should clear the transcript");
+    }
+
+    #[test]
+    fn command_mode_esc_returns_to_prompt() {
+        let mut app = fresh_app();
+        app.mode = Mode::Command;
+        app.input = "qui".to_string();
+        update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+        assert_eq!(app.mode, Mode::Prompt);
+        assert!(app.input.is_empty());
+    }
+
+    #[test]
+    fn command_mode_backspace_on_empty_returns_to_prompt() {
+        let mut app = fresh_app();
+        app.mode = Mode::Command;
+        app.input.clear();
+        update(
+            &mut app,
+            &Msg::Key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)),
+        );
+        assert_eq!(app.mode, Mode::Prompt);
+    }
+
+    #[test]
+    fn command_mode_backspace_on_nonempty_pops_char() {
+        let mut app = fresh_app();
+        app.mode = Mode::Command;
+        app.input = "cl".to_string();
+        update(
+            &mut app,
+            &Msg::Key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)),
+        );
+        assert_eq!(app.input, "c");
+        assert_eq!(app.mode, Mode::Command);
+    }
+
+    #[test]
+    fn command_mode_quit_command_exits_app() {
+        let mut app = fresh_app();
+        app.mode = Mode::Command;
+        app.input = "quit".to_string();
+        update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+        assert!(app.quit);
+    }
+
+    #[test]
+    fn command_mode_help_command_enters_help_overlay() {
+        let mut app = fresh_app();
+        app.mode = Mode::Command;
+        app.input = "help".to_string();
+        update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+        assert_eq!(app.mode, Mode::Help);
+    }
+
+    #[test]
+    fn question_key_does_not_enter_help_when_input_nonempty() {
+        let mut app = fresh_app();
+        app.input = "hello".to_string();
+        update(
+            &mut app,
+            &Msg::Key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE)),
+        );
+        assert_eq!(app.mode, Mode::Prompt);
+        assert_eq!(app.input, "hello?");
+    }
+
+    #[test]
+    fn bg_command_with_no_processes_shows_empty_message() {
+        let mut app = fresh_app();
+        app.mode = Mode::Command;
+        app.input = "bg".to_string();
+        update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+        assert!(
+            app.transcript
+                .iter()
+                .any(|e| matches!(e, Entry::Status { text } if text.contains("no background"))),
+            "should show no background processes"
+        );
+    }
+
+    #[test]
+    fn background_shell_result_registers_in_process_registry() {
+        let mut app = fresh_app();
+        update(&mut app, &Msg::Agent(AgentEvent::Started));
+
+        let shell_result = crate::tools::shell::ProcessResult {
+            command: vec!["sleep".to_string(), "10".to_string()],
+            cwd: std::path::PathBuf::from("."),
+            status: crate::tools::shell::ProcessStatus::Ok,
+            exit_code: Some(0),
+            stdout: vec!["background task done".to_string()],
+            stderr: vec![],
+            elapsed: std::time::Duration::from_millis(100),
+            kind: crate::tools::shell::ProcessKind::Background,
+        };
+
+        update(
+            &mut app,
+            &Msg::Agent(AgentEvent::ToolFinished {
+                id: String::from("toolu_bg"),
+                output: vec!["background task done".to_string()],
+                status: ToolStatus::Ok,
+                write_result: None,
+                shell_result: Some(Box::new(shell_result)),
+            }),
+        );
+
+        assert_eq!(
+            app.process_registry.background_count(),
+            1,
+            "background process should be registered"
+        );
+        assert!(
+            app.transcript
+                .iter()
+                .any(|e| matches!(e, Entry::Status { text } if text.contains("background process"))),
+            "should add a background process status entry"
+        );
+    }
+
+    #[test]
+    fn bg_command_lists_registered_background_processes() {
+        let mut app = fresh_app();
+        let cancel = crate::tools::shell::CancelFlag::new();
+        let id = app.process_registry.register(
+            vec!["cargo".to_string(), "build".to_string()],
+            std::path::PathBuf::from("."),
+            crate::tools::shell::ProcessKind::Background,
+            cancel,
+        );
+
+        app.mode = Mode::Command;
+        app.input = "bg".to_string();
+        update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+
+        let status_text = app
+            .transcript
+            .iter()
+            .rev()
+            .find_map(|e| match e {
+                Entry::Status { text } if text.contains("background processes") => Some(text.clone()),
+                _ => None,
+            })
+            .expect("should have a background processes status entry");
+
+        assert!(status_text.contains(&format!("[{id}]")), "should list process id {id}");
+        assert!(status_text.contains("cargo build"), "should list the command");
+    }
+
+    #[test]
+    fn quit_cancels_all_background_processes() {
+        let mut app = fresh_app();
+        let cancel = crate::tools::shell::CancelFlag::new();
+        app.process_registry.register(
+            vec!["sleep".to_string(), "30".to_string()],
+            std::path::PathBuf::from("."),
+            crate::tools::shell::ProcessKind::Background,
+            cancel.clone(),
+        );
+        assert_eq!(app.process_registry.background_count(), 1);
+
+        update(&mut app, &Msg::Quit);
+        assert!(app.quit);
+        assert!(cancel.is_cancelled(), "cancel_all should signal cancellation");
     }
 }

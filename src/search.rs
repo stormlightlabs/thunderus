@@ -210,8 +210,6 @@ pub fn fetch_url(url_str: &str) -> Result<FetchedContent> {
 
     let final_url = response.get_uri().to_string();
 
-    // SSRF guard: re-validate the final URL after redirects. A public URL can
-    // redirect to a private/loopback address; reject that here.
     if is_private_url(&final_url) {
         return Err(SearchError::PrivateNetwork(final_url));
     }
@@ -278,33 +276,28 @@ pub fn fetch_url(url_str: &str) -> Result<FetchedContent> {
 /// The check is deliberately permissive about parameters (`; charset=utf-8`) and
 /// tolerates `+json` / `+xml` suffixes (`application/feed+json`, `application/atom+xml`).
 pub fn allowed_content_kind(content_type: &str) -> Option<ContentKind> {
-    // Split off parameters like "; charset=utf-8" and lowercase the essence.
     let essence = content_type.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
     if essence.is_empty() {
         return None;
     }
 
-    // text/* is allowed wholesale — covers text/html, text/plain, text/css,
-    // text/csv, text/markdown, text/javascript, text/xml, etc.
     if essence.starts_with("text/") {
         return Some(html_kind(&essence));
     }
 
-    // Explicit application/ subtypes.
     if let Some(sub) = essence.strip_prefix("application/") {
-        // HTML-family.
         if sub == "html" || sub == "xhtml+xml" {
             return Some(ContentKind::Html);
         }
-        // JSON (including +json suffixes like application/feed+json, application/vnd.api+json).
+
         if sub == "json" || sub.ends_with("+json") {
             return Some(ContentKind::Text);
         }
-        // XML (including +xml suffixes like application/atom+xml, application/rss+xml).
+
         if sub == "xml" || sub.ends_with("+xml") {
             return Some(ContentKind::Text);
         }
-        // Other common text-ish application types.
+
         if matches!(
             sub,
             "javascript" | "x-javascript" | "yaml" | "x-yaml" | "x-www-form-urlencoded"
@@ -340,9 +333,7 @@ pub fn process_body(body: &str, final_url: &str, kind: ContentKind) -> Result<Pr
                     text_content: a.text_content,
                     truncated: a.truncated,
                 }),
-                // A page that Lectito judges unreadable (boilerplate/empty) still
-                // returns its raw text rather than failing — the body may still be
-                // useful to the model even without a clean article extraction.
+
                 None => Ok(ProcessedContent {
                     title: title_from_url(final_url),
                     markdown: body.to_string(),
@@ -367,7 +358,6 @@ fn title_from_url(url_str: &str) -> String {
     };
     let path = parsed.path();
     let last = path.rsplit('/').find(|s| !s.is_empty()).unwrap_or("");
-    // Decode percent-encoding for readability.
     percent_decode(last).unwrap_or_default()
 }
 

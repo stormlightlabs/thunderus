@@ -1,0 +1,28 @@
+---
+source: src/ui.rs
+expression: terminal.backend().to_string()
+---
+"┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
+"│Sessions   ┌ Help ────────────────────────────────────────────────┐           │"
+"│ ● scratch │  Key          Action                                 │           │"
+"│           │                                                      │           │"
+"│           │  Enter        submit prompt / execute command        │d8888b     │"
+"│           │  Esc          cancel stream / close overlay          │8K         │"
+"│           │  Up/Down k/j  scroll transcript (empty input)        │Y8888b.    │"
+"│           │  PgUp/PgDn    scroll by 10 lines                     │    X88    │"
+"│           │  Ctrl+C       quit immediately                       │88888P'    │"
+"│           │  Ctrl+D x2    quit (double-press within 3s)          │           │"
+"│           │                                                      │           │"
+"│           │  Command      Description                            │           │"
+"│           │                                                      │           │"
+"│           │  :            enter command mode                     │           │"
+"│           │  ?            toggle this help overlay               │           │"
+"│           │  /clear       clear the transcript                   │           │"
+"│           │  /quit  /exit quit the app                           │           │"
+"│           │  :help        show this help overlay                 │           │"
+"│  ·  idle  │  :bg          list background processes              │           │"
+"│           │                                                      │           │"
+"└───────────│  Press ? or Esc to close.                            │───────────┘"
+"────────────└──────────────────────────────────────────────────────┘────────────"
+"  ▌ ▶                                                                           "
+" model: umans-coder   search: native  cwd: .                                    "

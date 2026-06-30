@@ -259,15 +259,16 @@ impl ActiveProcess {
 /// Tracks running commands by id. One-shot processes are removed when they
 /// complete; background processes remain until explicitly removed or cancelled.
 ///
-/// Not yet wired into the live app loop — the registry API is exercised by
-/// unit tests and will be connected when background process support lands.
-#[allow(dead_code)]
+/// Wired into the live app: background `run_shell` results are registered
+/// here, the `:bg` command lists them, and `cancel_all` runs on quit.
 #[derive(Debug, Default)]
 pub struct ProcessRegistry {
     next_id: u64,
     active: HashMap<u64, ActiveProcess>,
 }
 
+/// Registry methods. Some are not yet called from the live app loop but
+/// form the complete registry API for inspecting/cancelling processes.
 #[allow(dead_code)]
 impl ProcessRegistry {
     /// Create an empty registry.
