@@ -109,7 +109,7 @@ pub fn load_agents_md(workspace_root: &Path) -> Option<ContextSource> {
         let mut capped = content.into_bytes();
         capped.truncate(AGENTS_MD_SIZE_CAP);
         (
-            trim_to_char_boundary(&String::from_utf8_lossy(&capped).into_owned(), AGENTS_MD_SIZE_CAP),
+            trim_to_char_boundary(&String::from_utf8_lossy(&capped), AGENTS_MD_SIZE_CAP),
             true,
         )
     } else {

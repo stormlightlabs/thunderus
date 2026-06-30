@@ -178,7 +178,12 @@ fn run_fake(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
         let search_status = search_output.status;
         match send(
             tx,
-            AgentEvent::ToolFinished { id: search_id, output: search_output.output, status: search_status },
+            AgentEvent::ToolFinished {
+                id: search_id,
+                output: search_output.output,
+                status: search_status,
+                write_result: None,
+            },
             cancel,
         ) {
             None => return,
@@ -213,7 +218,12 @@ fn run_fake(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
     let status = output.status;
     if send(
         tx,
-        AgentEvent::ToolFinished { id: tool_id, output: output.output, status },
+        AgentEvent::ToolFinished {
+            id: tool_id,
+            output: output.output,
+            status,
+            write_result: None,
+        },
         cancel,
     )
     .is_none()
@@ -326,11 +336,16 @@ fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
                 return;
             }
 
-            let output = dispatch_tool(req, &handle.config.root);
+            let (output, write_result) = crate::tools::dispatch_write(req, &handle.config.root);
             let status = output.status;
             if send(
                 tx,
-                AgentEvent::ToolFinished { id: tool_id, output: output.output.clone(), status },
+                AgentEvent::ToolFinished {
+                    id: tool_id,
+                    output: output.output.clone(),
+                    status,
+                    write_result,
+                },
                 cancel,
             )
             .is_none()

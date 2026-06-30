@@ -1,3 +1,3 @@
-# Thunderus (`thndrs`)
+# Thunderus (`thndrs`) Harness
 
-A minimal AI agent harness.
+A minimal AI pair programmer.

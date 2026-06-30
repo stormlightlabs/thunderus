@@ -824,4 +824,42 @@ mod tests {
         terminal.draw(|f| render(f, &app)).expect("draw sidebar");
         insta::assert_snapshot!(terminal.backend().to_string());
     }
+
+    #[test]
+    fn write_success_snapshot_80x24() {
+        let mut app = app();
+        app.transcript
+            .push(Entry::User { text: String::from("create a new file src/new_module.rs") });
+        app.transcript.push(Entry::Tool {
+            name: String::from("create_file#0"),
+            arguments: String::from("{\"path\":\"src/new_module.rs\",\"content\":\"pub fn hello() {}\"}"),
+            status: ToolStatus::Ok,
+            output: vec![String::from("create src/new_module.rs (new file → 19 bytes)")],
+        });
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw write success");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
+    fn write_failure_snapshot_80x24() {
+        let mut app = app();
+        app.transcript
+            .push(Entry::User { text: String::from("create src/existing.rs") });
+        app.transcript.push(Entry::Tool {
+            name: String::from("create_file#0"),
+            arguments: String::from("{\"path\":\"src/existing.rs\",\"content\":\"new content\"}"),
+            status: ToolStatus::Failed,
+            output: Vec::new(),
+        });
+        app.transcript
+            .push(Entry::Error { text: String::from("file already exists: src/existing.rs") });
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw write failure");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
 }

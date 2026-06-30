@@ -59,13 +59,13 @@
 - [x] Implement create-file operation.
 - [x] Implement exact-range replace operation.
 - [x] Implement unified patch apply operation.
-- [ ] Record file path, operation type, and result for every write.
-- [ ] Preserve enough before/after metadata for session audit.
-- [ ] Unit-test create-file success and already-exists failure.
-- [ ] Unit-test exact-range replace success and stale-range failure.
-- [ ] Unit-test patch apply success and rejected patch failure.
-- [ ] Unit-test failed edits leave files unchanged.
-- [ ] Add snapshots for write success and write failure transcript entries.
+- [x] Record file path, operation type, and result for every write.
+- [x] Preserve enough before/after metadata for session audit.
+- [x] Unit-test create-file success and already-exists failure.
+- [x] Unit-test exact-range replace success and stale-range failure.
+- [x] Unit-test patch apply success and rejected patch failure.
+- [x] Unit-test failed edits leave files unchanged.
+- [x] Add snapshots for write success and write failure transcript entries.
 
 ### Phase 12: Shell Process Manager
 

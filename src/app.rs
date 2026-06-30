@@ -166,6 +166,8 @@ pub enum AgentEvent {
         id: String,
         output: Vec<String>,
         status: ToolStatus,
+        /// Structured write result if this was a file-write tool, else `None`.
+        write_result: Option<crate::tools::WriteResult>,
     },
     Finished,
     Failed(String),
@@ -540,7 +542,7 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             pin_to_bottom(app);
             None
         }
-        AgentEvent::ToolFinished { id, output, status } => {
+        AgentEvent::ToolFinished { id, output, status, write_result } => {
             for entry in app.transcript.iter_mut().rev() {
                 if let Entry::Tool { name, output: out, status: s, .. } = entry
                     && name.ends_with(&format!("#{id}"))
@@ -550,7 +552,15 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
                     break;
                 }
             }
+
             persist_last_entry(app);
+
+            if let Some(result) = write_result
+                && let Some(ref mut writer) = app.session_writer
+            {
+                let turn_id = format!("turn_{}", app.turn_count);
+                let _ = writer.append_file_write(&turn_id, &result, status);
+            }
             None
         }
         AgentEvent::Finished => {
@@ -1054,6 +1064,7 @@ mod tests {
                 id: String::from("0"),
                 output: vec![String::from("line 1"), String::from("line 2")],
                 status: ToolStatus::Ok,
+                write_result: None,
             }),
         );
         match &app.transcript[0] {
@@ -1082,6 +1093,7 @@ mod tests {
                 id: String::from("0"),
                 output: Vec::new(),
                 status: ToolStatus::Failed,
+                write_result: None,
             }),
         );
         match &app.transcript[0] {

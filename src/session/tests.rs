@@ -805,3 +805,219 @@ fn sessions_dir_is_under_thndrs() {
         PathBuf::from("/repo/.thndrs/sessions")
     );
 }
+
+/// Helper: create a session writer in a temp dir.
+fn test_writer(dir: &Path, name: &str) -> SessionWriter {
+    SessionWriter::create(dir, name, "/repo", "test", "umans", "umans-coder", "native", "0.1.0").expect("create writer")
+}
+
+#[test]
+fn file_write_record_json_round_trip() {
+    let record = SessionRecord::FileWrite {
+        schema_version: 1,
+        seq: 5,
+        time: "2026-06-29T12:00:06Z".to_string(),
+        turn_id: "turn_1".to_string(),
+        op: WriteOp::Create,
+        path: "/repo/src/new.rs".to_string(),
+        before_hash: None,
+        before_bytes: None,
+        after_hash: 99999,
+        after_bytes: 42,
+        status: ToolStatus::Ok,
+    };
+    let json = record.to_json().expect("serialize");
+    let restored = SessionRecord::from_json(&json).expect("deserialize");
+    assert_eq!(record, restored);
+    assert!(json.contains("\"type\":\"file_write\""));
+    assert!(json.contains("\"create\""));
+}
+
+#[test]
+fn file_write_record_round_trip_edit_op() {
+    let record = SessionRecord::FileWrite {
+        schema_version: 1,
+        seq: 6,
+        time: "2026-06-29T12:00:07Z".to_string(),
+        turn_id: "turn_1".to_string(),
+        op: WriteOp::Edit,
+        path: "/repo/src/existing.rs".to_string(),
+        before_hash: Some(11111),
+        before_bytes: Some(100),
+        after_hash: 22222,
+        after_bytes: 120,
+        status: ToolStatus::Ok,
+    };
+    let json = record.to_json().expect("serialize");
+    let restored = SessionRecord::from_json(&json).expect("deserialize");
+    assert_eq!(record, restored);
+    assert!(json.contains("\"edit\""));
+    assert!(json.contains("11111"));
+    assert!(json.contains("22222"));
+}
+
+#[test]
+fn file_write_record_round_trip_failed_status() {
+    let record = SessionRecord::FileWrite {
+        schema_version: 1,
+        seq: 7,
+        time: "2026-06-29T12:00:08Z".to_string(),
+        turn_id: "turn_1".to_string(),
+        op: WriteOp::Replace,
+        path: "/repo/failed.txt".to_string(),
+        before_hash: Some(33333),
+        before_bytes: Some(50),
+        after_hash: 44444,
+        after_bytes: 60,
+        status: ToolStatus::Failed,
+    };
+    let json = record.to_json().expect("serialize");
+    let restored = SessionRecord::from_json(&json).expect("deserialize");
+    assert_eq!(record, restored);
+    assert!(json.contains("\"replace\""));
+    assert!(json.contains("\"Failed\""));
+}
+
+#[test]
+fn append_file_write_persists_metadata() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let mut writer = test_writer(dir.path(), "fw-session");
+
+    let result = crate::tools::WriteResult {
+        op: WriteOp::Create,
+        path: PathBuf::from("/repo/src/new.rs"),
+        before_hash: None,
+        before_bytes: None,
+        after_hash: 99999,
+        after_bytes: 42,
+    };
+
+    writer
+        .append_file_write("turn_1", &result, ToolStatus::Ok)
+        .expect("append file write");
+
+    let content = std::fs::read_to_string(writer.path()).expect("read file");
+    assert!(content.contains("\"type\":\"file_write\""));
+    assert!(content.contains("\"create\""));
+    assert!(content.contains("/repo/src/new.rs"));
+    assert!(content.contains("99999"));
+    assert!(content.contains("42"));
+    assert!(content.contains("\"Ok\""));
+}
+
+#[test]
+fn append_file_write_persists_before_and_after_for_edit() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let mut writer = test_writer(dir.path(), "fw-edit-session");
+
+    let result = crate::tools::WriteResult {
+        op: WriteOp::Edit,
+        path: PathBuf::from("/repo/src/existing.rs"),
+        before_hash: Some(11111),
+        before_bytes: Some(100),
+        after_hash: 22222,
+        after_bytes: 120,
+    };
+
+    writer
+        .append_file_write("turn_1", &result, ToolStatus::Ok)
+        .expect("append file write");
+
+    let path = writer.path().to_path_buf();
+    drop(writer);
+
+    let records = SessionReader::read_records(&path);
+    let fw = records
+        .iter()
+        .find(|r| matches!(r, SessionRecord::FileWrite { .. }))
+        .expect("should find file_write record");
+
+    let SessionRecord::FileWrite { op, path, before_hash, before_bytes, after_hash, after_bytes, status, .. } = fw
+    else {
+        panic!("expected FileWrite record");
+    };
+
+    assert_eq!(*op, WriteOp::Edit);
+    assert_eq!(path, "/repo/src/existing.rs");
+    assert_eq!(*before_hash, Some(11111));
+    assert_eq!(*before_bytes, Some(100));
+    assert_eq!(*after_hash, 22222);
+    assert_eq!(*after_bytes, 120);
+    assert_eq!(*status, ToolStatus::Ok);
+}
+
+#[test]
+fn file_write_record_does_not_persist_file_content() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let mut writer = test_writer(dir.path(), "fw-no-content");
+
+    let result = crate::tools::WriteResult {
+        op: WriteOp::Create,
+        path: PathBuf::from("/repo/output.txt"),
+        before_hash: None,
+        before_bytes: None,
+        after_hash: 12345,
+        after_bytes: 30,
+    };
+
+    writer
+        .append_file_write("turn_1", &result, ToolStatus::Ok)
+        .expect("append file write");
+
+    let json = std::fs::read_to_string(writer.path()).expect("read file");
+    assert!(
+        !json.contains("TOP_SECRET_CONTENT"),
+        "file_write record must not contain file content"
+    );
+    assert!(json.contains("12345"), "should contain after_hash");
+    assert!(json.contains("30"), "should contain after_bytes");
+}
+
+#[test]
+fn file_write_record_maps_to_status_entry_on_resume() {
+    let record = SessionRecord::FileWrite {
+        schema_version: 1,
+        seq: 3,
+        time: "t".to_string(),
+        turn_id: "turn_1".to_string(),
+        op: WriteOp::Create,
+        path: "/repo/new.txt".to_string(),
+        before_hash: None,
+        before_bytes: None,
+        after_hash: 1,
+        after_bytes: 5,
+        status: ToolStatus::Ok,
+    };
+    let entry = record.to_entry().expect("should map to entry");
+    match entry {
+        Entry::Status { text } => {
+            assert!(text.contains("create"), "status text should mention the op");
+            assert!(text.contains("/repo/new.txt"), "status text should mention the path");
+        }
+        _ => panic!("expected Status entry for file_write, got {entry:?}"),
+    }
+}
+
+#[test]
+fn file_write_failed_record_maps_to_status_entry_on_resume() {
+    let record = SessionRecord::FileWrite {
+        schema_version: 1,
+        seq: 3,
+        time: "t".to_string(),
+        turn_id: "turn_1".to_string(),
+        op: WriteOp::Edit,
+        path: "/repo/failed.txt".to_string(),
+        before_hash: Some(1),
+        before_bytes: Some(10),
+        after_hash: 2,
+        after_bytes: 10,
+        status: ToolStatus::Failed,
+    };
+    let entry = record.to_entry().expect("should map to entry");
+    match entry {
+        Entry::Status { text } => {
+            assert!(text.contains("write failed"), "failed write should mention failure");
+        }
+        _ => panic!("expected Status entry for failed file_write, got {entry:?}"),
+    }
+}
