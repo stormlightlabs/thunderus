@@ -9,4 +9,5 @@ pub mod umans;
 pub struct ProviderTurn {
     pub tool_requests: Vec<ToolUseRequest>,
     pub assistant_text: String,
+    pub stop_reason: Option<String>,
 }

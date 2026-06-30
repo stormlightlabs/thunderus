@@ -158,6 +158,7 @@ pub enum Entry {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AgentEvent {
     Started,
+    Status(String),
     AssistantDelta(String),
     ReasoningDelta(String),
     ToolStarted {
@@ -214,6 +215,7 @@ impl Sidebar {
 /// The full application state used to draw the screen.
 #[derive(Debug)]
 pub struct App {
+    pub session_id: String,
     pub mode: Mode,
     pub run_state: RunState,
     pub input: String,
@@ -291,9 +293,10 @@ impl App {
 
         transcript.extend(resumed_transcript);
 
+        let session_id = session::generate_session_id();
         let mut session_writer = session::SessionWriter::create(
             &sessions_dir,
-            &session::generate_session_id(),
+            &session_id,
             &workspace_root.display().to_string(),
             "scratch",
             "umans",
@@ -310,6 +313,7 @@ impl App {
         }
 
         App {
+            session_id,
             mode: Mode::default(),
             run_state: RunState::default(),
             input: String::new(),
@@ -726,6 +730,11 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
     match event {
         AgentEvent::Started => {
             app.run_state = RunState::Working;
+            None
+        }
+        AgentEvent::Status(text) => {
+            app.transcript.push(Entry::Status { text });
+            pin_to_bottom(app);
             None
         }
         AgentEvent::AssistantDelta(delta) => {

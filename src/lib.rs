@@ -19,6 +19,7 @@ mod ui;
 mod utils;
 
 use std::io;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -50,6 +51,70 @@ pub fn run(cli: &Cli) -> io::Result<()> {
     }
     let tick = Duration::from_millis(cli.tick_rate_ms);
     if cli.no_alt_screen { run_inline(tick, cli) } else { run_alt_screen(tick, cli) }
+}
+
+#[derive(Clone, Debug)]
+struct Observability {
+    session_log_path: PathBuf,
+    daily_log_path: PathBuf,
+}
+
+fn init_tracing(workspace_root: &Path, session_id: &str) -> Option<Observability> {
+    let session_log_dir = workspace_root.join(".thndrs").join("logs").join("sessions");
+    let daily_log_dir = workspace_root.join(".thndrs").join("logs").join("daily");
+    let session_log_path = session_log_dir.join(format!("thndrs-{session_id}.log"));
+    let daily_log_path = daily_log_dir.join(format!("{}.log", datetime::rounded_date()));
+    std::fs::create_dir_all(&session_log_dir).ok()?;
+    std::fs::create_dir_all(&daily_log_dir).ok()?;
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&session_log_path)
+        .ok()?;
+
+    if tracing_subscriber::fmt()
+        .with_writer(std::sync::Mutex::new(file))
+        .with_ansi(false)
+        .with_target(true)
+        .with_thread_ids(true)
+        .try_init()
+        .is_ok()
+    {
+        Some(Observability { session_log_path, daily_log_path })
+    } else {
+        None
+    }
+}
+
+fn daily_detail_value(value: &str) -> String {
+    value.chars().filter(|c| *c != '\n' && *c != '\r').take(300).collect()
+}
+
+fn append_daily_log(observability: &Option<Observability>, session_id: &str, event: &str, details: &str) {
+    let Some(obs) = observability else {
+        return;
+    };
+
+    if let Some(parent) = obs.daily_log_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    use std::io::Write;
+    let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&obs.daily_log_path)
+    else {
+        return;
+    };
+    let _ = writeln!(
+        file,
+        "{} session={} event={} {}",
+        datetime::now_iso8601(),
+        session_id,
+        event,
+        details
+    );
 }
 
 /// Print the assembled prompt bundle with secrets redacted, without calling
@@ -148,18 +213,44 @@ fn run_inline(tick: Duration, cli: &Cli) -> io::Result<()> {
 /// 3. Tick.
 fn main_loop(terminal: &mut DefaultTerminal, tick: Duration, cli: &Cli) -> io::Result<()> {
     let mut app = App::from_cli(cli);
+    let workspace_root = context::discover_workspace_root(&cli.cwd);
+    let observability = init_tracing(&workspace_root, &app.session_id);
+    if let Some(obs) = &observability {
+        app.transcript
+            .push(app::Entry::Status { text: format!("logs  {}", obs.session_log_path.display()) });
+    }
+    tracing::info!(
+        session = %app.session_id,
+        cwd = %workspace_root.display(),
+        model = %cli.model,
+        websearch = %cli.websearch.header_value(),
+        "starting thndrs"
+    );
+    append_daily_log(
+        &observability,
+        &app.session_id,
+        "session_start",
+        &format!(
+            "cwd={} model={} websearch={}",
+            workspace_root.display(),
+            cli.model,
+            cli.websearch.header_value()
+        ),
+    );
     let mut agent: Option<AgentSlot> = None;
     terminal.draw(|f| ui::render(f, &app))?;
 
     loop {
         let deadline = Instant::now() + tick;
         while Instant::now() < deadline {
-            drain_agent_events(&mut app, &mut agent, terminal)?;
+            drain_agent_events(&mut app, &mut agent, terminal, &observability)?;
             manage_agent_lifecycle(&app, &mut agent);
             maybe_spawn_agent(&app, cli, &mut agent);
             flush_steering(&mut app, &agent);
 
             if app.quit {
+                tracing::info!("quitting thndrs");
+                append_daily_log(&observability, &app.session_id, "session_end", "reason=quit");
                 return Ok(());
             }
 
@@ -179,11 +270,15 @@ fn main_loop(terminal: &mut DefaultTerminal, tick: Duration, cli: &Cli) -> io::R
             flush_steering(&mut app, &agent);
 
             if app.quit {
+                tracing::info!("quitting thndrs");
+                append_daily_log(&observability, &app.session_id, "session_end", "reason=quit");
                 return Ok(());
             }
         }
         handle_msg(&mut app, Msg::Tick, terminal)?;
         if app.quit {
+            tracing::info!("quitting thndrs");
+            append_daily_log(&observability, &app.session_id, "session_end", "reason=quit");
             return Ok(());
         }
     }
@@ -204,6 +299,12 @@ fn maybe_spawn_agent(app: &App, cli: &Cli, agent: &mut Option<AgentSlot>) {
 
     let workspace_root = context::discover_workspace_root(&cli.cwd);
     let config = AgentRunConfig::new(workspace_root, cli.model.clone(), cli.websearch);
+    tracing::info!(
+        cwd = %config.root.display(),
+        model = %config.model,
+        websearch = %config.search_mode.header_value(),
+        "spawning agent run"
+    );
 
     let prompt = app
         .transcript
@@ -246,12 +347,34 @@ fn flush_steering(app: &mut App, agent: &Option<AgentSlot>) {
 
 /// Drain all pending agent stream events from the channel and dispatch them as
 /// [`Msg::Agent`].
-fn drain_agent_events(app: &mut App, agent: &mut Option<AgentSlot>, term: &mut DefaultTerminal) -> io::Result<()> {
+fn drain_agent_events(
+    app: &mut App, agent: &mut Option<AgentSlot>, term: &mut DefaultTerminal, observability: &Option<Observability>,
+) -> io::Result<()> {
     let Some(slot) = agent else { return Ok(()) };
 
     loop {
         match slot.receiver.try_recv() {
             Ok(event) => {
+                match &event {
+                    app::AgentEvent::Failed(msg) => {
+                        tracing::error!(error = %msg, "agent failed");
+                        append_daily_log(
+                            observability,
+                            &app.session_id,
+                            "agent_failed",
+                            &format!("error={}", daily_detail_value(msg)),
+                        );
+                    }
+                    app::AgentEvent::Cancelled => {
+                        tracing::warn!("agent cancelled");
+                        append_daily_log(observability, &app.session_id, "agent_cancelled", "");
+                    }
+                    app::AgentEvent::Finished => {
+                        tracing::info!("agent finished");
+                        append_daily_log(observability, &app.session_id, "agent_finished", "");
+                    }
+                    _ => {}
+                }
                 handle_msg(app, Msg::Agent(event), term)?;
             }
             Err(mpsc::TryRecvError::Empty) => break,
@@ -270,6 +393,7 @@ fn manage_agent_lifecycle(app: &App, agent: &mut Option<AgentSlot>) {
     if app.run_state != RunState::Working
         && let Some(slot) = agent.take()
     {
+        tracing::info!("cancelling dropped agent slot");
         slot.cancel.cancel();
     }
 }

@@ -27,6 +27,15 @@ pub const API_KEY_ENV: &str = "UMANS_API_KEY";
 
 type Result<T> = std::result::Result<T, UmansError>;
 
+/// Recommended completion token budget for known Umans models.
+pub fn max_tokens_for_model(model: &str) -> u32 {
+    match model {
+        "umans-glm-5.2" | "umans-glm-5.1" => 131_071,
+        "umans-minimax-m2.5" => 8_192,
+        _ => 32_768,
+    }
+}
+
 /// Errors from the Umans client.
 #[derive(Debug, thiserror::Error)]
 pub enum UmansError {
@@ -58,10 +67,19 @@ impl UmansClient {
     /// Create a client from `UMANS_API_KEY`, falling back to workspace `.env`.
     pub fn from_env_or_dotenv(workspace_root: &Path) -> Result<Self> {
         match env::var(API_KEY_ENV) {
-            Ok(api_key) => Ok(Self::new(BASE_URL, &api_key)),
+            Ok(api_key) => {
+                tracing::debug!(source = "environment", "loaded Umans API key");
+                Ok(Self::new(BASE_URL, &api_key))
+            }
             Err(_) => api_key_from_dotenv(workspace_root)
-                .map(|api_key| Self::new(BASE_URL, &api_key))
-                .ok_or(UmansError::MissingApiKey),
+                .map(|api_key| {
+                    tracing::debug!(source = ".env", path = %workspace_root.join(".env").display(), "loaded Umans API key");
+                    Self::new(BASE_URL, &api_key)
+                })
+                .ok_or_else(|| {
+                    tracing::error!(env = API_KEY_ENV, cwd = %workspace_root.display(), "missing Umans API key");
+                    UmansError::MissingApiKey
+                }),
         }
     }
 
@@ -150,19 +168,62 @@ impl UmansClient {
     ) -> Result<ureq::http::Response<ureq::Body>> {
         let url = format!("{}/v1/messages", self.base_url);
         let body = Self::build_messages_request_body(model, messages, max_tokens, true, tools);
+        let tool_count = tools.and_then(|t| t.as_array()).map_or(0, Vec::len);
+        tracing::info!(
+            model,
+            max_tokens,
+            search = %mode.header_value(),
+            messages = messages.len(),
+            tools = tool_count,
+            "sending Umans streaming request"
+        );
 
         let mut request = self.agent.post(&url);
         for (key, value) in self.build_headers(mode) {
             request = request.header(&key, &value);
         }
 
-        let response = request.send_json(&body).map_err(|e| match e {
-            ureq::Error::StatusCode(code) => UmansError::Status { code, body: format!("HTTP {code}") },
-            other => UmansError::Http(other.to_string()),
-        })?;
+        let mut response = request
+            .config()
+            .http_status_as_error(false)
+            .build()
+            .send_json(&body)
+            .map_err(|e| {
+                tracing::error!(error = %e, "Umans request failed before HTTP response");
+                UmansError::Http(e.to_string())
+            })?;
 
+        let status = response.status().as_u16();
+        if !(200..=299).contains(&status) {
+            let body = response
+                .body_mut()
+                .read_to_string()
+                .unwrap_or_else(|e| format!("failed to read error body: {e}"));
+            let body = summarize_error_body(&body);
+            tracing::error!(status, error = %body, "Umans request returned non-success status");
+            return Err(UmansError::Status { code: status, body });
+        }
+
+        tracing::info!(status, "Umans streaming request connected");
         Ok(response)
     }
+}
+
+fn summarize_error_body(body: &str) -> String {
+    let trimmed = body.trim();
+    if trimmed.is_empty() {
+        return "(empty response body)".to_string();
+    }
+
+    serde_json::from_str::<serde_json::Value>(trimmed)
+        .ok()
+        .and_then(|v| {
+            v.pointer("/error/message")
+                .or_else(|| v.get("message"))
+                .and_then(|m| m.as_str())
+                .map(|m| m.to_string())
+        })
+        .unwrap_or_else(|| trimmed.chars().take(500).collect())
 }
 
 fn api_key_from_dotenv(workspace_root: &Path) -> Option<String> {
@@ -635,6 +696,13 @@ mod tests {
         let empty_tools = serde_json::json!([]);
         let body = UmansClient::build_messages_request_body("umans-coder", &messages, 4096, true, Some(&empty_tools));
         assert!(body.get("tools").is_none(), "empty tool array should be omitted");
+    }
+
+    #[test]
+    fn max_tokens_for_model_matches_model_guidance() {
+        assert_eq!(max_tokens_for_model("umans-coder"), 32_768);
+        assert_eq!(max_tokens_for_model("umans-glm-5.2"), 131_071);
+        assert_eq!(max_tokens_for_model("umans-minimax-m2.5"), 8_192);
     }
 
     #[test]

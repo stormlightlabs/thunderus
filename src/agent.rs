@@ -122,6 +122,7 @@ impl RunHandle {
 pub fn spawn_run(handle: RunHandle) -> Receiver<AgentEvent> {
     let (tx, rx) = mpsc::channel::<AgentEvent>();
     let cancel = handle.cancel.clone();
+    tracing::info!(provider = ?handle.provider, "starting agent thread");
     thread::spawn(move || run_agent(&handle, &tx, &cancel));
     rx
 }
@@ -270,6 +271,23 @@ fn run_fake(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
 /// If `UMANS_API_KEY` is not set in the environment or workspace `.env`,
 /// emits a `Failed` event and returns.
 fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
+    tracing::info!(
+        model = %handle.config.model,
+        cwd = %handle.config.root.display(),
+        messages = handle.messages.len(),
+        max_tool_iterations = handle.config.max_tool_iterations,
+        "starting Umans agent run"
+    );
+    if send(
+        tx,
+        AgentEvent::Status(String::from("provider: loading UMANS_API_KEY")),
+        cancel,
+    )
+    .is_none()
+    {
+        return;
+    }
+
     let client = match umans::UmansClient::from_env_or_dotenv(&handle.config.root) {
         Ok(c) => c,
         Err(e) => {
@@ -290,11 +308,13 @@ fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
 
     loop {
         if cancel.is_cancelled() {
+            tracing::warn!("Umans run cancelled before provider request");
             let _ = send(tx, AgentEvent::Cancelled, cancel);
             return;
         }
 
         if iterations >= handle.config.max_tool_iterations {
+            tracing::error!(iterations, "tool-call cap exceeded");
             let _ = send(
                 tx,
                 AgentEvent::Failed(format!("tool-call cap exceeded ({} iterations)", iterations)),
@@ -303,31 +323,80 @@ fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
             return;
         }
 
+        if send(
+            tx,
+            AgentEvent::Status(format!(
+                "provider: POST /v1/messages model={} search={}",
+                handle.config.model,
+                handle.config.search_mode.header_value()
+            )),
+            cancel,
+        )
+        .is_none()
+        {
+            return;
+        }
+
+        tracing::info!(
+            iteration = iterations,
+            messages = messages.len(),
+            "requesting Umans turn"
+        );
+        let max_tokens = umans::max_tokens_for_model(&handle.config.model);
         let response = match client.send_streaming_request(
             &handle.config.model,
             &messages,
-            4096,
+            max_tokens,
             handle.config.search_mode,
             Some(&tool_schemas),
         ) {
             Ok(r) => r,
             Err(e) => {
+                tracing::error!(error = %e, "Umans request failed");
                 let event = umans::error_to_agent_event(&e);
                 let _ = send(tx, event, cancel);
                 return;
             }
         };
 
-        let turn = match stream_umans_response(response, tx, cancel) {
+        if send(
+            tx,
+            AgentEvent::Status(format!("provider: connected HTTP {}", response.status().as_u16())),
+            cancel,
+        )
+        .is_none()
+        {
+            return;
+        }
+
+        let turn = match stream_umans_response(response, tx, cancel, max_tokens) {
             Ok(t) => t,
             Err(msg) => {
+                tracing::error!(error = %msg, "Umans stream failed");
                 let _ = send(tx, AgentEvent::Failed(msg), cancel);
                 return;
             }
         };
+        tracing::info!(
+            text_chars = turn.assistant_text.chars().count(),
+            tool_calls = turn.tool_requests.len(),
+            "Umans turn completed"
+        );
 
         if turn.tool_requests.is_empty() {
+            if turn.assistant_text.is_empty() && turn.stop_reason.as_deref() == Some("max_tokens") {
+                let _ = send(
+                    tx,
+                    AgentEvent::Failed(format!(
+                        "provider stopped at max_tokens ({}) before producing assistant text",
+                        max_tokens
+                    )),
+                    cancel,
+                );
+                return;
+            }
             if append_steering_messages(&mut messages, handle) {
+                tracing::info!("continuing Umans run with queued steering messages");
                 continue;
             }
             let _ = send(tx, AgentEvent::Finished, cancel);
@@ -344,11 +413,13 @@ fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
         let mut tool_results: Vec<umans::Message> = Vec::new();
         for req in &turn.tool_requests {
             if cancel.is_cancelled() {
+                tracing::warn!(tool = %req.name, tool_id = %req.tool_use_id, "Umans run cancelled before tool dispatch");
                 let _ = send(tx, AgentEvent::Cancelled, cancel);
                 return;
             }
 
             let tool_id = req.tool_use_id.clone();
+            tracing::info!(tool = %req.name, tool_id = %tool_id, "dispatching tool request");
             if send(
                 tx,
                 AgentEvent::ToolStarted {
@@ -365,6 +436,7 @@ fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
 
             let (output, write_result, shell_result) = tools::dispatch_full(req, &handle.config.root);
             let status = output.status;
+            tracing::info!(tool = %req.name, tool_id = %tool_id, status = ?status, "tool request finished");
             if send(
                 tx,
                 AgentEvent::ToolFinished {
@@ -413,6 +485,9 @@ fn append_steering_messages(messages: &mut Vec<umans::Message>, handle: &RunHand
         messages.push(umans::Message::user(&format!("[steering]\n{trimmed}")));
         appended = true;
     }
+    if appended {
+        tracing::debug!(messages = messages.len(), "appended steering messages");
+    }
     appended
 }
 
@@ -422,16 +497,21 @@ fn append_steering_messages(messages: &mut Vec<umans::Message>, handle: &RunHand
 /// Returns a [`TurnOutput`] with the tool-use requests and the accumulated
 /// assistant text, or an error message if the stream failed.
 fn stream_umans_response(
-    resp: Response<ureq::Body>, tx: &Sender<AgentEvent>, cancel: &CancelToken,
+    resp: Response<ureq::Body>, tx: &Sender<AgentEvent>, cancel: &CancelToken, max_tokens: u32,
 ) -> Result<ProviderTurn, String> {
     let reader = BufReader::new(resp.into_body().into_reader());
     let mut buffer = String::new();
     let mut tool_requests = Vec::new();
     let mut tool_blocks: HashMap<usize, ToolUseBuilder> = HashMap::new();
     let mut assistant_text = String::new();
+    let mut event_count = 0usize;
+    let mut saw_response = false;
+    let mut stop_reason = None;
+    tracing::info!("reading Umans SSE stream");
 
     for line_result in reader.lines() {
         if cancel.is_cancelled() {
+            tracing::warn!("cancelled while reading Umans SSE stream");
             return Err("cancelled".to_string());
         }
 
@@ -445,31 +525,52 @@ fn stream_umans_response(
                     buffer.clear();
 
                     for (event_type, data) in events {
+                        event_count += 1;
+                        log_sse_event(event_count, &event_type, &data);
+                        if !saw_response {
+                            saw_response = true;
+                            if send(tx, AgentEvent::Status(String::from("provider: receiving SSE")), cancel).is_none() {
+                                return Err("cancelled".to_string());
+                            }
+                        }
                         collect_umans_event(
                             &event_type,
                             &data,
                             &mut tool_blocks,
                             &mut tool_requests,
                             &mut assistant_text,
+                            &mut stop_reason,
                             tx,
                             cancel,
                         )?;
                     }
                 }
             }
-            Err(e) => return Err(format!("stream read error: {e}")),
+            Err(e) => {
+                tracing::error!(error = %e, "failed reading Umans SSE stream");
+                return Err(format!("stream read error: {e}"));
+            }
         }
     }
 
     if !buffer.is_empty() {
         let events = umans::parse_sse_chunk(&buffer);
         for (event_type, data) in events {
+            event_count += 1;
+            log_sse_event(event_count, &event_type, &data);
+            if !saw_response {
+                saw_response = true;
+                if send(tx, AgentEvent::Status(String::from("provider: receiving SSE")), cancel).is_none() {
+                    return Err("cancelled".to_string());
+                }
+            }
             collect_umans_event(
                 &event_type,
                 &data,
                 &mut tool_blocks,
                 &mut tool_requests,
                 &mut assistant_text,
+                &mut stop_reason,
                 tx,
                 cancel,
             )?;
@@ -482,13 +583,74 @@ fn stream_umans_response(
         }
     }
 
-    Ok(ProviderTurn { tool_requests, assistant_text })
+    if assistant_text.is_empty() && tool_requests.is_empty() {
+        tracing::error!(event_count, "Umans stream ended without assistant text or tool calls");
+        if stop_reason.as_deref() == Some("max_tokens") {
+            return Err(format!(
+                "provider stopped at max_tokens ({max_tokens}) before producing assistant text"
+            ));
+        }
+        return Err(format!(
+            "provider stream ended without assistant text or tool calls ({event_count} SSE events)"
+        ));
+    }
+
+    tracing::info!(
+        event_count,
+        text_chars = assistant_text.chars().count(),
+        tool_calls = tool_requests.len(),
+        "finished reading Umans SSE stream"
+    );
+    let _ = send(
+        tx,
+        AgentEvent::Status(format!(
+            "provider: stream ended ({event_count} SSE events, {} text chars, {} tool calls)",
+            assistant_text.chars().count(),
+            tool_requests.len()
+        )),
+        cancel,
+    );
+
+    Ok(ProviderTurn { tool_requests, assistant_text, stop_reason })
+}
+
+fn log_sse_event(seq: usize, event_type: &str, data: &str) {
+    let (content_type, delta_type, stop_reason) = summarize_sse_data(data);
+    tracing::info!(
+        seq,
+        event_type,
+        content_type = content_type.as_deref().unwrap_or(""),
+        delta_type = delta_type.as_deref().unwrap_or(""),
+        stop_reason = stop_reason.as_deref().unwrap_or(""),
+        "received SSE event"
+    );
+}
+
+fn summarize_sse_data(data: &str) -> (Option<String>, Option<String>, Option<String>) {
+    let v: serde_json::Value = serde_json::from_str(data).unwrap_or(serde_json::Value::Null);
+    let content_type = v
+        .get("content_block")
+        .and_then(|cb| cb.get("type"))
+        .and_then(|t| t.as_str())
+        .map(|s| s.to_string());
+    let delta_type = v
+        .get("delta")
+        .and_then(|d| d.get("type"))
+        .and_then(|t| t.as_str())
+        .map(|s| s.to_string());
+    let stop_reason = v
+        .get("delta")
+        .and_then(|d| d.get("stop_reason"))
+        .and_then(|s| s.as_str())
+        .map(|s| s.to_string());
+
+    (content_type, delta_type, stop_reason)
 }
 
 fn collect_umans_event(
     event_type: &str, data: &str, tool_blocks: &mut HashMap<usize, ToolUseBuilder>,
-    tool_requests: &mut Vec<ToolUseRequest>, assistant_text: &mut String, tx: &Sender<AgentEvent>,
-    cancel: &CancelToken,
+    tool_requests: &mut Vec<ToolUseRequest>, assistant_text: &mut String, stop_reason: &mut Option<String>,
+    tx: &Sender<AgentEvent>, cancel: &CancelToken,
 ) -> Result<(), String> {
     let sse_event = umans::parse_sse_event(event_type, data);
 
@@ -496,6 +658,10 @@ fn collect_umans_event(
         && let Some((index, block)) = extract_tool_use_start(data)
     {
         tool_blocks.insert(index, block);
+    }
+
+    if event_type == "content_block_start" {
+        collect_content_block_start_text(data, assistant_text, tx, cancel)?;
     }
 
     match &sse_event {
@@ -513,6 +679,14 @@ fn collect_umans_event(
                 tool_requests.push(req);
             }
         }
+        umans::SseEvent::MessageDelta { stop_reason: Some(reason) } => {
+            *stop_reason = Some(reason.clone());
+            tracing::info!(stop_reason = %reason, "provider message stop reason");
+        }
+        umans::SseEvent::Error(msg) => {
+            tracing::error!(error = %msg, "provider emitted SSE error");
+            return Err(format!("provider error: {msg}"));
+        }
         _ => {}
     }
 
@@ -520,6 +694,37 @@ fn collect_umans_event(
         && send(tx, agent_event, cancel).is_none()
     {
         return Err("cancelled".to_string());
+    }
+
+    Ok(())
+}
+
+fn collect_content_block_start_text(
+    data: &str, assistant_text: &mut String, tx: &Sender<AgentEvent>, cancel: &CancelToken,
+) -> Result<(), String> {
+    let v: serde_json::Value = serde_json::from_str(data).unwrap_or(serde_json::Value::Null);
+    let Some(block) = v.get("content_block") else {
+        return Ok(());
+    };
+
+    match block.get("type").and_then(|t| t.as_str()) {
+        Some("text") => {
+            let text = block.get("text").and_then(|t| t.as_str()).unwrap_or("");
+            if !text.is_empty() {
+                assistant_text.push_str(text);
+                if send(tx, AgentEvent::AssistantDelta(text.to_string()), cancel).is_none() {
+                    return Err("cancelled".to_string());
+                }
+            }
+        }
+        Some("thinking") => {
+            let thinking = block.get("thinking").and_then(|t| t.as_str()).unwrap_or("");
+            if !thinking.is_empty() && send(tx, AgentEvent::ReasoningDelta(thinking.to_string()), cancel).is_none() {
+                return Err("cancelled".to_string());
+            }
+        }
+        Some(other) => tracing::info!(content_type = other, "unhandled content block start"),
+        None => {}
     }
 
     Ok(())
@@ -804,6 +1009,7 @@ mod tests {
         let mut tool_blocks = HashMap::new();
         let mut tool_requests = Vec::new();
         let mut assistant_text = String::new();
+        let mut stop_reason = None;
 
         collect_umans_event(
             "content_block_start",
@@ -811,6 +1017,7 @@ mod tests {
             &mut tool_blocks,
             &mut tool_requests,
             &mut assistant_text,
+            &mut stop_reason,
             &tx,
             &cancel,
         )
@@ -829,6 +1036,7 @@ mod tests {
             &mut tool_blocks,
             &mut tool_requests,
             &mut assistant_text,
+            &mut stop_reason,
             &tx,
             &cancel,
         )
@@ -847,6 +1055,7 @@ mod tests {
             &mut tool_blocks,
             &mut tool_requests,
             &mut assistant_text,
+            &mut stop_reason,
             &tx,
             &cancel,
         )
@@ -857,6 +1066,7 @@ mod tests {
             &mut tool_blocks,
             &mut tool_requests,
             &mut assistant_text,
+            &mut stop_reason,
             &tx,
             &cancel,
         )
