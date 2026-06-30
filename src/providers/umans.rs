@@ -5,6 +5,8 @@
 
 use std::collections::HashMap;
 use std::env;
+use std::fs;
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
@@ -53,12 +55,14 @@ pub struct UmansClient {
 }
 
 impl UmansClient {
-    /// Create a client from the `UMANS_API_KEY` environment variable.
-    ///
-    /// Returns [`UmansError::MissingApiKey`] if the env var is not set.
-    pub fn from_env() -> Result<Self> {
-        let api_key = env::var(API_KEY_ENV).map_err(|_| UmansError::MissingApiKey)?;
-        Ok(Self::new(BASE_URL, &api_key))
+    /// Create a client from `UMANS_API_KEY`, falling back to workspace `.env`.
+    pub fn from_env_or_dotenv(workspace_root: &Path) -> Result<Self> {
+        match env::var(API_KEY_ENV) {
+            Ok(api_key) => Ok(Self::new(BASE_URL, &api_key)),
+            Err(_) => api_key_from_dotenv(workspace_root)
+                .map(|api_key| Self::new(BASE_URL, &api_key))
+                .ok_or(UmansError::MissingApiKey),
+        }
     }
 
     /// Create a client with an explicit base URL and API key.
@@ -159,6 +163,33 @@ impl UmansClient {
 
         Ok(response)
     }
+}
+
+fn api_key_from_dotenv(workspace_root: &Path) -> Option<String> {
+    let contents = fs::read_to_string(workspace_root.join(".env")).ok()?;
+    contents.lines().find_map(parse_api_key_line)
+}
+
+fn parse_api_key_line(line: &str) -> Option<String> {
+    let line = line.trim();
+    if line.is_empty() || line.starts_with('#') {
+        return None;
+    }
+
+    let line = line.strip_prefix("export ").unwrap_or(line);
+    let (key, value) = line.split_once('=')?;
+    if key.trim() != API_KEY_ENV {
+        return None;
+    }
+
+    let value = value.trim();
+    let value = value
+        .strip_prefix('"')
+        .and_then(|v| v.strip_suffix('"'))
+        .or_else(|| value.strip_prefix('\'').and_then(|v| v.strip_suffix('\'')))
+        .unwrap_or(value);
+
+    if value.is_empty() { None } else { Some(value.to_string()) }
 }
 
 /// Model information from `GET /v1/models/info`.
@@ -616,12 +647,45 @@ mod tests {
     }
 
     #[test]
-    fn from_env_missing_key_returns_error() {
+    fn from_env_or_dotenv_missing_key_returns_error() {
         unsafe {
             env::remove_var(API_KEY_ENV);
         }
-        let result = UmansClient::from_env();
+        let dir = tempfile::tempdir().unwrap();
+        let result = UmansClient::from_env_or_dotenv(dir.path());
         assert!(matches!(result, Err(UmansError::MissingApiKey)));
+    }
+
+    #[test]
+    fn from_env_or_dotenv_reads_workspace_env_file() {
+        unsafe {
+            env::remove_var(API_KEY_ENV);
+        }
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(".env"), "UMANS_API_KEY=sk-dotenv-key\n").unwrap();
+
+        let client = UmansClient::from_env_or_dotenv(dir.path()).unwrap();
+        let headers: HashMap<String, String> = client.build_headers(WebSearchMode::Native).into_iter().collect();
+
+        assert_eq!(headers.get("x-api-key").unwrap(), "sk-dotenv-key");
+    }
+
+    #[test]
+    fn from_env_or_dotenv_reads_exported_quoted_env_file_value() {
+        unsafe {
+            env::remove_var(API_KEY_ENV);
+        }
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join(".env"),
+            "export UMANS_API_KEY=\"sk-quoted-dotenv-key\"\n",
+        )
+        .unwrap();
+
+        let client = UmansClient::from_env_or_dotenv(dir.path()).unwrap();
+        let headers: HashMap<String, String> = client.build_headers(WebSearchMode::Native).into_iter().collect();
+
+        assert_eq!(headers.get("x-api-key").unwrap(), "sk-quoted-dotenv-key");
     }
 
     #[test]
@@ -898,7 +962,8 @@ mod tests {
     #[test]
     #[ignore = "requires UMANS_API_KEY and network access"]
     fn live_smoke_test_models_info() {
-        let client = UmansClient::from_env().expect("UMANS_API_KEY must be set");
+        let workspace_root = env::current_dir().expect("current dir");
+        let client = UmansClient::from_env_or_dotenv(&workspace_root).expect("UMANS_API_KEY must be set");
         let models = client.fetch_models_info().expect("fetch models info");
         assert!(models.contains_key("umans-coder"));
     }

@@ -152,11 +152,6 @@
 - [x] Add/refresh snapshots for syntax-highlighted code fences, diffs, Rust
       compiler errors, JSON/tool diagnostics, and plain prose to verify
       highlighting does not color gutters, borders, or status chips.
-- [ ] Run and document the alpha readiness checks: `cargo fmt`, `cargo check`,
-      clippy, unit tests, and snapshot review.
-- [ ] Add an alpha smoke workflow that covers prompt assembly, a read-only tool,
-      a file write, `read_url`, one shell success, one shell failure, session
-      resume, and cancellation.
 
 ## v1: Supported Release
 

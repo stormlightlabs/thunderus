@@ -249,9 +249,10 @@ fn run_fake(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
 /// provider-native `tool_result` messages, and repeats until the model stops
 /// requesting tools or the per-turn cap is hit.
 ///
-/// If `UMANS_API_KEY` is not set, emits a `Failed` event and returns.
+/// If `UMANS_API_KEY` is not set in the environment or workspace `.env`,
+/// emits a `Failed` event and returns.
 fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
-    let client = match umans::UmansClient::from_env() {
+    let client = match umans::UmansClient::from_env_or_dotenv(&handle.config.root) {
         Ok(c) => c,
         Err(e) => {
             let event = umans::error_to_agent_event(&e);
