@@ -78,10 +78,10 @@
 
 ### Phase 14: Finalize Alpha
 
-- [ ] Complete the Umans tool-result feedback loop: append provider-native
+- [x] Complete the Umans tool-result feedback loop: append provider-native
       tool-result messages after each dispatched tool batch and re-request until
       the model stops requesting tools or the tool-iteration cap is hit.
-- [ ] Remove the redundant legacy `ToolInput`/`execute` path or make it the
+- [x] Remove the redundant legacy `ToolInput`/`execute` path or make it the
       single dispatch path; provider dispatch, transcript rendering, and session
       records should share one obvious tool execution route.
 - [ ] Wire the existing command/help mode scaffolding into the TUI instead of

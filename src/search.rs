@@ -227,11 +227,8 @@ pub fn fetch_url(url_str: &str) -> Result<FetchedContent> {
         .unwrap_or("")
         .to_string();
 
-    let kind = allowed_content_kind(&content_type)
-        .ok_or_else(|| SearchError::BadContentType(content_type.clone()))?;
+    let kind = allowed_content_kind(&content_type).ok_or_else(|| SearchError::BadContentType(content_type.clone()))?;
 
-    // Enforce the size cap *while streaming* via with_config().limit(), so a
-    // multi-gigabyte body is aborted early instead of being buffered first.
     let body_result = response
         .into_body()
         .with_config()
@@ -902,12 +899,13 @@ mod tests {
         assert!(err.to_string().contains("1024"));
     }
 
-    // ---- content-type allow-list classification ----
-
     #[test]
     fn allowed_content_kind_html() {
         assert_eq!(allowed_content_kind("text/html"), Some(ContentKind::Html));
-        assert_eq!(allowed_content_kind("text/html; charset=utf-8"), Some(ContentKind::Html));
+        assert_eq!(
+            allowed_content_kind("text/html; charset=utf-8"),
+            Some(ContentKind::Html)
+        );
         assert_eq!(allowed_content_kind("application/xhtml+xml"), Some(ContentKind::Html));
         assert_eq!(allowed_content_kind("TEXT/HTML"), Some(ContentKind::Html));
     }
@@ -915,7 +913,10 @@ mod tests {
     #[test]
     fn allowed_content_kind_text_family() {
         assert_eq!(allowed_content_kind("text/plain"), Some(ContentKind::Text));
-        assert_eq!(allowed_content_kind("text/plain; charset=iso-8859-1"), Some(ContentKind::Text));
+        assert_eq!(
+            allowed_content_kind("text/plain; charset=iso-8859-1"),
+            Some(ContentKind::Text)
+        );
         assert_eq!(allowed_content_kind("text/csv"), Some(ContentKind::Text));
         assert_eq!(allowed_content_kind("text/markdown"), Some(ContentKind::Text));
         assert_eq!(allowed_content_kind("text/css"), Some(ContentKind::Text));
@@ -925,7 +926,10 @@ mod tests {
     #[test]
     fn allowed_content_kind_application_text_types() {
         assert_eq!(allowed_content_kind("application/json"), Some(ContentKind::Text));
-        assert_eq!(allowed_content_kind("application/json; charset=utf-8"), Some(ContentKind::Text));
+        assert_eq!(
+            allowed_content_kind("application/json; charset=utf-8"),
+            Some(ContentKind::Text)
+        );
         assert_eq!(allowed_content_kind("application/xml"), Some(ContentKind::Text));
         assert_eq!(allowed_content_kind("application/javascript"), Some(ContentKind::Text));
         assert_eq!(allowed_content_kind("application/yaml"), Some(ContentKind::Text));
@@ -934,9 +938,11 @@ mod tests {
 
     #[test]
     fn allowed_content_kind_suffixes() {
-        // +json and +xml suffixes used by feeds and vendor types.
         assert_eq!(allowed_content_kind("application/feed+json"), Some(ContentKind::Text));
-        assert_eq!(allowed_content_kind("application/vnd.api+json"), Some(ContentKind::Text));
+        assert_eq!(
+            allowed_content_kind("application/vnd.api+json"),
+            Some(ContentKind::Text)
+        );
         assert_eq!(allowed_content_kind("application/atom+xml"), Some(ContentKind::Text));
         assert_eq!(allowed_content_kind("application/rss+xml"), Some(ContentKind::Text));
     }
@@ -954,8 +960,6 @@ mod tests {
         assert_eq!(allowed_content_kind("garbage"), None);
     }
 
-    // ---- process_body: no-network success path ----
-
     #[test]
     fn process_body_html_uses_lectito_extraction() {
         let html = r#"
@@ -967,8 +971,7 @@ mod tests {
                 as readable by the Lectito algorithm.</p>
             </article>
         "#;
-        let result = process_body(html, "https://example.com/post", ContentKind::Html)
-            .expect("html should process");
+        let result = process_body(html, "https://example.com/post", ContentKind::Html).expect("html should process");
         assert!(!result.markdown.is_empty());
         assert!(!result.text_content.is_empty());
         assert!(!result.truncated);
@@ -976,7 +979,6 @@ mod tests {
 
     #[test]
     fn process_body_html_unreadable_falls_back_to_raw() {
-        // Empty/boilerplate HTML that Lectito judges unreadable still returns raw text.
         let html = "<html><body></body></html>";
         let result = process_body(html, "https://example.com/empty", ContentKind::Html)
             .expect("unreadable html should not error");
@@ -1004,10 +1006,9 @@ mod tests {
 
     #[test]
     fn process_body_text_truncation_flag() {
-        // Build a body larger than MAX_ARTICLE_CONTENT_LEN.
         let body = "a".repeat(MAX_ARTICLE_CONTENT_LEN + 100);
-        let result = process_body(&body, "https://example.com/big.txt", ContentKind::Text)
-            .expect("large text should process");
+        let result =
+            process_body(&body, "https://example.com/big.txt", ContentKind::Text).expect("large text should process");
         assert!(result.truncated);
     }
 

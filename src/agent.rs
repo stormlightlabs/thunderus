@@ -11,7 +11,10 @@
 //! 3. Each tool-use request is dispatched via [`crate::tools::dispatch_tool`]
 //!    and the result is emitted as a `ToolFinished` event appended to the
 //!    transcript.
-//! 4. For the Umans provider, tool results are fed back into the next turn.
+//! 4. For the Umans provider, tool results are fed back into the next turn:
+//!    after each dispatched tool batch, the assistant message (with `tool_use`
+//!    blocks) and the user message (with `tool_result` blocks) are appended to
+//!    the message history, and the provider is re-requested.
 //! 5. The loop enforces [`MAX_TOOL_ITERATIONS`] per turn to prevent recursive
 //!    or unbounded tool-call loops.
 //! 6. Cancellation is cooperative: the loop checks the shared [`CancelToken`]
@@ -154,10 +157,11 @@ fn run_fake(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
     step();
 
     if handle.config.search_mode != WebSearchMode::None {
-        let search_req = ToolUseRequest {
-            name: String::from("web_search"),
-            arguments: serde_json::json!({ "query": "rust ratatui coding harness" }).to_string(),
-        };
+        let search_req = ToolUseRequest::new(
+            String::from("web_search"),
+            serde_json::json!({ "query": "rust ratatui coding harness" }).to_string(),
+            String::from("search-0"),
+        );
         let search_id = String::from("search-0");
         if send(
             tx,
@@ -194,10 +198,11 @@ fn run_fake(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
         }
     }
 
-    let tool_req = ToolUseRequest {
-        name: String::from("read_file_range"),
-        arguments: serde_json::json!({ "path": "Cargo.toml", "start_line": 1, "end_line": 5 }).to_string(),
-    };
+    let tool_req = ToolUseRequest::new(
+        String::from("read_file_range"),
+        serde_json::json!({ "path": "Cargo.toml", "start_line": 1, "end_line": 5 }).to_string(),
+        String::from("0"),
+    );
 
     let tool_id = String::from("0");
     if send(
@@ -219,13 +224,7 @@ fn run_fake(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
     let status = output.status;
     if send(
         tx,
-        AgentEvent::ToolFinished {
-            id: tool_id,
-            output: output.output,
-            status,
-            write_result: None,
-            shell_result: None,
-        },
+        AgentEvent::ToolFinished { id: tool_id, output: output.output, status, write_result: None, shell_result: None },
         cancel,
     )
     .is_none()
@@ -253,8 +252,9 @@ fn run_fake(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
 }
 
 /// Umans provider sends the prompt to the Umans API, streams the response,
-/// dispatches any tool-use requests, feeds results back, and repeats until the
-/// model stops requesting tools or the per-turn cap is hit.
+/// dispatches any tool-use requests, feeds the tool results back as
+/// provider-native `tool_result` messages, and repeats until the model stops
+/// requesting tools or the per-turn cap is hit.
 ///
 /// If `UMANS_API_KEY` is not set, emits a `Failed` event and returns.
 fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
@@ -269,7 +269,7 @@ fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
 
     let tool_defs = crate::tools::tool_definitions();
     let tool_schemas = crate::tools::tool_catalog_schemas(&tool_defs);
-    let messages = vec![umans::Message::user(&handle.prompt)];
+    let mut messages = vec![umans::Message::user(&handle.prompt)];
     let mut iterations = 0usize;
 
     loop {
@@ -302,28 +302,34 @@ fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
             }
         };
 
-        let tool_requests = match stream_umans_response(response, tx, cancel) {
-            Ok(reqs) => reqs,
+        let turn = match stream_umans_response(response, tx, cancel) {
+            Ok(t) => t,
             Err(msg) => {
                 let _ = send(tx, AgentEvent::Failed(msg), cancel);
                 return;
             }
         };
 
-        if tool_requests.is_empty() {
+        if turn.tool_requests.is_empty() {
             let _ = send(tx, AgentEvent::Finished, cancel);
             return;
         }
 
         iterations += 1;
 
-        for (i, req) in tool_requests.iter().enumerate() {
+        let mut assistant_blocks = Vec::new();
+        if !turn.assistant_text.is_empty() {
+            assistant_blocks.push(umans::ContentBlock::Text { text: turn.assistant_text });
+        }
+
+        let mut tool_results: Vec<umans::Message> = Vec::new();
+        for req in &turn.tool_requests {
             if cancel.is_cancelled() {
                 let _ = send(tx, AgentEvent::Cancelled, cancel);
                 return;
             }
 
-            let tool_id = format!("{iterations}-{i}");
+            let tool_id = req.tool_use_id.clone();
             if send(
                 tx,
                 AgentEvent::ToolStarted {
@@ -338,13 +344,12 @@ fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
                 return;
             }
 
-            let (output, write_result, shell_result) =
-                crate::tools::dispatch_full(req, &handle.config.root);
+            let (output, write_result, shell_result) = crate::tools::dispatch_full(req, &handle.config.root);
             let status = output.status;
             if send(
                 tx,
                 AgentEvent::ToolFinished {
-                    id: tool_id,
+                    id: tool_id.clone(),
                     output: output.output.clone(),
                     status,
                     write_result,
@@ -356,23 +361,36 @@ fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
             {
                 return;
             }
+
+            let input: serde_json::Value = serde_json::from_str(&req.arguments).unwrap_or(serde_json::Value::Null);
+            assistant_blocks.push(umans::ContentBlock::ToolUse { id: tool_id.clone(), name: req.name.clone(), input });
+
+            let result_content = if output.output.is_empty() {
+                output.error.unwrap_or_else(|| "(no output)".to_string())
+            } else {
+                output.output.join("\n")
+            };
+            let is_error = status == crate::app::ToolStatus::Failed;
+            tool_results.push(umans::Message::tool_result(&tool_id, &result_content, is_error));
         }
 
-        // TODO: append tool_result messages and re-request.
+        messages.push(umans::Message::assistant_blocks(assistant_blocks));
+        messages.extend(tool_results);
     }
 }
 
 /// Read an Umans SSE streaming response, converting events to [`AgentEvent`]
-/// instances and collecting any tool-use requests.
+/// instances and collecting any tool-use requests plus the assistant text.
 ///
-/// Returns the list of tool-use requests found in the response, or an error
-/// message if the stream failed.
+/// Returns a [`TurnOutput`] with the tool-use requests and the accumulated
+/// assistant text, or an error message if the stream failed.
 fn stream_umans_response(
     resp: Response<ureq::Body>, tx: &Sender<AgentEvent>, cancel: &CancelToken,
-) -> Result<Vec<ToolUseRequest>, String> {
+) -> Result<TurnOutput, String> {
     let reader = BufReader::new(resp.into_body().into_reader());
     let mut buffer = String::new();
     let mut tool_requests = Vec::new();
+    let mut assistant_text = String::new();
 
     for line_result in reader.lines() {
         if cancel.is_cancelled() {
@@ -398,6 +416,10 @@ fn stream_umans_response(
                             tool_requests.push(req);
                         }
 
+                        if let umans::SseEvent::TextDelta(ref text) = sse_event {
+                            assistant_text.push_str(text);
+                        }
+
                         if let Some(agent_event) = umans::sse_to_agent_event(&sse_event)
                             && send(tx, agent_event, cancel).is_none()
                         {
@@ -420,13 +442,22 @@ fn stream_umans_response(
             {
                 tool_requests.push(req);
             }
+            if let umans::SseEvent::TextDelta(ref text) = sse_event {
+                assistant_text.push_str(text);
+            }
             if let Some(agent_event) = umans::sse_to_agent_event(&sse_event) {
                 let _ = send(tx, agent_event, cancel);
             }
         }
     }
 
-    Ok(tool_requests)
+    Ok(TurnOutput { tool_requests, assistant_text })
+}
+
+/// Output collected from streaming one provider turn.
+struct TurnOutput {
+    tool_requests: Vec<ToolUseRequest>,
+    assistant_text: String,
 }
 
 /// Extract a tool-use request from a `content_block_start` data payload,
@@ -439,13 +470,14 @@ fn extract_tool_use(data: &str) -> Option<ToolUseRequest> {
         return None;
     }
     let name = cb.get("name").and_then(|n| n.as_str())?.to_string();
+    let tool_use_id = cb.get("id").and_then(|n| n.as_str()).unwrap_or("").to_string();
     let input = cb.get("input").cloned().unwrap_or(serde_json::Value::Null);
     let arguments = if input.is_null() {
         String::from("{}")
     } else {
         serde_json::to_string(&input).unwrap_or_else(|_| String::from("{}"))
     };
-    Some(ToolUseRequest { name, arguments })
+    Some(ToolUseRequest::new(name, arguments, tool_use_id))
 }
 
 /// Send an event, respecting cancellation. Returns `Some(())` on success, or
@@ -572,10 +604,11 @@ mod tests {
 
     #[test]
     fn dispatch_tool_find_files_success() {
-        let req = ToolUseRequest {
-            name: String::from("find_files"),
-            arguments: serde_json::json!({ "pattern": "cli" }).to_string(),
-        };
+        let req = ToolUseRequest::new(
+            String::from("find_files"),
+            serde_json::json!({ "pattern": "cli" }).to_string(),
+            String::from("toolu_test"),
+        );
         let output = dispatch_tool(&req, Path::new("src"));
         assert_eq!(output.status, ToolStatus::Ok);
         assert!(output.output.iter().any(|p| p.contains("cli.rs")));
@@ -583,15 +616,16 @@ mod tests {
 
     #[test]
     fn dispatch_tool_read_file_range_success() {
-        let req = ToolUseRequest {
-            name: String::from("read_file_range"),
-            arguments: serde_json::json!({
+        let req = ToolUseRequest::new(
+            String::from("read_file_range"),
+            serde_json::json!({
                 "path": "Cargo.toml",
                 "start_line": 1,
                 "end_line": 3
             })
             .to_string(),
-        };
+            String::from("toolu_test"),
+        );
         let output = dispatch_tool(&req, Path::new("."));
         assert_eq!(output.status, ToolStatus::Ok);
         assert_eq!(output.output.len(), 3);
@@ -599,7 +633,11 @@ mod tests {
 
     #[test]
     fn dispatch_tool_unknown_name_fails() {
-        let req = ToolUseRequest { name: String::from("nonexistent_tool"), arguments: String::from("{}") };
+        let req = ToolUseRequest::new(
+            String::from("nonexistent_tool"),
+            String::from("{}"),
+            String::from("toolu_test"),
+        );
         let output = dispatch_tool(&req, Path::new("."));
         assert_eq!(output.status, ToolStatus::Failed);
         assert!(output.error.as_ref().is_some_and(|e| e.contains("unknown tool")));
@@ -607,7 +645,11 @@ mod tests {
 
     #[test]
     fn dispatch_tool_malformed_arguments_falls_back_to_defaults() {
-        let req = ToolUseRequest { name: String::from("find_files"), arguments: String::from("not valid json") };
+        let req = ToolUseRequest::new(
+            String::from("find_files"),
+            String::from("not valid json"),
+            String::from("toolu_test"),
+        );
         let output = dispatch_tool(&req, Path::new("src"));
         assert_eq!(output.status, ToolStatus::Ok);
     }
@@ -630,14 +672,44 @@ mod tests {
         let req = extract_tool_use(data).expect("should extract");
         assert_eq!(req.name, "find_files");
         assert!(req.arguments.contains("cli"));
+        assert_eq!(req.tool_use_id, "toolu_1");
+    }
+
+    #[test]
+    fn parse_tool_use_fixture_extracts_request_with_id() {
+        let sse = include_str!("./providers/fixtures/tool_use_turn.sse");
+        let chunks = umans::parse_sse_chunk(sse);
+
+        let mut tool_requests = Vec::new();
+        let mut assistant_text = String::new();
+        for (event_type, data) in &chunks {
+            let sse_event = umans::parse_sse_event(event_type, data);
+            if let umans::SseEvent::Other(ref t) = sse_event
+                && t.starts_with("content_block_start")
+                && let Some(req) = extract_tool_use(data)
+            {
+                tool_requests.push(req);
+            }
+            if let umans::SseEvent::TextDelta(ref text) = sse_event {
+                assistant_text.push_str(text);
+            }
+        }
+
+        assert_eq!(tool_requests.len(), 1);
+        let req = &tool_requests[0];
+        assert_eq!(req.name, "find_files");
+        assert_eq!(req.tool_use_id, "toolu_01");
+        assert!(req.arguments.contains("Cargo"));
+        assert_eq!(assistant_text, "Let me look that up.");
     }
 
     #[test]
     fn dispatch_read_url_rejects_private_network() {
-        let req = ToolUseRequest {
-            name: String::from("read_url"),
-            arguments: serde_json::json!({ "url": "http://127.0.0.1/secret" }).to_string(),
-        };
+        let req = ToolUseRequest::new(
+            String::from("read_url"),
+            serde_json::json!({ "url": "http://127.0.0.1/secret" }).to_string(),
+            String::from("toolu_test"),
+        );
         let output = dispatch_tool(&req, Path::new("."));
         assert_eq!(output.status, ToolStatus::Failed);
         assert!(output.error.as_ref().is_some_and(|e| e.contains("private network")));
@@ -645,10 +717,11 @@ mod tests {
 
     #[test]
     fn dispatch_read_url_rejects_non_public_scheme() {
-        let req = ToolUseRequest {
-            name: String::from("read_url"),
-            arguments: serde_json::json!({ "url": "file:///etc/passwd" }).to_string(),
-        };
+        let req = ToolUseRequest::new(
+            String::from("read_url"),
+            serde_json::json!({ "url": "file:///etc/passwd" }).to_string(),
+            String::from("toolu_test"),
+        );
         let output = dispatch_tool(&req, Path::new("."));
         assert_eq!(output.status, ToolStatus::Failed);
         assert!(output.error.as_ref().is_some_and(|e| e.contains("unsupported")));
@@ -665,10 +738,11 @@ mod tests {
 
     #[test]
     fn dispatch_run_shell_success() {
-        let req = ToolUseRequest {
-            name: String::from("run_shell"),
-            arguments: serde_json::json!({ "program": "echo", "args": ["hello"] }).to_string(),
-        };
+        let req = ToolUseRequest::new(
+            String::from("run_shell"),
+            serde_json::json!({ "program": "echo", "args": ["hello"] }).to_string(),
+            String::from("toolu_test"),
+        );
         let output = dispatch_tool(&req, Path::new("."));
         assert_eq!(output.status, ToolStatus::Ok);
         assert_eq!(output.name, "run_shell");
@@ -680,6 +754,7 @@ mod tests {
         let req = ToolUseRequest {
             name: String::from("run_shell"),
             arguments: serde_json::json!({ "program": "sh", "args": ["-c", "exit 1"] }).to_string(),
+            tool_use_id: String::from("toolu_test"),
         };
         let output = dispatch_tool(&req, Path::new("."));
         assert_eq!(output.status, ToolStatus::Failed);
@@ -688,10 +763,11 @@ mod tests {
 
     #[test]
     fn dispatch_run_shell_missing_program_fails() {
-        let req = ToolUseRequest {
-            name: String::from("run_shell"),
-            arguments: serde_json::json!({ "args": ["test"] }).to_string(),
-        };
+        let req = ToolUseRequest::new(
+            String::from("run_shell"),
+            serde_json::json!({ "args": ["test"] }).to_string(),
+            String::from("toolu_test"),
+        );
         let output = dispatch_tool(&req, Path::new("."));
         assert_eq!(output.status, ToolStatus::Failed);
         assert!(output.error.as_ref().is_some_and(|e| e.contains("missing")));

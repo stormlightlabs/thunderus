@@ -70,48 +70,6 @@ impl From<Cap> for usize {
     }
 }
 
-/// Typed tool inputs. Each variant maps to a read-only filesystem tool.
-///
-/// TODO: Construct by the agent/tool dispatch
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[allow(dead_code)]
-pub enum ToolInput {
-    /// Find files by name pattern, backed by `fd` with `find` fallback.
-    FindFiles {
-        pattern: String,
-        root: PathBuf,
-        glob: Option<String>,
-        extensions: Vec<String>,
-        max_depth: Option<u32>,
-        max_results: usize,
-        include_hidden: bool,
-        follow_symlinks: bool,
-    },
-    /// List searchable files, backed by `rg --files` or `fd --type file`.
-    ListSearchableFiles {
-        root: PathBuf,
-        glob: Option<String>,
-        max_results: usize,
-        include_hidden: bool,
-    },
-    /// Search file contents, backed by `rg --json`.
-    SearchText {
-        pattern: String,
-        root: PathBuf,
-        glob: Option<String>,
-        extensions: Vec<String>,
-        max_results: usize,
-        context_lines: u32,
-        include_hidden: bool,
-    },
-    /// Read a line range from a file, implemented in Rust.
-    ReadFileRange {
-        path: PathBuf,
-        start_line: u32,
-        end_line: Option<u32>,
-    },
-}
-
 /// The kind of write operation performed on a file.
 ///
 /// Used by [`WriteResult`] and the session record to audit what changed.
@@ -176,6 +134,15 @@ pub struct ToolUseRequest {
     pub name: String,
     /// Raw JSON arguments string as sent by the model.
     pub arguments: String,
+    /// Provider-assigned id (e.g. `toolu_01`) used to correlate the
+    /// `tool_result` back to the originating `tool_use` block.
+    pub tool_use_id: String,
+}
+
+impl ToolUseRequest {
+    pub fn new(name: String, args: String, id: String) -> Self {
+        Self { name, arguments: args, tool_use_id: id }
+    }
 }
 
 /// Structured output from a tool execution.
@@ -265,9 +232,9 @@ pub fn hash_content(content: &str) -> u64 {
 
 /// The catalog of read-only filesystem tools exposed to the model.
 ///
-/// These map directly to tool implementations. The model sees typed tool definitions;
-/// the harness dispatches `tool_use` requests to the matching [`ToolInput`] and executes it.
-#[allow(dead_code)]
+/// These map directly to tool implementations. The model sees typed tool
+/// definitions; the harness dispatches `tool_use` requests to the matching
+/// handler in [`dispatch_tool`] (or [`dispatch_full`] for write/shell tools).
 pub fn tool_definitions() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition {
@@ -735,58 +702,6 @@ fn dispatch_shell(request: &ToolUseRequest, root: &Path) -> (ToolOutput, Option<
             (output, Some(result))
         }
         Err(e) => (ToolOutput::failed("run_shell", e), None),
-    }
-}
-
-/// Execute a [`ToolInput`] and return structured [`ToolOutput`].
-///
-/// TODO: Wire into agent loop tool calls.
-#[allow(dead_code)]
-pub fn execute(input: &ToolInput, root: &Path) -> ToolOutput {
-    match input {
-        ToolInput::FindFiles {
-            pattern,
-            root: tool_root,
-            glob,
-            extensions,
-            max_depth,
-            max_results,
-            include_hidden,
-            follow_symlinks,
-        } => FindFiles {
-            pattern,
-            root: tool_root,
-            glob: glob.as_deref(),
-            extensions,
-            max_depth: *max_depth,
-            max_results: *max_results,
-            include_hidden: *include_hidden,
-            follow_symlinks: *follow_symlinks,
-        }
-        .run(),
-        ToolInput::ListSearchableFiles { root: tool_root, glob, max_results, include_hidden } => {
-            list_searchable_files::exec(tool_root, glob.as_deref(), *max_results, *include_hidden)
-        }
-        ToolInput::SearchText {
-            pattern,
-            root: tool_root,
-            glob,
-            extensions,
-            max_results,
-            context_lines,
-            include_hidden,
-        } => search_text::exec(
-            pattern,
-            tool_root,
-            glob.as_deref(),
-            extensions,
-            *max_results,
-            *context_lines,
-            *include_hidden,
-        ),
-        ToolInput::ReadFileRange { path, start_line, end_line } => {
-            read_file_range::exec(path, root, *start_line, *end_line)
-        }
     }
 }
 

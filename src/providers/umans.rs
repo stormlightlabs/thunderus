@@ -214,20 +214,134 @@ pub struct Reasoning {
     pub default_level: Option<String>,
 }
 
+/// A structured content block in the Anthropic Messages API format.
+///
+/// The API allows a message's `content` to be either a plain string or an
+/// array of typed blocks. Tool use requires `tool_use` blocks (from the
+/// assistant) and `tool_result` blocks (in the following user message).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ContentBlock {
+    /// A plain text block.
+    Text { text: String },
+    /// A tool-use request emitted by the assistant.
+    ToolUse {
+        /// Provider-assigned id (e.g. `toolu_01`), echoed back in `tool_result`.
+        id: String,
+        name: String,
+        input: serde_json::Value,
+    },
+    /// A tool result returned to the model in a `user`-role message.
+    ToolResult {
+        /// Must match the `id` of the originating `tool_use` block.
+        tool_use_id: String,
+        content: String,
+        /// `"ok"` or `"error"`. Umans/Anthropic accept `is_error` as a bool;
+        /// we send the string form for compatibility.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        is_error: Option<bool>,
+    },
+}
+
+/// The `content` field of a [`Message`]: either a plain string or an array
+/// of structured [`ContentBlock`]s.
+///
+/// Serialized as a bare string when only text is present, and as a JSON array
+/// when blocks are used, matching the Anthropic Messages API.
+#[derive(Clone, Debug, PartialEq)]
+pub enum MessageContent {
+    /// Plain string content (text-only messages).
+    Text(String),
+    /// Structured content blocks (tool_use / tool_result / mixed).
+    Blocks(Vec<ContentBlock>),
+}
+
+impl Serialize for MessageContent {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            MessageContent::Text(s) => serializer.serialize_str(s),
+            MessageContent::Blocks(blocks) => blocks.serialize(serializer),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for MessageContent {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let v = serde_json::Value::deserialize(deserializer)?;
+        match v {
+            serde_json::Value::String(s) => Ok(MessageContent::Text(s)),
+            serde_json::Value::Array(arr) => {
+                let blocks: Vec<ContentBlock> =
+                    serde_json::from_value(serde_json::Value::Array(arr)).map_err(serde::de::Error::custom)?;
+                Ok(MessageContent::Blocks(blocks))
+            }
+            _ => Err(serde::de::Error::custom("expected string or array for message content")),
+        }
+    }
+}
+
+impl MessageContent {
+    /// Return the concatenated text of all `Text` blocks, or the plain string.
+    ///
+    /// `tool_use` and `tool_result` blocks are ignored; this is intended for
+    /// debug display and legacy callers that only care about text.
+    pub fn as_text(&self) -> String {
+        match self {
+            MessageContent::Text(s) => s.clone(),
+            MessageContent::Blocks(blocks) => blocks
+                .iter()
+                .filter_map(|b| match b {
+                    ContentBlock::Text { text } => Some(text.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join(""),
+        }
+    }
+}
+
 /// A message in the Anthropic Messages API format.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Message {
     pub role: String,
-    pub content: String,
+    pub content: MessageContent,
 }
 
 impl Message {
     pub fn user(content: &str) -> Self {
-        Message { role: "user".to_string(), content: content.to_string() }
+        Message { role: "user".to_string(), content: MessageContent::Text(content.to_string()) }
     }
 
     pub fn assistant(content: &str) -> Self {
-        Message { role: "assistant".to_string(), content: content.to_string() }
+        Message { role: "assistant".to_string(), content: MessageContent::Text(content.to_string()) }
+    }
+
+    /// Create a `user`-role message containing one `tool_result` block.
+    pub fn tool_result(tool_use_id: &str, content: &str, is_error: bool) -> Self {
+        Message {
+            role: "user".to_string(),
+            content: MessageContent::Blocks(vec![ContentBlock::ToolResult {
+                tool_use_id: tool_use_id.to_string(),
+                content: content.to_string(),
+                is_error: Some(is_error),
+            }]),
+        }
+    }
+
+    /// Create an `assistant`-role message from content blocks.
+    pub fn assistant_blocks(blocks: Vec<ContentBlock>) -> Self {
+        Message { role: "assistant".to_string(), content: MessageContent::Blocks(blocks) }
+    }
+
+    /// Return the concatenated text content of this message.
+    pub fn as_text(&self) -> String {
+        self.content.as_text()
     }
 }
 
@@ -469,7 +583,7 @@ pub fn spawn_stream_reader(response: ureq::http::Response<ureq::Body>) -> Receiv
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::WebSearchMode;
+    use crate::{cli::WebSearchMode, providers};
 
     #[test]
     fn build_messages_request_body_has_required_fields() {
@@ -736,7 +850,6 @@ mod tests {
     #[test]
     fn parse_full_stream_fixture_into_agent_events() {
         let sse = include_str!("./fixtures/stream_response.sse");
-
         let chunks = parse_sse_chunk(sse);
         let agent_events: Vec<AgentEvent> = chunks
             .iter()
@@ -828,13 +941,98 @@ mod tests {
     fn message_user_constructor() {
         let msg = Message::user("test prompt");
         assert_eq!(msg.role, "user");
-        assert_eq!(msg.content, "test prompt");
+        assert_eq!(msg.as_text(), "test prompt");
     }
 
     #[test]
     fn message_assistant_constructor() {
         let msg = Message::assistant("response");
         assert_eq!(msg.role, "assistant");
-        assert_eq!(msg.content, "response");
+        assert_eq!(msg.as_text(), "response");
+    }
+
+    #[test]
+    fn tool_result_message_has_correct_shape() {
+        let msg = Message::tool_result("toolu_01", "found 2 files", false);
+        assert_eq!(msg.role, "user");
+
+        match &msg.content {
+            providers::umans::MessageContent::Blocks(blocks) => {
+                assert_eq!(blocks.len(), 1);
+                match &blocks[0] {
+                    providers::umans::ContentBlock::ToolResult { tool_use_id, content, is_error } => {
+                        assert_eq!(tool_use_id, "toolu_01");
+                        assert_eq!(content, "found 2 files");
+                        assert_eq!(*is_error, Some(false));
+                    }
+                    other => panic!("expected ToolResult, got {other:?}"),
+                }
+            }
+            other => panic!("expected Blocks, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn assistant_blocks_message_serializes_tool_use() {
+        let blocks = vec![providers::umans::ContentBlock::ToolUse {
+            id: "toolu_01".to_string(),
+            name: "find_files".to_string(),
+            input: serde_json::json!({"pattern": "Cargo"}),
+        }];
+        let msg = Message::assistant_blocks(blocks);
+        let json = serde_json::to_value(&msg).expect("serialize");
+        assert_eq!(json["role"], "assistant");
+
+        let content = &json["content"];
+        assert!(content.is_array(), "content should be an array for blocks");
+        assert_eq!(content[0]["type"], "tool_use");
+        assert_eq!(content[0]["id"], "toolu_01");
+        assert_eq!(content[0]["name"], "find_files");
+        assert_eq!(content[0]["input"]["pattern"], "Cargo");
+    }
+
+    #[test]
+    fn text_message_content_serializes_as_string() {
+        let msg = Message::user("hello");
+        let json = serde_json::to_value(&msg).expect("serialize");
+        assert_eq!(json["content"], "hello");
+        assert!(json["content"].is_string(), "text content should serialize as a string");
+    }
+
+    #[test]
+    fn tool_result_block_serializes_with_is_error() {
+        let msg = Message::tool_result("toolu_02", "command failed", true);
+        let json = serde_json::to_value(&msg).expect("serialize");
+        let block = &json["content"][0];
+        assert_eq!(block["type"], "tool_result");
+        assert_eq!(block["tool_use_id"], "toolu_02");
+        assert_eq!(block["content"], "command failed");
+        assert_eq!(block["is_error"], true);
+    }
+
+    #[test]
+    fn assistant_blocks_with_text_and_tool_use_serializes_in_order() {
+        let blocks = vec![
+            providers::umans::ContentBlock::Text { text: "Let me search.".to_string() },
+            providers::umans::ContentBlock::ToolUse {
+                id: "toolu_03".to_string(),
+                name: "search_text".to_string(),
+                input: serde_json::json!({"pattern": "fn main"}),
+            },
+        ];
+        let msg = Message::assistant_blocks(blocks);
+        let json = serde_json::to_value(&msg).expect("serialize");
+        assert_eq!(json["content"][0]["type"], "text");
+        assert_eq!(json["content"][0]["text"], "Let me search.");
+        assert_eq!(json["content"][1]["type"], "tool_use");
+        assert_eq!(json["content"][1]["id"], "toolu_03");
+    }
+
+    #[test]
+    fn message_content_round_trips_through_json() {
+        let original = Message::tool_result("toolu_99", "result text", false);
+        let json = serde_json::to_string(&original).expect("serialize");
+        let parsed: Message = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(original, parsed);
     }
 }

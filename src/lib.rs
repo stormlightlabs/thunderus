@@ -103,7 +103,7 @@ pub fn render_print_prompt(bundle: &PromptBundle) -> String {
         messages.len()
     ));
     for (i, msg) in messages.iter().enumerate() {
-        let redacted = redact_secret(&msg.content);
+        let redacted = redact_secret(&msg.as_text());
         let truncated = if redacted.len() > 200 { format!("{}...", &redacted[..200]) } else { redacted };
         out.push_str(&format!("[{i}] {}: {truncated}\n", msg.role));
     }

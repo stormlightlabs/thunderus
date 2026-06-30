@@ -574,11 +574,11 @@ mod tests {
         let messages = lower_to_umans_messages(&bundle);
         assert!(!messages.is_empty());
         assert_eq!(messages[0].role, "user");
-        assert!(messages[0].content.contains("thndrs"));
+        assert!(messages[0].as_text().contains("thndrs"));
 
         let last = messages.last().unwrap();
         assert_eq!(last.role, "user");
-        assert!(last.content.contains("explain this repo"));
+        assert!(last.as_text().contains("explain this repo"));
     }
 
     #[test]
@@ -604,7 +604,7 @@ mod tests {
         ];
 
         let messages = lower_to_umans_messages(&bundle);
-        let all_content: String = messages.iter().map(|m| m.content.as_str()).collect();
+        let all_content: String = messages.iter().map(|m| m.as_text()).collect();
         assert!(
             !all_content.contains("partial"),
             "streaming assistant deltas should be excluded"
@@ -639,7 +639,7 @@ mod tests {
         ];
 
         let messages = lower_to_umans_messages(&bundle);
-        let all_content: String = messages.iter().map(|m| m.content.as_str()).collect();
+        let all_content: String = messages.iter().map(|m| m.as_text()).collect();
         assert!(
             !all_content.contains("find_files#0"),
             "running tools should be excluded"
@@ -660,7 +660,7 @@ mod tests {
         ];
 
         let messages = lower_to_umans_messages(&bundle);
-        let all_content: String = messages.iter().map(|m| m.content.as_str()).collect();
+        let all_content: String = messages.iter().map(|m| m.as_text()).collect();
         assert!(
             !all_content.contains("loaded context"),
             "status entries should be excluded"
@@ -905,11 +905,11 @@ mod tests {
         assert!(!messages.is_empty());
         assert_eq!(messages[0].role, "user");
         assert!(
-            messages[0].content.contains("Fixture Project"),
+            messages[0].as_text().contains("Fixture Project"),
             "system message must include AGENTS.md content"
         );
         assert!(
-            messages[0].content.contains("Use cargo build"),
+            messages[0].as_text().contains("Use cargo build"),
             "system message must include AGENTS.md guidance"
         );
     }
@@ -937,11 +937,11 @@ mod tests {
         let messages = lower_to_umans_messages(&bundle);
         assert_eq!(messages.len(), 7, "expected system + 5 transcript + user turn");
         assert_eq!(messages[0].role, "user");
-        assert!(messages[0].content.contains("thndrs"));
+        assert!(messages[0].as_text().contains("thndrs"));
 
         let last = messages.last().unwrap();
         assert_eq!(last.role, "user");
-        assert_eq!(last.content, "now read it");
+        assert_eq!(last.as_text(), "now read it");
     }
 
     /// Tool entries are lowered as `user`-role messages containing the tool
@@ -960,11 +960,11 @@ mod tests {
         let messages = lower_to_umans_messages(&bundle);
         let tool_msg = messages
             .iter()
-            .find(|m| m.content.contains("find_files#0"))
+            .find(|m| m.as_text().contains("find_files#0"))
             .expect("tool entry should produce a message");
         assert_eq!(tool_msg.role, "user");
-        assert!(tool_msg.content.contains("src/main.rs"));
-        assert!(tool_msg.content.contains("src/lib.rs"));
+        assert!(tool_msg.as_text().contains("src/main.rs"));
+        assert!(tool_msg.as_text().contains("src/lib.rs"));
     }
 
     /// A tool entry with empty output still produces a message, noting no output.
@@ -982,10 +982,10 @@ mod tests {
         let messages = lower_to_umans_messages(&bundle);
         let tool_msg = messages
             .iter()
-            .find(|m| m.content.contains("search_text#0"))
+            .find(|m| m.as_text().contains("search_text#0"))
             .expect("tool entry should produce a message");
         assert!(
-            tool_msg.content.contains("no output"),
+            tool_msg.as_text().contains("no output"),
             "empty tool output should note no output"
         );
     }
@@ -1004,7 +1004,7 @@ mod tests {
         let messages = lower_to_umans_messages(&bundle);
         let reasoning_msg = messages
             .iter()
-            .find(|m| m.content.contains("thinking step"))
+            .find(|m| m.as_text().contains("thinking step"))
             .expect("reasoning should produce a message");
         assert_eq!(reasoning_msg.role, "assistant");
     }
