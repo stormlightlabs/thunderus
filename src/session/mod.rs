@@ -37,7 +37,7 @@ use crate::app::{Entry, ToolStatus};
 use crate::context::ContextSource;
 use crate::datetime;
 use crate::prompt::{EnvironmentMetadata, HistoryReuse, PromptBundle};
-use crate::tools::WriteOp;
+use crate::tools::{WriteOp, shell};
 
 /// Current JSONL schema version.
 pub const SCHEMA_VERSION: u32 = 1;
@@ -166,6 +166,31 @@ pub enum SessionRecord {
         after_bytes: usize,
         status: ToolStatus,
     },
+    /// A shell command execution completed.
+    ///
+    /// Records the command argv, working directory, lifecycle status, exit
+    /// code, elapsed time, and process kind for session audit. stdout/stderr
+    /// are not stored directly — they are captured in the `tool_finished`
+    /// record's output lines (which are already redacted and capped).
+    #[serde(rename = "shell_exec")]
+    ShellExec {
+        schema_version: u32,
+        seq: u64,
+        time: String,
+        turn_id: String,
+        /// Full argv (program + args) joined with spaces.
+        command: String,
+        /// Working directory the command ran in.
+        cwd: String,
+        /// Lifecycle status: ok, failed, timeout, cancelled.
+        process_status: String,
+        /// Exit code if the process exited normally, else `None`.
+        exit_code: Option<i32>,
+        /// Elapsed time in milliseconds.
+        elapsed_ms: u64,
+        /// "one-shot" or "background".
+        kind: String,
+    },
 }
 
 impl SessionRecord {
@@ -182,7 +207,8 @@ impl SessionRecord {
             | SessionRecord::Cancelled { seq, .. }
             | SessionRecord::Failed { seq, .. }
             | SessionRecord::SessionRenamed { seq, .. }
-            | SessionRecord::FileWrite { seq, .. } => *seq,
+            | SessionRecord::FileWrite { seq, .. }
+            | SessionRecord::ShellExec { seq, .. } => *seq,
         }
     }
 
@@ -267,6 +293,9 @@ impl SessionRecord {
             SessionRecord::Failed { error, .. } => Some(Entry::Error { text: error.clone() }),
             SessionRecord::FileWrite { op, path, status, .. } => {
                 Some(Entry::Status { text: format!("{} {}: {path}", status.icon(), op.label()) })
+            }
+            SessionRecord::ShellExec { command, process_status, elapsed_ms, .. } => {
+                Some(Entry::Status { text: format!("shell {process_status}: {command} ({elapsed_ms}ms)") })
             }
             _ => None,
         }
@@ -450,6 +479,31 @@ impl SessionWriter {
         Ok(())
     }
 
+    /// Append a `tool_started` record for a tool call that has begun.
+    ///
+    /// This records the command start: tool name, call id, and arguments.
+    /// The matching `tool_finished` (via [`append_entry`]) records the
+    /// output, status, and summary. For `run_shell`, an additional
+    /// [`append_shell_exec`] record captures exit code, elapsed time, and
+    /// process kind.
+    pub fn append_tool_started(&mut self, turn_id: &str, call_id: &str, name: &str, args: &str) -> std::io::Result<()> {
+        let record = SessionRecord::ToolStarted {
+            schema_version: SCHEMA_VERSION,
+            seq: self.seq,
+            time: datetime::now_iso8601(),
+            turn_id: turn_id.to_string(),
+            call_id: call_id.to_string(),
+            name: name.to_string(),
+            arguments: args.to_string(),
+        };
+        self.seq += 1;
+        let line = record.to_json().map_err(io_err)?;
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new().append(true).open(&self.path)?;
+        writeln!(file, "{line}")?;
+        Ok(())
+    }
+
     /// Append a context record with loaded AGENTS.md source metadata.
     pub fn append_context(&mut self, sources: &[ContextSource]) -> std::io::Result<()> {
         let metas: Vec<ContextSourceMeta> = sources.iter().map(ContextSourceMeta::from_source).collect();
@@ -496,6 +550,33 @@ impl SessionWriter {
         Ok(())
     }
 
+    /// Append a shell-execution audit record.
+    ///
+    /// Records the command argv, working directory, lifecycle status, exit
+    /// code, elapsed time, and process kind. stdout/stderr are not stored
+    /// here — they are captured in the `tool_finished` record's output lines
+    /// (already redacted and capped).
+    pub fn append_shell_exec(&mut self, turn_id: &str, result: &shell::ProcessResult) -> std::io::Result<()> {
+        let record = SessionRecord::ShellExec {
+            schema_version: SCHEMA_VERSION,
+            seq: self.seq,
+            time: datetime::now_iso8601(),
+            turn_id: turn_id.to_string(),
+            command: shell::redact_secrets(&result.command.join(" ")),
+            cwd: result.cwd.display().to_string(),
+            process_status: result.status.label().to_string(),
+            exit_code: result.exit_code,
+            elapsed_ms: result.elapsed.as_millis() as u64,
+            kind: result.kind.label().to_string(),
+        };
+        self.seq += 1;
+        let line = record.to_json().map_err(io_err)?;
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new().append(true).open(&self.path)?;
+        writeln!(file, "{line}")?;
+        Ok(())
+    }
+
     /// The session file path.
     pub fn path(&self) -> &Path {
         &self.path
@@ -520,7 +601,8 @@ fn set_seq(record: &mut SessionRecord, seq: u64) {
         | SessionRecord::Cancelled { seq: s, .. }
         | SessionRecord::Failed { seq: s, .. }
         | SessionRecord::SessionRenamed { seq: s, .. }
-        | SessionRecord::FileWrite { seq: s, .. } => *s = seq,
+        | SessionRecord::FileWrite { seq: s, .. }
+        | SessionRecord::ShellExec { seq: s, .. } => *s = seq,
     }
 }
 

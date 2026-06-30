@@ -1,3 +1,5 @@
+use crate::app::Entry;
+use crate::session::{SessionReader, SessionRecord, SessionWriter};
 
 use super::*;
 
@@ -657,4 +659,211 @@ fn no_shell_string_execution_exposed() {
     let args = ShellArgs::one_shot("echo", vec!["hello".to_string()]);
     assert!(!args.program.contains("sh -c"), "program must not be a shell string");
     assert!(args.argv().len() >= 1, "argv must have at least the program");
+}
+
+#[test]
+fn redact_secrets_redacts_sk_prefixed_api_keys() {
+    let line = "export API_KEY=sk-abc123def456ghi789";
+    let redacted = redact_secrets(line);
+    assert!(redacted.contains("[REDACTED]"));
+    assert!(!redacted.contains("abc123def456ghi789"));
+}
+
+#[test]
+fn redact_secrets_redacts_bare_sk_key() {
+    let line = "found key: sk-abcdefgh1234567890";
+    let redacted = redact_secrets(line);
+    assert!(redacted.contains("sk-[REDACTED]"));
+    assert!(!redacted.contains("abcdefgh1234567890"));
+}
+
+#[test]
+fn redact_secrets_does_not_redact_short_sk_prefix() {
+    let line = "sk-short";
+    let redacted = redact_secrets(line);
+    assert_eq!(redacted, line);
+}
+
+#[test]
+fn redact_secrets_redacts_bearer_tokens() {
+    let line = "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.payload";
+    let redacted = redact_secrets(line);
+    assert!(redacted.contains("Bearer [REDACTED]"));
+    assert!(!redacted.contains("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"));
+}
+
+#[test]
+fn redact_secrets_redacts_password_assignment() {
+    let line = "password=hunter2supersecret";
+    let redacted = redact_secrets(line);
+    assert!(redacted.contains("password=[REDACTED]"));
+    assert!(!redacted.contains("hunter2supersecret"));
+}
+
+#[test]
+fn redact_secrets_redacts_api_key_assignment() {
+    let line = "api_key: my_secret_value_12345";
+    let redacted = redact_secrets(line);
+    assert!(redacted.contains("api_key=[REDACTED]"));
+    assert!(!redacted.contains("my_secret_value_12345"));
+}
+
+#[test]
+fn redact_secrets_redacts_access_token_assignment() {
+    let line = "access_token=ghp_abc123def456ghi789jkl";
+    let redacted = redact_secrets(line);
+    assert!(redacted.contains("access_token=[REDACTED]"));
+    assert!(!redacted.contains("ghp_abc123def456ghi789jkl"));
+}
+
+#[test]
+fn redact_secrets_redacts_secret_assignment() {
+    let line = "secret: my_very_secret_value";
+    let redacted = redact_secrets(line);
+    assert!(redacted.contains("secret=[REDACTED]"));
+    assert!(!redacted.contains("my_very_secret_value"));
+}
+
+#[test]
+fn redact_secrets_does_not_redact_short_values() {
+    let line = "password=ab";
+    let redacted = redact_secrets(line);
+    assert_eq!(redacted, line);
+}
+
+#[test]
+fn redact_secrets_redacts_multiple_secrets_in_one_line() {
+    let line = "key1=sk-abc123def456 key2=Bearer token1234567890";
+    let redacted = redact_secrets(line);
+    assert!(redacted.contains("sk-[REDACTED]"));
+    assert!(redacted.contains("Bearer [REDACTED]"));
+}
+
+#[test]
+fn redact_secrets_preserves_non_secret_content() {
+    let line = "cargo test --lib -- --nocapture";
+    let redacted = redact_secrets(line);
+    assert_eq!(redacted, line);
+}
+
+#[test]
+fn redact_secrets_handles_empty_line() {
+    assert_eq!(redact_secrets(""), "");
+}
+
+#[test]
+fn redact_secrets_is_case_insensitive_for_keywords() {
+    let line = "API_KEY=supersecretvalue123";
+    let redacted = redact_secrets(line);
+    assert!(redacted.contains("API_KEY=[REDACTED]"));
+    assert!(!redacted.contains("supersecretvalue123"));
+}
+
+#[test]
+fn redact_secrets_redacts_in_command_output() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let root = dir.path();
+    let cancel = CancelFlag::new();
+    let args = sh("echo 'token=sk-abcdefgh1234567890'");
+    let result = run_command(&args, root, &cancel).expect("run");
+    assert_eq!(result.status, ProcessStatus::Ok);
+    assert_eq!(result.stdout.len(), 1);
+    assert!(
+        result.stdout[0].contains("[REDACTED]"),
+        "output should be redacted: {}",
+        result.stdout[0]
+    );
+    assert!(
+        !result.stdout[0].contains("abcdefgh1234567890"),
+        "secret should not appear"
+    );
+}
+
+/// Verify that shell output is persisted in the tool_finished session record
+/// and that secrets in that output are redacted before persistence.
+#[test]
+fn shell_output_persisted_in_tool_finished_is_redacted() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let root = dir.path();
+    let cancel = CancelFlag::new();
+    let args = sh("echo 'api_key=sk-secretvalue12345'");
+    let result = run_command(&args, root, &cancel).expect("run");
+
+    assert!(result.stdout.iter().all(|l| !l.contains("secretvalue12345")));
+
+    let entry = Entry::Tool {
+        name: String::from("run_shell#0"),
+        arguments: String::from("{}"),
+        status: ToolStatus::Ok,
+        output: result.to_output_lines(),
+    };
+
+    let session_dir = tempfile::tempdir().expect("session dir");
+    let mut writer = SessionWriter::create(
+        session_dir.path(),
+        "redact-persist",
+        "/repo",
+        "test",
+        "umans",
+        "umans-coder",
+        "native",
+        "0.1.0",
+    )
+    .expect("create writer");
+
+    writer.append_entry(&entry, "turn_1").expect("append");
+
+    let json = std::fs::read_to_string(writer.path()).expect("read file");
+    assert!(
+        !json.contains("secretvalue12345"),
+        "persisted tool_finished output must not contain the secret"
+    );
+    assert!(
+        json.contains("[REDACTED]"),
+        "persisted tool_finished output should contain redacted marker"
+    );
+}
+
+/// Verify that the ShellExec session record captures the full lifecycle
+/// (command, status, exit_code, elapsed, kind) for a successful command.
+#[test]
+fn shell_exec_persists_full_lifecycle_for_success() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let root = dir.path();
+    let cancel = CancelFlag::new();
+    let args = echo(&["hello"]);
+    let result = run_command(&args, root, &cancel).expect("run");
+
+    let session_dir = tempfile::tempdir().expect("session dir");
+    let mut writer = SessionWriter::create(
+        session_dir.path(),
+        "lifecycle-success",
+        "/repo",
+        "test",
+        "umans",
+        "umans-coder",
+        "native",
+        "0.1.0",
+    )
+    .expect("create writer");
+
+    writer.append_shell_exec("turn_1", &result).expect("append");
+
+    let path = writer.path().to_path_buf();
+    drop(writer);
+
+    let records = SessionReader::read_records(&path);
+    let se = records
+        .iter()
+        .find(|r| matches!(r, SessionRecord::ShellExec { .. }))
+        .expect("should find shell_exec record");
+
+    let SessionRecord::ShellExec { command, process_status, exit_code, kind, .. } = se else {
+        panic!("expected ShellExec record");
+    };
+
+    assert_eq!(command, "echo hello");
+    assert_eq!(*process_status, "ok");
+    assert_eq!(*exit_code, Some(0));
+    assert_eq!(*kind, "one-shot");
 }

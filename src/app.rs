@@ -168,6 +168,10 @@ pub enum AgentEvent {
         status: ToolStatus,
         /// Structured write result if this was a file-write tool, else `None`.
         write_result: Option<crate::tools::WriteResult>,
+        /// Structured shell result if this was a `run_shell` tool, else `None`.
+        /// Boxed to avoid a large enum variant (ProcessResult carries
+        /// multiple Vec<String>s).
+        shell_result: Option<Box<crate::tools::shell::ProcessResult>>,
     },
     Finished,
     Failed(String),
@@ -535,14 +539,18 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
         AgentEvent::ToolStarted { id, name, arguments } => {
             app.transcript.push(Entry::Tool {
                 name: format!("{name}#{id}"),
-                arguments,
+                arguments: arguments.clone(),
                 status: ToolStatus::Running,
                 output: Vec::new(),
             });
+            if let Some(ref mut writer) = app.session_writer {
+                let turn_id = format!("turn_{}", app.turn_count);
+                let _ = writer.append_tool_started(&turn_id, &id, &name, &arguments);
+            }
             pin_to_bottom(app);
             None
         }
-        AgentEvent::ToolFinished { id, output, status, write_result } => {
+        AgentEvent::ToolFinished { id, output, status, write_result, shell_result } => {
             for entry in app.transcript.iter_mut().rev() {
                 if let Entry::Tool { name, output: out, status: s, .. } = entry
                     && name.ends_with(&format!("#{id}"))
@@ -560,6 +568,13 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             {
                 let turn_id = format!("turn_{}", app.turn_count);
                 let _ = writer.append_file_write(&turn_id, &result, status);
+            }
+
+            if let Some(result) = shell_result
+                && let Some(ref mut writer) = app.session_writer
+            {
+                let turn_id = format!("turn_{}", app.turn_count);
+                let _ = writer.append_shell_exec(&turn_id, &result);
             }
             None
         }
@@ -1065,6 +1080,7 @@ mod tests {
                 output: vec![String::from("line 1"), String::from("line 2")],
                 status: ToolStatus::Ok,
                 write_result: None,
+                shell_result: None,
             }),
         );
         match &app.transcript[0] {
@@ -1094,6 +1110,7 @@ mod tests {
                 output: Vec::new(),
                 status: ToolStatus::Failed,
                 write_result: None,
+                shell_result: None,
             }),
         );
         match &app.transcript[0] {

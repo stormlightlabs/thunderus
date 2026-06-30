@@ -62,16 +62,6 @@ pub fn run_with_timeout(mut cmd: Command, timeout: Duration) -> io::Result<Comma
     }
 }
 
-/// Truncate a string to [`caps::MAX_LINE_LENGTH`] chars, adding `...` if truncated.
-pub fn truncate_line(s: &str) -> String {
-    if s.chars().count() <= Cap::MaxLineLen.into() {
-        s.to_string()
-    } else {
-        let truncated: String = s.chars().take(Cap::MaxLineLen.into()).collect();
-        format!("{truncated}...")
-    }
-}
-
 /// Truncate a Vec of strings to `max_results` entries.
 pub fn truncate_results(results: Vec<String>, max_results: usize) -> Vec<String> {
     if results.len() <= max_results { results } else { results.into_iter().take(max_results).collect() }
@@ -90,21 +80,6 @@ pub fn command_exists(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tools::Cap;
-
-    #[test]
-    fn truncate_line_short_unchanged() {
-        assert_eq!(truncate_line("hello"), "hello");
-    }
-
-    #[test]
-    fn truncate_line_long_truncated() {
-        let c: usize = Cap::MaxLineLen.into();
-        let long = "x".repeat(c + 100);
-        let result = truncate_line(&long);
-        assert!(result.ends_with("..."));
-        assert!(result.chars().count() <= c + 3);
-    }
 
     #[test]
     fn truncate_results_caps_count() {

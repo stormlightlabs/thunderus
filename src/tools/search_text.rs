@@ -3,6 +3,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use crate::tools::{Cap, SearchMatch, ToolOutput};
+use crate::utils;
 
 /// Search file contents using `rg --json`.
 ///
@@ -51,7 +52,7 @@ pub fn exec(
             let matches = matches.into_iter().take(max_results).collect::<Vec<_>>();
             let lines: Vec<String> = matches
                 .iter()
-                .map(|m| super::subproc::truncate_line(&format!("{}:{}:{}", m.path, m.line_number, m.text.trim_end())))
+                .map(|m| utils::truncate_line(&format!("{}:{}:{}", m.path, m.line_number, m.text.trim_end())))
                 .collect();
             ToolOutput::ok("search_text", lines)
         }

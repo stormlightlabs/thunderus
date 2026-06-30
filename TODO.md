@@ -76,21 +76,21 @@
 - [x] Support command timeouts and cancellation.
 - [x] Keep a process registry for active commands.
 - [x] Track long-lived background processes separately from one-shot commands.
-- [ ] Record command start, output summary, exit status, timeout, and
+- [x] Record command start, output summary, exit status, timeout, and
       cancellation as structured transcript/tool events.
-- [ ] Prefer narrower built-in tools for file search, file reads, edits, and URL
+- [x] Prefer narrower built-in tools for file search, file reads, edits, and URL
       reads when they fit.
-- [ ] Document that shell commands run as local processes with the permissions of
+- [x] Document that shell commands run as local processes with the permissions of
       the `thndrs` process and are not sandboxed by command approval.
-- [ ] Add prompt/tool guardrails to avoid destructive commands unless explicitly
+- [x] Add prompt/tool guardrails to avoid destructive commands unless explicitly
       requested or clearly necessary and scoped.
-- [ ] Redact known secrets from displayed and recorded command output where
+- [x] Redact known secrets from displayed and recorded command output where
       deterministic redaction is possible.
-- [ ] Unit-test process success, failure, timeout, and cancellation.
-- [ ] Unit-test process registry handling for one-shot and background commands.
-- [ ] Unit-test output truncation, full-output persistence, and secret
+- [x] Unit-test process success, failure, timeout, and cancellation.
+- [x] Unit-test process registry handling for one-shot and background commands.
+- [x] Unit-test output truncation, full-output persistence, and secret
       redaction.
-- [ ] Add snapshots for shell/process transcript entries.
+- [x] Add snapshots for shell/process transcript entries.
 
 ### Phase 13: `read_url`
 

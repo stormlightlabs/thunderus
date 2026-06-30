@@ -9,6 +9,7 @@ crossterm = "0.29.0"
 figlet-rs = "1"
 lectito = "0.2"
 ratatui = "0.30.2"
+regex-lite = "0.1"
 scraper = "0.27"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

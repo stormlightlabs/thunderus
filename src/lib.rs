@@ -14,9 +14,10 @@ mod prompt;
 mod search;
 mod tools;
 mod ui;
+mod utils;
 
 #[allow(dead_code)]
-mod session;
+pub mod session;
 
 #[allow(dead_code)]
 mod providers;

@@ -229,7 +229,7 @@ expression: json
     "name": "write_patch"
   },
   {
-    "description": "run_shell\n\nRun a shell command in the workspace and capture stdout, stderr, and exit status.\n\nUse this for build, test, format, and inspection commands. Commands run from the\nworkspace root via an argv array — never a shell string, so pipes and redirects\nare unavailable. Prefer narrower built-in tools when they fit. stdout/stderr are\ncapped and line-truncated. Timeouts and cancellation are enforced.",
+    "description": "run_shell\n\nRun a shell command in the workspace and capture stdout, stderr, and exit status.\n\nPrefer narrow tools when they fit: find_files, search_text, read_file_range,\ncreate_file, replace_range, read_url. Use for build, test, format, inspection.\n\nRuns as thndrs with its permissions — not sandboxed. Avoid destructive commands\nunless explicitly requested. argv only. Output is capped, truncated, and redacted.\nTimeouts enforced.",
     "input_schema": {
       "properties": {
         "args": {

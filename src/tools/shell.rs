@@ -41,6 +41,7 @@ use std::time::{Duration, Instant};
 
 use super::{Cap, ToolOutput, path};
 use crate::app::ToolStatus;
+use crate::utils;
 
 /// Maximum number of output lines retained for the transcript/tool result.
 const MAX_OUTPUT_LINES: usize = 200;
@@ -186,9 +187,10 @@ impl ProcessResult {
     }
 
     /// Lines for the tool [`ToolOutput`]: summary followed by stdout/stderr
-    /// markers and content.
+    /// markers and content. The summary line is also redacted in case the
+    /// command argv itself contains secret-like values.
     pub fn to_output_lines(&self) -> Vec<String> {
-        let mut lines = vec![self.summary()];
+        let mut lines = vec![redact_secrets(&self.summary())];
         if !self.stdout.is_empty() {
             lines.push(String::from("── stdout ──"));
             lines.extend(self.stdout.iter().cloned());
@@ -542,13 +544,14 @@ fn read_to_capped_vec<R: Read>(mut stream: R) -> Vec<u8> {
     buf
 }
 
-/// Split a byte buffer into lines, capping the line count and truncating long lines.
+/// Split a byte buffer into lines, capping the line count, truncating long
+/// lines, and redacting known secret patterns.
 fn split_and_cap(buf: &[u8]) -> Vec<String> {
-    let max_line_len: usize = Cap::MaxLineLen.into();
     let content = String::from_utf8_lossy(buf);
     let mut lines: Vec<String> = content
         .lines()
-        .map(|line| truncate_line(line, max_line_len))
+        .map(redact_secrets)
+        .map(|line| utils::truncate_line(&line))
         .take(MAX_OUTPUT_LINES)
         .collect();
 
@@ -561,12 +564,25 @@ fn split_and_cap(buf: &[u8]) -> Vec<String> {
     lines
 }
 
-/// Truncate a string to `max_chars` chars, adding `...` if truncated.
-fn truncate_line(s: &str, max_chars: usize) -> String {
-    if s.chars().count() <= max_chars {
-        s.to_string()
-    } else {
-        let truncated: String = s.chars().take(max_chars).collect();
-        format!("{truncated}...")
-    }
+/// Redact known secret patterns from a line of command output.
+///
+/// This is a best-effort deterministic redaction — it covers common formats
+/// (API keys prefixed with `sk-`, bearer tokens, password assignments) but
+/// cannot catch every possible secret. The patterns are intentionally simple
+/// so they are predictable and auditable.
+///
+/// Redacted values are replaced with `[REDACTED]` so the user can see that a
+/// secret was present and scrubbed.
+pub fn redact_secrets(line: &str) -> String {
+    let mut result = line.to_string();
+    let sk_re = regex_lite::Regex::new(r"\bsk-[A-Za-z0-9_]{8,}").expect("valid regex");
+    result = sk_re.replace_all(&result, "sk-[REDACTED]").to_string();
+
+    let bearer_re = regex_lite::Regex::new(r"(?i)bearer\s+[A-Za-z0-9_\-\.]{10,}").expect("valid regex");
+    result = bearer_re.replace_all(&result, "Bearer [REDACTED]").to_string();
+
+    let assign_re = regex_lite::Regex::new(r"(?i)(password|passwd|api_key|apikey|access_token|secret)\s*[:=]\s*\S{4,}")
+        .expect("valid regex");
+
+    assign_re.replace_all(&result, "$1=[REDACTED]").to_string()
 }

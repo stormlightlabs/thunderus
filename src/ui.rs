@@ -907,4 +907,44 @@ mod tests {
         terminal.draw(|f| render(f, &app)).expect("draw shell failure");
         insta::assert_snapshot!(terminal.backend().to_string());
     }
+
+    #[test]
+    fn shell_timeout_snapshot_80x24() {
+        let mut app = app();
+        app.transcript
+            .push(Entry::User { text: String::from("run a long build") });
+        app.transcript.push(Entry::Tool {
+            name: String::from("run_shell#0"),
+            arguments: String::from("{\"program\":\"cargo\",\"args\":[\"build\"]}"),
+            status: ToolStatus::Failed,
+            output: vec![
+                String::from("$ cargo build [one-shot timeout 10000ms]"),
+                String::from("── stderr ──"),
+                String::from("Compiling thndrs v0.1.0"),
+            ],
+        });
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw shell timeout");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
+    fn shell_running_snapshot_80x24() {
+        let mut app = app();
+        app.transcript
+            .push(Entry::User { text: String::from("run cargo test") });
+        app.transcript.push(Entry::Tool {
+            name: String::from("run_shell#0"),
+            arguments: String::from("{\"program\":\"cargo\",\"args\":[\"test\"]}"),
+            status: ToolStatus::Running,
+            output: Vec::new(),
+        });
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw shell running");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
 }

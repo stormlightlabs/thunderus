@@ -1,6 +1,7 @@
 use super::*;
 use crate::cli::WebSearchMode;
 use crate::prompt::PromptBundle;
+use std::time::Duration;
 
 fn bundle_with_context() -> PromptBundle {
     let source = ContextSource {
@@ -1017,5 +1018,312 @@ fn file_write_failed_record_maps_to_status_entry_on_resume() {
             assert!(text.contains("write failed"), "failed write should mention failure");
         }
         _ => panic!("expected Status entry for failed file_write, got {entry:?}"),
+    }
+}
+
+#[test]
+fn append_tool_started_persists_metadata() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let mut writer = test_writer(dir.path(), "tool-started-session");
+
+    writer
+        .append_tool_started(
+            "turn_1",
+            "call_1",
+            "run_shell",
+            r#"{"program":"cargo","args":["test"]}"#,
+        )
+        .expect("append tool started");
+
+    let content = std::fs::read_to_string(writer.path()).expect("read file");
+    assert!(content.contains("\"type\":\"tool_started\""));
+    assert!(content.contains("run_shell"));
+    assert!(content.contains("call_1"));
+    assert!(content.contains("cargo"));
+}
+
+#[test]
+fn append_tool_started_round_trip() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let mut writer = test_writer(dir.path(), "tool-started-rt");
+
+    writer
+        .append_tool_started("turn_1", "call_1", "search_text", r#"{"pattern":"fn main"}"#)
+        .expect("append tool started");
+
+    let path = writer.path().to_path_buf();
+    drop(writer);
+
+    let records = SessionReader::read_records(&path);
+    let ts = records
+        .iter()
+        .find(|r| matches!(r, SessionRecord::ToolStarted { .. }))
+        .expect("should find tool_started record");
+
+    let SessionRecord::ToolStarted { call_id, name, arguments, .. } = ts else {
+        panic!("expected ToolStarted record");
+    };
+
+    assert_eq!(call_id, "call_1");
+    assert_eq!(name, "search_text");
+    assert!(arguments.contains("fn main"));
+}
+
+#[test]
+fn tool_started_record_json_round_trip() {
+    let record = SessionRecord::ToolStarted {
+        schema_version: 1,
+        seq: 4,
+        time: "2026-06-29T12:00:06Z".to_string(),
+        turn_id: "turn_1".to_string(),
+        call_id: "call_1".to_string(),
+        name: "run_shell".to_string(),
+        arguments: r#"{"program":"echo","args":["hello"]}"#.to_string(),
+    };
+    let json = record.to_json().expect("serialize");
+    let restored = SessionRecord::from_json(&json).expect("deserialize");
+    assert_eq!(record, restored);
+    assert!(json.contains("\"type\":\"tool_started\""));
+    assert!(json.contains("run_shell"));
+}
+
+#[test]
+fn tool_started_does_not_map_to_entry_on_resume() {
+    let record = SessionRecord::ToolStarted {
+        schema_version: 1,
+        seq: 3,
+        time: "t".to_string(),
+        turn_id: "turn_1".to_string(),
+        call_id: "call_1".to_string(),
+        name: "run_shell".to_string(),
+        arguments: "{}".to_string(),
+    };
+    assert!(record.to_entry().is_none(), "tool_started should not map to an entry");
+}
+
+#[test]
+fn shell_exec_record_json_round_trip() {
+    let record = SessionRecord::ShellExec {
+        schema_version: 1,
+        seq: 5,
+        time: "2026-06-29T12:00:06Z".to_string(),
+        turn_id: "turn_1".to_string(),
+        command: "cargo test".to_string(),
+        cwd: "/repo".to_string(),
+        process_status: "ok".to_string(),
+        exit_code: Some(0),
+        elapsed_ms: 1200,
+        kind: "one-shot".to_string(),
+    };
+    let json = record.to_json().expect("serialize");
+    let restored = SessionRecord::from_json(&json).expect("deserialize");
+    assert_eq!(record, restored);
+    assert!(json.contains("\"type\":\"shell_exec\""));
+    assert!(json.contains("cargo test"));
+    assert!(json.contains("\"ok\""));
+    assert!(json.contains("1200"));
+}
+
+#[test]
+fn shell_exec_record_round_trip_timeout() {
+    let record = SessionRecord::ShellExec {
+        schema_version: 1,
+        seq: 6,
+        time: "2026-06-29T12:00:07Z".to_string(),
+        turn_id: "turn_1".to_string(),
+        command: "sleep 30".to_string(),
+        cwd: "/repo".to_string(),
+        process_status: "timeout".to_string(),
+        exit_code: None,
+        elapsed_ms: 10000,
+        kind: "one-shot".to_string(),
+    };
+    let json = record.to_json().expect("serialize");
+    let restored = SessionRecord::from_json(&json).expect("deserialize");
+    assert_eq!(record, restored);
+    assert!(json.contains("\"timeout\""));
+}
+
+#[test]
+fn shell_exec_record_round_trip_cancelled() {
+    let record = SessionRecord::ShellExec {
+        schema_version: 1,
+        seq: 7,
+        time: "2026-06-29T12:00:08Z".to_string(),
+        turn_id: "turn_1".to_string(),
+        command: "cargo build".to_string(),
+        cwd: "/repo".to_string(),
+        process_status: "cancelled".to_string(),
+        exit_code: None,
+        elapsed_ms: 500,
+        kind: "background".to_string(),
+    };
+    let json = record.to_json().expect("serialize");
+    let restored = SessionRecord::from_json(&json).expect("deserialize");
+    assert_eq!(record, restored);
+    assert!(json.contains("\"cancelled\""));
+    assert!(json.contains("\"background\""));
+}
+
+#[test]
+fn shell_exec_record_round_trip_failed() {
+    let record = SessionRecord::ShellExec {
+        schema_version: 1,
+        seq: 8,
+        time: "2026-06-29T12:00:09Z".to_string(),
+        turn_id: "turn_1".to_string(),
+        command: "false".to_string(),
+        cwd: "/repo".to_string(),
+        process_status: "failed".to_string(),
+        exit_code: Some(1),
+        elapsed_ms: 10,
+        kind: "one-shot".to_string(),
+    };
+    let json = record.to_json().expect("serialize");
+    let restored = SessionRecord::from_json(&json).expect("deserialize");
+    assert_eq!(record, restored);
+    assert!(json.contains("\"failed\""));
+    assert!(json.contains("1"));
+}
+
+#[test]
+fn append_shell_exec_persists_metadata() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let mut writer = test_writer(dir.path(), "shell-session");
+
+    let result = crate::tools::shell::ProcessResult {
+        command: vec!["cargo".to_string(), "test".to_string()],
+        cwd: PathBuf::from("/repo"),
+        status: crate::tools::shell::ProcessStatus::Ok,
+        exit_code: Some(0),
+        stdout: vec![],
+        stderr: vec![],
+        elapsed: Duration::from_millis(1200),
+        kind: crate::tools::shell::ProcessKind::OneShot,
+    };
+
+    writer.append_shell_exec("turn_1", &result).expect("append shell exec");
+
+    let content = std::fs::read_to_string(writer.path()).expect("read file");
+    assert!(content.contains("\"type\":\"shell_exec\""));
+    assert!(content.contains("cargo test"));
+    assert!(content.contains("/repo"));
+    assert!(content.contains("\"ok\""));
+    assert!(content.contains("1200"));
+    assert!(content.contains("\"one-shot\""));
+}
+
+#[test]
+fn append_shell_exec_round_trip_for_timeout() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let mut writer = test_writer(dir.path(), "shell-timeout-session");
+
+    let result = crate::tools::shell::ProcessResult {
+        command: vec!["sleep".to_string(), "30".to_string()],
+        cwd: PathBuf::from("/repo"),
+        status: crate::tools::shell::ProcessStatus::Timeout,
+        exit_code: None,
+        stdout: vec![],
+        stderr: vec![],
+        elapsed: Duration::from_millis(10000),
+        kind: crate::tools::shell::ProcessKind::OneShot,
+    };
+
+    writer.append_shell_exec("turn_1", &result).expect("append shell exec");
+
+    let path = writer.path().to_path_buf();
+    drop(writer);
+
+    let records = SessionReader::read_records(&path);
+    let se = records
+        .iter()
+        .find(|r| matches!(r, SessionRecord::ShellExec { .. }))
+        .expect("should find shell_exec record");
+
+    let SessionRecord::ShellExec { command, process_status, exit_code, elapsed_ms, .. } = se else {
+        panic!("expected ShellExec record");
+    };
+
+    assert_eq!(command, "sleep 30");
+    assert_eq!(*process_status, "timeout");
+    assert!(exit_code.is_none());
+    assert_eq!(*elapsed_ms, 10000);
+}
+
+#[test]
+fn shell_exec_record_does_not_store_stdout_stderr() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let mut writer = test_writer(dir.path(), "shell-no-output");
+
+    let result = crate::tools::shell::ProcessResult {
+        command: vec!["echo".to_string()],
+        cwd: PathBuf::from("/repo"),
+        status: crate::tools::shell::ProcessStatus::Ok,
+        exit_code: Some(0),
+        stdout: vec!["SECRET_OUTPUT_LINE".to_string()],
+        stderr: vec!["SECRET_STDERR".to_string()],
+        elapsed: Duration::from_millis(10),
+        kind: crate::tools::shell::ProcessKind::OneShot,
+    };
+
+    writer.append_shell_exec("turn_1", &result).expect("append shell exec");
+
+    let json = std::fs::read_to_string(writer.path()).expect("read file");
+    assert!(
+        !json.contains("SECRET_OUTPUT_LINE"),
+        "shell_exec record must not store stdout"
+    );
+    assert!(
+        !json.contains("SECRET_STDERR"),
+        "shell_exec record must not store stderr"
+    );
+}
+
+#[test]
+fn shell_exec_record_maps_to_status_entry_on_resume() {
+    let record = SessionRecord::ShellExec {
+        schema_version: 1,
+        seq: 3,
+        time: "t".to_string(),
+        turn_id: "turn_1".to_string(),
+        command: "cargo test".to_string(),
+        cwd: "/repo".to_string(),
+        process_status: "ok".to_string(),
+        exit_code: Some(0),
+        elapsed_ms: 500,
+        kind: "one-shot".to_string(),
+    };
+    let entry = record.to_entry().expect("should map to entry");
+    match entry {
+        Entry::Status { text } => {
+            assert!(text.contains("shell"), "status text should mention shell");
+            assert!(text.contains("cargo test"), "status text should mention command");
+            assert!(text.contains("ok"), "status text should mention status");
+            assert!(text.contains("500ms"), "status text should mention elapsed time");
+        }
+        _ => panic!("expected Status entry for shell_exec, got {entry:?}"),
+    }
+}
+
+#[test]
+fn shell_exec_failed_record_maps_to_status_entry_on_resume() {
+    let record = SessionRecord::ShellExec {
+        schema_version: 1,
+        seq: 4,
+        time: "t".to_string(),
+        turn_id: "turn_1".to_string(),
+        command: "false".to_string(),
+        cwd: "/repo".to_string(),
+        process_status: "failed".to_string(),
+        exit_code: Some(1),
+        elapsed_ms: 10,
+        kind: "one-shot".to_string(),
+    };
+    let entry = record.to_entry().expect("should map to entry");
+    match entry {
+        Entry::Status { text } => {
+            assert!(text.contains("failed"), "failed shell should mention failure");
+        }
+        _ => panic!("expected Status entry for failed shell_exec, got {entry:?}"),
     }
 }

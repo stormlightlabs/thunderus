@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::tools::ToolOutput;
+use crate::{tools::ToolOutput, utils};
 
 /// Read a range of lines from a file, implemented in Rust.
 ///
@@ -30,7 +30,7 @@ pub fn exec(path: &Path, root: &Path, start_line: u32, end_line: Option<u32>) ->
         .enumerate()
         .skip(start.saturating_sub(1))
         .take(end.saturating_sub(start) + 1)
-        .map(|(i, line)| format!("{}: {}", i + 1, super::subproc::truncate_line(line)))
+        .map(|(i, line)| format!("{}: {}", i + 1, utils::truncate_line(line)))
         .collect();
 
     if lines.is_empty() {

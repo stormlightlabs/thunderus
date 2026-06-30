@@ -21,7 +21,7 @@ mod path;
 mod read_file_range;
 mod replace_range;
 mod search_text;
-mod shell;
+pub mod shell;
 mod subproc;
 mod write_patch;
 
@@ -453,10 +453,12 @@ patches leave the file unchanged."#,
 
 Run a shell command in the workspace and capture stdout, stderr, and exit status.
 
-Use this for build, test, format, and inspection commands. Commands run from the
-workspace root via an argv array — never a shell string, so pipes and redirects
-are unavailable. Prefer narrower built-in tools when they fit. stdout/stderr are
-capped and line-truncated. Timeouts and cancellation are enforced."#,
+Prefer narrow tools when they fit: find_files, search_text, read_file_range,
+create_file, replace_range, read_url. Use for build, test, format, inspection.
+
+Runs as thndrs with its permissions — not sandboxed. Avoid destructive commands
+unless explicitly requested. argv only. Output is capped, truncated, and redacted.
+Timeouts enforced."#,
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -674,6 +676,75 @@ pub fn dispatch_write(request: &ToolUseRequest, root: &Path) -> (ToolOutput, Opt
             Err(e) => (ToolOutput::failed("write_patch", e), None),
         },
         _ => (dispatch_tool(request, root), None),
+    }
+}
+
+/// Dispatch a provider tool-use request, returning the tool output, an optional
+/// file-write result, and an optional shell-execution result.
+///
+/// This is the unified entry point for the agent loop: it delegates to
+/// [`dispatch_write`] for file-write tools and [`shell::run_command`] for
+/// `run_shell`, returning all structured side effects alongside the
+/// [`ToolOutput`].
+#[allow(dead_code)]
+pub fn dispatch_full(
+    request: &ToolUseRequest, root: &Path,
+) -> (ToolOutput, Option<WriteResult>, Option<shell::ProcessResult>) {
+    if request.name == "run_shell" {
+        let (output, result) = dispatch_shell(request, root);
+        return (output, None, result);
+    }
+
+    let (output, write_result) = dispatch_write(request, root);
+    (output, write_result, None)
+}
+
+/// Dispatch a `run_shell` tool-use request and return the tool output plus the
+/// structured [`shell::ProcessResult`] for session audit.
+fn dispatch_shell(
+    request: &ToolUseRequest, root: &Path,
+) -> (ToolOutput, Option<shell::ProcessResult>) {
+    let args = serde_json::from_str(&request.arguments).unwrap_or(serde_json::Value::Null);
+
+    let program = args.get("program").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let cmd_args: Vec<String> = args
+        .get("args")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+    let cwd = args.get("cwd").and_then(|v| v.as_str()).map(PathBuf::from);
+    let timeout_secs = args.get("timeout_secs").and_then(|v| v.as_u64());
+    let kind = if args.get("background").and_then(|v| v.as_bool()).unwrap_or(false) {
+        shell::ProcessKind::Background
+    } else {
+        shell::ProcessKind::OneShot
+    };
+
+    if program.is_empty() {
+        return (
+            ToolOutput::failed("run_shell", "missing or empty 'program' field".to_string()),
+            None,
+        );
+    }
+
+    let shell_args = shell::ShellArgs { program, args: cmd_args, cwd, timeout_secs, kind };
+    let cancel = shell::CancelFlag::new();
+
+    match shell::run_command(&shell_args, root, &cancel) {
+        Ok(result) => {
+            let output = match result.status {
+                shell::ProcessStatus::Ok => {
+                    ToolOutput::ok("run_shell", result.to_output_lines())
+                }
+                _ => {
+                    let mut output = result.to_failed_output();
+                    output.output = result.to_output_lines();
+                    output
+                }
+            };
+            (output, Some(result))
+        }
+        Err(e) => (ToolOutput::failed("run_shell", e), None),
     }
 }
 

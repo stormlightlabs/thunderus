@@ -183,6 +183,7 @@ fn run_fake(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
                 output: search_output.output,
                 status: search_status,
                 write_result: None,
+                shell_result: None,
             },
             cancel,
         ) {
@@ -223,6 +224,7 @@ fn run_fake(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
             output: output.output,
             status,
             write_result: None,
+            shell_result: None,
         },
         cancel,
     )
@@ -336,7 +338,8 @@ fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
                 return;
             }
 
-            let (output, write_result) = crate::tools::dispatch_write(req, &handle.config.root);
+            let (output, write_result, shell_result) =
+                crate::tools::dispatch_full(req, &handle.config.root);
             let status = output.status;
             if send(
                 tx,
@@ -345,6 +348,7 @@ fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
                     output: output.output.clone(),
                     status,
                     write_result,
+                    shell_result: shell_result.map(Box::new),
                 },
                 cancel,
             )
