@@ -3,14 +3,14 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││User (owais)               search for rust async patter…│"
-"│ ● scratch          ││tool                       ✓ web_search#search-0 [ok]  q│"
+"│Sessions            ││▌  User (owais)  search for rust async patter…          │"
+"│ ● scratch          ││                                                        │"
+"│                    ││tool                       ✓ web_search#search-0 [ok]  q│"
 "│                    ││                           │ server-side search: rust as│"
 "│                    ││                           │ result: https://tokio.rs/tu│"
 "│                    ││                           │ result: https://rust-lang.o│"
+"│                    ││                                                        │"
 "│                    ││Assistant                  Here are the results...      │"
-"│                    ││                                                        │"
-"│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

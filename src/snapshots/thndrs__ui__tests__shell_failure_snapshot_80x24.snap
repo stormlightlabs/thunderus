@@ -3,12 +3,12 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││User (owais)               run cargo build              │"
-"│ ● scratch          ││tool                       ✕ run_shell#0 [failed]  progr│"
+"│Sessions            ││▌  User (owais)  run cargo build                        │"
+"│ ● scratch          ││                                                        │"
+"│                    ││tool                       ✕ run_shell#0 [failed]  progr│"
 "│                    ││                           │ $ cargo build [one-shot fai│"
 "│                    ││                           │ ── stderr ──               │"
 "│                    ││                           │ error[E0308]: mismatched ty│"
-"│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

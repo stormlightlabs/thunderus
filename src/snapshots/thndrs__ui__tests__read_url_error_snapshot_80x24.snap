@@ -3,9 +3,9 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││User (owais)               read the internal admin page │"
-"│ ● scratch          ││tool                       ✕ read_url#fetch-0 [failed]  │"
-"│                    ││                                                        │"
+"│Sessions            ││▌  User (owais)  read the internal admin page           │"
+"│ ● scratch          ││                                                        │"
+"│                    ││tool                       ✕ read_url#fetch-0 [failed]  │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

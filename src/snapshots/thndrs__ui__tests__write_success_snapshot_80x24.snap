@@ -3,10 +3,10 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││User (owais)               create a new file src/new_mo…│"
-"│ ● scratch          ││tool                       ✓ create_file#0 [ok]  path: s│"
+"│Sessions            ││▌  User (owais)  create a new file src/new_mo…          │"
+"│ ● scratch          ││                                                        │"
+"│                    ││tool                       ✓ create_file#0 [ok]  path: s│"
 "│                    ││                           │ create src/new_module.rs (n│"
-"│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

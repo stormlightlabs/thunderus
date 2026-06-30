@@ -119,16 +119,16 @@
 - [x] Fix error row layout: error icons and wrapped/continued error text should
       align under the message body, not after a large role-label gap or clipped
       hard at the panel edge.
-- [ ] Tune narrow-width layout: hide the sidebar earlier or compress footer
+- [x] Tune narrow-width layout: hide the sidebar earlier or compress footer
       fields so `cwd`, long model names, prompts, and transcript rows truncate
       intentionally at 40-50 columns.
-- [ ] Tune empty-state/banner layout: center or optically align the banner at
+- [x] Tune empty-state/banner layout: center or optically align the banner at
       normal width, make the fallback empty state feel intentional at 50 columns,
       and avoid large uneven blank regions.
-- [ ] Add Gridland-style transcript group spacing: one-cell horizontal padding,
+- [x] Add Gridland-style transcript group spacing: one-cell horizontal padding,
       one-cell gaps between semantic message groups, bottom padding near the
       prompt, and bottom-sticky scrolling that keeps newest content readable.
-- [ ] Evaluate role-specific message shells: keep assistant/tool rows left
+- [x] Evaluate role-specific message shells: keep assistant/tool rows left
       aligned, but render user prompts as a visually distinct bounded block or
       right/indented row instead of only a fixed-width `User` label.
 - [ ] Keep reasoning as a sibling block with a stable header/status line

@@ -3,9 +3,9 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││User (owais)               run cargo test               │"
-"│ ● scratch          ││tool                       ⠋ run_shell#0 [running]  prog│"
-"│                    ││                                                        │"
+"│Sessions            ││▌  User (owais)  run cargo test                         │"
+"│ ● scratch          ││                                                        │"
+"│                    ││tool                       ⠋ run_shell#0 [running]  prog│"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

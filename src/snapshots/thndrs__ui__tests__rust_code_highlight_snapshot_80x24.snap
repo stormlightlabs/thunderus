@@ -3,12 +3,12 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││User (owais)               read main.rs                 │"
-"│ ● scratch          ││tool                       ✓ read_file_range#0 [ok]  pat│"
+"│Sessions            ││▌  User (owais)  read main.rs                           │"
+"│ ● scratch          ││                                                        │"
+"│                    ││tool                       ✓ read_file_range#0 [ok]  pat│"
 "│                    ││                           │ fn main() {                │"
 "│                    ││                           │     println!("hello");     │"
 "│                    ││                           │ }                          │"
-"│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

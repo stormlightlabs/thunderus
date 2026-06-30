@@ -20,7 +20,7 @@ pub fn entry_lines(entry: &Entry, tick: u64, user_label: &str) -> Vec<Line<'stat
 pub fn entry_lines_with_width(entry: &Entry, tick: u64, user_label: &str, max_width: usize) -> Vec<Line<'static>> {
     let avail = max_width.saturating_sub(ROLE_WIDTH);
     match entry {
-        Entry::User { text } => vec![message_line(user_label, P.blue, text, avail)],
+        Entry::User { text } => vec![user_message_line(user_label, text, avail)],
         Entry::Assistant { text, streaming } => vec![message_line(
             if *streaming { style::spinner_frame(tick) } else { "Assistant" },
             P.green,
@@ -43,6 +43,27 @@ pub fn entry_lines_with_width(entry: &Entry, tick: u64, user_label: &str, max_wi
 fn message_line(label: &str, fg: Color, text: &str, avail: usize) -> Line<'static> {
     let display = if avail > 0 { truncate_ellipsis(text, avail) } else { text.to_string() };
     Line::from(vec![role_label(label, fg), Span::styled(display, style::text_style())])
+}
+
+/// Render a user prompt with a visually distinct bounded block.
+///
+/// User messages get a colored left border bar (▌) and the user label as a
+/// chip, making them stand out from assistant/tool rows which use plain
+/// left-aligned labels.
+fn user_message_line(label: &str, text: &str, avail: usize) -> Line<'static> {
+    let display = if avail > 0 { truncate_ellipsis(text, avail) } else { text.to_string() };
+    let border = Span::styled(
+        "▌",
+        Style::default().fg(P.blue).bg(P.panel_bg).add_modifier(Modifier::BOLD),
+    );
+    let label_chip = style::label_chip(label, P.blue, P.surface0);
+    Line::from(vec![
+        border,
+        Span::styled(" ", style::text_style()),
+        label_chip,
+        Span::styled(" ", style::text_style()),
+        Span::styled(display, style::text_style()),
+    ])
 }
 
 fn role_label(label: &str, fg: Color) -> Span<'static> {

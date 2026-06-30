@@ -3,10 +3,10 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││User (owais)               create src/existing.rs       │"
-"│ ● scratch          ││tool                       ✕ create_file#0 [failed]  pat│"
+"│Sessions            ││▌  User (owais)  create src/existing.rs                 │"
+"│ ● scratch          ││                                                        │"
+"│                    ││tool                       ✕ create_file#0 [failed]  pat│"
 "│                    ││⚠ Error                    file already exists: src/exi…│"
-"│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

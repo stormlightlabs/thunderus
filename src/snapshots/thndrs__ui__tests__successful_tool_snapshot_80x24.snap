@@ -3,8 +3,9 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││User (owais)               list files in src            │"
-"│ ● scratch          ││tool                       ✓ find_files#0 [ok]  pattern:│"
+"│Sessions            ││▌  User (owais)  list files in src                      │"
+"│ ● scratch          ││                                                        │"
+"│                    ││tool                       ✓ find_files#0 [ok]  pattern:│"
 "│                    ││                           │ src/main.rs                │"
 "│                    ││                           │ src/cli.rs                 │"
 "│                    ││                           │ src/app.rs                 │"
@@ -12,7 +13,6 @@ expression: terminal.backend().to_string()
 "│                    ││                           │ src/agent.rs               │"
 "│                    ││                           │ src/context.rs             │"
 "│                    ││                           │ …(1 more lines)            │"
-"│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

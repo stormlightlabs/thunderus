@@ -10,9 +10,9 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph};
 
-use crate::app::{App, Mode, PromptState};
+use crate::app::{App, Entry, Mode, PromptState};
 use crate::cli::WebSearchMode;
 use crate::{banner, utils};
 
@@ -27,8 +27,9 @@ pub use transcript::{entry_lines, entry_lines_with_width};
 pub const SIDEBAR_WIDTH: u16 = 22;
 
 /// Below this total width the sidebar is hidden so prompt/status text
-/// does not wrap or overlap.
-pub const SIDEBAR_HIDE_THRESHOLD: u16 = 50;
+/// does not wrap or overlap. Raised to 55 so 40-50 column terminals
+/// get the full transcript width.
+pub const SIDEBAR_HIDE_THRESHOLD: u16 = 55;
 
 /// Maximum tool output lines rendered in the transcript before a truncation
 /// marker is shown.
@@ -269,39 +270,72 @@ fn render_transcript(frame: &mut Frame, app: &App, area: Rect) {
         let show_banner = banner_height > 1 && inner.height > banner_height && banner_max_width <= inner.width;
 
         if show_banner {
+            let total_padding = inner.height.saturating_sub(banner_height);
+            let top_pad = total_padding / 3;
+
             let banner_text = Text::from(
                 banner_lines
                     .iter()
                     .map(|l| {
+                        let line_len = l.len() as u16;
+                        let h_pad = inner.width.saturating_sub(line_len) / 2;
                         Line::styled(
-                            format!("  {l}"),
+                            format!("{}{}", " ".repeat(h_pad as usize), l),
                             Style::default().fg(style::P.accent).bg(style::P.panel_bg),
                         )
                     })
                     .collect::<Vec<Line>>(),
             );
-            frame.render_widget(
-                Paragraph::new(banner_text).wrap(Wrap { trim: false }).left_aligned(),
-                inner,
-            );
+
+            let mut all_lines: Vec<Line> = Vec::new();
+            for _ in 0..top_pad {
+                all_lines.push(Line::styled("", style::panel_style()));
+            }
+            all_lines.extend(banner_text.lines);
+            frame.render_widget(Paragraph::new(Text::from(all_lines)).left_aligned(), inner);
         } else {
-            let placeholder = Paragraph::new(Text::from(vec![
-                Line::styled(" No messages yet.", style::muted_style()),
-                Line::styled(" Type your message below.", style::muted_style()),
-            ]))
-            .style(style::muted_style())
-            .wrap(Wrap { trim: false })
-            .left_aligned();
-            frame.render_widget(placeholder, inner);
+            let placeholder_lines = vec![
+                Line::styled(
+                    "thndrs",
+                    Style::default()
+                        .fg(style::P.accent)
+                        .bg(style::P.panel_bg)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Line::styled("Type your message below.", style::muted_style()),
+            ];
+            let total_height = placeholder_lines.len() as u16;
+            let top_pad = inner.height.saturating_sub(total_height) / 3;
+
+            let mut all_lines: Vec<Line> = Vec::new();
+            for _ in 0..top_pad {
+                all_lines.push(Line::styled("", style::panel_style()));
+            }
+            for pl in &placeholder_lines {
+                let line_len = pl.width() as u16;
+                let h_pad = inner.width.saturating_sub(line_len) / 2;
+                all_lines.push(Line::styled(format!("{}{}", " ".repeat(h_pad as usize), pl), pl.style));
+            }
+            frame.render_widget(Paragraph::new(Text::from(all_lines)).left_aligned(), inner);
         }
         return;
     }
 
-    let lines: Vec<Line> = app
-        .transcript
-        .iter()
-        .flat_map(|e| entry_lines_with_width(e, app.ui_tick, &app.user_label, inner.width as usize))
-        .collect();
+    let mut lines: Vec<Line> = Vec::new();
+    for (i, e) in app.transcript.iter().enumerate() {
+        if i > 0 {
+            let prev = &app.transcript[i - 1];
+            if is_group_boundary(prev, e) {
+                lines.push(Line::styled("", style::panel_style()));
+            }
+        }
+        lines.extend(entry_lines_with_width(
+            e,
+            app.ui_tick,
+            &app.user_label,
+            inner.width as usize,
+        ));
+    }
     let available = inner.height as usize;
     let from_bottom = app.scroll_offset.min(lines.len().saturating_sub(1));
     let end = lines.len().saturating_sub(from_bottom);
@@ -380,25 +414,88 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
 
     let model_label = format!("model: {}", app.model);
     let search_text = format!("search: {search_label}");
-    let model_len = model_label.len() + 2;
-    let search_len = search_text.len() + 3;
-    let min_cwd_prefix = "cwd: ".len();
-    let used = model_len + search_len + min_cwd_prefix;
-    let cwd_text = if (used + cwd_display.len()) as u16 > area.width && area.width > used as u16 + 4 {
-        let keep = (area.width as usize).saturating_sub(used + 1);
-        format!("cwd: {}", utils::truncate_ellipsis_start(&cwd_display, keep))
-    } else {
-        format!("cwd: {cwd_display}")
-    };
-    let footer = Line::from(vec![
-        style::muted_chip(&model_label),
-        Span::styled(" ", style::text_style()),
-        style::muted_chip(&search_text),
-        Span::styled(" ", style::text_style()),
-        Span::styled(cwd_text, style::muted_style()),
-    ]);
 
-    frame.render_widget(Paragraph::new(footer).style(style::panel_style()), area);
+    let (show_model, show_search, show_cwd) = match area.width {
+        w if w < 30 => (false, false, false),
+        w if w < 45 => (true, false, false),
+        w if w < 60 => (true, true, false),
+        _ => (true, true, true),
+    };
+
+    let mut spans: Vec<Span<'static>> = Vec::new();
+
+    if show_model {
+        spans.push(style::muted_chip(&model_label));
+    }
+    if show_search {
+        if !spans.is_empty() {
+            spans.push(Span::styled(" ", style::text_style()));
+        }
+        spans.push(style::muted_chip(&search_text));
+    }
+
+    if show_cwd {
+        let model_len = if show_model { model_label.len() + 2 } else { 0 };
+        let search_len = if show_search { search_text.len() + 3 } else { 0 };
+        let min_cwd_prefix = "cwd: ".len();
+        let used = model_len + search_len + min_cwd_prefix;
+        let cwd_text = if (used + cwd_display.len()) as u16 > area.width && area.width > used as u16 + 4 {
+            let keep = (area.width as usize).saturating_sub(used + 1);
+            format!("cwd: {}", utils::truncate_ellipsis_start(&cwd_display, keep))
+        } else {
+            format!("cwd: {cwd_display}")
+        };
+        if !spans.is_empty() {
+            spans.push(Span::styled(" ", style::text_style()));
+        }
+        spans.push(Span::styled(cwd_text, style::muted_style()));
+    }
+
+    if spans.is_empty() {
+        spans.push(Span::styled("·", style::muted_style()));
+    }
+
+    frame.render_widget(Paragraph::new(Line::from(spans)).style(style::panel_style()), area);
+}
+
+/// Whether a blank separator line should be inserted between two consecutive
+/// transcript entries.
+///
+/// Gaps are inserted between different semantic groups: user→assistant,
+/// assistant→tool, tool→assistant, etc. No gap within the same type (e.g.
+/// streaming deltas), and no gap around Status/Error entries (they're
+/// transient and sit close to their context).
+fn is_group_boundary(prev: &Entry, curr: &Entry) -> bool {
+    let prev_type = EntryGroup::from(prev);
+    let curr_type = EntryGroup::from(curr);
+
+    if prev_type == EntryGroup::Transient || curr_type == EntryGroup::Transient {
+        false
+    } else {
+        prev_type != curr_type
+    }
+}
+
+/// Semantic group classification for transcript spacing.
+#[derive(PartialEq)]
+enum EntryGroup {
+    User,
+    Assistant,
+    Reasoning,
+    Tool,
+    Transient,
+}
+
+impl From<&Entry> for EntryGroup {
+    fn from(e: &Entry) -> Self {
+        match e {
+            Entry::User { .. } => EntryGroup::User,
+            Entry::Assistant { .. } => EntryGroup::Assistant,
+            Entry::Reasoning { .. } => EntryGroup::Reasoning,
+            Entry::Tool { .. } => EntryGroup::Tool,
+            Entry::Status { .. } | Entry::Error { .. } => EntryGroup::Transient,
+        }
+    }
 }
 
 #[cfg(test)]
