@@ -73,7 +73,6 @@ fn from_bundle_defaults_history_reuse_false() {
 
 #[test]
 fn from_bundle_captures_transcript_tail_size_and_user_turn() {
-    use crate::app::Entry;
     let transcript = vec![
         Entry::User { text: "hello".to_string() },
         Entry::Assistant { text: "hi".to_string(), streaming: false },
@@ -882,7 +881,7 @@ fn append_file_write_persists_metadata() {
     let dir = tempfile::tempdir().expect("temp dir");
     let mut writer = test_writer(dir.path(), "fw-session");
 
-    let result = crate::tools::WriteResult {
+    let result = tools::WriteResult {
         op: WriteOp::Create,
         path: PathBuf::from("/repo/src/new.rs"),
         before_hash: None,
@@ -909,7 +908,7 @@ fn append_file_write_persists_before_and_after_for_edit() {
     let dir = tempfile::tempdir().expect("temp dir");
     let mut writer = test_writer(dir.path(), "fw-edit-session");
 
-    let result = crate::tools::WriteResult {
+    let result = tools::WriteResult {
         op: WriteOp::Edit,
         path: PathBuf::from("/repo/src/existing.rs"),
         before_hash: Some(11111),
@@ -950,7 +949,7 @@ fn file_write_record_does_not_persist_file_content() {
     let dir = tempfile::tempdir().expect("temp dir");
     let mut writer = test_writer(dir.path(), "fw-no-content");
 
-    let result = crate::tools::WriteResult {
+    let result = tools::WriteResult {
         op: WriteOp::Create,
         path: PathBuf::from("/repo/output.txt"),
         before_hash: None,
@@ -1191,15 +1190,15 @@ fn append_shell_exec_persists_metadata() {
     let dir = tempfile::tempdir().expect("temp dir");
     let mut writer = test_writer(dir.path(), "shell-session");
 
-    let result = crate::tools::shell::ProcessResult {
+    let result = tools::shell::ProcessResult {
         command: vec!["cargo".to_string(), "test".to_string()],
         cwd: PathBuf::from("/repo"),
-        status: crate::tools::shell::ProcessStatus::Ok,
+        status: tools::shell::ProcessStatus::Ok,
         exit_code: Some(0),
         stdout: vec![],
         stderr: vec![],
         elapsed: Duration::from_millis(1200),
-        kind: crate::tools::shell::ProcessKind::OneShot,
+        kind: tools::shell::ProcessKind::OneShot,
     };
 
     writer.append_shell_exec("turn_1", &result).expect("append shell exec");
@@ -1218,15 +1217,15 @@ fn append_shell_exec_round_trip_for_timeout() {
     let dir = tempfile::tempdir().expect("temp dir");
     let mut writer = test_writer(dir.path(), "shell-timeout-session");
 
-    let result = crate::tools::shell::ProcessResult {
+    let result = tools::shell::ProcessResult {
         command: vec!["sleep".to_string(), "30".to_string()],
         cwd: PathBuf::from("/repo"),
-        status: crate::tools::shell::ProcessStatus::Timeout,
+        status: tools::shell::ProcessStatus::Timeout,
         exit_code: None,
         stdout: vec![],
         stderr: vec![],
         elapsed: Duration::from_millis(10000),
-        kind: crate::tools::shell::ProcessKind::OneShot,
+        kind: tools::shell::ProcessKind::OneShot,
     };
 
     writer.append_shell_exec("turn_1", &result).expect("append shell exec");
@@ -1255,15 +1254,15 @@ fn shell_exec_record_does_not_store_stdout_stderr() {
     let dir = tempfile::tempdir().expect("temp dir");
     let mut writer = test_writer(dir.path(), "shell-no-output");
 
-    let result = crate::tools::shell::ProcessResult {
+    let result = tools::shell::ProcessResult {
         command: vec!["echo".to_string()],
         cwd: PathBuf::from("/repo"),
-        status: crate::tools::shell::ProcessStatus::Ok,
+        status: tools::shell::ProcessStatus::Ok,
         exit_code: Some(0),
         stdout: vec!["SECRET_OUTPUT_LINE".to_string()],
         stderr: vec!["SECRET_STDERR".to_string()],
         elapsed: Duration::from_millis(10),
-        kind: crate::tools::shell::ProcessKind::OneShot,
+        kind: tools::shell::ProcessKind::OneShot,
     };
 
     writer.append_shell_exec("turn_1", &result).expect("append shell exec");

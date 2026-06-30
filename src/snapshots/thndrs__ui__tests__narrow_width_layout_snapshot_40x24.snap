@@ -3,7 +3,7 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌Transcript────────────────────────────┐"
-"│User (owais)               explain thi│"
+"│User (owais)               explain th…│"
 "│Assistant                  response   │"
 "│                                      │"
 "│                                      │"

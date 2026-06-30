@@ -3,8 +3,8 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││User (owais)               search for rust async pattern│"
-"│ ● scratch          ││ tool  ⠋ web_search#search-0 [running]  query: rust asyn│"
+"│Sessions            ││User (owais)               search for rust async patter…│"
+"│ ● scratch          ││tool                       ⠋ web_search#search-0 [runnin│"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

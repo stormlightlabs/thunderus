@@ -12,7 +12,7 @@ fn test_bundle() -> PromptBundle {
             date: "2026-06-29".to_string(),
         },
         project_context: Vec::new(),
-        tool_catalog: crate::tools::tool_definitions(),
+        tool_catalog: tools::tool_definitions(),
         transcript_tail: Vec::new(),
         user_turn: "explain this repo".to_string(),
         history_reuse: HistoryReuse::default(),
@@ -593,7 +593,6 @@ fn lowering_includes_agents_md_in_system_message() {
 /// sequence: system → user → assistant → (tool as user) → user turn.
 #[test]
 fn lowering_multi_turn_transcript_tail() {
-    use crate::app::ToolStatus;
     let mut bundle = test_bundle();
     bundle.transcript_tail = vec![
         Entry::User { text: "find the main file".to_string() },
@@ -623,7 +622,6 @@ fn lowering_multi_turn_transcript_tail() {
 /// name and output, so the provider sees tool results in context.
 #[test]
 fn lowering_tool_entry_becomes_user_message_with_output() {
-    use crate::app::ToolStatus;
     let mut bundle = test_bundle();
     bundle.transcript_tail = vec![Entry::Tool {
         name: "find_files#0".to_string(),
@@ -645,7 +643,6 @@ fn lowering_tool_entry_becomes_user_message_with_output() {
 /// A tool entry with empty output still produces a message, noting no output.
 #[test]
 fn lowering_tool_with_empty_output_notes_no_output() {
-    use crate::app::ToolStatus;
     let mut bundle = test_bundle();
     bundle.transcript_tail = vec![Entry::Tool {
         name: "search_text#0".to_string(),

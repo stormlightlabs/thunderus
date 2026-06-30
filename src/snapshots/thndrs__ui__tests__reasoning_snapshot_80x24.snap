@@ -4,7 +4,7 @@ expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
 "│Sessions            ││User (owais)               explain this repo            │"
-"│ ● scratch          ││ ⠋  │ Let me think about this... The repo is a Rust + Ra│"
+"│ ● scratch          ││⠋                          Let me think about this... T…│"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

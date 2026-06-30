@@ -102,18 +102,18 @@
       a small mapping from syntect colors/styles into Ratatui spans.
 - [x] Highlight only code fences, file snippets, diffs, and command output that
       benefits from it; keep plain prose and status rows unhighlighted.
-- [ ] Fix run-state/status consistency in snapshots: running shell/tool states
+- [x] Fix run-state/status consistency in snapshots: running shell/tool states
       should show `running tool`, completed `read_url` should not leave the
       prompt at `sending`, and failed/timeout tool-only turns should surface as
       failed instead of sidebar `done`.
-- [ ] Add width-aware ellipsis truncation for user prompts, assistant/reasoning
+- [x] Add width-aware ellipsis truncation for user prompts, assistant/reasoning
       text, tool argument summaries, URLs, diagnostics, error messages, prompt
       input, and footer fields; current snapshots cut words and URLs without an
       ellipsis.
-- [ ] Standardize transcript leading columns: role rows, streaming assistant
+- [x] Standardize transcript leading columns: role rows, streaming assistant
       rows, reasoning rows, and tool rows should use one stable label/gutter
       grid so spinners and chips do not shift the message column.
-- [ ] Redesign tool output blocks so command summaries, stdout/stderr headers,
+- [x] Redesign tool output blocks so command summaries, stdout/stderr headers,
       nested output lines, and truncation markers share one aligned gutter and
       keep section headers visually distinct from output content.
 - [ ] Fix error row layout: error icons and wrapped/continued error text should

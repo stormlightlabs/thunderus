@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cli::{Cli, WebSearchMode};
 use crate::tools::shell::ProcessRegistry;
-use crate::{context, session, ui};
+use crate::{context, session, tools, ui};
 
 /// Number of UI ticks the user has to press Ctrl+D a second time before the
 /// quit confirmation expires and a fresh double-press is needed.
@@ -154,11 +154,11 @@ pub enum AgentEvent {
         output: Vec<String>,
         status: ToolStatus,
         /// Structured write result if this was a file-write tool, else `None`.
-        write_result: Option<crate::tools::WriteResult>,
+        write_result: Option<tools::WriteResult>,
         /// Structured shell result if this was a `run_shell` tool, else `None`.
         /// Boxed to avoid a large enum variant (ProcessResult carries
         /// multiple Vec<String>s).
-        shell_result: Option<Box<crate::tools::shell::ProcessResult>>,
+        shell_result: Option<Box<tools::shell::ProcessResult>>,
     },
     Finished,
     Failed(String),
@@ -227,7 +227,7 @@ pub struct App {
     /// transcript status entry; the live render path does not read this
     /// field directly (it relies on the transcript entry instead).
     #[allow(dead_code)]
-    pub context_sources: Vec<crate::context::ContextSource>,
+    pub context_sources: Vec<context::ContextSource>,
     /// Scroll offset in transcript lines from the bottom. 0 = pinned to newest.
     /// Positive values scroll up (toward older entries).
     pub scroll_offset: usize,
@@ -306,7 +306,7 @@ impl App {
             input: String::new(),
             transcript,
             sidebar,
-            view: crate::ui::ViewState::default(),
+            view: ui::ViewState::default(),
             cwd: cli.cwd.clone(),
             model: cli.model.clone(),
             user_label: default_user_label(),
@@ -341,8 +341,10 @@ impl App {
             RunState::Idle => match self.transcript.last() {
                 Some(Entry::Status { text }) if text == "cancelled" => "cancelled",
                 Some(Entry::Error { .. }) => "failed",
-                Some(Entry::Assistant { streaming: false, .. })
-                | Some(Entry::Tool { status: ToolStatus::Ok | ToolStatus::Failed, .. }) => "done",
+                Some(Entry::Tool { status: ToolStatus::Failed, .. }) => "failed",
+                Some(Entry::Assistant { streaming: false, .. }) | Some(Entry::Tool { status: ToolStatus::Ok, .. }) => {
+                    "done"
+                }
                 _ => "idle",
             },
         }
@@ -685,8 +687,8 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             }
 
             if let Some(result) = shell_result {
-                if result.kind == crate::tools::shell::ProcessKind::Background {
-                    let cancel = crate::tools::shell::CancelFlag::new();
+                if result.kind == tools::shell::ProcessKind::Background {
+                    let cancel = tools::shell::CancelFlag::new();
                     let id =
                         app.process_registry
                             .register(result.command.clone(), result.cwd.clone(), result.kind, cancel);
@@ -1402,7 +1404,7 @@ mod tests {
     #[test]
     fn app_with_oversized_agents_md_marks_truncation() {
         let dir = tempfile::tempdir().expect("create temp dir");
-        let big_content = "x".repeat(crate::context::AGENTS_MD_SIZE_CAP + 1000);
+        let big_content = "x".repeat(context::AGENTS_MD_SIZE_CAP + 1000);
         let agents_path = dir.path().join("AGENTS.md");
         let mut f = std::fs::File::create(&agents_path).expect("create AGENTS.md");
         f.write_all(big_content.as_bytes()).expect("write AGENTS.md");
@@ -1413,7 +1415,7 @@ mod tests {
         assert_eq!(app.context_sources.len(), 1);
         let source = &app.context_sources[0];
         assert!(source.truncated);
-        assert!(source.content.len() <= crate::context::AGENTS_MD_SIZE_CAP);
+        assert!(source.content.len() <= context::AGENTS_MD_SIZE_CAP);
 
         match &app.transcript[0] {
             Entry::Status { text } => assert!(text.contains("truncated")),
@@ -1495,6 +1497,22 @@ mod tests {
         update(&mut app, &Msg::Agent(AgentEvent::Started));
         update(&mut app, &Msg::Agent(AgentEvent::Failed(String::from("boom"))));
         assert_eq!(app.status_label(), "failed");
+    }
+
+    #[test]
+    fn status_label_failed_after_failed_tool() {
+        let mut app = fresh_app();
+        app.transcript.push(Entry::Tool {
+            name: String::from("run_shell#0"),
+            arguments: String::from("{}"),
+            status: ToolStatus::Failed,
+            output: vec![String::from("error")],
+        });
+        assert_eq!(
+            app.status_label(),
+            "failed",
+            "failed tool should show 'failed' not 'done'"
+        );
     }
 
     #[test]
@@ -1844,15 +1862,15 @@ mod tests {
         let mut app = fresh_app();
         update(&mut app, &Msg::Agent(AgentEvent::Started));
 
-        let shell_result = crate::tools::shell::ProcessResult {
+        let shell_result = tools::shell::ProcessResult {
             command: vec!["sleep".to_string(), "10".to_string()],
             cwd: std::path::PathBuf::from("."),
-            status: crate::tools::shell::ProcessStatus::Ok,
+            status: tools::shell::ProcessStatus::Ok,
             exit_code: Some(0),
             stdout: vec!["background task done".to_string()],
             stderr: vec![],
             elapsed: std::time::Duration::from_millis(100),
-            kind: crate::tools::shell::ProcessKind::Background,
+            kind: tools::shell::ProcessKind::Background,
         };
 
         update(
@@ -1882,11 +1900,11 @@ mod tests {
     #[test]
     fn bg_command_lists_registered_background_processes() {
         let mut app = fresh_app();
-        let cancel = crate::tools::shell::CancelFlag::new();
+        let cancel = tools::shell::CancelFlag::new();
         let id = app.process_registry.register(
             vec!["cargo".to_string(), "build".to_string()],
             std::path::PathBuf::from("."),
-            crate::tools::shell::ProcessKind::Background,
+            tools::shell::ProcessKind::Background,
             cancel,
         );
 
@@ -1911,11 +1929,11 @@ mod tests {
     #[test]
     fn quit_cancels_all_background_processes() {
         let mut app = fresh_app();
-        let cancel = crate::tools::shell::CancelFlag::new();
+        let cancel = tools::shell::CancelFlag::new();
         app.process_registry.register(
             vec!["sleep".to_string(), "30".to_string()],
             std::path::PathBuf::from("."),
-            crate::tools::shell::ProcessKind::Background,
+            tools::shell::ProcessKind::Background,
             cancel.clone(),
         );
         assert_eq!(app.process_registry.background_count(), 1);

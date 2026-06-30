@@ -8,7 +8,7 @@
 //! 1. [`spawn_run`] starts a thread with a [`RunHandle`] (config + cancel flag).
 //! 2. The run emits `Started`, then streams reasoning/assistant deltas and
 //!    tool-use requests.
-//! 3. Each tool-use request is dispatched via [`crate::tools::dispatch_tool`]
+//! 3. Each tool-use request is dispatched via [`tools::dispatch_tool`]
 //!    and the result is emitted as a `ToolFinished` event appended to the
 //!    transcript.
 //! 4. For the Umans provider, tool results are fed back into the next turn:
@@ -34,7 +34,7 @@ use ureq::http::Response;
 use crate::app::AgentEvent;
 use crate::cli::WebSearchMode;
 use crate::providers::umans;
-use crate::tools::{AgentRunConfig, ToolUseRequest, dispatch_tool};
+use crate::tools::{self, AgentRunConfig, ToolUseRequest};
 
 /// Shared cancellation flag. Checked cooperatively by the agent loop.
 #[derive(Clone, Debug, Default)]
@@ -185,7 +185,7 @@ fn run_fake(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
         }
         step();
 
-        let search_output = dispatch_tool(&search_req, &handle.config.root);
+        let search_output = tools::dispatch_tool(&search_req, &handle.config.root);
         let search_status = search_output.status;
         match send(
             tx,
@@ -227,7 +227,7 @@ fn run_fake(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
     }
     step();
 
-    let output = dispatch_tool(&tool_req, &handle.config.root);
+    let output = tools::dispatch_tool(&tool_req, &handle.config.root);
     let status = output.status;
     if send(
         tx,
@@ -274,8 +274,8 @@ fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
         }
     };
 
-    let tool_defs = crate::tools::tool_definitions();
-    let tool_schemas = crate::tools::tool_catalog_schemas(&tool_defs);
+    let tool_defs = tools::tool_definitions();
+    let tool_schemas = tools::tool_catalog_schemas(&tool_defs);
     let mut messages = vec![umans::Message::user(&handle.prompt)];
     let mut iterations = 0usize;
 
@@ -351,7 +351,7 @@ fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
                 return;
             }
 
-            let (output, write_result, shell_result) = crate::tools::dispatch_full(req, &handle.config.root);
+            let (output, write_result, shell_result) = tools::dispatch_full(req, &handle.config.root);
             let status = output.status;
             if send(
                 tx,

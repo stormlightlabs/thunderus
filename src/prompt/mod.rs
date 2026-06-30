@@ -106,7 +106,7 @@ impl PromptBundle {
         cwd: &Path, model: &str, mode: WebSearchMode, context_sources: &[ContextSource], transcript: &[Entry],
         user_turn: &str,
     ) -> PromptBundle {
-        let tool_catalog = crate::tools::tool_definitions();
+        let tool_catalog = tools::tool_definitions();
         let transcript_tail = project_transcript_tail(transcript);
         PromptBundle {
             fragments: default_fragments(),
@@ -284,7 +284,7 @@ pub fn lower_to_umans_messages(bundle: &PromptBundle) -> Vec<Message> {
 /// Render the tool catalog as a compact JSON schema block for the system prompt.
 ///
 /// Uses Anthropic-compatible tool definition format: name, description,
-/// input_schema. Delegates to the shared [`crate::tools::tool_catalog_schemas`]
+/// input_schema. Delegates to the shared [`tools::tool_catalog_schemas`]
 /// so the prompt-bundle view and the provider request body stay in sync.
 pub fn render_tool_catalog(bundle: &PromptBundle) -> serde_json::Value {
     tools::tool_catalog_schemas(&bundle.tool_catalog)

@@ -35,9 +35,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::app::{Entry, ToolStatus};
 use crate::context::ContextSource;
-use crate::datetime;
 use crate::prompt::{EnvironmentMetadata, HistoryReuse, PromptBundle};
 use crate::tools::{WriteOp, shell};
+use crate::{datetime, tools};
 
 /// Current JSONL schema version.
 pub const SCHEMA_VERSION: u32 = 1;
@@ -527,7 +527,7 @@ impl SessionWriter {
     /// and status. File content is never stored — only hashes and byte counts,
     /// so secrets and large files are not persisted.
     pub fn append_file_write(
-        &mut self, turn_id: &str, result: &crate::tools::WriteResult, status: ToolStatus,
+        &mut self, turn_id: &str, result: &tools::WriteResult, status: ToolStatus,
     ) -> std::io::Result<()> {
         let record = SessionRecord::FileWrite {
             schema_version: SCHEMA_VERSION,

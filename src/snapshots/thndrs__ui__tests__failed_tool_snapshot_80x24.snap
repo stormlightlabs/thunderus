@@ -4,7 +4,7 @@ expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
 "│Sessions            ││User (owais)               read /etc/passwd             │"
-"│ ● scratch          ││ tool  ✕ read_file_range#0 [failed]  path: /etc/passwd  │"
+"│ ● scratch          ││tool                       ✕ read_file_range#0 [failed] │"
 "│                    ││Error                      ⚠ path escapes workspace root│"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

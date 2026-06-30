@@ -13,15 +13,15 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap};
 
 use crate::app::{App, Mode, PromptState};
-use crate::banner;
 use crate::cli::WebSearchMode;
+use crate::{banner, utils};
 
 mod highlight;
 mod style;
 mod transcript;
 
 pub use highlight::highlight_lines;
-pub use transcript::entry_lines;
+pub use transcript::{entry_lines, entry_lines_with_width};
 
 /// Fixed sidebar width in columns.
 pub const SIDEBAR_WIDTH: u16 = 22;
@@ -300,7 +300,7 @@ fn render_transcript(frame: &mut Frame, app: &App, area: Rect) {
     let lines: Vec<Line> = app
         .transcript
         .iter()
-        .flat_map(|e| entry_lines(e, app.ui_tick, &app.user_label))
+        .flat_map(|e| entry_lines_with_width(e, app.ui_tick, &app.user_label, inner.width as usize))
         .collect();
     let available = inner.height as usize;
     let from_bottom = app.scroll_offset.min(lines.len().saturating_sub(1));
@@ -349,7 +349,10 @@ fn render_prompt(frame: &mut Frame, app: &App, area: Rect) {
                 Style::default().fg(style::P.accent).bg(style::P.panel_bg),
             ));
         }
-        spans.push(Span::styled(app.input.clone(), style::text_style()));
+        spans.push(Span::styled(
+            utils::truncate_ellipsis(&app.input, inner.width as usize),
+            style::text_style(),
+        ));
     }
     if !hint.is_empty() {
         spans.push(style::label_chip(
@@ -382,18 +385,8 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     let min_cwd_prefix = "cwd: ".len();
     let used = model_len + search_len + min_cwd_prefix;
     let cwd_text = if (used + cwd_display.len()) as u16 > area.width && area.width > used as u16 + 4 {
-        let keep = (area.width as usize).saturating_sub(used + 3);
-        format!(
-            "cwd: …{}",
-            cwd_display
-                .chars()
-                .rev()
-                .take(keep)
-                .collect::<String>()
-                .chars()
-                .rev()
-                .collect::<String>()
-        )
+        let keep = (area.width as usize).saturating_sub(used + 1);
+        format!("cwd: {}", utils::truncate_ellipsis_start(&cwd_display, keep))
     } else {
         format!("cwd: {cwd_display}")
     };
@@ -868,7 +861,6 @@ mod tests {
     #[test]
     fn read_url_result_snapshot_80x24() {
         let mut app = app();
-        app.run_state = RunState::Working;
         app.transcript
             .push(Entry::User { text: String::from("read the tokio docs page") });
         app.transcript.push(Entry::Tool {
@@ -1071,6 +1063,7 @@ mod tests {
     #[test]
     fn shell_running_snapshot_80x24() {
         let mut app = app();
+        app.run_state = RunState::Working;
         app.transcript
             .push(Entry::User { text: String::from("run cargo test") });
         app.transcript.push(Entry::Tool {

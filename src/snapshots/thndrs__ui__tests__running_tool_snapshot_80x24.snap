@@ -4,9 +4,9 @@ expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
 "│Sessions            ││User (owais)               explain this repo            │"
-"│ ● scratch          ││ thought  │ Let me read the Cargo.toml first.           │"
-"│                    ││ tool  ⠋ read_file#0 [running]  path: Cargo.toml        │"
-"│                    ││      │ Cargo.toml: 47 lines                            │"
+"│ ● scratch          ││thought                    Let me read the Cargo.toml f…│"
+"│                    ││tool                       ⠋ read_file#0 [running]  path│"
+"│                    ││                           │ Cargo.toml: 47 lines       │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

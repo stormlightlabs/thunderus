@@ -4,7 +4,7 @@ expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
 "│Sessions            ││User (owais)               search for something         │"
-"│ ● scratch          ││ tool  ✕ web_search#search-0 [failed]  query: something │"
+"│ ● scratch          ││tool                       ✕ web_search#search-0 [failed│"
 "│                    ││Error                      ⚠ search backend unavailable │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
