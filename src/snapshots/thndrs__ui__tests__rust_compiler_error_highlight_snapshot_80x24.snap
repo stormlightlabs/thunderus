@@ -1,0 +1,28 @@
+---
+source: src/ui.rs
+expression: terminal.backend().to_string()
+---
+"┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
+"│Sessions            ││tool                       ✕ run_shell#0 [failed]  progr│"
+"│ ● scratch          ││                           │ $ cargo build [one-shot fai│"
+"│                    ││                           │ ── stderr ──               │"
+"│                    ││                           │ error[E0308]: mismatched ty│"
+"│                    ││                           │   --> src/main.rs:10:5     │"
+"│                    ││                           │    |                       │"
+"│                    ││                           │ 10 |     let x: i32 = "hell│"
+"│                    ││                           │ …(3 more lines)            │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│  ✕  failed         ││                                                        │"
+"│                    ││                                                        │"
+"└────────────────────┘└────────────────────────────────────────────────────────┘"
+"────────────────────────────────────────────────────────────────────────────────"
+"  ▌ ▶                                                                           "
+"                                                            umans-coder  native "
+" model: umans-coder   search: native  cwd: .                                    "

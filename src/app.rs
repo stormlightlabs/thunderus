@@ -249,6 +249,12 @@ pub struct App {
     pub turn_count: u64,
     /// Registry of background processes started via `run_shell`.
     pub process_registry: ProcessRegistry,
+    /// When true, keyboard focus is on the sidebar (session list) instead of
+    /// the prompt. Toggled with Tab; Esc returns to prompt.
+    pub sidebar_focused: bool,
+    /// The last submitted prompt text, retained so it can be restored on
+    /// provider failure. Cleared on successful completion.
+    pub last_input: Option<String>,
     /// When true the loop should stop and the app exit.
     pub quit: bool,
 }
@@ -322,6 +328,8 @@ impl App {
             session_writer,
             turn_count: 0,
             process_registry: ProcessRegistry::new(),
+            sidebar_focused: false,
+            last_input: None,
             quit: false,
         }
     }
@@ -451,10 +459,53 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
 
     app.ctrl_d_pending = None;
 
+    if key.code == KeyCode::Tab && app.mode == Mode::Prompt && !app.sidebar_focused {
+        app.sidebar_focused = true;
+        return None;
+    }
+
+    if app.sidebar_focused {
+        return handle_sidebar_key(app, key);
+    }
+
     match app.mode {
         Mode::Help => handle_help_key(app, key),
         Mode::Command => handle_command_key(app, key),
         Mode::Prompt => handle_prompt_key(app, key),
+    }
+}
+
+/// Handle keys when the sidebar has focus: navigate sessions, select, or
+/// return to the prompt.
+fn handle_sidebar_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
+    match key.code {
+        KeyCode::Esc | KeyCode::Tab => {
+            app.sidebar_focused = false;
+            None
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            if let Some(active) = app.sidebar.active
+                && active > 0
+            {
+                app.sidebar.active = Some(active - 1);
+            }
+            None
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            if let Some(active) = app.sidebar.active {
+                if active + 1 < app.sidebar.sessions.len() {
+                    app.sidebar.active = Some(active + 1);
+                }
+            } else if !app.sidebar.sessions.is_empty() {
+                app.sidebar.active = Some(0);
+            }
+            None
+        }
+        KeyCode::Enter => {
+            app.sidebar_focused = false;
+            None
+        }
+        _ => None,
     }
 }
 
@@ -567,8 +618,9 @@ fn handle_submit(app: &mut App) -> Option<Msg> {
         return handle_command(app, command);
     }
 
-    app.transcript.push(Entry::User { text });
+    app.transcript.push(Entry::User { text: text.clone() });
     app.input.clear();
+    app.last_input = Some(text);
     app.turn_count += 1;
     let turn_id = format!("turn_{}", app.turn_count);
     if let Some(ref mut writer) = app.session_writer {
@@ -706,6 +758,7 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
         AgentEvent::Finished => {
             finalize_streaming(app);
             app.run_state = RunState::Idle;
+            app.last_input = None;
             persist_last_entry(app);
             None
         }
@@ -713,6 +766,9 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             finalize_streaming(app);
             app.transcript.push(Entry::Error { text: msg.clone() });
             app.run_state = RunState::Error(msg);
+            if let Some(input) = app.last_input.take() {
+                app.input = input;
+            }
             persist_last_entry(app);
             None
         }
@@ -722,6 +778,7 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
                 app.transcript.push(Entry::Status { text: String::from("cancelled") });
             }
             app.run_state = RunState::Idle;
+            app.last_input = None;
             persist_last_entry(app);
             None
         }

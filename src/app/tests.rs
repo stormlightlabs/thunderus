@@ -1148,3 +1148,79 @@ fn quit_cancels_all_background_processes() {
     assert!(app.quit);
     assert!(cancel.is_cancelled(), "cancel_all should signal cancellation");
 }
+
+#[test]
+fn tab_enters_sidebar_focus() {
+    let mut app = fresh_app();
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
+    assert!(app.sidebar_focused, "Tab should focus the sidebar");
+}
+
+#[test]
+fn esc_exits_sidebar_focus() {
+    let mut app = fresh_app();
+    app.sidebar_focused = true;
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+    assert!(!app.sidebar_focused, "Esc should exit sidebar focus");
+}
+
+#[test]
+fn tab_exits_sidebar_focus() {
+    let mut app = fresh_app();
+    app.sidebar_focused = true;
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
+    assert!(!app.sidebar_focused, "Tab should toggle sidebar focus off");
+}
+
+#[test]
+fn sidebar_down_navigates_sessions() {
+    let mut app = fresh_app();
+    app.sidebar.sessions = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+    app.sidebar.active = Some(0);
+    app.sidebar_focused = true;
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)));
+    assert_eq!(app.sidebar.active, Some(1));
+}
+
+#[test]
+fn sidebar_up_navigates_sessions() {
+    let mut app = fresh_app();
+    app.sidebar.sessions = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+    app.sidebar.active = Some(2);
+    app.sidebar_focused = true;
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)));
+    assert_eq!(app.sidebar.active, Some(1));
+}
+
+#[test]
+fn sidebar_enter_returns_to_prompt() {
+    let mut app = fresh_app();
+    app.sidebar_focused = true;
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+    assert!(!app.sidebar_focused, "Enter should return to prompt");
+}
+
+#[test]
+fn failed_provider_restores_input() {
+    let mut app = fresh_app();
+    app.input = String::from("hello world");
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+    assert!(app.input.is_empty(), "input should be cleared after submit");
+    assert_eq!(app.last_input, Some("hello world".to_string()));
+
+    update(&mut app, &Msg::Agent(AgentEvent::Failed(String::from("boom"))));
+    assert_eq!(app.input, "hello world", "input should be restored on failure");
+    assert_eq!(app.run_state, RunState::Error("boom".to_string()));
+}
+
+#[test]
+fn finished_clears_last_input() {
+    let mut app = fresh_app();
+    app.input = String::from("test prompt");
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+    assert!(app.last_input.is_some());
+
+    update(&mut app, &Msg::Agent(AgentEvent::Finished));
+    assert!(app.last_input.is_none(), "last_input should be cleared on finish");
+    assert!(app.input.is_empty(), "input should remain empty on finish");
+}

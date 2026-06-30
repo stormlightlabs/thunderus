@@ -143,13 +143,13 @@
 - [x] Make prompt dividers carry focus/run state: normal, submitted, streaming,
       and error states should have distinct solid/dashed divider styling or
       color, while preserving full-width alignment through the panel gutters.
-- [ ] Add sidebar focus/selection semantics inspired by Gridland `SideNav`:
+- [x] Add sidebar focus/selection semantics inspired by Gridland `SideNav`:
       separate active session from main-panel interaction, show shortcut hints
       such as `↑↓ navigate`, `enter select`, `esc back`, and reserve room for
       session suffixes/badges.
-- [ ] Preserve prompt input on async/provider submit failure so the user can
+- [x] Preserve prompt input on async/provider submit failure so the user can
       retry or edit, and add snapshots for failed submit with input retained.
-- [ ] Add/refresh snapshots for syntax-highlighted code fences, diffs, Rust
+- [x] Add/refresh snapshots for syntax-highlighted code fences, diffs, Rust
       compiler errors, JSON/tool diagnostics, and plain prose to verify
       highlighting does not color gutters, borders, or status chips.
 - [ ] Run and document the alpha readiness checks: `cargo fmt`, `cargo check`,

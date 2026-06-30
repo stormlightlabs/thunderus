@@ -197,13 +197,19 @@ fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
         .enumerate()
         .map(|(i, name)| {
             let active = app.sidebar.active == Some(i);
+            let focused = app.sidebar_focused;
             let marker = if active { "●" } else { "○" };
             let marker_style = if active {
                 Style::default().fg(style::P.accent).bg(style::P.panel_bg)
             } else {
                 style::muted_style()
             };
-            let name_style = if active {
+            let name_style = if active && focused {
+                Style::default()
+                    .fg(style::P.text)
+                    .bg(style::P.surface1)
+                    .add_modifier(Modifier::BOLD)
+            } else if active {
                 Style::default()
                     .fg(style::P.text)
                     .bg(style::P.surface0)
@@ -228,18 +234,27 @@ fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
 
     let label = app.status_label();
     let status_color = style::status_color(label);
-    let status_text = Line::from(vec![
-        Span::styled("  ", style::text_style()),
-        Span::styled(
-            style::status_icon(label, app.ui_tick),
-            Style::default().fg(status_color).bg(style::P.panel_bg),
-        ),
-        Span::styled("  ", style::text_style()),
-        Span::styled(
-            label.to_string(),
-            Style::default().fg(status_color).bg(style::P.panel_bg),
-        ),
-    ]);
+
+    let status_text = if app.sidebar_focused {
+        Line::from(vec![
+            Span::styled("  ↑↓ navigate", style::subtle_style()),
+            Span::styled("  enter select", style::subtle_style()),
+            Span::styled("  esc back", style::subtle_style()),
+        ])
+    } else {
+        Line::from(vec![
+            Span::styled("  ", style::text_style()),
+            Span::styled(
+                style::status_icon(label, app.ui_tick),
+                Style::default().fg(status_color).bg(style::P.panel_bg),
+            ),
+            Span::styled("  ", style::text_style()),
+            Span::styled(
+                label.to_string(),
+                Style::default().fg(status_color).bg(style::P.panel_bg),
+            ),
+        ])
+    };
 
     frame.render_widget(Paragraph::new(status_text), status_area);
 }
@@ -1335,6 +1350,108 @@ mod tests {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).expect("create test terminal");
         terminal.draw(|f| render(f, &app)).expect("draw plain text tool");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
+    fn sidebar_focused_snapshot_80x24() {
+        let mut app = app();
+        app.sidebar_focused = true;
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw sidebar focused");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
+    fn diff_highlight_snapshot_80x24() {
+        let mut app = app();
+        app.transcript.push(Entry::Tool {
+            name: String::from("replace_range#0"),
+            arguments: String::from(r#"{"path":"src/main.rs"}"#),
+            status: ToolStatus::Ok,
+            output: vec![
+                String::from("--- old"),
+                String::from("+++ new"),
+                String::from("-fn main() {"),
+                String::from("+fn main() -> Result<(), Box<dyn Error>> {"),
+                String::from("     println!(\"hello\");"),
+                String::from("+    Ok(())"),
+                String::from(" }"),
+            ],
+        });
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw diff highlight");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
+    fn rust_compiler_error_highlight_snapshot_80x24() {
+        let mut app = app();
+        app.transcript.push(Entry::Tool {
+            name: String::from("run_shell#0"),
+            arguments: String::from(r#"{"program":"cargo","args":["build"]}"#),
+            status: ToolStatus::Failed,
+            output: vec![
+                String::from("$ cargo build [one-shot failed 340ms]"),
+                String::from("── stderr ──"),
+                String::from("error[E0308]: mismatched types"),
+                String::from("  --> src/main.rs:10:5"),
+                String::from("   |"),
+                String::from("10 |     let x: i32 = \"hello\";"),
+                String::from("   |                     ^^^^^^^"),
+                String::from("   |"),
+                String::from("   = expected `i32`, found `&str`"),
+            ],
+        });
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw rust compiler error");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
+    fn json_diagnostics_highlight_snapshot_80x24() {
+        let mut app = app();
+        app.transcript.push(Entry::Tool {
+            name: String::from("read_file_range#0"),
+            arguments: String::from(r#"{"path":"config.json","start_line":1,"end_line":10}"#),
+            status: ToolStatus::Ok,
+            output: vec![
+                String::from("{"),
+                String::from("  \"name\": \"thndrs\","),
+                String::from("  \"version\": \"0.1.0\","),
+                String::from("  \"dependencies\": {"),
+                String::from("    \"clap\": \"4.6\","),
+                String::from("    \"ratatui\": \"0.30\""),
+                String::from("  }"),
+                String::from("}"),
+            ],
+        });
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw json diagnostics");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
+    fn plain_prose_no_highlight_snapshot_80x24() {
+        let mut app = app();
+        app.transcript
+            .push(Entry::User { text: String::from("explain this codebase") });
+        app.transcript.push(Entry::Assistant {
+            text: String::from("This is a Rust project using Ratatui for the TUI. It includes an agent loop, tool dispatch, and session persistence. The code is organized into modules for app state, UI rendering, tools, providers, and context management."),
+            streaming: false,
+        });
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw plain prose");
         insta::assert_snapshot!(terminal.backend().to_string());
     }
 }

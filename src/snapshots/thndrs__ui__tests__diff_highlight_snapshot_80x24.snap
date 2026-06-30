@@ -1,0 +1,28 @@
+---
+source: src/ui.rs
+expression: terminal.backend().to_string()
+---
+"┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
+"│Sessions            ││tool                       ✓ replace_range#0 [ok]  path:│"
+"│ ● scratch          ││                           │ --- old                    │"
+"│                    ││                           │ +++ new                    │"
+"│                    ││                           │ -fn main() {               │"
+"│                    ││                           │ +fn main() -> Result<(), Bo│"
+"│                    ││                           │      println!("hello");    │"
+"│                    ││                           │ +    Ok(())                │"
+"│                    ││                           │ …(1 more lines)            │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│                    ││                                                        │"
+"│  ✓  done           ││                                                        │"
+"│                    ││                                                        │"
+"└────────────────────┘└────────────────────────────────────────────────────────┘"
+"────────────────────────────────────────────────────────────────────────────────"
+"  ▌ ▶                                                                           "
+"                                                            umans-coder  native "
+" model: umans-coder   search: native  cwd: .                                    "
