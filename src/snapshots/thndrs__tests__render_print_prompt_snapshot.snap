@@ -52,7 +52,7 @@ If you are unsure about a change, ask before making it.
 Build with cargo. Run tests with cargo test.
 
 
-=== Tool Catalog (9 tools) ===
+=== Tool Catalog (10 tools) ===
 [
   {
     "description": "find_files\n\nLocate files by name or glob under the workspace root.\n\nUse this when you know (or can guess) a file name and need its path. Prefer this over\nlisting all files. Paths are contained to the root; hidden files and symlinks are off\nunless requested. Capped at 100 results; long lines truncate at 512 chars.",
@@ -278,6 +278,41 @@ Build with cargo. Run tests with cargo test.
       "type": "object"
     },
     "name": "write_patch"
+  },
+  {
+    "description": "run_shell\n\nRun a shell command in the workspace and capture stdout, stderr, and exit status.\n\nUse this for build, test, format, and inspection commands. Commands run from the\nworkspace root via an argv array — never a shell string, so pipes and redirects\nare unavailable. Prefer narrower built-in tools when they fit. stdout/stderr are\ncapped and line-truncated. Timeouts and cancellation are enforced.",
+    "input_schema": {
+      "properties": {
+        "args": {
+          "description": "Argv after the program.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "background": {
+          "description": "If true, run as a long-lived background process.",
+          "type": "boolean"
+        },
+        "cwd": {
+          "description": "Optional working directory relative to the workspace root.",
+          "type": "string"
+        },
+        "program": {
+          "description": "The program to run (e.g. \"cargo\", \"ls\").",
+          "type": "string"
+        },
+        "timeout_secs": {
+          "description": "Timeout in seconds.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "program"
+      ],
+      "type": "object"
+    },
+    "name": "run_shell"
   }
 ]
 

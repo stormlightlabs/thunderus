@@ -656,5 +656,40 @@ mod tests {
         let names = defs.iter().map(|d| d.name).collect::<Vec<&str>>();
         assert!(names.contains(&"web_search"));
         assert!(names.contains(&"read_url"));
+        assert!(names.contains(&"run_shell"), "tool catalog should include run_shell");
+    }
+
+    #[test]
+    fn dispatch_run_shell_success() {
+        let req = ToolUseRequest {
+            name: String::from("run_shell"),
+            arguments: serde_json::json!({ "program": "echo", "args": ["hello"] }).to_string(),
+        };
+        let output = dispatch_tool(&req, Path::new("."));
+        assert_eq!(output.status, ToolStatus::Ok);
+        assert_eq!(output.name, "run_shell");
+        assert!(output.output.iter().any(|l| l.contains("hello")));
+    }
+
+    #[test]
+    fn dispatch_run_shell_failure() {
+        let req = ToolUseRequest {
+            name: String::from("run_shell"),
+            arguments: serde_json::json!({ "program": "sh", "args": ["-c", "exit 1"] }).to_string(),
+        };
+        let output = dispatch_tool(&req, Path::new("."));
+        assert_eq!(output.status, ToolStatus::Failed);
+        assert!(output.error.as_ref().is_some_and(|e| e.contains("exit 1")));
+    }
+
+    #[test]
+    fn dispatch_run_shell_missing_program_fails() {
+        let req = ToolUseRequest {
+            name: String::from("run_shell"),
+            arguments: serde_json::json!({ "args": ["test"] }).to_string(),
+        };
+        let output = dispatch_tool(&req, Path::new("."));
+        assert_eq!(output.status, ToolStatus::Failed);
+        assert!(output.error.as_ref().is_some_and(|e| e.contains("missing")));
     }
 }

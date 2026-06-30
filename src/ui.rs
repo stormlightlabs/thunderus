@@ -862,4 +862,49 @@ mod tests {
         terminal.draw(|f| render(f, &app)).expect("draw write failure");
         insta::assert_snapshot!(terminal.backend().to_string());
     }
+
+    #[test]
+    fn shell_success_snapshot_80x24() {
+        let mut app = app();
+        app.transcript
+            .push(Entry::User { text: String::from("run cargo test") });
+        app.transcript.push(Entry::Tool {
+            name: String::from("run_shell#0"),
+            arguments: String::from("{\"program\":\"cargo\",\"args\":[\"test\"]}"),
+            status: ToolStatus::Ok,
+            output: vec![
+                String::from("$ cargo test [one-shot ok 120ms]"),
+                String::from("── stdout ──"),
+                String::from("running 3 tests"),
+                String::from("test result: ok. 3 passed; 0 failed"),
+            ],
+        });
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw shell success");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
+    fn shell_failure_snapshot_80x24() {
+        let mut app = app();
+        app.transcript
+            .push(Entry::User { text: String::from("run cargo build") });
+        app.transcript.push(Entry::Tool {
+            name: String::from("run_shell#0"),
+            arguments: String::from("{\"program\":\"cargo\",\"args\":[\"build\"]}"),
+            status: ToolStatus::Failed,
+            output: vec![
+                String::from("$ cargo build [one-shot failed 340ms]"),
+                String::from("── stderr ──"),
+                String::from("error[E0308]: mismatched types"),
+            ],
+        });
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw shell failure");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
 }

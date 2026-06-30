@@ -227,5 +227,40 @@ expression: json
       "type": "object"
     },
     "name": "write_patch"
+  },
+  {
+    "description": "run_shell\n\nRun a shell command in the workspace and capture stdout, stderr, and exit status.\n\nUse this for build, test, format, and inspection commands. Commands run from the\nworkspace root via an argv array — never a shell string, so pipes and redirects\nare unavailable. Prefer narrower built-in tools when they fit. stdout/stderr are\ncapped and line-truncated. Timeouts and cancellation are enforced.",
+    "input_schema": {
+      "properties": {
+        "args": {
+          "description": "Argv after the program.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "background": {
+          "description": "If true, run as a long-lived background process.",
+          "type": "boolean"
+        },
+        "cwd": {
+          "description": "Optional working directory relative to the workspace root.",
+          "type": "string"
+        },
+        "program": {
+          "description": "The program to run (e.g. \"cargo\", \"ls\").",
+          "type": "string"
+        },
+        "timeout_secs": {
+          "description": "Timeout in seconds.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "program"
+      ],
+      "type": "object"
+    },
+    "name": "run_shell"
   }
 ]

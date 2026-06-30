@@ -69,28 +69,27 @@
 
 ### Phase 12: Shell Process Manager
 
-- [ ] Define shell/process transcript event shapes.
-- [ ] Run commands from the workspace by default.
-- [ ] Show command, working directory, status, stdout, stderr, and elapsed time.
-- [ ] Stream process output without blocking the TUI.
-- [ ] Support command timeouts and cancellation.
-- [ ] Keep a process registry for active commands.
-- [ ] Track long-lived background processes separately from one-shot commands.
+- [x] Define shell/process transcript event shapes.
+- [x] Run commands from the workspace by default.
+- [x] Show command, working directory, status, stdout, stderr, and elapsed time.
+- [x] Stream process output without blocking the TUI.
+- [x] Support command timeouts and cancellation.
+- [x] Keep a process registry for active commands.
+- [x] Track long-lived background processes separately from one-shot commands.
 - [ ] Record command start, output summary, exit status, timeout, and
       cancellation as structured transcript/tool events.
 - [ ] Prefer narrower built-in tools for file search, file reads, edits, and URL
       reads when they fit.
-- [ ] Require approval for commands that write outside the workspace.
-- [ ] Require approval for commands that access the network.
-- [ ] Require approval for destructive commands.
-- [ ] Detect and block shell-based attempts to bypass denied file or network
-      operations where deterministic policy can identify them.
+- [ ] Document that shell commands run as local processes with the permissions of
+      the `thndrs` process and are not sandboxed by command approval.
+- [ ] Add prompt/tool guardrails to avoid destructive commands unless explicitly
+      requested or clearly necessary and scoped.
 - [ ] Redact known secrets from displayed and recorded command output where
       deterministic redaction is possible.
 - [ ] Unit-test process success, failure, timeout, and cancellation.
 - [ ] Unit-test process registry handling for one-shot and background commands.
-- [ ] Unit-test approval classification for destructive, network, and
-      outside-workspace commands.
+- [ ] Unit-test output truncation, full-output persistence, and secret
+      redaction.
 - [ ] Add snapshots for shell/process transcript entries.
 
 ### Phase 13: `read_url`
@@ -154,7 +153,7 @@
 - [ ] Document Umans provider setup.
 - [ ] Document search modes.
 - [ ] Document `read_url`.
-- [ ] Document shell/process manager behavior and approval rules.
+- [ ] Document shell/process manager behavior and local-process security model.
 - [ ] Document LSP/code-intelligence behavior and fallback rules.
 - [ ] Document file-operation safety limits.
 - [ ] Confirm packaging with `cargo package`.

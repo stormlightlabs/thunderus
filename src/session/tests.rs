@@ -1,8 +1,6 @@
 use super::*;
 use crate::cli::WebSearchMode;
 use crate::prompt::PromptBundle;
-use Path;
-use PathBuf;
 
 fn bundle_with_context() -> PromptBundle {
     let source = ContextSource {

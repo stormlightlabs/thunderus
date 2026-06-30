@@ -1,8 +1,8 @@
 ---
 Title: Pi Coding Agent Harness Lessons
 Author: Mario Zechner / Earendil Works
-Date: 2025-11-30 for the article; docs current as fetched on 2026-06-28
-Captured: 2026-06-28
+Date: 2026-06-28
+Captured: 2026-06-29
 Tags: [coding-agent, harness, terminal-ui, agent-loop, minimalism]
 ---
 
@@ -12,15 +12,13 @@ Source:
 - https://pi.dev/docs
 - https://mariozechner.at/posts/2025-11-30-pi-coding-agent/
 - https://github.com/earendil-works/pi
-- https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md
-- https://github.com/earendil-works/pi/blob/main/packages/agent/README.md
-- https://github.com/earendil-works/pi/blob/main/packages/tui/README.md
 
 ## Summary
 
 Pi argues that a coding harness can stay small and inspectable by exposing simple tools,
 explicit context, event-streamed agent state, file-based planning, and terminal-native
-workflows instead of baking in heavyweight modes and hidden orchestration.
+workflows instead of baking in heavyweight modes, hidden orchestration, or in-process
+permission theater.
 
 ## Key Ideas
 
@@ -42,6 +40,16 @@ workflows instead of baking in heavyweight modes and hidden orchestration.
   with READMEs, tmux, and explicit separate sessions over hidden state and heavyweight tool surfaces.
 - **Sandbox outside the harness:** Pi does not pretend permission prompts solve the core
   security problem; its docs recommend containers, micro-VM routing, or policy sandboxes when stronger boundaries are needed.
+- **Shell execution is a normal local capability:** Pi's built-in `bash` tool spawns the
+  configured shell in the working directory, streams combined stdout/stderr, supports timeout and
+  abort, kills the process tree, truncates visible output, and saves oversized output to a temp file.
+  It does not classify commands for approval.
+- **Project trust is input loading, not command permission:** Pi asks/tracks whether project-local
+  settings, extensions, skills, prompts, and themes may be loaded. Once running, built-in tools and
+  extensions use the permissions of the `pi` process.
+- **Prompt guardrails stay small:** Pi's default system prompt emphasizes the available tools,
+  concise answers, clear file paths, project context, skills, date, and working directory. Tool
+  descriptions carry operational details such as bash truncation and timeout behavior.
 
 ## Claims & Evidence
 
@@ -53,6 +61,7 @@ workflows instead of baking in heavyweight modes and hidden orchestration.
 | Native scrollback is a better fit for linear coding-agent chats than full-screen ownership. | The article argues coding agents are mostly linear chat plus tool output, so terminal scrolling/search are valuable.                | Medium for `thndrs`; Ratatui defaults push us toward alternate screen unless we deliberately choose otherwise. |
 | Built-in background process management can be avoided.                                      | Pi recommends tmux for long-running servers/debuggers and keeping bash synchronous.                                                 | Medium-high; good for simplicity, but our harness may eventually need supervised tool streaming.               |
 | Plan mode and todos can be files.                                                           | Pi recommends `PLAN.md`/TODO files for persistent, visible planning state.                                                          | High; this aligns with this repo's simplicity rule.                                                            |
+| Permission prompts are not a reliable security boundary for shell commands.                 | Pi documents no built-in sandbox and says real isolation should come from OS, VM, container, or sandbox boundaries.                 | High; this should shape docs and UX language even if `thndrs` keeps narrower tools.                            |
 
 ## Important Terms
 
@@ -64,6 +73,54 @@ workflows instead of baking in heavyweight modes and hidden orchestration.
 | Context file             | Project/user instructions loaded into the agent context, such as `AGENTS.md`.                                                                                 |
 | Tool preflight           | A hook before tool execution that can validate or block a call.                                                                                               |
 | Append-to-scrollback TUI | TUI model that writes mostly linearly to terminal scrollback and only redraws a small active region.                                                          |
+| Project trust            | A decision about whether to load project-local resources. It does not sandbox later tool calls.                                                               |
+
+## Command Execution Review
+
+Pi's shell execution path is deliberately simple:
+
+- `packages/coding-agent/src/core/tools/bash.ts` defines one model-facing `bash` tool with
+  `command` and optional `timeout`.
+- The local backend resolves bash, spawns it with `-c` or stdin transport, runs in the selected
+  working directory, merges stdout/stderr into one streamed output path, and uses an abort signal
+  or timeout to kill the process tree.
+- Output is accumulated through a bounded buffer. Large output is truncated for model/UI display
+  and the full output is persisted to a temp log when needed.
+- Exit codes are returned through normal tool success/error semantics: non-zero exit is an error
+  with captured output plus the exit code appended.
+- Hooks/extensions can wrap or replace execution. The core implementation does not provide a
+  built-in approval system for network, destructive commands, or writes outside the project.
+
+Security is documented as an environment concern rather than a shell parser concern:
+
+- Pi runs with the permissions of the local user account.
+- Built-in tools can read, write, edit, and execute with that account's permissions.
+- Extensions are local TypeScript modules with the same trust boundary.
+- Project trust prevents unapproved project resources from being loaded; it does not restrict the
+  model's later tool use.
+- Untrusted or unattended work should run inside a container, VM, micro-VM, remote sandbox, or
+  policy-controlled sandbox with minimal mounted files and credentials.
+
+The useful lesson for `thndrs`: do not add command-permission classifiers unless they are backed by
+a real process boundary. Prefer transparent local execution, narrow first-party tools, transcripted
+audit data, clear docs, and prompt instructions that steer the model toward restraint.
+
+## Prompt Guardrails To Reuse
+
+Useful `pi` prompt-level guardrails:
+
+- State that the assistant is operating inside the harness and can read files, run commands, edit
+  code, and write files only through available tools.
+- Keep the available tool list visible and concise.
+- Add a small guideline to use narrower tools for file search, reads, edits, and URL reads before
+  shell when they fit.
+- Add a small guideline to avoid destructive commands unless the user explicitly requested them or
+  they are clearly necessary and scoped.
+- Show the current date and working directory at the end of the prompt.
+- Load project context in labeled blocks and treat it as guidance below direct user/system
+  instructions.
+- Put operational details in tool descriptions: working directory, timeout, cancellation, output
+  truncation, and transcript/audit behavior.
 
 ## Lessons for `thndrs`
 
@@ -78,6 +135,12 @@ workflows instead of baking in heavyweight modes and hidden orchestration.
   write/read a Markdown file.
 - Do not build permission theater into the UI. If safety matters, design a real sandbox
   boundary later.
+- Shell/process docs should say commands run as the local user. The harness should provide
+  cancellation, timeout, output caps, transcript audit, and optional external sandbox integration,
+  not pretend command parsing is a security boundary.
+- Keep command guardrails mostly model-facing and tool-facing: prefer narrow tools, avoid
+  unnecessary destructive commands, expose cwd/output/status clearly, and document that untrusted
+  work belongs in a container/VM/sandbox.
 - Consider whether Ratatui full-screen mode conflicts with the Pi scrollback lesson.
   If we keep alternate screen for v0, document that it is a tactical choice, not a
   philosophical one.

@@ -1,0 +1,572 @@
+//! Shell/process manager.
+//!
+//! Runs commands from the workspace root with output streaming, timeouts,
+//! cancellation, and a process registry that tracks active commands.
+//!
+//! ## Design
+//!
+//! - Commands run from the workspace root by default. An optional `cwd` can be
+//!   specified relative to the root; paths escaping the root are rejected.
+//! - Output is captured from piped stdout/stderr. The blocking read happens on
+//!   a worker thread; the TUI drains the result through the normal tool event
+//!   channel so it never blocks.
+//! - Timeouts kill the process and produce a `Timeout` status.
+//! - Cancellation is cooperative: a shared [`CancelFlag`] is checked by the
+//!   worker thread between reads; when signalled the process is killed and the
+//!   result is recorded as `Cancelled`.
+//! - A [`ProcessRegistry`] tracks active commands, separating one-shot commands
+//!   (waited on for completion) from long-lived background processes (left
+//!   running and tracked by id).
+//!
+//! ## Safety
+//!
+//! - `fd --exec`, `rg --pre`, `sed -i`, `awk system()` and arbitrary
+//!   shell-string execution are not exposed by this module — the model provides
+//!   an argv array, never a shell string.
+//! - The command runs via `std::process::Command` argv; no `/bin/sh -c`.
+//! - stdout/stderr bytes are capped at [`Cap::MaxOutputBytes`]; lines truncate
+//!   at [`Cap::MaxLineLen`].
+//! - Paths are contained to the workspace root.
+
+#[cfg(test)]
+mod tests;
+
+use std::collections::HashMap;
+use std::io::{self, Read};
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
+
+use super::{Cap, ToolOutput, path};
+use crate::app::ToolStatus;
+
+/// Maximum number of output lines retained for the transcript/tool result.
+const MAX_OUTPUT_LINES: usize = 200;
+
+/// Outcome of waiting for a process, honoring timeout and cancellation.
+enum WaitOutcome {
+    Exited(i32),
+    Timeout,
+    Cancelled,
+}
+
+/// Process lifecycle status recorded by the registry and in the transcript.
+///
+/// Mirrors [`ToolStatus`] but adds `Timeout` and `Cancelled` which are
+/// process-specific terminal states.
+///
+/// `Running` and the registry-facing methods are exercised by unit tests and
+/// will be wired into the live app loop when background process support lands.
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum ProcessStatus {
+    /// Still running.
+    Running,
+    /// Exited with status 0.
+    Ok,
+    /// Exited with a non-zero status.
+    Failed,
+    /// Killed after exceeding the timeout.
+    Timeout,
+    /// Killed after a cancellation request.
+    Cancelled,
+}
+
+#[allow(dead_code)]
+impl ProcessStatus {
+    /// One-word label used in transcript display and session records.
+    pub fn label(&self) -> &'static str {
+        match self {
+            ProcessStatus::Running => "running",
+            ProcessStatus::Ok => "ok",
+            ProcessStatus::Failed => "failed",
+            ProcessStatus::Timeout => "timeout",
+            ProcessStatus::Cancelled => "cancelled",
+        }
+    }
+
+    /// Map to the transcript [`ToolStatus`].
+    pub fn to_tool_status(self) -> ToolStatus {
+        match self {
+            ProcessStatus::Running => ToolStatus::Running,
+            ProcessStatus::Ok => ToolStatus::Ok,
+            ProcessStatus::Failed | ProcessStatus::Timeout | ProcessStatus::Cancelled => ToolStatus::Failed,
+        }
+    }
+}
+
+/// Whether a command is a one-shot (waited for completion) or a long-lived
+/// background process (tracked separately by the registry).
+///
+/// `Background` is exercised by unit tests and will be wired into the live app
+/// loop when background process support lands.
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum ProcessKind {
+    /// Waited for completion; result is captured synchronously by the caller.
+    OneShot,
+    /// Left running after dispatch; tracked by id in the registry.
+    Background,
+}
+
+impl ProcessKind {
+    /// Lowercase label used in display and records.
+    pub fn label(&self) -> &'static str {
+        match self {
+            ProcessKind::OneShot => "one-shot",
+            ProcessKind::Background => "background",
+        }
+    }
+}
+
+/// Shared cancellation flag for a single process. Checked cooperatively by
+/// the worker thread between reads; when set, the process is killed.
+///
+/// Not yet wired into the live app loop — the cancellation API is exercised by
+/// unit tests and will be connected when background process support lands.
+#[allow(dead_code)]
+#[derive(Clone, Debug, Default)]
+pub struct CancelFlag(Arc<AtomicBool>);
+
+#[allow(dead_code)]
+impl CancelFlag {
+    /// Create a new uncancelled flag.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Signal cancellation.
+    pub fn cancel(&self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+
+    /// Whether cancellation has been requested.
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
+}
+
+/// Structured result of a process execution.
+///
+/// Captures the command, working directory, exit status, stdout/stderr
+/// (capped and line-truncated), and elapsed time. This is the audit record
+/// persisted for session records; the full raw output is never stored beyond
+/// the byte cap.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProcessResult {
+    /// The argv that was run (program + args).
+    pub command: Vec<String>,
+    /// Working directory the command ran in.
+    pub cwd: PathBuf,
+    /// Final lifecycle status.
+    pub status: ProcessStatus,
+    /// Exit code if the process exited normally, else `None`.
+    pub exit_code: Option<i32>,
+    /// Captured stdout, line-capped and byte-capped.
+    pub stdout: Vec<String>,
+    /// Captured stderr, line-capped and byte-capped.
+    pub stderr: Vec<String>,
+    /// Wall-clock elapsed time.
+    pub elapsed: Duration,
+    /// Whether this was a one-shot or background process.
+    pub kind: ProcessKind,
+}
+
+impl ProcessResult {
+    /// Render a compact single-line summary for transcript display.
+    pub fn summary(&self) -> String {
+        let argv = self.command.join(" ");
+        let elapsed_ms = self.elapsed.as_millis();
+        match self.status {
+            ProcessStatus::Running => format!("$ {argv} [{}]", self.kind.label()),
+            other => format!("$ {argv} [{} {} {}ms]", self.kind.label(), other.label(), elapsed_ms),
+        }
+    }
+
+    /// Lines for the tool [`ToolOutput`]: summary followed by stdout/stderr
+    /// markers and content.
+    pub fn to_output_lines(&self) -> Vec<String> {
+        let mut lines = vec![self.summary()];
+        if !self.stdout.is_empty() {
+            lines.push(String::from("── stdout ──"));
+            lines.extend(self.stdout.iter().cloned());
+        }
+        if !self.stderr.is_empty() {
+            lines.push(String::from("── stderr ──"));
+            lines.extend(self.stderr.iter().cloned());
+        }
+        lines
+    }
+
+    /// Build a failed [`ToolOutput`] from this result.
+    pub fn to_failed_output(&self) -> ToolOutput {
+        let err = match self.status {
+            ProcessStatus::Timeout => {
+                format!("command timed out after {}ms", self.elapsed.as_millis())
+            }
+            ProcessStatus::Cancelled => String::from("command cancelled"),
+            _ => {
+                let code = self.exit_code.map(|c| c.to_string()).unwrap_or_else(|| "?".to_string());
+                format!("command failed (exit {code})")
+            }
+        };
+        ToolOutput::failed("run_shell", err)
+    }
+}
+
+/// A running process tracked by the registry.
+///
+/// Not yet wired into the live app loop — the registry API is exercised by
+/// unit tests and will be connected when background process support lands.
+#[allow(dead_code)]
+#[derive(Debug)]
+pub struct ActiveProcess {
+    /// Unique id assigned by the registry.
+    pub id: u64,
+    /// The argv that was run.
+    pub command: Vec<String>,
+    /// Working directory.
+    #[allow(dead_code)]
+    pub cwd: PathBuf,
+    /// One-shot or background.
+    pub kind: ProcessKind,
+    /// Cancellation flag shared with the worker thread.
+    pub cancel: CancelFlag,
+    /// When the process started.
+    pub started: Instant,
+}
+
+impl ActiveProcess {
+    /// Elapsed time since the process started.
+    #[allow(dead_code)]
+    pub fn elapsed(&self) -> Duration {
+        self.started.elapsed()
+    }
+
+    /// Request cancellation.
+    #[allow(dead_code)]
+    pub fn cancel(&self) {
+        self.cancel.cancel();
+    }
+}
+
+/// Registry of active processes.
+///
+/// Tracks running commands by id. One-shot processes are removed when they
+/// complete; background processes remain until explicitly removed or cancelled.
+///
+/// Not yet wired into the live app loop — the registry API is exercised by
+/// unit tests and will be connected when background process support lands.
+#[allow(dead_code)]
+#[derive(Debug, Default)]
+pub struct ProcessRegistry {
+    next_id: u64,
+    active: HashMap<u64, ActiveProcess>,
+}
+
+#[allow(dead_code)]
+impl ProcessRegistry {
+    /// Create an empty registry.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Number of currently active processes (one-shot + background).
+    pub fn len(&self) -> usize {
+        self.active.len()
+    }
+
+    /// Whether the registry has no active processes.
+    pub fn is_empty(&self) -> bool {
+        self.active.is_empty()
+    }
+
+    /// Number of background processes.
+    pub fn background_count(&self) -> usize {
+        self.active
+            .values()
+            .filter(|p| p.kind == ProcessKind::Background)
+            .count()
+    }
+
+    /// Number of one-shot processes.
+    pub fn one_shot_count(&self) -> usize {
+        self.active.values().filter(|p| p.kind == ProcessKind::OneShot).count()
+    }
+
+    /// Register a new process and return its id.
+    pub fn register(&mut self, command: Vec<String>, cwd: PathBuf, kind: ProcessKind, cancel: CancelFlag) -> u64 {
+        let id = self.next_id;
+        self.next_id += 1;
+        self.active.insert(
+            id,
+            ActiveProcess { id, command, cwd, kind, cancel, started: Instant::now() },
+        );
+        id
+    }
+
+    /// Look up an active process by id.
+    pub fn get(&self, id: u64) -> Option<&ActiveProcess> {
+        self.active.get(&id)
+    }
+
+    /// Request cancellation of a process by id.
+    ///
+    /// Returns `true` if the process existed and cancellation was signalled.
+    pub fn cancel(&mut self, id: u64) -> bool {
+        if let Some(p) = self.active.get(&id) {
+            p.cancel();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Remove a completed process from the registry.
+    pub fn remove(&mut self, id: u64) -> Option<ActiveProcess> {
+        self.active.remove(&id)
+    }
+
+    /// Cancel all active processes.
+    pub fn cancel_all(&mut self) {
+        for p in self.active.values() {
+            p.cancel();
+        }
+    }
+
+    /// Iterate over active process ids.
+    pub fn ids(&self) -> impl Iterator<Item = u64> + '_ {
+        self.active.keys().copied()
+    }
+
+    /// Iterate over active background process ids.
+    pub fn background_ids(&self) -> impl Iterator<Item = u64> + '_ {
+        self.active
+            .values()
+            .filter(|p| p.kind == ProcessKind::Background)
+            .map(|p| p.id)
+    }
+}
+
+/// Arguments for a shell command execution.
+#[derive(Clone, Debug)]
+pub struct ShellArgs {
+    /// Program to run (e.g. `"cargo"`, `"ls"`, `"echo"`).
+    pub program: String,
+    /// Argv after the program.
+    pub args: Vec<String>,
+    /// Optional working directory relative to the workspace root.
+    /// Defaults to the workspace root.
+    pub cwd: Option<PathBuf>,
+    /// Timeout in seconds. Defaults to [`Cap::TimeoutSecs`].
+    pub timeout_secs: Option<u64>,
+    /// One-shot or background.
+    pub kind: ProcessKind,
+}
+
+impl ShellArgs {
+    /// Build one-shot args with default timeout.
+    #[allow(dead_code)]
+    pub fn one_shot(program: &str, args: Vec<String>) -> Self {
+        ShellArgs { program: program.to_string(), args, cwd: None, timeout_secs: None, kind: ProcessKind::OneShot }
+    }
+
+    /// The full argv (program + args).
+    pub fn argv(&self) -> Vec<String> {
+        let mut v = vec![self.program.clone()];
+        v.extend(self.args.iter().cloned());
+        v
+    }
+}
+
+/// Run a shell command with streaming output capture, timeout, and
+/// cancellation.
+///
+/// This is the synchronous execution path used for one-shot commands. The
+/// blocking read runs on the calling thread; callers that need non-blocking
+/// behavior should run this on a worker thread and drain the returned
+/// [`ProcessResult`] through the agent event channel.
+///
+/// The process is killed if:
+/// - the timeout elapses, or
+/// - the [`CancelFlag`] is signalled.
+///
+/// stdout/stderr are read on dedicated threads so that a process producing no
+/// output (e.g. `sleep 30`) can still be killed on timeout/cancellation. The
+/// captured output is capped at [`Cap::MaxOutputBytes`] bytes and
+/// [`MAX_OUTPUT_LINES`] lines. Lines longer than [`Cap::MaxLineLen`] chars are
+/// truncated with `...`.
+pub fn run_command(args: &ShellArgs, root: &Path, cancel: &CancelFlag) -> Result<ProcessResult, String> {
+    let cwd = resolve_cwd(root, &args.cwd)?;
+    let argv = args.argv();
+
+    let mut cmd = Command::new(&args.program);
+    cmd.args(&args.args)
+        .current_dir(&cwd)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::null());
+
+    let timeout = Duration::from_secs(args.timeout_secs.unwrap_or_else(Cap::timeout));
+    let start = Instant::now();
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("failed to spawn '{}': {e}", args.program))?;
+
+    let stdout = child.stdout.take().expect("stdout piped");
+    let stderr = child.stderr.take().expect("stderr piped");
+
+    let stdout_handle = std::thread::spawn(move || read_to_capped_vec(stdout));
+    let stderr_handle = std::thread::spawn(move || read_to_capped_vec(stderr));
+
+    let final_status = wait_with_timeout(&mut child, &timeout, cancel, &start);
+
+    let elapsed = start.elapsed();
+    let (status, exit_code) = match final_status {
+        WaitOutcome::Exited(code) => {
+            if code == 0 {
+                (ProcessStatus::Ok, Some(code))
+            } else {
+                (ProcessStatus::Failed, Some(code))
+            }
+        }
+        WaitOutcome::Timeout => (ProcessStatus::Timeout, None),
+        WaitOutcome::Cancelled => (ProcessStatus::Cancelled, None),
+    };
+
+    let stdout_buf = stdout_handle.join().unwrap_or_default();
+    let stderr_buf = stderr_handle.join().unwrap_or_default();
+
+    Ok(ProcessResult {
+        command: argv,
+        cwd,
+        status,
+        exit_code,
+        stdout: split_and_cap(&stdout_buf),
+        stderr: split_and_cap(&stderr_buf),
+        elapsed,
+        kind: args.kind,
+    })
+}
+
+/// Execute a one-shot shell command and return a [`ToolOutput`] suitable for
+/// the transcript and tool-result channel.
+///
+/// This is the entry point wired into [`crate::tools::dispatch_tool`]. It runs
+/// `run_command` on the calling thread (the agent loop already runs on a
+/// background thread), then converts the result into a [`ToolOutput`].
+pub fn exec(args: &ShellArgs, root: &Path) -> ToolOutput {
+    let cancel = CancelFlag::new();
+    match run_command(args, root, &cancel) {
+        Ok(result) => match result.status {
+            ProcessStatus::Ok => ToolOutput::ok("run_shell", result.to_output_lines()),
+            _ => {
+                let mut output = result.to_failed_output();
+                output.output = result.to_output_lines();
+                output
+            }
+        },
+        Err(e) => ToolOutput::failed("run_shell", e),
+    }
+}
+
+/// Wait for a child to exit, killing it if the timeout elapses or cancellation
+/// is signalled.
+fn wait_with_timeout(child: &mut Child, timeout: &Duration, cancel: &CancelFlag, start: &Instant) -> WaitOutcome {
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return WaitOutcome::Exited(status.code().unwrap_or(-1)),
+            Ok(None) => {
+                if cancel.is_cancelled() {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return WaitOutcome::Cancelled;
+                }
+                if start.elapsed() > *timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return WaitOutcome::Timeout;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return WaitOutcome::Cancelled;
+            }
+        }
+    }
+}
+
+/// Resolve the working directory for a command, defaulting to the workspace
+/// root. If `cwd` is provided it must be within `root`.
+fn resolve_cwd(root: &Path, cwd: &Option<PathBuf>) -> Result<PathBuf, String> {
+    match cwd {
+        None => Ok(root.to_path_buf()),
+        Some(rel) => {
+            let resolved = path::resolve_within_root(root, &rel.to_string_lossy()).map_err(|e| e.to_string())?;
+            if !resolved.is_dir() {
+                return Err(format!("working directory is not a directory: {}", resolved.display()));
+            }
+            Ok(resolved)
+        }
+    }
+}
+
+/// Read a piped stream to a capped byte buffer. Runs on a dedicated reader
+/// thread so the main thread can still poll try_wait for timeout/cancellation.
+fn read_to_capped_vec<R: Read>(mut stream: R) -> Vec<u8> {
+    let max_bytes: usize = Cap::MaxOutputBytes.into();
+    let mut buf = Vec::with_capacity(4096);
+    let mut chunk = [0u8; 4096];
+
+    loop {
+        match stream.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => {
+                let remaining = max_bytes.saturating_sub(buf.len());
+                if remaining == 0 {
+                    break;
+                }
+                let take = n.min(remaining);
+                buf.extend_from_slice(&chunk[..take]);
+            }
+            Err(ref e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(_) => break,
+        }
+    }
+
+    buf
+}
+
+/// Split a byte buffer into lines, capping the line count and truncating long lines.
+fn split_and_cap(buf: &[u8]) -> Vec<String> {
+    let max_line_len: usize = Cap::MaxLineLen.into();
+    let content = String::from_utf8_lossy(buf);
+    let mut lines: Vec<String> = content
+        .lines()
+        .map(|line| truncate_line(line, max_line_len))
+        .take(MAX_OUTPUT_LINES)
+        .collect();
+
+    let total_lines = content.lines().count();
+    if total_lines > MAX_OUTPUT_LINES {
+        let extra = total_lines - MAX_OUTPUT_LINES;
+        lines.push(format!("…({extra} more lines)"));
+    }
+
+    lines
+}
+
+/// Truncate a string to `max_chars` chars, adding `...` if truncated.
+fn truncate_line(s: &str, max_chars: usize) -> String {
+    if s.chars().count() <= max_chars {
+        s.to_string()
+    } else {
+        let truncated: String = s.chars().take(max_chars).collect();
+        format!("{truncated}...")
+    }
+}

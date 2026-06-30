@@ -1,0 +1,660 @@
+
+use super::*;
+
+/// Helper: build a ShellArgs for `echo`.
+fn echo(args: &[&str]) -> ShellArgs {
+    let v: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+    ShellArgs::one_shot("echo", v)
+}
+
+/// Helper: build a ShellArgs for `sh -c` (used for portable test scripts).
+fn sh(script: &str) -> ShellArgs {
+    ShellArgs::one_shot("sh", vec!["-c".to_string(), script.to_string()])
+}
+
+#[test]
+fn process_status_labels() {
+    assert_eq!(ProcessStatus::Running.label(), "running");
+    assert_eq!(ProcessStatus::Ok.label(), "ok");
+    assert_eq!(ProcessStatus::Failed.label(), "failed");
+    assert_eq!(ProcessStatus::Timeout.label(), "timeout");
+    assert_eq!(ProcessStatus::Cancelled.label(), "cancelled");
+}
+
+#[test]
+fn process_status_to_tool_status() {
+    assert_eq!(ProcessStatus::Running.to_tool_status(), ToolStatus::Running);
+    assert_eq!(ProcessStatus::Ok.to_tool_status(), ToolStatus::Ok);
+    assert_eq!(ProcessStatus::Failed.to_tool_status(), ToolStatus::Failed);
+    assert_eq!(ProcessStatus::Timeout.to_tool_status(), ToolStatus::Failed);
+    assert_eq!(ProcessStatus::Cancelled.to_tool_status(), ToolStatus::Failed);
+}
+
+#[test]
+fn process_kind_labels() {
+    assert_eq!(ProcessKind::OneShot.label(), "one-shot");
+    assert_eq!(ProcessKind::Background.label(), "background");
+}
+
+#[test]
+fn cancel_flag_starts_false() {
+    let flag = CancelFlag::new();
+    assert!(!flag.is_cancelled());
+}
+
+#[test]
+fn cancel_flag_sets_true() {
+    let flag = CancelFlag::new();
+    flag.cancel();
+    assert!(flag.is_cancelled());
+}
+
+#[test]
+fn cancel_flag_is_shared() {
+    let flag = CancelFlag::new();
+    let clone = flag.clone();
+    flag.cancel();
+    assert!(clone.is_cancelled());
+}
+
+#[test]
+fn run_command_success() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let root = dir.path();
+    let cancel = CancelFlag::new();
+    let args = echo(&["hello", "world"]);
+    let result = run_command(&args, root, &cancel).expect("run");
+
+    assert_eq!(result.status, ProcessStatus::Ok);
+    assert_eq!(result.exit_code, Some(0));
+    assert_eq!(result.kind, ProcessKind::OneShot);
+    assert_eq!(result.stdout, vec!["hello world".to_string()]);
+    assert!(result.stderr.is_empty());
+    assert_eq!(
+        result.command,
+        vec!["echo".to_string(), "hello".to_string(), "world".to_string()]
+    );
+}
+
+#[test]
+fn run_command_captures_stdout() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let root = dir.path();
+    let cancel = CancelFlag::new();
+    let args = sh("printf 'line1\\nline2\\nline3\\n'");
+    let result = run_command(&args, root, &cancel).expect("run");
+    assert_eq!(result.status, ProcessStatus::Ok);
+    assert_eq!(result.stdout, vec!["line1", "line2", "line3"]);
+}
+
+#[test]
+fn run_command_captures_stderr() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let root = dir.path();
+    let cancel = CancelFlag::new();
+    let args = sh("echo 'to stderr' >&2");
+    let result = run_command(&args, root, &cancel).expect("run");
+    assert_eq!(result.status, ProcessStatus::Ok);
+    assert!(result.stdout.is_empty());
+    assert_eq!(result.stderr, vec!["to stderr".to_string()]);
+}
+
+#[test]
+fn run_command_failure_nonzero_exit() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let root = dir.path();
+    let cancel = CancelFlag::new();
+    let args = sh("exit 3");
+    let result = run_command(&args, root, &cancel).expect("run");
+    assert_eq!(result.status, ProcessStatus::Failed);
+    assert_eq!(result.exit_code, Some(3));
+}
+
+#[test]
+fn run_command_nonexistent_program_fails() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let root = dir.path();
+    let cancel = CancelFlag::new();
+    let args = ShellArgs::one_shot("definitely_not_a_real_program_xyz", vec![]);
+    let result = run_command(&args, root, &cancel);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("failed to spawn"));
+}
+
+#[test]
+fn run_command_timeout_kills_process() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let root = dir.path();
+    let cancel = CancelFlag::new();
+    let args = ShellArgs {
+        program: "sh".to_string(),
+        args: vec!["-c".to_string(), "sleep 30".to_string()],
+        cwd: None,
+        timeout_secs: Some(1),
+        kind: ProcessKind::OneShot,
+    };
+    let result = run_command(&args, root, &cancel).expect("run");
+
+    assert_eq!(result.status, ProcessStatus::Timeout);
+    assert!(result.exit_code.is_none());
+    assert!(result.elapsed < Duration::from_secs(5));
+}
+
+#[test]
+fn run_command_cancellation_kills_process() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let root = dir.path();
+    let cancel = CancelFlag::new();
+    let args = ShellArgs {
+        program: "sh".to_string(),
+        args: vec!["-c".to_string(), "sleep 30".to_string()],
+        cwd: None,
+        timeout_secs: Some(60),
+        kind: ProcessKind::OneShot,
+    };
+
+    let cancel_clone = cancel.clone();
+    let handle = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(100));
+        cancel_clone.cancel();
+    });
+
+    let result = run_command(&args, root, &cancel).expect("run");
+    handle.join().expect("thread");
+
+    assert_eq!(result.status, ProcessStatus::Cancelled);
+    assert!(result.exit_code.is_none());
+    assert!(result.elapsed < Duration::from_secs(5));
+}
+
+#[test]
+fn run_command_runs_in_workspace_root_by_default() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let root = dir.path();
+
+    std::fs::write(root.join("marker.txt"), "found").expect("write");
+
+    let cancel = CancelFlag::new();
+    let args = sh("cat marker.txt");
+    let result = run_command(&args, root, &cancel).expect("run");
+    assert_eq!(result.status, ProcessStatus::Ok);
+    assert_eq!(result.stdout, vec!["found".to_string()]);
+    assert_eq!(result.cwd, root.to_path_buf());
+}
+
+#[test]
+fn run_command_runs_in_specified_cwd() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let root = dir.path();
+    std::fs::create_dir_all(root.join("subdir")).expect("mkdir");
+    std::fs::write(root.join("subdir/nested.txt"), "nested").expect("write");
+    let cancel = CancelFlag::new();
+    let args = ShellArgs {
+        program: "cat".to_string(),
+        args: vec!["nested.txt".to_string()],
+        cwd: Some(PathBuf::from("subdir")),
+        timeout_secs: None,
+        kind: ProcessKind::OneShot,
+    };
+
+    let result = run_command(&args, root, &cancel).expect("run");
+    assert_eq!(result.status, ProcessStatus::Ok);
+    assert_eq!(result.stdout, vec!["nested".to_string()]);
+    assert!(result.cwd.ends_with("subdir"));
+}
+
+#[test]
+fn run_command_rejects_cwd_outside_root() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let root = dir.path();
+    let parent = root.parent().unwrap();
+    let escape = parent.to_string_lossy().to_string();
+    let cancel = CancelFlag::new();
+    let args = ShellArgs {
+        program: "echo".to_string(),
+        args: vec![],
+        cwd: Some(PathBuf::from(escape)),
+        timeout_secs: None,
+        kind: ProcessKind::OneShot,
+    };
+    let result = run_command(&args, root, &cancel);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("escapes workspace root"));
+}
+
+#[test]
+fn run_command_rejects_nonexistent_cwd() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let root = dir.path();
+    let cancel = CancelFlag::new();
+    let args = ShellArgs {
+        program: "echo".to_string(),
+        args: vec![],
+        cwd: Some(PathBuf::from("nonexistent_dir")),
+        timeout_secs: None,
+        kind: ProcessKind::OneShot,
+    };
+    let result = run_command(&args, root, &cancel);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("not a directory"));
+}
+
+#[test]
+fn run_command_caps_output_lines() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let root = dir.path();
+    let cancel = CancelFlag::new();
+    let script = format!("for i in $(seq 1 {}); do echo line$i; done", MAX_OUTPUT_LINES + 50);
+    let args = sh(&script);
+    let result = run_command(&args, root, &cancel).expect("run");
+    assert_eq!(result.status, ProcessStatus::Ok);
+    assert_eq!(result.stdout.len(), MAX_OUTPUT_LINES + 1);
+    assert!(result.stdout.last().unwrap().starts_with("…("));
+}
+
+#[test]
+fn run_command_truncates_long_lines() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let root = dir.path();
+    let cancel = CancelFlag::new();
+    let max_len: usize = Cap::MaxLineLen.into();
+    let long_line = "x".repeat(max_len + 100);
+    let script = format!("printf '{}\\n'", long_line);
+    let args = sh(&script);
+    let result = run_command(&args, root, &cancel).expect("run");
+    assert_eq!(result.status, ProcessStatus::Ok);
+    assert_eq!(result.stdout.len(), 1);
+    assert!(result.stdout[0].ends_with("..."));
+    assert!(result.stdout[0].chars().count() <= max_len + 3);
+}
+
+#[test]
+fn run_command_captures_elapsed_time() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let root = dir.path();
+    let cancel = CancelFlag::new();
+    let args = sh("sleep 0.2");
+    let result = run_command(&args, root, &cancel).expect("run");
+    assert_eq!(result.status, ProcessStatus::Ok);
+    assert!(result.elapsed >= Duration::from_millis(150));
+    assert!(result.elapsed < Duration::from_secs(2));
+}
+
+#[test]
+fn process_result_summary_includes_command_and_status() {
+    let result = ProcessResult {
+        command: vec!["cargo".to_string(), "test".to_string()],
+        cwd: PathBuf::from("/repo"),
+        status: ProcessStatus::Ok,
+        exit_code: Some(0),
+        stdout: vec![],
+        stderr: vec![],
+        elapsed: Duration::from_millis(500),
+        kind: ProcessKind::OneShot,
+    };
+    let summary = result.summary();
+    assert!(summary.contains("cargo test"));
+    assert!(summary.contains("ok"));
+    assert!(summary.contains("500ms"));
+    assert!(summary.contains("one-shot"));
+}
+
+#[test]
+fn process_result_to_output_lines_includes_markers() {
+    let result = ProcessResult {
+        command: vec!["echo".to_string()],
+        cwd: PathBuf::from("/repo"),
+        status: ProcessStatus::Ok,
+        exit_code: Some(0),
+        stdout: vec!["out1".to_string(), "out2".to_string()],
+        stderr: vec!["err1".to_string()],
+        elapsed: Duration::from_millis(10),
+        kind: ProcessKind::OneShot,
+    };
+    let lines = result.to_output_lines();
+    assert!(lines[0].contains("echo"));
+    assert!(lines.contains(&"── stdout ──".to_string()));
+    assert!(lines.contains(&"out1".to_string()));
+    assert!(lines.contains(&"── stderr ──".to_string()));
+    assert!(lines.contains(&"err1".to_string()));
+}
+
+#[test]
+fn process_result_to_output_lines_omits_empty_streams() {
+    let result = ProcessResult {
+        command: vec!["echo".to_string()],
+        cwd: PathBuf::from("/repo"),
+        status: ProcessStatus::Ok,
+        exit_code: Some(0),
+        stdout: vec![],
+        stderr: vec![],
+        elapsed: Duration::from_millis(10),
+        kind: ProcessKind::OneShot,
+    };
+    let lines = result.to_output_lines();
+    assert_eq!(lines.len(), 1);
+}
+
+#[test]
+fn process_result_to_failed_output_for_timeout() {
+    let result = ProcessResult {
+        command: vec!["sleep".to_string(), "30".to_string()],
+        cwd: PathBuf::from("/repo"),
+        status: ProcessStatus::Timeout,
+        exit_code: None,
+        stdout: vec![],
+        stderr: vec![],
+        elapsed: Duration::from_millis(1000),
+        kind: ProcessKind::OneShot,
+    };
+    let output = result.to_failed_output();
+    assert_eq!(output.name, "run_shell");
+    assert_eq!(output.status, ToolStatus::Failed);
+    assert!(output.error.as_ref().is_some_and(|e| e.contains("timed out")));
+}
+
+#[test]
+fn process_result_to_failed_output_for_cancelled() {
+    let result = ProcessResult {
+        command: vec!["sleep".to_string(), "30".to_string()],
+        cwd: PathBuf::from("/repo"),
+        status: ProcessStatus::Cancelled,
+        exit_code: None,
+        stdout: vec![],
+        stderr: vec![],
+        elapsed: Duration::from_millis(500),
+        kind: ProcessKind::OneShot,
+    };
+    let output = result.to_failed_output();
+    assert_eq!(output.status, ToolStatus::Failed);
+    assert!(output.error.as_ref().is_some_and(|e| e.contains("cancelled")));
+}
+
+#[test]
+fn process_result_to_failed_output_for_failure() {
+    let result = ProcessResult {
+        command: vec!["false".to_string()],
+        cwd: PathBuf::from("/repo"),
+        status: ProcessStatus::Failed,
+        exit_code: Some(1),
+        stdout: vec![],
+        stderr: vec![],
+        elapsed: Duration::from_millis(10),
+        kind: ProcessKind::OneShot,
+    };
+    let output = result.to_failed_output();
+    assert!(output.error.as_ref().is_some_and(|e| e.contains("exit 1")));
+}
+
+#[test]
+fn registry_starts_empty() {
+    let reg = ProcessRegistry::new();
+    assert!(reg.is_empty());
+    assert_eq!(reg.len(), 0);
+    assert_eq!(reg.background_count(), 0);
+    assert_eq!(reg.one_shot_count(), 0);
+}
+
+#[test]
+fn registry_register_assigns_incrementing_ids() {
+    let mut reg = ProcessRegistry::new();
+    let id1 = reg.register(
+        vec!["echo".to_string()],
+        PathBuf::from("/repo"),
+        ProcessKind::OneShot,
+        CancelFlag::new(),
+    );
+    let id2 = reg.register(
+        vec!["ls".to_string()],
+        PathBuf::from("/repo"),
+        ProcessKind::Background,
+        CancelFlag::new(),
+    );
+    assert_eq!(id1, 0);
+    assert_eq!(id2, 1);
+    assert_eq!(reg.len(), 2);
+}
+
+#[test]
+fn registry_get_returns_active_process() {
+    let mut reg = ProcessRegistry::new();
+    let id = reg.register(
+        vec!["cargo".to_string(), "test".to_string()],
+        PathBuf::from("/repo"),
+        ProcessKind::OneShot,
+        CancelFlag::new(),
+    );
+    let p = reg.get(id).expect("should exist");
+    assert_eq!(p.command, vec!["cargo".to_string(), "test".to_string()]);
+    assert_eq!(p.kind, ProcessKind::OneShot);
+}
+
+#[test]
+fn registry_get_missing_returns_none() {
+    let reg = ProcessRegistry::new();
+    assert!(reg.get(999).is_none());
+}
+
+#[test]
+fn registry_remove_removes_process() {
+    let mut reg = ProcessRegistry::new();
+    let id = reg.register(
+        vec!["echo".to_string()],
+        PathBuf::from("/repo"),
+        ProcessKind::OneShot,
+        CancelFlag::new(),
+    );
+    assert!(reg.remove(id).is_some());
+    assert!(reg.is_empty());
+    assert!(reg.get(id).is_none());
+}
+
+#[test]
+fn registry_remove_missing_returns_none() {
+    let mut reg = ProcessRegistry::new();
+    assert!(reg.remove(999).is_none());
+}
+
+#[test]
+fn registry_counts_by_kind() {
+    let mut reg = ProcessRegistry::new();
+    reg.register(
+        vec!["a".to_string()],
+        PathBuf::from("/repo"),
+        ProcessKind::OneShot,
+        CancelFlag::new(),
+    );
+    reg.register(
+        vec!["b".to_string()],
+        PathBuf::from("/repo"),
+        ProcessKind::Background,
+        CancelFlag::new(),
+    );
+    reg.register(
+        vec!["c".to_string()],
+        PathBuf::from("/repo"),
+        ProcessKind::Background,
+        CancelFlag::new(),
+    );
+
+    assert_eq!(reg.len(), 3);
+    assert_eq!(reg.one_shot_count(), 1);
+    assert_eq!(reg.background_count(), 2);
+}
+
+#[test]
+fn registry_cancel_signals_flag() {
+    let mut reg = ProcessRegistry::new();
+    let cancel = CancelFlag::new();
+    let id = reg.register(
+        vec!["sleep".to_string(), "30".to_string()],
+        PathBuf::from("/repo"),
+        ProcessKind::Background,
+        cancel.clone(),
+    );
+    assert!(reg.cancel(id));
+    assert!(cancel.is_cancelled());
+}
+
+#[test]
+fn registry_cancel_missing_returns_false() {
+    let mut reg = ProcessRegistry::new();
+    assert!(!reg.cancel(999));
+}
+
+#[test]
+fn registry_cancel_all_signals_all_flags() {
+    let mut reg = ProcessRegistry::new();
+    let c1 = CancelFlag::new();
+    let c2 = CancelFlag::new();
+    reg.register(
+        vec!["a".to_string()],
+        PathBuf::from("/repo"),
+        ProcessKind::OneShot,
+        c1.clone(),
+    );
+    reg.register(
+        vec!["b".to_string()],
+        PathBuf::from("/repo"),
+        ProcessKind::Background,
+        c2.clone(),
+    );
+
+    reg.cancel_all();
+    assert!(c1.is_cancelled());
+    assert!(c2.is_cancelled());
+}
+
+#[test]
+fn registry_ids_iterates_all() {
+    let mut reg = ProcessRegistry::new();
+    reg.register(
+        vec!["a".to_string()],
+        PathBuf::from("/repo"),
+        ProcessKind::OneShot,
+        CancelFlag::new(),
+    );
+    reg.register(
+        vec!["b".to_string()],
+        PathBuf::from("/repo"),
+        ProcessKind::Background,
+        CancelFlag::new(),
+    );
+
+    let mut ids: Vec<u64> = reg.ids().collect();
+    ids.sort();
+    assert_eq!(ids, vec![0, 1]);
+}
+
+#[test]
+fn registry_background_ids_filters() {
+    let mut reg = ProcessRegistry::new();
+    reg.register(
+        vec!["a".to_string()],
+        PathBuf::from("/repo"),
+        ProcessKind::OneShot,
+        CancelFlag::new(),
+    );
+    reg.register(
+        vec!["b".to_string()],
+        PathBuf::from("/repo"),
+        ProcessKind::Background,
+        CancelFlag::new(),
+    );
+    reg.register(
+        vec!["c".to_string()],
+        PathBuf::from("/repo"),
+        ProcessKind::Background,
+        CancelFlag::new(),
+    );
+
+    let mut bg_ids: Vec<u64> = reg.background_ids().collect();
+    bg_ids.sort();
+    assert_eq!(bg_ids, vec![1, 2]);
+}
+
+#[test]
+fn registry_active_process_elapsed_tracks_time() {
+    let mut reg = ProcessRegistry::new();
+    let id = reg.register(
+        vec!["sleep".to_string()],
+        PathBuf::from("/repo"),
+        ProcessKind::Background,
+        CancelFlag::new(),
+    );
+    std::thread::sleep(Duration::from_millis(50));
+    let p = reg.get(id).expect("exists");
+    assert!(p.elapsed() >= Duration::from_millis(40));
+}
+
+#[test]
+fn exec_success_returns_ok_tool_output() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let root = dir.path();
+    let args = echo(&["hello"]);
+    let output = exec(&args, root);
+    assert_eq!(output.status, ToolStatus::Ok);
+    assert_eq!(output.name, "run_shell");
+    assert!(output.output.iter().any(|l| l.contains("hello")));
+}
+
+#[test]
+fn exec_failure_returns_failed_tool_output() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let root = dir.path();
+    let args = sh("exit 1");
+    let output = exec(&args, root);
+    assert_eq!(output.status, ToolStatus::Failed);
+    assert!(output.error.as_ref().is_some_and(|e| e.contains("exit 1")));
+}
+
+#[test]
+fn exec_timeout_returns_failed_tool_output() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let root = dir.path();
+    let args = ShellArgs {
+        program: "sh".to_string(),
+        args: vec!["-c".to_string(), "sleep 30".to_string()],
+        cwd: None,
+        timeout_secs: Some(1),
+        kind: ProcessKind::OneShot,
+    };
+    let output = exec(&args, root);
+    assert_eq!(output.status, ToolStatus::Failed);
+    assert!(output.error.as_ref().is_some_and(|e| e.contains("timed out")));
+}
+
+#[test]
+fn exec_includes_command_summary_in_output() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let root = dir.path();
+    let args = echo(&["test"]);
+    let output = exec(&args, root);
+    assert!(output.output[0].contains("echo test"));
+    assert!(output.output[0].contains("one-shot"));
+}
+
+#[test]
+fn shell_args_argv_joins_program_and_args() {
+    let args = ShellArgs::one_shot("cargo", vec!["test".to_string(), "--lib".to_string()]);
+    assert_eq!(args.argv(), vec!["cargo", "test", "--lib"]);
+}
+
+#[test]
+fn shell_args_one_shot_defaults() {
+    let args = ShellArgs::one_shot("ls", vec![]);
+    assert_eq!(args.program, "ls");
+    assert!(args.args.is_empty());
+    assert!(args.cwd.is_none());
+    assert!(args.timeout_secs.is_none());
+    assert_eq!(args.kind, ProcessKind::OneShot);
+}
+
+/// The shell module never exposes a shell-string execution path. Commands
+/// are argv arrays, never `/bin/sh -c` with model-controlled content.
+#[test]
+fn no_shell_string_execution_exposed() {
+    let args = ShellArgs::one_shot("echo", vec!["hello".to_string()]);
+    assert!(!args.program.contains("sh -c"), "program must not be a shell string");
+    assert!(args.argv().len() >= 1, "argv must have at least the program");
+}

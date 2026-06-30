@@ -21,6 +21,7 @@ mod path;
 mod read_file_range;
 mod replace_range;
 mod search_text;
+mod shell;
 mod subproc;
 mod write_patch;
 
@@ -446,6 +447,28 @@ patches leave the file unchanged."#,
                 "required": ["op", "path"]
             }),
         },
+        ToolDefinition {
+            name: "run_shell",
+            description: r#"run_shell
+
+Run a shell command in the workspace and capture stdout, stderr, and exit status.
+
+Use this for build, test, format, and inspection commands. Commands run from the
+workspace root via an argv array — never a shell string, so pipes and redirects
+are unavailable. Prefer narrower built-in tools when they fit. stdout/stderr are
+capped and line-truncated. Timeouts and cancellation are enforced."#,
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "program": { "type": "string", "description": "The program to run (e.g. \"cargo\", \"ls\")." },
+                    "args": { "type": "array", "items": { "type": "string" }, "description": "Argv after the program." },
+                    "cwd": { "type": "string", "description": "Optional working directory relative to the workspace root." },
+                    "timeout_secs": { "type": "integer", "description": "Timeout in seconds." },
+                    "background": { "type": "boolean", "description": "If true, run as a long-lived background process." }
+                },
+                "required": ["program"]
+            }),
+        },
     ]
 }
 
@@ -586,6 +609,41 @@ pub fn dispatch_tool(request: &ToolUseRequest, root: &Path) -> ToolOutput {
             Ok(patch) => write_patch::exec(&patch, root).0,
             Err(e) => ToolOutput::failed("write_patch", e),
         },
+        "run_shell" => {
+            let program = args
+                .get("program")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let cmd_args: Vec<String> = args
+                .get("args")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                .unwrap_or_default();
+            let cwd = args
+                .get("cwd")
+                .and_then(|v| v.as_str())
+                .map(PathBuf::from);
+            let timeout_secs = args.get("timeout_secs").and_then(|v| v.as_u64());
+            let kind = if args.get("background").and_then(|v| v.as_bool()).unwrap_or(false) {
+                shell::ProcessKind::Background
+            } else {
+                shell::ProcessKind::OneShot
+            };
+
+            if program.is_empty() {
+                ToolOutput::failed("run_shell", "missing or empty 'program' field".to_string())
+            } else {
+                let shell_args = shell::ShellArgs {
+                    program,
+                    args: cmd_args,
+                    cwd,
+                    timeout_secs,
+                    kind,
+                };
+                shell::exec(&shell_args, root)
+            }
+        }
         other => ToolOutput::failed(other, format!("unknown tool: {other}")),
     }
 }

@@ -109,7 +109,7 @@ fn summarize_tool_args(arguments: &str) -> String {
         return truncate_chars(trimmed, 48);
     };
 
-    for key in &["pattern", "path", "query", "root", "glob", "file"] {
+    for key in &["pattern", "path", "query", "root", "glob", "file", "program", "url"] {
         if let Some(val) = obj.get(*key).and_then(|f| f.as_str()) {
             return format!("{key}: {}", truncate_chars(val, 40));
         }
