@@ -425,7 +425,10 @@ impl SessionWriter {
     /// Create a new session file in `dir` with the given session id.
     ///
     /// Writes the initial `session_meta` record as the first line.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "session metadata is written as a flat JSONL record"
+    )]
     pub fn create(
         dir: &Path, session_id: &str, cwd: &str, title: &str, provider: &str, model: &str, websearch: &str,
         app_version: &str,

@@ -3,8 +3,8 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││tool                       ✓ run_shell#0 [ok]  program: │"
-"│ ● scratch          ││                           │ hello                      │"
+"│Sessions            ││tool            ✓ run_shell#0 [ok]  program: echo       │"
+"│ ● scratch          ││   │ hello                                              │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
@@ -23,6 +23,6 @@ expression: terminal.backend().to_string()
 "│                    ││                                                        │"
 "└────────────────────┘└────────────────────────────────────────────────────────┘"
 "────────────────────────────────────────────────────────────────────────────────"
-"  ▌ ▶                                                                           "
-"                                                            umans-coder  native "
+"  ›                                                                             "
+"                                                                                "
 " model: umans-coder   search: native  cwd: .                                    "

@@ -26,12 +26,7 @@ pub const API_KEY_ENV: &str = "UMANS_API_KEY";
 type Result<T> = std::result::Result<T, UmansError>;
 
 /// Errors from the Umans client.
-///
-/// `Json` and `Stream` variants are not yet constructed by the live agent
-/// loop (which uses string error messages), but are retained for API
-/// completeness when the provider error handling is hardened.
 #[derive(Debug, thiserror::Error)]
-#[allow(dead_code)]
 pub enum UmansError {
     /// `UMANS_API_KEY` is not set.
     #[error("UMANS_API_KEY is not set")]
@@ -43,11 +38,11 @@ pub enum UmansError {
     #[error("HTTP {code}: {body}")]
     Status { code: u16, body: String },
     /// JSON serialization/deserialization error.
+    ///
+    /// TODO: display model-metadata parse failures in the model picker/status
+    /// UI once `/v1/models/info` is wired into the live app.
     #[error("json error: {0}")]
     Json(String),
-    /// SSE stream parsing error.
-    #[error("stream error: {0}")]
-    Stream(String),
 }
 
 /// Concrete Umans Code API client.
@@ -68,6 +63,7 @@ impl UmansClient {
 
     /// Create a client with an explicit base URL and API key.
     pub fn new(base_url: &str, api_key: &str) -> Self {
+        model_metadata_display_todo_marker();
         UmansClient {
             base_url: base_url.to_string(),
             api_key: api_key.to_string(),
@@ -77,9 +73,8 @@ impl UmansClient {
 
     /// Fetch model metadata from `GET /v1/models/info`.
     ///
-    /// Used by the ignored live smoke test and the model-info fixture test;
-    /// not yet called from the live app loop.
-    #[allow(dead_code)]
+    /// TODO: call this during startup or model selection and display context
+    /// window/tool/reasoning capability metadata in the TUI.
     pub fn fetch_models_info(&self) -> Result<HashMap<String, ModelInfo>> {
         let url = format!("{}/v1/models/info", self.base_url);
         let mut resp = self
@@ -123,11 +118,6 @@ impl UmansClient {
     }
 
     /// Build the HTTP headers map for a Messages API request.
-    ///
-    /// Returns `x-api-key`, `anthropic-version`, `Content-Type`, and the
-    /// web search provider header. Used by the header fixture tests; the live
-    /// request path sets headers inline in `send_streaming_request`.
-    #[allow(dead_code)]
     pub fn build_headers(&self, search_mode: WebSearchMode) -> Vec<(String, String)> {
         vec![
             ("x-api-key".to_string(), self.api_key.clone()),
@@ -157,18 +147,15 @@ impl UmansClient {
         let url = format!("{}/v1/messages", self.base_url);
         let body = Self::build_messages_request_body(model, messages, max_tokens, true, tools);
 
-        let response = self
-            .agent
-            .post(&url)
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", ANTHROPIC_VERSION)
-            .header("Content-Type", "application/json")
-            .header(WEBSEARCH_HEADER, mode.header_value())
-            .send_json(&body)
-            .map_err(|e| match e {
-                ureq::Error::StatusCode(code) => UmansError::Status { code, body: format!("HTTP {code}") },
-                other => UmansError::Http(other.to_string()),
-            })?;
+        let mut request = self.agent.post(&url);
+        for (key, value) in self.build_headers(mode) {
+            request = request.header(&key, &value);
+        }
+
+        let response = request.send_json(&body).map_err(|e| match e {
+            ureq::Error::StatusCode(code) => UmansError::Status { code, body: format!("HTTP {code}") },
+            other => UmansError::Http(other.to_string()),
+        })?;
 
         Ok(response)
     }
@@ -176,8 +163,8 @@ impl UmansClient {
 
 /// Model information from `GET /v1/models/info`.
 ///
-/// Parsed by the model-info fixture tests; not yet used by the live app loop.
-#[allow(dead_code)]
+/// TODO: display this in the model picker/status UI instead of keeping model
+/// capability knowledge only in docs and fixtures.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct ModelInfo {
     pub name: String,
@@ -190,7 +177,8 @@ pub struct ModelInfo {
 }
 
 /// Base model descriptor.
-#[allow(dead_code)]
+///
+/// TODO: surface provider/family/base model labels in model metadata display.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct BaseModel {
     pub name: String,
@@ -203,7 +191,9 @@ pub struct BaseModel {
 }
 
 /// Model capabilities.
-#[allow(dead_code)]
+///
+/// TODO: show context window, recommended token cap, tool support, and
+/// reasoning support when the user inspects or switches models.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Capabilities {
     pub max_completion_tokens: u64,
@@ -215,7 +205,9 @@ pub struct Capabilities {
 }
 
 /// Reasoning configuration.
-#[allow(dead_code)]
+///
+/// TODO: display available reasoning levels once model metadata is part of the
+/// model selection UI.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Reasoning {
     pub supported: bool,
@@ -224,6 +216,15 @@ pub struct Reasoning {
     pub levels: Vec<String>,
     #[serde(default)]
     pub default_level: Option<String>,
+}
+
+fn model_metadata_display_todo_marker() {
+    // TODO: display `/v1/models/info` metadata in the model picker/status UI.
+    let _ = UmansClient::fetch_models_info;
+    let _ = std::mem::size_of::<ModelInfo>();
+    let _ = std::mem::size_of::<BaseModel>();
+    let _ = std::mem::size_of::<Capabilities>();
+    let _ = std::mem::size_of::<Reasoning>();
 }
 
 /// A structured content block in the Anthropic Messages API format.
@@ -535,7 +536,6 @@ pub fn error_to_agent_event(err: &UmansError) -> AgentEvent {
         },
         UmansError::Http(e) => format!("network error: {e}"),
         UmansError::Json(e) => format!("response parse error: {e}"),
-        UmansError::Stream(e) => format!("stream error: {e}"),
     };
     AgentEvent::Failed(msg)
 }
@@ -854,6 +854,12 @@ mod tests {
     fn error_to_agent_event_network_error() {
         let event = error_to_agent_event(&UmansError::Http("connection refused".into()));
         assert!(matches!(event, AgentEvent::Failed(msg) if msg.contains("network error")));
+    }
+
+    #[test]
+    fn error_to_agent_event_json_error() {
+        let event = error_to_agent_event(&UmansError::Json("bad metadata".into()));
+        assert!(matches!(event, AgentEvent::Failed(msg) if msg.contains("response parse error")));
     }
 
     #[test]

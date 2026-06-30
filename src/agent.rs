@@ -22,7 +22,6 @@
 //!    [`AgentEvent::Cancelled`] and stops.
 
 use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -32,7 +31,6 @@ use std::time::Duration;
 use ureq::http::Response;
 
 use crate::app::AgentEvent;
-use crate::cli::WebSearchMode;
 use crate::providers::umans;
 use crate::tools::{self, AgentRunConfig, ToolUseRequest};
 
@@ -62,12 +60,11 @@ impl CancelToken {
 
 /// Which provider drives this agent run.
 ///
-/// The `Umans` variant and [`RunHandle::umans`] are not yet selected by the
-/// live app (it always spawns `Fake`), but they form the provider selection
-/// API for when the provider trait is connected.
+/// The live app uses Umans. The fake provider is kept for deterministic tests.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProviderKind {
     /// Deterministic fake provider, i.e. no network, scripted events.
+    #[cfg(test)]
     Fake,
     /// Umans Code provider
     Umans,
@@ -79,22 +76,20 @@ pub struct RunHandle {
     pub provider: ProviderKind,
     pub config: AgentRunConfig,
     pub prompt: String,
+    pub messages: Vec<umans::Message>,
     pub cancel: CancelToken,
 }
 
 impl RunHandle {
     /// Create a fake-provider run handle.
+    #[cfg(test)]
     pub fn fake(config: AgentRunConfig, prompt: String) -> Self {
-        RunHandle { provider: ProviderKind::Fake, config, prompt, cancel: CancelToken::new() }
+        RunHandle { provider: ProviderKind::Fake, config, prompt, messages: Vec::new(), cancel: CancelToken::new() }
     }
 
     /// Create an Umans-provider run handle.
-    ///
-    /// Not yet called from the live app — the provider selection layer will
-    /// use this once the provider trait is connected.
-    #[allow(dead_code)]
-    pub fn umans(config: AgentRunConfig, prompt: String) -> Self {
-        RunHandle { provider: ProviderKind::Umans, config, prompt, cancel: CancelToken::new() }
+    pub fn umans(config: AgentRunConfig, messages: Vec<umans::Message>) -> Self {
+        RunHandle { provider: ProviderKind::Umans, config, prompt: String::new(), messages, cancel: CancelToken::new() }
     }
 }
 
@@ -113,17 +108,6 @@ pub fn spawn_run(handle: RunHandle) -> Receiver<AgentEvent> {
     rx
 }
 
-/// Backwards-compatible entrypoint: spawn the deterministic fake stream.
-///
-/// Kept for external callers and future smoke tests; the live app uses
-/// [`spawn_run`] with a [`RunHandle::fake`] handle directly.
-#[allow(dead_code)]
-pub fn spawn_fake_stream() -> Receiver<AgentEvent> {
-    let config = AgentRunConfig::new(PathBuf::from("."), String::from("fake-agent"), WebSearchMode::Native);
-    let handle = RunHandle::fake(config, String::new());
-    spawn_run(handle)
-}
-
 /// The unified agent loop. Dispatches to the fake or Umans provider, handles
 /// tool-use requests, enforces the per-turn cap, and checks cancellation
 /// cooperatively.
@@ -134,6 +118,7 @@ fn run_agent(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
     step();
 
     match handle.provider {
+        #[cfg(test)]
         ProviderKind::Fake => run_fake(handle, tx, cancel),
         ProviderKind::Umans => run_umans(handle, tx, cancel),
     }
@@ -141,6 +126,7 @@ fn run_agent(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
 
 /// Deterministic fake provider: emits reasoning, a tool-use request, assistant
 /// text, and finishes. Demonstrates the tool dispatch path end-to-end.
+#[cfg(test)]
 fn run_fake(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
     if send(
         tx,
@@ -163,7 +149,7 @@ fn run_fake(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
     }
     step();
 
-    if handle.config.search_mode != WebSearchMode::None {
+    if handle.config.search_mode != crate::cli::WebSearchMode::None {
         let search_req = ToolUseRequest::new(
             String::from("web_search"),
             serde_json::json!({ "query": "rust ratatui coding harness" }).to_string(),
@@ -276,7 +262,11 @@ fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
 
     let tool_defs = tools::tool_definitions();
     let tool_schemas = tools::tool_catalog_schemas(&tool_defs);
-    let mut messages = vec![umans::Message::user(&handle.prompt)];
+    let mut messages = if handle.messages.is_empty() {
+        vec![umans::Message::user(&handle.prompt)]
+    } else {
+        handle.messages.clone()
+    };
     let mut iterations = 0usize;
 
     loop {
@@ -508,8 +498,9 @@ fn step() {
 mod tests {
     use super::*;
     use crate::app::ToolStatus;
+    use crate::cli::WebSearchMode;
     use crate::tools::{self, AgentRunConfig, MAX_TOOL_ITERATIONS, dispatch_tool};
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     fn config() -> AgentRunConfig {
         AgentRunConfig::new(PathBuf::from("."), String::from("fake-agent"), WebSearchMode::Native)

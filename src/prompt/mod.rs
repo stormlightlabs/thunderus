@@ -128,7 +128,10 @@ impl PromptBundle {
     /// When `history_reuse` is [`HistoryReuse::Available`] and the current
     /// hash matches, the full AGENTS.md text is omitted from the system prompt
     /// (only metadata is included) to avoid re-sending cached content.
-    #[allow(dead_code, clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "constructor mirrors PromptBundle fields for targeted tests"
+    )]
     pub fn with_history_reuse(
         cwd: &Path, model: &str, mode: WebSearchMode, context_sources: &[ContextSource], transcript: &[Entry],
         user_turn: &str, history_reuse: HistoryReuse, prev_context_hash: Option<u64>,

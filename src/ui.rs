@@ -20,8 +20,7 @@ mod highlight;
 mod style;
 mod transcript;
 
-pub use highlight::highlight_lines;
-pub use transcript::{entry_lines, entry_lines_with_width};
+use transcript::entry_lines_with_width;
 
 /// Fixed sidebar width in columns.
 pub const SIDEBAR_WIDTH: u16 = 22;
@@ -385,7 +384,7 @@ fn render_prompt(frame: &mut Frame, app: &App, area: Rect) {
     }
 
     let (prompt_color, show_input, icon) = match state {
-        PromptState::Editable => (style::P.yellow, true, "▌ ▶"),
+        PromptState::Editable => (style::P.yellow, true, "›"),
         PromptState::Submitted => (style::P.yellow, false, style::spinner_frame(app.ui_tick)),
         PromptState::Streaming | PromptState::RunningTool => (style::P.teal, false, style::spinner_frame(app.ui_tick)),
         PromptState::Stopped => (style::P.teal, true, "○"),
@@ -443,23 +442,16 @@ fn render_prompt(frame: &mut Frame, app: &App, area: Rect) {
         let mut status_spans: Vec<Span<'static>> = Vec::new();
 
         if !hint.is_empty() {
-            status_spans.push(style::label_chip(
-                hint.trim_matches(['(', ')']),
-                prompt_color,
-                style::P.surface0,
+            let label = match state {
+                PromptState::Stopped => "Stopped",
+                PromptState::Errored => "Error",
+                _ => hint.trim_matches(['(', ')']),
+            };
+            status_spans.push(Span::styled("  ", style::text_style()));
+            status_spans.push(Span::styled(
+                label.to_string(),
+                Style::default().fg(prompt_color).bg(style::P.panel_bg),
             ));
-        }
-
-        let model_short = format!(" {} ", app.model);
-        let search_label = app.websearch.header_value();
-        let search_short = format!(" {search_label} ");
-
-        let used = hint.len() + model_short.len() + search_short.len();
-        if (used as u16) < status_area.width {
-            let pad = (status_area.width as usize).saturating_sub(used);
-            status_spans.push(Span::styled(" ".repeat(pad), style::text_style()));
-            status_spans.push(Span::styled(model_short, style::muted_style()));
-            status_spans.push(Span::styled(search_short, style::muted_style()));
         }
 
         if status_spans.is_empty() {

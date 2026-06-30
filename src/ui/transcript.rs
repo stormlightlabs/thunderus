@@ -2,17 +2,13 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
 use crate::app::{Entry, ToolStatus};
+use crate::ui::MAX_TOOL_OUTPUT_LINES;
 use crate::ui::style::{self, P};
-use crate::ui::{self, MAX_TOOL_OUTPUT_LINES};
 use crate::utils::truncate_ellipsis;
 
-const ROLE_WIDTH: usize = 27;
+const ROLE_WIDTH: usize = 16;
 
-const GUTTER: &str = "                           │ ";
-
-pub fn entry_lines(entry: &Entry, tick: u64, user_label: &str) -> Vec<Line<'static>> {
-    entry_lines_with_width(entry, tick, user_label, 0)
-}
+const GUTTER: &str = "   │ ";
 
 /// Render entry lines with an optional max width for truncation.
 ///
@@ -50,11 +46,15 @@ fn user_message_line(label: &str, text: &str, avail: usize) -> Line<'static> {
         "▌",
         Style::default().fg(P.blue).bg(P.panel_bg).add_modifier(Modifier::BOLD),
     );
-    let label_chip = style::label_chip(label, P.blue, P.surface0);
+    let label_display = truncate_ellipsis(label, ROLE_WIDTH.saturating_sub(2));
     Line::from(vec![
+        Span::styled(" ", style::text_style()),
         border,
         Span::styled(" ", style::text_style()),
-        label_chip,
+        Span::styled(
+            format!("{label_display:<ROLE_WIDTH$}"),
+            Style::default().fg(P.blue).bg(P.panel_bg).add_modifier(Modifier::BOLD),
+        ),
         Span::styled(" ", style::text_style()),
         Span::styled(display, style::text_style()),
     ])
@@ -142,7 +142,8 @@ fn tool_lines(
                 .take(MAX_TOOL_OUTPUT_LINES)
                 .map(|l| format!("{l}\n"))
                 .collect();
-            let highlighted = ui::highlight_lines(&joined, Some(lang_str));
+            let display_path = format!("output.{lang_str}");
+            let highlighted = super::highlight::highlight_code(&joined, Some(&display_path));
             for hl in highlighted {
                 let mut line_spans = vec![Span::styled(GUTTER, gutter_style)];
                 line_spans.extend(hl.spans);
@@ -171,10 +172,7 @@ fn tool_lines(
 
     if output.len() > MAX_TOOL_OUTPUT_LINES {
         lines.push(Line::from(vec![Span::styled(
-            format!(
-                "                           │ …({} more lines)",
-                output.len() - MAX_TOOL_OUTPUT_LINES
-            ),
+            format!("   │ …({} more lines)", output.len() - MAX_TOOL_OUTPUT_LINES),
             style::muted_style(),
         )]));
     }

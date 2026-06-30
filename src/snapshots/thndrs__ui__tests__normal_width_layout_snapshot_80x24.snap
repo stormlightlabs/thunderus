@@ -3,9 +3,9 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││▌  User (owais)  explain this repo                      │"
+"│Sessions            ││ ▌ User (owais)     explain this repo                   │"
 "│ ● scratch          ││                                                        │"
-"│                    ││Assistant                  response                     │"
+"│                    ││Assistant       response                                │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
@@ -23,6 +23,6 @@ expression: terminal.backend().to_string()
 "│                    ││                                                        │"
 "└────────────────────┘└────────────────────────────────────────────────────────┘"
 "────────────────────────────────────────────────────────────────────────────────"
-"  ▌ ▶  hello                                                                    "
-"                                                            umans-coder  native "
+"  ›  hello                                                                      "
+"                                                                                "
 " model: umans-coder   search: native  cwd: .                                    "

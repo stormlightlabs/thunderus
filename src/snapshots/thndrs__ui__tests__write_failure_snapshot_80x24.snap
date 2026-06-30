@@ -3,10 +3,10 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││▌  User (owais)  create src/existing.rs                 │"
+"│Sessions            ││ ▌ User (owais)     create src/existing.rs              │"
 "│ ● scratch          ││                                                        │"
-"│                    ││tool                       ✕ create_file#0 [failed]  pat│"
-"│                    ││⚠ Error                    file already exists: src/exi…│"
+"│                    ││tool            ✕ create_file#0 [failed]  path: src/exis│"
+"│                    ││⚠ Error         file already exists: src/existing.rs    │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
@@ -24,5 +24,5 @@ expression: terminal.backend().to_string()
 "└────────────────────┘└────────────────────────────────────────────────────────┘"
 "────────────────────────────────────────────────────────────────────────────────"
 "  ✕                                                                             "
-" error                                                      umans-coder  native "
+"  Error                                                                         "
 " model: umans-coder   search: native  cwd: .                                    "

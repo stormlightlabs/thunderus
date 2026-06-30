@@ -6,12 +6,16 @@ use super::*;
 /// Helper: build a ShellArgs for `echo`.
 fn echo(args: &[&str]) -> ShellArgs {
     let v: Vec<String> = args.iter().map(|s| s.to_string()).collect();
-    ShellArgs::one_shot("echo", v)
+    one_shot("echo", v)
 }
 
 /// Helper: build a ShellArgs for `sh -c` (used for portable test scripts).
 fn sh(script: &str) -> ShellArgs {
-    ShellArgs::one_shot("sh", vec!["-c".to_string(), script.to_string()])
+    one_shot("sh", vec!["-c".to_string(), script.to_string()])
+}
+
+fn one_shot(program: &str, args: Vec<String>) -> ShellArgs {
+    ShellArgs { program: program.to_string(), args, cwd: None, timeout_secs: None, kind: ProcessKind::OneShot }
 }
 
 #[test]
@@ -117,7 +121,7 @@ fn run_command_nonexistent_program_fails() {
     let dir = tempfile::tempdir().expect("temp dir");
     let root = dir.path();
     let cancel = CancelFlag::new();
-    let args = ShellArgs::one_shot("definitely_not_a_real_program_xyz", vec![]);
+    let args = one_shot("definitely_not_a_real_program_xyz", vec![]);
     let result = run_command(&args, root, &cancel);
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("failed to spawn"));
@@ -638,25 +642,15 @@ fn exec_includes_command_summary_in_output() {
 
 #[test]
 fn shell_args_argv_joins_program_and_args() {
-    let args = ShellArgs::one_shot("cargo", vec!["test".to_string(), "--lib".to_string()]);
+    let args = one_shot("cargo", vec!["test".to_string(), "--lib".to_string()]);
     assert_eq!(args.argv(), vec!["cargo", "test", "--lib"]);
-}
-
-#[test]
-fn shell_args_one_shot_defaults() {
-    let args = ShellArgs::one_shot("ls", vec![]);
-    assert_eq!(args.program, "ls");
-    assert!(args.args.is_empty());
-    assert!(args.cwd.is_none());
-    assert!(args.timeout_secs.is_none());
-    assert_eq!(args.kind, ProcessKind::OneShot);
 }
 
 /// The shell module never exposes a shell-string execution path. Commands
 /// are argv arrays, never `/bin/sh -c` with model-controlled content.
 #[test]
 fn no_shell_string_execution_exposed() {
-    let args = ShellArgs::one_shot("echo", vec!["hello".to_string()]);
+    let args = one_shot("echo", vec!["hello".to_string()]);
     assert!(!args.program.contains("sh -c"), "program must not be a shell string");
     assert!(args.argv().len() >= 1, "argv must have at least the program");
 }

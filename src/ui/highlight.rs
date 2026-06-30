@@ -75,8 +75,6 @@ pub fn highlight_lines(code: &str, lang: Option<&str>) -> Vec<Line<'static>> {
         .collect()
 }
 
-/// Highlight a code string with detected language from a file path.
-#[allow(dead_code)]
 pub fn highlight_code(code: &str, path: Option<&str>) -> Vec<Line<'static>> {
     let lang = path.and_then(|p| {
         let ext = p.rsplit('.').next()?;

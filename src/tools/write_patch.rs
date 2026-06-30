@@ -47,28 +47,6 @@ pub enum Patch {
 }
 
 impl Patch {
-    /// The operation kind this patch represents.
-    ///
-    /// Accessor retained for callers that need the op without pattern-matching.
-    #[allow(dead_code)]
-    pub fn op(&self) -> WriteOp {
-        match self {
-            Patch::Create { .. } => WriteOp::Create,
-            Patch::Replace { .. } => WriteOp::Replace,
-            Patch::Edit { .. } => WriteOp::Edit,
-        }
-    }
-
-    /// The target file path (relative to root).
-    ///
-    /// Accessor retained for callers that need the path without pattern-matching.
-    #[allow(dead_code)]
-    pub fn path(&self) -> &str {
-        match self {
-            Patch::Create { path, .. } | Patch::Replace { path, .. } | Patch::Edit { path, .. } => path,
-        }
-    }
-
     /// Parse a patch from a JSON arguments string.
     ///
     /// The JSON must have an `op` field (`"create"`, `"replace"`, or `"edit"`)
@@ -192,7 +170,6 @@ mod tests {
             patch,
             Patch::Create { path: "a.txt".to_string(), content: "hello".to_string() }
         );
-        assert_eq!(patch.op(), WriteOp::Create);
     }
 
     #[test]
@@ -203,7 +180,6 @@ mod tests {
             patch,
             Patch::Replace { path: "a.txt".to_string(), content: "world".to_string() }
         );
-        assert_eq!(patch.op(), WriteOp::Replace);
     }
 
     #[test]
@@ -214,7 +190,6 @@ mod tests {
             patch,
             Patch::Edit { path: "a.txt".to_string(), old_string: "foo".to_string(), new_string: "bar".to_string() }
         );
-        assert_eq!(patch.op(), WriteOp::Edit);
     }
 
     #[test]

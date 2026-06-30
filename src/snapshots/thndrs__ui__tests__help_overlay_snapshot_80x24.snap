@@ -23,6 +23,6 @@ expression: terminal.backend().to_string()
 "│           │  :bg          list background processes              │           │"
 "└───────────│                                                      │───────────┘"
 "────────────│  Press ? or Esc to close.                            │────────────"
-"  ▌ ▶       └──────────────────────────────────────────────────────┘            "
-"                                                            umans-coder  native "
+"  ›         └──────────────────────────────────────────────────────┘            "
+"                                                                                "
 " model: umans-coder   search: native  cwd: .                                    "

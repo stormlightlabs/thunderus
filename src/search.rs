@@ -11,8 +11,6 @@
 //! - Bot-challenge detection: checks for known DDG anomaly markers.
 //! - Result limits: kept small (default 5) to avoid runaway output.
 
-#![allow(dead_code)]
-
 use std::time::Duration;
 
 use scraper::{Html, Selector};

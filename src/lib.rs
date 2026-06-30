@@ -188,10 +188,8 @@ fn main_loop(terminal: &mut DefaultTerminal, tick: Duration, cli: &Cli) -> io::R
 /// Spawn the unified agent stream if the app is in [`RunState::Working`] state
 /// and no agent slot exists yet.
 ///
-/// The run uses the fake provider for now; the Umans provider is wired but
-/// gated on `UMANS_API_KEY` and will be selected once the provider trait is
-/// connected. The [`agent::CancelToken`] is retained so `Escape` can
-/// signal cooperative cancellation.
+/// The run uses the Umans provider. The [`agent::CancelToken`] is retained so
+/// `Escape` can signal cooperative cancellation.
 fn maybe_spawn_agent(app: &App, cli: &Cli, agent: &mut Option<AgentSlot>) {
     if app.run_state != RunState::Working {
         return;
@@ -213,7 +211,16 @@ fn maybe_spawn_agent(app: &App, cli: &Cli, agent: &mut Option<AgentSlot>) {
         })
         .unwrap_or_default();
 
-    let handle = agent::RunHandle::fake(config, prompt);
+    let bundle = PromptBundle::new(
+        &config.root,
+        &config.model,
+        config.search_mode,
+        &app.context_sources,
+        &app.transcript,
+        &prompt,
+    );
+    let messages = prompt::lower_to_umans_messages(&bundle);
+    let handle = agent::RunHandle::umans(config, messages);
     let cancel = handle.cancel.clone();
     let receiver = agent::spawn_run(handle);
     *agent = Some(AgentSlot { receiver, cancel });

@@ -3,12 +3,12 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││▌  User (owais)  explain this repo                      │"
+"│Sessions            ││ ▌ User (owais)     explain this repo                   │"
 "│ ● scratch          ││                                                        │"
-"│                    ││Thought                    ✓ Let me read the Cargo.toml │"
+"│                    ││Thought         ✓ Let me read the Cargo.toml first.     │"
 "│                    ││                                                        │"
-"│                    ││tool                       ⠋ read_file#0 [running]  path│"
-"│                    ││                           │ Cargo.toml: 47 lines       │"
+"│                    ││tool            ⠋ read_file#0 [running]  path: Cargo.tom│"
+"│                    ││   │ Cargo.toml: 47 lines                               │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
@@ -24,5 +24,5 @@ expression: terminal.backend().to_string()
 "└────────────────────┘└────────────────────────────────────────────────────────┘"
 "────────────────────────────────────────────────────────────────────────────────"
 "  ⠋                                                                             "
-" running tool… esc to cancel                              umans-coder  native   "
+"  running tool… esc to cancel                                                   "
 " model: umans-coder   search: native  cwd: .                                    "

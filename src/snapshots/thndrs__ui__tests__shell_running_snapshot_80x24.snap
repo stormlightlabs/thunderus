@@ -3,9 +3,9 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││▌  User (owais)  run cargo test                         │"
+"│Sessions            ││ ▌ User (owais)     run cargo test                      │"
 "│ ● scratch          ││                                                        │"
-"│                    ││tool                       ⠋ run_shell#0 [running]  prog│"
+"│                    ││tool            ⠋ run_shell#0 [running]  program: cargo │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
@@ -24,5 +24,5 @@ expression: terminal.backend().to_string()
 "└────────────────────┘└────────────────────────────────────────────────────────┘"
 "────────────────────────────────────────────────────────────────────────────────"
 "  ⠋                                                                             "
-" running tool… esc to cancel                              umans-coder  native   "
+"  running tool… esc to cancel                                                   "
 " model: umans-coder   search: native  cwd: .                                    "

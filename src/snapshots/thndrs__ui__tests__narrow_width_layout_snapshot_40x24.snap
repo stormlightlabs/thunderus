@@ -3,9 +3,9 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌Transcript────────────────────────────┐"
-"│▌  User (owais)  explain th…          │"
+"│ ▌ User (owais)     explain this repo │"
 "│                                      │"
-"│Assistant                  response   │"
+"│Assistant       response              │"
 "│                                      │"
 "│                                      │"
 "│                                      │"
@@ -23,6 +23,6 @@ expression: terminal.backend().to_string()
 "│                                      │"
 "└──────────────────────────────────────┘"
 "────────────────────────────────────────"
-"  ▌ ▶  hello                            "
-"                    umans-coder  native "
+"  ›  hello                              "
+"                                        "
 " model: umans-coder                     "

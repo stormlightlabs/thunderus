@@ -3,9 +3,9 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││tool                       ✓ find_files#0 [ok]  pattern:│"
-"│ ● scratch          ││                           │ src/main.rs                │"
-"│                    ││                           │ src/lib.rs                 │"
+"│Sessions            ││tool            ✓ find_files#0 [ok]  pattern: main      │"
+"│ ● scratch          ││   │ src/main.rs                                        │"
+"│                    ││   │ src/lib.rs                                         │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
@@ -23,6 +23,6 @@ expression: terminal.backend().to_string()
 "│                    ││                                                        │"
 "└────────────────────┘└────────────────────────────────────────────────────────┘"
 "────────────────────────────────────────────────────────────────────────────────"
-"  ▌ ▶                                                                           "
-"                                                            umans-coder  native "
+"  ›                                                                             "
+"                                                                                "
 " model: umans-coder   search: native  cwd: .                                    "

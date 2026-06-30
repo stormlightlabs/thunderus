@@ -3,9 +3,9 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││▌  User (owais)  explain this codebase                  │"
+"│Sessions            ││ ▌ User (owais)     explain this codebase               │"
 "│ ● scratch          ││                                                        │"
-"│                    ││Assistant                  This is a Rust project using…│"
+"│                    ││Assistant       This is a Rust project using Ratatui fo…│"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
@@ -23,6 +23,6 @@ expression: terminal.backend().to_string()
 "│                    ││                                                        │"
 "└────────────────────┘└────────────────────────────────────────────────────────┘"
 "────────────────────────────────────────────────────────────────────────────────"
-"  ▌ ▶                                                                           "
-"                                                            umans-coder  native "
+"  ›                                                                             "
+"                                                                                "
 " model: umans-coder   search: native  cwd: .                                    "

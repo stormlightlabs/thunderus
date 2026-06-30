@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cli::{Cli, WebSearchMode};
 use crate::tools::shell::ProcessRegistry;
-use crate::{context, session, tools, ui};
+use crate::{context, session, tools};
 
 /// Number of UI ticks the user has to press Ctrl+D a second time before the
 /// quit confirmation expires and a fresh double-press is needed.
@@ -128,20 +128,6 @@ pub enum Entry {
     Error { text: String },
 }
 
-impl Entry {
-    /// Single-line rendering, kept for backwards-compatible callers.
-    ///
-    /// The live TUI uses `entry_lines` directly, but this is retained as a
-    /// convenience for tests and future non-TUI consumers.
-    #[allow(dead_code)]
-    pub fn to_line(&self) -> ratatui::text::Line<'_> {
-        crate::ui::entry_lines(self, 0, "You")
-            .into_iter()
-            .next()
-            .unwrap_or_default()
-    }
-}
-
 /// Events from the background agent stream.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AgentEvent {
@@ -176,17 +162,7 @@ pub enum Msg {
     Key(crossterm::event::KeyEvent),
     /// Periodic tick.
     Tick,
-    /// Submit the current input.
-    ///
-    /// Not yet emitted by the live key handler (Enter goes through
-    /// `handle_submit`), but part of the public message API.
-    #[allow(dead_code)]
-    Submit,
     /// Clear the transcript.
-    ///
-    /// Not yet emitted by the live key handler, but part of the public
-    /// message API for programmatic use.
-    #[allow(dead_code)]
     Clear,
     /// Quit the app.
     Quit,
@@ -217,20 +193,11 @@ pub struct App {
     pub input: String,
     pub transcript: Vec<Entry>,
     pub sidebar: Sidebar,
-    /// View layout cache. Currently recomputed each frame in `ui::render`;
-    /// retained for future incremental layout optimization.
-    #[allow(dead_code)]
-    pub view: ui::ViewState,
     pub cwd: PathBuf,
     pub model: String,
     pub user_label: String,
     pub websearch: WebSearchMode,
     /// Loaded context sources (e.g. AGENTS.md).
-    ///
-    /// Read in tests and used by `App::from_cli` to build the initial
-    /// transcript status entry; the live render path does not read this
-    /// field directly (it relies on the transcript entry instead).
-    #[allow(dead_code)]
     pub context_sources: Vec<context::ContextSource>,
     /// Scroll offset in transcript lines from the bottom. 0 = pinned to newest.
     /// Positive values scroll up (toward older entries).
@@ -316,7 +283,6 @@ impl App {
             input: String::new(),
             transcript,
             sidebar,
-            view: ui::ViewState::default(),
             cwd: cli.cwd.clone(),
             model: cli.model.clone(),
             user_label: default_user_label(),
@@ -397,7 +363,6 @@ impl App {
 pub fn update(app: &mut App, msg: &Msg) -> Option<Msg> {
     match msg {
         Msg::Key(key) => handle_key(app, *key),
-        Msg::Submit => handle_submit(app),
         Msg::Quit => {
             app.process_registry.cancel_all();
             app.quit = true;
@@ -635,7 +600,7 @@ fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
         "clear" => {
             app.transcript.clear();
             app.input.clear();
-            None
+            Some(Msg::Clear)
         }
         "quit" | "exit" => {
             app.input.clear();
@@ -667,7 +632,7 @@ fn list_background_processes(app: &mut App) {
                 app.process_registry.get(*id).map(|p| {
                     let elapsed = p.elapsed().as_secs();
                     let cmd = p.command.join(" ");
-                    format!("[{id}] {cmd} ({elapsed}s)")
+                    format!("[{id}] {cmd} cwd={} ({elapsed}s)", p.cwd.display())
                 })
             })
             .collect();

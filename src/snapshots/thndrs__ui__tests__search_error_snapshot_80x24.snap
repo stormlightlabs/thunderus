@@ -3,10 +3,10 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││▌  User (owais)  search for something                   │"
+"│Sessions            ││ ▌ User (owais)     search for something                │"
 "│ ● scratch          ││                                                        │"
-"│                    ││tool                       ✕ web_search#search-0 [failed│"
-"│                    ││⚠ Error                    search backend unavailable   │"
+"│                    ││tool            ✕ web_search#search-0 [failed]  query: s│"
+"│                    ││⚠ Error         search backend unavailable              │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
@@ -24,5 +24,5 @@ expression: terminal.backend().to_string()
 "└────────────────────┘└────────────────────────────────────────────────────────┘"
 "────────────────────────────────────────────────────────────────────────────────"
 "  ✕                                                                             "
-" error                                                      umans-coder  native "
+"  Error                                                                         "
 " model: umans-coder   search: native  cwd: .                                    "

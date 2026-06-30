@@ -218,8 +218,7 @@ pub struct ActiveProcess {
     pub id: u64,
     /// The argv that was run.
     pub command: Vec<String>,
-    /// Working directory. Stored for audit/display; not read by the live loop.
-    #[allow(dead_code)]
+    /// Working directory. Stored for audit/display.
     pub cwd: PathBuf,
     /// One-shot or background.
     pub kind: ProcessKind,
@@ -236,7 +235,6 @@ impl ActiveProcess {
     }
 
     /// Request cancellation.
-    #[allow(dead_code)]
     pub fn cancel(&self) {
         self.cancel.cancel();
     }
@@ -255,10 +253,6 @@ pub struct ProcessRegistry {
     active: HashMap<u64, ActiveProcess>,
 }
 
-/// Registry methods. `len`, `is_empty`, `one_shot_count`, `cancel`, `remove`,
-/// and `ids` are not yet called from the live app but form the complete
-/// registry API for inspecting/cancelling processes.
-#[allow(dead_code)]
 impl ProcessRegistry {
     /// Create an empty registry.
     pub fn new() -> Self {
@@ -266,16 +260,19 @@ impl ProcessRegistry {
     }
 
     /// Number of currently active processes (one-shot + background).
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.active.len()
     }
 
     /// Whether the registry has no active processes.
+    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.active.is_empty()
     }
 
     /// Number of background processes.
+    #[cfg(test)]
     pub fn background_count(&self) -> usize {
         self.active
             .values()
@@ -284,6 +281,7 @@ impl ProcessRegistry {
     }
 
     /// Number of one-shot processes.
+    #[cfg(test)]
     pub fn one_shot_count(&self) -> usize {
         self.active.values().filter(|p| p.kind == ProcessKind::OneShot).count()
     }
@@ -307,6 +305,7 @@ impl ProcessRegistry {
     /// Request cancellation of a process by id.
     ///
     /// Returns `true` if the process existed and cancellation was signalled.
+    #[cfg(test)]
     pub fn cancel(&mut self, id: u64) -> bool {
         if let Some(p) = self.active.get(&id) {
             p.cancel();
@@ -317,6 +316,7 @@ impl ProcessRegistry {
     }
 
     /// Remove a completed process from the registry.
+    #[cfg(test)]
     pub fn remove(&mut self, id: u64) -> Option<ActiveProcess> {
         self.active.remove(&id)
     }
@@ -329,6 +329,7 @@ impl ProcessRegistry {
     }
 
     /// Iterate over active process ids.
+    #[cfg(test)]
     pub fn ids(&self) -> impl Iterator<Item = u64> + '_ {
         self.active.keys().copied()
     }
@@ -359,15 +360,6 @@ pub struct ShellArgs {
 }
 
 impl ShellArgs {
-    /// Build one-shot args with default timeout.
-    ///
-    /// Convenience constructor; the live dispatch path builds `ShellArgs`
-    /// directly from tool arguments.
-    #[allow(dead_code)]
-    pub fn one_shot(program: &str, args: Vec<String>) -> Self {
-        ShellArgs { program: program.to_string(), args, cwd: None, timeout_secs: None, kind: ProcessKind::OneShot }
-    }
-
     /// The full argv (program + args).
     pub fn argv(&self) -> Vec<String> {
         let mut v = vec![self.program.clone()];
