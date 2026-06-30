@@ -13,6 +13,8 @@
 
 #![allow(dead_code)]
 
+use std::time::Duration;
+
 use scraper::{Html, Selector};
 use ureq::ResponseExt;
 
@@ -27,6 +29,15 @@ const MAX_ARTICLE_CONTENT_LEN: usize = 65_536;
 
 /// Maximum response body size for fetched URLs (1 MiB).
 const MAX_RESPONSE_BYTES: usize = 1_048_576;
+
+/// Maximum number of HTTP redirects to follow. ureq's default is 10; we tighten
+/// this to keep redirect chains short and bounded.
+const MAX_REDIRECTS: u32 = 5;
+
+/// Hard timeout (seconds) for the entire `read_url` fetch: DNS, connect, TLS,
+/// redirects, and body read. Prevents a slow or malicious server from hanging
+/// the agent loop.
+const FETCH_TIMEOUT_SECS: u64 = 15;
 
 /// User agent string for DuckDuckGo requests.
 const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)  \
@@ -58,6 +69,12 @@ pub enum SearchError {
     /// The URL points to a private/loopback network address.
     #[error("private network target rejected: {0}")]
     PrivateNetwork(String),
+    /// The redirect chain exceeded the configured limit.
+    #[error("too many redirects (max {max})")]
+    TooManyRedirects { max: u32 },
+    /// The request did not complete within the timeout.
+    #[error("request timed out after {secs}s")]
+    Timeout { secs: u64 },
     /// The response exceeded the maximum allowed size.
     #[error("response too large (>{max} bytes)")]
     Oversized { max: usize },
@@ -95,6 +112,8 @@ pub struct ArticleContent {
 pub struct FetchedContent {
     /// The final URL after redirects.
     pub final_url: String,
+    /// HTTP status code of the final response.
+    pub status: u16,
     /// The page title (from Lectito extraction, if available).
     pub title: String,
     /// Markdown-formatted content.
@@ -103,6 +122,8 @@ pub struct FetchedContent {
     pub text_content: String,
     /// Whether the content was truncated.
     pub truncated: bool,
+    /// Diagnostics: redirects followed, content-type seen, limits applied.
+    pub diagnostics: Vec<String>,
 }
 
 /// Check whether a URL string uses a public scheme (`http` or `https`).
@@ -147,11 +168,15 @@ pub fn is_private_url(url_str: &str) -> bool {
 /// ## Safety guards
 ///
 /// - Only `http`/`https` schemes are allowed.
-/// - Private/loopback/link-local addresses are rejected.
-/// - Response size is capped at `MAX_RESPONSE_BYTES`.
-/// - Content type must be `text/html` or `application/xhtml`.
-/// - Redirects are followed by ureq's default agent (up to its built-in limit).
-/// - Content is extracted via Lectito after fetching.
+/// - Private/loopback/link-local addresses are rejected, both for the requested
+///   URL and for the final URL after redirects (prevents open-redirect SSRF).
+/// - At most [`MAX_REDIRECTS`] redirects are followed; the chain errors on excess.
+/// - The entire request is bounded by a [`FETCH_TIMEOUT_SECS`] global timeout.
+/// - Response size is capped at [`MAX_RESPONSE_BYTES`], enforced *while streaming*
+///   so a large body cannot exhaust memory before the cap triggers.
+/// - Content type must be on the [`allowed_content_kind`] allow-list: HTML/XHTML
+///   is extracted via Lectito; other text types (JSON, XML, plain text, feeds,
+///   YAML, CSV, JS) are returned as raw text. Binary types are rejected.
 pub fn fetch_url(url_str: &str) -> Result<FetchedContent> {
     if !is_public_scheme(url_str) {
         return Err(SearchError::UnsupportedScheme(url_str.to_string()));
@@ -160,21 +185,41 @@ pub fn fetch_url(url_str: &str) -> Result<FetchedContent> {
         return Err(SearchError::PrivateNetwork(url_str.to_string()));
     }
 
-    let agent = ureq::Agent::new_with_defaults();
-    let response = agent
+    let config = ureq::Agent::config_builder()
+        .max_redirects(MAX_REDIRECTS)
+        .max_redirects_will_error(true)
+        .timeout_global(Some(Duration::from_secs(FETCH_TIMEOUT_SECS)))
+        .build();
+
+    let agent = ureq::Agent::new_with_config(config);
+    let response = match agent
         .get(url_str)
         .header("User-Agent", USER_AGENT)
-        .header("Accept", "text/html,application/xhtml+xml")
-        .call();
-
-    let response = match response {
+        .header("Accept", ALLOWED_ACCEPT_HEADER)
+        .call()
+    {
         Ok(r) => r,
         Err(ureq::Error::StatusCode(code)) => {
             return Err(SearchError::HttpStatus { status: code, body: String::new() });
         }
+        Err(ureq::Error::TooManyRedirects) => return Err(SearchError::TooManyRedirects { max: MAX_REDIRECTS }),
+        Err(ureq::Error::Timeout(_)) => return Err(SearchError::Timeout { secs: FETCH_TIMEOUT_SECS }),
+        Err(ureq::Error::BodyExceedsLimit(limit)) => return Err(SearchError::Oversized { max: limit as usize }),
         Err(e) => return Err(SearchError::Http(e.to_string())),
     };
 
+    let final_url = response.get_uri().to_string();
+
+    // SSRF guard: re-validate the final URL after redirects. A public URL can
+    // redirect to a private/loopback address; reject that here.
+    if is_private_url(&final_url) {
+        return Err(SearchError::PrivateNetwork(final_url));
+    }
+    if !is_public_scheme(&final_url) {
+        return Err(SearchError::UnsupportedScheme(final_url));
+    }
+
+    let status = response.status().as_u16();
     let content_type = response
         .headers()
         .get("Content-Type")
@@ -182,29 +227,180 @@ pub fn fetch_url(url_str: &str) -> Result<FetchedContent> {
         .unwrap_or("")
         .to_string();
 
-    if !content_type.contains("text/html") && !content_type.contains("application/xhtml") {
-        return Err(SearchError::BadContentType(content_type));
+    let kind = allowed_content_kind(&content_type)
+        .ok_or_else(|| SearchError::BadContentType(content_type.clone()))?;
+
+    // Enforce the size cap *while streaming* via with_config().limit(), so a
+    // multi-gigabyte body is aborted early instead of being buffered first.
+    let body_result = response
+        .into_body()
+        .with_config()
+        .limit(MAX_RESPONSE_BYTES as u64)
+        .read_to_string();
+
+    let (body, body_truncated) = match body_result {
+        Ok(s) => (s, false),
+        Err(ureq::Error::BodyExceedsLimit(_)) => (String::new(), true),
+        Err(e) => return Err(SearchError::Http(e.to_string())),
+    };
+
+    let content = process_body(&body, &final_url, kind)?;
+
+    let truncated = body_truncated || content.truncated;
+
+    let mut diagnostics = vec![
+        format!("status: {status}"),
+        format!("content_type: {content_type}"),
+        format!("max_redirects: {MAX_REDIRECTS}"),
+        format!("timeout_secs: {FETCH_TIMEOUT_SECS}"),
+        format!("max_bytes: {MAX_RESPONSE_BYTES}"),
+    ];
+    if truncated {
+        diagnostics.push("truncated: true".to_string());
+    }
+    if url_str != final_url {
+        diagnostics.push(format!("redirected: {url_str} -> {final_url}"));
     }
 
-    let final_url = response.get_uri().to_string();
+    Ok(FetchedContent {
+        final_url,
+        status,
+        title: content.title,
+        markdown: content.markdown,
+        text_content: content.text_content,
+        truncated,
+        diagnostics,
+    })
+}
 
-    let body = response.into_body().read_to_string().unwrap_or_default();
-    if body.len() > MAX_RESPONSE_BYTES {
-        return Err(SearchError::Oversized { max: MAX_RESPONSE_BYTES });
+/// Classify a `Content-Type` header value into a [`ContentKind`] on the allow-list.
+///
+/// Returns `None` for binary types (images, audio, video, archives, octet-stream),
+/// unrecognized types, and non-text application types not explicitly listed.
+///
+/// The check is deliberately permissive about parameters (`; charset=utf-8`) and
+/// tolerates `+json` / `+xml` suffixes (`application/feed+json`, `application/atom+xml`).
+pub fn allowed_content_kind(content_type: &str) -> Option<ContentKind> {
+    // Split off parameters like "; charset=utf-8" and lowercase the essence.
+    let essence = content_type.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    if essence.is_empty() {
+        return None;
     }
 
-    let article = extract_article(&body, Some(&final_url))?;
-    match article {
-        Some(a) => Ok(FetchedContent {
-            final_url,
-            title: a.title,
-            markdown: a.markdown,
-            text_content: a.text_content,
-            truncated: a.truncated,
-        }),
-        None => Err(SearchError::Extraction("page is not readable".to_string())),
+    // text/* is allowed wholesale — covers text/html, text/plain, text/css,
+    // text/csv, text/markdown, text/javascript, text/xml, etc.
+    if essence.starts_with("text/") {
+        return Some(html_kind(&essence));
+    }
+
+    // Explicit application/ subtypes.
+    if let Some(sub) = essence.strip_prefix("application/") {
+        // HTML-family.
+        if sub == "html" || sub == "xhtml+xml" {
+            return Some(ContentKind::Html);
+        }
+        // JSON (including +json suffixes like application/feed+json, application/vnd.api+json).
+        if sub == "json" || sub.ends_with("+json") {
+            return Some(ContentKind::Text);
+        }
+        // XML (including +xml suffixes like application/atom+xml, application/rss+xml).
+        if sub == "xml" || sub.ends_with("+xml") {
+            return Some(ContentKind::Text);
+        }
+        // Other common text-ish application types.
+        if matches!(
+            sub,
+            "javascript" | "x-javascript" | "yaml" | "x-yaml" | "x-www-form-urlencoded"
+        ) {
+            return Some(ContentKind::Text);
+        }
+    }
+
+    None
+}
+
+/// Map a `text/*` essence to the right kind (HTML vs plain text).
+fn html_kind(essence: &str) -> ContentKind {
+    match essence {
+        "text/html" | "text/xhtml" => ContentKind::Html,
+        _ => ContentKind::Text,
     }
 }
+
+/// Process a fetched body according to its [`ContentKind`].
+///
+/// HTML/XHTML is run through Lectito readability extraction; other text types
+/// are returned as raw text with the title derived from the URL path. This is
+/// the no-network, fixture-testable core of [`fetch_url`].
+pub fn process_body(body: &str, final_url: &str, kind: ContentKind) -> Result<ProcessedContent> {
+    match kind {
+        ContentKind::Html => {
+            let article = extract_article(body, Some(final_url))?;
+            match article {
+                Some(a) => Ok(ProcessedContent {
+                    title: a.title,
+                    markdown: a.markdown,
+                    text_content: a.text_content,
+                    truncated: a.truncated,
+                }),
+                // A page that Lectito judges unreadable (boilerplate/empty) still
+                // returns its raw text rather than failing — the body may still be
+                // useful to the model even without a clean article extraction.
+                None => Ok(ProcessedContent {
+                    title: title_from_url(final_url),
+                    markdown: body.to_string(),
+                    text_content: body.to_string(),
+                    truncated: body.len() > MAX_ARTICLE_CONTENT_LEN,
+                }),
+            }
+        }
+        ContentKind::Text => Ok(ProcessedContent {
+            title: title_from_url(final_url),
+            markdown: body.to_string(),
+            text_content: body.to_string(),
+            truncated: body.len() > MAX_ARTICLE_CONTENT_LEN,
+        }),
+    }
+}
+
+/// Derive a best-effort title from the final URL path.
+fn title_from_url(url_str: &str) -> String {
+    let Ok(parsed) = url::Url::parse(url_str) else {
+        return String::new();
+    };
+    let path = parsed.path();
+    let last = path.rsplit('/').find(|s| !s.is_empty()).unwrap_or("");
+    // Decode percent-encoding for readability.
+    percent_decode(last).unwrap_or_default()
+}
+
+/// Content category after allow-list classification.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ContentKind {
+    /// HTML/XHTML — run through Lectito readability extraction.
+    Html,
+    /// Other text types (JSON, XML, plain text, feeds, YAML, JS) — raw body.
+    Text,
+}
+
+/// Processed body content, independent of transport details.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProcessedContent {
+    /// Derived or extracted title.
+    pub title: String,
+    /// Markdown-formatted content.
+    pub markdown: String,
+    /// Plain text content.
+    pub text_content: String,
+    /// Whether the content was truncated to fit the size cap.
+    pub truncated: bool,
+}
+
+/// Comma-separated `Accept` header value advertising the allow-listed types.
+const ALLOWED_ACCEPT_HEADER: &str = "text/html, application/xhtml+xml, text/plain, \
+    text/markdown, text/css, text/csv, text/xml, application/json, application/xml, \
+    application/javascript, application/yaml, application/rss+xml, application/atom+xml, \
+    application/feed+json, */+json, */+xml;q=0.5";
 
 /// Search DuckDuckGo and return up to `limit` parsed results.
 ///
@@ -670,9 +866,155 @@ mod tests {
     }
 
     #[test]
+    fn max_redirects_is_bounded_and_small() {
+        let max = MAX_REDIRECTS;
+        assert!(max <= 5, "redirect limit should be small");
+        assert!(max >= 1, "should follow at least one redirect");
+    }
+
+    #[test]
+    fn fetch_timeout_is_bounded() {
+        let secs = FETCH_TIMEOUT_SECS;
+        assert!(secs <= 60, "timeout should be at most 60s");
+        assert!(secs >= 5, "timeout should allow at least 5s");
+    }
+
+    #[test]
+    fn search_error_too_many_redirects_displays_message() {
+        let max = MAX_REDIRECTS;
+        let err = SearchError::TooManyRedirects { max };
+        assert!(err.to_string().contains("too many redirects"));
+        assert!(err.to_string().contains(&max.to_string()));
+    }
+
+    #[test]
+    fn search_error_timeout_displays_message() {
+        let secs = FETCH_TIMEOUT_SECS;
+        let err = SearchError::Timeout { secs };
+        assert!(err.to_string().contains("timed out"));
+        assert!(err.to_string().contains(&secs.to_string()));
+    }
+
+    #[test]
     fn search_error_oversized_displays_message() {
         let err = SearchError::Oversized { max: 1024 };
         assert!(err.to_string().contains("too large"));
         assert!(err.to_string().contains("1024"));
+    }
+
+    // ---- content-type allow-list classification ----
+
+    #[test]
+    fn allowed_content_kind_html() {
+        assert_eq!(allowed_content_kind("text/html"), Some(ContentKind::Html));
+        assert_eq!(allowed_content_kind("text/html; charset=utf-8"), Some(ContentKind::Html));
+        assert_eq!(allowed_content_kind("application/xhtml+xml"), Some(ContentKind::Html));
+        assert_eq!(allowed_content_kind("TEXT/HTML"), Some(ContentKind::Html));
+    }
+
+    #[test]
+    fn allowed_content_kind_text_family() {
+        assert_eq!(allowed_content_kind("text/plain"), Some(ContentKind::Text));
+        assert_eq!(allowed_content_kind("text/plain; charset=iso-8859-1"), Some(ContentKind::Text));
+        assert_eq!(allowed_content_kind("text/csv"), Some(ContentKind::Text));
+        assert_eq!(allowed_content_kind("text/markdown"), Some(ContentKind::Text));
+        assert_eq!(allowed_content_kind("text/css"), Some(ContentKind::Text));
+        assert_eq!(allowed_content_kind("text/xml"), Some(ContentKind::Text));
+    }
+
+    #[test]
+    fn allowed_content_kind_application_text_types() {
+        assert_eq!(allowed_content_kind("application/json"), Some(ContentKind::Text));
+        assert_eq!(allowed_content_kind("application/json; charset=utf-8"), Some(ContentKind::Text));
+        assert_eq!(allowed_content_kind("application/xml"), Some(ContentKind::Text));
+        assert_eq!(allowed_content_kind("application/javascript"), Some(ContentKind::Text));
+        assert_eq!(allowed_content_kind("application/yaml"), Some(ContentKind::Text));
+        assert_eq!(allowed_content_kind("application/x-yaml"), Some(ContentKind::Text));
+    }
+
+    #[test]
+    fn allowed_content_kind_suffixes() {
+        // +json and +xml suffixes used by feeds and vendor types.
+        assert_eq!(allowed_content_kind("application/feed+json"), Some(ContentKind::Text));
+        assert_eq!(allowed_content_kind("application/vnd.api+json"), Some(ContentKind::Text));
+        assert_eq!(allowed_content_kind("application/atom+xml"), Some(ContentKind::Text));
+        assert_eq!(allowed_content_kind("application/rss+xml"), Some(ContentKind::Text));
+    }
+
+    #[test]
+    fn allowed_content_kind_rejects_binary_and_unknown() {
+        assert_eq!(allowed_content_kind("image/png"), None);
+        assert_eq!(allowed_content_kind("application/octet-stream"), None);
+        assert_eq!(allowed_content_kind("application/pdf"), None);
+        assert_eq!(allowed_content_kind("application/zip"), None);
+        assert_eq!(allowed_content_kind("audio/mpeg"), None);
+        assert_eq!(allowed_content_kind("video/mp4"), None);
+        assert_eq!(allowed_content_kind("application/octet-stream; charset=binary"), None);
+        assert_eq!(allowed_content_kind(""), None);
+        assert_eq!(allowed_content_kind("garbage"), None);
+    }
+
+    // ---- process_body: no-network success path ----
+
+    #[test]
+    fn process_body_html_uses_lectito_extraction() {
+        let html = r#"
+            <article>
+                <h1>Test Article</h1>
+                <p>This is a readable article with enough content to pass readability checks.
+                It has multiple sentences and proper structure for extraction.</p>
+                <p>Second paragraph with more content to ensure the article is detected
+                as readable by the Lectito algorithm.</p>
+            </article>
+        "#;
+        let result = process_body(html, "https://example.com/post", ContentKind::Html)
+            .expect("html should process");
+        assert!(!result.markdown.is_empty());
+        assert!(!result.text_content.is_empty());
+        assert!(!result.truncated);
+    }
+
+    #[test]
+    fn process_body_html_unreadable_falls_back_to_raw() {
+        // Empty/boilerplate HTML that Lectito judges unreadable still returns raw text.
+        let html = "<html><body></body></html>";
+        let result = process_body(html, "https://example.com/empty", ContentKind::Html)
+            .expect("unreadable html should not error");
+        assert_eq!(result.markdown, html);
+        assert_eq!(result.text_content, html);
+    }
+
+    #[test]
+    fn process_body_text_returns_raw_with_url_title() {
+        let body = r#"{"name": "thndrs", "version": "0.1.0"}"#;
+        let result = process_body(body, "https://example.com/package.json", ContentKind::Text)
+            .expect("json should process as text");
+        assert_eq!(result.markdown, body);
+        assert_eq!(result.text_content, body);
+        assert_eq!(result.title, "package.json");
+        assert!(!result.truncated);
+    }
+
+    #[test]
+    fn process_body_text_title_from_url_path() {
+        let result = process_body("plain", "https://example.com/docs/readme.txt", ContentKind::Text)
+            .expect("text should process");
+        assert_eq!(result.title, "readme.txt");
+    }
+
+    #[test]
+    fn process_body_text_truncation_flag() {
+        // Build a body larger than MAX_ARTICLE_CONTENT_LEN.
+        let body = "a".repeat(MAX_ARTICLE_CONTENT_LEN + 100);
+        let result = process_body(&body, "https://example.com/big.txt", ContentKind::Text)
+            .expect("large text should process");
+        assert!(result.truncated);
+    }
+
+    #[test]
+    fn process_body_text_title_percent_decoded() {
+        let result = process_body("body", "https://example.com/path/my%20file.txt", ContentKind::Text)
+            .expect("text should process");
+        assert_eq!(result.title, "my file.txt");
     }
 }

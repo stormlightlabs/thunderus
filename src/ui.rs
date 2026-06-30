@@ -773,6 +773,51 @@ mod tests {
     }
 
     #[test]
+    fn read_url_result_snapshot_80x24() {
+        let mut app = app();
+        app.run_state = RunState::Working;
+        app.transcript
+            .push(Entry::User { text: String::from("read the tokio docs page") });
+        app.transcript.push(Entry::Tool {
+            name: String::from("read_url#fetch-0"),
+            arguments: String::from("{\"url\":\"https://docs.rs/tokio/latest/tokio/\"}"),
+            status: ToolStatus::Ok,
+            output: vec![
+                String::from("title: tokio::lib - Rust"),
+                String::from("url: https://docs.rs/tokio/latest/tokio/"),
+                String::from("status: 200"),
+                String::from("diagnostics: status: 200, content_type: text/html, max_redirects: 5, timeout_secs: 15, max_bytes: 1048576"),
+                String::from("# tokio"),
+                String::from("A runtime for writing reliable asynchronous applications."),
+            ],
+        });
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw read_url result");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
+    fn read_url_error_snapshot_80x24() {
+        let mut app = app();
+        app.run_state = RunState::Working;
+        app.transcript
+            .push(Entry::User { text: String::from("read the internal admin page") });
+        app.transcript.push(Entry::Tool {
+            name: String::from("read_url#fetch-0"),
+            arguments: String::from("{\"url\":\"http://127.0.0.1/admin\"}"),
+            status: ToolStatus::Failed,
+            output: Vec::new(),
+        });
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal.draw(|f| render(f, &app)).expect("draw read_url error");
+        insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
     fn sidebar_session_list_snapshot_80x24() {
         let dir = tempfile::tempdir().expect("temp dir");
         let sessions_dir = crate::session::sessions_dir(dir.path());

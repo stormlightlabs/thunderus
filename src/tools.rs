@@ -373,12 +373,13 @@ search; with none, a local DuckDuckGo fallback is used. Capped at 10 results by 
             name: "read_url",
             description: r#"read_url
 
-Fetch a public HTTP/HTTPS URL and extract readable Markdown.
+Fetch a public HTTP/HTTPS URL and extract readable text.
 
-Use this to read a web page found via web_search or referenced in the workspace.
-Prefer reading local files over fetching external URLs when the information is
-available locally. Private-network targets are rejected; non-http(s) schemes are
-unsupported. Response size is capped and content type is enforced; output may truncate."#,
+Use to read a page found via web_search or referenced in the workspace. Prefer
+local files when available. HTML is extracted to Markdown; JSON, XML, plain
+text, feeds, and YAML are returned raw. Binary content is rejected.
+Private-network targets (including after redirects) and non-http(s) schemes are
+rejected. Size, redirects, and timeouts are capped; output may truncate."#,
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -585,11 +586,15 @@ pub fn dispatch_tool(request: &ToolUseRequest, root: &Path) -> ToolOutput {
             let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("");
             match search::fetch_url(url) {
                 Ok(content) => {
-                    let mut lines = vec![format!("title: {}", content.title)];
-                    lines.push(format!("url: {}", content.final_url));
+                    let mut lines = vec![
+                        format!("title: {}", content.title),
+                        format!("url: {}", content.final_url),
+                        format!("status: {}", content.status),
+                    ];
                     if content.truncated {
                         lines.push("(content truncated)".to_string());
                     }
+                    lines.push(format!("diagnostics: {}", content.diagnostics.join(", ")));
                     lines.push(content.markdown);
                     ToolOutput::ok("read_url", lines)
                 }
@@ -612,20 +617,13 @@ pub fn dispatch_tool(request: &ToolUseRequest, root: &Path) -> ToolOutput {
             Err(e) => ToolOutput::failed("write_patch", e),
         },
         "run_shell" => {
-            let program = args
-                .get("program")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
+            let program = args.get("program").and_then(|v| v.as_str()).unwrap_or("").to_string();
             let cmd_args: Vec<String> = args
                 .get("args")
                 .and_then(|v| v.as_array())
                 .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
                 .unwrap_or_default();
-            let cwd = args
-                .get("cwd")
-                .and_then(|v| v.as_str())
-                .map(PathBuf::from);
+            let cwd = args.get("cwd").and_then(|v| v.as_str()).map(PathBuf::from);
             let timeout_secs = args.get("timeout_secs").and_then(|v| v.as_u64());
             let kind = if args.get("background").and_then(|v| v.as_bool()).unwrap_or(false) {
                 shell::ProcessKind::Background
@@ -636,14 +634,10 @@ pub fn dispatch_tool(request: &ToolUseRequest, root: &Path) -> ToolOutput {
             if program.is_empty() {
                 ToolOutput::failed("run_shell", "missing or empty 'program' field".to_string())
             } else {
-                let shell_args = shell::ShellArgs {
-                    program,
-                    args: cmd_args,
-                    cwd,
-                    timeout_secs,
-                    kind,
-                };
-                shell::exec(&shell_args, root)
+                shell::exec(
+                    &shell::ShellArgs { program, args: cmd_args, cwd, timeout_secs, kind },
+                    root,
+                )
             }
         }
         other => ToolOutput::failed(other, format!("unknown tool: {other}")),
@@ -701,9 +695,7 @@ pub fn dispatch_full(
 
 /// Dispatch a `run_shell` tool-use request and return the tool output plus the
 /// structured [`shell::ProcessResult`] for session audit.
-fn dispatch_shell(
-    request: &ToolUseRequest, root: &Path,
-) -> (ToolOutput, Option<shell::ProcessResult>) {
+fn dispatch_shell(request: &ToolUseRequest, root: &Path) -> (ToolOutput, Option<shell::ProcessResult>) {
     let args = serde_json::from_str(&request.arguments).unwrap_or(serde_json::Value::Null);
 
     let program = args.get("program").and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -733,9 +725,7 @@ fn dispatch_shell(
     match shell::run_command(&shell_args, root, &cancel) {
         Ok(result) => {
             let output = match result.status {
-                shell::ProcessStatus::Ok => {
-                    ToolOutput::ok("run_shell", result.to_output_lines())
-                }
+                shell::ProcessStatus::Ok => ToolOutput::ok("run_shell", result.to_output_lines()),
                 _ => {
                     let mut output = result.to_failed_output();
                     output.output = result.to_output_lines();

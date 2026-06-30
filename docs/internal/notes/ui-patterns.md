@@ -4,15 +4,13 @@ Author: Thoughtful LLC / Gridland project
 Date: 2026-06-28
 Captured: 2026-06-28
 Tags: [tui, chat-ui, layout, gridland, ai-agent]
+Sources:
+  - https://www.gridland.io/docs/blocks/ai-chat-interface
+  - https://github.com/thoughtfulllc/gridland
+  - https://www.gridland.io/docs/core-concepts/cells-and-layout
+  - https://www.gridland.io/docs/components/message
+  - https://www.gridland.io/docs/components/prompt-input
 ---
-
-Source:
-
-- https://www.gridland.io/docs/blocks/ai-chat-interface
-- https://github.com/thoughtfulllc/gridland
-- https://www.gridland.io/docs/core-concepts/cells-and-layout
-- https://www.gridland.io/docs/components/message
-- https://www.gridland.io/docs/components/prompt-input
 
 ## Summary
 
@@ -35,6 +33,19 @@ suggestions, model/status display, and keyboard-first focus handling.
   interaction; prompt and modal controls register stable focus IDs.
 - **Cells, not pixels:** Layout sizes are character-cell counts or percentages.
   This is directly transferable to Ratatui constraints.
+- **Bottom-sticky transcript:** The AI chat demo uses a scrollbox with bottom sticky
+  behavior, `paddingX={1}`, `paddingBottom={1}`, and a one-cell gap between messages.
+  `thndrs` should keep newest content pinned while preserving intentional breathing room.
+- **Role shells, not labels only:** `Message` aligns user content to the right and
+  assistant content to the left, with message content bounded to about `85%` width and
+  padded inside the bubble. Tool/reasoning rows remain siblings rather than being hidden
+  inside message bubbles.
+- **Prompt is a compound surface:** `PromptInput` separates divider, suggestions,
+  textarea, status text, submit/status icon, and model label. Dividers intentionally
+  extend into gutter space so the prompt reads as one full-width control.
+- **Sidebar has focus and shortcut semantics:** `SideNav` distinguishes active/focused
+  item from selected/interacting main-panel state and renders a compact shortcut/status
+  bar (`↑↓ navigate`, `enter select`, `esc back`).
 
 ## Claims & Evidence
 
@@ -45,6 +56,28 @@ suggestions, model/status display, and keyboard-first focus handling.
 | Tool/reasoning UI should be sibling content, not hidden inside a message bubble. | Gridland removed `Message.Reasoning`/`Message.ToolCall` and recommends composing reasoning blocks separately.                      | Medium-high; terminal width may force simpler rendering.                 |
 | Prompt should own stop/error/submitted/streaming state.                          | `PromptInput` status controls disabled state, Escape stop handling, and status icon/hint.                                          | High; this maps to a simple Rust `RunStatus` enum.                       |
 | Command registry is optional in v0.                                              | Gridland uses `CommandProvider` for `/model` and `/clear`, but `PromptInput` also accepts commands directly.                       | High; start with a static command match in `update`.                     |
+| Transcript spacing should be deliberate, not accidental.                         | Gridland's message area uses one-cell horizontal padding, bottom padding, and one-cell vertical gaps between message groups.       | High; our snapshots currently rely on dense adjacent rows.               |
+| Prompt dividers can carry focus/status.                                          | Gridland's prompt divider accepts color and dashed/solid style, with status-specific prompt icons.                                 | Medium-high; useful for streaming/error focus states in Ratatui.         |
+
+## Source-Level Details To Borrow
+
+- Message rows should be grouped by semantic block: user/assistant message, reasoning,
+  tool result, source/result metadata. Within a group, content can wrap, but the group's
+  left edge and gutter should not shift between streaming and completed states.
+- User message content can be visually distinct without forcing every transcript row into
+  the same fixed role-label grid. A bounded right-aligned or indented user block may scan
+  better than `User (name)` plus a long fixed spacer.
+- Reasoning should stay a sibling block with its own header/status (`Thinking`, `Thought
+for`, running/done), not a normal assistant message row.
+- Prompt suggestions should appear above the prompt text, not in the transcript, and should
+  support slash commands plus file mentions if those features are exposed.
+- The prompt should preserve input on async submit failure so the user can retry.
+- The sidebar should expose keyboard intent: navigation, selecting the main panel for
+  interaction, and returning to the sidebar.
+- Sidebar session rows should reserve space for suffixes/badges such as dirty, running,
+  failed, or unread state.
+- Layout should treat borders as part of the cell budget; every fixed width should include
+  border and padding in its accounting.
 
 ## Important Terms
 

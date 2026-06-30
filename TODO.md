@@ -51,63 +51,116 @@
   and corrupt-line tests, resume-ordering coverage, and session sidebar
   snapshots.
 
+### Safe File Operations
+
+- Added structured write transcript events, create-file, exact-range replace,
+  and unified patch application, file path/operation/result audit metadata,
+  before/after hashes and sizes, failure atomicity, unit coverage for success
+  and stale/rejected edits, and snapshots for write success and failure states.
+
+### Shell Process Manager
+
+- Added workspace-rooted process execution, structured process transcript
+  events, stdout/stderr/status/elapsed-time rendering, non-blocking output
+  capture, timeouts, cancellation, one-shot/background process registry
+  scaffolding, local-process security prompt/docs, secret redaction, truncation
+  and full-output persistence coverage, process unit tests, and shell snapshots.
+
+### `read_url`
+
+- Added public `http`/`https` URL reading, private/loopback/link-local/local-file
+  rejection, redirect/timeout/content-type/response-size limits, final URL,
+  status, title, readable text, truncation, diagnostics, structured transcript
+  events, Lectito-style extraction reuse, public/private fixture tests, and
+  snapshots for success and failure states.
+
 ## alpha: Usable Coding Assistant
 
-### Phase 11: Safe File Operations
+### Phase 14: Finalize Alpha
 
-- [x] Define write transcript event shape.
-- [x] Implement create-file operation.
-- [x] Implement exact-range replace operation.
-- [x] Implement unified patch apply operation.
-- [x] Record file path, operation type, and result for every write.
-- [x] Preserve enough before/after metadata for session audit.
-- [x] Unit-test create-file success and already-exists failure.
-- [x] Unit-test exact-range replace success and stale-range failure.
-- [x] Unit-test patch apply success and rejected patch failure.
-- [x] Unit-test failed edits leave files unchanged.
-- [x] Add snapshots for write success and write failure transcript entries.
-
-### Phase 12: Shell Process Manager
-
-- [x] Define shell/process transcript event shapes.
-- [x] Run commands from the workspace by default.
-- [x] Show command, working directory, status, stdout, stderr, and elapsed time.
-- [x] Stream process output without blocking the TUI.
-- [x] Support command timeouts and cancellation.
-- [x] Keep a process registry for active commands.
-- [x] Track long-lived background processes separately from one-shot commands.
-- [x] Record command start, output summary, exit status, timeout, and
-      cancellation as structured transcript/tool events.
-- [x] Prefer narrower built-in tools for file search, file reads, edits, and URL
-      reads when they fit.
-- [x] Document that shell commands run as local processes with the permissions of
-      the `thndrs` process and are not sandboxed by command approval.
-- [x] Add prompt/tool guardrails to avoid destructive commands unless explicitly
-      requested or clearly necessary and scoped.
-- [x] Redact known secrets from displayed and recorded command output where
-      deterministic redaction is possible.
-- [x] Unit-test process success, failure, timeout, and cancellation.
-- [x] Unit-test process registry handling for one-shot and background commands.
-- [x] Unit-test output truncation, full-output persistence, and secret
-      redaction.
-- [x] Add snapshots for shell/process transcript entries.
-
-### Phase 13: `read_url`
-
-- [ ] Add a `read_url` tool with public `http`/`https` support.
-- [ ] Reject private, loopback, link-local, local-file, and unsupported URL
-      schemes.
-- [ ] Enforce redirect, timeout, content-type, and response-size limits.
-- [ ] Return final URL, status, title, readable text, truncation state, and
-      diagnostics.
-- [ ] Record `read_url` calls as structured transcript/tool events.
-- [ ] Reuse existing Lectito-style extraction where it fits.
-- [ ] Unit-test `read_url` public URL success and private URL rejection.
-- [ ] Add snapshots for `read_url` transcript entries.
+- [ ] Complete the Umans tool-result feedback loop: append provider-native
+      tool-result messages after each dispatched tool batch and re-request until
+      the model stops requesting tools or the tool-iteration cap is hit.
+- [ ] Remove the redundant legacy `ToolInput`/`execute` path or make it the
+      single dispatch path; provider dispatch, transcript rendering, and session
+      records should share one obvious tool execution route.
+- [ ] Wire the existing command/help mode scaffolding into the TUI instead of
+      leaving `Mode::Command` and `Mode::Help` dormant.
+- [ ] Wire existing stop/error run states into cancellation/failure rendering so
+      `RunState::Stopping` and `RunState::Error` represent real app states.
+- [ ] Wire existing background-process registry controls into the live app:
+      start, list, inspect, cancel, and clean up background commands through
+      transcripted process events.
+- [ ] Remove or justify every remaining `#[allow(dead_code)]` after the above
+      wiring, including provider/session module exports, shell registry helpers,
+      theme constants, write-patch helpers, and search module-level suppression.
+- [ ] Resolve adjacent TODOs that mark broken-ground surfaces: provider request
+      shape, Unicode status icons, `sse_to_agent_event` conversion cleanup,
+      prompt snapshot intent, private-URL test table cleanup, and path dispatch.
+- [ ] Add an alpha smoke workflow that covers prompt assembly, a read-only tool,
+      a file write, `read_url`, one shell success, one shell failure, session
+      resume, and cancellation.
+- [ ] Add `syntect`-backed syntax highlighting for code-oriented transcript
+      blocks using cached syntax/theme sets, extension/language detection, and
+      a small mapping from syntect colors/styles into Ratatui spans.
+- [ ] Highlight only code fences, file snippets, diffs, and command output that
+      benefits from it; keep plain prose and status rows unhighlighted.
+- [ ] Fix run-state/status consistency in snapshots: running shell/tool states
+      should show `running tool`, completed `read_url` should not leave the
+      prompt at `sending`, and failed/timeout tool-only turns should surface as
+      failed instead of sidebar `done`.
+- [ ] Add width-aware ellipsis truncation for user prompts, assistant/reasoning
+      text, tool argument summaries, URLs, diagnostics, error messages, prompt
+      input, and footer fields; current snapshots cut words and URLs without an
+      ellipsis.
+- [ ] Standardize transcript leading columns: role rows, streaming assistant
+      rows, reasoning rows, and tool rows should use one stable label/gutter
+      grid so spinners and chips do not shift the message column.
+- [ ] Redesign tool output blocks so command summaries, stdout/stderr headers,
+      nested output lines, and truncation markers share one aligned gutter and
+      keep section headers visually distinct from output content.
+- [ ] Fix error row layout: error icons and wrapped/continued error text should
+      align under the message body, not after a large role-label gap or clipped
+      hard at the panel edge.
+- [ ] Tune narrow-width layout: hide the sidebar earlier or compress footer
+      fields so `cwd`, long model names, prompts, and transcript rows truncate
+      intentionally at 40-50 columns.
+- [ ] Tune empty-state/banner layout: center or optically align the banner at
+      normal width, make the fallback empty state feel intentional at 50 columns,
+      and avoid large uneven blank regions.
+- [ ] Add Gridland-style transcript group spacing: one-cell horizontal padding,
+      one-cell gaps between semantic message groups, bottom padding near the
+      prompt, and bottom-sticky scrolling that keeps newest content readable.
+- [ ] Evaluate role-specific message shells: keep assistant/tool rows left
+      aligned, but render user prompts as a visually distinct bounded block or
+      right/indented row instead of only a fixed-width `User` label.
+- [ ] Keep reasoning as a sibling block with a stable header/status line
+      (`Thinking`/`Thought`, running/done) and aligned body content, matching the
+      Gridland source pattern without nesting it inside assistant text.
+- [ ] Split prompt rendering into compound subregions: divider, suggestions,
+      input row, status/error text, submit/stop indicator, and model/footer
+      metadata, so each piece can be aligned and tested independently.
+- [ ] Add slash-command and file-mention suggestion UI above the prompt for the
+      already-started command/help surface; include selection marker, command
+      description, history navigation, and dismissal behavior in snapshots.
+- [ ] Make prompt dividers carry focus/run state: normal, submitted, streaming,
+      and error states should have distinct solid/dashed divider styling or
+      color, while preserving full-width alignment through the panel gutters.
+- [ ] Add sidebar focus/selection semantics inspired by Gridland `SideNav`:
+      separate active session from main-panel interaction, show shortcut hints
+      such as `↑↓ navigate`, `enter select`, `esc back`, and reserve room for
+      session suffixes/badges.
+- [ ] Preserve prompt input on async/provider submit failure so the user can
+      retry or edit, and add snapshots for failed submit with input retained.
+- [ ] Add/refresh snapshots for syntax-highlighted code fences, diffs, Rust
+      compiler errors, JSON/tool diagnostics, and plain prose to verify
+      highlighting does not color gutters, borders, or status chips.
+- [ ] Run and document the alpha readiness checks: `cargo fmt`, `cargo check`,
+      clippy, unit tests, and snapshot review.
 
 ## v1: Supported Release
 
-### Phase 14: Config, Inspect, and Export
+### Phase 15: Config, Inspect, and Export
 
 - [ ] Define config file path.
 - [ ] Define config keys for model, web search mode, session path, and tick rate.
@@ -127,7 +180,7 @@
 - [ ] Integration-test inspect/export against fixture sessions.
 - [ ] Integration-test inspect/export includes AGENTS.md context metadata.
 
-### Phase 15: LSP and Code Intelligence
+### Phase 16: LSP and Code Intelligence
 
 - [ ] Define read-only LSP tool names, inputs, outputs, and fallback behavior.
 - [ ] Support document symbols.
@@ -144,7 +197,7 @@
 - [ ] Unit-test no-server fallback behavior.
 - [ ] Add snapshots for LSP transcript entries.
 
-### Phase 16: v1 Release Hardening
+### Phase 17: v1 Release Hardening
 
 - [ ] Add `CHANGELOG.md` using Keep a Changelog categories.
 - [ ] Document install flow.
