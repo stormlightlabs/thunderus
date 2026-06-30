@@ -25,4 +25,4 @@ expression: terminal.backend().to_string()
 "────────────│                                                      │────────────"
 "  ›  █      │  Press ? or Esc to close.                            │            "
 "            └──────────────────────────────────────────────────────┘            "
-" model: umans-coder   search: native  cwd: .                                    "
+" model: umans-coder   search: auto  cwd: .                                      "

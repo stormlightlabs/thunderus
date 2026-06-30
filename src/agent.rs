@@ -507,6 +507,7 @@ fn stream_umans_response(
     let mut event_count = 0usize;
     let mut saw_response = false;
     let mut stop_reason = None;
+    let mut provider_content_blocks = Vec::new();
     tracing::info!("reading Umans SSE stream");
 
     for line_result in reader.lines() {
@@ -540,6 +541,7 @@ fn stream_umans_response(
                             &mut tool_requests,
                             &mut assistant_text,
                             &mut stop_reason,
+                            &mut provider_content_blocks,
                             tx,
                             cancel,
                         )?;
@@ -571,6 +573,7 @@ fn stream_umans_response(
                 &mut tool_requests,
                 &mut assistant_text,
                 &mut stop_reason,
+                &mut provider_content_blocks,
                 tx,
                 cancel,
             )?;
@@ -588,6 +591,12 @@ fn stream_umans_response(
         if stop_reason.as_deref() == Some("max_tokens") {
             return Err(format!(
                 "provider stopped at max_tokens ({max_tokens}) before producing assistant text"
+            ));
+        }
+        if !provider_content_blocks.is_empty() {
+            let blocks = provider_content_blocks.join(", ");
+            return Err(format!(
+                "provider returned only provider-side content blocks ({blocks}) and no assistant text or tool calls; retry with --websearch none"
             ));
         }
         return Err(format!(
@@ -650,7 +659,7 @@ fn summarize_sse_data(data: &str) -> (Option<String>, Option<String>, Option<Str
 fn collect_umans_event(
     event_type: &str, data: &str, tool_blocks: &mut HashMap<usize, ToolUseBuilder>,
     tool_requests: &mut Vec<ToolUseRequest>, assistant_text: &mut String, stop_reason: &mut Option<String>,
-    tx: &Sender<AgentEvent>, cancel: &CancelToken,
+    provider_content_blocks: &mut Vec<String>, tx: &Sender<AgentEvent>, cancel: &CancelToken,
 ) -> Result<(), String> {
     let sse_event = umans::parse_sse_event(event_type, data);
 
@@ -661,7 +670,7 @@ fn collect_umans_event(
     }
 
     if event_type == "content_block_start" {
-        collect_content_block_start_text(data, assistant_text, tx, cancel)?;
+        collect_content_block_start_text(data, assistant_text, provider_content_blocks, tx, cancel)?;
     }
 
     match &sse_event {
@@ -700,7 +709,8 @@ fn collect_umans_event(
 }
 
 fn collect_content_block_start_text(
-    data: &str, assistant_text: &mut String, tx: &Sender<AgentEvent>, cancel: &CancelToken,
+    data: &str, assistant_text: &mut String, provider_content_blocks: &mut Vec<String>, tx: &Sender<AgentEvent>,
+    cancel: &CancelToken,
 ) -> Result<(), String> {
     let v: serde_json::Value = serde_json::from_str(data).unwrap_or(serde_json::Value::Null);
     let Some(block) = v.get("content_block") else {
@@ -723,7 +733,10 @@ fn collect_content_block_start_text(
                 return Err("cancelled".to_string());
             }
         }
-        Some(other) => tracing::info!(content_type = other, "unhandled content block start"),
+        Some(other) => {
+            provider_content_blocks.push(other.to_string());
+            tracing::info!(content_type = other, "unhandled content block start");
+        }
         None => {}
     }
 
@@ -805,6 +818,41 @@ mod tests {
 
     fn config() -> AgentRunConfig {
         AgentRunConfig::new(PathBuf::from("."), String::from("fake-agent"), WebSearchMode::Native)
+    }
+
+    struct EventCollectState {
+        tool_blocks: HashMap<usize, ToolUseBuilder>,
+        tool_requests: Vec<ToolUseRequest>,
+        assistant_text: String,
+        stop_reason: Option<String>,
+        provider_content_blocks: Vec<String>,
+    }
+
+    impl EventCollectState {
+        fn new() -> Self {
+            EventCollectState {
+                tool_blocks: HashMap::new(),
+                tool_requests: Vec::new(),
+                assistant_text: String::new(),
+                stop_reason: None,
+                provider_content_blocks: Vec::new(),
+            }
+        }
+
+        fn collect(&mut self, event_type: &str, data: &str, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
+            collect_umans_event(
+                event_type,
+                data,
+                &mut self.tool_blocks,
+                &mut self.tool_requests,
+                &mut self.assistant_text,
+                &mut self.stop_reason,
+                &mut self.provider_content_blocks,
+                tx,
+                cancel,
+            )
+            .expect("collect event");
+        }
     }
 
     #[test]
@@ -1006,23 +1054,15 @@ mod tests {
     fn collect_umans_event_reconstructs_streamed_tool_input_json() {
         let (tx, _rx) = mpsc::channel();
         let cancel = CancelToken::new();
-        let mut tool_blocks = HashMap::new();
-        let mut tool_requests = Vec::new();
-        let mut assistant_text = String::new();
-        let mut stop_reason = None;
+        let mut state = EventCollectState::new();
 
-        collect_umans_event(
+        state.collect(
             "content_block_start",
             r#"{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_1","name":"find_files","input":{}}}"#,
-            &mut tool_blocks,
-            &mut tool_requests,
-            &mut assistant_text,
-            &mut stop_reason,
             &tx,
             &cancel,
-        )
-        .expect("start");
-        collect_umans_event(
+        );
+        state.collect(
             "content_block_delta",
             &serde_json::json!({
                 "type": "content_block_delta",
@@ -1033,15 +1073,10 @@ mod tests {
                 }
             })
             .to_string(),
-            &mut tool_blocks,
-            &mut tool_requests,
-            &mut assistant_text,
-            &mut stop_reason,
             &tx,
             &cancel,
-        )
-        .expect("delta 1");
-        collect_umans_event(
+        );
+        state.collect(
             "content_block_delta",
             &serde_json::json!({
                 "type": "content_block_delta",
@@ -1052,30 +1087,47 @@ mod tests {
                 }
             })
             .to_string(),
-            &mut tool_blocks,
-            &mut tool_requests,
-            &mut assistant_text,
-            &mut stop_reason,
             &tx,
             &cancel,
-        )
-        .expect("delta 2");
-        collect_umans_event(
+        );
+        state.collect(
             "content_block_stop",
             r#"{"type":"content_block_stop","index":1}"#,
-            &mut tool_blocks,
-            &mut tool_requests,
-            &mut assistant_text,
-            &mut stop_reason,
             &tx,
             &cancel,
-        )
-        .expect("stop");
+        );
 
-        assert_eq!(tool_requests.len(), 1);
-        assert_eq!(tool_requests[0].name, "find_files");
-        assert_eq!(tool_requests[0].tool_use_id, "toolu_1");
-        assert_eq!(tool_requests[0].arguments, r#"{"pattern":"Cargo"}"#);
+        assert_eq!(state.tool_requests.len(), 1);
+        assert_eq!(state.tool_requests[0].name, "find_files");
+        assert_eq!(state.tool_requests[0].tool_use_id, "toolu_1");
+        assert_eq!(state.tool_requests[0].arguments, r#"{"pattern":"Cargo"}"#);
+    }
+
+    #[test]
+    fn collect_umans_event_tracks_provider_side_content_blocks() {
+        let (tx, _rx) = mpsc::channel();
+        let cancel = CancelToken::new();
+        let mut state = EventCollectState::new();
+
+        state.collect(
+            "content_block_start",
+            r#"{"type":"content_block_start","index":0,"content_block":{"type":"server_tool_use","id":"srv_1","name":"web_search","input":{}}}"#,
+            &tx,
+            &cancel,
+        );
+        state.collect(
+            "content_block_start",
+            r#"{"type":"content_block_start","index":1,"content_block":{"type":"web_search_tool_result","content":[]}}"#,
+            &tx,
+            &cancel,
+        );
+
+        assert_eq!(
+            state.provider_content_blocks,
+            vec!["server_tool_use".to_string(), "web_search_tool_result".to_string()]
+        );
+        assert!(state.assistant_text.is_empty());
+        assert!(state.tool_requests.is_empty());
     }
 
     #[test]

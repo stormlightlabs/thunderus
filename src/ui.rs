@@ -13,7 +13,6 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph};
 
 use crate::app::{App, Entry, Mode, PromptState};
-use crate::cli::WebSearchMode;
 use crate::{banner, utils};
 
 mod highlight;
@@ -502,11 +501,7 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
-    let search_label = match app.websearch {
-        WebSearchMode::Native => "native",
-        WebSearchMode::Exa => "exa",
-        WebSearchMode::None => "none",
-    };
+    let search_label = app.websearch.label();
     let cwd_display = app.cwd.display().to_string();
 
     let model_label = format!("model: {}", app.model);

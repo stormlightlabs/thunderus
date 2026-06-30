@@ -19,8 +19,8 @@ pub struct Cli {
     #[arg(long, default_value = "umans-coder")]
     pub model: String,
 
-    /// Web search provider to forward to the model.
-    #[arg(long, value_enum, default_value_t = WebSearchMode::Native)]
+    /// Web search provider policy.
+    #[arg(long, value_enum, default_value_t = WebSearchMode::Auto)]
     pub websearch: WebSearchMode,
 
     /// Event poll interval in milliseconds.
@@ -37,9 +37,11 @@ pub struct Cli {
     pub print_prompt: bool,
 }
 
-/// Maps directly to `X-Umans-Websearch-Provider`.
+/// Web search policy for a turn.
 #[derive(ValueEnum, Clone, Copy, Debug, Eq, PartialEq)]
 pub enum WebSearchMode {
+    /// Let thndrs choose provider-native search only for prompts that need it.
+    Auto,
     /// Umans server-side native web search.
     Native,
     /// Exa-backed server-side search for manual experiments.
@@ -49,7 +51,17 @@ pub enum WebSearchMode {
 }
 
 impl WebSearchMode {
-    /// Map a [`WebSearchMode`] to the header value expected by
+    /// Display/config label for this mode.
+    pub fn label(self) -> &'static str {
+        match self {
+            WebSearchMode::Auto => "auto",
+            WebSearchMode::Native => "native",
+            WebSearchMode::Exa => "exa",
+            WebSearchMode::None => "none",
+        }
+    }
+
+    /// Map a concrete [`WebSearchMode`] to the header value expected by
     /// `X-Umans-Websearch-Provider`.
     ///
     /// - `Native` → `"native"` (Kimi-backed server-side search)
@@ -58,11 +70,46 @@ impl WebSearchMode {
     ///   tool through unchanged)
     pub fn header_value(self) -> &'static str {
         match self {
+            WebSearchMode::Auto => "none",
             WebSearchMode::Native => "native",
             WebSearchMode::Exa => "exa",
             WebSearchMode::None => "none",
         }
     }
+
+    /// Resolve `auto` into a concrete provider mode for a single user prompt.
+    pub fn resolve_for_prompt(self, prompt: &str) -> Self {
+        if self != WebSearchMode::Auto {
+            return self;
+        }
+
+        if prompt_needs_web_search(prompt) { WebSearchMode::Native } else { WebSearchMode::None }
+    }
+}
+
+fn prompt_needs_web_search(prompt: &str) -> bool {
+    let text = prompt.to_ascii_lowercase();
+    const NEEDLES: &[&str] = &[
+        "latest",
+        "current",
+        "today",
+        "recent",
+        "news",
+        "release",
+        "changelog",
+        "docs",
+        "documentation",
+        "look up",
+        "lookup",
+        "search web",
+        "web search",
+        "browse",
+        "internet",
+        "online",
+        "pricing",
+        "benchmark",
+    ];
+    NEEDLES.iter().any(|needle| text.contains(needle))
 }
 
 impl Default for Cli {
@@ -71,7 +118,7 @@ impl Default for Cli {
         Cli {
             cwd: PathBuf::from("."),
             model: String::from("umans-coder"),
-            websearch: WebSearchMode::Native,
+            websearch: WebSearchMode::Auto,
             tick_rate_ms: 100,
             no_alt_screen: false,
             print_prompt: false,
@@ -89,13 +136,16 @@ mod tests {
         let cli = Cli::try_parse_from(["thndrs"]).expect("default parse");
         assert_eq!(cli.cwd, PathBuf::from("."));
         assert_eq!(cli.model, "umans-coder");
-        assert_eq!(cli.websearch, WebSearchMode::Native);
+        assert_eq!(cli.websearch, WebSearchMode::Auto);
         assert_eq!(cli.tick_rate_ms, 100);
         assert!(!cli.no_alt_screen);
     }
 
     #[test]
     fn websearch_explicit_values_parse() {
+        let auto = Cli::try_parse_from(["thndrs", "--websearch", "auto"]).unwrap();
+        assert_eq!(auto.websearch, WebSearchMode::Auto);
+
         let native = Cli::try_parse_from(["thndrs", "--websearch", "native"]).unwrap();
         assert_eq!(native.websearch, WebSearchMode::Native);
 
@@ -149,6 +199,11 @@ mod tests {
     }
 
     #[test]
+    fn websearch_label_auto() {
+        assert_eq!(WebSearchMode::Auto.label(), "auto");
+    }
+
+    #[test]
     fn websearch_header_value_exa() {
         assert_eq!(WebSearchMode::Exa.header_value(), "exa");
     }
@@ -156,5 +211,17 @@ mod tests {
     #[test]
     fn websearch_header_value_none() {
         assert_eq!(WebSearchMode::None.header_value(), "none");
+    }
+
+    #[test]
+    fn auto_websearch_resolves_from_prompt() {
+        assert_eq!(
+            WebSearchMode::Auto.resolve_for_prompt("Can you clear completed sections from TODO.md?"),
+            WebSearchMode::None
+        );
+        assert_eq!(
+            WebSearchMode::Auto.resolve_for_prompt("Look up the latest Umans docs"),
+            WebSearchMode::Native
+        );
     }
 }

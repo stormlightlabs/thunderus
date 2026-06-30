@@ -223,7 +223,7 @@ fn main_loop(terminal: &mut DefaultTerminal, tick: Duration, cli: &Cli) -> io::R
         session = %app.session_id,
         cwd = %workspace_root.display(),
         model = %cli.model,
-        websearch = %cli.websearch.header_value(),
+        websearch = %cli.websearch.label(),
         "starting thndrs"
     );
     append_daily_log(
@@ -234,7 +234,7 @@ fn main_loop(terminal: &mut DefaultTerminal, tick: Duration, cli: &Cli) -> io::R
             "cwd={} model={} websearch={}",
             workspace_root.display(),
             cli.model,
-            cli.websearch.header_value()
+            cli.websearch.label()
         ),
     );
     let mut agent: Option<AgentSlot> = None;
@@ -297,15 +297,6 @@ fn maybe_spawn_agent(app: &App, cli: &Cli, agent: &mut Option<AgentSlot>) {
         return;
     }
 
-    let workspace_root = context::discover_workspace_root(&cli.cwd);
-    let config = AgentRunConfig::new(workspace_root, cli.model.clone(), cli.websearch);
-    tracing::info!(
-        cwd = %config.root.display(),
-        model = %config.model,
-        websearch = %config.search_mode.header_value(),
-        "spawning agent run"
-    );
-
     let prompt = app
         .transcript
         .iter()
@@ -315,6 +306,16 @@ fn maybe_spawn_agent(app: &App, cli: &Cli, agent: &mut Option<AgentSlot>) {
             _ => None,
         })
         .unwrap_or_default();
+    let workspace_root = context::discover_workspace_root(&cli.cwd);
+    let resolved_websearch = cli.websearch.resolve_for_prompt(&prompt);
+    let config = AgentRunConfig::new(workspace_root, cli.model.clone(), resolved_websearch);
+    tracing::info!(
+        cwd = %config.root.display(),
+        model = %config.model,
+        requested_websearch = %cli.websearch.label(),
+        resolved_websearch = %config.search_mode.header_value(),
+        "spawning agent run"
+    );
 
     let bundle = PromptBundle::new(
         &config.root,

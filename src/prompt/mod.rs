@@ -181,7 +181,7 @@ impl EnvironmentMetadata {
         EnvironmentMetadata {
             cwd: cwd.display().to_string(),
             model: model.to_string(),
-            search_mode: search_mode.header_value().to_string(),
+            search_mode: search_mode.label().to_string(),
             date: datetime::rounded_date(),
         }
     }

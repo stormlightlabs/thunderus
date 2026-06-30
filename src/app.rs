@@ -301,7 +301,7 @@ impl App {
             "scratch",
             "umans",
             &cli.model,
-            &format!("{:?}", cli.websearch).to_lowercase(),
+            cli.websearch.label(),
             env!("CARGO_PKG_VERSION"),
         )
         .ok();
