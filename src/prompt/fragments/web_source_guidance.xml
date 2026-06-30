@@ -1,0 +1,11 @@
+<web_source_guidance>
+  <instruction>
+    Web search and URL extraction tools are available for current information.
+    Use them when the workspace does not contain the answer.
+  </instruction>
+  <instruction>Private-network targets are always rejected. Response sizes are capped.</instruction>
+  <instruction>
+    Prefer reading local files and searching the workspace before fetching external URLs.
+  </instruction>
+  <instruction>Cite the source URL when you surface information from the web.</instruction>
+</web_source_guidance>

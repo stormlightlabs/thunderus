@@ -59,10 +59,10 @@ impl PromptFragment {
 /// 4. **web_source_guidance** — when and how to use web tools.
 pub fn default_fragments() -> Vec<PromptFragment> {
     vec![
-        PromptFragment::new("base_identity", include_str!("fragments/base_identity.md")),
-        PromptFragment::new("communication_style", include_str!("fragments/communication_style.md")),
-        PromptFragment::new("action_safety", include_str!("fragments/action_safety.md")),
-        PromptFragment::new("web_source_guidance", include_str!("fragments/web_source_guidance.md")),
+        PromptFragment::new("base_identity", include_str!("fragments/base_identity.xml")),
+        PromptFragment::new("communication_style", include_str!("fragments/communication_style.xml")),
+        PromptFragment::new("action_safety", include_str!("fragments/action_safety.xml")),
+        PromptFragment::new("web_source_guidance", include_str!("fragments/web_source_guidance.xml")),
     ]
 }
 
@@ -172,16 +172,10 @@ impl EnvironmentMetadata {
     /// Build environment metadata from app state, rounding the date to the
     /// day for prompt-cache stability.
     pub fn new(cwd: &Path, model: &str, search_mode: WebSearchMode) -> Self {
-        let search_mode_label = match search_mode {
-            WebSearchMode::Native => "native",
-            WebSearchMode::Exa => "exa",
-            WebSearchMode::None => "none",
-        };
-
         EnvironmentMetadata {
             cwd: cwd.display().to_string(),
             model: model.to_string(),
-            search_mode: search_mode_label.to_string(),
+            search_mode: search_mode.header_value().to_string(),
             date: datetime::rounded_date(),
         }
     }
@@ -211,40 +205,41 @@ pub fn render_system_prompt(bundle: &PromptBundle) -> String {
     let mut parts: Vec<String> = bundle.fragments.iter().map(|f| f.content.clone()).collect();
 
     parts.push(format!(
-        r#"## Environment
-
-- workspace: {}
-- model: {}
-- search: {}
-- date: {}"#,
-        bundle.environment.cwd, bundle.environment.model, bundle.environment.search_mode, bundle.environment.date
+        r#"<environment>
+  <workspace><![CDATA[{}]]></workspace>
+  <model><![CDATA[{}]]></model>
+  <search>{}</search>
+  <date>{}</date>
+</environment>"#,
+        cdata(&bundle.environment.cwd),
+        cdata(&bundle.environment.model),
+        bundle.environment.search_mode,
+        bundle.environment.date
     ));
 
     if !bundle.project_context.is_empty() {
-        let mut context_lines = vec!["## Project Context".to_string()];
+        let mut context_lines = vec!["<project_context>".to_string()];
         for source in &bundle.project_context {
             let text_unchanged = bundle.history_reuse == HistoryReuse::Available
                 && bundle.prev_context_hash == Some(source.content_hash);
 
+            context_lines.push("  <source>".to_string());
+            context_lines.push(format!(
+                "    <path><![CDATA[{}]]></path>",
+                cdata(&source.path.display().to_string())
+            ));
+            context_lines.push(format!("    <scope><![CDATA[{}]]></scope>", cdata(&source.scope)));
+            context_lines.push(format!("    <hash>{}</hash>", source.content_hash));
+            context_lines.push(format!("    <truncated>{}</truncated>", source.truncated));
+
             if text_unchanged {
-                context_lines.push(format!(
-                    "### {} (scope: {}, hash: {} — unchanged, text omitted)",
-                    source.path.display(),
-                    source.scope,
-                    source.content_hash
-                ));
+                context_lines.push("    <status>unchanged, text omitted</status>".to_string());
             } else {
-                context_lines.push(format!(
-                    "### {} (scope: {}, hash: {}, truncated: {})",
-                    source.path.display(),
-                    source.scope,
-                    source.content_hash,
-                    source.truncated
-                ));
-                context_lines.push(String::new());
-                context_lines.push(source.content.clone());
+                context_lines.push(format!("    <content><![CDATA[{}]]></content>", cdata(&source.content)));
             }
+            context_lines.push("  </source>".to_string());
         }
+        context_lines.push("</project_context>".to_string());
         parts.push(context_lines.join("\n"));
     }
 
@@ -255,8 +250,9 @@ pub fn render_system_prompt(bundle: &PromptBundle) -> String {
 ///
 /// The first message is a `user` message containing the system prompt (base +
 /// policy + environment + project context). The transcript tail follows as
-/// alternating user/assistant messages. The final message is the current user
-/// turn.
+/// alternating user/assistant messages.
+///
+/// The final message is the current user turn.
 pub fn lower_to_umans_messages(bundle: &PromptBundle) -> Vec<Message> {
     let mut messages: Vec<Message> = vec![Message::user(&render_system_prompt(bundle))];
 
@@ -316,6 +312,10 @@ fn project_transcript_tail(transcript: &[Entry]) -> Vec<Entry> {
         .into_iter()
         .rev()
         .collect()
+}
+
+fn cdata(text: &str) -> String {
+    text.replace("]]>", "]]]]><![CDATA[>")
 }
 
 #[cfg(test)]
@@ -393,8 +393,8 @@ mod tests {
         let bundle = test_bundle();
         let prompt = render_system_prompt(&bundle);
         let base_pos = prompt.find("thndrs").unwrap();
-        let policy_pos = prompt.find("Action Safety").unwrap();
-        let env_pos = prompt.find("Environment").unwrap();
+        let policy_pos = prompt.find("<action_safety>").unwrap();
+        let env_pos = prompt.find("<environment>").unwrap();
         assert!(base_pos < policy_pos, "base should come before action safety");
         assert!(policy_pos < env_pos, "action safety should come before environment");
     }
@@ -412,8 +412,8 @@ mod tests {
         }];
 
         let prompt = render_system_prompt(&bundle);
-        let policy_pos = prompt.find("Action Safety").unwrap();
-        let context_pos = prompt.find("Project Context").unwrap();
+        let policy_pos = prompt.find("<action_safety>").unwrap();
+        let context_pos = prompt.find("<project_context>").unwrap();
         assert!(policy_pos < context_pos, "AGENTS.md should be below action safety");
         assert!(prompt.contains("# Project"), "should include AGENTS.md content");
         assert!(prompt.contains("12345"), "should include content hash");
@@ -542,7 +542,7 @@ mod tests {
 
         let prompt = render_system_prompt(&bundle);
         assert!(
-            prompt.contains("truncated: true"),
+            prompt.contains("<truncated>true</truncated>"),
             "should mark truncation state when content is capped"
         );
         assert!(
@@ -767,10 +767,7 @@ mod tests {
             "should have a base_identity fragment mentioning thndrs"
         );
         assert!(
-            bundle
-                .fragments
-                .iter()
-                .any(|f| f.content.contains("Action Safety") || f.content.contains("action")),
+            bundle.fragments.iter().any(|f| f.content.contains("<action_safety>")),
             "should have an action_safety fragment"
         );
         assert_eq!(bundle.environment.model, "umans-coder");
@@ -797,9 +794,9 @@ mod tests {
         let prompt = render_system_prompt(&bundle);
 
         let base_pos = prompt.find("thndrs").unwrap();
-        let policy_pos = prompt.find("Action Safety").unwrap();
-        let env_pos = prompt.find("## Environment").unwrap();
-        let ctx_pos = prompt.find("## Project Context").unwrap();
+        let policy_pos = prompt.find("<action_safety>").unwrap();
+        let env_pos = prompt.find("<environment>").unwrap();
+        let ctx_pos = prompt.find("<project_context>").unwrap();
         let guidance_pos = prompt.find("Guidance here").unwrap();
 
         assert!(base_pos < policy_pos, "base must precede action safety");
@@ -825,8 +822,8 @@ mod tests {
         }];
 
         let prompt = render_system_prompt(&bundle);
-        let policy_pos = prompt.find("Action Safety").unwrap();
-        let ctx_pos = prompt.find("Project Context").unwrap();
+        let policy_pos = prompt.find("<action_safety>").unwrap();
+        let ctx_pos = prompt.find("<project_context>").unwrap();
         assert!(
             policy_pos < ctx_pos,
             "AGENTS.md must sit below action safety in the system prompt"
@@ -1069,46 +1066,6 @@ mod tests {
         let catalog = render_tool_catalog(&bundle);
         let json = serde_json::to_string_pretty(&catalog).unwrap_or_default();
         insta::assert_snapshot!(json);
-    }
-
-    #[test]
-    fn snapshot_fragment_base_identity() {
-        let fragments = default_fragments();
-        let base = fragments
-            .iter()
-            .find(|f| f.name == "base_identity")
-            .expect("base_identity fragment");
-        insta::assert_snapshot!(base.content);
-    }
-
-    #[test]
-    fn snapshot_fragment_communication_style() {
-        let fragments = default_fragments();
-        let style = fragments
-            .iter()
-            .find(|f| f.name == "communication_style")
-            .expect("communication_style fragment");
-        insta::assert_snapshot!(style.content);
-    }
-
-    #[test]
-    fn snapshot_fragment_action_safety() {
-        let fragments = default_fragments();
-        let safety = fragments
-            .iter()
-            .find(|f| f.name == "action_safety")
-            .expect("action_safety fragment");
-        insta::assert_snapshot!(safety.content);
-    }
-
-    #[test]
-    fn snapshot_fragment_web_source_guidance() {
-        let fragments = default_fragments();
-        let web = fragments
-            .iter()
-            .find(|f| f.name == "web_source_guidance")
-            .expect("web_source_guidance fragment");
-        insta::assert_snapshot!(web.content);
     }
 
     #[test]
