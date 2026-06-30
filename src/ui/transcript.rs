@@ -27,13 +27,7 @@ pub fn entry_lines_with_width(entry: &Entry, tick: u64, user_label: &str, max_wi
             text,
             avail,
         )],
-        Entry::Reasoning { text, streaming } => vec![Line::from(vec![
-            role_label(if *streaming { style::spinner_frame(tick) } else { "thought" }, P.mauve),
-            Span::styled(
-                if avail > 0 { truncate_ellipsis(text, avail) } else { text.clone() },
-                style::subtle_style().add_modifier(Modifier::ITALIC),
-            ),
-        ])],
+        Entry::Reasoning { text, streaming } => reasoning_lines(text, *streaming, tick, avail),
         Entry::Tool { name, arguments, status, output } => tool_lines(name, arguments, *status, output, tick, avail),
         Entry::Status { text } => vec![message_line("Status", P.overlay1, text, avail)],
         Entry::Error { text } => error_lines(text, avail),
@@ -64,6 +58,24 @@ fn user_message_line(label: &str, text: &str, avail: usize) -> Line<'static> {
         Span::styled(" ", style::text_style()),
         Span::styled(display, style::text_style()),
     ])
+}
+
+/// Render a reasoning block with a stable header/status line.
+///
+/// The header shows `Thinking` (with spinner) while streaming or `Thought`
+/// (with ✓) when done. The body is italic and indented under the header,
+/// matching the Gridland sibling-block pattern without nesting inside
+/// assistant text.
+fn reasoning_lines(text: &str, streaming: bool, tick: u64, avail: usize) -> Vec<Line<'static>> {
+    let (header, icon) = if streaming { ("Thinking", style::spinner_frame(tick)) } else { ("Thought", "✓") };
+
+    let body = if avail > 0 { truncate_ellipsis(text, avail) } else { text.to_string() };
+
+    vec![Line::from(vec![
+        role_label(header, P.mauve),
+        Span::styled(format!("{icon} "), Style::default().fg(P.mauve).bg(P.panel_bg)),
+        Span::styled(body, style::subtle_style().add_modifier(Modifier::ITALIC)),
+    ])]
 }
 
 fn role_label(label: &str, fg: Color) -> Span<'static> {

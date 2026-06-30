@@ -131,16 +131,16 @@
 - [x] Evaluate role-specific message shells: keep assistant/tool rows left
       aligned, but render user prompts as a visually distinct bounded block or
       right/indented row instead of only a fixed-width `User` label.
-- [ ] Keep reasoning as a sibling block with a stable header/status line
+- [x] Keep reasoning as a sibling block with a stable header/status line
       (`Thinking`/`Thought`, running/done) and aligned body content, matching the
       Gridland source pattern without nesting it inside assistant text.
-- [ ] Split prompt rendering into compound subregions: divider, suggestions,
+- [x] Split prompt rendering into compound subregions: divider, suggestions,
       input row, status/error text, submit/stop indicator, and model/footer
       metadata, so each piece can be aligned and tested independently.
-- [ ] Add slash-command and file-mention suggestion UI above the prompt for the
+- [x] Add slash-command and file-mention suggestion UI above the prompt for the
       already-started command/help surface; include selection marker, command
       description, history navigation, and dismissal behavior in snapshots.
-- [ ] Make prompt dividers carry focus/run state: normal, submitted, streaming,
+- [x] Make prompt dividers carry focus/run state: normal, submitted, streaming,
       and error states should have distinct solid/dashed divider styling or
       color, while preserving full-width alignment through the panel gutters.
 - [ ] Add sidebar focus/selection semantics inspired by Gridland `SideNav`:

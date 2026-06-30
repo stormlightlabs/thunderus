@@ -35,8 +35,8 @@ pub const SIDEBAR_HIDE_THRESHOLD: u16 = 55;
 /// marker is shown.
 pub const MAX_TOOL_OUTPUT_LINES: usize = 6;
 
-/// Prompt region height: one divider line plus one input line.
-const PROMPT_HEIGHT: u16 = 2;
+/// Prompt region height: divider line, input line, status line.
+const PROMPT_HEIGHT: u16 = 3;
 
 /// Footer region height: one status line.
 const FOOTER_HEIGHT: u16 = 1;
@@ -349,9 +349,18 @@ fn render_prompt(frame: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
+    let state = app.prompt_state();
+    let divider_color = match state {
+        PromptState::Editable => style::P.overlay0,
+        PromptState::Submitted => style::P.yellow,
+        PromptState::Streaming | PromptState::RunningTool => style::P.teal,
+        PromptState::Stopped => style::P.overlay1,
+        PromptState::Errored => style::P.red,
+    };
+
     let block = Block::new()
         .borders(Borders::TOP)
-        .border_style(style::border_style())
+        .border_style(Style::default().fg(divider_color).bg(style::P.panel_bg))
         .style(style::panel_style());
 
     let inner = block.inner(area);
@@ -360,7 +369,6 @@ fn render_prompt(frame: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
-    let state = app.prompt_state();
     let (prompt_color, show_input, icon) = match state {
         PromptState::Editable => (style::P.yellow, true, "▌ ▶"),
         PromptState::Submitted => (style::P.yellow, false, style::spinner_frame(app.ui_tick)),
@@ -369,8 +377,9 @@ fn render_prompt(frame: &mut Frame, app: &App, area: Rect) {
         PromptState::Errored => (style::P.red, true, "✕"),
     };
 
-    let hint = state.hint();
-    let mut spans = vec![
+    let [input_area, status_area] = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas(inner);
+
+    let mut input_spans = vec![
         Span::styled("  ", style::text_style()),
         Span::styled(icon, Style::default().fg(prompt_color).bg(style::P.panel_bg)),
         Span::styled("  ", style::text_style()),
@@ -378,26 +387,83 @@ fn render_prompt(frame: &mut Frame, app: &App, area: Rect) {
 
     if show_input {
         if app.mode == Mode::Command {
-            spans.push(Span::styled(
+            input_spans.push(Span::styled(
                 ":",
                 Style::default().fg(style::P.accent).bg(style::P.panel_bg),
             ));
         }
-        spans.push(Span::styled(
-            utils::truncate_ellipsis(&app.input, inner.width as usize),
+        input_spans.push(Span::styled(
+            utils::truncate_ellipsis(&app.input, input_area.width as usize),
             style::text_style(),
         ));
     }
-    if !hint.is_empty() {
-        spans.push(style::label_chip(
-            hint.trim_matches(['(', ')']),
-            prompt_color,
-            style::P.surface0,
-        ));
-    }
 
-    let prompt_line = Line::from(spans);
-    frame.render_widget(Paragraph::new(prompt_line), inner);
+    frame.render_widget(Paragraph::new(Line::from(input_spans)), input_area);
+
+    if app.mode == Mode::Command {
+        let suggestions = command_suggestions(&app.input);
+        let mut sug_spans: Vec<Span<'static>> = vec![Span::styled("  ", style::text_style())];
+        for (i, (cmd, desc)) in suggestions.iter().enumerate() {
+            if i > 0 {
+                sug_spans.push(Span::styled("  ", style::text_style()));
+            }
+            let is_match = cmd.starts_with(app.input.as_str());
+            let cmd_style = if is_match {
+                Style::default()
+                    .fg(style::P.accent)
+                    .bg(style::P.surface0)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                style::muted_style()
+            };
+            sug_spans.push(Span::styled(format!(":{cmd}"), cmd_style));
+            sug_spans.push(Span::styled(format!(" {desc}"), style::subtle_style()));
+        }
+        if sug_spans.len() <= 1 {
+            sug_spans.push(Span::styled("  (type a command…)", style::muted_style()));
+        }
+        frame.render_widget(Paragraph::new(Line::from(sug_spans)), status_area);
+    } else {
+        let hint = state.hint();
+        let mut status_spans: Vec<Span<'static>> = Vec::new();
+
+        if !hint.is_empty() {
+            status_spans.push(style::label_chip(
+                hint.trim_matches(['(', ')']),
+                prompt_color,
+                style::P.surface0,
+            ));
+        }
+
+        let model_short = format!(" {} ", app.model);
+        let search_label = app.websearch.header_value();
+        let search_short = format!(" {search_label} ");
+
+        let used = hint.len() + model_short.len() + search_short.len();
+        if (used as u16) < status_area.width {
+            let pad = (status_area.width as usize).saturating_sub(used);
+            status_spans.push(Span::styled(" ".repeat(pad), style::text_style()));
+            status_spans.push(Span::styled(model_short, style::muted_style()));
+            status_spans.push(Span::styled(search_short, style::muted_style()));
+        }
+
+        if status_spans.is_empty() {
+            status_spans.push(Span::styled(" ", style::text_style()));
+        }
+
+        frame.render_widget(Paragraph::new(Line::from(status_spans)), status_area);
+    }
+}
+
+/// Available slash commands with short descriptions, used for the suggestion UI.
+fn command_suggestions(_input: &str) -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("clear", "clear transcript"),
+        ("quit", "exit app"),
+        ("exit", "exit app"),
+        ("help", "show help"),
+        ("bg", "list background processes"),
+    ]
 }
 
 fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
