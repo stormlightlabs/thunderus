@@ -1,11 +1,11 @@
-use crate::tools::Cap;
+use crate::tools::MAX_LINE_LEN;
 
-/// Truncate a string to [`caps::MAX_LINE_LENGTH`] chars, adding `...` if truncated.
+/// Truncate a string to [`MAX_LINE_LEN`] chars, adding `...` if truncated.
 pub fn truncate_line(s: &str) -> String {
-    if s.chars().count() <= Cap::MaxLineLen.into() {
+    if s.chars().count() <= MAX_LINE_LEN {
         s.to_string()
     } else {
-        let truncated: String = s.chars().take(Cap::MaxLineLen.into()).collect();
+        let truncated: String = s.chars().take(MAX_LINE_LEN).collect();
         format!("{truncated}...")
     }
 }
@@ -64,7 +64,7 @@ mod tests {
 
     #[test]
     fn truncate_line_long_truncated() {
-        let c = usize::from(Cap::MaxLineLen);
+        let c = MAX_LINE_LEN;
         let long = "x".repeat(c + 100);
         let result = truncate_line(&long);
         assert!(result.ends_with("..."));

@@ -7,15 +7,16 @@ construction, and parsing logic are covered with unit tests.
 
 ## Layout Tests
 
-Layout geometry is tested through pure `compute_view(Rect)` tests. These tests
-check transcript, prompt/footer sizing, and narrow-terminal behavior
-without opening a real terminal.
+Renderer geometry is tested through pure row-model helpers. These tests check
+wrapping, padding, prompt cursor placement, live-region sizing, and
+narrow-terminal behavior without opening a real terminal.
 
 ## Snapshot Tests
 
-Ratatui rendering uses `TestBackend` plus `insta` snapshots at fixed terminal
-sizes. Snapshots cover empty, submitted, streaming, reasoning, tool, error,
-cancelled, banner, and narrow-layout states.
+Renderer snapshots use the row model plus `insta` at fixed terminal sizes.
+Backend tests assert important terminal escape sequences such as full-screen
+clear/purge. Snapshots cover prompt, picker/help, startup, submitted,
+streaming, reasoning, tool, error, banner, and narrow-layout states.
 
 ## Fixture Driven
 

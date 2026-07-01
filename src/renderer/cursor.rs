@@ -11,8 +11,6 @@
 //! - a leading prompt indent applied to every visual row;
 //! - multibyte (UTF-8) text, since the cursor is a char index.
 
-#![allow(dead_code)]
-
 use super::row::CursorCoord;
 
 /// Compute the `(row, col)` coordinate of the cursor in the prompt's visual

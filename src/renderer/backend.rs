@@ -2,20 +2,19 @@
 //!
 //! Generic over `W: Write` so the row-writing logic can be unit-tested against
 //! a [`Vec<u8>`] buffer. The backend owns raw-mode setup/teardown, cursor
-//! hide/show, clearing live rows, cursor movement, and writing styled rows.
+//! hide/show, clearing viewport rows, cursor movement, and writing styled rows.
 //!
 //! The row model is independent of crossterm I/O; this module is the only place
 //! that translates [`super::Row`] into ANSI escape sequences.
 
-#![allow(dead_code)]
-
 use std::io::{self, Write};
 
 use crossterm::cursor::{Hide, MoveTo, Show};
+use crossterm::queue;
 use crossterm::style as cts;
 use crossterm::terminal::{Clear as CtClear, ClearType};
-use crossterm::{QueueableCommand, queue};
 
+use super::layout::{char_width, display_width};
 use super::row::{CursorCoord, Frame, Row};
 use super::style::{CellStyle, Color, Span};
 
@@ -51,7 +50,8 @@ impl<W: Write> TerminalBackend<W> {
         self.height
     }
 
-    /// Access the underlying writer (for direct queueing when needed).
+    /// Access the underlying writer for assertions.
+    #[cfg(test)]
     pub fn writer(&mut self) -> &mut W {
         &mut self.writer
     }
@@ -68,11 +68,26 @@ impl<W: Write> TerminalBackend<W> {
 
     /// Clear `count` rows starting at `top_row` (0-based, from the top of the
     /// live region).
+    ///
+    /// Only queues escape sequences; the caller is responsible for flushing
+    /// after all rows (cleared and written) are queued so the terminal never
+    /// sees an intermediate blank frame.
     pub fn clear_rows(&mut self, top_row: u16, count: u16) -> io::Result<()> {
         for i in 0..count {
             let row = top_row + i;
             queue!(self.writer, MoveTo(0, row), CtClear(ClearType::CurrentLine))?;
         }
+        Ok(())
+    }
+
+    /// Clear the visible screen and purge terminal scrollback where supported.
+    pub fn clear_all(&mut self) -> io::Result<()> {
+        queue!(
+            self.writer,
+            MoveTo(0, 0),
+            CtClear(ClearType::All),
+            CtClear(ClearType::Purge)
+        )?;
         self.writer.flush()
     }
 
@@ -83,40 +98,77 @@ impl<W: Write> TerminalBackend<W> {
 
     /// Write a single styled row at `row` (0-based). Does not move to a new
     /// line afterward.
+    #[cfg(test)]
     pub fn write_row(&mut self, row: usize, styled: &Row) -> io::Result<()> {
         queue!(self.writer, MoveTo(0, row as u16))?;
-        write_spans(&mut self.writer, &styled.spans, styled.width)?;
+        write_screen_row(&mut self.writer, styled)?;
         self.writer.flush()
     }
 
     /// Write multiple rows starting at `top_row`.
+    ///
+    /// Only queues escape sequences; the caller is responsible for flushing
+    /// after all writes are complete so the terminal never sees an
+    /// intermediate partial frame.
     pub fn write_rows(&mut self, top_row: u16, rows: &[Row]) -> io::Result<()> {
         for (i, row) in rows.iter().enumerate() {
             let y = top_row + i as u16;
             queue!(self.writer, MoveTo(0, y))?;
-            write_spans(&mut self.writer, &row.spans, row.width)?;
+            write_screen_row(&mut self.writer, row)?;
         }
-        self.writer.flush()
+        Ok(())
     }
 
-    /// Write committed (scrollback) rows once. Each row is followed by a
-    /// newline so it becomes part of native terminal scrollback.
-    pub fn write_committed(&mut self, rows: &[Row]) -> io::Result<()> {
-        for row in rows {
-            write_spans(&mut self.writer, &row.spans, row.width)?;
-            writeln!(self.writer)?;
-        }
-        self.writer.flush()
-    }
-
-    /// Render a complete frame: clear the live region, write all rows, then
-    /// place the cursor (if any).
+    /// Render a complete frame: write all rows (each row clears its own line
+    /// via `Clear(UntilNewLine)`), then place the cursor (if any).
+    ///
+    /// A separate "clear all rows first" pass is intentionally avoided: it
+    /// would send a blank frame to the terminal before content arrives,
+    /// causing visible flicker. Each row's `write_screen_row` already clears
+    /// from the cursor to end-of-line before printing content, which is
+    /// sufficient.
     pub fn render_frame(&mut self, frame: &Frame, top_row: u16) -> io::Result<()> {
-        let count = frame.rows.len() as u16;
-        self.clear_rows(top_row, count)?;
         self.write_rows(top_row, &frame.rows)?;
         if let Some(cursor) = frame.cursor {
             self.move_cursor(CursorCoord { row: top_row as usize + cursor.row, col: cursor.col })?;
+        }
+        self.writer.flush()
+    }
+
+    /// Render only rows that differ from `prev`, leaving unchanged rows on
+    /// screen untouched.
+    ///
+    /// This is the core anti-flicker mechanism: on a typical tick the vast
+    /// majority of rows are identical, so only a handful of escape sequences
+    /// are emitted. Rows beyond the new frame's length (i.e. rows present in
+    /// `prev` but not in `frame`) are cleared.
+    pub fn render_frame_diff(&mut self, frame: &Frame, prev: Option<&Frame>, top_row: u16) -> io::Result<()> {
+        let prev_rows = prev.map_or(&[][..], |p| &p.rows);
+        let new_rows = &frame.rows;
+
+        for (i, row) in new_rows.iter().enumerate() {
+            let needs_write = match prev_rows.get(i) {
+                Some(prev_row) => prev_row != row,
+                None => true,
+            };
+            if needs_write {
+                let y = top_row + i as u16;
+                queue!(self.writer, MoveTo(0, y))?;
+                write_screen_row(&mut self.writer, row)?;
+            }
+        }
+
+        // Clear any leftover rows from the previous frame that are no longer
+        // present in the new frame.
+        if new_rows.len() < prev_rows.len() {
+            self.clear_rows(top_row + new_rows.len() as u16, (prev_rows.len() - new_rows.len()) as u16)?;
+        }
+
+        if let Some(cursor) = frame.cursor {
+            let cursor_changed = prev.is_none_or(|p| p.cursor != Some(cursor));
+            if cursor_changed {
+                self.move_cursor(CursorCoord { row: top_row as usize + cursor.row, col: cursor.col })?;
+            }
         }
         self.writer.flush()
     }
@@ -129,6 +181,7 @@ impl<W: Write> TerminalBackend<W> {
 
 /// Write a span slice as styled content, padding to `width` with the last
 /// span's background (or reset) if needed.
+#[cfg(test)]
 fn write_spans(writer: &mut impl Write, spans: &[Span], width: usize) -> io::Result<()> {
     let mut used = 0usize;
     let mut last_bg = Color::Reset;
@@ -138,12 +191,8 @@ fn write_spans(writer: &mut impl Write, spans: &[Span], width: usize) -> io::Res
             break;
         }
         let remaining = width - used;
-        let text: String = if span.text.chars().count() > remaining {
-            span.text.chars().take(remaining).collect()
-        } else {
-            span.text.clone()
-        };
-        let taken = text.chars().count();
+        let text = take_display_width(&span.text, remaining);
+        let taken = display_width(&text);
         used += taken;
         last_bg = span.style.bg;
 
@@ -155,7 +204,7 @@ fn write_spans(writer: &mut impl Write, spans: &[Span], width: usize) -> io::Res
 
     if used < width {
         let mut pad_style = cts::ContentStyle::new();
-        pad_style.background_color = color_to_crossterm(last_bg);
+        pad_style.background_color = Some(last_bg);
         queue!(
             writer,
             cts::PrintStyledContent(pad_style.apply(" ".repeat(width - used)))
@@ -166,37 +215,78 @@ fn write_spans(writer: &mut impl Write, spans: &[Span], width: usize) -> io::Res
     Ok(())
 }
 
-/// Convert a renderer [`CellStyle`] to a crossterm [`cts::ContentStyle`].
-pub(crate) fn style_to_crossterm(style: CellStyle) -> cts::ContentStyle {
-    let mut out = cts::ContentStyle::new();
-    out.foreground_color = color_to_crossterm(style.fg);
-    out.background_color = color_to_crossterm(style.bg);
-    out.attributes = modifiers_to_crossterm(style);
+/// Write a row for the live screen without touching the terminal's last
+/// column. The row background is extended with `Clear(UntilNewLine)`, matching
+/// the Codex/Pi pattern of clearing a row and then printing only meaningful
+/// cells. This avoids the terminal's pending-autowrap state during repeated
+/// live-region redraws.
+fn write_screen_row(writer: &mut impl Write, row: &Row) -> io::Result<()> {
+    clear_to_end_with_bg(writer, trailing_bg(row))?;
+    let visible_width = row_visible_width(row);
+    let printable_width = visible_width.min(row.width.saturating_sub(1));
+    if printable_width > 0 {
+        write_spans_unpadded(writer, &row.spans, printable_width)?;
+    }
+    queue!(writer, cts::ResetColor)?;
+    Ok(())
+}
+
+fn clear_to_end_with_bg(writer: &mut impl Write, bg: Color) -> io::Result<()> {
+    let mut clear_style = cts::ContentStyle::new();
+    clear_style.background_color = Some(bg);
+    queue!(writer, cts::SetStyle(clear_style), CtClear(ClearType::UntilNewLine))?;
+    Ok(())
+}
+
+fn write_spans_unpadded(writer: &mut impl Write, spans: &[Span], width: usize) -> io::Result<()> {
+    let mut used = 0usize;
+    for span in spans {
+        if used >= width {
+            break;
+        }
+        let remaining = width - used;
+        let text = take_display_width(&span.text, remaining);
+        used += display_width(&text);
+        if !text.is_empty() {
+            queue!(
+                writer,
+                cts::PrintStyledContent(style_to_crossterm(span.style).apply(text))
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn take_display_width(text: &str, width: usize) -> String {
+    let mut out = String::new();
+    let mut used = 0usize;
+    for ch in text.chars() {
+        let ch_width = char_width(ch);
+        if used + ch_width > width {
+            break;
+        }
+        out.push(ch);
+        used += ch_width;
+    }
     out
 }
 
-/// Convert a renderer [`Color`] to a crossterm [`CtColor`].
-pub(crate) fn color_to_crossterm(color: Color) -> Option<cts::Color> {
-    Some(match color {
-        Color::Reset => cts::Color::Reset,
-        Color::Black => cts::Color::Black,
-        Color::DarkRed => cts::Color::DarkRed,
-        Color::DarkGreen => cts::Color::DarkGreen,
-        Color::DarkYellow => cts::Color::DarkYellow,
-        Color::DarkBlue => cts::Color::DarkBlue,
-        Color::DarkMagenta => cts::Color::DarkMagenta,
-        Color::DarkCyan => cts::Color::DarkCyan,
-        Color::Grey => cts::Color::Grey,
-        Color::DarkGrey => cts::Color::DarkGrey,
-        Color::Red => cts::Color::Red,
-        Color::Green => cts::Color::Green,
-        Color::Yellow => cts::Color::Yellow,
-        Color::Blue => cts::Color::Blue,
-        Color::Magenta => cts::Color::Magenta,
-        Color::Cyan => cts::Color::Cyan,
-        Color::White => cts::Color::White,
-        Color::Rgb { r, g, b } => cts::Color::Rgb { r, g, b },
-    })
+fn row_visible_width(row: &Row) -> usize {
+    let text = row.text();
+    text.trim_end_matches(' ').chars().map(char_width).sum()
+}
+
+fn trailing_bg(row: &Row) -> Color {
+    row.spans.last().map(|span| span.style.bg).unwrap_or(Color::Reset)
+}
+
+/// Convert a renderer [`CellStyle`] to a crossterm [`cts::ContentStyle`].
+pub(crate) fn style_to_crossterm(style: CellStyle) -> cts::ContentStyle {
+    let mut out = cts::ContentStyle::new();
+    out.foreground_color = Some(style.fg);
+    out.background_color = Some(style.bg);
+    out.attributes = modifiers_to_crossterm(style);
+    out
 }
 
 /// Convert renderer style booleans into crossterm attributes.
@@ -266,18 +356,18 @@ mod tests {
     }
 
     #[test]
-    fn write_committed_appends_newlines() {
-        let mut b = backend(20, 10);
-        let rows = vec![
-            Row::padded(vec![Span::plain("hello")], 10, CellStyle::default()),
-            Row::padded(vec![Span::plain("world")], 10, CellStyle::default()),
-        ];
-        b.write_committed(&rows).unwrap();
+    fn write_row_clears_to_end_instead_of_printing_padding() {
+        let mut b = backend(10, 5);
+        let row = Row::padded(vec![Span::plain("ab")], 10, CellStyle::default());
+        b.write_row(0, &row).unwrap();
 
         let out = String::from_utf8(b.writer().clone()).unwrap();
-        assert!(out.contains("hello"));
-        assert!(out.contains("world"));
-        assert_eq!(out.matches('\n').count(), 2);
+        assert!(out.contains("\x1b[K"));
+        assert!(out.contains("ab"));
+        assert!(
+            !out.contains("        \x1b[0m"),
+            "live writer should clear padding instead of printing to the last cell: {out:?}"
+        );
     }
 
     #[test]
@@ -303,6 +393,16 @@ mod tests {
     }
 
     #[test]
+    fn clear_all_emits_clear_and_purge() {
+        let mut b = backend(10, 5);
+        b.clear_all().unwrap();
+
+        let out = String::from_utf8(b.writer().clone()).unwrap();
+        assert!(out.contains("\x1b[2J"));
+        assert!(out.contains("\x1b[3J"));
+    }
+
+    #[test]
     fn hide_and_show_cursor_queue_sequences() {
         let mut b = backend(10, 5);
         b.hide_cursor().unwrap();
@@ -324,12 +424,6 @@ mod tests {
     }
 
     #[test]
-    fn color_to_crossterm_rgb() {
-        let c = color_to_crossterm(Color::Rgb { r: 1, g: 2, b: 3 });
-        assert_eq!(c, Some(cts::Color::Rgb { r: 1, g: 2, b: 3 }));
-    }
-
-    #[test]
     fn set_size_updates_dimensions() {
         let mut b = backend(80, 24);
         b.set_size(100, 30);
@@ -346,5 +440,16 @@ mod tests {
         let out = String::from_utf8(buf).unwrap();
         assert!(out.contains("hello"));
         assert!(!out.contains("world"));
+    }
+
+    #[test]
+    fn write_spans_truncates_by_display_width() {
+        let mut buf = Vec::new();
+        let spans = vec![Span::plain("a中b")];
+        write_spans(&mut buf, &spans, 3).unwrap();
+
+        let out = String::from_utf8(buf).unwrap();
+        assert!(out.contains("a中"));
+        assert!(!out.contains("b"));
     }
 }

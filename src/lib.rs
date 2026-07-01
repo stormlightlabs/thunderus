@@ -19,27 +19,16 @@ mod providers;
 mod renderer;
 mod search;
 mod tools;
-mod ui;
 mod utils;
 
-use std::io::{self, Write};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use crossterm::cursor::MoveTo;
 use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEvent};
-use crossterm::style::{
-    Attribute as CtAttribute, Attributes as CtAttributes, Color as CtColor, ContentStyle, PrintStyledContent,
-    ResetColor,
-};
-use crossterm::terminal::{Clear, ClearType, DisableLineWrap, EnableLineWrap};
-use crossterm::{QueueableCommand, queue};
-use ratatui::init::DefaultTerminal;
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
 
-use app::{App, Entry, Msg, RunState, ToolStatus, update};
+use app::{App, Msg, RunState, update};
 use cli::Cli;
 use prompt::PromptBundle;
 use tools::AgentRunConfig;
@@ -53,13 +42,6 @@ struct AgentSlot {
     steering: mpsc::Sender<String>,
 }
 
-#[derive(Default)]
-struct ScrollbackState {
-    emitted_banner: bool,
-    emitted_entries: usize,
-    rendered_width: Option<u16>,
-}
-
 /// Run the TUI to completion using the given CLI configuration.
 ///
 /// Sets up the terminal, drives the draw loop, polls events on a tick, and
@@ -69,7 +51,7 @@ pub fn run(cli: &Cli) -> io::Result<()> {
         return run_print_prompt(cli);
     }
     let tick = Duration::from_millis(cli.tick_rate_ms);
-    if cli.no_alt_screen { run_inline(tick, cli) } else { run_alt_screen(tick, cli) }
+    run_inline(tick, cli)
 }
 
 #[derive(Clone, Debug)]
@@ -204,36 +186,24 @@ fn redact_secret(text: &str) -> String {
     text.replace("sk-", "sk-[REDACTED]")
 }
 
-/// [`ratatui::init`] enables raw mode, enters the alternate screen, installs a
-/// panic hook that restores the terminal, and returns a [`DefaultTerminal`].
-///
-/// We always restore the terminal, even on error.
-fn run_alt_screen(tick: Duration, cli: &Cli) -> io::Result<()> {
-    let mut terminal = ratatui::init();
-    let mouse_enabled = cli.mouse && !cli.no_mouse;
-    if mouse_enabled && let Err(err) = crossterm::execute!(io::stdout(), EnableMouseCapture) {
-        ratatui::restore();
-        return Err(err);
-    }
-    let result = main_loop(&mut terminal, tick, cli, None);
-    if mouse_enabled {
-        let _ = crossterm::execute!(io::stdout(), DisableMouseCapture);
-    }
-    ratatui::restore();
-    result
-}
-
-/// Inline mode using the direct renderer: committed transcript goes to native
-/// scrollback, only the live region (prompt, status, active streaming) is
-/// redrawn each tick. Ratatui is not the source of truth for inline layout.
+/// Inline mode using the direct renderer: a logical viewport owns the visible
+/// terminal area and is rebuilt for the current terminal size each tick.
 fn run_inline(tick: Duration, cli: &Cli) -> io::Result<()> {
     renderer::enter_raw_mode()?;
+    let mouse_enabled = cli.mouse && !cli.no_mouse;
+    if mouse_enabled && let Err(err) = crossterm::execute!(io::stdout(), EnableMouseCapture) {
+        let _ = renderer::leave_raw_mode();
+        return Err(err);
+    }
     let stdout = io::stdout();
     let mut backend = TerminalBackend::new(stdout, renderer::terminal_size().0, renderer::terminal_size().1);
     let mut live = renderer::region::LiveRegion::new();
     let result = direct_loop(&mut backend, &mut live, tick, cli);
 
     let _ = backend.show_cursor();
+    if mouse_enabled {
+        let _ = crossterm::execute!(io::stdout(), DisableMouseCapture);
+    }
     renderer::leave_raw_mode()?;
 
     let _ = crossterm::execute!(
@@ -244,100 +214,12 @@ fn run_inline(tick: Duration, cli: &Cli) -> io::Result<()> {
     result
 }
 
-/// 1. Initial draw so the shell is visible before the first event.
-/// 2. Poll for events until the tick deadline, draining all pending events.
-///    Between event polls, drain any pending agent stream events.
-/// 3. Tick.
-fn main_loop(
-    terminal: &mut DefaultTerminal, tick: Duration, cli: &Cli, mut scrollback: Option<&mut ScrollbackState>,
-) -> io::Result<()> {
-    let mut app = App::from_cli(cli);
-    let workspace_root = context::discover_workspace_root(&cli.cwd);
-    let observability = init_tracing(&workspace_root, &app.session_id);
-    if cli.verbose
-        && let Some(obs) = &observability
-    {
-        app.transcript
-            .push(app::Entry::Status { text: format!("logs  {}", obs.session_log_path.display()) });
-    }
-    tracing::info!(
-        session = %app.session_id,
-        cwd = %workspace_root.display(),
-        model = %cli.model,
-        websearch = %cli.websearch.label(),
-        "starting thndrs"
-    );
-    append_daily_log(
-        &observability,
-        &app.session_id,
-        "session_start",
-        &format!(
-            "cwd={} model={} websearch={}",
-            workspace_root.display(),
-            cli.model,
-            cli.websearch.label()
-        ),
-    );
-    let mut agent: Option<AgentSlot> = None;
-    redraw(terminal, &app, scrollback.as_deref_mut())?;
-
-    loop {
-        let deadline = Instant::now() + tick;
-        while Instant::now() < deadline {
-            drain_agent_events(
-                &mut app,
-                &mut agent,
-                terminal,
-                &observability,
-                scrollback.as_deref_mut(),
-            )?;
-            manage_agent_lifecycle(&app, &mut agent);
-            maybe_spawn_agent(&app, cli, &mut agent);
-            flush_steering(&mut app, &agent);
-
-            if app.quit {
-                tracing::info!("quitting thndrs");
-                append_daily_log(&observability, &app.session_id, "session_end", "reason=quit");
-                return Ok(());
-            }
-
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if !event::poll(remaining)? {
-                break;
-            }
-            match event::read()? {
-                Event::Key(key) => handle_key(&mut app, key, terminal, &mut agent, scrollback.as_deref_mut())?,
-                Event::Mouse(mouse) => handle_msg(&mut app, Msg::Mouse(mouse), terminal, scrollback.as_deref_mut())?,
-                Event::Resize(_, _) => {
-                    redraw(terminal, &app, scrollback.as_deref_mut())?;
-                }
-                _ => {}
-            }
-
-            maybe_spawn_agent(&app, cli, &mut agent);
-            flush_steering(&mut app, &agent);
-
-            if app.quit {
-                tracing::info!("quitting thndrs");
-                append_daily_log(&observability, &app.session_id, "session_end", "reason=quit");
-                return Ok(());
-            }
-        }
-        handle_msg(&mut app, Msg::Tick, terminal, scrollback.as_deref_mut())?;
-        if app.quit {
-            tracing::info!("quitting thndrs");
-            append_daily_log(&observability, &app.session_id, "session_end", "reason=quit");
-            return Ok(());
-        }
-    }
-}
-
 /// Direct renderer event loop: drives the agent, polls events, and renders via
 /// [`TerminalBackend`] + [`LiveRegion`] instead of Ratatui.
 ///
-/// Committed transcript entries are printed into native scrollback; only the
-/// live region (prompt, status, active streaming) is cleared and redrawn each
-/// tick. This is the Milestone 2 inline path.
+/// History and live prompt chrome are rendered as one terminal-sized frame so
+/// resize and wrapping behavior is owned by the renderer instead of native
+/// terminal scrollback side effects.
 fn direct_loop<W: io::Write>(
     backend: &mut TerminalBackend<W>, live: &mut renderer::region::LiveRegion, tick: Duration, cli: &Cli,
 ) -> io::Result<()> {
@@ -395,7 +277,12 @@ fn direct_loop<W: io::Write>(
             }
             match event::read()? {
                 Event::Key(key) => {
-                    handle_direct_key(&mut app, key, &mut agent)?;
+                    handle_direct_key(&mut app, key, &mut agent, backend, live)?;
+                    let (w, h) = backend_size(backend);
+                    direct_render(backend, live, &app, w, h)?;
+                }
+                Event::Mouse(mouse) => {
+                    handle_direct_msg(&mut app, Msg::Mouse(mouse), backend, live)?;
                     let (w, h) = backend_size(backend);
                     direct_render(backend, live, &app, w, h)?;
                 }
@@ -417,7 +304,7 @@ fn direct_loop<W: io::Write>(
                 return Ok(());
             }
         }
-        handle_direct_msg(&mut app, Msg::Tick)?;
+        handle_direct_msg(&mut app, Msg::Tick, backend, live)?;
         let (w, h) = backend_size(backend);
         direct_render(backend, live, &app, w, h)?;
         if app.quit {
@@ -433,32 +320,42 @@ fn backend_size<W: io::Write>(backend: &TerminalBackend<W>) -> (usize, usize) {
     (backend.width() as usize, backend.height() as usize)
 }
 
-/// Commit stable transcript to scrollback, then render the live region.
+/// Render the complete logical viewport.
 fn direct_render<W: io::Write>(
     backend: &mut TerminalBackend<W>, live: &mut renderer::region::LiveRegion, app: &App, width: usize, height: usize,
 ) -> io::Result<()> {
+    renderer::style::set_theme(app.theme);
     let _ = backend.hide_cursor();
-    live.commit_transcript(app, backend, width)?;
     live.render_frame(app, backend, width, height)?;
     backend.flush()
 }
 
 /// Process a key in the direct renderer path.
-fn handle_direct_key(app: &mut App, key: KeyEvent, agent: &mut Option<AgentSlot>) -> io::Result<()> {
+fn handle_direct_key<W: io::Write>(
+    app: &mut App, key: KeyEvent, agent: &mut Option<AgentSlot>, backend: &mut TerminalBackend<W>,
+    live: &mut renderer::region::LiveRegion,
+) -> io::Result<()> {
     if key.code == crossterm::event::KeyCode::Esc
         && app.run_state == RunState::Working
         && let Some(slot) = agent
     {
         slot.cancel.cancel();
     }
-    handle_direct_msg(app, Msg::Key(key))
+    handle_direct_msg(app, Msg::Key(key), backend, live)
 }
 
 /// Process a message and chain follow-ups, then render.
-fn handle_direct_msg(app: &mut App, msg: Msg) -> io::Result<()> {
+fn handle_direct_msg<W: io::Write>(
+    app: &mut App, msg: Msg, backend: &mut TerminalBackend<W>, live: &mut renderer::region::LiveRegion,
+) -> io::Result<()> {
     let mut next = Some(msg);
     while let Some(m) = next {
+        let is_clear = matches!(m, Msg::Clear);
         next = update(app, &m);
+        if is_clear {
+            live.reset();
+            backend.clear_all()?;
+        }
         if app.quit {
             return Ok(());
         }
@@ -468,8 +365,8 @@ fn handle_direct_msg(app: &mut App, msg: Msg) -> io::Result<()> {
 
 /// Drain agent events in the direct renderer path (no Ratatui terminal needed).
 fn drain_direct_agent_events<W: io::Write>(
-    app: &mut App, agent: &mut Option<AgentSlot>, _backend: &mut TerminalBackend<W>,
-    _live: &mut renderer::region::LiveRegion, observability: &Option<Observability>,
+    app: &mut App, agent: &mut Option<AgentSlot>, backend: &mut TerminalBackend<W>,
+    live: &mut renderer::region::LiveRegion, observability: &Option<Observability>,
 ) -> io::Result<()> {
     let Some(slot) = agent else {
         return Ok(());
@@ -498,7 +395,7 @@ fn drain_direct_agent_events<W: io::Write>(
                     }
                     _ => {}
                 }
-                handle_direct_msg(app, Msg::Agent(event))?;
+                handle_direct_msg(app, Msg::Agent(event), backend, live)?;
             }
             Err(mpsc::TryRecvError::Empty) => break,
             Err(mpsc::TryRecvError::Disconnected) => {
@@ -573,50 +470,6 @@ fn flush_steering(app: &mut App, agent: &Option<AgentSlot>) {
     app.queued_steering = unsent;
 }
 
-/// Drain all pending agent stream events from the channel and dispatch them as
-/// [`Msg::Agent`].
-fn drain_agent_events(
-    app: &mut App, agent: &mut Option<AgentSlot>, term: &mut DefaultTerminal, observability: &Option<Observability>,
-    scrollback: Option<&mut ScrollbackState>,
-) -> io::Result<()> {
-    let Some(slot) = agent else { return Ok(()) };
-    let mut scrollback = scrollback;
-
-    loop {
-        match slot.receiver.try_recv() {
-            Ok(event) => {
-                match &event {
-                    app::AgentEvent::Failed(msg) => {
-                        tracing::error!(error = %msg, "agent failed");
-                        append_daily_log(
-                            observability,
-                            &app.session_id,
-                            "agent_failed",
-                            &format!("error={}", daily_detail_value(msg)),
-                        );
-                    }
-                    app::AgentEvent::Cancelled => {
-                        tracing::warn!("agent cancelled");
-                        append_daily_log(observability, &app.session_id, "agent_cancelled", "");
-                    }
-                    app::AgentEvent::Finished => {
-                        tracing::info!("agent finished");
-                        append_daily_log(observability, &app.session_id, "agent_finished", "");
-                    }
-                    _ => {}
-                }
-                handle_msg(app, Msg::Agent(event), term, scrollback.as_deref_mut())?;
-            }
-            Err(mpsc::TryRecvError::Empty) => break,
-            Err(mpsc::TryRecvError::Disconnected) => {
-                *agent = None;
-                break;
-            }
-        }
-    }
-    Ok(())
-}
-
 /// If the app is no longer in `Working` state but an agent slot still exists,
 /// cancel it and drop the slot (user cancelled via Escape or the run finished).
 fn manage_agent_lifecycle(app: &App, agent: &mut Option<AgentSlot>) {
@@ -625,229 +478,6 @@ fn manage_agent_lifecycle(app: &App, agent: &mut Option<AgentSlot>) {
     {
         tracing::info!("cancelling dropped agent slot");
         slot.cancel.cancel();
-    }
-}
-
-fn handle_key(
-    app: &mut App, key: KeyEvent, term: &mut DefaultTerminal, agent: &mut Option<AgentSlot>,
-    scrollback: Option<&mut ScrollbackState>,
-) -> io::Result<()> {
-    if key.code == crossterm::event::KeyCode::Esc
-        && app.run_state == RunState::Working
-        && let Some(slot) = agent
-    {
-        slot.cancel.cancel();
-    }
-    handle_msg(app, Msg::Key(key), term, scrollback)
-}
-
-/// Process the message and any chained follow-ups.
-fn handle_msg(
-    app: &mut App, msg: Msg, terminal: &mut DefaultTerminal, scrollback: Option<&mut ScrollbackState>,
-) -> io::Result<()> {
-    let mut next = Some(msg);
-    while let Some(m) = next {
-        next = update(app, &m);
-        if app.quit {
-            return Ok(());
-        }
-    }
-    redraw(terminal, app, scrollback)?;
-    Ok(())
-}
-
-fn redraw(terminal: &mut DefaultTerminal, app: &App, scrollback: Option<&mut ScrollbackState>) -> io::Result<()> {
-    if let Some(scrollback) = scrollback {
-        let mut viewport = terminal.draw(|f| ui::render_inline(f, app))?.area;
-        viewport = pin_inline_viewport_to_bottom(terminal, viewport, app)?;
-        append_stable_transcript(terminal, app, scrollback, viewport)?;
-        terminal.draw(|f| ui::render_inline(f, app))?;
-    } else {
-        terminal.draw(|f| ui::render(f, app))?;
-    }
-    Ok(())
-}
-
-fn pin_inline_viewport_to_bottom(
-    terminal: &mut DefaultTerminal, viewport: ratatui::layout::Rect, app: &App,
-) -> io::Result<ratatui::layout::Rect> {
-    let (_, term_height) = crossterm::terminal::size().unwrap_or((viewport.width, viewport.height));
-    let gap = term_height.saturating_sub(viewport.bottom());
-    if gap == 0 {
-        return Ok(viewport);
-    }
-
-    terminal.insert_before(gap, |_| {})?;
-    Ok(terminal.draw(|f| ui::render_inline(f, app))?.area)
-}
-
-fn append_stable_transcript(
-    terminal: &mut DefaultTerminal, app: &App, scrollback: &mut ScrollbackState, viewport: ratatui::layout::Rect,
-) -> io::Result<()> {
-    let width = viewport.width;
-    let viewport_top = viewport.y;
-
-    if scrollback.rendered_width.is_some_and(|last| last != width) {
-        clear_inline_scrollback(terminal)?;
-        scrollback.emitted_banner = false;
-        scrollback.emitted_entries = 0;
-    }
-    scrollback.rendered_width = Some(width);
-
-    if !scrollback.emitted_banner {
-        let lines = ui::startup_banner_lines(app, width as usize);
-        insert_history_lines(terminal, &lines, width, viewport_top)?;
-        scrollback.emitted_banner = true;
-    }
-
-    if scrollback.emitted_entries > app.transcript.len() {
-        scrollback.emitted_entries = app.transcript.len();
-    }
-
-    let start = scrollback.emitted_entries;
-    let stable_end = app.transcript[start..]
-        .iter()
-        .take_while(|entry| transcript_entry_is_stable(entry))
-        .count()
-        + start;
-    if stable_end == start {
-        return Ok(());
-    }
-
-    let lines = ui::transcript_lines(&app.transcript[start..stable_end], &app.user_label, width as usize);
-    if lines.is_empty() {
-        scrollback.emitted_entries = stable_end;
-        return Ok(());
-    }
-
-    insert_history_lines(terminal, &lines, width, viewport_top)?;
-    scrollback.emitted_entries = stable_end;
-    Ok(())
-}
-
-fn clear_inline_scrollback(terminal: &mut DefaultTerminal) -> io::Result<()> {
-    let backend = terminal.backend_mut();
-    queue!(backend, Clear(ClearType::All), MoveTo(0, 0), Clear(ClearType::Purge))?;
-    backend.flush()
-}
-
-fn insert_history_lines(
-    terminal: &mut DefaultTerminal, lines: &[Line<'static>], width: u16, viewport_top: u16,
-) -> io::Result<()> {
-    if lines.is_empty() || width == 0 || viewport_top == 0 {
-        return Ok(());
-    }
-
-    let backend = terminal.backend_mut();
-    backend.queue(DisableLineWrap)?;
-    for chunk in lines.chunks(viewport_top as usize) {
-        let rows = chunk.len() as u16;
-        write_scroll_region_up(backend, 0, viewport_top, rows)?;
-        let start_row = viewport_top.saturating_sub(rows);
-        for (idx, line) in chunk.iter().enumerate() {
-            backend.queue(MoveTo(0, start_row + idx as u16))?;
-            write_history_line(backend, line, width as usize)?;
-        }
-    }
-    queue!(backend, EnableLineWrap)?;
-    backend.flush()
-}
-
-fn write_scroll_region_up(
-    writer: &mut impl Write, first_row: u16, end_row_exclusive: u16, amount: u16,
-) -> io::Result<()> {
-    if amount == 0 || first_row >= end_row_exclusive {
-        return Ok(());
-    }
-    let first = first_row + 1;
-    let last = end_row_exclusive;
-    write!(writer, "\x1b[{first};{last}r\x1b[{amount}S\x1b[r")
-}
-
-fn write_history_line(writer: &mut impl Write, line: &Line<'static>, width: usize) -> io::Result<()> {
-    let mut used = 0usize;
-    let line_style = line.style;
-    for span in &line.spans {
-        if used >= width {
-            break;
-        }
-        let style = line_style.patch(span.style);
-        let content = span_content_to_width(span, width - used);
-        if !content.is_empty() {
-            used += content.chars().count();
-            writer.queue(PrintStyledContent(style_to_crossterm(style).apply(content)))?;
-        }
-    }
-
-    if used < width {
-        let fill_style = style_to_crossterm(line_style);
-        writer.queue(PrintStyledContent(fill_style.apply(" ".repeat(width - used))))?;
-    }
-    writer.queue(ResetColor)?;
-    Ok(())
-}
-
-fn span_content_to_width(span: &Span<'static>, width: usize) -> String {
-    if width == 0 {
-        return String::new();
-    }
-    span.content.chars().take(width).collect()
-}
-
-fn style_to_crossterm(style: Style) -> ContentStyle {
-    let mut out = ContentStyle::new();
-    out.foreground_color = style.fg.and_then(color_to_crossterm);
-    out.background_color = style.bg.and_then(color_to_crossterm);
-    out.attributes = modifiers_to_crossterm(style.add_modifier);
-    out
-}
-
-fn color_to_crossterm(color: Color) -> Option<CtColor> {
-    Some(match color {
-        Color::Reset => CtColor::Reset,
-        Color::Black => CtColor::Black,
-        Color::Red => CtColor::DarkRed,
-        Color::Green => CtColor::DarkGreen,
-        Color::Yellow => CtColor::DarkYellow,
-        Color::Blue => CtColor::DarkBlue,
-        Color::Magenta => CtColor::DarkMagenta,
-        Color::Cyan => CtColor::DarkCyan,
-        Color::Gray => CtColor::Grey,
-        Color::DarkGray => CtColor::DarkGrey,
-        Color::LightRed => CtColor::Red,
-        Color::LightGreen => CtColor::Green,
-        Color::LightYellow => CtColor::Yellow,
-        Color::LightBlue => CtColor::Blue,
-        Color::LightMagenta => CtColor::Magenta,
-        Color::LightCyan => CtColor::Cyan,
-        Color::White => CtColor::White,
-        Color::Rgb(r, g, b) => CtColor::Rgb { r, g, b },
-        Color::Indexed(i) => CtColor::AnsiValue(i),
-    })
-}
-
-fn modifiers_to_crossterm(modifier: Modifier) -> CtAttributes {
-    let mut attributes = CtAttributes::none();
-    if modifier.contains(Modifier::BOLD) {
-        attributes = attributes.with(CtAttribute::Bold);
-    }
-    if modifier.contains(Modifier::ITALIC) {
-        attributes = attributes.with(CtAttribute::Italic);
-    }
-    if modifier.contains(Modifier::UNDERLINED) {
-        attributes = attributes.with(CtAttribute::Underlined);
-    }
-    if modifier.contains(Modifier::DIM) {
-        attributes = attributes.with(CtAttribute::Dim);
-    }
-    attributes
-}
-
-fn transcript_entry_is_stable(entry: &Entry) -> bool {
-    match entry {
-        Entry::Assistant { streaming, .. } | Entry::Reasoning { streaming, .. } => !streaming,
-        Entry::Tool { status, .. } => *status != ToolStatus::Running,
-        Entry::User { .. } | Entry::Status { .. } | Entry::Error { .. } => true,
     }
 }
 
@@ -942,28 +572,21 @@ mod tests {
     }
 
     #[test]
-    fn write_scroll_region_up_uses_half_open_rows_as_ansi_region() {
-        let mut out = Vec::new();
+    fn clear_resets_direct_renderer_and_purges_terminal() {
+        let cli = Cli::default();
+        let mut app = App::from_cli(&cli);
+        app.session_writer = None;
+        app.transcript.push(app::Entry::User { text: "hello".to_string() });
 
-        write_scroll_region_up(&mut out, 0, 9, 3).expect("write scroll region");
+        let mut live = renderer::region::LiveRegion::new();
+        let mut backend = TerminalBackend::new(Vec::new(), 80, 24);
+        direct_render(&mut backend, &mut live, &app, 80, 24).expect("initial render");
 
-        assert_eq!(String::from_utf8(out).expect("utf8"), "\x1b[1;9r\x1b[3S\x1b[r");
-    }
+        handle_direct_msg(&mut app, Msg::Clear, &mut backend, &mut live).expect("clear");
+        assert!(app.transcript.is_empty());
 
-    #[test]
-    fn write_history_line_pads_to_terminal_width() {
-        let mut out = Vec::new();
-        let mut line = Line::from(vec![Span::styled(
-            "hi",
-            Style::default().fg(Color::Red).bg(Color::Blue),
-        )]);
-        line.style = Style::default().bg(Color::Blue);
-
-        write_history_line(&mut out, &line, 5).expect("write history line");
-
-        let rendered = String::from_utf8(out).expect("utf8");
-        assert!(rendered.contains("hi"));
-        assert!(rendered.contains("   "));
-        assert!(rendered.ends_with("\x1b[0m"));
+        let output = String::from_utf8_lossy(backend.writer());
+        assert!(output.contains("\u{1b}[2J"), "visible screen should be cleared");
+        assert!(output.contains("\u{1b}[3J"), "terminal scrollback should be purged");
     }
 }

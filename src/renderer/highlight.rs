@@ -1,7 +1,5 @@
 //! Renderer-native syntax highlighting using `syntect`.
 
-#![allow(dead_code)]
-
 use std::sync::OnceLock;
 
 use syntect::easy::HighlightLines;
@@ -61,12 +59,6 @@ pub fn highlight_lines(code: &str, lang: Option<&str>) -> Vec<Vec<Span>> {
             Err(_) => vec![Span::plain(line.to_string())],
         })
         .collect()
-}
-
-/// Highlight code with language detected from a file path extension.
-pub fn highlight_code(code: &str, path: Option<&str>) -> Vec<Vec<Span>> {
-    let lang = path.and_then(|p| p.rsplit('.').next());
-    highlight_lines(code, lang)
 }
 
 /// Convert a syntect `Style` into a renderer [`CellStyle`].
@@ -166,12 +158,6 @@ mod tests {
     fn highlight_no_language_produces_plain_spans() {
         let rows = highlight_lines("plain text\nsecond line", None);
         assert_eq!(rows.len(), 2);
-    }
-
-    #[test]
-    fn highlight_code_with_path_detects_extension() {
-        let rows = highlight_code("x = 1", Some("script.py"));
-        assert!(!rows.is_empty());
     }
 
     #[test]

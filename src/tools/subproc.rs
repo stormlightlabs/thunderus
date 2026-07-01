@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use super::Cap;
+use super::MAX_OUTPUT_BYTES;
 
 /// Result of a capped subprocess execution.
 pub struct CommandResult {
@@ -64,7 +64,7 @@ pub fn run_with_timeout(mut cmd: Command, timeout: Duration) -> io::Result<Comma
 }
 
 fn read_capped<R: Read>(mut reader: R) -> Vec<u8> {
-    let cap = Cap::MaxOutputBytes.into();
+    let cap = MAX_OUTPUT_BYTES;
     let mut out = Vec::with_capacity(4096);
     let mut buf = [0u8; 8192];
     loop {

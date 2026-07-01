@@ -24,8 +24,8 @@
 //!   shell-string execution are not exposed by this module — the model provides
 //!   an argv array, never a shell string.
 //! - The command runs via `std::process::Command` argv; no `/bin/sh -c`.
-//! - stdout/stderr bytes are capped at [`Cap::MaxOutputBytes`]; lines truncate
-//!   at [`Cap::MaxLineLen`].
+//! - stdout/stderr bytes are capped at [`MAX_OUTPUT_BYTES`]; lines truncate
+//!   at `MAX_LINE_LEN`.
 //! - Paths are contained to the workspace root.
 
 #[cfg(test)]
@@ -39,7 +39,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use super::{Cap, ToolOutput, path};
+use super::{MAX_OUTPUT_BYTES, TIMEOUT_SECS, ToolOutput, path};
 use crate::app::ToolStatus;
 use crate::utils;
 
@@ -353,7 +353,7 @@ pub struct ShellArgs {
     /// Optional working directory relative to the workspace root.
     /// Defaults to the workspace root.
     pub cwd: Option<PathBuf>,
-    /// Timeout in seconds. Defaults to [`Cap::TimeoutSecs`].
+    /// Timeout in seconds. Defaults to [`TIMEOUT_SECS`].
     pub timeout_secs: Option<u64>,
     /// One-shot or background.
     pub kind: ProcessKind,
@@ -382,8 +382,8 @@ impl ShellArgs {
 ///
 /// stdout/stderr are read on dedicated threads so that a process producing no
 /// output (e.g. `sleep 30`) can still be killed on timeout/cancellation. The
-/// captured output is capped at [`Cap::MaxOutputBytes`] bytes and
-/// [`MAX_OUTPUT_LINES`] lines. Lines longer than [`Cap::MaxLineLen`] chars are
+/// captured output is capped at [`MAX_OUTPUT_BYTES`] bytes and
+/// [`MAX_OUTPUT_LINES`] lines. Lines longer than `MAX_LINE_LEN` chars are
 /// truncated with `...`.
 pub fn run_command(args: &ShellArgs, root: &Path, cancel: &CancelFlag) -> Result<ProcessResult, String> {
     let cwd = resolve_cwd(root, &args.cwd)?;
@@ -396,7 +396,7 @@ pub fn run_command(args: &ShellArgs, root: &Path, cancel: &CancelFlag) -> Result
         .stderr(Stdio::piped())
         .stdin(Stdio::null());
 
-    let timeout = Duration::from_secs(args.timeout_secs.unwrap_or_else(Cap::timeout));
+    let timeout = Duration::from_secs(args.timeout_secs.unwrap_or(TIMEOUT_SECS));
     let start = Instant::now();
 
     let mut child = cmd
@@ -506,7 +506,7 @@ fn resolve_cwd(root: &Path, cwd: &Option<PathBuf>) -> Result<PathBuf, String> {
 /// Read a piped stream to a capped byte buffer. Runs on a dedicated reader
 /// thread so the main thread can still poll try_wait for timeout/cancellation.
 fn read_to_capped_vec<R: Read>(mut stream: R) -> Vec<u8> {
-    let max_bytes: usize = Cap::MaxOutputBytes.into();
+    let max_bytes: usize = MAX_OUTPUT_BYTES;
     let mut buf = Vec::with_capacity(4096);
     let mut chunk = [0u8; 4096];
 

@@ -961,7 +961,7 @@ fn close_prompt_accessory(app: &mut App) {
 
 /// Run fuzzy filter and split results into parallel matches + indices vectors.
 fn split_filter(all_files: &[String], query: &str, limit: usize) -> (Vec<String>, Vec<Vec<usize>>) {
-    let filtered = fuzzy::fuzzy_filter_with_indices(all_files, query, limit);
+    let filtered = fuzzy::fuzzy_filter(all_files, query, limit);
     filtered.into_iter().unzip()
 }
 

@@ -6,26 +6,26 @@
 //! unit-tested. The [`backend`] module is the only place that translates rows
 //! into ANSI escape sequences.
 
-#![allow(unused_imports)]
-
 pub mod backend;
 pub mod cursor;
 pub mod highlight;
 pub mod layout;
 pub mod live;
+pub mod path_display;
 pub mod region;
 pub mod row;
 pub mod style;
 
-pub use backend::{TerminalBackend, enter_raw_mode, leave_raw_mode, terminal_size};
-pub use cursor::prompt_cursor;
-pub use layout::{content_width, pad_row, truncate_spans, wrap_spans, wrap_text};
-pub use row::{Block, CursorCoord, Frame, Row};
-pub use style::{CellStyle, Color, Span};
+pub use backend::{enter_raw_mode, leave_raw_mode, terminal_size};
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::backend::TerminalBackend;
+    use super::cursor;
+    use super::cursor::prompt_cursor;
+    use super::layout::{content_width, wrap_text};
+    use super::row::{CursorCoord, Frame, Row};
+    use super::style::{CellStyle, Color, Span};
 
     /// Build a helper that wraps styled text into padded rows.
     fn padded_rows(text: &str, style: CellStyle, width: usize, pad_style: CellStyle) -> Vec<Row> {
@@ -145,18 +145,19 @@ mod tests {
         let bg = Color::Rgb { r: 30, g: 33, b: 50 };
         let surface = CellStyle::default().bg(bg);
 
-        let mut block = Block::new();
-        block.push(Row::padded(
-            vec![Span::styled("User", CellStyle::new().fg(Color::Blue).bg(bg).bold())],
-            40,
-            surface,
-        ));
-        block.push(Row::padded(
-            vec![Span::styled("hello there", CellStyle::default().bg(bg))],
-            40,
-            surface,
-        ));
-        frame.push_block(block);
+        let rows = vec![
+            Row::padded(
+                vec![Span::styled("User", CellStyle::new().fg(Color::Blue).bg(bg).bold())],
+                40,
+                surface,
+            ),
+            Row::padded(
+                vec![Span::styled("hello there", CellStyle::default().bg(bg))],
+                40,
+                surface,
+            ),
+        ];
+        frame.rows.extend(rows);
         insta::assert_snapshot!(frame.render_styled());
     }
 

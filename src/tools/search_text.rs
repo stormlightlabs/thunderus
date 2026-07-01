@@ -2,7 +2,7 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
-use crate::tools::{Cap, SearchMatch, ToolOutput};
+use crate::tools::{SearchMatch, TIMEOUT_SECS, ToolOutput};
 use crate::utils;
 
 /// Search file contents using `rg --json`.
@@ -25,7 +25,7 @@ pub fn exec(
         );
     }
 
-    let timeout = Duration::from_secs(Cap::timeout());
+    let timeout = Duration::from_secs(TIMEOUT_SECS);
 
     let mut cmd = Command::new("rg");
     cmd.arg("--json");
@@ -109,7 +109,7 @@ pub fn parse_rg_json(output: &str) -> Vec<SearchMatch> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{app::ToolStatus, tools::Cap};
+    use crate::{app::ToolStatus, tools::MAX_RESULTS};
 
     #[test]
     fn parse_rg_json_extracts_matches() {
@@ -176,7 +176,7 @@ mod tests {
             Path::new("Cargo.toml"),
             None,
             &[],
-            Cap::MaxResults.into(),
+            MAX_RESULTS,
             0,
             false,
         );
@@ -186,15 +186,7 @@ mod tests {
 
     #[test]
     fn search_text_finds_matches() {
-        let output = exec(
-            "thndrs",
-            Path::new("Cargo.toml"),
-            None,
-            &[],
-            Cap::MaxResults.into(),
-            0,
-            false,
-        );
+        let output = exec("thndrs", Path::new("Cargo.toml"), None, &[], MAX_RESULTS, 0, false);
         assert_eq!(output.status, ToolStatus::Ok);
         assert!(!output.output.is_empty());
         assert!(output.output[0].contains("Cargo.toml"));
@@ -202,7 +194,7 @@ mod tests {
 
     #[test]
     fn search_text_rejects_empty_pattern() {
-        let output = exec("", Path::new("src"), None, &[], Cap::MaxResults.into(), 0, false);
+        let output = exec("", Path::new("src"), None, &[], MAX_RESULTS, 0, false);
         assert_eq!(output.status, ToolStatus::Failed);
         assert_eq!(output.error.as_deref(), Some("missing or empty 'pattern' field"));
     }
@@ -214,7 +206,7 @@ mod tests {
             Path::new("src"),
             None,
             &["rs".to_string()],
-            Cap::MaxResults.into(),
+            MAX_RESULTS,
             0,
             false,
         );
@@ -229,7 +221,7 @@ mod tests {
             Path::new("src/tools/search_text.rs"),
             None,
             &[],
-            Cap::MaxResults.into(),
+            MAX_RESULTS,
             1,
             false,
         );

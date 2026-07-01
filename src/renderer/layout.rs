@@ -4,9 +4,8 @@
 //! types. They are the single source of truth for wrapping, padding, and
 //! truncation so that cursor placement and snapshots stay deterministic.
 
-#![allow(dead_code)]
-
 use super::style::{CellStyle, Span};
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 /// Maximum width usable for body content inside a padded block.
 ///
@@ -32,23 +31,27 @@ pub fn wrap_text(text: &str, width: usize) -> Vec<String> {
         }
 
         let mut current = String::new();
+        let mut current_width = 0usize;
         for word in raw_line.split_whitespace() {
-            let word_len = word.chars().count();
-            let current_len = current.chars().count();
+            let word_len = display_width(word);
 
-            if current_len == 0 {
+            if current_width == 0 {
                 if word_len <= width {
                     current.push_str(word);
+                    current_width = word_len;
                 } else {
                     rows.extend(split_long_word(word, width));
                 }
-            } else if current_len + 1 + word_len <= width {
+            } else if current_width + 1 + word_len <= width {
                 current.push(' ');
                 current.push_str(word);
+                current_width += 1 + word_len;
             } else {
                 rows.push(std::mem::take(&mut current));
+                current_width = 0;
                 if word_len <= width {
                     current.push_str(word);
+                    current_width = word_len;
                 } else {
                     rows.extend(split_long_word(word, width));
                 }
@@ -67,11 +70,15 @@ pub fn wrap_text(text: &str, width: usize) -> Vec<String> {
 fn split_long_word(word: &str, width: usize) -> Vec<String> {
     let mut chunks = Vec::new();
     let mut current = String::new();
+    let mut current_width = 0usize;
     for ch in word.chars() {
-        if current.chars().count() == width {
+        let ch_width = char_width(ch);
+        if current_width > 0 && current_width + ch_width > width {
             chunks.push(std::mem::take(&mut current));
+            current_width = 0;
         }
         current.push(ch);
+        current_width += ch_width;
     }
     if !current.is_empty() {
         chunks.push(current);
@@ -93,25 +100,14 @@ pub fn wrap_spans(spans: &[Span], width: usize) -> Vec<Vec<Span>> {
     let mut current_width = 0usize;
 
     for span in spans {
-        if let Some(last) = current.last_mut()
-            && last.style == span.style
-            && !span.text.contains('\n')
-        {
-            last.text.push_str(&span.text);
-            current_width += span.text.chars().count();
-            if current_width >= width {
-                flush_wrapped_row(&mut rows, &mut current, &mut current_width, width);
-            }
-            continue;
-        }
-
         for ch in span.text.chars() {
             if ch == '\n' {
                 rows.push(std::mem::take(&mut current));
                 current_width = 0;
                 continue;
             }
-            if current_width == width {
+            let ch_width = char_width(ch);
+            if current_width > 0 && current_width + ch_width > width {
                 rows.push(std::mem::take(&mut current));
                 current_width = 0;
             }
@@ -122,7 +118,7 @@ pub fn wrap_spans(spans: &[Span], width: usize) -> Vec<Vec<Span>> {
             } else {
                 current.push(Span { text: ch.to_string(), style: span.style });
             }
-            current_width += 1;
+            current_width += ch_width;
         }
     }
 
@@ -130,44 +126,6 @@ pub fn wrap_spans(spans: &[Span], width: usize) -> Vec<Vec<Span>> {
         rows.push(current);
     }
     rows
-}
-
-/// Move completed content from `current` into `rows`, splitting a span that
-/// overflows `width` so the remainder starts the next row.
-fn flush_wrapped_row(rows: &mut Vec<Vec<Span>>, current: &mut Vec<Span>, current_width: &mut usize, width: usize) {
-    let mut working = std::mem::take(current);
-    *current_width = 0;
-
-    while working_width(&working) > width {
-        let mut row = Vec::new();
-        let mut row_width = 0usize;
-
-        while !working.is_empty() {
-            let span = working.first_mut().unwrap();
-            let span_len = span.text.chars().count();
-            let remaining = width - row_width;
-            if span_len <= remaining {
-                row_width += span_len;
-                row.push(working.remove(0));
-            } else {
-                let taken: String = span.text.chars().take(remaining).collect();
-                let rest: String = span.text.chars().skip(remaining).collect();
-                row.push(Span { text: taken, style: span.style });
-                span.text = rest;
-                break;
-            }
-        }
-        rows.push(row);
-    }
-
-    if !working.is_empty() {
-        *current_width = working_width(&working);
-        *current = working;
-    }
-}
-
-fn working_width(spans: &[Span]) -> usize {
-    spans.iter().map(|s| s.text.chars().count()).sum()
 }
 
 /// Left-pad a row's spans with `count` cells using `pad_style`.
@@ -193,8 +151,9 @@ pub fn pad_right(spans: Vec<Span>, count: usize, pad_style: CellStyle) -> Vec<Sp
 
 /// Pad a row on both sides to reach exactly `width` columns.
 ///
-/// Left pad is `min(2)`, right pad absorbs the remainder. Matches the existing
-/// transcript block padding so rows align with `ui::transcript::block_line`.
+/// Left pad is `min(2)`, right pad absorbs the remainder. Matches the
+/// renderer's transcript block padding so committed rows align with the live
+/// region.
 pub fn pad_row(spans: Vec<Span>, width: usize, pad_style: CellStyle) -> Vec<Span> {
     if width == 0 {
         return Vec::new();
@@ -216,49 +175,54 @@ pub fn pad_row(spans: Vec<Span>, width: usize, pad_style: CellStyle) -> Vec<Span
 ///
 /// The ellipsis occupies one column, so the maximum retained content is
 /// `width - 1` when truncation occurs.
+#[cfg(test)]
 pub fn truncate_spans(spans: &[Span], width: usize, ellipsis_style: CellStyle) -> Vec<Span> {
     if width == 0 {
         return Vec::new();
     }
+    if spans_width(spans) <= width {
+        return spans.to_vec();
+    }
+
+    let keep_width = width.saturating_sub(1);
     let mut out = Vec::new();
     let mut used = 0usize;
 
     for span in spans {
-        if used >= width {
+        if used >= keep_width {
             break;
         }
-        let span_len = span.text.chars().count();
-        let remaining = width - used;
-        if span_len <= remaining {
-            used += span_len;
-            out.push(span.clone());
-        } else {
-            let taken: String = span.text.chars().take(remaining).collect();
-            out.push(Span { text: taken, style: span.style });
-            break;
-        }
-    }
-
-    let original: usize = spans_width(spans);
-    if original > width && width > 0 {
-        if let Some(last) = out.last_mut() {
-            let last_len = last.text.chars().count();
-            if last_len > 1 {
-                let kept: String = last.text.chars().take(last_len - 1).collect();
-                last.text = kept;
-            } else {
-                out.pop();
+        let mut taken = String::new();
+        for ch in span.text.chars() {
+            let ch_width = char_width(ch);
+            if used + ch_width > keep_width {
+                break;
             }
+            taken.push(ch);
+            used += ch_width;
         }
-        out.push(Span::styled("…".to_string(), ellipsis_style));
+        if !taken.is_empty() {
+            out.push(Span { text: taken, style: span.style });
+        }
     }
 
+    out.push(Span::styled("…".to_string(), ellipsis_style));
     out
 }
 
 /// Width (column count) of a span slice.
 pub fn spans_width(spans: &[Span]) -> usize {
-    spans.iter().map(|s| s.text.chars().count()).sum()
+    spans.iter().map(|s| display_width(&s.text)).sum()
+}
+
+/// Display width of a string in terminal columns.
+pub fn display_width(text: &str) -> usize {
+    UnicodeWidthStr::width(text)
+}
+
+/// Display width of one character in terminal columns.
+pub fn char_width(ch: char) -> usize {
+    UnicodeWidthChar::width(ch).unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -299,6 +263,12 @@ mod tests {
     }
 
     #[test]
+    fn wrap_text_uses_display_width() {
+        let rows = wrap_text("ab中cd", 4);
+        assert_eq!(rows, vec!["ab中", "cd"]);
+    }
+
+    #[test]
     fn wrap_spans_preserves_styles() {
         let spans = vec![
             Span::styled("red", CellStyle::new().fg(Color::Red)),
@@ -333,6 +303,15 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0][0].text, "abc");
         assert_eq!(rows[1][0].text, "def");
+    }
+
+    #[test]
+    fn wrap_spans_uses_display_width() {
+        let spans = vec![Span::plain("a中b")];
+        let rows = wrap_spans(&spans, 3);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0][0].text, "a中");
+        assert_eq!(rows[1][0].text, "b");
     }
 
     #[test]

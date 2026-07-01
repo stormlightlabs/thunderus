@@ -8,8 +8,8 @@ project guidance, and safely inspecting a repository.
 
 ## Implemented
 
-- Inline Ratatui prompt/status shell with transcript entries emitted into
-  terminal scrollback.
+- Direct terminal renderer with transcript entries emitted into native
+  terminal scrollback and only the live prompt/status region redrawn.
 - Clap-based CLI with model, workspace, web-search, tick-rate, terminal, and
   prompt-inspection options.
 - Umans provider support for `umans-coder` and `umans-glm-5.2`.
@@ -19,7 +19,7 @@ project guidance, and safely inspecting a repository.
   reads.
 - Native, Exa, and disabled web-search modes.
 - Prompt assembly via a structured prompt bundle before provider lowering.
-- Unit tests and Ratatui snapshot tests.
+- Unit tests and renderer row-model/backend snapshot tests.
 
 ## Coming Soon
 

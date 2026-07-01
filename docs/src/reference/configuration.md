@@ -12,7 +12,7 @@ Current user-controlled settings:
 - `--verbose`: diagnostic transcript rows.
 - `--theme`: UI color theme.
 - `--mouse` / `--no-mouse`: terminal mouse capture.
-- `--no-alt-screen`: draw inline instead of using the alternate screen.
+- `--no-alt-screen`: compatibility no-op; inline direct rendering is always used.
 - `--print-prompt`: inspect prompt assembly without contacting the provider.
 
 Secrets are read from environment variables, not config examples. See

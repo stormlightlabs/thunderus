@@ -1,36 +1,28 @@
 //! Live region row builders for the direct renderer.
 //!
-//! The live region is redrawn each tick. Committed transcript content is
-//! printed into native scrollback separately by [`super::region::LiveRegion`].
+//! The live chrome is rebuilt each tick and composed into the full viewport by
+//! [`super::region::LiveRegion`].
 
-#![allow(dead_code)]
-
-use crate::app::{App, Entry, Mode, PromptAccessory, PromptState, RunState, ToolStatus};
+use crate::app::{App, Mode, PromptAccessory, PromptState, RunState};
 use crate::renderer::cursor::{prompt_cursor, prompt_rows};
-use crate::renderer::layout::{content_width, truncate_spans, wrap_text};
 use crate::renderer::row::{CursorCoord, Row};
+use crate::renderer::style as renderer_style;
 use crate::renderer::style::{CellStyle, Color, Span};
-use crate::ui::style as ui_style;
-use crate::utils;
 
 /// Build the dynamic status row: session id + status icon + queue info.
 ///
 /// Sits above the prompt input in the live region.
 pub fn dynamic_status_row(app: &App, width: usize) -> Row {
-    let p = ui_style::palette();
-    let bg = ratatui_color(p.surface0);
-    let panel_bg = ratatui_color(p.panel_bg);
+    let p = renderer_style::palette();
+    let bg = p.surface0;
 
     let label = app.status_label();
-    let status_color = ratatui_color(ui_style::status_color(label));
-    let icon = ui_style::status_icon(label, app.ui_tick);
+    let status_color = renderer_style::status_color(label);
+    let icon = renderer_style::status_icon(label, app.ui_tick);
     let session = if app.session_id.is_empty() { "thndrs" } else { &app.session_id };
 
     let mut spans = vec![
-        Span::styled(
-            session.to_string(),
-            CellStyle::new().fg(ratatui_color(p.accent)).bg(bg).bold(),
-        ),
+        Span::styled(session.to_string(), CellStyle::new().fg(p.accent).bg(bg).bold()),
         Span::styled("  ", CellStyle::new().bg(bg)),
         Span::styled(format!("{icon} {label}"), CellStyle::new().fg(status_color).bg(bg)),
     ];
@@ -44,11 +36,10 @@ pub fn dynamic_status_row(app: &App, width: usize) -> Row {
                 app.queued_steering.len(),
                 app.queued_followups.len()
             ),
-            CellStyle::new().fg(ratatui_color(p.subtext0)).bg(bg),
+            CellStyle::new().fg(p.subtext0).bg(bg),
         ));
     }
 
-    let _ = panel_bg;
     Row::padded(spans, width, bg_style(bg))
 }
 
@@ -56,16 +47,16 @@ pub fn dynamic_status_row(app: &App, width: usize) -> Row {
 ///
 /// Returns the rows and the cursor coordinate (relative to the first row).
 pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord>) {
-    let p = ui_style::palette();
-    let surface = ratatui_color(p.surface0);
+    let p = renderer_style::palette();
+    let surface = p.surface0;
     let prompt_state = app.prompt_state();
 
     let (prompt_color, show_input, icon) = match prompt_state {
-        PromptState::Editable => (ratatui_color(p.yellow), true, "›"),
-        PromptState::Submitted => (ratatui_color(p.yellow), false, "·"),
-        PromptState::Streaming | PromptState::RunningTool => (ratatui_color(p.teal), true, "›"),
-        PromptState::Stopped => (ratatui_color(p.teal), true, "○"),
-        PromptState::Errored => (ratatui_color(p.red), true, "✕"),
+        PromptState::Editable => (p.yellow, true, "›"),
+        PromptState::Submitted => (p.yellow, false, "·"),
+        PromptState::Streaming | PromptState::RunningTool => (p.teal, true, "›"),
+        PromptState::Stopped => (p.teal, true, "○"),
+        PromptState::Errored => (p.red, true, "✕"),
     };
 
     let indent = prompt_prefix_width(app);
@@ -76,10 +67,7 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
     if !show_input {
         let spans = vec![
             Span::styled(icon, CellStyle::new().fg(prompt_color).bg(surface)),
-            Span::styled(
-                "  submitted",
-                CellStyle::new().fg(ratatui_color(p.overlay0)).bg(surface),
-            ),
+            Span::styled("  submitted", CellStyle::new().fg(p.overlay0).bg(surface)),
         ];
         return (
             vec![Row::padded(spans, width, bg_style(surface))],
@@ -90,8 +78,8 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
     let visual_rows = prompt_rows(input_text, body_width);
     let cursor = prompt_cursor(input_text, cursor_pos, body_width, indent);
 
-    let text_style = CellStyle::new().fg(ratatui_color(p.text)).bg(surface);
-    let mention_style = CellStyle::new().fg(ratatui_color(p.accent)).bg(surface).bold();
+    let text_style = CellStyle::new().fg(p.text).bg(surface);
+    let mention_style = CellStyle::new().fg(p.accent).bg(surface).bold();
 
     let mut rows = Vec::with_capacity(visual_rows.len());
     for (idx, line) in visual_rows.into_iter().enumerate() {
@@ -101,10 +89,7 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
                 Span::styled("  ", CellStyle::new().bg(surface)),
             ];
             if app.mode == Mode::Command {
-                s.push(Span::styled(
-                    ":",
-                    CellStyle::new().fg(ratatui_color(p.accent)).bg(surface),
-                ));
+                s.push(Span::styled(":", CellStyle::new().fg(p.accent).bg(surface)));
             }
             s
         } else {
@@ -123,10 +108,7 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
             Span::styled("  ", CellStyle::new().bg(surface)),
         ];
         if app.mode == Mode::Command {
-            spans.push(Span::styled(
-                ":",
-                CellStyle::new().fg(ratatui_color(p.accent)).bg(surface),
-            ));
+            spans.push(Span::styled(":", CellStyle::new().fg(p.accent).bg(surface)));
         }
         rows.push(Row::padded(spans, width, bg_style(surface)));
     }
@@ -154,16 +136,15 @@ pub fn accessory_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
 ///
 /// Width-aware clipping hides segments that don't fit.
 pub fn static_status_row(app: &App, width: usize) -> Row {
-    let p = ui_style::palette();
-    let bg = ratatui_color(p.surface0);
-    let subtext = CellStyle::new().fg(ratatui_color(p.subtext0)).bg(bg);
-    let muted = CellStyle::new().fg(ratatui_color(p.overlay0)).bg(bg);
-    let _sep = CellStyle::new().bg(bg);
-
+    let p = renderer_style::palette();
+    let bg = p.surface0;
+    let subtext = CellStyle::new().fg(p.subtext0).bg(bg);
+    let muted = CellStyle::new().fg(p.overlay0).bg(bg);
     let model_label = format!("model: {}", app.model);
     let search_label = app.websearch.label();
     let search_text = format!("search: {search_label}");
     let token_text = format!("tok: ↑{} ↓{}", app.session_tokens_in, app.session_tokens_out);
+    let token_style = CellStyle::new().fg(p.peach).bg(bg);
 
     let (show_model, show_search, show_tokens, show_cwd) = match width {
         w if w < 24 => (false, false, false, false),
@@ -187,150 +168,17 @@ pub fn static_status_row(app: &App, width: usize) -> Row {
     }
     if show_tokens {
         spans.push(Span::styled("   ", CellStyle::new().bg(bg)));
-        spans.push(Span::styled(token_text, subtext));
+        spans.push(Span::styled(token_text, token_style));
     }
     if show_cwd {
         spans.push(Span::styled("   ", CellStyle::new().bg(bg)));
         let used =
             model_len + if show_search { search_len + 3 } else { 0 } + if show_tokens { token_len + 3 } else { 0 } + 6;
-        let cwd_display = crate::ui::path_display::footer_segment(&app.cwd, width, used);
+        let cwd_display = crate::renderer::path_display::footer_segment(&app.cwd, width, used);
         spans.push(Span::styled(cwd_display, muted));
     }
 
     Row::padded(spans, width, bg_style(bg))
-}
-
-/// Build the active streaming block rows for the live region.
-///
-/// When the last transcript entry is still streaming (assistant/reasoning) or
-/// a tool is running, those rows appear at the top of the live region above
-/// the dynamic status.
-pub fn active_streaming_rows(app: &App, width: usize) -> Vec<Row> {
-    let Some(last) = app.transcript.last() else {
-        return Vec::new();
-    };
-
-    let is_live = match last {
-        Entry::Assistant { streaming, .. } | Entry::Reasoning { streaming, .. } => *streaming,
-        Entry::Tool { status, .. } => *status == ToolStatus::Running,
-        _ => false,
-    };
-
-    if !is_live {
-        return Vec::new();
-    }
-
-    let p = ui_style::palette();
-    let bg = ratatui_color(p.surface0);
-    let body_width = content_width(width);
-
-    match last {
-        Entry::Assistant { text, .. } => {
-            let label_style = CellStyle::new().fg(ratatui_color(p.green)).bg(bg).bold();
-            let text_style = CellStyle::new().fg(ratatui_color(p.text)).bg(bg);
-            build_text_block_rows("Assistant", label_style, text_style, text, width, body_width, bg)
-        }
-        Entry::Reasoning { text, streaming } => {
-            let icon = if *streaming { "·" } else { "✓" };
-            let label = format!("Thinking {icon}");
-            let label_style = CellStyle::new().fg(ratatui_color(p.mauve)).bg(bg).bold();
-            let text_style = CellStyle::new().fg(ratatui_color(p.subtext0)).bg(bg).italic();
-            build_text_block_rows(&label, label_style, text_style, text, width, body_width, bg)
-        }
-        Entry::Tool { name, arguments, status, output } => {
-            let (status_label, status_color, icon) = match status {
-                ToolStatus::Running => ("running", ratatui_color(p.yellow), "·"),
-                ToolStatus::Ok => ("ok", ratatui_color(p.green), "✓"),
-                ToolStatus::Failed => ("failed", ratatui_color(p.red), "✕"),
-            };
-            let header_style = CellStyle::new().fg(ratatui_color(p.text)).bg(bg).bold();
-            let status_style = CellStyle::new().fg(status_color).bg(bg);
-            let muted_style = CellStyle::new().fg(ratatui_color(p.subtext0)).bg(bg);
-            let gutter_style = CellStyle::new().fg(ratatui_color(p.overlay0)).bg(bg);
-
-            let mut rows = vec![Row::blank(width, bg_style(bg))];
-            let mut header_spans = vec![
-                Span::styled(format!("{icon} "), status_style),
-                Span::styled(name.to_string(), header_style),
-                Span::styled(format!(" [{status_label}]"), status_style),
-            ];
-
-            let args_summary = summarize_args(arguments);
-            if !args_summary.is_empty() {
-                header_spans.push(Span::styled("  ", CellStyle::new().bg(bg)));
-                header_spans.push(Span::styled(args_summary, muted_style));
-            }
-            rows.push(Row::padded(header_spans, width, bg_style(bg)));
-
-            let base_name = name.split('#').next().unwrap_or(name);
-            let lang = crate::renderer::highlight::tool_output_language(base_name, arguments);
-            let max_lines = 4;
-            match lang {
-                Some(lang_str) => {
-                    let joined: String = output.iter().take(max_lines).map(|l| format!("{l}\n")).collect();
-                    let highlighted = crate::renderer::highlight::highlight_lines(&joined, Some(lang_str));
-                    for hl_row in highlighted {
-                        let mut spans = vec![Span::styled("   │ ", gutter_style)];
-                        spans.extend(hl_row.into_iter().map(|s| Span { text: s.text, style: s.style.bg(bg) }));
-                        rows.push(Row::padded(spans, width, bg_style(bg)));
-                    }
-                }
-                None => {
-                    for line in output.iter().take(max_lines) {
-                        let content_style = CellStyle::new().fg(ratatui_color(p.subtext0)).bg(bg);
-                        for wrapped in crate::renderer::layout::wrap_text(line, body_width.saturating_sub(5)) {
-                            let spans = vec![
-                                Span::styled("   │ ", gutter_style),
-                                Span::styled(wrapped, content_style),
-                            ];
-                            rows.push(Row::padded(spans, width, bg_style(bg)));
-                        }
-                    }
-                }
-            }
-
-            if output.len() > max_lines {
-                rows.push(Row::padded(
-                    vec![Span::styled(
-                        format!("   │ …({} more lines)", output.len() - max_lines),
-                        muted_style,
-                    )],
-                    width,
-                    bg_style(bg),
-                ));
-            }
-
-            rows.push(Row::blank(width, bg_style(bg)));
-            rows
-        }
-        _ => Vec::new(),
-    }
-}
-
-/// Produce a short summary of tool arguments.
-fn summarize_args(arguments: &str) -> String {
-    let trimmed = arguments.trim();
-    if trimmed.is_empty() || trimmed == "{}" {
-        return String::new();
-    }
-    let v: serde_json::Value = match serde_json::from_str(trimmed) {
-        Ok(v) => v,
-        Err(_) => return crate::utils::truncate_ellipsis(trimmed, 40),
-    };
-    let Some(obj) = v.as_object() else {
-        return crate::utils::truncate_ellipsis(trimmed, 40);
-    };
-    for key in &["pattern", "path", "query", "root", "glob", "file", "program", "url"] {
-        if let Some(val) = obj.get(*key).and_then(|f| f.as_str()) {
-            return format!("{}: {}", key, utils::truncate_ellipsis(val, 30));
-        }
-    }
-    for (k, val) in obj {
-        if let Some(s) = val.as_str() {
-            return format!("{k}: {}", utils::truncate_ellipsis(s, 30));
-        }
-    }
-    utils::truncate_ellipsis(trimmed, 40)
 }
 
 /// Build a [`CellStyle`] with only a background color (for padding/fill).
@@ -338,47 +186,20 @@ fn bg_style(color: Color) -> CellStyle {
     CellStyle::new().bg(color)
 }
 
-/// Map a Ratatui [`ratatui::style::Color`] to a renderer [`Color`].
-fn ratatui_color(c: ratatui::style::Color) -> Color {
-    match c {
-        ratatui::style::Color::Reset => Color::Reset,
-        ratatui::style::Color::Black => Color::Black,
-        ratatui::style::Color::Red => Color::DarkRed,
-        ratatui::style::Color::Green => Color::DarkGreen,
-        ratatui::style::Color::Yellow => Color::DarkYellow,
-        ratatui::style::Color::Blue => Color::DarkBlue,
-        ratatui::style::Color::Magenta => Color::DarkMagenta,
-        ratatui::style::Color::Cyan => Color::DarkCyan,
-        ratatui::style::Color::Gray => Color::Grey,
-        ratatui::style::Color::DarkGray => Color::DarkGrey,
-        ratatui::style::Color::LightRed => Color::Red,
-        ratatui::style::Color::LightGreen => Color::Green,
-        ratatui::style::Color::LightYellow => Color::Yellow,
-        ratatui::style::Color::LightBlue => Color::Blue,
-        ratatui::style::Color::LightMagenta => Color::Magenta,
-        ratatui::style::Color::LightCyan => Color::Cyan,
-        ratatui::style::Color::White => Color::White,
-        ratatui::style::Color::Rgb(r, g, b) => Color::Rgb { r, g, b },
-        ratatui::style::Color::Indexed(i) => {
-            Color::Rgb { r: ((i >> 5) & 0x7) * 36, g: ((i >> 2) & 0x7) * 36, b: (i & 0x3) * 85 }
-        }
-    }
-}
-
 fn prompt_prefix_width(app: &App) -> usize {
     if app.mode == Mode::Command { 4 } else { 3 }
 }
 
 fn command_rows(app: &App, selected: usize, width: usize, max_height: usize) -> Vec<Row> {
-    let p = ui_style::palette();
-    let bg = ratatui_color(p.surface0);
+    let p = renderer_style::palette();
+    let bg = p.surface0;
     let commands = crate::app::command_suggestions_for_app(app);
 
     if commands.is_empty() {
         return vec![Row::padded(
             vec![Span::styled(
                 "no matching commands",
-                CellStyle::new().fg(ratatui_color(p.overlay0)).bg(bg),
+                CellStyle::new().fg(p.overlay0).bg(bg),
             )],
             width,
             bg_style(bg),
@@ -391,25 +212,23 @@ fn command_rows(app: &App, selected: usize, width: usize, max_height: usize) -> 
         .take(max_height)
         .map(|(i, (cmd, desc))| {
             let is_selected = i == selected;
+            let row_bg = if is_selected { p.surface1 } else { bg };
             let marker = if is_selected { "›" } else { " " };
-            let marker_style = if is_selected {
-                CellStyle::new().fg(ratatui_color(p.yellow)).bg(bg).bold()
-            } else {
-                CellStyle::new().bg(bg)
-            };
+            let marker_style =
+                if is_selected { CellStyle::new().fg(p.peach).bg(row_bg).bold() } else { CellStyle::new().bg(bg) };
             let cmd_style = if is_selected {
-                CellStyle::new().fg(ratatui_color(p.text)).bg(bg).bold()
+                CellStyle::new().fg(p.text).bg(row_bg).bold()
             } else {
-                CellStyle::new().fg(ratatui_color(p.subtext0)).bg(bg)
+                CellStyle::new().fg(p.subtext0).bg(bg)
             };
-            let desc_style = CellStyle::new().fg(ratatui_color(p.overlay0)).bg(bg);
+            let desc_style = CellStyle::new().fg(p.overlay0).bg(row_bg);
             let spans = vec![
                 Span::styled(marker, marker_style),
-                Span::styled(" ", CellStyle::new().bg(bg)),
+                Span::styled(" ", CellStyle::new().bg(row_bg)),
                 Span::styled(cmd.to_string(), cmd_style),
                 Span::styled(format!("  {desc}"), desc_style),
             ];
-            Row::padded(spans, width, bg_style(bg))
+            Row::padded(spans, width, bg_style(row_bg))
         })
         .collect()
 }
@@ -470,15 +289,15 @@ fn is_mention_char(ch: char) -> bool {
 /// Renders: query header, match list with selection marker + fuzzy highlight
 /// indices + long path clipping, "no matches" row, and footer hints.
 fn file_picker_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
-    let p = ui_style::palette();
-    let bg = ratatui_color(p.surface0);
-    let surface1 = ratatui_color(p.surface1);
-    let label_style = CellStyle::new().fg(ratatui_color(p.accent)).bg(bg).bold();
-    let muted_style = CellStyle::new().fg(ratatui_color(p.overlay0)).bg(bg);
-    let text_style = CellStyle::new().fg(ratatui_color(p.text)).bg(bg);
-    let highlight_style = CellStyle::new().fg(ratatui_color(p.accent)).bg(bg).bold();
-    let selected_style = CellStyle::new().fg(ratatui_color(p.text)).bg(surface1).bold();
-    let selected_marker_style = CellStyle::new().fg(ratatui_color(p.yellow)).bg(surface1).bold();
+    let p = renderer_style::palette();
+    let bg = p.surface0;
+    let surface1 = p.surface1;
+    let label_style = CellStyle::new().fg(p.accent).bg(bg).bold();
+    let muted_style = CellStyle::new().fg(p.overlay0).bg(bg);
+    let text_style = CellStyle::new().fg(p.text).bg(bg);
+    let highlight_style = CellStyle::new().fg(p.accent).bg(bg).bold();
+    let selected_style = CellStyle::new().fg(p.text).bg(surface1).bold();
+    let selected_marker_style = CellStyle::new().fg(p.peach).bg(surface1).bold();
 
     let Some(picker) = app.file_picker.as_ref() else {
         return vec![Row::padded(
@@ -600,33 +419,12 @@ fn build_fuzzy_highlight_spans(
     spans
 }
 
-fn build_text_block_rows(
-    label: &str, label_style: CellStyle, text_style: CellStyle, text: &str, width: usize, body_width: usize, bg: Color,
-) -> Vec<Row> {
-    let mut rows = vec![Row::blank(width, bg_style(bg))];
-    rows.push(Row::padded(
-        vec![Span::styled(label.to_string(), label_style)],
-        width,
-        bg_style(bg),
-    ));
-
-    for line in wrap_text(text, body_width) {
-        if line.is_empty() {
-            rows.push(Row::blank(width, bg_style(bg)));
-        } else {
-            rows.push(Row::padded(vec![Span::styled(line, text_style)], width, bg_style(bg)));
-        }
-    }
-    rows.push(Row::blank(width, bg_style(bg)));
-    rows
-}
-
 fn help_rows(width: usize, max_height: usize) -> Vec<Row> {
-    let p = ui_style::palette();
-    let bg = ratatui_color(p.surface0);
-    let label_style = CellStyle::new().fg(ratatui_color(p.accent)).bg(bg).bold();
-    let desc_style = CellStyle::new().fg(ratatui_color(p.subtext0)).bg(bg);
-    let section_style = CellStyle::new().fg(ratatui_color(p.overlay1)).bg(bg).bold();
+    let p = renderer_style::palette();
+    let bg = p.surface0;
+    let label_style = CellStyle::new().fg(p.accent).bg(bg).bold();
+    let desc_style = CellStyle::new().fg(p.subtext0).bg(bg);
+    let section_style = CellStyle::new().fg(p.overlay1).bg(bg).bold();
 
     let entries: &[(&str, &str)] = &[
         ("── Navigation ──", ""),
@@ -667,8 +465,9 @@ fn help_rows(width: usize, max_height: usize) -> Vec<Row> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::{App, Entry, Mode, RunState, ToolStatus};
+    use crate::app::{App, Mode, RunState};
     use crate::cli::{Cli, Theme, WebSearchMode};
+    use crate::renderer::layout::truncate_spans;
     use std::path::PathBuf;
 
     fn test_app() -> App {
@@ -805,56 +604,6 @@ mod tests {
         assert!(combined.contains("Navigation"), "help should have Navigation section");
         assert!(combined.contains("Enter"), "help should include Enter key");
         assert!(combined.contains("Escape"), "help should include Escape key");
-    }
-
-    #[test]
-    fn active_streaming_rows_empty_when_idle() {
-        let app = test_app();
-        let rows = active_streaming_rows(&app, 80);
-        assert!(rows.is_empty(), "no active streaming when idle");
-    }
-
-    #[test]
-    fn active_streaming_rows_for_streaming_assistant() {
-        let mut app = test_app();
-        app.transcript
-            .push(Entry::Assistant { text: "hello there".to_string(), streaming: true });
-
-        let rows = active_streaming_rows(&app, 80);
-        assert!(!rows.is_empty(), "streaming assistant should produce rows");
-
-        let combined: String = rows.iter().map(|r| r.text()).collect();
-        assert!(combined.contains("Assistant"), "should have assistant label");
-        assert!(combined.contains("hello there"), "should have text");
-    }
-
-    #[test]
-    fn active_streaming_rows_for_running_tool() {
-        let mut app = test_app();
-        app.transcript.push(Entry::Tool {
-            name: "search_text".to_string(),
-            arguments: "{}".to_string(),
-            status: ToolStatus::Running,
-            output: vec![],
-        });
-
-        let rows = active_streaming_rows(&app, 80);
-        assert!(!rows.is_empty());
-
-        let combined: String = rows.iter().map(|r| r.text()).collect();
-        assert!(combined.contains("search_text"), "should show tool name");
-        assert!(combined.contains("running"), "should show running status");
-    }
-
-    #[test]
-    fn ratatui_color_maps_rgb() {
-        let c = ratatui_color(ratatui::style::Color::Rgb(10, 20, 30));
-        assert_eq!(c, Color::Rgb { r: 10, g: 20, b: 30 });
-    }
-
-    #[test]
-    fn ratatui_color_maps_reset() {
-        assert_eq!(ratatui_color(ratatui::style::Color::Reset), Color::Reset);
     }
 
     #[test]

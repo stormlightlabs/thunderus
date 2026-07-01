@@ -30,7 +30,7 @@ struct CliArgs {
     #[arg(long)]
     tick_rate_ms: Option<u64>,
 
-    /// Run without the alternate screen buffer.
+    /// Compatibility no-op; the TUI always renders inline.
     #[arg(long, default_value_t = false)]
     no_alt_screen: bool,
 
@@ -67,7 +67,7 @@ pub struct Cli {
     pub websearch: WebSearchMode,
     /// Event poll interval in milliseconds.
     pub tick_rate_ms: u64,
-    /// Run without the alternate screen buffer.
+    /// Compatibility no-op; the TUI always renders inline.
     pub no_alt_screen: bool,
     /// Disable terminal mouse capture so native selection and scrollback work.
     pub no_mouse: bool,

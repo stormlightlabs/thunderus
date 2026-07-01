@@ -4,7 +4,7 @@
 
 ### Harness, Provider, And Event Loop
 
-- Built the Clap entrypoint, initial Ratatui shell, prompt/transcript flow,
+- Built the Clap entrypoint, initial terminal shell, prompt/transcript flow,
   deterministic fake agent stream, Umans provider client, Anthropic-compatible
   request lowering, streaming `AgentEvent` conversion, shared fake/Umans agent
   loop, cancellation, non-blocking UI updates, and gated live Umans smoke path.
@@ -31,9 +31,9 @@
   syntax-highlighted transcript blocks, tool/error rendering, sidebar/session
   rendering, command/help surfaces, prompt dividers, file-mention suggestions,
   and broad Ratatui snapshots.
-- Switched toward Codex/Pi-style inline scrollback, but the Ratatui-owned shell
-  still proved too fragile for resize, cursor placement, prompt overlays, mouse
-  scrolling, full-width rows, and native terminal scrollback.
+- Replaced the Ratatui-owned shell with a direct renderer after it proved too
+  fragile for resize, cursor placement, prompt overlays, mouse scrolling,
+  full-width rows, and native terminal scrollback.
 
 ### Prompt Input And Keybinds
 
@@ -47,7 +47,7 @@
 
 ## Active Direction
 
-Replace the Ratatui-owned inline shell with a direct renderer:
+The running TUI now uses a direct renderer:
 
 - committed transcript blocks go to native terminal scrollback;
 - only prompt, status, picker/help/suggestions, and active streaming rows are
@@ -131,11 +131,11 @@ See:
 
 ### Milestone 5: Ratatui Migration Cleanup
 
-- [ ] Route the running TUI through the direct renderer.
-- [ ] Remove Ratatui from inline rendering paths.
-- [ ] Keep or delete old Ratatui snapshots deliberately; do not leave duplicate
+- [x] Route the running TUI through the direct renderer.
+- [x] Remove Ratatui from inline rendering paths.
+- [x] Keep or delete old Ratatui snapshots deliberately; do not leave duplicate
       snapshots for dead surfaces.
-- [ ] Replace Ratatui `TestBackend` UI snapshots with row-model and terminal
+- [x] Replace Ratatui `TestBackend` UI snapshots with row-model and terminal
       transcript snapshots.
 
 ## v1 Backlog
@@ -196,28 +196,7 @@ See:
 
 - [ ] Tool call failures should have debuggable logs and more information about
       why in the transcript.
-- [ ] Consider whether the direct renderer should eventually expose a public
-      fixture format for external visual regression tests.
-
-### Keybinds
-
-#### Cursor
-
-| Key        | Desc                       |
-| ---------- | -------------------------- |
-| ctrl+]     | Jump forward to character  |
-| ctrl+alt+] | Jump backward to character |
-
-#### Global
-
-| Key            | Desc                                 |
-| -------------- | ------------------------------------ |
-| ctrl+d, ctrl+d | Quit after double-press confirmation |
-
-#### File Picker
-
-| Key    | Desc                                                 |
-| ------ | ---------------------------------------------------- |
-| @      | Start file mention picker from prompt input          |
-| ctrl+p | Open file picker directly                            |
-| escape | Close picker/help/suggestions before broader actions |
+- [ ] Keybinds should be readline-like
+- [ ] Text should selectable in messages and input
+- [ ] The app should be scrollable
+- [ ] Git status should be in the statusline

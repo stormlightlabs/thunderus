@@ -1,5 +1,6 @@
 use crate::app::Entry;
 use crate::session::{SessionReader, SessionRecord, SessionWriter};
+use crate::tools::MAX_LINE_LEN;
 
 use super::*;
 
@@ -263,7 +264,7 @@ fn run_command_truncates_long_lines() {
     let dir = tempfile::tempdir().expect("temp dir");
     let root = dir.path();
     let cancel = CancelFlag::new();
-    let max_len: usize = Cap::MaxLineLen.into();
+    let max_len: usize = MAX_LINE_LEN;
     let long_line = "x".repeat(max_len + 100);
     let script = format!("printf '{}\\n'", long_line);
     let args = sh(&script);

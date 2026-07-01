@@ -8,5 +8,5 @@
 - `--verbose`: show diagnostic transcript rows such as provider events and log paths.
 - `--theme <eldritch-minimal|iceberg-dark|catppuccin-mocha>`: UI color theme.
 - `--mouse`: enable terminal mouse capture for overlay mouse events.
-- `--no-alt-screen`: draw inline without using the alternate screen. This is the default TUI mode.
+- `--no-alt-screen`: compatibility no-op; the TUI always renders inline without using the alternate screen.
 - `--print-prompt`: print the assembled prompt bundle and exit without calling the provider.

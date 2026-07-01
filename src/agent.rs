@@ -225,7 +225,7 @@ fn run_fake(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
     step();
     if send(
         tx,
-        AgentEvent::ReasoningDelta(String::from("The repo is a Rust + Ratatui harness.")),
+        AgentEvent::ReasoningDelta(String::from("The repo is a Rust terminal coding harness.")),
         cancel,
     )
     .is_none()
@@ -237,7 +237,7 @@ fn run_fake(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
     if handle.config.search_mode != crate::cli::WebSearchMode::None {
         let search_req = ToolUseRequest::new(
             String::from("web_search"),
-            serde_json::json!({ "query": "rust ratatui coding harness" }).to_string(),
+            serde_json::json!({ "query": "rust terminal coding harness" }).to_string(),
             String::from("search-0"),
         );
         let search_id = String::from("search-0");

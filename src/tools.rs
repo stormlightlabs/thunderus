@@ -60,34 +60,14 @@ pub enum ToolBudgetDecision {
     },
 }
 
-/// Caps enforced on tool execution to prevent runaway output.
-pub enum Cap {
-    /// Default maximum number of results from a search or list operation.
-    MaxResults,
-    /// Maximum stdout/stderr bytes captured from a subprocess.
-    MaxOutputBytes,
-    /// Timeout in seconds for subprocess execution.
-    TimeoutSecs,
-    /// Maximum line length before truncation in tool output.
-    MaxLineLen,
-}
-
-impl Cap {
-    pub fn timeout() -> u64 {
-        usize::from(Self::TimeoutSecs) as u64
-    }
-}
-
-impl From<Cap> for usize {
-    fn from(cap: Cap) -> Self {
-        match cap {
-            Cap::MaxResults => 100,
-            Cap::MaxOutputBytes => 65_536,
-            Cap::TimeoutSecs => 10,
-            Cap::MaxLineLen => 512,
-        }
-    }
-}
+/// Default maximum number of results from a search or list operation.
+pub const MAX_RESULTS: usize = 100;
+/// Maximum stdout/stderr bytes captured from a subprocess.
+pub const MAX_OUTPUT_BYTES: usize = 65_536;
+/// Timeout in seconds for subprocess execution.
+pub const TIMEOUT_SECS: u64 = 10;
+/// Maximum line length before truncation in tool output.
+pub const MAX_LINE_LEN: usize = 512;
 
 /// The kind of write operation performed on a file.
 ///
@@ -641,7 +621,7 @@ pub fn dispatch_tool(request: &ToolUseRequest, root: &Path) -> ToolOutput {
                 root,
                 glob: glob.as_deref(),
                 extensions: &extensions,
-                max_results: Cap::MaxResults.into(),
+                max_results: MAX_RESULTS,
                 max_depth: args.get("max_depth").and_then(|v| v.as_u64()).map(|n| n as u32),
                 include_hidden: args.get("include_hidden").and_then(|v| v.as_bool()).unwrap_or(false),
                 follow_symlinks: args.get("follow_symlinks").and_then(|v| v.as_bool()).unwrap_or(false),
@@ -654,7 +634,7 @@ pub fn dispatch_tool(request: &ToolUseRequest, root: &Path) -> ToolOutput {
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string())
                 .as_deref(),
-            Cap::MaxResults.into(),
+            MAX_RESULTS,
             args.get("include_hidden").and_then(|v| v.as_bool()).unwrap_or(false),
         ),
         "search_text" => {
@@ -675,7 +655,7 @@ pub fn dispatch_tool(request: &ToolUseRequest, root: &Path) -> ToolOutput {
                 root,
                 glob.as_deref(),
                 &extensions,
-                Cap::MaxResults.into(),
+                MAX_RESULTS,
                 args.get("context_lines").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
                 args.get("include_hidden").and_then(|v| v.as_bool()).unwrap_or(false),
             )

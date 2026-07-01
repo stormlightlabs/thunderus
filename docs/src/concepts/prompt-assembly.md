@@ -11,7 +11,8 @@ The rendered prompt uses XML-shaped sections for scanability. See
 
 ## Base Identity
 
-The base identity describes `thndrs` as a concise Rust/Ratatui coding harness.
+The base identity describes `thndrs` as a concise terminal coding assistant
+built in Rust.
 
 ## Harness Policy
 

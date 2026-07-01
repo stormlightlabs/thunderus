@@ -2,7 +2,7 @@
 source: src/renderer/region.rs
 expression: "render_entry_styled(&entry, 80)"
 ---
-│                                                                                   # [bg=#212337]=                                                                                
-│   ⚠ Error                                                                         # [bg=#212337]=   [fg=#f16c75 bg=#212337 b]=⚠ Error [bg=#212337]=                                                                      [bg=#212337]=  
-│   Provider request failed: connection refused                                     # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Provider request failed: connection refused [bg=#212337]=                                  [bg=#212337]=  
-│                                                                                   # [bg=#212337]=
+│                                                                                   # [bg=#171928]=                                                                                
+│   ⚠ Error                                                                         # [bg=#171928]=   [fg=#f16c75 bg=#171928 b]=⚠ Error [bg=#171928]=                                                                      [bg=#171928]=  
+│   Provider request failed: connection refused                                     # [bg=#171928]=   [fg=#ebfafa bg=#171928]=Provider request failed: connection refused [bg=#171928]=                                  [bg=#171928]=  
+│                                                                                   # [bg=#171928]=

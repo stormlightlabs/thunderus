@@ -10,15 +10,15 @@ src
 ├── lib.rs          # Terminal setup and app run loop
 ├── main.rs         # Binary entrypoint
 ├── providers       # Concrete provider clients
+├── renderer        # Row model, live region, backend, highlighting, snapshots
 ├── tools.rs        # Read-only repository tools
-├── ui.rs           # View state, layout computation, render functions, snapshots
-└── ui              # UI style and transcript helpers
+└── session.rs      # Append-only session persistence
 ```
 
 ## App State
 
 The app starts with one `App` struct and plain enums. Shared state stays in
-`App`; rendering details live in `src/ui.rs` and `src/ui/`.
+`App`; rendering details live in `src/renderer/`.
 
 ## Messages
 
@@ -38,8 +38,11 @@ it through the terminal loop.
 
 ## UI Rendering
 
-The UI computes view geometry before drawing. Rendering reads the precomputed
-areas for transcript, prompt, and footer.
+The direct renderer writes stable transcript blocks once into native terminal
+scrollback. The live region redraws only active streaming content, dynamic
+status, prompt input, accessory rows, and static footer status. A renderer-owned
+row model keeps wrapping, padding, styling, and cursor placement testable
+without terminal I/O.
 
 ## Provider Client
 

@@ -4,7 +4,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use super::ToolOutput;
-use crate::tools::Cap;
+use crate::tools::TIMEOUT_SECS;
 use crate::tools::subproc::CommandResult;
 
 /// Parameters for `find_files` execution.
@@ -34,7 +34,7 @@ impl FindFiles<'_> {
             return ToolOutput::failed("find_files", "invalid workspace root".to_string());
         }
 
-        let timeout = Duration::from_secs(Cap::timeout());
+        let timeout = Duration::from_secs(TIMEOUT_SECS);
         let result = if super::subproc::command_exists("fd") {
             FdFind {
                 pattern: self.pattern,
@@ -123,7 +123,7 @@ impl FdFind<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{app::ToolStatus, tools::Cap};
+    use crate::{app::ToolStatus, tools::MAX_RESULTS};
 
     #[test]
     fn find_files_finds_cli_rs() {
@@ -133,7 +133,7 @@ mod tests {
             glob: None,
             extensions: &[],
             max_depth: None,
-            max_results: Cap::MaxResults.into(),
+            max_results: MAX_RESULTS,
             include_hidden: false,
             follow_symlinks: false,
         }
@@ -150,7 +150,7 @@ mod tests {
             glob: None,
             extensions: &[],
             max_depth: None,
-            max_results: Cap::MaxResults.into(),
+            max_results: MAX_RESULTS,
             include_hidden: false,
             follow_symlinks: false,
         }

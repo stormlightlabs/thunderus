@@ -1,60 +1,22 @@
-//! Renderer-native style primitives.
+//! Renderer style primitives.
 //!
-//! These types are intentionally independent of both Ratatui and crossterm so
-//! that wrapping, padding, truncation, cursor calculation, and snapshots can be
-//! unit-tested without any terminal dependency.
-//!
-//! [`Color`] stores RGB values directly.
-
-#![allow(dead_code)]
+//! [`CellStyle`] and [`Span`] are renderer-owned because wrapping, padding,
+//! truncation, cursor calculation, and snapshots operate on them directly.
+//! Color is Crossterm's color type; keeping a separate mirror enum adds
+//! conversion code without buying backend independence today.
 
 use std::fmt;
+use std::sync::atomic::{AtomicU8, Ordering};
 
-/// An RGBA-free terminal color.
-///
-/// RGB is the canonical representation; named variants exist for the 16-color
-/// ANSI palette and reset so styles can map cleanly onto any backend.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
-pub enum Color {
-    /// Transparent / inherited from the surrounding style.
-    #[default]
-    Reset,
-    Black,
-    DarkRed,
-    DarkGreen,
-    DarkYellow,
-    DarkBlue,
-    DarkMagenta,
-    DarkCyan,
-    Grey,
-    DarkGrey,
-    Red,
-    Green,
-    Yellow,
-    Blue,
-    Magenta,
-    Cyan,
-    White,
-    /// 24-bit RGB color.
-    Rgb {
-        r: u8,
-        g: u8,
-        b: u8,
-    },
-}
+pub use crossterm::style::Color;
 
-impl Color {
-    /// Build an RGB color.
-    pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
-        Color::Rgb { r, g, b }
-    }
-}
+use crate::cli::Theme;
 
 /// Style attributes applied to a cell's text and background.
 ///
 /// Mirrors the subset of ANSI attributes `thndrs` uses today: foreground and
 /// background color plus bold, italic, underlined, and dim modifiers.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CellStyle {
     pub fg: Color,
     pub bg: Color,
@@ -62,6 +24,12 @@ pub struct CellStyle {
     pub italic: bool,
     pub underlined: bool,
     pub dim: bool,
+}
+
+impl Default for CellStyle {
+    fn default() -> Self {
+        CellStyle { fg: Color::Reset, bg: Color::Reset, bold: false, italic: false, underlined: false, dim: false }
+    }
 }
 
 impl CellStyle {
@@ -100,34 +68,10 @@ impl CellStyle {
         self
     }
 
-    /// Enable dim.
-    pub const fn dim(mut self) -> Self {
-        self.dim = true;
-        self
-    }
-
     /// Return a copy with the background color changed.
     pub const fn with_bg(mut self, color: Color) -> Self {
         self.bg = color;
         self
-    }
-
-    /// Overlay another style onto this one.
-    ///
-    /// Non-default values from `other` replace the corresponding values in
-    /// `self`. Boolean attributes are OR-ed so a modifier set by either side
-    /// stays set.
-    pub fn patch(self, other: CellStyle) -> CellStyle {
-        let fg = if other.fg != Color::Reset { other.fg } else { self.fg };
-        let bg = if other.bg != Color::Reset { other.bg } else { self.bg };
-        CellStyle {
-            fg,
-            bg,
-            bold: self.bold || other.bold,
-            italic: self.italic || other.italic,
-            underlined: self.underlined || other.underlined,
-            dim: self.dim || other.dim,
-        }
     }
 }
 
@@ -136,6 +80,136 @@ impl CellStyle {
 pub struct Span {
     pub text: String,
     pub style: CellStyle,
+}
+
+/// Theme palette expressed in renderer-native colors.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Palette {
+    pub accent: Color,
+    pub panel_bg: Color,
+    pub surface0: Color,
+    pub surface1: Color,
+    pub surface_dim: Color,
+    pub overlay0: Color,
+    pub overlay1: Color,
+    pub text: Color,
+    pub subtext0: Color,
+    pub mauve: Color,
+    pub green: Color,
+    pub yellow: Color,
+    pub red: Color,
+    pub blue: Color,
+    pub teal: Color,
+    pub peach: Color,
+}
+
+static CURRENT_THEME: AtomicU8 = AtomicU8::new(0);
+
+pub const ICEBERG_DARK: Palette = Palette {
+    accent: Color::Rgb { r: 132, g: 160, b: 198 },
+    panel_bg: Color::Rgb { r: 22, g: 24, b: 33 },
+    surface0: Color::Rgb { r: 30, g: 33, b: 50 },
+    surface1: Color::Rgb { r: 39, g: 44, b: 66 },
+    surface_dim: Color::Rgb { r: 15, g: 17, b: 23 },
+    overlay0: Color::Rgb { r: 68, g: 75, b: 113 },
+    overlay1: Color::Rgb { r: 107, g: 112, b: 137 },
+    text: Color::Rgb { r: 198, g: 200, b: 209 },
+    subtext0: Color::Rgb { r: 129, g: 133, b: 150 },
+    mauve: Color::Rgb { r: 160, g: 147, b: 199 },
+    green: Color::Rgb { r: 180, g: 190, b: 130 },
+    yellow: Color::Rgb { r: 226, g: 164, b: 120 },
+    red: Color::Rgb { r: 226, g: 120, b: 120 },
+    blue: Color::Rgb { r: 132, g: 160, b: 198 },
+    teal: Color::Rgb { r: 137, g: 184, b: 194 },
+    peach: Color::Rgb { r: 226, g: 164, b: 120 },
+};
+
+pub const ELDRITCH_MINIMAL: Palette = Palette {
+    accent: Color::Rgb { r: 55, g: 244, b: 153 },
+    panel_bg: Color::Rgb { r: 23, g: 25, b: 40 },
+    surface0: Color::Rgb { r: 33, g: 35, b: 55 },
+    surface1: Color::Rgb { r: 41, g: 46, b: 66 },
+    surface_dim: Color::Rgb { r: 23, g: 25, b: 40 },
+    overlay0: Color::Rgb { r: 59, g: 66, b: 97 },
+    overlay1: Color::Rgb { r: 100, g: 115, b: 183 },
+    text: Color::Rgb { r: 235, g: 250, b: 250 },
+    subtext0: Color::Rgb { r: 171, g: 180, b: 218 },
+    mauve: Color::Rgb { r: 164, g: 140, b: 242 },
+    green: Color::Rgb { r: 55, g: 244, b: 153 },
+    yellow: Color::Rgb { r: 224, g: 224, b: 224 },
+    red: Color::Rgb { r: 241, g: 108, b: 117 },
+    blue: Color::Rgb { r: 4, g: 209, b: 249 },
+    teal: Color::Rgb { r: 4, g: 209, b: 249 },
+    peach: Color::Rgb { r: 224, g: 224, b: 224 },
+};
+
+pub const CATPPUCCIN_MOCHA: Palette = Palette {
+    accent: Color::Rgb { r: 203, g: 166, b: 247 },
+    panel_bg: Color::Rgb { r: 30, g: 30, b: 46 },
+    surface0: Color::Rgb { r: 49, g: 50, b: 68 },
+    surface1: Color::Rgb { r: 69, g: 71, b: 90 },
+    surface_dim: Color::Rgb { r: 24, g: 24, b: 37 },
+    overlay0: Color::Rgb { r: 108, g: 112, b: 134 },
+    overlay1: Color::Rgb { r: 127, g: 132, b: 156 },
+    text: Color::Rgb { r: 205, g: 214, b: 244 },
+    subtext0: Color::Rgb { r: 166, g: 173, b: 200 },
+    mauve: Color::Rgb { r: 203, g: 166, b: 247 },
+    green: Color::Rgb { r: 166, g: 227, b: 161 },
+    yellow: Color::Rgb { r: 249, g: 226, b: 175 },
+    red: Color::Rgb { r: 243, g: 139, b: 168 },
+    blue: Color::Rgb { r: 137, g: 180, b: 250 },
+    teal: Color::Rgb { r: 148, g: 226, b: 213 },
+    peach: Color::Rgb { r: 250, g: 179, b: 135 },
+};
+
+impl Theme {
+    fn renderer_palette(self) -> Palette {
+        match self {
+            Theme::EldritchMinimal => ELDRITCH_MINIMAL,
+            Theme::IcebergDark => ICEBERG_DARK,
+            Theme::CatppuccinMocha => CATPPUCCIN_MOCHA,
+        }
+    }
+}
+
+pub fn set_theme(theme: Theme) {
+    CURRENT_THEME.store(theme as u8, Ordering::Relaxed);
+}
+
+pub fn palette() -> Palette {
+    match CURRENT_THEME.load(Ordering::Relaxed) {
+        1 => Theme::IcebergDark.renderer_palette(),
+        2 => Theme::CatppuccinMocha.renderer_palette(),
+        _ => Theme::EldritchMinimal.renderer_palette(),
+    }
+}
+
+pub fn status_color(label: &str) -> Color {
+    let p = palette();
+    match label {
+        "idle" => p.overlay0,
+        "done" => p.green,
+        "sending" | "thinking" | "streaming" | "running tool" | "stopping" => p.peach,
+        "cancelled" => p.teal,
+        "failed" => p.red,
+        _ => p.overlay0,
+    }
+}
+
+pub fn status_icon(label: &str, tick: u64) -> &'static str {
+    match label {
+        "sending" | "thinking" | "streaming" | "running tool" | "stopping" => spinner_frame(tick),
+        "done" => "✓",
+        "failed" => "✕",
+        "cancelled" => "○",
+        "idle" => "·",
+        _ => "·",
+    }
+}
+
+pub fn spinner_frame(tick: u64) -> &'static str {
+    const FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+    FRAMES[(tick as usize) % FRAMES.len()]
 }
 
 impl Span {
@@ -147,11 +221,6 @@ impl Span {
     /// Create a styled span.
     pub fn styled(text: impl Into<String>, style: CellStyle) -> Self {
         Span { text: text.into(), style }
-    }
-
-    /// Width in display columns (char count).
-    pub fn width(&self) -> usize {
-        self.text.chars().count()
     }
 }
 
@@ -189,6 +258,7 @@ fn color_debug(color: Color) -> String {
         Color::Cyan => "cyan".to_string(),
         Color::White => "white".to_string(),
         Color::Rgb { r, g, b } => format!("#{r:02x}{g:02x}{b:02x}"),
+        Color::AnsiValue(value) => format!("ansi{value}"),
     }
 }
 
@@ -251,34 +321,10 @@ mod tests {
             .bg(Color::Blue)
             .bold()
             .italic()
-            .underlined()
-            .dim();
+            .underlined();
         assert_eq!(s.fg, Color::Red);
         assert_eq!(s.bg, Color::Blue);
-        assert!(s.bold && s.italic && s.underlined && s.dim);
-    }
-
-    #[test]
-    fn patch_overrides_colors_and_or_attrs() {
-        let base = CellStyle::new().fg(Color::Rgb { r: 1, g: 2, b: 3 }).bold();
-        let over = CellStyle::new().fg(Color::Green).italic();
-        let merged = base.patch(over);
-        assert_eq!(merged.fg, Color::Green);
-        assert!(merged.bold, "bold should be preserved from base");
-        assert!(merged.italic, "italic should be added from over");
-    }
-
-    #[test]
-    fn patch_reset_color_keeps_base() {
-        let base = CellStyle::new().fg(Color::Red);
-        let merged = base.patch(CellStyle::new());
-        assert_eq!(merged.fg, Color::Red);
-    }
-
-    #[test]
-    fn span_width_counts_chars() {
-        let span = Span::plain("héllo");
-        assert_eq!(span.width(), 5);
+        assert!(s.bold && s.italic && s.underlined);
     }
 
     #[test]
@@ -294,7 +340,21 @@ mod tests {
 
     #[test]
     fn display_rgb_color_hex() {
-        let s = CellStyle::new().fg(Color::rgb(0xaa, 0xbb, 0xcc));
+        let s = CellStyle::new().fg(Color::Rgb { r: 0xaa, g: 0xbb, b: 0xcc });
         assert_eq!(s.to_string(), "fg=#aabbcc");
+    }
+
+    #[test]
+    fn spinner_frame_wraps() {
+        assert_eq!(spinner_frame(0), "⠋");
+        assert_eq!(spinner_frame(10), "⠋");
+        assert_eq!(spinner_frame(11), "⠙");
+    }
+
+    #[test]
+    fn theme_selects_palette() {
+        assert_eq!(Theme::IcebergDark.renderer_palette(), ICEBERG_DARK);
+        assert_eq!(Theme::EldritchMinimal.renderer_palette(), ELDRITCH_MINIMAL);
+        assert_eq!(Theme::CatppuccinMocha.renderer_palette(), CATPPUCCIN_MOCHA);
     }
 }

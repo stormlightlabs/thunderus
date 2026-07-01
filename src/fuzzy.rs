@@ -67,19 +67,9 @@ pub fn fuzzy_match(query: &str, text: &str) -> Option<FuzzyMatch> {
     Some(FuzzyMatch { indices, score })
 }
 
-#[allow(dead_code)]
-pub fn fuzzy_filter(items: &[String], query: &str, limit: usize) -> Vec<String> {
-    let mut scored = items
-        .iter()
-        .filter_map(|item| fuzzy_match(query, item).map(|m| (m.score, item)))
-        .collect::<Vec<_>>();
-    scored.sort_by(|(a_score, a_item), (b_score, b_item)| a_score.cmp(b_score).then_with(|| a_item.cmp(b_item)));
-    scored.into_iter().take(limit).map(|(_, item)| item.clone()).collect()
-}
-
-/// Like [`fuzzy_filter`] but also returns the matched character indices for
-/// each result, so the caller can highlight which characters matched.
-pub fn fuzzy_filter_with_indices(items: &[String], query: &str, limit: usize) -> Vec<(String, Vec<usize>)> {
+/// Filter items by fuzzy match, returning each result with matched character
+/// indices so callers can highlight which characters matched.
+pub fn fuzzy_filter(items: &[String], query: &str, limit: usize) -> Vec<(String, Vec<usize>)> {
     let mut scored: Vec<(i32, &String, Vec<usize>)> = items
         .iter()
         .filter_map(|item| fuzzy_match(query, item).map(|m| (m.score, item, m.indices)))
@@ -115,7 +105,7 @@ mod tests {
     }
 
     #[test]
-    fn fuzzy_filter_sorts_best_matches_first() {
+    fn fuzzy_filter_sorts_best_matches_first_and_returns_indices() {
         let items = vec![
             "src/provider/app.rs".to_string(),
             "src/app.rs".to_string(),
@@ -124,7 +114,10 @@ mod tests {
 
         assert_eq!(
             fuzzy_filter(&items, "app", 10),
-            vec!["src/app.rs".to_string(), "src/provider/app.rs".to_string()]
+            vec![
+                ("src/app.rs".to_string(), vec![4, 5, 6]),
+                ("src/provider/app.rs".to_string(), vec![13, 14, 15]),
+            ]
         );
     }
 }

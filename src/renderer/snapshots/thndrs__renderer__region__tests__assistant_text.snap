@@ -2,7 +2,7 @@
 source: src/renderer/region.rs
 expression: "render_entry_styled(&entry, 80)"
 ---
-│                                                                                   # [bg=#212337]=                                                                                
-│   Assistant                                                                       # [bg=#212337]=   [fg=#37f499 bg=#212337 b]=Assistant [bg=#212337]=                                                                    [bg=#212337]=  
-│   Sure! I can help with that. Let me take a look.                                 # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Sure! I can help with that. Let me take a look. [bg=#212337]=                              [bg=#212337]=  
-│                                                                                   # [bg=#212337]=
+│                                                                                   # [bg=#171928]=                                                                                
+│   Assistant                                                                       # [bg=#171928]=   [fg=#37f499 bg=#171928 b]=Assistant [bg=#171928]=                                                                    [bg=#171928]=  
+│   Sure! I can help with that. Let me take a look.                                 # [bg=#171928]=   [fg=#ebfafa bg=#171928]=Sure! I can help with that. Let me take a look. [bg=#171928]=                              [bg=#171928]=  
+│                                                                                   # [bg=#171928]=
