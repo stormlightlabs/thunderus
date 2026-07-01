@@ -1,0 +1,6 @@
+---
+source: src/renderer/mod.rs
+expression: frame.render_styled()
+---
+│   ›  line one                   # [-]=   [fg=yellow]=›   [-]=line one [-]=                [-]=  
+│   ›  line two                   # [-]=   [fg=yellow]=›   [-]=line two [-]=                [-]=

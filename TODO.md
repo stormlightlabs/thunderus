@@ -66,18 +66,18 @@ See:
 
 ### Milestone 1: Row Model And Terminal Backend
 
-- [ ] Add renderer-owned row primitives for spans, styles, rows, blocks, and
+- [x] Add renderer-owned row primitives for spans, styles, rows, blocks, and
       frames.
-- [ ] Add width-aware wrapping, padding, truncation, and ellipsis helpers that
+- [x] Add width-aware wrapping, padding, truncation, and ellipsis helpers that
       do not depend on Ratatui widgets.
-- [ ] Add cursor-coordinate calculation for prompt rows, including explicit
+- [x] Add cursor-coordinate calculation for prompt rows, including explicit
       newlines, wrapped lines, prompt indent, and multibyte text.
-- [ ] Add a crossterm terminal backend for size reads, cursor hide/show,
+- [x] Add a crossterm terminal backend for size reads, cursor hide/show,
       clearing live rows, moving the cursor, writing rows, and cleanup.
-- [ ] Add row-model tests for narrow, normal, and wide widths.
-- [ ] Add prompt cursor tests for single-line, wrapped, multiline, indented, and
+- [x] Add row-model tests for narrow, normal, and wide widths.
+- [x] Add prompt cursor tests for single-line, wrapped, multiline, indented, and
       multibyte input.
-- [ ] Add renderer snapshots that assert styled rows without using Ratatui as
+- [x] Add renderer snapshots that assert styled rows without using Ratatui as
       the layout engine.
 
 ### Milestone 2: Native Scrollback And Live Region
