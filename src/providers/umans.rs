@@ -523,7 +523,8 @@ pub fn parse_sse_event(event_type: &str, data: &str) -> SseEvent {
                         .and_then(|d| d.get("text"))
                         .and_then(|t| t.as_str())
                         .unwrap_or("")
-                        .to_string();
+                        .replace("<think>", "")
+                        .replace("</think>", "");
                     SseEvent::TextDelta(text)
                 }
                 "input_json_delta" => {
@@ -838,6 +839,13 @@ mod tests {
         let data = r#"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}"#;
         let event = parse_sse_event("content_block_delta", data);
         assert_eq!(event, SseEvent::TextDelta("Hello".to_string()));
+    }
+
+    #[test]
+    fn parse_sse_event_text_delta_strips_think_tags() {
+        let data = r#"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"</think>\nDone"}}"#;
+        let event = parse_sse_event("content_block_delta", data);
+        assert_eq!(event, SseEvent::TextDelta("\nDone".to_string()));
     }
 
     #[test]

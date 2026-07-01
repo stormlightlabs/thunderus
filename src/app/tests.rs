@@ -445,6 +445,50 @@ fn reasoning_delta_appends_to_existing_streaming_entry() {
 }
 
 #[test]
+fn assistant_delta_finishes_prior_reasoning_spinner() {
+    let mut app = fresh_app();
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::ReasoningDelta(String::from("Thinking..."))),
+    );
+    update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(String::from("Done."))));
+
+    assert_eq!(
+        app.transcript,
+        vec![
+            Entry::Reasoning { text: String::from("Thinking..."), streaming: false },
+            Entry::Assistant { text: String::from("Done."), streaming: true },
+        ]
+    );
+}
+
+#[test]
+fn tool_started_finishes_prior_reasoning_spinner() {
+    let mut app = fresh_app();
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::ReasoningDelta(String::from("Thinking..."))),
+    );
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::ToolStarted {
+            id: String::from("0"),
+            name: String::from("read_file"),
+            arguments: String::from("{}"),
+        }),
+    );
+
+    assert!(matches!(
+        app.transcript.first(),
+        Some(Entry::Reasoning { streaming: false, .. })
+    ));
+    assert!(matches!(
+        app.transcript.last(),
+        Some(Entry::Tool { status: ToolStatus::Running, .. })
+    ));
+}
+
+#[test]
 fn tool_started_creates_running_tool_entry() {
     let mut app = fresh_app();
     update(

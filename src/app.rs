@@ -744,6 +744,7 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             None
         }
         AgentEvent::AssistantDelta(delta) => {
+            finalize_reasoning(app);
             if let Some(Entry::Assistant { text, streaming: true }) = app.transcript.last_mut() {
                 text.push_str(&delta);
             } else {
@@ -762,6 +763,7 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             None
         }
         AgentEvent::ToolStarted { id, name, arguments } => {
+            finalize_streaming(app);
             app.transcript.push(Entry::Tool {
                 name: format!("{name}#{id}"),
                 arguments: arguments.clone(),
@@ -776,6 +778,7 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             None
         }
         AgentEvent::ToolFinished { id, output, status, write_result, shell_result } => {
+            finalize_streaming(app);
             for entry in app.transcript.iter_mut().rev() {
                 if let Entry::Tool { name, output: out, status: s, .. } = entry
                     && name.ends_with(&format!("#{id}"))
@@ -968,6 +971,16 @@ fn finalize_streaming(app: &mut App) {
             Entry::Assistant { streaming, .. } => *streaming = false,
             Entry::Reasoning { streaming, .. } => *streaming = false,
             _ => {}
+        }
+    }
+}
+
+/// Mark active reasoning entries complete when the model moves on to visible
+/// assistant text or a tool call.
+fn finalize_reasoning(app: &mut App) {
+    for entry in &mut app.transcript {
+        if let Entry::Reasoning { streaming, .. } = entry {
+            *streaming = false;
         }
     }
 }
