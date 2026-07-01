@@ -96,17 +96,17 @@ See:
 
 ### Milestone 3: Message Blocks
 
-- [ ] Render startup/banner content, user prompts, assistant text, reasoning,
+- [x] Render startup/banner content, user prompts, assistant text, reasoning,
       tools, process output, and errors through the same row/block pipeline.
-- [ ] Make colored/background blocks full width with horizontal padding.
-- [ ] Add vertical padding inside visually grouped blocks where it improves
+- [x] Make colored/background blocks full width with horizontal padding.
+- [x] Add vertical padding inside visually grouped blocks where it improves
       readability.
-- [ ] Render labels above message bodies with role-specific colors.
-- [ ] Keep user, assistant, reasoning, tool, process, and error body text
+- [x] Render labels above message bodies with role-specific colors.
+- [x] Keep user, assistant, reasoning, tool, process, and error body text
       aligned after wrapping.
-- [ ] Port syntax highlighting to renderer spans for code fences, diffs,
+- [x] Port syntax highlighting to renderer spans for code fences, diffs,
       snippets, diagnostics, and useful command output.
-- [ ] Add snapshots for startup, narrow startup, user/assistant/reasoning,
+- [x] Add snapshots for startup, narrow startup, user/assistant/reasoning,
       tool output, errors, diffs, Rust compiler output, JSON, and plain prose.
 
 ### Milestone 4: Prompt, Picker, Help, And Mentions
@@ -137,11 +137,6 @@ See:
       snapshots for dead surfaces.
 - [ ] Replace Ratatui `TestBackend` UI snapshots with row-model and terminal
       transcript snapshots.
-- [ ] Audit terminal cleanup on normal exit, error exit, interrupt, panic path,
-      and provider/tool cancellation.
-- [ ] Run `cargo fmt`.
-- [ ] Run `cargo test`.
-- [ ] Run `cargo clippy --all-targets --all-features -- -D warnings`.
 
 ## v1 Backlog
 

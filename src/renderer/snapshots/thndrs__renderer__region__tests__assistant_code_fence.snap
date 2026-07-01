@@ -1,0 +1,12 @@
+---
+source: src/renderer/region.rs
+expression: "render_entry_styled(&entry, 80)"
+---
+│                                                                                   # [bg=#212337]=                                                                                
+│   Assistant                                                                       # [bg=#212337]=   [fg=#37f499 bg=#212337 b]=Assistant [bg=#212337]=                                                                    [bg=#212337]=  
+│   Here is the code:                                                               # [bg=#212337]=   [fg=#ebfafa bg=#212337]=Here is the code: [bg=#212337]=                                                            [bg=#212337]=  
+│                                                                                   # [bg=#212337]=                                                                                
+│      │ fn main() {                                                                # [bg=#212337]=   [fg=#3b4261 bg=#212337]=   │  [fg=#b48ead bg=#212337]=fn [fg=#c0c5ce bg=#212337]=  [fg=#8fa1b3 bg=#212337]=main [fg=#c0c5ce bg=#212337]=( [fg=#c0c5ce bg=#212337]=) [fg=#c0c5ce bg=#212337]=  [fg=#c0c5ce bg=#212337]={ [bg=#212337]=                                                             [bg=#212337]=  
+│      │     println!("hello");                                                     # [bg=#212337]=   [fg=#3b4261 bg=#212337]=   │  [fg=#c0c5ce bg=#212337]=     [fg=#c0c5ce bg=#212337]=println! [fg=#c0c5ce bg=#212337]=( [fg=#c0c5ce bg=#212337]=" [fg=#a3be8c bg=#212337]=hello [fg=#c0c5ce bg=#212337]=" [fg=#c0c5ce bg=#212337]=) [fg=#c0c5ce bg=#212337]=; [bg=#212337]=                                                  [bg=#212337]=  
+│      │ }                                                                          # [bg=#212337]=   [fg=#3b4261 bg=#212337]=   │  [fg=#c0c5ce bg=#212337]=} [bg=#212337]=                                                                       [bg=#212337]=  
+│                                                                                   # [bg=#212337]=

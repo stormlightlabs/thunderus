@@ -1,0 +1,14 @@
+---
+source: src/renderer/region.rs
+expression: "render_entry_styled(&entry, 80)"
+---
+│                                                                                   # [bg=#212337]=                                                                                
+│   ✓ run_shell [ok]  program: ls                                                   # [bg=#212337]=   [fg=#37f499 bg=#212337]=✓  [fg=#ebfafa bg=#212337 b]=run_shell [fg=#37f499 bg=#212337]= [ok] [bg=#212337]=   [fg=#abb4da bg=#212337]=program: ls [bg=#212337]=                                                [bg=#212337]=  
+│      │ file_0.rs                                                                  # [bg=#212337]=   [fg=#3b4261 bg=#212337]=   │  [fg=#8fa1b3 bg=#212337]=file_0.rs [bg=#212337]=                                                               [bg=#212337]=  
+│      │ file_1.rs                                                                  # [bg=#212337]=   [fg=#3b4261 bg=#212337]=   │  [fg=#8fa1b3 bg=#212337]=file_1.rs [bg=#212337]=                                                               [bg=#212337]=  
+│      │ file_2.rs                                                                  # [bg=#212337]=   [fg=#3b4261 bg=#212337]=   │  [fg=#8fa1b3 bg=#212337]=file_2.rs [bg=#212337]=                                                               [bg=#212337]=  
+│      │ file_3.rs                                                                  # [bg=#212337]=   [fg=#3b4261 bg=#212337]=   │  [fg=#8fa1b3 bg=#212337]=file_3.rs [bg=#212337]=                                                               [bg=#212337]=  
+│      │ file_4.rs                                                                  # [bg=#212337]=   [fg=#3b4261 bg=#212337]=   │  [fg=#8fa1b3 bg=#212337]=file_4.rs [bg=#212337]=                                                               [bg=#212337]=  
+│      │ file_5.rs                                                                  # [bg=#212337]=   [fg=#3b4261 bg=#212337]=   │  [fg=#8fa1b3 bg=#212337]=file_5.rs [bg=#212337]=                                                               [bg=#212337]=  
+│      │ …(14 more lines)                                                           # [bg=#212337]=   [fg=#abb4da bg=#212337]=   │ …(14 more lines) [bg=#212337]=                                                        [bg=#212337]=  
+│                                                                                   # [bg=#212337]=

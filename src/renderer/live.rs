@@ -11,6 +11,7 @@ use crate::renderer::layout::{content_width, truncate_spans, wrap_text};
 use crate::renderer::row::{CursorCoord, Row};
 use crate::renderer::style::{CellStyle, Color, Span};
 use crate::ui::style as ui_style;
+use crate::utils;
 
 /// Build the dynamic status row: session id + status icon + queue info.
 ///
@@ -230,7 +231,6 @@ pub fn active_streaming_rows(app: &App, width: usize) -> Vec<Row> {
         return Vec::new();
     }
 
-    // Render the active entry as padded rows using the renderer's wrap/pad path.
     let p = ui_style::palette();
     let bg = ratatui_color(p.surface0);
     let body_width = content_width(width);
@@ -248,7 +248,7 @@ pub fn active_streaming_rows(app: &App, width: usize) -> Vec<Row> {
             let text_style = CellStyle::new().fg(ratatui_color(p.subtext0)).bg(bg).italic();
             build_text_block_rows(&label, label_style, text_style, text, width, body_width, bg)
         }
-        Entry::Tool { name, status, .. } => {
+        Entry::Tool { name, arguments, status, output } => {
             let (status_label, status_color, icon) = match status {
                 ToolStatus::Running => ("running", ratatui_color(p.yellow), "·"),
                 ToolStatus::Ok => ("ok", ratatui_color(p.green), "✓"),
@@ -256,18 +256,92 @@ pub fn active_streaming_rows(app: &App, width: usize) -> Vec<Row> {
             };
             let header_style = CellStyle::new().fg(ratatui_color(p.text)).bg(bg).bold();
             let status_style = CellStyle::new().fg(status_color).bg(bg);
-            vec![Row::padded(
-                vec![
-                    Span::styled(format!("{icon} "), status_style),
-                    Span::styled(name.to_string(), header_style),
-                    Span::styled(format!(" [{status_label}]"), status_style),
-                ],
-                width,
-                bg_style(bg),
-            )]
+            let muted_style = CellStyle::new().fg(ratatui_color(p.subtext0)).bg(bg);
+            let gutter_style = CellStyle::new().fg(ratatui_color(p.overlay0)).bg(bg);
+
+            let mut rows = vec![Row::blank(width, bg_style(bg))];
+            let mut header_spans = vec![
+                Span::styled(format!("{icon} "), status_style),
+                Span::styled(name.to_string(), header_style),
+                Span::styled(format!(" [{status_label}]"), status_style),
+            ];
+
+            let args_summary = summarize_args(arguments);
+            if !args_summary.is_empty() {
+                header_spans.push(Span::styled("  ", CellStyle::new().bg(bg)));
+                header_spans.push(Span::styled(args_summary, muted_style));
+            }
+            rows.push(Row::padded(header_spans, width, bg_style(bg)));
+
+            let base_name = name.split('#').next().unwrap_or(name);
+            let lang = crate::renderer::highlight::tool_output_language(base_name, arguments);
+            let max_lines = 4;
+            match lang {
+                Some(lang_str) => {
+                    let joined: String = output.iter().take(max_lines).map(|l| format!("{l}\n")).collect();
+                    let highlighted = crate::renderer::highlight::highlight_lines(&joined, Some(lang_str));
+                    for hl_row in highlighted {
+                        let mut spans = vec![Span::styled("   │ ", gutter_style)];
+                        spans.extend(hl_row.into_iter().map(|s| Span { text: s.text, style: s.style.bg(bg) }));
+                        rows.push(Row::padded(spans, width, bg_style(bg)));
+                    }
+                }
+                None => {
+                    for line in output.iter().take(max_lines) {
+                        let content_style = CellStyle::new().fg(ratatui_color(p.subtext0)).bg(bg);
+                        for wrapped in crate::renderer::layout::wrap_text(line, body_width.saturating_sub(5)) {
+                            let spans = vec![
+                                Span::styled("   │ ", gutter_style),
+                                Span::styled(wrapped, content_style),
+                            ];
+                            rows.push(Row::padded(spans, width, bg_style(bg)));
+                        }
+                    }
+                }
+            }
+
+            if output.len() > max_lines {
+                rows.push(Row::padded(
+                    vec![Span::styled(
+                        format!("   │ …({} more lines)", output.len() - max_lines),
+                        muted_style,
+                    )],
+                    width,
+                    bg_style(bg),
+                ));
+            }
+
+            rows.push(Row::blank(width, bg_style(bg)));
+            rows
         }
         _ => Vec::new(),
     }
+}
+
+/// Produce a short summary of tool arguments.
+fn summarize_args(arguments: &str) -> String {
+    let trimmed = arguments.trim();
+    if trimmed.is_empty() || trimmed == "{}" {
+        return String::new();
+    }
+    let v: serde_json::Value = match serde_json::from_str(trimmed) {
+        Ok(v) => v,
+        Err(_) => return crate::utils::truncate_ellipsis(trimmed, 40),
+    };
+    let Some(obj) = v.as_object() else {
+        return crate::utils::truncate_ellipsis(trimmed, 40);
+    };
+    for key in &["pattern", "path", "query", "root", "glob", "file", "program", "url"] {
+        if let Some(val) = obj.get(*key).and_then(|f| f.as_str()) {
+            return format!("{}: {}", key, utils::truncate_ellipsis(val, 30));
+        }
+    }
+    for (k, val) in obj {
+        if let Some(s) = val.as_str() {
+            return format!("{k}: {}", utils::truncate_ellipsis(s, 30));
+        }
+    }
+    utils::truncate_ellipsis(trimmed, 40)
 }
 
 /// Build a [`CellStyle`] with only a background color (for padding/fill).

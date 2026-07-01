@@ -1,0 +1,13 @@
+---
+source: src/renderer/region.rs
+expression: frame.render_styled()
+---
+│                                                                                   # [bg=#212337]=                                                                                
+│   · run_shell [running]  program: cargo test                                      # [bg=#212337]=   [fg=#e0e0e0 bg=#212337]=·  [fg=#ebfafa bg=#212337 b]=run_shell [fg=#e0e0e0 bg=#212337]= [running] [bg=#212337]=   [fg=#abb4da bg=#212337]=program: cargo test [bg=#212337]=                                   [bg=#212337]=  
+│      │ running 3 tests                                                            # [bg=#212337]=   [fg=#3b4261 bg=#212337]=   │  [fg=#8fa1b3 bg=#212337]=running [fg=#c0c5ce bg=#212337]= 3 tests [bg=#212337]=                                                         [bg=#212337]=  
+│      │ test tests::foo ... ok                                                     # [bg=#212337]=   [fg=#3b4261 bg=#212337]=   │  [fg=#8fa1b3 bg=#212337]=test [fg=#c0c5ce bg=#212337]= tests::foo ... ok [bg=#212337]=                                                  [bg=#212337]=  
+│      │ test tests::bar ... ok                                                     # [bg=#212337]=   [fg=#3b4261 bg=#212337]=   │  [fg=#8fa1b3 bg=#212337]=test [fg=#c0c5ce bg=#212337]= tests::bar ... ok [bg=#212337]=                                                  [bg=#212337]=  
+│                                                                                   # [bg=#212337]=                                                                                
+│   test-session  · idle                                                            # [bg=#212337]=   [fg=#37f499 bg=#212337 b]=test-session [bg=#212337]=   [fg=#3b4261 bg=#212337]=· idle [bg=#212337]=                                                         [bg=#212337]=  
+│   ›                                                                               # [bg=#212337]=   [fg=#e0e0e0 bg=#212337]=› [bg=#212337]=   [bg=#212337]=                                                                          [bg=#212337]=  
+│   model: test-model   search: native   tok: ↑0 ↓0   cwd: ~/Pr/St/O/thndrs         # [bg=#212337]=   [fg=#abb4da bg=#212337]=model: test-model [bg=#212337]=    [fg=#abb4da bg=#212337]=search: native [bg=#212337]=    [fg=#abb4da bg=#212337]=tok: ↑0 ↓0 [bg=#212337]=    [fg=#3b4261 bg=#212337]=cwd: ~/Pr/St/O/thndrs [bg=#212337]=      [bg=#212337]=

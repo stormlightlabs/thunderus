@@ -1,0 +1,8 @@
+---
+source: src/renderer/region.rs
+expression: frame.render_styled()
+---
+│                                                                                   # [bg=#212337]=                                                                                
+│   thndrs — test-model                                                             # [bg=#212337]=   [fg=#37f499 bg=#212337 b]=thndrs — test-model [bg=#212337]=                                                          [bg=#212337]=  
+│   cwd: /Users/owais/Projects/StormlightLabs/OpenSource/thndrs                     # [bg=#212337]=   [fg=#abb4da bg=#212337]=cwd: /Users/owais/Projects/StormlightLabs/OpenSource/thndrs [bg=#212337]=                  [bg=#212337]=  
+│                                                                                   # [bg=#212337]=

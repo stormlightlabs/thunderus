@@ -262,6 +262,12 @@ fn bg_style(color: Color) -> CellStyle {
     CellStyle::new().bg(color)
 }
 
+/// Maximum tool output lines rendered before a truncation marker is shown.
+const MAX_TOOL_OUTPUT_LINES: usize = 6;
+
+/// Gutter prefix for tool output lines.
+const GUTTER: &str = "   │ ";
+
 /// Convert a single transcript entry to padded rows for scrollback.
 fn entry_to_rows(entry: &Entry, user_label: &str, width: usize) -> Vec<Row> {
     let p = ui_style::palette();
@@ -277,46 +283,292 @@ fn entry_to_rows(entry: &Entry, user_label: &str, width: usize) -> Vec<Row> {
         }
         Entry::Assistant { text, .. } => {
             let label_style = CellStyle::new().fg(ratatui_color(p.green)).bg(bg).bold();
-            let text_style = CellStyle::new().fg(ratatui_color(p.text)).bg(bg);
-            build_labeled_block("Assistant", label_style, text_style, text, width, body_width, bg)
+            assistant_block_rows(text, label_style, bg, width, body_width)
         }
         Entry::Reasoning { text, .. } => {
             let label_style = CellStyle::new().fg(ratatui_color(p.mauve)).bg(bg).bold();
             let text_style = CellStyle::new().fg(ratatui_color(p.subtext0)).bg(bg).italic();
             build_labeled_block("Thinking ✓", label_style, text_style, text, width, body_width, bg)
         }
-        Entry::Tool { name, status, .. } => {
-            let (status_label, status_color, icon) = match status {
-                ToolStatus::Running => ("running", ratatui_color(p.yellow), "·"),
-                ToolStatus::Ok => ("ok", ratatui_color(p.green), "✓"),
-                ToolStatus::Failed => ("failed", ratatui_color(p.red), "✕"),
-            };
-            let header_style = CellStyle::new().fg(ratatui_color(p.text)).bg(bg).bold();
-            let status_style = CellStyle::new().fg(status_color).bg(bg);
-            vec![
-                Row::blank(width, bg_style(bg)),
-                Row::padded(
-                    vec![
-                        Span::styled(format!("{icon} "), status_style),
-                        Span::styled(name.to_string(), header_style),
-                        Span::styled(format!(" [{status_label}]"), status_style),
-                    ],
-                    width,
-                    bg_style(bg),
-                ),
-                Row::blank(width, bg_style(bg)),
-            ]
+        Entry::Tool { name, arguments, status, output } => {
+            tool_block_rows(name, arguments, *status, output, width, body_width, bg)
         }
         Entry::Status { text } => {
             let label_style = CellStyle::new().fg(ratatui_color(p.overlay1)).bg(bg).bold();
             let text_style = CellStyle::new().fg(ratatui_color(p.text)).bg(bg);
-            build_labeled_block("Notice", label_style, text_style, text, width, body_width, bg)
+            build_labeled_block(
+                status_label_for(text),
+                label_style,
+                text_style,
+                text,
+                width,
+                body_width,
+                bg,
+            )
         }
         Entry::Error { text } => {
             let label_style = CellStyle::new().fg(ratatui_color(p.red)).bg(bg).bold();
             let text_style = CellStyle::new().fg(ratatui_color(p.text)).bg(bg);
             build_labeled_block("⚠ Error", label_style, text_style, text, width, body_width, bg)
         }
+    }
+}
+
+/// Build an assistant message block, detecting markdown code fences for
+/// syntax highlighting.
+fn assistant_block_rows(text: &str, label_style: CellStyle, bg: Color, width: usize, body_width: usize) -> Vec<Row> {
+    let p = ui_style::palette();
+    let text_style = CellStyle::new().fg(ratatui_color(p.text)).bg(bg);
+    let mut rows = vec![Row::blank(width, bg_style(bg))];
+    rows.push(Row::padded(
+        vec![Span::styled("Assistant".to_string(), label_style)],
+        width,
+        bg_style(bg),
+    ));
+
+    if let Some(markdown) = assistant_markdown_body(text) {
+        rows.extend(render_markdown_body(markdown, text_style, bg, width, body_width));
+    } else {
+        for line in crate::renderer::layout::wrap_text(text, body_width) {
+            if line.is_empty() {
+                rows.push(Row::blank(width, bg_style(bg)));
+            } else {
+                rows.push(Row::padded(vec![Span::styled(line, text_style)], width, bg_style(bg)));
+            }
+        }
+    }
+
+    if rows.len() == 2 {
+        rows.push(Row::blank(width, bg_style(bg)));
+    }
+    rows.push(Row::blank(width, bg_style(bg)));
+    rows
+}
+
+/// Extract the body from a four-tick markdown fence wrapper.
+fn assistant_markdown_body(text: &str) -> Option<&str> {
+    let rest = text
+        .strip_prefix("````md\n")
+        .or_else(|| text.strip_prefix("````markdown\n"))?;
+    Some(rest.strip_suffix("\n````").unwrap_or(rest))
+}
+
+/// Render markdown body with code fence detection and syntax highlighting.
+fn render_markdown_body(markdown: &str, text_style: CellStyle, bg: Color, width: usize, body_width: usize) -> Vec<Row> {
+    let p = ui_style::palette();
+    let mut rows = Vec::new();
+    let mut in_code_fence = false;
+    let mut code_lang: Option<String> = None;
+    let mut code_buf = String::new();
+
+    for line in markdown.lines() {
+        if line.starts_with("```") {
+            if !in_code_fence {
+                in_code_fence = true;
+                let lang_str = line.trim_start_matches('`').trim();
+                code_lang = if lang_str.is_empty() { None } else { Some(lang_str.to_string()) };
+                code_buf.clear();
+            } else {
+                let lang = code_lang.as_deref();
+                let highlighted = crate::renderer::highlight::highlight_lines(&code_buf, lang);
+                for hl_row in highlighted {
+                    let mut spans = vec![Span::styled(
+                        GUTTER,
+                        CellStyle::new().fg(ratatui_color(p.overlay0)).bg(bg),
+                    )];
+                    spans.extend(hl_row.into_iter().map(|s| Span { text: s.text, style: s.style.bg(bg) }));
+                    rows.push(Row::padded(spans, width, bg_style(bg)));
+                }
+                in_code_fence = false;
+                code_lang = None;
+                code_buf.clear();
+            }
+            continue;
+        }
+
+        if in_code_fence {
+            code_buf.push_str(line);
+            code_buf.push('\n');
+            continue;
+        }
+
+        if line.is_empty() {
+            rows.push(Row::blank(width, bg_style(bg)));
+        } else {
+            for wrapped in crate::renderer::layout::wrap_text(line, body_width) {
+                rows.push(Row::padded(
+                    vec![Span::styled(wrapped, text_style)],
+                    width,
+                    bg_style(bg),
+                ));
+            }
+        }
+    }
+
+    if in_code_fence && !code_buf.is_empty() {
+        let lang = code_lang.as_deref();
+        let highlighted = crate::renderer::highlight::highlight_lines(&code_buf, lang);
+        for hl_row in highlighted {
+            let mut spans = vec![Span::styled(
+                GUTTER,
+                CellStyle::new().fg(ratatui_color(p.overlay0)).bg(bg),
+            )];
+            spans.extend(hl_row.into_iter().map(|s| Span { text: s.text, style: s.style.bg(bg) }));
+            rows.push(Row::padded(spans, width, bg_style(bg)));
+        }
+    }
+
+    if rows.is_empty() {
+        rows.push(Row::blank(width, bg_style(bg)));
+    }
+
+    rows
+}
+
+/// Build a tool block: header row + args summary + output lines + vertical
+/// padding.
+fn tool_block_rows(
+    name: &str, args: &str, status: ToolStatus, output: &[String], width: usize, body_width: usize, bg: Color,
+) -> Vec<Row> {
+    let p = ui_style::palette();
+    let (status_label, status_color, icon) = match status {
+        ToolStatus::Running => ("running", ratatui_color(p.yellow), "·"),
+        ToolStatus::Ok => ("ok", ratatui_color(p.green), "✓"),
+        ToolStatus::Failed => ("failed", ratatui_color(p.red), "✕"),
+    };
+    let header_style = CellStyle::new().fg(ratatui_color(p.text)).bg(bg).bold();
+    let status_style = CellStyle::new().fg(status_color).bg(bg);
+    let muted_style = CellStyle::new().fg(ratatui_color(p.subtext0)).bg(bg);
+    let gutter_style = CellStyle::new().fg(ratatui_color(p.overlay0)).bg(bg);
+
+    let args_summary = summarize_tool_args(args);
+    let base_name = name.split('#').next().unwrap_or(name);
+    let lang = crate::renderer::highlight::tool_output_language(base_name, args);
+
+    let mut rows = vec![Row::blank(width, bg_style(bg))];
+
+    let mut header_spans = vec![
+        Span::styled(format!("{icon} "), status_style),
+        Span::styled(name.to_string(), header_style),
+        Span::styled(format!(" [{status_label}]"), status_style),
+    ];
+
+    if !args_summary.is_empty() {
+        let header_width: usize = header_spans.iter().map(|s| s.text.chars().count()).sum();
+        if header_width + 2 + args_summary.chars().count() <= body_width {
+            header_spans.push(Span::styled("  ", CellStyle::new().bg(bg)));
+            header_spans.push(Span::styled(args_summary, muted_style));
+            rows.push(Row::padded(header_spans, width, bg_style(bg)));
+        } else {
+            rows.push(Row::padded(header_spans, width, bg_style(bg)));
+            for wrapped in crate::renderer::layout::wrap_text(&args_summary, body_width.saturating_sub(2)) {
+                let spans = vec![
+                    Span::styled("  ", CellStyle::new().bg(bg)),
+                    Span::styled(wrapped, muted_style),
+                ];
+                rows.push(Row::padded(spans, width, bg_style(bg)));
+            }
+        }
+    } else {
+        rows.push(Row::padded(header_spans, width, bg_style(bg)));
+    }
+
+    match lang {
+        Some(lang_str) => {
+            let joined: String = output
+                .iter()
+                .take(MAX_TOOL_OUTPUT_LINES)
+                .map(|l| format!("{l}\n"))
+                .collect();
+            let highlighted = crate::renderer::highlight::highlight_lines(&joined, Some(lang_str));
+            for hl_row in highlighted {
+                let mut spans = vec![Span::styled(GUTTER, gutter_style)];
+                spans.extend(hl_row.into_iter().map(|s| Span { text: s.text, style: s.style.bg(bg) }));
+                rows.push(Row::padded(spans, width, bg_style(bg)));
+            }
+        }
+        None => {
+            for line in output.iter().take(MAX_TOOL_OUTPUT_LINES) {
+                let content_style = if is_section_header(line) {
+                    CellStyle::new().fg(ratatui_color(p.overlay1)).bg(bg).bold()
+                } else {
+                    CellStyle::new().fg(ratatui_color(p.subtext0)).bg(bg)
+                };
+                for wrapped in
+                    crate::renderer::layout::wrap_text(line, body_width.saturating_sub(GUTTER.chars().count()))
+                {
+                    let spans = vec![Span::styled(GUTTER, gutter_style), Span::styled(wrapped, content_style)];
+                    rows.push(Row::padded(spans, width, bg_style(bg)));
+                }
+            }
+        }
+    }
+
+    if output.len() > MAX_TOOL_OUTPUT_LINES {
+        rows.push(Row::padded(
+            vec![Span::styled(
+                format!("   │ …({} more lines)", output.len() - MAX_TOOL_OUTPUT_LINES),
+                muted_style,
+            )],
+            width,
+            bg_style(bg),
+        ));
+    }
+
+    rows.push(Row::blank(width, bg_style(bg)));
+    rows
+}
+
+/// Detect whether a tool output line is a section header.
+fn is_section_header(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed.starts_with("── ") || trimmed.starts_with("$ ")
+}
+
+/// Produce a short summary of a tool's arguments for the transcript line.
+fn summarize_tool_args(arguments: &str) -> String {
+    let trimmed = arguments.trim();
+    if trimmed.is_empty() || trimmed == "{}" {
+        return String::new();
+    }
+    let v: serde_json::Value = match serde_json::from_str(trimmed) {
+        Ok(v) => v,
+        Err(_) => return crate::utils::truncate_ellipsis(trimmed, 48),
+    };
+    let Some(obj) = v.as_object() else {
+        return crate::utils::truncate_ellipsis(trimmed, 48);
+    };
+    for key in &["pattern", "path", "query", "root", "glob", "file", "program", "url"] {
+        if let Some(val) = obj.get(*key).and_then(|f| f.as_str()) {
+            return format!("{}: {}", key, crate::utils::truncate_ellipsis(val, 40));
+        }
+    }
+    for (k, val) in obj {
+        if let Some(s) = val.as_str() {
+            return format!("{k}: {}", crate::utils::truncate_ellipsis(s, 40));
+        }
+    }
+    crate::utils::truncate_ellipsis(trimmed, 48)
+}
+
+/// Derive a label for status entries based on text content.
+fn status_label_for(text: &str) -> &'static str {
+    if text.starts_with("context  ") {
+        "Context"
+    } else if text.starts_with("logs  ") {
+        "Session log"
+    } else if text.starts_with("provider:") || text.starts_with("tool budget:") {
+        "Diagnostic"
+    } else if text.starts_with("queued ") {
+        "Queued"
+    } else if text.starts_with("queue target:") {
+        "Queue"
+    } else if text.starts_with("background ") || text == "no background processes" {
+        "Background"
+    } else if text == "cancelled" {
+        "Cancelled"
+    } else {
+        "Notice"
     }
 }
 
@@ -660,5 +912,191 @@ mod tests {
         let lr = LiveRegion::new();
         let frame = lr.build_frame(&app, 40, 20);
         insta::assert_snapshot!("narrow_live_frame", frame.render_styled());
+    }
+
+    fn render_entry_styled(entry: &Entry, width: usize) -> String {
+        let rows = entry_to_rows(entry, "User", width);
+        let frame = crate::renderer::row::Frame { rows, width, cursor: None };
+        frame.render_styled()
+    }
+
+    #[test]
+    fn snapshot_startup_banner() {
+        let app = test_app();
+        let rows = banner_rows(&app, 80);
+        let frame = crate::renderer::row::Frame { rows, width: 80, cursor: None };
+        insta::assert_snapshot!("startup_banner", frame.render_styled());
+    }
+
+    #[test]
+    fn snapshot_narrow_startup_banner() {
+        let app = test_app();
+        let rows = banner_rows(&app, 40);
+        let frame = crate::renderer::row::Frame { rows, width: 40, cursor: None };
+        insta::assert_snapshot!("narrow_startup_banner", frame.render_styled());
+    }
+
+    #[test]
+    fn snapshot_user_message() {
+        let entry = Entry::User { text: "Hello, can you help me with this?".to_string() };
+        insta::assert_snapshot!("user_message", render_entry_styled(&entry, 80));
+    }
+
+    #[test]
+    fn snapshot_assistant_text() {
+        let entry =
+            Entry::Assistant { text: "Sure! I can help with that. Let me take a look.".to_string(), streaming: false };
+        insta::assert_snapshot!("assistant_text", render_entry_styled(&entry, 80));
+    }
+
+    #[test]
+    fn snapshot_assistant_with_code_fence() {
+        let entry = Entry::Assistant {
+            text: "````md\nHere is the code:\n\n```rs\nfn main() {\n    println!(\"hello\");\n}\n```\n````".to_string(),
+            streaming: false,
+        };
+        insta::assert_snapshot!("assistant_code_fence", render_entry_styled(&entry, 80));
+    }
+
+    #[test]
+    fn snapshot_reasoning() {
+        let entry =
+            Entry::Reasoning { text: "I need to check the file structure first.".to_string(), streaming: false };
+        insta::assert_snapshot!("reasoning_block", render_entry_styled(&entry, 80));
+    }
+
+    #[test]
+    fn snapshot_tool_ok() {
+        let entry = Entry::Tool {
+            name: "search_text".to_string(),
+            arguments: r#"{"pattern": "fn main", "path": "src/main.rs"}"#.to_string(),
+            status: ToolStatus::Ok,
+            output: vec![
+                "src/main.rs:1:fn main() {".to_string(),
+                "src/main.rs:2:    println!(\"hello\");".to_string(),
+                "src/main.rs:3:}".to_string(),
+            ],
+        };
+        insta::assert_snapshot!("tool_ok", render_entry_styled(&entry, 80));
+    }
+
+    #[test]
+    fn snapshot_tool_failed() {
+        let entry = Entry::Tool {
+            name: "run_shell".to_string(),
+            arguments: r#"{"program": "cargo build"}"#.to_string(),
+            status: ToolStatus::Failed,
+            output: vec![
+                "error[E0308]: mismatched types".to_string(),
+                "  --> src/main.rs:5:14".to_string(),
+                "   |".to_string(),
+                "5 |     let x: i32 = \"hello\";".to_string(),
+                "   |               ^^^^^^^^".to_string(),
+            ],
+        };
+        insta::assert_snapshot!("tool_failed", render_entry_styled(&entry, 80));
+    }
+
+    #[test]
+    fn snapshot_error_message() {
+        let entry = Entry::Error { text: "Provider request failed: connection refused".to_string() };
+        insta::assert_snapshot!("error_message", render_entry_styled(&entry, 80));
+    }
+
+    #[test]
+    fn snapshot_rust_compiler_output() {
+        let entry = Entry::Tool {
+            name: "run_shell".to_string(),
+            arguments: r#"{"program": "cargo build"}"#.to_string(),
+            status: ToolStatus::Failed,
+            output: vec![
+                "   Compiling thndrs v0.1.0".to_string(),
+                "error[E0277]: the trait bound `X: Y` is not satisfied".to_string(),
+                "  --> src/lib.rs:42:10".to_string(),
+                "   |".to_string(),
+                "42 |     fn foo() -> impl Y {".to_string(),
+                "   |                    ^^^^^".to_string(),
+            ],
+        };
+        insta::assert_snapshot!("rust_compiler_output", render_entry_styled(&entry, 80));
+    }
+
+    #[test]
+    fn snapshot_json_output() {
+        let entry = Entry::Tool {
+            name: "read_file_range".to_string(),
+            arguments: r#"{"path": "config.json"}"#.to_string(),
+            status: ToolStatus::Ok,
+            output: vec![
+                "{".to_string(),
+                "  \"name\": \"thndrs\",".to_string(),
+                "  \"version\": \"0.1.0\"".to_string(),
+                "}".to_string(),
+            ],
+        };
+        insta::assert_snapshot!("json_output", render_entry_styled(&entry, 80));
+    }
+
+    #[test]
+    fn snapshot_plain_prose() {
+        let entry = Entry::Assistant {
+            text: "This is a plain prose response without any code or special formatting. It should wrap nicely across multiple lines when the terminal is narrow enough.".to_string(),
+            streaming: false,
+        };
+        insta::assert_snapshot!("plain_prose", render_entry_styled(&entry, 60));
+    }
+
+    #[test]
+    fn snapshot_diff_output() {
+        let entry = Entry::Tool {
+            name: "replace_range".to_string(),
+            arguments: r#"{"path": "src/main.rs"}"#.to_string(),
+            status: ToolStatus::Ok,
+            output: vec![
+                "--- src/main.rs".to_string(),
+                "+++ src/main.rs".to_string(),
+                "@@ -1,3 +1,3 @@".to_string(),
+                " fn main() {".to_string(),
+                "-    println!(\"old\");".to_string(),
+                "+    println!(\"new\");".to_string(),
+                " }".to_string(),
+            ],
+        };
+        insta::assert_snapshot!("diff_output", render_entry_styled(&entry, 80));
+    }
+
+    #[test]
+    fn snapshot_tool_with_truncated_output() {
+        let entry = Entry::Tool {
+            name: "run_shell".to_string(),
+            arguments: r#"{"program": "ls"}"#.to_string(),
+            status: ToolStatus::Ok,
+            output: (0..20).map(|i| format!("file_{i}.rs")).collect(),
+        };
+        insta::assert_snapshot!("tool_truncated_output", render_entry_styled(&entry, 80));
+    }
+
+    #[test]
+    fn snapshot_status_entry() {
+        let entry = Entry::Status { text: "context  AGENTS.md (scope: .)".to_string() };
+        insta::assert_snapshot!("status_entry", render_entry_styled(&entry, 80));
+    }
+
+    #[test]
+    fn snapshot_streaming_tool_with_output() {
+        let mut app = test_app();
+        app.transcript.push(Entry::Tool {
+            name: "run_shell".to_string(),
+            arguments: r#"{"program": "cargo test"}"#.to_string(),
+            status: ToolStatus::Running,
+            output: vec![
+                "running 3 tests".to_string(),
+                "test tests::foo ... ok".to_string(),
+                "test tests::bar ... ok".to_string(),
+            ],
+        });
+        let lr = LiveRegion::new();
+        let frame = lr.build_frame(&app, 80, 24);
+        insta::assert_snapshot!("streaming_tool_with_output", frame.render_styled());
     }
 }

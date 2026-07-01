@@ -1,0 +1,12 @@
+---
+source: src/renderer/region.rs
+expression: "render_entry_styled(&entry, 80)"
+---
+│                                                                                   # [bg=#212337]=                                                                                
+│   ✕ run_shell [failed]  program: cargo build                                      # [bg=#212337]=   [fg=#f16c75 bg=#212337]=✕  [fg=#ebfafa bg=#212337 b]=run_shell [fg=#f16c75 bg=#212337]= [failed] [bg=#212337]=   [fg=#abb4da bg=#212337]=program: cargo build [bg=#212337]=                                   [bg=#212337]=  
+│      │ error[E0308]: mismatched types                                             # [bg=#212337]=   [fg=#3b4261 bg=#212337]=   │  [fg=#8fa1b3 bg=#212337]=error[E0308]: [fg=#c0c5ce bg=#212337]= mismatched types [bg=#212337]=                                          [bg=#212337]=  
+│      │   --> src/main.rs:5:14                                                     # [bg=#212337]=   [fg=#3b4261 bg=#212337]=   │  [fg=#c0c5ce bg=#212337]=   [fg=#8fa1b3 bg=#212337]=-- [fg=#c0c5ce bg=#212337]=> [fg=#c0c5ce bg=#212337]= src/main.rs:5:14 [bg=#212337]=                                                  [bg=#212337]=  
+│      │    |                                                                       # [bg=#212337]=   [fg=#3b4261 bg=#212337]=   │  [fg=#c0c5ce bg=#212337]=    [fg=#c0c5ce bg=#212337]=| [bg=#212337]=                                                                    [bg=#212337]=  
+│      │ 5 |     let x: i32 = "hello";                                              # [bg=#212337]=   [fg=#3b4261 bg=#212337]=   │  [fg=#8fa1b3 bg=#212337]=5 [fg=#c0c5ce bg=#212337]=  [fg=#c0c5ce bg=#212337]=| [fg=#c0c5ce bg=#212337]=      [fg=#96b5b4 bg=#212337]=let [fg=#c0c5ce bg=#212337]= x [fg=#c0c5ce bg=#212337]=: [fg=#c0c5ce bg=#212337]= i32  [fg=#c0c5ce bg=#212337]== [fg=#c0c5ce bg=#212337]=  [fg=#c0c5ce bg=#212337]=" [fg=#a3be8c bg=#212337]=hello [fg=#c0c5ce bg=#212337]=" [fg=#c0c5ce bg=#212337]=; [bg=#212337]=                                           [bg=#212337]=  
+│      │    |               ^^^^^^^^                                                # [bg=#212337]=   [fg=#3b4261 bg=#212337]=   │  [fg=#c0c5ce bg=#212337]=    [fg=#c0c5ce bg=#212337]=| [fg=#c0c5ce bg=#212337]=                [fg=#8fa1b3 bg=#212337]=^^^^^^^^ [bg=#212337]=                                             [bg=#212337]=  
+│                                                                                   # [bg=#212337]=

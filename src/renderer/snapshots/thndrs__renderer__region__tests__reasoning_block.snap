@@ -1,0 +1,8 @@
+---
+source: src/renderer/region.rs
+expression: "render_entry_styled(&entry, 80)"
+---
+│                                                                                   # [bg=#212337]=                                                                                
+│   Thinking ✓                                                                      # [bg=#212337]=   [fg=#a48cf2 bg=#212337 b]=Thinking ✓ [bg=#212337]=                                                                   [bg=#212337]=  
+│   I need to check the file structure first.                                       # [bg=#212337]=   [fg=#abb4da bg=#212337 i]=I need to check the file structure first. [bg=#212337]=                                    [bg=#212337]=  
+│                                                                                   # [bg=#212337]=

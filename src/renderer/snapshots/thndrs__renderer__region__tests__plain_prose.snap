@@ -1,0 +1,10 @@
+---
+source: src/renderer/region.rs
+expression: "render_entry_styled(&entry, 60)"
+---
+│                                                               # [bg=#212337]=                                                            
+│   Assistant                                                   # [bg=#212337]=   [fg=#37f499 bg=#212337 b]=Assistant [bg=#212337]=                                                [bg=#212337]=  
+│   This is a plain prose response without any code or          # [bg=#212337]=   [fg=#ebfafa bg=#212337]=This is a plain prose response without any code or [bg=#212337]=       [bg=#212337]=  
+│   special formatting. It should wrap nicely across            # [bg=#212337]=   [fg=#ebfafa bg=#212337]=special formatting. It should wrap nicely across [bg=#212337]=         [bg=#212337]=  
+│   multiple lines when the terminal is narrow enough.          # [bg=#212337]=   [fg=#ebfafa bg=#212337]=multiple lines when the terminal is narrow enough. [bg=#212337]=       [bg=#212337]=  
+│                                                               # [bg=#212337]=

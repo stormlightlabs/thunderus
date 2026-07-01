@@ -1,0 +1,10 @@
+---
+source: src/renderer/region.rs
+expression: "render_entry_styled(&entry, 80)"
+---
+│                                                                                   # [bg=#212337]=                                                                                
+│   ✓ search_text [ok]  pattern: fn main                                            # [bg=#212337]=   [fg=#37f499 bg=#212337]=✓  [fg=#ebfafa bg=#212337 b]=search_text [fg=#37f499 bg=#212337]= [ok] [bg=#212337]=   [fg=#abb4da bg=#212337]=pattern: fn main [bg=#212337]=                                         [bg=#212337]=  
+│      │ src/main.rs:1:fn main() {                                                  # [bg=#212337]=   [fg=#3b4261 bg=#212337]=   │  [fg=#abb4da bg=#212337]=src/main.rs:1:fn main() { [bg=#212337]=                                               [bg=#212337]=  
+│      │ src/main.rs:2: println!("hello");                                          # [bg=#212337]=   [fg=#3b4261 bg=#212337]=   │  [fg=#abb4da bg=#212337]=src/main.rs:2: println!("hello"); [bg=#212337]=                                       [bg=#212337]=  
+│      │ src/main.rs:3:}                                                            # [bg=#212337]=   [fg=#3b4261 bg=#212337]=   │  [fg=#abb4da bg=#212337]=src/main.rs:3:} [bg=#212337]=                                                         [bg=#212337]=  
+│                                                                                   # [bg=#212337]=
