@@ -220,6 +220,62 @@ fn other_keys_do_not_quit() {
 }
 
 #[test]
+fn file_picker_selection_inserts_selected_path() {
+    let mut app = fresh_app();
+    app.mode = Mode::FilePicker;
+    app.file_picker = Some(FilePickerState::new(vec![
+        "src/main.rs".to_string(),
+        "src/app.rs".to_string(),
+    ]));
+
+    update(
+        &mut app,
+        &Msg::Key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)),
+    );
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+
+    assert_eq!(app.mode, Mode::Prompt);
+    assert_eq!(app.input, "src/app.rs");
+    assert!(app.file_picker.is_none());
+}
+
+#[test]
+fn file_picker_arrows_and_pages_are_scrollable() {
+    let mut app = fresh_app();
+    app.mode = Mode::FilePicker;
+    app.file_picker = Some(FilePickerState::new(
+        (0..20).map(|i| format!("src/file_{i:02}.rs")).collect(),
+    ));
+
+    update(
+        &mut app,
+        &Msg::Key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE)),
+    );
+    let picker = app.file_picker.as_ref().expect("picker");
+    assert_eq!(picker.selected, FILE_PICKER_VISIBLE_ROWS);
+    assert!(picker.scroll > 0);
+
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE)));
+    let picker = app.file_picker.as_ref().expect("picker");
+    assert_eq!(picker.selected, 0);
+    assert_eq!(picker.scroll, 0);
+}
+
+#[test]
+fn file_picker_escape_closes_without_changing_input() {
+    let mut app = fresh_app();
+    app.input = "read".to_string();
+    app.mode = Mode::FilePicker;
+    app.file_picker = Some(FilePickerState::new(vec!["README.md".to_string()]));
+
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+
+    assert_eq!(app.mode, Mode::Prompt);
+    assert_eq!(app.input, "read");
+    assert!(app.file_picker.is_none());
+}
+
+#[test]
 fn tick_increments_ui_tick() {
     let mut app = fresh_app();
     assert_eq!(app.ui_tick, 0);

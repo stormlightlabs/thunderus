@@ -13,6 +13,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKi
 use serde::{Deserialize, Serialize};
 
 use crate::cli::{Cli, Theme, WebSearchMode};
+use crate::fuzzy;
 use crate::tools::shell::ProcessRegistry;
 use crate::{context, session, tools};
 
@@ -21,6 +22,10 @@ use crate::{context, session, tools};
 ///
 /// With the default 100 ms tick rate this is roughly 3 seconds.
 const QUIT_CONFIRM_TIMEOUT_TICKS: u64 = 30;
+
+pub const FILE_PICKER_VISIBLE_ROWS: usize = 8;
+
+const FILE_PICKER_LIMIT: usize = 200;
 
 /// Top-level interaction mode.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
@@ -32,6 +37,8 @@ pub enum Mode {
     Command,
     /// Help overlay, entered with `?`.
     Help,
+    /// File picker overlay.
+    FilePicker,
 }
 
 /// Semantic run state, used for the status line.
@@ -189,6 +196,69 @@ pub enum Msg {
     Agent(AgentEvent),
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FilePickerState {
+    pub query: String,
+    pub all_files: Vec<String>,
+    pub matches: Vec<String>,
+    pub selected: usize,
+    pub scroll: usize,
+}
+
+impl FilePickerState {
+    fn new(all_files: Vec<String>) -> Self {
+        let matches = fuzzy::fuzzy_filter(&all_files, "", FILE_PICKER_LIMIT);
+        Self { query: String::new(), all_files, matches, selected: 0, scroll: 0 }
+    }
+
+    fn refresh_matches(&mut self) {
+        self.matches = fuzzy::fuzzy_filter(&self.all_files, &self.query, FILE_PICKER_LIMIT);
+        self.selected = self.selected.min(self.matches.len().saturating_sub(1));
+        self.ensure_selected_visible();
+    }
+
+    fn move_up(&mut self) {
+        if self.matches.is_empty() {
+            return;
+        }
+        self.selected = self.selected.saturating_sub(1);
+        self.ensure_selected_visible();
+    }
+
+    fn move_down(&mut self) {
+        if self.matches.is_empty() {
+            return;
+        }
+        self.selected = (self.selected + 1).min(self.matches.len().saturating_sub(1));
+        self.ensure_selected_visible();
+    }
+
+    fn page_up(&mut self) {
+        self.selected = self.selected.saturating_sub(FILE_PICKER_VISIBLE_ROWS);
+        self.ensure_selected_visible();
+    }
+
+    fn page_down(&mut self) {
+        if self.matches.is_empty() {
+            return;
+        }
+        self.selected = (self.selected + FILE_PICKER_VISIBLE_ROWS).min(self.matches.len().saturating_sub(1));
+        self.ensure_selected_visible();
+    }
+
+    fn selected_path(&self) -> Option<&str> {
+        self.matches.get(self.selected).map(String::as_str)
+    }
+
+    fn ensure_selected_visible(&mut self) {
+        if self.selected < self.scroll {
+            self.scroll = self.selected;
+        } else if self.selected >= self.scroll + FILE_PICKER_VISIBLE_ROWS {
+            self.scroll = self.selected.saturating_sub(FILE_PICKER_VISIBLE_ROWS - 1);
+        }
+    }
+}
+
 /// The full application state used to draw the screen.
 #[derive(Debug)]
 pub struct App {
@@ -238,6 +308,8 @@ pub struct App {
     pub last_input: Option<String>,
     /// Current target for input submitted while the agent is running.
     pub queue_target: QueueTarget,
+    /// Active file picker state.
+    pub file_picker: Option<FilePickerState>,
     /// Steering messages waiting to be sent to the active agent thread.
     pub queued_steering: Vec<String>,
     /// Follow-up prompts to submit as new turns after the active run completes.
@@ -311,6 +383,7 @@ impl App {
             process_registry: ProcessRegistry::new(),
             last_input: None,
             queue_target: QueueTarget::default(),
+            file_picker: None,
             queued_steering: Vec::new(),
             queued_followups: Vec::new(),
             quit: false,
@@ -473,6 +546,7 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
 
     match app.mode {
         Mode::Help => handle_help_key(app, key),
+        Mode::FilePicker => handle_file_picker_key(app, key),
         Mode::Command => handle_command_key(app, key),
         Mode::Prompt => handle_prompt_key(app, key),
     }
@@ -492,6 +566,17 @@ fn handle_help_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
 fn handle_mouse(app: &mut App, mouse: MouseEvent) -> Option<Msg> {
     const MOUSE_SCROLL_LINES: usize = 3;
 
+    if app.mode == Mode::FilePicker {
+        if let Some(picker) = app.file_picker.as_mut() {
+            match mouse.kind {
+                MouseEventKind::ScrollUp => picker.move_up(),
+                MouseEventKind::ScrollDown => picker.move_down(),
+                _ => {}
+            }
+        }
+        return None;
+    }
+
     match mouse.kind {
         MouseEventKind::ScrollUp => {
             app.scroll_offset = app.scroll_offset.saturating_add(MOUSE_SCROLL_LINES);
@@ -499,6 +584,55 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) -> Option<Msg> {
         }
         MouseEventKind::ScrollDown => {
             app.scroll_offset = app.scroll_offset.saturating_sub(MOUSE_SCROLL_LINES);
+            None
+        }
+        _ => None,
+    }
+}
+
+fn handle_file_picker_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
+    let Some(picker) = app.file_picker.as_mut() else {
+        app.mode = Mode::Prompt;
+        return None;
+    };
+
+    match key.code {
+        KeyCode::Esc => {
+            close_file_picker(app);
+            None
+        }
+        KeyCode::Enter => {
+            let selected = picker.selected_path().map(str::to_string);
+            close_file_picker(app);
+            if let Some(path) = selected {
+                insert_file_path(app, &path);
+            }
+            None
+        }
+        KeyCode::Up => {
+            picker.move_up();
+            None
+        }
+        KeyCode::Down => {
+            picker.move_down();
+            None
+        }
+        KeyCode::PageUp => {
+            picker.page_up();
+            None
+        }
+        KeyCode::PageDown => {
+            picker.page_down();
+            None
+        }
+        KeyCode::Backspace => {
+            picker.query.pop();
+            picker.refresh_matches();
+            None
+        }
+        KeyCode::Char(ch) => {
+            picker.query.push(ch);
+            picker.refresh_matches();
             None
         }
         _ => None,
@@ -561,6 +695,10 @@ fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
     }
 
     match key.code {
+        KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            open_file_picker(app);
+            None
+        }
         KeyCode::Char('?') if app.input.is_empty() => {
             app.mode = Mode::Help;
             None
@@ -606,6 +744,32 @@ fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
         }
         _ => None,
     }
+}
+
+fn open_file_picker(app: &mut App) {
+    match tools::searchable_file_paths(&app.cwd, 2_000) {
+        Ok(files) => {
+            app.file_picker = Some(FilePickerState::new(files));
+            app.mode = Mode::FilePicker;
+        }
+        Err(err) => {
+            app.transcript
+                .push(Entry::Error { text: format!("file picker failed: {err}") });
+            maybe_pin_to_bottom(app);
+        }
+    }
+}
+
+fn close_file_picker(app: &mut App) {
+    app.file_picker = None;
+    app.mode = Mode::Prompt;
+}
+
+fn insert_file_path(app: &mut App, path: &str) {
+    if !app.input.is_empty() && !app.input.chars().last().is_some_and(char::is_whitespace) {
+        app.input.push(' ');
+    }
+    app.input.push_str(path);
 }
 
 /// Handle an `Enter` submit. Slash commands are routed; otherwise the input is

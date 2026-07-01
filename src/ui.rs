@@ -12,7 +12,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
-use crate::app::{App, Entry, Mode, PromptState};
+use crate::app::{App, Entry, FILE_PICKER_VISIBLE_ROWS, Mode, PromptState};
 use crate::{banner, utils};
 
 mod highlight;
@@ -90,8 +90,10 @@ pub fn render(frame: &mut Frame, app: &App) {
     render_prompt(frame, app, view.prompt);
     render_footer(frame, app, view.footer);
 
-    if app.mode == Mode::Help {
-        render_help_overlay(frame, frame.area());
+    match app.mode {
+        Mode::Help => render_help_overlay(frame, frame.area()),
+        Mode::FilePicker => render_file_picker_overlay(frame, frame.area(), app),
+        _ => (),
     }
 }
 
@@ -112,6 +114,10 @@ fn render_help_overlay(frame: &mut Frame, area: Rect) {
         Line::from(vec![
             Span::styled("  Ctrl+T       ", style::subtle_style()),
             Span::styled("toggle running input target", style::text_style()),
+        ]),
+        Line::from(vec![
+            Span::styled("  Ctrl+P       ", style::subtle_style()),
+            Span::styled("open file picker", style::text_style()),
         ]),
         Line::from(vec![
             Span::styled("  Up/Down      ", style::subtle_style()),
@@ -137,7 +143,6 @@ fn render_help_overlay(frame: &mut Frame, area: Rect) {
             Span::styled("  Ctrl+D x2    ", style::subtle_style()),
             Span::styled("quit (double-press within 3s)", style::text_style()),
         ]),
-        Line::from(""),
         Line::from(vec![Span::styled("  Command      Description", style::title_style())]),
         Line::from(""),
         Line::from(vec![
@@ -186,6 +191,78 @@ fn render_help_overlay(frame: &mut Frame, area: Rect) {
     frame.render_widget(Paragraph::new(Text::from(help_lines)).style(style::text_style()), inner);
 
     let _ = Layout::vertical([Constraint::Length(0)]);
+}
+
+fn render_file_picker_overlay(frame: &mut Frame, area: Rect, app: &App) {
+    let Some(picker) = app.file_picker.as_ref() else {
+        return;
+    };
+    let p = style::palette();
+    let rows = picker.matches.len().clamp(1, FILE_PICKER_VISIBLE_ROWS);
+    let overlay_height = (rows as u16 + 4).min(area.height);
+    let overlay_width = 72.min(area.width);
+    let overlay_y = area
+        .height
+        .saturating_sub(overlay_height + PROMPT_HEIGHT + FOOTER_HEIGHT);
+    let overlay_x = (area.width.saturating_sub(overlay_width)) / 2;
+    let overlay_area = Rect::new(overlay_x, overlay_y, overlay_width, overlay_height);
+
+    frame.render_widget(Clear, overlay_area);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(Line::styled(" Files ", style::title_style()))
+        .border_style(style::border_style())
+        .style(Style::default().bg(p.panel_bg));
+    let inner = block.inner(overlay_area);
+    frame.render_widget(block, overlay_area);
+
+    let mut lines = Vec::new();
+    lines.push(Line::from(vec![
+        Span::styled("  › ", Style::default().fg(p.accent).bg(p.panel_bg)),
+        Span::styled(picker.query.clone(), style::text_style()),
+        Span::styled("█", Style::default().fg(p.accent).bg(p.panel_bg)),
+    ]));
+    lines.push(Line::styled("", style::panel_style()));
+
+    if picker.matches.is_empty() {
+        lines.push(Line::styled("  no matches", style::muted_style()));
+    } else {
+        let end = (picker.scroll + rows).min(picker.matches.len());
+        for (idx, path) in picker.matches[picker.scroll..end].iter().enumerate() {
+            let absolute_idx = picker.scroll + idx;
+            let selected = absolute_idx == picker.selected;
+            let marker = if selected { "›" } else { " " };
+            let marker_style = if selected {
+                Style::default()
+                    .fg(p.accent)
+                    .bg(p.surface0)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                style::muted_style()
+            };
+            let path_style = if selected {
+                Style::default().fg(p.text).bg(p.surface0).add_modifier(Modifier::BOLD)
+            } else {
+                style::text_style()
+            };
+            let available = inner.width.saturating_sub(5) as usize;
+            lines.push(Line::from(vec![
+                Span::styled("  ", style::text_style()),
+                Span::styled(marker, marker_style),
+                Span::styled(" ", style::text_style()),
+                Span::styled(utils::truncate_ellipsis(path, available), path_style),
+            ]));
+        }
+    }
+
+    let status = format!(
+        "  {}/{}  Enter select  Esc close",
+        picker.selected.saturating_add(usize::from(!picker.matches.is_empty())),
+        picker.matches.len()
+    );
+    lines.push(Line::styled(status, style::muted_style()));
+
+    frame.render_widget(Paragraph::new(Text::from(lines)).style(style::panel_style()), inner);
 }
 
 /// Render newest entries fitting the viewport.

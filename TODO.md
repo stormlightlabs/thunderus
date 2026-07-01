@@ -209,3 +209,28 @@
 | pageUp                       | Scroll up by page          |
 | pageDown                     | Scroll down by page        |
 | shift+enter, ctrl+j          | Insert new line            |
+
+#### Global
+
+| Key              | Desc                                  |
+| ---------------- | ------------------------------------- |
+| enter            | Submit input                          |
+| escape           | Interrupt active turn / close overlay |
+| ctrl+c           | Quit immediately                      |
+| ctrl+d, ctrl+d   | Quit after double-press confirmation  |
+| ctrl+t           | Toggle running input target           |
+| ctrl+p           | Open file picker                      |
+| ?                | Toggle help overlay                   |
+| :                | Enter command mode                    |
+
+#### File Picker
+
+| Key      | Desc                                |
+| -------- | ----------------------------------- |
+| ctrl+p   | Open file picker                    |
+| up/down  | Move file selection                 |
+| pageUp   | Move file selection up by page      |
+| pageDown | Move file selection down by page    |
+| enter    | Insert selected path into prompt    |
+| escape   | Close file picker                   |
+| backspace | Delete one character from query    |

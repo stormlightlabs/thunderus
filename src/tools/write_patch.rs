@@ -54,7 +54,7 @@ impl Patch {
     ///
     /// Unknown `op` values or missing required fields produce an error.
     pub fn from_json(args: &str) -> Result<Self, String> {
-        let v: serde_json::Value = serde_json::from_str(args).map_err(|e| format!("invalid arguments: {e}"))?;
+        let v = serde_json::from_str::<serde_json::Value>(args).map_err(|e| format!("invalid arguments: {e}"))?;
 
         let op = v
             .get("op")
@@ -131,7 +131,10 @@ fn exec_replace(path_str: &str, root: &Path, content: &str) -> (ToolOutput, Opti
 
     let (before_hash, before_bytes) = match std::fs::read_to_string(&resolved) {
         Ok(existing) => (Some(super::hash_content(&existing)), Some(existing.len())),
-        Err(_) => (None, None),
+        Err(e) => match e.kind() {
+            std::io::ErrorKind::NotFound => (None, None),
+            _ => return (ToolOutput::failed("write_patch", format!("read failed: {e}")), None),
+        },
     };
 
     let after_hash = super::hash_content(content);
@@ -294,6 +297,24 @@ mod tests {
         let r = result.unwrap();
         assert_eq!(r.op, WriteOp::Replace);
         assert!(r.before_hash.is_none());
+    }
+
+    #[test]
+    fn patch_apply_replace_directory_fails_before_write() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let root = dir.path();
+        std::fs::create_dir(root.join("dir_path")).expect("create dir");
+
+        let patch = Patch::Replace { path: "dir_path".to_string(), content: "content\n".to_string() };
+        let (output, result) = exec(&patch, root);
+
+        assert_eq!(output.status, ToolStatus::Failed);
+        assert!(result.is_none());
+        assert!(
+            output.error.as_ref().is_some_and(|e| e.contains("read failed")),
+            "expected read failure, got {output:?}"
+        );
+        assert!(root.join("dir_path").is_dir());
     }
 
     #[test]

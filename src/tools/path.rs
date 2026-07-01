@@ -33,13 +33,23 @@ pub fn resolve_within_root(root: &Path, relative: &str) -> io::Result<PathBuf> {
     };
     let normalized = lexical_normalize(&candidate);
     if !normalized.starts_with(&canonical_root) {
-        Err(io::Error::new(
+        return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             format!("path escapes workspace root: {relative}"),
-        ))
-    } else {
-        Ok(normalized)
+        ));
     }
+
+    if let Some(existing) = nearest_existing_ancestor(&normalized) {
+        let canonical_existing = existing.canonicalize()?;
+        if !canonical_existing.starts_with(&canonical_root) {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                format!("path escapes workspace root through symlink: {relative}"),
+            ));
+        }
+    }
+
+    Ok(normalized)
 }
 
 /// Lexically normalize a path by resolving `.` and `..` components without
@@ -60,6 +70,18 @@ fn lexical_normalize(path: &Path) -> PathBuf {
         }
     }
     result
+}
+
+fn nearest_existing_ancestor(path: &Path) -> Option<PathBuf> {
+    let mut current = path.to_path_buf();
+    loop {
+        if current.exists() {
+            return Some(current);
+        }
+        if !current.pop() {
+            return None;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -99,6 +121,21 @@ mod tests {
         let root = std::env::current_dir().unwrap();
         let outside = root.parent().unwrap();
         let result = resolve_within_root(&root, outside.to_str().unwrap());
+        assert!(result.is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_within_root_rejects_symlink_escape_parent() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let root = dir.path().join("root");
+        let outside = dir.path().join("outside");
+        std::fs::create_dir_all(&root).expect("root");
+        std::fs::create_dir_all(&outside).expect("outside");
+        std::os::unix::fs::symlink(&outside, root.join("link")).expect("symlink");
+
+        let result = resolve_within_root(&root, "link/new.txt");
+
         assert!(result.is_err());
     }
 }

@@ -8,15 +8,15 @@ use crate::tools::{Cap, ToolOutput};
 
 /// List searchable files in a directory tree.
 ///
-/// Backed by `rg --files` with `fd --type f` fallback. Respects ignore rules
+/// Backed by `fd --type f` with `rg --files` fallback. Respects ignore rules
 /// and skips hidden files by default. Enforces containment, result-count,
 /// output-byte, and timeout caps.
 pub fn exec(root: &Path, glob: Option<&str>, max_results: usize, include_hidden: bool) -> ToolOutput {
     let timeout = Duration::from_secs(Cap::timeout());
-    let result = if super::subproc::command_exists("rg") {
-        run_rg_files(root, include_hidden, timeout)
-    } else if super::subproc::command_exists("fd") {
+    let result = if super::subproc::command_exists("fd") {
         run_fd_files(root, include_hidden, timeout)
+    } else if super::subproc::command_exists("rg") {
+        run_rg_files(root, include_hidden, timeout)
     } else {
         return ToolOutput::failed("list_searchable_files", "neither rg nor fd available".to_string());
     };

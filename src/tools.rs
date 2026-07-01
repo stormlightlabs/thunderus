@@ -228,6 +228,29 @@ pub struct ToolOutput {
     pub error: Option<String>,
 }
 
+/// Return searchable file paths for UI features that need file selection.
+pub fn searchable_file_paths(root: &Path, max_results: usize) -> Result<Vec<String>, String> {
+    let output = list_searchable_files::exec(root, None, max_results, false);
+    if output.status == ToolStatus::Failed {
+        return Err(output.error.unwrap_or_else(|| "file listing failed".to_string()));
+    }
+
+    Ok(output
+        .output
+        .into_iter()
+        .map(|p| normalize_tool_path(root, &p))
+        .collect())
+}
+
+fn normalize_tool_path(root: &Path, path: &str) -> String {
+    let path_buf = PathBuf::from(path);
+    path_buf
+        .strip_prefix(root)
+        .unwrap_or(&path_buf)
+        .to_string_lossy()
+        .to_string()
+}
+
 impl ToolOutput {
     /// Create a successful tool output.
     pub fn ok(name: &str, output: Vec<String>) -> Self {

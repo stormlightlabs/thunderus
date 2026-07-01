@@ -12,6 +12,7 @@ mod banner;
 mod config;
 mod context;
 mod datetime;
+mod fuzzy;
 mod prompt;
 mod providers;
 mod search;
