@@ -2,16 +2,16 @@
 source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
-"┌───────────┌ Help ────────────────────────────────────────────────┐───────────┐"
+"┌session-202┌ Help ────────────────────────────────────────────────┐───────────┐"
 "│           │  Key          Action                                 │           │"
 "│           │                                                      │           │"
 "│           │  Enter        submit prompt / execute command        │           │"
 "│           │  Esc          cancel stream / close overlay          │           │"
 "│           │  Ctrl+T       toggle running input target            │           │"
 "│           │  Up/Down      recall prompt history                  │           │"
-"│           │  PgUp/PgDn    scroll by 10 lines                     │           │"
+"│           │  PgUp/PgDn    jump 10; Ctrl+Alt+U/D                  │           │"
 "│           │  Ctrl+Alt+Y/E scroll by 1 line                       │           │"
-"│           │  Mouse wheel  scroll transcript                      │           │"
+"│           │  Mouse        select text; --mouse enables wheel     │           │"
 "│           │  Ctrl+C       quit immediately                       │           │"
 "│           │  Ctrl+D x2    quit (double-press within 3s)          │           │"
 "│           │                                                      │           │"

@@ -2,10 +2,10 @@
 source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
-"┌Transcript────────────────────────────────────────────────────────────────────┐"
+"┌session-20260701-120000───────────────────────────────────────────────────────┐"
 "│ ▌ User (owais)     explain this repo                                         │"
 "│                                                                              │"
-"│Thought         ✓ Let me think about this... The repo is a Rust + Ratatui     │"
+"│Thinking        ✓ Let me think about this... The repo is a Rust + Ratatui     │"
 "│                  harness.                                                    │"
 "│                                                                              │"
 "│tool            ✓ read_file#0 [ok]  path: Cargo.toml                          │"

@@ -191,7 +191,7 @@ fn redact_secret(text: &str) -> String {
 /// We always restore the terminal, even on error.
 fn run_alt_screen(tick: Duration, cli: &Cli) -> io::Result<()> {
     let mut terminal = ratatui::init();
-    let mouse_enabled = !cli.no_mouse;
+    let mouse_enabled = cli.mouse && !cli.no_mouse;
     if mouse_enabled && let Err(err) = crossterm::execute!(io::stdout(), EnableMouseCapture) {
         ratatui::restore();
         return Err(err);
@@ -210,7 +210,7 @@ fn run_inline(tick: Duration, cli: &Cli) -> io::Result<()> {
     let stdout = io::stdout();
     let backend = ratatui::backend::CrosstermBackend::new(stdout);
     let mut terminal = ratatui::Terminal::new(backend)?;
-    let mouse_enabled = !cli.no_mouse;
+    let mouse_enabled = cli.mouse && !cli.no_mouse;
     if mouse_enabled && let Err(err) = crossterm::execute!(io::stdout(), EnableMouseCapture) {
         crossterm::terminal::disable_raw_mode()?;
         return Err(err);
@@ -231,7 +231,9 @@ fn main_loop(terminal: &mut DefaultTerminal, tick: Duration, cli: &Cli) -> io::R
     let mut app = App::from_cli(cli);
     let workspace_root = context::discover_workspace_root(&cli.cwd);
     let observability = init_tracing(&workspace_root, &app.session_id);
-    if let Some(obs) = &observability {
+    if cli.verbose
+        && let Some(obs) = &observability
+    {
         app.transcript
             .push(app::Entry::Status { text: format!("logs  {}", obs.session_log_path.display()) });
     }

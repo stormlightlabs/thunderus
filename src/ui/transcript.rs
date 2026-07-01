@@ -16,9 +16,8 @@ const GUTTER: &str = "   │ ";
 pub fn entry_lines_with_width(entry: &Entry, tick: u64, user_label: &str, max_width: usize) -> Vec<Line<'static>> {
     match entry {
         Entry::User { text } => user_message_lines(user_label, text, max_width),
-        Entry::Assistant { text, streaming } => message_lines(
+        Entry::Assistant { text, streaming } => assistant_message_lines(
             if *streaming { style::spinner_frame(tick) } else { "Assistant" },
-            P.green,
             text,
             max_width,
         ),
@@ -26,7 +25,7 @@ pub fn entry_lines_with_width(entry: &Entry, tick: u64, user_label: &str, max_wi
         Entry::Tool { name, arguments, status, output } => {
             tool_lines(name, arguments, *status, output, tick, max_width)
         }
-        Entry::Status { text } => message_lines("Status", P.overlay1, text, max_width),
+        Entry::Status { text } => message_lines(status_label(text), P.overlay1, text, max_width),
         Entry::Error { text } => error_lines(text, max_width),
     }
 }
@@ -34,6 +33,32 @@ pub fn entry_lines_with_width(entry: &Entry, tick: u64, user_label: &str, max_wi
 fn message_lines(label: &str, fg: Color, text: &str, max_width: usize) -> Vec<Line<'static>> {
     let prefix = vec![role_label(label, fg)];
     wrapped_lines(prefix, text, style::text_style(), max_width)
+}
+
+fn assistant_message_lines(label: &str, text: &str, max_width: usize) -> Vec<Line<'static>> {
+    let Some(markdown) = assistant_markdown_body(text) else {
+        return message_lines(label, P.green, text, max_width);
+    };
+
+    let prefix = vec![role_label(label, P.green)];
+    let indent = vec![Span::styled(" ".repeat(spans_width(&prefix)), style::text_style())];
+    let highlighted = super::highlight::highlight_code(markdown, Some("assistant.md"));
+    let mut lines = Vec::new();
+    for (i, line) in highlighted.into_iter().enumerate() {
+        let line_prefix = if i == 0 { &prefix } else { &indent };
+        lines.extend(wrapped_spans(line_prefix, line.spans, max_width));
+    }
+    if lines.is_empty() {
+        lines.push(Line::from(prefix));
+    }
+    lines
+}
+
+fn assistant_markdown_body(text: &str) -> Option<&str> {
+    let rest = text
+        .strip_prefix("````md\n")
+        .or_else(|| text.strip_prefix("````markdown\n"))?;
+    Some(rest.strip_suffix("\n````").unwrap_or(rest))
 }
 
 /// Render a user prompt with a visually distinct bounded block.
@@ -62,15 +87,14 @@ fn user_message_lines(label: &str, text: &str, max_width: usize) -> Vec<Line<'st
 
 /// Render a reasoning block with a stable header/status line.
 ///
-/// The header shows `Thinking` (with spinner) while streaming or `Thought`
-/// (with ✓) when done. The body is italic and indented under the header,
+/// The header stays `Thinking` while streaming and after completion. The body
+/// is italic and indented under the header,
 /// matching the Gridland sibling-block pattern without nesting inside
 /// assistant text.
 fn reasoning_lines(text: &str, streaming: bool, tick: u64, max_width: usize) -> Vec<Line<'static>> {
-    let (header, icon) = if streaming { ("Thinking", style::spinner_frame(tick)) } else { ("Thought", "✓") };
-
+    let icon = if streaming { style::spinner_frame(tick) } else { "✓" };
     let prefix = vec![
-        role_label(header, P.mauve),
+        role_label("Thinking", P.mauve),
         Span::styled(format!("{icon} "), Style::default().fg(P.mauve).bg(P.panel_bg)),
     ];
     wrapped_lines(
@@ -79,6 +103,27 @@ fn reasoning_lines(text: &str, streaming: bool, tick: u64, max_width: usize) -> 
         style::subtle_style().add_modifier(Modifier::ITALIC),
         max_width,
     )
+}
+
+// FIXME: I hate this
+fn status_label(text: &str) -> &'static str {
+    if text.starts_with("context  ") {
+        "Context"
+    } else if text.starts_with("logs  ") {
+        "Session log"
+    } else if text.starts_with("provider:") || text.starts_with("tool budget:") {
+        "Diagnostic"
+    } else if text.starts_with("queued ") {
+        "Queued"
+    } else if text.starts_with("queue target:") {
+        "Queue"
+    } else if text.starts_with("background ") || text == "no background processes" {
+        "Background"
+    } else if text == "cancelled" {
+        "Cancelled"
+    } else {
+        "Notice"
+    }
 }
 
 fn role_label(label: &str, fg: Color) -> Span<'static> {
@@ -426,5 +471,18 @@ mod tests {
     fn is_section_header_rejects_content() {
         assert!(!is_section_header("running 3 tests"));
         assert!(!is_section_header("error[E0308]: mismatched types"));
+    }
+
+    #[test]
+    fn assistant_markdown_body_strips_outer_four_tick_fence() {
+        assert_eq!(
+            assistant_markdown_body("````md\n# Done\n\n```rs\nfn main() {}\n```\n````"),
+            Some("# Done\n\n```rs\nfn main() {}\n```")
+        );
+    }
+
+    #[test]
+    fn assistant_markdown_body_allows_streaming_partial_fence() {
+        assert_eq!(assistant_markdown_body("````md\n# Done"), Some("# Done"));
     }
 }

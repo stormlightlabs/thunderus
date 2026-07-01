@@ -2,7 +2,7 @@
 source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
-"┌Transcript────────────────────────────────────────────────────────────────────┐"
+"┌session-20260701-120000───────────────────────────────────────────────────────┐"
 "│tool            ✓ read_file_range#0 [ok]  path: config.json                   │"
 "│   │ {                                                                        │"
 "│   │   "name": "thndrs",                                                      │"

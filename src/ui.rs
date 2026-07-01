@@ -117,15 +117,15 @@ fn render_help_overlay(frame: &mut Frame, area: Rect) {
         ]),
         Line::from(vec![
             Span::styled("  PgUp/PgDn    ", style::subtle_style()),
-            Span::styled("scroll by 10 lines", style::text_style()),
+            Span::styled("jump 10; Ctrl+Alt+U/D", style::text_style()),
         ]),
         Line::from(vec![
             Span::styled("  Ctrl+Alt+Y/E ", style::subtle_style()),
             Span::styled("scroll by 1 line", style::text_style()),
         ]),
         Line::from(vec![
-            Span::styled("  Mouse wheel  ", style::subtle_style()),
-            Span::styled("scroll transcript", style::text_style()),
+            Span::styled("  Mouse        ", style::subtle_style()),
+            Span::styled("select text; --mouse enables wheel", style::text_style()),
         ]),
         Line::from(vec![
             Span::styled("  Ctrl+C       ", style::subtle_style()),
@@ -209,13 +209,8 @@ fn render_transcript(frame: &mut Frame, app: &App, area: Rect) {
         && preview_inner.height > banner_height
         && banner_max_width <= preview_inner.width;
 
-    let title = if show_banner {
-        None
-    } else if area.width < 55 {
-        Some("thndrs")
-    } else {
-        Some("Transcript")
-    };
+    let session_title = transcript_title(app);
+    let title = if area.width < 55 { Some("thndrs") } else { Some(session_title.as_str()) };
     let mut block = Block::bordered()
         .border_style(style::border_style())
         .style(style::panel_style());
@@ -427,6 +422,10 @@ fn render_prompt(frame: &mut Frame, app: &App, area: Rect) {
     }
 }
 
+fn transcript_title(app: &App) -> String {
+    app.session_id.clone()
+}
+
 /// Available slash commands with short descriptions, used for the suggestion UI.
 fn command_suggestions(_input: &str) -> Vec<(&'static str, &'static str)> {
     vec![
@@ -541,6 +540,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("create temp dir");
         let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
         let mut app = App::from_cli(&cli);
+        app.session_id = String::from("session-20260701-120000");
         app.user_label = String::from("User (owais)");
         app.session_writer = None;
         app.cwd = PathBuf::from(".");

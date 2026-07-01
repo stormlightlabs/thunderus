@@ -2,7 +2,7 @@
 source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
-"┌Transcript────────────────────────────────────────────────────────────────────┐"
+"┌session-20260701-120000───────────────────────────────────────────────────────┐"
 "│ ▌ User (owais)     explain this codebase                                     │"
 "│                                                                              │"
 "│Assistant       This is a Rust project using Ratatui for the TUI. It includes │"

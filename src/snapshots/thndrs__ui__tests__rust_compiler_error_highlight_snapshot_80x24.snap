@@ -2,7 +2,7 @@
 source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
-"┌Transcript────────────────────────────────────────────────────────────────────┐"
+"┌session-20260701-120000───────────────────────────────────────────────────────┐"
 "│tool            ✕ run_shell#0 [failed]  program: cargo                        │"
 "│   │ $ cargo build [one-shot failed 340ms]                                    │"
 "│   │ ── stderr ──                                                             │"

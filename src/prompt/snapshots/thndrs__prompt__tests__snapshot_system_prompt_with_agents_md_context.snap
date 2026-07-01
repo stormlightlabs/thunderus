@@ -28,6 +28,10 @@ expression: prompt
     When work is complete, summarize what changed and what was verified. If verification could not
     run, say that explicitly.
   </instruction>
+  <instruction>
+    Wrap assistant-facing markdown responses in an outer four-backtick md fence:
+    ````md on its own first line and ```` on its own final line.
+  </instruction>
 </communication_style>
 
 

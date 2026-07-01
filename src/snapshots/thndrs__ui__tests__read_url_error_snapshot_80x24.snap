@@ -2,7 +2,7 @@
 source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
-"┌Transcript────────────────────────────────────────────────────────────────────┐"
+"┌session-20260701-120000───────────────────────────────────────────────────────┐"
 "│ ▌ User (owais)     read the internal admin page                              │"
 "│                                                                              │"
 "│tool            ✕ read_url#fetch-0 [failed]  url: http://127.0.0.1/admin      │"

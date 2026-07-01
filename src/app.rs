@@ -207,6 +207,8 @@ pub struct App {
     pub model: String,
     pub user_label: String,
     pub websearch: WebSearchMode,
+    /// Whether diagnostic provider/log status rows should be shown in transcript.
+    pub verbose: bool,
     /// Provider token usage accumulated for this session.
     pub session_tokens_in: u64,
     pub session_tokens_out: u64,
@@ -294,6 +296,7 @@ impl App {
             model: cli.model.clone(),
             user_label: default_user_label(),
             websearch: cli.websearch,
+            verbose: cli.verbose,
             session_tokens_in: 0,
             session_tokens_out: 0,
             context_sources,
@@ -421,10 +424,11 @@ pub fn update(app: &mut App, msg: &Msg) -> Option<Msg> {
 /// - Enter submits the current input.
 /// - Escape cancels an active agent stream.
 /// - Up/Down recall prompt history.
-/// - PageUp/PageDown and Ctrl+Alt+Y/E scroll the transcript (available even while the
+/// - PageUp/PageDown and Ctrl+Alt+U/D/Y/E scroll the transcript (available even while the
 ///   agent is running, so cancel/quit stay usable).
 ///     - Page up: jump by 10 lines.
 ///     - Page down: jump by 10 lines, or reset to newest.
+///     - Ctrl+Alt+U/D: jump by 10 lines without dedicated paging keys.
 ///     - Ctrl+Alt+Y/E: scroll by one line.
 fn handle_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
@@ -432,7 +436,10 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
         return Some(Msg::Quit);
     }
 
-    if key.code == KeyCode::Char('d') && key.modifiers.contains(KeyModifiers::CONTROL) {
+    if key.code == KeyCode::Char('d')
+        && key.modifiers.contains(KeyModifiers::CONTROL)
+        && !key.modifiers.contains(KeyModifiers::ALT)
+    {
         if let Some(deadline) = app.ctrl_d_pending
             && !now_or_after_deadline(app.ui_tick, deadline)
         {
@@ -530,6 +537,14 @@ fn handle_command_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
 fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
     if key.modifiers.contains(KeyModifiers::CONTROL) && key.modifiers.contains(KeyModifiers::ALT) {
         match key.code {
+            KeyCode::Char('u') | KeyCode::Char('U') => {
+                app.scroll_offset = app.scroll_offset.saturating_add(10);
+                return None;
+            }
+            KeyCode::Char('d') | KeyCode::Char('D') => {
+                app.scroll_offset = app.scroll_offset.saturating_sub(10);
+                return None;
+            }
             KeyCode::Char('y') | KeyCode::Char('Y') => {
                 app.scroll_offset = app.scroll_offset.saturating_add(1);
                 return None;
@@ -714,8 +729,10 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             None
         }
         AgentEvent::Status(text) => {
-            app.transcript.push(Entry::Status { text });
-            maybe_pin_to_bottom(app);
+            if app.verbose || !is_verbose_status(&text) {
+                app.transcript.push(Entry::Status { text });
+                maybe_pin_to_bottom(app);
+            }
             None
         }
         AgentEvent::Usage { input_tokens, output_tokens } => {
@@ -960,4 +977,8 @@ fn default_user_label() -> String {
         .or_else(|_| std::env::var("USERNAME"))
         .map(|name| format!("User ({name})"))
         .unwrap_or_else(|_| String::from("You"))
+}
+
+fn is_verbose_status(text: &str) -> bool {
+    text.starts_with("provider:") || text.starts_with("logs  ") || text.starts_with("tool budget:")
 }

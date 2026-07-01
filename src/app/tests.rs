@@ -1026,6 +1026,27 @@ fn page_down_subtracts_ten_when_large() {
 }
 
 #[test]
+fn ctrl_alt_u_d_jump_transcript_without_page_keys() {
+    let mut app = fresh_app();
+    update(
+        &mut app,
+        &Msg::Key(KeyEvent::new(
+            KeyCode::Char('u'),
+            KeyModifiers::CONTROL | KeyModifiers::ALT,
+        )),
+    );
+    assert_eq!(app.scroll_offset, 10);
+    update(
+        &mut app,
+        &Msg::Key(KeyEvent::new(
+            KeyCode::Char('d'),
+            KeyModifiers::CONTROL | KeyModifiers::ALT,
+        )),
+    );
+    assert_eq!(app.scroll_offset, 0);
+}
+
+#[test]
 fn assistant_delta_does_not_reset_manual_scroll() {
     let mut app = fresh_app();
     app.scroll_offset = 5;
@@ -1043,6 +1064,26 @@ fn status_event_does_not_reset_manual_scroll() {
         &Msg::Agent(AgentEvent::Status(String::from("provider: receiving SSE"))),
     );
     assert_eq!(app.scroll_offset, 5);
+}
+
+#[test]
+fn provider_status_is_hidden_unless_verbose() {
+    let mut app = fresh_app();
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::Status(String::from("provider: receiving SSE"))),
+    );
+    assert!(app.transcript.is_empty());
+
+    app.verbose = true;
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::Status(String::from("provider: receiving SSE"))),
+    );
+    assert!(matches!(
+        app.transcript.last(),
+        Some(Entry::Status { text }) if text == "provider: receiving SSE"
+    ));
 }
 
 #[test]

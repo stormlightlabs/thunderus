@@ -2,7 +2,7 @@
 source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
-"┌Transcript────────────────────────────────────────────────────────────────────┐"
+"┌session-20260701-120000───────────────────────────────────────────────────────┐"
 "│ ▌ User (owais)     search for rust async patterns                            │"
 "│                                                                              │"
 "│tool            ⠋ web_search#search-0 [running]  query: rust async patterns   │"

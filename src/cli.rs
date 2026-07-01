@@ -9,7 +9,7 @@ use clap::{Parser, ValueEnum};
 
 /// Clap entrypoint that launches the TUI when run with no subcommand.
 #[derive(Parser, Debug)]
-#[command(version, about = "Minimal Rust + Ratatui coding harness")]
+#[command(version, about = "agentic pair programmer")]
 pub struct Cli {
     /// Working directory used for context loading and display.
     #[arg(long, default_value = ".")]
@@ -34,6 +34,14 @@ pub struct Cli {
     /// Disable terminal mouse capture so native selection and scrollback work.
     #[arg(long, default_value_t = false)]
     pub no_mouse: bool,
+
+    /// Enable terminal mouse capture for wheel scrolling inside the TUI.
+    #[arg(long, default_value_t = false)]
+    pub mouse: bool,
+
+    /// Show diagnostic transcript rows such as provider events and log paths.
+    #[arg(long, default_value_t = false)]
+    pub verbose: bool,
 
     /// Print the assembled prompt bundle/lowered messages with secrets redacted
     /// and exit without calling the provider.
@@ -126,6 +134,8 @@ impl Default for Cli {
             tick_rate_ms: 100,
             no_alt_screen: false,
             no_mouse: false,
+            mouse: false,
+            verbose: false,
             print_prompt: false,
         }
     }
@@ -145,6 +155,8 @@ mod tests {
         assert_eq!(cli.tick_rate_ms, 100);
         assert!(!cli.no_alt_screen);
         assert!(!cli.no_mouse);
+        assert!(!cli.mouse);
+        assert!(!cli.verbose);
     }
 
     #[test]
@@ -197,6 +209,18 @@ mod tests {
     fn no_mouse_flag_parses() {
         let cli = Cli::try_parse_from(["thndrs", "--no-mouse"]).expect("parse");
         assert!(cli.no_mouse);
+    }
+
+    #[test]
+    fn mouse_flag_parses() {
+        let cli = Cli::try_parse_from(["thndrs", "--mouse"]).expect("parse");
+        assert!(cli.mouse);
+    }
+
+    #[test]
+    fn verbose_flag_parses() {
+        let cli = Cli::try_parse_from(["thndrs", "--verbose"]).expect("parse");
+        assert!(cli.verbose);
     }
 
     #[test]

@@ -2,7 +2,7 @@
 source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
-"┌Transcript────────────────────────────────────────────────────────────────────┐"
+"┌session-20260701-120000───────────────────────────────────────────────────────┐"
 "│ ▌ User (owais)     create src/existing.rs                                    │"
 "│                                                                              │"
 "│tool            ✕ create_file#0 [failed]  path: src/existing.rs               │"
