@@ -36,5 +36,5 @@ falls back to plain placeholder text when the terminal is too narrow.
 
 ## Palette
 
-The default TUI palette is based on Iceberg dark. Catppuccin Mocha is included
-as an alternate palette for future selection support.
+The default TUI palette is based on Eldritch minimal. Iceberg dark and
+Catppuccin Mocha are kept as alternate palettes for future selection support.

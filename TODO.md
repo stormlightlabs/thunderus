@@ -74,8 +74,6 @@
   events, Lectito-style extraction reuse, public/private fixture tests, and
   snapshots for success and failure states.
 
-## alpha: Usable Coding Assistant
-
 ### Phase 14: Finalize Alpha
 
 - [x] Complete the Umans tool-result feedback loop: append provider-native
@@ -153,8 +151,6 @@
       compiler errors, JSON/tool diagnostics, and plain prose to verify
       highlighting does not color gutters, borders, or status chips.
 
-## v1: Supported Release
-
 ### Phase 15: Config, Inspect, and Export
 
 - [ ] Define config file path.
@@ -191,25 +187,6 @@
 - [ ] Unit-test LSP fixture responses.
 - [ ] Unit-test no-server fallback behavior.
 - [ ] Add snapshots for LSP transcript entries.
-
-### Phase 17: v1 Release Hardening
-
-- [ ] Add `CHANGELOG.md` using Keep a Changelog categories.
-- [ ] Document install flow.
-- [ ] Document config file and env vars.
-- [ ] Document session storage and inspect/export.
-- [ ] Document Umans provider setup.
-- [ ] Document search modes.
-- [ ] Document `read_url`.
-- [ ] Document shell/process manager behavior and local-process security model.
-- [ ] Document LSP/code-intelligence behavior and fallback rules.
-- [ ] Document file-operation safety limits.
-- [ ] Confirm packaging with `cargo package`.
-- [ ] Confirm install path with local `cargo install --path .`.
-- [ ] Add CI check plan for format, clippy, tests, and snapshots.
-- [ ] Audit snapshots and session fixtures for secrets and machine-specific paths.
-- [ ] Add ignored/manual Umans smoke-test instructions.
-- [ ] Write release candidate checklist.
 
 ## Parking Lot
 

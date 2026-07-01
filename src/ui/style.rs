@@ -21,8 +21,9 @@ pub struct Palette {
     pub peach: Color,
 }
 
-pub const P: Palette = ICEBERG_DARK;
+pub const P: Palette = ELDRITCH_MINIMAL;
 
+#[allow(dead_code)]
 pub const ICEBERG_DARK: Palette = Palette {
     accent: Color::Rgb(132, 160, 198),
     panel_bg: Color::Rgb(22, 24, 33),
@@ -40,6 +41,25 @@ pub const ICEBERG_DARK: Palette = Palette {
     blue: Color::Rgb(132, 160, 198),
     teal: Color::Rgb(137, 184, 194),
     peach: Color::Rgb(226, 164, 120),
+};
+
+pub const ELDRITCH_MINIMAL: Palette = Palette {
+    accent: Color::Rgb(55, 244, 153),
+    panel_bg: Color::Rgb(23, 25, 40),
+    surface0: Color::Rgb(33, 35, 55),
+    surface1: Color::Rgb(41, 46, 66),
+    surface_dim: Color::Rgb(23, 25, 40),
+    overlay0: Color::Rgb(59, 66, 97),
+    overlay1: Color::Rgb(100, 115, 183),
+    text: Color::Rgb(235, 250, 250),
+    subtext0: Color::Rgb(171, 180, 218),
+    mauve: Color::Rgb(164, 140, 242),
+    green: Color::Rgb(55, 244, 153),
+    yellow: Color::Rgb(224, 224, 224),
+    red: Color::Rgb(241, 108, 117),
+    blue: Color::Rgb(4, 209, 249),
+    teal: Color::Rgb(4, 209, 249),
+    peach: Color::Rgb(224, 224, 224),
 };
 
 pub fn panel_style() -> Style {
