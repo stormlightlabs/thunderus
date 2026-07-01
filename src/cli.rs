@@ -1,56 +1,85 @@
 //! Command-line interface for `thndrs`.
 //!
-//! The entrypoint is a flat, single [`Cli`] struct parsed with [`clap`]
-//! derive ([`Parser`]), plus the [`WebSearchMode`] value enum.
+//! The entrypoint parses raw flags with [`clap`] and normalizes them into a
+//! flat [`Cli`] runtime config, plus the [`WebSearchMode`] value enum.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::{Parser, ValueEnum};
+use serde::Deserialize;
+
+use crate::{config, context};
 
 /// Clap entrypoint that launches the TUI when run with no subcommand.
 #[derive(Parser, Debug)]
 #[command(version, about = "agentic pair programmer")]
-pub struct Cli {
+struct CliArgs {
     /// Working directory used for context loading and display.
-    #[arg(long, default_value = ".")]
-    pub cwd: PathBuf,
+    #[arg(long)]
+    cwd: Option<PathBuf>,
 
     /// Model to use for completions.
-    #[arg(long, default_value = "umans-coder")]
-    pub model: String,
+    #[arg(long)]
+    model: Option<String>,
 
     /// Web search provider policy.
-    #[arg(long, value_enum, default_value_t = WebSearchMode::Auto)]
-    pub websearch: WebSearchMode,
+    #[arg(long, value_enum)]
+    websearch: Option<WebSearchMode>,
 
     /// Event poll interval in milliseconds.
-    #[arg(long, default_value_t = 100)]
-    pub tick_rate_ms: u64,
+    #[arg(long)]
+    tick_rate_ms: Option<u64>,
 
     /// Run without the alternate screen buffer (for debugging and terminal-capture tests).
     #[arg(long, default_value_t = false)]
-    pub no_alt_screen: bool,
+    no_alt_screen: bool,
 
     /// Disable terminal mouse capture so native selection and scrollback work.
     #[arg(long, default_value_t = false)]
-    pub no_mouse: bool,
+    no_mouse: bool,
 
     /// Enable terminal mouse capture for wheel scrolling inside the TUI.
     #[arg(long, default_value_t = false)]
-    pub mouse: bool,
+    mouse: bool,
 
     /// Show diagnostic transcript rows such as provider events and log paths.
     #[arg(long, default_value_t = false)]
-    pub verbose: bool,
+    verbose: bool,
 
     /// Print the assembled prompt bundle/lowered messages with secrets redacted
     /// and exit without calling the provider.
     #[arg(long, default_value_t = false)]
+    print_prompt: bool,
+}
+
+/// Normalized runtime configuration after defaults, TOML, and flags are merged.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Cli {
+    /// Working directory used for context loading and display.
+    pub cwd: PathBuf,
+    /// Model to use for completions.
+    pub model: String,
+    /// Web search provider policy.
+    pub websearch: WebSearchMode,
+    /// Event poll interval in milliseconds.
+    pub tick_rate_ms: u64,
+    /// Run without the alternate screen buffer (for debugging and terminal-capture tests).
+    pub no_alt_screen: bool,
+    /// Disable terminal mouse capture so native selection and scrollback work.
+    pub no_mouse: bool,
+    /// Enable terminal mouse capture for wheel scrolling inside the TUI.
+    pub mouse: bool,
+    /// Show diagnostic transcript rows such as provider events and log paths.
+    pub verbose: bool,
+    /// Print the assembled prompt bundle/lowered messages with secrets redacted.
     pub print_prompt: bool,
+    /// Optional UI theme name reserved for the TUI theming layer.
+    pub theme: Option<String>,
 }
 
 /// Web search policy for a turn.
-#[derive(ValueEnum, Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(ValueEnum, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
 pub enum WebSearchMode {
     /// Let thndrs choose provider-native search only for prompts that need it.
     Auto,
@@ -137,6 +166,58 @@ impl Default for Cli {
             mouse: false,
             verbose: false,
             print_prompt: false,
+            theme: None,
+        }
+    }
+}
+
+impl Cli {
+    /// Parse command-line arguments, load TOML config, and merge them.
+    pub fn parse_configured() -> Result<Self, config::ConfigError> {
+        match Self::try_parse_configured_from(std::env::args_os()) {
+            Ok(cli) => cli,
+            Err(err) => err.exit(),
+        }
+    }
+
+    /// Test-friendly parser that applies defaults but skips config file loading.
+    pub fn try_parse_from<I, T>(itr: I) -> Result<Self, clap::Error>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<std::ffi::OsString> + Clone,
+    {
+        Ok(Self::from_parts(
+            CliArgs::try_parse_from(itr)?,
+            config::Config::default(),
+        ))
+    }
+
+    fn try_parse_configured_from<I, T>(itr: I) -> Result<Result<Self, config::ConfigError>, clap::Error>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<std::ffi::OsString> + Clone,
+    {
+        let args = CliArgs::try_parse_from(itr)?;
+        let workspace_root = context::discover_workspace_root(args.cwd.as_deref().unwrap_or_else(|| Path::new(".")));
+        Ok(config::load(&workspace_root).map(|config| Self::from_parts(args, config)))
+    }
+
+    fn from_parts(args: CliArgs, config: config::Config) -> Self {
+        let defaults = Self::default();
+        Cli {
+            cwd: args.cwd.unwrap_or(defaults.cwd),
+            model: args.model.or(config.model).unwrap_or(defaults.model),
+            websearch: args.websearch.or(config.websearch).unwrap_or(defaults.websearch),
+            tick_rate_ms: args
+                .tick_rate_ms
+                .or(config.tick_rate_ms)
+                .unwrap_or(defaults.tick_rate_ms),
+            no_alt_screen: args.no_alt_screen || config.no_alt_screen.unwrap_or(defaults.no_alt_screen),
+            no_mouse: args.no_mouse || config.no_mouse.unwrap_or(defaults.no_mouse),
+            mouse: args.mouse || config.mouse.unwrap_or(defaults.mouse),
+            verbose: args.verbose || config.verbose.unwrap_or(defaults.verbose),
+            print_prompt: args.print_prompt || config.print_prompt.unwrap_or(defaults.print_prompt),
+            theme: config.theme.or(defaults.theme),
         }
     }
 }
@@ -144,8 +225,6 @@ impl Default for Cli {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clap::Parser;
-
     #[test]
     fn cli_defaults_match_spec() {
         let cli = Cli::try_parse_from(["thndrs"]).expect("default parse");
@@ -157,6 +236,28 @@ mod tests {
         assert!(!cli.no_mouse);
         assert!(!cli.mouse);
         assert!(!cli.verbose);
+        assert_eq!(cli.theme, None);
+    }
+
+    #[test]
+    fn cli_args_override_config_values() {
+        let args = CliArgs::try_parse_from(["thndrs", "--model", "cli-model", "--verbose"]).unwrap();
+        let config = config::Config {
+            model: Some("config-model".to_string()),
+            websearch: Some(WebSearchMode::Native),
+            tick_rate_ms: Some(250),
+            verbose: Some(false),
+            theme: Some("midnight".to_string()),
+            ..config::Config::default()
+        };
+
+        let cli = Cli::from_parts(args, config);
+
+        assert_eq!(cli.model, "cli-model");
+        assert_eq!(cli.websearch, WebSearchMode::Native);
+        assert_eq!(cli.tick_rate_ms, 250);
+        assert!(cli.verbose);
+        assert_eq!(cli.theme.as_deref(), Some("midnight"));
     }
 
     #[test]

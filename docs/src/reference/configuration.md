@@ -1,8 +1,7 @@
 # Configuration
 
-`thndrs` currently uses CLI flags and environment variables for configuration.
-A stable config file is planned for v1 but is not part of the current public
-contract.
+`thndrs` uses CLI flags, environment variables, and optional TOML config files.
+CLI flags override config files.
 
 Current user-controlled settings:
 
@@ -17,3 +16,40 @@ Current user-controlled settings:
 
 Secrets are read from environment variables, not config examples. See
 [Environment Variables](environment-variables.md).
+
+## Config Files
+
+Config is loaded in this order:
+
+- Global config:
+  - `~/.thndrs.toml`
+  - `~/.thndrs/config.toml`
+  - `~/.thndrs/.thndrs.toml`
+  - `~/.thndrs/thndrs.toml`
+- Project config:
+  - `.thndrs.toml`
+  - `.thndrs/config.toml`
+  - `.thndrs/.thndrs.toml`
+  - `.thndrs/thndrs.toml`
+  - `.thdrs/config.toml`
+  - `.thdrs/.thndrs.toml`
+  - `.thdrs/thndrs.toml`
+
+Project config overrides global config. Unknown keys and malformed TOML are
+errors.
+
+Example:
+
+```toml
+model = "umans-coder"
+websearch = "auto"
+tick_rate_ms = 100
+mouse = false
+verbose = false
+theme = "default"
+```
+
+`cwd` is CLI-only because it controls which project config file is discovered.
+
+`theme` is accepted now so configs can name a future TUI theme without changing
+the file shape.

@@ -9,6 +9,7 @@ pub mod session;
 mod agent;
 mod app;
 mod banner;
+mod config;
 mod context;
 mod datetime;
 mod prompt;
