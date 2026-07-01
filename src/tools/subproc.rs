@@ -1,6 +1,7 @@
 use std::{
     io::{self, Read},
     process::{Command, Stdio},
+    sync::mpsc,
     time::{Duration, Instant},
 };
 
@@ -25,23 +26,23 @@ pub fn run_with_timeout(mut cmd: Command, timeout: Duration) -> io::Result<Comma
         .stdin(Stdio::null())
         .spawn()?;
 
+    let stdout = child.stdout.take().expect("stdout piped");
+    let stderr = child.stderr.take().expect("stderr piped");
+    let (stdout_tx, stdout_rx) = mpsc::channel();
+    let (stderr_tx, stderr_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = stdout_tx.send(read_capped(stdout));
+    });
+    std::thread::spawn(move || {
+        let _ = stderr_tx.send(read_capped(stderr));
+    });
+
     let start = Instant::now();
     loop {
         match child.try_wait()? {
             Some(status) => {
-                let mut stdout = child.stdout.take().expect("stdout piped");
-                let mut stderr = child.stderr.take().expect("stderr piped");
-                let mut stdout_buf = Vec::with_capacity(4096);
-                let mut stderr_buf = Vec::with_capacity(1024);
-                stdout.read_to_end(&mut stdout_buf)?;
-                stderr.read_to_end(&mut stderr_buf)?;
-
-                if stdout_buf.len() > Cap::MaxOutputBytes.into() {
-                    stdout_buf.truncate(Cap::MaxOutputBytes.into());
-                }
-                if stderr_buf.len() > Cap::MaxOutputBytes.into() {
-                    stderr_buf.truncate(Cap::MaxOutputBytes.into());
-                }
+                let stdout_buf = stdout_rx.recv().unwrap_or_else(|_| Vec::new());
+                let stderr_buf = stderr_rx.recv().unwrap_or_else(|_| Vec::new());
 
                 return Ok(CommandResult {
                     exit_code: status.code().unwrap_or(-1),
@@ -60,6 +61,24 @@ pub fn run_with_timeout(mut cmd: Command, timeout: Duration) -> io::Result<Comma
             }
         }
     }
+}
+
+fn read_capped<R: Read>(mut reader: R) -> Vec<u8> {
+    let cap = Cap::MaxOutputBytes.into();
+    let mut out = Vec::with_capacity(4096);
+    let mut buf = [0u8; 8192];
+    loop {
+        match reader.read(&mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => {
+                if out.len() < cap {
+                    let remaining = cap - out.len();
+                    out.extend_from_slice(&buf[..n.min(remaining)]);
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Truncate a Vec of strings to `max_results` entries.

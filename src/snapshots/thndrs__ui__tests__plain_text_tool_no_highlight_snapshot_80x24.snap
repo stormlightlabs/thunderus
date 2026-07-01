@@ -3,11 +3,11 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││tool            ✓ find_files#0 [ok]  pattern: main      │"
+"│Model               ││tool            ✓ find_files#0 [ok]  pattern: main      │"
 "│ ● umans-coder      ││   │ src/main.rs                                        │"
-"│   in 0 out 0       ││   │ src/lib.rs                                         │"
-"│                    ││                                                        │"
-"│                    ││                                                        │"
+"│   max out 32768    ││   │ src/lib.rs                                         │"
+"│   search auto      ││                                                        │"
+"│   in 0 out 0       ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

@@ -58,7 +58,7 @@ compaction, subagents, recipes, app generation, permissions, and tiny-model beha
 ## Connections
 
 - Related ideas: `thndrs` prompt assembly, session persistence, future compaction, tool catalog rendering.
-- Related sources: [prompts](prompts.md), [sessions](sessions.md), [pi-prompts](pi-prompts.md).
+- Related sources: [prompts](prompts.md), [sessions](./sessions.md), [pi-prompts](pi-prompts.md).
 - Tension: Goose supports extensions and subagents; `thndrs` should not add those until the simpler local harness needs them.
 - Useful application: keep prompt fragments focused and put runtime-specific context in generated sections.
 

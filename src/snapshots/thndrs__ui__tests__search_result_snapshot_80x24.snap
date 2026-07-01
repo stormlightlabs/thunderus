@@ -3,11 +3,11 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││ ▌ User (owais)     search for rust async patterns      │"
+"│Model               ││ ▌ User (owais)     search for rust async patterns      │"
 "│ ● umans-coder      ││                                                        │"
-"│   in 0 out 0       ││tool            ✓ web_search#search-0 [ok]              │"
-"│                    ││                query: rust async patterns              │"
-"│                    ││   │ server-side search: rust async patterns            │"
+"│   max out 32768    ││tool            ✓ web_search#search-0 [ok]              │"
+"│   search auto      ││                query: rust async patterns              │"
+"│   in 0 out 0       ││   │ server-side search: rust async patterns            │"
 "│                    ││   │ result: https://tokio.rs/tutorial/async            │"
 "│                    ││   │ result: https://rust-lang.org/async-book/          │"
 "│                    ││                                                        │"

@@ -3,11 +3,11 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││ ▌ User (owais)     search for something                │"
+"│Model               ││ ▌ User (owais)     search for something                │"
 "│ ● umans-coder      ││                                                        │"
-"│   in 0 out 0       ││tool            ✕ web_search#search-0 [failed]          │"
-"│                    ││                query: something                        │"
-"│                    ││⚠ Error         search backend unavailable              │"
+"│   max out 32768    ││tool            ✕ web_search#search-0 [failed]          │"
+"│   search auto      ││                query: something                        │"
+"│   in 0 out 0       ││⚠ Error         search backend unavailable              │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

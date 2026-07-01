@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cli::{Cli, WebSearchMode};
 use crate::tools::shell::ProcessRegistry;
-use crate::{context, session, tools};
+use crate::{context, providers, session, tools};
 
 /// Number of UI ticks the user has to press Ctrl+D a second time before the
 /// quit confirmation expires and a fresh double-press is needed.
@@ -201,19 +201,35 @@ pub enum Msg {
     Agent(AgentEvent),
 }
 
-/// Sidebar model
+/// Sidebar model.
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct Sidebar {
-    /// Display names of known sessions, newest first.
+    /// Display lines for the current model/session state.
     pub sessions: Vec<String>,
-    /// Index of the active session, if any.
+    /// Index of the active item, if any.
     pub active: Option<usize>,
 }
 
 impl Sidebar {
-    pub fn placeholder() -> Self {
-        Sidebar { sessions: vec![String::from("unknown\nin 0 out 0")], active: Some(0) }
+    pub fn current_session(model: &str, search: WebSearchMode, input_tokens: u64, output_tokens: u64) -> Self {
+        Sidebar {
+            sessions: vec![current_session_sidebar_label(
+                model,
+                search,
+                input_tokens,
+                output_tokens,
+            )],
+            active: Some(0),
+        }
     }
+}
+
+fn current_session_sidebar_label(model: &str, search: WebSearchMode, input_tokens: u64, output_tokens: u64) -> String {
+    format!(
+        "{model}\nmax out {}\nsearch {}\nin {input_tokens} out {output_tokens}",
+        providers::umans::max_tokens_for_model(model),
+        search.label()
+    )
 }
 
 /// The full application state used to draw the screen.
@@ -306,15 +322,7 @@ impl App {
             let _ = writer.append_context(&context_sources);
         }
 
-        let session_summaries = session::list_session_summaries(&sessions_dir)
-            .into_iter()
-            .map(|s| s.sidebar_label())
-            .collect::<Vec<_>>();
-        let sidebar = if session_summaries.is_empty() {
-            Sidebar::placeholder()
-        } else {
-            Sidebar { sessions: session_summaries, active: Some(0) }
-        };
+        let sidebar = Sidebar::current_session(&cli.model, cli.websearch, 0, 0);
 
         App {
             session_id,
@@ -761,6 +769,8 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
         AgentEvent::Usage { input_tokens, output_tokens } => {
             app.session_tokens_in = app.session_tokens_in.saturating_add(input_tokens);
             app.session_tokens_out = app.session_tokens_out.saturating_add(output_tokens);
+            app.sidebar =
+                Sidebar::current_session(&app.model, app.websearch, app.session_tokens_in, app.session_tokens_out);
             if let Some(ref mut writer) = app.session_writer {
                 let _ = writer.append_usage(input_tokens, output_tokens);
             }

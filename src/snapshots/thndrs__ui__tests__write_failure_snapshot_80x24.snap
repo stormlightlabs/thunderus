@@ -3,11 +3,11 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││ ▌ User (owais)     create src/existing.rs              │"
+"│Model               ││ ▌ User (owais)     create src/existing.rs              │"
 "│ ● umans-coder      ││                                                        │"
-"│   in 0 out 0       ││tool            ✕ create_file#0 [failed]                │"
-"│                    ││                path: src/existing.rs                   │"
-"│                    ││⚠ Error         file already exists: src/existing.rs    │"
+"│   max out 32768    ││tool            ✕ create_file#0 [failed]                │"
+"│   search auto      ││                path: src/existing.rs                   │"
+"│   in 0 out 0       ││⚠ Error         file already exists: src/existing.rs    │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

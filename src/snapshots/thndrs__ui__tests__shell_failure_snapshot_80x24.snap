@@ -3,11 +3,11 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││ ▌ User (owais)     run cargo build                     │"
+"│Model               ││ ▌ User (owais)     run cargo build                     │"
 "│ ● umans-coder      ││                                                        │"
-"│   in 0 out 0       ││tool            ✕ run_shell#0 [failed]  program: cargo  │"
-"│                    ││   │ $ cargo build [one-shot failed 340ms]              │"
-"│                    ││   │ ── stderr ──                                       │"
+"│   max out 32768    ││tool            ✕ run_shell#0 [failed]  program: cargo  │"
+"│   search auto      ││   │ $ cargo build [one-shot failed 340ms]              │"
+"│   in 0 out 0       ││   │ ── stderr ──                                       │"
 "│                    ││   │ error[E0308]: mismatched types                     │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

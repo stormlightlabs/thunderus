@@ -14,6 +14,10 @@ pub fn exec(
     pattern: &str, root: &Path, glob: Option<&str>, extensions: &[String], max_results: usize, context_lines: u32,
     include_hidden: bool,
 ) -> ToolOutput {
+    if pattern.trim().is_empty() {
+        return ToolOutput::failed("search_text", "missing or empty 'pattern' field".to_string());
+    }
+
     let timeout = Duration::from_secs(Cap::timeout());
 
     let mut cmd = Command::new("rg");
@@ -29,7 +33,10 @@ pub fn exec(
         cmd.arg("--glob").arg(g);
     }
     for ext in extensions {
-        cmd.arg("--type").arg(ext);
+        let ext = ext.trim().trim_start_matches('.');
+        if !ext.is_empty() {
+            cmd.arg("--glob").arg(format!("*.{ext}"));
+        }
     }
     cmd.arg(pattern).arg(root);
 
@@ -62,15 +69,16 @@ pub fn exec(
 
 /// Parse `rg --json` output (NDJSON) into a list of search matches.
 ///
-/// Only `match` type messages are extracted. `context`, `begin`, `end`, and
-/// `summary` messages are ignored.
+/// `match` and `context` messages are extracted. `begin`, `end`, and `summary`
+/// messages are ignored.
 pub fn parse_rg_json(output: &str) -> Vec<SearchMatch> {
     output
         .lines()
         .filter(|l| !l.is_empty())
         .filter_map(|line| {
             let v: serde_json::Value = serde_json::from_str(line).ok()?;
-            if v.get("type").and_then(|t| t.as_str()) != Some("match") {
+            let record_type = v.get("type").and_then(|t| t.as_str());
+            if !matches!(record_type, Some("match" | "context")) {
                 return None;
             }
             let data = v.get("data")?;
@@ -132,15 +140,16 @@ mod tests {
     }
 
     #[test]
-    fn parse_rg_json_ignores_context_and_begin() {
+    fn parse_rg_json_includes_context_and_ignores_begin() {
         let json = r#"{"type":"begin","data":{"path":{"text":"x.rs"}}}
 {"type":"context","data":{"path":{"text":"x.rs"},"lines":{"text":"// comment\n"},"line_number":3}}
 {"type":"match","data":{"path":{"text":"x.rs"},"lines":{"text":"let x = 1;\n"},"line_number":4}}
 {"type":"end","data":{"path":{"text":"x.rs"}}}
 "#;
         let matches = parse_rg_json(json);
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].line_number, 4);
+        assert_eq!(matches.len(), 2);
+        assert_eq!(matches[0].line_number, 3);
+        assert_eq!(matches[1].line_number, 4);
     }
 
     #[test]
@@ -182,5 +191,46 @@ mod tests {
         assert_eq!(output.status, ToolStatus::Ok);
         assert!(!output.output.is_empty());
         assert!(output.output[0].contains("Cargo.toml"));
+    }
+
+    #[test]
+    fn search_text_rejects_empty_pattern() {
+        let output = exec("", Path::new("src"), None, &[], Cap::MaxResults.into(), 0, false);
+        assert_eq!(output.status, ToolStatus::Failed);
+        assert_eq!(output.error.as_deref(), Some("missing or empty 'pattern' field"));
+    }
+
+    #[test]
+    fn search_text_extension_filter_accepts_file_extensions() {
+        let output = exec(
+            "fn search_text_finds_matches",
+            Path::new("src"),
+            None,
+            &["rs".to_string()],
+            Cap::MaxResults.into(),
+            0,
+            false,
+        );
+        assert_eq!(output.status, ToolStatus::Ok);
+        assert!(output.output.iter().any(|line| line.contains("search_text.rs")));
+    }
+
+    #[test]
+    fn search_text_returns_context_lines() {
+        let output = exec(
+            "fn search_text_finds_matches",
+            Path::new("src/tools/search_text.rs"),
+            None,
+            &[],
+            Cap::MaxResults.into(),
+            1,
+            false,
+        );
+        assert_eq!(output.status, ToolStatus::Ok);
+        assert!(
+            output.output.len() >= 2,
+            "expected match plus context, got {:?}",
+            output.output
+        );
     }
 }

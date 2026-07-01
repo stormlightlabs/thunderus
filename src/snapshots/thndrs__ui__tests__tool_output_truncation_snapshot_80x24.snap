@@ -3,11 +3,11 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││ ▌ User (owais)     list all files                      │"
+"│Model               ││ ▌ User (owais)     list all files                      │"
 "│ ● umans-coder      ││                                                        │"
-"│   in 0 out 0       ││tool            ✓ find_files#0 [ok]  pattern: *.rs      │"
-"│                    ││   │ src/file_0.rs                                      │"
-"│                    ││   │ src/file_1.rs                                      │"
+"│   max out 32768    ││tool            ✓ find_files#0 [ok]  pattern: *.rs      │"
+"│   search auto      ││   │ src/file_0.rs                                      │"
+"│   in 0 out 0       ││   │ src/file_1.rs                                      │"
 "│                    ││   │ src/file_2.rs                                      │"
 "│                    ││   │ src/file_3.rs                                      │"
 "│                    ││   │ src/file_4.rs                                      │"

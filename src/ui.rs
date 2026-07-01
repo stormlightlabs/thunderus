@@ -196,7 +196,7 @@ fn render_help_overlay(frame: &mut Frame, area: Rect) {
     let _ = Layout::vertical([Constraint::Length(0)]);
 }
 
-/// Sessions list on top, status at the bottom.
+/// Model/session metadata on top, status at the bottom.
 fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
     if area.width == 0 || area.height == 0 {
         return;
@@ -262,7 +262,7 @@ fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
 
     let list = List::new(items)
         .style(style::text_style())
-        .block(Block::new().title(Line::styled("Sessions", style::muted_style())));
+        .block(Block::new().title(Line::styled("Model", style::muted_style())));
 
     frame.render_widget(list, sessions_area);
 
@@ -270,8 +270,7 @@ fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
     let status_color = style::status_color(label);
     let status_text = if app.sidebar_focused {
         Line::from(vec![
-            Span::styled("  ↑↓ navigate", style::subtle_style()),
-            Span::styled("  enter select", style::subtle_style()),
+            Span::styled("  model metadata", style::subtle_style()),
             Span::styled("  esc back", style::subtle_style()),
         ])
     } else {

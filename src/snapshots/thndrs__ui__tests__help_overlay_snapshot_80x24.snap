@@ -3,11 +3,11 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions   ┌ Help ────────────────────────────────────────────────┐           │"
+"│Model      ┌ Help ────────────────────────────────────────────────┐           │"
 "│ ● umans-co│  Key          Action                                 │           │"
-"│   in 0 out│                                                      │           │"
-"│           │  Enter        submit prompt / execute command        │           │"
-"│           │  Esc          cancel stream / close overlay          │           │"
+"│   max out │                                                      │           │"
+"│   search a│  Enter        submit prompt / execute command        │           │"
+"│   in 0 out│  Esc          cancel stream / close overlay          │           │"
 "│           │  Ctrl+T       toggle running input target            │           │"
 "│           │  Up/Down k/j  scroll transcript (empty input)        │.d8888b    │"
 "│           │  PgUp/PgDn    scroll by 10 lines                     │88K        │"

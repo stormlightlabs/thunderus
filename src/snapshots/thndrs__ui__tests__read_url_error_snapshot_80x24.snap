@@ -3,11 +3,11 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││ ▌ User (owais)     read the internal admin page        │"
+"│Model               ││ ▌ User (owais)     read the internal admin page        │"
 "│ ● umans-coder      ││                                                        │"
-"│   in 0 out 0       ││tool            ✕ read_url#fetch-0 [failed]             │"
-"│                    ││                url: http://127.0.0.1/admin             │"
-"│                    ││                                                        │"
+"│   max out 32768    ││tool            ✕ read_url#fetch-0 [failed]             │"
+"│   search auto      ││                url: http://127.0.0.1/admin             │"
+"│   in 0 out 0       ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

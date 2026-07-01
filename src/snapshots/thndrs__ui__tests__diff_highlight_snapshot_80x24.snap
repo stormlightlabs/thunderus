@@ -3,11 +3,11 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││tool            ✓ replace_range#0 [ok]                  │"
+"│Model               ││tool            ✓ replace_range#0 [ok]                  │"
 "│ ● umans-coder      ││                path: src/main.rs                       │"
-"│   in 0 out 0       ││   │ --- old                                            │"
-"│                    ││   │ +++ new                                            │"
-"│                    ││   │ -fn main() {                                       │"
+"│   max out 32768    ││   │ --- old                                            │"
+"│   search auto      ││   │ +++ new                                            │"
+"│   in 0 out 0       ││   │ -fn main() {                                       │"
 "│                    ││   │ +fn main() -> Result<(), Box<dyn Error>> {         │"
 "│                    ││   │      println!("hello");                            │"
 "│                    ││   │ +    Ok(())                                        │"

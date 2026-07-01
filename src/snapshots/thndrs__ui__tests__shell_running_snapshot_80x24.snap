@@ -3,11 +3,11 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││ ▌ User (owais)     run cargo test                      │"
+"│Model               ││ ▌ User (owais)     run cargo test                      │"
 "│ ● umans-coder      ││                                                        │"
-"│   in 0 out 0       ││tool            ⠋ run_shell#0 [running]  program: cargo │"
-"│                    ││                                                        │"
-"│                    ││                                                        │"
+"│   max out 32768    ││tool            ⠋ run_shell#0 [running]  program: cargo │"
+"│   search auto      ││                                                        │"
+"│   in 0 out 0       ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

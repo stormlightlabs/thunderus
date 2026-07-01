@@ -40,6 +40,10 @@ fn from_cli_starts_with_fresh_transcript_not_latest_session() {
             .iter()
             .any(|e| matches!(e, Entry::User { text } if text.contains("old message")))
     );
+    assert_eq!(
+        app.sidebar.sessions,
+        vec![String::from("umans-coder\nmax out 32768\nsearch auto\nin 0 out 0")]
+    );
 }
 
 #[test]
@@ -235,9 +239,12 @@ fn quit_message_sets_quit_flag() {
 }
 
 #[test]
-fn placeholder_sidebar_has_one_active_session() {
-    let sidebar = Sidebar::placeholder();
-    assert_eq!(sidebar.sessions, vec!["unknown\nin 0 out 0"]);
+fn current_session_sidebar_has_model_metadata_and_tokens() {
+    let sidebar = Sidebar::current_session("umans-glm-5.2", WebSearchMode::Native, 12, 3);
+    assert_eq!(
+        sidebar.sessions,
+        vec!["umans-glm-5.2\nmax out 131071\nsearch native\nin 12 out 3"]
+    );
     assert_eq!(sidebar.active, Some(0));
 }
 

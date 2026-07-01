@@ -3,11 +3,11 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││ ▌ User (owais)     read /etc/passwd                    │"
+"│Model               ││ ▌ User (owais)     read /etc/passwd                    │"
 "│ ● umans-coder      ││                                                        │"
-"│   in 0 out 0       ││tool            ✕ read_file_range#0 [failed]            │"
-"│                    ││                path: /etc/passwd                       │"
-"│                    ││⚠ Error         path escapes workspace root: /etc/passwd│"
+"│   max out 32768    ││tool            ✕ read_file_range#0 [failed]            │"
+"│   search auto      ││                path: /etc/passwd                       │"
+"│   in 0 out 0       ││⚠ Error         path escapes workspace root: /etc/passwd│"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

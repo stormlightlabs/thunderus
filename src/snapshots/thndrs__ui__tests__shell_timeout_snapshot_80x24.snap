@@ -3,11 +3,11 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││ ▌ User (owais)     run a long build                    │"
+"│Model               ││ ▌ User (owais)     run a long build                    │"
 "│ ● umans-coder      ││                                                        │"
-"│   in 0 out 0       ││tool            ✕ run_shell#0 [failed]  program: cargo  │"
-"│                    ││   │ $ cargo build [one-shot timeout 10000ms]           │"
-"│                    ││   │ ── stderr ──                                       │"
+"│   max out 32768    ││tool            ✕ run_shell#0 [failed]  program: cargo  │"
+"│   search auto      ││   │ $ cargo build [one-shot timeout 10000ms]           │"
+"│   in 0 out 0       ││   │ ── stderr ──                                       │"
 "│                    ││   │ Compiling thndrs v0.1.0                            │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

@@ -3,11 +3,11 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││tool            ✓ run_shell#0 [ok]  program: echo       │"
+"│Model               ││tool            ✓ run_shell#0 [ok]  program: echo       │"
 "│ ● umans-coder      ││   │ hello                                              │"
+"│   max out 32768    ││                                                        │"
+"│   search auto      ││                                                        │"
 "│   in 0 out 0       ││                                                        │"
-"│                    ││                                                        │"
-"│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

@@ -3,11 +3,11 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││ ▌ User (owais)     explain this repo                   │"
+"│Model               ││ ▌ User (owais)     explain this repo                   │"
 "│ ● umans-coder      ││                                                        │"
-"│   in 0 out 0       ││Thought         ✓ Let me read the Cargo.toml first.     │"
-"│                    ││                                                        │"
-"│                    ││tool            ⠋ read_file#0 [running]                 │"
+"│   max out 32768    ││Thought         ✓ Let me read the Cargo.toml first.     │"
+"│   search auto      ││                                                        │"
+"│   in 0 out 0       ││tool            ⠋ read_file#0 [running]                 │"
 "│                    ││                path: Cargo.toml                        │"
 "│                    ││   │ Cargo.toml: 47 lines                               │"
 "│                    ││                                                        │"

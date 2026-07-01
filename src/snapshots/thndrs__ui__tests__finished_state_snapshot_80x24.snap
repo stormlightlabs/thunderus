@@ -3,11 +3,11 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││ ▌ User (owais)     explain this repo                   │"
+"│Model               ││ ▌ User (owais)     explain this repo                   │"
 "│ ● umans-coder      ││                                                        │"
-"│   in 0 out 0       ││Thought         ✓ Let me think about this... The repo is│"
-"│                    ││                  a Rust + Ratatui harness.             │"
-"│                    ││                                                        │"
+"│   max out 32768    ││Thought         ✓ Let me think about this... The repo is│"
+"│   search auto      ││                  a Rust + Ratatui harness.             │"
+"│   in 0 out 0       ││                                                        │"
 "│                    ││tool            ✓ read_file#0 [ok]  path: Cargo.toml    │"
 "│                    ││   │ Cargo.toml: 47 lines                               │"
 "│                    ││                                                        │"
