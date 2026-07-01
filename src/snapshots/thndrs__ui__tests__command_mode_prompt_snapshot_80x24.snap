@@ -23,6 +23,6 @@ expression: terminal.backend().to_string()
 "│                                                                              │"
 "└──────────────────────────────────────────────────────────────────────────────┘"
 "────────────────────────────────────────────────────────────────────────────────"
-"  ›  :cle█                                                                      "
+"  ›  :cle▏                                                                      "
 "  :clear clear transcript  :quit exit app  :exit exit app  :help show help  :bg "
 " · idle   model: umans-coder   search: auto   tok: ↑0 ↓0  cwd: /repo            "

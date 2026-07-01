@@ -16,7 +16,7 @@ Current user-controlled settings:
 - `--print-prompt`: inspect prompt assembly without contacting the provider.
 
 Secrets are read from environment variables, not config examples. See
-[Environment Variables](environment-variables.md).
+[Environment Variables](./environment-variables.md).
 
 ## Config Files
 

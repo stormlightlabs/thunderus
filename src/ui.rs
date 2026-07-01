@@ -6,6 +6,11 @@
 //! This keeps draw code stateless and makes layout testable with plain [`Rect`]
 //! assertions.
 
+mod highlight;
+mod path_display;
+mod style;
+mod transcript;
+
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
@@ -14,11 +19,6 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
 use crate::app::{App, Entry, FILE_PICKER_VISIBLE_ROWS, Mode, PromptState};
 use crate::{banner, utils};
-
-mod highlight;
-mod path_display;
-mod style;
-mod transcript;
 
 use transcript::entry_lines_with_width;
 
@@ -108,6 +108,10 @@ fn render_help_overlay(frame: &mut Frame, area: Rect) {
             Span::styled("submit prompt / execute command", style::text_style()),
         ]),
         Line::from(vec![
+            Span::styled("  Shift+Enter  ", style::subtle_style()),
+            Span::styled("insert newline (Ctrl+J)", style::text_style()),
+        ]),
+        Line::from(vec![
             Span::styled("  Esc          ", style::subtle_style()),
             Span::styled("cancel stream / close overlay", style::text_style()),
         ]),
@@ -122,6 +126,26 @@ fn render_help_overlay(frame: &mut Frame, area: Rect) {
         Line::from(vec![
             Span::styled("  Up/Down      ", style::subtle_style()),
             Span::styled("recall prompt history", style::text_style()),
+        ]),
+        Line::from(vec![
+            Span::styled("  ← →          ", style::subtle_style()),
+            Span::styled("move cursor (Ctrl+B/F)", style::text_style()),
+        ]),
+        Line::from(vec![
+            Span::styled("  Home/End     ", style::subtle_style()),
+            Span::styled("line start/end (Ctrl+A/E)", style::text_style()),
+        ]),
+        Line::from(vec![
+            Span::styled("  Alt+← →      ", style::subtle_style()),
+            Span::styled("move by word (Ctrl+← →, Alt+B/F)", style::text_style()),
+        ]),
+        Line::from(vec![
+            Span::styled("  Backspace    ", style::subtle_style()),
+            Span::styled("delete char before cursor", style::text_style()),
+        ]),
+        Line::from(vec![
+            Span::styled("  Delete       ", style::subtle_style()),
+            Span::styled("delete char after cursor", style::text_style()),
         ]),
         Line::from(vec![
             Span::styled("  PgUp/PgDn    ", style::subtle_style()),
@@ -174,7 +198,7 @@ fn render_help_overlay(frame: &mut Frame, area: Rect) {
     ];
 
     let overlay_height = help_lines.len() as u16 + 2;
-    let overlay_width = 56.min(area.width);
+    let overlay_width = 58.min(area.width);
     let overlay_y = area.height.saturating_sub(overlay_height) / 2;
     let overlay_x = (area.width.saturating_sub(overlay_width)) / 2;
 
@@ -428,17 +452,46 @@ fn render_prompt(frame: &mut Frame, app: &App, area: Rect) {
         if app.mode == Mode::Command {
             input_spans.push(Span::styled(":", Style::default().fg(p.accent).bg(p.panel_bg)));
         }
-        input_spans.push(Span::styled(
-            utils::truncate_ellipsis(&app.input, visible_input_width),
-            style::text_style(),
-        ));
-        input_spans.push(Span::styled("█", Style::default().fg(prompt_color).bg(p.panel_bg)));
+        let input_text = app.input.as_str();
+        let cursor = app.input.cursor();
+
+        let text_len = input_text.chars().count();
+        if text_len < visible_input_width {
+            let before: String = input_text.chars().take(cursor).collect();
+            let after: String = input_text.chars().skip(cursor).collect();
+            input_spans.push(Span::styled(before, style::text_style()));
+            input_spans.push(Span::styled("▏", Style::default().fg(prompt_color).bg(p.panel_bg)));
+            input_spans.push(Span::styled(after, style::text_style()));
+        } else {
+            let avail = visible_input_width.saturating_sub(1);
+            let start = cursor.saturating_sub(avail);
+            let end = (start + avail).min(text_len);
+            let before: String = input_text
+                .chars()
+                .skip(start)
+                .take(cursor.saturating_sub(start))
+                .collect();
+            let after: String = input_text
+                .chars()
+                .skip(cursor)
+                .take(end.saturating_sub(cursor))
+                .collect();
+            if start > 0 {
+                input_spans.push(Span::styled("…", style::muted_style()));
+            }
+            input_spans.push(Span::styled(before, style::text_style()));
+            input_spans.push(Span::styled("▏", Style::default().fg(prompt_color).bg(p.panel_bg)));
+            input_spans.push(Span::styled(after, style::text_style()));
+            if end < text_len {
+                input_spans.push(Span::styled("…", style::muted_style()));
+            }
+        }
     }
 
     frame.render_widget(Paragraph::new(Line::from(input_spans)), input_area);
 
     if app.mode == Mode::Command {
-        let suggestions = command_suggestions(&app.input);
+        let suggestions = command_suggestions(app.input.as_str());
         let mut sug_spans: Vec<Span<'static>> = vec![Span::styled("  ", style::text_style())];
         for (i, (cmd, desc)) in suggestions.iter().enumerate() {
             if i > 0 {
@@ -594,6 +647,7 @@ mod tests {
     use super::*;
     use crate::app::{Entry, Mode, RunState, ToolStatus};
     use crate::cli::Cli;
+    use crate::input::PromptInput;
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use std::path::PathBuf;
@@ -817,7 +871,7 @@ mod tests {
     #[test]
     fn normal_width_layout_snapshot_80x24() {
         let mut app = app();
-        app.input = String::from("hello");
+        app.input = PromptInput::from_str("hello");
         app.transcript
             .push(Entry::User { text: String::from("explain this repo") });
 
@@ -833,7 +887,7 @@ mod tests {
     #[test]
     fn narrow_width_layout_snapshot_40x24() {
         let mut app = app();
-        app.input = String::from("hello");
+        app.input = PromptInput::from_str("hello");
         app.transcript
             .push(Entry::User { text: String::from("explain this repo") });
 
@@ -1205,7 +1259,7 @@ mod tests {
     fn command_mode_prompt_snapshot_80x24() {
         let mut app = app();
         app.mode = Mode::Command;
-        app.input = String::from("cle");
+        app.input = PromptInput::from_str("cle");
 
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).expect("create test terminal");

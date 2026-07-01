@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cli::{Cli, Theme, WebSearchMode};
 use crate::fuzzy;
+use crate::input::PromptInput;
 use crate::tools::shell::ProcessRegistry;
 use crate::{context, session, tools};
 
@@ -265,7 +266,7 @@ pub struct App {
     pub session_id: String,
     pub mode: Mode,
     pub run_state: RunState,
-    pub input: String,
+    pub input: PromptInput,
     /// Submitted prompt history for Up/Down recall.
     pub input_history: Vec<String>,
     /// Current index into `input_history` while navigating history.
@@ -361,7 +362,7 @@ impl App {
             session_id,
             mode: Mode::default(),
             run_state: RunState::default(),
-            input: String::new(),
+            input: PromptInput::new(),
             input_history: Vec::new(),
             history_cursor: None,
             history_draft: String::new(),
@@ -652,18 +653,18 @@ fn handle_command_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
             if app.input.is_empty() {
                 app.mode = Mode::Prompt;
             } else {
-                app.input.pop();
+                app.input.backspace();
             }
             None
         }
         KeyCode::Enter => {
-            let text = app.input.trim().to_string();
+            let text = app.input.as_str().trim().to_string();
             app.input.clear();
             app.mode = Mode::Prompt;
             if text.is_empty() { None } else { handle_command(app, &text) }
         }
         KeyCode::Char(ch) => {
-            app.input.push(ch);
+            app.input.insert_char(ch);
             None
         }
         _ => None,
@@ -671,6 +672,17 @@ fn handle_command_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
 }
 
 /// Handle keys in normal Prompt mode.
+///
+/// Cursor keybinds:
+/// - `left` / `ctrl+b`: move cursor left
+/// - `right` / `ctrl+f`: move cursor right
+/// - `alt+left` / `ctrl+left` / `alt+b`: move cursor word left
+/// - `alt+right` / `ctrl+right` / `alt+f`: move cursor word right
+/// - `home` / `ctrl+a`: move to line start
+/// - `end` / `ctrl+e`: move to line end
+/// - `shift+enter` / `ctrl+j`: insert newline
+/// - `backspace`: delete char before cursor
+/// - `delete`: delete char after cursor (forward delete)
 fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
     if key.modifiers.contains(KeyModifiers::CONTROL) && key.modifiers.contains(KeyModifiers::ALT) {
         match key.code {
@@ -694,11 +706,84 @@ fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
         }
     }
 
-    match key.code {
-        KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            open_file_picker(app);
-            None
+    if key.code == KeyCode::Char('p') && key.modifiers.contains(KeyModifiers::CONTROL) {
+        open_file_picker(app);
+        return None;
+    }
+
+    if key.modifiers.contains(KeyModifiers::ALT) {
+        let handled = match key.code {
+            KeyCode::Left | KeyCode::Char('b') => {
+                app.input.cursor_word_left();
+                exit_history_navigation(app);
+                true
+            }
+            KeyCode::Right | KeyCode::Char('f') => {
+                app.input.cursor_word_right();
+                exit_history_navigation(app);
+                true
+            }
+            _ => false,
+        };
+        if handled {
+            return None;
         }
+    }
+
+    if key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT) {
+        let handled = match key.code {
+            KeyCode::Left => {
+                app.input.cursor_word_left();
+                exit_history_navigation(app);
+                true
+            }
+            KeyCode::Right => {
+                app.input.cursor_word_right();
+                exit_history_navigation(app);
+                true
+            }
+            _ => false,
+        };
+        if handled {
+            return None;
+        }
+    }
+
+    if key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT) {
+        let handled = match key.code {
+            KeyCode::Char('a') => {
+                app.input.cursor_to_start();
+                exit_history_navigation(app);
+                true
+            }
+            KeyCode::Char('e') => {
+                app.input.cursor_to_end();
+                exit_history_navigation(app);
+                true
+            }
+            KeyCode::Char('b') => {
+                app.input.cursor_left();
+                exit_history_navigation(app);
+                true
+            }
+            KeyCode::Char('f') => {
+                app.input.cursor_right();
+                exit_history_navigation(app);
+                true
+            }
+            KeyCode::Char('j') => {
+                exit_history_navigation(app);
+                app.input.insert_char('\n');
+                true
+            }
+            _ => false,
+        };
+        if handled {
+            return None;
+        }
+    }
+
+    match key.code {
         KeyCode::Char('?') if app.input.is_empty() => {
             app.mode = Mode::Help;
             None
@@ -707,12 +792,37 @@ fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
             app.mode = Mode::Command;
             None
         }
+        KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => {
+            exit_history_navigation(app);
+            app.input.insert_char('\n');
+            None
+        }
         KeyCode::Up => {
             recall_older_input(app);
             None
         }
         KeyCode::Down => {
             recall_newer_input(app);
+            None
+        }
+        KeyCode::Left => {
+            app.input.cursor_left();
+            exit_history_navigation(app);
+            None
+        }
+        KeyCode::Right => {
+            app.input.cursor_right();
+            exit_history_navigation(app);
+            None
+        }
+        KeyCode::Home => {
+            app.input.cursor_to_start();
+            exit_history_navigation(app);
+            None
+        }
+        KeyCode::End => {
+            app.input.cursor_to_end();
+            exit_history_navigation(app);
             None
         }
         KeyCode::PageUp => {
@@ -727,14 +837,19 @@ fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
             }
             None
         }
+        KeyCode::Delete => {
+            exit_history_navigation(app);
+            app.input.delete_forward();
+            None
+        }
         KeyCode::Char(ch) => {
             exit_history_navigation(app);
-            app.input.push(ch);
+            app.input.insert_char(ch);
             None
         }
         KeyCode::Backspace => {
             exit_history_navigation(app);
-            app.input.pop();
+            app.input.backspace();
             None
         }
         KeyCode::Enter => handle_submit(app),
@@ -766,10 +881,10 @@ fn close_file_picker(app: &mut App) {
 }
 
 fn insert_file_path(app: &mut App, path: &str) {
-    if !app.input.is_empty() && !app.input.chars().last().is_some_and(char::is_whitespace) {
-        app.input.push(' ');
+    if !app.input.is_empty() && !app.input.text_before_cursor().ends_with(char::is_whitespace) {
+        app.input.insert_char(' ');
     }
-    app.input.push_str(path);
+    app.input.insert_str(path);
 }
 
 /// Handle an `Enter` submit. Slash commands are routed; otherwise the input is
@@ -786,7 +901,7 @@ fn handle_submit(app: &mut App) -> Option<Msg> {
         return None;
     }
 
-    let text = app.input.trim().to_string();
+    let text = app.input.as_str().trim().to_string();
     if text.is_empty() {
         app.input.clear();
         return None;
@@ -800,7 +915,7 @@ fn handle_submit(app: &mut App) -> Option<Msg> {
 }
 
 fn queue_running_input(app: &mut App) {
-    let text = app.input.trim().to_string();
+    let text = app.input.as_str().trim().to_string();
     if text.is_empty() {
         app.input.clear();
         return;
@@ -1001,7 +1116,7 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             app.transcript.push(Entry::Error { text: msg.clone() });
             app.run_state = RunState::Error(msg);
             if let Some(input) = app.last_input.take() {
-                app.input = input;
+                app.input.set_text(&input);
             }
             persist_last_entry(app);
             None
@@ -1062,12 +1177,12 @@ fn recall_older_input(app: &mut App) {
         Some(0) => 0,
         Some(index) => index.saturating_sub(1),
         None => {
-            app.history_draft = app.input.clone();
+            app.history_draft = app.input.text();
             app.input_history.len() - 1
         }
     };
     app.history_cursor = Some(next);
-    app.input = app.input_history[next].clone();
+    app.input.set_text(&app.input_history[next]);
 }
 
 fn recall_newer_input(app: &mut App) {
@@ -1078,10 +1193,10 @@ fn recall_newer_input(app: &mut App) {
     if index + 1 < app.input_history.len() {
         let next = index + 1;
         app.history_cursor = Some(next);
-        app.input = app.input_history[next].clone();
+        app.input.set_text(&app.input_history[next]);
     } else {
         app.history_cursor = None;
-        app.input = app.history_draft.clone();
+        app.input.set_text(&app.history_draft);
         app.history_draft.clear();
     }
 }

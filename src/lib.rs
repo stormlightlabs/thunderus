@@ -13,6 +13,7 @@ mod config;
 mod context;
 mod datetime;
 mod fuzzy;
+pub mod input;
 mod prompt;
 mod providers;
 mod search;

@@ -1,6 +1,11 @@
 use super::*;
+use crate::input::PromptInput;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use std::io::Write;
+
+fn key(code: KeyCode, modifiers: KeyModifiers) -> Msg {
+    Msg::Key(KeyEvent::new(code, modifiers))
+}
 
 fn fresh_app() -> App {
     let dir = tempfile::tempdir().expect("create temp dir");
@@ -69,7 +74,7 @@ fn finished_persists_final_assistant_even_after_status_row() {
         .path()
         .to_path_buf();
 
-    app.input = String::from("update TODO.md");
+    app.input = PromptInput::from_str("update TODO.md");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
     update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(String::from("Done."))));
     update(
@@ -93,7 +98,7 @@ fn q_appends_to_input_and_does_not_quit() {
         &Msg::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
     );
     assert!(!app.quit, "q should not quit");
-    assert_eq!(app.input, "q", "q should append to input");
+    assert_eq!(app.input.as_str(), "q", "q should append to input");
     assert_eq!(follow, None);
 }
 
@@ -192,7 +197,7 @@ fn ctrl_d_cancelled_by_other_key() {
 #[test]
 fn ctrl_d_works_even_with_input() {
     let mut app = fresh_app();
-    app.input = String::from("some text");
+    app.input = PromptInput::from_str("some text");
     update(
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL)),
@@ -235,7 +240,7 @@ fn file_picker_selection_inserts_selected_path() {
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
 
     assert_eq!(app.mode, Mode::Prompt);
-    assert_eq!(app.input, "src/app.rs");
+    assert_eq!(app.input.as_str(), "src/app.rs");
     assert!(app.file_picker.is_none());
 }
 
@@ -264,14 +269,14 @@ fn file_picker_arrows_and_pages_are_scrollable() {
 #[test]
 fn file_picker_escape_closes_without_changing_input() {
     let mut app = fresh_app();
-    app.input = "read".to_string();
+    app.input = PromptInput::from_str("read");
     app.mode = Mode::FilePicker;
     app.file_picker = Some(FilePickerState::new(vec!["README.md".to_string()]));
 
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
 
     assert_eq!(app.mode, Mode::Prompt);
-    assert_eq!(app.input, "read");
+    assert_eq!(app.input.as_str(), "read");
     assert!(app.file_picker.is_none());
 }
 
@@ -299,19 +304,19 @@ fn printable_chars_append_to_input() {
             &Msg::Key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE)),
         );
     }
-    assert_eq!(app.input, "hello");
+    assert_eq!(app.input.as_str(), "hello");
     assert!(app.transcript.is_empty());
 }
 
 #[test]
 fn backspace_removes_last_char() {
     let mut app = fresh_app();
-    app.input = String::from("abc");
+    app.input = PromptInput::from_str("abc");
     update(
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)),
     );
-    assert_eq!(app.input, "ab");
+    assert_eq!(app.input.as_str(), "ab");
 }
 
 #[test]
@@ -321,15 +326,15 @@ fn backspace_on_empty_input_is_noop() {
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)),
     );
-    assert_eq!(app.input, "");
+    assert_eq!(app.input.as_str(), "");
 }
 
 #[test]
 fn enter_submits_user_entry_and_clears_input() {
     let mut app = fresh_app();
-    app.input = String::from("explain this repo");
+    app.input = PromptInput::from_str("explain this repo");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
-    assert_eq!(app.input, "");
+    assert_eq!(app.input.as_str(), "");
     assert_eq!(app.transcript.len(), 1);
     assert_eq!(
         app.transcript[0],
@@ -341,16 +346,16 @@ fn enter_submits_user_entry_and_clears_input() {
 fn enter_on_empty_input_does_nothing() {
     let mut app = fresh_app();
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
-    assert_eq!(app.input, "");
+    assert_eq!(app.input.as_str(), "");
     assert!(app.transcript.is_empty());
 }
 
 #[test]
 fn enter_trims_whitespace_before_submit() {
     let mut app = fresh_app();
-    app.input = String::from("  hello  ");
+    app.input = PromptInput::from_str("  hello  ");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
-    assert_eq!(app.input, "");
+    assert_eq!(app.input.as_str(), "");
     assert_eq!(app.transcript.len(), 1);
     assert_eq!(app.transcript[0], Entry::User { text: String::from("hello") });
 }
@@ -359,27 +364,27 @@ fn enter_trims_whitespace_before_submit() {
 fn slash_clear_clears_transcript_and_input() {
     let mut app = fresh_app();
     app.transcript.push(Entry::User { text: String::from("old") });
-    app.input = String::from("/clear");
+    app.input = PromptInput::from_str("/clear");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
     assert!(app.transcript.is_empty());
-    assert_eq!(app.input, "");
+    assert_eq!(app.input.as_str(), "");
     assert!(!app.quit);
 }
 
 #[test]
 fn slash_quit_sets_quit_flag() {
     let mut app = fresh_app();
-    app.input = String::from("/quit");
+    app.input = PromptInput::from_str("/quit");
     let follow = update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
     assert!(app.quit);
     assert_eq!(follow, Some(Msg::Quit));
-    assert_eq!(app.input, "");
+    assert_eq!(app.input.as_str(), "");
 }
 
 #[test]
 fn slash_exit_also_quits() {
     let mut app = fresh_app();
-    app.input = String::from("/exit");
+    app.input = PromptInput::from_str("/exit");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
     assert!(app.quit);
 }
@@ -387,11 +392,11 @@ fn slash_exit_also_quits() {
 #[test]
 fn unknown_slash_command_is_ignored() {
     let mut app = fresh_app();
-    app.input = String::from("/bogus");
+    app.input = PromptInput::from_str("/bogus");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
     assert!(!app.quit);
     assert!(app.transcript.is_empty());
-    assert_eq!(app.input, "/bogus");
+    assert_eq!(app.input.as_str(), "/bogus");
 }
 
 #[test]
@@ -412,7 +417,7 @@ fn q_does_not_quit_even_when_input_empty() {
     );
     assert!(!app.quit, "q should never quit");
     assert_eq!(follow, None);
-    assert_eq!(app.input, "q");
+    assert_eq!(app.input.as_str(), "q");
 }
 
 #[test]
@@ -727,7 +732,7 @@ fn escape_does_nothing_when_idle() {
 fn submit_while_working_queues_followup_by_default() {
     let mut app = fresh_app();
     app.run_state = RunState::Working;
-    app.input = String::from("queued message");
+    app.input = PromptInput::from_str("queued message");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
     assert!(app.input.is_empty());
     assert_eq!(app.queued_followups, vec!["queued message".to_string()]);
@@ -762,7 +767,7 @@ fn submit_while_working_queues_steering_when_selected() {
     let mut app = fresh_app();
     app.run_state = RunState::Working;
     app.queue_target = QueueTarget::Steering;
-    app.input = String::from("look at tests first");
+    app.input = PromptInput::from_str("look at tests first");
 
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
 
@@ -805,9 +810,9 @@ fn cancelled_clears_queued_steering_but_keeps_followups() {
 #[test]
 fn submit_kicks_off_agent_via_followup() {
     let mut app = fresh_app();
-    app.input = String::from("explain this repo");
+    app.input = PromptInput::from_str("explain this repo");
     let follow = update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
-    assert_eq!(app.input, "");
+    assert_eq!(app.input.as_str(), "");
     assert_eq!(app.transcript.len(), 1);
     assert_eq!(follow, Some(Msg::Agent(AgentEvent::Started)));
 }
@@ -1041,7 +1046,7 @@ fn error_state_all_resubmission() {
     update(&mut app, &Msg::Agent(AgentEvent::Started));
     update(&mut app, &Msg::Agent(AgentEvent::Failed(String::from("boom"))));
     assert_eq!(app.run_state, RunState::Error("boom".to_string()));
-    app.input = String::from("retry");
+    app.input = PromptInput::from_str("retry");
     let follow = update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
     assert!(follow.is_some());
     if let Some(msg) = follow {
@@ -1076,15 +1081,15 @@ fn up_down_arrows_navigate_prompt_history() {
     update(&mut app, &Msg::Agent(AgentEvent::Finished));
     submit_user_turn(&mut app, String::from("second"));
 
-    app.input = String::from("draft");
+    app.input = PromptInput::from_str("draft");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)));
-    assert_eq!(app.input, "second");
+    assert_eq!(app.input.as_str(), "second");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)));
-    assert_eq!(app.input, "first");
+    assert_eq!(app.input.as_str(), "first");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)));
-    assert_eq!(app.input, "second");
+    assert_eq!(app.input.as_str(), "second");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)));
-    assert_eq!(app.input, "draft");
+    assert_eq!(app.input.as_str(), "draft");
     assert_eq!(app.history_cursor, None);
 }
 
@@ -1215,12 +1220,12 @@ fn assistant_delta_follows_when_pinned() {
 #[test]
 fn scroll_does_not_interfere_with_typing() {
     let mut app = fresh_app();
-    app.input = String::from("typing");
+    app.input = PromptInput::from_str("typing");
     update(
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE)),
     );
-    assert_eq!(app.input, "typingk");
+    assert_eq!(app.input.as_str(), "typingk");
     assert_eq!(app.scroll_offset, 0);
 }
 
@@ -1233,7 +1238,7 @@ fn vim_j_is_text_when_input_empty() {
         &Msg::Key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)),
     );
     assert_eq!(app.scroll_offset, 2);
-    assert_eq!(app.input, "j");
+    assert_eq!(app.input.as_str(), "j");
 }
 
 #[test]
@@ -1267,7 +1272,7 @@ fn typing_after_recalled_history_edits_copy() {
         &Msg::Key(KeyEvent::new(KeyCode::Char('!'), KeyModifiers::NONE)),
     );
 
-    assert_eq!(app.input, "previous!");
+    assert_eq!(app.input.as_str(), "previous!");
     assert_eq!(app.input_history, vec![String::from("previous")]);
     assert_eq!(app.history_cursor, None);
 }
@@ -1276,7 +1281,7 @@ fn typing_after_recalled_history_edits_copy() {
 fn queued_running_input_is_recorded_in_history() {
     let mut app = fresh_app();
     app.run_state = RunState::Working;
-    app.input = String::from("steer here");
+    app.input = PromptInput::from_str("steer here");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
     assert_eq!(app.input_history, vec![String::from("steer here")]);
 }
@@ -1344,7 +1349,7 @@ fn command_mode_typing_appends_to_input() {
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE)),
     );
-    assert_eq!(app.input, "cl");
+    assert_eq!(app.input.as_str(), "cl");
     assert_eq!(app.mode, Mode::Command);
 }
 
@@ -1352,7 +1357,7 @@ fn command_mode_typing_appends_to_input() {
 fn command_mode_enter_executes_and_returns_to_prompt() {
     let mut app = fresh_app();
     app.mode = Mode::Command;
-    app.input = "clear".to_string();
+    app.input = PromptInput::from_str("clear");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
     assert_eq!(app.mode, Mode::Prompt);
     assert!(app.input.is_empty());
@@ -1363,7 +1368,7 @@ fn command_mode_enter_executes_and_returns_to_prompt() {
 fn command_mode_esc_returns_to_prompt() {
     let mut app = fresh_app();
     app.mode = Mode::Command;
-    app.input = "qui".to_string();
+    app.input = PromptInput::from_str("qui");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
     assert_eq!(app.mode, Mode::Prompt);
     assert!(app.input.is_empty());
@@ -1385,12 +1390,12 @@ fn command_mode_backspace_on_empty_returns_to_prompt() {
 fn command_mode_backspace_on_nonempty_pops_char() {
     let mut app = fresh_app();
     app.mode = Mode::Command;
-    app.input = "cl".to_string();
+    app.input = PromptInput::from_str("cl");
     update(
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)),
     );
-    assert_eq!(app.input, "c");
+    assert_eq!(app.input.as_str(), "c");
     assert_eq!(app.mode, Mode::Command);
 }
 
@@ -1398,7 +1403,7 @@ fn command_mode_backspace_on_nonempty_pops_char() {
 fn command_mode_quit_command_exits_app() {
     let mut app = fresh_app();
     app.mode = Mode::Command;
-    app.input = "quit".to_string();
+    app.input = PromptInput::from_str("quit");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
     assert!(app.quit);
 }
@@ -1407,7 +1412,7 @@ fn command_mode_quit_command_exits_app() {
 fn command_mode_help_command_enters_help_overlay() {
     let mut app = fresh_app();
     app.mode = Mode::Command;
-    app.input = "help".to_string();
+    app.input = PromptInput::from_str("help");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
     assert_eq!(app.mode, Mode::Help);
 }
@@ -1415,20 +1420,20 @@ fn command_mode_help_command_enters_help_overlay() {
 #[test]
 fn question_key_does_not_enter_help_when_input_nonempty() {
     let mut app = fresh_app();
-    app.input = "hello".to_string();
+    app.input = PromptInput::from_str("hello");
     update(
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE)),
     );
     assert_eq!(app.mode, Mode::Prompt);
-    assert_eq!(app.input, "hello?");
+    assert_eq!(app.input.as_str(), "hello?");
 }
 
 #[test]
 fn bg_command_with_no_processes_shows_empty_message() {
     let mut app = fresh_app();
     app.mode = Mode::Command;
-    app.input = "bg".to_string();
+    app.input = PromptInput::from_str("bg");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
     assert!(
         app.transcript
@@ -1490,7 +1495,7 @@ fn bg_command_lists_registered_background_processes() {
     );
 
     app.mode = Mode::Command;
-    app.input = "bg".to_string();
+    app.input = PromptInput::from_str("bg");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
 
     let status_text = app
@@ -1571,24 +1576,206 @@ fn mouse_click_does_not_affect_scroll() {
 #[test]
 fn failed_provider_restores_input() {
     let mut app = fresh_app();
-    app.input = String::from("hello world");
+    app.input = PromptInput::from_str("hello world");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
     assert!(app.input.is_empty(), "input should be cleared after submit");
     assert_eq!(app.last_input, Some("hello world".to_string()));
 
     update(&mut app, &Msg::Agent(AgentEvent::Failed(String::from("boom"))));
-    assert_eq!(app.input, "hello world", "input should be restored on failure");
+    assert_eq!(app.input.as_str(), "hello world", "input should be restored on failure");
     assert_eq!(app.run_state, RunState::Error("boom".to_string()));
 }
 
 #[test]
 fn finished_clears_last_input() {
     let mut app = fresh_app();
-    app.input = String::from("test prompt");
+    app.input = PromptInput::from_str("test prompt");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
     assert!(app.last_input.is_some());
 
     update(&mut app, &Msg::Agent(AgentEvent::Finished));
     assert!(app.last_input.is_none(), "last_input should be cleared on finish");
     assert!(app.input.is_empty(), "input should remain empty on finish");
+}
+
+#[test]
+fn left_arrow_moves_cursor_left() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from_str("abc");
+    update(&mut app, &key(KeyCode::Left, KeyModifiers::NONE));
+    assert_eq!(app.input.cursor(), 2);
+}
+
+#[test]
+fn right_arrow_moves_cursor_right() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from_str("abc");
+    app.input.cursor_to_start();
+    update(&mut app, &key(KeyCode::Right, KeyModifiers::NONE));
+    assert_eq!(app.input.cursor(), 1);
+}
+
+#[test]
+fn ctrl_b_moves_cursor_left() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from_str("abc");
+    update(&mut app, &key(KeyCode::Char('b'), KeyModifiers::CONTROL));
+    assert_eq!(app.input.cursor(), 2);
+}
+
+#[test]
+fn ctrl_f_moves_cursor_right() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from_str("abc");
+    app.input.cursor_to_start();
+    update(&mut app, &key(KeyCode::Char('f'), KeyModifiers::CONTROL));
+    assert_eq!(app.input.cursor(), 1);
+}
+
+#[test]
+fn home_moves_to_start() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from_str("hello");
+    update(&mut app, &key(KeyCode::Home, KeyModifiers::NONE));
+    assert_eq!(app.input.cursor(), 0);
+}
+
+#[test]
+fn end_moves_to_end() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from_str("hello");
+    app.input.cursor_to_start();
+    update(&mut app, &key(KeyCode::End, KeyModifiers::NONE));
+    assert_eq!(app.input.cursor(), 5);
+}
+
+#[test]
+fn ctrl_a_moves_to_start() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from_str("hello");
+    update(&mut app, &key(KeyCode::Char('a'), KeyModifiers::CONTROL));
+    assert_eq!(app.input.cursor(), 0);
+}
+
+#[test]
+fn ctrl_e_moves_to_end() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from_str("hello");
+    app.input.cursor_to_start();
+    update(&mut app, &key(KeyCode::Char('e'), KeyModifiers::CONTROL));
+    assert_eq!(app.input.cursor(), 5);
+}
+
+#[test]
+fn alt_left_moves_word_left() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from_str("foo bar");
+    update(&mut app, &key(KeyCode::Left, KeyModifiers::ALT));
+    assert_eq!(app.input.cursor(), 4);
+}
+
+#[test]
+fn ctrl_left_moves_word_left() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from_str("foo bar");
+    update(&mut app, &key(KeyCode::Left, KeyModifiers::CONTROL));
+    assert_eq!(app.input.cursor(), 4);
+}
+
+#[test]
+fn alt_b_moves_word_left() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from_str("foo bar");
+    update(&mut app, &key(KeyCode::Char('b'), KeyModifiers::ALT));
+    assert_eq!(app.input.cursor(), 4);
+}
+
+#[test]
+fn alt_right_moves_word_right() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from_str("foo bar");
+    app.input.cursor_to_start();
+    update(&mut app, &key(KeyCode::Right, KeyModifiers::ALT));
+    assert_eq!(app.input.cursor(), 4);
+}
+
+#[test]
+fn ctrl_right_moves_word_right() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from_str("foo bar");
+    app.input.cursor_to_start();
+    update(&mut app, &key(KeyCode::Right, KeyModifiers::CONTROL));
+    assert_eq!(app.input.cursor(), 4);
+}
+
+#[test]
+fn alt_f_moves_word_right() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from_str("foo bar");
+    app.input.cursor_to_start();
+    update(&mut app, &key(KeyCode::Char('f'), KeyModifiers::ALT));
+    assert_eq!(app.input.cursor(), 4);
+}
+
+#[test]
+fn shift_enter_inserts_newline() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from_str("line1");
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::SHIFT));
+    assert_eq!(app.input.as_str(), "line1\n");
+    assert_eq!(app.input.cursor(), 6);
+}
+
+#[test]
+fn ctrl_j_inserts_newline() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from_str("line1");
+    update(&mut app, &key(KeyCode::Char('j'), KeyModifiers::CONTROL));
+    assert_eq!(app.input.as_str(), "line1\n");
+}
+
+#[test]
+fn delete_key_deletes_forward() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from_str("hello");
+    app.input.cursor_to_start();
+    update(&mut app, &key(KeyCode::Delete, KeyModifiers::NONE));
+    assert_eq!(app.input.as_str(), "ello");
+    assert_eq!(app.input.cursor(), 0);
+}
+
+#[test]
+fn backspace_deletes_before_cursor() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from_str("hello");
+    update(&mut app, &key(KeyCode::Backspace, KeyModifiers::NONE));
+    assert_eq!(app.input.as_str(), "hell");
+    assert_eq!(app.input.cursor(), 4);
+}
+
+#[test]
+fn typing_inserts_at_cursor_not_at_end() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from_str("helo");
+    app.input.cursor_left();
+    update(&mut app, &key(KeyCode::Char('l'), KeyModifiers::NONE));
+    assert_eq!(app.input.as_str(), "hello");
+    assert_eq!(app.input.cursor(), 4);
+}
+
+#[test]
+fn ctrl_p_still_opens_file_picker() {
+    let mut app = fresh_app();
+    let _ = std::fs::write(app.cwd.join("test.txt"), "test");
+    update(&mut app, &key(KeyCode::Char('p'), KeyModifiers::CONTROL));
+    assert_eq!(app.mode, Mode::FilePicker);
+}
+
+#[test]
+fn ctrl_a_in_command_mode_inserts_literal_a() {
+    let mut app = fresh_app();
+    app.mode = Mode::Command;
+    app.input = PromptInput::from_str("test");
+    update(&mut app, &key(KeyCode::Char('a'), KeyModifiers::CONTROL));
+    assert_eq!(app.input.as_str(), "testa");
 }

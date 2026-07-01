@@ -11,6 +11,7 @@
 
 - [TUI](usage/tui.md)
 - [Prompting and Input](usage/prompting-and-input.md)
+- [Keybindings](keybinds.md)
 - [Project Context](usage/project-context.md)
 - [Tools](usage/tools.md)
 - [Web Search](usage/web-search.md)
@@ -44,4 +45,3 @@
 - [Architecture](development/architecture.md)
 - [Workflow](development/workflow.md)
 - [Testing](development/testing.md)
-- [Release Checklist](development/release-checklist.md)

@@ -188,53 +188,52 @@
 - [ ] Unit-test no-server fallback behavior.
 - [ ] Add snapshots for LSP transcript entries.
 
+## Completed
+
+### Cursor-Aware Prompt Input and Keybinds
+
+- Added a `PromptInput` cursor-aware text model (char-index cursor, insert at
+  cursor, backspace, forward delete, word motions, line start/end, newline
+  insertion, multibyte-safe operations) backed by unit tests.
+- Replaced the append-only `String` prompt input with `PromptInput` across
+  `App`, updating submit, queue, history recall, file-path insertion,
+  restore-on-failure, and command-mode paths.
+- Wired all cursor keybinds in prompt mode: `left`/`ctrl+b`, `right`/`ctrl+f`,
+  `alt+left`/`ctrl+left`/`alt+b` (word left), `alt+right`/`ctrl+right`/`alt+f`
+  (word right), `home`/`ctrl+a`, `end`/`ctrl+e`, `shift+enter`/`ctrl+j`
+  (newline), `backspace`, and `delete` (forward delete).
+- Updated prompt rendering to show an inline cursor (`▏`) at the correct
+  position with horizontal scroll-into-view for overflow, replacing the old
+  end-of-line block cursor.
+- Updated the help overlay to document all new cursor keybinds.
+- Updated all existing tests and snapshots for the new input model; added new
+  unit tests for every cursor keybind.
+
 ## Parking Lot
+
+- [ ] Tool call failures should have debuggable logs and more information about
+      why in the transcript
 
 ### Keybinds
 
 #### Cursor
 
-| Key                          | Desc                       |
-| ---------------------------- | -------------------------- |
-| up                           | Move cursor up             |
-| down                         | Move cursor down           |
-| left, ctrl+b                 | Move cursor left           |
-| right, ctrl+f                | Move cursor right          |
-| alt+left, ctrl+left, alt+b   | Move cursor word left      |
-| alt+right, ctrl+right, alt+f | Move cursor word right     |
-| home, ctrl+a                 | Move to line start         |
-| end, ctrl+e                  | Move to line end           |
-| ctrl+]                       | Jump forward to character  |
-| ctrl+alt+]                   | Jump backward to character |
-| pageUp                       | Scroll up by page          |
-| pageDown                     | Scroll down by page        |
-| shift+enter, ctrl+j          | Insert new line            |
+| Key        | Desc                       |
+| ---------- | -------------------------- |
+| ctrl+]     | Jump forward to character  |
+| ctrl+alt+] | Jump backward to character |
 
 #### Global
 
-| Key              | Desc                                  |
-| ---------------- | ------------------------------------- |
-| enter            | Submit input                          |
-| escape           | Interrupt active turn / close overlay |
-| ctrl+c           | Quit immediately                      |
-| ctrl+d, ctrl+d   | Quit after double-press confirmation  |
-| ctrl+t           | Toggle running input target           |
-| ctrl+p           | Open file picker                      |
-| ?                | Toggle help overlay                   |
-| :                | Enter command mode                    |
+| Key            | Desc                                 |
+| -------------- | ------------------------------------ |
+| ctrl+d, ctrl+d | Quit after double-press confirmation |
 
 #### File Picker
 
-| Key       | Desc                                |
-| --------- | ----------------------------------- |
-| ctrl+p    | Open file picker                    |
-| @         | Start file mention picker           |
-| up/down   | Move file selection                 |
-| pageUp    | Move file selection up by page      |
-| pageDown  | Move file selection down by page    |
-| enter     | Insert selected path into prompt    |
-| escape    | Close file picker                   |
-| backspace | Delete one character from query     |
+| Key | Desc                      |
+| --- | ------------------------- |
+| @   | Start file mention picker |
 
 ### File Picker / Mentions
 
@@ -251,4 +250,3 @@
       hints instead of only being implicit in picker behavior.
 - [ ] Add file picker snapshots for empty query, filtered results, no matches,
       long path clipping, and scrolled selection.
-- [ ] Defer multi-select until the prompt has a cursor-aware input model.
