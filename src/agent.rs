@@ -15,8 +15,8 @@
 //!    after each dispatched tool batch, the assistant message (with `tool_use`
 //!    blocks) and the user message (with `tool_result` blocks) are appended to
 //!    the message history, and the provider is re-requested.
-//! 5. The loop enforces [`MAX_TOOL_ITERATIONS`] per turn to prevent recursive
-//!    or unbounded tool-call loops.
+//! 5. The loop enforces bounded tool-budget continuations to prevent recursive
+//!    or unbounded tool-call loops while still allowing longer useful runs.
 //! 6. Cancellation is cooperative: the loop checks the shared [`CancelToken`]
 //!    between events, lines, and tool executions. When cancelled, it emits
 //!    [`AgentEvent::Cancelled`] and stops.
@@ -370,7 +370,8 @@ fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
     } else {
         handle.messages.clone()
     };
-    let mut iterations = 0usize;
+    let mut tool_budget =
+        tools::ToolIterationBudget::new(handle.config.max_tool_iterations, tools::MAX_TOOL_CONTINUATIONS);
     let mut wrote_file = false;
 
     loop {
@@ -380,14 +381,50 @@ fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
             return;
         }
 
-        if iterations >= handle.config.max_tool_iterations {
-            tracing::error!(iterations, "tool-call cap exceeded");
-            let _ = send(
-                tx,
-                AgentEvent::Failed(format!("tool-call cap exceeded ({} iterations)", iterations)),
-                cancel,
-            );
-            return;
+        match tool_budget.before_provider_request() {
+            tools::ToolBudgetDecision::Continue => {}
+            tools::ToolBudgetDecision::ContinueAfterBudgetMessage => {
+                let text = format!(
+                    "[tool-budget]\nTool batch segment limit reached after {} total batches. Continue from the current state, avoid repeating completed work, and stop requesting tools once you can answer.",
+                    tool_budget.total_batches()
+                );
+                tracing::warn!(
+                    total_batches = tool_budget.total_batches(),
+                    continuations_used = tool_budget.continuations_used(),
+                    "continuing after tool-budget segment cap"
+                );
+                messages.push(umans::Message::user(&text));
+                if send(
+                    tx,
+                    AgentEvent::Status(format!(
+                        "tool budget: auto-continue {}/{} after {} batches",
+                        tool_budget.continuations_used(),
+                        tools::MAX_TOOL_CONTINUATIONS,
+                        tool_budget.total_batches()
+                    )),
+                    cancel,
+                )
+                .is_none()
+                {
+                    return;
+                }
+            }
+            tools::ToolBudgetDecision::Exhausted { segment_iterations, total_batches, continuations_used } => {
+                tracing::error!(
+                    segment_iterations,
+                    total_batches,
+                    continuations_used,
+                    "tool-call budget exhausted"
+                );
+                let _ = send(
+                    tx,
+                    AgentEvent::Failed(format!(
+                        "tool-call budget exhausted ({total_batches} tool batches, {continuations_used} auto-continuations, {segment_iterations} in current segment)"
+                    )),
+                    cancel,
+                );
+                return;
+            }
         }
 
         if send(
@@ -405,7 +442,7 @@ fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
         }
 
         tracing::info!(
-            iteration = iterations,
+            iteration = tool_budget.total_batches(),
             messages = messages.len(),
             "requesting Umans turn"
         );
@@ -480,7 +517,7 @@ fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
             return;
         }
 
-        iterations += 1;
+        tool_budget.record_tool_batch();
 
         let mut assistant_blocks = Vec::new();
         if !turn.assistant_text.is_empty() {

@@ -210,3 +210,25 @@
 - [ ] Audit snapshots and session fixtures for secrets and machine-specific paths.
 - [ ] Add ignored/manual Umans smoke-test instructions.
 - [ ] Write release candidate checklist.
+
+## Parking Lot
+
+### Keybinds
+
+#### Cursor
+
+| Key                          | Desc                       |
+| ---------------------------- | -------------------------- |
+| up                           | Move cursor up             |
+| down                         | Move cursor down           |
+| left, ctrl+b                 | Move cursor left           |
+| right, ctrl+f                | Move cursor right          |
+| alt+left, ctrl+left, alt+b   | Move cursor word left      |
+| alt+right, ctrl+right, alt+f | Move cursor word right     |
+| home, ctrl+a                 | Move to line start         |
+| end, ctrl+e                  | Move to line end           |
+| ctrl+]                       | Jump forward to character  |
+| ctrl+alt+]                   | Jump backward to character |
+| pageUp                       | Scroll up by page          |
+| pageDown                     | Scroll down by page        |
+| shift+enter, ctrl+j          | Insert new line            |

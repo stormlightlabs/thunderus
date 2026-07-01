@@ -31,6 +31,10 @@ pub struct Cli {
     #[arg(long, default_value_t = false)]
     pub no_alt_screen: bool,
 
+    /// Disable terminal mouse capture so native selection and scrollback work.
+    #[arg(long, default_value_t = false)]
+    pub no_mouse: bool,
+
     /// Print the assembled prompt bundle/lowered messages with secrets redacted
     /// and exit without calling the provider.
     #[arg(long, default_value_t = false)]
@@ -121,6 +125,7 @@ impl Default for Cli {
             websearch: WebSearchMode::Auto,
             tick_rate_ms: 100,
             no_alt_screen: false,
+            no_mouse: false,
             print_prompt: false,
         }
     }
@@ -139,6 +144,7 @@ mod tests {
         assert_eq!(cli.websearch, WebSearchMode::Auto);
         assert_eq!(cli.tick_rate_ms, 100);
         assert!(!cli.no_alt_screen);
+        assert!(!cli.no_mouse);
     }
 
     #[test]
@@ -185,6 +191,12 @@ mod tests {
     fn print_prompt_flag_parses() {
         let cli = Cli::try_parse_from(["thndrs", "--print-prompt"]).expect("parse");
         assert!(cli.print_prompt);
+    }
+
+    #[test]
+    fn no_mouse_flag_parses() {
+        let cli = Cli::try_parse_from(["thndrs", "--no-mouse"]).expect("parse");
+        assert!(cli.no_mouse);
     }
 
     #[test]

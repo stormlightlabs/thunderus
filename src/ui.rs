@@ -112,12 +112,16 @@ fn render_help_overlay(frame: &mut Frame, area: Rect) {
             Span::styled("toggle running input target", style::text_style()),
         ]),
         Line::from(vec![
-            Span::styled("  Up/Down k/j  ", style::subtle_style()),
-            Span::styled("scroll transcript (empty input)", style::text_style()),
+            Span::styled("  Up/Down      ", style::subtle_style()),
+            Span::styled("recall prompt history", style::text_style()),
         ]),
         Line::from(vec![
             Span::styled("  PgUp/PgDn    ", style::subtle_style()),
             Span::styled("scroll by 10 lines", style::text_style()),
+        ]),
+        Line::from(vec![
+            Span::styled("  Ctrl+Alt+Y/E ", style::subtle_style()),
+            Span::styled("scroll by 1 line", style::text_style()),
         ]),
         Line::from(vec![
             Span::styled("  Mouse wheel  ", style::subtle_style()),

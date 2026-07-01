@@ -966,20 +966,34 @@ fn scroll_offset_starts_at_zero() {
 }
 
 #[test]
-fn up_arrow_increases_scroll_offset() {
+fn up_down_arrows_navigate_prompt_history() {
     let mut app = fresh_app();
-    app.transcript.push(Entry::User { text: String::from("line 1") });
-    app.transcript.push(Entry::User { text: String::from("line 2") });
+    submit_user_turn(&mut app, String::from("first"));
+    update(&mut app, &Msg::Agent(AgentEvent::Started));
+    update(&mut app, &Msg::Agent(AgentEvent::Finished));
+    submit_user_turn(&mut app, String::from("second"));
+
+    app.input = String::from("draft");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)));
-    assert_eq!(app.scroll_offset, 1);
+    assert_eq!(app.input, "second");
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)));
+    assert_eq!(app.input, "first");
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)));
+    assert_eq!(app.input, "second");
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)));
+    assert_eq!(app.input, "draft");
+    assert_eq!(app.history_cursor, None);
 }
 
 #[test]
-fn down_arrow_decreases_scroll_offset() {
+fn up_down_arrows_do_not_scroll_transcript() {
     let mut app = fresh_app();
+    app.input_history.push(String::from("previous"));
     app.scroll_offset = 3;
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)));
+    assert_eq!(app.scroll_offset, 3);
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)));
-    assert_eq!(app.scroll_offset, 2);
+    assert_eq!(app.scroll_offset, 3);
 }
 
 #[test]
@@ -1012,9 +1026,43 @@ fn page_down_subtracts_ten_when_large() {
 }
 
 #[test]
-fn assistant_delta_resets_scroll_to_bottom() {
+fn assistant_delta_does_not_reset_manual_scroll() {
     let mut app = fresh_app();
     app.scroll_offset = 5;
+    update(&mut app, &Msg::Agent(AgentEvent::Started));
+    update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(String::from("hi"))));
+    assert_eq!(app.scroll_offset, 5);
+}
+
+#[test]
+fn status_event_does_not_reset_manual_scroll() {
+    let mut app = fresh_app();
+    app.scroll_offset = 5;
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::Status(String::from("provider: receiving SSE"))),
+    );
+    assert_eq!(app.scroll_offset, 5);
+}
+
+#[test]
+fn tool_started_does_not_reset_manual_scroll() {
+    let mut app = fresh_app();
+    app.scroll_offset = 5;
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::ToolStarted {
+            id: String::from("toolu_1"),
+            name: String::from("find_files"),
+            arguments: String::from("{}"),
+        }),
+    );
+    assert_eq!(app.scroll_offset, 5);
+}
+
+#[test]
+fn assistant_delta_follows_when_pinned() {
+    let mut app = fresh_app();
     update(&mut app, &Msg::Agent(AgentEvent::Started));
     update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(String::from("hi"))));
     assert_eq!(app.scroll_offset, 0);
@@ -1033,14 +1081,60 @@ fn scroll_does_not_interfere_with_typing() {
 }
 
 #[test]
-fn vim_j_scroll_works_when_input_empty() {
+fn vim_j_is_text_when_input_empty() {
     let mut app = fresh_app();
     app.scroll_offset = 2;
     update(
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)),
     );
+    assert_eq!(app.scroll_offset, 2);
+    assert_eq!(app.input, "j");
+}
+
+#[test]
+fn ctrl_alt_line_scrolls_transcript() {
+    let mut app = fresh_app();
+    update(
+        &mut app,
+        &Msg::Key(KeyEvent::new(
+            KeyCode::Char('y'),
+            KeyModifiers::CONTROL | KeyModifiers::ALT,
+        )),
+    );
     assert_eq!(app.scroll_offset, 1);
+    update(
+        &mut app,
+        &Msg::Key(KeyEvent::new(
+            KeyCode::Char('e'),
+            KeyModifiers::CONTROL | KeyModifiers::ALT,
+        )),
+    );
+    assert_eq!(app.scroll_offset, 0);
+}
+
+#[test]
+fn typing_after_recalled_history_edits_copy() {
+    let mut app = fresh_app();
+    submit_user_turn(&mut app, String::from("previous"));
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)));
+    update(
+        &mut app,
+        &Msg::Key(KeyEvent::new(KeyCode::Char('!'), KeyModifiers::NONE)),
+    );
+
+    assert_eq!(app.input, "previous!");
+    assert_eq!(app.input_history, vec![String::from("previous")]);
+    assert_eq!(app.history_cursor, None);
+}
+
+#[test]
+fn queued_running_input_is_recorded_in_history() {
+    let mut app = fresh_app();
+    app.run_state = RunState::Working;
+    app.input = String::from("steer here");
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+    assert_eq!(app.input_history, vec![String::from("steer here")]);
 }
 
 #[test]

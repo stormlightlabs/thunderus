@@ -9,8 +9,8 @@ project guidance, and safely inspecting a repository.
 ## Implemented
 
 - Full-screen Ratatui shell with transcript, prompt, and statusline.
-- Clap-based CLI with model, workspace, web-search, tick-rate, alternate-screen,
-  and prompt-inspection options.
+- Clap-based CLI with model, workspace, web-search, tick-rate, terminal, and
+  prompt-inspection options.
 - Umans provider support for `umans-coder` and `umans-glm-5.2`.
 - Streaming assistant, reasoning, tool, status, and error transcript entries.
 - Root `AGENTS.md` loading with visible context metadata and truncation handling.

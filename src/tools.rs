@@ -41,6 +41,25 @@ use crate::tools::find_files::FindFiles;
 /// keeps requesting tools without converging on a final answer).
 pub const MAX_TOOL_ITERATIONS: usize = 8;
 
+/// Maximum number of automatic tool-budget continuations per user turn.
+pub const MAX_TOOL_CONTINUATIONS: usize = 3;
+
+/// Decision returned by [`ToolIterationBudget`] before a provider request.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ToolBudgetDecision {
+    /// The next provider request can proceed normally.
+    Continue,
+    /// The segment cap was reached and a provider-visible continuation
+    /// message should be appended before proceeding.
+    ContinueAfterBudgetMessage,
+    /// The full per-turn tool budget has been exhausted.
+    Exhausted {
+        segment_iterations: usize,
+        total_batches: usize,
+        continuations_used: usize,
+    },
+}
+
 /// Caps enforced on tool execution to prevent runaway output.
 pub enum Cap {
     /// Default maximum number of results from a search or list operation.
@@ -92,6 +111,59 @@ impl WriteOp {
             WriteOp::Replace => "replace",
             WriteOp::Edit => "edit",
         }
+    }
+}
+
+/// Bounded tool-batch budget for one user turn.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ToolIterationBudget {
+    segment_limit: usize,
+    continuation_limit: usize,
+    segment_iterations: usize,
+    total_batches: usize,
+    continuations_used: usize,
+}
+
+impl ToolIterationBudget {
+    pub fn new(segment_limit: usize, continuation_limit: usize) -> Self {
+        ToolIterationBudget {
+            segment_limit,
+            continuation_limit,
+            segment_iterations: 0,
+            total_batches: 0,
+            continuations_used: 0,
+        }
+    }
+
+    pub fn record_tool_batch(&mut self) {
+        self.segment_iterations = self.segment_iterations.saturating_add(1);
+        self.total_batches = self.total_batches.saturating_add(1);
+    }
+
+    pub fn before_provider_request(&mut self) -> ToolBudgetDecision {
+        if self.segment_iterations < self.segment_limit {
+            return ToolBudgetDecision::Continue;
+        }
+
+        if self.continuations_used < self.continuation_limit {
+            self.segment_iterations = 0;
+            self.continuations_used += 1;
+            return ToolBudgetDecision::ContinueAfterBudgetMessage;
+        }
+
+        ToolBudgetDecision::Exhausted {
+            segment_iterations: self.segment_iterations,
+            total_batches: self.total_batches,
+            continuations_used: self.continuations_used,
+        }
+    }
+
+    pub fn total_batches(&self) -> usize {
+        self.total_batches
+    }
+
+    pub fn continuations_used(&self) -> usize {
+        self.continuations_used
     }
 }
 
@@ -177,6 +249,67 @@ pub struct SearchMatch {
     pub line_number: u32,
     /// Matched line text.
     pub text: String,
+}
+
+#[cfg(test)]
+mod budget_tests {
+    use super::*;
+
+    #[test]
+    fn tool_budget_continues_before_segment_cap() {
+        let mut budget = ToolIterationBudget::new(2, 3);
+        budget.record_tool_batch();
+        assert_eq!(budget.before_provider_request(), ToolBudgetDecision::Continue);
+    }
+
+    #[test]
+    fn tool_budget_continues_after_first_segment_cap() {
+        let mut budget = ToolIterationBudget::new(2, 3);
+        budget.record_tool_batch();
+        budget.record_tool_batch();
+
+        assert_eq!(
+            budget.before_provider_request(),
+            ToolBudgetDecision::ContinueAfterBudgetMessage
+        );
+
+        assert_eq!(budget.total_batches(), 2);
+        assert_eq!(budget.continuations_used(), 1);
+    }
+
+    #[test]
+    fn tool_budget_resets_segment_counter_after_continuation() {
+        let mut budget = ToolIterationBudget::new(2, 3);
+        budget.record_tool_batch();
+        budget.record_tool_batch();
+        assert_eq!(
+            budget.before_provider_request(),
+            ToolBudgetDecision::ContinueAfterBudgetMessage
+        );
+
+        budget.record_tool_batch();
+        assert_eq!(budget.before_provider_request(), ToolBudgetDecision::Continue);
+    }
+
+    #[test]
+    fn tool_budget_exhausts_after_three_auto_continuations() {
+        let mut budget = ToolIterationBudget::new(2, 3);
+        for _ in 0..3 {
+            budget.record_tool_batch();
+            budget.record_tool_batch();
+            assert_eq!(
+                budget.before_provider_request(),
+                ToolBudgetDecision::ContinueAfterBudgetMessage
+            );
+        }
+
+        budget.record_tool_batch();
+        budget.record_tool_batch();
+        assert_eq!(
+            budget.before_provider_request(),
+            ToolBudgetDecision::Exhausted { segment_iterations: 2, total_batches: 8, continuations_used: 3 }
+        );
+    }
 }
 
 /// Structured result of a file write operation.

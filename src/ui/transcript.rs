@@ -155,7 +155,7 @@ fn tool_lines(
             let highlighted = super::highlight::highlight_code(&joined, Some(&display_path));
             for hl in highlighted {
                 lines.extend(wrapped_spans(
-                    vec![Span::styled(GUTTER, gutter_style)],
+                    &[Span::styled(GUTTER, gutter_style)],
                     hl.spans,
                     max_width,
                 ));
@@ -213,7 +213,7 @@ fn wrapped_lines(prefix: Vec<Span<'static>>, text: &str, text_style: Style, max_
     lines
 }
 
-fn wrapped_spans(prefix: Vec<Span<'static>>, spans: Vec<Span<'static>>, max_width: usize) -> Vec<Line<'static>> {
+fn wrapped_spans(prefix: &[Span<'static>], spans: Vec<Span<'static>>, max_width: usize) -> Vec<Line<'static>> {
     let prefix_width = spans_width(&prefix);
     let body_width = max_width.saturating_sub(prefix_width).max(1);
     let mut lines = Vec::new();

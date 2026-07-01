@@ -56,4 +56,5 @@ The output redacts secrets.
 ## Terminal Options
 
 Use `--tick-rate-ms` to tune UI tick timing. Use `--no-alt-screen` when you want
-the TUI to avoid entering the terminal alternate screen.
+the TUI to avoid entering the terminal alternate screen. Use `--no-mouse` to
+leave terminal mouse selection and native scrollback uncaptured.

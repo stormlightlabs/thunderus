@@ -9,7 +9,11 @@ footer/status metadata on the final line.
 
 The transcript fills the available main area and shows the newest entries. It
 uses separate rows for user messages, assistant text, reasoning, tools, status,
-and errors. Use Up/Down, PageUp/PageDown, or the mouse wheel to scroll.
+and errors. Use PageUp/PageDown, Ctrl+Alt+Y/E, or the mouse wheel to scroll.
+Up/Down recall prompt history.
+
+Mouse capture is enabled by default so wheel scrolling works inside the TUI.
+Start with `--no-mouse` to preserve native terminal selection and scrollback.
 
 ## Prompt Line
 
