@@ -6,6 +6,9 @@
 messages. This keeps prompt construction inspectable and avoids ad hoc string
 concatenation.
 
+The rendered prompt uses XML-shaped sections for scanability. See
+[Prompt XML Syntax](prompt-xml-syntax.md) for the tag and CDATA conventions.
+
 ## Base Identity
 
 The base identity describes `thndrs` as a concise Rust/Ratatui coding harness.

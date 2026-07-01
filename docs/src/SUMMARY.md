@@ -22,6 +22,7 @@
 
 - [How thndrs Works](concepts/how-it-works.md)
 - [Prompt Assembly](concepts/prompt-assembly.md)
+- [Prompt XML Syntax](concepts/prompt-xml-syntax.md)
 - [Transcript Model](concepts/transcript-model.md)
 - [Tool Boundary](concepts/tool-boundary.md)
 
