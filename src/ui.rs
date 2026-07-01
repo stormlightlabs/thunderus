@@ -6,9 +6,10 @@
 //! This keeps draw code stateless and makes layout testable with plain [`Rect`]
 //! assertions.
 
+pub mod path_display;
+pub mod style;
+
 mod highlight;
-mod path_display;
-mod style;
 mod transcript;
 
 use ratatui::Frame;
@@ -39,6 +40,7 @@ const FOOTER_HEIGHT: u16 = 3;
 /// Height reserved by the inline Ratatui viewport. Ratatui fixes this height
 /// when the terminal is created, so inline rendering places the prompt first
 /// and uses the remaining rows only when overlays are open.
+#[allow(dead_code)]
 pub const INLINE_VIEWPORT_HEIGHT: u16 = PROMPT_HEIGHT + FOOTER_HEIGHT + FILE_PICKER_VISIBLE_ROWS as u16 + 5;
 
 /// Precomputed layout rectangles plus display flags.

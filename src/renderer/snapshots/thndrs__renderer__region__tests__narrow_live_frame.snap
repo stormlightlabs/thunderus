@@ -1,0 +1,8 @@
+---
+source: src/renderer/region.rs
+expression: frame.render_styled()
+---
+│   test-session  · idle                    # [bg=#212337]=   [fg=#37f499 bg=#212337 b]=test-session [bg=#212337]=   [fg=#3b4261 bg=#212337]=· idle [bg=#212337]=                 [bg=#212337]=  
+│   ›  a longer prompt that should wrap at n  # [bg=#212337]=   [fg=#e0e0e0 bg=#212337]=› [bg=#212337]=   [fg=#ebfafa bg=#212337]=a longer prompt that should wrap at n
+│      arrow width                          # [bg=#212337]=   [bg=#212337]=    [fg=#ebfafa bg=#212337]=arrow width [bg=#212337]=                       [bg=#212337]=  
+│   model: test-model                       # [bg=#212337]=   [fg=#abb4da bg=#212337]=model: test-model [bg=#212337]=                    [bg=#212337]=

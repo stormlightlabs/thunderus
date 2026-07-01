@@ -82,17 +82,17 @@ See:
 
 ### Milestone 2: Native Scrollback And Live Region
 
-- [ ] Print completed transcript blocks into terminal scrollback instead of
+- [x] Print completed transcript blocks into terminal scrollback instead of
       redrawing them in an app-owned transcript viewport.
-- [ ] Redraw only the live region: active streaming block, dynamic status,
+- [x] Redraw only the live region: active streaming block, dynamic status,
       prompt input, suggestions/picker/help, and static status.
-- [ ] Keep session name plus dynamic/reactive status above the input.
-- [ ] Keep static model/search/token/cwd status below the input with internal
+- [x] Keep session name plus dynamic/reactive status above the input.
+- [x] Keep static model/search/token/cwd status below the input with internal
       padding and width-aware clipping.
-- [ ] Leave wheel and trackpad scrolling to the terminal outside focused picker
+- [x] Leave wheel and trackpad scrolling to the terminal outside focused picker
       navigation.
-- [ ] Recompute live rows and cursor placement on resize.
-- [ ] Add smoke coverage for scrollback-friendly transcript output.
+- [x] Recompute live rows and cursor placement on resize.
+- [x] Add smoke coverage for scrollback-friendly transcript output.
 
 ### Milestone 3: Message Blocks
 

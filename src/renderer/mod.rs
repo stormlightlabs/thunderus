@@ -11,6 +11,8 @@
 pub mod backend;
 pub mod cursor;
 pub mod layout;
+pub mod live;
+pub mod region;
 pub mod row;
 pub mod style;
 

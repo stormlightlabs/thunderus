@@ -38,12 +38,13 @@ use crossterm::{QueueableCommand, queue};
 use ratatui::init::DefaultTerminal;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::{TerminalOptions, Viewport};
 
 use app::{App, Entry, Msg, RunState, ToolStatus, update};
 use cli::Cli;
 use prompt::PromptBundle;
 use tools::AgentRunConfig;
+
+use renderer::backend::TerminalBackend;
 
 /// State carried by the main loop for a single agent run.
 struct AgentSlot {
@@ -222,27 +223,24 @@ fn run_alt_screen(tick: Duration, cli: &Cli) -> io::Result<()> {
     result
 }
 
-/// Inline keeps the prompt/status UI in a small Ratatui viewport and inserts
-/// completed transcript entries above it, preserving native terminal scrollback.
+/// Inline mode using the direct renderer: committed transcript goes to native
+/// scrollback, only the live region (prompt, status, active streaming) is
+/// redrawn each tick. Ratatui is not the source of truth for inline layout.
 fn run_inline(tick: Duration, cli: &Cli) -> io::Result<()> {
-    crossterm::terminal::enable_raw_mode()?;
+    renderer::enter_raw_mode()?;
     let stdout = io::stdout();
-    let backend = ratatui::backend::CrosstermBackend::new(stdout);
-    let mut terminal = ratatui::Terminal::with_options(
-        backend,
-        TerminalOptions { viewport: Viewport::Inline(ui::INLINE_VIEWPORT_HEIGHT) },
-    )?;
-    let mouse_enabled = cli.mouse && !cli.no_mouse;
-    if mouse_enabled && let Err(err) = crossterm::execute!(io::stdout(), EnableMouseCapture) {
-        crossterm::terminal::disable_raw_mode()?;
-        return Err(err);
-    }
-    let mut scrollback = ScrollbackState::default();
-    let result = main_loop(&mut terminal, tick, cli, Some(&mut scrollback));
-    if mouse_enabled {
-        let _ = crossterm::execute!(io::stdout(), DisableMouseCapture);
-    }
-    crossterm::terminal::disable_raw_mode()?;
+    let mut backend = TerminalBackend::new(stdout, renderer::terminal_size().0, renderer::terminal_size().1);
+    let mut live = renderer::region::LiveRegion::new();
+    let result = direct_loop(&mut backend, &mut live, tick, cli);
+
+    let _ = backend.show_cursor();
+    renderer::leave_raw_mode()?;
+
+    let _ = crossterm::execute!(
+        io::stdout(),
+        crossterm::cursor::MoveTo(0, renderer::terminal_size().1.saturating_sub(1))
+    );
+    println!();
     result
 }
 
@@ -332,6 +330,184 @@ fn main_loop(
             return Ok(());
         }
     }
+}
+
+/// Direct renderer event loop: drives the agent, polls events, and renders via
+/// [`TerminalBackend`] + [`LiveRegion`] instead of Ratatui.
+///
+/// Committed transcript entries are printed into native scrollback; only the
+/// live region (prompt, status, active streaming) is cleared and redrawn each
+/// tick. This is the Milestone 2 inline path.
+fn direct_loop<W: io::Write>(
+    backend: &mut TerminalBackend<W>, live: &mut renderer::region::LiveRegion, tick: Duration, cli: &Cli,
+) -> io::Result<()> {
+    let mut app = App::from_cli(cli);
+    let workspace_root = context::discover_workspace_root(&cli.cwd);
+    let observability = init_tracing(&workspace_root, &app.session_id);
+    if cli.verbose
+        && let Some(obs) = &observability
+    {
+        app.transcript
+            .push(app::Entry::Status { text: format!("logs  {}", obs.session_log_path.display()) });
+    }
+    tracing::info!(
+        session = %app.session_id,
+        cwd = %workspace_root.display(),
+        model = %cli.model,
+        websearch = %cli.websearch.label(),
+        "starting thndrs (direct renderer)"
+    );
+    append_daily_log(
+        &observability,
+        &app.session_id,
+        "session_start",
+        &format!(
+            "cwd={} model={} websearch={}",
+            workspace_root.display(),
+            cli.model,
+            cli.websearch.label()
+        ),
+    );
+
+    let mut agent: Option<AgentSlot> = None;
+    let (width, height) = backend_size(backend);
+    direct_render(backend, live, &app, width, height)?;
+
+    loop {
+        let deadline = Instant::now() + tick;
+        while Instant::now() < deadline {
+            drain_direct_agent_events(&mut app, &mut agent, backend, live, &observability)?;
+            manage_agent_lifecycle(&app, &mut agent);
+            maybe_spawn_agent(&app, cli, &mut agent);
+            flush_steering(&mut app, &agent);
+            let (w, h) = backend_size(backend);
+            direct_render(backend, live, &app, w, h)?;
+
+            if app.quit {
+                tracing::info!("quitting thndrs");
+                append_daily_log(&observability, &app.session_id, "session_end", "reason=quit");
+                return Ok(());
+            }
+
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if !event::poll(remaining)? {
+                break;
+            }
+            match event::read()? {
+                Event::Key(key) => {
+                    handle_direct_key(&mut app, key, &mut agent)?;
+                    let (w, h) = backend_size(backend);
+                    direct_render(backend, live, &app, w, h)?;
+                }
+                Event::Resize(_, _) => {
+                    let (w, h) = renderer::terminal_size();
+                    backend.set_size(w, h);
+                    let (w, h) = backend_size(backend);
+                    direct_render(backend, live, &app, w, h)?;
+                }
+                _ => {}
+            }
+
+            maybe_spawn_agent(&app, cli, &mut agent);
+            flush_steering(&mut app, &agent);
+
+            if app.quit {
+                tracing::info!("quitting thndrs");
+                append_daily_log(&observability, &app.session_id, "session_end", "reason=quit");
+                return Ok(());
+            }
+        }
+        handle_direct_msg(&mut app, Msg::Tick)?;
+        let (w, h) = backend_size(backend);
+        direct_render(backend, live, &app, w, h)?;
+        if app.quit {
+            tracing::info!("quitting thndrs");
+            append_daily_log(&observability, &app.session_id, "session_end", "reason=quit");
+            return Ok(());
+        }
+    }
+}
+
+/// Read the current size from the backend as `usize` tuples.
+fn backend_size<W: io::Write>(backend: &TerminalBackend<W>) -> (usize, usize) {
+    (backend.width() as usize, backend.height() as usize)
+}
+
+/// Commit stable transcript to scrollback, then render the live region.
+fn direct_render<W: io::Write>(
+    backend: &mut TerminalBackend<W>, live: &mut renderer::region::LiveRegion, app: &App, width: usize, height: usize,
+) -> io::Result<()> {
+    let _ = backend.hide_cursor();
+    live.commit_transcript(app, backend, width)?;
+    live.render_frame(app, backend, width, height)?;
+    backend.flush()
+}
+
+/// Process a key in the direct renderer path.
+fn handle_direct_key(app: &mut App, key: KeyEvent, agent: &mut Option<AgentSlot>) -> io::Result<()> {
+    if key.code == crossterm::event::KeyCode::Esc
+        && app.run_state == RunState::Working
+        && let Some(slot) = agent
+    {
+        slot.cancel.cancel();
+    }
+    handle_direct_msg(app, Msg::Key(key))
+}
+
+/// Process a message and chain follow-ups, then render.
+fn handle_direct_msg(app: &mut App, msg: Msg) -> io::Result<()> {
+    let mut next = Some(msg);
+    while let Some(m) = next {
+        next = update(app, &m);
+        if app.quit {
+            return Ok(());
+        }
+    }
+    Ok(())
+}
+
+/// Drain agent events in the direct renderer path (no Ratatui terminal needed).
+fn drain_direct_agent_events<W: io::Write>(
+    app: &mut App, agent: &mut Option<AgentSlot>, _backend: &mut TerminalBackend<W>,
+    _live: &mut renderer::region::LiveRegion, observability: &Option<Observability>,
+) -> io::Result<()> {
+    let Some(slot) = agent else {
+        return Ok(());
+    };
+
+    loop {
+        match slot.receiver.try_recv() {
+            Ok(event) => {
+                match &event {
+                    app::AgentEvent::Failed(msg) => {
+                        tracing::error!(error = %msg, "agent failed");
+                        append_daily_log(
+                            observability,
+                            &app.session_id,
+                            "agent_failed",
+                            &format!("error={}", daily_detail_value(msg)),
+                        );
+                    }
+                    app::AgentEvent::Cancelled => {
+                        tracing::warn!("agent cancelled");
+                        append_daily_log(observability, &app.session_id, "agent_cancelled", "");
+                    }
+                    app::AgentEvent::Finished => {
+                        tracing::info!("agent finished");
+                        append_daily_log(observability, &app.session_id, "agent_finished", "");
+                    }
+                    _ => {}
+                }
+                handle_direct_msg(app, Msg::Agent(event))?;
+            }
+            Err(mpsc::TryRecvError::Empty) => break,
+            Err(mpsc::TryRecvError::Disconnected) => {
+                *agent = None;
+                break;
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Spawn the unified agent stream if the app is in [`RunState::Working`] state
