@@ -1,181 +1,174 @@
 # TODO
 
-## Completed
+## Completed Summary
 
-### fake/v0 harness proof of concept
+### Harness, Provider, And Event Loop
 
-- Added the Clap entrypoint, Ratatui shell, prompt/transcript flow, deterministic
-  fake agent stream, reasoning/tool transcript entries, narrow-layout handling, unit
-  tests, snapshots, and `cargo check` coverage.
+- Built the Clap entrypoint, initial Ratatui shell, prompt/transcript flow,
+  deterministic fake agent stream, Umans provider client, Anthropic-compatible
+  request lowering, streaming `AgentEvent` conversion, shared fake/Umans agent
+  loop, cancellation, non-blocking UI updates, and gated live Umans smoke path.
 
-### Context and read-only tool boundary
+### Context, Prompt Assembly, And Sessions
 
-- Added visible root `AGENTS.md` context loading, structured request/tool output
-  shapes, bounded read-only repository tools backed by `fd`, `rg --json`, and
-  Rust-native file range reads, workspace containment, output caps, transcript
-  rendering, fixture/unit coverage, and tool-entry snapshots.
+- Added root `AGENTS.md` loading, structured prompt bundles, thndrs-specific
+  prompt fragments, provider-native tool schemas, model-visible transcript
+  projection, `--print-prompt` redaction, append-only JSONL sessions, latest
+  session resume, corrupt-line handling, and persisted context metadata.
 
-### Umans Provider
+### Tools And Safety Boundaries
 
-- Added the concrete Umans provider client, model metadata support for
-  `umans-coder` and `umans-glm-5.2`, Anthropic-compatible message requests,
-  streaming `AgentEvent` conversion, provider error mapping, no-network fixture
-  tests, and a gated live smoke test.
+- Added bounded read-only repository tools backed by `fd`, `rg --json`, and
+  Rust-native file range reads; native/Exa/disabled web-search modes;
+  Lectito-backed URL extraction; public-URL safety limits; private-network
+  rejection; structured write/edit/patch operations with hashes and atomic
+  failure behavior; and workspace-rooted shell/process execution with
+  cancellation, timeout, truncation, audit metadata, and secret redaction.
 
-### Agent Event Loop and Tool UI
+### UI Experiments And Lessons
 
-- Added the shared fake/Umans agent loop, bounded tool-call dispatch,
-  cancellation, non-blocking UI updates, Gridland-style sidebar/transcript/prompt
-  layout, model/search/workspace chrome, `figlet-rs` banner fallback, event-loop
-  unit coverage, and snapshots for streaming, tools, errors, cancellation, and
-  banner states.
+- Added Gridland-inspired transcript/status/prompt layout, banner states,
+  syntax-highlighted transcript blocks, tool/error rendering, sidebar/session
+  rendering, command/help surfaces, prompt dividers, file-mention suggestions,
+  and broad Ratatui snapshots.
+- Switched toward Codex/Pi-style inline scrollback, but the Ratatui-owned shell
+  still proved too fragile for resize, cursor placement, prompt overlays, mouse
+  scrolling, full-width rows, and native terminal scrollback.
 
-### Search and Extraction
+### Prompt Input And Keybinds
 
-- Added native/Exa/disabled Umans web-search modes, transcript rendering for
-  search events, Lectito-backed extraction and DuckDuckGo fallback plumbing,
-  public-URL safety limits, private-network rejection, truncation metadata, local
-  fixture tests, and snapshots for search success and failure states.
+- Added `PromptInput` with cursor-aware editing, multibyte-safe insert/delete,
+  word motions, line start/end, newline insertion, submit/queue/history paths,
+  file-path insertion, restore-on-failure, command-mode integration, inline
+  cursor rendering, and unit coverage.
+- Wired prompt-mode keybinds for arrows, `ctrl+b`, `ctrl+f`, `alt/ctrl` word
+  motions, `home`, `end`, `ctrl+a`, `ctrl+e`, `shift+enter`, `ctrl+j`,
+  `backspace`, and `delete`.
 
-### Prompt Assembly and Context Contract
+## Active Direction
 
-- Added structured prompt bundles, short thndrs-specific prompt fragments,
-  rounded environment metadata, loaded `AGENTS.md` context, provider-native tool
-  schemas, model-visible transcript projection, `--print-prompt` redaction, Umans
-  message lowering, unit coverage, and prompt snapshot coverage.
+Replace the Ratatui-owned inline shell with a direct renderer:
 
-### Session Persistence
+- committed transcript blocks go to native terminal scrollback;
+- only prompt, status, picker/help/suggestions, and active streaming rows are
+  redrawn in a live region;
+- rendering is driven by a testable row model;
+- crossterm owns terminal I/O;
+- Ratatui is no longer the source of truth for inline layout.
 
-- Added append-only JSONL session records, persisted `AGENTS.md` context
-  metadata, latest-session resume, sidebar session-list rendering, encode/decode
-  and corrupt-line tests, resume-ordering coverage, and session sidebar
-  snapshots.
+See:
 
-### Safe File Operations
+- [v0 / Alpha Renderer Spec](docs/internal/specs/v0.md)
+- [v1 Spec](docs/internal/specs/v1.md)
+- [Prompt Editing Libraries and Renderer Ownership](docs/internal/notes/prompt-renderer-research.md)
 
-- Added structured write transcript events, create-file, exact-range replace,
-  and unified patch application, file path/operation/result audit metadata,
-  before/after hashes and sizes, failure atomicity, unit coverage for success
-  and stale/rejected edits, and snapshots for write success and failure states.
+## Renderer Replacement Milestones
 
-### Shell Process Manager
+### Milestone 1: Row Model And Terminal Backend
 
-- Added workspace-rooted process execution, structured process transcript
-  events, stdout/stderr/status/elapsed-time rendering, non-blocking output
-  capture, timeouts, cancellation, one-shot/background process registry
-  scaffolding, local-process security prompt/docs, secret redaction, truncation
-  and full-output persistence coverage, process unit tests, and shell snapshots.
+- [ ] Add renderer-owned row primitives for spans, styles, rows, blocks, and
+      frames.
+- [ ] Add width-aware wrapping, padding, truncation, and ellipsis helpers that
+      do not depend on Ratatui widgets.
+- [ ] Add cursor-coordinate calculation for prompt rows, including explicit
+      newlines, wrapped lines, prompt indent, and multibyte text.
+- [ ] Add a crossterm terminal backend for size reads, cursor hide/show,
+      clearing live rows, moving the cursor, writing rows, and cleanup.
+- [ ] Add row-model tests for narrow, normal, and wide widths.
+- [ ] Add prompt cursor tests for single-line, wrapped, multiline, indented, and
+      multibyte input.
+- [ ] Add renderer snapshots that assert styled rows without using Ratatui as
+      the layout engine.
 
-### `read_url`
+### Milestone 2: Native Scrollback And Live Region
 
-- Added public `http`/`https` URL reading, private/loopback/link-local/local-file
-  rejection, redirect/timeout/content-type/response-size limits, final URL,
-  status, title, readable text, truncation, diagnostics, structured transcript
-  events, Lectito-style extraction reuse, public/private fixture tests, and
-  snapshots for success and failure states.
+- [ ] Print completed transcript blocks into terminal scrollback instead of
+      redrawing them in an app-owned transcript viewport.
+- [ ] Redraw only the live region: active streaming block, dynamic status,
+      prompt input, suggestions/picker/help, and static status.
+- [ ] Keep session name plus dynamic/reactive status above the input.
+- [ ] Keep static model/search/token/cwd status below the input with internal
+      padding and width-aware clipping.
+- [ ] Leave wheel and trackpad scrolling to the terminal outside focused picker
+      navigation.
+- [ ] Recompute live rows and cursor placement on resize.
+- [ ] Add smoke coverage for scrollback-friendly transcript output.
 
-### Phase 14: Finalize Alpha
+### Milestone 3: Message Blocks
 
-- [x] Complete the Umans tool-result feedback loop: append provider-native
-      tool-result messages after each dispatched tool batch and re-request until
-      the model stops requesting tools or the tool-iteration cap is hit.
-- [x] Remove the redundant legacy `ToolInput`/`execute` path or make it the
-      single dispatch path; provider dispatch, transcript rendering, and session
-      records should share one obvious tool execution route.
-- [x] Wire the existing command/help mode scaffolding into the TUI instead of
-      leaving `Mode::Command` and `Mode::Help` dormant.
-- [x] Wire existing stop/error run states into cancellation/failure rendering so
-      `RunState::Stopping` and `RunState::Error` represent real app states.
-- [x] Wire existing background-process registry controls into the live app:
-      start, list, inspect, cancel, and clean up background commands through
-      transcripted process events.
-- [x] Remove or justify every remaining `#[allow(dead_code)]` after the above
-      wiring, including provider/session module exports, shell registry helpers,
-      theme constants, write-patch helpers, and search module-level suppression.
-- [x] Resolve adjacent TODOs that mark broken-ground surfaces: provider request
-      shape, Unicode status icons, `sse_to_agent_event` conversion cleanup,
-      prompt snapshot intent, private-URL test table cleanup, and path dispatch.
-- [x] Add `syntect`-backed syntax highlighting for code-oriented transcript
-      blocks using cached syntax/theme sets, extension/language detection, and
-      a small mapping from syntect colors/styles into Ratatui spans.
-- [x] Highlight only code fences, file snippets, diffs, and command output that
-      benefits from it; keep plain prose and status rows unhighlighted.
-- [x] Fix run-state/status consistency in snapshots: running shell/tool states
-      should show `running tool`, completed `read_url` should not leave the
-      prompt at `sending`, and failed/timeout tool-only turns should surface as
-      failed instead of sidebar `done`.
-- [x] Add width-aware ellipsis truncation for user prompts, assistant/reasoning
-      text, tool argument summaries, URLs, diagnostics, error messages, prompt
-      input, and footer fields; current snapshots cut words and URLs without an
-      ellipsis.
-- [x] Standardize transcript leading columns: role rows, streaming assistant
-      rows, reasoning rows, and tool rows should use one stable label/gutter
-      grid so spinners and chips do not shift the message column.
-- [x] Redesign tool output blocks so command summaries, stdout/stderr headers,
-      nested output lines, and truncation markers share one aligned gutter and
-      keep section headers visually distinct from output content.
-- [x] Fix error row layout: error icons and wrapped/continued error text should
-      align under the message body, not after a large role-label gap or clipped
-      hard at the panel edge.
-- [x] Tune narrow-width layout: hide the sidebar earlier or compress footer
-      fields so `cwd`, long model names, prompts, and transcript rows truncate
-      intentionally at 40-50 columns.
-- [x] Tune empty-state/banner layout: center or optically align the banner at
-      normal width, make the fallback empty state feel intentional at 50 columns,
-      and avoid large uneven blank regions.
-- [x] Add Gridland-style transcript group spacing: one-cell horizontal padding,
-      one-cell gaps between semantic message groups, and stable message block
-      shells that stay readable when emitted into terminal scrollback.
-- [x] Switch the default transcript model to Codex/Pi-style inline scrollback:
-      keep only the prompt/status shell live in Ratatui, insert completed
-      transcript blocks above it, and leave wheel/trackpad scrolling to the
-      terminal instead of an app-owned viewport.
-- [x] Evaluate role-specific message shells: keep assistant/tool rows left
-      aligned, but render user prompts as a visually distinct bounded block or
-      right/indented row instead of only a fixed-width `User` label.
-- [x] Keep reasoning as a sibling block with a stable header/status line
-      (`Thinking`/`Thought`, running/done) and aligned body content, matching the
-      Gridland source pattern without nesting it inside assistant text.
-- [x] Split prompt rendering into compound subregions: divider, suggestions,
-      input row, status/error text, submit/stop indicator, and model/footer
-      metadata, so each piece can be aligned and tested independently.
-- [x] Add slash-command and file-mention suggestion UI above the prompt for the
-      already-started command/help surface; include selection marker, command
-      description, history navigation, and dismissal behavior in snapshots.
-- [x] Make prompt dividers carry focus/run state: normal, submitted, streaming,
-      and error states should have distinct solid/dashed divider styling or
-      color, while preserving full-width alignment through the panel gutters.
-- [x] Add sidebar focus/selection semantics inspired by Gridland `SideNav`:
-      separate active session from main-panel interaction, show shortcut hints
-      such as `↑↓ navigate`, `enter select`, `esc back`, and reserve room for
-      session suffixes/badges.
-- [x] Preserve prompt input on async/provider submit failure so the user can
-      retry or edit, and add snapshots for failed submit with input retained.
-- [x] Add/refresh snapshots for syntax-highlighted code fences, diffs, Rust
-      compiler errors, JSON/tool diagnostics, and plain prose to verify
-      highlighting does not color gutters, borders, or status chips.
+- [ ] Render startup/banner content, user prompts, assistant text, reasoning,
+      tools, process output, and errors through the same row/block pipeline.
+- [ ] Make colored/background blocks full width with horizontal padding.
+- [ ] Add vertical padding inside visually grouped blocks where it improves
+      readability.
+- [ ] Render labels above message bodies with role-specific colors.
+- [ ] Keep user, assistant, reasoning, tool, process, and error body text
+      aligned after wrapping.
+- [ ] Port syntax highlighting to renderer spans for code fences, diffs,
+      snippets, diagnostics, and useful command output.
+- [ ] Add snapshots for startup, narrow startup, user/assistant/reasoning,
+      tool output, errors, diffs, Rust compiler output, JSON, and plain prose.
 
-### Phase 15: Config, Inspect, and Export
+### Milestone 4: Prompt, Picker, Help, And Mentions
+
+- [ ] Render slash-command suggestions as live-region rows, not overlays.
+- [ ] Render help as live-region rows, not an overlay.
+- [ ] Render the file picker as live-region rows, not an overlay.
+- [ ] Add `@` file mentions in prompt input.
+- [ ] Keep `ctrl+p` as a direct file picker shortcut.
+- [ ] Render accepted file mentions in the prompt with distinct styling from
+      plain text, without changing provider-visible prompt semantics at first.
+- [ ] Ensure `escape` closes picker/help/suggestions before it stops work or
+      exits a broader mode.
+- [ ] Match Codex-style picker states: empty `@` hint, loading state,
+      stale-result guard if search becomes async, and clear `no matches` row.
+- [ ] Match Codex-style selection rows: stable scroll window, selected marker,
+      highlighted fuzzy match indices, and clipped long paths.
+- [ ] Match Pi-style help organization: generic selection keys (`up`, `down`,
+      `pageUp`, `pageDown`, `enter`, `escape`) appear in help/footer hints.
+- [ ] Add file picker snapshots for empty query, filtered results, no matches,
+      long path clipping, accepted mention styling, and scrolled selection.
+
+### Milestone 5: Ratatui Migration Cleanup
+
+- [ ] Route the running TUI through the direct renderer.
+- [ ] Remove Ratatui from inline rendering paths.
+- [ ] Keep or delete old Ratatui snapshots deliberately; do not leave duplicate
+      snapshots for dead surfaces.
+- [ ] Replace Ratatui `TestBackend` UI snapshots with row-model and terminal
+      transcript snapshots.
+- [ ] Audit terminal cleanup on normal exit, error exit, interrupt, panic path,
+      and provider/tool cancellation.
+- [ ] Run `cargo fmt`.
+- [ ] Run `cargo test`.
+- [ ] Run `cargo clippy --all-targets --all-features -- -D warnings`.
+
+## v1 Backlog
+
+### Config, Inspect, And Export
 
 - [ ] Define config file path.
-- [ ] Define config keys for model, web search mode, session path, and tick rate.
+- [ ] Define config keys for model, web search mode, session path, tick/render
+      rate, skill roots, and default workspace behavior.
 - [ ] Implement config loading.
-- [ ] Implement precedence: CLI flags override env vars, env vars override config,
-      config overrides built-in defaults.
-- [ ] Add non-TUI session inspect/export command after sessions exist.
+- [ ] Implement precedence: CLI flags override env vars, env vars override
+      config, config overrides built-in defaults.
+- [ ] Add non-TUI session inspect/export command.
 - [ ] Keep inspect/export output JSON or JSONL.
-- [ ] Include loaded AGENTS.md files, scopes, hashes, and truncation state in
+- [ ] Include loaded `AGENTS.md` files, scopes, hashes, and truncation state in
       inspect/export output.
+- [ ] Include renderer-independent message metadata needed for later
+      re-rendering.
 - [ ] Document session/config compatibility expectations.
-- [ ] Document AGENTS.md precedence: harness policy, user prompt, CLI/config,
-      nearest AGENTS.md, broader AGENTS.md, defaults.
-- [ ] Document nested AGENTS.md scoping for v1 or mark it explicitly deferred.
+- [ ] Document `AGENTS.md` precedence: harness policy, user prompt, CLI/config,
+      nearest `AGENTS.md`, broader `AGENTS.md`, defaults.
+- [ ] Document nested `AGENTS.md` scoping for v1 or mark it explicitly deferred.
 - [ ] Unit-test config precedence.
 - [ ] Integration-test `--help`.
 - [ ] Integration-test inspect/export against fixture sessions.
-- [ ] Integration-test inspect/export includes AGENTS.md context metadata.
+- [ ] Integration-test inspect/export includes `AGENTS.md` context metadata.
 
-### Phase 16: LSP and Code Intelligence
+### LSP And Code Intelligence
 
 - [ ] Define read-only LSP tool names, inputs, outputs, and fallback behavior.
 - [ ] Support document symbols.
@@ -192,31 +185,24 @@
 - [ ] Unit-test no-server fallback behavior.
 - [ ] Add snapshots for LSP transcript entries.
 
-## Completed
+### Skill Engine And Self-Knowledge
 
-### Cursor-Aware Prompt Input and Keybinds
-
-- Added a `PromptInput` cursor-aware text model (char-index cursor, insert at
-  cursor, backspace, forward delete, word motions, line start/end, newline
-  insertion, multibyte-safe operations) backed by unit tests.
-- Replaced the append-only `String` prompt input with `PromptInput` across
-  `App`, updating submit, queue, history recall, file-path insertion,
-  restore-on-failure, and command-mode paths.
-- Wired all cursor keybinds in prompt mode: `left`/`ctrl+b`, `right`/`ctrl+f`,
-  `alt+left`/`ctrl+left`/`alt+b` (word left), `alt+right`/`ctrl+right`/`alt+f`
-  (word right), `home`/`ctrl+a`, `end`/`ctrl+e`, `shift+enter`/`ctrl+j`
-  (newline), `backspace`, and `delete` (forward delete).
-- Updated prompt rendering to show an inline cursor (`▏`) at the correct
-  position with horizontal scroll-into-view for overflow, replacing the old
-  end-of-line block cursor.
-- Updated the help overlay to document all new cursor keybinds.
-- Updated all existing tests and snapshots for the new input model; added new
-  unit tests for every cursor keybind.
+- [ ] Discover skills from configured skill roots.
+- [ ] Validate skill metadata before exposing it to the model.
+- [ ] Load full skill instructions only after activation.
+- [ ] Bound skill reference traversal with depth, byte, file, and cycle limits.
+- [ ] Record activated skills and loaded references in session metadata.
+- [ ] Add a stable `thndrs` self-description fragment.
+- [ ] Expose a compact model-visible map of local docs and runtime state.
+- [ ] Add self-knowledge snapshots for prompt fragments, tools, skills,
+      renderer mode, provider/model, search mode, and diagnostics.
 
 ## Parking Lot
 
 - [ ] Tool call failures should have debuggable logs and more information about
-      why in the transcript
+      why in the transcript.
+- [ ] Consider whether the direct renderer should eventually expose a public
+      fixture format for external visual regression tests.
 
 ### Keybinds
 
@@ -235,22 +221,8 @@
 
 #### File Picker
 
-| Key | Desc                      |
-| --- | ------------------------- |
-| @   | Start file mention picker |
-
-### File Picker / Mentions
-
-- [ ] Add `@` file mentions in prompt input.
-- [ ] Keep `ctrl+p` as a direct file picker shortcut.
-- [ ] Render accepted file mentions in the prompt with distinct styling from
-      plain text, without changing provider-visible prompt semantics at first.
-- [ ] Match Codex-style picker states: empty `@` prompt hint, loading state,
-      stale-result guard if search becomes async, and clear `no matches` row.
-- [ ] Match Codex-style selection rows: stable scroll window, selected marker,
-      highlighted fuzzy match indices, and clipped long paths.
-- [ ] Match Pi-style help organization: generic selection keys (`up`, `down`,
-      `pageUp`, `pageDown`, `enter`, `escape`) should appear in help/footer
-      hints instead of only being implicit in picker behavior.
-- [ ] Add file picker snapshots for empty query, filtered results, no matches,
-      long path clipping, and scrolled selection.
+| Key    | Desc                                                 |
+| ------ | ---------------------------------------------------- |
+| @      | Start file mention picker from prompt input          |
+| ctrl+p | Open file picker directly                            |
+| escape | Close picker/help/suggestions before broader actions |

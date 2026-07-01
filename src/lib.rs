@@ -4,6 +4,7 @@
 //! The bin in [`main.rs`] just calls [`run`].
 
 pub mod cli;
+pub mod input;
 pub mod session;
 
 mod agent;
@@ -13,9 +14,9 @@ mod config;
 mod context;
 mod datetime;
 mod fuzzy;
-pub mod input;
 mod prompt;
 mod providers;
+mod renderer;
 mod search;
 mod tools;
 mod ui;
