@@ -1,5 +1,5 @@
 ---
-source: src/prompt/mod.rs
+source: src/prompt/tests.rs
 expression: json
 ---
 [
@@ -144,7 +144,7 @@ expression: json
     "name": "read_url"
   },
   {
-    "description": "create_file\n\nCreate a new file with the given content.\n\nUse this when you need to write a new file that does not yet exist. Fails if the\nfile already exists — use this to avoid accidental overwrites. Paths are contained\nto the workspace root; escapes are rejected. Parent directories are created if needed.",
+    "description": "create_file\n\nCreate a new file with the given content.\n\nUse this for direct new-file writes. Prefer write_patch op=create when doing a\nmixed edit. Fails if the file exists. Paths are contained to the workspace root;\nescapes are rejected. Parent directories are created if needed.",
     "input_schema": {
       "properties": {
         "content": {
@@ -165,7 +165,7 @@ expression: json
     "name": "create_file"
   },
   {
-    "description": "replace_range\n\nReplace a unique exact string occurrence in an existing file.\n\nUse this when you need to edit part of a file. Provide the exact old_string to\nfind and the new_string to replace it with. Fails if old_string appears zero or\nmultiple times, ensuring unambiguous edits. Paths are contained to the workspace\nroot; escapes are rejected. Failed edits leave the file unchanged.",
+    "description": "replace_range\n\nReplace a unique exact string occurrence in an existing file.\n\nUse this for direct small edits. Prefer write_patch op=edit when doing a mixed\nedit. old_string must match exactly and once; include surrounding context for\nuniqueness. Paths are contained to the root; failed edits leave files unchanged.",
     "input_schema": {
       "properties": {
         "new_string": {
@@ -191,7 +191,7 @@ expression: json
     "name": "replace_range"
   },
   {
-    "description": "write_patch\n\nApply a structured patch to create, replace, or edit a file.\n\nUse this as the unified entry point for file writes. Set op to create (new file,\nfails if exists), replace (overwrite full content), or edit (replace a unique exact\nstring). Paths are contained to the workspace root; escapes are rejected. Failed\npatches leave the file unchanged.",
+    "description": "write_patch\n\nApply a structured patch to create, replace, or edit a file.\n\nUse this as the preferred file-write tool. Set op=create for new files, op=edit\nfor small exact replacements, or op=replace only for intentional whole-file\nrewrites. Paths are contained to the root; failed patches leave files unchanged.",
     "input_schema": {
       "properties": {
         "content": {

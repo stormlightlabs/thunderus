@@ -10,14 +10,17 @@
 //!
 //! 1. **base_identity** — short `thndrs`-specific identity.
 //! 2. **communication_style** — how to talk to the user.
-//! 3. **action_safety** — tool boundaries, workspace containment, no shell.
-//! 4. **web_source_guidance** — when and how to use web tools.
-//! 5. Environment metadata — cwd, model, search mode, rounded date.
-//! 6. Project context — loaded `AGENTS.md` text (below policy and user
+//! 3. **action_model** — when to act, explore, or ask.
+//! 4. **edit_guidance** — exact-edit and write-tool behavior.
+//! 5. **action_safety** — tool boundaries, workspace containment, no shell.
+//! 6. **self_knowledge** — how to answer questions about `thndrs`.
+//! 7. **web_source_guidance** — when and how to use web tools.
+//! 8. Environment metadata — cwd, model, search mode, rounded date.
+//! 9. Project context — loaded `AGENTS.md` text (below policy and user
 //!    instructions).
-//! 7. Tool catalog — provider-native schemas for local tools.
-//! 8. Transcript tail — projected model-visible entries.
-//! 9. User turn — current prompt text.
+//! 10. Tool catalog — provider-native schemas for local tools.
+//! 11. Transcript tail — projected model-visible entries.
+//! 12. User turn — current prompt text.
 
 #[cfg(test)]
 mod tests;
@@ -58,13 +61,19 @@ impl PromptFragment {
 /// Each fragment is a separate concern:
 /// 1. **base_identity** — who thndrs is.
 /// 2. **communication_style** — how to talk to the user.
-/// 3. **action_safety** — tool boundaries, workspace containment, no shell.
-/// 4. **web_source_guidance** — when and how to use web tools.
+/// 3. **action_model** — when to act, explore, or ask.
+/// 4. **edit_guidance** — exact-edit and write-tool behavior.
+/// 5. **action_safety** — tool boundaries, workspace containment, no shell.
+/// 6. **self_knowledge** — how to answer questions about `thndrs`.
+/// 7. **web_source_guidance** — when and how to use web tools.
 pub fn default_fragments() -> Vec<PromptFragment> {
     vec![
         PromptFragment::new("base_identity", include_str!("fragments/base_identity.xml")),
         PromptFragment::new("communication_style", include_str!("fragments/communication_style.xml")),
+        PromptFragment::new("action_model", include_str!("fragments/action_model.xml")),
+        PromptFragment::new("edit_guidance", include_str!("fragments/edit_guidance.xml")),
         PromptFragment::new("action_safety", include_str!("fragments/action_safety.xml")),
+        PromptFragment::new("self_knowledge", include_str!("fragments/self_knowledge.xml")),
         PromptFragment::new("web_source_guidance", include_str!("fragments/web_source_guidance.xml")),
     ]
 }
@@ -77,7 +86,7 @@ pub fn default_fragments() -> Vec<PromptFragment> {
 #[derive(Clone, Debug)]
 pub struct PromptBundle {
     /// Ordered prompt fragments: base identity, communication style, action
-    /// safety, web/source guidance.
+    /// model, edit guidance, action safety, self-knowledge, web/source guidance.
     pub fragments: Vec<PromptFragment>,
     /// Environment: cwd, model, search mode, rounded date.
     pub environment: EnvironmentMetadata,
@@ -195,10 +204,13 @@ impl EnvironmentMetadata {
 ///
 /// 1. Base identity
 /// 2. Communication style
-/// 3. Action safety
-/// 4. Web/source guidance
-/// 5. Environment metadata.
-/// 6. Project context (AGENTS.md) — below harness policy and user instructions.
+/// 3. Action model
+/// 4. Edit guidance
+/// 5. Action safety
+/// 6. Self-knowledge
+/// 7. Web/source guidance
+/// 8. Environment metadata.
+/// 9. Project context (AGENTS.md) — below harness policy and user instructions.
 ///
 /// ## AGENTS.md inclusion
 ///

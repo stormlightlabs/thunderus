@@ -492,9 +492,9 @@ rejected. Size, redirects, and timeouts are capped; output may truncate."#,
 
 Create a new file with the given content.
 
-Use this when you need to write a new file that does not yet exist. Fails if the
-file already exists — use this to avoid accidental overwrites. Paths are contained
-to the workspace root; escapes are rejected. Parent directories are created if needed."#,
+Use this for direct new-file writes. Prefer write_patch op=create when doing a
+mixed edit. Fails if the file exists. Paths are contained to the workspace root;
+escapes are rejected. Parent directories are created if needed."#,
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -510,10 +510,9 @@ to the workspace root; escapes are rejected. Parent directories are created if n
 
 Replace a unique exact string occurrence in an existing file.
 
-Use this when you need to edit part of a file. Provide the exact old_string to
-find and the new_string to replace it with. Fails if old_string appears zero or
-multiple times, ensuring unambiguous edits. Paths are contained to the workspace
-root; escapes are rejected. Failed edits leave the file unchanged."#,
+Use this for direct small edits. Prefer write_patch op=edit when doing a mixed
+edit. old_string must match exactly and once; include surrounding context for
+uniqueness. Paths are contained to the root; failed edits leave files unchanged."#,
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -530,10 +529,9 @@ root; escapes are rejected. Failed edits leave the file unchanged."#,
 
 Apply a structured patch to create, replace, or edit a file.
 
-Use this as the unified entry point for file writes. Set op to create (new file,
-fails if exists), replace (overwrite full content), or edit (replace a unique exact
-string). Paths are contained to the workspace root; escapes are rejected. Failed
-patches leave the file unchanged."#,
+Use this as the preferred file-write tool. Set op=create for new files, op=edit
+for small exact replacements, or op=replace only for intentional whole-file
+rewrites. Paths are contained to the root; failed patches leave files unchanged."#,
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {

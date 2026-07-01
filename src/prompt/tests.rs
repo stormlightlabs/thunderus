@@ -48,6 +48,41 @@ fn action_safety_fragment_mentions_tools_and_safety() {
 }
 
 #[test]
+fn action_model_fragment_biases_to_action_without_overexploring() {
+    let fragments = default_fragments();
+    let action = fragments
+        .iter()
+        .find(|f| f.name == "action_model")
+        .expect("action_model fragment");
+    assert!(action.content.contains("minimum needed inspection"));
+    assert!(action.content.contains("stop exploring and act"));
+    assert!(action.content.contains("analysis, review, or a plan"));
+}
+
+#[test]
+fn edit_guidance_fragment_documents_exact_edit_flow() {
+    let fragments = default_fragments();
+    let edit = fragments
+        .iter()
+        .find(|f| f.name == "edit_guidance")
+        .expect("edit_guidance fragment");
+    assert!(edit.content.contains("write_patch"));
+    assert!(edit.content.contains("old_string"));
+    assert!(edit.content.contains("re-read"));
+}
+
+#[test]
+fn self_knowledge_fragment_points_to_local_truth() {
+    let fragments = default_fragments();
+    let self_knowledge = fragments
+        .iter()
+        .find(|f| f.name == "self_knowledge")
+        .expect("self_knowledge fragment");
+    assert!(self_knowledge.content.contains("docs/src/reference/tools.md"));
+    assert!(self_knowledge.content.contains("runtime environment"));
+}
+
+#[test]
 fn environment_metadata_rounds_date() {
     let env = EnvironmentMetadata::new(Path::new("/repo"), "umans-coder", WebSearchMode::Native);
     assert_eq!(env.date.len(), 10, "date should be YYYY-MM-DD");
@@ -71,9 +106,14 @@ fn system_prompt_orders_base_before_policy_before_env() {
     let bundle = test_bundle();
     let prompt = render_system_prompt(&bundle);
     let base_pos = prompt.find("thndrs").unwrap();
+    let action_pos = prompt.find("<action_model>").unwrap();
+    let edit_pos = prompt.find("<edit_guidance>").unwrap();
     let policy_pos = prompt.find("<action_safety>").unwrap();
     let env_pos = prompt.find("<environment>").unwrap();
     assert!(base_pos < policy_pos, "base should come before action safety");
+    assert!(base_pos < action_pos, "base should come before action model");
+    assert!(action_pos < edit_pos, "action model should come before edit guidance");
+    assert!(edit_pos < policy_pos, "edit guidance should come before action safety");
     assert!(policy_pos < env_pos, "action safety should come before environment");
 }
 
@@ -448,12 +488,24 @@ fn build_prompt_bundle_assembles_all_parts() {
         bundle.fragments.iter().any(|f| f.content.contains("<action_safety>")),
         "should have an action_safety fragment"
     );
+    assert!(
+        bundle.fragments.iter().any(|f| f.content.contains("<action_model>")),
+        "should have an action_model fragment"
+    );
+    assert!(
+        bundle.fragments.iter().any(|f| f.content.contains("<edit_guidance>")),
+        "should have an edit_guidance fragment"
+    );
+    assert!(
+        bundle.fragments.iter().any(|f| f.content.contains("<self_knowledge>")),
+        "should have a self_knowledge fragment"
+    );
     assert_eq!(bundle.environment.model, "umans-coder");
     assert!(!bundle.tool_catalog.is_empty());
     assert_eq!(bundle.user_turn, "hello");
 }
 
-/// Assert the full 7-part precedence order in the rendered system prompt:
+/// Assert the full prompt precedence order in the rendered system prompt:
 /// base < policy < environment < project context. Tool catalog, transcript
 /// tail, and user turn are separate message blocks verified in the lowering
 /// tests.
@@ -472,13 +524,21 @@ fn system_prompt_full_precedence_order() {
     let prompt = render_system_prompt(&bundle);
 
     let base_pos = prompt.find("thndrs").unwrap();
+    let action_pos = prompt.find("<action_model>").unwrap();
+    let edit_pos = prompt.find("<edit_guidance>").unwrap();
     let policy_pos = prompt.find("<action_safety>").unwrap();
+    let self_pos = prompt.find("<self_knowledge>").unwrap();
+    let web_pos = prompt.find("<web_source_guidance>").unwrap();
     let env_pos = prompt.find("<environment>").unwrap();
     let ctx_pos = prompt.find("<project_context>").unwrap();
     let guidance_pos = prompt.find("Guidance here").unwrap();
 
-    assert!(base_pos < policy_pos, "base must precede action safety");
-    assert!(policy_pos < env_pos, "action safety must precede environment");
+    assert!(base_pos < action_pos, "base must precede action model");
+    assert!(action_pos < edit_pos, "action model must precede edit guidance");
+    assert!(edit_pos < policy_pos, "edit guidance must precede action safety");
+    assert!(policy_pos < self_pos, "action safety must precede self knowledge");
+    assert!(self_pos < web_pos, "self knowledge must precede web guidance");
+    assert!(web_pos < env_pos, "web guidance must precede environment");
     assert!(env_pos < ctx_pos, "environment must precede project context");
     assert!(ctx_pos < guidance_pos, "context header must precede content");
 }
@@ -750,7 +810,10 @@ fn default_fragments_are_in_expected_order() {
         vec![
             "base_identity",
             "communication_style",
+            "action_model",
+            "edit_guidance",
             "action_safety",
+            "self_knowledge",
             "web_source_guidance"
         ],
         "fragments must be in the documented precedence order"
@@ -760,7 +823,7 @@ fn default_fragments_are_in_expected_order() {
 #[test]
 fn default_fragments_are_non_empty() {
     let fragments = default_fragments();
-    assert_eq!(fragments.len(), 4, "should have 4 default fragments");
+    assert_eq!(fragments.len(), 7, "should have 7 default fragments");
     for f in &fragments {
         assert!(
             !f.content.trim().is_empty(),

@@ -1,0 +1,19 @@
+<self_knowledge>
+  <identity>
+    You are operating inside thndrs. Answer questions about thndrs from the current workspace docs,
+    source, prompt fragments, tool catalog, and runtime environment instead of relying on stale
+    general model knowledge.
+  </identity>
+  <docs>
+    Useful thndrs documentation entry points: docs/src/reference/cli.md,
+    docs/src/reference/configuration.md, docs/src/reference/session-format.md,
+    docs/src/reference/tools.md, docs/src/concepts/prompt-assembly.md,
+    docs/src/concepts/tool-boundary.md, docs/src/usage/project-context.md,
+    docs/src/usage/security-and-permissions.md, docs/src/providers/umans.md, and
+    docs/src/development/workflow.md.
+  </docs>
+  <runtime_state>
+    To explain what is available now, use the prompt fragments, environment metadata, project
+    context, loaded AGENTS.md files, and tool catalog in this prompt as the current source of truth.
+  </runtime_state>
+</self_knowledge>
