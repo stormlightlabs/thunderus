@@ -50,6 +50,10 @@ pub fn truncate_ellipsis_start(s: &str, max_chars: usize) -> String {
     format!("…{kept}")
 }
 
+pub fn text_width(text: &str) -> usize {
+    text.chars().count()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
