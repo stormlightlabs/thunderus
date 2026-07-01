@@ -225,12 +225,30 @@
 
 #### File Picker
 
-| Key      | Desc                                |
-| -------- | ----------------------------------- |
-| ctrl+p   | Open file picker                    |
-| up/down  | Move file selection                 |
-| pageUp   | Move file selection up by page      |
-| pageDown | Move file selection down by page    |
-| enter    | Insert selected path into prompt    |
-| escape   | Close file picker                   |
-| backspace | Delete one character from query    |
+| Key       | Desc                                |
+| --------- | ----------------------------------- |
+| ctrl+p    | Open file picker                    |
+| @         | Start file mention picker           |
+| up/down   | Move file selection                 |
+| pageUp    | Move file selection up by page      |
+| pageDown  | Move file selection down by page    |
+| enter     | Insert selected path into prompt    |
+| escape    | Close file picker                   |
+| backspace | Delete one character from query     |
+
+### File Picker / Mentions
+
+- [ ] Add `@` file mentions in prompt input.
+- [ ] Keep `ctrl+p` as a direct file picker shortcut.
+- [ ] Render accepted file mentions in the prompt with distinct styling from
+      plain text, without changing provider-visible prompt semantics at first.
+- [ ] Match Codex-style picker states: empty `@` prompt hint, loading state,
+      stale-result guard if search becomes async, and clear `no matches` row.
+- [ ] Match Codex-style selection rows: stable scroll window, selected marker,
+      highlighted fuzzy match indices, and clipped long paths.
+- [ ] Match Pi-style help organization: generic selection keys (`up`, `down`,
+      `pageUp`, `pageDown`, `enter`, `escape`) should appear in help/footer
+      hints instead of only being implicit in picker behavior.
+- [ ] Add file picker snapshots for empty query, filtered results, no matches,
+      long path clipping, and scrolled selection.
+- [ ] Defer multi-select until the prompt has a cursor-aware input model.

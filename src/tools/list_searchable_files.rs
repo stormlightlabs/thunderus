@@ -8,17 +8,22 @@ use crate::tools::{Cap, ToolOutput};
 
 /// List searchable files in a directory tree.
 ///
-/// Backed by `fd --type f` with `rg --files` fallback. Respects ignore rules
-/// and skips hidden files by default. Enforces containment, result-count,
-/// output-byte, and timeout caps.
+/// Backed by `fd --type f` with `rg --files` and `find` fallbacks. Respects
+/// ignore rules when the selected backend supports them and skips hidden files
+/// by default. Enforces containment, result-count, output-byte, and timeout caps.
 pub fn exec(root: &Path, glob: Option<&str>, max_results: usize, include_hidden: bool) -> ToolOutput {
     let timeout = Duration::from_secs(Cap::timeout());
     let result = if super::subproc::command_exists("fd") {
         run_fd_files(root, include_hidden, timeout)
     } else if super::subproc::command_exists("rg") {
         run_rg_files(root, include_hidden, timeout)
+    } else if super::subproc::command_exists("find") {
+        run_find_files(root, include_hidden, timeout)
     } else {
-        return ToolOutput::failed("list_searchable_files", "neither rg nor fd available".to_string());
+        return ToolOutput::failed(
+            "list_searchable_files",
+            "none of fd, rg, or find is available".to_string(),
+        );
     };
 
     match result {
@@ -58,6 +63,15 @@ fn run_fd_files(root: &Path, include_hidden: bool, timeout: Duration) -> io::Res
         cmd.arg("--hidden");
     }
     cmd.arg(".").arg(root);
+    super::subproc::run_with_timeout(cmd, timeout)
+}
+
+fn run_find_files(root: &Path, include_hidden: bool, timeout: Duration) -> io::Result<CommandResult> {
+    let mut cmd = Command::new("find");
+    cmd.arg(root).arg("-type").arg("f");
+    if !include_hidden {
+        cmd.arg("-not").arg("-path").arg("*/.*");
+    }
     super::subproc::run_with_timeout(cmd, timeout)
 }
 
@@ -109,6 +123,13 @@ mod tests {
         let output = exec(Path::new("src"), Some("*.rs"), Cap::MaxResults.into(), false);
         assert_eq!(output.status, ToolStatus::Ok);
         assert!(output.output.iter().all(|p| p.ends_with(".rs")));
+    }
+
+    #[test]
+    fn find_fallback_lists_files() {
+        let output = run_find_files(Path::new("src"), false, Duration::from_secs(Cap::timeout()))
+            .expect("find fallback should run");
+        assert!(output.stdout.lines().any(|p| p.ends_with(".rs")));
     }
 
     #[test]

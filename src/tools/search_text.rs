@@ -18,6 +18,13 @@ pub fn exec(
         return ToolOutput::failed("search_text", "missing or empty 'pattern' field".to_string());
     }
 
+    if !super::subproc::command_exists("rg") {
+        return ToolOutput::failed(
+            "search_text",
+            "rg is required for search_text; grep fallback is not implemented".to_string(),
+        );
+    }
+
     let timeout = Duration::from_secs(Cap::timeout());
 
     let mut cmd = Command::new("rg");
