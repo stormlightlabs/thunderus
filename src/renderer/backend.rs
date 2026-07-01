@@ -206,9 +206,8 @@ impl<W: Write> TerminalBackend<W> {
     ///
     /// A separate "clear all rows first" pass is intentionally avoided: it
     /// would send a blank frame to the terminal before content arrives,
-    /// causing visible flicker. Each row's `write_screen_row` already clears
-    /// from the cursor to end-of-line before printing content, which is
-    /// sufficient.
+    /// causing visible flicker. Each row's `write_screen_row` clears stale
+    /// content and then paints the padded row background explicitly.
     pub fn render_frame(&mut self, frame: &Frame, top_row: u16) -> io::Result<()> {
         self.write_rows(top_row, &frame.rows)?;
         if frame.cursor_visible {
@@ -317,13 +316,12 @@ fn write_spans(writer: &mut impl Write, spans: &[Span], width: usize) -> io::Res
 }
 
 /// Write a row for the live screen without touching the terminal's last
-/// column. The row background is extended with `Clear(UntilNewLine)`, clearing a row and then printing only meaningful
-/// cells. This avoids the terminal's pending-autowrap state during repeated
-/// live-region redraws.
+/// column. The row is still cleared first, but padded cells are printed
+/// explicitly because not every terminal applies the active background color
+/// to `Clear(UntilNewLine)`.
 fn write_screen_row(writer: &mut impl Write, row: &Row) -> io::Result<()> {
     clear_to_end_with_bg(writer, trailing_bg(row))?;
-    let visible_width = row_visible_width(row);
-    let printable_width = visible_width.min(row.width.saturating_sub(1));
+    let printable_width = row.width.saturating_sub(1);
     if printable_width > 0 {
         write_spans_unpadded(writer, &row.spans, printable_width)?;
     }
@@ -369,11 +367,6 @@ fn take_display_width(text: &str, width: usize) -> String {
         used += ch_width;
     }
     out
-}
-
-fn row_visible_width(row: &Row) -> usize {
-    let text = row.text();
-    text.trim_end_matches(' ').chars().map(char_width).sum()
 }
 
 fn trailing_bg(row: &Row) -> Color {
@@ -456,7 +449,7 @@ mod tests {
     }
 
     #[test]
-    fn write_row_clears_to_end_instead_of_printing_padding() {
+    fn write_row_paints_padding_without_touching_last_column() {
         let mut b = backend(10, 5);
         let row = Row::padded(vec![Span::plain("ab")], 10, CellStyle::default());
         b.write_row(0, &row).unwrap();
@@ -465,8 +458,12 @@ mod tests {
         assert!(out.contains("\x1b[K"));
         assert!(out.contains("ab"));
         assert!(
+            out.contains("    "),
+            "live writer should paint row padding instead of only relying on clear-to-EOL: {out:?}"
+        );
+        assert!(
             !out.contains("        \x1b[0m"),
-            "live writer should clear padding instead of printing to the last cell: {out:?}"
+            "live writer should not touch the terminal's final column: {out:?}"
         );
     }
 

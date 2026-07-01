@@ -1,16 +1,17 @@
 //! Live region state for the direct renderer.
 //!
-//! [`LiveRegion`] builds one logical terminal viewport from history rows and
-//! live prompt chrome, then redraws that bounded viewport each tick.
+//! [`LiveRegion`] builds one logical terminal viewport from recent history rows
+//! and live prompt chrome, then redraws that bounded viewport each tick.
 //!
 //! The viewport contains, from top to bottom:
 //! 1. banner before the first transcript rows have been committed;
-//! 2. blank canvas rows above the live tail;
+//! 2. recent committed transcript rows;
 //! 3. the mutable transcript tail, if any;
 //! 4. dynamic status row (session + status icon);
 //! 5. prompt input rows;
 //! 6. optional accessory rows (help/commands/files);
-//! 7. static status row (model/search/tokens/cwd).
+//! 7. static status row (model/search/tokens/cwd);
+//! 8. blank canvas rows after the compact transcript/live content.
 
 use std::io;
 
@@ -38,8 +39,9 @@ const GUTTER: &str = "   │ ";
 ///
 /// Transcript rows that are stable are written to the terminal's native
 /// scrollback via [`insert_history_lines`](TerminalBackend::insert_history_lines).
-/// The viewport only contains the live chrome (prompt/status/accessories) and
-/// any mutable transcript tail that cannot be safely appended yet.
+/// The viewport redraw includes the visible tail of committed transcript rows,
+/// plus live chrome (prompt/status/accessories) and any mutable transcript tail
+/// that cannot be safely appended yet.
 #[derive(Debug)]
 pub struct LiveRegion {
     /// The last frame rendered to the screen, used for diff-based rendering.
@@ -93,11 +95,16 @@ impl LiveRegion {
         let live = self.build_live_frame(app, width, height, live_tail);
         let live_height = live.rows.len().min(height);
 
-        if self.committed_row_count == 0 {
-            let banner = if app.transcript.is_empty() { banner_rows(app, width) } else { plan.stable_rows };
-            let available = height.saturating_sub(live_height);
-            let banner_start = banner.len().saturating_sub(available);
-            frame.rows.extend(banner.into_iter().skip(banner_start));
+        let history_rows = if app.transcript.is_empty() { banner_rows(app, width) } else { plan.stable_rows };
+        let available_history = height.saturating_sub(live_height);
+        let history_start = history_rows.len().saturating_sub(available_history);
+
+        if app.transcript.is_empty() {
+            frame.rows.extend(history_rows.into_iter().skip(history_start));
+        } else {
+            frame
+                .rows
+                .extend(history_rows.into_iter().skip(history_start).take(available_history));
         }
 
         let p = style::palette();
@@ -111,8 +118,10 @@ impl LiveRegion {
             Some(cursor)
         });
 
-        while frame.rows.len() < height.saturating_sub(live_height) {
-            frame.push(Row::blank(width, bg_style(p.panel_bg)));
+        if app.transcript.is_empty() {
+            while frame.rows.len() < height.saturating_sub(live_height) {
+                frame.push(Row::blank(width, bg_style(p.panel_bg)));
+            }
         }
 
         frame
@@ -202,38 +211,14 @@ impl LiveRegion {
 
         let rows_to_commit = &plan.stable_rows[self.committed_row_count..];
         if !rows_to_commit.is_empty() {
-            let live = self.build_live_frame(app, width, height, plan.live_rows.clone());
-            let live_height = live.rows.len().min(height);
-            let viewport_top = height.saturating_sub(live_height) as u16;
-
-            backend.insert_history_lines(rows_to_commit, viewport_top)?;
+            backend.insert_history_lines(rows_to_commit, height as u16)?;
             self.rendered_frame = None;
             self.committed_row_count = plan.stable_rows.len();
             self.committed_width = Some(width);
         }
 
-        let (frame, top_row) = if self.committed_row_count == 0 {
-            (self.build_frame(app, width, height), 0)
-        } else {
-            let live = self.build_live_frame(app, width, height, plan.live_rows);
-            let live_height = live.rows.len().min(height);
-            let live_start = live.rows.len().saturating_sub(live_height);
-            let mut frame = Frame::new(width);
-            frame
-                .rows
-                .extend(live.rows.into_iter().skip(live_start).take(live_height));
-            frame.cursor = live.cursor.and_then(|mut cursor| {
-                if cursor.row < live_start {
-                    return None;
-                }
-                cursor.row -= live_start;
-                Some(cursor)
-            });
-            let blink_on = app.ui_tick.is_multiple_of(5);
-            let prompt_editable = matches!(app.prompt_state(), crate::app::PromptState::Editable);
-            frame.cursor_visible = !prompt_editable || blink_on;
-            (frame, height.saturating_sub(live_height) as u16)
-        };
+        let frame = self.build_frame(app, width, height);
+        let top_row = 0;
 
         if self.rendered_top_row.is_some_and(|prev_top| prev_top != top_row) {
             if let Some(prev) = self.rendered_frame.as_ref() {
@@ -1019,6 +1004,80 @@ mod tests {
         assert!(
             output_row < status_row,
             "mutable transcript output should stay above the running/status line"
+        );
+    }
+
+    #[test]
+    fn build_frame_keeps_user_text_visible_when_live_tail_grows() {
+        let mut app = test_app();
+        app.run_state = RunState::Working;
+        app.transcript
+            .push(Entry::User { text: "consolidate the renderer milestones".to_string() });
+        app.transcript.push(Entry::Reasoning {
+            text: "reading TODO.md before summarizing the requested renderer milestones".to_string(),
+            streaming: true,
+        });
+        app.transcript.push(Entry::Tool {
+            name: "read_file_range".to_string(),
+            arguments: r#"{"path": "TODO.md"}"#.to_string(),
+            status: ToolStatus::Running,
+            output: vec![
+                "1: # TODO".to_string(),
+                "2:".to_string(),
+                "3: ## Completed Summary".to_string(),
+                "4:".to_string(),
+                "5: ### Harness, Provider, And Event Loop".to_string(),
+                "6:".to_string(),
+            ],
+        });
+
+        let frame = LiveRegion::new().build_frame(&app, 120, 32);
+        let lines: Vec<String> = frame.rows.iter().map(|row| row.text()).collect();
+        let user_label = lines
+            .iter()
+            .position(|line| line.contains("User"))
+            .expect("user label should remain visible");
+        let user_text = lines
+            .iter()
+            .position(|line| line.contains("consolidate the renderer milestones"))
+            .expect("user text should remain visible");
+        let thinking = lines
+            .iter()
+            .position(|line| line.contains("Thinking"))
+            .expect("live reasoning should render");
+
+        assert!(
+            user_label < user_text && user_text < thinking,
+            "live rows should not overwrite the bottom of the user block:\n{}",
+            frame.render_text()
+        );
+    }
+
+    #[test]
+    fn build_frame_keeps_done_prompt_adjacent_to_latest_assistant_message() {
+        let mut app = test_app();
+        app.transcript.push(Entry::User { text: "summarize TODO".to_string() });
+        app.transcript.push(Entry::Assistant {
+            text: "Here is the consolidated renderer summary.".to_string(),
+            streaming: false,
+        });
+        app.input.set_text("Please update @TODO.md with the updated content");
+
+        let frame = LiveRegion::new().build_frame(&app, 120, 32);
+        let lines: Vec<String> = frame.rows.iter().map(|row| row.text()).collect();
+        let assistant_body = lines
+            .iter()
+            .position(|line| line.contains("Here is the consolidated renderer summary."))
+            .expect("assistant body should render");
+        let status = lines
+            .iter()
+            .position(|line| line.contains("test-session"))
+            .expect("status row should render");
+
+        assert!(
+            status <= assistant_body + 2,
+            "status/input should follow the assistant block without a large blank gap:\n{}",
+            frame.render_text()
         );
     }
 
