@@ -128,7 +128,8 @@ pub fn accessory_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
         PromptAccessory::None => Vec::new(),
         PromptAccessory::Help => help_rows(width, max_height),
         PromptAccessory::Commands { selected } => command_rows(app, selected, width, max_height),
-        PromptAccessory::Files(_) => file_picker_rows(app, width, max_height),
+        PromptAccessory::Files(_) => picker_rows(app, "files", width, max_height),
+        PromptAccessory::Models => picker_rows(app, "models", width, max_height),
     }
 }
 
@@ -284,11 +285,11 @@ fn is_mention_char(ch: char) -> bool {
     ch.is_alphanumeric() || matches!(ch, '/' | '.' | '-' | '_' | '~')
 }
 
-/// Build file picker rows for the live region.
+/// Build fuzzy picker rows for the live region.
 ///
 /// Renders: query header, match list with selection marker + fuzzy highlight
-/// indices + long path clipping, "no matches" row, and footer hints.
-fn file_picker_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
+/// indices + long label clipping, "no matches" row, and footer hints.
+fn picker_rows(app: &App, title: &str, width: usize, max_height: usize) -> Vec<Row> {
     let p = renderer_style::palette();
     let bg = p.surface0;
     let surface1 = p.surface1;
@@ -299,9 +300,9 @@ fn file_picker_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
     let selected_style = CellStyle::new().fg(p.text).bg(surface1).bold();
     let selected_marker_style = CellStyle::new().fg(p.peach).bg(surface1).bold();
 
-    let Some(picker) = app.file_picker.as_ref() else {
+    let Some(picker) = app.picker.as_ref() else {
         return vec![Row::padded(
-            vec![Span::styled("files loading", muted_style)],
+            vec![Span::styled(format!("{title} loading"), muted_style)],
             width,
             bg_style(bg),
         )];
@@ -312,7 +313,7 @@ fn file_picker_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
     let query_display = if picker.query.is_empty() { "type to filter".to_string() } else { picker.query.clone() };
     rows.push(Row::padded(
         vec![
-            Span::styled("files", label_style),
+            Span::styled(title.to_string(), label_style),
             Span::styled("  ", CellStyle::new().bg(bg)),
             Span::styled(query_display, muted_style),
         ],
@@ -327,32 +328,45 @@ fn file_picker_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
             bg_style(bg),
         ));
     } else {
-        let visible_rows = picker.matches.len().clamp(1, crate::app::FILE_PICKER_VISIBLE_ROWS);
+        let visible_rows = picker.matches.len().clamp(1, crate::app::VISIBLE_ROWS);
         let end = (picker.scroll + visible_rows).min(picker.matches.len());
         let available = width.saturating_sub(6); // marker + indent
 
-        for (idx, path) in picker.matches[picker.scroll..end].iter().enumerate() {
+        for (idx, item) in picker.matches[picker.scroll..end].iter().enumerate() {
             let absolute_idx = picker.scroll + idx;
             let is_selected = absolute_idx == picker.selected;
             let row_bg = if is_selected { surface1 } else { bg };
             let marker = if is_selected { "›" } else { " " };
             let marker_style = if is_selected { selected_marker_style } else { CellStyle::new().bg(bg) };
 
-            let truncated = crate::utils::truncate_ellipsis(path, available);
+            let detail_len = if item.detail.is_empty() { 0 } else { item.detail.chars().count().min(24) + 2 };
+            let label_available = available.saturating_sub(detail_len).max(8);
+            let truncated = crate::utils::truncate_ellipsis(&item.label, label_available);
             let indices = picker.match_indices.get(absolute_idx).cloned().unwrap_or_default();
 
-            let path_spans = build_fuzzy_highlight_spans(
+            let label_spans = build_fuzzy_highlight_spans(
                 &truncated,
                 &indices,
                 if is_selected { selected_style } else { text_style },
                 highlight_style.with_bg(row_bg),
             );
+            let detail_style = CellStyle::new().fg(p.overlay0).bg(row_bg);
 
             let mut spans = vec![
                 Span::styled(marker, marker_style),
                 Span::styled("  ", CellStyle::new().bg(row_bg)),
             ];
-            spans.extend(path_spans);
+            spans.extend(label_spans);
+            if !item.detail.is_empty() {
+                spans.push(Span::styled("  ", CellStyle::new().bg(row_bg)));
+                spans.push(Span::styled(
+                    crate::utils::truncate_ellipsis(
+                        &item.detail,
+                        available.saturating_sub(truncated.chars().count() + 2),
+                    ),
+                    detail_style,
+                ));
+            }
             rows.push(Row::padded(spans, width, bg_style(row_bg)));
         }
     }
@@ -623,14 +637,11 @@ mod tests {
 
     fn picker_app(files: Vec<String>) -> App {
         let mut app = test_app();
-        app.file_picker = Some(crate::app::FilePickerState {
-            query: String::new(),
-            all_files: files.clone(),
-            matches: files,
-            match_indices: Vec::new(),
-            selected: 0,
-            scroll: 0,
-        });
+        let items: Vec<crate::app::PickerItem> = files
+            .iter()
+            .map(|file| crate::app::PickerItem::new(file.clone(), ""))
+            .collect();
+        app.picker = Some(crate::app::PickerState::new(items, 200));
         app.prompt_accessory = PromptAccessory::Files(crate::app::FilePickerSource::Forced);
         app
     }
@@ -654,9 +665,9 @@ mod tests {
             "src/lib.rs".to_string(),
             "Cargo.toml".to_string(),
         ]);
-        if let Some(picker) = app.file_picker.as_mut() {
+        if let Some(picker) = app.picker.as_mut() {
             picker.query = "main".to_string();
-            picker.matches = vec!["src/main.rs".to_string()];
+            picker.matches = vec![crate::app::PickerItem::new("src/main.rs", "")];
             picker.match_indices = vec![vec![4, 5, 6, 7]];
         }
         let rows = accessory_rows(&app, 80, 12);
@@ -667,7 +678,7 @@ mod tests {
     #[test]
     fn snapshot_file_picker_no_matches() {
         let mut app = picker_app(vec!["src/main.rs".to_string()]);
-        if let Some(picker) = app.file_picker.as_mut() {
+        if let Some(picker) = app.picker.as_mut() {
             picker.query = "xyz".to_string();
             picker.matches = Vec::new();
             picker.match_indices = Vec::new();
@@ -689,13 +700,32 @@ mod tests {
     fn snapshot_file_picker_scrolled_selection() {
         let files: Vec<String> = (0..15).map(|i| format!("src/file_{i:02}.rs")).collect();
         let mut app = picker_app(files);
-        if let Some(picker) = app.file_picker.as_mut() {
+        if let Some(picker) = app.picker.as_mut() {
             picker.selected = 5;
             picker.scroll = 3;
         }
         let rows = accessory_rows(&app, 80, 12);
         let frame = crate::renderer::row::Frame { rows, width: 80, cursor: None, cursor_visible: true };
         insta::assert_snapshot!("file_picker_scrolled", frame.render_styled());
+    }
+
+    #[test]
+    fn snapshot_model_picker() {
+        let mut app = test_app();
+        app.picker = Some(crate::app::PickerState::new(
+            vec![
+                crate::app::PickerItem::new("umans-coder", "Default route to Kimi K2.7-Code"),
+                crate::app::PickerItem::new("umans-glm-5.2", "Largest context window"),
+            ],
+            50,
+        ));
+        if let Some(picker) = app.picker.as_mut() {
+            picker.selected = 1;
+        }
+        app.prompt_accessory = PromptAccessory::Models;
+        let rows = accessory_rows(&app, 80, 12);
+        let frame = crate::renderer::row::Frame { rows, width: 80, cursor: None, cursor_visible: true };
+        insta::assert_snapshot!("model_picker", frame.render_styled());
     }
 
     #[test]

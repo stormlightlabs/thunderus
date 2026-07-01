@@ -62,6 +62,8 @@ Available while the help overlay is open.
 
 Available while typing a `:` command.
 
+Commands currently include `clear`, `quit`, `exit`, `help`, `bg`, and `model`.
+
 | Key                     | Description                                       |
 | ----------------------- | ------------------------------------------------- |
 | `Esc`                   | Cancel command and return to prompt               |
@@ -83,12 +85,25 @@ Available while the file picker overlay is open.
 | `Backspace`             | Remove the last character from the picker query |
 | Any printable character | Append to the picker query and filter results   |
 
+## Model Picker
+
+Available after running `:model`.
+
+| Key                     | Description                                     |
+| ----------------------- | ----------------------------------------------- |
+| `Up` / `Down`           | Move selection up / down                        |
+| `PageUp` / `PageDown`   | Move selection up / down by a page              |
+| `Enter`                 | Switch to the selected model                    |
+| `Esc`                   | Close the model picker without changing models  |
+| `Backspace`             | Remove the last character from the picker query |
+| Any printable character | Append to the picker query and filter results   |
+
 ## Mouse
 
 Mouse capture is disabled by default so the terminal owns selection and
 scrollback. When mouse input is enabled for overlays:
 
-| Action        | Description                          |
-| ------------- | ------------------------------------ |
-| `Scroll Up`   | Move the picker selection up         |
-| `Scroll Down` | Move the picker selection down       |
+| Action        | Description                    |
+| ------------- | ------------------------------ |
+| `Scroll Up`   | Move the picker selection up   |
+| `Scroll Down` | Move the picker selection down |

@@ -36,6 +36,27 @@ pub fn max_tokens_for_model(model: &str) -> u32 {
     }
 }
 
+/// Static model entry used by the offline model picker.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct KnownModel {
+    pub id: &'static str,
+    pub description: &'static str,
+}
+
+/// Current Umans Code models from the public docs.
+///
+/// Live metadata can still be fetched with [`UmansClient::fetch_models_info`],
+/// but the picker should remain useful before credentials or network are ready.
+pub fn known_models() -> Vec<KnownModel> {
+    vec![
+        KnownModel { id: "umans-coder", description: "Default route, currently Kimi K2.7-Code" },
+        KnownModel { id: "umans-kimi-k2.7", description: "Hard coding tasks, always-on reasoning" },
+        KnownModel { id: "umans-glm-5.2", description: "Latest GLM, largest context window" },
+        KnownModel { id: "umans-glm-5.1", description: "Previous GLM for text-first workflows" },
+        KnownModel { id: "umans-flash", description: "Fast light model for context and summaries" },
+    ]
+}
+
 /// Errors from the Umans client.
 #[derive(Debug, thiserror::Error)]
 pub enum UmansError {

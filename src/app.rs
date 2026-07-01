@@ -16,7 +16,7 @@ use crate::cli::{Cli, Theme, WebSearchMode};
 use crate::fuzzy;
 use crate::input::PromptInput;
 use crate::tools::shell::ProcessRegistry;
-use crate::{context, session, tools};
+use crate::{context, providers::umans, session, tools};
 
 /// Number of UI ticks the user has to press Ctrl+D a second time before the
 /// quit confirmation expires and a fresh double-press is needed.
@@ -24,9 +24,10 @@ use crate::{context, session, tools};
 /// With the default 100 ms tick rate this is roughly 3 seconds.
 const QUIT_CONFIRM_TIMEOUT_TICKS: u64 = 30;
 
-pub const FILE_PICKER_VISIBLE_ROWS: usize = 8;
+pub const VISIBLE_ROWS: usize = 8;
 
 const FILE_PICKER_LIMIT: usize = 200;
+const MODEL_PICKER_LIMIT: usize = 50;
 
 /// Top-level interaction mode.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
@@ -47,6 +48,7 @@ pub enum PromptAccessory {
         selected: usize,
     },
     Files(FilePickerSource),
+    Models,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -211,24 +213,41 @@ pub enum Msg {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct FilePickerState {
+pub struct PickerItem {
+    pub label: String,
+    pub detail: String,
+}
+
+impl PickerItem {
+    pub fn new(label: impl Into<String>, detail: impl Into<String>) -> Self {
+        Self { label: label.into(), detail: detail.into() }
+    }
+
+    fn searchable(&self) -> String {
+        if self.detail.is_empty() { self.label.clone() } else { format!("{} {}", self.label, self.detail) }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PickerState {
     pub query: String,
-    pub all_files: Vec<String>,
-    pub matches: Vec<String>,
+    pub all_items: Vec<PickerItem>,
+    pub matches: Vec<PickerItem>,
     /// Character indices of fuzzy match highlights, parallel to `matches`.
     pub match_indices: Vec<Vec<usize>>,
     pub selected: usize,
     pub scroll: usize,
+    limit: usize,
 }
 
-impl FilePickerState {
-    fn new(all_files: Vec<String>) -> Self {
-        let (matches, match_indices) = split_filter(&all_files, "", FILE_PICKER_LIMIT);
-        Self { query: String::new(), all_files, matches, match_indices, selected: 0, scroll: 0 }
+impl PickerState {
+    pub(crate) fn new(all_items: Vec<PickerItem>, limit: usize) -> Self {
+        let (matches, match_indices) = split_filter_items(&all_items, "", limit);
+        Self { query: String::new(), all_items, matches, match_indices, selected: 0, scroll: 0, limit }
     }
 
     fn refresh_matches(&mut self) {
-        let (matches, match_indices) = split_filter(&self.all_files, &self.query, FILE_PICKER_LIMIT);
+        let (matches, match_indices) = split_filter_items(&self.all_items, &self.query, self.limit);
         self.matches = matches;
         self.match_indices = match_indices;
         self.selected = self.selected.min(self.matches.len().saturating_sub(1));
@@ -252,7 +271,7 @@ impl FilePickerState {
     }
 
     fn page_up(&mut self) {
-        self.selected = self.selected.saturating_sub(FILE_PICKER_VISIBLE_ROWS);
+        self.selected = self.selected.saturating_sub(VISIBLE_ROWS);
         self.ensure_selected_visible();
     }
 
@@ -260,19 +279,19 @@ impl FilePickerState {
         if self.matches.is_empty() {
             return;
         }
-        self.selected = (self.selected + FILE_PICKER_VISIBLE_ROWS).min(self.matches.len().saturating_sub(1));
+        self.selected = (self.selected + VISIBLE_ROWS).min(self.matches.len().saturating_sub(1));
         self.ensure_selected_visible();
     }
 
-    fn selected_path(&self) -> Option<&str> {
-        self.matches.get(self.selected).map(String::as_str)
+    pub fn selected(&self) -> Option<&PickerItem> {
+        self.matches.get(self.selected)
     }
 
     fn ensure_selected_visible(&mut self) {
         if self.selected < self.scroll {
             self.scroll = self.selected;
-        } else if self.selected >= self.scroll + FILE_PICKER_VISIBLE_ROWS {
-            self.scroll = self.selected.saturating_sub(FILE_PICKER_VISIBLE_ROWS - 1);
+        } else if self.selected >= self.scroll + VISIBLE_ROWS {
+            self.scroll = self.selected.saturating_sub(VISIBLE_ROWS - 1);
         }
     }
 }
@@ -323,8 +342,8 @@ pub struct App {
     pub last_input: Option<String>,
     /// Current target for input submitted while the agent is running.
     pub queue_target: QueueTarget,
-    /// Active file picker state.
-    pub file_picker: Option<FilePickerState>,
+    /// Active fuzzy picker state, used by file and model pickers.
+    pub picker: Option<PickerState>,
     /// Inline prompt accessory rendered above the input.
     pub prompt_accessory: PromptAccessory,
     /// Steering messages waiting to be sent to the active agent thread.
@@ -401,7 +420,7 @@ impl App {
             process_registry: ProcessRegistry::new(),
             last_input: None,
             queue_target: QueueTarget::default(),
-            file_picker: None,
+            picker: None,
             prompt_accessory: PromptAccessory::None,
             queued_steering: Vec::new(),
             queued_followups: Vec::new(),
@@ -571,8 +590,8 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
 
 fn handle_mouse(app: &mut App, mouse: MouseEvent) -> Option<Msg> {
     match app.prompt_accessory {
-        PromptAccessory::Files(_) => {
-            if let Some(picker) = app.file_picker.as_mut() {
+        PromptAccessory::Files(_) | PromptAccessory::Models => {
+            if let Some(picker) = app.picker.as_mut() {
                 match mouse.kind {
                     MouseEventKind::ScrollUp => picker.move_up(),
                     MouseEventKind::ScrollDown => picker.move_down(),
@@ -596,6 +615,7 @@ fn handle_accessory_key(app: &mut App, key: KeyEvent) -> Option<Option<Msg>> {
         },
         PromptAccessory::Commands { .. } => handle_command_accessory_key(app, key),
         PromptAccessory::Files(_) => handle_file_accessory_key(app, key),
+        PromptAccessory::Models => handle_model_accessory_key(app, key),
         PromptAccessory::None => None,
     }
 }
@@ -636,7 +656,7 @@ fn handle_file_accessory_key(app: &mut App, key: KeyEvent) -> Option<Option<Msg>
         PromptAccessory::Files(source) => source,
         _ => return None,
     };
-    let picker = app.file_picker.as_mut()?;
+    let picker = app.picker.as_mut()?;
     match key.code {
         KeyCode::Esc => {
             close_prompt_accessory(app);
@@ -668,6 +688,47 @@ fn handle_file_accessory_key(app: &mut App, key: KeyEvent) -> Option<Option<Msg>
             Some(None)
         }
         KeyCode::Char(ch) if source == FilePickerSource::Forced => {
+            picker.query.push(ch);
+            picker.refresh_matches();
+            Some(None)
+        }
+        _ => None,
+    }
+}
+
+fn handle_model_accessory_key(app: &mut App, key: KeyEvent) -> Option<Option<Msg>> {
+    let picker = app.picker.as_mut()?;
+    match key.code {
+        KeyCode::Esc => {
+            close_prompt_accessory(app);
+            Some(None)
+        }
+        KeyCode::Enter => {
+            accept_model_suggestion(app);
+            Some(None)
+        }
+        KeyCode::Up => {
+            picker.move_up();
+            Some(None)
+        }
+        KeyCode::Down => {
+            picker.move_down();
+            Some(None)
+        }
+        KeyCode::PageUp => {
+            picker.page_up();
+            Some(None)
+        }
+        KeyCode::PageDown => {
+            picker.page_down();
+            Some(None)
+        }
+        KeyCode::Backspace => {
+            picker.query.pop();
+            picker.refresh_matches();
+            Some(None)
+        }
+        KeyCode::Char(ch) => {
             picker.query.push(ch);
             picker.refresh_matches();
             Some(None)
@@ -960,6 +1021,7 @@ pub fn command_suggestions_for_app(app: &App) -> Vec<(&'static str, &'static str
         ("exit", "exit app"),
         ("help", "show help"),
         ("bg", "list background processes"),
+        ("model", "switch Umans model"),
     ];
     commands
         .into_iter()
@@ -999,7 +1061,8 @@ fn accept_command_suggestion(app: &mut App) -> Option<Msg> {
 fn open_file_picker(app: &mut App, source: FilePickerSource) {
     match tools::searchable_file_paths(&app.cwd, 2_000) {
         Ok(files) => {
-            app.file_picker = Some(FilePickerState::new(files));
+            let items = files.into_iter().map(|path| PickerItem::new(path, "")).collect();
+            app.picker = Some(PickerState::new(items, FILE_PICKER_LIMIT));
             app.prompt_accessory = PromptAccessory::Files(source);
             sync_file_picker_query(app);
         }
@@ -1010,17 +1073,47 @@ fn open_file_picker(app: &mut App, source: FilePickerSource) {
     }
 }
 
+fn open_model_picker(app: &mut App) {
+    let items = umans::known_models()
+        .into_iter()
+        .map(|model| PickerItem::new(model.id, model.description))
+        .collect();
+    app.picker = Some(PickerState::new(items, MODEL_PICKER_LIMIT));
+    app.prompt_accessory = PromptAccessory::Models;
+}
+
 fn close_prompt_accessory(app: &mut App) {
-    if matches!(app.prompt_accessory, PromptAccessory::Files(_)) {
-        app.file_picker = None;
+    if matches!(
+        app.prompt_accessory,
+        PromptAccessory::Files(_) | PromptAccessory::Models
+    ) {
+        app.picker = None;
     }
     app.prompt_accessory = PromptAccessory::None;
 }
 
-/// Run fuzzy filter and split results into parallel matches + indices vectors.
-fn split_filter(all_files: &[String], query: &str, limit: usize) -> (Vec<String>, Vec<Vec<usize>>) {
-    let filtered = fuzzy::fuzzy_filter(all_files, query, limit);
-    filtered.into_iter().unzip()
+/// Run fuzzy filter and split results into parallel item + index vectors.
+fn split_filter_items(all_items: &[PickerItem], query: &str, limit: usize) -> (Vec<PickerItem>, Vec<Vec<usize>>) {
+    if query.trim().is_empty() {
+        return (
+            all_items.iter().take(limit).cloned().collect(),
+            all_items.iter().take(limit).map(|_| Vec::new()).collect(),
+        );
+    }
+
+    let searchable_items: Vec<String> = all_items.iter().map(PickerItem::searchable).collect();
+    let filtered = fuzzy::fuzzy_filter(&searchable_items, query, limit);
+    filtered
+        .into_iter()
+        .filter_map(|(matched, indices)| {
+            searchable_items
+                .iter()
+                .position(|candidate| candidate == &matched)
+                .and_then(|idx| all_items.get(idx).cloned().map(|item| (item, indices)))
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
+        .unzip()
 }
 
 fn insert_file_path(app: &mut App, path: &str) {
@@ -1032,9 +1125,9 @@ fn insert_file_path(app: &mut App, path: &str) {
 
 fn accept_file_suggestion(app: &mut App) {
     let Some(path) = app
-        .file_picker
+        .picker
         .as_ref()
-        .and_then(|picker| picker.selected_path().map(str::to_string))
+        .and_then(|picker| picker.selected().map(|item| item.label.clone()))
     else {
         return;
     };
@@ -1051,6 +1144,20 @@ fn accept_file_suggestion(app: &mut App) {
         _ => {}
     }
 
+    close_prompt_accessory(app);
+}
+
+fn accept_model_suggestion(app: &mut App) {
+    let Some(model) = app
+        .picker
+        .as_ref()
+        .and_then(|picker| picker.selected().map(|item| item.label.clone()))
+    else {
+        return;
+    };
+
+    app.model = model.clone();
+    app.transcript.push(Entry::Status { text: format!("model: {model}") });
     close_prompt_accessory(app);
 }
 
@@ -1094,13 +1201,13 @@ fn active_at_token(app: &App) -> Option<(usize, String)> {
 fn sync_file_picker_query(app: &mut App) {
     let query = match app.prompt_accessory {
         PromptAccessory::Files(FilePickerSource::Mention { .. }) => active_at_token(app).map(|(_, query)| query),
-        PromptAccessory::Files(FilePickerSource::Forced) => app.file_picker.as_ref().map(|picker| picker.query.clone()),
+        PromptAccessory::Files(FilePickerSource::Forced) => app.picker.as_ref().map(|picker| picker.query.clone()),
         _ => None,
     };
     let Some(query) = query else {
         return;
     };
-    if let Some(picker) = app.file_picker.as_mut()
+    if let Some(picker) = app.picker.as_mut()
         && picker.query != query
     {
         picker.query = query;
@@ -1194,6 +1301,10 @@ fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
         }
         "bg" => {
             list_background_processes(app);
+            None
+        }
+        "model" => {
+            open_model_picker(app);
             None
         }
         _ => None,

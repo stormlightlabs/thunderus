@@ -15,6 +15,13 @@ fn fresh_app() -> App {
     app
 }
 
+fn picker_from_paths(paths: Vec<String>) -> PickerState {
+    PickerState::new(
+        paths.into_iter().map(|path| PickerItem::new(path, "")).collect(),
+        FILE_PICKER_LIMIT,
+    )
+}
+
 #[test]
 fn from_cli_starts_with_fresh_transcript_not_latest_session() {
     let dir = tempfile::tempdir().expect("create temp dir");
@@ -228,7 +235,7 @@ fn other_keys_do_not_quit() {
 fn file_picker_selection_inserts_selected_path() {
     let mut app = fresh_app();
     app.prompt_accessory = PromptAccessory::Files(FilePickerSource::Forced);
-    app.file_picker = Some(FilePickerState::new(vec![
+    app.picker = Some(picker_from_paths(vec![
         "src/main.rs".to_string(),
         "src/app.rs".to_string(),
     ]));
@@ -242,14 +249,14 @@ fn file_picker_selection_inserts_selected_path() {
     assert_eq!(app.mode, Mode::Prompt);
     assert_eq!(app.prompt_accessory, PromptAccessory::None);
     assert_eq!(app.input.as_str(), "src/app.rs");
-    assert!(app.file_picker.is_none());
+    assert!(app.picker.is_none());
 }
 
 #[test]
 fn file_picker_arrows_and_pages_are_scrollable() {
     let mut app = fresh_app();
     app.prompt_accessory = PromptAccessory::Files(FilePickerSource::Forced);
-    app.file_picker = Some(FilePickerState::new(
+    app.picker = Some(picker_from_paths(
         (0..20).map(|i| format!("src/file_{i:02}.rs")).collect(),
     ));
 
@@ -257,12 +264,12 @@ fn file_picker_arrows_and_pages_are_scrollable() {
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE)),
     );
-    let picker = app.file_picker.as_ref().expect("picker");
-    assert_eq!(picker.selected, FILE_PICKER_VISIBLE_ROWS);
+    let picker = app.picker.as_ref().expect("picker");
+    assert_eq!(picker.selected, VISIBLE_ROWS);
     assert!(picker.scroll > 0);
 
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE)));
-    let picker = app.file_picker.as_ref().expect("picker");
+    let picker = app.picker.as_ref().expect("picker");
     assert_eq!(picker.selected, 0);
     assert_eq!(picker.scroll, 0);
 }
@@ -272,14 +279,14 @@ fn file_picker_escape_closes_without_changing_input() {
     let mut app = fresh_app();
     app.input = PromptInput::from_str("read");
     app.prompt_accessory = PromptAccessory::Files(FilePickerSource::Forced);
-    app.file_picker = Some(FilePickerState::new(vec!["README.md".to_string()]));
+    app.picker = Some(picker_from_paths(vec!["README.md".to_string()]));
 
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
 
     assert_eq!(app.mode, Mode::Prompt);
     assert_eq!(app.prompt_accessory, PromptAccessory::None);
     assert_eq!(app.input.as_str(), "read");
-    assert!(app.file_picker.is_none());
+    assert!(app.picker.is_none());
 }
 
 #[test]
@@ -1653,7 +1660,7 @@ fn ctrl_p_still_opens_file_picker() {
     update(&mut app, &key(KeyCode::Char('p'), KeyModifiers::CONTROL));
     assert_eq!(app.mode, Mode::Prompt);
     assert_eq!(app.prompt_accessory, PromptAccessory::Files(FilePickerSource::Forced));
-    assert!(app.file_picker.is_some());
+    assert!(app.picker.is_some());
 }
 
 #[test]
@@ -1671,13 +1678,36 @@ fn at_token_opens_file_picker_and_accepts_mention() {
         app.prompt_accessory,
         PromptAccessory::Files(FilePickerSource::Mention { token_start: 8 })
     );
-    let picker = app.file_picker.as_ref().expect("file picker");
-    assert!(picker.matches.iter().any(|path| path == "readme.md"));
+    let picker = app.picker.as_ref().expect("file picker");
+    assert!(picker.matches.iter().any(|item| item.label == "readme.md"));
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
     assert_eq!(app.prompt_accessory, PromptAccessory::None);
     assert_eq!(app.input.as_str(), "inspect @readme.md ");
+}
+
+#[test]
+fn model_command_opens_picker_and_selects_model() {
+    let mut app = fresh_app();
+    update(&mut app, &key(KeyCode::Char(':'), KeyModifiers::NONE));
+    for ch in "model".chars() {
+        update(&mut app, &key(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(app.prompt_accessory, PromptAccessory::Models);
+    assert!(app.picker.is_some());
+
+    if let Some(picker) = app.picker.as_mut() {
+        picker.query = "glm-5.2".to_string();
+        picker.refresh_matches();
+    }
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(app.prompt_accessory, PromptAccessory::None);
+    assert_eq!(app.model, "umans-glm-5.2");
+    assert!(app.picker.is_none());
 }
 
 #[test]
