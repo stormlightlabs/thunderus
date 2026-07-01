@@ -68,12 +68,13 @@ impl ContextSource {
 }
 
 /// Discover the workspace root from `cwd`. Prefers the git top-level directory
-/// when available; falls back to `cwd` itself.
+/// when available; falls back to the canonicalized `cwd`.
 ///
 /// Uses `git rev-parse --show-toplevel` with [`std::process::Command`] (argv
 /// array, never shell strings).
 ///
-/// If git is unavailable or `cwd` is not inside a repo, returns `cwd`.
+/// If git is unavailable or `cwd` is not inside a repo, returns a
+/// fully-qualified `cwd` when the path can be canonicalized.
 pub fn discover_workspace_root(cwd: &Path) -> PathBuf {
     match Command::new("git")
         .args(["rev-parse", "--show-toplevel"])
@@ -83,9 +84,10 @@ pub fn discover_workspace_root(cwd: &Path) -> PathBuf {
         Ok(output) if output.status.success() => {
             let stdout = String::from_utf8_lossy(&output.stdout);
             let root = stdout.trim();
-            if root.is_empty() { cwd.to_path_buf() } else { PathBuf::from(root) }
+            let root = if root.is_empty() { cwd.to_path_buf() } else { PathBuf::from(root) };
+            root.canonicalize().unwrap_or(root)
         }
-        _ => cwd.to_path_buf(),
+        _ => cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf()),
     }
 }
 
@@ -212,7 +214,10 @@ mod tests {
     fn discover_workspace_root_fallback_to_cwd() {
         let dir = temp_dir();
         let root = discover_workspace_root(dir.path());
-        assert_eq!(root, dir.path());
+        assert_eq!(
+            root,
+            dir.path().canonicalize().unwrap_or_else(|_| dir.path().to_path_buf())
+        );
     }
 
     #[test]

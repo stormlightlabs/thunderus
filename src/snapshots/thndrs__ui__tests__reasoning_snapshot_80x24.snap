@@ -25,4 +25,4 @@ expression: terminal.backend().to_string()
 "────────────────────────────────────────────────────────────────────────────────"
 "  ⠋  █                                                                          "
 "  target: follow-up  queued: 0/0  Ctrl+T toggles                                "
-" ⠋ thinking   model: umans-coder   search: auto   tok: 0/0   max: 32768  cwd: . "
+" ⠋ thinking   model: umans-coder   search: auto   tok: ↑0 ↓0  cwd: /repo        "

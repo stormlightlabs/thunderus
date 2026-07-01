@@ -25,4 +25,4 @@ expression: terminal.backend().to_string()
 "────────────────────────────────────────────────────────────────────────────────"
 "  ›  █                                                                          "
 "                                                                                "
-" · idle   model: umans-coder   search: auto   tok: 0/0   max: 32768  cwd: .     "
+" · idle   model: umans-coder   search: auto   tok: ↑0 ↓0  cwd: /repo            "

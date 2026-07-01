@@ -13,7 +13,6 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
 use crate::app::{App, Entry, Mode, PromptState};
-use crate::providers;
 use crate::{banner, utils};
 
 mod highlight;
@@ -444,23 +443,20 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
 
     let label = app.status_label();
     let status_color = style::status_color(label);
-    let max_output = providers::umans::max_tokens_for_model(&app.model);
     let search_label = app.websearch.label();
-    let cwd_display = app.cwd.display().to_string();
+    let cwd_display = cwd_display(&app.cwd);
 
     let status_label = format!("{} {label}", style::status_icon(label, app.ui_tick));
     let model_label = format!("model: {}", app.model);
     let search_text = format!("search: {search_label}");
-    let token_text = format!("tok: {}/{}", app.session_tokens_in, app.session_tokens_out);
-    let max_text = format!("max: {max_output}");
+    let token_text = format!("tok: ↑{} ↓{}", app.session_tokens_in, app.session_tokens_out);
 
-    let (show_model, show_search, show_tokens, show_max, show_cwd) = match area.width {
-        w if w < 24 => (false, false, false, false, false),
-        w if w < 42 => (true, false, false, false, false),
-        w if w < 56 => (true, true, false, false, false),
-        w if w < 68 => (true, true, true, false, false),
-        w if w < 80 => (true, true, true, true, false),
-        _ => (true, true, true, true, true),
+    let (show_model, show_search, show_tokens, show_cwd) = match area.width {
+        w if w < 24 => (false, false, false, false),
+        w if w < 42 => (true, false, false, false),
+        w if w < 56 => (true, true, false, false),
+        w if w < 80 => (true, true, true, false),
+        _ => (true, true, true, true),
     };
 
     let mut spans: Vec<Span<'static>> = vec![
@@ -483,20 +479,14 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
         spans.push(Span::styled(" ", style::text_style()));
         spans.push(style::muted_chip(&token_text));
     }
-    if show_max {
-        spans.push(Span::styled(" ", style::text_style()));
-        spans.push(style::muted_chip(&max_text));
-    }
-
     if show_cwd {
-        let status_len = status_label.len() + 1;
-        let model_len = if show_model { model_label.len() + 4 } else { 0 };
-        let search_len = if show_search { search_text.len() + 3 } else { 0 };
-        let token_len = if show_tokens { token_text.len() + 3 } else { 0 };
-        let max_len = if show_max { max_text.len() + 3 } else { 0 };
+        let status_len = text_width(&status_label) + 1;
+        let model_len = if show_model { text_width(&model_label) + 4 } else { 0 };
+        let search_len = if show_search { text_width(&search_text) + 3 } else { 0 };
+        let token_len = if show_tokens { text_width(&token_text) + 3 } else { 0 };
         let min_cwd_prefix = "cwd: ".len();
-        let used = status_len + model_len + search_len + token_len + max_len + min_cwd_prefix;
-        let cwd_text = if (used + cwd_display.len()) as u16 > area.width && area.width > used as u16 + 4 {
+        let used = status_len + model_len + search_len + token_len + min_cwd_prefix;
+        let cwd_text = if (used + text_width(&cwd_display)) as u16 > area.width && area.width > used as u16 + 4 {
             let keep = (area.width as usize).saturating_sub(used + 1);
             format!("cwd: {}", utils::truncate_ellipsis_start(&cwd_display, keep))
         } else {
@@ -507,6 +497,27 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     }
 
     frame.render_widget(Paragraph::new(Line::from(spans)).style(style::panel_style()), area);
+}
+
+fn text_width(text: &str) -> usize {
+    text.chars().count()
+}
+
+fn cwd_display(path: &std::path::Path) -> String {
+    home_relative_display(path, std::env::var_os("HOME").map(std::path::PathBuf::from))
+}
+
+fn home_relative_display(path: &std::path::Path, home: Option<std::path::PathBuf>) -> String {
+    let Some(home) = home else {
+        return path.display().to_string();
+    };
+    let home = home.canonicalize().unwrap_or(home);
+
+    match path.strip_prefix(&home) {
+        Ok(rest) if rest.as_os_str().is_empty() => "~".to_string(),
+        Ok(rest) => format!("~/{}", rest.display()),
+        Err(_) => path.display().to_string(),
+    }
 }
 
 /// Whether a blank separator line should be inserted between two consecutive
@@ -543,8 +554,35 @@ mod tests {
         app.session_id = String::from("session-20260701-120000");
         app.user_label = String::from("User (owais)");
         app.session_writer = None;
-        app.cwd = PathBuf::from(".");
+        app.cwd = PathBuf::from("/repo");
         app
+    }
+
+    #[test]
+    fn home_relative_display_shortens_paths_under_home() {
+        let path = PathBuf::from("/home/owais/project");
+        let home = PathBuf::from("/home/owais");
+        assert_eq!(home_relative_display(&path, Some(home)), "~/project");
+    }
+
+    #[test]
+    fn home_relative_display_shortens_home_itself() {
+        let path = PathBuf::from("/home/owais");
+        let home = PathBuf::from("/home/owais");
+        assert_eq!(home_relative_display(&path, Some(home)), "~");
+    }
+
+    #[test]
+    fn home_relative_display_leaves_paths_outside_home() {
+        let path = PathBuf::from("/repo");
+        let home = PathBuf::from("/home/owais");
+        assert_eq!(home_relative_display(&path, Some(home)), "/repo");
+    }
+
+    #[test]
+    fn home_relative_display_leaves_paths_when_home_is_missing() {
+        let path = PathBuf::from("/repo");
+        assert_eq!(home_relative_display(&path, None), "/repo");
     }
 
     #[test]

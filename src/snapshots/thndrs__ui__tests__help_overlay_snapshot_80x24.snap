@@ -25,4 +25,4 @@ expression: terminal.backend().to_string()
 "────────────│  :bg          list background processes              │────────────"
 "  ›  █      │                                                      │            "
 "            │  Press ? or Esc to close.                            │            "
-" · idle   mo└──────────────────────────────────────────────────────┘ cwd: .     "
+" · idle   mo└──────────────────────────────────────────────────────┘            "

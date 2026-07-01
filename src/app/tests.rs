@@ -732,7 +732,10 @@ fn app_with_agents_md_loads_context_and_adds_status() {
 
     assert_eq!(app.context_sources.len(), 1);
     let source = &app.context_sources[0];
-    assert_eq!(source.path, agents_path);
+    assert_eq!(
+        source.path,
+        agents_path.canonicalize().unwrap_or_else(|_| agents_path.to_path_buf())
+    );
     assert_eq!(source.scope, ".");
     assert!(!source.truncated);
     assert!(source.content.contains("# Project"));

@@ -292,7 +292,7 @@ impl App {
             history_cursor: None,
             history_draft: String::new(),
             transcript,
-            cwd: cli.cwd.clone(),
+            cwd: workspace_root,
             model: cli.model.clone(),
             user_label: default_user_label(),
             websearch: cli.websearch,

@@ -25,4 +25,4 @@ expression: terminal.backend().to_string()
 "────────────────────────────────────────────────────────────────────────────────"
 "  ○  █                                                                          "
 "  Stopped                                                                       "
-" ○ cancelled   model: umans-coder   search: auto   tok: 0/0   max: 32768  cwd: ."
+" ○ cancelled   model: umans-coder   search: auto   tok: ↑0 ↓0  cwd: /repo       "
