@@ -67,6 +67,7 @@ pub fn fuzzy_match(query: &str, text: &str) -> Option<FuzzyMatch> {
     Some(FuzzyMatch { indices, score })
 }
 
+#[allow(dead_code)]
 pub fn fuzzy_filter(items: &[String], query: &str, limit: usize) -> Vec<String> {
     let mut scored = items
         .iter()
@@ -74,6 +75,21 @@ pub fn fuzzy_filter(items: &[String], query: &str, limit: usize) -> Vec<String> 
         .collect::<Vec<_>>();
     scored.sort_by(|(a_score, a_item), (b_score, b_item)| a_score.cmp(b_score).then_with(|| a_item.cmp(b_item)));
     scored.into_iter().take(limit).map(|(_, item)| item.clone()).collect()
+}
+
+/// Like [`fuzzy_filter`] but also returns the matched character indices for
+/// each result, so the caller can highlight which characters matched.
+pub fn fuzzy_filter_with_indices(items: &[String], query: &str, limit: usize) -> Vec<(String, Vec<usize>)> {
+    let mut scored: Vec<(i32, &String, Vec<usize>)> = items
+        .iter()
+        .filter_map(|item| fuzzy_match(query, item).map(|m| (m.score, item, m.indices)))
+        .collect();
+    scored.sort_by(|(a_score, a_item, _), (b_score, b_item, _)| a_score.cmp(b_score).then_with(|| a_item.cmp(b_item)));
+    scored
+        .into_iter()
+        .take(limit)
+        .map(|(_, item, indices)| (item.clone(), indices))
+        .collect()
 }
 
 fn is_path_boundary(chars: &[char], idx: usize) -> bool {

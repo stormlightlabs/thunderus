@@ -111,22 +111,22 @@ See:
 
 ### Milestone 4: Prompt, Picker, Help, And Mentions
 
-- [ ] Render slash-command suggestions as live-region rows, not overlays.
-- [ ] Render help as live-region rows, not an overlay.
-- [ ] Render the file picker as live-region rows, not an overlay.
-- [ ] Add `@` file mentions in prompt input.
-- [ ] Keep `ctrl+p` as a direct file picker shortcut.
-- [ ] Render accepted file mentions in the prompt with distinct styling from
+- [x] Render slash-command suggestions as live-region rows, not overlays.
+- [x] Render help as live-region rows, not an overlay.
+- [x] Render the file picker as live-region rows, not an overlay.
+- [x] Add `@` file mentions in prompt input.
+- [x] Keep `ctrl+p` as a direct file picker shortcut.
+- [x] Render accepted file mentions in the prompt with distinct styling from
       plain text, without changing provider-visible prompt semantics at first.
-- [ ] Ensure `escape` closes picker/help/suggestions before it stops work or
+- [x] Ensure `escape` closes picker/help/suggestions before it stops work or
       exits a broader mode.
-- [ ] Match Codex-style picker states: empty `@` hint, loading state,
+- [x] Match Codex-style picker states: empty `@` hint, loading state,
       stale-result guard if search becomes async, and clear `no matches` row.
-- [ ] Match Codex-style selection rows: stable scroll window, selected marker,
+- [x] Match Codex-style selection rows: stable scroll window, selected marker,
       highlighted fuzzy match indices, and clipped long paths.
-- [ ] Match Pi-style help organization: generic selection keys (`up`, `down`,
+- [x] Match Pi-style help organization: generic selection keys (`up`, `down`,
       `pageUp`, `pageDown`, `enter`, `escape`) appear in help/footer hints.
-- [ ] Add file picker snapshots for empty query, filtered results, no matches,
+- [x] Add file picker snapshots for empty query, filtered results, no matches,
       long path clipping, accepted mention styling, and scrolled selection.
 
 ### Milestone 5: Ratatui Migration Cleanup

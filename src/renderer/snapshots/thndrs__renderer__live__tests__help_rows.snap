@@ -1,0 +1,17 @@
+---
+source: src/renderer/live.rs
+expression: frame.render_styled()
+---
+│   ── Navigation ──                                                                # [bg=#212337]=   [fg=#6473b7 bg=#212337 b]=── Navigation ── [bg=#212337]=                                                             [bg=#212337]=  
+│   Up/Down         select item or recall history                                   # [bg=#212337]=   [fg=#37f499 bg=#212337 b]=Up/Down          [fg=#abb4da bg=#212337]=select item or recall history [bg=#212337]=                                [bg=#212337]=  
+│   PageUp/PageDn   scroll picker faster                                            # [bg=#212337]=   [fg=#37f499 bg=#212337 b]=PageUp/PageDn    [fg=#abb4da bg=#212337]=scroll picker faster [bg=#212337]=                                         [bg=#212337]=  
+│   Enter           accept highlighted item                                         # [bg=#212337]=   [fg=#37f499 bg=#212337 b]=Enter            [fg=#abb4da bg=#212337]=accept highlighted item [bg=#212337]=                                      [bg=#212337]=  
+│   Escape          close help, files, or commands                                  # [bg=#212337]=   [fg=#37f499 bg=#212337 b]=Escape           [fg=#abb4da bg=#212337]=close help, files, or commands [bg=#212337]=                               [bg=#212337]=  
+│   ── Editing ──                                                                   # [bg=#212337]=   [fg=#6473b7 bg=#212337 b]=── Editing ── [bg=#212337]=                                                                [bg=#212337]=  
+│   Shift+Enter     insert newline                                                  # [bg=#212337]=   [fg=#37f499 bg=#212337 b]=Shift+Enter      [fg=#abb4da bg=#212337]=insert newline [bg=#212337]=                                               [bg=#212337]=  
+│   Ctrl+A/E        move to start/end                                               # [bg=#212337]=   [fg=#37f499 bg=#212337 b]=Ctrl+A/E         [fg=#abb4da bg=#212337]=move to start/end [bg=#212337]=                                            [bg=#212337]=  
+│   ── Files ──                                                                     # [bg=#212337]=   [fg=#6473b7 bg=#212337 b]=── Files ── [bg=#212337]=                                                                  [bg=#212337]=  
+│   Ctrl+P          pick a file                                                     # [bg=#212337]=   [fg=#37f499 bg=#212337 b]=Ctrl+P           [fg=#abb4da bg=#212337]=pick a file [bg=#212337]=                                                  [bg=#212337]=  
+│   @path           mention a file from fuzzy search                                # [bg=#212337]=   [fg=#37f499 bg=#212337 b]=@path            [fg=#abb4da bg=#212337]=mention a file from fuzzy search [bg=#212337]=                             [bg=#212337]=  
+│   ── App ──                                                                       # [bg=#212337]=   [fg=#6473b7 bg=#212337 b]=── App ── [bg=#212337]=                                                                    [bg=#212337]=  
+│   Ctrl+D          quit after double-press                                         # [bg=#212337]=   [fg=#37f499 bg=#212337 b]=Ctrl+D           [fg=#abb4da bg=#212337]=quit after double-press [bg=#212337]=                                      [bg=#212337]=

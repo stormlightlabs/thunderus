@@ -215,18 +215,22 @@ pub struct FilePickerState {
     pub query: String,
     pub all_files: Vec<String>,
     pub matches: Vec<String>,
+    /// Character indices of fuzzy match highlights, parallel to `matches`.
+    pub match_indices: Vec<Vec<usize>>,
     pub selected: usize,
     pub scroll: usize,
 }
 
 impl FilePickerState {
     fn new(all_files: Vec<String>) -> Self {
-        let matches = fuzzy::fuzzy_filter(&all_files, "", FILE_PICKER_LIMIT);
-        Self { query: String::new(), all_files, matches, selected: 0, scroll: 0 }
+        let (matches, match_indices) = split_filter(&all_files, "", FILE_PICKER_LIMIT);
+        Self { query: String::new(), all_files, matches, match_indices, selected: 0, scroll: 0 }
     }
 
     fn refresh_matches(&mut self) {
-        self.matches = fuzzy::fuzzy_filter(&self.all_files, &self.query, FILE_PICKER_LIMIT);
+        let (matches, match_indices) = split_filter(&self.all_files, &self.query, FILE_PICKER_LIMIT);
+        self.matches = matches;
+        self.match_indices = match_indices;
         self.selected = self.selected.min(self.matches.len().saturating_sub(1));
         self.ensure_selected_visible();
     }
@@ -953,6 +957,12 @@ fn close_prompt_accessory(app: &mut App) {
         app.file_picker = None;
     }
     app.prompt_accessory = PromptAccessory::None;
+}
+
+/// Run fuzzy filter and split results into parallel matches + indices vectors.
+fn split_filter(all_files: &[String], query: &str, limit: usize) -> (Vec<String>, Vec<Vec<usize>>) {
+    let filtered = fuzzy::fuzzy_filter_with_indices(all_files, query, limit);
+    filtered.into_iter().unzip()
 }
 
 fn insert_file_path(app: &mut App, path: &str) {

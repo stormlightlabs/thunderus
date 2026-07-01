@@ -106,6 +106,12 @@ impl CellStyle {
         self
     }
 
+    /// Return a copy with the background color changed.
+    pub const fn with_bg(mut self, color: Color) -> Self {
+        self.bg = color;
+        self
+    }
+
     /// Overlay another style onto this one.
     ///
     /// Non-default values from `other` replace the corresponding values in
