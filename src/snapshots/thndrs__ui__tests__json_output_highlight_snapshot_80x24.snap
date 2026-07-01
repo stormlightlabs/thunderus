@@ -3,11 +3,11 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││tool            ✓ read_file_range#1 [ok]  path: Cargo.to│"
-"│ ● scratch          ││   │ [package]                                          │"
+"│Sessions            ││tool            ✓ read_file_range#1 [ok]                │"
+"│ ● umans-coder      ││                path: Cargo.toml                        │"
+"│   in 0 out 0       ││   │ [package]                                          │"
 "│                    ││   │ name = "thndrs"                                    │"
 "│                    ││   │ version = "0.1.0"                                  │"
-"│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

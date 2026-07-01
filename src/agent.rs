@@ -71,6 +71,30 @@ pub enum ProviderKind {
     Umans,
 }
 
+#[derive(Clone, Debug)]
+struct ToolUseBuilder {
+    id: String,
+    name: String,
+    initial_input: serde_json::Value,
+    input_json: String,
+}
+
+impl ToolUseBuilder {
+    fn finish(self) -> Option<ToolUseRequest> {
+        let input = if self.input_json.trim().is_empty() {
+            self.initial_input
+        } else {
+            serde_json::from_str(&self.input_json).unwrap_or(serde_json::Value::Null)
+        };
+        let arguments = if input.is_null() {
+            String::from("{}")
+        } else {
+            serde_json::to_string(&input).unwrap_or_else(|_| String::from("{}"))
+        };
+        Some(ToolUseRequest::new(self.name, arguments, self.id))
+    }
+}
+
 /// Handle for a single agent run: provider kind, config, prompt, and cancel.
 #[derive(Debug)]
 pub struct RunHandle {
@@ -78,6 +102,7 @@ pub struct RunHandle {
     pub config: AgentRunConfig,
     pub prompt: String,
     pub messages: Vec<umans::Message>,
+    pub expects_write: bool,
     pub steering: Option<Receiver<String>>,
     pub cancel: CancelToken,
 }
@@ -91,6 +116,7 @@ impl RunHandle {
             config,
             prompt,
             messages: Vec::new(),
+            expects_write: false,
             steering: None,
             cancel: CancelToken::new(),
         }
@@ -98,17 +124,55 @@ impl RunHandle {
 
     /// Create an Umans-provider run handle with a steering-message receiver.
     pub fn umans_with_steering(
-        config: AgentRunConfig, messages: Vec<umans::Message>, steering: Receiver<String>,
+        config: AgentRunConfig, messages: Vec<umans::Message>, expects_write: bool, steering: Receiver<String>,
     ) -> Self {
         RunHandle {
             provider: ProviderKind::Umans,
             config,
             prompt: String::new(),
             messages,
+            expects_write,
             steering: Some(steering),
             cancel: CancelToken::new(),
         }
     }
+}
+
+/// Best-effort classifier for prompts that should not finish without a
+/// workspace write. This is intentionally narrow: it requires both a file-ish
+/// reference and an edit/action verb.
+pub fn prompt_expects_workspace_write(prompt: &str) -> bool {
+    let lower = prompt.to_ascii_lowercase();
+    let fileish = lower.contains(".md")
+        || lower.contains(".rs")
+        || lower.contains(".toml")
+        || lower.contains(".json")
+        || lower.contains(".yaml")
+        || lower.contains(".yml")
+        || lower.contains("file")
+        || lower.contains("todo");
+    let action = [
+        "add",
+        "change",
+        "document",
+        "edit",
+        "fix",
+        "modify",
+        "remove",
+        "replace",
+        "rewrite",
+        "summarize",
+        "update",
+        "write",
+    ]
+    .iter()
+    .any(|word| {
+        lower
+            .split(|c: char| !c.is_ascii_alphanumeric())
+            .any(|part| part == *word)
+    });
+
+    fileish && action
 }
 
 /// Spawn the unified agent loop on a background thread and return the receiver.
@@ -145,6 +209,8 @@ fn run_agent(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
 
 /// Deterministic fake provider: emits reasoning, a tool-use request, assistant
 /// text, and finishes. Demonstrates the tool dispatch path end-to-end.
+///
+/// TODO: Move to test mod or remove
 #[cfg(test)]
 fn run_fake(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
     if send(
@@ -305,6 +371,7 @@ fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
         handle.messages.clone()
     };
     let mut iterations = 0usize;
+    let mut wrote_file = false;
 
     loop {
         if cancel.is_cancelled() {
@@ -395,6 +462,16 @@ fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
                 );
                 return;
             }
+            if handle.expects_write && !wrote_file {
+                let _ = send(
+                    tx,
+                    AgentEvent::Failed(String::from(
+                        "model stopped without writing a file for an edit-like request",
+                    )),
+                    cancel,
+                );
+                return;
+            }
             if append_steering_messages(&mut messages, handle) {
                 tracing::info!("continuing Umans run with queued steering messages");
                 continue;
@@ -436,6 +513,9 @@ fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
 
             let (output, write_result, shell_result) = tools::dispatch_full(req, &handle.config.root);
             let status = output.status;
+            if write_result.is_some() && status == crate::app::ToolStatus::Ok {
+                wrote_file = true;
+            }
             tracing::info!(tool = %req.name, tool_id = %tool_id, status = ?status, "tool request finished");
             if send(
                 tx,
@@ -656,12 +736,19 @@ fn summarize_sse_data(data: &str) -> (Option<String>, Option<String>, Option<Str
     (content_type, delta_type, stop_reason)
 }
 
+/// TODO: change args to a param list struct.
 fn collect_umans_event(
     event_type: &str, data: &str, tool_blocks: &mut HashMap<usize, ToolUseBuilder>,
     tool_requests: &mut Vec<ToolUseRequest>, assistant_text: &mut String, stop_reason: &mut Option<String>,
     provider_content_blocks: &mut Vec<String>, tx: &Sender<AgentEvent>, cancel: &CancelToken,
 ) -> Result<(), String> {
     let sse_event = umans::parse_sse_event(event_type, data);
+
+    if let Some((input_tokens, output_tokens)) = extract_usage(data)
+        && send(tx, AgentEvent::Usage { input_tokens, output_tokens }, cancel).is_none()
+    {
+        return Err("cancelled".to_string());
+    }
 
     if event_type == "content_block_start"
         && let Some((index, block)) = extract_tool_use_start(data)
@@ -708,6 +795,17 @@ fn collect_umans_event(
     Ok(())
 }
 
+fn extract_usage(data: &str) -> Option<(u64, u64)> {
+    let v: serde_json::Value = serde_json::from_str(data).ok()?;
+    let usage = v
+        .get("usage")
+        .or_else(|| v.get("message").and_then(|m| m.get("usage")))
+        .or_else(|| v.get("delta").and_then(|d| d.get("usage")))?;
+    let input_tokens = usage.get("input_tokens").and_then(|t| t.as_u64()).unwrap_or(0);
+    let output_tokens = usage.get("output_tokens").and_then(|t| t.as_u64()).unwrap_or(0);
+    if input_tokens == 0 && output_tokens == 0 { None } else { Some((input_tokens, output_tokens)) }
+}
+
 fn collect_content_block_start_text(
     data: &str, assistant_text: &mut String, provider_content_blocks: &mut Vec<String>, tx: &Sender<AgentEvent>,
     cancel: &CancelToken,
@@ -743,30 +841,6 @@ fn collect_content_block_start_text(
     Ok(())
 }
 
-#[derive(Clone, Debug)]
-struct ToolUseBuilder {
-    id: String,
-    name: String,
-    initial_input: serde_json::Value,
-    input_json: String,
-}
-
-impl ToolUseBuilder {
-    fn finish(self) -> Option<ToolUseRequest> {
-        let input = if self.input_json.trim().is_empty() {
-            self.initial_input
-        } else {
-            serde_json::from_str(&self.input_json).unwrap_or(serde_json::Value::Null)
-        };
-        let arguments = if input.is_null() {
-            String::from("{}")
-        } else {
-            serde_json::to_string(&input).unwrap_or_else(|_| String::from("{}"))
-        };
-        Some(ToolUseRequest::new(self.name, arguments, self.id))
-    }
-}
-
 fn extract_tool_use_start(data: &str) -> Option<(usize, ToolUseBuilder)> {
     let v: serde_json::Value = serde_json::from_str(data).ok()?;
     let index = v.get("index").and_then(|i| i.as_u64()).unwrap_or(0) as usize;
@@ -786,6 +860,8 @@ fn extract_tool_use_start(data: &str) -> Option<(usize, ToolUseBuilder)> {
 
 /// Extract a tool-use request from a `content_block_start` data payload,
 /// if the content block type is `tool_use`.
+///
+/// TODO: move to test mod or remove
 #[cfg(test)]
 fn extract_tool_use(data: &str) -> Option<ToolUseRequest> {
     extract_tool_use_start(data).and_then(|(_, block)| block.finish())
@@ -1136,7 +1212,7 @@ mod tests {
         tx.send("look at tests first".to_string()).expect("send steering");
         drop(tx);
 
-        let handle = RunHandle::umans_with_steering(config(), Vec::new(), rx);
+        let handle = RunHandle::umans_with_steering(config(), Vec::new(), false, rx);
         let mut messages = Vec::new();
 
         assert!(append_steering_messages(&mut messages, &handle));
@@ -1144,6 +1220,20 @@ mod tests {
         assert_eq!(messages[0].role, "user");
         assert!(messages[0].as_text().contains("[steering]"));
         assert!(messages[0].as_text().contains("look at tests first"));
+    }
+
+    #[test]
+    fn prompt_expects_workspace_write_for_file_edit_request() {
+        assert!(prompt_expects_workspace_write(
+            "Looking at completed work in TODO.md, can you summarize them like the completed sections?"
+        ));
+        assert!(prompt_expects_workspace_write("update README.md with install notes"));
+    }
+
+    #[test]
+    fn prompt_expects_workspace_write_ignores_plain_file_questions() {
+        assert!(!prompt_expects_workspace_write("what does TODO.md contain?"));
+        assert!(!prompt_expects_workspace_write("summarize the project architecture"));
     }
 
     #[test]

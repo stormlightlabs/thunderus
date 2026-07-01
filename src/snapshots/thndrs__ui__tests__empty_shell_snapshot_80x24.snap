@@ -4,8 +4,8 @@ expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
 "│Sessions            ││                                                        │"
-"│ ● scratch          ││                                                        │"
-"│                    ││                                                        │"
+"│ ● umans-coder      ││                                                        │"
+"│   in 0 out 0       ││                                                        │"
 "│                    ││   888    888                    888                    │"
 "│                    ││   888    888                    888                    │"
 "│                    ││   888    888                    888                    │"

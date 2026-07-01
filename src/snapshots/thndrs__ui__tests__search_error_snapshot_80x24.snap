@@ -4,10 +4,10 @@ expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
 "│Sessions            ││ ▌ User (owais)     search for something                │"
-"│ ● scratch          ││                                                        │"
-"│                    ││tool            ✕ web_search#search-0 [failed]  query: s│"
+"│ ● umans-coder      ││                                                        │"
+"│   in 0 out 0       ││tool            ✕ web_search#search-0 [failed]          │"
+"│                    ││                query: something                        │"
 "│                    ││⚠ Error         search backend unavailable              │"
-"│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

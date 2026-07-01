@@ -4,8 +4,8 @@ expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
 "│Sessions            ││ ▌ User (owais)     explain this repo                   │"
-"│ ● scratch          ││⚠ Error         authentication failed (HTTP 401)        │"
-"│                    ││                                                        │"
+"│ ● umans-coder      ││⚠ Error         authentication failed (HTTP 401)        │"
+"│   in 0 out 0       ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

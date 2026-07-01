@@ -4,9 +4,9 @@ expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
 "│Sessions            ││ ▌ User (owais)     search for rust async patterns      │"
-"│ ● scratch          ││                                                        │"
-"│                    ││tool            ⠋ web_search#search-0 [running]  query: │"
-"│                    ││                                                        │"
+"│ ● umans-coder      ││                                                        │"
+"│   in 0 out 0       ││tool            ⠋ web_search#search-0 [running]         │"
+"│                    ││                query: rust async patterns              │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

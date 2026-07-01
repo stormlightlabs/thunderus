@@ -4,8 +4,8 @@ expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
 "│Sessions            ││tool            ✕ run_shell#0 [failed]  program: cargo  │"
-"│ ● scratch          ││   │ $ cargo build [one-shot failed 340ms]              │"
-"│                    ││   │ ── stderr ──                                       │"
+"│ ● umans-coder      ││   │ $ cargo build [one-shot failed 340ms]              │"
+"│   in 0 out 0       ││   │ ── stderr ──                                       │"
 "│                    ││   │ error[E0308]: mismatched types                     │"
 "│                    ││   │   --> src/main.rs:10:5                             │"
 "│                    ││   │    |                                               │"

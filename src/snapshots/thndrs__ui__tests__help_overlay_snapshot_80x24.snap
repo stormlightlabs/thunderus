@@ -4,8 +4,8 @@ expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
 "│Sessions   ┌ Help ────────────────────────────────────────────────┐           │"
-"│ ● scratch │  Key          Action                                 │           │"
-"│           │                                                      │           │"
+"│ ● umans-co│  Key          Action                                 │           │"
+"│   in 0 out│                                                      │           │"
 "│           │  Enter        submit prompt / execute command        │           │"
 "│           │  Esc          cancel stream / close overlay          │           │"
 "│           │  Ctrl+T       toggle running input target            │           │"

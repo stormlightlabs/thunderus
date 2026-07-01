@@ -3,15 +3,15 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││tool            ✓ read_file_range#0 [ok]  path: config.j│"
-"│ ● scratch          ││   │ {                                                  │"
+"│Sessions            ││tool            ✓ read_file_range#0 [ok]                │"
+"│ ● umans-coder      ││                path: config.json                       │"
+"│   in 0 out 0       ││   │ {                                                  │"
 "│                    ││   │   "name": "thndrs",                                │"
 "│                    ││   │   "version": "0.1.0",                              │"
 "│                    ││   │   "dependencies": {                                │"
 "│                    ││   │     "clap": "4.6",                                 │"
 "│                    ││   │     "ratatui": "0.30"                              │"
 "│                    ││   │ …(2 more lines)                                    │"
-"│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

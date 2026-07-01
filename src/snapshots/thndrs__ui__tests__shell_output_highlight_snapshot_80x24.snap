@@ -4,8 +4,8 @@ expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
 "│Sessions            ││tool            ✓ run_shell#0 [ok]  program: echo       │"
-"│ ● scratch          ││   │ hello                                              │"
-"│                    ││                                                        │"
+"│ ● umans-coder      ││   │ hello                                              │"
+"│   in 0 out 0       ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

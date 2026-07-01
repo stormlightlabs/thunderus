@@ -19,6 +19,7 @@
 //! - `user`: prompt text and turn id.
 //! - `assistant_finished`: final replayable assistant text.
 //! - `reasoning_finished`: final replayable reasoning text.
+//! - `usage`: provider token usage increments.
 //! - `tool_started`: tool call id, name, input.
 //! - `tool_finished`: tool call id, status, output.
 //! - `file_write`: file write audit (op, path, before/after hash+bytes, status).
@@ -98,6 +99,15 @@ pub enum SessionRecord {
         time: String,
         turn_id: String,
         text: String,
+    },
+    /// Provider token usage increment.
+    #[serde(rename = "usage")]
+    Usage {
+        schema_version: u32,
+        seq: u64,
+        time: String,
+        input_tokens: u64,
+        output_tokens: u64,
     },
     /// A tool call started.
     #[serde(rename = "tool_started")]
@@ -202,6 +212,7 @@ impl SessionRecord {
             | SessionRecord::User { seq, .. }
             | SessionRecord::AssistantFinished { seq, .. }
             | SessionRecord::ReasoningFinished { seq, .. }
+            | SessionRecord::Usage { seq, .. }
             | SessionRecord::ToolStarted { seq, .. }
             | SessionRecord::ToolFinished { seq, .. }
             | SessionRecord::Cancelled { seq, .. }
@@ -524,6 +535,27 @@ impl SessionWriter {
         Ok(())
     }
 
+    /// Append provider token usage for the session.
+    pub fn append_usage(&mut self, input_tokens: u64, output_tokens: u64) -> std::io::Result<()> {
+        if input_tokens == 0 && output_tokens == 0 {
+            return Ok(());
+        }
+
+        let record = SessionRecord::Usage {
+            schema_version: SCHEMA_VERSION,
+            seq: self.seq,
+            time: datetime::now_iso8601(),
+            input_tokens,
+            output_tokens,
+        };
+        self.seq += 1;
+        let line = record.to_json().map_err(io_err)?;
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new().append(true).open(&self.path)?;
+        writeln!(file, "{line}")?;
+        Ok(())
+    }
+
     /// Append a file-write audit record.
     ///
     /// Records the operation type, path, before/after hashes and byte counts,
@@ -599,6 +631,7 @@ fn set_seq(record: &mut SessionRecord, seq: u64) {
         | SessionRecord::User { seq: s, .. }
         | SessionRecord::AssistantFinished { seq: s, .. }
         | SessionRecord::ReasoningFinished { seq: s, .. }
+        | SessionRecord::Usage { seq: s, .. }
         | SessionRecord::ToolStarted { seq: s, .. }
         | SessionRecord::ToolFinished { seq: s, .. }
         | SessionRecord::Cancelled { seq: s, .. }
@@ -665,6 +698,51 @@ impl SessionReader {
             .unwrap_or("session")
             .to_string()
     }
+
+    /// Read compact sidebar metadata from a session file.
+    pub fn read_summary(path: &Path) -> SessionSummary {
+        let records = Self::read_records(path);
+        let mut title = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("session")
+            .to_string();
+        let mut model = String::from("unknown");
+        let mut input_tokens = 0u64;
+        let mut output_tokens = 0u64;
+
+        for record in records {
+            match record {
+                SessionRecord::SessionMeta { title: t, model: m, .. } => {
+                    title = t;
+                    model = m;
+                }
+                SessionRecord::SessionRenamed { title: t, .. } => title = t,
+                SessionRecord::Usage { input_tokens: i, output_tokens: o, .. } => {
+                    input_tokens = input_tokens.saturating_add(i);
+                    output_tokens = output_tokens.saturating_add(o);
+                }
+                _ => {}
+            }
+        }
+
+        SessionSummary { title, model, input_tokens, output_tokens }
+    }
+}
+
+/// Compact session metadata for sidebar display.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SessionSummary {
+    pub title: String,
+    pub model: String,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+}
+
+impl SessionSummary {
+    pub fn sidebar_label(&self) -> String {
+        format!("{}\nin {} out {}", self.model, self.input_tokens, self.output_tokens)
+    }
 }
 
 /// The sessions directory under a workspace root: `{root}/.thndrs/sessions/`.
@@ -701,6 +779,14 @@ pub fn list_session_titles(dir: &Path) -> Vec<String> {
     list_session_files(dir)
         .into_iter()
         .map(|p| SessionReader::read_title(&p))
+        .collect()
+}
+
+/// List session sidebar summaries, newest-first.
+pub fn list_session_summaries(dir: &Path) -> Vec<SessionSummary> {
+    list_session_files(dir)
+        .into_iter()
+        .map(|p| SessionReader::read_summary(&p))
         .collect()
 }
 

@@ -326,8 +326,9 @@ fn maybe_spawn_agent(app: &App, cli: &Cli, agent: &mut Option<AgentSlot>) {
         &prompt,
     );
     let messages = prompt::lower_to_umans_messages(&bundle);
+    let expects_write = agent::prompt_expects_workspace_write(&prompt);
     let (steering_tx, steering_rx) = mpsc::channel();
-    let handle = agent::RunHandle::umans_with_steering(config, messages, steering_rx);
+    let handle = agent::RunHandle::umans_with_steering(config, messages, expects_write, steering_rx);
     let cancel = handle.cancel.clone();
     let receiver = agent::spawn_run(handle);
     *agent = Some(AgentSlot { receiver, cancel, steering: steering_tx });

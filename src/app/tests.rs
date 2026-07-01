@@ -11,6 +11,81 @@ fn fresh_app() -> App {
 }
 
 #[test]
+fn from_cli_starts_with_fresh_transcript_not_latest_session() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let sessions_dir = session::sessions_dir(dir.path());
+    let mut writer = session::SessionWriter::create(
+        &sessions_dir,
+        "session-old",
+        "/repo",
+        "old",
+        "umans",
+        "umans-coder",
+        "none",
+        "0.1.0",
+    )
+    .expect("create old session");
+    writer
+        .append_entry(
+            &Entry::User { text: String::from("old message should not replay") },
+            "turn_1",
+        )
+        .expect("append old entry");
+
+    let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
+    let app = App::from_cli(&cli);
+
+    assert!(
+        !app.transcript
+            .iter()
+            .any(|e| matches!(e, Entry::User { text } if text.contains("old message")))
+    );
+}
+
+#[test]
+fn usage_event_accumulates_session_tokens() {
+    let mut app = fresh_app();
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::Usage { input_tokens: 12, output_tokens: 3 }),
+    );
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::Usage { input_tokens: 5, output_tokens: 7 }),
+    );
+    assert_eq!(app.session_tokens_in, 17);
+    assert_eq!(app.session_tokens_out, 10);
+}
+
+#[test]
+fn finished_persists_final_assistant_even_after_status_row() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
+    let mut app = App::from_cli(&cli);
+    let path = app
+        .session_writer
+        .as_ref()
+        .expect("session writer")
+        .path()
+        .to_path_buf();
+
+    app.input = String::from("update TODO.md");
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+    update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(String::from("Done."))));
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::Status(String::from("provider: stream ended"))),
+    );
+    update(&mut app, &Msg::Agent(AgentEvent::Finished));
+
+    let records = session::SessionReader::read_records(&path);
+    assert!(records.iter().any(|record| matches!(
+        record,
+        session::SessionRecord::AssistantFinished { text, .. } if text == "Done."
+    )));
+}
+
+#[test]
 fn q_appends_to_input_and_does_not_quit() {
     let mut app = fresh_app();
     let follow = update(
@@ -162,7 +237,7 @@ fn quit_message_sets_quit_flag() {
 #[test]
 fn placeholder_sidebar_has_one_active_session() {
     let sidebar = Sidebar::placeholder();
-    assert_eq!(sidebar.sessions, vec!["scratch"]);
+    assert_eq!(sidebar.sessions, vec!["unknown\nin 0 out 0"]);
     assert_eq!(sidebar.active, Some(0));
 }
 

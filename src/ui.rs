@@ -39,6 +39,28 @@ const PROMPT_HEIGHT: u16 = 3;
 /// Footer region height: one status line.
 const FOOTER_HEIGHT: u16 = 1;
 
+/// Semantic group classification for transcript spacing.
+#[derive(PartialEq)]
+enum EntryGroup {
+    User,
+    Assistant,
+    Reasoning,
+    Tool,
+    Transient,
+}
+
+impl From<&Entry> for EntryGroup {
+    fn from(e: &Entry) -> Self {
+        match e {
+            Entry::User { .. } => EntryGroup::User,
+            Entry::Assistant { .. } => EntryGroup::Assistant,
+            Entry::Reasoning { .. } => EntryGroup::Reasoning,
+            Entry::Tool { .. } => EntryGroup::Tool,
+            Entry::Status { .. } | Entry::Error { .. } => EntryGroup::Transient,
+        }
+    }
+}
+
 /// Precomputed layout rectangles plus display flags.
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct ViewState {
@@ -219,12 +241,22 @@ fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
             } else {
                 style::subtle_style()
             };
-            ListItem::new(Line::from(vec![
+            let mut lines = Vec::new();
+            let mut parts = name.lines();
+            let primary = parts.next().unwrap_or(name);
+            lines.push(Line::from(vec![
                 Span::styled(" ", style::text_style()),
                 Span::styled(marker, marker_style),
                 Span::styled(" ", style::text_style()),
-                Span::styled(name.clone(), name_style),
-            ]))
+                Span::styled(primary.to_string(), name_style),
+            ]));
+            for part in parts {
+                lines.push(Line::from(vec![
+                    Span::styled("   ", style::text_style()),
+                    Span::styled(part.to_string(), style::subtle_style()),
+                ]));
+            }
+            ListItem::new(Text::from(lines))
         })
         .collect();
 
@@ -236,7 +268,6 @@ fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
 
     let label = app.status_label();
     let status_color = style::status_color(label);
-
     let status_text = if app.sidebar_focused {
         Line::from(vec![
             Span::styled("  ↑↓ navigate", style::subtle_style()),
@@ -565,28 +596,6 @@ fn is_group_boundary(prev: &Entry, curr: &Entry) -> bool {
         false
     } else {
         prev_type != curr_type
-    }
-}
-
-/// Semantic group classification for transcript spacing.
-#[derive(PartialEq)]
-enum EntryGroup {
-    User,
-    Assistant,
-    Reasoning,
-    Tool,
-    Transient,
-}
-
-impl From<&Entry> for EntryGroup {
-    fn from(e: &Entry) -> Self {
-        match e {
-            Entry::User { .. } => EntryGroup::User,
-            Entry::Assistant { .. } => EntryGroup::Assistant,
-            Entry::Reasoning { .. } => EntryGroup::Reasoning,
-            Entry::Tool { .. } => EntryGroup::Tool,
-            Entry::Status { .. } | Entry::Error { .. } => EntryGroup::Transient,
-        }
     }
 }
 

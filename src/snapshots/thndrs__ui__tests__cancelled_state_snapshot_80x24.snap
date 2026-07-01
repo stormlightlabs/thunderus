@@ -4,8 +4,8 @@ expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
 "│Sessions            ││ ▌ User (owais)     explain this repo                   │"
-"│ ● scratch          ││                                                        │"
-"│                    ││Assistant       partial                                 │"
+"│ ● umans-coder      ││                                                        │"
+"│   in 0 out 0       ││Assistant       partial                                 │"
 "│                    ││Status          cancelled                               │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

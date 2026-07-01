@@ -12,27 +12,28 @@ const GUTTER: &str = "   │ ";
 
 /// Render entry lines with an optional max width for truncation.
 ///
-/// When `max_width > 0`, text content is truncated with `…` to fit.
+/// When `max_width > 0`, text content is wrapped to fit.
 pub fn entry_lines_with_width(entry: &Entry, tick: u64, user_label: &str, max_width: usize) -> Vec<Line<'static>> {
-    let avail = max_width.saturating_sub(ROLE_WIDTH);
     match entry {
-        Entry::User { text } => vec![user_message_line(user_label, text, avail)],
-        Entry::Assistant { text, streaming } => vec![message_line(
+        Entry::User { text } => user_message_lines(user_label, text, max_width),
+        Entry::Assistant { text, streaming } => message_lines(
             if *streaming { style::spinner_frame(tick) } else { "Assistant" },
             P.green,
             text,
-            avail,
-        )],
-        Entry::Reasoning { text, streaming } => reasoning_lines(text, *streaming, tick, avail),
-        Entry::Tool { name, arguments, status, output } => tool_lines(name, arguments, *status, output, tick, avail),
-        Entry::Status { text } => vec![message_line("Status", P.overlay1, text, avail)],
-        Entry::Error { text } => error_lines(text, avail),
+            max_width,
+        ),
+        Entry::Reasoning { text, streaming } => reasoning_lines(text, *streaming, tick, max_width),
+        Entry::Tool { name, arguments, status, output } => {
+            tool_lines(name, arguments, *status, output, tick, max_width)
+        }
+        Entry::Status { text } => message_lines("Status", P.overlay1, text, max_width),
+        Entry::Error { text } => error_lines(text, max_width),
     }
 }
 
-fn message_line(label: &str, fg: Color, text: &str, avail: usize) -> Line<'static> {
-    let display = if avail > 0 { truncate_ellipsis(text, avail) } else { text.to_string() };
-    Line::from(vec![role_label(label, fg), Span::styled(display, style::text_style())])
+fn message_lines(label: &str, fg: Color, text: &str, max_width: usize) -> Vec<Line<'static>> {
+    let prefix = vec![role_label(label, fg)];
+    wrapped_lines(prefix, text, style::text_style(), max_width)
 }
 
 /// Render a user prompt with a visually distinct bounded block.
@@ -40,14 +41,13 @@ fn message_line(label: &str, fg: Color, text: &str, avail: usize) -> Line<'stati
 /// User messages get a colored left border bar (▌) and the user label as a
 /// chip, making them stand out from assistant/tool rows which use plain
 /// left-aligned labels.
-fn user_message_line(label: &str, text: &str, avail: usize) -> Line<'static> {
-    let display = if avail > 0 { truncate_ellipsis(text, avail) } else { text.to_string() };
+fn user_message_lines(label: &str, text: &str, max_width: usize) -> Vec<Line<'static>> {
     let border = Span::styled(
         "▌",
         Style::default().fg(P.blue).bg(P.panel_bg).add_modifier(Modifier::BOLD),
     );
     let label_display = truncate_ellipsis(label, ROLE_WIDTH.saturating_sub(2));
-    Line::from(vec![
+    let prefix = vec![
         Span::styled(" ", style::text_style()),
         border,
         Span::styled(" ", style::text_style()),
@@ -56,8 +56,8 @@ fn user_message_line(label: &str, text: &str, avail: usize) -> Line<'static> {
             Style::default().fg(P.blue).bg(P.panel_bg).add_modifier(Modifier::BOLD),
         ),
         Span::styled(" ", style::text_style()),
-        Span::styled(display, style::text_style()),
-    ])
+    ];
+    wrapped_lines(prefix, text, style::text_style(), max_width)
 }
 
 /// Render a reasoning block with a stable header/status line.
@@ -66,16 +66,19 @@ fn user_message_line(label: &str, text: &str, avail: usize) -> Line<'static> {
 /// (with ✓) when done. The body is italic and indented under the header,
 /// matching the Gridland sibling-block pattern without nesting inside
 /// assistant text.
-fn reasoning_lines(text: &str, streaming: bool, tick: u64, avail: usize) -> Vec<Line<'static>> {
+fn reasoning_lines(text: &str, streaming: bool, tick: u64, max_width: usize) -> Vec<Line<'static>> {
     let (header, icon) = if streaming { ("Thinking", style::spinner_frame(tick)) } else { ("Thought", "✓") };
 
-    let body = if avail > 0 { truncate_ellipsis(text, avail) } else { text.to_string() };
-
-    vec![Line::from(vec![
+    let prefix = vec![
         role_label(header, P.mauve),
         Span::styled(format!("{icon} "), Style::default().fg(P.mauve).bg(P.panel_bg)),
-        Span::styled(body, style::subtle_style().add_modifier(Modifier::ITALIC)),
-    ])]
+    ];
+    wrapped_lines(
+        prefix,
+        text,
+        style::subtle_style().add_modifier(Modifier::ITALIC),
+        max_width,
+    )
 }
 
 fn role_label(label: &str, fg: Color) -> Span<'static> {
@@ -90,17 +93,13 @@ fn role_label(label: &str, fg: Color) -> Span<'static> {
 ///
 /// The icon sits in the label column so the error text aligns under the
 /// message body of other rows. Long text is truncated with `…`.
-fn error_lines(text: &str, avail: usize) -> Vec<Line<'static>> {
+fn error_lines(text: &str, max_width: usize) -> Vec<Line<'static>> {
     let err_style = Style::default().fg(P.red).bg(P.panel_bg);
-    let display = if avail > 0 { truncate_ellipsis(text, avail) } else { text.to_string() };
-    vec![Line::from(vec![
-        role_label("⚠ Error", P.red),
-        Span::styled(display, err_style),
-    ])]
+    wrapped_lines(vec![role_label("⚠ Error", P.red)], text, err_style, max_width)
 }
 
 fn tool_lines(
-    name: &str, args: &str, status: ToolStatus, output: &[String], tick: u64, avail: usize,
+    name: &str, args: &str, status: ToolStatus, output: &[String], tick: u64, max_width: usize,
 ) -> Vec<Line<'static>> {
     let (status_label, status_color, icon) = match status {
         ToolStatus::Running => ("running", P.yellow, style::spinner_frame(tick)),
@@ -109,31 +108,41 @@ fn tool_lines(
     };
     let args_summary = summarize_tool_args(args);
 
-    let mut spans = vec![role_label("tool", P.peach)];
-    spans.push(Span::styled(
+    let mut header_spans = vec![role_label("tool", P.peach)];
+    header_spans.push(Span::styled(
         format!("{icon} "),
         Style::default().fg(status_color).bg(P.panel_bg),
     ));
-    spans.push(Span::styled(
+    header_spans.push(Span::styled(
         name.to_string(),
         style::text_style().add_modifier(Modifier::BOLD),
     ));
-    spans.push(Span::styled(
+    header_spans.push(Span::styled(
         format!(" [{status_label}]"),
         Style::default().fg(status_color).bg(P.panel_bg),
     ));
-
-    if !args_summary.is_empty() {
-        spans.push(Span::styled(format!("  {args_summary}"), style::muted_style()));
-    }
 
     let base_name = name.split('#').next().unwrap_or(name);
     let lang = tool_output_language(base_name, args);
 
     let gutter_style = Style::default().fg(P.overlay0).bg(P.panel_bg);
-    let gutter_len = GUTTER.chars().count();
 
-    let mut lines = vec![Line::from(spans)];
+    let mut lines = if args_summary.is_empty() {
+        vec![Line::from(header_spans)]
+    } else if spans_width(&header_spans) + 2 + args_summary.chars().count() <= max_width {
+        header_spans.push(Span::styled("  ", style::text_style()));
+        header_spans.push(Span::styled(args_summary, style::muted_style()));
+        vec![Line::from(header_spans)]
+    } else {
+        let mut lines = vec![Line::from(header_spans)];
+        lines.extend(wrapped_lines(
+            vec![Span::styled(" ".repeat(ROLE_WIDTH), style::text_style())],
+            &args_summary,
+            style::muted_style(),
+            max_width,
+        ));
+        lines
+    };
 
     match lang {
         Some(lang_str) => {
@@ -145,27 +154,26 @@ fn tool_lines(
             let display_path = format!("output.{lang_str}");
             let highlighted = super::highlight::highlight_code(&joined, Some(&display_path));
             for hl in highlighted {
-                let mut line_spans = vec![Span::styled(GUTTER, gutter_style)];
-                line_spans.extend(hl.spans);
-                lines.push(Line::from(line_spans));
+                lines.extend(wrapped_spans(
+                    vec![Span::styled(GUTTER, gutter_style)],
+                    hl.spans,
+                    max_width,
+                ));
             }
         }
         None => {
             for line in output.iter().take(MAX_TOOL_OUTPUT_LINES) {
-                let display = if avail > gutter_len {
-                    truncate_ellipsis(line, avail.saturating_sub(gutter_len))
-                } else {
-                    line.clone()
-                };
                 let content_style = if is_section_header(line) {
                     style::text_style().add_modifier(Modifier::BOLD).fg(P.overlay1)
                 } else {
                     style::subtle_style()
                 };
-                lines.push(Line::from(vec![
-                    Span::styled(GUTTER, gutter_style),
-                    Span::styled(display, content_style),
-                ]));
+                lines.extend(wrapped_lines(
+                    vec![Span::styled(GUTTER, gutter_style)],
+                    line,
+                    content_style,
+                    max_width,
+                ));
             }
         }
     };
@@ -178,6 +186,131 @@ fn tool_lines(
     }
 
     lines
+}
+
+fn wrapped_lines(prefix: Vec<Span<'static>>, text: &str, text_style: Style, max_width: usize) -> Vec<Line<'static>> {
+    let prefix_width = spans_width(&prefix);
+    let body_width = max_width.saturating_sub(prefix_width).max(1);
+    let mut lines = Vec::new();
+
+    for part in wrap_text(text, body_width) {
+        if lines.is_empty() {
+            let mut spans = prefix.clone();
+            spans.push(Span::styled(part, text_style));
+            lines.push(Line::from(spans));
+        } else {
+            lines.push(Line::from(vec![
+                Span::styled(" ".repeat(prefix_width), style::text_style()),
+                Span::styled(part, text_style),
+            ]));
+        }
+    }
+
+    if lines.is_empty() {
+        lines.push(Line::from(prefix));
+    }
+
+    lines
+}
+
+fn wrapped_spans(prefix: Vec<Span<'static>>, spans: Vec<Span<'static>>, max_width: usize) -> Vec<Line<'static>> {
+    let prefix_width = spans_width(&prefix);
+    let body_width = max_width.saturating_sub(prefix_width).max(1);
+    let mut lines = Vec::new();
+    let mut current = Vec::new();
+    let mut current_width = 0usize;
+
+    for span in spans {
+        let style = span.style;
+        for ch in span.content.chars() {
+            if current_width == body_width {
+                lines.push(line_with_prefix(&prefix, &current, lines.is_empty(), prefix_width));
+                current.clear();
+                current_width = 0;
+            }
+            current.push(Span::styled(ch.to_string(), style));
+            current_width += 1;
+        }
+    }
+
+    if !current.is_empty() || lines.is_empty() {
+        lines.push(line_with_prefix(&prefix, &current, lines.is_empty(), prefix_width));
+    }
+
+    lines
+}
+
+fn line_with_prefix(
+    prefix: &[Span<'static>], body: &[Span<'static>], first: bool, prefix_width: usize,
+) -> Line<'static> {
+    let mut spans = if first {
+        prefix.to_vec()
+    } else {
+        vec![Span::styled(" ".repeat(prefix_width), style::text_style())]
+    };
+    spans.extend(body.iter().cloned());
+    Line::from(spans)
+}
+
+fn spans_width(spans: &[Span]) -> usize {
+    spans.iter().map(|s| s.content.chars().count()).sum()
+}
+
+fn wrap_text(text: &str, width: usize) -> Vec<String> {
+    let width = width.max(1);
+    let mut lines = Vec::new();
+
+    for raw_line in text.lines() {
+        if raw_line.is_empty() {
+            lines.push(String::new());
+            continue;
+        }
+
+        let mut current = String::new();
+        for word in raw_line.split_whitespace() {
+            let word_len = word.chars().count();
+            let current_len = current.chars().count();
+
+            if current_len == 0 {
+                if word_len <= width {
+                    current.push_str(word);
+                } else {
+                    lines.extend(split_long_word(word, width));
+                }
+            } else if current_len + 1 + word_len <= width {
+                current.push(' ');
+                current.push_str(word);
+            } else {
+                lines.push(std::mem::take(&mut current));
+                if word_len <= width {
+                    current.push_str(word);
+                } else {
+                    lines.extend(split_long_word(word, width));
+                }
+            }
+        }
+
+        if !current.is_empty() {
+            lines.push(current);
+        }
+    }
+
+    lines
+}
+
+fn split_long_word(word: &str, width: usize) -> Vec<String> {
+    let mut chunks = Vec::new();
+    let mut current = String::new();
+    for ch in word.chars() {
+        if current.chars().count() == width {
+            chunks.push(std::mem::take(&mut current));
+        }
+        current.push(ch);
+    }
+    if !current.is_empty() {
+        chunks.push(current);
+    }
+    chunks
 }
 
 /// Detect whether a tool output line is a section header.

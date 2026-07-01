@@ -159,6 +159,10 @@ pub enum Entry {
 pub enum AgentEvent {
     Started,
     Status(String),
+    Usage {
+        input_tokens: u64,
+        output_tokens: u64,
+    },
     AssistantDelta(String),
     ReasoningDelta(String),
     ToolStarted {
@@ -208,7 +212,7 @@ pub struct Sidebar {
 
 impl Sidebar {
     pub fn placeholder() -> Self {
-        Sidebar { sessions: vec![String::from("scratch")], active: Some(0) }
+        Sidebar { sessions: vec![String::from("unknown\nin 0 out 0")], active: Some(0) }
     }
 }
 
@@ -225,6 +229,9 @@ pub struct App {
     pub model: String,
     pub user_label: String,
     pub websearch: WebSearchMode,
+    /// Provider token usage accumulated for this session.
+    pub session_tokens_in: u64,
+    pub session_tokens_out: u64,
     /// Loaded context sources (e.g. AGENTS.md).
     pub context_sources: Vec<context::ContextSource>,
     /// Scroll offset in transcript lines from the bottom. 0 = pinned to newest.
@@ -273,26 +280,13 @@ impl App {
             None => Vec::new(),
         };
 
-        let sessions_dir = session::sessions_dir(&workspace_root);
-        let session_titles = session::list_session_titles(&sessions_dir);
-        let sidebar = if session_titles.is_empty() {
-            Sidebar::placeholder()
-        } else {
-            Sidebar { sessions: session_titles, active: Some(0) }
-        };
-
-        let resumed_transcript = session::latest_session_file(&sessions_dir)
-            .map(|p| session::SessionReader::read_transcript(&p))
-            .unwrap_or_default();
-
         let mut transcript = Vec::new();
         if !context_sources.is_empty() {
             let summaries: Vec<String> = context_sources.iter().map(|s| s.summary()).collect();
             transcript.push(Entry::Status { text: format!("context  {}", summaries.join(", ")) });
         }
 
-        transcript.extend(resumed_transcript);
-
+        let sessions_dir = session::sessions_dir(&workspace_root);
         let session_id = session::generate_session_id();
         let mut session_writer = session::SessionWriter::create(
             &sessions_dir,
@@ -312,6 +306,16 @@ impl App {
             let _ = writer.append_context(&context_sources);
         }
 
+        let session_summaries = session::list_session_summaries(&sessions_dir)
+            .into_iter()
+            .map(|s| s.sidebar_label())
+            .collect::<Vec<_>>();
+        let sidebar = if session_summaries.is_empty() {
+            Sidebar::placeholder()
+        } else {
+            Sidebar { sessions: session_summaries, active: Some(0) }
+        };
+
         App {
             session_id,
             mode: Mode::default(),
@@ -323,6 +327,8 @@ impl App {
             model: cli.model.clone(),
             user_label: default_user_label(),
             websearch: cli.websearch,
+            session_tokens_in: 0,
+            session_tokens_out: 0,
             context_sources,
             scroll_offset: 0,
             ui_tick: 0,
@@ -355,15 +361,18 @@ impl App {
             },
             RunState::Stopping => "stopping",
             RunState::Error(_) => "failed",
-            RunState::Idle => match self.transcript.last() {
-                Some(Entry::Status { text }) if text == "cancelled" => "cancelled",
-                Some(Entry::Error { .. }) => "failed",
-                Some(Entry::Tool { status: ToolStatus::Failed, .. }) => "failed",
-                Some(Entry::Assistant { streaming: false, .. }) | Some(Entry::Tool { status: ToolStatus::Ok, .. }) => {
-                    "done"
+            RunState::Idle => {
+                if matches!(self.transcript.last(), Some(Entry::Status { text }) if text == "cancelled") {
+                    return "cancelled";
                 }
-                _ => "idle",
-            },
+                match self.last_non_status_entry() {
+                    Some(Entry::Error { .. }) => "failed",
+                    Some(Entry::Tool { status: ToolStatus::Failed, .. }) => "failed",
+                    Some(Entry::Assistant { streaming: false, .. })
+                    | Some(Entry::Tool { status: ToolStatus::Ok, .. }) => "done",
+                    _ => "idle",
+                }
+            }
         }
     }
 
@@ -379,12 +388,24 @@ impl App {
             },
             RunState::Stopping => PromptState::Stopped,
             RunState::Error(_) => PromptState::Errored,
-            RunState::Idle => match self.transcript.last() {
-                Some(Entry::Status { text }) if text == "cancelled" => PromptState::Stopped,
-                Some(Entry::Error { .. }) => PromptState::Errored,
-                _ => PromptState::Editable,
-            },
+            RunState::Idle => {
+                if matches!(self.transcript.last(), Some(Entry::Status { text }) if text == "cancelled") {
+                    return PromptState::Stopped;
+                }
+                match self.last_non_status_entry() {
+                    Some(Entry::Error { .. }) => PromptState::Errored,
+                    _ => PromptState::Editable,
+                }
+            }
         }
+    }
+
+    fn last_non_status_entry(&self) -> Option<&Entry> {
+        self.transcript
+            .iter()
+            .rev()
+            .find(|entry| !matches!(entry, Entry::Status { .. }))
+            .or_else(|| self.transcript.last())
     }
 }
 
@@ -737,6 +758,14 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             pin_to_bottom(app);
             None
         }
+        AgentEvent::Usage { input_tokens, output_tokens } => {
+            app.session_tokens_in = app.session_tokens_in.saturating_add(input_tokens);
+            app.session_tokens_out = app.session_tokens_out.saturating_add(output_tokens);
+            if let Some(ref mut writer) = app.session_writer {
+                let _ = writer.append_usage(input_tokens, output_tokens);
+            }
+            None
+        }
         AgentEvent::AssistantDelta(delta) => {
             if let Some(Entry::Assistant { text, streaming: true }) = app.transcript.last_mut() {
                 text.push_str(&delta);
@@ -812,7 +841,7 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             finalize_streaming(app);
             app.run_state = RunState::Idle;
             app.last_input = None;
-            persist_last_entry(app);
+            persist_final_response(app);
             if app.queued_followups.is_empty() {
                 None
             } else {
@@ -871,6 +900,22 @@ fn pin_to_bottom(app: &mut App) {
 fn persist_last_entry(app: &mut App) {
     if let Some(ref mut writer) = app.session_writer
         && let Some(entry) = app.transcript.last()
+    {
+        let turn_id = format!("turn_{}", app.turn_count);
+        let _ = writer.append_entry(entry, &turn_id);
+    }
+}
+
+/// Persist the final model response even if provider status rows were appended
+/// after the last assistant/reasoning delta.
+fn persist_final_response(app: &mut App) {
+    if let Some(ref mut writer) = app.session_writer
+        && let Some(entry) = app.transcript.iter().rev().find(|entry| {
+            matches!(
+                entry,
+                Entry::Assistant { streaming: false, .. } | Entry::Reasoning { streaming: false, .. }
+            )
+        })
     {
         let turn_id = format!("turn_{}", app.turn_count);
         let _ = writer.append_entry(entry, &turn_id);

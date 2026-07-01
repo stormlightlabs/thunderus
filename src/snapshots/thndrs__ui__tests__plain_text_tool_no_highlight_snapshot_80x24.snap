@@ -4,8 +4,8 @@ expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
 "│Sessions            ││tool            ✓ find_files#0 [ok]  pattern: main      │"
-"│ ● scratch          ││   │ src/main.rs                                        │"
-"│                    ││   │ src/lib.rs                                         │"
+"│ ● umans-coder      ││   │ src/main.rs                                        │"
+"│   in 0 out 0       ││   │ src/lib.rs                                         │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

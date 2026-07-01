@@ -4,10 +4,10 @@ expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
 "│Sessions            ││ ▌ User (owais)     create src/existing.rs              │"
-"│ ● scratch          ││                                                        │"
-"│                    ││tool            ✕ create_file#0 [failed]  path: src/exis│"
+"│ ● umans-coder      ││                                                        │"
+"│   in 0 out 0       ││tool            ✕ create_file#0 [failed]                │"
+"│                    ││                path: src/existing.rs                   │"
 "│                    ││⚠ Error         file already exists: src/existing.rs    │"
-"│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

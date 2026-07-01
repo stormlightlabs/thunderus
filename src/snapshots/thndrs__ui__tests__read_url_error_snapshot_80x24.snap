@@ -4,9 +4,9 @@ expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
 "│Sessions            ││ ▌ User (owais)     read the internal admin page        │"
-"│ ● scratch          ││                                                        │"
-"│                    ││tool            ✕ read_url#fetch-0 [failed]  url: http:/│"
-"│                    ││                                                        │"
+"│ ● umans-coder      ││                                                        │"
+"│   in 0 out 0       ││tool            ✕ read_url#fetch-0 [failed]             │"
+"│                    ││                url: http://127.0.0.1/admin             │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

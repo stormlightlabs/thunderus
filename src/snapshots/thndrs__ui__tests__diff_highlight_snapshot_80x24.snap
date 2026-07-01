@@ -3,15 +3,15 @@ source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
-"│Sessions            ││tool            ✓ replace_range#0 [ok]  path: src/main.r│"
-"│ ● scratch          ││   │ --- old                                            │"
+"│Sessions            ││tool            ✓ replace_range#0 [ok]                  │"
+"│ ● umans-coder      ││                path: src/main.rs                       │"
+"│   in 0 out 0       ││   │ --- old                                            │"
 "│                    ││   │ +++ new                                            │"
 "│                    ││   │ -fn main() {                                       │"
 "│                    ││   │ +fn main() -> Result<(), Box<dyn Error>> {         │"
 "│                    ││   │      println!("hello");                            │"
 "│                    ││   │ +    Ok(())                                        │"
 "│                    ││   │ …(1 more lines)                                    │"
-"│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

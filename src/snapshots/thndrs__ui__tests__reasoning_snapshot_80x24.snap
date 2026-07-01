@@ -4,9 +4,9 @@ expression: terminal.backend().to_string()
 ---
 "┌thndrs──────────────┐┌Transcript──────────────────────────────────────────────┐"
 "│Sessions            ││ ▌ User (owais)     explain this repo                   │"
-"│ ● scratch          ││                                                        │"
-"│                    ││Thinking        ⠋ Let me think about this... The repo is│"
-"│                    ││                                                        │"
+"│ ● umans-coder      ││                                                        │"
+"│   in 0 out 0       ││Thinking        ⠋ Let me think about this... The repo is│"
+"│                    ││                  a Rust + Ratatui harness.             │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"
 "│                    ││                                                        │"

@@ -271,6 +271,21 @@ fn session_record_json_round_trip_reasoning_finished() {
 }
 
 #[test]
+fn usage_record_json_round_trip() {
+    let record = SessionRecord::Usage {
+        schema_version: 1,
+        seq: 6,
+        time: "2026-06-29T12:00:08Z".to_string(),
+        input_tokens: 123,
+        output_tokens: 45,
+    };
+    let json = record.to_json().expect("serialize");
+    let restored = SessionRecord::from_json(&json).expect("deserialize");
+    assert_eq!(record, restored);
+    assert!(json.contains("\"type\":\"usage\""));
+}
+
+#[test]
 fn session_record_json_round_trip_tool_started() {
     let record = SessionRecord::ToolStarted {
         schema_version: 1,
