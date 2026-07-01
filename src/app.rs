@@ -9,12 +9,12 @@ mod tests;
 
 use std::path::PathBuf;
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use serde::{Deserialize, Serialize};
 
 use crate::cli::{Cli, WebSearchMode};
 use crate::tools::shell::ProcessRegistry;
-use crate::{context, providers, session, tools};
+use crate::{context, session, tools};
 
 /// Number of UI ticks the user has to press Ctrl+D a second time before the
 /// quit confirmation expires and a fresh double-press is needed.
@@ -34,7 +34,7 @@ pub enum Mode {
     Help,
 }
 
-/// Semantic run state, used for the sidebar/status line.
+/// Semantic run state, used for the status line.
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub enum RunState {
     /// Nothing in flight.
@@ -67,20 +67,6 @@ pub enum PromptState {
     Stopped,
     /// Run failed with an error; prompt is editable again.
     Errored,
-}
-
-impl PromptState {
-    /// A short hint shown at the prompt when not editable.
-    pub fn hint(&self) -> &'static str {
-        match self {
-            PromptState::Editable => "",
-            PromptState::Submitted => "(sending…)",
-            PromptState::Streaming => "(streaming… esc to cancel)",
-            PromptState::RunningTool => "(running tool… esc to cancel)",
-            PromptState::Stopped => "(stopped)",
-            PromptState::Errored => "(error)",
-        }
-    }
 }
 
 /// Where input submitted during an active run should be queued.
@@ -191,6 +177,8 @@ pub enum AgentEvent {
 pub enum Msg {
     /// A raw key event from the terminal.
     Key(crossterm::event::KeyEvent),
+    /// A raw mouse event from the terminal.
+    Mouse(crossterm::event::MouseEvent),
     /// Periodic tick.
     Tick,
     /// Clear the transcript.
@@ -201,37 +189,6 @@ pub enum Msg {
     Agent(AgentEvent),
 }
 
-/// Sidebar model.
-#[derive(Clone, Debug, Eq, PartialEq, Default)]
-pub struct Sidebar {
-    /// Display lines for the current model/session state.
-    pub sessions: Vec<String>,
-    /// Index of the active item, if any.
-    pub active: Option<usize>,
-}
-
-impl Sidebar {
-    pub fn current_session(model: &str, search: WebSearchMode, input_tokens: u64, output_tokens: u64) -> Self {
-        Sidebar {
-            sessions: vec![current_session_sidebar_label(
-                model,
-                search,
-                input_tokens,
-                output_tokens,
-            )],
-            active: Some(0),
-        }
-    }
-}
-
-fn current_session_sidebar_label(model: &str, search: WebSearchMode, input_tokens: u64, output_tokens: u64) -> String {
-    format!(
-        "{model}\nmax out {}\nsearch {}\nin {input_tokens} out {output_tokens}",
-        providers::umans::max_tokens_for_model(model),
-        search.label()
-    )
-}
-
 /// The full application state used to draw the screen.
 #[derive(Debug)]
 pub struct App {
@@ -240,7 +197,6 @@ pub struct App {
     pub run_state: RunState,
     pub input: String,
     pub transcript: Vec<Entry>,
-    pub sidebar: Sidebar,
     pub cwd: PathBuf,
     pub model: String,
     pub user_label: String,
@@ -267,9 +223,6 @@ pub struct App {
     pub turn_count: u64,
     /// Registry of background processes started via `run_shell`.
     pub process_registry: ProcessRegistry,
-    /// When true, keyboard focus is on the sidebar (session list) instead of
-    /// the prompt. Toggled with Tab; Esc returns to prompt.
-    pub sidebar_focused: bool,
     /// The last submitted prompt text, retained so it can be restored on
     /// provider failure. Cleared on successful completion.
     pub last_input: Option<String>,
@@ -322,15 +275,12 @@ impl App {
             let _ = writer.append_context(&context_sources);
         }
 
-        let sidebar = Sidebar::current_session(&cli.model, cli.websearch, 0, 0);
-
         App {
             session_id,
             mode: Mode::default(),
             run_state: RunState::default(),
             input: String::new(),
             transcript,
-            sidebar,
             cwd: cli.cwd.clone(),
             model: cli.model.clone(),
             user_label: default_user_label(),
@@ -344,7 +294,6 @@ impl App {
             session_writer,
             turn_count: 0,
             process_registry: ProcessRegistry::new(),
-            sidebar_focused: false,
             last_input: None,
             queue_target: QueueTarget::default(),
             queued_steering: Vec::new(),
@@ -353,7 +302,7 @@ impl App {
         }
     }
 
-    /// Derive the granular status label for the sidebar/status line.
+    /// Derive the granular status label for the status line.
     ///
     /// Maps `RunState` plus the last transcript entry into one of
     /// idle, sending, thinking, streaming, running tool, stopping,
@@ -431,6 +380,7 @@ impl App {
 pub fn update(app: &mut App, msg: &Msg) -> Option<Msg> {
     match msg {
         Msg::Key(key) => handle_key(app, *key),
+        Msg::Mouse(mouse) => handle_mouse(app, *mouse),
         Msg::Quit => {
             app.process_registry.cancel_all();
             app.quit = true;
@@ -502,53 +452,10 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
 
     app.ctrl_d_pending = None;
 
-    if key.code == KeyCode::Tab && app.mode == Mode::Prompt && !app.sidebar_focused {
-        app.sidebar_focused = true;
-        return None;
-    }
-
-    if app.sidebar_focused {
-        return handle_sidebar_key(app, key);
-    }
-
     match app.mode {
         Mode::Help => handle_help_key(app, key),
         Mode::Command => handle_command_key(app, key),
         Mode::Prompt => handle_prompt_key(app, key),
-    }
-}
-
-/// Handle keys when the sidebar has focus: navigate sessions, select, or
-/// return to the prompt.
-fn handle_sidebar_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
-    match key.code {
-        KeyCode::Esc | KeyCode::Tab => {
-            app.sidebar_focused = false;
-            None
-        }
-        KeyCode::Up | KeyCode::Char('k') => {
-            if let Some(active) = app.sidebar.active
-                && active > 0
-            {
-                app.sidebar.active = Some(active - 1);
-            }
-            None
-        }
-        KeyCode::Down | KeyCode::Char('j') => {
-            if let Some(active) = app.sidebar.active {
-                if active + 1 < app.sidebar.sessions.len() {
-                    app.sidebar.active = Some(active + 1);
-                }
-            } else if !app.sidebar.sessions.is_empty() {
-                app.sidebar.active = Some(0);
-            }
-            None
-        }
-        KeyCode::Enter => {
-            app.sidebar_focused = false;
-            None
-        }
-        _ => None,
     }
 }
 
@@ -557,6 +464,22 @@ fn handle_help_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
     match key.code {
         KeyCode::Esc | KeyCode::Char('?') | KeyCode::Enter => {
             app.mode = Mode::Prompt;
+            None
+        }
+        _ => None,
+    }
+}
+
+fn handle_mouse(app: &mut App, mouse: MouseEvent) -> Option<Msg> {
+    const MOUSE_SCROLL_LINES: usize = 3;
+
+    match mouse.kind {
+        MouseEventKind::ScrollUp => {
+            app.scroll_offset = app.scroll_offset.saturating_add(MOUSE_SCROLL_LINES);
+            None
+        }
+        MouseEventKind::ScrollDown => {
+            app.scroll_offset = app.scroll_offset.saturating_sub(MOUSE_SCROLL_LINES);
             None
         }
         _ => None,
@@ -769,8 +692,6 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
         AgentEvent::Usage { input_tokens, output_tokens } => {
             app.session_tokens_in = app.session_tokens_in.saturating_add(input_tokens);
             app.session_tokens_out = app.session_tokens_out.saturating_add(output_tokens);
-            app.sidebar =
-                Sidebar::current_session(&app.model, app.websearch, app.session_tokens_in, app.session_tokens_out);
             if let Some(ref mut writer) = app.session_writer {
                 let _ = writer.append_usage(input_tokens, output_tokens);
             }

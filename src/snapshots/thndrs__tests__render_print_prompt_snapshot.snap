@@ -14,7 +14,9 @@ expression: output
 
 <communication_style>
   <instruction>Be direct and practical.</instruction>
-  <instruction>Prefer concrete file paths, commands, test results, and code over long prose.</instruction>
+  <instruction>
+    Prefer concrete file paths, commands, test results, and code over long prose.
+    </instruction>
   <instruction>
     Before using a tool, say what context you are gathering or what action you are taking in one
     short sentence.

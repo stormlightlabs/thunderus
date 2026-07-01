@@ -2,7 +2,7 @@
 source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
-"┌Transcript────────────────────────────┐"
+"┌thndrs────────────────────────────────┐"
 "│ ▌ User (owais)     explain this repo │"
 "│                                      │"
 "│Assistant       response              │"
@@ -25,4 +25,4 @@ expression: terminal.backend().to_string()
 "────────────────────────────────────────"
 "  ›  hello█                             "
 "                                        "
-" model: umans-coder                     "
+" ✓ done   model: umans-coder            "

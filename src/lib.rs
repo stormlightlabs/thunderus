@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use crossterm::event::{self, Event, KeyEvent};
+use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEvent};
 use ratatui::init::DefaultTerminal;
 
 use app::{App, Msg, RunState, update};
@@ -191,7 +191,12 @@ fn redact_secret(text: &str) -> String {
 /// We always restore the terminal, even on error.
 fn run_alt_screen(tick: Duration, cli: &Cli) -> io::Result<()> {
     let mut terminal = ratatui::init();
+    if let Err(err) = crossterm::execute!(io::stdout(), EnableMouseCapture) {
+        ratatui::restore();
+        return Err(err);
+    }
     let result = main_loop(&mut terminal, tick, cli);
+    let _ = crossterm::execute!(io::stdout(), DisableMouseCapture);
     ratatui::restore();
     result
 }
@@ -202,7 +207,12 @@ fn run_inline(tick: Duration, cli: &Cli) -> io::Result<()> {
     let stdout = io::stdout();
     let backend = ratatui::backend::CrosstermBackend::new(stdout);
     let mut terminal = ratatui::Terminal::new(backend)?;
+    if let Err(err) = crossterm::execute!(io::stdout(), EnableMouseCapture) {
+        crossterm::terminal::disable_raw_mode()?;
+        return Err(err);
+    }
     let result = main_loop(&mut terminal, tick, cli);
+    let _ = crossterm::execute!(io::stdout(), DisableMouseCapture);
     crossterm::terminal::disable_raw_mode()?;
     result
 }
@@ -260,6 +270,7 @@ fn main_loop(terminal: &mut DefaultTerminal, tick: Duration, cli: &Cli) -> io::R
             }
             match event::read()? {
                 Event::Key(key) => handle_key(&mut app, key, terminal, &mut agent)?,
+                Event::Mouse(mouse) => handle_msg(&mut app, Msg::Mouse(mouse), terminal)?,
                 Event::Resize(_, _) => {
                     terminal.draw(|f| ui::render(f, &app))?;
                 }

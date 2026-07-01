@@ -39,7 +39,7 @@ it through the terminal loop.
 ## UI Rendering
 
 The UI computes view geometry before drawing. Rendering reads the precomputed
-areas for sidebar, transcript, prompt, and footer.
+areas for transcript, prompt, and footer.
 
 ## Provider Client
 

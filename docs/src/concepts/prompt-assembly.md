@@ -60,8 +60,8 @@ truncation behavior.
 ## Transcript Tail
 
 The model-visible transcript tail includes relevant user, assistant, reasoning,
-and tool entries. UI-only status rows, live-only stream deltas, sidebar state,
-and renderer artifacts are excluded.
+and tool entries. UI-only status rows, live-only stream deltas, statusline
+metadata, and renderer artifacts are excluded.
 
 ## User Turn
 

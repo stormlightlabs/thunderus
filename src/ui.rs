@@ -10,9 +10,10 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
 use crate::app::{App, Entry, Mode, PromptState};
+use crate::providers;
 use crate::{banner, utils};
 
 mod highlight;
@@ -20,14 +21,6 @@ mod style;
 mod transcript;
 
 use transcript::entry_lines_with_width;
-
-/// Fixed sidebar width in columns.
-pub const SIDEBAR_WIDTH: u16 = 22;
-
-/// Below this total width the sidebar is hidden so prompt/status text
-/// does not wrap or overlap. Raised to 55 so 40-50 column terminals
-/// get the full transcript width.
-pub const SIDEBAR_HIDE_THRESHOLD: u16 = 55;
 
 /// Maximum tool output lines rendered in the transcript before a truncation
 /// marker is shown.
@@ -66,26 +59,19 @@ impl From<&Entry> for EntryGroup {
 pub struct ViewState {
     /// Full screen rect handed to `compute_view`.
     pub area: Rect,
-    /// Sidebar rect (zero-sized when hidden).
-    pub sidebar: Rect,
     /// Transcript rect.
     pub transcript: Rect,
     /// Prompt rect.
     pub prompt: Rect,
     /// Footer rect.
     pub footer: Rect,
-    /// Whether the sidebar is visible at this width.
-    pub sidebar_visible: bool,
 }
 
 /// Compute view geometry from a terminal rect. Pure function.
 ///
 /// - Vertical: body (fills), prompt, footer.
-/// - Horizontal within body: sidebar, transcript.
+/// - Body: transcript.
 pub fn compute_view(area: Rect) -> ViewState {
-    let sidebar_visible = area.width >= SIDEBAR_HIDE_THRESHOLD;
-    let sidebar_width = if sidebar_visible { SIDEBAR_WIDTH } else { 0 };
-
     let [body, prompt, footer] = Layout::vertical([
         Constraint::Fill(1),
         Constraint::Length(PROMPT_HEIGHT),
@@ -93,16 +79,12 @@ pub fn compute_view(area: Rect) -> ViewState {
     ])
     .areas(area);
 
-    let [sidebar, transcript] =
-        Layout::horizontal([Constraint::Length(sidebar_width), Constraint::Fill(1)]).areas(body);
-
-    ViewState { area, sidebar, transcript, prompt, footer, sidebar_visible }
+    ViewState { area, transcript: body, prompt, footer }
 }
 
 /// Render the whole screen from `app` state into `frame`.
 pub fn render(frame: &mut Frame, app: &App) {
     let view = compute_view(frame.area());
-    render_sidebar(frame, app, view.sidebar);
     render_transcript(frame, app, view.transcript);
     render_prompt(frame, app, view.prompt);
     render_footer(frame, app, view.footer);
@@ -136,6 +118,10 @@ fn render_help_overlay(frame: &mut Frame, area: Rect) {
         Line::from(vec![
             Span::styled("  PgUp/PgDn    ", style::subtle_style()),
             Span::styled("scroll by 10 lines", style::text_style()),
+        ]),
+        Line::from(vec![
+            Span::styled("  Mouse wheel  ", style::subtle_style()),
+            Span::styled("scroll transcript", style::text_style()),
         ]),
         Line::from(vec![
             Span::styled("  Ctrl+C       ", style::subtle_style()),
@@ -196,101 +182,6 @@ fn render_help_overlay(frame: &mut Frame, area: Rect) {
     let _ = Layout::vertical([Constraint::Length(0)]);
 }
 
-/// Model/session metadata on top, status at the bottom.
-fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
-    if area.width == 0 || area.height == 0 {
-        return;
-    }
-
-    let block = Block::bordered()
-        .title(Line::styled("thndrs", style::title_style()))
-        .border_style(style::border_style())
-        .style(style::panel_style());
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-
-    if inner.height == 0 {
-        return;
-    }
-
-    let [sessions_area, status_area] = Layout::vertical([Constraint::Fill(1), Constraint::Length(2)]).areas(inner);
-    let items: Vec<ListItem> = app
-        .sidebar
-        .sessions
-        .iter()
-        .enumerate()
-        .map(|(i, name)| {
-            let active = app.sidebar.active == Some(i);
-            let focused = app.sidebar_focused;
-            let marker = if active { "●" } else { "○" };
-            let marker_style = if active {
-                Style::default().fg(style::P.accent).bg(style::P.panel_bg)
-            } else {
-                style::muted_style()
-            };
-            let name_style = if active && focused {
-                Style::default()
-                    .fg(style::P.text)
-                    .bg(style::P.surface1)
-                    .add_modifier(Modifier::BOLD)
-            } else if active {
-                Style::default()
-                    .fg(style::P.text)
-                    .bg(style::P.surface0)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                style::subtle_style()
-            };
-            let mut lines = Vec::new();
-            let mut parts = name.lines();
-            let primary = parts.next().unwrap_or(name);
-            lines.push(Line::from(vec![
-                Span::styled(" ", style::text_style()),
-                Span::styled(marker, marker_style),
-                Span::styled(" ", style::text_style()),
-                Span::styled(primary.to_string(), name_style),
-            ]));
-            for part in parts {
-                lines.push(Line::from(vec![
-                    Span::styled("   ", style::text_style()),
-                    Span::styled(part.to_string(), style::subtle_style()),
-                ]));
-            }
-            ListItem::new(Text::from(lines))
-        })
-        .collect();
-
-    let list = List::new(items)
-        .style(style::text_style())
-        .block(Block::new().title(Line::styled("Model", style::muted_style())));
-
-    frame.render_widget(list, sessions_area);
-
-    let label = app.status_label();
-    let status_color = style::status_color(label);
-    let status_text = if app.sidebar_focused {
-        Line::from(vec![
-            Span::styled("  model metadata", style::subtle_style()),
-            Span::styled("  esc back", style::subtle_style()),
-        ])
-    } else {
-        Line::from(vec![
-            Span::styled("  ", style::text_style()),
-            Span::styled(
-                style::status_icon(label, app.ui_tick),
-                Style::default().fg(status_color).bg(style::P.panel_bg),
-            ),
-            Span::styled("  ", style::text_style()),
-            Span::styled(
-                label.to_string(),
-                Style::default().fg(status_color).bg(style::P.panel_bg),
-            ),
-        ])
-    };
-
-    frame.render_widget(Paragraph::new(status_text), status_area);
-}
-
 /// Render newest entries fitting the viewport.
 ///
 /// We show the FIGlet banner in the empty transcript state when the
@@ -300,10 +191,33 @@ fn render_transcript(frame: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
-    let block = Block::bordered()
-        .title(Line::styled("Transcript", style::title_style()))
+    let preview_inner = Rect::new(
+        area.x.saturating_add(1),
+        area.y.saturating_add(1),
+        area.width.saturating_sub(2),
+        area.height.saturating_sub(2),
+    );
+    let banner_lines = if app.transcript.is_empty() { banner::banner_lines(preview_inner.width) } else { Vec::new() };
+    let banner_height = banner_lines.len() as u16;
+    let banner_max_width = banner_lines.iter().map(|l| l.len()).max().unwrap_or(0) as u16;
+    let show_banner = app.transcript.is_empty()
+        && banner_height > 1
+        && preview_inner.height > banner_height
+        && banner_max_width <= preview_inner.width;
+
+    let title = if show_banner {
+        None
+    } else if area.width < 55 {
+        Some("thndrs")
+    } else {
+        Some("Transcript")
+    };
+    let mut block = Block::bordered()
         .border_style(style::border_style())
         .style(style::panel_style());
+    if let Some(title) = title {
+        block = block.title(Line::styled(title, style::title_style()));
+    }
     let inner = block.inner(area);
     frame.render_widget(block, area);
     if inner.height == 0 {
@@ -311,11 +225,6 @@ fn render_transcript(frame: &mut Frame, app: &App, area: Rect) {
     }
 
     if app.transcript.is_empty() {
-        let banner_lines = banner::banner_lines(inner.width);
-        let banner_height = banner_lines.len() as u16;
-        let banner_max_width = banner_lines.iter().map(|l| l.len()).max().unwrap_or(0) as u16;
-        let show_banner = banner_height > 1 && inner.height > banner_height && banner_max_width <= inner.width;
-
         if show_banner {
             let total_padding = inner.height.saturating_sub(banner_height);
             let top_pad = total_padding / 3;
@@ -478,14 +387,13 @@ fn render_prompt(frame: &mut Frame, app: &App, area: Rect) {
         }
         frame.render_widget(Paragraph::new(Line::from(sug_spans)), status_area);
     } else {
-        let hint = state.hint();
         let mut status_spans: Vec<Span<'static>> = Vec::new();
 
-        if !hint.is_empty() {
+        if matches!(state, PromptState::Stopped | PromptState::Errored) {
             let label = match state {
                 PromptState::Stopped => "Stopped",
                 PromptState::Errored => "Error",
-                _ => hint.trim_matches(['(', ')']),
+                _ => "",
             };
             status_spans.push(Span::styled("  ", style::text_style()));
             status_spans.push(Span::styled(
@@ -499,7 +407,7 @@ fn render_prompt(frame: &mut Frame, app: &App, area: Rect) {
             PromptState::Submitted | PromptState::Streaming | PromptState::RunningTool
         ) {
             let queue = format!(
-                "  target: {}  steering: {}  follow-up: {}  Ctrl+T toggles",
+                "  target: {}  queued: {}/{}  Ctrl+T toggles",
                 app.queue_target.label(),
                 app.queued_steering.len(),
                 app.queued_followups.len()
@@ -531,50 +439,68 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
+    let label = app.status_label();
+    let status_color = style::status_color(label);
+    let max_output = providers::umans::max_tokens_for_model(&app.model);
     let search_label = app.websearch.label();
     let cwd_display = app.cwd.display().to_string();
 
+    let status_label = format!("{} {label}", style::status_icon(label, app.ui_tick));
     let model_label = format!("model: {}", app.model);
     let search_text = format!("search: {search_label}");
+    let token_text = format!("tok: {}/{}", app.session_tokens_in, app.session_tokens_out);
+    let max_text = format!("max: {max_output}");
 
-    let (show_model, show_search, show_cwd) = match area.width {
-        w if w < 30 => (false, false, false),
-        w if w < 45 => (true, false, false),
-        w if w < 60 => (true, true, false),
-        _ => (true, true, true),
+    let (show_model, show_search, show_tokens, show_max, show_cwd) = match area.width {
+        w if w < 24 => (false, false, false, false, false),
+        w if w < 42 => (true, false, false, false, false),
+        w if w < 56 => (true, true, false, false, false),
+        w if w < 68 => (true, true, true, false, false),
+        w if w < 80 => (true, true, true, true, false),
+        _ => (true, true, true, true, true),
     };
 
-    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut spans: Vec<Span<'static>> = vec![
+        Span::styled(" ", style::text_style()),
+        Span::styled(
+            status_label.clone(),
+            Style::default().fg(status_color).bg(style::P.panel_bg),
+        ),
+    ];
 
     if show_model {
+        spans.push(Span::styled("  ", style::text_style()));
         spans.push(style::muted_chip(&model_label));
     }
     if show_search {
-        if !spans.is_empty() {
-            spans.push(Span::styled(" ", style::text_style()));
-        }
+        spans.push(Span::styled(" ", style::text_style()));
         spans.push(style::muted_chip(&search_text));
+    }
+    if show_tokens {
+        spans.push(Span::styled(" ", style::text_style()));
+        spans.push(style::muted_chip(&token_text));
+    }
+    if show_max {
+        spans.push(Span::styled(" ", style::text_style()));
+        spans.push(style::muted_chip(&max_text));
     }
 
     if show_cwd {
-        let model_len = if show_model { model_label.len() + 2 } else { 0 };
+        let status_len = status_label.len() + 1;
+        let model_len = if show_model { model_label.len() + 4 } else { 0 };
         let search_len = if show_search { search_text.len() + 3 } else { 0 };
+        let token_len = if show_tokens { token_text.len() + 3 } else { 0 };
+        let max_len = if show_max { max_text.len() + 3 } else { 0 };
         let min_cwd_prefix = "cwd: ".len();
-        let used = model_len + search_len + min_cwd_prefix;
+        let used = status_len + model_len + search_len + token_len + max_len + min_cwd_prefix;
         let cwd_text = if (used + cwd_display.len()) as u16 > area.width && area.width > used as u16 + 4 {
             let keep = (area.width as usize).saturating_sub(used + 1);
             format!("cwd: {}", utils::truncate_ellipsis_start(&cwd_display, keep))
         } else {
             format!("cwd: {cwd_display}")
         };
-        if !spans.is_empty() {
-            spans.push(Span::styled(" ", style::text_style()));
-        }
+        spans.push(Span::styled(" ", style::text_style()));
         spans.push(Span::styled(cwd_text, style::muted_style()));
-    }
-
-    if spans.is_empty() {
-        spans.push(Span::styled("·", style::muted_style()));
     }
 
     frame.render_widget(Paragraph::new(Line::from(spans)).style(style::panel_style()), area);
@@ -603,7 +529,6 @@ mod tests {
     use super::*;
     use crate::app::{Entry, Mode, RunState, ToolStatus};
     use crate::cli::Cli;
-    use crate::session;
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use std::path::PathBuf;
@@ -619,24 +544,19 @@ mod tests {
     }
 
     #[test]
-    fn compute_view_normal_width_shows_sidebar() {
+    fn compute_view_uses_full_width_for_transcript() {
         let area = Rect::new(0, 0, 80, 24);
         let view = compute_view(area);
-        assert!(view.sidebar_visible);
-        assert_eq!(view.sidebar.width, SIDEBAR_WIDTH);
-        assert_eq!(view.sidebar.height, 24 - PROMPT_HEIGHT - FOOTER_HEIGHT);
         assert_eq!(view.prompt.height, PROMPT_HEIGHT);
         assert_eq!(view.footer.height, FOOTER_HEIGHT);
-        assert_eq!(view.transcript.width, 80 - SIDEBAR_WIDTH);
+        assert_eq!(view.transcript.width, 80);
         assert!(view.transcript.height > 0);
     }
 
     #[test]
-    fn compute_view_narrow_width_hides_sidebar() {
+    fn compute_view_narrow_width_still_uses_full_transcript() {
         let area = Rect::new(0, 0, 40, 24);
         let view = compute_view(area);
-        assert!(!view.sidebar_visible);
-        assert_eq!(view.sidebar.width, 0);
         assert_eq!(view.transcript.width, 40);
     }
 
@@ -644,30 +564,17 @@ mod tests {
     fn compute_view_tiny_terminal_does_not_panic() {
         let area = Rect::new(0, 0, 20, 5);
         let view = compute_view(area);
-        assert!(!view.sidebar_visible);
         assert_eq!(view.prompt.height, PROMPT_HEIGHT);
         assert_eq!(view.footer.height, FOOTER_HEIGHT);
-    }
-
-    #[test]
-    fn compute_view_at_threshold_hides_sidebar() {
-        let area = Rect::new(0, 0, SIDEBAR_HIDE_THRESHOLD - 1, 24);
-        assert!(!compute_view(area).sidebar_visible);
-
-        let area = Rect::new(0, 0, SIDEBAR_HIDE_THRESHOLD, 24);
-        assert!(compute_view(area).sidebar_visible);
     }
 
     #[test]
     fn compute_view_normal_rect_full_layout() {
         let area = Rect::new(0, 0, 80, 24);
         let view = compute_view(area);
-        assert!(view.sidebar_visible);
 
-        assert_eq!(view.sidebar.x, 0);
-        assert_eq!(view.sidebar.width, SIDEBAR_WIDTH);
-        assert_eq!(view.transcript.x, SIDEBAR_WIDTH);
-        assert_eq!(view.transcript.width, 80 - SIDEBAR_WIDTH);
+        assert_eq!(view.transcript.x, 0);
+        assert_eq!(view.transcript.width, 80);
 
         assert!(view.transcript.y + view.transcript.height <= view.prompt.y);
         assert_eq!(view.prompt.height, PROMPT_HEIGHT);
@@ -677,11 +584,9 @@ mod tests {
     }
 
     #[test]
-    fn compute_view_narrow_rect_hides_sidebar_full_width() {
+    fn compute_view_narrow_rect_full_width() {
         let area = Rect::new(0, 0, 40, 24);
         let view = compute_view(area);
-        assert!(!view.sidebar_visible);
-        assert_eq!(view.sidebar.width, 0);
         assert_eq!(view.transcript.x, 0);
         assert_eq!(view.transcript.width, 40);
     }
@@ -690,7 +595,6 @@ mod tests {
     fn compute_view_tiny_rect_reserves_prompt_and_footer() {
         let area = Rect::new(0, 0, 20, 5);
         let view = compute_view(area);
-        assert!(!view.sidebar_visible);
         assert_eq!(view.prompt.height, PROMPT_HEIGHT);
         assert_eq!(view.footer.height, FOOTER_HEIGHT);
         assert_no_overlap(&view);
@@ -715,18 +619,15 @@ mod tests {
     fn compute_view_single_column_width() {
         let area = Rect::new(0, 0, 1, 24);
         let view = compute_view(area);
-        assert!(!view.sidebar_visible);
         assert_no_overlap(&view);
     }
 
     /// Assert that prompt and footer rects do not overlap each other or
     /// the transcript, and that no rect extends past the area boundary.
     fn assert_no_overlap(view: &ViewState) {
-        assert!(view.sidebar.right() <= view.area.right());
         assert!(view.transcript.right() <= view.area.right());
         assert!(view.prompt.right() <= view.area.right());
         assert!(view.footer.right() <= view.area.right());
-        assert!(view.sidebar.bottom() <= view.area.bottom());
         assert!(view.transcript.bottom() <= view.area.bottom());
         assert!(view.prompt.bottom() <= view.area.bottom());
         assert!(view.footer.bottom() <= view.area.bottom());
@@ -1100,59 +1001,6 @@ mod tests {
     }
 
     #[test]
-    fn sidebar_session_list_snapshot_80x24() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let sessions_dir = session::sessions_dir(dir.path());
-
-        let _w1 = session::SessionWriter::create(
-            &sessions_dir,
-            "session-aaa",
-            "/repo",
-            "first session",
-            "umans",
-            "umans-coder",
-            "native",
-            "0.1.0",
-        )
-        .expect("create writer 1");
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        let _w2 = session::SessionWriter::create(
-            &sessions_dir,
-            "session-bbb",
-            "/repo",
-            "second session",
-            "umans",
-            "umans-coder",
-            "native",
-            "0.1.0",
-        )
-        .expect("create writer 2");
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        let _w3 = session::SessionWriter::create(
-            &sessions_dir,
-            "session-ccc",
-            "/repo",
-            "third session",
-            "umans",
-            "umans-coder",
-            "native",
-            "0.1.0",
-        )
-        .expect("create writer 3");
-
-        let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
-        let mut app = App::from_cli(&cli);
-        app.user_label = String::from("User (owais)");
-        app.session_writer = None;
-        app.cwd = PathBuf::from(".");
-
-        let backend = TestBackend::new(80, 24);
-        let mut terminal = Terminal::new(backend).expect("create test terminal");
-        terminal.draw(|f| render(f, &app)).expect("draw sidebar");
-        insta::assert_snapshot!(terminal.backend().to_string());
-    }
-
-    #[test]
     fn write_success_snapshot_80x24() {
         let mut app = app();
         app.transcript
@@ -1369,17 +1217,6 @@ mod tests {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).expect("create test terminal");
         terminal.draw(|f| render(f, &app)).expect("draw plain text tool");
-        insta::assert_snapshot!(terminal.backend().to_string());
-    }
-
-    #[test]
-    fn sidebar_focused_snapshot_80x24() {
-        let mut app = app();
-        app.sidebar_focused = true;
-
-        let backend = TestBackend::new(80, 24);
-        let mut terminal = Terminal::new(backend).expect("create test terminal");
-        terminal.draw(|f| render(f, &app)).expect("draw sidebar focused");
         insta::assert_snapshot!(terminal.backend().to_string());
     }
 

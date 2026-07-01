@@ -1,5 +1,5 @@
 use super::*;
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use std::io::Write;
 
 fn fresh_app() -> App {
@@ -39,10 +39,6 @@ fn from_cli_starts_with_fresh_transcript_not_latest_session() {
         !app.transcript
             .iter()
             .any(|e| matches!(e, Entry::User { text } if text.contains("old message")))
-    );
-    assert_eq!(
-        app.sidebar.sessions,
-        vec![String::from("umans-coder\nmax out 32768\nsearch auto\nin 0 out 0")]
     );
 }
 
@@ -236,16 +232,6 @@ fn quit_message_sets_quit_flag() {
     let mut app = fresh_app();
     update(&mut app, &Msg::Quit);
     assert!(app.quit);
-}
-
-#[test]
-fn current_session_sidebar_has_model_metadata_and_tokens() {
-    let sidebar = Sidebar::current_session("umans-glm-5.2", WebSearchMode::Native, 12, 3);
-    assert_eq!(
-        sidebar.sessions,
-        vec!["umans-glm-5.2\nmax out 131071\nsearch native\nin 12 out 3"]
-    );
-    assert_eq!(sidebar.active, Some(0));
 }
 
 #[test]
@@ -1301,54 +1287,47 @@ fn quit_cancels_all_background_processes() {
 }
 
 #[test]
-fn tab_enters_sidebar_focus() {
+fn tab_is_ignored_in_prompt_mode() {
     let mut app = fresh_app();
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
-    assert!(app.sidebar_focused, "Tab should focus the sidebar");
+    assert_eq!(app.mode, Mode::Prompt);
+    assert!(app.input.is_empty());
 }
 
 #[test]
-fn esc_exits_sidebar_focus() {
+fn mouse_scroll_up_increases_scroll_offset() {
     let mut app = fresh_app();
-    app.sidebar_focused = true;
-    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
-    assert!(!app.sidebar_focused, "Esc should exit sidebar focus");
+    update(
+        &mut app,
+        &Msg::Mouse(MouseEvent { kind: MouseEventKind::ScrollUp, column: 0, row: 0, modifiers: KeyModifiers::NONE }),
+    );
+    assert_eq!(app.scroll_offset, 3);
 }
 
 #[test]
-fn tab_exits_sidebar_focus() {
+fn mouse_scroll_down_decreases_scroll_offset() {
     let mut app = fresh_app();
-    app.sidebar_focused = true;
-    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
-    assert!(!app.sidebar_focused, "Tab should toggle sidebar focus off");
+    app.scroll_offset = 5;
+    update(
+        &mut app,
+        &Msg::Mouse(MouseEvent { kind: MouseEventKind::ScrollDown, column: 0, row: 0, modifiers: KeyModifiers::NONE }),
+    );
+    assert_eq!(app.scroll_offset, 2);
 }
 
 #[test]
-fn sidebar_down_navigates_sessions() {
+fn mouse_click_does_not_affect_scroll() {
     let mut app = fresh_app();
-    app.sidebar.sessions = vec!["a".to_string(), "b".to_string(), "c".to_string()];
-    app.sidebar.active = Some(0);
-    app.sidebar_focused = true;
-    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)));
-    assert_eq!(app.sidebar.active, Some(1));
-}
-
-#[test]
-fn sidebar_up_navigates_sessions() {
-    let mut app = fresh_app();
-    app.sidebar.sessions = vec!["a".to_string(), "b".to_string(), "c".to_string()];
-    app.sidebar.active = Some(2);
-    app.sidebar_focused = true;
-    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)));
-    assert_eq!(app.sidebar.active, Some(1));
-}
-
-#[test]
-fn sidebar_enter_returns_to_prompt() {
-    let mut app = fresh_app();
-    app.sidebar_focused = true;
-    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
-    assert!(!app.sidebar_focused, "Enter should return to prompt");
+    update(
+        &mut app,
+        &Msg::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        }),
+    );
+    assert_eq!(app.scroll_offset, 0);
 }
 
 #[test]

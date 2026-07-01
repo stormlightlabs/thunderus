@@ -8,7 +8,7 @@ construction, and parsing logic are covered with unit tests.
 ## Layout Tests
 
 Layout geometry is tested through pure `compute_view(Rect)` tests. These tests
-check sidebar visibility, prompt/footer sizing, and narrow-terminal behavior
+check transcript, prompt/footer sizing, and narrow-terminal behavior
 without opening a real terminal.
 
 ## Snapshot Tests

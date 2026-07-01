@@ -2,36 +2,28 @@
 
 ## Layout
 
-The screen is split into a fixed sidebar and a main workbench. The main area is
-vertical: transcript on top, prompt pinned near the bottom, and footer/status
-metadata on the final line.
-
-## Sidebar
-
-The sidebar is 22 columns wide on normal terminal sizes. It shows the app title,
-session list, and compact run status.
+The screen is vertical: transcript on top, prompt pinned near the bottom, and
+footer/status metadata on the final line.
 
 ## Transcript Panel
 
 The transcript fills the available main area and shows the newest entries. It
 uses separate rows for user messages, assistant text, reasoning, tools, status,
-and errors.
+and errors. Use Up/Down, PageUp/PageDown, or the mouse wheel to scroll.
 
 ## Prompt Line
 
 The prompt line has a top divider and an explicit state marker. Editable prompts
-use `▌ ▶`. Submitted, streaming, stopped, and errored states use compact status
-icons and labels.
+use `▌ ▶`. Submitted, streaming, stopped, and errored states use compact icons.
+The helper line stays focused on input behavior such as queued steering and
+follow-up prompts.
 
 ## Status Line
 
-The footer shows model, search mode, and current working directory. Long working
-directories are truncated from the left when needed.
-
-## Narrow Width Behavior
-
-The sidebar hides on narrow terminals before critical prompt and status text
-wraps. The transcript then uses the full width.
+The footer shows run state, model, search mode, token counts, max output tokens,
+and current working directory. Lower-priority fields hide on narrow terminals
+before the line wraps. Long working directories are truncated from the left when
+needed.
 
 ## Banner
 

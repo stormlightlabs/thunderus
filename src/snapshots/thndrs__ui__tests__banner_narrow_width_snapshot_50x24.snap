@@ -2,7 +2,7 @@
 source: src/ui.rs
 expression: terminal.backend().to_string()
 ---
-"┌Transcript──────────────────────────────────────┐"
+"┌thndrs──────────────────────────────────────────┐"
 "│                                                │"
 "│                                                │"
 "│                                                │"
@@ -25,4 +25,4 @@ expression: terminal.backend().to_string()
 "──────────────────────────────────────────────────"
 "  ›  █                                            "
 "                                                  "
-" model: umans-coder   search: auto                "
+" · idle   model: umans-coder   search: auto       "
