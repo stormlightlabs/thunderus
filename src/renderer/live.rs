@@ -145,19 +145,23 @@ pub fn static_status_row(app: &App, width: usize) -> Row {
     let search_label = app.websearch.label();
     let search_text = format!("search: {search_label}");
     let token_text = format!("tok: ↑{} ↓{}", app.session_tokens_in, app.session_tokens_out);
+    let git_text = app.git_status.as_ref().map(|summary| summary.display());
     let token_style = CellStyle::new().fg(p.peach).bg(bg);
+    let git_style = CellStyle::new().fg(p.green).bg(bg);
 
-    let (show_model, show_search, show_tokens, show_cwd) = match width {
-        w if w < 24 => (false, false, false, false),
-        w if w < 42 => (true, false, false, false),
-        w if w < 56 => (true, true, false, false),
-        w if w < 80 => (true, true, true, false),
-        _ => (true, true, true, true),
+    let (show_model, show_search, show_tokens, show_git, show_cwd) = match width {
+        w if w < 24 => (false, false, false, false, false),
+        w if w < 42 => (true, false, false, false, false),
+        w if w < 56 => (true, true, false, false, false),
+        w if w < 72 => (true, true, true, false, false),
+        w if w < 96 => (true, true, true, true, false),
+        _ => (true, true, true, true, true),
     };
 
     let model_len = model_label.chars().count();
     let search_len = search_text.chars().count();
     let token_len = token_text.chars().count();
+    let git_len = git_text.as_ref().map_or(0, |text| text.chars().count());
 
     let mut spans: Vec<Span> = Vec::new();
     if show_model {
@@ -171,10 +175,17 @@ pub fn static_status_row(app: &App, width: usize) -> Row {
         spans.push(Span::styled("   ", CellStyle::new().bg(bg)));
         spans.push(Span::styled(token_text, token_style));
     }
+    if show_git && let Some(git_text) = git_text {
+        spans.push(Span::styled("   ", CellStyle::new().bg(bg)));
+        spans.push(Span::styled(git_text, git_style));
+    }
     if show_cwd {
         spans.push(Span::styled("   ", CellStyle::new().bg(bg)));
-        let used =
-            model_len + if show_search { search_len + 3 } else { 0 } + if show_tokens { token_len + 3 } else { 0 } + 6;
+        let used = model_len
+            + if show_search { search_len + 3 } else { 0 }
+            + if show_tokens { token_len + 3 } else { 0 }
+            + if show_git && git_len > 0 { git_len + 3 } else { 0 }
+            + 6;
         let cwd_display = crate::renderer::path_display::footer_segment(&app.cwd, width, used);
         spans.push(Span::styled(cwd_display, muted));
     }
@@ -493,7 +504,7 @@ mod tests {
     use std::path::PathBuf;
 
     fn test_app() -> App {
-        App::from_cli(&Cli {
+        let mut app = App::from_cli(&Cli {
             cwd: PathBuf::from("."),
             model: "test-model".to_string(),
             websearch: WebSearchMode::Native,
@@ -504,7 +515,14 @@ mod tests {
             verbose: false,
             theme: Theme::EldritchMinimal,
             print_prompt: false,
-        })
+        });
+        app.git_status = Some(crate::renderer::git::GitStatusSummary {
+            branch: Some("main".to_string()),
+            added: 0,
+            modified: 0,
+            deleted: 0,
+        });
+        app
     }
 
     #[test]
@@ -599,6 +617,44 @@ mod tests {
     }
 
     #[test]
+    fn static_status_row_width_thresholds_control_segments() {
+        let app = test_app();
+        let cases = [
+            (23, false, false, false, false, false),
+            (24, true, false, false, false, false),
+            (41, true, false, false, false, false),
+            (42, true, true, false, false, false),
+            (55, true, true, false, false, false),
+            (56, true, true, true, false, false),
+            (71, true, true, true, false, false),
+            (72, true, true, true, true, false),
+            (95, true, true, true, true, false),
+            (96, true, true, true, true, true),
+        ];
+
+        for (width, model, search, tokens, git, cwd) in cases {
+            let text = static_status_row(&app, width).text();
+            assert_eq!(
+                text.contains("model:"),
+                model,
+                "model visibility at width {width}: {text}"
+            );
+            assert_eq!(
+                text.contains("search:"),
+                search,
+                "search visibility at width {width}: {text}"
+            );
+            assert_eq!(
+                text.contains("tok:"),
+                tokens,
+                "token visibility at width {width}: {text}"
+            );
+            assert_eq!(text.contains("git:"), git, "git visibility at width {width}: {text}");
+            assert_eq!(text.contains("cwd:"), cwd, "cwd visibility at width {width}: {text}");
+        }
+    }
+
+    #[test]
     fn static_status_row_shows_all_at_wide_width() {
         let app = test_app();
         let row = static_status_row(&app, 120);
@@ -606,6 +662,7 @@ mod tests {
         assert!(text.contains("model:"));
         assert!(text.contains("search:"));
         assert!(text.contains("tok:"));
+        assert!(text.contains("git: main clean"));
     }
 
     #[test]

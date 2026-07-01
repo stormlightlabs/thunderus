@@ -813,6 +813,12 @@ mod tests {
             print_prompt: false,
         });
         app.session_id = "test-session".to_string();
+        app.git_status = Some(crate::renderer::git::GitStatusSummary {
+            branch: Some("main".to_string()),
+            added: 0,
+            modified: 0,
+            deleted: 0,
+        });
         app
     }
 
@@ -1156,6 +1162,47 @@ mod tests {
         assert!(
             contents.contains("trigger scrollback replay"),
             "committed prompt should still be present with replayed banner:\n{contents}"
+        );
+    }
+
+    #[test]
+    fn vt100_resize_keeps_latest_git_statusline_without_duplicates() {
+        let mut app = test_app();
+        app.git_status = Some(crate::renderer::git::GitStatusSummary {
+            branch: Some("main".to_string()),
+            added: 1,
+            modified: 0,
+            deleted: 0,
+        });
+
+        let mut backend = TerminalBackend::new(Vec::new(), 100, 18);
+        let mut lr = LiveRegion::new();
+        lr.render_frame(&app, &mut backend, 100, 18).unwrap();
+
+        app.git_status = Some(crate::renderer::git::GitStatusSummary {
+            branch: Some("main".to_string()),
+            added: 1,
+            modified: 2,
+            deleted: 1,
+        });
+        lr.render_frame(&app, &mut backend, 100, 18).unwrap();
+
+        backend.set_size(72, 18);
+        lr.render_frame(&app, &mut backend, 72, 18).unwrap();
+
+        backend.set_size(100, 18);
+        lr.render_frame(&app, &mut backend, 100, 18).unwrap();
+
+        let contents = vt100_contents(backend.writer(), 100, 18);
+        let git_lines: Vec<&str> = contents.lines().filter(|line| line.contains("git: main")).collect();
+        assert_eq!(
+            git_lines.len(),
+            1,
+            "exactly one git statusline should remain after resize replay:\n{contents}"
+        );
+        assert!(
+            git_lines[0].contains("git: main +1 ~2 -1"),
+            "latest git summary should survive resize replay:\n{contents}"
         );
     }
 

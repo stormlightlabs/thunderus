@@ -24,6 +24,7 @@ mod utils;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
+use std::thread;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEvent};
@@ -40,6 +41,46 @@ struct AgentSlot {
     receiver: mpsc::Receiver<app::AgentEvent>,
     cancel: agent::CancelToken,
     steering: mpsc::Sender<String>,
+}
+
+struct GitStatusWatcher {
+    receiver: mpsc::Receiver<Option<renderer::git::GitStatusSummary>>,
+    stop: mpsc::Sender<()>,
+}
+
+impl GitStatusWatcher {
+    fn spawn(cwd: PathBuf) -> Self {
+        Self::spawn_with_interval(cwd, Duration::from_millis(1000))
+    }
+
+    fn spawn_with_interval(cwd: PathBuf, interval: Duration) -> Self {
+        let (status_tx, status_rx) = mpsc::channel();
+        let (stop_tx, stop_rx) = mpsc::channel();
+        thread::spawn(move || {
+            let mut last = renderer::git::collect(&cwd);
+            loop {
+                match stop_rx.recv_timeout(interval) {
+                    Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                    Err(mpsc::RecvTimeoutError::Timeout) => {}
+                }
+
+                let next = renderer::git::collect(&cwd);
+                if next != last {
+                    last = next.clone();
+                    if status_tx.send(next).is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+        Self { receiver: status_rx, stop: stop_tx }
+    }
+}
+
+impl Drop for GitStatusWatcher {
+    fn drop(&mut self) {
+        let _ = self.stop.send(());
+    }
 }
 
 /// Run the TUI to completion using the given CLI configuration.
@@ -246,6 +287,7 @@ fn direct_loop<W: io::Write>(
     );
 
     let mut agent: Option<AgentSlot> = None;
+    let git_watcher = GitStatusWatcher::spawn(workspace_root.clone());
     let mut mouse_captured = false;
     let (width, height) = backend_size(backend);
     direct_render(backend, live, &mut app, width, height)?;
@@ -254,6 +296,7 @@ fn direct_loop<W: io::Write>(
         let deadline = Instant::now() + tick;
         while Instant::now() < deadline {
             drain_direct_agent_events(&mut app, &mut agent, backend, live, &observability)?;
+            drain_git_status_watcher(&mut app, &git_watcher, backend, live)?;
             manage_agent_lifecycle(&app, &mut agent);
             maybe_spawn_agent(&app, cli, &mut agent);
             flush_steering(&mut app, &agent);
@@ -303,6 +346,7 @@ fn direct_loop<W: io::Write>(
             }
         }
         handle_direct_msg(&mut app, Msg::Tick, backend, live)?;
+        drain_git_status_watcher(&mut app, &git_watcher, backend, live)?;
         sync_mouse_capture(&app, &mut mouse_captured, mouse_enabled);
         let (w, h) = backend_size(backend);
         direct_render(backend, live, &mut app, w, h)?;
@@ -431,6 +475,19 @@ fn drain_direct_agent_events<W: io::Write>(
     Ok(())
 }
 
+fn drain_git_status_watcher<W: io::Write>(
+    app: &mut App, watcher: &GitStatusWatcher, backend: &mut TerminalBackend<W>,
+    live: &mut renderer::region::LiveRegion,
+) -> io::Result<()> {
+    loop {
+        match watcher.receiver.try_recv() {
+            Ok(status) => handle_direct_msg(app, Msg::GitStatusChanged(status), backend, live)?,
+            Err(mpsc::TryRecvError::Empty) | Err(mpsc::TryRecvError::Disconnected) => break,
+        }
+    }
+    Ok(())
+}
+
 /// Spawn the unified agent stream if the app is in [`RunState::Working`] state
 /// and no agent slot exists yet.
 ///
@@ -511,6 +568,7 @@ mod tests {
     use context::ContextSource;
     use prompt::PromptBundle;
     use std::path::PathBuf;
+    use std::process::Command;
 
     /// Build a deterministic bundle for snapshot testing — no workspace
     /// discovery, no live date, fixed context.
@@ -612,5 +670,45 @@ mod tests {
         let output = String::from_utf8_lossy(backend.writer());
         assert!(output.contains("\u{1b}[2J"), "visible screen should be cleared");
         assert!(output.contains("\u{1b}[3J"), "terminal scrollback should be purged");
+    }
+
+    #[test]
+    fn git_status_watcher_reports_external_change() {
+        let dir = tempfile::tempdir().expect("temp git dir");
+        git(dir.path(), &["init"]);
+        git(dir.path(), &["config", "user.email", "test@example.com"]);
+        git(dir.path(), &["config", "user.name", "Test User"]);
+        std::fs::write(dir.path().join("tracked.txt"), "clean\n").expect("write tracked file");
+        git(dir.path(), &["add", "tracked.txt"]);
+        git(dir.path(), &["commit", "-m", "initial"]);
+
+        let watcher = GitStatusWatcher::spawn_with_interval(dir.path().to_path_buf(), Duration::from_millis(50));
+        thread::sleep(Duration::from_millis(100));
+        std::fs::write(dir.path().join("tracked.txt"), "dirty\n").expect("modify tracked file");
+
+        let status = watcher
+            .receiver
+            .recv_timeout(Duration::from_secs(2))
+            .expect("watcher should report dirty git status")
+            .expect("repo status should be available");
+        assert_eq!(status.modified, 1);
+        assert!(
+            status.display().ends_with("+0 ~1 -0"),
+            "dirty summary should show one modified file: {}",
+            status.display()
+        );
+    }
+
+    fn git(cwd: &Path, args: &[&str]) {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(cwd)
+            .output()
+            .unwrap_or_else(|err| panic!("git {args:?} failed to start: {err}"));
+        assert!(
+            output.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 }

@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::cli::{Cli, Theme, WebSearchMode};
 use crate::fuzzy;
 use crate::input::PromptInput;
+use crate::renderer::git::GitStatusSummary;
 use crate::tools::shell::ProcessRegistry;
 use crate::{context, providers::umans, session, tools};
 
@@ -210,6 +211,8 @@ pub enum Msg {
     Quit,
     /// An agent stream event.
     Agent(AgentEvent),
+    /// Updated git working tree summary from the background watcher.
+    GitStatusChanged(Option<GitStatusSummary>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -311,6 +314,8 @@ pub struct App {
     pub history_draft: String,
     pub transcript: Vec<Entry>,
     pub cwd: PathBuf,
+    /// Current git working tree summary for the status line.
+    pub git_status: Option<GitStatusSummary>,
     pub model: String,
     pub user_label: String,
     pub websearch: WebSearchMode,
@@ -404,6 +409,7 @@ impl App {
             history_cursor: None,
             history_draft: String::new(),
             transcript,
+            git_status: crate::renderer::git::collect(&workspace_root),
             cwd: workspace_root,
             model: cli.model.clone(),
             user_label: default_user_label(),
@@ -527,6 +533,10 @@ pub fn update(app: &mut App, msg: &Msg) -> Option<Msg> {
             None
         }
         Msg::Agent(event) => handle_agent_event(app, event.clone()),
+        Msg::GitStatusChanged(status) => {
+            app.git_status = status.clone();
+            None
+        }
     }
 }
 
@@ -1422,12 +1432,14 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
                     let _ = writer.append_shell_exec(&turn_id, &result);
                 }
             }
+            refresh_git_status(app);
             None
         }
         AgentEvent::Finished => {
             finalize_streaming(app);
             app.run_state = RunState::Idle;
             app.last_input = None;
+            refresh_git_status(app);
             persist_final_response(app);
             if app.queued_followups.is_empty() {
                 None
@@ -1444,6 +1456,7 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
                 app.input.set_text(&input);
             }
             persist_last_entry(app);
+            refresh_git_status(app);
             None
         }
         AgentEvent::Cancelled => {
@@ -1455,9 +1468,14 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             app.last_input = None;
             app.queued_steering.clear();
             persist_last_entry(app);
+            refresh_git_status(app);
             None
         }
     }
+}
+
+fn refresh_git_status(app: &mut App) {
+    app.git_status = crate::renderer::git::collect(&app.cwd);
 }
 
 /// Cancel an active stream by marking all streaming entries complete,

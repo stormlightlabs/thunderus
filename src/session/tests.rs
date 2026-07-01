@@ -566,6 +566,114 @@ fn reader_reconstructs_transcript() {
 }
 
 #[test]
+fn reader_projects_tool_write_shell_and_status_rows() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let mut writer = SessionWriter::create(
+        dir.path(),
+        "projection-session",
+        "/repo",
+        "scratch",
+        "umans",
+        "umans-coder",
+        "native",
+        "0.1.0",
+    )
+    .expect("create writer");
+
+    writer
+        .append_entry(&Entry::User { text: "run checks".to_string() }, "turn_1")
+        .expect("append user");
+    writer
+        .append_tool_started("turn_1", "call_1", "run_shell", r#"{"program":"cargo"}"#)
+        .expect("append tool start");
+    writer
+        .append_entry(
+            &Entry::Tool {
+                name: "run_shell#call_1".to_string(),
+                arguments: r#"{"program":"cargo"}"#.to_string(),
+                status: ToolStatus::Ok,
+                output: vec!["ok".to_string()],
+            },
+            "turn_1",
+        )
+        .expect("append tool finish");
+
+    let write = tools::WriteResult {
+        op: tools::WriteOp::Create,
+        path: PathBuf::from("/repo/new.txt"),
+        before_hash: None,
+        before_bytes: None,
+        after_hash: 42,
+        after_bytes: 3,
+    };
+    writer
+        .append_file_write("turn_1", &write, ToolStatus::Ok)
+        .expect("append file write");
+
+    let shell = tools::shell::ProcessResult {
+        command: vec!["cargo".to_string(), "test".to_string()],
+        cwd: PathBuf::from("/repo"),
+        status: tools::shell::ProcessStatus::Ok,
+        exit_code: Some(0),
+        stdout: vec!["ignored by shell_exec record".to_string()],
+        stderr: Vec::new(),
+        elapsed: Duration::from_millis(123),
+        kind: tools::shell::ProcessKind::OneShot,
+    };
+    writer.append_shell_exec("turn_1", &shell).expect("append shell exec");
+    writer
+        .append(SessionRecord::Cancelled {
+            schema_version: 1,
+            seq: 0,
+            time: "t".to_string(),
+            turn_id: "turn_1".to_string(),
+            reason: "manual status".to_string(),
+        })
+        .expect("append status");
+    writer
+        .append_entry(
+            &Entry::Assistant { text: "done".to_string(), streaming: false },
+            "turn_1",
+        )
+        .expect("append assistant");
+
+    let path = writer.path().to_path_buf();
+    drop(writer);
+
+    let transcript = SessionReader::read_transcript(&path);
+    assert_eq!(
+        transcript.len(),
+        6,
+        "tool_started should not project to a transcript row"
+    );
+    assert_eq!(transcript[0], Entry::User { text: "run checks".to_string() });
+    assert_eq!(
+        transcript[1],
+        Entry::Tool {
+            name: "#call_1".to_string(),
+            arguments: String::new(),
+            status: ToolStatus::Ok,
+            output: vec!["ok".to_string()],
+        }
+    );
+    assert!(
+        matches!(&transcript[2], Entry::Status { text } if text.contains("wrote create: /repo/new.txt")),
+        "file write should project to a status row: {:?}",
+        transcript[2]
+    );
+    assert!(
+        matches!(&transcript[3], Entry::Status { text } if text == "shell ok: cargo test (123ms)"),
+        "shell exec should project to a status row: {:?}",
+        transcript[3]
+    );
+    assert_eq!(transcript[4], Entry::Status { text: "manual status".to_string() });
+    assert_eq!(
+        transcript[5],
+        Entry::Assistant { text: "done".to_string(), streaming: false }
+    );
+}
+
+#[test]
 fn reader_skips_corrupt_lines() {
     let dir = tempfile::tempdir().expect("temp dir");
     let path = dir.path().join("corrupt.jsonl");

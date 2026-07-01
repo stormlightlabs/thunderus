@@ -1711,6 +1711,27 @@ fn model_command_opens_picker_and_selects_model() {
 }
 
 #[test]
+fn git_status_changed_message_updates_app_summary() {
+    let mut app = fresh_app();
+    assert!(app.git_status.is_none());
+
+    update(
+        &mut app,
+        &Msg::GitStatusChanged(Some(crate::renderer::git::GitStatusSummary {
+            branch: Some("main".to_string()),
+            added: 1,
+            modified: 2,
+            deleted: 3,
+        })),
+    );
+
+    assert_eq!(
+        app.git_status.as_ref().map(|status| status.display()),
+        Some("git: main +1 ~2 -3".to_string())
+    );
+}
+
+#[test]
 fn ctrl_a_in_command_mode_inserts_literal_a() {
     let mut app = fresh_app();
     app.mode = Mode::Command;

@@ -8,6 +8,7 @@
 
 pub mod backend;
 pub mod cursor;
+pub mod git;
 pub mod highlight;
 pub mod layout;
 pub mod live;
