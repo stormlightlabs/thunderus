@@ -6,34 +6,63 @@ use crate::ui::MAX_TOOL_OUTPUT_LINES;
 use crate::ui::style;
 use crate::utils::truncate_ellipsis;
 
-const ROLE_WIDTH: usize = 16;
-
 const GUTTER: &str = "   │ ";
+
+/// Rendered transcript block.
+///
+/// Blocks keep one semantic entry together while still allowing the final
+/// transcript output to scroll by line. When the viewport starts inside a
+/// block, rendering can show a continuation marker instead of a detached
+/// wrapped line with no context.
+#[derive(Clone)]
+pub struct TranscriptBlock {
+    lines: Vec<Line<'static>>,
+}
+
+impl TranscriptBlock {
+    pub fn into_lines(self) -> Vec<Line<'static>> {
+        self.lines
+    }
+}
+
+/// Build transcript blocks from entries, including semantic spacing.
+pub fn entry_blocks(entries: &[Entry], user_label: &str, max_width: usize) -> Vec<TranscriptBlock> {
+    let mut blocks = Vec::new();
+
+    for (i, entry) in entries.iter().enumerate() {
+        if i > 0 && is_group_boundary(&entries[i - 1], entry) {
+            blocks.push(TranscriptBlock { lines: vec![Line::styled("", style::panel_style())] });
+        }
+        blocks.push(TranscriptBlock { lines: entry_lines_with_width(entry, user_label, max_width) });
+    }
+
+    blocks
+}
 
 /// Render entry lines with an optional max width for truncation.
 ///
 /// When `max_width > 0`, text content is wrapped to fit.
-pub fn entry_lines_with_width(entry: &Entry, tick: u64, user_label: &str, max_width: usize) -> Vec<Line<'static>> {
+pub fn entry_lines_with_width(entry: &Entry, user_label: &str, max_width: usize) -> Vec<Line<'static>> {
     let p = style::palette();
     match entry {
         Entry::User { text } => user_message_lines(user_label, text, max_width),
-        Entry::Assistant { text, streaming } => assistant_message_lines(
-            if *streaming { style::spinner_frame(tick) } else { "Assistant" },
-            text,
-            max_width,
-        ),
-        Entry::Reasoning { text, streaming } => reasoning_lines(text, *streaming, tick, max_width),
-        Entry::Tool { name, arguments, status, output } => {
-            tool_lines(name, arguments, *status, output, tick, max_width)
-        }
+        Entry::Assistant { text, .. } => assistant_message_lines("Assistant", text, max_width),
+        Entry::Reasoning { text, streaming } => reasoning_lines(text, *streaming, max_width),
+        Entry::Tool { name, arguments, status, output } => tool_lines(name, arguments, *status, output, max_width),
         Entry::Status { text } => message_lines(status_label(text), p.overlay1, text, max_width),
         Entry::Error { text } => error_lines(text, max_width),
     }
 }
 
 fn message_lines(label: &str, fg: Color, text: &str, max_width: usize) -> Vec<Line<'static>> {
-    let prefix = vec![role_label(label, fg)];
-    wrapped_lines(prefix, text, style::text_style(), max_width)
+    block_text_lines(
+        label,
+        fg,
+        style::palette().surface0,
+        text,
+        style::text_style(),
+        max_width,
+    )
 }
 
 fn assistant_message_lines(label: &str, text: &str, max_width: usize) -> Vec<Line<'static>> {
@@ -42,17 +71,19 @@ fn assistant_message_lines(label: &str, text: &str, max_width: usize) -> Vec<Lin
         return message_lines(label, p.green, text, max_width);
     };
 
-    let prefix = vec![role_label(label, p.green)];
-    let indent = vec![Span::styled(" ".repeat(spans_width(&prefix)), style::text_style())];
     let highlighted = super::highlight::highlight_code(markdown, Some("assistant.md"));
-    let mut lines = Vec::new();
-    for (i, line) in highlighted.into_iter().enumerate() {
-        let line_prefix = if i == 0 { &prefix } else { &indent };
-        lines.extend(wrapped_spans(line_prefix, line.spans, max_width));
+    let width = block_content_width(max_width);
+    let mut lines = vec![
+        block_line(Vec::new(), p.surface0, width, max_width),
+        block_label_line(label, p.green, p.surface0, max_width),
+    ];
+    for line in highlighted {
+        lines.extend(block_spans_lines(line.spans, p.surface0, max_width));
     }
-    if lines.is_empty() {
-        lines.push(Line::from(prefix));
+    if lines.len() == 2 {
+        lines.extend(block_text_body_lines("", style::text_style(), p.surface0, max_width));
     }
+    lines.push(block_line(Vec::new(), p.surface0, width, max_width));
     lines
 }
 
@@ -70,22 +101,14 @@ fn assistant_markdown_body(text: &str) -> Option<&str> {
 /// left-aligned labels.
 fn user_message_lines(label: &str, text: &str, max_width: usize) -> Vec<Line<'static>> {
     let p = style::palette();
-    let border = Span::styled(
-        "▌",
-        Style::default().fg(p.blue).bg(p.panel_bg).add_modifier(Modifier::BOLD),
-    );
-    let label_display = truncate_ellipsis(label, ROLE_WIDTH.saturating_sub(2));
-    let prefix = vec![
-        Span::styled(" ", style::text_style()),
-        border,
-        Span::styled(" ", style::text_style()),
-        Span::styled(
-            format!("{label_display:<ROLE_WIDTH$}"),
-            Style::default().fg(p.blue).bg(p.panel_bg).add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(" ", style::text_style()),
-    ];
-    wrapped_lines(prefix, text, style::text_style(), max_width)
+    block_text_lines(
+        label,
+        p.blue,
+        p.surface1,
+        text,
+        Style::default().fg(p.text).bg(p.surface1),
+        max_width,
+    )
 }
 
 /// Render a reasoning block with a stable header/status line.
@@ -94,15 +117,14 @@ fn user_message_lines(label: &str, text: &str, max_width: usize) -> Vec<Line<'st
 /// is italic and indented under the header,
 /// matching the Gridland sibling-block pattern without nesting inside
 /// assistant text.
-fn reasoning_lines(text: &str, streaming: bool, tick: u64, max_width: usize) -> Vec<Line<'static>> {
+fn reasoning_lines(text: &str, streaming: bool, max_width: usize) -> Vec<Line<'static>> {
     let p = style::palette();
-    let icon = if streaming { style::spinner_frame(tick) } else { "✓" };
-    let prefix = vec![
-        role_label("Thinking", p.mauve),
-        Span::styled(format!("{icon} "), Style::default().fg(p.mauve).bg(p.panel_bg)),
-    ];
-    wrapped_lines(
-        prefix,
+    let icon = if streaming { "·" } else { "✓" };
+    let label = format!("Thinking {icon}");
+    block_text_lines(
+        &label,
+        p.mauve,
+        p.surface0,
         text,
         style::subtle_style().add_modifier(Modifier::ITALIC),
         max_width,
@@ -130,14 +152,6 @@ fn status_label(text: &str) -> &'static str {
     }
 }
 
-fn role_label(label: &str, fg: Color) -> Span<'static> {
-    let p = style::palette();
-    Span::styled(
-        format!("{label:<ROLE_WIDTH$}"),
-        Style::default().fg(fg).bg(p.panel_bg).add_modifier(Modifier::BOLD),
-    )
-}
-
 /// Render an error entry with the `⚠` icon as part of the label and the
 /// error text aligned in the message body.
 ///
@@ -145,22 +159,20 @@ fn role_label(label: &str, fg: Color) -> Span<'static> {
 /// message body of other rows. Long text is truncated with `…`.
 fn error_lines(text: &str, max_width: usize) -> Vec<Line<'static>> {
     let p = style::palette();
-    let err_style = Style::default().fg(p.red).bg(p.panel_bg);
-    wrapped_lines(vec![role_label("⚠ Error", p.red)], text, err_style, max_width)
+    let err_style = Style::default().fg(p.text).bg(p.surface0);
+    block_text_lines("⚠ Error", p.red, p.surface0, text, err_style, max_width)
 }
 
-fn tool_lines(
-    name: &str, args: &str, status: ToolStatus, output: &[String], tick: u64, max_width: usize,
-) -> Vec<Line<'static>> {
+fn tool_lines(name: &str, args: &str, status: ToolStatus, output: &[String], max_width: usize) -> Vec<Line<'static>> {
     let p = style::palette();
     let (status_label, status_color, icon) = match status {
-        ToolStatus::Running => ("running", p.yellow, style::spinner_frame(tick)),
+        ToolStatus::Running => ("running", p.yellow, "·"),
         ToolStatus::Ok => ("ok", p.green, "✓"),
         ToolStatus::Failed => ("failed", p.red, "✕"),
     };
     let args_summary = summarize_tool_args(args);
 
-    let mut header_spans = vec![role_label("tool", p.peach)];
+    let mut header_spans = Vec::new();
     header_spans.push(Span::styled(
         format!("{icon} "),
         Style::default().fg(status_color).bg(p.panel_bg),
@@ -188,7 +200,7 @@ fn tool_lines(
     } else {
         let mut lines = vec![Line::from(header_spans)];
         lines.extend(wrapped_lines(
-            vec![Span::styled(" ".repeat(ROLE_WIDTH), style::text_style())],
+            vec![Span::styled("  ", style::text_style())],
             &args_summary,
             style::muted_style(),
             max_width,
@@ -237,7 +249,140 @@ fn tool_lines(
         )]));
     }
 
+    block_existing_lines("tool", p.peach, p.surface0, lines, max_width)
+}
+
+fn block_text_lines(
+    label: &str, label_color: Color, bg: Color, text: &str, text_style: Style, max_width: usize,
+) -> Vec<Line<'static>> {
+    let width = block_content_width(max_width);
+    let mut lines = vec![
+        block_line(Vec::new(), bg, width, max_width),
+        block_label_line(label, label_color, bg, max_width),
+    ];
+    lines.extend(block_text_body_lines(text, text_style.bg(bg), bg, max_width));
+    lines.push(block_line(Vec::new(), bg, width, max_width));
     lines
+}
+
+fn block_label_line(label: &str, fg: Color, bg: Color, max_width: usize) -> Line<'static> {
+    let width = block_content_width(max_width);
+    block_line(
+        vec![Span::styled(
+            label.to_string(),
+            Style::default().fg(fg).bg(bg).add_modifier(Modifier::BOLD),
+        )],
+        bg,
+        width,
+        max_width,
+    )
+}
+
+fn block_text_body_lines(text: &str, text_style: Style, bg: Color, max_width: usize) -> Vec<Line<'static>> {
+    let width = block_content_width(max_width);
+    if width == 0 {
+        return vec![block_line(Vec::new(), bg, width, max_width)];
+    }
+    wrap_text(text, width.max(1))
+        .into_iter()
+        .map(|part| block_line(vec![Span::styled(part, text_style.bg(bg))], bg, width, max_width))
+        .collect()
+}
+
+fn block_spans_lines(spans: Vec<Span<'static>>, bg: Color, max_width: usize) -> Vec<Line<'static>> {
+    let width = block_content_width(max_width);
+    if width == 0 {
+        return vec![block_line(Vec::new(), bg, width, max_width)];
+    }
+    let mut lines = Vec::new();
+    let mut current = Vec::new();
+    let mut current_width = 0usize;
+
+    for span in spans {
+        let span_style = span.style.bg(bg);
+        for ch in span.content.chars() {
+            if current_width == width {
+                lines.push(block_line(current, bg, width, max_width));
+                current = Vec::new();
+                current_width = 0;
+            }
+            current.push(Span::styled(ch.to_string(), span_style));
+            current_width += 1;
+        }
+    }
+
+    if !current.is_empty() || lines.is_empty() {
+        lines.push(block_line(current, bg, width, max_width));
+    }
+    lines
+}
+
+fn block_existing_lines(
+    label: &str, label_color: Color, bg: Color, lines: Vec<Line<'static>>, max_width: usize,
+) -> Vec<Line<'static>> {
+    let width = block_content_width(max_width);
+    let mut out = vec![
+        block_line(Vec::new(), bg, width, max_width),
+        block_label_line(label, label_color, bg, max_width),
+    ];
+    for line in lines {
+        let mut spans = Vec::new();
+        let mut used = 0usize;
+        for span in line.spans {
+            let span_width = span.content.chars().count();
+            if used >= width {
+                break;
+            }
+            let take = width.saturating_sub(used);
+            let content: String = span.content.chars().take(take).collect();
+            used += content.chars().count();
+            spans.push(Span::styled(content, span.style.bg(bg)));
+            if span_width > take {
+                break;
+            }
+        }
+        out.push(block_line(spans, bg, width, max_width));
+    }
+    out.push(block_line(Vec::new(), bg, width, max_width));
+    out
+}
+
+fn block_content_width(max_width: usize) -> usize {
+    let left_pad = max_width.min(2);
+    let right_pad = max_width.saturating_sub(left_pad).min(2);
+    max_width.saturating_sub(left_pad + right_pad)
+}
+
+fn block_line(mut body: Vec<Span<'static>>, bg: Color, width: usize, max_width: usize) -> Line<'static> {
+    let mut trimmed = Vec::new();
+    let mut used = 0usize;
+    for span in body.drain(..) {
+        if used >= width {
+            break;
+        }
+        let take = width - used;
+        let content: String = span.content.chars().take(take).collect();
+        used += content.chars().count();
+        trimmed.push(Span::styled(content, span.style.bg(bg)));
+    }
+    body = trimmed;
+
+    if used < width {
+        body.push(Span::styled(" ".repeat(width - used), Style::default().bg(bg)));
+    }
+    let left_pad = max_width.min(2);
+    let right_pad = max_width.saturating_sub(left_pad + width).min(2);
+    let mut spans = Vec::new();
+    if left_pad > 0 {
+        spans.push(Span::styled(" ".repeat(left_pad), Style::default().bg(bg)));
+    }
+    spans.extend(body);
+    if right_pad > 0 {
+        spans.push(Span::styled(" ".repeat(right_pad), Style::default().bg(bg)));
+    }
+    let mut line = Line::from(spans);
+    line.style = Style::default().bg(bg);
+    line
 }
 
 fn wrapped_lines(prefix: Vec<Span<'static>>, text: &str, text_style: Style, max_width: usize) -> Vec<Line<'static>> {
@@ -266,7 +411,7 @@ fn wrapped_lines(prefix: Vec<Span<'static>>, text: &str, text_style: Style, max_
 }
 
 fn wrapped_spans(prefix: &[Span<'static>], spans: Vec<Span<'static>>, max_width: usize) -> Vec<Line<'static>> {
-    let prefix_width = spans_width(&prefix);
+    let prefix_width = spans_width(prefix);
     let body_width = max_width.saturating_sub(prefix_width).max(1);
     let mut lines = Vec::new();
     let mut current = Vec::new();
@@ -276,7 +421,7 @@ fn wrapped_spans(prefix: &[Span<'static>], spans: Vec<Span<'static>>, max_width:
         let style = span.style;
         for ch in span.content.chars() {
             if current_width == body_width {
-                lines.push(line_with_prefix(&prefix, &current, lines.is_empty(), prefix_width));
+                lines.push(line_with_prefix(prefix, &current, lines.is_empty(), prefix_width));
                 current.clear();
                 current_width = 0;
             }
@@ -286,7 +431,7 @@ fn wrapped_spans(prefix: &[Span<'static>], spans: Vec<Span<'static>>, max_width:
     }
 
     if !current.is_empty() || lines.is_empty() {
-        lines.push(line_with_prefix(&prefix, &current, lines.is_empty(), prefix_width));
+        lines.push(line_with_prefix(prefix, &current, lines.is_empty(), prefix_width));
     }
 
     lines
@@ -455,6 +600,39 @@ fn summarize_tool_args(arguments: &str) -> String {
     truncate_ellipsis(trimmed, 48)
 }
 
+/// Semantic group classification for transcript spacing.
+#[derive(PartialEq)]
+enum EntryGroup {
+    User,
+    Assistant,
+    Reasoning,
+    Tool,
+    Transient,
+}
+
+impl From<&Entry> for EntryGroup {
+    fn from(e: &Entry) -> Self {
+        match e {
+            Entry::User { .. } => EntryGroup::User,
+            Entry::Assistant { .. } => EntryGroup::Assistant,
+            Entry::Reasoning { .. } => EntryGroup::Reasoning,
+            Entry::Tool { .. } => EntryGroup::Tool,
+            Entry::Status { .. } | Entry::Error { .. } => EntryGroup::Transient,
+        }
+    }
+}
+
+fn is_group_boundary(prev: &Entry, curr: &Entry) -> bool {
+    let prev_type = EntryGroup::from(prev);
+    let curr_type = EntryGroup::from(curr);
+
+    if prev_type == EntryGroup::Transient || curr_type == EntryGroup::Transient {
+        false
+    } else {
+        prev_type != curr_type
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -491,5 +669,39 @@ mod tests {
     #[test]
     fn assistant_markdown_body_allows_streaming_partial_fence() {
         assert_eq!(assistant_markdown_body("````md\n# Done"), Some("# Done"));
+    }
+
+    #[test]
+    fn entry_blocks_insert_separator_between_user_and_assistant() {
+        let entries = vec![
+            Entry::User { text: String::from("hello") },
+            Entry::Assistant { text: String::from("hi"), streaming: false },
+        ];
+
+        let blocks = entry_blocks(&entries, "User", 80);
+        assert_eq!(blocks.len(), 3);
+        assert!(blocks[1].lines[0].spans.is_empty());
+    }
+
+    #[test]
+    fn block_line_paints_full_row_with_internal_padding() {
+        let bg = Color::Blue;
+        let line = block_line(vec![Span::styled("hi", Style::default().bg(bg))], bg, 6, 10);
+
+        assert_eq!(line.style.bg, Some(bg));
+        assert_eq!(spans_width(&line.spans), 10);
+        assert_eq!(line.spans.first().unwrap().content.as_ref(), "  ");
+        assert_eq!(line.spans.last().unwrap().content.as_ref(), "  ");
+        assert!(line.spans.iter().all(|span| span.style.bg == Some(bg)));
+    }
+
+    #[test]
+    fn block_line_does_not_exceed_tiny_width() {
+        let bg = Color::Blue;
+        let line = block_line(vec![Span::styled("hello", Style::default().bg(bg))], bg, 0, 3);
+
+        assert_eq!(spans_width(&line.spans), 3);
+        assert_eq!(line.style.bg, Some(bg));
+        assert!(line.spans.iter().all(|span| span.style.bg == Some(bg)));
     }
 }

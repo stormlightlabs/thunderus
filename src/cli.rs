@@ -30,7 +30,7 @@ struct CliArgs {
     #[arg(long)]
     tick_rate_ms: Option<u64>,
 
-    /// Run without the alternate screen buffer (for debugging and terminal-capture tests).
+    /// Run without the alternate screen buffer.
     #[arg(long, default_value_t = false)]
     no_alt_screen: bool,
 
@@ -38,7 +38,7 @@ struct CliArgs {
     #[arg(long, default_value_t = false)]
     no_mouse: bool,
 
-    /// Enable terminal mouse capture for wheel scrolling inside the TUI.
+    /// Enable terminal mouse capture for overlay mouse events.
     #[arg(long, default_value_t = false)]
     mouse: bool,
 
@@ -67,11 +67,11 @@ pub struct Cli {
     pub websearch: WebSearchMode,
     /// Event poll interval in milliseconds.
     pub tick_rate_ms: u64,
-    /// Run without the alternate screen buffer (for debugging and terminal-capture tests).
+    /// Run without the alternate screen buffer.
     pub no_alt_screen: bool,
     /// Disable terminal mouse capture so native selection and scrollback work.
     pub no_mouse: bool,
-    /// Enable terminal mouse capture for wheel scrolling inside the TUI.
+    /// Enable terminal mouse capture for overlay mouse events.
     pub mouse: bool,
     /// Show diagnostic transcript rows such as provider events and log paths.
     pub verbose: bool,
@@ -179,7 +179,7 @@ impl Default for Cli {
             model: String::from("umans-coder"),
             websearch: WebSearchMode::Auto,
             tick_rate_ms: 100,
-            no_alt_screen: false,
+            no_alt_screen: true,
             no_mouse: false,
             mouse: false,
             verbose: false,
@@ -250,7 +250,7 @@ mod tests {
         assert_eq!(cli.model, "umans-coder");
         assert_eq!(cli.websearch, WebSearchMode::Auto);
         assert_eq!(cli.tick_rate_ms, 100);
-        assert!(!cli.no_alt_screen);
+        assert!(cli.no_alt_screen);
         assert!(!cli.no_mouse);
         assert!(!cli.mouse);
         assert!(!cli.verbose);

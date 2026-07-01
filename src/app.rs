@@ -36,10 +36,23 @@ pub enum Mode {
     Prompt,
     /// Slash-command entry, entered with `:`.
     Command,
-    /// Help overlay, entered with `?`.
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
+pub enum PromptAccessory {
+    #[default]
+    None,
     Help,
-    /// File picker overlay.
-    FilePicker,
+    Commands {
+        selected: usize,
+    },
+    Files(FilePickerSource),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FilePickerSource {
+    Forced,
+    Mention { token_start: usize },
 }
 
 /// Semantic run state, used for the status line.
@@ -287,8 +300,7 @@ pub struct App {
     pub session_tokens_out: u64,
     /// Loaded context sources (e.g. AGENTS.md).
     pub context_sources: Vec<context::ContextSource>,
-    /// Scroll offset in transcript lines from the bottom. 0 = pinned to newest.
-    /// Positive values scroll up (toward older entries).
+    /// Legacy fullscreen transcript offset. Inline scrollback mode does not use it.
     pub scroll_offset: usize,
     /// Monotonic UI tick used for lightweight animated affordances.
     pub ui_tick: u64,
@@ -311,6 +323,8 @@ pub struct App {
     pub queue_target: QueueTarget,
     /// Active file picker state.
     pub file_picker: Option<FilePickerState>,
+    /// Inline prompt accessory rendered above the input.
+    pub prompt_accessory: PromptAccessory,
     /// Steering messages waiting to be sent to the active agent thread.
     pub queued_steering: Vec<String>,
     /// Follow-up prompts to submit as new turns after the active run completes.
@@ -385,6 +399,7 @@ impl App {
             last_input: None,
             queue_target: QueueTarget::default(),
             file_picker: None,
+            prompt_accessory: PromptAccessory::None,
             queued_steering: Vec::new(),
             queued_followups: Vec::new(),
             quit: false,
@@ -501,12 +516,6 @@ pub fn update(app: &mut App, msg: &Msg) -> Option<Msg> {
 /// - Enter submits the current input.
 /// - Escape cancels an active agent stream.
 /// - Up/Down recall prompt history.
-/// - PageUp/PageDown and Ctrl+Alt+U/D/Y/E scroll the transcript (available even while the
-///   agent is running, so cancel/quit stay usable).
-///     - Page up: jump by 10 lines.
-///     - Page down: jump by 10 lines, or reset to newest.
-///     - Ctrl+Alt+U/D: jump by 10 lines without dedicated paging keys.
-///     - Ctrl+Alt+Y/E: scroll by one line.
 fn handle_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
         app.quit = true;
@@ -545,29 +554,20 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
 
     app.ctrl_d_pending = None;
 
+    if !matches!(app.prompt_accessory, PromptAccessory::None)
+        && let Some(msg) = handle_accessory_key(app, key)
+    {
+        return msg;
+    }
+
     match app.mode {
-        Mode::Help => handle_help_key(app, key),
-        Mode::FilePicker => handle_file_picker_key(app, key),
         Mode::Command => handle_command_key(app, key),
         Mode::Prompt => handle_prompt_key(app, key),
     }
 }
 
-/// Handle keys in Help overlay mode: Esc or `?` returns to the previous mode.
-fn handle_help_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
-    match key.code {
-        KeyCode::Esc | KeyCode::Char('?') | KeyCode::Enter => {
-            app.mode = Mode::Prompt;
-            None
-        }
-        _ => None,
-    }
-}
-
 fn handle_mouse(app: &mut App, mouse: MouseEvent) -> Option<Msg> {
-    const MOUSE_SCROLL_LINES: usize = 3;
-
-    if app.mode == Mode::FilePicker {
+    if matches!(app.prompt_accessory, PromptAccessory::Files(_)) {
         if let Some(picker) = app.file_picker.as_mut() {
             match mouse.kind {
                 MouseEventKind::ScrollUp => picker.move_up(),
@@ -578,63 +578,95 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) -> Option<Msg> {
         return None;
     }
 
-    match mouse.kind {
-        MouseEventKind::ScrollUp => {
-            app.scroll_offset = app.scroll_offset.saturating_add(MOUSE_SCROLL_LINES);
-            None
+    None
+}
+
+fn handle_accessory_key(app: &mut App, key: KeyEvent) -> Option<Option<Msg>> {
+    match app.prompt_accessory {
+        PromptAccessory::Help => match key.code {
+            KeyCode::Esc => {
+                close_prompt_accessory(app);
+                Some(None)
+            }
+            _ => None,
+        },
+        PromptAccessory::Commands { .. } => handle_command_accessory_key(app, key),
+        PromptAccessory::Files(_) => handle_file_accessory_key(app, key),
+        PromptAccessory::None => None,
+    }
+}
+
+fn handle_command_accessory_key(app: &mut App, key: KeyEvent) -> Option<Option<Msg>> {
+    let count = command_suggestions_for_app(app).len();
+    match key.code {
+        KeyCode::Esc => {
+            close_prompt_accessory(app);
+            Some(None)
         }
-        MouseEventKind::ScrollDown => {
-            app.scroll_offset = app.scroll_offset.saturating_sub(MOUSE_SCROLL_LINES);
-            None
+        KeyCode::Up => {
+            if let PromptAccessory::Commands { selected } = &mut app.prompt_accessory {
+                *selected = selected.saturating_sub(1);
+            }
+            Some(None)
+        }
+        KeyCode::Down => {
+            if let PromptAccessory::Commands { selected } = &mut app.prompt_accessory {
+                *selected = (*selected + 1).min(count.saturating_sub(1));
+            }
+            Some(None)
+        }
+        KeyCode::Enter
+            if count > 0
+                && !command_suggestions_for_app(app)
+                    .iter()
+                    .any(|(cmd, _)| *cmd == command_query(app)) =>
+        {
+            Some(accept_command_suggestion(app))
         }
         _ => None,
     }
 }
 
-fn handle_file_picker_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
-    let Some(picker) = app.file_picker.as_mut() else {
-        app.mode = Mode::Prompt;
-        return None;
+fn handle_file_accessory_key(app: &mut App, key: KeyEvent) -> Option<Option<Msg>> {
+    let source = match app.prompt_accessory {
+        PromptAccessory::Files(source) => source,
+        _ => return None,
     };
-
+    let picker = app.file_picker.as_mut()?;
     match key.code {
         KeyCode::Esc => {
-            close_file_picker(app);
-            None
+            close_prompt_accessory(app);
+            Some(None)
         }
         KeyCode::Enter => {
-            let selected = picker.selected_path().map(str::to_string);
-            close_file_picker(app);
-            if let Some(path) = selected {
-                insert_file_path(app, &path);
-            }
-            None
+            accept_file_suggestion(app);
+            Some(None)
         }
         KeyCode::Up => {
             picker.move_up();
-            None
+            Some(None)
         }
         KeyCode::Down => {
             picker.move_down();
-            None
+            Some(None)
         }
         KeyCode::PageUp => {
             picker.page_up();
-            None
+            Some(None)
         }
         KeyCode::PageDown => {
             picker.page_down();
-            None
+            Some(None)
         }
-        KeyCode::Backspace => {
+        KeyCode::Backspace if source == FilePickerSource::Forced => {
             picker.query.pop();
             picker.refresh_matches();
-            None
+            Some(None)
         }
-        KeyCode::Char(ch) => {
+        KeyCode::Char(ch) if source == FilePickerSource::Forced => {
             picker.query.push(ch);
             picker.refresh_matches();
-            None
+            Some(None)
         }
         _ => None,
     }
@@ -647,13 +679,16 @@ fn handle_command_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
         KeyCode::Esc => {
             app.mode = Mode::Prompt;
             app.input.clear();
+            close_prompt_accessory(app);
             None
         }
         KeyCode::Backspace => {
             if app.input.is_empty() {
                 app.mode = Mode::Prompt;
+                close_prompt_accessory(app);
             } else {
                 app.input.backspace();
+                sync_prompt_accessory(app);
             }
             None
         }
@@ -661,10 +696,12 @@ fn handle_command_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
             let text = app.input.as_str().trim().to_string();
             app.input.clear();
             app.mode = Mode::Prompt;
+            close_prompt_accessory(app);
             if text.is_empty() { None } else { handle_command(app, &text) }
         }
         KeyCode::Char(ch) => {
             app.input.insert_char(ch);
+            sync_prompt_accessory(app);
             None
         }
         _ => None,
@@ -684,30 +721,8 @@ fn handle_command_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
 /// - `backspace`: delete char before cursor
 /// - `delete`: delete char after cursor (forward delete)
 fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
-    if key.modifiers.contains(KeyModifiers::CONTROL) && key.modifiers.contains(KeyModifiers::ALT) {
-        match key.code {
-            KeyCode::Char('u') | KeyCode::Char('U') => {
-                app.scroll_offset = app.scroll_offset.saturating_add(10);
-                return None;
-            }
-            KeyCode::Char('d') | KeyCode::Char('D') => {
-                app.scroll_offset = app.scroll_offset.saturating_sub(10);
-                return None;
-            }
-            KeyCode::Char('y') | KeyCode::Char('Y') => {
-                app.scroll_offset = app.scroll_offset.saturating_add(1);
-                return None;
-            }
-            KeyCode::Char('e') | KeyCode::Char('E') => {
-                app.scroll_offset = app.scroll_offset.saturating_sub(1);
-                return None;
-            }
-            _ => {}
-        }
-    }
-
     if key.code == KeyCode::Char('p') && key.modifiers.contains(KeyModifiers::CONTROL) {
-        open_file_picker(app);
+        open_file_picker(app, FilePickerSource::Forced);
         return None;
     }
 
@@ -754,26 +769,31 @@ fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
             KeyCode::Char('a') => {
                 app.input.cursor_to_start();
                 exit_history_navigation(app);
+                sync_prompt_accessory(app);
                 true
             }
             KeyCode::Char('e') => {
                 app.input.cursor_to_end();
                 exit_history_navigation(app);
+                sync_prompt_accessory(app);
                 true
             }
             KeyCode::Char('b') => {
                 app.input.cursor_left();
                 exit_history_navigation(app);
+                sync_prompt_accessory(app);
                 true
             }
             KeyCode::Char('f') => {
                 app.input.cursor_right();
                 exit_history_navigation(app);
+                sync_prompt_accessory(app);
                 true
             }
             KeyCode::Char('j') => {
                 exit_history_navigation(app);
                 app.input.insert_char('\n');
+                sync_prompt_accessory(app);
                 true
             }
             _ => false,
@@ -785,71 +805,79 @@ fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
 
     match key.code {
         KeyCode::Char('?') if app.input.is_empty() => {
-            app.mode = Mode::Help;
+            app.prompt_accessory = PromptAccessory::Help;
             None
         }
         KeyCode::Char(':') if app.input.is_empty() && matches!(app.run_state, RunState::Idle | RunState::Error(_)) => {
             app.mode = Mode::Command;
+            app.prompt_accessory = PromptAccessory::Commands { selected: 0 };
             None
         }
         KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => {
             exit_history_navigation(app);
             app.input.insert_char('\n');
+            sync_prompt_accessory(app);
             None
         }
         KeyCode::Up => {
-            recall_older_input(app);
+            if !app.input.cursor_up() {
+                recall_older_input(app);
+            } else {
+                exit_history_navigation(app);
+            }
+            sync_prompt_accessory(app);
             None
         }
         KeyCode::Down => {
-            recall_newer_input(app);
+            if !app.input.cursor_down() {
+                recall_newer_input(app);
+            } else {
+                exit_history_navigation(app);
+            }
+            sync_prompt_accessory(app);
             None
         }
         KeyCode::Left => {
             app.input.cursor_left();
             exit_history_navigation(app);
+            sync_prompt_accessory(app);
             None
         }
         KeyCode::Right => {
             app.input.cursor_right();
             exit_history_navigation(app);
+            sync_prompt_accessory(app);
             None
         }
         KeyCode::Home => {
             app.input.cursor_to_start();
             exit_history_navigation(app);
+            sync_prompt_accessory(app);
             None
         }
         KeyCode::End => {
             app.input.cursor_to_end();
             exit_history_navigation(app);
+            sync_prompt_accessory(app);
             None
         }
-        KeyCode::PageUp => {
-            app.scroll_offset = app.scroll_offset.saturating_add(10);
-            None
-        }
-        KeyCode::PageDown => {
-            if app.scroll_offset > 10 {
-                app.scroll_offset -= 10;
-            } else {
-                app.scroll_offset = 0;
-            }
-            None
-        }
+        KeyCode::PageUp | KeyCode::PageDown => None,
         KeyCode::Delete => {
             exit_history_navigation(app);
             app.input.delete_forward();
+            sync_prompt_accessory(app);
             None
         }
         KeyCode::Char(ch) => {
             exit_history_navigation(app);
             app.input.insert_char(ch);
+            sync_prompt_accessory(app);
             None
         }
         KeyCode::Backspace => {
             exit_history_navigation(app);
             app.input.backspace();
+            sync_prompt_accessory(app);
             None
         }
         KeyCode::Enter => handle_submit(app),
@@ -861,11 +889,56 @@ fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
     }
 }
 
-fn open_file_picker(app: &mut App) {
+pub fn command_suggestions_for_app(app: &App) -> Vec<(&'static str, &'static str)> {
+    let query = command_query(app);
+    let commands = [
+        ("clear", "clear transcript"),
+        ("quit", "exit app"),
+        ("exit", "exit app"),
+        ("help", "show help"),
+        ("bg", "list background processes"),
+    ];
+    commands
+        .into_iter()
+        .filter(|(cmd, _)| cmd.starts_with(&query))
+        .collect()
+}
+
+fn command_query(app: &App) -> String {
+    if app.mode == Mode::Command {
+        app.input.as_str().trim_start().to_string()
+    } else {
+        app.input
+            .as_str()
+            .strip_prefix('/')
+            .unwrap_or("")
+            .trim_start()
+            .to_string()
+    }
+}
+
+fn accept_command_suggestion(app: &mut App) -> Option<Msg> {
+    let suggestions = command_suggestions_for_app(app);
+    if suggestions.is_empty() {
+        return None;
+    }
+    let selected = match app.prompt_accessory {
+        PromptAccessory::Commands { selected } => selected.min(suggestions.len() - 1),
+        _ => 0,
+    };
+    let command = suggestions[selected].0;
+    let replacement = if app.mode == Mode::Command { format!("{command} ") } else { format!("/{command} ") };
+    app.input.set_text(&replacement);
+    app.prompt_accessory = PromptAccessory::None;
+    None
+}
+
+fn open_file_picker(app: &mut App, source: FilePickerSource) {
     match tools::searchable_file_paths(&app.cwd, 2_000) {
         Ok(files) => {
             app.file_picker = Some(FilePickerState::new(files));
-            app.mode = Mode::FilePicker;
+            app.prompt_accessory = PromptAccessory::Files(source);
+            sync_file_picker_query(app);
         }
         Err(err) => {
             app.transcript
@@ -875,9 +948,11 @@ fn open_file_picker(app: &mut App) {
     }
 }
 
-fn close_file_picker(app: &mut App) {
-    app.file_picker = None;
-    app.mode = Mode::Prompt;
+fn close_prompt_accessory(app: &mut App) {
+    if matches!(app.prompt_accessory, PromptAccessory::Files(_)) {
+        app.file_picker = None;
+    }
+    app.prompt_accessory = PromptAccessory::None;
 }
 
 fn insert_file_path(app: &mut App, path: &str) {
@@ -885,6 +960,84 @@ fn insert_file_path(app: &mut App, path: &str) {
         app.input.insert_char(' ');
     }
     app.input.insert_str(path);
+}
+
+fn accept_file_suggestion(app: &mut App) {
+    let Some(path) = app
+        .file_picker
+        .as_ref()
+        .and_then(|picker| picker.selected_path().map(str::to_string))
+    else {
+        return;
+    };
+
+    match app.prompt_accessory {
+        PromptAccessory::Files(FilePickerSource::Mention { token_start }) => {
+            let end = app.input.cursor();
+            let replacement = format!("@{path} ");
+            app.input.replace_range(token_start, end, &replacement);
+        }
+        PromptAccessory::Files(FilePickerSource::Forced) => {
+            insert_file_path(app, &path);
+        }
+        _ => {}
+    }
+
+    close_prompt_accessory(app);
+}
+
+fn sync_prompt_accessory(app: &mut App) {
+    if app.mode == Mode::Command {
+        app.prompt_accessory = PromptAccessory::Commands { selected: 0 };
+        return;
+    }
+
+    if app.input.as_str().starts_with('/') {
+        app.prompt_accessory = PromptAccessory::Commands { selected: 0 };
+        return;
+    }
+
+    if let Some((token_start, _query)) = active_at_token(app) {
+        if !matches!(app.prompt_accessory, PromptAccessory::Files(FilePickerSource::Mention { token_start: existing }) if existing == token_start)
+        {
+            open_file_picker(app, FilePickerSource::Mention { token_start });
+        } else {
+            sync_file_picker_query(app);
+        }
+        return;
+    }
+
+    if !matches!(app.prompt_accessory, PromptAccessory::Help) {
+        close_prompt_accessory(app);
+    }
+}
+
+fn active_at_token(app: &App) -> Option<(usize, String)> {
+    let before = app.input.text_before_cursor();
+    let chars: Vec<char> = before.chars().collect();
+    let token_start = chars.iter().rposition(|ch| ch.is_whitespace()).map_or(0, |idx| idx + 1);
+    if chars.get(token_start) != Some(&'@') {
+        return None;
+    }
+    let query: String = chars[token_start + 1..].iter().collect();
+    Some((token_start, query))
+}
+
+fn sync_file_picker_query(app: &mut App) {
+    let query = match app.prompt_accessory {
+        PromptAccessory::Files(FilePickerSource::Mention { .. }) => active_at_token(app).map(|(_, query)| query),
+        PromptAccessory::Files(FilePickerSource::Forced) => app.file_picker.as_ref().map(|picker| picker.query.clone()),
+        _ => None,
+    };
+    let Some(query) = query else {
+        return;
+    };
+    if let Some(picker) = app.file_picker.as_mut()
+        && picker.query != query
+    {
+        picker.query = query;
+        picker.refresh_matches();
+    }
 }
 
 /// Handle an `Enter` submit. Slash commands are routed; otherwise the input is
@@ -969,7 +1122,7 @@ fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
             Some(Msg::Quit)
         }
         "help" => {
-            app.mode = Mode::Help;
+            app.prompt_accessory = PromptAccessory::Help;
             None
         }
         "bg" => {

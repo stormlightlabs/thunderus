@@ -227,7 +227,7 @@ fn other_keys_do_not_quit() {
 #[test]
 fn file_picker_selection_inserts_selected_path() {
     let mut app = fresh_app();
-    app.mode = Mode::FilePicker;
+    app.prompt_accessory = PromptAccessory::Files(FilePickerSource::Forced);
     app.file_picker = Some(FilePickerState::new(vec![
         "src/main.rs".to_string(),
         "src/app.rs".to_string(),
@@ -240,6 +240,7 @@ fn file_picker_selection_inserts_selected_path() {
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
 
     assert_eq!(app.mode, Mode::Prompt);
+    assert_eq!(app.prompt_accessory, PromptAccessory::None);
     assert_eq!(app.input.as_str(), "src/app.rs");
     assert!(app.file_picker.is_none());
 }
@@ -247,7 +248,7 @@ fn file_picker_selection_inserts_selected_path() {
 #[test]
 fn file_picker_arrows_and_pages_are_scrollable() {
     let mut app = fresh_app();
-    app.mode = Mode::FilePicker;
+    app.prompt_accessory = PromptAccessory::Files(FilePickerSource::Forced);
     app.file_picker = Some(FilePickerState::new(
         (0..20).map(|i| format!("src/file_{i:02}.rs")).collect(),
     ));
@@ -270,12 +271,13 @@ fn file_picker_arrows_and_pages_are_scrollable() {
 fn file_picker_escape_closes_without_changing_input() {
     let mut app = fresh_app();
     app.input = PromptInput::from_str("read");
-    app.mode = Mode::FilePicker;
+    app.prompt_accessory = PromptAccessory::Files(FilePickerSource::Forced);
     app.file_picker = Some(FilePickerState::new(vec!["README.md".to_string()]));
 
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
 
     assert_eq!(app.mode, Mode::Prompt);
+    assert_eq!(app.prompt_accessory, PromptAccessory::None);
     assert_eq!(app.input.as_str(), "read");
     assert!(app.file_picker.is_none());
 }
@@ -1105,27 +1107,16 @@ fn up_down_arrows_do_not_scroll_transcript() {
 }
 
 #[test]
-fn page_up_jumps_by_ten() {
+fn page_up_is_ignored_by_prompt_mode() {
     let mut app = fresh_app();
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE)));
-    assert_eq!(app.scroll_offset, 10);
-}
-
-#[test]
-fn page_down_resets_to_zero_when_small() {
-    let mut app = fresh_app();
-    app.scroll_offset = 5;
-    update(
-        &mut app,
-        &Msg::Key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE)),
-    );
     assert_eq!(app.scroll_offset, 0);
 }
 
 #[test]
-fn page_down_subtracts_ten_when_large() {
+fn page_down_is_ignored_by_prompt_mode() {
     let mut app = fresh_app();
-    app.scroll_offset = 15;
+    app.scroll_offset = 5;
     update(
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE)),
@@ -1134,7 +1125,7 @@ fn page_down_subtracts_ten_when_large() {
 }
 
 #[test]
-fn ctrl_alt_u_d_jump_transcript_without_page_keys() {
+fn ctrl_alt_u_d_are_ignored_by_prompt_mode() {
     let mut app = fresh_app();
     update(
         &mut app,
@@ -1143,7 +1134,7 @@ fn ctrl_alt_u_d_jump_transcript_without_page_keys() {
             KeyModifiers::CONTROL | KeyModifiers::ALT,
         )),
     );
-    assert_eq!(app.scroll_offset, 10);
+    assert_eq!(app.scroll_offset, 0);
     update(
         &mut app,
         &Msg::Key(KeyEvent::new(
@@ -1242,7 +1233,7 @@ fn vim_j_is_text_when_input_empty() {
 }
 
 #[test]
-fn ctrl_alt_line_scrolls_transcript() {
+fn ctrl_alt_line_scroll_keys_are_ignored_by_prompt_mode() {
     let mut app = fresh_app();
     update(
         &mut app,
@@ -1251,7 +1242,7 @@ fn ctrl_alt_line_scrolls_transcript() {
             KeyModifiers::CONTROL | KeyModifiers::ALT,
         )),
     );
-    assert_eq!(app.scroll_offset, 1);
+    assert_eq!(app.scroll_offset, 0);
     update(
         &mut app,
         &Msg::Key(KeyEvent::new(
@@ -1293,26 +1284,29 @@ fn question_key_enters_help_mode() {
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE)),
     );
-    assert_eq!(app.mode, Mode::Help);
+    assert_eq!(app.mode, Mode::Prompt);
+    assert_eq!(app.prompt_accessory, PromptAccessory::Help);
 }
 
 #[test]
 fn esc_exits_help_mode() {
     let mut app = fresh_app();
-    app.mode = Mode::Help;
+    app.prompt_accessory = PromptAccessory::Help;
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
     assert_eq!(app.mode, Mode::Prompt);
+    assert_eq!(app.prompt_accessory, PromptAccessory::None);
 }
 
 #[test]
-fn question_key_exits_help_mode() {
+fn question_key_keeps_inline_help_open() {
     let mut app = fresh_app();
-    app.mode = Mode::Help;
+    app.prompt_accessory = PromptAccessory::Help;
     update(
         &mut app,
         &Msg::Key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE)),
     );
     assert_eq!(app.mode, Mode::Prompt);
+    assert_eq!(app.prompt_accessory, PromptAccessory::Help);
 }
 
 #[test]
@@ -1323,6 +1317,7 @@ fn colon_enters_command_mode() {
         &Msg::Key(KeyEvent::new(KeyCode::Char(':'), KeyModifiers::NONE)),
     );
     assert_eq!(app.mode, Mode::Command);
+    assert_eq!(app.prompt_accessory, PromptAccessory::Commands { selected: 0 });
     assert!(app.input.is_empty());
 }
 
@@ -1357,11 +1352,26 @@ fn command_mode_typing_appends_to_input() {
 fn command_mode_enter_executes_and_returns_to_prompt() {
     let mut app = fresh_app();
     app.mode = Mode::Command;
+    app.prompt_accessory = PromptAccessory::Commands { selected: 0 };
     app.input = PromptInput::from_str("clear");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
     assert_eq!(app.mode, Mode::Prompt);
     assert!(app.input.is_empty());
     assert!(app.transcript.is_empty(), "clear should clear the transcript");
+}
+
+#[test]
+fn command_mode_enter_completes_partial_command() {
+    let mut app = fresh_app();
+    app.mode = Mode::Command;
+    app.prompt_accessory = PromptAccessory::Commands { selected: 0 };
+    app.input = PromptInput::from_str("cl");
+
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+
+    assert_eq!(app.mode, Mode::Command);
+    assert_eq!(app.prompt_accessory, PromptAccessory::None);
+    assert_eq!(app.input.as_str(), "clear ");
 }
 
 #[test]
@@ -1414,7 +1424,8 @@ fn command_mode_help_command_enters_help_overlay() {
     app.mode = Mode::Command;
     app.input = PromptInput::from_str("help");
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
-    assert_eq!(app.mode, Mode::Help);
+    assert_eq!(app.mode, Mode::Prompt);
+    assert_eq!(app.prompt_accessory, PromptAccessory::Help);
 }
 
 #[test]
@@ -1538,24 +1549,24 @@ fn tab_is_ignored_in_prompt_mode() {
 }
 
 #[test]
-fn mouse_scroll_up_increases_scroll_offset() {
+fn mouse_scroll_up_is_ignored_outside_picker() {
     let mut app = fresh_app();
     update(
         &mut app,
         &Msg::Mouse(MouseEvent { kind: MouseEventKind::ScrollUp, column: 0, row: 0, modifiers: KeyModifiers::NONE }),
     );
-    assert_eq!(app.scroll_offset, 3);
+    assert_eq!(app.scroll_offset, 0);
 }
 
 #[test]
-fn mouse_scroll_down_decreases_scroll_offset() {
+fn mouse_scroll_down_is_ignored_outside_picker() {
     let mut app = fresh_app();
     app.scroll_offset = 5;
     update(
         &mut app,
         &Msg::Mouse(MouseEvent { kind: MouseEventKind::ScrollDown, column: 0, row: 0, modifiers: KeyModifiers::NONE }),
     );
-    assert_eq!(app.scroll_offset, 2);
+    assert_eq!(app.scroll_offset, 5);
 }
 
 #[test]
@@ -1766,9 +1777,37 @@ fn typing_inserts_at_cursor_not_at_end() {
 #[test]
 fn ctrl_p_still_opens_file_picker() {
     let mut app = fresh_app();
+    let dir = tempfile::tempdir().expect("create temp dir");
+    app.cwd = dir.path().to_path_buf();
     let _ = std::fs::write(app.cwd.join("test.txt"), "test");
     update(&mut app, &key(KeyCode::Char('p'), KeyModifiers::CONTROL));
-    assert_eq!(app.mode, Mode::FilePicker);
+    assert_eq!(app.mode, Mode::Prompt);
+    assert_eq!(app.prompt_accessory, PromptAccessory::Files(FilePickerSource::Forced));
+    assert!(app.file_picker.is_some());
+}
+
+#[test]
+fn at_token_opens_file_picker_and_accepts_mention() {
+    let mut app = fresh_app();
+    let dir = tempfile::tempdir().expect("create temp dir");
+    app.cwd = dir.path().to_path_buf();
+    let _ = std::fs::write(app.cwd.join("readme.md"), "readme");
+
+    for ch in "inspect @read".chars() {
+        update(&mut app, &key(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+
+    assert_eq!(
+        app.prompt_accessory,
+        PromptAccessory::Files(FilePickerSource::Mention { token_start: 8 })
+    );
+    let picker = app.file_picker.as_ref().expect("file picker");
+    assert!(picker.matches.iter().any(|path| path == "readme.md"));
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(app.prompt_accessory, PromptAccessory::None);
+    assert_eq!(app.input.as_str(), "inspect @readme.md ");
 }
 
 #[test]

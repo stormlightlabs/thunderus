@@ -13,54 +13,41 @@ mod transcript;
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::widgets::{Clear, Paragraph};
 
-use crate::app::{App, Entry, FILE_PICKER_VISIBLE_ROWS, Mode, PromptState};
+use crate::app::{
+    App, Entry, FILE_PICKER_VISIBLE_ROWS, Mode, PromptAccessory, PromptState, RunState, command_suggestions_for_app,
+};
 use crate::{banner, utils};
 
-use transcript::entry_lines_with_width;
+use transcript::entry_blocks;
 
 /// Maximum tool output lines rendered in the transcript before a truncation
 /// marker is shown.
 pub const MAX_TOOL_OUTPUT_LINES: usize = 6;
 
-/// Prompt region height: divider line, input line, status line.
-const PROMPT_HEIGHT: u16 = 3;
+/// Minimum prompt region height: dynamic status line, input line.
+const PROMPT_HEIGHT: u16 = 2;
 
-/// Footer region height: one status line.
-const FOOTER_HEIGHT: u16 = 1;
+const MAX_INPUT_ROWS: u16 = 8;
 
-/// Semantic group classification for transcript spacing.
-#[derive(PartialEq)]
-enum EntryGroup {
-    User,
-    Assistant,
-    Reasoning,
-    Tool,
-    Transient,
-}
+/// Footer region height: top padding, status line, bottom padding.
+const FOOTER_HEIGHT: u16 = 3;
 
-impl From<&Entry> for EntryGroup {
-    fn from(e: &Entry) -> Self {
-        match e {
-            Entry::User { .. } => EntryGroup::User,
-            Entry::Assistant { .. } => EntryGroup::Assistant,
-            Entry::Reasoning { .. } => EntryGroup::Reasoning,
-            Entry::Tool { .. } => EntryGroup::Tool,
-            Entry::Status { .. } | Entry::Error { .. } => EntryGroup::Transient,
-        }
-    }
-}
+/// Height reserved by the inline Ratatui viewport. Ratatui fixes this height
+/// when the terminal is created, so inline rendering places the prompt first
+/// and uses the remaining rows only when overlays are open.
+pub const INLINE_VIEWPORT_HEIGHT: u16 = PROMPT_HEIGHT + FOOTER_HEIGHT + FILE_PICKER_VISIBLE_ROWS as u16 + 5;
 
 /// Precomputed layout rectangles plus display flags.
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct ViewState {
     /// Full screen rect handed to `compute_view`.
     pub area: Rect,
-    /// Transcript rect.
-    pub transcript: Rect,
+    /// Live overlay area above prompt/footer.
+    pub body: Rect,
     /// Prompt rect.
     pub prompt: Rect,
     /// Footer rect.
@@ -70,516 +57,702 @@ pub struct ViewState {
 /// Compute view geometry from a terminal rect. Pure function.
 ///
 /// - Vertical: body (fills), prompt, footer.
-/// - Body: transcript.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn compute_view(area: Rect) -> ViewState {
+    compute_view_with_prompt_height(area, PROMPT_HEIGHT)
+}
+
+fn compute_view_with_prompt_height(area: Rect, prompt_height: u16) -> ViewState {
+    compute_view_with_chrome_heights(area, prompt_height, FOOTER_HEIGHT)
+}
+
+fn compute_view_with_chrome_heights(area: Rect, prompt_height: u16, footer_height: u16) -> ViewState {
     let [body, prompt, footer] = Layout::vertical([
         Constraint::Fill(1),
-        Constraint::Length(PROMPT_HEIGHT),
-        Constraint::Length(FOOTER_HEIGHT),
+        Constraint::Length(prompt_height),
+        Constraint::Length(footer_height),
     ])
     .areas(area);
 
-    ViewState { area, transcript: body, prompt, footer }
+    ViewState { area, body, prompt, footer }
 }
 
-/// Render the whole screen from `app` state into `frame`.
+/// Render the live shell from `app` state into `frame`.
 pub fn render(frame: &mut Frame, app: &App) {
+    render_shell(frame, app, true);
+}
+
+/// Render the live shell for Ratatui inline viewport mode.
+pub fn render_inline(frame: &mut Frame, app: &App) {
+    render_inline_shell(frame, app);
+}
+
+fn render_shell(frame: &mut Frame, app: &App, show_empty_banner: bool) {
     style::set_theme(app.theme);
-    let view = compute_view(frame.area());
-    render_transcript(frame, app, view.transcript);
+    let area = frame.area();
+    let inner_width = area.width as usize;
+    let body_lines = shell_body_lines(app, inner_width, show_empty_banner);
+    let prompt_height = prompt_height(app, area.width);
+    let footer_height = FOOTER_HEIGHT;
+    let view = compact_view(area, body_lines.len(), prompt_height, footer_height);
+    render_body_lines(frame, view.body, body_lines);
     render_prompt(frame, app, view.prompt);
     render_footer(frame, app, view.footer);
 
-    match app.mode {
-        Mode::Help => render_help_overlay(frame, frame.area()),
-        Mode::FilePicker => render_file_picker_overlay(frame, frame.area(), app),
-        _ => (),
+    let _ = app.mode;
+}
+
+fn compact_view(area: Rect, body_lines: usize, prompt_height: u16, footer_height: u16) -> ViewState {
+    let fixed_height = prompt_height + footer_height;
+    if body_lines == 0 || body_lines as u16 + fixed_height >= area.height {
+        return compute_view_with_chrome_heights(area, prompt_height, footer_height);
     }
+
+    let body_height = (body_lines as u16).min(area.height.saturating_sub(fixed_height));
+    let [body, prompt, footer, _rest] = Layout::vertical([
+        Constraint::Length(body_height),
+        Constraint::Length(prompt_height),
+        Constraint::Length(footer_height),
+        Constraint::Fill(1),
+    ])
+    .areas(area);
+
+    ViewState { area, body, prompt, footer }
 }
 
-/// Render a centered help overlay listing available commands and keybindings.
-fn render_help_overlay(frame: &mut Frame, area: Rect) {
-    let p = style::palette();
-    let help_lines = vec![
-        Line::from(vec![Span::styled("  Key          Action", style::title_style())]),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("  Enter        ", style::subtle_style()),
-            Span::styled("submit prompt / execute command", style::text_style()),
-        ]),
-        Line::from(vec![
-            Span::styled("  Shift+Enter  ", style::subtle_style()),
-            Span::styled("insert newline (Ctrl+J)", style::text_style()),
-        ]),
-        Line::from(vec![
-            Span::styled("  Esc          ", style::subtle_style()),
-            Span::styled("cancel stream / close overlay", style::text_style()),
-        ]),
-        Line::from(vec![
-            Span::styled("  Ctrl+T       ", style::subtle_style()),
-            Span::styled("toggle running input target", style::text_style()),
-        ]),
-        Line::from(vec![
-            Span::styled("  Ctrl+P       ", style::subtle_style()),
-            Span::styled("open file picker", style::text_style()),
-        ]),
-        Line::from(vec![
-            Span::styled("  Up/Down      ", style::subtle_style()),
-            Span::styled("recall prompt history", style::text_style()),
-        ]),
-        Line::from(vec![
-            Span::styled("  ← →          ", style::subtle_style()),
-            Span::styled("move cursor (Ctrl+B/F)", style::text_style()),
-        ]),
-        Line::from(vec![
-            Span::styled("  Home/End     ", style::subtle_style()),
-            Span::styled("line start/end (Ctrl+A/E)", style::text_style()),
-        ]),
-        Line::from(vec![
-            Span::styled("  Alt+← →      ", style::subtle_style()),
-            Span::styled("move by word (Ctrl+← →, Alt+B/F)", style::text_style()),
-        ]),
-        Line::from(vec![
-            Span::styled("  Backspace    ", style::subtle_style()),
-            Span::styled("delete char before cursor", style::text_style()),
-        ]),
-        Line::from(vec![
-            Span::styled("  Delete       ", style::subtle_style()),
-            Span::styled("delete char after cursor", style::text_style()),
-        ]),
-        Line::from(vec![
-            Span::styled("  PgUp/PgDn    ", style::subtle_style()),
-            Span::styled("jump 10; Ctrl+Alt+U/D", style::text_style()),
-        ]),
-        Line::from(vec![
-            Span::styled("  Ctrl+Alt+Y/E ", style::subtle_style()),
-            Span::styled("scroll by 1 line", style::text_style()),
-        ]),
-        Line::from(vec![
-            Span::styled("  Mouse        ", style::subtle_style()),
-            Span::styled("select text; --mouse enables wheel", style::text_style()),
-        ]),
-        Line::from(vec![
-            Span::styled("  Ctrl+C       ", style::subtle_style()),
-            Span::styled("quit immediately", style::text_style()),
-        ]),
-        Line::from(vec![
-            Span::styled("  Ctrl+D x2    ", style::subtle_style()),
-            Span::styled("quit (double-press within 3s)", style::text_style()),
-        ]),
-        Line::from(vec![Span::styled("  Command      Description", style::title_style())]),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("  :            ", style::subtle_style()),
-            Span::styled("enter command mode", style::text_style()),
-        ]),
-        Line::from(vec![
-            Span::styled("  ?            ", style::subtle_style()),
-            Span::styled("toggle this help overlay", style::text_style()),
-        ]),
-        Line::from(vec![
-            Span::styled("  /clear       ", style::subtle_style()),
-            Span::styled("clear the transcript", style::text_style()),
-        ]),
-        Line::from(vec![
-            Span::styled("  /quit  /exit ", style::subtle_style()),
-            Span::styled("quit the app", style::text_style()),
-        ]),
-        Line::from(vec![
-            Span::styled("  :help        ", style::subtle_style()),
-            Span::styled("show this help overlay", style::text_style()),
-        ]),
-        Line::from(vec![
-            Span::styled("  :bg          ", style::subtle_style()),
-            Span::styled("list background processes", style::text_style()),
-        ]),
-        Line::from(""),
-        Line::styled("  Press ? or Esc to close.", style::muted_style()),
-    ];
-
-    let overlay_height = help_lines.len() as u16 + 2;
-    let overlay_width = 58.min(area.width);
-    let overlay_y = area.height.saturating_sub(overlay_height) / 2;
-    let overlay_x = (area.width.saturating_sub(overlay_width)) / 2;
-
-    let overlay_area = Rect::new(overlay_x, overlay_y, overlay_width, overlay_height);
-
-    frame.render_widget(Clear, overlay_area);
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title(Line::styled(" Help ", style::title_style()))
-        .border_style(style::border_style())
-        .style(Style::default().bg(p.panel_bg));
-    let inner = block.inner(overlay_area);
-    frame.render_widget(block, overlay_area);
-    frame.render_widget(Paragraph::new(Text::from(help_lines)).style(style::text_style()), inner);
-
-    let _ = Layout::vertical([Constraint::Length(0)]);
-}
-
-fn render_file_picker_overlay(frame: &mut Frame, area: Rect, app: &App) {
-    let Some(picker) = app.file_picker.as_ref() else {
-        return;
-    };
-    let p = style::palette();
-    let rows = picker.matches.len().clamp(1, FILE_PICKER_VISIBLE_ROWS);
-    let overlay_height = (rows as u16 + 4).min(area.height);
-    let overlay_width = 72.min(area.width);
-    let overlay_y = area
-        .height
-        .saturating_sub(overlay_height + PROMPT_HEIGHT + FOOTER_HEIGHT);
-    let overlay_x = (area.width.saturating_sub(overlay_width)) / 2;
-    let overlay_area = Rect::new(overlay_x, overlay_y, overlay_width, overlay_height);
-
-    frame.render_widget(Clear, overlay_area);
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title(Line::styled(" Files ", style::title_style()))
-        .border_style(style::border_style())
-        .style(Style::default().bg(p.panel_bg));
-    let inner = block.inner(overlay_area);
-    frame.render_widget(block, overlay_area);
-
-    let mut lines = Vec::new();
-    lines.push(Line::from(vec![
-        Span::styled("  › ", Style::default().fg(p.accent).bg(p.panel_bg)),
-        Span::styled(picker.query.clone(), style::text_style()),
-        Span::styled("█", Style::default().fg(p.accent).bg(p.panel_bg)),
-    ]));
-    lines.push(Line::styled("", style::panel_style()));
-
-    if picker.matches.is_empty() {
-        lines.push(Line::styled("  no matches", style::muted_style()));
+fn shell_body_lines(app: &App, width: usize, show_empty_banner: bool) -> Vec<Line<'static>> {
+    if app.transcript.is_empty() && show_empty_banner {
+        startup_screen_lines(app, width)
     } else {
-        let end = (picker.scroll + rows).min(picker.matches.len());
-        for (idx, path) in picker.matches[picker.scroll..end].iter().enumerate() {
-            let absolute_idx = picker.scroll + idx;
-            let selected = absolute_idx == picker.selected;
-            let marker = if selected { "›" } else { " " };
-            let marker_style = if selected {
-                Style::default()
-                    .fg(p.accent)
-                    .bg(p.surface0)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                style::muted_style()
-            };
-            let path_style = if selected {
-                Style::default().fg(p.text).bg(p.surface0).add_modifier(Modifier::BOLD)
-            } else {
-                style::text_style()
-            };
-            let available = inner.width.saturating_sub(5) as usize;
-            lines.push(Line::from(vec![
-                Span::styled("  ", style::text_style()),
-                Span::styled(marker, marker_style),
-                Span::styled(" ", style::text_style()),
-                Span::styled(utils::truncate_ellipsis(path, available), path_style),
-            ]));
-        }
+        transcript_lines(&app.transcript, &app.user_label, width)
     }
-
-    let status = format!(
-        "  {}/{}  Enter select  Esc close",
-        picker.selected.saturating_add(usize::from(!picker.matches.is_empty())),
-        picker.matches.len()
-    );
-    lines.push(Line::styled(status, style::muted_style()));
-
-    frame.render_widget(Paragraph::new(Text::from(lines)).style(style::panel_style()), inner);
 }
 
-/// Render newest entries fitting the viewport.
-///
-/// We show the FIGlet banner in the empty transcript state when the
-/// transcript area is wide enough; otherwise plain placeholder text.
-fn render_transcript(frame: &mut Frame, app: &App, area: Rect) {
+fn render_inline_shell(frame: &mut Frame, app: &App) {
+    style::set_theme(app.theme);
+    let prompt_height = prompt_height(app, frame.area().width);
+    let footer_height = FOOTER_HEIGHT;
+    let [prompt, footer, _overlay] = Layout::vertical([
+        Constraint::Length(prompt_height),
+        Constraint::Length(footer_height),
+        Constraint::Fill(1),
+    ])
+    .areas(frame.area());
+
+    render_prompt(frame, app, prompt);
+    render_footer(frame, app, footer);
+
+    let _ = app.mode;
+}
+
+/// Render transcript entries as lines suitable for insertion into terminal
+/// scrollback above the inline viewport.
+pub fn transcript_lines(entries: &[Entry], user_label: &str, width: usize) -> Vec<Line<'static>> {
+    entry_blocks(entries, user_label, width)
+        .into_iter()
+        .flat_map(|block| block.into_lines())
+        .collect()
+}
+
+pub fn startup_banner_lines(app: &App, width: usize) -> Vec<Line<'static>> {
+    style::set_theme(app.theme);
+    startup_screen_lines(app, width)
+}
+
+fn startup_screen_lines(_app: &App, width: usize) -> Vec<Line<'static>> {
+    let p = style::palette();
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    lines.push(surface_blank_line(p.surface0, width));
+    let banner_width = width.saturating_sub(4) as u16;
+    let banner_lines = banner::banner_lines(banner_width);
+    let banner_is_art = banner_lines.len() > 1;
+    lines.extend(banner_lines.into_iter().map(|line| {
+        surface_line(
+            vec![Span::styled(line, Style::default().fg(p.accent))],
+            p.surface0,
+            width,
+        )
+    }));
+    if banner_is_art {
+        lines.push(surface_divider_line(p.surface0, width));
+    }
+    lines.push(surface_line(
+        vec![
+            Span::styled("thndrs", Style::default().fg(p.accent).add_modifier(Modifier::BOLD)),
+            Span::styled("  coding agent", style::subtle_style()),
+        ],
+        p.surface0,
+        width,
+    ));
+    lines.push(surface_divider_line(p.surface0, width));
+    let primary_tip = if width < 56 {
+        "Ask for changes or commands."
+    } else {
+        "Ask for a change, run a command, or inspect this repo."
+    };
+    lines.push(surface_line(
+        vec![
+            Span::styled("›  ", Style::default().fg(p.accent)),
+            Span::styled(
+                utils::truncate_ellipsis(primary_tip, width.saturating_sub(4)),
+                style::subtle_style(),
+            ),
+        ],
+        p.surface0,
+        width,
+    ));
+    lines.push(surface_line(
+        vec![
+            Span::styled("?  ", Style::default().fg(p.accent)),
+            Span::styled("help", style::subtle_style()),
+            Span::styled("   Ctrl+P ", Style::default().fg(p.accent)),
+            Span::styled("files", style::subtle_style()),
+        ],
+        p.surface0,
+        width,
+    ));
+    lines.push(surface_blank_line(p.surface0, width));
+    lines
+}
+
+fn surface_divider_line(bg: Color, width: usize) -> Line<'static> {
+    let p = style::palette();
+    surface_line(
+        vec![Span::styled(
+            "─".repeat(width.saturating_sub(4)),
+            Style::default().fg(p.overlay0),
+        )],
+        bg,
+        width,
+    )
+}
+
+fn surface_line(spans: Vec<Span<'static>>, bg: Color, width: usize) -> Line<'static> {
+    if width == 0 {
+        let mut line = Line::from("");
+        line.style = Style::default().bg(bg);
+        return line;
+    }
+
+    let left_pad = width.min(2);
+    let right_pad = width.saturating_sub(left_pad).min(2);
+    let body_width = width.saturating_sub(left_pad + right_pad);
+    let mut out = Vec::new();
+    let mut used = 0usize;
+    if left_pad > 0 {
+        out.push(Span::styled(" ".repeat(left_pad), Style::default().bg(bg)));
+    }
+
+    for span in spans {
+        if used >= body_width {
+            break;
+        }
+        let take = body_width - used;
+        let content: String = span.content.chars().take(take).collect();
+        used += content.chars().count();
+        out.push(Span::styled(content, span.style.bg(bg)));
+    }
+
+    if used < body_width {
+        out.push(Span::styled(" ".repeat(body_width - used), Style::default().bg(bg)));
+    }
+    if right_pad > 0 {
+        out.push(Span::styled(" ".repeat(right_pad), Style::default().bg(bg)));
+    }
+
+    let mut line = Line::from(out);
+    line.style = Style::default().bg(bg);
+    line
+}
+
+fn surface_blank_line(bg: Color, width: usize) -> Line<'static> {
+    surface_line(Vec::new(), bg, width)
+}
+
+fn surface_padding_width(width: usize) -> usize {
+    let left_pad = width.min(2);
+    let right_pad = width.saturating_sub(left_pad).min(2);
+    left_pad + right_pad
+}
+
+fn render_body_lines(frame: &mut Frame, area: Rect, lines: Vec<Line<'static>>) {
     if area.width == 0 || area.height == 0 {
         return;
     }
-    let p = style::palette();
 
-    let preview_inner = Rect::new(
-        area.x.saturating_add(1),
-        area.y.saturating_add(1),
-        area.width.saturating_sub(2),
-        area.height.saturating_sub(2),
-    );
-    let banner_lines = if app.transcript.is_empty() { banner::banner_lines(preview_inner.width) } else { Vec::new() };
-    let banner_height = banner_lines.len() as u16;
-    let banner_max_width = banner_lines.iter().map(|l| l.len()).max().unwrap_or(0) as u16;
-    let show_banner = app.transcript.is_empty()
-        && banner_height > 1
-        && preview_inner.height > banner_height
-        && banner_max_width <= preview_inner.width;
+    frame.render_widget(Clear, area);
 
-    let session_title = transcript_title(app);
-    let title = if area.width < 55 { Some("thndrs") } else { Some(session_title.as_str()) };
-    let mut block = Block::bordered()
-        .border_style(style::border_style())
-        .style(style::panel_style());
-    if let Some(title) = title {
-        block = block.title(Line::styled(title, style::title_style()));
-    }
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-    if inner.height == 0 {
+    if lines.is_empty() {
+        render_surface_blank(frame, area, style::palette().panel_bg);
         return;
     }
 
-    if app.transcript.is_empty() {
-        if show_banner {
-            let total_padding = inner.height.saturating_sub(banner_height);
-            let top_pad = total_padding / 3;
-
-            let banner_text = Text::from(
-                banner_lines
-                    .iter()
-                    .map(|l| {
-                        let line_len = l.len() as u16;
-                        let h_pad = inner.width.saturating_sub(line_len) / 2;
-                        Line::styled(
-                            format!("{}{}", " ".repeat(h_pad as usize), l),
-                            Style::default().fg(p.accent).bg(p.panel_bg),
-                        )
-                    })
-                    .collect::<Vec<Line>>(),
-            );
-
-            let mut all_lines: Vec<Line> = Vec::new();
-            for _ in 0..top_pad {
-                all_lines.push(Line::styled("", style::panel_style()));
-            }
-            all_lines.extend(banner_text.lines);
-            frame.render_widget(Paragraph::new(Text::from(all_lines)).left_aligned(), inner);
-        } else {
-            let placeholder_lines = vec![
-                Line::styled(
-                    "thndrs",
-                    Style::default()
-                        .fg(p.accent)
-                        .bg(p.panel_bg)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Line::styled("Type your message below.", style::muted_style()),
-            ];
-            let total_height = placeholder_lines.len() as u16;
-            let top_pad = inner.height.saturating_sub(total_height) / 3;
-
-            let mut all_lines: Vec<Line> = Vec::new();
-            for _ in 0..top_pad {
-                all_lines.push(Line::styled("", style::panel_style()));
-            }
-            for pl in &placeholder_lines {
-                let line_len = pl.width() as u16;
-                let h_pad = inner.width.saturating_sub(line_len) / 2;
-                all_lines.push(Line::styled(format!("{}{}", " ".repeat(h_pad as usize), pl), pl.style));
-            }
-            frame.render_widget(Paragraph::new(Text::from(all_lines)).left_aligned(), inner);
-        }
-        return;
-    }
-
-    let mut lines: Vec<Line> = Vec::new();
-    for (i, e) in app.transcript.iter().enumerate() {
-        if i > 0 {
-            let prev = &app.transcript[i - 1];
-            if is_group_boundary(prev, e) {
-                lines.push(Line::styled("", style::panel_style()));
-            }
-        }
-        lines.extend(entry_lines_with_width(
-            e,
-            app.ui_tick,
-            &app.user_label,
-            inner.width as usize,
-        ));
-    }
-    let available = inner.height as usize;
-    let from_bottom = app.scroll_offset.min(lines.len().saturating_sub(1));
-    let end = lines.len().saturating_sub(from_bottom);
-    let start = end.saturating_sub(available);
-    let visible: Vec<Line> = lines[start..end].to_vec();
-    frame.render_widget(Paragraph::new(Text::from(visible)), inner);
+    let start = lines.len().saturating_sub(area.height as usize);
+    let visible = lines.into_iter().skip(start).collect::<Vec<_>>();
+    frame.render_widget(Paragraph::new(Text::from(visible)).style(style::panel_style()), area);
 }
 
 fn render_prompt(frame: &mut Frame, app: &App, area: Rect) {
     if area.width == 0 || area.height == 0 {
         return;
     }
-    let p = style::palette();
+    frame.render_widget(Clear, area);
 
-    let state = app.prompt_state();
-    let divider_color = match state {
-        PromptState::Editable => p.overlay0,
-        PromptState::Submitted => p.yellow,
-        PromptState::Streaming | PromptState::RunningTool => p.teal,
-        PromptState::Stopped => p.overlay1,
-        PromptState::Errored => p.red,
-    };
+    let accessory_height = accessory_height(app, area.width).min(area.height.saturating_sub(3));
+    let input_height = input_height(app, area.width).min(area.height.saturating_sub(2 + accessory_height));
+    let [top_pad_area, dynamic_area, accessory_area, input_area, bottom_pad_area] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(accessory_height),
+        Constraint::Length(input_height),
+        Constraint::Length(1),
+    ])
+    .areas(area);
 
-    let block = Block::new()
-        .borders(Borders::TOP)
-        .border_style(Style::default().fg(divider_color).bg(p.panel_bg))
-        .style(style::panel_style());
+    render_surface_blank(frame, top_pad_area, style::palette().surface0);
+    render_dynamic_status(frame, app, dynamic_area);
+    render_prompt_accessory(frame, app, accessory_area);
+    render_prompt_input(frame, app, input_area);
+    render_surface_blank(frame, bottom_pad_area, style::palette().surface0);
+}
 
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-    if inner.height == 0 {
+fn render_surface_blank(frame: &mut Frame, area: Rect, bg: Color) {
+    if area.width == 0 || area.height == 0 {
         return;
     }
+    let lines = (0..area.height)
+        .map(|_| surface_blank_line(bg, area.width as usize))
+        .collect::<Vec<_>>();
+    frame.render_widget(Paragraph::new(Text::from(lines)).style(style::panel_style()), area);
+}
 
+fn render_prompt_input(frame: &mut Frame, app: &App, area: Rect) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let p = style::palette();
+    let state = app.prompt_state();
     let (prompt_color, show_input, icon) = match state {
         PromptState::Editable => (p.yellow, true, "›"),
-        PromptState::Submitted => (p.yellow, false, style::spinner_frame(app.ui_tick)),
-        PromptState::Streaming | PromptState::RunningTool => (p.teal, true, style::spinner_frame(app.ui_tick)),
+        PromptState::Submitted => (p.yellow, false, "·"),
+        PromptState::Streaming | PromptState::RunningTool => (p.teal, true, "›"),
         PromptState::Stopped => (p.teal, true, "○"),
         PromptState::Errored => (p.red, true, "✕"),
     };
 
-    let [input_area, status_area] = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas(inner);
+    let mut rows = if show_input {
+        prompt_input_lines(app, area.width as usize, icon, prompt_color)
+    } else {
+        vec![PromptRow {
+            line: surface_line(
+                vec![
+                    Span::styled(icon, Style::default().fg(prompt_color).bg(p.surface0)),
+                    Span::styled("  submitted", style::muted_style()),
+                ],
+                p.surface0,
+                area.width as usize,
+            ),
+            cursor: true,
+        }]
+    };
 
-    let mut input_spans = vec![
-        Span::styled("  ", style::text_style()),
-        Span::styled(icon, Style::default().fg(prompt_color).bg(p.panel_bg)),
-        Span::styled("  ", style::text_style()),
-    ];
-
-    if show_input {
-        let prefix_width = if app.mode == Mode::Command { 5 } else { 4 };
-        let input_width = input_area.width as usize;
-        let visible_input_width = input_width.saturating_sub(prefix_width + 1);
-        if app.mode == Mode::Command {
-            input_spans.push(Span::styled(":", Style::default().fg(p.accent).bg(p.panel_bg)));
-        }
-        let input_text = app.input.as_str();
-        let cursor = app.input.cursor();
-
-        let text_len = input_text.chars().count();
-        if text_len < visible_input_width {
-            let before: String = input_text.chars().take(cursor).collect();
-            let after: String = input_text.chars().skip(cursor).collect();
-            input_spans.push(Span::styled(before, style::text_style()));
-            input_spans.push(Span::styled("▏", Style::default().fg(prompt_color).bg(p.panel_bg)));
-            input_spans.push(Span::styled(after, style::text_style()));
-        } else {
-            let avail = visible_input_width.saturating_sub(1);
-            let start = cursor.saturating_sub(avail);
-            let end = (start + avail).min(text_len);
-            let before: String = input_text
-                .chars()
-                .skip(start)
-                .take(cursor.saturating_sub(start))
-                .collect();
-            let after: String = input_text
-                .chars()
-                .skip(cursor)
-                .take(end.saturating_sub(cursor))
-                .collect();
-            if start > 0 {
-                input_spans.push(Span::styled("…", style::muted_style()));
-            }
-            input_spans.push(Span::styled(before, style::text_style()));
-            input_spans.push(Span::styled("▏", Style::default().fg(prompt_color).bg(p.panel_bg)));
-            input_spans.push(Span::styled(after, style::text_style()));
-            if end < text_len {
-                input_spans.push(Span::styled("…", style::muted_style()));
-            }
-        }
+    if rows.len() > area.height as usize {
+        let cursor_row = rows
+            .iter()
+            .position(PromptRow::has_cursor)
+            .unwrap_or_else(|| rows.len().saturating_sub(1));
+        let max_rows = area.height as usize;
+        let start = cursor_row.saturating_add(1).saturating_sub(max_rows);
+        rows = rows.into_iter().skip(start).take(max_rows).collect();
     }
 
-    frame.render_widget(Paragraph::new(Line::from(input_spans)), input_area);
+    let lines = rows.into_iter().map(|row| row.line).collect::<Vec<_>>();
+    frame.render_widget(Paragraph::new(Text::from(lines)).style(style::panel_style()), area);
+}
 
-    if app.mode == Mode::Command {
-        let suggestions = command_suggestions(app.input.as_str());
-        let mut sug_spans: Vec<Span<'static>> = vec![Span::styled("  ", style::text_style())];
-        for (i, (cmd, desc)) in suggestions.iter().enumerate() {
-            if i > 0 {
-                sug_spans.push(Span::styled("  ", style::text_style()));
-            }
-            let is_match = cmd.starts_with(app.input.as_str());
-            let cmd_style = if is_match {
-                Style::default()
-                    .fg(p.accent)
-                    .bg(p.surface0)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                style::muted_style()
-            };
-            sug_spans.push(Span::styled(format!(":{cmd}"), cmd_style));
-            sug_spans.push(Span::styled(format!(" {desc}"), style::subtle_style()));
-        }
-        if sug_spans.len() <= 1 {
-            sug_spans.push(Span::styled("  (type a command…)", style::muted_style()));
-        }
-        frame.render_widget(Paragraph::new(Line::from(sug_spans)), status_area);
-    } else {
-        let mut status_spans: Vec<Span<'static>> = Vec::new();
+fn render_dynamic_status(frame: &mut Frame, app: &App, area: Rect) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let p = style::palette();
+    let label = app.status_label();
+    let status_color = style::status_color(label);
+    let status_text = format!("{} {label}", style::status_icon(label, app.ui_tick));
+    let session = if app.session_id.is_empty() { "thndrs" } else { &app.session_id };
 
-        if matches!(state, PromptState::Stopped | PromptState::Errored) {
-            let label = match state {
-                PromptState::Stopped => "Stopped",
-                PromptState::Errored => "Error",
-                _ => "",
-            };
-            status_spans.push(Span::styled("  ", style::text_style()));
-            status_spans.push(Span::styled(
-                label.to_string(),
-                Style::default().fg(prompt_color).bg(p.panel_bg),
-            ));
-        }
+    let mut spans: Vec<Span<'static>> = vec![
+        Span::styled(session.to_string(), style::title_style()),
+        Span::styled("  ", style::text_style()),
+        Span::styled(status_text, Style::default().fg(status_color)),
+    ];
 
-        if matches!(
-            state,
-            PromptState::Submitted | PromptState::Streaming | PromptState::RunningTool
-        ) {
-            let queue = format!(
-                "  target: {}  queued: {}/{}  Ctrl+T toggles",
+    if matches!(app.run_state, RunState::Working) {
+        spans.push(Span::styled("  ", style::text_style()));
+        spans.push(Span::styled(
+            format!(
+                "target: {}  queued: {}/{}",
                 app.queue_target.label(),
                 app.queued_steering.len(),
                 app.queued_followups.len()
-            );
-            status_spans.push(Span::styled(queue, style::subtle_style()));
-        }
+            ),
+            style::subtle_style(),
+        ));
+    }
 
-        if status_spans.is_empty() {
-            status_spans.push(Span::styled(" ", style::text_style()));
-        }
+    frame.render_widget(
+        Paragraph::new(surface_line(spans, p.surface0, area.width as usize)).style(style::panel_style()),
+        area,
+    );
+}
 
-        frame.render_widget(Paragraph::new(Line::from(status_spans)), status_area);
+fn render_prompt_accessory(frame: &mut Frame, app: &App, area: Rect) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
+    let lines = match app.prompt_accessory {
+        PromptAccessory::None => Vec::new(),
+        PromptAccessory::Help => inline_help_lines(area.width as usize),
+        PromptAccessory::Commands { selected } => command_accessory_lines(app, selected, area.width as usize),
+        PromptAccessory::Files(_) => file_accessory_lines(app, area.width as usize),
+    };
+
+    let visible = lines.into_iter().take(area.height as usize).collect::<Vec<_>>();
+    frame.render_widget(Paragraph::new(Text::from(visible)).style(style::panel_style()), area);
+}
+
+fn inline_help_lines(width: usize) -> Vec<Line<'static>> {
+    let p = style::palette();
+    let rows = [
+        ("Enter", "submit / accept highlighted item"),
+        ("Shift+Enter", "insert newline"),
+        ("Esc", "close help, files, or commands"),
+        ("Ctrl+P", "pick a file"),
+        ("@path", "mention a file from fuzzy search"),
+        ("Up/Down", "select item or recall history"),
+        ("Ctrl+A/E", "move to start/end"),
+        ("Ctrl+B/F", "move left/right"),
+    ];
+
+    rows.into_iter()
+        .map(|(key, desc)| {
+            surface_line(
+                vec![
+                    Span::styled(
+                        format!("{key:<12}"),
+                        Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(desc, style::text_style()),
+                ],
+                p.surface0,
+                width,
+            )
+        })
+        .collect()
+}
+
+fn command_accessory_lines(app: &App, selected: usize, width: usize) -> Vec<Line<'static>> {
+    let p = style::palette();
+    let suggestions = command_suggestions_for_app(app);
+    if suggestions.is_empty() {
+        return vec![surface_line(
+            vec![Span::styled("no commands", style::muted_style())],
+            p.surface0,
+            width,
+        )];
+    }
+
+    suggestions
+        .iter()
+        .enumerate()
+        .take(FILE_PICKER_VISIBLE_ROWS)
+        .map(|(idx, (cmd, desc))| {
+            let active = idx == selected.min(suggestions.len().saturating_sub(1));
+            let bg = if active { p.surface1 } else { p.surface0 };
+            let marker = if active { "›" } else { " " };
+            surface_line(
+                vec![
+                    Span::styled(marker, Style::default().fg(p.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled("  /", style::muted_style()),
+                    Span::styled(*cmd, Style::default().fg(p.text).add_modifier(Modifier::BOLD)),
+                    Span::styled("  ", style::text_style()),
+                    Span::styled(*desc, style::subtle_style()),
+                ],
+                bg,
+                width,
+            )
+        })
+        .collect()
+}
+
+fn file_accessory_lines(app: &App, width: usize) -> Vec<Line<'static>> {
+    let p = style::palette();
+    let Some(picker) = app.file_picker.as_ref() else {
+        return vec![surface_line(
+            vec![Span::styled("files loading", style::muted_style())],
+            p.surface0,
+            width,
+        )];
+    };
+
+    let mut lines = Vec::new();
+    lines.push(surface_line(
+        vec![
+            Span::styled("files", Style::default().fg(p.accent).add_modifier(Modifier::BOLD)),
+            Span::styled("  ", style::text_style()),
+            Span::styled(
+                if picker.query.is_empty() { String::from("type to filter") } else { picker.query.clone() },
+                style::muted_style(),
+            ),
+        ],
+        p.surface0,
+        width,
+    ));
+
+    if picker.matches.is_empty() {
+        lines.push(surface_line(
+            vec![Span::styled("no matches", style::muted_style())],
+            p.surface0,
+            width,
+        ));
+    } else {
+        let rows = picker.matches.len().clamp(1, FILE_PICKER_VISIBLE_ROWS);
+        let end = (picker.scroll + rows).min(picker.matches.len());
+        for (idx, path) in picker.matches[picker.scroll..end].iter().enumerate() {
+            let absolute_idx = picker.scroll + idx;
+            let active = absolute_idx == picker.selected;
+            let bg = if active { p.surface1 } else { p.surface0 };
+            let marker = if active { "›" } else { " " };
+            let available = width.saturating_sub(6);
+            lines.push(surface_line(
+                vec![
+                    Span::styled(marker, Style::default().fg(p.accent).add_modifier(Modifier::BOLD)),
+                    Span::styled("  ", style::text_style()),
+                    Span::styled(utils::truncate_ellipsis(path, available), style::text_style()),
+                ],
+                bg,
+                width,
+            ));
+        }
+    }
+
+    lines.push(surface_line(
+        vec![
+            Span::styled("Enter", Style::default().fg(p.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(" select   ", style::muted_style()),
+            Span::styled("Esc", Style::default().fg(p.accent).add_modifier(Modifier::BOLD)),
+            Span::styled(" close", style::muted_style()),
+        ],
+        p.surface0,
+        width,
+    ));
+    lines
+}
+
+fn prompt_height(app: &App, width: u16) -> u16 {
+    3 + accessory_height(app, width) + input_height(app, width)
+}
+
+fn accessory_height(app: &App, width: u16) -> u16 {
+    match app.prompt_accessory {
+        PromptAccessory::None => 0,
+        PromptAccessory::Help => inline_help_lines(width as usize).len() as u16,
+        PromptAccessory::Commands { .. } => command_suggestions_for_app(app)
+            .len()
+            .clamp(1, FILE_PICKER_VISIBLE_ROWS) as u16,
+        PromptAccessory::Files(_) => {
+            let rows = app
+                .file_picker
+                .as_ref()
+                .map(|picker| picker.matches.len().clamp(1, FILE_PICKER_VISIBLE_ROWS) + 2)
+                .unwrap_or(1);
+            rows as u16
+        }
     }
 }
 
-fn transcript_title(app: &App) -> String {
-    app.session_id.clone()
+fn input_height(app: &App, width: u16) -> u16 {
+    let body_width = input_body_width(app, width).max(1);
+    prompt_wrapped_rows(app.input.as_str(), body_width)
+        .len()
+        .clamp(1, MAX_INPUT_ROWS as usize) as u16
 }
 
-/// Available slash commands with short descriptions, used for the suggestion UI.
-fn command_suggestions(_input: &str) -> Vec<(&'static str, &'static str)> {
-    vec![
-        ("clear", "clear transcript"),
-        ("quit", "exit app"),
-        ("exit", "exit app"),
-        ("help", "show help"),
-        ("bg", "list background processes"),
-    ]
+fn input_body_width(app: &App, width: u16) -> usize {
+    let horizontal_padding = surface_padding_width(width as usize);
+    (width as usize)
+        .saturating_sub(horizontal_padding + prompt_prefix_width(app))
+        .max(1)
+}
+
+struct PromptRow {
+    line: Line<'static>,
+    cursor: bool,
+}
+
+impl PromptRow {
+    fn has_cursor(&self) -> bool {
+        self.cursor
+    }
+}
+
+fn prompt_input_lines(app: &App, width: usize, icon: &'static str, prompt_color: Color) -> Vec<PromptRow> {
+    let p = style::palette();
+    let body_width = input_body_width(app, width as u16).max(1);
+    let rows = prompt_wrapped_rows_with_cursor(app.input.as_str(), app.input.cursor(), body_width);
+    rows.into_iter()
+        .enumerate()
+        .map(|(idx, row)| {
+            let mut spans: Vec<Span<'static>> = if idx == 0 {
+                let mut spans = vec![
+                    Span::styled(icon, Style::default().fg(prompt_color).bg(p.surface0)),
+                    Span::styled("  ", style::text_style()),
+                ];
+                if app.mode == Mode::Command {
+                    spans.push(Span::styled(":", Style::default().fg(p.accent).bg(p.surface0)));
+                }
+                spans
+            } else {
+                let indent = " ".repeat(prompt_prefix_width(app));
+                vec![Span::styled(indent, style::text_style())]
+            };
+
+            for part in row.parts {
+                match part {
+                    PromptPart::Text(text) => spans.push(Span::styled(text, style::text_style())),
+                    PromptPart::Cursor => {
+                        spans.push(Span::styled("▏", Style::default().fg(prompt_color).bg(p.surface0)))
+                    }
+                }
+            }
+
+            PromptRow { line: surface_line(spans, p.surface0, width), cursor: row.cursor }
+        })
+        .collect()
+}
+
+fn prompt_prefix_width(app: &App) -> usize {
+    if app.mode == Mode::Command { 4 } else { 3 }
+}
+
+fn prompt_wrapped_rows(text: &str, width: usize) -> Vec<String> {
+    let mut rows = Vec::new();
+    let mut current = String::new();
+    let mut used = 0;
+
+    for ch in text.chars() {
+        if ch == '\n' {
+            rows.push(current);
+            current = String::new();
+            used = 0;
+            continue;
+        }
+
+        if used >= width {
+            rows.push(current);
+            current = String::new();
+            used = 0;
+        }
+        current.push(ch);
+        used += 1;
+    }
+
+    rows.push(current);
+    rows
+}
+
+enum PromptPart {
+    Text(String),
+    Cursor,
+}
+
+struct WrappedPromptRow {
+    parts: Vec<PromptPart>,
+    cursor: bool,
+}
+
+fn prompt_wrapped_rows_with_cursor(text: &str, cursor: usize, width: usize) -> Vec<WrappedPromptRow> {
+    let mut rows = Vec::new();
+    let mut parts = Vec::new();
+    let mut buf = String::new();
+    let mut used = 0;
+    let mut pos = 0;
+    let mut row_has_cursor = false;
+    let mut placed_cursor = false;
+
+    for ch in text.chars() {
+        if pos == cursor {
+            if !buf.is_empty() {
+                parts.push(PromptPart::Text(std::mem::take(&mut buf)));
+            }
+            parts.push(PromptPart::Cursor);
+            row_has_cursor = true;
+            placed_cursor = true;
+        }
+
+        if ch == '\n' {
+            if !buf.is_empty() {
+                parts.push(PromptPart::Text(std::mem::take(&mut buf)));
+            }
+            rows.push(WrappedPromptRow { parts, cursor: row_has_cursor });
+            parts = Vec::new();
+            used = 0;
+            row_has_cursor = false;
+            pos += 1;
+            continue;
+        }
+
+        if used >= width {
+            if !buf.is_empty() {
+                parts.push(PromptPart::Text(std::mem::take(&mut buf)));
+            }
+            rows.push(WrappedPromptRow { parts, cursor: row_has_cursor });
+            parts = Vec::new();
+            used = 0;
+            row_has_cursor = false;
+        }
+
+        buf.push(ch);
+        used += 1;
+        pos += 1;
+    }
+
+    if !placed_cursor {
+        if !buf.is_empty() {
+            parts.push(PromptPart::Text(std::mem::take(&mut buf)));
+        }
+        parts.push(PromptPart::Cursor);
+        row_has_cursor = true;
+    } else if !buf.is_empty() {
+        parts.push(PromptPart::Text(buf));
+    }
+
+    rows.push(WrappedPromptRow { parts, cursor: row_has_cursor });
+    rows
 }
 
 fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     if area.width == 0 || area.height == 0 {
         return;
     }
+    frame.render_widget(Clear, area);
     let p = style::palette();
-
-    let label = app.status_label();
-    let status_color = style::status_color(label);
     let search_label = app.websearch.label();
-    let status_label = format!("{} {label}", style::status_icon(label, app.ui_tick));
     let model_label = format!("model: {}", app.model);
     let search_text = format!("search: {search_label}");
     let token_text = format!("tok: ↑{} ↓{}", app.session_tokens_in, app.session_tokens_out);
 
-    let (show_model, show_search, show_tokens, show_cwd) = match area.width {
+    let status_area = if area.height >= 3 {
+        let [top_pad_area, status_area, bottom_pad_area] =
+            Layout::vertical([Constraint::Length(1), Constraint::Length(1), Constraint::Length(1)]).areas(area);
+        render_surface_blank(frame, top_pad_area, p.surface0);
+        render_surface_blank(frame, bottom_pad_area, p.surface0);
+        status_area
+    } else {
+        area
+    };
+
+    let (show_model, show_search, show_tokens, show_cwd) = match status_area.width {
         w if w < 24 => (false, false, false, false),
         w if w < 42 => (true, false, false, false),
         w if w < 56 => (true, true, false, false),
@@ -587,59 +760,39 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
         _ => (true, true, true, true),
     };
 
-    let mut spans: Vec<Span<'static>> = vec![
-        Span::styled(" ", style::text_style()),
-        Span::styled(status_label.clone(), Style::default().fg(status_color).bg(p.panel_bg)),
-    ];
+    let mut spans: Vec<Span<'static>> = Vec::new();
 
     if show_model {
-        spans.push(Span::styled("  ", style::text_style()));
-        spans.push(style::muted_chip(&model_label));
+        spans.push(Span::styled(model_label.clone(), style::subtle_style()));
     }
     if show_search {
-        spans.push(Span::styled(" ", style::text_style()));
-        spans.push(style::muted_chip(&search_text));
+        spans.push(Span::styled("   ", style::text_style()));
+        spans.push(Span::styled(search_text.clone(), style::subtle_style()));
     }
     if show_tokens {
-        spans.push(Span::styled(" ", style::text_style()));
-        spans.push(style::muted_chip(&token_text));
+        spans.push(Span::styled("   ", style::text_style()));
+        spans.push(Span::styled(token_text.clone(), style::subtle_style()));
     }
     if show_cwd {
-        let status_len = text_width(&status_label) + 1;
-        let model_len = if show_model { text_width(&model_label) + 4 } else { 0 };
+        let model_len = if show_model { text_width(&model_label) } else { 0 };
         let search_len = if show_search { text_width(&search_text) + 3 } else { 0 };
         let token_len = if show_tokens { text_width(&token_text) + 3 } else { 0 };
-        let used = status_len + model_len + search_len + token_len;
-        spans.push(Span::styled(" ", style::text_style()));
+        let used = 4 + model_len + search_len + token_len + 3;
+        spans.push(Span::styled("   ", style::text_style()));
         spans.push(Span::styled(
-            path_display::footer_segment(&app.cwd, area.width as usize, used),
+            path_display::footer_segment(&app.cwd, status_area.width as usize, used),
             style::muted_style(),
         ));
     }
 
-    frame.render_widget(Paragraph::new(Line::from(spans)).style(style::panel_style()), area);
+    frame.render_widget(
+        Paragraph::new(surface_line(spans, p.surface0, status_area.width as usize)).style(style::panel_style()),
+        status_area,
+    );
 }
 
 fn text_width(text: &str) -> usize {
     text.chars().count()
-}
-
-/// Whether a blank separator line should be inserted between two consecutive
-/// transcript entries.
-///
-/// Gaps are inserted between different semantic groups: user→assistant,
-/// assistant→tool, tool→assistant, etc. No gap within the same type (e.g.
-/// streaming deltas), and no gap around Status/Error entries (they're
-/// transient and sit close to their context).
-fn is_group_boundary(prev: &Entry, curr: &Entry) -> bool {
-    let prev_type = EntryGroup::from(prev);
-    let curr_type = EntryGroup::from(curr);
-
-    if prev_type == EntryGroup::Transient || curr_type == EntryGroup::Transient {
-        false
-    } else {
-        prev_type != curr_type
-    }
 }
 
 #[cfg(test)]
@@ -664,20 +817,99 @@ mod tests {
     }
 
     #[test]
-    fn compute_view_uses_full_width_for_transcript() {
+    fn surface_line_paints_full_row_with_internal_padding() {
+        let bg = Color::Blue;
+        let line = surface_line(vec![Span::styled("hi", Style::default().fg(Color::White))], bg, 10);
+        let rendered: String = line.spans.iter().map(|span| span.content.as_ref()).collect();
+
+        assert_eq!(line.style.bg, Some(bg));
+        assert_eq!(text_width(&rendered), 10);
+        assert_eq!(line.spans.first().unwrap().content.as_ref(), "  ");
+        assert_eq!(line.spans.last().unwrap().content.as_ref(), "  ");
+        assert!(line.spans.iter().all(|span| span.style.bg == Some(bg)));
+    }
+
+    #[test]
+    fn surface_line_does_not_exceed_tiny_width() {
+        let bg = Color::Blue;
+        let line = surface_line(vec![Span::styled("hello", Style::default().fg(Color::White))], bg, 3);
+        let rendered: String = line.spans.iter().map(|span| span.content.as_ref()).collect();
+
+        assert_eq!(line.style.bg, Some(bg));
+        assert_eq!(text_width(&rendered), 3);
+        assert!(line.spans.iter().all(|span| span.style.bg == Some(bg)));
+    }
+
+    #[test]
+    fn startup_screen_lines_are_full_width_surface_rows() {
+        let app = app();
+        let width = 80;
+        let bg = style::palette().surface0;
+        let mut rendered_startup = String::new();
+
+        for line in startup_screen_lines(&app, width) {
+            let rendered: String = line.spans.iter().map(|span| span.content.as_ref()).collect();
+            rendered_startup.push_str(&rendered);
+            rendered_startup.push('\n');
+            assert_eq!(line.style.bg, Some(bg));
+            assert_eq!(text_width(&rendered), width);
+            assert!(line.spans.iter().all(|span| span.style.bg == Some(bg)));
+        }
+
+        assert!(!rendered_startup.contains("model umans-coder"));
+        assert!(!rendered_startup.contains("search auto"));
+    }
+
+    #[test]
+    fn narrow_startup_uses_plain_title_banner() {
+        let app = app();
+        let first_line = startup_screen_lines(&app, 30)
+            .into_iter()
+            .find(|line| line.spans.iter().any(|span| !span.content.trim().is_empty()))
+            .expect("non-empty startup line");
+        let rendered: String = first_line.spans.iter().map(|span| span.content.as_ref()).collect();
+
+        assert!(rendered.contains("THNDRS"));
+        assert_eq!(text_width(&rendered), 30);
+        assert_eq!(first_line.style.bg, Some(style::palette().surface0));
+    }
+
+    #[test]
+    fn multiline_prompt_continuation_aligns_with_input_column() {
+        let mut app = app();
+        app.input = PromptInput::from_str("x\nx");
+        let rows = prompt_input_lines(&app, 20, "›", style::palette().yellow);
+        let rendered = rows
+            .into_iter()
+            .map(|row| {
+                row.line
+                    .spans
+                    .into_iter()
+                    .map(|span| span.content.to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+
+        let first_x = rendered[0].chars().position(|ch| ch == 'x');
+        let second_x = rendered[1].chars().position(|ch| ch == 'x');
+        assert_eq!(first_x, second_x);
+    }
+
+    #[test]
+    fn compute_view_uses_full_width_for_body() {
         let area = Rect::new(0, 0, 80, 24);
         let view = compute_view(area);
         assert_eq!(view.prompt.height, PROMPT_HEIGHT);
         assert_eq!(view.footer.height, FOOTER_HEIGHT);
-        assert_eq!(view.transcript.width, 80);
-        assert!(view.transcript.height > 0);
+        assert_eq!(view.body.width, 80);
+        assert!(view.body.height > 0);
     }
 
     #[test]
-    fn compute_view_narrow_width_still_uses_full_transcript() {
+    fn compute_view_narrow_width_still_uses_full_body() {
         let area = Rect::new(0, 0, 40, 24);
         let view = compute_view(area);
-        assert_eq!(view.transcript.width, 40);
+        assert_eq!(view.body.width, 40);
     }
 
     #[test]
@@ -693,10 +925,10 @@ mod tests {
         let area = Rect::new(0, 0, 80, 24);
         let view = compute_view(area);
 
-        assert_eq!(view.transcript.x, 0);
-        assert_eq!(view.transcript.width, 80);
+        assert_eq!(view.body.x, 0);
+        assert_eq!(view.body.width, 80);
 
-        assert!(view.transcript.y + view.transcript.height <= view.prompt.y);
+        assert!(view.body.y + view.body.height <= view.prompt.y);
         assert_eq!(view.prompt.height, PROMPT_HEIGHT);
         assert_eq!(view.prompt.y + view.prompt.height, view.footer.y);
         assert_eq!(view.footer.height, FOOTER_HEIGHT);
@@ -707,8 +939,8 @@ mod tests {
     fn compute_view_narrow_rect_full_width() {
         let area = Rect::new(0, 0, 40, 24);
         let view = compute_view(area);
-        assert_eq!(view.transcript.x, 0);
-        assert_eq!(view.transcript.width, 40);
+        assert_eq!(view.body.x, 0);
+        assert_eq!(view.body.width, 40);
     }
 
     #[test]
@@ -743,19 +975,16 @@ mod tests {
     }
 
     /// Assert that prompt and footer rects do not overlap each other or
-    /// the transcript, and that no rect extends past the area boundary.
+    /// the body, and that no rect extends past the area boundary.
     fn assert_no_overlap(view: &ViewState) {
-        assert!(view.transcript.right() <= view.area.right());
+        assert!(view.body.right() <= view.area.right());
         assert!(view.prompt.right() <= view.area.right());
         assert!(view.footer.right() <= view.area.right());
-        assert!(view.transcript.bottom() <= view.area.bottom());
+        assert!(view.body.bottom() <= view.area.bottom());
         assert!(view.prompt.bottom() <= view.area.bottom());
         assert!(view.footer.bottom() <= view.area.bottom());
 
-        assert!(
-            view.prompt.y >= view.transcript.y + view.transcript.height,
-            "prompt overlaps transcript"
-        );
+        assert!(view.prompt.y >= view.body.y + view.body.height, "prompt overlaps body");
 
         assert!(
             view.footer.y >= view.prompt.y + view.prompt.height,
@@ -770,6 +999,25 @@ mod tests {
         let app = app();
         terminal.draw(|f| render(f, &app)).expect("draw empty shell");
         insta::assert_snapshot!(terminal.backend().to_string());
+    }
+
+    #[test]
+    fn inline_shell_places_prompt_at_top() {
+        let backend = TestBackend::new(80, INLINE_VIEWPORT_HEIGHT);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        let app = app();
+
+        terminal.draw(|f| render_inline(f, &app)).expect("draw inline shell");
+
+        let output = terminal.backend().to_string();
+        let session = output.find("session-20260701-120000").expect("session status");
+        let input = output[session..].find("›").map(|idx| session + idx).expect("input row");
+        let footer = output.find("model: umans-coder").expect("footer status");
+
+        assert!(session < input);
+        assert!(input < footer);
+        assert!(!output.contains('│'));
+        assert!(!output.contains('└'));
     }
 
     #[test]
@@ -1247,11 +1495,11 @@ mod tests {
     #[test]
     fn help_overlay_snapshot_80x24() {
         let mut app = app();
-        app.mode = Mode::Help;
+        app.prompt_accessory = PromptAccessory::Help;
 
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).expect("create test terminal");
-        terminal.draw(|f| render(f, &app)).expect("draw help overlay");
+        terminal.draw(|f| render(f, &app)).expect("draw inline help");
         insta::assert_snapshot!(terminal.backend().to_string());
     }
 
@@ -1259,6 +1507,7 @@ mod tests {
     fn command_mode_prompt_snapshot_80x24() {
         let mut app = app();
         app.mode = Mode::Command;
+        app.prompt_accessory = PromptAccessory::Commands { selected: 0 };
         app.input = PromptInput::from_str("cle");
 
         let backend = TestBackend::new(80, 24);

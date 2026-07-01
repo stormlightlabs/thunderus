@@ -1,7 +1,6 @@
 use std::sync::atomic::{AtomicU8, Ordering};
 
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::Span;
 
 use crate::cli::Theme;
 
@@ -111,11 +110,6 @@ pub fn panel_style() -> Style {
     Style::default().fg(p.text).bg(p.panel_bg)
 }
 
-pub fn border_style() -> Style {
-    let p = palette();
-    Style::default().fg(p.overlay0).bg(p.panel_bg)
-}
-
 pub fn title_style() -> Style {
     let p = palette();
     Style::default()
@@ -137,18 +131,6 @@ pub fn muted_style() -> Style {
 pub fn subtle_style() -> Style {
     let p = palette();
     Style::default().fg(p.subtext0).bg(p.panel_bg)
-}
-
-pub fn label_chip(label: &str, fg: Color, bg: Color) -> Span<'static> {
-    Span::styled(
-        format!(" {label} "),
-        Style::default().fg(fg).bg(bg).add_modifier(Modifier::BOLD),
-    )
-}
-
-pub fn muted_chip(label: &str) -> Span<'static> {
-    let p = palette();
-    label_chip(label, p.subtext0, p.surface0)
 }
 
 pub fn status_color(label: &str) -> Color {
@@ -188,12 +170,6 @@ mod tests {
         assert_eq!(spinner_frame(0), "⠋");
         assert_eq!(spinner_frame(10), "⠋");
         assert_eq!(spinner_frame(11), "⠙");
-    }
-
-    #[test]
-    fn label_chip_adds_cell_padding() {
-        let p = palette();
-        assert_eq!(label_chip("tool", p.text, p.surface0).content.as_ref(), " tool ");
     }
 
     #[test]

@@ -44,19 +44,11 @@ Move through previously submitted prompts.
 | `Up`   | Recall older input from history |
 | `Down` | Recall newer input from history |
 
-## Transcript Scrolling
+## Transcript Scrollback
 
-Scroll the conversation transcript. These work even while the agent is running
-so that quit/cancel shortcuts remain usable.
-
-| Key          | Description                                            |
-| ------------ | ------------------------------------------------------ |
-| `PageUp`     | Scroll transcript up by 10 lines                       |
-| `PageDown`   | Scroll transcript down by 10 lines (or jump to newest) |
-| `Ctrl+Alt+U` | Scroll transcript up by 10 lines                       |
-| `Ctrl+Alt+D` | Scroll transcript down by 10 lines                     |
-| `Ctrl+Alt+Y` | Scroll transcript up by one line                       |
-| `Ctrl+Alt+E` | Scroll transcript down by one line                     |
+The conversation transcript is written to native terminal scrollback instead of
+an app-owned viewport. Use your terminal or multiplexer scroll controls for
+wheel/trackpad scrolling, search, and selection.
 
 ## Help Overlay
 
@@ -93,9 +85,10 @@ Available while the file picker overlay is open.
 
 ## Mouse
 
-When mouse input is enabled:
+Mouse capture is disabled by default so the terminal owns selection and
+scrollback. When mouse input is enabled for overlays:
 
 | Action        | Description                          |
 | ------------- | ------------------------------------ |
-| `Scroll Up`   | Scroll the transcript or picker up   |
-| `Scroll Down` | Scroll the transcript or picker down |
+| `Scroll Up`   | Move the picker selection up         |
+| `Scroll Down` | Move the picker selection down       |

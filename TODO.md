@@ -124,8 +124,12 @@
       normal width, make the fallback empty state feel intentional at 50 columns,
       and avoid large uneven blank regions.
 - [x] Add Gridland-style transcript group spacing: one-cell horizontal padding,
-      one-cell gaps between semantic message groups, bottom padding near the
-      prompt, and bottom-sticky scrolling that keeps newest content readable.
+      one-cell gaps between semantic message groups, and stable message block
+      shells that stay readable when emitted into terminal scrollback.
+- [x] Switch the default transcript model to Codex/Pi-style inline scrollback:
+      keep only the prompt/status shell live in Ratatui, insert completed
+      transcript blocks above it, and leave wheel/trackpad scrolling to the
+      terminal instead of an app-owned viewport.
 - [x] Evaluate role-specific message shells: keep assistant/tool rows left
       aligned, but render user prompts as a visually distinct bounded block or
       right/indented row instead of only a fixed-width `User` label.

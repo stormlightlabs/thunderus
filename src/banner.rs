@@ -4,7 +4,7 @@
 //! via `include_str!`, so the app does not depend on runtime font paths.
 //!
 //! If the font cannot parse, or the terminal is too narrow for the banner, the
-//! banner falls back to plain `thndrs` text.
+//! banner falls back to plain `THNDRS` text.
 
 use figlet_rs::FIGlet;
 
@@ -12,26 +12,36 @@ use figlet_rs::FIGlet;
 /// so the app does not depend on runtime font paths.
 const FONT_CONTENT: &str = include_str!("fonts/colossal.flf");
 
-/// Minimum terminal width required to render the FIGlet banner.
+/// Minimum terminal width worth attempting for the FIGlet banner.
 ///
 /// The Colossal font renders "thndrs" at ~45 columns. Below this width we
-/// fall back to plain text so the output is not garbled.
+/// fall back to plain text without trying to parse the font.
 pub const BANNER_MIN_WIDTH: u16 = 38;
 
 /// Render the `thndrs` banner as a multi-line string.
 ///
 /// Returns the FIGlet art when the font parses and the width is sufficient;
-/// otherwise returns the plain text `thndrs`.
+/// otherwise returns the plain text `THNDRS`.
 pub fn render_banner(width: u16) -> String {
     if width < BANNER_MIN_WIDTH {
-        String::from("thndrs")
+        String::from("THNDRS")
     } else {
         match FIGlet::from_content(FONT_CONTENT) {
             Ok(font) => match font.convert("thndrs") {
-                Some(figure) => figure.to_string(),
-                None => String::from("thndrs"),
+                Some(figure) => {
+                    let rendered = figure.to_string();
+                    if rendered
+                        .lines()
+                        .any(|line| line.trim_end().chars().count() > width as usize)
+                    {
+                        String::from("THNDRS")
+                    } else {
+                        rendered
+                    }
+                }
+                None => String::from("THNDRS"),
             },
-            Err(_) => String::from("thndrs"),
+            Err(_) => String::from("THNDRS"),
         }
     }
 }
@@ -78,20 +88,23 @@ mod tests {
     #[test]
     fn banner_falls_back_to_plain_text_when_narrow() {
         let lines = banner_lines(20);
-        assert_eq!(lines, vec!["thndrs"]);
+        assert_eq!(lines, vec!["THNDRS"]);
     }
 
     #[test]
-    fn banner_falls_back_at_threshold_boundary() {
-        assert_eq!(banner_lines(BANNER_MIN_WIDTH - 1), vec!["thndrs"]);
-        let lines = banner_lines(BANNER_MIN_WIDTH);
-        assert!(lines.len() > 1, "at threshold should render multi-line figlet");
+    fn banner_falls_back_when_figlet_would_not_fit() {
+        assert_eq!(banner_lines(BANNER_MIN_WIDTH - 1), vec!["THNDRS"]);
+        assert_eq!(banner_lines(BANNER_MIN_WIDTH), vec!["THNDRS"]);
+        assert!(
+            banner_lines(80).len() > 1,
+            "wide terminals should render multi-line figlet"
+        );
     }
 
     #[test]
     fn render_banner_plain_when_too_narrow() {
         let banner = render_banner(10);
-        assert_eq!(banner, "thndrs");
+        assert_eq!(banner, "THNDRS");
     }
 
     #[test]

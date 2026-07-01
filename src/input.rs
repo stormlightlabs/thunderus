@@ -92,6 +92,51 @@ impl PromptInput {
         self.cursor = self.len_chars();
     }
 
+    /// Move the cursor to the previous logical line, preserving the column as
+    /// closely as possible. Returns `true` when the cursor moved.
+    pub fn cursor_up(&mut self) -> bool {
+        let chars: Vec<char> = self.chars().collect();
+        let Some((line_start, column)) = line_start_and_column(&chars, self.cursor) else {
+            return false;
+        };
+        if line_start == 0 {
+            return false;
+        }
+
+        let prev_end = line_start.saturating_sub(1);
+        let prev_start = chars[..prev_end]
+            .iter()
+            .rposition(|ch| *ch == '\n')
+            .map_or(0, |idx| idx + 1);
+        let prev_len = prev_end.saturating_sub(prev_start);
+        self.cursor = prev_start + column.min(prev_len);
+        true
+    }
+
+    /// Move the cursor to the next logical line, preserving the column as
+    /// closely as possible. Returns `true` when the cursor moved.
+    pub fn cursor_down(&mut self) -> bool {
+        let chars: Vec<char> = self.chars().collect();
+        let Some((line_start, column)) = line_start_and_column(&chars, self.cursor) else {
+            return false;
+        };
+        let current_end = chars[line_start..]
+            .iter()
+            .position(|ch| *ch == '\n')
+            .map(|offset| line_start + offset);
+        let Some(current_end) = current_end else {
+            return false;
+        };
+        let next_start = current_end + 1;
+        let next_end = chars[next_start..]
+            .iter()
+            .position(|ch| *ch == '\n')
+            .map_or(chars.len(), |offset| next_start + offset);
+        let next_len = next_end.saturating_sub(next_start);
+        self.cursor = next_start + column.min(next_len);
+        true
+    }
+
     /// Move the cursor left to the start of the previous word.
     ///
     /// Skips whitespace going backwards, then skips non-whitespace until the
@@ -154,6 +199,17 @@ impl PromptInput {
         self.cursor += count;
     }
 
+    /// Replace a character-index range and place the cursor after the inserted text.
+    pub fn replace_range(&mut self, start: usize, end: usize, replacement: &str) {
+        let len = self.len_chars();
+        let start = start.min(len);
+        let end = end.min(len).max(start);
+        let start_byte = self.byte_offset_of(start);
+        let end_byte = self.byte_offset_of(end);
+        self.text.replace_range(start_byte..end_byte, replacement);
+        self.cursor = start + replacement.chars().count();
+    }
+
     /// Delete the character to the **left** of the cursor (backspace).
     ///
     /// Returns `true` if a character was deleted.
@@ -204,6 +260,17 @@ impl PromptInput {
         let byte_idx = self.byte_offset_of(self.cursor);
         &self.text[byte_idx..]
     }
+}
+
+fn line_start_and_column(chars: &[char], cursor: usize) -> Option<(usize, usize)> {
+    if cursor > chars.len() {
+        return None;
+    }
+    let line_start = chars[..cursor]
+        .iter()
+        .rposition(|ch| *ch == '\n')
+        .map_or(0, |idx| idx + 1);
+    Some((line_start, cursor.saturating_sub(line_start)))
 }
 
 impl From<String> for PromptInput {
@@ -323,6 +390,51 @@ mod tests {
         assert_eq!(p.cursor(), 0);
         p.cursor_to_end();
         assert_eq!(p.cursor(), 5);
+    }
+
+    #[test]
+    fn cursor_up_moves_between_logical_lines() {
+        let mut p = PromptInput::from_str("x\n x\n x");
+
+        assert!(p.cursor_up());
+        assert_eq!(p.cursor(), 4);
+
+        assert!(p.cursor_up());
+        assert_eq!(p.cursor(), 1);
+
+        assert!(!p.cursor_up());
+        assert_eq!(p.cursor(), 1);
+    }
+
+    #[test]
+    fn cursor_down_moves_between_logical_lines() {
+        let mut p = PromptInput::from_str("x\n x\n x");
+        p.cursor_to_start();
+        p.cursor_right();
+
+        assert!(p.cursor_down());
+        assert_eq!(p.cursor(), 3);
+
+        assert!(p.cursor_down());
+        assert_eq!(p.cursor(), 6);
+
+        assert!(!p.cursor_down());
+        assert_eq!(p.cursor(), 6);
+    }
+
+    #[test]
+    fn cursor_up_and_down_clamp_to_shorter_lines() {
+        let mut p = PromptInput::from_str("long\nx\nwide");
+        p.cursor_to_start();
+        p.cursor_right();
+        p.cursor_right();
+        p.cursor_right();
+
+        assert!(p.cursor_down());
+        assert_eq!(p.cursor(), 6);
+
+        assert!(p.cursor_down());
+        assert_eq!(p.cursor(), 8);
     }
 
     #[test]
