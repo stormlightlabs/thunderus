@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-use crate::cli::WebSearchMode;
+use crate::cli::{Theme, WebSearchMode};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
@@ -39,7 +39,7 @@ pub struct Config {
     pub mouse: Option<bool>,
     pub verbose: Option<bool>,
     pub print_prompt: Option<bool>,
-    pub theme: Option<String>,
+    pub theme: Option<Theme>,
 }
 
 impl Config {
@@ -146,7 +146,7 @@ mod tests {
             websearch = "native"
             tick_rate_ms = 250
             mouse = true
-            theme = "midnight"
+            theme = "catppuccin-mocha"
             "#,
         )
         .expect("config parses");
@@ -155,7 +155,7 @@ mod tests {
         assert_eq!(config.websearch, Some(WebSearchMode::Native));
         assert_eq!(config.tick_rate_ms, Some(250));
         assert_eq!(config.mouse, Some(true));
-        assert_eq!(config.theme.as_deref(), Some("midnight"));
+        assert_eq!(config.theme, Some(Theme::CatppuccinMocha));
     }
 
     #[test]

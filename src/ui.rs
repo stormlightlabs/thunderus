@@ -84,6 +84,7 @@ pub fn compute_view(area: Rect) -> ViewState {
 
 /// Render the whole screen from `app` state into `frame`.
 pub fn render(frame: &mut Frame, app: &App) {
+    style::set_theme(app.theme);
     let view = compute_view(frame.area());
     render_transcript(frame, app, view.transcript);
     render_prompt(frame, app, view.prompt);
@@ -96,6 +97,7 @@ pub fn render(frame: &mut Frame, app: &App) {
 
 /// Render a centered help overlay listing available commands and keybindings.
 fn render_help_overlay(frame: &mut Frame, area: Rect) {
+    let p = style::palette();
     let help_lines = vec![
         Line::from(vec![Span::styled("  Key          Action", style::title_style())]),
         Line::from(""),
@@ -178,7 +180,7 @@ fn render_help_overlay(frame: &mut Frame, area: Rect) {
         .borders(Borders::ALL)
         .title(Line::styled(" Help ", style::title_style()))
         .border_style(style::border_style())
-        .style(Style::default().bg(style::P.panel_bg));
+        .style(Style::default().bg(p.panel_bg));
     let inner = block.inner(overlay_area);
     frame.render_widget(block, overlay_area);
     frame.render_widget(Paragraph::new(Text::from(help_lines)).style(style::text_style()), inner);
@@ -194,6 +196,7 @@ fn render_transcript(frame: &mut Frame, app: &App, area: Rect) {
     if area.width == 0 || area.height == 0 {
         return;
     }
+    let p = style::palette();
 
     let preview_inner = Rect::new(
         area.x.saturating_add(1),
@@ -236,7 +239,7 @@ fn render_transcript(frame: &mut Frame, app: &App, area: Rect) {
                         let h_pad = inner.width.saturating_sub(line_len) / 2;
                         Line::styled(
                             format!("{}{}", " ".repeat(h_pad as usize), l),
-                            Style::default().fg(style::P.accent).bg(style::P.panel_bg),
+                            Style::default().fg(p.accent).bg(p.panel_bg),
                         )
                     })
                     .collect::<Vec<Line>>(),
@@ -253,8 +256,8 @@ fn render_transcript(frame: &mut Frame, app: &App, area: Rect) {
                 Line::styled(
                     "thndrs",
                     Style::default()
-                        .fg(style::P.accent)
-                        .bg(style::P.panel_bg)
+                        .fg(p.accent)
+                        .bg(p.panel_bg)
                         .add_modifier(Modifier::BOLD),
                 ),
                 Line::styled("Type your message below.", style::muted_style()),
@@ -303,19 +306,20 @@ fn render_prompt(frame: &mut Frame, app: &App, area: Rect) {
     if area.width == 0 || area.height == 0 {
         return;
     }
+    let p = style::palette();
 
     let state = app.prompt_state();
     let divider_color = match state {
-        PromptState::Editable => style::P.overlay0,
-        PromptState::Submitted => style::P.yellow,
-        PromptState::Streaming | PromptState::RunningTool => style::P.teal,
-        PromptState::Stopped => style::P.overlay1,
-        PromptState::Errored => style::P.red,
+        PromptState::Editable => p.overlay0,
+        PromptState::Submitted => p.yellow,
+        PromptState::Streaming | PromptState::RunningTool => p.teal,
+        PromptState::Stopped => p.overlay1,
+        PromptState::Errored => p.red,
     };
 
     let block = Block::new()
         .borders(Borders::TOP)
-        .border_style(Style::default().fg(divider_color).bg(style::P.panel_bg))
+        .border_style(Style::default().fg(divider_color).bg(p.panel_bg))
         .style(style::panel_style());
 
     let inner = block.inner(area);
@@ -325,18 +329,18 @@ fn render_prompt(frame: &mut Frame, app: &App, area: Rect) {
     }
 
     let (prompt_color, show_input, icon) = match state {
-        PromptState::Editable => (style::P.yellow, true, "›"),
-        PromptState::Submitted => (style::P.yellow, false, style::spinner_frame(app.ui_tick)),
-        PromptState::Streaming | PromptState::RunningTool => (style::P.teal, true, style::spinner_frame(app.ui_tick)),
-        PromptState::Stopped => (style::P.teal, true, "○"),
-        PromptState::Errored => (style::P.red, true, "✕"),
+        PromptState::Editable => (p.yellow, true, "›"),
+        PromptState::Submitted => (p.yellow, false, style::spinner_frame(app.ui_tick)),
+        PromptState::Streaming | PromptState::RunningTool => (p.teal, true, style::spinner_frame(app.ui_tick)),
+        PromptState::Stopped => (p.teal, true, "○"),
+        PromptState::Errored => (p.red, true, "✕"),
     };
 
     let [input_area, status_area] = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas(inner);
 
     let mut input_spans = vec![
         Span::styled("  ", style::text_style()),
-        Span::styled(icon, Style::default().fg(prompt_color).bg(style::P.panel_bg)),
+        Span::styled(icon, Style::default().fg(prompt_color).bg(p.panel_bg)),
         Span::styled("  ", style::text_style()),
     ];
 
@@ -345,19 +349,13 @@ fn render_prompt(frame: &mut Frame, app: &App, area: Rect) {
         let input_width = input_area.width as usize;
         let visible_input_width = input_width.saturating_sub(prefix_width + 1);
         if app.mode == Mode::Command {
-            input_spans.push(Span::styled(
-                ":",
-                Style::default().fg(style::P.accent).bg(style::P.panel_bg),
-            ));
+            input_spans.push(Span::styled(":", Style::default().fg(p.accent).bg(p.panel_bg)));
         }
         input_spans.push(Span::styled(
             utils::truncate_ellipsis(&app.input, visible_input_width),
             style::text_style(),
         ));
-        input_spans.push(Span::styled(
-            "█",
-            Style::default().fg(prompt_color).bg(style::P.panel_bg),
-        ));
+        input_spans.push(Span::styled("█", Style::default().fg(prompt_color).bg(p.panel_bg)));
     }
 
     frame.render_widget(Paragraph::new(Line::from(input_spans)), input_area);
@@ -372,8 +370,8 @@ fn render_prompt(frame: &mut Frame, app: &App, area: Rect) {
             let is_match = cmd.starts_with(app.input.as_str());
             let cmd_style = if is_match {
                 Style::default()
-                    .fg(style::P.accent)
-                    .bg(style::P.surface0)
+                    .fg(p.accent)
+                    .bg(p.surface0)
                     .add_modifier(Modifier::BOLD)
             } else {
                 style::muted_style()
@@ -397,7 +395,7 @@ fn render_prompt(frame: &mut Frame, app: &App, area: Rect) {
             status_spans.push(Span::styled("  ", style::text_style()));
             status_spans.push(Span::styled(
                 label.to_string(),
-                Style::default().fg(prompt_color).bg(style::P.panel_bg),
+                Style::default().fg(prompt_color).bg(p.panel_bg),
             ));
         }
 
@@ -441,6 +439,7 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     if area.width == 0 || area.height == 0 {
         return;
     }
+    let p = style::palette();
 
     let label = app.status_label();
     let status_color = style::status_color(label);
@@ -460,10 +459,7 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
 
     let mut spans: Vec<Span<'static>> = vec![
         Span::styled(" ", style::text_style()),
-        Span::styled(
-            status_label.clone(),
-            Style::default().fg(status_color).bg(style::P.panel_bg),
-        ),
+        Span::styled(status_label.clone(), Style::default().fg(status_color).bg(p.panel_bg)),
     ];
 
     if show_model {

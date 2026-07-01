@@ -46,6 +46,10 @@ struct CliArgs {
     #[arg(long, default_value_t = false)]
     verbose: bool,
 
+    /// UI color theme.
+    #[arg(long, value_enum)]
+    theme: Option<Theme>,
+
     /// Print the assembled prompt bundle/lowered messages with secrets redacted
     /// and exit without calling the provider.
     #[arg(long, default_value_t = false)]
@@ -71,10 +75,24 @@ pub struct Cli {
     pub mouse: bool,
     /// Show diagnostic transcript rows such as provider events and log paths.
     pub verbose: bool,
+    /// UI color theme.
+    pub theme: Theme,
     /// Print the assembled prompt bundle/lowered messages with secrets redacted.
     pub print_prompt: bool,
-    /// Optional UI theme name reserved for the TUI theming layer.
-    pub theme: Option<String>,
+}
+
+/// Built-in UI color theme.
+#[derive(ValueEnum, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[repr(u8)]
+#[serde(rename_all = "kebab-case")]
+pub enum Theme {
+    /// Default high-contrast dark theme.
+    #[default]
+    EldritchMinimal,
+    /// Muted blue-gray dark theme.
+    IcebergDark,
+    /// Catppuccin Mocha dark theme.
+    CatppuccinMocha,
 }
 
 /// Web search policy for a turn.
@@ -165,8 +183,8 @@ impl Default for Cli {
             no_mouse: false,
             mouse: false,
             verbose: false,
+            theme: Theme::default(),
             print_prompt: false,
-            theme: None,
         }
     }
 }
@@ -216,8 +234,8 @@ impl Cli {
             no_mouse: args.no_mouse || config.no_mouse.unwrap_or(defaults.no_mouse),
             mouse: args.mouse || config.mouse.unwrap_or(defaults.mouse),
             verbose: args.verbose || config.verbose.unwrap_or(defaults.verbose),
+            theme: args.theme.or(config.theme).unwrap_or(defaults.theme),
             print_prompt: args.print_prompt || config.print_prompt.unwrap_or(defaults.print_prompt),
-            theme: config.theme.or(defaults.theme),
         }
     }
 }
@@ -236,18 +254,26 @@ mod tests {
         assert!(!cli.no_mouse);
         assert!(!cli.mouse);
         assert!(!cli.verbose);
-        assert_eq!(cli.theme, None);
+        assert_eq!(cli.theme, Theme::EldritchMinimal);
     }
 
     #[test]
     fn cli_args_override_config_values() {
-        let args = CliArgs::try_parse_from(["thndrs", "--model", "cli-model", "--verbose"]).unwrap();
+        let args = CliArgs::try_parse_from([
+            "thndrs",
+            "--model",
+            "cli-model",
+            "--verbose",
+            "--theme",
+            "catppuccin-mocha",
+        ])
+        .unwrap();
         let config = config::Config {
             model: Some("config-model".to_string()),
             websearch: Some(WebSearchMode::Native),
             tick_rate_ms: Some(250),
             verbose: Some(false),
-            theme: Some("midnight".to_string()),
+            theme: Some(Theme::EldritchMinimal),
             ..config::Config::default()
         };
 
@@ -257,7 +283,7 @@ mod tests {
         assert_eq!(cli.websearch, WebSearchMode::Native);
         assert_eq!(cli.tick_rate_ms, 250);
         assert!(cli.verbose);
-        assert_eq!(cli.theme.as_deref(), Some("midnight"));
+        assert_eq!(cli.theme, Theme::CatppuccinMocha);
     }
 
     #[test]
@@ -322,6 +348,15 @@ mod tests {
     fn verbose_flag_parses() {
         let cli = Cli::try_parse_from(["thndrs", "--verbose"]).expect("parse");
         assert!(cli.verbose);
+    }
+
+    #[test]
+    fn theme_flag_parses() {
+        let cli = Cli::try_parse_from(["thndrs", "--theme", "iceberg-dark"]).expect("parse");
+        assert_eq!(cli.theme, Theme::IcebergDark);
+
+        let cli = Cli::try_parse_from(["thndrs", "--theme", "catppuccin-mocha"]).expect("parse");
+        assert_eq!(cli.theme, Theme::CatppuccinMocha);
     }
 
     #[test]

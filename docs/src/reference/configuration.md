@@ -10,6 +10,7 @@ Current user-controlled settings:
 - `--websearch`: web-search mode.
 - `--tick-rate-ms`: event poll interval.
 - `--verbose`: diagnostic transcript rows.
+- `--theme`: UI color theme.
 - `--mouse` / `--no-mouse`: terminal mouse capture.
 - `--no-alt-screen`: draw inline instead of using the alternate screen.
 - `--print-prompt`: inspect prompt assembly without contacting the provider.
@@ -46,10 +47,10 @@ websearch = "auto"
 tick_rate_ms = 100
 mouse = false
 verbose = false
-theme = "default"
+theme = "catppuccin-mocha"
 ```
 
 `cwd` is CLI-only because it controls which project config file is discovered.
 
-`theme` is accepted now so configs can name a future TUI theme without changing
-the file shape.
+Supported themes are `eldritch-minimal`, `iceberg-dark`, and
+`catppuccin-mocha`.

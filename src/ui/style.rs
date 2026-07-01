@@ -1,5 +1,9 @@
+use std::sync::atomic::{AtomicU8, Ordering};
+
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Span;
+
+use crate::cli::Theme;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Palette {
@@ -21,9 +25,8 @@ pub struct Palette {
     pub peach: Color,
 }
 
-pub const P: Palette = ELDRITCH_MINIMAL;
+static CURRENT_THEME: AtomicU8 = AtomicU8::new(0);
 
-#[allow(dead_code)]
 pub const ICEBERG_DARK: Palette = Palette {
     accent: Color::Rgb(132, 160, 198),
     panel_bg: Color::Rgb(22, 24, 33),
@@ -62,31 +65,78 @@ pub const ELDRITCH_MINIMAL: Palette = Palette {
     peach: Color::Rgb(224, 224, 224),
 };
 
+pub const CATPPUCCIN_MOCHA: Palette = Palette {
+    accent: Color::Rgb(203, 166, 247),
+    panel_bg: Color::Rgb(30, 30, 46),
+    surface0: Color::Rgb(49, 50, 68),
+    surface1: Color::Rgb(69, 71, 90),
+    surface_dim: Color::Rgb(24, 24, 37),
+    overlay0: Color::Rgb(108, 112, 134),
+    overlay1: Color::Rgb(127, 132, 156),
+    text: Color::Rgb(205, 214, 244),
+    subtext0: Color::Rgb(166, 173, 200),
+    mauve: Color::Rgb(203, 166, 247),
+    green: Color::Rgb(166, 227, 161),
+    yellow: Color::Rgb(249, 226, 175),
+    red: Color::Rgb(243, 139, 168),
+    blue: Color::Rgb(137, 180, 250),
+    teal: Color::Rgb(148, 226, 213),
+    peach: Color::Rgb(250, 179, 135),
+};
+
+impl Theme {
+    fn palette(self) -> Palette {
+        match self {
+            Theme::EldritchMinimal => ELDRITCH_MINIMAL,
+            Theme::IcebergDark => ICEBERG_DARK,
+            Theme::CatppuccinMocha => CATPPUCCIN_MOCHA,
+        }
+    }
+}
+
+pub fn set_theme(theme: Theme) {
+    CURRENT_THEME.store(theme as u8, Ordering::Relaxed);
+}
+
+pub fn palette() -> Palette {
+    match CURRENT_THEME.load(Ordering::Relaxed) {
+        1 => Theme::IcebergDark.palette(),
+        2 => Theme::CatppuccinMocha.palette(),
+        _ => Theme::EldritchMinimal.palette(),
+    }
+}
+
 pub fn panel_style() -> Style {
-    Style::default().fg(P.text).bg(P.panel_bg)
+    let p = palette();
+    Style::default().fg(p.text).bg(p.panel_bg)
 }
 
 pub fn border_style() -> Style {
-    Style::default().fg(P.overlay0).bg(P.panel_bg)
+    let p = palette();
+    Style::default().fg(p.overlay0).bg(p.panel_bg)
 }
 
 pub fn title_style() -> Style {
+    let p = palette();
     Style::default()
-        .fg(P.accent)
-        .bg(P.panel_bg)
+        .fg(p.accent)
+        .bg(p.panel_bg)
         .add_modifier(Modifier::BOLD)
 }
 
 pub fn text_style() -> Style {
-    Style::default().fg(P.text).bg(P.panel_bg)
+    let p = palette();
+    Style::default().fg(p.text).bg(p.panel_bg)
 }
 
 pub fn muted_style() -> Style {
-    Style::default().fg(P.overlay0).bg(P.panel_bg)
+    let p = palette();
+    Style::default().fg(p.overlay0).bg(p.panel_bg)
 }
 
 pub fn subtle_style() -> Style {
-    Style::default().fg(P.subtext0).bg(P.panel_bg)
+    let p = palette();
+    Style::default().fg(p.subtext0).bg(p.panel_bg)
 }
 
 pub fn label_chip(label: &str, fg: Color, bg: Color) -> Span<'static> {
@@ -97,17 +147,19 @@ pub fn label_chip(label: &str, fg: Color, bg: Color) -> Span<'static> {
 }
 
 pub fn muted_chip(label: &str) -> Span<'static> {
-    label_chip(label, P.subtext0, P.surface0)
+    let p = palette();
+    label_chip(label, p.subtext0, p.surface0)
 }
 
 pub fn status_color(label: &str) -> Color {
+    let p = palette();
     match label {
-        "idle" => P.overlay0,
-        "done" => P.green,
-        "sending" | "thinking" | "streaming" | "running tool" | "stopping" => P.yellow,
-        "cancelled" => P.teal,
-        "failed" => P.red,
-        _ => P.overlay0,
+        "idle" => p.overlay0,
+        "done" => p.green,
+        "sending" | "thinking" | "streaming" | "running tool" | "stopping" => p.yellow,
+        "cancelled" => p.teal,
+        "failed" => p.red,
+        _ => p.overlay0,
     }
 }
 
@@ -140,6 +192,14 @@ mod tests {
 
     #[test]
     fn label_chip_adds_cell_padding() {
-        assert_eq!(label_chip("tool", P.text, P.surface0).content.as_ref(), " tool ");
+        let p = palette();
+        assert_eq!(label_chip("tool", p.text, p.surface0).content.as_ref(), " tool ");
+    }
+
+    #[test]
+    fn theme_selects_palette() {
+        assert_eq!(Theme::IcebergDark.palette(), ICEBERG_DARK);
+        assert_eq!(Theme::EldritchMinimal.palette(), ELDRITCH_MINIMAL);
+        assert_eq!(Theme::CatppuccinMocha.palette(), CATPPUCCIN_MOCHA);
     }
 }

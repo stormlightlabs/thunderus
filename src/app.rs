@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use serde::{Deserialize, Serialize};
 
-use crate::cli::{Cli, WebSearchMode};
+use crate::cli::{Cli, Theme, WebSearchMode};
 use crate::tools::shell::ProcessRegistry;
 use crate::{context, session, tools};
 
@@ -207,6 +207,8 @@ pub struct App {
     pub model: String,
     pub user_label: String,
     pub websearch: WebSearchMode,
+    /// UI color theme.
+    pub theme: Theme,
     /// Whether diagnostic provider/log status rows should be shown in transcript.
     pub verbose: bool,
     /// Provider token usage accumulated for this session.
@@ -296,6 +298,7 @@ impl App {
             model: cli.model.clone(),
             user_label: default_user_label(),
             websearch: cli.websearch,
+            theme: cli.theme,
             verbose: cli.verbose,
             session_tokens_in: 0,
             session_tokens_out: 0,

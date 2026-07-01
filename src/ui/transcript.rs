@@ -3,7 +3,7 @@ use ratatui::text::{Line, Span};
 
 use crate::app::{Entry, ToolStatus};
 use crate::ui::MAX_TOOL_OUTPUT_LINES;
-use crate::ui::style::{self, P};
+use crate::ui::style;
 use crate::utils::truncate_ellipsis;
 
 const ROLE_WIDTH: usize = 16;
@@ -14,6 +14,7 @@ const GUTTER: &str = "   │ ";
 ///
 /// When `max_width > 0`, text content is wrapped to fit.
 pub fn entry_lines_with_width(entry: &Entry, tick: u64, user_label: &str, max_width: usize) -> Vec<Line<'static>> {
+    let p = style::palette();
     match entry {
         Entry::User { text } => user_message_lines(user_label, text, max_width),
         Entry::Assistant { text, streaming } => assistant_message_lines(
@@ -25,7 +26,7 @@ pub fn entry_lines_with_width(entry: &Entry, tick: u64, user_label: &str, max_wi
         Entry::Tool { name, arguments, status, output } => {
             tool_lines(name, arguments, *status, output, tick, max_width)
         }
-        Entry::Status { text } => message_lines(status_label(text), P.overlay1, text, max_width),
+        Entry::Status { text } => message_lines(status_label(text), p.overlay1, text, max_width),
         Entry::Error { text } => error_lines(text, max_width),
     }
 }
@@ -36,11 +37,12 @@ fn message_lines(label: &str, fg: Color, text: &str, max_width: usize) -> Vec<Li
 }
 
 fn assistant_message_lines(label: &str, text: &str, max_width: usize) -> Vec<Line<'static>> {
+    let p = style::palette();
     let Some(markdown) = assistant_markdown_body(text) else {
-        return message_lines(label, P.green, text, max_width);
+        return message_lines(label, p.green, text, max_width);
     };
 
-    let prefix = vec![role_label(label, P.green)];
+    let prefix = vec![role_label(label, p.green)];
     let indent = vec![Span::styled(" ".repeat(spans_width(&prefix)), style::text_style())];
     let highlighted = super::highlight::highlight_code(markdown, Some("assistant.md"));
     let mut lines = Vec::new();
@@ -67,9 +69,10 @@ fn assistant_markdown_body(text: &str) -> Option<&str> {
 /// chip, making them stand out from assistant/tool rows which use plain
 /// left-aligned labels.
 fn user_message_lines(label: &str, text: &str, max_width: usize) -> Vec<Line<'static>> {
+    let p = style::palette();
     let border = Span::styled(
         "▌",
-        Style::default().fg(P.blue).bg(P.panel_bg).add_modifier(Modifier::BOLD),
+        Style::default().fg(p.blue).bg(p.panel_bg).add_modifier(Modifier::BOLD),
     );
     let label_display = truncate_ellipsis(label, ROLE_WIDTH.saturating_sub(2));
     let prefix = vec![
@@ -78,7 +81,7 @@ fn user_message_lines(label: &str, text: &str, max_width: usize) -> Vec<Line<'st
         Span::styled(" ", style::text_style()),
         Span::styled(
             format!("{label_display:<ROLE_WIDTH$}"),
-            Style::default().fg(P.blue).bg(P.panel_bg).add_modifier(Modifier::BOLD),
+            Style::default().fg(p.blue).bg(p.panel_bg).add_modifier(Modifier::BOLD),
         ),
         Span::styled(" ", style::text_style()),
     ];
@@ -92,10 +95,11 @@ fn user_message_lines(label: &str, text: &str, max_width: usize) -> Vec<Line<'st
 /// matching the Gridland sibling-block pattern without nesting inside
 /// assistant text.
 fn reasoning_lines(text: &str, streaming: bool, tick: u64, max_width: usize) -> Vec<Line<'static>> {
+    let p = style::palette();
     let icon = if streaming { style::spinner_frame(tick) } else { "✓" };
     let prefix = vec![
-        role_label("Thinking", P.mauve),
-        Span::styled(format!("{icon} "), Style::default().fg(P.mauve).bg(P.panel_bg)),
+        role_label("Thinking", p.mauve),
+        Span::styled(format!("{icon} "), Style::default().fg(p.mauve).bg(p.panel_bg)),
     ];
     wrapped_lines(
         prefix,
@@ -127,9 +131,10 @@ fn status_label(text: &str) -> &'static str {
 }
 
 fn role_label(label: &str, fg: Color) -> Span<'static> {
+    let p = style::palette();
     Span::styled(
         format!("{label:<ROLE_WIDTH$}"),
-        Style::default().fg(fg).bg(P.panel_bg).add_modifier(Modifier::BOLD),
+        Style::default().fg(fg).bg(p.panel_bg).add_modifier(Modifier::BOLD),
     )
 }
 
@@ -139,24 +144,26 @@ fn role_label(label: &str, fg: Color) -> Span<'static> {
 /// The icon sits in the label column so the error text aligns under the
 /// message body of other rows. Long text is truncated with `…`.
 fn error_lines(text: &str, max_width: usize) -> Vec<Line<'static>> {
-    let err_style = Style::default().fg(P.red).bg(P.panel_bg);
-    wrapped_lines(vec![role_label("⚠ Error", P.red)], text, err_style, max_width)
+    let p = style::palette();
+    let err_style = Style::default().fg(p.red).bg(p.panel_bg);
+    wrapped_lines(vec![role_label("⚠ Error", p.red)], text, err_style, max_width)
 }
 
 fn tool_lines(
     name: &str, args: &str, status: ToolStatus, output: &[String], tick: u64, max_width: usize,
 ) -> Vec<Line<'static>> {
+    let p = style::palette();
     let (status_label, status_color, icon) = match status {
-        ToolStatus::Running => ("running", P.yellow, style::spinner_frame(tick)),
-        ToolStatus::Ok => ("ok", P.green, "✓"),
-        ToolStatus::Failed => ("failed", P.red, "✕"),
+        ToolStatus::Running => ("running", p.yellow, style::spinner_frame(tick)),
+        ToolStatus::Ok => ("ok", p.green, "✓"),
+        ToolStatus::Failed => ("failed", p.red, "✕"),
     };
     let args_summary = summarize_tool_args(args);
 
-    let mut header_spans = vec![role_label("tool", P.peach)];
+    let mut header_spans = vec![role_label("tool", p.peach)];
     header_spans.push(Span::styled(
         format!("{icon} "),
-        Style::default().fg(status_color).bg(P.panel_bg),
+        Style::default().fg(status_color).bg(p.panel_bg),
     ));
     header_spans.push(Span::styled(
         name.to_string(),
@@ -164,13 +171,13 @@ fn tool_lines(
     ));
     header_spans.push(Span::styled(
         format!(" [{status_label}]"),
-        Style::default().fg(status_color).bg(P.panel_bg),
+        Style::default().fg(status_color).bg(p.panel_bg),
     ));
 
     let base_name = name.split('#').next().unwrap_or(name);
     let lang = tool_output_language(base_name, args);
 
-    let gutter_style = Style::default().fg(P.overlay0).bg(P.panel_bg);
+    let gutter_style = Style::default().fg(p.overlay0).bg(p.panel_bg);
 
     let mut lines = if args_summary.is_empty() {
         vec![Line::from(header_spans)]
@@ -209,7 +216,7 @@ fn tool_lines(
         None => {
             for line in output.iter().take(MAX_TOOL_OUTPUT_LINES) {
                 let content_style = if is_section_header(line) {
-                    style::text_style().add_modifier(Modifier::BOLD).fg(P.overlay1)
+                    style::text_style().add_modifier(Modifier::BOLD).fg(p.overlay1)
                 } else {
                     style::subtle_style()
                 };
