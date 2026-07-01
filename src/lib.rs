@@ -191,19 +191,12 @@ fn redact_secret(text: &str) -> String {
 fn run_inline(tick: Duration, cli: &Cli) -> io::Result<()> {
     renderer::enter_raw_mode()?;
     let mouse_enabled = cli.mouse && !cli.no_mouse;
-    if mouse_enabled && let Err(err) = crossterm::execute!(io::stdout(), EnableMouseCapture) {
-        let _ = renderer::leave_raw_mode();
-        return Err(err);
-    }
     let stdout = io::stdout();
     let mut backend = TerminalBackend::new(stdout, renderer::terminal_size().0, renderer::terminal_size().1);
     let mut live = renderer::region::LiveRegion::new();
-    let result = direct_loop(&mut backend, &mut live, tick, cli);
+    let result = direct_loop(&mut backend, &mut live, tick, cli, mouse_enabled);
 
     let _ = backend.show_cursor();
-    if mouse_enabled {
-        let _ = crossterm::execute!(io::stdout(), DisableMouseCapture);
-    }
     renderer::leave_raw_mode()?;
 
     let _ = crossterm::execute!(
@@ -215,13 +208,14 @@ fn run_inline(tick: Duration, cli: &Cli) -> io::Result<()> {
 }
 
 /// Direct renderer event loop: drives the agent, polls events, and renders via
-/// [`TerminalBackend`] + [`LiveRegion`] instead of Ratatui.
+/// [`TerminalBackend`] + [`LiveRegion`].
 ///
 /// History and live prompt chrome are rendered as one terminal-sized frame so
 /// resize and wrapping behavior is owned by the renderer instead of native
 /// terminal scrollback side effects.
 fn direct_loop<W: io::Write>(
     backend: &mut TerminalBackend<W>, live: &mut renderer::region::LiveRegion, tick: Duration, cli: &Cli,
+    mouse_enabled: bool,
 ) -> io::Result<()> {
     let mut app = App::from_cli(cli);
     let workspace_root = context::discover_workspace_root(&cli.cwd);
@@ -252,8 +246,9 @@ fn direct_loop<W: io::Write>(
     );
 
     let mut agent: Option<AgentSlot> = None;
+    let mut mouse_captured = false;
     let (width, height) = backend_size(backend);
-    direct_render(backend, live, &app, width, height)?;
+    direct_render(backend, live, &mut app, width, height)?;
 
     loop {
         let deadline = Instant::now() + tick;
@@ -262,8 +257,9 @@ fn direct_loop<W: io::Write>(
             manage_agent_lifecycle(&app, &mut agent);
             maybe_spawn_agent(&app, cli, &mut agent);
             flush_steering(&mut app, &agent);
+            sync_mouse_capture(&app, &mut mouse_captured, mouse_enabled);
             let (w, h) = backend_size(backend);
-            direct_render(backend, live, &app, w, h)?;
+            direct_render(backend, live, &mut app, w, h)?;
 
             if app.quit {
                 tracing::info!("quitting thndrs");
@@ -278,25 +274,27 @@ fn direct_loop<W: io::Write>(
             match event::read()? {
                 Event::Key(key) => {
                     handle_direct_key(&mut app, key, &mut agent, backend, live)?;
+                    sync_mouse_capture(&app, &mut mouse_captured, mouse_enabled);
                     let (w, h) = backend_size(backend);
-                    direct_render(backend, live, &app, w, h)?;
+                    direct_render(backend, live, &mut app, w, h)?;
                 }
                 Event::Mouse(mouse) => {
                     handle_direct_msg(&mut app, Msg::Mouse(mouse), backend, live)?;
                     let (w, h) = backend_size(backend);
-                    direct_render(backend, live, &app, w, h)?;
+                    direct_render(backend, live, &mut app, w, h)?;
                 }
                 Event::Resize(_, _) => {
                     let (w, h) = renderer::terminal_size();
                     backend.set_size(w, h);
                     let (w, h) = backend_size(backend);
-                    direct_render(backend, live, &app, w, h)?;
+                    direct_render(backend, live, &mut app, w, h)?;
                 }
                 _ => {}
             }
 
             maybe_spawn_agent(&app, cli, &mut agent);
             flush_steering(&mut app, &agent);
+            sync_mouse_capture(&app, &mut mouse_captured, mouse_enabled);
 
             if app.quit {
                 tracing::info!("quitting thndrs");
@@ -305,13 +303,34 @@ fn direct_loop<W: io::Write>(
             }
         }
         handle_direct_msg(&mut app, Msg::Tick, backend, live)?;
+        sync_mouse_capture(&app, &mut mouse_captured, mouse_enabled);
         let (w, h) = backend_size(backend);
-        direct_render(backend, live, &app, w, h)?;
+        direct_render(backend, live, &mut app, w, h)?;
         if app.quit {
             tracing::info!("quitting thndrs");
             append_daily_log(&observability, &app.session_id, "session_end", "reason=quit");
             return Ok(());
         }
+    }
+}
+
+/// Toggle terminal mouse capture based on whether the file picker is open.
+///
+/// When the file picker is active, mouse capture is enabled so scroll-wheel
+/// navigation works inside the picker. At all other times mouse capture is
+/// disabled so the user can select and copy transcript/input text using
+/// native terminal selection.
+fn sync_mouse_capture(app: &App, captured: &mut bool, mouse_enabled: bool) {
+    if !mouse_enabled {
+        return;
+    }
+    let picker_open = matches!(app.prompt_accessory, crate::app::PromptAccessory::Files(_));
+    if picker_open && !*captured {
+        let _ = crossterm::execute!(io::stdout(), EnableMouseCapture);
+        *captured = true;
+    } else if !picker_open && *captured {
+        let _ = crossterm::execute!(io::stdout(), DisableMouseCapture);
+        *captured = false;
     }
 }
 
@@ -321,8 +340,13 @@ fn backend_size<W: io::Write>(backend: &TerminalBackend<W>) -> (usize, usize) {
 }
 
 /// Render the complete logical viewport.
+///
+/// The live region handles committing finalized transcript entries to
+/// terminal scrollback and rendering only the live chrome (prompt, status,
+/// streaming content) via diff-based rendering.
 fn direct_render<W: io::Write>(
-    backend: &mut TerminalBackend<W>, live: &mut renderer::region::LiveRegion, app: &App, width: usize, height: usize,
+    backend: &mut TerminalBackend<W>, live: &mut renderer::region::LiveRegion, app: &mut App, width: usize,
+    height: usize,
 ) -> io::Result<()> {
     renderer::style::set_theme(app.theme);
     let _ = backend.hide_cursor();
@@ -363,7 +387,7 @@ fn handle_direct_msg<W: io::Write>(
     Ok(())
 }
 
-/// Drain agent events in the direct renderer path (no Ratatui terminal needed).
+/// Drain agent events in the direct renderer path.
 fn drain_direct_agent_events<W: io::Write>(
     app: &mut App, agent: &mut Option<AgentSlot>, backend: &mut TerminalBackend<W>,
     live: &mut renderer::region::LiveRegion, observability: &Option<Observability>,
@@ -580,7 +604,7 @@ mod tests {
 
         let mut live = renderer::region::LiveRegion::new();
         let mut backend = TerminalBackend::new(Vec::new(), 80, 24);
-        direct_render(&mut backend, &mut live, &app, 80, 24).expect("initial render");
+        direct_render(&mut backend, &mut live, &mut app, 80, 24).expect("initial render");
 
         handle_direct_msg(&mut app, Msg::Clear, &mut backend, &mut live).expect("clear");
         assert!(app.transcript.is_empty());

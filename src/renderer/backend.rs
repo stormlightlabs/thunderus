@@ -18,6 +18,51 @@ use super::layout::{char_width, display_width};
 use super::row::{CursorCoord, Frame, Row};
 use super::style::{CellStyle, Color, Span};
 
+/// Set the terminal scroll region (DECSTBM) to constrain scrolling to a
+/// range of rows. Rows are 1-based per the ANSI spec.
+struct SetScrollRegion(pub std::ops::Range<u16>);
+
+impl crossterm::Command for SetScrollRegion {
+    fn write_ansi(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
+        write!(f, "\x1b[{};{}r", self.0.start, self.0.end)
+    }
+
+    #[cfg(windows)]
+    fn execute_winapi(&self) -> std::io::Result<()> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "SetScrollRegion not supported via WinAPI",
+        ))
+    }
+
+    #[cfg(windows)]
+    fn is_ansi_code_supported(&self) -> bool {
+        true
+    }
+}
+
+/// Reset the terminal scroll region to the full screen.
+struct ResetScrollRegion;
+
+impl crossterm::Command for ResetScrollRegion {
+    fn write_ansi(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
+        f.write_str("\x1b[r")
+    }
+
+    #[cfg(windows)]
+    fn execute_winapi(&self) -> std::io::Result<()> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "ResetScrollRegion not supported via WinAPI",
+        ))
+    }
+
+    #[cfg(windows)]
+    fn is_ansi_code_supported(&self) -> bool {
+        true
+    }
+}
+
 /// A crossterm-backed terminal output.
 ///
 /// Wraps any `Write` sink. In production this is `io::Stdout`; in tests it is a
@@ -91,13 +136,50 @@ impl<W: Write> TerminalBackend<W> {
         self.writer.flush()
     }
 
+    /// Insert history rows above the viewport into the terminal's native
+    /// scrollback.
+    ///
+    /// Uses scroll-region escape sequences: sets a scroll region from the top
+    /// of the screen to `viewport_top`, positions the cursor at the bottom of
+    /// that region, and writes each row with `\r\n` + styled content +
+    /// `Clear(UntilNewLine)`. This pushes existing content up into the
+    /// terminal's scrollback buffer, where the user can scroll back to it
+    /// natively (Shift+PageUp, mouse wheel when not captured, etc.).
+    ///
+    /// After insertion, the scroll region is reset and the cursor is returned
+    /// to its previous position.
+    pub fn insert_history_lines(&mut self, rows: &[Row], viewport_top: u16) -> io::Result<()> {
+        if rows.is_empty() {
+            return Ok(());
+        }
+
+        if viewport_top == 0 {
+            self.write_rows(0, rows)?;
+            return Ok(());
+        }
+
+        queue!(self.writer, SetScrollRegion(1..viewport_top))?;
+
+        let cursor_top = viewport_top.saturating_sub(1);
+        queue!(self.writer, MoveTo(0, cursor_top))?;
+
+        for row in rows {
+            queue!(self.writer, crossterm::style::Print("\r\n"))?;
+            write_screen_row(&mut self.writer, row)?;
+        }
+
+        queue!(self.writer, ResetScrollRegion)?;
+        self.writer.flush()
+    }
+
     /// Move the cursor to a coordinate within the live region.
     pub fn move_cursor(&mut self, coord: CursorCoord) -> io::Result<()> {
         queue!(self.writer, MoveTo(coord.col as u16, coord.row as u16))
     }
 
-    /// Write a single styled row at `row` (0-based). Does not move to a new
-    /// line afterward.
+    /// Write a single styled row at `row` (0-based).
+    ///
+    /// Does not move to a new line afterward.
     #[cfg(test)]
     pub fn write_row(&mut self, row: usize, styled: &Row) -> io::Result<()> {
         queue!(self.writer, MoveTo(0, row as u16))?;
@@ -129,8 +211,13 @@ impl<W: Write> TerminalBackend<W> {
     /// sufficient.
     pub fn render_frame(&mut self, frame: &Frame, top_row: u16) -> io::Result<()> {
         self.write_rows(top_row, &frame.rows)?;
-        if let Some(cursor) = frame.cursor {
-            self.move_cursor(CursorCoord { row: top_row as usize + cursor.row, col: cursor.col })?;
+        if frame.cursor_visible {
+            if let Some(cursor) = frame.cursor {
+                self.move_cursor(CursorCoord { row: top_row as usize + cursor.row, col: cursor.col })?;
+            }
+            queue!(self.writer, Show)?;
+        } else {
+            queue!(self.writer, Hide)?;
         }
         self.writer.flush()
     }
@@ -158,16 +245,30 @@ impl<W: Write> TerminalBackend<W> {
             }
         }
 
-        // Clear any leftover rows from the previous frame that are no longer
-        // present in the new frame.
         if new_rows.len() < prev_rows.len() {
-            self.clear_rows(top_row + new_rows.len() as u16, (prev_rows.len() - new_rows.len()) as u16)?;
+            self.clear_rows(
+                top_row + new_rows.len() as u16,
+                (prev_rows.len() - new_rows.len()) as u16,
+            )?;
         }
 
-        if let Some(cursor) = frame.cursor {
-            let cursor_changed = prev.is_none_or(|p| p.cursor != Some(cursor));
-            if cursor_changed {
-                self.move_cursor(CursorCoord { row: top_row as usize + cursor.row, col: cursor.col })?;
+        if frame.cursor_visible {
+            if let Some(cursor) = frame.cursor {
+                let cursor_changed = prev.is_none_or(|p| p.cursor != Some(cursor) || !p.cursor_visible);
+                if cursor_changed {
+                    queue!(self.writer, Show)?;
+                    self.move_cursor(CursorCoord { row: top_row as usize + cursor.row, col: cursor.col })?;
+                }
+            } else {
+                let was_hidden = prev.is_none_or(|p| !p.cursor_visible);
+                if was_hidden {
+                    queue!(self.writer, Show)?;
+                }
+            }
+        } else {
+            let was_visible = prev.is_none_or(|p| p.cursor_visible);
+            if was_visible {
+                queue!(self.writer, Hide)?;
             }
         }
         self.writer.flush()
@@ -216,8 +317,7 @@ fn write_spans(writer: &mut impl Write, spans: &[Span], width: usize) -> io::Res
 }
 
 /// Write a row for the live screen without touching the terminal's last
-/// column. The row background is extended with `Clear(UntilNewLine)`, matching
-/// the Codex/Pi pattern of clearing a row and then printing only meaningful
+/// column. The row background is extended with `Clear(UntilNewLine)`, clearing a row and then printing only meaningful
 /// cells. This avoids the terminal's pending-autowrap state during repeated
 /// live-region redraws.
 fn write_screen_row(writer: &mut impl Write, row: &Row) -> io::Result<()> {
@@ -400,6 +500,36 @@ mod tests {
         let out = String::from_utf8(b.writer().clone()).unwrap();
         assert!(out.contains("\x1b[2J"));
         assert!(out.contains("\x1b[3J"));
+    }
+
+    #[test]
+    fn insert_history_lines_scrolls_before_first_row() {
+        let mut b = backend(20, 10);
+        let row = Row::padded(vec![Span::plain("history")], 20, CellStyle::default());
+        b.insert_history_lines(&[row], 8).unwrap();
+
+        let out = String::from_utf8(b.writer().clone()).unwrap();
+        assert!(
+            out.contains("\x1b[1;8r"),
+            "should constrain scrolling above live viewport"
+        );
+        assert!(
+            out.contains("\x1b[8;1H\r\n"),
+            "first history row should be inserted by scrolling, not by overwriting: {out:?}"
+        );
+        assert!(out.contains("history"));
+        assert!(out.contains("\x1b[r"), "scroll region should be reset");
+    }
+
+    #[test]
+    fn insert_history_lines_at_top_writes_without_scroll_region() {
+        let mut b = backend(20, 10);
+        let row = Row::padded(vec![Span::plain("history")], 20, CellStyle::default());
+        b.insert_history_lines(&[row], 0).unwrap();
+
+        let out = String::from_utf8(b.writer().clone()).unwrap();
+        assert!(out.contains("history"));
+        assert!(!out.contains("\x1b[1;0r"));
     }
 
     #[test]

@@ -34,11 +34,13 @@ struct CliArgs {
     #[arg(long, default_value_t = false)]
     no_alt_screen: bool,
 
-    /// Disable terminal mouse capture so native selection and scrollback work.
+    /// Disable mouse capture entirely (no file picker scroll wheel).
     #[arg(long, default_value_t = false)]
     no_mouse: bool,
 
-    /// Enable terminal mouse capture for overlay mouse events.
+    /// Enable mouse capture for the file picker scroll wheel. Mouse capture
+    /// is toggled on only while the picker is open, so native terminal text
+    /// selection works at all other times.
     #[arg(long, default_value_t = false)]
     mouse: bool,
 

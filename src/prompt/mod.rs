@@ -128,28 +128,6 @@ impl PromptBundle {
             prev_context_hash: None,
         }
     }
-
-    /// Build a [`PromptBundle`] with explicit history-reuse settings.
-    ///
-    /// `prev_context_hash` is the hash of the root AGENTS.md from the previous
-    /// turn.
-    ///
-    /// When `history_reuse` is [`HistoryReuse::Available`] and the current
-    /// hash matches, the full AGENTS.md text is omitted from the system prompt
-    /// (only metadata is included) to avoid re-sending cached content.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "constructor mirrors PromptBundle fields for targeted tests"
-    )]
-    pub fn with_history_reuse(
-        cwd: &Path, model: &str, mode: WebSearchMode, context_sources: &[ContextSource], transcript: &[Entry],
-        user_turn: &str, history_reuse: HistoryReuse, prev_context_hash: Option<u64>,
-    ) -> PromptBundle {
-        let mut bundle = PromptBundle::new(cwd, model, mode, context_sources, transcript, user_turn);
-        bundle.history_reuse = history_reuse;
-        bundle.prev_context_hash = prev_context_hash;
-        bundle
-    }
 }
 
 /// Whether the provider supports reusable history / prompt caching for

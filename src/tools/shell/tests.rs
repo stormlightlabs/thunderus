@@ -1,4 +1,4 @@
-use crate::app::Entry;
+use crate::app::{Entry, ToolStatus};
 use crate::session::{SessionReader, SessionRecord, SessionWriter};
 use crate::tools::MAX_LINE_LEN;
 
@@ -26,15 +26,6 @@ fn process_status_labels() {
     assert_eq!(ProcessStatus::Failed.label(), "failed");
     assert_eq!(ProcessStatus::Timeout.label(), "timeout");
     assert_eq!(ProcessStatus::Cancelled.label(), "cancelled");
-}
-
-#[test]
-fn process_status_to_tool_status() {
-    assert_eq!(ProcessStatus::Running.to_tool_status(), ToolStatus::Running);
-    assert_eq!(ProcessStatus::Ok.to_tool_status(), ToolStatus::Ok);
-    assert_eq!(ProcessStatus::Failed.to_tool_status(), ToolStatus::Failed);
-    assert_eq!(ProcessStatus::Timeout.to_tool_status(), ToolStatus::Failed);
-    assert_eq!(ProcessStatus::Cancelled.to_tool_status(), ToolStatus::Failed);
 }
 
 #[test]

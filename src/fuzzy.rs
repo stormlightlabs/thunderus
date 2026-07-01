@@ -1,6 +1,6 @@
 /// Case-insensitive fuzzy subsequence matching.
 ///
-/// Inspired by Codex/Pi: every query character must appear in order. Lower
+/// Every query character must appear in order. Lower
 /// scores are better; matches at path boundaries and contiguous runs score
 /// ahead of spread-out matches.
 #[derive(Clone, Debug, Eq, PartialEq)]

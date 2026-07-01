@@ -304,8 +304,6 @@ pub struct App {
     pub session_tokens_out: u64,
     /// Loaded context sources (e.g. AGENTS.md).
     pub context_sources: Vec<context::ContextSource>,
-    /// Legacy fullscreen transcript offset. Inline scrollback mode does not use it.
-    pub scroll_offset: usize,
     /// Monotonic UI tick used for lightweight animated affordances.
     pub ui_tick: u64,
     /// When `Some`, the user pressed Ctrl+D once and we are waiting for a
@@ -333,6 +331,8 @@ pub struct App {
     pub queued_steering: Vec<String>,
     /// Follow-up prompts to submit as new turns after the active run completes.
     pub queued_followups: Vec<String>,
+    /// Kill-ring for readline-style yank (Ctrl+Y).
+    pub kill_ring: Vec<String>,
     /// When true the loop should stop and the app exit.
     pub quit: bool,
 }
@@ -394,7 +394,6 @@ impl App {
             session_tokens_in: 0,
             session_tokens_out: 0,
             context_sources,
-            scroll_offset: 0,
             ui_tick: 0,
             ctrl_d_pending: None,
             session_writer,
@@ -406,6 +405,7 @@ impl App {
             prompt_accessory: PromptAccessory::None,
             queued_steering: Vec::new(),
             queued_followups: Vec::new(),
+            kill_ring: Vec::new(),
             quit: false,
         }
     }
@@ -541,18 +541,17 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
             app.ctrl_d_pending = Some(deadline);
             app.transcript
                 .push(Entry::Status { text: String::from("Press CTRL+D again to quit.") });
-            maybe_pin_to_bottom(app);
             return None;
         }
     }
 
-    if key.code == KeyCode::Char('t') && key.modifiers.contains(KeyModifiers::CONTROL) {
-        if app.run_state == RunState::Working {
-            app.queue_target = app.queue_target.toggle();
-            app.transcript
-                .push(Entry::Status { text: format!("queue target: {}", app.queue_target.label()) });
-            maybe_pin_to_bottom(app);
-        }
+    if key.code == KeyCode::Char('t')
+        && key.modifiers.contains(KeyModifiers::CONTROL)
+        && app.run_state == RunState::Working
+    {
+        app.queue_target = app.queue_target.toggle();
+        app.transcript
+            .push(Entry::Status { text: format!("queue target: {}", app.queue_target.label()) });
         return None;
     }
 
@@ -571,18 +570,19 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
 }
 
 fn handle_mouse(app: &mut App, mouse: MouseEvent) -> Option<Msg> {
-    if matches!(app.prompt_accessory, PromptAccessory::Files(_)) {
-        if let Some(picker) = app.file_picker.as_mut() {
-            match mouse.kind {
-                MouseEventKind::ScrollUp => picker.move_up(),
-                MouseEventKind::ScrollDown => picker.move_down(),
-                _ => {}
+    match app.prompt_accessory {
+        PromptAccessory::Files(_) => {
+            if let Some(picker) = app.file_picker.as_mut() {
+                match mouse.kind {
+                    MouseEventKind::ScrollUp => picker.move_up(),
+                    MouseEventKind::ScrollDown => picker.move_down(),
+                    _ => {}
+                }
             }
+            None
         }
-        return None;
+        _ => None,
     }
-
-    None
 }
 
 fn handle_accessory_key(app: &mut App, key: KeyEvent) -> Option<Option<Msg>> {
@@ -742,6 +742,24 @@ fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
                 exit_history_navigation(app);
                 true
             }
+            KeyCode::Backspace => {
+                let killed = app.input.kill_word_left();
+                if !killed.is_empty() {
+                    app.kill_ring.push(killed);
+                }
+                exit_history_navigation(app);
+                sync_prompt_accessory(app);
+                true
+            }
+            KeyCode::Char('d') => {
+                let killed = app.input.kill_word_right();
+                if !killed.is_empty() {
+                    app.kill_ring.push(killed);
+                }
+                exit_history_navigation(app);
+                sync_prompt_accessory(app);
+                true
+            }
             _ => false,
         };
         if handled {
@@ -797,6 +815,47 @@ fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
             KeyCode::Char('j') => {
                 exit_history_navigation(app);
                 app.input.insert_char('\n');
+                sync_prompt_accessory(app);
+                true
+            }
+            KeyCode::Char('k') => {
+                let killed = app.input.kill_to_end_of_line();
+                if !killed.is_empty() {
+                    app.kill_ring.push(killed);
+                }
+                exit_history_navigation(app);
+                sync_prompt_accessory(app);
+                true
+            }
+            KeyCode::Char('u') => {
+                let killed = app.input.kill_to_start_of_line();
+                if !killed.is_empty() {
+                    app.kill_ring.push(killed);
+                }
+                exit_history_navigation(app);
+                sync_prompt_accessory(app);
+                true
+            }
+            KeyCode::Char('w') => {
+                let killed = app.input.kill_word_left();
+                if !killed.is_empty() {
+                    app.kill_ring.push(killed);
+                }
+                exit_history_navigation(app);
+                sync_prompt_accessory(app);
+                true
+            }
+            KeyCode::Char('y') => {
+                if let Some(killed) = app.kill_ring.last() {
+                    app.input.yank(killed);
+                }
+                exit_history_navigation(app);
+                sync_prompt_accessory(app);
+                true
+            }
+            KeyCode::Char('t') => {
+                app.input.transpose_chars();
+                exit_history_navigation(app);
                 sync_prompt_accessory(app);
                 true
             }
@@ -947,7 +1006,6 @@ fn open_file_picker(app: &mut App, source: FilePickerSource) {
         Err(err) => {
             app.transcript
                 .push(Entry::Error { text: format!("file picker failed: {err}") });
-            maybe_pin_to_bottom(app);
         }
     }
 }
@@ -1098,7 +1156,6 @@ fn queue_running_input(app: &mut App) {
                 .push(Entry::Status { text: format!("queued follow-up ({})", app.queued_followups.len()) });
         }
     }
-    maybe_pin_to_bottom(app);
 }
 
 fn submit_user_turn(app: &mut App, text: String) -> Option<Msg> {
@@ -1163,7 +1220,6 @@ fn list_background_processes(app: &mut App) {
         app.transcript
             .push(Entry::Status { text: format!("background processes:\n{}", lines.join("\n")) });
     }
-    maybe_pin_to_bottom(app);
 }
 
 /// Process an [`AgentEvent`] and mutate `app` accordingly.
@@ -1176,7 +1232,6 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
         AgentEvent::Status(text) => {
             if app.verbose || !is_verbose_status(&text) {
                 app.transcript.push(Entry::Status { text });
-                maybe_pin_to_bottom(app);
             }
             None
         }
@@ -1195,7 +1250,6 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             } else {
                 app.transcript.push(Entry::Assistant { text: delta, streaming: true });
             }
-            maybe_pin_to_bottom(app);
             None
         }
         AgentEvent::ReasoningDelta(delta) => {
@@ -1204,7 +1258,6 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             } else {
                 app.transcript.push(Entry::Reasoning { text: delta, streaming: true });
             }
-            maybe_pin_to_bottom(app);
             None
         }
         AgentEvent::ToolStarted { id, name, arguments } => {
@@ -1219,7 +1272,6 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
                 let turn_id = format!("turn_{}", app.turn_count);
                 let _ = writer.append_tool_started(&turn_id, &id, &name, &arguments);
             }
-            maybe_pin_to_bottom(app);
             None
         }
         AgentEvent::ToolFinished { id, output, status, write_result, shell_result } => {
@@ -1252,7 +1304,6 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
                     app.transcript.push(Entry::Status {
                         text: format!("background process [{id}] started: {}", result.command.join(" ")),
                     });
-                    maybe_pin_to_bottom(app);
                 }
 
                 if let Some(ref mut writer) = app.session_writer {
@@ -1310,18 +1361,6 @@ fn cancel_stream(app: &mut App) {
     app.transcript.push(Entry::Status { text: String::from("cancelled") });
     app.run_state = RunState::Stopping;
     persist_last_entry(app);
-    maybe_pin_to_bottom(app);
-}
-
-/// Reset the scroll offset to pin the transcript to the newest entries.
-fn pin_to_bottom(app: &mut App) {
-    app.scroll_offset = 0;
-}
-
-fn maybe_pin_to_bottom(app: &mut App) {
-    if app.scroll_offset == 0 {
-        pin_to_bottom(app);
-    }
 }
 
 fn remember_input(app: &mut App, text: &str) {

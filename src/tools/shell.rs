@@ -40,7 +40,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use super::{MAX_OUTPUT_BYTES, TIMEOUT_SECS, ToolOutput, path};
-use crate::app::ToolStatus;
 use crate::utils;
 
 /// Maximum number of output lines retained for the transcript/tool result.
@@ -83,17 +82,6 @@ impl ProcessStatus {
             ProcessStatus::Failed => "failed",
             ProcessStatus::Timeout => "timeout",
             ProcessStatus::Cancelled => "cancelled",
-        }
-    }
-
-    /// Map to the transcript [`ToolStatus`].
-    ///
-    /// TODO: From/Into impl
-    pub fn to_tool_status(self) -> ToolStatus {
-        match self {
-            ProcessStatus::Running => ToolStatus::Running,
-            ProcessStatus::Ok => ToolStatus::Ok,
-            ProcessStatus::Failed | ProcessStatus::Timeout | ProcessStatus::Cancelled => ToolStatus::Failed,
         }
     }
 }

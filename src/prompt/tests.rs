@@ -270,23 +270,6 @@ fn unavailable_history_reuse_includes_truncated_content() {
 }
 
 #[test]
-fn with_history_reuse_constructor_sets_fields() {
-    let bundle = PromptBundle::with_history_reuse(
-        Path::new("/repo"),
-        "umans-coder",
-        WebSearchMode::Native,
-        &[],
-        &[],
-        "hello",
-        HistoryReuse::Available,
-        Some(12345),
-    );
-
-    assert_eq!(bundle.history_reuse, HistoryReuse::Available);
-    assert_eq!(bundle.prev_context_hash, Some(12345));
-}
-
-#[test]
 fn lower_to_umans_produces_messages() {
     let bundle = test_bundle();
     let messages = lower_to_umans_messages(&bundle);

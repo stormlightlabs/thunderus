@@ -428,13 +428,21 @@ fn help_rows(width: usize, max_height: usize) -> Vec<Row> {
 
     let entries: &[(&str, &str)] = &[
         ("── Navigation ──", ""),
-        ("Up/Down", "select item or recall history"),
-        ("PageUp/PageDn", "scroll picker faster"),
+        ("Up/Down", "move cursor or recall history"),
         ("Enter", "accept highlighted item"),
         ("Escape", "close help, files, or commands"),
         ("── Editing ──", ""),
         ("Shift+Enter", "insert newline"),
         ("Ctrl+A/E", "move to start/end"),
+        ("Ctrl+B/F", "move cursor left/right"),
+        ("Ctrl+W", "delete previous word"),
+        ("Ctrl+K", "delete to end of line"),
+        ("Ctrl+U", "delete to start of line"),
+        ("Ctrl+Y", "yank (paste) last kill"),
+        ("Ctrl+T", "transpose characters"),
+        ("Alt+B/F", "move word left/right"),
+        ("Alt+D", "delete next word"),
+        ("Alt+Bksp", "delete previous word"),
         ("── Files ──", ""),
         ("Ctrl+P", "pick a file"),
         ("@path", "mention a file from fuzzy search"),
@@ -635,7 +643,7 @@ mod tests {
             "Cargo.toml".to_string(),
         ]);
         let rows = accessory_rows(&app, 80, 12);
-        let frame = crate::renderer::row::Frame { rows, width: 80, cursor: None };
+        let frame = crate::renderer::row::Frame { rows, width: 80, cursor: None, cursor_visible: true };
         insta::assert_snapshot!("file_picker_empty_query", frame.render_styled());
     }
 
@@ -652,7 +660,7 @@ mod tests {
             picker.match_indices = vec![vec![4, 5, 6, 7]];
         }
         let rows = accessory_rows(&app, 80, 12);
-        let frame = crate::renderer::row::Frame { rows, width: 80, cursor: None };
+        let frame = crate::renderer::row::Frame { rows, width: 80, cursor: None, cursor_visible: true };
         insta::assert_snapshot!("file_picker_filtered", frame.render_styled());
     }
 
@@ -665,7 +673,7 @@ mod tests {
             picker.match_indices = Vec::new();
         }
         let rows = accessory_rows(&app, 80, 12);
-        let frame = crate::renderer::row::Frame { rows, width: 80, cursor: None };
+        let frame = crate::renderer::row::Frame { rows, width: 80, cursor: None, cursor_visible: true };
         insta::assert_snapshot!("file_picker_no_matches", frame.render_styled());
     }
 
@@ -673,7 +681,7 @@ mod tests {
     fn snapshot_file_picker_long_path_clipping() {
         let app = picker_app(vec!["src/very/deeply/nested/path/to/some/module/file.rs".to_string()]);
         let rows = accessory_rows(&app, 30, 12);
-        let frame = crate::renderer::row::Frame { rows, width: 30, cursor: None };
+        let frame = crate::renderer::row::Frame { rows, width: 30, cursor: None, cursor_visible: true };
         insta::assert_snapshot!("file_picker_long_path", frame.render_styled());
     }
 
@@ -686,7 +694,7 @@ mod tests {
             picker.scroll = 3;
         }
         let rows = accessory_rows(&app, 80, 12);
-        let frame = crate::renderer::row::Frame { rows, width: 80, cursor: None };
+        let frame = crate::renderer::row::Frame { rows, width: 80, cursor: None, cursor_visible: true };
         insta::assert_snapshot!("file_picker_scrolled", frame.render_styled());
     }
 
@@ -695,7 +703,7 @@ mod tests {
         let mut app = test_app();
         app.input.set_text("check @src/main.rs for details");
         let (rows, _) = prompt_rows_for(&app, 80);
-        let frame = crate::renderer::row::Frame { rows, width: 80, cursor: None };
+        let frame = crate::renderer::row::Frame { rows, width: 80, cursor: None, cursor_visible: true };
         insta::assert_snapshot!("mention_styling", frame.render_styled());
     }
 
@@ -704,7 +712,7 @@ mod tests {
         let mut app = test_app();
         app.prompt_accessory = PromptAccessory::Help;
         let rows = accessory_rows(&app, 80, 16);
-        let frame = crate::renderer::row::Frame { rows, width: 80, cursor: None };
+        let frame = crate::renderer::row::Frame { rows, width: 80, cursor: None, cursor_visible: true };
         insta::assert_snapshot!("help_rows", frame.render_styled());
     }
 
@@ -715,7 +723,7 @@ mod tests {
         app.mode = Mode::Command;
         app.prompt_accessory = PromptAccessory::Commands { selected: 0 };
         let rows = accessory_rows(&app, 80, 8);
-        let frame = crate::renderer::row::Frame { rows, width: 80, cursor: None };
+        let frame = crate::renderer::row::Frame { rows, width: 80, cursor: None, cursor_visible: true };
         insta::assert_snapshot!("command_suggestions", frame.render_styled());
     }
 }

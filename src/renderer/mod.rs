@@ -1,6 +1,6 @@
 //! Direct terminal renderer for `thndrs`.
 //!
-//! Replaces Ratatui as the source of truth for inline rendering. The row model
+//! Source of truth for inline rendering. The row model
 //! ([`style`], [`layout`], [`row`], [`cursor`]) is independent of crossterm I/O
 //! so wrapping, padding, truncation, cursor coordinates, and snapshots can be
 //! unit-tested. The [`backend`] module is the only place that translates rows

@@ -240,6 +240,98 @@ impl PromptInput {
         true
     }
 
+    /// Kill from the cursor to the end of the line. Returns the killed text.
+    pub fn kill_to_end_of_line(&mut self) -> String {
+        let byte_idx = self.byte_offset_of(self.cursor);
+        let killed = self.text[byte_idx..].to_string();
+        self.text.truncate(byte_idx);
+        killed
+    }
+
+    /// Kill from the start of the line to the cursor. Returns the killed text.
+    pub fn kill_to_start_of_line(&mut self) -> String {
+        let byte_idx = self.byte_offset_of(self.cursor);
+        let killed = self.text[..byte_idx].to_string();
+        self.text = self.text[byte_idx..].to_string();
+        self.cursor = 0;
+        killed
+    }
+
+    /// Kill the word before the cursor (unix-word-rubout style: whitespace
+    /// then non-whitespace). Returns the killed text.
+    pub fn kill_word_left(&mut self) -> String {
+        let chars: Vec<char> = self.chars().collect();
+        if self.cursor == 0 {
+            return String::new();
+        }
+        let mut i = self.cursor;
+        while i > 0 && chars[i - 1].is_whitespace() {
+            i -= 1;
+        }
+        while i > 0 && !chars[i - 1].is_whitespace() {
+            i -= 1;
+        }
+        let start_byte = self.byte_offset_of(i);
+        let end_byte = self.byte_offset_of(self.cursor);
+        let killed = self.text[start_byte..end_byte].to_string();
+        self.text.replace_range(start_byte..end_byte, "");
+        self.cursor = i;
+        killed
+    }
+
+    /// Kill the word after the cursor. Returns the killed text.
+    pub fn kill_word_right(&mut self) -> String {
+        let chars: Vec<char> = self.chars().collect();
+        let len = chars.len();
+        if self.cursor >= len {
+            return String::new();
+        }
+        let mut i = self.cursor;
+        while i < len && !chars[i].is_whitespace() {
+            i += 1;
+        }
+        while i < len && chars[i].is_whitespace() {
+            i += 1;
+        }
+        let start_byte = self.byte_offset_of(self.cursor);
+        let end_byte = self.byte_offset_of(i);
+        let killed = self.text[start_byte..end_byte].to_string();
+        self.text.replace_range(start_byte..end_byte, "");
+        killed
+    }
+
+    /// Transpose the characters at the cursor and just before it.
+    /// Returns `true` if a transposition happened.
+    ///
+    /// At the start of the line, swaps the first two chars and moves the
+    /// cursor past both. In the middle, swaps the char before and at the
+    /// cursor, then advances. At the end, swaps the last two chars.
+    pub fn transpose_chars(&mut self) -> bool {
+        let chars: Vec<char> = self.chars().collect();
+        if chars.len() < 2 {
+            return false;
+        }
+        let (a, b) = if self.cursor >= chars.len() {
+            (chars.len() - 2, chars.len() - 1)
+        } else if self.cursor == 0 {
+            (0, 1)
+        } else {
+            (self.cursor - 1, self.cursor)
+        };
+        let byte_a = self.byte_offset_of(a);
+        let byte_b = self.byte_offset_of(b);
+        let len_b = chars[b].len_utf8();
+        let combined = format!("{}{}", chars[b], chars[a]);
+        self.text.replace_range(byte_a..byte_b + len_b, &combined);
+        self.cursor = b + 1;
+        true
+    }
+
+    /// Yank (paste) text at the cursor, advancing the cursor past it.
+    pub fn yank(&mut self, text: &str) {
+        self.insert_str(text);
+    }
+
     /// Convert a char index to a byte offset into `text`.
     fn byte_offset_of(&self, char_index: usize) -> usize {
         self.text
@@ -253,12 +345,6 @@ impl PromptInput {
     pub fn text_before_cursor(&self) -> &str {
         let byte_idx = self.byte_offset_of(self.cursor);
         &self.text[..byte_idx]
-    }
-
-    /// The text from the cursor to the end.
-    pub fn text_after_cursor(&self) -> &str {
-        let byte_idx = self.byte_offset_of(self.cursor);
-        &self.text[byte_idx..]
     }
 }
 
@@ -545,12 +631,11 @@ mod tests {
     }
 
     #[test]
-    fn text_before_and_after_cursor() {
+    fn text_before_cursor() {
         let mut p = PromptInput::from_str("hello world");
         p.cursor_to_start();
         p.cursor_word_right();
         assert_eq!(p.text_before_cursor(), "hello ");
-        assert_eq!(p.text_after_cursor(), "world");
     }
 
     #[test]
@@ -560,5 +645,81 @@ mod tests {
         p.insert_str("line2");
         assert_eq!(p.as_str(), "line1\nline2");
         assert_eq!(p.cursor(), 11);
+    }
+
+    #[test]
+    fn kill_to_end_of_line() {
+        let mut p = PromptInput::from_str("hello world");
+        p.cursor_left();
+        p.cursor_left();
+        p.cursor_left();
+        let killed = p.kill_to_end_of_line();
+        assert_eq!(killed, "rld");
+        assert_eq!(p.as_str(), "hello wo");
+        assert_eq!(p.cursor(), 8);
+    }
+
+    #[test]
+    fn kill_to_start_of_line() {
+        let mut p = PromptInput::from_str("hello world");
+        p.cursor_left();
+        p.cursor_left();
+        p.cursor_left();
+        let killed = p.kill_to_start_of_line();
+        assert_eq!(killed, "hello wo");
+        assert_eq!(p.as_str(), "rld");
+        assert_eq!(p.cursor(), 0);
+    }
+
+    #[test]
+    fn kill_word_left() {
+        let mut p = PromptInput::from_str("foo bar baz");
+        let killed = p.kill_word_left();
+        assert_eq!(killed, "baz");
+        assert_eq!(p.as_str(), "foo bar ");
+        assert_eq!(p.cursor(), 8);
+    }
+
+    #[test]
+    fn kill_word_left_multiple_spaces() {
+        let mut p = PromptInput::from_str("a   b");
+        let killed = p.kill_word_left();
+        assert_eq!(killed, "b");
+        assert_eq!(p.as_str(), "a   ");
+    }
+
+    #[test]
+    fn kill_word_right() {
+        let mut p = PromptInput::from_str("foo bar baz");
+        p.cursor_to_start();
+        let killed = p.kill_word_right();
+        assert_eq!(killed, "foo ");
+        assert_eq!(p.as_str(), "bar baz");
+        assert_eq!(p.cursor(), 0);
+    }
+
+    #[test]
+    fn transpose_chars_at_cursor() {
+        let mut p = PromptInput::from_str("ab");
+        p.cursor_to_start();
+        p.transpose_chars();
+        assert_eq!(p.as_str(), "ba");
+        assert_eq!(p.cursor(), 2);
+    }
+
+    #[test]
+    fn transpose_chars_at_end() {
+        let mut p = PromptInput::from_str("hello");
+        p.transpose_chars();
+        assert_eq!(p.as_str(), "helol");
+    }
+
+    #[test]
+    fn yank_pastes_at_cursor() {
+        let mut p = PromptInput::from_str("hello");
+        p.cursor_left();
+        p.yank(" world");
+        assert_eq!(p.as_str(), "hell worldo");
+        assert_eq!(p.cursor(), 10);
     }
 }

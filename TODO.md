@@ -200,3 +200,5 @@ See:
 - [ ] Text should selectable in messages and input
 - [ ] The app should be scrollable
 - [ ] Git status should be in the statusline
+- [ ] Model switcher for Umans
+- [ ] OpenCode Go support

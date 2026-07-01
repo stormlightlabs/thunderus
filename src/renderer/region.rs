@@ -4,16 +4,13 @@
 //! live prompt chrome, then redraws that bounded viewport each tick.
 //!
 //! The viewport contains, from top to bottom:
-//! 1. banner and transcript history clipped to the available history area;
-//! 2. blank canvas rows if history does not fill that area;
-//! 3. dynamic status row (session + status icon);
-//! 4. prompt input rows;
-//! 5. optional accessory rows (help/commands/files);
-//! 6. static status row (model/search/tokens/cwd).
-//!
-//! This mirrors the Codex/Pi/Goose pattern: every render owns a bounded width
-//! and height, rebuilds rows for the current terminal size, and clips/pads
-//! before writing to the terminal.
+//! 1. banner before the first transcript rows have been committed;
+//! 2. blank canvas rows above the live tail;
+//! 3. the mutable transcript tail, if any;
+//! 4. dynamic status row (session + status icon);
+//! 5. prompt input rows;
+//! 6. optional accessory rows (help/commands/files);
+//! 7. static status row (model/search/tokens/cwd).
 
 use std::io;
 
@@ -21,8 +18,8 @@ use crate::app::{App, Entry, ToolStatus};
 use crate::renderer::backend::TerminalBackend;
 use crate::renderer::live as rows;
 use crate::renderer::row::{Frame, Row};
-use crate::renderer::style as renderer_style;
-use crate::renderer::style::{CellStyle, Color, Span};
+use crate::renderer::style::{self, CellStyle, Color, Span};
+use crate::utils;
 
 /// Maximum rows the prompt input can occupy before scrolling within the live
 /// region.
@@ -31,7 +28,18 @@ const MAX_PROMPT_ROWS: usize = 8;
 /// Maximum accessory rows (help/commands/files) shown in the live region.
 const MAX_ACCESSORY_ROWS: usize = 8;
 
-/// State tracking the last viewport render.
+/// Maximum tool output lines rendered before a truncation marker is shown.
+const MAX_TOOL_OUTPUT_LINES: usize = 6;
+
+/// Gutter prefix for tool output lines.
+const GUTTER: &str = "   │ ";
+
+/// State tracking the live region render and committed history.
+///
+/// Transcript rows that are stable are written to the terminal's native
+/// scrollback via [`insert_history_lines`](TerminalBackend::insert_history_lines).
+/// The viewport only contains the live chrome (prompt/status/accessories) and
+/// any mutable transcript tail that cannot be safely appended yet.
 #[derive(Debug)]
 pub struct LiveRegion {
     /// The last frame rendered to the screen, used for diff-based rendering.
@@ -40,6 +48,13 @@ pub struct LiveRegion {
     rendered_width: Option<usize>,
     /// Terminal height at the last render.
     rendered_height: Option<usize>,
+    /// Top row used for the last diff-rendered frame.
+    rendered_top_row: Option<u16>,
+    /// Number of stable transcript rows already committed to terminal scrollback.
+    committed_row_count: usize,
+    /// Terminal width used for committed rows. Width changes require replay so
+    /// wrapped rows do not duplicate or stale.
+    committed_width: Option<usize>,
 }
 
 impl Default for LiveRegion {
@@ -51,36 +66,41 @@ impl Default for LiveRegion {
 impl LiveRegion {
     /// Create a fresh live region with nothing committed.
     pub fn new() -> Self {
-        LiveRegion { rendered_frame: None, rendered_width: None, rendered_height: None }
+        LiveRegion {
+            rendered_frame: None,
+            rendered_width: None,
+            rendered_height: None,
+            rendered_top_row: None,
+            committed_row_count: 0,
+            committed_width: None,
+        }
     }
 
-    /// Build the full terminal viewport from app state.
+    /// Build the live-region frame.
     ///
-    /// The frame is exactly `height` rows tall when `height > 0`. History rows
-    /// are clipped from the bottom when they overflow their area, while the
-    /// live prompt/status rows stay anchored at the bottom.
+    /// Before the banner has been committed to scrollback (i.e. before the
+    /// first transcript entry arrives), the banner rows are included in the
+    /// frame so they stay visible on screen at startup. Once the banner is
+    /// committed, the frame contains only the live chrome.
     pub fn build_frame(&self, app: &App, width: usize, height: usize) -> Frame {
         let mut frame = Frame::new(width);
         if width == 0 || height == 0 {
             return frame;
         }
 
-        let live = self.build_live_frame(app, width, height);
+        let plan = TranscriptRenderPlan::new(app, width);
+        let live_tail = plan.live_rows.clone();
+        let live = self.build_live_frame(app, width, height, live_tail);
         let live_height = live.rows.len().min(height);
-        let history_height = height.saturating_sub(live_height);
 
-        let mut history_rows = banner_rows(app, width);
-        history_rows.extend(transcript_rows(&app.transcript, &app.user_label, width));
-        let history_start = history_rows.len().saturating_sub(history_height);
-        let visible_history = &history_rows[history_start..];
-
-        frame.rows.extend(visible_history.iter().cloned());
-
-        let p = renderer_style::palette();
-        while frame.rows.len() < history_height {
-            frame.push(Row::blank(width, bg_style(p.panel_bg)));
+        if self.committed_row_count == 0 {
+            let banner = if app.transcript.is_empty() { banner_rows(app, width) } else { plan.stable_rows };
+            let available = height.saturating_sub(live_height);
+            let banner_start = banner.len().saturating_sub(available);
+            frame.rows.extend(banner.into_iter().skip(banner_start));
         }
 
+        let p = style::palette();
         let live_start = live.rows.len().saturating_sub(live_height);
         let live_offset = frame.rows.len();
         let cursor = live.cursor.and_then(|mut cursor| {
@@ -90,10 +110,19 @@ impl LiveRegion {
             cursor.row = cursor.row - live_start + live_offset;
             Some(cursor)
         });
+
+        while frame.rows.len() < height.saturating_sub(live_height) {
+            frame.push(Row::blank(width, bg_style(p.panel_bg)));
+        }
+
         frame
             .rows
             .extend(live.rows.into_iter().skip(live_start).take(live_height));
         frame.cursor = cursor;
+
+        let blink_on = app.ui_tick.is_multiple_of(5);
+        let prompt_editable = matches!(app.prompt_state(), crate::app::PromptState::Editable);
+        frame.cursor_visible = !prompt_editable || blink_on;
 
         while frame.rows.len() < height {
             frame.push(Row::blank(width, bg_style(p.panel_bg)));
@@ -103,9 +132,15 @@ impl LiveRegion {
     }
 
     /// Build bottom-anchored live prompt/status rows.
-    fn build_live_frame(&self, app: &App, width: usize, height: usize) -> Frame {
+    fn build_live_frame(&self, app: &App, width: usize, height: usize, live_tail: Vec<Row>) -> Frame {
         let mut frame = Frame::new(width);
+
+        for row in clip_live_tail_rows(live_tail, height) {
+            frame.push(row);
+        }
+
         frame.push(rows::dynamic_status_row(app, width));
+
         let (prompt_rows, cursor) = rows::prompt_rows_for(app, width);
         let prompt_count = prompt_rows.len().min(MAX_PROMPT_ROWS);
         let remaining_after_prompt = height.saturating_sub(frame.len() + prompt_count + 1);
@@ -127,34 +162,99 @@ impl LiveRegion {
         }
 
         frame.push(rows::static_status_row(app, width));
-
         frame
     }
 
-    /// Render the full logical viewport.
+    /// Render the live-region viewport, committing stable transcript rows to
+    /// terminal scrollback first.
     ///
-    /// Uses diff-based rendering: only rows that differ from the previous
-    /// frame are written to the terminal. This eliminates full-screen
-    /// redraws on every tick, which was a primary cause of flickering.
+    /// 1. Render the transcript into stable scrollback rows plus mutable live
+    ///    tail rows.
+    /// 2. Append only the stable rows that have not yet been inserted into
+    ///    native scrollback.
+    /// 3. Use
+    ///    [`insert_history_lines`](TerminalBackend::insert_history_lines) to
+    ///    push them into native terminal scrollback above the viewport.
+    /// 4. Render the live region (mutable tail, prompt/status/accessories) via
+    ///    diff rendering.
     pub fn render_frame<W: io::Write>(
         &mut self, app: &App, backend: &mut TerminalBackend<W>, width: usize, height: usize,
     ) -> io::Result<()> {
-        let frame = self.build_frame(app, width, height);
+        if width == 0 || height == 0 {
+            return Ok(());
+        }
 
-        // If the terminal size changed since the last render, we cannot rely
-        // on the diff — the old frame's rows may have different content at
-        // different positions. Fall back to a full redraw.
-        let size_changed = self.rendered_width != Some(width) || self.rendered_height != Some(height);
+        if self
+            .committed_width
+            .is_some_and(|committed_width| committed_width != width)
+        {
+            backend.clear_all()?;
+            self.rendered_frame = None;
+            self.committed_row_count = 0;
+        }
 
-        if size_changed {
-            backend.render_frame(&frame, 0)?;
+        let plan = TranscriptRenderPlan::new(app, width);
+        if self.committed_row_count > plan.stable_rows.len() {
+            backend.clear_all()?;
+            self.rendered_frame = None;
+            self.committed_row_count = 0;
+        }
+
+        let rows_to_commit = &plan.stable_rows[self.committed_row_count..];
+        if !rows_to_commit.is_empty() {
+            let live = self.build_live_frame(app, width, height, plan.live_rows.clone());
+            let live_height = live.rows.len().min(height);
+            let viewport_top = height.saturating_sub(live_height) as u16;
+
+            backend.insert_history_lines(rows_to_commit, viewport_top)?;
+            self.rendered_frame = None;
+            self.committed_row_count = plan.stable_rows.len();
+            self.committed_width = Some(width);
+        }
+
+        let (frame, top_row) = if self.committed_row_count == 0 {
+            (self.build_frame(app, width, height), 0)
         } else {
-            backend.render_frame_diff(&frame, self.rendered_frame.as_ref(), 0)?;
+            let live = self.build_live_frame(app, width, height, plan.live_rows);
+            let live_height = live.rows.len().min(height);
+            let live_start = live.rows.len().saturating_sub(live_height);
+            let mut frame = Frame::new(width);
+            frame
+                .rows
+                .extend(live.rows.into_iter().skip(live_start).take(live_height));
+            frame.cursor = live.cursor.and_then(|mut cursor| {
+                if cursor.row < live_start {
+                    return None;
+                }
+                cursor.row -= live_start;
+                Some(cursor)
+            });
+            let blink_on = app.ui_tick.is_multiple_of(5);
+            let prompt_editable = matches!(app.prompt_state(), crate::app::PromptState::Editable);
+            frame.cursor_visible = !prompt_editable || blink_on;
+            (frame, height.saturating_sub(live_height) as u16)
+        };
+
+        if self.rendered_top_row.is_some_and(|prev_top| prev_top != top_row) {
+            if let Some(prev) = self.rendered_frame.as_ref() {
+                backend.clear_rows(self.rendered_top_row.unwrap_or(0), prev.rows.len() as u16)?;
+            }
+            self.rendered_frame = None;
+        }
+
+        if self.rendered_width != Some(width)
+            || self.rendered_height != Some(height)
+            || self.rendered_top_row != Some(top_row)
+        {
+            backend.render_frame(&frame, top_row)?;
+        } else {
+            backend.render_frame_diff(&frame, self.rendered_frame.as_ref(), top_row)?;
         }
 
         self.rendered_frame = Some(frame);
         self.rendered_width = Some(width);
         self.rendered_height = Some(height);
+        self.rendered_top_row = Some(top_row);
         Ok(())
     }
 
@@ -163,12 +263,80 @@ impl LiveRegion {
         self.rendered_frame = None;
         self.rendered_width = None;
         self.rendered_height = None;
+        self.rendered_top_row = None;
+        self.committed_row_count = 0;
+        self.committed_width = None;
     }
+}
+
+#[derive(Clone, Debug)]
+struct TranscriptRenderPlan {
+    stable_rows: Vec<Row>,
+    live_rows: Vec<Row>,
+}
+
+impl TranscriptRenderPlan {
+    fn new(app: &App, width: usize) -> TranscriptRenderPlan {
+        let mut stable_rows = Vec::new();
+        let mut live_rows = Vec::new();
+
+        if app.transcript.is_empty() {
+            return TranscriptRenderPlan { stable_rows, live_rows };
+        }
+
+        stable_rows.extend(banner_rows(app, width));
+
+        let mut prev: Option<&Entry> = None;
+        for entry in &app.transcript {
+            let mut separator = Vec::new();
+            add_group_separator_if_needed(&mut separator, prev, entry, width);
+
+            let (entry_stable, entry_live) = entry_stable_and_live_rows(entry, &app.user_label, width);
+            if entry_stable.is_empty() {
+                live_rows.extend(separator);
+                live_rows.extend(entry_live);
+            } else {
+                stable_rows.extend(separator);
+                stable_rows.extend(entry_stable);
+                live_rows.extend(entry_live);
+            }
+            prev = Some(entry);
+        }
+
+        TranscriptRenderPlan { stable_rows, live_rows }
+    }
+}
+
+fn clip_live_tail_rows(mut active: Vec<Row>, height: usize) -> Vec<Row> {
+    let max_active = height.saturating_sub(4).max(1);
+    if active.len() > max_active { active.split_off(active.len() - max_active) } else { active }
+}
+
+fn entry_stable_and_live_rows(entry: &Entry, user_label: &str, width: usize) -> (Vec<Row>, Vec<Row>) {
+    match entry {
+        Entry::Assistant { streaming: true, .. } | Entry::Reasoning { streaming: true, .. } => {
+            split_streaming_text_rows(entry, user_label, width)
+        }
+        Entry::Tool { status: ToolStatus::Running, .. } => (Vec::new(), entry_to_rows(entry, user_label, width)),
+        _ => (entry_to_rows(entry, user_label, width), Vec::new()),
+    }
+}
+
+fn split_streaming_text_rows(entry: &Entry, user_label: &str, width: usize) -> (Vec<Row>, Vec<Row>) {
+    let rows = entry_to_rows(entry, user_label, width);
+    if rows.len() <= 3 {
+        return (Vec::new(), rows);
+    }
+
+    let stable_len = rows.len().saturating_sub(2);
+    let stable_rows = rows[..stable_len].to_vec();
+    let live_rows = rows[stable_len..].to_vec();
+    (stable_rows, live_rows)
 }
 
 /// Build banner rows for scrollback.
 fn banner_rows(app: &App, width: usize) -> Vec<Row> {
-    let p = renderer_style::palette();
+    let p = style::palette();
     let bg = p.panel_bg;
     let title_style = CellStyle::new().fg(p.accent).bg(bg).bold();
     let text_style = CellStyle::new().fg(p.text).bg(bg);
@@ -181,12 +349,12 @@ fn banner_rows(app: &App, width: usize) -> Vec<Row> {
     let banner_lines = crate::banner::banner_lines(banner_width);
     let banner_is_art = banner_lines.len() > 1;
     for line in banner_lines {
-        push_wrapped_banner_row(&mut rows, vec![Span::styled(line, title_style)], width, bg);
+        push_wrapped_banner_row(&mut rows, &[Span::styled(line, title_style)], width, bg);
     }
     if banner_is_art {
         push_wrapped_banner_row(
             &mut rows,
-            vec![Span::styled(
+            &[Span::styled(
                 "─".repeat(width.saturating_sub(4)),
                 CellStyle::new().fg(p.overlay0).bg(bg),
             )],
@@ -196,10 +364,10 @@ fn banner_rows(app: &App, width: usize) -> Vec<Row> {
     }
 
     let title = String::from("thndrs  coding agent");
-    push_wrapped_banner_row(&mut rows, vec![Span::styled(title, title_style)], width, bg);
+    push_wrapped_banner_row(&mut rows, &[Span::styled(title, title_style)], width, bg);
     push_wrapped_banner_row(
         &mut rows,
-        vec![
+        &[
             Span::styled("model: ", muted_style),
             Span::styled(app.model.clone(), text_style),
             Span::styled("   search: ", muted_style),
@@ -212,7 +380,7 @@ fn banner_rows(app: &App, width: usize) -> Vec<Row> {
     if !app.cwd.as_os_str().is_empty() {
         push_wrapped_banner_row(
             &mut rows,
-            vec![Span::styled(format!("cwd: {}", app.cwd.display()), muted_style)],
+            &[Span::styled(format!("cwd: {}", app.cwd.display()), muted_style)],
             width,
             bg,
         );
@@ -220,7 +388,7 @@ fn banner_rows(app: &App, width: usize) -> Vec<Row> {
 
     push_wrapped_banner_row(
         &mut rows,
-        vec![
+        &[
             Span::styled("›  ", title_style),
             Span::styled("Ask for a change, run a command, or inspect this repo.", muted_style),
         ],
@@ -229,7 +397,7 @@ fn banner_rows(app: &App, width: usize) -> Vec<Row> {
     );
     push_wrapped_banner_row(
         &mut rows,
-        vec![
+        &[
             Span::styled("?  ", title_style),
             Span::styled("help", muted_style),
             Span::styled("   Ctrl+P ", title_style),
@@ -243,24 +411,11 @@ fn banner_rows(app: &App, width: usize) -> Vec<Row> {
     rows
 }
 
-fn push_wrapped_banner_row(rows: &mut Vec<Row>, spans: Vec<Span>, width: usize, bg: Color) {
+fn push_wrapped_banner_row(rows: &mut Vec<Row>, spans: &[Span], width: usize, bg: Color) {
     let body_width = crate::renderer::layout::content_width(width);
-    for line in crate::renderer::layout::wrap_spans(&spans, body_width) {
+    for line in crate::renderer::layout::wrap_spans(spans, body_width) {
         rows.push(Row::padded(line, width, bg_style(bg)));
     }
-}
-
-/// Build committed transcript rows from entries.
-fn transcript_rows(entries: &[Entry], user_label: &str, width: usize) -> Vec<Row> {
-    let p = renderer_style::palette();
-    let mut rows = Vec::new();
-    for (i, entry) in entries.iter().enumerate() {
-        if i > 0 && is_group_boundary(&entries[i - 1], entry) {
-            rows.push(Row::blank(width, bg_style(p.surface_dim)));
-        }
-        rows.extend(entry_to_rows(entry, user_label, width));
-    }
-    rows
 }
 
 /// Build a [`CellStyle`] with only a background color.
@@ -268,15 +423,9 @@ fn bg_style(color: Color) -> CellStyle {
     CellStyle::new().bg(color)
 }
 
-/// Maximum tool output lines rendered before a truncation marker is shown.
-const MAX_TOOL_OUTPUT_LINES: usize = 6;
-
-/// Gutter prefix for tool output lines.
-const GUTTER: &str = "   │ ";
-
 /// Convert a single transcript entry to padded rows for scrollback.
 fn entry_to_rows(entry: &Entry, user_label: &str, width: usize) -> Vec<Row> {
-    let p = renderer_style::palette();
+    let p = style::palette();
     let bg = p.surface_dim;
     let body_width = crate::renderer::layout::content_width(width);
 
@@ -324,7 +473,7 @@ fn entry_to_rows(entry: &Entry, user_label: &str, width: usize) -> Vec<Row> {
 /// Build an assistant message block, detecting markdown code fences for
 /// syntax highlighting.
 fn assistant_block_rows(text: &str, label_style: CellStyle, bg: Color, width: usize, body_width: usize) -> Vec<Row> {
-    let p = renderer_style::palette();
+    let p = style::palette();
     let text_style = CellStyle::new().fg(p.text).bg(bg);
     let mut rows = vec![Row::blank(width, bg_style(bg))];
     rows.push(Row::padded(
@@ -336,7 +485,7 @@ fn assistant_block_rows(text: &str, label_style: CellStyle, bg: Color, width: us
     if let Some(markdown) = assistant_markdown_body(text) {
         rows.extend(render_markdown_body(markdown, text_style, bg, width, body_width));
     } else {
-        for line in crate::renderer::layout::wrap_text(text, body_width) {
+        for line in super::layout::wrap_text(text, body_width) {
             if line.is_empty() {
                 rows.push(Row::blank(width, bg_style(bg)));
             } else {
@@ -362,7 +511,7 @@ fn assistant_markdown_body(text: &str) -> Option<&str> {
 
 /// Render markdown body with code fence detection and syntax highlighting.
 fn render_markdown_body(markdown: &str, text_style: CellStyle, bg: Color, width: usize, body_width: usize) -> Vec<Row> {
-    let p = renderer_style::palette();
+    let p = style::palette();
     let mut rows = Vec::new();
     let mut in_code_fence = false;
     let mut code_lang: Option<String> = None;
@@ -399,7 +548,7 @@ fn render_markdown_body(markdown: &str, text_style: CellStyle, bg: Color, width:
         if line.is_empty() {
             rows.push(Row::blank(width, bg_style(bg)));
         } else {
-            for wrapped in crate::renderer::layout::wrap_text(line, body_width) {
+            for wrapped in super::layout::wrap_text(line, body_width) {
                 rows.push(Row::padded(
                     vec![Span::styled(wrapped, text_style)],
                     width,
@@ -411,7 +560,7 @@ fn render_markdown_body(markdown: &str, text_style: CellStyle, bg: Color, width:
 
     if in_code_fence && !code_buf.is_empty() {
         let lang = code_lang.as_deref();
-        let highlighted = crate::renderer::highlight::highlight_lines(&code_buf, lang);
+        let highlighted = super::highlight::highlight_lines(&code_buf, lang);
         for hl_row in highlighted {
             let mut spans = vec![Span::styled(GUTTER, CellStyle::new().fg(p.overlay0).bg(bg))];
             spans.extend(hl_row.into_iter().map(|s| Span { text: s.text, style: s.style.bg(bg) }));
@@ -426,12 +575,11 @@ fn render_markdown_body(markdown: &str, text_style: CellStyle, bg: Color, width:
     rows
 }
 
-/// Build a tool block: header row + args summary + output lines + vertical
-/// padding.
+/// Build a tool block: header row + args summary + output lines + vertical padding.
 fn tool_block_rows(
     name: &str, args: &str, status: ToolStatus, output: &[String], width: usize, body_width: usize, bg: Color,
 ) -> Vec<Row> {
-    let p = renderer_style::palette();
+    let p = style::palette();
     let (status_label, status_color, icon) = match status {
         ToolStatus::Running => ("running", p.peach, "·"),
         ToolStatus::Ok => ("ok", p.green, "✓"),
@@ -444,7 +592,7 @@ fn tool_block_rows(
 
     let args_summary = summarize_tool_args(args);
     let base_name = name.split('#').next().unwrap_or(name);
-    let lang = crate::renderer::highlight::tool_output_language(base_name, args);
+    let lang = super::highlight::tool_output_language(base_name, args);
 
     let mut rows = vec![Row::blank(width, bg_style(bg))];
 
@@ -462,7 +610,7 @@ fn tool_block_rows(
             rows.push(Row::padded(header_spans, width, bg_style(bg)));
         } else {
             rows.push(Row::padded(header_spans, width, bg_style(bg)));
-            for wrapped in crate::renderer::layout::wrap_text(&args_summary, body_width.saturating_sub(2)) {
+            for wrapped in super::layout::wrap_text(&args_summary, body_width.saturating_sub(2)) {
                 let spans = vec![
                     Span::styled("  ", CellStyle::new().bg(bg)),
                     Span::styled(wrapped, muted_style),
@@ -481,7 +629,7 @@ fn tool_block_rows(
                 .take(MAX_TOOL_OUTPUT_LINES)
                 .map(|l| format!("{l}\n"))
                 .collect();
-            let highlighted = crate::renderer::highlight::highlight_lines(&joined, Some(lang_str));
+            let highlighted = super::highlight::highlight_lines(&joined, Some(lang_str));
             for hl_row in highlighted {
                 let mut spans = vec![Span::styled(GUTTER, gutter_style)];
                 spans.extend(hl_row.into_iter().map(|s| Span { text: s.text, style: s.style.bg(bg) }));
@@ -534,25 +682,27 @@ fn summarize_tool_args(arguments: &str) -> String {
     }
     let v: serde_json::Value = match serde_json::from_str(trimmed) {
         Ok(v) => v,
-        Err(_) => return crate::utils::truncate_ellipsis(trimmed, 48),
+        Err(_) => return utils::truncate_ellipsis(trimmed, 48),
     };
     let Some(obj) = v.as_object() else {
-        return crate::utils::truncate_ellipsis(trimmed, 48);
+        return utils::truncate_ellipsis(trimmed, 48);
     };
     for key in &["pattern", "path", "query", "root", "glob", "file", "program", "url"] {
         if let Some(val) = obj.get(*key).and_then(|f| f.as_str()) {
-            return format!("{}: {}", key, crate::utils::truncate_ellipsis(val, 40));
+            return format!("{}: {}", key, utils::truncate_ellipsis(val, 40));
         }
     }
     for (k, val) in obj {
         if let Some(s) = val.as_str() {
-            return format!("{k}: {}", crate::utils::truncate_ellipsis(s, 40));
+            return format!("{k}: {}", utils::truncate_ellipsis(s, 40));
         }
     }
-    crate::utils::truncate_ellipsis(trimmed, 48)
+    utils::truncate_ellipsis(trimmed, 48)
 }
 
 /// Derive a label for status entries based on text content.
+///
+/// FIXME: i hate this
 fn status_label_for(text: &str) -> &'static str {
     if text.starts_with("context  ") {
         "Context"
@@ -596,6 +746,17 @@ fn build_labeled_block(
     rows
 }
 
+/// Add a separator row between different transcript entry groups when
+/// committing to scrollback.
+fn add_group_separator_if_needed(rows: &mut Vec<Row>, prev: Option<&Entry>, curr: &Entry, width: usize) {
+    if let Some(prev) = prev
+        && is_group_boundary(prev, curr)
+    {
+        let p = style::palette();
+        rows.push(Row::blank(width, bg_style(p.surface_dim)));
+    }
+}
+
 /// Semantic group classification for transcript spacing.
 fn entry_group(entry: &Entry) -> u8 {
     match entry {
@@ -615,10 +776,28 @@ fn is_group_boundary(prev: &Entry, curr: &Entry) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::app::{App, Entry, ToolStatus};
-    use crate::cli::{Cli, Theme, WebSearchMode};
     use std::path::PathBuf;
+
+    use super::*;
+    use crate::app::{App, Entry, RunState, ToolStatus};
+    use crate::cli::{Cli, Theme, WebSearchMode};
+    use crate::renderer::row;
+
+    fn vt100_contents(bytes: &[u8], width: u16, height: u16) -> String {
+        let mut parser = vt100::Parser::new(height, width, 200);
+        parser.process(bytes);
+        parser.screen().contents()
+    }
+
+    fn nonblank_lines(contents: &str) -> Vec<&str> {
+        contents.lines().filter(|line| !line.trim().is_empty()).collect()
+    }
+
+    fn render_entry_styled(entry: &Entry, width: usize) -> String {
+        let rows = entry_to_rows(entry, "User", width);
+        let frame = row::Frame { rows, width, cursor: None, cursor_visible: true };
+        frame.render_styled()
+    }
 
     fn test_app() -> App {
         let mut app = App::from_cli(&Cli {
@@ -653,7 +832,7 @@ mod tests {
     }
 
     #[test]
-    fn build_frame_contains_banner_history_and_prompt() {
+    fn build_frame_contains_live_prompt_and_status() {
         let mut app = test_app();
         app.transcript.push(Entry::User { text: "hello".to_string() });
         app.transcript
@@ -662,17 +841,11 @@ mod tests {
 
         let frame = LiveRegion::new().build_frame(&app, 80, 24);
         let combined = frame.render_text();
-
-        assert!(combined.contains("thndrs"), "banner should be part of the viewport");
-        assert!(combined.contains("hello"), "user text should be part of the viewport");
-        assert!(
-            combined.contains("hi there"),
-            "assistant text should be part of the viewport"
-        );
         assert!(
             combined.contains("next question"),
             "prompt should be part of the viewport"
         );
+        assert!(combined.contains("model:"), "footer should be part of the viewport");
     }
 
     #[test]
@@ -706,18 +879,15 @@ mod tests {
     }
 
     #[test]
-    fn build_frame_clips_old_history_first() {
+    fn build_frame_height_matches_viewport() {
         let mut app = test_app();
-        for i in 0..12 {
-            app.transcript.push(Entry::User { text: format!("message-{i}") });
+        for _ in 0..12 {
+            app.transcript.push(Entry::User { text: "message".to_string() });
         }
 
         let frame = LiveRegion::new().build_frame(&app, 80, 10);
         let combined = frame.render_text();
-
-        assert_eq!(frame.len(), 10);
-        assert!(!combined.contains("message-0"), "old history should be clipped first");
-        assert!(combined.contains("message-11"), "latest history should remain visible");
+        assert_eq!(frame.len(), 10, "frame should fill the viewport height");
         assert!(combined.contains("model:"), "footer should remain visible");
     }
 
@@ -736,7 +906,6 @@ mod tests {
         let app = test_app();
         let mut backend = TerminalBackend::new(Vec::new(), 80, 24);
         let mut lr = LiveRegion::new();
-
         lr.render_frame(&app, &mut backend, 80, 24).unwrap();
 
         let out = String::from_utf8(backend.writer().clone()).unwrap();
@@ -744,7 +913,10 @@ mod tests {
         assert!(out.contains("\x1b[K"), "should clear each row to end-of-line");
         assert_eq!(lr.rendered_width, Some(80));
         assert_eq!(lr.rendered_height, Some(24));
-        assert!(lr.rendered_frame.is_some(), "should store the rendered frame for diffing");
+        assert!(
+            lr.rendered_frame.is_some(),
+            "should store the rendered frame for diffing"
+        );
     }
 
     #[test]
@@ -752,18 +924,17 @@ mod tests {
         let app = test_app();
         let mut backend = TerminalBackend::new(Vec::new(), 80, 24);
         let mut lr = LiveRegion::new();
-
-        // First render: full write (no previous frame to diff against).
         lr.render_frame(&app, &mut backend, 80, 24).unwrap();
+
         let first_output_len = String::from_utf8(backend.writer().clone()).unwrap().len();
-
-        // Second render with identical state: diff should produce no row writes.
         lr.render_frame(&app, &mut backend, 80, 24).unwrap();
+
         let second_output = String::from_utf8(backend.writer().clone()).unwrap();
         let second_new_bytes = second_output.len() - first_output_len;
 
         assert_eq!(
-            second_new_bytes, 0,
+            second_new_bytes,
+            0,
             "identical frame should produce no output, got: {:?}",
             &second_output[first_output_len..]
         );
@@ -774,20 +945,12 @@ mod tests {
         let mut app = test_app();
         let mut backend = TerminalBackend::new(Vec::new(), 80, 24);
         let mut lr = LiveRegion::new();
-
-        // First render.
         lr.render_frame(&app, &mut backend, 80, 24).unwrap();
-
-        // Change app state so at least one row differs.
         app.ui_tick = app.ui_tick.wrapping_add(1);
         lr.render_frame(&app, &mut backend, 80, 24).unwrap();
 
-        // The second render should have produced some output (the changed row).
         let out = String::from_utf8(backend.writer().clone()).unwrap();
-        assert!(
-            !out.is_empty(),
-            "changed frame should produce output"
-        );
+        assert!(!out.is_empty(), "changed frame should produce output");
     }
 
     #[test]
@@ -795,19 +958,204 @@ mod tests {
         let app = test_app();
         let mut backend = TerminalBackend::new(Vec::new(), 80, 24);
         let mut lr = LiveRegion::new();
-
-        // Initial render at 80x24.
         lr.render_frame(&app, &mut backend, 80, 24).unwrap();
-        let first_len = String::from_utf8(backend.writer().clone()).unwrap().len();
 
-        // Resize: should trigger a full redraw, not a diff.
+        let first_len = String::from_utf8(backend.writer().clone()).unwrap().len();
         lr.render_frame(&app, &mut backend, 100, 30).unwrap();
+
         let second_output = String::from_utf8(backend.writer().clone()).unwrap();
         let second_new_bytes = second_output.len() - first_len;
 
+        assert!(second_new_bytes > 0, "resize should trigger a full redraw with output");
+    }
+
+    #[test]
+    fn render_frame_commits_submitted_user_to_scrollback() {
+        let mut app = test_app();
+        app.run_state = RunState::Working;
+        app.transcript.push(Entry::User { text: "start the task".to_string() });
+
+        let mut backend = TerminalBackend::new(Vec::new(), 80, 24);
+        let mut lr = LiveRegion::new();
+        lr.render_frame(&app, &mut backend, 80, 24).unwrap();
+
+        let out = String::from_utf8(backend.writer().clone()).unwrap();
         assert!(
-            second_new_bytes > 0,
-            "resize should trigger a full redraw with output"
+            out.contains("\x1b[1;"),
+            "history rows should be inserted through a constrained scroll region"
+        );
+        assert!(
+            out.contains("start the task"),
+            "submitted prompt should be appended to native scrollback immediately"
+        );
+        assert!(lr.committed_row_count > 0);
+    }
+
+    #[test]
+    fn build_frame_places_streaming_output_above_status_line() {
+        let mut app = test_app();
+        app.run_state = RunState::Working;
+        app.transcript
+            .push(Entry::Assistant { text: "streaming response text".to_string(), streaming: true });
+
+        let frame = LiveRegion::new().build_frame(&app, 80, 24);
+        let output_row = frame
+            .rows
+            .iter()
+            .position(|row| row.text().contains("streaming response text"))
+            .expect("streaming output should render");
+        let status_row = frame
+            .rows
+            .iter()
+            .position(|row| row.text().contains("test-session"))
+            .expect("status line should render");
+
+        assert!(
+            output_row < status_row,
+            "mutable transcript output should stay above the running/status line"
+        );
+    }
+
+    #[test]
+    fn render_frame_commits_streaming_stable_prefix_and_keeps_tail_live() {
+        let mut app = test_app();
+        app.run_state = RunState::Working;
+        app.transcript
+            .push(Entry::Assistant { text: "first stable line second mutable tail".to_string(), streaming: true });
+
+        let mut backend = TerminalBackend::new(Vec::new(), 24, 16);
+        let mut lr = LiveRegion::new();
+        lr.render_frame(&app, &mut backend, 24, 16).unwrap();
+
+        let out = String::from_utf8(backend.writer().clone()).unwrap();
+        assert!(
+            out.contains("Assistant"),
+            "stable streaming block header should be committed to scrollback"
+        );
+        let frame_text = lr.rendered_frame.as_ref().unwrap().render_text();
+        assert!(
+            frame_text.contains("mutable tail") || frame_text.contains("tail"),
+            "the mutable streaming tail should remain in the live frame"
+        );
+    }
+
+    #[test]
+    fn vt100_submitted_prompt_survives_first_render_scrollback_round_trip() {
+        let mut app = test_app();
+        app.run_state = RunState::Working;
+        app.transcript.push(Entry::User { text: "start the task".to_string() });
+
+        let mut backend = TerminalBackend::new(Vec::new(), 80, 18);
+        let mut lr = LiveRegion::new();
+        lr.render_frame(&app, &mut backend, 80, 18).unwrap();
+
+        let contents = vt100_contents(backend.writer(), 80, 18);
+        assert!(
+            contents.contains("start the task"),
+            "vt100 should interpret the scroll-region insert as visible/history content:\n{contents}"
+        );
+        assert!(
+            contents.contains("sending") || contents.contains("submitted"),
+            "live chrome should still render after the prompt commit:\n{contents}"
+        );
+    }
+
+    #[test]
+    fn vt100_streaming_tail_moves_above_status_after_stable_prefix_commit() {
+        let mut app = test_app();
+        app.run_state = RunState::Working;
+        app.transcript
+            .push(Entry::User { text: "describe the renderer".to_string() });
+
+        let mut backend = TerminalBackend::new(Vec::new(), 32, 14);
+        let mut lr = LiveRegion::new();
+        lr.render_frame(&app, &mut backend, 32, 14).unwrap();
+
+        app.transcript.push(Entry::Assistant {
+            text: "stable prefix keeps moving into scrollback while mutable tail stays live".to_string(),
+            streaming: true,
+        });
+        lr.render_frame(&app, &mut backend, 32, 14).unwrap();
+
+        let contents = vt100_contents(backend.writer(), 32, 14);
+        let tail_line = contents
+            .lines()
+            .position(|line| line.contains("tail") || line.contains("live"))
+            .expect("streaming tail should be visible in vt100 output");
+        let status_line = contents
+            .lines()
+            .position(|line| line.contains("test-session"))
+            .expect("status line should be visible in vt100 output");
+
+        assert!(
+            tail_line < status_line,
+            "streaming tail should render above the status line after vt100 parsing:\n{contents}"
+        );
+    }
+
+    #[test]
+    fn vt100_resize_replays_committed_rows_without_duplicate_prompt() {
+        let mut app = test_app();
+        app.run_state = RunState::Working;
+        app.transcript
+            .push(Entry::User { text: "resize preserves exactly one submitted prompt".to_string() });
+
+        let mut backend = TerminalBackend::new(Vec::new(), 48, 16);
+        let mut lr = LiveRegion::new();
+        lr.render_frame(&app, &mut backend, 48, 16).unwrap();
+
+        app.transcript.push(Entry::Assistant {
+            text: "stable response rows should reflow when the terminal changes size".to_string(),
+            streaming: false,
+        });
+        lr.render_frame(&app, &mut backend, 48, 16).unwrap();
+
+        backend.set_size(30, 16);
+        lr.render_frame(&app, &mut backend, 30, 16).unwrap();
+
+        backend.set_size(48, 16);
+        lr.render_frame(&app, &mut backend, 48, 16).unwrap();
+
+        let contents = vt100_contents(backend.writer(), 48, 16);
+        let prompt_count = nonblank_lines(&contents)
+            .into_iter()
+            .filter(|line| line.contains("resize preserves exactly one"))
+            .count();
+        assert_eq!(
+            prompt_count, 1,
+            "prompt should be replayed once after narrow/wide round trip:\n{contents}"
+        );
+        assert!(
+            contents.contains("stable response rows"),
+            "committed assistant rows should survive resize replay:\n{contents}"
+        );
+    }
+
+    #[test]
+    fn vt100_resize_replays_startup_banner_with_committed_scrollback() {
+        let mut app = test_app();
+        app.run_state = RunState::Working;
+        app.transcript
+            .push(Entry::User { text: "trigger scrollback replay".to_string() });
+
+        let mut backend = TerminalBackend::new(Vec::new(), 80, 20);
+        let mut lr = LiveRegion::new();
+        lr.render_frame(&app, &mut backend, 80, 20).unwrap();
+
+        backend.set_size(40, 20);
+        lr.render_frame(&app, &mut backend, 40, 20).unwrap();
+
+        backend.set_size(80, 20);
+        lr.render_frame(&app, &mut backend, 80, 20).unwrap();
+
+        let contents = vt100_contents(backend.writer(), 80, 20);
+        assert!(
+            contents.contains("thndrs  coding agent"),
+            "startup banner metadata should be replayed with committed scrollback after resize:\n{contents}"
+        );
+        assert!(
+            contents.contains("trigger scrollback replay"),
+            "committed prompt should still be present with replayed banner:\n{contents}"
         );
     }
 
@@ -869,17 +1217,11 @@ mod tests {
         insta::assert_snapshot!("narrow_live_frame", frame.render_styled());
     }
 
-    fn render_entry_styled(entry: &Entry, width: usize) -> String {
-        let rows = entry_to_rows(entry, "User", width);
-        let frame = crate::renderer::row::Frame { rows, width, cursor: None };
-        frame.render_styled()
-    }
-
     #[test]
     fn snapshot_startup_banner() {
         let app = test_app();
         let rows = banner_rows(&app, 80);
-        let frame = crate::renderer::row::Frame { rows, width: 80, cursor: None };
+        let frame = row::Frame { rows, width: 80, cursor: None, cursor_visible: true };
         insta::assert_snapshot!("startup_banner", frame.render_styled());
     }
 
@@ -887,7 +1229,7 @@ mod tests {
     fn snapshot_narrow_startup_banner() {
         let app = test_app();
         let rows = banner_rows(&app, 40);
-        let frame = crate::renderer::row::Frame { rows, width: 40, cursor: None };
+        let frame = row::Frame { rows, width: 40, cursor: None, cursor_visible: true };
         insta::assert_snapshot!("narrow_startup_banner", frame.render_styled());
     }
 

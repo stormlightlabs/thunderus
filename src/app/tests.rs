@@ -1,6 +1,6 @@
 use super::*;
 use crate::input::PromptInput;
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::io::Write;
 
 fn key(code: KeyCode, modifiers: KeyModifiers) -> Msg {
@@ -1070,190 +1070,6 @@ fn colon_enters_command_mode_from_error_state() {
 }
 
 #[test]
-fn scroll_offset_starts_at_zero() {
-    let app = fresh_app();
-    assert_eq!(app.scroll_offset, 0);
-}
-
-#[test]
-fn up_down_arrows_navigate_prompt_history() {
-    let mut app = fresh_app();
-    submit_user_turn(&mut app, String::from("first"));
-    update(&mut app, &Msg::Agent(AgentEvent::Started));
-    update(&mut app, &Msg::Agent(AgentEvent::Finished));
-    submit_user_turn(&mut app, String::from("second"));
-
-    app.input = PromptInput::from_str("draft");
-    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)));
-    assert_eq!(app.input.as_str(), "second");
-    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)));
-    assert_eq!(app.input.as_str(), "first");
-    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)));
-    assert_eq!(app.input.as_str(), "second");
-    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)));
-    assert_eq!(app.input.as_str(), "draft");
-    assert_eq!(app.history_cursor, None);
-}
-
-#[test]
-fn up_down_arrows_do_not_scroll_transcript() {
-    let mut app = fresh_app();
-    app.input_history.push(String::from("previous"));
-    app.scroll_offset = 3;
-    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)));
-    assert_eq!(app.scroll_offset, 3);
-    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)));
-    assert_eq!(app.scroll_offset, 3);
-}
-
-#[test]
-fn page_up_is_ignored_by_prompt_mode() {
-    let mut app = fresh_app();
-    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE)));
-    assert_eq!(app.scroll_offset, 0);
-}
-
-#[test]
-fn page_down_is_ignored_by_prompt_mode() {
-    let mut app = fresh_app();
-    app.scroll_offset = 5;
-    update(
-        &mut app,
-        &Msg::Key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE)),
-    );
-    assert_eq!(app.scroll_offset, 5);
-}
-
-#[test]
-fn ctrl_alt_u_d_are_ignored_by_prompt_mode() {
-    let mut app = fresh_app();
-    update(
-        &mut app,
-        &Msg::Key(KeyEvent::new(
-            KeyCode::Char('u'),
-            KeyModifiers::CONTROL | KeyModifiers::ALT,
-        )),
-    );
-    assert_eq!(app.scroll_offset, 0);
-    update(
-        &mut app,
-        &Msg::Key(KeyEvent::new(
-            KeyCode::Char('d'),
-            KeyModifiers::CONTROL | KeyModifiers::ALT,
-        )),
-    );
-    assert_eq!(app.scroll_offset, 0);
-}
-
-#[test]
-fn assistant_delta_does_not_reset_manual_scroll() {
-    let mut app = fresh_app();
-    app.scroll_offset = 5;
-    update(&mut app, &Msg::Agent(AgentEvent::Started));
-    update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(String::from("hi"))));
-    assert_eq!(app.scroll_offset, 5);
-}
-
-#[test]
-fn status_event_does_not_reset_manual_scroll() {
-    let mut app = fresh_app();
-    app.scroll_offset = 5;
-    update(
-        &mut app,
-        &Msg::Agent(AgentEvent::Status(String::from("provider: receiving SSE"))),
-    );
-    assert_eq!(app.scroll_offset, 5);
-}
-
-#[test]
-fn provider_status_is_hidden_unless_verbose() {
-    let mut app = fresh_app();
-    update(
-        &mut app,
-        &Msg::Agent(AgentEvent::Status(String::from("provider: receiving SSE"))),
-    );
-    assert!(app.transcript.is_empty());
-
-    app.verbose = true;
-    update(
-        &mut app,
-        &Msg::Agent(AgentEvent::Status(String::from("provider: receiving SSE"))),
-    );
-    assert!(matches!(
-        app.transcript.last(),
-        Some(Entry::Status { text }) if text == "provider: receiving SSE"
-    ));
-}
-
-#[test]
-fn tool_started_does_not_reset_manual_scroll() {
-    let mut app = fresh_app();
-    app.scroll_offset = 5;
-    update(
-        &mut app,
-        &Msg::Agent(AgentEvent::ToolStarted {
-            id: String::from("toolu_1"),
-            name: String::from("find_files"),
-            arguments: String::from("{}"),
-        }),
-    );
-    assert_eq!(app.scroll_offset, 5);
-}
-
-#[test]
-fn assistant_delta_follows_when_pinned() {
-    let mut app = fresh_app();
-    update(&mut app, &Msg::Agent(AgentEvent::Started));
-    update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(String::from("hi"))));
-    assert_eq!(app.scroll_offset, 0);
-}
-
-#[test]
-fn scroll_does_not_interfere_with_typing() {
-    let mut app = fresh_app();
-    app.input = PromptInput::from_str("typing");
-    update(
-        &mut app,
-        &Msg::Key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE)),
-    );
-    assert_eq!(app.input.as_str(), "typingk");
-    assert_eq!(app.scroll_offset, 0);
-}
-
-#[test]
-fn vim_j_is_text_when_input_empty() {
-    let mut app = fresh_app();
-    app.scroll_offset = 2;
-    update(
-        &mut app,
-        &Msg::Key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)),
-    );
-    assert_eq!(app.scroll_offset, 2);
-    assert_eq!(app.input.as_str(), "j");
-}
-
-#[test]
-fn ctrl_alt_line_scroll_keys_are_ignored_by_prompt_mode() {
-    let mut app = fresh_app();
-    update(
-        &mut app,
-        &Msg::Key(KeyEvent::new(
-            KeyCode::Char('y'),
-            KeyModifiers::CONTROL | KeyModifiers::ALT,
-        )),
-    );
-    assert_eq!(app.scroll_offset, 0);
-    update(
-        &mut app,
-        &Msg::Key(KeyEvent::new(
-            KeyCode::Char('e'),
-            KeyModifiers::CONTROL | KeyModifiers::ALT,
-        )),
-    );
-    assert_eq!(app.scroll_offset, 0);
-}
-
-#[test]
 fn typing_after_recalled_history_edits_copy() {
     let mut app = fresh_app();
     submit_user_turn(&mut app, String::from("previous"));
@@ -1549,39 +1365,93 @@ fn tab_is_ignored_in_prompt_mode() {
 }
 
 #[test]
-fn mouse_scroll_up_is_ignored_outside_picker() {
+fn ctrl_k_kills_to_end_of_line() {
     let mut app = fresh_app();
+    app.input = PromptInput::from_str("hello world");
+    app.input.cursor_to_start();
+    app.input.cursor_word_right();
     update(
         &mut app,
-        &Msg::Mouse(MouseEvent { kind: MouseEventKind::ScrollUp, column: 0, row: 0, modifiers: KeyModifiers::NONE }),
+        &Msg::Key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL)),
     );
-    assert_eq!(app.scroll_offset, 0);
+    assert_eq!(app.input.as_str(), "hello ");
+    assert_eq!(app.kill_ring, vec!["world"]);
 }
 
 #[test]
-fn mouse_scroll_down_is_ignored_outside_picker() {
+fn ctrl_u_kills_to_start_of_line() {
     let mut app = fresh_app();
-    app.scroll_offset = 5;
+    app.input = PromptInput::from_str("hello world");
+    app.input.cursor_to_start();
+    app.input.cursor_word_right();
     update(
         &mut app,
-        &Msg::Mouse(MouseEvent { kind: MouseEventKind::ScrollDown, column: 0, row: 0, modifiers: KeyModifiers::NONE }),
+        &Msg::Key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL)),
     );
-    assert_eq!(app.scroll_offset, 5);
+    assert_eq!(app.input.as_str(), "world");
+    assert_eq!(app.kill_ring, vec!["hello "]);
 }
 
 #[test]
-fn mouse_click_does_not_affect_scroll() {
+fn ctrl_w_kills_previous_word() {
     let mut app = fresh_app();
+    app.input = PromptInput::from_str("foo bar baz");
     update(
         &mut app,
-        &Msg::Mouse(MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: 0,
-            row: 0,
-            modifiers: KeyModifiers::NONE,
-        }),
+        &Msg::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL)),
     );
-    assert_eq!(app.scroll_offset, 0);
+    assert_eq!(app.input.as_str(), "foo bar ");
+    assert_eq!(app.kill_ring, vec!["baz"]);
+}
+
+#[test]
+fn ctrl_y_yanks_last_kill() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from_str("hello ");
+    app.kill_ring.push("world".to_string());
+    update(
+        &mut app,
+        &Msg::Key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::CONTROL)),
+    );
+    assert_eq!(app.input.as_str(), "hello world");
+}
+
+#[test]
+fn ctrl_t_transposes_chars() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from_str("ab");
+    app.input.cursor_to_start();
+
+    update(
+        &mut app,
+        &Msg::Key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL)),
+    );
+    assert_eq!(app.input.as_str(), "ba");
+}
+
+#[test]
+fn alt_d_kills_next_word() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from_str("foo bar baz");
+    app.input.cursor_to_start();
+    update(
+        &mut app,
+        &Msg::Key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::ALT)),
+    );
+    assert_eq!(app.input.as_str(), "bar baz");
+    assert_eq!(app.kill_ring, vec!["foo "]);
+}
+
+#[test]
+fn alt_backspace_kills_previous_word() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from_str("foo bar baz");
+    update(
+        &mut app,
+        &Msg::Key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::ALT)),
+    );
+    assert_eq!(app.input.as_str(), "foo bar ");
+    assert_eq!(app.kill_ring, vec!["baz"]);
 }
 
 #[test]

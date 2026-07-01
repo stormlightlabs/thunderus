@@ -54,6 +54,8 @@ pub struct Frame {
     pub rows: Vec<Row>,
     pub width: usize,
     pub cursor: Option<CursorCoord>,
+    /// When false, the cursor is hidden (blink off phase).
+    pub cursor_visible: bool,
 }
 
 /// A (row, column) coordinate within a frame, used for cursor placement.
@@ -72,7 +74,7 @@ impl CursorCoord {
 impl Frame {
     /// Create an empty frame at `width`.
     pub fn new(width: usize) -> Self {
-        Frame { rows: Vec::new(), width, cursor: None }
+        Frame { rows: Vec::new(), width, cursor: None, cursor_visible: true }
     }
 
     /// Append a row.
@@ -104,8 +106,6 @@ impl Frame {
     /// Debug rendering showing styled spans per row.
     ///
     /// Each row is rendered as `│ <text>` followed by inline style annotations.
-    /// This is the snapshot format that asserts styled rows without using
-    /// Ratatui as the layout engine.
     #[cfg(test)]
     pub fn render_styled(&self) -> String {
         let mut out = String::new();
