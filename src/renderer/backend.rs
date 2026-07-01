@@ -231,6 +231,7 @@ impl<W: Write> TerminalBackend<W> {
     pub fn render_frame_diff(&mut self, frame: &Frame, prev: Option<&Frame>, top_row: u16) -> io::Result<()> {
         let prev_rows = prev.map_or(&[][..], |p| &p.rows);
         let new_rows = &frame.rows;
+        let mut wrote_rows = false;
 
         for (i, row) in new_rows.iter().enumerate() {
             let needs_write = match prev_rows.get(i) {
@@ -241,6 +242,7 @@ impl<W: Write> TerminalBackend<W> {
                 let y = top_row + i as u16;
                 queue!(self.writer, MoveTo(0, y))?;
                 write_screen_row(&mut self.writer, row)?;
+                wrote_rows = true;
             }
         }
 
@@ -249,12 +251,13 @@ impl<W: Write> TerminalBackend<W> {
                 top_row + new_rows.len() as u16,
                 (prev_rows.len() - new_rows.len()) as u16,
             )?;
+            wrote_rows = true;
         }
 
         if frame.cursor_visible {
             if let Some(cursor) = frame.cursor {
                 let cursor_changed = prev.is_none_or(|p| p.cursor != Some(cursor) || !p.cursor_visible);
-                if cursor_changed {
+                if wrote_rows || cursor_changed {
                     queue!(self.writer, Show)?;
                     self.move_cursor(CursorCoord { row: top_row as usize + cursor.row, col: cursor.col })?;
                 }
@@ -478,6 +481,27 @@ mod tests {
         let out = String::from_utf8(b.writer().clone()).unwrap();
         assert!(out.contains("hi"));
         assert!(out.contains("\x1b[1;3H"));
+    }
+
+    #[test]
+    fn render_frame_diff_restores_cursor_after_row_writes() {
+        let mut b = backend(20, 10);
+        let mut prev = Frame::new(20);
+        prev.push(Row::padded(vec![Span::plain("old")], 20, CellStyle::default()));
+        prev.set_cursor(CursorCoord::new(0, 4));
+
+        let mut frame = Frame::new(20);
+        frame.push(Row::padded(vec![Span::plain("new")], 20, CellStyle::default()));
+        frame.set_cursor(CursorCoord::new(0, 4));
+
+        b.render_frame_diff(&frame, Some(&prev), 0).unwrap();
+
+        let out = String::from_utf8(b.writer().clone()).unwrap();
+        assert!(out.contains("new"));
+        assert!(
+            out.contains("\x1b[1;5H"),
+            "cursor should be restored after changed row writes: {out:?}"
+        );
     }
 
     #[test]

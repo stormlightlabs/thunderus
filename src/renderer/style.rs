@@ -189,7 +189,7 @@ pub fn status_color(label: &str) -> Color {
     match label {
         "idle" => p.overlay0,
         "done" => p.green,
-        "sending" | "thinking" | "streaming" | "running tool" | "stopping" => p.peach,
+        "sending" | "thinking" | "working" | "running tool" | "stopping" => p.peach,
         "cancelled" => p.teal,
         "failed" => p.red,
         _ => p.overlay0,
@@ -198,7 +198,7 @@ pub fn status_color(label: &str) -> Color {
 
 pub fn status_icon(label: &str, tick: u64) -> &'static str {
     match label {
-        "sending" | "thinking" | "streaming" | "running tool" | "stopping" => spinner_frame(tick),
+        "sending" | "thinking" | "working" | "running tool" | "stopping" => spinner_frame(tick),
         "done" => "✓",
         "failed" => "✕",
         "cancelled" => "○",

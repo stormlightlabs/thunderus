@@ -271,21 +271,14 @@ impl TranscriptRenderPlan {
 
         stable_rows.extend(banner_rows(app, width));
 
-        let mut prev: Option<&Entry> = None;
         for entry in &app.transcript {
-            let mut separator = Vec::new();
-            add_group_separator_if_needed(&mut separator, prev, entry, width);
-
             let (entry_stable, entry_live) = entry_stable_and_live_rows(entry, &app.user_label, width);
             if entry_stable.is_empty() {
-                live_rows.extend(separator);
                 live_rows.extend(entry_live);
             } else {
-                stable_rows.extend(separator);
                 stable_rows.extend(entry_stable);
                 live_rows.extend(entry_live);
             }
-            prev = Some(entry);
         }
 
         TranscriptRenderPlan { stable_rows, live_rows }
@@ -334,15 +327,15 @@ fn banner_rows(app: &App, width: usize) -> Vec<Row> {
     let banner_lines = crate::banner::banner_lines(banner_width);
     let banner_is_art = banner_lines.len() > 1;
     for line in banner_lines {
-        push_wrapped_banner_row(&mut rows, &[Span::styled(line, title_style)], width, bg);
+        push_banner_art_row(&mut rows, Span::styled(line, title_style), width, bg);
     }
     if banner_is_art {
-        push_wrapped_banner_row(
+        push_banner_art_row(
             &mut rows,
-            &[Span::styled(
+            Span::styled(
                 "─".repeat(width.saturating_sub(4)),
                 CellStyle::new().fg(p.overlay0).bg(bg),
-            )],
+            ),
             width,
             bg,
         );
@@ -401,6 +394,10 @@ fn push_wrapped_banner_row(rows: &mut Vec<Row>, spans: &[Span], width: usize, bg
     for line in crate::renderer::layout::wrap_spans(spans, body_width) {
         rows.push(Row::padded(line, width, bg_style(bg)));
     }
+}
+
+fn push_banner_art_row(rows: &mut Vec<Row>, span: Span, width: usize, bg: Color) {
+    rows.push(Row::padded(vec![span], width, bg_style(bg)));
 }
 
 /// Build a [`CellStyle`] with only a background color.
@@ -482,7 +479,6 @@ fn assistant_block_rows(text: &str, label_style: CellStyle, bg: Color, width: us
     if rows.len() == 2 {
         rows.push(Row::blank(width, bg_style(bg)));
     }
-    rows.push(Row::blank(width, bg_style(bg)));
     rows
 }
 
@@ -649,7 +645,6 @@ fn tool_block_rows(
         ));
     }
 
-    rows.push(Row::blank(width, bg_style(bg)));
     rows
 }
 
@@ -708,8 +703,7 @@ fn status_label_for(text: &str) -> &'static str {
     }
 }
 
-/// Build a labeled text block: blank padding row, label row, wrapped text rows,
-/// blank padding row.
+/// Build a labeled text block with a single leading spacer row.
 fn build_labeled_block(
     label: &str, label_style: CellStyle, text_style: CellStyle, text: &str, width: usize, body_width: usize, bg: Color,
 ) -> Vec<Row> {
@@ -727,36 +721,7 @@ fn build_labeled_block(
             rows.push(Row::padded(vec![Span::styled(line, text_style)], width, bg_style(bg)));
         }
     }
-    rows.push(Row::blank(width, bg_style(bg)));
     rows
-}
-
-/// Add a separator row between different transcript entry groups when
-/// committing to scrollback.
-fn add_group_separator_if_needed(rows: &mut Vec<Row>, prev: Option<&Entry>, curr: &Entry, width: usize) {
-    if let Some(prev) = prev
-        && is_group_boundary(prev, curr)
-    {
-        let p = style::palette();
-        rows.push(Row::blank(width, bg_style(p.surface_dim)));
-    }
-}
-
-/// Semantic group classification for transcript spacing.
-fn entry_group(entry: &Entry) -> u8 {
-    match entry {
-        Entry::User { .. } => 0,
-        Entry::Assistant { .. } => 1,
-        Entry::Reasoning { .. } => 2,
-        Entry::Tool { .. } => 3,
-        Entry::Status { .. } | Entry::Error { .. } => 4,
-    }
-}
-
-fn is_group_boundary(prev: &Entry, curr: &Entry) -> bool {
-    let prev_group = entry_group(prev);
-    let curr_group = entry_group(curr);
-    if prev_group == 4 || curr_group == 4 { false } else { prev_group != curr_group }
 }
 
 #[cfg(test)]

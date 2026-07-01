@@ -438,16 +438,16 @@ impl App {
     /// Derive the granular status label for the status line.
     ///
     /// Maps `RunState` plus the last transcript entry into one of
-    /// idle, sending, thinking, streaming, running tool, stopping,
+    /// idle, sending, thinking, working, running tool, stopping,
     /// cancelled, failed, error, done.
     pub fn status_label(&self) -> &'static str {
         match self.run_state {
             RunState::Working => match self.transcript.last() {
                 Some(Entry::Reasoning { streaming: true, .. }) => "thinking",
-                Some(Entry::Assistant { streaming: true, .. }) => "streaming",
+                Some(Entry::Assistant { streaming: true, .. }) => "working",
                 Some(Entry::Tool { status: ToolStatus::Running, .. }) => "running tool",
                 Some(Entry::User { .. }) | None => "sending",
-                _ => "streaming",
+                _ => "working",
             },
             RunState::Stopping => "stopping",
             RunState::Error(_) => "failed",

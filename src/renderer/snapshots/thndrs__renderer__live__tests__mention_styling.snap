@@ -2,4 +2,4 @@
 source: src/renderer/live.rs
 expression: frame.render_styled()
 ---
-│   ›  check @src/main.rs for details                                               # [bg=#212337]=   [fg=#e0e0e0 bg=#212337]=› [bg=#212337]=   [fg=#ebfafa bg=#212337]=check  [fg=#37f499 bg=#212337 b]=@src/main.rs [fg=#ebfafa bg=#212337]= for details [bg=#212337]=                                            [bg=#212337]=
+│    ›  check @src/main.rs for details                                              # [bg=#212337]=   [bg=#212337]=  [fg=#e0e0e0 bg=#212337]=› [bg=#212337]=   [fg=#ebfafa bg=#212337]=check  [fg=#37f499 bg=#212337 b]=@src/main.rs [fg=#ebfafa bg=#212337]= for details [bg=#212337]=                                           [bg=#212337]=

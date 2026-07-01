@@ -9,6 +9,8 @@ use crate::renderer::row::{CursorCoord, Row};
 use crate::renderer::style as renderer_style;
 use crate::renderer::style::{CellStyle, Color, Span};
 
+const LIVE_INSET: usize = 1;
+
 /// Build the dynamic status row: session id + status icon + queue info.
 ///
 /// Sits above the prompt input in the live region.
@@ -22,6 +24,7 @@ pub fn dynamic_status_row(app: &App, width: usize) -> Row {
     let session = if app.session_id.is_empty() { "thndrs" } else { &app.session_id };
 
     let mut spans = vec![
+        Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(bg)),
         Span::styled(session.to_string(), CellStyle::new().fg(p.accent).bg(bg).bold()),
         Span::styled("  ", CellStyle::new().bg(bg)),
         Span::styled(format!("{icon} {label}"), CellStyle::new().fg(status_color).bg(bg)),
@@ -59,13 +62,16 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
         PromptState::Errored => (p.red, true, "✕"),
     };
 
-    let indent = prompt_prefix_width(app);
-    let body_width = width.saturating_sub(indent).max(1);
+    let prefix_width = prompt_prefix_width(app);
+    let row_body_width = crate::renderer::layout::content_width(width);
+    let body_width = row_body_width.saturating_sub(LIVE_INSET + prefix_width).max(1);
+    let cursor_indent = width.min(2) + LIVE_INSET + prefix_width;
     let input_text = app.input.as_str();
     let cursor_pos = app.input.cursor();
 
     if !show_input {
         let spans = vec![
+            Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(surface)),
             Span::styled(icon, CellStyle::new().fg(prompt_color).bg(surface)),
             Span::styled("  submitted", CellStyle::new().fg(p.overlay0).bg(surface)),
         ];
@@ -76,7 +82,7 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
     }
 
     let visual_rows = prompt_rows(input_text, body_width);
-    let cursor = prompt_cursor(input_text, cursor_pos, body_width, indent);
+    let cursor = prompt_cursor(input_text, cursor_pos, body_width, cursor_indent);
 
     let text_style = CellStyle::new().fg(p.text).bg(surface);
     let mention_style = CellStyle::new().fg(p.accent).bg(surface).bold();
@@ -85,6 +91,7 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
     for (idx, line) in visual_rows.into_iter().enumerate() {
         let mut spans: Vec<Span> = if idx == 0 {
             let mut s = vec![
+                Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(surface)),
                 Span::styled(icon, CellStyle::new().fg(prompt_color).bg(surface)),
                 Span::styled("  ", CellStyle::new().bg(surface)),
             ];
@@ -93,7 +100,10 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
             }
             s
         } else {
-            vec![Span::styled(" ".repeat(indent), CellStyle::new().bg(surface))]
+            vec![Span::styled(
+                " ".repeat(LIVE_INSET + prefix_width),
+                CellStyle::new().bg(surface),
+            )]
         };
 
         if !line.is_empty() {
@@ -104,6 +114,7 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
 
     if rows.is_empty() {
         let mut spans = vec![
+            Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(surface)),
             Span::styled(icon, CellStyle::new().fg(prompt_color).bg(surface)),
             Span::styled("  ", CellStyle::new().bg(surface)),
         ];
@@ -164,6 +175,7 @@ pub fn static_status_row(app: &App, width: usize) -> Row {
     let git_len = git_text.as_ref().map_or(0, |text| text.chars().count());
 
     let mut spans: Vec<Span> = Vec::new();
+    spans.push(Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(bg)));
     if show_model {
         spans.push(Span::styled(model_label, subtext));
     }
@@ -182,6 +194,7 @@ pub fn static_status_row(app: &App, width: usize) -> Row {
     if show_cwd {
         spans.push(Span::styled("   ", CellStyle::new().bg(bg)));
         let used = model_len
+            + LIVE_INSET
             + if show_search { search_len + 3 } else { 0 }
             + if show_tokens { token_len + 3 } else { 0 }
             + if show_git && git_len > 0 { git_len + 3 } else { 0 }
@@ -579,6 +592,22 @@ mod tests {
         app.input.set_text(&"x".repeat(100));
         let (rows, _cursor) = prompt_rows_for(&app, 20);
         assert!(rows.len() > 1, "long text should wrap to multiple rows");
+    }
+
+    #[test]
+    fn prompt_rows_wrap_at_visible_content_width() {
+        let mut app = test_app();
+        app.input.set_text(&"x".repeat(12));
+        let (rows, cursor) = prompt_rows_for(&app, 20);
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(cursor, Some(CursorCoord::new(0, 18)));
+
+        app.input.insert_char('x');
+        let (rows, cursor) = prompt_rows_for(&app, 20);
+
+        assert_eq!(rows.len(), 2);
+        assert_eq!(cursor, Some(CursorCoord::new(1, 7)));
     }
 
     #[test]

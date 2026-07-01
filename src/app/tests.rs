@@ -920,11 +920,11 @@ fn status_label_thinking_during_reasoning_stream() {
 }
 
 #[test]
-fn status_label_streaming_during_assistant_stream() {
+fn status_label_working_during_assistant_stream() {
     let mut app = fresh_app();
     update(&mut app, &Msg::Agent(AgentEvent::Started));
     update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta(String::from("hi"))));
-    assert_eq!(app.status_label(), "streaming");
+    assert_eq!(app.status_label(), "working");
 }
 
 #[test]
