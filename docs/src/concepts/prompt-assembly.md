@@ -24,6 +24,23 @@ and the absence of raw shell access.
 Environment metadata includes workspace root, rounded current date/timezone,
 selected model, and search mode.
 
+## Self-Knowledge Snapshot
+
+The generated `thndrs_self_knowledge` block describes the current harness run in
+a compact, model-visible form. It includes:
+
+- app version and broad capabilities
+- runtime state: workspace, renderer mode, provider, model, search mode, search
+  backend details, URL-reading behavior, and tool names
+- major capabilities
+- references: local documentation entry points and available skill names and
+  locations
+- prompt context like prompt fragment names and loaded project-context metadata
+- visible diagnostics
+
+This block is metadata only. It does not include full prompt fragment text,
+`AGENTS.md` contents, user prompt text, or provider-private state.
+
 ## Project Context
 
 Project context includes loaded `AGENTS.md` metadata and text when included.

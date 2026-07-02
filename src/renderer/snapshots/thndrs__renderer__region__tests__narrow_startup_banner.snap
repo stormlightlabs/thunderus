@@ -1,7 +1,6 @@
 ---
-source: src/renderer/region.rs
-assertion_line: 1408
-expression: frame.render_styled()
+source: src/renderer/region/tests.rs
+expression: contents
 ---
 │                                           # [bg=#171928]=                                        
 │   THNDRS                                  # [bg=#171928]=   [fg=#37f499 bg=#171928 b]=THNDRS [bg=#171928]=                               [bg=#171928]=  
@@ -9,6 +8,16 @@ expression: frame.render_styled()
 │   model: test-model   search: native      # [bg=#171928]=   [fg=#abb4da bg=#171928]=model:  [fg=#ebfafa bg=#171928]=test-model [fg=#abb4da bg=#171928]=   search:  [fg=#ebfafa bg=#171928]=native [bg=#171928]=   [bg=#171928]=  
 │   cwd: /Users/owais/Projects/Stormligh    # [bg=#171928]=   [fg=#abb4da bg=#171928]=cwd: /Users/owais/Projects/Stormligh [bg=#171928]=  
 │   tLabs/OpenSource/thndrs                 # [bg=#171928]=   [fg=#abb4da bg=#171928]=tLabs/OpenSource/thndrs [bg=#171928]=              [bg=#171928]=  
+│   [Runtime] umans | test-model | searc    # [bg=#171928]=   [fg=#37f499 bg=#171928 b]=[Runtime]  [fg=#abb4da bg=#171928]=umans | test-model | searc [bg=#171928]=  
+│   h native | direct-inline                # [bg=#171928]=   [fg=#abb4da bg=#171928]=h native | direct-inline [bg=#171928]=             [bg=#171928]=  
+│   [Context] (none)                        # [bg=#171928]=   [fg=#37f499 bg=#171928 b]=[Context]  [fg=#abb4da bg=#171928]=(none) [bg=#171928]=                     [bg=#171928]=  
+│   [Search] native: Umans server-side s    # [bg=#171928]=   [fg=#37f499 bg=#171928 b]=[Search]  [fg=#abb4da bg=#171928]=native: Umans server-side s [bg=#171928]=  
+│   earch; DuckDuckGo HTML fallback via     # [bg=#171928]=   [fg=#abb4da bg=#171928]=earch; DuckDuckGo HTML fallback via  [bg=#171928]=  
+│   web_search tool; read_url fetches pu    # [bg=#171928]=   [fg=#abb4da bg=#171928]=web_search tool; read_url fetches pu [bg=#171928]=  
+│   blic HTTP(S) and extracts HTML with     # [bg=#171928]=   [fg=#abb4da bg=#171928]=blic HTTP(S) and extracts HTML with  [bg=#171928]=  
+│   Lectito                                 # [bg=#171928]=   [fg=#abb4da bg=#171928]=Lectito [bg=#171928]=                              [bg=#171928]=  
+│   [Skills] (none)                         # [bg=#171928]=   [fg=#37f499 bg=#171928 b]=[Skills]  [fg=#abb4da bg=#171928]=(none) [bg=#171928]=                      [bg=#171928]=  
+│   [Diagnostics] (none)                    # [bg=#171928]=   [fg=#37f499 bg=#171928 b]=[Diagnostics]  [fg=#abb4da bg=#171928]=(none) [bg=#171928]=                 [bg=#171928]=  
 │   ›  Ask for a change, run a command,     # [bg=#171928]=   [fg=#37f499 bg=#171928 b]=›   [fg=#abb4da bg=#171928]=Ask for a change, run a command,  [bg=#171928]=  
 │   or inspect this repo.                   # [bg=#171928]=   [fg=#abb4da bg=#171928]=or inspect this repo. [bg=#171928]=                [bg=#171928]=  
 │   ?  help                                 # [bg=#171928]=   [fg=#37f499 bg=#171928 b]=?   [fg=#abb4da bg=#171928]=help [bg=#171928]=                              [bg=#171928]=  

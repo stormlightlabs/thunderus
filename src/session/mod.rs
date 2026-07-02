@@ -39,7 +39,7 @@ use crate::context::ContextSource;
 use crate::prompt::{EnvironmentMetadata, HistoryReuse, PromptBundle};
 use crate::skills::{SkillActivation, SkillReferenceMeta};
 use crate::tools::{WriteOp, shell};
-use crate::{datetime, tools};
+use crate::{datetime, internals, tools};
 
 /// Current JSONL schema version.
 pub const SCHEMA_VERSION: u32 = 1;
@@ -349,18 +349,39 @@ fn split_tool_name_id(name: &str) -> (String, String) {
 pub struct PromptMetadata {
     /// Selected model name.
     pub model: String,
+    /// Selected provider label.
+    #[serde(default)]
+    pub provider: String,
     /// Web search mode label.
     pub search_mode: String,
+    /// Renderer mode label.
+    #[serde(default)]
+    pub renderer_mode: String,
     /// Rounded date (YYYY-MM-DD) used for cache stability.
     pub date: String,
     /// Workspace root path.
     pub cwd: String,
+    /// Ordered prompt fragment names included in the system prompt.
+    #[serde(default)]
+    pub prompt_fragments: Vec<String>,
+    /// Model-visible documentation entry point paths.
+    #[serde(default)]
+    pub docs_map: Vec<String>,
     /// Metadata for each loaded AGENTS.md source (no content).
     pub context_sources: Vec<ContextSourceMeta>,
     /// Number of tools in the catalog sent this turn.
     pub tool_catalog_size: usize,
+    /// Tool names in the catalog sent this turn.
+    #[serde(default)]
+    pub tool_names: Vec<String>,
     /// Number of available Agent Skills exposed as metadata this turn.
     pub skill_catalog_size: usize,
+    /// Available skill names exposed as metadata this turn.
+    #[serde(default)]
+    pub skill_names: Vec<String>,
+    /// Self-knowledge diagnostics visible for this turn.
+    #[serde(default)]
+    pub diagnostics: Vec<String>,
     /// Whether history reuse was active for this turn.
     pub history_reuse: bool,
     /// Content hash of the root AGENTS.md from the previous turn, if any.
@@ -418,18 +439,38 @@ impl PromptMetadata {
     /// or provider request/response bodies.
     pub fn from_bundle(bundle: &PromptBundle) -> Self {
         let environment: &EnvironmentMetadata = &bundle.environment;
+        let snapshot: internals::SelfKnowledgeSnapshot = bundle.into();
         PromptMetadata {
             model: environment.model.clone(),
-            search_mode: environment.search_mode.clone(),
+            provider: snapshot.runtime.provider.provider,
+            search_mode: environment.search_mode.label().to_string(),
+            renderer_mode: snapshot.runtime.renderer_mode,
             date: environment.date.clone(),
             cwd: environment.cwd.clone(),
+            prompt_fragments: snapshot.inventory.prompt_context.prompt_fragments,
+            docs_map: snapshot
+                .inventory
+                .references
+                .docs
+                .iter()
+                .map(|doc| doc.path.to_string())
+                .collect(),
             context_sources: bundle
                 .project_context
                 .iter()
                 .map(ContextSourceMeta::from_source)
                 .collect(),
             tool_catalog_size: bundle.tool_catalog.len(),
+            tool_names: snapshot.runtime.tools,
             skill_catalog_size: bundle.available_skills.len(),
+            skill_names: snapshot
+                .inventory
+                .references
+                .skills
+                .into_iter()
+                .map(|skill| skill.name)
+                .collect(),
+            diagnostics: snapshot.diagnostics,
             history_reuse: bundle.history_reuse == HistoryReuse::Available,
             prev_context_hash: bundle.prev_context_hash,
             transcript_tail_size: bundle.transcript_tail.len(),

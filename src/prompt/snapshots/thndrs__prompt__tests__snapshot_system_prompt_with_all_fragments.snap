@@ -153,16 +153,12 @@ expression: prompt
     general model knowledge.
   </identity>
   <docs>
-    Useful thndrs documentation entry points: docs/src/reference/cli.md,
-    docs/src/reference/configuration.md, docs/src/reference/session-format.md,
-    docs/src/reference/tools.md, docs/src/concepts/prompt-assembly.md,
-    docs/src/concepts/tool-boundary.md, docs/src/usage/project-context.md,
-    docs/src/usage/security-and-permissions.md, docs/src/providers/umans.md, and
-    docs/src/development/workflow.md.
+    Use the generated thndrs_self_knowledge docs_map as the current index of local
+    documentation entry points.
   </docs>
   <runtime_state>
-    To explain what is available now, use the prompt fragments, environment metadata, project
-    context, loaded AGENTS.md files, and tool catalog in this prompt as the current source of truth.
+    To explain what is available now, use thndrs_self_knowledge runtime_state, environment
+    metadata, project context, loaded AGENTS.md files, and tool catalog as the current source of truth.
   </runtime_state>
 </self_knowledge>
 
@@ -188,3 +184,117 @@ expression: prompt
   <search>native</search>
   <date>2026-06-29</date>
 </environment>
+
+<thndrs_self_knowledge>
+  <self_description>
+    <name>thndrs</name>
+    <version>0.1.0</version>
+    <capabilities>
+      <capability>structured prompt bundle</capability>
+      <capability>bounded workspace file tools</capability>
+      <capability>provider-native tool schemas</capability>
+      <capability>agent skills metadata</capability>
+      <capability>append-only JSONL sessions</capability>
+      <capability>provider-native and local web search modes</capability>
+      <capability>Lectito-backed URL reading</capability>
+      <capability>direct inline terminal renderer</capability>
+    </capabilities>
+  </self_description>
+  <docs_map>
+    <doc>
+      <topic>CLI</topic>
+      <path>docs/src/reference/cli.md</path>
+    </doc>
+    <doc>
+      <topic>configuration</topic>
+      <path>docs/src/reference/configuration.md</path>
+    </doc>
+    <doc>
+      <topic>sessions</topic>
+      <path>docs/src/reference/session-format.md</path>
+    </doc>
+    <doc>
+      <topic>tool boundary</topic>
+      <path>docs/src/concepts/tool-boundary.md</path>
+    </doc>
+    <doc>
+      <topic>tools</topic>
+      <path>docs/src/reference/tools.md</path>
+    </doc>
+    <doc>
+      <topic>web search and URL reading</topic>
+      <path>docs/src/providers/search-and-extraction.md</path>
+    </doc>
+    <doc>
+      <topic>prompt assembly</topic>
+      <path>docs/src/concepts/prompt-assembly.md</path>
+    </doc>
+    <doc>
+      <topic>project context</topic>
+      <path>docs/src/usage/project-context.md</path>
+    </doc>
+    <doc>
+      <topic>skills</topic>
+      <path>docs/src/usage/skills.md</path>
+    </doc>
+    <doc>
+      <topic>Umans provider</topic>
+      <path>docs/src/providers/umans.md</path>
+    </doc>
+    <doc>
+      <topic>OpenCode Go provider</topic>
+      <path>docs/src/providers/opencode-go.md</path>
+    </doc>
+    <doc>
+      <topic>renderer</topic>
+      <path>docs/src/usage/tui.md</path>
+    </doc>
+    <doc>
+      <topic>development workflow</topic>
+      <path>docs/src/development/workflow.md</path>
+    </doc>
+  </docs_map>
+  <runtime_state>
+    <workspace>/repo</workspace>
+    <renderer_mode>direct-inline</renderer_mode>
+    <provider>
+      <name>umans</name>
+      <model>umans-coder</model>
+      <search>
+        <mode>native</mode>
+        <provider_header>native</provider_header>
+        <provider_native_search>native: Umans server-side search</provider_native_search>
+        <local_search>DuckDuckGo HTML fallback via web_search tool</local_search>
+        <url_reader>read_url fetches public HTTP(S) and extracts HTML with Lectito</url_reader>
+      </search>
+    </provider>
+    <tools>
+      <tool>find_files</tool>
+      <tool>list_searchable_files</tool>
+      <tool>search_text</tool>
+      <tool>read_file_range</tool>
+      <tool>sawk</tool>
+      <tool>web_search</tool>
+      <tool>read_url</tool>
+      <tool>create_file</tool>
+      <tool>replace_range</tool>
+      <tool>write_patch</tool>
+      <tool>run_shell</tool>
+    </tools>
+    <prompt_fragments>
+      <fragment>base_identity</fragment>
+      <fragment>communication_style</fragment>
+      <fragment>action_model</fragment>
+      <fragment>edit_guidance</fragment>
+      <fragment>action_safety</fragment>
+      <fragment>self_knowledge</fragment>
+      <fragment>web_source_guidance</fragment>
+    </prompt_fragments>
+    <project_context>
+    </project_context>
+    <skills>
+    </skills>
+    <diagnostics>
+    </diagnostics>
+  </runtime_state>
+</thndrs_self_knowledge>

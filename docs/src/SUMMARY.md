@@ -13,6 +13,7 @@
 - [Prompting and Input](usage/prompting-and-input.md)
 - [Keybindings](keybinds.md)
 - [Project Context](usage/project-context.md)
+- [Skills](usage/skills.md)
 - [Tools](usage/tools.md)
 - [Web Search](usage/web-search.md)
 - [Models](usage/models.md)

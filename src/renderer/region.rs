@@ -481,6 +481,18 @@ fn banner_rows(app: &App, width: usize) -> Vec<Row> {
         );
     }
 
+    for section in app.self_knowledge_snapshot().startup_sections() {
+        push_wrapped_banner_row(
+            &mut rows,
+            &[
+                Span::styled(format!("[{}] ", section.heading), title_style),
+                Span::styled(section.body, muted_style),
+            ],
+            width,
+            bg,
+        );
+    }
+
     push_wrapped_banner_row(
         &mut rows,
         &[

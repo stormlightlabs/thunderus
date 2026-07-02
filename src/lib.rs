@@ -14,6 +14,7 @@ mod config;
 mod context;
 mod datetime;
 mod fuzzy;
+mod internals;
 mod prompt;
 mod providers;
 mod renderer;
@@ -33,9 +34,8 @@ use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, Key
 use app::{App, Msg, RunState, update};
 use cli::Cli;
 use prompt::PromptBundle;
-use tools::AgentRunConfig;
-
 use renderer::backend::TerminalBackend;
+use tools::AgentRunConfig;
 
 /// State carried by the main loop for a single agent run.
 struct AgentSlot {
@@ -196,29 +196,26 @@ pub fn render_print_prompt(bundle: &PromptBundle) -> String {
     let system_prompt = prompt::render_system_prompt(bundle);
     let messages = prompt::lower_to_umans_messages(bundle);
     let tool_catalog = prompt::render_tool_catalog(bundle);
-
     let mut out = String::new();
 
-    out.push_str("=== System Prompt ===\n");
-    out.push_str(&system_prompt);
-    out.push_str("\n\n");
+    out.push_str(&format!("=== System Prompt ===\n{}\n\n", &system_prompt));
     out.push_str(&format!("=== Tool Catalog ({} tools) ===\n", bundle.tool_catalog.len()));
     out.push_str(&serde_json::to_string_pretty(&tool_catalog).unwrap_or_default());
-    out.push_str("\n\n");
     out.push_str(&format!(
-        "=== Lowered Provider Messages ({} messages) ===\n",
+        "\n\n=== Lowered Provider Messages ({} messages) ===\n",
         messages.len()
     ));
+
     for (i, msg) in messages.iter().enumerate() {
         let redacted = redact_secret(&msg.as_text());
         let truncated = if redacted.len() > 200 { format!("{}...", &redacted[..200]) } else { redacted };
         out.push_str(&format!("[{i}] {}: {truncated}\n", msg.role));
     }
-    out.push('\n');
-    out.push_str("=== Environment ===\n");
+
+    out.push_str("\n=== Environment ===\n");
     out.push_str(&format!("  cwd: {}\n", bundle.environment.cwd));
     out.push_str(&format!("  model: {}\n", bundle.environment.model));
-    out.push_str(&format!("  search: {}\n", bundle.environment.search_mode));
+    out.push_str(&format!("  search: {}\n", bundle.environment.search_mode.label()));
     out.push_str("  date: [date]\n");
     out.push_str(&format!("  context_sources: {}\n", bundle.project_context.len()));
     out.push_str(&format!("  skills: {}\n", bundle.available_skills.len()));
@@ -591,7 +588,7 @@ mod tests {
             environment: prompt::EnvironmentMetadata {
                 cwd: "/repo".to_string(),
                 model: "umans-coder".to_string(),
-                search_mode: "native".to_string(),
+                search_mode: cli::WebSearchMode::Native,
                 date: "2026-06-29".to_string(),
             },
             project_context: vec![source],

@@ -404,7 +404,8 @@ Search the web for current information.
 Use this when the workspace does not contain the answer and you need external
 documentation, API specs, or current facts. Prefer reading local files and
 searching the workspace first. With native/exa modes, Umans executes server-side
-search; with none, a local DuckDuckGo fallback is used. Capped at 10 results by default."#,
+search; with none, a local DuckDuckGo HTML fallback is used. Pair results with
+read_url when page content is needed. Capped at 10 results by default."#,
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -421,10 +422,10 @@ search; with none, a local DuckDuckGo fallback is used. Capped at 10 results by 
 Fetch a public HTTP/HTTPS URL and extract readable text.
 
 Use to read a page found via web_search or referenced in the workspace. Prefer
-local files when available. HTML is extracted to Markdown; JSON, XML, plain
-text, feeds, and YAML are returned raw. Binary content is rejected.
-Private-network targets (including after redirects) and non-http(s) schemes are
-rejected. Size, redirects, and timeouts are capped; output may truncate."#,
+local files when available. HTML is extracted to Markdown with Lectito; JSON,
+XML, plain text, feeds, and YAML are returned raw. Binary content is rejected.
+Private targets, redirects, and non-http(s) schemes are rejected. Size,
+redirects, and timeouts are capped; output may truncate."#,
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {

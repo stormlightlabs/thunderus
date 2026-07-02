@@ -1,6 +1,5 @@
 ---
 source: src/prompt/tests.rs
-assertion_line: 784
 expression: json
 ---
 [
@@ -166,7 +165,7 @@ expression: json
     "name": "sawk"
   },
   {
-    "description": "web_search\n\nSearch the web for current information.\n\nUse this when the workspace does not contain the answer and you need external\ndocumentation, API specs, or current facts. Prefer reading local files and\nsearching the workspace first. With native/exa modes, Umans executes server-side\nsearch; with none, a local DuckDuckGo fallback is used. Capped at 10 results by default.",
+    "description": "web_search\n\nSearch the web for current information.\n\nUse this when the workspace does not contain the answer and you need external\ndocumentation, API specs, or current facts. Prefer reading local files and\nsearching the workspace first. With native/exa modes, Umans executes server-side\nsearch; with none, a local DuckDuckGo HTML fallback is used. Pair results with\nread_url when page content is needed. Capped at 10 results by default.",
     "input_schema": {
       "properties": {
         "max_results": {
@@ -186,7 +185,7 @@ expression: json
     "name": "web_search"
   },
   {
-    "description": "read_url\n\nFetch a public HTTP/HTTPS URL and extract readable text.\n\nUse to read a page found via web_search or referenced in the workspace. Prefer\nlocal files when available. HTML is extracted to Markdown; JSON, XML, plain\ntext, feeds, and YAML are returned raw. Binary content is rejected.\nPrivate-network targets (including after redirects) and non-http(s) schemes are\nrejected. Size, redirects, and timeouts are capped; output may truncate.",
+    "description": "read_url\n\nFetch a public HTTP/HTTPS URL and extract readable text.\n\nUse to read a page found via web_search or referenced in the workspace. Prefer\nlocal files when available. HTML is extracted to Markdown with Lectito; JSON,\nXML, plain text, feeds, and YAML are returned raw. Binary content is rejected.\nPrivate targets, redirects, and non-http(s) schemes are rejected. Size,\nredirects, and timeouts are capped; output may truncate.",
     "input_schema": {
       "properties": {
         "url": {

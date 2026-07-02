@@ -16,11 +16,12 @@
 //! 6. **self_knowledge** — how to answer questions about `thndrs`.
 //! 7. **web_source_guidance** — when and how to use web tools.
 //! 8. Environment metadata — cwd, model, search mode, rounded date.
-//! 9. Project context — loaded `AGENTS.md` text (below policy and user
+//! 9. Self-knowledge snapshot — docs map and compact runtime state.
+//! 10. Project context — loaded `AGENTS.md` text (below policy and user
 //!    instructions).
-//! 10. Tool catalog — provider-native schemas for local tools.
-//! 11. Transcript tail — projected model-visible entries.
-//! 12. User turn — current prompt text.
+//! 11. Tool catalog — provider-native schemas for local tools.
+//! 12. Transcript tail — projected model-visible entries.
+//! 13. User turn — current prompt text.
 
 #[cfg(test)]
 mod tests;
@@ -32,6 +33,7 @@ use crate::app::ToolStatus;
 use crate::cli::WebSearchMode;
 use crate::context::ContextSource;
 use crate::datetime;
+use crate::internals;
 use crate::providers::ProviderMessage;
 use crate::skills;
 use crate::skills::SkillMetadata;
@@ -146,8 +148,8 @@ pub struct EnvironmentMetadata {
     pub cwd: String,
     /// Selected model name.
     pub model: String,
-    /// Web search mode label.
-    pub search_mode: String,
+    /// Web search mode selected for this turn.
+    pub search_mode: WebSearchMode,
     /// Rounded current date (YYYY-MM-DD) for cache stability.
     /// The exact timestamp stays in session JSONL when needed for audit.
     pub date: String,
@@ -160,7 +162,7 @@ impl EnvironmentMetadata {
         EnvironmentMetadata {
             cwd: cwd.display().to_string(),
             model: model.to_string(),
-            search_mode: search_mode.label().to_string(),
+            search_mode,
             date: datetime::rounded_date(),
         }
     }
@@ -202,7 +204,8 @@ pub fn default_fragments() -> Vec<PromptFragment> {
 /// 6. Self-knowledge
 /// 7. Web/source guidance
 /// 8. Environment metadata.
-/// 9. Project context (AGENTS.md) — below harness policy and user instructions.
+/// 9. Self-knowledge snapshot.
+/// 10. Project context (AGENTS.md) — below harness policy and user instructions.
 ///
 /// ## AGENTS.md inclusion
 ///
@@ -223,9 +226,12 @@ pub fn render_system_prompt(bundle: &PromptBundle) -> String {
 </environment>"#,
         cdata(&bundle.environment.cwd),
         cdata(&bundle.environment.model),
-        bundle.environment.search_mode,
+        bundle.environment.search_mode.label(),
         bundle.environment.date
     ));
+
+    let snapshot: internals::SelfKnowledgeSnapshot = bundle.into();
+    parts.push(snapshot.render_model_visible());
 
     if !bundle.project_context.is_empty() {
         let mut context_lines = vec!["<project_context>".to_string()];

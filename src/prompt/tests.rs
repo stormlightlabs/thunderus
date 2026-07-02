@@ -8,7 +8,7 @@ fn test_bundle() -> PromptBundle {
         environment: EnvironmentMetadata {
             cwd: "/repo".to_string(),
             model: "umans-coder".to_string(),
-            search_mode: "native".to_string(),
+            search_mode: WebSearchMode::Native,
             date: "2026-06-29".to_string(),
         },
         project_context: Vec::new(),
@@ -79,7 +79,7 @@ fn self_knowledge_fragment_points_to_local_truth() {
         .iter()
         .find(|f| f.name == "self_knowledge")
         .expect("self_knowledge fragment");
-    assert!(self_knowledge.content.contains("docs/src/reference/tools.md"));
+    assert!(self_knowledge.content.contains("thndrs_self_knowledge"));
     assert!(self_knowledge.content.contains("runtime environment"));
 }
 
@@ -93,13 +93,13 @@ fn environment_metadata_rounds_date() {
 #[test]
 fn environment_metadata_search_mode_labels() {
     let native = EnvironmentMetadata::new(Path::new("."), "m", WebSearchMode::Native);
-    assert_eq!(native.search_mode, "native");
+    assert_eq!(native.search_mode.label(), "native");
 
     let exa = EnvironmentMetadata::new(Path::new("."), "m", WebSearchMode::Exa);
-    assert_eq!(exa.search_mode, "exa");
+    assert_eq!(exa.search_mode.label(), "exa");
 
     let none = EnvironmentMetadata::new(Path::new("."), "m", WebSearchMode::None);
-    assert_eq!(none.search_mode, "none");
+    assert_eq!(none.search_mode.label(), "none");
 }
 
 #[test]
@@ -132,10 +132,33 @@ fn system_prompt_includes_agents_md_below_policy() {
 
     let prompt = render_system_prompt(&bundle);
     let policy_pos = prompt.find("<action_safety>").unwrap();
+    let self_knowledge_pos = prompt.find("<thndrs_self_knowledge>").unwrap();
     let context_pos = prompt.find("<project_context>").unwrap();
     assert!(policy_pos < context_pos, "AGENTS.md should be below action safety");
+    assert!(
+        self_knowledge_pos < context_pos,
+        "self-knowledge snapshot should come before AGENTS.md context"
+    );
     assert!(prompt.contains("# Project"), "should include AGENTS.md content");
     assert!(prompt.contains("12345"), "should include content hash");
+}
+
+#[test]
+fn system_prompt_includes_stable_self_description_and_docs_map() {
+    let bundle = test_bundle();
+    let prompt = render_system_prompt(&bundle);
+
+    assert!(prompt.contains("<thndrs_self_knowledge>"));
+    assert!(prompt.contains("<name>thndrs</name>"));
+    assert!(prompt.contains("<name>umans</name>"));
+    assert!(prompt.contains("<model>umans-coder</model>"));
+    assert!(prompt.contains("<workspace>/repo</workspace>"));
+    assert!(prompt.contains("<mode>native</mode>"));
+    assert!(prompt.contains("<url_reader>read_url fetches public HTTP(S) and extracts HTML with Lectito</url_reader>"));
+    assert!(prompt.contains("<renderer_mode>direct-inline</renderer_mode>"));
+    assert!(prompt.contains("<path>docs/src/reference/tools.md</path>"));
+    assert!(prompt.contains("<fragment>base_identity</fragment>"));
+    assert!(prompt.contains("<tool>read_file_range</tool>"));
 }
 
 #[test]

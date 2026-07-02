@@ -110,20 +110,11 @@ See:
 - [ ] Implement config loading.
 - [ ] Implement precedence: CLI flags override env vars, env vars override
       config, config overrides built-in defaults.
-- [ ] Add non-TUI session inspect/export command.
-- [ ] Keep inspect/export output JSON or JSONL.
+  - [ ] Add non-TUI session inspect/export command.
+  - [ ] Keep inspect/export output JSON or JSONL.
 - [ ] Include loaded `AGENTS.md` files, scopes, hashes, and truncation state in
       inspect/export output.
-- [ ] Include renderer-independent message metadata needed for later
-      re-rendering.
-- [ ] Document session/config compatibility expectations.
-- [ ] Document `AGENTS.md` precedence: harness policy, user prompt, CLI/config,
-      nearest `AGENTS.md`, broader `AGENTS.md`, defaults.
-- [ ] Document nested `AGENTS.md` scoping or mark it explicitly deferred.
-- [ ] Unit-test config precedence.
-- [ ] Integration-test `--help`.
-- [ ] Integration-test inspect/export against fixture sessions.
-- [ ] Integration-test inspect/export includes `AGENTS.md` context metadata.
+- [ ] Include renderer-independent message metadata needed for later rendering.
 
 ### LSP And Code Intelligence
 
@@ -149,9 +140,9 @@ See:
 - [x] Load full skill instructions only after activation.
 - [x] Bound skill reference traversal with depth, byte, file, and cycle limits.
 - [x] Record activated skills and loaded references in session metadata.
-- [ ] Add a stable `thndrs` self-description fragment.
-- [ ] Expose a compact model-visible map of local docs and runtime state.
-- [ ] Add self-knowledge snapshots for prompt fragments, tools, skills,
+- [x] Add a stable `thndrs` self-description fragment.
+- [x] Expose a compact model-visible map of local docs and runtime state.
+- [x] Add self-knowledge snapshots for prompt fragments, tools, skills,
       renderer mode, provider/model, search mode, and diagnostics.
 
 ### Prompt Input Correctness

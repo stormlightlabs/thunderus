@@ -33,9 +33,9 @@ use ureq::http::Response;
 
 use crate::app::AgentEvent;
 use crate::providers::{
-    ProviderContentBlock, ProviderError, ProviderMessage, ProviderTurn, StreamFormat, StreamingProvider, anthropic,
-    openai, opencode, umans,
+    ProviderContentBlock, ProviderError, ProviderMessage, ProviderTurn, StreamFormat, StreamingProvider,
 };
+use crate::providers::{anthropic, openai, opencode, umans};
 use crate::tools::{self, AgentRunConfig, ToolUseRequest};
 
 const PROVIDER_RETRY_POLICY: RetryPolicy = RetryPolicy::new(4, Duration::from_millis(2500));
@@ -57,6 +57,15 @@ pub enum ProviderKind {
 impl ProviderKind {
     pub fn for_model(model: &str) -> Self {
         if opencode::is_model_id(model) { ProviderKind::OpenCodeGo } else { ProviderKind::Umans }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            #[cfg(test)]
+            ProviderKind::Fake => "fake",
+            ProviderKind::Umans => "umans",
+            ProviderKind::OpenCodeGo => "opencode-go",
+        }
     }
 }
 

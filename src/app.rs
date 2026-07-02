@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use serde::{Deserialize, Serialize};
 
-use super::{context, fuzzy, session, skills, tools};
+use super::{agent, context, fuzzy, internals, prompt, session, skills, tools};
 use crate::cli::{Cli, Theme, WebSearchMode};
 use crate::input::PromptInput;
 use crate::providers::{opencode, umans};
@@ -402,7 +402,7 @@ impl App {
             &session_id,
             &workspace_root.display().to_string(),
             "scratch",
-            "umans",
+            agent::ProviderKind::for_model(&cli.model).label(),
             &cli.model,
             cli.websearch.label(),
             env!("CARGO_PKG_VERSION"),
@@ -451,6 +451,42 @@ impl App {
             kill_ring: Vec::new(),
             quit: false,
         }
+    }
+
+    /// Build the compact self-knowledge snapshot used by the startup display.
+    pub fn self_knowledge_snapshot(&self) -> internals::SelfKnowledgeSnapshot {
+        let tools = tools::tool_definitions();
+        let provider = internals::ProviderSnapshot::new(
+            agent::ProviderKind::for_model(&self.model).label(),
+            &self.model,
+            self.websearch,
+        );
+        let runtime = internals::RuntimeSnapshot::new(
+            provider,
+            self.cwd.display().to_string(),
+            internals::RENDERER_MODE,
+            tools.iter().map(|tool| tool.name.to_string()).collect(),
+        );
+        let references = internals::ReferenceSnapshot::from_skills(&self.skills);
+        let prompt_context = internals::PromptContextSnapshot::new(
+            prompt::default_fragments()
+                .into_iter()
+                .map(|fragment| fragment.name.to_string())
+                .collect(),
+            &self.context_sources,
+        );
+        let inventory = internals::KnowledgeInventorySnapshot::new(references, prompt_context);
+        let diagnostics = self
+            .skill_diagnostics
+            .iter()
+            .map(skills::SkillDiagnostic::summary)
+            .collect();
+        internals::SelfKnowledgeSnapshot::new(
+            internals::AppIdentitySnapshot::default(),
+            runtime,
+            inventory,
+            diagnostics,
+        )
     }
 
     /// Derive the granular status label for the status line.

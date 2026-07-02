@@ -40,3 +40,7 @@ stderr are represented through the corresponding capped `tool_finished` output.
 Session context records preserve what prompt context was loaded without storing
 full `AGENTS.md` contents in metadata. Raw provider request and response payloads
 are not persisted by default.
+
+Prompt metadata also records compact self-knowledge inputs. This supports prompt
+inspection and replay audits without persisting full prompt text, project instruction
+text, or provider-private state.

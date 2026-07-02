@@ -1,0 +1,487 @@
+//! Compact self-knowledge snapshot for model and startup inspection.
+//!
+//! This module owns the small, stable shape that describes what `thndrs`
+//! knows about itself for the current run.
+
+use crate::agent::ProviderKind;
+use crate::cli::WebSearchMode;
+use crate::context::ContextSource;
+use crate::prompt::PromptBundle;
+use crate::skills::SkillMetadata;
+use crate::utils;
+
+pub const RENDERER_MODE: &str = "direct-inline";
+
+const DOCUMENTATION_MAP: &[DocumentationEntry] = &[
+    DocumentationEntry { topic: "CLI", path: "docs/src/reference/cli.md" },
+    DocumentationEntry { topic: "configuration", path: "docs/src/reference/configuration.md" },
+    DocumentationEntry { topic: "sessions", path: "docs/src/reference/session-format.md" },
+    DocumentationEntry { topic: "tool boundary", path: "docs/src/concepts/tool-boundary.md" },
+    DocumentationEntry { topic: "tools", path: "docs/src/reference/tools.md" },
+    DocumentationEntry { topic: "web search and URL reading", path: "docs/src/providers/search-and-extraction.md" },
+    DocumentationEntry { topic: "prompt assembly", path: "docs/src/concepts/prompt-assembly.md" },
+    DocumentationEntry { topic: "project context", path: "docs/src/usage/project-context.md" },
+    DocumentationEntry { topic: "skills", path: "docs/src/usage/skills.md" },
+    DocumentationEntry { topic: "Umans provider", path: "docs/src/providers/umans.md" },
+    DocumentationEntry { topic: "OpenCode Go provider", path: "docs/src/providers/opencode-go.md" },
+    DocumentationEntry { topic: "renderer", path: "docs/src/usage/tui.md" },
+    DocumentationEntry { topic: "development workflow", path: "docs/src/development/workflow.md" },
+];
+
+const CAPABILITIES: &[&str] = &[
+    "structured prompt bundle",
+    "bounded workspace file tools",
+    "provider-native tool schemas",
+    "agent skills metadata",
+    "append-only JSONL sessions",
+    "provider-native and local web search modes",
+    "URL/article reading",
+    "direct inline terminal renderer",
+];
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DocumentationEntry {
+    pub topic: &'static str,
+    pub path: &'static str,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContextSnapshot {
+    pub path: String,
+    pub scope: String,
+    pub content_hash: u64,
+    pub truncated: bool,
+    pub byte_count: usize,
+}
+
+impl ContextSnapshot {
+    fn from_source(source: &ContextSource) -> Self {
+        Self {
+            path: source.path.display().to_string(),
+            scope: source.scope.clone(),
+            content_hash: source.content_hash,
+            truncated: source.truncated,
+            byte_count: source.byte_count,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SkillSnapshot {
+    pub name: String,
+    pub path: String,
+    pub source: String,
+}
+
+impl SkillSnapshot {
+    fn from_metadata(skill: &SkillMetadata) -> Self {
+        Self {
+            name: skill.name.clone(),
+            path: skill.path.display().to_string(),
+            source: skill.source.label().to_string(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AppIdentitySnapshot {
+    pub app_name: &'static str,
+    pub app_version: &'static str,
+    pub capabilities: Vec<&'static str>,
+}
+
+impl Default for AppIdentitySnapshot {
+    fn default() -> Self {
+        Self { app_name: "thndrs", app_version: env!("CARGO_PKG_VERSION"), capabilities: CAPABILITIES.to_vec() }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SearchSnapshot {
+    pub mode: String,
+    pub provider_header: String,
+    pub provider_native_search: String,
+    pub local_search: String,
+    pub url_reader: String,
+}
+
+impl From<WebSearchMode> for SearchSnapshot {
+    fn from(mode: WebSearchMode) -> Self {
+        Self {
+            mode: mode.label().to_string(),
+            provider_header: mode.header_value().to_string(),
+            provider_native_search: match mode {
+                WebSearchMode::Auto => "auto: native search when prompt appears current-web dependent".to_string(),
+                WebSearchMode::Native => "native: Umans server-side search".to_string(),
+                WebSearchMode::Exa => "exa: Umans server-side Exa search".to_string(),
+                WebSearchMode::None => "none: local web_search tool remains available".to_string(),
+            },
+            local_search: "DuckDuckGo HTML fallback via web_search tool".to_string(),
+            url_reader: "read_url fetches public HTTP(S) and extracts HTML with Lectito".to_string(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProviderSnapshot {
+    pub provider: String,
+    pub model: String,
+    pub search: SearchSnapshot,
+}
+
+impl ProviderSnapshot {
+    pub fn new(provider: impl Into<String>, model: impl Into<String>, search_mode: WebSearchMode) -> Self {
+        Self { provider: provider.into(), model: model.into(), search: search_mode.into() }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RuntimeSnapshot {
+    pub provider: ProviderSnapshot,
+    pub workspace: String,
+    pub renderer_mode: String,
+    pub tools: Vec<String>,
+}
+
+impl RuntimeSnapshot {
+    pub fn new(
+        provider: ProviderSnapshot, ws: impl Into<String>, rmode: impl Into<String>, tools: Vec<String>,
+    ) -> Self {
+        Self { provider, workspace: ws.into(), renderer_mode: rmode.into(), tools }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PromptContextSnapshot {
+    pub prompt_fragments: Vec<String>,
+    pub context_sources: Vec<ContextSnapshot>,
+}
+
+impl PromptContextSnapshot {
+    pub fn new(fragments: Vec<String>, ctx: &[ContextSource]) -> Self {
+        Self { prompt_fragments: fragments, context_sources: ctx.iter().map(ContextSnapshot::from_source).collect() }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReferenceSnapshot {
+    pub docs: Vec<DocumentationEntry>,
+    pub skills: Vec<SkillSnapshot>,
+}
+
+impl ReferenceSnapshot {
+    pub fn from_skills(skills: &[SkillMetadata]) -> Self {
+        Self { docs: DOCUMENTATION_MAP.to_vec(), skills: skills.iter().map(SkillSnapshot::from_metadata).collect() }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KnowledgeInventorySnapshot {
+    pub references: ReferenceSnapshot,
+    pub prompt_context: PromptContextSnapshot,
+}
+
+impl KnowledgeInventorySnapshot {
+    pub fn new(refs: ReferenceSnapshot, ctx: PromptContextSnapshot) -> Self {
+        Self { references: refs, prompt_context: ctx }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelfKnowledgeSnapshot {
+    pub identity: AppIdentitySnapshot,
+    pub runtime: RuntimeSnapshot,
+    pub inventory: KnowledgeInventorySnapshot,
+    pub diagnostics: Vec<String>,
+}
+
+impl From<&PromptBundle> for SelfKnowledgeSnapshot {
+    fn from(bundle: &PromptBundle) -> SelfKnowledgeSnapshot {
+        let provider = ProviderSnapshot::new(
+            ProviderKind::for_model(&bundle.environment.model).label(),
+            &bundle.environment.model,
+            bundle.environment.search_mode,
+        );
+        let runtime = RuntimeSnapshot::new(
+            provider,
+            bundle.environment.cwd.clone(),
+            RENDERER_MODE,
+            bundle.tool_catalog.iter().map(|tool| tool.name.to_string()).collect(),
+        );
+        let references = ReferenceSnapshot::from_skills(&bundle.available_skills);
+        let prompt_context = PromptContextSnapshot::new(
+            bundle
+                .fragments
+                .iter()
+                .map(|fragment| fragment.name.to_string())
+                .collect(),
+            &bundle.project_context,
+        );
+        let inventory = KnowledgeInventorySnapshot::new(references, prompt_context);
+        SelfKnowledgeSnapshot::new(AppIdentitySnapshot::default(), runtime, inventory, Vec::new())
+    }
+}
+
+impl SelfKnowledgeSnapshot {
+    pub fn new(
+        identity: AppIdentitySnapshot, runtime: RuntimeSnapshot, inventory: KnowledgeInventorySnapshot,
+        diagnostics: Vec<String>,
+    ) -> Self {
+        Self { identity, runtime, inventory, diagnostics }
+    }
+
+    pub fn render_model_visible(&self) -> String {
+        let mut out = String::new();
+        out.push_str("<thndrs_self_knowledge>\n");
+        out.push_str("  <self_description>\n");
+        element(&mut out, 4, "name", self.identity.app_name);
+        element(&mut out, 4, "version", self.identity.app_version);
+        out.push_str("    <capabilities>\n");
+        for capability in &self.identity.capabilities {
+            element(&mut out, 6, "capability", capability);
+        }
+        out.push_str("    </capabilities>\n");
+        out.push_str("  </self_description>\n");
+
+        out.push_str("  <docs_map>\n");
+        for doc in &self.inventory.references.docs {
+            out.push_str("    <doc>\n");
+            element(&mut out, 6, "topic", doc.topic);
+            element(&mut out, 6, "path", doc.path);
+            out.push_str("    </doc>\n");
+        }
+        out.push_str("  </docs_map>\n");
+
+        out.push_str("  <runtime_state>\n");
+        element(&mut out, 4, "workspace", &self.runtime.workspace);
+        element(&mut out, 4, "renderer_mode", &self.runtime.renderer_mode);
+        out.push_str("    <provider>\n");
+        element(&mut out, 6, "name", &self.runtime.provider.provider);
+        element(&mut out, 6, "model", &self.runtime.provider.model);
+        out.push_str("      <search>\n");
+        element(&mut out, 8, "mode", &self.runtime.provider.search.mode);
+        element(
+            &mut out,
+            8,
+            "provider_header",
+            &self.runtime.provider.search.provider_header,
+        );
+        element(
+            &mut out,
+            8,
+            "provider_native_search",
+            &self.runtime.provider.search.provider_native_search,
+        );
+        element(&mut out, 8, "local_search", &self.runtime.provider.search.local_search);
+        element(&mut out, 8, "url_reader", &self.runtime.provider.search.url_reader);
+        out.push_str("      </search>\n");
+        out.push_str("    </provider>\n");
+
+        out.push_str("    <tools>\n");
+        for tool in &self.runtime.tools {
+            element(&mut out, 6, "tool", tool);
+        }
+        out.push_str("    </tools>\n");
+
+        out.push_str("    <prompt_fragments>\n");
+        for fragment in &self.inventory.prompt_context.prompt_fragments {
+            element(&mut out, 6, "fragment", fragment);
+        }
+        out.push_str("    </prompt_fragments>\n");
+
+        out.push_str("    <project_context>\n");
+        for source in &self.inventory.prompt_context.context_sources {
+            out.push_str("      <source>\n");
+            element(&mut out, 8, "path", &source.path);
+            element(&mut out, 8, "scope", &source.scope);
+            element(&mut out, 8, "hash", &source.content_hash.to_string());
+            element(&mut out, 8, "truncated", &source.truncated.to_string());
+            element(&mut out, 8, "byte_count", &source.byte_count.to_string());
+            out.push_str("      </source>\n");
+        }
+        out.push_str("    </project_context>\n");
+
+        out.push_str("    <skills>\n");
+        for skill in &self.inventory.references.skills {
+            out.push_str("      <skill>\n");
+            element(&mut out, 8, "name", &skill.name);
+            element(&mut out, 8, "source", &skill.source);
+            element(&mut out, 8, "path", &skill.path);
+            out.push_str("      </skill>\n");
+        }
+        out.push_str("    </skills>\n");
+
+        out.push_str("    <diagnostics>\n");
+        for diagnostic in &self.diagnostics {
+            element(&mut out, 6, "diagnostic", diagnostic);
+        }
+        out.push_str("    </diagnostics>\n");
+        out.push_str("  </runtime_state>\n");
+        out.push_str("</thndrs_self_knowledge>");
+        out
+    }
+
+    pub fn startup_sections(&self) -> Vec<StartupSection> {
+        vec![
+            StartupSection::new(
+                "Runtime",
+                format!(
+                    "{} | {} | search {} | {}",
+                    self.runtime.provider.provider,
+                    self.runtime.provider.model,
+                    self.runtime.provider.search.mode,
+                    self.runtime.renderer_mode
+                ),
+            ),
+            StartupSection::new(
+                "Context",
+                join_or_none(
+                    self.inventory
+                        .prompt_context
+                        .context_sources
+                        .iter()
+                        .map(|source| source.path.as_str()),
+                ),
+            ),
+            StartupSection::new(
+                "Search",
+                format!(
+                    "{}; {}; {}",
+                    self.runtime.provider.search.provider_native_search,
+                    self.runtime.provider.search.local_search,
+                    self.runtime.provider.search.url_reader
+                ),
+            ),
+            StartupSection::new(
+                "Skills",
+                join_or_none(self.inventory.references.skills.iter().map(|skill| skill.name.as_str())),
+            ),
+            StartupSection::new("Diagnostics", join_or_none(self.diagnostics.iter().map(String::as_str))),
+        ]
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StartupSection {
+    pub heading: &'static str,
+    pub body: String,
+}
+
+impl StartupSection {
+    fn new(heading: &'static str, body: String) -> Self {
+        Self { heading, body }
+    }
+}
+
+fn join_or_none<'a>(items: impl Iterator<Item = &'a str>) -> String {
+    let values = items.map(str::trim).filter(|item| !item.is_empty()).collect::<Vec<_>>();
+    if values.is_empty() { "(none)".to_string() } else { values.join(", ") }
+}
+
+fn element(out: &mut String, indent: usize, name: &str, value: &str) {
+    out.push_str(&" ".repeat(indent));
+    out.push('<');
+    out.push_str(name);
+    out.push('>');
+    out.push_str(&utils::escape_xml(value));
+    out.push_str("</");
+    out.push_str(name);
+    out.push_str(">\n");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::skills::{SkillDiagnostic, SkillSource};
+    use crate::tools::ToolDefinition;
+
+    fn test_skill() -> SkillMetadata {
+        SkillMetadata {
+            name: "inspect".to_string(),
+            description: "Inspect project state.".to_string(),
+            path: "/repo/.thndrs/skills/inspect/SKILL.md".into(),
+            root: "/repo/.thndrs/skills/inspect".into(),
+            content_hash: 7,
+            byte_count: 100,
+            source: SkillSource::Project,
+            allowed_tools: Vec::new(),
+            license: None,
+            compatibility: None,
+            metadata: None,
+        }
+    }
+
+    fn test_snapshot(
+        model: &str, search_mode: WebSearchMode, prompt_fragments: Vec<String>, context_sources: &[ContextSource],
+        tools: &[ToolDefinition], skills: &[SkillMetadata], diagnostics: &[SkillDiagnostic],
+    ) -> SelfKnowledgeSnapshot {
+        let provider = ProviderSnapshot::new("umans", model, search_mode);
+        let runtime = RuntimeSnapshot::new(
+            provider,
+            "/repo",
+            RENDERER_MODE,
+            tools.iter().map(|tool| tool.name.to_string()).collect(),
+        );
+        let references = ReferenceSnapshot::from_skills(skills);
+        let prompt_context = PromptContextSnapshot::new(prompt_fragments, context_sources);
+        let inventory = KnowledgeInventorySnapshot::new(references, prompt_context);
+        let diagnostics = diagnostics.iter().map(SkillDiagnostic::summary).collect();
+        SelfKnowledgeSnapshot::new(AppIdentitySnapshot::default(), runtime, inventory, diagnostics)
+    }
+
+    #[test]
+    fn model_visible_snapshot_contains_docs_and_runtime_state() {
+        let source = ContextSource {
+            path: "/repo/AGENTS.md".into(),
+            scope: ".".to_string(),
+            content: "# Project".to_string(),
+            content_hash: 42,
+            truncated: false,
+            byte_count: 9,
+        };
+        let diagnostic = SkillDiagnostic { path: "/repo/bad/SKILL.md".into(), message: "invalid".to_string() };
+        let snapshot = test_snapshot(
+            "test-model",
+            WebSearchMode::Native,
+            vec!["base_identity".to_string(), "self_knowledge".to_string()],
+            &[source],
+            &crate::tools::tool_definitions(),
+            &[test_skill()],
+            &[diagnostic],
+        );
+        let rendered = snapshot.render_model_visible();
+
+        assert!(rendered.contains("<thndrs_self_knowledge>"));
+        assert!(rendered.contains("<name>umans</name>"));
+        assert!(rendered.contains("<renderer_mode>direct-inline</renderer_mode>"));
+        assert!(rendered.contains("docs/src/reference/cli.md"));
+        assert!(rendered.contains("<fragment>base_identity</fragment>"));
+        assert!(rendered.contains("<tool>read_file_range</tool>"));
+        assert!(rendered.contains("<name>inspect</name>"));
+        assert!(rendered.contains("skill diagnostic"));
+        assert!(
+            !rendered.contains("# Project"),
+            "snapshot must not include AGENTS.md content"
+        );
+    }
+
+    #[test]
+    fn startup_sections_use_compact_labels() {
+        let snapshot = test_snapshot(
+            "test-model",
+            WebSearchMode::None,
+            vec!["base_identity".to_string()],
+            &[],
+            &[],
+            &[],
+            &[],
+        );
+        let sections = snapshot.startup_sections();
+        assert!(sections.iter().any(|section| section.heading == "Runtime"));
+        assert!(
+            sections
+                .iter()
+                .any(|section| section.heading == "Context" && section.body == "(none)")
+        );
+    }
+}
