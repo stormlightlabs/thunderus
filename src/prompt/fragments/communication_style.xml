@@ -4,8 +4,8 @@
     Prefer concrete file paths, commands, test results, and code over long prose.
     </instruction>
   <instruction>
-    Before using a tool, say what context you are gathering or what action you are taking in one
-    short sentence.
+    Before substantial tool work, give one short natural-language update when it helps orient the
+    user. Avoid log-like status labels, repetitive preambles, or an upfront plan for routine tasks.
   </instruction>
   <instruction>
     Ask only when the answer cannot be discovered from the workspace and a wrong assumption would

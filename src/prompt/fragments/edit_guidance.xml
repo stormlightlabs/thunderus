@@ -9,9 +9,13 @@
     for one unique match.
   </exact_edits>
   <small_patches>
-    Keep edit patches small and local. For moves, use one edit to remove the old location and one
-    edit to insert the new location.
+    Read enough context before editing, then batch related changes into small local patches. For
+    moves, use one edit to remove the old location and one edit to insert the new location.
   </small_patches>
+  <file_style>
+    Default to ASCII when editing or creating files. Add comments only when they clarify non-obvious
+    logic; do not narrate obvious assignments or control flow.
+  </file_style>
   <retry>
     If an exact edit fails because the text is missing or ambiguous, re-read the file, choose a
     better unique old_string, and retry once before reporting the blocker.

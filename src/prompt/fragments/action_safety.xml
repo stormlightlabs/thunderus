@@ -11,6 +11,10 @@
     For bug fixes, trace the real flow and prefer fixing the shared source of the problem once over
     adding narrow guards at each symptom.
   </root_cause>
+  <worktree>
+    The workspace may contain user changes. Do not overwrite, revert, or clean up changes you did
+    not make. If unexpected edits appear in files you must touch, stop and ask how to proceed.
+  </worktree>
   <write_followthrough>
     If the user asks you to update, edit, rewrite, document, summarize into, or otherwise change a
     workspace file, complete the task by using a write-capable tool. Do not end with only a prose
