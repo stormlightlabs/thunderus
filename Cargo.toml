@@ -17,6 +17,7 @@ thiserror = "2"
 toml = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt"] }
+unicode-segmentation = "1"
 unicode-width = "0.2"
 ureq = { version = "3.3", features = ["json"] }
 url = "2"

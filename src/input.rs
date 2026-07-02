@@ -1,19 +1,42 @@
 //! Cursor-aware single-line/multi-line text input model.
 //!
-//! Wraps a `String` with a char-index cursor position so that text can be
-//! inserted and deleted at an arbitrary point, not just appended. All public
-//! operations keep the cursor within bounds (`0..=len_chars`).
+//! Wraps a `String` with a **grapheme-cluster index** cursor so that text can
+//! be inserted and deleted at an arbitrary point, not just appended. All public
+//! operations keep the cursor within bounds (`0..=grapheme_count`).
+//!
+//! A grapheme cluster is a user-perceived character, specifically a base codepoint
+//! plus any combining marks, zero-width joiners, and other sequence constituents.
+//! By indexing the cursor in grapheme clusters, cursor movement, backspace,
+//! delete, and transpose all operate on what the user sees as a single
+//! character, even when that character is composed of multiple Rust `char`s.
+
+#[cfg(test)]
+mod tests;
+
+use unicode_segmentation::UnicodeSegmentation;
 
 /// A cursor-aware text buffer used for the prompt input line.
 ///
-/// The cursor is stored as a **char index** (not byte index) so that
-/// multi-byte characters are handled correctly. It is always in the range
-/// `0..=text.chars().count()`.
+/// The cursor is stored as a **grapheme cluster index** so that combining marks,
+/// emoji sequences, and other multi-codepoint clusters are treated as a single
+/// unit. It is always in the range `0..=grapheme_count`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PromptInput {
     text: String,
-    /// Char index of the cursor within `text`.
+    /// Grapheme-cluster index of the cursor within `text`.
     cursor: usize,
+}
+
+impl From<String> for PromptInput {
+    fn from(s: String) -> Self {
+        Self::from_str(&s)
+    }
+}
+
+impl From<&str> for PromptInput {
+    fn from(s: &str) -> Self {
+        Self::from_str(s)
+    }
 }
 
 impl PromptInput {
@@ -24,7 +47,7 @@ impl PromptInput {
 
     /// Create from an existing string, placing the cursor at the end.
     pub fn from_str(s: &str) -> Self {
-        let cursor = s.chars().count();
+        let cursor = s.graphemes(true).count();
         Self { text: s.to_string(), cursor }
     }
 
@@ -38,19 +61,19 @@ impl PromptInput {
         self.text.clone()
     }
 
-    /// Current cursor position as a char index.
+    /// Current cursor position as a grapheme-cluster index.
     pub fn cursor(&self) -> usize {
         self.cursor
     }
 
-    /// Number of characters in the buffer.
-    pub fn len_chars(&self) -> usize {
-        self.chars().count()
+    /// Number of grapheme clusters in the buffer.
+    pub fn len_graphemes(&self) -> usize {
+        self.text.graphemes(true).count()
     }
 
-    /// Iterator over the characters.
-    pub fn chars(&self) -> std::str::Chars<'_> {
-        self.text.chars()
+    /// Iterator over the grapheme clusters.
+    pub fn graphemes(&self) -> unicode_segmentation::Graphemes<'_> {
+        self.text.graphemes(true)
     }
 
     /// Whether the buffer is empty.
@@ -67,36 +90,36 @@ impl PromptInput {
     /// Set the text to `s`, placing the cursor at the end.
     pub fn set_text(&mut self, s: &str) {
         self.text = s.to_string();
-        self.cursor = self.len_chars();
+        self.cursor = self.len_graphemes();
     }
 
-    /// Move the cursor left by one character (clamped at 0).
+    /// Move the cursor left by one grapheme cluster (clamped at 0).
     pub fn cursor_left(&mut self) {
         self.cursor = self.cursor.saturating_sub(1);
     }
 
-    /// Move the cursor right by one character (clamped at end).
+    /// Move the cursor right by one grapheme cluster (clamped at end).
     pub fn cursor_right(&mut self) {
-        if self.cursor < self.len_chars() {
+        if self.cursor < self.len_graphemes() {
             self.cursor += 1;
         }
     }
 
-    /// Move the cursor to the start of the line (char index 0).
+    /// Move the cursor to the start of the line (grapheme index 0).
     pub fn cursor_to_start(&mut self) {
         self.cursor = 0;
     }
 
     /// Move the cursor to the end of the text.
     pub fn cursor_to_end(&mut self) {
-        self.cursor = self.len_chars();
+        self.cursor = self.len_graphemes();
     }
 
     /// Move the cursor to the previous logical line, preserving the column as
     /// closely as possible. Returns `true` when the cursor moved.
     pub fn cursor_up(&mut self) -> bool {
-        let chars: Vec<char> = self.chars().collect();
-        let Some((line_start, column)) = line_start_and_column(&chars, self.cursor) else {
+        let graphemes: Vec<&str> = self.graphemes().collect();
+        let Some((line_start, column)) = line_start_and_column(&graphemes, self.cursor) else {
             return false;
         };
         if line_start == 0 {
@@ -104,9 +127,9 @@ impl PromptInput {
         }
 
         let prev_end = line_start.saturating_sub(1);
-        let prev_start = chars[..prev_end]
+        let prev_start = graphemes[..prev_end]
             .iter()
-            .rposition(|ch| *ch == '\n')
+            .rposition(|g| g.contains('\n'))
             .map_or(0, |idx| idx + 1);
         let prev_len = prev_end.saturating_sub(prev_start);
         self.cursor = prev_start + column.min(prev_len);
@@ -116,68 +139,50 @@ impl PromptInput {
     /// Move the cursor to the next logical line, preserving the column as
     /// closely as possible. Returns `true` when the cursor moved.
     pub fn cursor_down(&mut self) -> bool {
-        let chars: Vec<char> = self.chars().collect();
-        let Some((line_start, column)) = line_start_and_column(&chars, self.cursor) else {
+        let graphemes: Vec<&str> = self.graphemes().collect();
+        let Some((line_start, column)) = line_start_and_column(&graphemes, self.cursor) else {
             return false;
         };
-        let current_end = chars[line_start..]
+        let current_end = graphemes[line_start..]
             .iter()
-            .position(|ch| *ch == '\n')
+            .position(|g| g.contains('\n'))
             .map(|offset| line_start + offset);
         let Some(current_end) = current_end else {
             return false;
         };
         let next_start = current_end + 1;
-        let next_end = chars[next_start..]
+        let next_end = graphemes[next_start..]
             .iter()
-            .position(|ch| *ch == '\n')
-            .map_or(chars.len(), |offset| next_start + offset);
+            .position(|g| g.contains('\n'))
+            .map_or(graphemes.len(), |offset| next_start + offset);
         let next_len = next_end.saturating_sub(next_start);
         self.cursor = next_start + column.min(next_len);
         true
     }
 
-    /// Move the cursor left to the start of the previous word.
+    /// Move the cursor left to the start of the previous Unicode word.
     ///
-    /// Skips whitespace going backwards, then skips non-whitespace until the
-    /// preceding whitespace boundary.
+    /// Uses `unicode-segmentation` word boundaries so that punctuation,
+    /// numbers, and other non-whitespace runs are treated as word units.
     pub fn cursor_word_left(&mut self) {
-        let chars: Vec<char> = self.chars().collect();
+        let graphemes: Vec<&str> = self.graphemes().collect();
         if self.cursor == 0 {
             return;
         }
-        let mut i = self.cursor;
-
-        while i > 0 && chars[i - 1].is_whitespace() {
-            i -= 1;
-        }
-
-        while i > 0 && !chars[i - 1].is_whitespace() {
-            i -= 1;
-        }
-        self.cursor = i;
+        self.cursor = prev_word_boundary(&graphemes, self.cursor);
     }
 
-    /// Move the cursor right to the start of the next word.
+    /// Move the cursor right to the start of the next Unicode word.
     ///
-    /// Skips the current word's non-whitespace characters, then skips
-    /// whitespace until the next word starts.
+    /// Uses `unicode-segmentation` word boundaries so that punctuation,
+    /// numbers, and other non-whitespace runs are treated as word units.
     pub fn cursor_word_right(&mut self) {
-        let chars: Vec<char> = self.chars().collect();
-        let len = chars.len();
+        let graphemes: Vec<&str> = self.graphemes().collect();
+        let len = graphemes.len();
         if self.cursor >= len {
             return;
         }
-        let mut i = self.cursor;
-
-        while i < len && !chars[i].is_whitespace() {
-            i += 1;
-        }
-
-        while i < len && chars[i].is_whitespace() {
-            i += 1;
-        }
-        self.cursor = i;
+        self.cursor = next_word_boundary(&graphemes, self.cursor);
     }
 
     /// Insert a character at the cursor, then advance the cursor past it.
@@ -190,7 +195,7 @@ impl PromptInput {
     /// Insert a string at the cursor, advancing the cursor to the end of the
     /// inserted text.
     pub fn insert_str(&mut self, s: &str) {
-        let count = s.chars().count();
+        let count = s.graphemes(true).count();
         if count == 0 {
             return;
         }
@@ -199,120 +204,122 @@ impl PromptInput {
         self.cursor += count;
     }
 
-    /// Replace a character-index range and place the cursor after the inserted text.
+    /// Replace a grapheme-cluster range and place the cursor after the inserted text.
     pub fn replace_range(&mut self, start: usize, end: usize, replacement: &str) {
-        let len = self.len_chars();
+        let len = self.len_graphemes();
         let start = start.min(len);
         let end = end.min(len).max(start);
         let start_byte = self.byte_offset_of(start);
         let end_byte = self.byte_offset_of(end);
         self.text.replace_range(start_byte..end_byte, replacement);
-        self.cursor = start + replacement.chars().count();
+        self.cursor = start + replacement.graphemes(true).count();
     }
 
-    /// Delete the character to the **left** of the cursor (backspace).
+    /// Delete the grapheme cluster to the **left** of the cursor (backspace).
     ///
-    /// Returns `true` if a character was deleted.
+    /// Returns `true` if a grapheme was deleted.
     pub fn backspace(&mut self) -> bool {
         if self.cursor == 0 {
             return false;
         }
-        let chars: Vec<char> = self.chars().collect();
-        let prev = chars[self.cursor - 1];
+        let graphemes: Vec<&str> = self.graphemes().collect();
+        let prev = graphemes[self.cursor - 1];
         let byte_idx = self.byte_offset_of(self.cursor - 1);
-        self.text.replace_range(byte_idx..byte_idx + prev.len_utf8(), "");
+        self.text.replace_range(byte_idx..byte_idx + prev.len(), "");
         self.cursor -= 1;
         true
     }
 
-    /// Delete the character to the **right** of the cursor (forward delete).
+    /// Delete the grapheme cluster to the **right** of the cursor (forward delete).
     ///
-    /// Returns `true` if a character was deleted.
+    /// Returns `true` if a grapheme was deleted.
     pub fn delete_forward(&mut self) -> bool {
-        let len = self.len_chars();
+        let len = self.len_graphemes();
         if self.cursor >= len {
             return false;
         }
-        let chars: Vec<char> = self.chars().collect();
-        let cur = chars[self.cursor];
+        let graphemes: Vec<&str> = self.graphemes().collect();
+        let cur = graphemes[self.cursor];
         let byte_idx = self.byte_offset_of(self.cursor);
-        self.text.replace_range(byte_idx..byte_idx + cur.len_utf8(), "");
+        self.text.replace_range(byte_idx..byte_idx + cur.len(), "");
         true
     }
 
     /// Kill from the cursor to the end of the line. Returns the killed text.
     pub fn kill_to_end_of_line(&mut self) -> String {
+        let graphemes: Vec<&str> = self.graphemes().collect();
+        let line_end = graphemes[self.cursor..]
+            .iter()
+            .position(|g| g.contains('\n'))
+            .map(|offset| self.cursor + offset)
+            .unwrap_or_else(|| self.len_graphemes());
         let byte_idx = self.byte_offset_of(self.cursor);
-        let killed = self.text[byte_idx..].to_string();
-        self.text.truncate(byte_idx);
+        let end_byte = self.byte_offset_of(line_end);
+        let killed = self.text[byte_idx..end_byte].to_string();
+        self.text.replace_range(byte_idx..end_byte, "");
         killed
     }
 
     /// Kill from the start of the line to the cursor. Returns the killed text.
     pub fn kill_to_start_of_line(&mut self) -> String {
-        let byte_idx = self.byte_offset_of(self.cursor);
-        let killed = self.text[..byte_idx].to_string();
-        self.text = self.text[byte_idx..].to_string();
-        self.cursor = 0;
-        killed
-    }
-
-    /// Kill the word before the cursor (unix-word-rubout style: whitespace
-    /// then non-whitespace). Returns the killed text.
-    pub fn kill_word_left(&mut self) -> String {
-        let chars: Vec<char> = self.chars().collect();
-        if self.cursor == 0 {
-            return String::new();
-        }
-        let mut i = self.cursor;
-        while i > 0 && chars[i - 1].is_whitespace() {
-            i -= 1;
-        }
-        while i > 0 && !chars[i - 1].is_whitespace() {
-            i -= 1;
-        }
-        let start_byte = self.byte_offset_of(i);
+        let graphemes: Vec<&str> = self.graphemes().collect();
+        let line_start = graphemes[..self.cursor]
+            .iter()
+            .rposition(|g| g.contains('\n'))
+            .map_or(0, |idx| idx + 1);
+        let start_byte = self.byte_offset_of(line_start);
         let end_byte = self.byte_offset_of(self.cursor);
         let killed = self.text[start_byte..end_byte].to_string();
         self.text.replace_range(start_byte..end_byte, "");
-        self.cursor = i;
+        self.cursor = line_start;
         killed
     }
 
-    /// Kill the word after the cursor. Returns the killed text.
+    /// Kill the word before the cursor (unix-word-rubout style). Uses Unicode
+    /// word boundaries. Returns the killed text.
+    pub fn kill_word_left(&mut self) -> String {
+        let graphemes: Vec<&str> = self.graphemes().collect();
+        if self.cursor == 0 {
+            return String::new();
+        }
+        let target = prev_word_boundary(&graphemes, self.cursor);
+        let start_byte = self.byte_offset_of(target);
+        let end_byte = self.byte_offset_of(self.cursor);
+        let killed = self.text[start_byte..end_byte].to_string();
+        self.text.replace_range(start_byte..end_byte, "");
+        self.cursor = target;
+        killed
+    }
+
+    /// Kill the word after the cursor. Uses Unicode word boundaries.
+    /// Returns the killed text.
     pub fn kill_word_right(&mut self) -> String {
-        let chars: Vec<char> = self.chars().collect();
-        let len = chars.len();
+        let graphemes: Vec<&str> = self.graphemes().collect();
+        let len = graphemes.len();
         if self.cursor >= len {
             return String::new();
         }
-        let mut i = self.cursor;
-        while i < len && !chars[i].is_whitespace() {
-            i += 1;
-        }
-        while i < len && chars[i].is_whitespace() {
-            i += 1;
-        }
+        let target = next_word_boundary(&graphemes, self.cursor);
         let start_byte = self.byte_offset_of(self.cursor);
-        let end_byte = self.byte_offset_of(i);
+        let end_byte = self.byte_offset_of(target);
         let killed = self.text[start_byte..end_byte].to_string();
         self.text.replace_range(start_byte..end_byte, "");
         killed
     }
 
-    /// Transpose the characters at the cursor and just before it.
+    /// Transpose the grapheme clusters at the cursor and just before it.
     /// Returns `true` if a transposition happened.
     ///
-    /// At the start of the line, swaps the first two chars and moves the
-    /// cursor past both. In the middle, swaps the char before and at the
-    /// cursor, then advances. At the end, swaps the last two chars.
+    /// At the start of the line, swaps the first two graphemes and moves the
+    /// cursor past both. In the middle, swaps the grapheme before and at the
+    /// cursor, then advances. At the end, swaps the last two graphemes.
     pub fn transpose_chars(&mut self) -> bool {
-        let chars: Vec<char> = self.chars().collect();
-        if chars.len() < 2 {
+        let graphemes: Vec<&str> = self.graphemes().collect();
+        if graphemes.len() < 2 {
             return false;
         }
-        let (a, b) = if self.cursor >= chars.len() {
-            (chars.len() - 2, chars.len() - 1)
+        let (a, b) = if self.cursor >= graphemes.len() {
+            (graphemes.len() - 2, graphemes.len() - 1)
         } else if self.cursor == 0 {
             (0, 1)
         } else {
@@ -320,9 +327,8 @@ impl PromptInput {
         };
         let byte_a = self.byte_offset_of(a);
         let byte_b = self.byte_offset_of(b);
-        let len_b = chars[b].len_utf8();
-        let combined = format!("{}{}", chars[b], chars[a]);
-        self.text.replace_range(byte_a..byte_b + len_b, &combined);
+        let combined = format!("{}{}", graphemes[b], graphemes[a]);
+        self.text.replace_range(byte_a..byte_b + graphemes[b].len(), &combined);
         self.cursor = b + 1;
         true
     }
@@ -332,11 +338,11 @@ impl PromptInput {
         self.insert_str(text);
     }
 
-    /// Convert a char index to a byte offset into `text`.
-    fn byte_offset_of(&self, char_index: usize) -> usize {
+    /// Convert a grapheme-cluster index to a byte offset into `text`.
+    fn byte_offset_of(&self, grapheme_index: usize) -> usize {
         self.text
-            .char_indices()
-            .nth(char_index)
+            .grapheme_indices(true)
+            .nth(grapheme_index)
             .map(|(byte_idx, _)| byte_idx)
             .unwrap_or_else(|| self.text.len())
     }
@@ -348,378 +354,68 @@ impl PromptInput {
     }
 }
 
-fn line_start_and_column(chars: &[char], cursor: usize) -> Option<(usize, usize)> {
-    if cursor > chars.len() {
+/// Find the line start (grapheme index) and column (grapheme offset from line
+/// start) for the given cursor position.
+fn line_start_and_column(graphemes: &[&str], cursor: usize) -> Option<(usize, usize)> {
+    if cursor > graphemes.len() {
         return None;
     }
-    let line_start = chars[..cursor]
+    let line_start = graphemes[..cursor]
         .iter()
-        .rposition(|ch| *ch == '\n')
+        .rposition(|g| g.contains('\n'))
         .map_or(0, |idx| idx + 1);
     Some((line_start, cursor.saturating_sub(line_start)))
 }
 
-impl From<String> for PromptInput {
-    fn from(s: String) -> Self {
-        Self::from_str(&s)
+/// Find the start of the previous Unicode word (non-whitespace segment) at or
+/// before `cursor`.
+///
+/// Uses `unicode-segmentation` word boundaries, skipping whitespace-only
+/// segments. For "foo bar baz" at cursor 11, returns 8 (start of "baz").
+fn prev_word_boundary(graphemes: &[&str], cursor: usize) -> usize {
+    if cursor == 0 {
+        return 0;
     }
+    let combined: String = graphemes[..cursor].concat();
+    let segments: Vec<(usize, &str)> = combined
+        .split_word_bound_indices()
+        .map(|(byte_off, word)| {
+            let g_off = combined[..byte_off].graphemes(true).count();
+            (g_off, word)
+        })
+        .collect();
+
+    for &(start, word) in segments.iter().rev() {
+        if start < cursor && !word.trim().is_empty() {
+            return start;
+        }
+    }
+    0
 }
 
-impl From<&str> for PromptInput {
-    fn from(s: &str) -> Self {
-        Self::from_str(s)
+/// Find the start of the next Unicode word (non-whitespace segment) at or
+/// after `cursor`.
+///
+/// Uses `unicode-segmentation` word boundaries, skipping whitespace-only
+/// segments. For "foo bar baz" at cursor 0, returns 4 (start of "bar").
+fn next_word_boundary(graphemes: &[&str], cursor: usize) -> usize {
+    let len = graphemes.len();
+    if cursor >= len {
+        return len;
     }
-}
+    let combined: String = graphemes[cursor..].concat();
+    let segments: Vec<(usize, &str)> = combined
+        .split_word_bound_indices()
+        .map(|(byte_off, word)| {
+            let g_off = combined[..byte_off].graphemes(true).count();
+            (g_off, word)
+        })
+        .collect();
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn new_is_empty() {
-        let p = PromptInput::new();
-        assert!(p.is_empty());
-        assert_eq!(p.cursor(), 0);
-        assert_eq!(p.as_str(), "");
+    for &(start, word) in segments.iter() {
+        if start > 0 && !word.trim().is_empty() {
+            return cursor + start;
+        }
     }
-
-    #[test]
-    fn from_str_places_cursor_at_end() {
-        let p = PromptInput::from_str("hello");
-        assert_eq!(p.as_str(), "hello");
-        assert_eq!(p.cursor(), 5);
-    }
-
-    #[test]
-    fn insert_char_advances_cursor() {
-        let mut p = PromptInput::from_str("helo");
-        p.cursor_left();
-        assert_eq!(p.cursor(), 3);
-
-        p.insert_char('l');
-        assert_eq!(p.as_str(), "hello");
-        assert_eq!(p.cursor(), 4);
-    }
-
-    #[test]
-    fn insert_char_at_start() {
-        let mut p = PromptInput::from_str("world");
-        p.cursor_to_start();
-        p.insert_char('!');
-        assert_eq!(p.as_str(), "!world");
-        assert_eq!(p.cursor(), 1);
-    }
-
-    #[test]
-    fn insert_char_at_end() {
-        let mut p = PromptInput::from_str("hi");
-        p.insert_char('!');
-        assert_eq!(p.as_str(), "hi!");
-        assert_eq!(p.cursor(), 3);
-    }
-
-    #[test]
-    fn backspace_deletes_left() {
-        let mut p = PromptInput::from_str("hello");
-        p.cursor_left();
-        assert!(p.backspace());
-        assert_eq!(p.as_str(), "helo");
-        assert_eq!(p.cursor(), 3);
-    }
-
-    #[test]
-    fn backspace_at_start_is_noop() {
-        let mut p = PromptInput::from_str("hello");
-        p.cursor_to_start();
-        assert!(!p.backspace());
-        assert_eq!(p.as_str(), "hello");
-        assert_eq!(p.cursor(), 0);
-    }
-
-    #[test]
-    fn delete_forward_deletes_right() {
-        let mut p = PromptInput::from_str("hello");
-        p.cursor_to_start();
-        p.cursor_right();
-        assert!(p.delete_forward());
-        assert_eq!(p.as_str(), "hllo");
-        assert_eq!(p.cursor(), 1);
-    }
-
-    #[test]
-    fn delete_forward_at_end_is_noop() {
-        let mut p = PromptInput::from_str("hello");
-        assert!(!p.delete_forward());
-        assert_eq!(p.as_str(), "hello");
-    }
-
-    #[test]
-    fn cursor_left_clamped() {
-        let mut p = PromptInput::from_str("ab");
-        p.cursor_left();
-        p.cursor_left();
-        p.cursor_left();
-        assert_eq!(p.cursor(), 0);
-    }
-
-    #[test]
-    fn cursor_right_clamped() {
-        let mut p = PromptInput::from_str("ab");
-        p.cursor_right();
-        assert_eq!(p.cursor(), 2);
-    }
-
-    #[test]
-    fn cursor_to_start_and_end() {
-        let mut p = PromptInput::from_str("hello");
-        p.cursor_to_start();
-        assert_eq!(p.cursor(), 0);
-        p.cursor_to_end();
-        assert_eq!(p.cursor(), 5);
-    }
-
-    #[test]
-    fn cursor_up_moves_between_logical_lines() {
-        let mut p = PromptInput::from_str("x\n x\n x");
-
-        assert!(p.cursor_up());
-        assert_eq!(p.cursor(), 4);
-
-        assert!(p.cursor_up());
-        assert_eq!(p.cursor(), 1);
-
-        assert!(!p.cursor_up());
-        assert_eq!(p.cursor(), 1);
-    }
-
-    #[test]
-    fn cursor_down_moves_between_logical_lines() {
-        let mut p = PromptInput::from_str("x\n x\n x");
-        p.cursor_to_start();
-        p.cursor_right();
-
-        assert!(p.cursor_down());
-        assert_eq!(p.cursor(), 3);
-
-        assert!(p.cursor_down());
-        assert_eq!(p.cursor(), 6);
-
-        assert!(!p.cursor_down());
-        assert_eq!(p.cursor(), 6);
-    }
-
-    #[test]
-    fn cursor_up_and_down_clamp_to_shorter_lines() {
-        let mut p = PromptInput::from_str("long\nx\nwide");
-        p.cursor_to_start();
-        p.cursor_right();
-        p.cursor_right();
-        p.cursor_right();
-
-        assert!(p.cursor_down());
-        assert_eq!(p.cursor(), 6);
-
-        assert!(p.cursor_down());
-        assert_eq!(p.cursor(), 8);
-    }
-
-    #[test]
-    fn word_left_skips_whitespace_then_word() {
-        let mut p = PromptInput::from_str("foo bar baz");
-        p.cursor_word_left();
-        assert_eq!(p.cursor(), 8);
-
-        p.cursor_word_left();
-        assert_eq!(p.cursor(), 4);
-
-        p.cursor_word_left();
-        assert_eq!(p.cursor(), 0);
-    }
-
-    #[test]
-    fn word_left_from_within_word() {
-        let mut p = PromptInput::from_str("foo bar");
-        p.cursor_word_left();
-        assert_eq!(p.cursor(), 4);
-
-        p.cursor_left();
-        assert_eq!(p.cursor(), 3);
-
-        p.cursor_word_left();
-        assert_eq!(p.cursor(), 0);
-    }
-
-    #[test]
-    fn word_right_skips_word_then_whitespace() {
-        let mut p = PromptInput::from_str("foo bar baz");
-        p.cursor_to_start();
-        p.cursor_word_right();
-        assert_eq!(p.cursor(), 4);
-
-        p.cursor_word_right();
-        assert_eq!(p.cursor(), 8);
-
-        p.cursor_word_right();
-        assert_eq!(p.cursor(), 11);
-    }
-
-    #[test]
-    fn word_left_multiple_spaces() {
-        let mut p = PromptInput::from_str("a   b");
-        p.cursor_word_left();
-        assert_eq!(p.cursor(), 4);
-        p.cursor_word_left();
-        assert_eq!(p.cursor(), 0);
-    }
-
-    #[test]
-    fn insert_str_at_cursor() {
-        let mut p = PromptInput::from_str("hello world");
-        p.cursor_to_start();
-        p.cursor_word_right();
-        p.cursor_left();
-        p.insert_str(" big");
-        assert_eq!(p.as_str(), "hello big world");
-        assert_eq!(p.cursor(), 9);
-    }
-
-    #[test]
-    fn insert_str_empty_is_noop() {
-        let mut p = PromptInput::from_str("hi");
-        p.insert_str("");
-        assert_eq!(p.as_str(), "hi");
-        assert_eq!(p.cursor(), 2);
-    }
-
-    #[test]
-    fn clear_resets_cursor() {
-        let mut p = PromptInput::from_str("hello");
-        p.clear();
-        assert!(p.is_empty());
-        assert_eq!(p.cursor(), 0);
-    }
-
-    #[test]
-    fn set_text_places_cursor_at_end() {
-        let mut p = PromptInput::from_str("old");
-        p.set_text("new value");
-        assert_eq!(p.as_str(), "new value");
-        assert_eq!(p.cursor(), 9);
-    }
-
-    #[test]
-    fn multibyte_char_handling() {
-        let mut p = PromptInput::from_str("héllo");
-        assert_eq!(p.len_chars(), 5);
-        assert_eq!(p.cursor(), 5);
-
-        p.cursor_to_start();
-        p.cursor_right();
-        p.insert_char('x');
-
-        assert_eq!(p.as_str(), "hxéllo");
-        assert_eq!(p.cursor(), 2);
-    }
-
-    #[test]
-    fn backspace_multibyte() {
-        let mut p = PromptInput::from_str("héllo");
-        p.cursor_left();
-        p.backspace();
-        assert_eq!(p.as_str(), "hélo");
-        assert_eq!(p.cursor(), 3);
-    }
-
-    #[test]
-    fn text_before_cursor() {
-        let mut p = PromptInput::from_str("hello world");
-        p.cursor_to_start();
-        p.cursor_word_right();
-        assert_eq!(p.text_before_cursor(), "hello ");
-    }
-
-    #[test]
-    fn insert_newline() {
-        let mut p = PromptInput::from_str("line1");
-        p.insert_char('\n');
-        p.insert_str("line2");
-        assert_eq!(p.as_str(), "line1\nline2");
-        assert_eq!(p.cursor(), 11);
-    }
-
-    #[test]
-    fn kill_to_end_of_line() {
-        let mut p = PromptInput::from_str("hello world");
-        p.cursor_left();
-        p.cursor_left();
-        p.cursor_left();
-        let killed = p.kill_to_end_of_line();
-        assert_eq!(killed, "rld");
-        assert_eq!(p.as_str(), "hello wo");
-        assert_eq!(p.cursor(), 8);
-    }
-
-    #[test]
-    fn kill_to_start_of_line() {
-        let mut p = PromptInput::from_str("hello world");
-        p.cursor_left();
-        p.cursor_left();
-        p.cursor_left();
-        let killed = p.kill_to_start_of_line();
-        assert_eq!(killed, "hello wo");
-        assert_eq!(p.as_str(), "rld");
-        assert_eq!(p.cursor(), 0);
-    }
-
-    #[test]
-    fn kill_word_left() {
-        let mut p = PromptInput::from_str("foo bar baz");
-        let killed = p.kill_word_left();
-        assert_eq!(killed, "baz");
-        assert_eq!(p.as_str(), "foo bar ");
-        assert_eq!(p.cursor(), 8);
-    }
-
-    #[test]
-    fn kill_word_left_multiple_spaces() {
-        let mut p = PromptInput::from_str("a   b");
-        let killed = p.kill_word_left();
-        assert_eq!(killed, "b");
-        assert_eq!(p.as_str(), "a   ");
-    }
-
-    #[test]
-    fn kill_word_right() {
-        let mut p = PromptInput::from_str("foo bar baz");
-        p.cursor_to_start();
-        let killed = p.kill_word_right();
-        assert_eq!(killed, "foo ");
-        assert_eq!(p.as_str(), "bar baz");
-        assert_eq!(p.cursor(), 0);
-    }
-
-    #[test]
-    fn transpose_chars_at_cursor() {
-        let mut p = PromptInput::from_str("ab");
-        p.cursor_to_start();
-        p.transpose_chars();
-        assert_eq!(p.as_str(), "ba");
-        assert_eq!(p.cursor(), 2);
-    }
-
-    #[test]
-    fn transpose_chars_at_end() {
-        let mut p = PromptInput::from_str("hello");
-        p.transpose_chars();
-        assert_eq!(p.as_str(), "helol");
-    }
-
-    #[test]
-    fn yank_pastes_at_cursor() {
-        let mut p = PromptInput::from_str("hello");
-        p.cursor_left();
-        p.yank(" world");
-        assert_eq!(p.as_str(), "hell worldo");
-        assert_eq!(p.cursor(), 10);
-    }
+    len
 }
