@@ -32,7 +32,7 @@ use crate::app::ToolStatus;
 use crate::cli::WebSearchMode;
 use crate::context::ContextSource;
 use crate::datetime;
-use crate::providers::umans::Message;
+use crate::providers::ProviderMessage;
 use crate::tools;
 use crate::tools::ToolDefinition;
 
@@ -249,26 +249,28 @@ pub fn render_system_prompt(bundle: &PromptBundle) -> String {
 /// alternating user/assistant messages.
 ///
 /// The final message is the current user turn.
-pub fn lower_to_umans_messages(bundle: &PromptBundle) -> Vec<Message> {
-    let mut messages: Vec<Message> = vec![Message::user(&render_system_prompt(bundle))];
+pub fn lower_to_umans_messages(bundle: &PromptBundle) -> Vec<ProviderMessage> {
+    let mut messages = vec![ProviderMessage::user(&render_system_prompt(bundle))];
 
     for entry in &bundle.transcript_tail {
         match entry {
-            Entry::User { text } => messages.push(Message::user(text)),
-            Entry::Assistant { text, streaming: false, .. } => messages.push(Message::assistant(text)),
-            Entry::Reasoning { text, streaming: false, .. } => messages.push(Message::assistant(text)),
-            Entry::Tool { name, output, status, .. } if *status != ToolStatus::Running => messages.push(Message::user(
-                &(match output.is_empty() {
-                    true => format!("[tool: {name} — no output]"),
-                    false => format!("[tool: {name}]\n{}", output.join("\n")),
-                }),
-            )),
+            Entry::User { text } => messages.push(ProviderMessage::user(text)),
+            Entry::Assistant { text, streaming: false, .. } => messages.push(ProviderMessage::assistant(text)),
+            Entry::Reasoning { text, streaming: false, .. } => messages.push(ProviderMessage::assistant(text)),
+            Entry::Tool { name, output, status, .. } if *status != ToolStatus::Running => {
+                messages.push(ProviderMessage::user(
+                    &(match output.is_empty() {
+                        true => format!("[tool: {name} — no output]"),
+                        false => format!("[tool: {name}]\n{}", output.join("\n")),
+                    }),
+                ))
+            }
             _ => (),
         }
     }
 
     if !bundle.user_turn.is_empty() {
-        messages.push(Message::user(&bundle.user_turn));
+        messages.push(ProviderMessage::user(&bundle.user_turn));
     }
 
     messages

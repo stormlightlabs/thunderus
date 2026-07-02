@@ -1475,6 +1475,49 @@ fn failed_provider_restores_input() {
 }
 
 #[test]
+fn retrying_provider_discards_partial_output_without_restoring_input() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from_str("hello world");
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+
+    update(&mut app, &Msg::Agent(AgentEvent::Started));
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::ReasoningDelta(String::from("thinking"))),
+    );
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::AssistantDelta(String::from("partial"))),
+    );
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::Retrying {
+            attempt: 1,
+            max_attempts: 4,
+            delay_ms: 2500,
+            error: String::from("server error (HTTP 503): unavailable"),
+        }),
+    );
+
+    assert!(
+        app.input.is_empty(),
+        "retry should keep the submitted input out of the editor"
+    );
+    assert_eq!(app.last_input, Some("hello world".to_string()));
+    assert_eq!(app.run_state, RunState::Working);
+    assert!(
+        !app.transcript
+            .iter()
+            .any(|entry| matches!(entry, Entry::Assistant { .. } | Entry::Reasoning { .. })),
+        "partial output from the failed attempt should be removed before retrying"
+    );
+    assert!(matches!(
+        app.transcript.last(),
+        Some(Entry::Status { text }) if text.contains("retrying provider request (1/4)")
+    ));
+}
+
+#[test]
 fn finished_clears_last_input() {
     let mut app = fresh_app();
     app.input = PromptInput::from_str("test prompt");
@@ -1696,6 +1739,27 @@ fn model_command_opens_picker_and_selects_model() {
     assert_eq!(app.prompt_accessory, PromptAccessory::None);
     assert_eq!(app.model, "umans-glm-5.2");
     assert!(app.picker.is_none());
+}
+
+#[test]
+fn model_metadata_event_updates_model_picker_items() {
+    let mut app = fresh_app();
+    handle_agent_event(
+        &mut app,
+        AgentEvent::ModelMetadataLoaded(vec![(
+            "umans-test".to_string(),
+            "provider · ctx 1M · out 32k · tools · reasoning".to_string(),
+        )]),
+    );
+
+    open_model_picker(&mut app);
+
+    let picker = app.picker.as_ref().expect("model picker");
+    assert_eq!(picker.matches[0].label, "umans-test");
+    assert_eq!(
+        picker.matches[0].detail,
+        "provider · ctx 1M · out 32k · tools · reasoning"
+    );
 }
 
 #[test]

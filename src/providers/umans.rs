@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::app::AgentEvent;
 use crate::cli::WebSearchMode;
+use crate::providers::ProviderMessage;
 
 /// Umans Code base URL.
 pub const BASE_URL: &str = "https://api.code.umans.ai";
@@ -25,37 +26,9 @@ pub const WEBSEARCH_HEADER: &str = "X-Umans-Websearch-Provider";
 /// Environment variable name for the API key.
 pub const API_KEY_ENV: &str = "UMANS_API_KEY";
 
+pub const DEFAULT_RECOMMENDED_MAX_TOKENS: u32 = 32_768;
+
 type Result<T> = std::result::Result<T, UmansError>;
-
-/// Recommended completion token budget for known Umans models.
-pub fn max_tokens_for_model(model: &str) -> u32 {
-    match model {
-        "umans-glm-5.2" | "umans-glm-5.1" => 131_071,
-        "umans-minimax-m2.5" => 8_192,
-        _ => 32_768,
-    }
-}
-
-/// Static model entry used by the offline model picker.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct KnownModel {
-    pub id: &'static str,
-    pub description: &'static str,
-}
-
-/// Current Umans Code models from the public docs.
-///
-/// Live metadata can still be fetched with [`UmansClient::fetch_models_info`],
-/// but the picker should remain useful before credentials or network are ready.
-pub fn known_models() -> Vec<KnownModel> {
-    vec![
-        KnownModel { id: "umans-coder", description: "Default route, currently Kimi K2.7-Code" },
-        KnownModel { id: "umans-kimi-k2.7", description: "Hard coding tasks, always-on reasoning" },
-        KnownModel { id: "umans-glm-5.2", description: "Latest GLM, largest context window" },
-        KnownModel { id: "umans-glm-5.1", description: "Previous GLM for text-first workflows" },
-        KnownModel { id: "umans-flash", description: "Fast light model for context and summaries" },
-    ]
-}
 
 /// Errors from the Umans client.
 #[derive(Debug, thiserror::Error)]
@@ -70,11 +43,88 @@ pub enum UmansError {
     #[error("HTTP {code}: {body}")]
     Status { code: u16, body: String },
     /// JSON serialization/deserialization error.
-    ///
-    /// TODO: display model-metadata parse failures in the model picker/status
-    /// UI once `/v1/models/info` is wired into the live app.
     #[error("json error: {0}")]
     Json(String),
+}
+
+/// A parsed SSE event from the streaming response.
+#[derive(Clone, Debug, PartialEq)]
+pub enum SseEvent {
+    /// `event: message_start`
+    MessageStart,
+    /// `event: content_block_start` with content type `thinking`.
+    ThinkingStart,
+    /// `event: content_block_start` with content type `text`.
+    TextStart,
+    /// `event: content_block_delta` with a thinking delta.
+    ThinkingDelta(String),
+    /// `event: content_block_delta` with a text delta.
+    TextDelta(String),
+    /// `event: content_block_delta` with a partial tool input JSON delta.
+    InputJsonDelta { index: usize, partial_json: String },
+    /// `event: content_block_stop`
+    ContentBlockStop { index: Option<usize> },
+    /// `event: message_delta` with stop reason.
+    MessageDelta { stop_reason: Option<String> },
+    /// `event: message_stop`
+    MessageStop,
+    /// `event: error`
+    Error(String),
+    /// An unhandled event type.
+    Other(String),
+}
+
+/// Convert an [`SseEvent`] into an [`AgentEvent`].
+///
+/// `TextDelta` → `AssistantDelta`, `ThinkingDelta` → `ReasoningDelta`,
+/// `Error` → `Failed`.
+///
+/// `MessageStop` is intentionally not converted here. Only the agent loop
+/// knows whether a provider turn ended because the assistant is done or
+/// because tool calls must be dispatched and fed back.
+impl From<&SseEvent> for Option<AgentEvent> {
+    fn from(event: &SseEvent) -> Self {
+        match event {
+            SseEvent::MessageStart => Some(AgentEvent::Started),
+            SseEvent::TextDelta(text) => Some(AgentEvent::AssistantDelta(text.clone())),
+            SseEvent::ThinkingDelta(text) => Some(AgentEvent::ReasoningDelta(text.clone())),
+            SseEvent::Error(msg) => Some(AgentEvent::Failed(msg.clone())),
+            _ => None,
+        }
+    }
+}
+
+/// Static model entry used by the offline model picker.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct KnownModel {
+    pub id: &'static str,
+    pub description: &'static str,
+}
+
+/// Model information from `GET /v1/models/info`.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct ModelInfo {
+    pub name: String,
+    pub display_name: String,
+    pub description: String,
+    pub base_model: BaseModel,
+    pub capabilities: Capabilities,
+    #[serde(default)]
+    pub benchmarks: serde_json::Value,
+}
+
+/// Base model descriptor.
+///
+/// TODO: surface provider/family/base model labels in model metadata display.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct BaseModel {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub family: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub oss_base: Option<String>,
 }
 
 /// Concrete Umans Code API client.
@@ -106,7 +156,6 @@ impl UmansClient {
 
     /// Create a client with an explicit base URL and API key.
     pub fn new(base_url: &str, api_key: &str) -> Self {
-        model_metadata_display_todo_marker();
         UmansClient {
             base_url: base_url.to_string(),
             api_key: api_key.to_string(),
@@ -115,9 +164,6 @@ impl UmansClient {
     }
 
     /// Fetch model metadata from `GET /v1/models/info`.
-    ///
-    /// TODO: call this during startup or model selection and display context
-    /// window/tool/reasoning capability metadata in the TUI.
     pub fn fetch_models_info(&self) -> Result<HashMap<String, ModelInfo>> {
         let url = format!("{}/v1/models/info", self.base_url);
         let mut resp = self
@@ -144,7 +190,7 @@ impl UmansClient {
     /// The schema is sent every turn because Umans does not expose reusable-history
     /// for tool definitions.
     pub fn build_messages_request_body(
-        model: &str, messages: &[Message], max_tokens: u32, stream: bool, tools: Option<&serde_json::Value>,
+        model: &str, messages: &[ProviderMessage], max_tokens: u32, stream: bool, tools: Option<&serde_json::Value>,
     ) -> serde_json::Value {
         let mut body = serde_json::json!({
             "model": model,
@@ -184,7 +230,7 @@ impl UmansClient {
     /// The caller reads lines from the response body and feeds them to
     /// [`parse_sse_chunk`] and [`parse_sse_event`].
     pub fn send_streaming_request(
-        &self, model: &str, messages: &[Message], max_tokens: u32, mode: WebSearchMode,
+        &self, model: &str, messages: &[ProviderMessage], max_tokens: u32, mode: WebSearchMode,
         tools: Option<&serde_json::Value>,
     ) -> Result<ureq::http::Response<ureq::Body>> {
         let url = format!("{}/v1/messages", self.base_url);
@@ -230,83 +276,7 @@ impl UmansClient {
     }
 }
 
-fn summarize_error_body(body: &str) -> String {
-    let trimmed = body.trim();
-    if trimmed.is_empty() {
-        return "(empty response body)".to_string();
-    }
-
-    serde_json::from_str::<serde_json::Value>(trimmed)
-        .ok()
-        .and_then(|v| {
-            v.pointer("/error/message")
-                .or_else(|| v.get("message"))
-                .and_then(|m| m.as_str())
-                .map(|m| m.to_string())
-        })
-        .unwrap_or_else(|| trimmed.chars().take(500).collect())
-}
-
-fn api_key_from_dotenv(workspace_root: &Path) -> Option<String> {
-    let contents = fs::read_to_string(workspace_root.join(".env")).ok()?;
-    contents.lines().find_map(parse_api_key_line)
-}
-
-fn parse_api_key_line(line: &str) -> Option<String> {
-    let line = line.trim();
-    if line.is_empty() || line.starts_with('#') {
-        return None;
-    }
-
-    let line = line.strip_prefix("export ").unwrap_or(line);
-    let (key, value) = line.split_once('=')?;
-    if key.trim() != API_KEY_ENV {
-        return None;
-    }
-
-    let value = value.trim();
-    let value = value
-        .strip_prefix('"')
-        .and_then(|v| v.strip_suffix('"'))
-        .or_else(|| value.strip_prefix('\'').and_then(|v| v.strip_suffix('\'')))
-        .unwrap_or(value);
-
-    if value.is_empty() { None } else { Some(value.to_string()) }
-}
-
-/// Model information from `GET /v1/models/info`.
-///
-/// TODO: display this in the model picker/status UI instead of keeping model
-/// capability knowledge only in docs and fixtures.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct ModelInfo {
-    pub name: String,
-    pub display_name: String,
-    pub description: String,
-    pub base_model: BaseModel,
-    pub capabilities: Capabilities,
-    #[serde(default)]
-    pub benchmarks: serde_json::Value,
-}
-
-/// Base model descriptor.
-///
-/// TODO: surface provider/family/base model labels in model metadata display.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct BaseModel {
-    pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub provider: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub family: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub oss_base: Option<String>,
-}
-
 /// Model capabilities.
-///
-/// TODO: show context window, recommended token cap, tool support, and
-/// reasoning support when the user inspects or switches models.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Capabilities {
     pub max_completion_tokens: u64,
@@ -317,10 +287,7 @@ pub struct Capabilities {
     pub reasoning: Reasoning,
 }
 
-/// Reasoning configuration.
-///
-/// TODO: display available reasoning levels once model metadata is part of the
-/// model selection UI.
+/// Reasoning configuration included in live model metadata.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Reasoning {
     pub supported: bool,
@@ -331,171 +298,55 @@ pub struct Reasoning {
     pub default_level: Option<String>,
 }
 
-fn model_metadata_display_todo_marker() {
-    // TODO: display `/v1/models/info` metadata in the model picker/status UI.
-    let _ = UmansClient::fetch_models_info;
-    let _ = std::mem::size_of::<ModelInfo>();
-    let _ = std::mem::size_of::<BaseModel>();
-    let _ = std::mem::size_of::<Capabilities>();
-    let _ = std::mem::size_of::<Reasoning>();
+/// Select the completion token budget for a model from live `/v1/models/info`
+/// metadata, falling back to a conservative provider default when metadata is
+/// unavailable.
+pub fn recommended_max_tokens_for_model(model: &str, models: Option<&HashMap<String, ModelInfo>>) -> u32 {
+    models
+        .and_then(|models| models.get(model))
+        .and_then(|info| u32::try_from(info.capabilities.recommended_max_tokens).ok())
+        .filter(|tokens| *tokens > 0)
+        .unwrap_or(DEFAULT_RECOMMENDED_MAX_TOKENS)
 }
 
-/// A structured content block in the Anthropic Messages API format.
+pub fn is_retryable_error(err: &UmansError) -> bool {
+    match err {
+        UmansError::MissingApiKey | UmansError::Json(_) => false,
+        UmansError::Status { code, .. } => *code == 429 || (500..=599).contains(code),
+        UmansError::Http(message) => {
+            let lower = message.to_ascii_lowercase();
+            !lower.contains("cancel") && !lower.contains("abort")
+        }
+    }
+}
+
+/// Current Umans Code models from the public docs.
 ///
-/// The API allows a message's `content` to be either a plain string or an
-/// array of typed blocks. Tool use requires `tool_use` blocks (from the
-/// assistant) and `tool_result` blocks (in the following user message).
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum ContentBlock {
-    /// A plain text block.
-    Text { text: String },
-    /// A tool-use request emitted by the assistant.
-    ToolUse {
-        /// Provider-assigned id (e.g. `toolu_01`), echoed back in `tool_result`.
-        id: String,
-        name: String,
-        input: serde_json::Value,
-    },
-    /// A tool result returned to the model in a `user`-role message.
-    ToolResult {
-        /// Must match the `id` of the originating `tool_use` block.
-        tool_use_id: String,
-        content: String,
-        /// `"ok"` or `"error"`. Umans/Anthropic accept `is_error` as a bool;
-        /// we send the string form for compatibility.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        is_error: Option<bool>,
-    },
+/// Live metadata can still be fetched with [`UmansClient::fetch_models_info`],
+/// but the picker should remain useful before credentials or network are ready.
+pub fn known_models() -> Vec<KnownModel> {
+    vec![
+        KnownModel { id: "umans-coder", description: "Default route, currently Kimi K2.7-Code" },
+        KnownModel { id: "umans-kimi-k2.7", description: "Hard coding tasks, always-on reasoning" },
+        KnownModel { id: "umans-glm-5.2", description: "Latest GLM, largest context window" },
+        KnownModel { id: "umans-glm-5.1", description: "Previous GLM for text-first workflows" },
+        KnownModel { id: "umans-flash", description: "Fast light model for context and summaries" },
+    ]
 }
 
-/// The `content` field of a [`Message`]: either a plain string or an array
-/// of structured [`ContentBlock`]s.
-///
-/// Serialized as a bare string when only text is present, and as a JSON array
-/// when blocks are used, matching the Anthropic Messages API.
-#[derive(Clone, Debug, PartialEq)]
-pub enum MessageContent {
-    /// Plain string content (text-only messages).
-    Text(String),
-    /// Structured content blocks (tool_use / tool_result / mixed).
-    Blocks(Vec<ContentBlock>),
+pub fn model_picker_items(models: &HashMap<String, ModelInfo>) -> Vec<(String, String)> {
+    let mut items: Vec<(String, String)> = models
+        .iter()
+        .map(|(id, info)| (id.clone(), model_picker_detail(info)))
+        .collect();
+    items.sort_by(|left, right| left.0.cmp(&right.0));
+    items
 }
 
-impl Serialize for MessageContent {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            MessageContent::Text(s) => serializer.serialize_str(s),
-            MessageContent::Blocks(blocks) => blocks.serialize(serializer),
-        }
-    }
-}
-
-impl<'de> Deserialize<'de> for MessageContent {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let v = serde_json::Value::deserialize(deserializer)?;
-        match v {
-            serde_json::Value::String(s) => Ok(MessageContent::Text(s)),
-            serde_json::Value::Array(arr) => {
-                let blocks: Vec<ContentBlock> =
-                    serde_json::from_value(serde_json::Value::Array(arr)).map_err(serde::de::Error::custom)?;
-                Ok(MessageContent::Blocks(blocks))
-            }
-            _ => Err(serde::de::Error::custom("expected string or array for message content")),
-        }
-    }
-}
-
-impl MessageContent {
-    /// Return the concatenated text of all `Text` blocks, or the plain string.
-    ///
-    /// `tool_use` and `tool_result` blocks are ignored; this is intended for
-    /// debug display and legacy callers that only care about text.
-    pub fn as_text(&self) -> String {
-        match self {
-            MessageContent::Text(s) => s.clone(),
-            MessageContent::Blocks(blocks) => blocks
-                .iter()
-                .filter_map(|b| match b {
-                    ContentBlock::Text { text } => Some(text.clone()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join(""),
-        }
-    }
-}
-
-/// A message in the Anthropic Messages API format.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct Message {
-    pub role: String,
-    pub content: MessageContent,
-}
-
-impl Message {
-    pub fn user(content: &str) -> Self {
-        Message { role: "user".to_string(), content: MessageContent::Text(content.to_string()) }
-    }
-
-    pub fn assistant(content: &str) -> Self {
-        Message { role: "assistant".to_string(), content: MessageContent::Text(content.to_string()) }
-    }
-
-    /// Create a `user`-role message containing one `tool_result` block.
-    pub fn tool_result(tool_use_id: &str, content: &str, is_error: bool) -> Self {
-        Message {
-            role: "user".to_string(),
-            content: MessageContent::Blocks(vec![ContentBlock::ToolResult {
-                tool_use_id: tool_use_id.to_string(),
-                content: content.to_string(),
-                is_error: Some(is_error),
-            }]),
-        }
-    }
-
-    /// Create an `assistant`-role message from content blocks.
-    pub fn assistant_blocks(blocks: Vec<ContentBlock>) -> Self {
-        Message { role: "assistant".to_string(), content: MessageContent::Blocks(blocks) }
-    }
-
-    /// Return the concatenated text content of this message.
-    pub fn as_text(&self) -> String {
-        self.content.as_text()
-    }
-}
-
-/// A parsed SSE event from the streaming response.
-#[derive(Clone, Debug, PartialEq)]
-pub enum SseEvent {
-    /// `event: message_start`
-    MessageStart,
-    /// `event: content_block_start` with content type `thinking`.
-    ThinkingStart,
-    /// `event: content_block_start` with content type `text`.
-    TextStart,
-    /// `event: content_block_delta` with a thinking delta.
-    ThinkingDelta(String),
-    /// `event: content_block_delta` with a text delta.
-    TextDelta(String),
-    /// `event: content_block_delta` with a partial tool input JSON delta.
-    InputJsonDelta { index: usize, partial_json: String },
-    /// `event: content_block_stop`
-    ContentBlockStop { index: Option<usize> },
-    /// `event: message_delta` with stop reason.
-    MessageDelta { stop_reason: Option<String> },
-    /// `event: message_stop`
-    MessageStop,
-    /// `event: error`
-    Error(String),
-    /// An unhandled event type.
-    Other(String),
+pub fn model_status(model: &str, models: &HashMap<String, ModelInfo>) -> Option<String> {
+    models
+        .get(model)
+        .map(|info| format!("model: {}  {}", info.display_name, model_picker_detail(info)))
 }
 
 /// Parse a single SSE line pair into an [`SseEvent`].
@@ -588,26 +439,6 @@ pub fn parse_sse_event(event_type: &str, data: &str) -> SseEvent {
     }
 }
 
-/// Convert an [`SseEvent`] into an [`AgentEvent`].
-///
-/// `TextDelta` → `AssistantDelta`, `ThinkingDelta` → `ReasoningDelta`,
-/// `Error` → `Failed`.
-///
-/// `MessageStop` is intentionally not converted here. Only the agent loop
-/// knows whether a provider turn ended because the assistant is done or
-/// because tool calls must be dispatched and fed back.
-impl From<&SseEvent> for Option<AgentEvent> {
-    fn from(event: &SseEvent) -> Self {
-        match event {
-            SseEvent::MessageStart => Some(AgentEvent::Started),
-            SseEvent::TextDelta(text) => Some(AgentEvent::AssistantDelta(text.clone())),
-            SseEvent::ThinkingDelta(text) => Some(AgentEvent::ReasoningDelta(text.clone())),
-            SseEvent::Error(msg) => Some(AgentEvent::Failed(msg.clone())),
-            _ => None,
-        }
-    }
-}
-
 /// Convenience wrapper for `Option<AgentEvent>::from(&sse_event)`.
 pub fn sse_to_agent_event(event: &SseEvent) -> Option<AgentEvent> {
     event.into()
@@ -672,14 +503,91 @@ pub fn error_to_agent_event(err: &UmansError) -> AgentEvent {
     AgentEvent::Failed(msg)
 }
 
+fn model_picker_detail(info: &ModelInfo) -> String {
+    let provider = info
+        .base_model
+        .provider
+        .as_deref()
+        .or(info.base_model.family.as_deref())
+        .unwrap_or(info.base_model.name.as_str());
+    let tools = if info.capabilities.supports_tools { "tools" } else { "no tools" };
+    let reasoning = if info.capabilities.reasoning.supported { "reasoning" } else { "no reasoning" };
+    format!(
+        "{} · ctx {} · out {} · {} · {}",
+        provider,
+        compact_token_count(info.capabilities.context_window),
+        compact_token_count(info.capabilities.recommended_max_tokens),
+        tools,
+        reasoning
+    )
+}
+
+fn compact_token_count(tokens: u64) -> String {
+    const K: u64 = 1024;
+    const M: u64 = K * K;
+
+    if tokens >= M && tokens % M == 0 {
+        format!("{}M", tokens / M)
+    } else if tokens >= K && tokens % K == 0 {
+        format!("{}k", tokens / K)
+    } else {
+        tokens.to_string()
+    }
+}
+
+fn summarize_error_body(body: &str) -> String {
+    let trimmed = body.trim();
+    if trimmed.is_empty() {
+        return "(empty response body)".to_string();
+    }
+
+    serde_json::from_str::<serde_json::Value>(trimmed)
+        .ok()
+        .and_then(|v| {
+            v.pointer("/error/message")
+                .or_else(|| v.get("message"))
+                .and_then(|m| m.as_str())
+                .map(|m| m.to_string())
+        })
+        .unwrap_or_else(|| trimmed.chars().take(500).collect())
+}
+
+fn api_key_from_dotenv(workspace_root: &Path) -> Option<String> {
+    let contents = fs::read_to_string(workspace_root.join(".env")).ok()?;
+    contents.lines().find_map(parse_api_key_line)
+}
+
+fn parse_api_key_line(line: &str) -> Option<String> {
+    let line = line.trim();
+    if line.is_empty() || line.starts_with('#') {
+        return None;
+    }
+
+    let line = line.strip_prefix("export ").unwrap_or(line);
+    let (key, value) = line.split_once('=')?;
+    if key.trim() != API_KEY_ENV {
+        return None;
+    }
+
+    let value = value.trim();
+    let value = value
+        .strip_prefix('"')
+        .and_then(|v| v.strip_suffix('"'))
+        .or_else(|| value.strip_prefix('\'').and_then(|v| v.strip_suffix('\'')))
+        .unwrap_or(value);
+
+    if value.is_empty() { None } else { Some(value.to_string()) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{cli::WebSearchMode, providers};
+    use crate::cli::WebSearchMode;
+    use crate::providers::{ProviderContentBlock, ProviderMessage, ProviderMessageContent};
 
     #[test]
     fn build_messages_request_body_has_required_fields() {
-        let messages = vec![Message::user("Hello!")];
+        let messages = vec![ProviderMessage::user("Hello!")];
         let body = UmansClient::build_messages_request_body("umans-coder", &messages, 4096, true, None);
         assert_eq!(body["model"], "umans-coder");
         assert_eq!(body["max_tokens"], 4096);
@@ -691,7 +599,7 @@ mod tests {
 
     #[test]
     fn build_messages_request_body_non_stream() {
-        let messages = vec![Message::user("test")];
+        let messages = vec![ProviderMessage::user("test")];
         let body = UmansClient::build_messages_request_body("umans-glm-5.2", &messages, 8192, false, None);
         assert_eq!(body["model"], "umans-glm-5.2");
         assert_eq!(body["stream"], false);
@@ -699,7 +607,7 @@ mod tests {
 
     #[test]
     fn build_messages_request_body_includes_tools() {
-        let messages = vec![Message::user("find files")];
+        let messages = vec![ProviderMessage::user("find files")];
         let tools = serde_json::json!([{
             "name": "find_files",
             "description": "locate files",
@@ -714,17 +622,76 @@ mod tests {
 
     #[test]
     fn build_messages_request_body_omits_empty_tools() {
-        let messages = vec![Message::user("hi")];
+        let messages = vec![ProviderMessage::user("hi")];
         let empty_tools = serde_json::json!([]);
         let body = UmansClient::build_messages_request_body("umans-coder", &messages, 4096, true, Some(&empty_tools));
         assert!(body.get("tools").is_none(), "empty tool array should be omitted");
     }
 
     #[test]
-    fn max_tokens_for_model_matches_model_guidance() {
-        assert_eq!(max_tokens_for_model("umans-coder"), 32_768);
-        assert_eq!(max_tokens_for_model("umans-glm-5.2"), 131_071);
-        assert_eq!(max_tokens_for_model("umans-minimax-m2.5"), 8_192);
+    fn recommended_max_tokens_prefers_live_metadata_with_default_fallback() {
+        let json = include_str!("./fixtures/model_info.json");
+        let mut models: HashMap<String, ModelInfo> = serde_json::from_str(json).expect("parse");
+        let mut high_budget = models["umans-coder"].clone();
+        high_budget.capabilities.recommended_max_tokens = 131_071;
+        models.insert("metadata-high-budget".to_string(), high_budget);
+
+        assert_eq!(recommended_max_tokens_for_model("umans-coder", Some(&models)), 32_768);
+        assert_eq!(
+            recommended_max_tokens_for_model("metadata-high-budget", Some(&models)),
+            131_071
+        );
+        assert_eq!(
+            recommended_max_tokens_for_model("unknown-model", Some(&models)),
+            DEFAULT_RECOMMENDED_MAX_TOKENS
+        );
+        assert_eq!(
+            recommended_max_tokens_for_model("umans-glm-5.2", None),
+            DEFAULT_RECOMMENDED_MAX_TOKENS
+        );
+    }
+
+    #[test]
+    fn model_metadata_formats_picker_items_and_status() {
+        let json = include_str!("./fixtures/model_info.json");
+        let models: HashMap<String, ModelInfo> = serde_json::from_str(json).expect("parse");
+
+        let items = model_picker_items(&models);
+        let coder = items
+            .iter()
+            .find(|(id, _)| id == "umans-coder")
+            .expect("umans-coder item");
+        assert!(coder.1.contains("ctx 256k"));
+        assert!(coder.1.contains("out 32k"));
+        assert!(coder.1.contains("tools"));
+
+        let status = model_status("umans-coder", &models).expect("model status");
+        assert!(status.starts_with("model: "));
+        assert!(status.contains("ctx 256k"));
+        assert!(model_status("unknown-model", &models).is_none());
+    }
+
+    #[test]
+    fn retryable_error_classification_matches_policy() {
+        assert!(!is_retryable_error(&UmansError::MissingApiKey));
+        assert!(!is_retryable_error(&UmansError::Status {
+            code: 400,
+            body: "bad request".into()
+        }));
+        assert!(!is_retryable_error(&UmansError::Status {
+            code: 401,
+            body: "unauthorized".into()
+        }));
+        assert!(is_retryable_error(&UmansError::Status {
+            code: 429,
+            body: "too many requests".into()
+        }));
+        assert!(is_retryable_error(&UmansError::Status {
+            code: 503,
+            body: "service unavailable".into()
+        }));
+        assert!(is_retryable_error(&UmansError::Http("connection reset".into())));
+        assert!(!is_retryable_error(&UmansError::Http("request aborted".into())));
     }
 
     #[test]
@@ -1067,7 +1034,7 @@ mod tests {
 
     #[test]
     fn no_network_request_construction() {
-        let messages = vec![Message::user("test"), Message::assistant("response")];
+        let messages = vec![ProviderMessage::user("test"), ProviderMessage::assistant("response")];
         let body = UmansClient::build_messages_request_body("umans-coder", &messages, 8192, true, None);
         assert_eq!(body["model"], "umans-coder");
         assert_eq!(body["messages"].as_array().unwrap().len(), 2);
@@ -1109,28 +1076,28 @@ mod tests {
 
     #[test]
     fn message_user_constructor() {
-        let msg = Message::user("test prompt");
+        let msg = ProviderMessage::user("test prompt");
         assert_eq!(msg.role, "user");
         assert_eq!(msg.as_text(), "test prompt");
     }
 
     #[test]
     fn message_assistant_constructor() {
-        let msg = Message::assistant("response");
+        let msg = ProviderMessage::assistant("response");
         assert_eq!(msg.role, "assistant");
         assert_eq!(msg.as_text(), "response");
     }
 
     #[test]
     fn tool_result_message_has_correct_shape() {
-        let msg = Message::tool_result("toolu_01", "found 2 files", false);
+        let msg = ProviderMessage::tool_result("toolu_01", "found 2 files", false);
         assert_eq!(msg.role, "user");
 
         match &msg.content {
-            providers::umans::MessageContent::Blocks(blocks) => {
+            ProviderMessageContent::Blocks(blocks) => {
                 assert_eq!(blocks.len(), 1);
                 match &blocks[0] {
-                    providers::umans::ContentBlock::ToolResult { tool_use_id, content, is_error } => {
+                    ProviderContentBlock::ToolResult { tool_use_id, content, is_error } => {
                         assert_eq!(tool_use_id, "toolu_01");
                         assert_eq!(content, "found 2 files");
                         assert_eq!(*is_error, Some(false));
@@ -1144,12 +1111,12 @@ mod tests {
 
     #[test]
     fn assistant_blocks_message_serializes_tool_use() {
-        let blocks = vec![providers::umans::ContentBlock::ToolUse {
+        let blocks = vec![ProviderContentBlock::ToolUse {
             id: "toolu_01".to_string(),
             name: "find_files".to_string(),
             input: serde_json::json!({"pattern": "Cargo"}),
         }];
-        let msg = Message::assistant_blocks(blocks);
+        let msg = ProviderMessage::assistant_blocks(blocks);
         let json = serde_json::to_value(&msg).expect("serialize");
         assert_eq!(json["role"], "assistant");
 
@@ -1163,7 +1130,7 @@ mod tests {
 
     #[test]
     fn text_message_content_serializes_as_string() {
-        let msg = Message::user("hello");
+        let msg = ProviderMessage::user("hello");
         let json = serde_json::to_value(&msg).expect("serialize");
         assert_eq!(json["content"], "hello");
         assert!(json["content"].is_string(), "text content should serialize as a string");
@@ -1171,7 +1138,7 @@ mod tests {
 
     #[test]
     fn tool_result_block_serializes_with_is_error() {
-        let msg = Message::tool_result("toolu_02", "command failed", true);
+        let msg = ProviderMessage::tool_result("toolu_02", "command failed", true);
         let json = serde_json::to_value(&msg).expect("serialize");
         let block = &json["content"][0];
         assert_eq!(block["type"], "tool_result");
@@ -1183,14 +1150,14 @@ mod tests {
     #[test]
     fn assistant_blocks_with_text_and_tool_use_serializes_in_order() {
         let blocks = vec![
-            providers::umans::ContentBlock::Text { text: "Let me search.".to_string() },
-            providers::umans::ContentBlock::ToolUse {
+            ProviderContentBlock::Text { text: "Let me search.".to_string() },
+            ProviderContentBlock::ToolUse {
                 id: "toolu_03".to_string(),
                 name: "search_text".to_string(),
                 input: serde_json::json!({"pattern": "fn main"}),
             },
         ];
-        let msg = Message::assistant_blocks(blocks);
+        let msg = ProviderMessage::assistant_blocks(blocks);
         let json = serde_json::to_value(&msg).expect("serialize");
         assert_eq!(json["content"][0]["type"], "text");
         assert_eq!(json["content"][0]["text"], "Let me search.");
@@ -1200,9 +1167,9 @@ mod tests {
 
     #[test]
     fn message_content_round_trips_through_json() {
-        let original = Message::tool_result("toolu_99", "result text", false);
+        let original = ProviderMessage::tool_result("toolu_99", "result text", false);
         let json = serde_json::to_string(&original).expect("serialize");
-        let parsed: Message = serde_json::from_str(&json).expect("deserialize");
+        let parsed: ProviderMessage = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(original, parsed);
     }
 }

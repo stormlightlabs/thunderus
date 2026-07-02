@@ -23,6 +23,7 @@
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -32,8 +33,146 @@ use std::time::Duration;
 use ureq::http::Response;
 
 use crate::app::AgentEvent;
-use crate::providers::{ProviderTurn, umans};
+use crate::providers::{ProviderContentBlock, ProviderMessage, ProviderTurn, umans};
 use crate::tools::{self, AgentRunConfig, ToolUseRequest};
+
+const PROVIDER_RETRY_POLICY: RetryPolicy = RetryPolicy::new(4, Duration::from_millis(2500));
+
+trait StreamingProvider {
+    type Client;
+    type Metadata;
+    type RequestError;
+
+    fn name(&self) -> &'static str;
+    fn load_status(&self) -> String;
+    fn request_status(&self, model: &str, search_mode: crate::cli::WebSearchMode) -> String;
+    fn load_client(&self, root: &Path) -> Result<Self::Client, Self::RequestError>;
+    fn load_metadata(&self, client: &Self::Client) -> Result<Self::Metadata, Self::RequestError>;
+    fn metadata_loaded_event(&self, _metadata: &Self::Metadata) -> Option<AgentEvent> {
+        None
+    }
+    fn metadata_status(&self, _model: &str, _metadata: &Self::Metadata) -> Option<String> {
+        None
+    }
+    fn token_budget(&self, model: &str, metadata: Option<&Self::Metadata>) -> u32;
+    fn send_streaming_request(
+        &self, client: &Self::Client, model: &str, messages: &[ProviderMessage], max_tokens: u32,
+        search_mode: crate::cli::WebSearchMode, tools: &serde_json::Value,
+    ) -> Result<Response<ureq::Body>, Self::RequestError>;
+    fn stream_response(
+        &self, response: Response<ureq::Body>, tx: &Sender<AgentEvent>, cancel: &CancelToken, max_tokens: u32,
+    ) -> Result<ProviderTurn, String>;
+    fn request_error_message(&self, error: &Self::RequestError) -> String;
+    fn is_retryable_request_error(&self, error: &Self::RequestError) -> bool;
+}
+
+/// Which provider drives this agent run.
+///
+/// The live app uses Umans. The fake provider is kept for deterministic tests.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProviderKind {
+    /// Deterministic fake provider, i.e. no network, scripted events.
+    #[cfg(test)]
+    Fake,
+    /// Umans Code provider
+    Umans,
+}
+
+#[derive(Debug)]
+enum ProviderAttemptError<E> {
+    Request(E),
+    Stream(String),
+}
+
+impl<E> ProviderAttemptError<E> {
+    fn message<P>(&self, provider: &P) -> String
+    where
+        P: StreamingProvider<RequestError = E>,
+    {
+        match self {
+            ProviderAttemptError::Request(err) => provider.request_error_message(err),
+            ProviderAttemptError::Stream(msg) => msg.clone(),
+        }
+    }
+
+    fn is_retryable<P>(&self, provider: &P) -> bool
+    where
+        P: StreamingProvider<RequestError = E>,
+    {
+        match self {
+            ProviderAttemptError::Request(err) => provider.is_retryable_request_error(err),
+            ProviderAttemptError::Stream(msg) => is_retryable_stream_error(msg),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct UmansProvider;
+
+impl StreamingProvider for UmansProvider {
+    type Client = umans::UmansClient;
+    type Metadata = HashMap<String, umans::ModelInfo>;
+    type RequestError = umans::UmansError;
+
+    fn name(&self) -> &'static str {
+        "Umans"
+    }
+
+    fn load_status(&self) -> String {
+        String::from("provider: loading UMANS_API_KEY")
+    }
+
+    fn request_status(&self, model: &str, search_mode: crate::cli::WebSearchMode) -> String {
+        format!(
+            "provider: POST /v1/messages model={model} search={}",
+            search_mode.header_value()
+        )
+    }
+
+    fn load_client(&self, root: &Path) -> Result<Self::Client, Self::RequestError> {
+        umans::UmansClient::from_env_or_dotenv(root)
+    }
+
+    fn load_metadata(&self, client: &Self::Client) -> Result<Self::Metadata, Self::RequestError> {
+        client.fetch_models_info()
+    }
+
+    fn metadata_loaded_event(&self, metadata: &Self::Metadata) -> Option<AgentEvent> {
+        Some(AgentEvent::ModelMetadataLoaded(umans::model_picker_items(metadata)))
+    }
+
+    fn metadata_status(&self, model: &str, metadata: &Self::Metadata) -> Option<String> {
+        umans::model_status(model, metadata)
+    }
+
+    fn token_budget(&self, model: &str, metadata: Option<&Self::Metadata>) -> u32 {
+        umans::recommended_max_tokens_for_model(model, metadata)
+    }
+
+    fn send_streaming_request(
+        &self, client: &Self::Client, model: &str, messages: &[ProviderMessage], max_tokens: u32,
+        search_mode: crate::cli::WebSearchMode, tools: &serde_json::Value,
+    ) -> Result<Response<ureq::Body>, Self::RequestError> {
+        client.send_streaming_request(model, messages, max_tokens, search_mode, Some(tools))
+    }
+
+    fn stream_response(
+        &self, response: Response<ureq::Body>, tx: &Sender<AgentEvent>, cancel: &CancelToken, max_tokens: u32,
+    ) -> Result<ProviderTurn, String> {
+        stream_umans_response(response, tx, cancel, max_tokens)
+    }
+
+    fn request_error_message(&self, error: &Self::RequestError) -> String {
+        match umans::error_to_agent_event(error) {
+            AgentEvent::Failed(msg) => msg,
+            _ => error.to_string(),
+        }
+    }
+
+    fn is_retryable_request_error(&self, error: &Self::RequestError) -> bool {
+        umans::is_retryable_error(error)
+    }
+}
 
 /// Shared cancellation flag. Checked cooperatively by the agent loop.
 #[derive(Clone, Debug, Default)]
@@ -59,16 +198,20 @@ impl CancelToken {
     }
 }
 
-/// Which provider drives this agent run.
-///
-/// The live app uses Umans. The fake provider is kept for deterministic tests.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ProviderKind {
-    /// Deterministic fake provider, i.e. no network, scripted events.
-    #[cfg(test)]
-    Fake,
-    /// Umans Code provider
-    Umans,
+pub struct RetryPolicy {
+    pub max_retries: u32,
+    pub base_delay: Duration,
+}
+
+impl RetryPolicy {
+    pub const fn new(max_retries: u32, base_delay: Duration) -> Self {
+        RetryPolicy { max_retries, base_delay }
+    }
+
+    fn delay_for_attempt(self, attempt: u32) -> Duration {
+        self.base_delay * 2u32.saturating_pow(attempt.saturating_sub(1))
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -101,7 +244,7 @@ pub struct RunHandle {
     pub provider: ProviderKind,
     pub config: AgentRunConfig,
     pub prompt: String,
-    pub messages: Vec<umans::Message>,
+    pub messages: Vec<ProviderMessage>,
     pub expects_write: bool,
     pub steering: Option<Receiver<String>>,
     pub cancel: CancelToken,
@@ -124,7 +267,7 @@ impl RunHandle {
 
     /// Create an Umans-provider run handle with a steering-message receiver.
     pub fn umans_with_steering(
-        config: AgentRunConfig, messages: Vec<umans::Message>, expects_write: bool, steering: Receiver<String>,
+        config: AgentRunConfig, messages: Vec<ProviderMessage>, expects_write: bool, steering: Receiver<String>,
     ) -> Self {
         RunHandle {
             provider: ProviderKind::Umans,
@@ -203,7 +346,7 @@ fn run_agent(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
     match handle.provider {
         #[cfg(test)]
         ProviderKind::Fake => run_fake(handle, tx, cancel),
-        ProviderKind::Umans => run_umans(handle, tx, cancel),
+        ProviderKind::Umans => run_provider(UmansProvider, handle, tx, cancel),
     }
 }
 
@@ -329,44 +472,118 @@ fn run_fake(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
     let _ = tx.send(AgentEvent::Finished);
 }
 
-/// Umans provider sends the prompt to the Umans API, streams the response,
+fn is_retryable_stream_error(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    if lower.contains("cancel")
+        || lower.contains("aborted")
+        || lower.contains("max_tokens")
+        || lower.contains("without writing")
+        || lower.contains("provider returned only provider-side content blocks")
+    {
+        return false;
+    }
+
+    [
+        "429",
+        "500",
+        "502",
+        "503",
+        "504",
+        "overloaded",
+        "rate limit",
+        "server error",
+        "service unavailable",
+        "stream read error",
+        "stream ended without",
+        "connection",
+        "timed out",
+        "timeout",
+        "provider error",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
+}
+
+fn sleep_with_cancel(delay: Duration, tx: &Sender<AgentEvent>, cancel: &CancelToken) -> bool {
+    let mut slept = Duration::ZERO;
+    let tick = Duration::from_millis(100);
+    while slept < delay {
+        if cancel.is_cancelled() {
+            let _ = tx.send(AgentEvent::Cancelled);
+            return false;
+        }
+        let remaining = delay.saturating_sub(slept);
+        let nap = remaining.min(tick);
+        thread::sleep(nap);
+        slept += nap;
+    }
+    true
+}
+
+/// A streaming provider sends the prompt to its API, streams the response,
 /// dispatches any tool-use requests, feeds the tool results back as
-/// provider-native `tool_result` messages, and repeats until the model stops
+/// provider-native tool result messages, and repeats until the model stops
 /// requesting tools or the per-turn cap is hit.
-///
-/// If `UMANS_API_KEY` is not set in the environment or workspace `.env`,
-/// emits a `Failed` event and returns.
-fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
+fn run_provider<P>(provider: P, handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken)
+where
+    P: StreamingProvider,
+{
     tracing::info!(
+        provider = provider.name(),
         model = %handle.config.model,
         cwd = %handle.config.root.display(),
         messages = handle.messages.len(),
         max_tool_iterations = handle.config.max_tool_iterations,
-        "starting Umans agent run"
+        "starting provider agent run"
     );
-    if send(
-        tx,
-        AgentEvent::Status(String::from("provider: loading UMANS_API_KEY")),
-        cancel,
-    )
-    .is_none()
-    {
+    if send(tx, AgentEvent::Status(provider.load_status()), cancel).is_none() {
         return;
     }
 
-    let client = match umans::UmansClient::from_env_or_dotenv(&handle.config.root) {
+    let client = match provider.load_client(&handle.config.root) {
         Ok(c) => c,
         Err(e) => {
-            let event = umans::error_to_agent_event(&e);
-            let _ = send(tx, event, cancel);
+            let _ = send(tx, AgentEvent::Failed(provider.request_error_message(&e)), cancel);
             return;
+        }
+    };
+    let model_metadata = match provider.load_metadata(&client) {
+        Ok(models) => {
+            tracing::info!("loaded provider model metadata");
+            if let Some(event) = provider.metadata_loaded_event(&models)
+                && send(tx, event, cancel).is_none()
+            {
+                return;
+            }
+            if let Some(status) = provider.metadata_status(&handle.config.model, &models)
+                && send(tx, AgentEvent::Status(status), cancel).is_none()
+            {
+                return;
+            }
+            Some(models)
+        }
+        Err(e) => {
+            let message = provider.request_error_message(&e);
+            tracing::warn!(error = %message, "failed to load provider model metadata; using fallback token budget");
+            if send(
+                tx,
+                AgentEvent::Status(String::from(
+                    "provider: model metadata unavailable; using fallback token budget",
+                )),
+                cancel,
+            )
+            .is_none()
+            {
+                return;
+            }
+            None
         }
     };
 
     let tool_defs = tools::tool_definitions();
     let tool_schemas = tools::tool_catalog_schemas(&tool_defs);
     let mut messages = if handle.messages.is_empty() {
-        vec![umans::Message::user(&handle.prompt)]
+        vec![ProviderMessage::user(&handle.prompt)]
     } else {
         handle.messages.clone()
     };
@@ -393,7 +610,7 @@ fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
                     continuations_used = tool_budget.continuations_used(),
                     "continuing after tool-budget segment cap"
                 );
-                messages.push(umans::Message::user(&text));
+                messages.push(ProviderMessage::user(&text));
                 if send(
                     tx,
                     AgentEvent::Status(format!(
@@ -429,11 +646,7 @@ fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
 
         if send(
             tx,
-            AgentEvent::Status(format!(
-                "provider: POST /v1/messages model={} search={}",
-                handle.config.model,
-                handle.config.search_mode.header_value()
-            )),
+            AgentEvent::Status(provider.request_status(&handle.config.model, handle.config.search_mode)),
             cancel,
         )
         .is_none()
@@ -441,44 +654,79 @@ fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
             return;
         }
 
-        tracing::info!(
-            iteration = tool_budget.total_batches(),
-            messages = messages.len(),
-            "requesting Umans turn"
-        );
-        let max_tokens = umans::max_tokens_for_model(&handle.config.model);
-        let response = match client.send_streaming_request(
-            &handle.config.model,
-            &messages,
-            max_tokens,
-            handle.config.search_mode,
-            Some(&tool_schemas),
-        ) {
-            Ok(r) => r,
-            Err(e) => {
-                tracing::error!(error = %e, "Umans request failed");
-                let event = umans::error_to_agent_event(&e);
-                let _ = send(tx, event, cancel);
-                return;
-            }
-        };
+        let max_tokens = provider.token_budget(&handle.config.model, model_metadata.as_ref());
+        let mut retry_attempt = 0;
+        let turn = loop {
+            tracing::info!(
+                iteration = tool_budget.total_batches(),
+                messages = messages.len(),
+                retry_attempt,
+                "requesting Umans turn"
+            );
+            let attempt_result = match provider.send_streaming_request(
+                &client,
+                &handle.config.model,
+                &messages,
+                max_tokens,
+                handle.config.search_mode,
+                &tool_schemas,
+            ) {
+                Ok(response) => {
+                    if send(
+                        tx,
+                        AgentEvent::Status(format!("provider: connected HTTP {}", response.status().as_u16())),
+                        cancel,
+                    )
+                    .is_none()
+                    {
+                        return;
+                    }
 
-        if send(
-            tx,
-            AgentEvent::Status(format!("provider: connected HTTP {}", response.status().as_u16())),
-            cancel,
-        )
-        .is_none()
-        {
-            return;
-        }
+                    provider
+                        .stream_response(response, tx, cancel, max_tokens)
+                        .map_err(ProviderAttemptError::Stream)
+                }
+                Err(e) => Err(ProviderAttemptError::Request(e)),
+            };
 
-        let turn = match stream_umans_response(response, tx, cancel, max_tokens) {
-            Ok(t) => t,
-            Err(msg) => {
-                tracing::error!(error = %msg, "Umans stream failed");
-                let _ = send(tx, AgentEvent::Failed(msg), cancel);
-                return;
+            match attempt_result {
+                Ok(turn) => break turn,
+                Err(error) if error.is_retryable(&provider) && retry_attempt < PROVIDER_RETRY_POLICY.max_retries => {
+                    retry_attempt += 1;
+                    let delay = PROVIDER_RETRY_POLICY.delay_for_attempt(retry_attempt);
+                    let message = error.message(&provider);
+                    tracing::warn!(
+                        provider = provider.name(),
+                        attempt = retry_attempt,
+                        max_retries = PROVIDER_RETRY_POLICY.max_retries,
+                        delay_ms = delay.as_millis(),
+                        error = %message,
+                        "retrying Umans provider attempt"
+                    );
+                    if send(
+                        tx,
+                        AgentEvent::Retrying {
+                            attempt: retry_attempt,
+                            max_attempts: PROVIDER_RETRY_POLICY.max_retries,
+                            delay_ms: delay.as_millis() as u64,
+                            error: message,
+                        },
+                        cancel,
+                    )
+                    .is_none()
+                    {
+                        return;
+                    }
+                    if !sleep_with_cancel(delay, tx, cancel) {
+                        return;
+                    }
+                }
+                Err(error) => {
+                    let message = error.message(&provider);
+                    tracing::error!(provider = provider.name(), error = %message, "provider attempt failed");
+                    let _ = send(tx, AgentEvent::Failed(message), cancel);
+                    return;
+                }
             }
         };
         tracing::info!(
@@ -521,10 +769,10 @@ fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
 
         let mut assistant_blocks = Vec::new();
         if !turn.assistant_text.is_empty() {
-            assistant_blocks.push(umans::ContentBlock::Text { text: turn.assistant_text });
+            assistant_blocks.push(ProviderContentBlock::Text { text: turn.assistant_text });
         }
 
-        let mut tool_results: Vec<umans::Message> = Vec::new();
+        let mut tool_results: Vec<ProviderMessage> = Vec::new();
         for req in &turn.tool_requests {
             if cancel.is_cancelled() {
                 tracing::warn!(tool = %req.name, tool_id = %req.tool_use_id, "Umans run cancelled before tool dispatch");
@@ -571,7 +819,7 @@ fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
             }
 
             let input: serde_json::Value = serde_json::from_str(&req.arguments).unwrap_or(serde_json::Value::Null);
-            assistant_blocks.push(umans::ContentBlock::ToolUse { id: tool_id.clone(), name: req.name.clone(), input });
+            assistant_blocks.push(ProviderContentBlock::ToolUse { id: tool_id.clone(), name: req.name.clone(), input });
 
             let result_content = if output.output.is_empty() {
                 output.error.unwrap_or_else(|| "(no output)".to_string())
@@ -579,16 +827,16 @@ fn run_umans(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
                 output.output.join("\n")
             };
             let is_error = status == crate::app::ToolStatus::Failed;
-            tool_results.push(umans::Message::tool_result(&tool_id, &result_content, is_error));
+            tool_results.push(ProviderMessage::tool_result(&tool_id, &result_content, is_error));
         }
 
-        messages.push(umans::Message::assistant_blocks(assistant_blocks));
+        messages.push(ProviderMessage::assistant_blocks(assistant_blocks));
         messages.extend(tool_results);
         append_steering_messages(&mut messages, handle);
     }
 }
 
-fn append_steering_messages(messages: &mut Vec<umans::Message>, handle: &RunHandle) -> bool {
+fn append_steering_messages(messages: &mut Vec<ProviderMessage>, handle: &RunHandle) -> bool {
     let Some(rx) = handle.steering.as_ref() else {
         return false;
     };
@@ -599,7 +847,7 @@ fn append_steering_messages(messages: &mut Vec<umans::Message>, handle: &RunHand
         if trimmed.is_empty() {
             continue;
         }
-        messages.push(umans::Message::user(&format!("[steering]\n{trimmed}")));
+        messages.push(ProviderMessage::user(&format!("[steering]\n{trimmed}")));
         appended = true;
     }
     if appended {
@@ -895,15 +1143,6 @@ fn extract_tool_use_start(data: &str) -> Option<(usize, ToolUseBuilder)> {
     ))
 }
 
-/// Extract a tool-use request from a `content_block_start` data payload,
-/// if the content block type is `tool_use`.
-///
-/// TODO: move to test mod or remove
-#[cfg(test)]
-fn extract_tool_use(data: &str) -> Option<ToolUseRequest> {
-    extract_tool_use_start(data).and_then(|(_, block)| block.finish())
-}
-
 /// Send an event, respecting cancellation. Returns `Some(())` on success, or
 /// `None` if the send failed (receiver dropped) or cancellation was requested.
 fn send(tx: &Sender<AgentEvent>, event: AgentEvent, cancel: &CancelToken) -> Option<()> {
@@ -931,6 +1170,36 @@ mod tests {
 
     fn config() -> AgentRunConfig {
         AgentRunConfig::new(PathBuf::from("."), String::from("fake-agent"), WebSearchMode::Native)
+    }
+
+    #[test]
+    fn provider_retry_policy_and_classification_match_defaults() {
+        let provider = UmansProvider;
+        assert_eq!(PROVIDER_RETRY_POLICY.max_retries, 4);
+        assert_eq!(PROVIDER_RETRY_POLICY.delay_for_attempt(1), Duration::from_millis(2500));
+        assert_eq!(
+            PROVIDER_RETRY_POLICY.delay_for_attempt(4),
+            Duration::from_millis(20_000)
+        );
+
+        assert!(
+            ProviderAttemptError::Request(umans::UmansError::Status {
+                code: 503,
+                body: "temporarily unavailable".to_string(),
+            })
+            .is_retryable(&provider)
+        );
+        assert!(ProviderAttemptError::Stream("stream read error: connection lost".to_string()).is_retryable(&provider));
+        assert!(
+            !ProviderAttemptError::Request(umans::UmansError::Status { code: 401, body: "unauthorized".to_string() })
+                .is_retryable(&provider)
+        );
+        assert!(
+            !ProviderAttemptError::Stream(
+                "provider stopped at max_tokens (32768) before producing assistant text".to_string()
+            )
+            .is_retryable(&provider)
+        );
     }
 
     struct EventCollectState {
@@ -1121,15 +1390,16 @@ mod tests {
     }
 
     #[test]
-    fn extract_tool_use_returns_none_for_text_block() {
+    fn extract_tool_use_start_returns_none_for_text_block() {
         let data = r#"{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#;
-        assert!(extract_tool_use(data).is_none());
+        assert!(extract_tool_use_start(data).is_none());
     }
 
     #[test]
-    fn extract_tool_use_returns_request_for_tool_use_block() {
+    fn extract_tool_use_start_returns_builder_for_tool_use_block() {
         let data = r#"{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"find_files","input":{"pattern":"cli"}}}"#;
-        let req = extract_tool_use(data).expect("should extract");
+        let (_index, block) = extract_tool_use_start(data).expect("should extract");
+        let req = block.finish().expect("should finish");
         assert_eq!(req.name, "find_files");
         assert!(req.arguments.contains("cli"));
         assert_eq!(req.tool_use_id, "toolu_1");
@@ -1146,7 +1416,8 @@ mod tests {
             let sse_event = umans::parse_sse_event(event_type, data);
             if let umans::SseEvent::Other(ref t) = sse_event
                 && t.starts_with("content_block_start")
-                && let Some(req) = extract_tool_use(data)
+                && let Some((_index, block)) = extract_tool_use_start(data)
+                && let Some(req) = block.finish()
             {
                 tool_requests.push(req);
             }

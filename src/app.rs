@@ -191,6 +191,13 @@ pub enum AgentEvent {
         /// multiple Vec<String>s).
         shell_result: Option<Box<tools::shell::ProcessResult>>,
     },
+    ModelMetadataLoaded(Vec<(String, String)>),
+    Retrying {
+        attempt: u32,
+        max_attempts: u32,
+        delay_ms: u64,
+        error: String,
+    },
     Finished,
     Failed(String),
     Cancelled,
@@ -244,7 +251,7 @@ pub struct PickerState {
 }
 
 impl PickerState {
-    pub(crate) fn new(all_items: Vec<PickerItem>, limit: usize) -> Self {
+    pub fn new(all_items: Vec<PickerItem>, limit: usize) -> Self {
         let (matches, match_indices) = split_filter_items(&all_items, "", limit);
         Self { query: String::new(), all_items, matches, match_indices, selected: 0, scroll: 0, limit }
     }
@@ -317,6 +324,7 @@ pub struct App {
     /// Current git working tree summary for the status line.
     pub git_status: Option<GitStatusSummary>,
     pub model: String,
+    pub model_picker_items: Vec<PickerItem>,
     pub user_label: String,
     pub websearch: WebSearchMode,
     /// UI color theme.
@@ -412,6 +420,7 @@ impl App {
             git_status: crate::renderer::git::collect(&workspace_root),
             cwd: workspace_root,
             model: cli.model.clone(),
+            model_picker_items: offline_model_picker_items(),
             user_label: default_user_label(),
             websearch: cli.websearch,
             theme: cli.theme,
@@ -538,6 +547,22 @@ pub fn update(app: &mut App, msg: &Msg) -> Option<Msg> {
             None
         }
     }
+}
+
+pub fn command_suggestions_for_app(app: &App) -> Vec<(&'static str, &'static str)> {
+    let query = command_query(app);
+    let commands = [
+        ("clear", "clear transcript"),
+        ("quit", "exit app"),
+        ("exit", "exit app"),
+        ("help", "show help"),
+        ("bg", "list background processes"),
+        ("model", "switch Umans model"),
+    ];
+    commands
+        .into_iter()
+        .filter(|(cmd, _)| cmd.starts_with(&query))
+        .collect()
 }
 
 /// - Ctrl+C always quits immediately, even mid-input.
@@ -1018,22 +1043,6 @@ fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
     }
 }
 
-pub fn command_suggestions_for_app(app: &App) -> Vec<(&'static str, &'static str)> {
-    let query = command_query(app);
-    let commands = [
-        ("clear", "clear transcript"),
-        ("quit", "exit app"),
-        ("exit", "exit app"),
-        ("help", "show help"),
-        ("bg", "list background processes"),
-        ("model", "switch Umans model"),
-    ];
-    commands
-        .into_iter()
-        .filter(|(cmd, _)| cmd.starts_with(&query))
-        .collect()
-}
-
 fn command_query(app: &App) -> String {
     if app.mode == Mode::Command {
         app.input.as_str().trim_start().to_string()
@@ -1079,12 +1088,20 @@ fn open_file_picker(app: &mut App, source: FilePickerSource) {
 }
 
 fn open_model_picker(app: &mut App) {
-    let items = umans::known_models()
-        .into_iter()
-        .map(|model| PickerItem::new(model.id, model.description))
-        .collect();
+    let items = if app.model_picker_items.is_empty() {
+        offline_model_picker_items()
+    } else {
+        app.model_picker_items.clone()
+    };
     app.picker = Some(PickerState::new(items, MODEL_PICKER_LIMIT));
     app.prompt_accessory = PromptAccessory::Models;
+}
+
+fn offline_model_picker_items() -> Vec<PickerItem> {
+    umans::known_models()
+        .into_iter()
+        .map(|model| PickerItem::new(model.id, model.description))
+        .collect()
 }
 
 fn close_prompt_accessory(app: &mut App) {
@@ -1430,6 +1447,24 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             refresh_git_status(app);
             None
         }
+        AgentEvent::ModelMetadataLoaded(items) => {
+            app.model_picker_items = items
+                .into_iter()
+                .map(|(label, detail)| PickerItem::new(label, detail))
+                .collect();
+            None
+        }
+        AgentEvent::Retrying { attempt, max_attempts, delay_ms, error } => {
+            discard_retry_output(app);
+            app.run_state = RunState::Working;
+            app.transcript.push(Entry::Status {
+                text: format!(
+                    "retrying provider request ({attempt}/{max_attempts}) in {:.1}s after: {error}",
+                    delay_ms as f64 / 1000.0
+                ),
+            });
+            None
+        }
         AgentEvent::Finished => {
             finalize_streaming(app);
             app.run_state = RunState::Idle;
@@ -1590,6 +1625,18 @@ fn finalize_reasoning(app: &mut App) {
         if let Entry::Reasoning { streaming, .. } = entry {
             *streaming = false;
         }
+    }
+}
+
+/// Remove partial assistant/reasoning output from a provider attempt that is
+/// about to be retried. Tool entries and prior completed transcript context are
+/// left intact.
+fn discard_retry_output(app: &mut App) {
+    while matches!(
+        app.transcript.last(),
+        Some(Entry::Assistant { .. } | Entry::Reasoning { .. })
+    ) {
+        app.transcript.pop();
     }
 }
 
