@@ -10,11 +10,11 @@ Reviewed on: 2026-06-28.
 
 ## Thesis
 
-Umans should be the first provider for `thndrs`. It gives us the two target
-models out of the gate, works through standard Anthropic/OpenAI-compatible API
-shapes, and includes native server-side web search. That lets the harness focus
-on state, streaming, UI, and tool-event rendering before it grows a generic
-provider system.
+Umans is useful as a provider-design reference because it combines a
+standard-shaped Messages API, multiple coding model routes, reasoning streams,
+tool calling, model metadata, and server-side web search. Those features make it
+a good case study for keeping provider-specific HTTP details behind normalized
+agent events and tool records.
 
 ## Reasoning Streams
 
@@ -25,10 +25,10 @@ The docs describe reasoning output differently by route:
 - `/v1/chat/completions`: reasoning appears as `reasoning_content` on messages
   and streamed deltas.
 
-Implication for `thndrs`: keep reasoning as a first-class event distinct from
-assistant answer text. The transcript can render it as collapsible/secondary
-status later, but the app state should not concatenate it blindly into the final
-assistant response.
+Provider-design implication: keep reasoning as a first-class event distinct from
+assistant answer text. The transcript can render it as secondary status or
+collapsible context, but app state should not concatenate it blindly into the
+final assistant response.
 
 ## Lectito Reuse
 
@@ -49,13 +49,19 @@ Useful existing pieces:
   rejects private-network targets by default, checks HTML content type, limits
   response size, extracts with `extract_with_diagnostics`, and chunks output.
 
-Recommended role in `thndrs`:
+Reusable provider/search split:
 
-- Primary search: Umans native server-side search.
-- Local fallback: Lectito-style DuckDuckGo search when Umans search is disabled or unavailable.
-- Extraction: Lectito core for deterministic readable Markdown/text from pages
-  selected by local search or user-provided URLs.
+- Server-side search: provider-native search when the selected provider supports
+  it and the user/search policy allows it.
+- Local fallback: bounded DuckDuckGo-style HTML search when server-side search
+  is disabled or unavailable.
+- Extraction: deterministic readable Markdown/text extraction from pages
+  selected by search or supplied by the user.
 
-Keep this read-only at first.
+Keep this surface bounded: no browser, crawler, or full MCP stack unless a
+concrete product need outweighs the extra state, security, and debugging cost.
 
-Do not add a browser, crawler, or full MCP stack until the concrete harness needs it.
+## Open Questions
+
+- How should provider-native search, reasoning streams, and local extraction be separated?
+  - **Recommendation**: Normalize provider reasoning and search into explicit events while keeping local extraction as a bounded fallback rather than a browser or crawler layer.

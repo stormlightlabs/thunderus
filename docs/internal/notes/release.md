@@ -1,5 +1,5 @@
 ---
-title: Release Scope for fake/v0, alpha, and v1
+title: Release Scope Concepts for a Terminal Coding Harness
 Author: >
   Ratatui, Pi, Herdr, Gridland, Umans, SemVer, Keep a Changelog, Rust CLI book authors
 Date: 2026-06-28
@@ -21,18 +21,21 @@ Source:
 
 ## Summary
 
-The current `thndrs` roadmap is appropriately small for a fake/v0 proof, but a
-usable alpha and v1 need explicit scope for provider reliability, sessions,
-configuration, safe file changes, packaging, and release hygiene.
+Release scope for a terminal coding harness should be defined by user-visible
+contracts: provider reliability, sessions, configuration, file-change safety,
+packaging, docs, and release hygiene. The exact milestone labels can change, but
+each release should state what behavior is experimental and what users can rely
+on.
 
 ## Key Ideas
 
-- **fake/v0 proves the harness, not coding usefulness:** Ratatui, Gridland, and
-  Pi notes point to the same first milestone: stable state/update/render flow,
-  prompt entry, transcript rendering, fake streaming, and deterministic tests.
-- **alpha must be useful on a real repo:** To be usable, alpha needs the Umans
-  provider, visible context loading, native web search, read-only local tools,
-  guarded file-edit operations, session persistence, and graceful error/stop behavior.
+- **Early releases prove the harness shape:** Ratatui, Gridland, and Pi notes
+  point to the same early milestone: stable state/update/render flow, prompt
+  entry, transcript rendering, streaming behavior, and deterministic tests.
+- **Usable prereleases must work on real repos:** A usable prerelease needs a
+  real provider, visible context loading, bounded web/search behavior, local
+  tools, guarded file-edit operations, session persistence, and graceful
+  error/stop behavior.
 - **v1 defines the supported contract:** SemVer says 1.0.0 defines the public
   API. For a CLI app, that contract is not only Rust APIs; it includes CLI flags,
   config shape, session format, tool behavior, docs, and release notes.
@@ -46,20 +49,20 @@ configuration, safe file changes, packaging, and release hygiene.
 
 | Claim                                                     | Support                                                                                                         | Caveat / Confidence                                                      |
 | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| Major version zero is allowed to change freely.           | SemVer says `0.y.z` is for initial development and the public API should not be considered stable.              | High. Good fit for fake/v0 and alpha.                                    |
+| Major version zero is allowed to change freely.           | SemVer says `0.y.z` is for initial development and the public API should not be considered stable.              | High. Good fit for experimental prereleases.                             |
 | `1.0.0` means the public API is defined.                  | SemVer says version 1.0.0 defines the public API.                                                               | High. We must define what "public API" means for a TUI CLI.              |
-| Pre-release identifiers communicate instability.          | SemVer allows labels like `alpha` and `rc`; pre-release versions have lower precedence than the normal release. | High. Use this to distinguish fake/v0, alpha, and v1 release candidates. |
+| Pre-release identifiers communicate instability.          | SemVer allows labels like `alpha` and `rc`; pre-release versions have lower precedence than the normal release. | High. Use this to distinguish unstable prereleases from release candidates. |
 | A CLI should be tested through both units and the binary. | Rust CLI book separates unit tests from black-box integration tests under `tests/`.                             | High.                                                                    |
 | Human-facing output should be consistent and clear.       | Rust CLI book recommends concise progress/error messages and consistent severity/log levels.                    | High; applies to transcript errors and non-TUI commands.                 |
-| Machine-facing output should use parseable formats.       | Rust CLI book recommends JSON/line-delimited JSON when output is consumed by other programs.                    | Medium for v1; useful for `--print-events` or export later, not fake/v0. |
+| Machine-facing output should use parseable formats.       | Rust CLI book recommends JSON/line-delimited JSON when output is consumed by other programs.                    | Medium; only needed for documented machine-facing commands or exports.   |
 | Packaging needs metadata and install path decisions.      | Rust CLI book calls out Cargo metadata, `cargo install`, and binary distribution tradeoffs.                     | High for v1.                                                             |
 
 ## Important Terms
 
 | Term              | Meaning                                                                                                                   |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| fake/v0           | First runnable harness with fake agent stream; validates UI, state, and tests.                                            |
-| alpha             | Usable but unstable release: real provider, real sessions, read-only tools, guarded file edits, known rough edges.        |
+| experimental build | Runnable harness that validates UI, state, provider/tool loops, and tests without promising stable contracts.             |
+| alpha/prerelease   | Usable but unstable release: real provider, sessions, local tools, guarded file edits, and known rough edges.             |
 | v1                | Stable supported release: clear CLI/config/session/tool contracts, docs, packaging, and release process.                  |
 | public API        | For this app: CLI flags, config file keys, env vars, session/event formats, tool behavior, and documented user workflows. |
 | release candidate | A pre-release build intended to become v1 if no blocking issues are found.                                                |
@@ -67,30 +70,40 @@ configuration, safe file changes, packaging, and release hygiene.
 
 ## Questions for Review
 
-- What is the smallest fake/v0 that proves the Ratatui harness without pretending
-  to be a coding agent?
-- What must alpha do on a real project for us to call it usable?
+- What must an experimental build prove before it is useful to dogfood?
+  - **Recommendation**: Require a stable prompt loop, visible transcript, deterministic tests, and graceful failure handling before dogfooding.
+- What must a prerelease do on a real project before users can call it usable?
+  - **Recommendation**: Require real provider calls, context loading, local tools, session audit, file-change safety, and clear error recovery.
 - Which CLI/config/session contracts are stable enough for v1?
+  - **Recommendation**: Stabilize only contracts that are documented, covered by tests, and unlikely to need shape changes after real usage.
 - Which features sound attractive but should stay out until after v1?
+  - **Recommendation**: Defer features that add new subsystems, hidden orchestration, or unclear safety semantics without improving the core coding loop.
 
 ## Connections
 
 - Related ideas: Pi's visible context and event stream; Herdr's durable session
-  discipline; Gridland's chat layout; Ratatui snapshot tests; Umans as first provider.
+  discipline; Gridland's chat layout; Ratatui snapshot tests; provider
+  reliability.
 - Related sources: [pi](pi.md), [herdr](herdr.md), [ui-patterns](ui-patterns.md),
   [umans](./providers/umans.md), [ratatui-testing](ratatui-testing.md).
-- Contradictions or tensions: alpha/v1 need write/edit tools to be a coding harness,
-  but the project guidance strongly prefers avoiding permission theater. The
-  compromise is simple explicit confirmation plus narrow file operations, not a
-  complex policy engine.
-- Useful applications: Release gates in `docs/internal/specs/`, actionable
-  grouped tasks in `TODO.md`, and future `CHANGELOG.md`/packaging checklist.
+- Contradictions or tensions: prereleases need write/edit tools to be useful
+  coding harnesses, but permission prompts are not a real sandbox. The
+  conceptual compromise is clear local execution, narrow file operations, audit
+  records, and external sandboxing when isolation matters.
+- Conceptual uses: release gates, changelog categories, packaging checklist,
+  machine-readable output policy, and v1 contract definition.
 
 ## Open Questions
 
-- Which guarded file operations are enough for alpha before richer editing exists?
+- What should define release readiness for a terminal coding harness?
+  - **Recommendation**: Define readiness by documented user-visible contracts: CLI/config shape, session/tool behavior, provider reliability, file-change safety, packaging, docs, and changelog discipline.
+- Which guarded file operations are enough before richer editing exists?
+  - **Recommendation**: Support the smallest auditable write operations that cover normal edits before adding richer patch or refactor tools.
 - Should session JSONL be considered stable at v1 or documented as internal?
-- Should local Lectito fallback search be alpha or v1 if Umans native search is
-  reliable enough?
+  - **Recommendation**: Treat only documented record fields as stable and reserve internal fields for migration until real resume/export workflows mature.
+- Should local fallback search be part of the supported contract or treated as
+  best-effort assistance?
+  - **Recommendation**: Document fallback search as best-effort unless it has reliable tests, limits, and error behavior across expected environments.
 - What install channel is the first v1 target: `cargo install`, GitHub release
   binaries, or both?
+  - **Recommendation**: Start with the lowest-maintenance channel users already expect, then add binaries once release automation is repeatable.

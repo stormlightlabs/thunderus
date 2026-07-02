@@ -19,7 +19,9 @@ Tags: [coding-agent, prompts, system-prompt, context, tools]
 
 Public coding-agent prompts converge on layered prompt assembly: base identity,
 behavior policy, tool/editing constraints, environment and project context, then
-the user's turn-specific request.
+the user's turn-specific request. The durable lesson is the separation of prompt
+concerns before provider-specific lowering, not any one harness's exact fragment
+set.
 
 ## Key Ideas
 
@@ -51,7 +53,7 @@ the user's turn-specific request.
 | Prompt assembly should be layered.                             | Codex uses base instructions plus contextual fragments; Goose uses a `PromptManager`; OpenCode has prompt variants and typed prompt schemas.          | High.                                                 |
 | Project instructions are context, not enforcement.             | Claude Code memory docs describe instruction files as loaded guidance; Codex describes `AGENTS.md` as scoped repo guidance below direct instructions. | High.                                                 |
 | Tool and edit constraints should live near the base prompt.    | Codex and OpenCode include tool usage and editing constraints in base instructions; Aider's edit-format prompts define exact diff output rules.       | High.                                                 |
-| The first prompt structure can be simpler than Codex/OpenCode. | `thndrs` has one provider, a small tool set, and no plugin/MCP/subagent system yet.                                                                   | High; avoid importing unnecessary framework concepts. |
+| Prompt structure can be simpler than Codex/OpenCode.           | A small harness can have one provider, a small tool set, and no plugin/MCP/subagent system while still preserving typed prompt assembly.              | High; avoid importing unnecessary framework concepts. |
 | Prompt logs should record what context was sent.               | Session research showed durable context metadata matters for audit and resume; prompt assembly should expose this as structured metadata.             | Medium-high.                                          |
 
 ## Important Terms
@@ -82,13 +84,18 @@ the user's turn-specific request.
   or tool request/response parts when the provider/runtime supports them. Prompt
   text still carries operating policy, but does not replace native schemas.
 
+## Open Questions
+
+- How should prompt assembly stay inspectable without growing into a large static prompt?
+  - **Recommendation**: Keep prompt assembly as a layered structured bundle and lower it to provider messages only after policy, context, tools, transcript, and user turn are separated.
+
 ## Connections
 
-- Related ideas: session JSONL should record prompt metadata; AGENTS.md notes
-  define project-context precedence; fs traversal notes define tool boundaries.
+- Related ideas: session logs can record prompt metadata; AGENTS.md notes define
+  project-context precedence; fs traversal notes define tool boundaries.
 - Related sources: [sessions](./sessions.md), [agents-md](./agents-md.md),
   [fs-traversal](./fs-traversal.md), [providers/umans](./providers/umans.md).
 - Contradictions or tensions: Rich prompts improve behavior, but long prompts
   burn context and hide policy in prose. Keep the structure explicit and small.
-- Useful applications: prompt assembly, search integration, session persistence,
-  v1 inspect/export.
+- Conceptual uses: prompt assembly, provider lowering, search/source metadata,
+  session audit, inspect/export.

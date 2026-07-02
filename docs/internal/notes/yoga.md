@@ -198,10 +198,15 @@ is more idiomatic if the host project wants to stay fully Rust-native.
 ## Questions for Review
 
 - What does Yoga compute, and what does it deliberately not compute?
+  - **Recommendation**: Use Yoga for box geometry only and keep painting, text shaping, event handling, and state outside it.
 - Why do text nodes usually need measure functions?
+  - **Recommendation**: Give text nodes measure functions because their size depends on content, wrapping, font or cell width, and available constraints.
 - Which Yoga defaults differ from browser CSS defaults?
+  - **Recommendation**: Set host defaults explicitly instead of assuming Yoga matches browser CSS behavior.
 - What does the host application need to do after Yoga computes layout?
+  - **Recommendation**: Traverse computed geometry, apply clipping and z-order rules, and paint using the target renderer.
 - When is dirty incremental layout worth the extra architecture?
+  - **Recommendation**: Add dirty incremental layout only when profiling shows full layout recomputation is too expensive for real UI trees.
 
 ## Connections
 
@@ -212,19 +217,23 @@ is more idiomatic if the host project wants to stay fully Rust-native.
 - Contradictions or tensions: Yoga gives mature Flexbox behavior, but it also
   introduces a second layout tree that must be kept in sync with application
   state.
-- Useful applications: nested panes, dashboards, full-screen TUI component
+- Conceptual uses: nested panes, dashboards, full-screen TUI component
   systems, canvas UI frameworks, native mobile UI frameworks.
 
 ## Open Questions
 
 - How much of Yoga's behavior should a host framework expose directly versus
   hiding behind simpler component props?
+  - **Recommendation**: Use Yoga-style layout only for nested component systems that need Flexbox semantics, and keep row-first terminal UIs on simpler explicit geometry.
 - For Rust projects, when is compatibility with Yoga/React Native worth native
   bindings instead of using Taffy?
+  - **Recommendation**: Prefer Taffy for Rust-native layout unless compatibility with Yoga/React Native behavior is a direct requirement.
 - How should terminal renderers handle wide Unicode cells if Yoga's units are
   abstract numeric points?
+  - **Recommendation**: Treat Yoga units as layout cells only after text measurement has converted content into terminal display widths.
 - Is incremental layout worth implementing for small terminal apps, or only for
   large component trees?
+  - **Recommendation**: Avoid incremental layout in small terminal apps until profiling shows layout work dominates rendering cost.
 
 ## Notable Quotes
 

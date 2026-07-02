@@ -50,22 +50,29 @@ maintainer workflows, written as explicit checklists with safety rules and expec
 
 ## Questions for Review
 
-- Which `thndrs` workflows are common enough to deserve command prompts later?
+- Which workflows are common enough to deserve command prompts later?
+  - **Recommendation**: Promote only repeated, multi-step workflows with predictable inputs and outputs into command prompts.
 - Should workflow-specific safety rules live in command prompts instead of the base fragment?
-- How much GitHub workflow support belongs in `thndrs` versus project-local prompt files?
+  - **Recommendation**: Put workflow-specific safety rules in command prompts and keep the base fragment limited to general behavior.
+- How much GitHub workflow support belongs in the harness versus project-local
+  prompt files?
+  - **Recommendation**: Keep GitHub workflow details project-local until the harness has a stable built-in GitHub surface.
 
 ## Connections
 
 - Related ideas: project context, prompt XML fragments, GitHub workflow automation.
 - Related sources: [pi](pi.md), [prompts](prompts.md), [goose-prompts](goose-prompts.md).
-- Tension: Pi's command prompts are useful, but `thndrs` currently has no slash-command prompt
-  loader and should not add one just for this cleanup.
-- Useful application: write prompt instructions as concrete steps when the workflow is known.
+- Tension: command prompts are useful, but prompt-command infrastructure should
+  follow repeated workflows rather than one-off cleanup needs.
+- Conceptual use: write prompt instructions as concrete steps when the workflow
+  is known.
 
 ## Open Questions
 
-- Should future `thndrs` command prompts be repo-local files, built-in Rust templates, or both?
+- Should command prompts be repo-local files, built-in templates, or both?
+  - **Recommendation**: Use procedural prompt files only for repeated workflows with clear inputs, ordered steps, safety rules, and expected output.
 - What is the minimum metadata needed for a prompt command if this feature is added?
+  - **Recommendation**: Require only a name, description, and optional argument hint until command routing needs richer metadata.
 
 ## Takeaways
 

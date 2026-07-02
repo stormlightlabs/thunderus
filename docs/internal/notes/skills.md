@@ -63,10 +63,15 @@ are loaded only when the active task needs them.
 ## Questions for Review
 
 - What two fields are required in every `SKILL.md` frontmatter block?
+  - **Recommendation**: Require `name` and `description` before a skill can be discovered or loaded.
 - Why should a skill description include "when to use it" language?
+  - **Recommendation**: Put activation criteria in the description so routing can happen without loading the whole skill.
 - What is the difference between `SKILL.md`, `references/`, and `assets/`?
+  - **Recommendation**: Keep `SKILL.md` as routing and core instructions, `references/` as on-demand detail, and `assets/` as reusable static material.
 - When should detailed instructions move out of `SKILL.md`?
+  - **Recommendation**: Move detail out when it is conditional, lengthy, or only relevant to specific variants of the workflow.
 - Why does shallow file referencing matter for agent context management?
+  - **Recommendation**: Keep references shallow so agents can load only task-relevant context without recursive instruction chasing.
 
 ## Connections
 
@@ -74,22 +79,25 @@ are loaded only when the active task needs them.
   project-local instruction files.
 - Related sources: [prompts](./prompts.md), [codex-prompts](./codex-prompts.md),
   [goose-prompts](./goose-prompts.md), [pi-prompts](./pi-prompts.md).
-- Tension: Skills can package rich workflows, but `thndrs` should not add skill
-  infrastructure until repeated workflows justify the extra loader, validation,
-  and precedence rules.
-- Useful application: the prompt system can borrow the spec's progressive
+- Tension: Skills can package rich workflows, but skill infrastructure should
+  wait until repeated workflows justify the extra loader, validation, and
+  precedence rules.
+- Conceptual use: the prompt system can borrow the spec's progressive
   disclosure shape now: keep base instructions small, put specialized edit or
   workflow rules near the tool/command that needs them, and avoid always loading
   every reference.
 
 ## Open Questions
 
-- Should `thndrs` eventually support repo-local skill discovery, or are
-  `AGENTS.md` plus built-in prompt fragments enough for now?
+- Should a harness support repo-local skill discovery, or are `AGENTS.md` plus
+  built-in prompt fragments enough?
+  - **Recommendation**: Borrow progressive disclosure and strict metadata concepts now, but defer repo-local skill discovery until repeated workflows justify loader, validation, and precedence rules.
 - If skills are added, should `allowed-tools` be ignored until the harness has a
   real permission system?
+  - **Recommendation**: Ignore `allowed-tools` as enforcement until a real permission model exists, but preserve it as advisory metadata if useful.
 - What validation would be needed to prevent malformed skill metadata from
   becoming model-visible prompt noise?
+  - **Recommendation**: Validate required metadata, relative references, file size caps, and unsupported fields before any skill content becomes model-visible.
 
 ## Takeaways
 

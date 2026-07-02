@@ -45,9 +45,13 @@ review` to inspect and accept the new snapshot.
 ## Open Questions
 
 - Why should TUI snapshot tests use fixed terminal dimensions?
+  - **Recommendation**: Use fixed dimensions so layout changes are intentional and snapshot diffs are attributable.
 - What object should be passed to `assert_snapshot!` after drawing a Ratatui UI?
+  - **Recommendation**: Snapshot the rendered buffer or a stable row/frame representation rather than terminal I/O.
 - When should `cargo insta review` be used?
-- What parts of `thndrs` should be tested with pure state tests instead of snapshots?
+  - **Recommendation**: Use `cargo insta review` only after verifying the visual change is intended and behaviorally correct.
+- Which behaviors belong in pure state tests instead of snapshots?
+  - **Recommendation**: Put update logic, event transitions, and data reduction in pure tests, leaving visual wrapping and layout to snapshots.
 
 ## Connections
 
@@ -55,17 +59,20 @@ review` to inspect and accept the new snapshot.
   separated from terminal setup.
 - Related sources: Ratatui Elm architecture notes, Ratatui terminal/event-handler
   recipe.
-- Useful applications: normal-width chat layout, narrow layout with hidden
+- Conceptual uses: normal-width chat layout, narrow layout with hidden
   sidebar, transcript entries for assistant/tool/reasoning states, provider
   error rendering.
 
 ## Open Questions
 
 - Should `thndrs` snapshot whole screens or smaller render regions first?
+  - **Recommendation**: Prefer focused region snapshots plus pure state tests, expanding to whole-screen snapshots only for stable end-to-end layouts.
 - Do we want `insta` redactions for timestamps/session IDs once persistence
   exists?
+  - **Recommendation**: Add redactions for volatile identifiers as soon as snapshots include persisted session or timing data.
 - Should CI require committed snapshots immediately, or only after the layout
   stabilizes?
+  - **Recommendation**: Require committed snapshots for stable regions and keep volatile experiments out of CI until their layout settles.
 
 ## Notable Quotes
 

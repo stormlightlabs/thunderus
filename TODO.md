@@ -63,12 +63,11 @@ The running TUI now uses a direct renderer:
 
 See:
 
-- [v0 / Alpha Renderer Spec](docs/internal/specs/v0.md)
-- [v1 Spec](docs/internal/specs/v1.md)
+- [Roadmap](ROADMAP.md)
 - [Prompt Editing Libraries and Renderer Ownership](docs/internal/notes/prompt-renderer-research.md)
 - [Text Input Library Lessons](docs/internal/notes/text-input-libraries.md)
 
-## v1 Backlog
+## Backlog
 
 ### Config, Inspect, And Export
 
@@ -87,7 +86,7 @@ See:
 - [ ] Document session/config compatibility expectations.
 - [ ] Document `AGENTS.md` precedence: harness policy, user prompt, CLI/config,
       nearest `AGENTS.md`, broader `AGENTS.md`, defaults.
-- [ ] Document nested `AGENTS.md` scoping for v1 or mark it explicitly deferred.
+- [ ] Document nested `AGENTS.md` scoping or mark it explicitly deferred.
 - [ ] Unit-test config precedence.
 - [ ] Integration-test `--help`.
 - [ ] Integration-test inspect/export against fixture sessions.

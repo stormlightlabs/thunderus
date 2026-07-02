@@ -29,13 +29,13 @@ permissions, review, goals, compaction, realtime, and patch-tool instructions.
 
 ## Claims & Evidence
 
-| Claim                                                    | Support                                                                                                                 | Caveat / Confidence                                               |
-| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| Runtime policy should generate prompt instructions.      | `PermissionsInstructions::from_permission_profile` renders sandbox and approval text from structured policies.          | High.                                                             |
-| Prompt templates should be testable.                     | Codex keeps prompt renderers in Rust modules with unit tests for goals, permissions, review requests, and review exits. | High.                                                             |
-| Review behavior benefits from a strict contract.         | The review rubric defines bug criteria, priority fields, code locations, and exact JSON output.                         | High.                                                             |
-| XML/text escaping matters for generated fragments.       | Goal prompts escape XML text before rendering user objectives.                                                          | High.                                                             |
-| `thndrs` should not copy Codex's full permission system. | `thndrs` currently has a simpler local workspace-contained tool model.                                                  | High; adding a subsystem would violate the simplicity constraint. |
+| Claim                                                  | Support                                                                                                                        | Caveat / Confidence                                     |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------- |
+| Runtime policy should generate prompt instructions.    | `PermissionsInstructions::from_permission_profile` renders sandbox and approval text from structured policies.                 | High.                                                   |
+| Prompt templates should be testable.                   | Codex keeps prompt renderers in Rust modules with unit tests for goals, permissions, review requests, and review exits.        | High.                                                   |
+| Review behavior benefits from a strict contract.       | The review rubric defines bug criteria, priority fields, code locations, and exact JSON output.                                | High.                                                   |
+| XML/text escaping matters for generated fragments.     | Goal prompts escape XML text before rendering user objectives.                                                                 | High.                                                   |
+| Do not copy Codex's full permission system by default. | A smaller local harness can keep workspace containment and narrow tools without adopting every Codex approval/sandbox concept. | High; adding a subsystem should follow a concrete need. |
 
 ## Important Terms
 
@@ -49,22 +49,34 @@ permissions, review, goals, compaction, realtime, and patch-tool instructions.
 
 ## Questions for Review
 
-- Which `thndrs` prompt sections should eventually be generated from structured runtime policy?
+- Which prompt sections should be generated from structured runtime policy?
+  - **Recommendation**: Generate sections from structured policy only when the rendered text must exactly reflect runtime state.
 - Should prompt XML escaping be centralized if more generated XML sections are added?
+  - **Recommendation**: Centralize escaping before adding more generated XML-like fragments so correctness does not depend on each caller.
 - Would a review command be useful enough to justify a strict review prompt?
+  - **Recommendation**: Add a strict review prompt only if review becomes a repeated workflow with a stable finding schema.
 
 ## Connections
 
 - Related ideas: prompt assembly, XML syntax docs, tool boundary, future review workflows.
-- Related sources: [prompts](prompts.md), [claude-code-prompts-corpus](claude-code-prompts-corpus.md).
-- Tension: Codex's prompt system is mature and policy-rich; `thndrs` should borrow the typed
-  rendering discipline without adopting the whole surface.
-- Useful application: keep generated prompt text tied to the runtime state that makes it true.
+- Related sources: [prompts](prompts.md), [claude-system-prompts](claude-system-prompts.md).
+- Tension: Codex's prompt system is mature and policy-rich; smaller harnesses
+  should borrow the typed rendering discipline without adopting the whole
+  surface.
+- Conceptual use: keep generated prompt text tied to the runtime state that
+  makes it true.
 
 ## Open Questions
 
-- Should `thndrs` add tests that validate XML fragment shape beyond snapshot comparison?
+- When should prompt text be generated from structured runtime state?
+  - **Recommendation**: Generate prompt text from typed runtime state when policy is
+    dynamic, while keeping the local prompt surface smaller than Codex's full system.
+- Should prompt tests validate XML fragment shape beyond snapshot comparison?
+  - **Recommendation**: Add structural XML-shape tests only for generated fragments
+    that interpolate user or runtime data.
 - Should review prompt behavior be built in or left to user/project prompts?
+  - **Recommendation**: Leave review behavior to user/project prompts until there is a
+    stable review output contract worth supporting.
 
 ## Takeaways
 

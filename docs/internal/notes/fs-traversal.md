@@ -14,13 +14,15 @@ Sources: >
 
 ## Summary
 
-`thndrs` should integrate `fd` and `ripgrep` as structured read-only discovery
-tools, while treating `sed` and `awk` as constrained text-inspection helpers
-rather than arbitrary model-controlled shell programs.
+Agent harnesses benefit from treating filesystem traversal and text processing
+as typed, bounded operations. `fd` and `ripgrep` are strong discovery/search
+primitives; `sed` and `awk` are useful reference tools but should be treated as
+text-processing languages with mutation and execution edges, not as harmless
+read-only helpers.
 
 ## Key Ideas
 
-- **Prefer purpose-built wrappers over raw shell:** Agent tools should expose
+- **Prefer purpose-built wrappers over raw shell:** Agent-facing tools should expose
   typed inputs like `pattern`, `path`, `glob`, `max_results`, and `context`
   instead of accepting arbitrary command strings.
 - **Use `fd` for path discovery:** `fd` has repo-friendly defaults: it skips
@@ -29,15 +31,15 @@ rather than arbitrary model-controlled shell programs.
 - **Use `rg` for content search:** `ripgrep` respects ignore rules, skips hidden
   and binary files by default, supports globs and file types, and can emit JSON
   Lines for machine parsing.
-- **Keep `sed` output-only in the harness:** `sed` is valuable for line-range
+- **Keep `sed` output-only when it is used by a harness:** `sed` is valuable for line-range
   printing and substitution previews, but `-i`, `w`, and GNU `e` can mutate files
   or execute commands. Prefer Rust-native line slicing for common reads.
 - **Keep `awk` templated or human-approved:** `awk` is excellent for field
   extraction and summaries, but programs can redirect output, open pipes, and
   call `system()`. Do not run model-authored arbitrary `awk` by default.
-- **Read-only tooling still needs caps:** Traversal depth, max results, max bytes,
+- **Even read-only tooling needs caps:** Traversal depth, max results, max bytes,
   stdout/stderr caps, timeout, and project-root containment should be enforced
-  by `thndrs`, not left to model behavior.
+  by the tool boundary, not left to model behavior.
 
 ## Claims & Evidence
 
@@ -47,7 +49,7 @@ rather than arbitrary model-controlled shell programs.
 | `fd` is the right default path-discovery primitive.               | fd's README describes it as a filesystem entry finder with regex/glob patterns, parallel traversal, hidden/ignored defaults, type/extension filters, and command execution options. Local `fd --help` confirms `--max-depth`, `--max-results`, `--type`, `--extension`, `--print0`, and `--one-file-system`. | High. Do not expose `-x`/`-X` execution to the model.                            |
 | `sed` should not be a write tool.                                 | GNU sed and BSD/macOS sed support in-place editing, and sed scripts can write files. macOS manpage warns about corruption/partial content risk with in-place editing without backups.                                                                                                                        | High. Also portability differs between GNU and BSD sed.                          |
 | `awk` should be constrained because it is a programming language. | gawk manual describes pattern-action programs, fields, built-ins, redirection, pipes, and `system()`. Local `man awk` confirms fields, `print`/`printf`, redirection, pipes, and `system()`.                                                                                                                 | High. Useful for summaries, risky as arbitrary model code.                       |
-| Tool output should be structured for the UI/model.                | Existing roadmap uses typed `AgentEvent` and transcript entries; `rg --json` gives structured search events, and `fd` output can be parsed line-by-line or NUL-delimited.                                                                                                                                    | High. `fd` does not provide JSON, so use NUL or newline plus path normalization. |
+| Tool output should be structured for the UI/model.                | Typed agent events and transcript entries need stable fields; `rg --json` gives structured search events, and `fd` output can be parsed line-by-line or NUL-delimited.                                                                                                                                       | High. `fd` does not provide JSON, so use NUL or newline plus path normalization. |
 
 ## Important Terms
 
@@ -60,7 +62,7 @@ rather than arbitrary model-controlled shell programs.
 | Tool wrapper             | Rust function that maps typed input to a fixed command invocation and structured output.                                                |
 | Project root containment | Rejecting paths that escape the selected workspace root after canonicalization.                                                         |
 
-### `sed` Role
+### `sed` Concept
 
 Use cases:
 
@@ -73,7 +75,7 @@ Recommendation:
 - Implement `read_file_range` in Rust instead of invoking `sed`.
 - If `sed` is used, only permit `-n` plus generated address/print scripts.
 - Never pass model-authored sed scripts directly.
-- Never allow in-place editing from the read-only tool boundary.
+- Never let a text-inspection helper become an implicit edit path.
 
 Portability note:
 
@@ -99,32 +101,46 @@ Recommendation:
 
 ## Questions for Review
 
-- Should `search_text` use `rg --json` from day one, or a simpler line parser
-  first?
-- Should `find_files` prefer `fd` or `rg --files` for default file discovery?
+- When should a harness parse `rg --json` instead of simpler line output?
+  - **Recommendation**: Parse `rg --json` once matches need stable paths, line numbers, truncation metadata, or machine-readable UI rendering.
+- When should path discovery prefer `fd` over `rg --files`?
+  - **Recommendation**: Prefer `fd` when the query is about filesystem entries and filters, and use `rg --files` when search tooling already owns ignore semantics.
 - Do we want an advanced human-approved "run awk" mode after v1, or should
   summaries stay template-only?
+  - **Recommendation**: Keep summaries template-only unless users repeatedly need arbitrary tabular transformations that cannot be expressed safely.
 - What is the default output cap per tool call: lines, bytes, or both?
+  - **Recommendation**: Cap both bytes and lines so huge lines and huge result counts are bounded independently.
 
 ## Connections
 
 - Related ideas: Pi's explicit small tool set; Herdr's semantic tool/process
-  states; Ratatui snapshots for tool-result rendering; alpha read-only tool
-  boundary.
+  states; deterministic snapshots for tool-result rendering; narrow tool
+  boundaries before broad process execution.
 - Related sources: [pi](./pi.md), [herdr](./herdr.md), [release](./release.md).
 - Contradictions or tensions: developer muscle memory favors raw shell commands,
   but an agent-facing harness needs typed, bounded, auditable operations.
-- Useful applications: reliable repo search, file discovery, context gathering,
-  and safe transcript rendering before write-capable tools exist.
+- Conceptual uses: reliable repo search, file discovery, context gathering,
+  output capping, path containment, and safe transcript rendering.
 
 ## Open Questions
 
+- When should broad text-processing or shell-like power be exposed to the model?
+  - **Recommendation**: Prefer typed, capped search and file tools first, and expose
+    broad text-processing or shell-like power only behind explicit product need.
 - Whether to vendor Rust crates for search/traversal later (`ignore`, `grep`,
   `walkdir`) instead of spawning `fd`/`rg`.
+  - **Recommendation**: Keep spawning mature CLI tools until portability, startup cost,
+    or structured-output needs make Rust-native crates clearly better.
 - How to handle Windows environments where `sed`/`awk` may be absent.
+  - **Recommendation**: Avoid depending on `sed` or `awk` for core behavior and
+    implement required inspection paths in Rust.
 - Whether user config should allow hidden/ignored files globally or only per
   tool call.
+  - **Recommendation**: Make hidden and ignored traversal explicit per call, with any
+    global default staying conservative.
 - How much stderr should be shown in the transcript versus hidden in diagnostics.
+  - **Recommendation**: Show concise stderr summaries in the transcript and keep full
+    diagnostic detail behind capped logs or verbose output.
 
 ## Notable Quotes
 

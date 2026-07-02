@@ -57,9 +57,9 @@ permission theater.
 | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | A useful coding agent does not need a huge system prompt.                                   | Pi reports its prompt plus tool definitions are under 1000 tokens and relies on project `AGENTS.md` for customization.              | Medium; this is the author's experience and benchmark framing, not a universal proof.                          |
 | Agent runtime should expose event flow instead of hiding it.                                | `pi-agent-core` documents `agent_start`, `turn_start`, `message_start/update/end`, `tool_execution_*`, `turn_end`, and `agent_end`. | High; event streams map cleanly to any UI.                                                                     |
-| Tool result data should separate model content from UI detail.                              | The article calls out separate tool result blocks for LLM content and UI rendering detail as a useful abstraction.                  | High for future design; not needed in first stub.                                                              |
-| Native scrollback is a better fit for linear coding-agent chats than full-screen ownership. | The article argues coding agents are mostly linear chat plus tool output, so terminal scrolling/search are valuable.                | Medium for `thndrs`; Ratatui defaults push us toward alternate screen unless we deliberately choose otherwise. |
-| Built-in background process management can be avoided.                                      | Pi recommends tmux for long-running servers/debuggers and keeping bash synchronous.                                                 | Medium-high; good for simplicity, but our harness may eventually need supervised tool streaming.               |
+| Tool result data should separate model content from UI detail.                              | The article calls out separate tool result blocks for LLM content and UI rendering detail as a useful abstraction.                  | High; keep model-visible content distinct from transcript decoration.                                          |
+| Native scrollback is a good fit for linear coding-agent chats.                              | The article argues coding agents are mostly linear chat plus tool output, so terminal scrolling/search are valuable.                | Medium-high; products with dashboards or panes may still choose full-screen ownership.                         |
+| Built-in background process management can be avoided until it has clear value.             | Pi recommends tmux for long-running servers/debuggers and keeping bash synchronous.                                                 | Medium-high; long-running supervised tasks should be a deliberate feature, not an incidental side effect.      |
 | Plan mode and todos can be files.                                                           | Pi recommends `PLAN.md`/TODO files for persistent, visible planning state.                                                          | High; this aligns with this repo's simplicity rule.                                                            |
 | Permission prompts are not a reliable security boundary for shell commands.                 | Pi documents no built-in sandbox and says real isolation should come from OS, VM, container, or sandbox boundaries.                 | High; this should shape docs and UX language even if `thndrs` keeps narrower tools.                            |
 
@@ -101,7 +101,7 @@ Security is documented as an environment concern rather than a shell parser conc
 - Untrusted or unattended work should run inside a container, VM, micro-VM, remote sandbox, or
   policy-controlled sandbox with minimal mounted files and credentials.
 
-The useful lesson for `thndrs`: do not add command-permission classifiers unless they are backed by
+The useful lesson: do not add command-permission classifiers unless they are backed by
 a real process boundary. Prefer transparent local execution, narrow first-party tools, transcripted
 audit data, clear docs, and prompt instructions that steer the model toward restraint.
 
@@ -122,15 +122,15 @@ Useful `pi` prompt-level guardrails:
 - Put operational details in tool descriptions: working directory, timeout, cancellation, output
   truncation, and transcript/audit behavior.
 
-## Lessons for `thndrs`
+## Conceptual Lessons
 
-- Keep the first harness local and inspectable: no hidden planner, no hidden sub-agent,
+- Keep the harness local and inspectable: no hidden planner, no hidden sub-agent,
   no MCP surface.
-- Start with a typed event stream even if the first agent is fake.
-  UI should render `User`, `AssistantDelta`, `ToolStart`, `ToolOutput`, `ToolEnd`, `Error`, and `Done`.
+- Keep a typed event stream for user, assistant, reasoning, tool, error, and
+  completion states.
 - Represent tools as explicit Rust structs/functions with clear input/output;
-  defer provider abstraction until one provider works.
-- Store sessions as append-only JSONL eventually. For v0, in-memory transcript is enough.
+  defer broad provider abstraction until more than one provider truly exists.
+- Store sessions as append-only records when audit/resume matters.
 - Prefer CLI/file workflows for planning and context gathering. If users want a plan,
   write/read a Markdown file.
 - Do not build permission theater into the UI. If safety matters, design a real sandbox
@@ -141,18 +141,19 @@ Useful `pi` prompt-level guardrails:
 - Keep command guardrails mostly model-facing and tool-facing: prefer narrow tools, avoid
   unnecessary destructive commands, expose cwd/output/status clearly, and document that untrusted
   work belongs in a container/VM/sandbox.
-- Consider whether Ratatui full-screen mode conflicts with the Pi scrollback lesson.
-  If we keep alternate screen for v0, document that it is a tactical choice, not a
-  philosophical one.
+- Treat native scrollback versus full-screen ownership as a UX decision, not an
+  automatic consequence of the terminal UI library.
 
 ## Questions for Review
 
-- Should this Rust harness preserve native scrollback like Pi, or use Ratatui's normal
-  alternate-screen model first?
+- Should a Rust harness preserve native scrollback like Pi, or use a full-screen
+  model for richer panes and dashboards?
+  - **Recommendation**: Preserve native scrollback for chat-first workflows and choose full-screen ownership only when panes or dashboards become central.
 - What is the minimum event enum that supports streaming model text and tool calls?
-- Do we need real tool execution in v0, or is a scripted fake agent enough to validate
-  layout and input?
-- Where should project context be read from: just `AGENTS.md`, or also `README.md`/selected files?
+  - **Recommendation**: Start with typed events for user input, assistant/reasoning deltas, tool start/output/end, errors, cancellation, and completion.
+- When should project context expand beyond `AGENTS.md` into README files,
+  selected snippets, or explicit user attachments?
+  - **Recommendation**: Expand context only when the user asks for it or when task-local evidence shows AGENTS.md is insufficient.
 
 ## Connections
 
@@ -163,13 +164,15 @@ Useful `pi` prompt-level guardrails:
   retained-mode rendering, Pi containerization docs.
 - Contradictions or tensions: Pi's TUI is append-to-scrollback and TypeScript; this
   project targets Rust + Ratatui, which normally redraws a full viewport.
-- Useful applications: Build a minimal local coding harness whose complexity lives in
+- Conceptual use: build a local coding harness whose complexity lives in
   explicit event/data types, not hidden modes.
 
 ## Open Questions
 
-- Which model/provider should be first when real inference is added?
 - Should tool execution be synchronous only, with tmux recommended for long-running
   processes?
+  - **Recommendation**: Keep process execution simple, bounded, and transcripted first, and add supervised long-running processes only when cancellation and status requirements justify it.
 - How should abort/stop propagate through async model streams and tools?
+  - **Recommendation**: Propagate cancellation through one shared turn-control path so model streams, tools, and UI state settle consistently.
 - What session format will be stable enough to inspect and replay?
+  - **Recommendation**: Use append-only typed records with stable identifiers, final replayable content, and capped tool settlements as the inspectable baseline.

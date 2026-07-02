@@ -179,12 +179,17 @@ renders once, and converts the buffer to text.
 
 - What makes Yoga central to Gridland's architecture rather than an optional
   helper?
+  - **Recommendation**: Treat Yoga as central only when the UI is represented as a reusable component tree needing Flexbox layout.
 - How does Gridland synchronize the React renderable tree with the Yoga tree?
+  - **Recommendation**: Keep renderable-tree mutations and Yoga-node mutations in the same host operations so layout cannot drift from component state.
 - Why does text need a measure function instead of being handled directly by
   Yoga?
+  - **Recommendation**: Provide explicit text measurement because Yoga computes boxes but does not know terminal cell width or text wrapping.
 - How do borders and gaps affect both layout and paint?
+  - **Recommendation**: Account for borders and gaps in layout before painting so visual cells match computed geometry.
 - Why can the same Yoga-computed component tree target browser, terminal, and
   headless output?
+  - **Recommendation**: Share layout geometry but keep painting, clipping, and text measurement target-specific.
 
 ## Connections
 
@@ -195,19 +200,23 @@ renders once, and converts the buffer to text.
   browser canvas renderers.
 - Contradictions or tensions: Yoga simplifies nested box geometry but requires a
   parallel layout tree, explicit text measurement, and target-specific painting.
-- Useful applications: full-screen TUI frameworks, browser-rendered terminal
+- Conceptual uses: full-screen TUI frameworks, browser-rendered terminal
   UIs, reusable component libraries, headless rendering of component trees.
 
 ## Open Questions
 
 - How much of this design comes from upstream OpenTUI versus Gridland-local
   additions?
+  - **Recommendation**: Treat Yoga/Gridland as a reference for full component trees and multi-target layout, not as a dependency for simple row-first terminal rendering.
 - Does Gridland ever bypass Yoga for fixed row output, or is all visible output
   rooted in the renderable tree?
+  - **Recommendation**: Keep fixed row output outside Yoga unless the UI is already committed to a component tree.
 - How does Gridland handle wide Unicode cells and ambiguous-width characters
   across browser and terminal targets?
+  - **Recommendation**: Treat browser and terminal width behavior as separate measurement policies even when they share a layout tree.
 - Could the browser/headless path share more incremental layout state instead of
   recalculating layout each render?
+  - **Recommendation**: Add incremental layout sharing only after profiling shows full recalculation is a real bottleneck.
 
 ## Notable Quotes
 

@@ -15,9 +15,10 @@ Source:
 
 ## Summary
 
-Ratatui leaves application architecture to the app; for this project, the smallest
-durable shape is Elm-style state plus messages, with a thin terminal/event wrapper and
-only later splitting into components if local state proves necessary.
+Ratatui leaves application architecture to the app. The durable lesson is that
+terminal agent apps stay simpler when state, messages, update logic, terminal
+I/O, and rendering boundaries are explicit, even if the final renderer does not
+use Ratatui widgets directly.
 
 ## Key Ideas
 
@@ -29,21 +30,22 @@ only later splitting into components if local state proves necessary.
   calls through the event loop.
 - **Terminal concerns deserve a wrapper:** The terminal/event-handler recipe separates
   raw mode, alternate screen, tick/render timing, resize, paste, mouse, and cleanup from app logic.
-- **Components are useful later:** Component architecture co-locates init, event handling,
-  update, and render per component, but it adds trait/object structure. For a tiny harness,
-  start with functions and split only when the file stops being readable.
-- **Flux is probably too much for v0:** Dispatcher/store/view vocabulary is helpful for larger
-  apps with multiple data sources, but a separate dispatcher duplicates what a single
-  `update(app, msg)` already gives us.
+- **Components are useful when local state deserves ownership:** Component
+  architecture co-locates init, event handling, update, and render per component,
+  but it adds trait/object structure. Split when it makes state ownership clearer,
+  not just because a framework pattern exists.
+- **Flux is often too much for a small harness:** Dispatcher/store/view vocabulary
+  is helpful for larger apps with multiple data sources, but a separate
+  dispatcher can duplicate what a single `update(app, msg)` already provides.
 
 ## Claims & Evidence
 
 | Claim                                                               | Support                                                                                                                                                                                       | Caveat / Confidence                                                                 |
 | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| TEA is the best initial pattern for a minimal Rust/Ratatui harness. | The TEA page shows a loop that renders, maps terminal events into messages, and repeatedly calls `update` until no message remains.                                                           | High for v0; less clear once tool execution and session branching grow.             |
+| TEA is a good base pattern for a Rust terminal harness.             | The TEA page shows a loop that renders, maps terminal events into messages, and repeatedly calls `update` until no message remains.                                                           | High; complex side effects may still need clear async/event boundaries.             |
 | A reusable TUI wrapper is worth building early.                     | The terminal/event-handler recipe handles enter/exit, raw mode, alternate screen, tick/render rates, crossterm events, cancellation, paste/mouse support, suspend/resume, and `Drop` cleanup. | High, but we can implement less than the full recipe initially.                     |
 | Component traits should not be the starting point.                  | Component architecture is explicitly more trait/object oriented and gives each component its own event handlers and state.                                                                    | Medium; if input editing gets complex, a small `Prompt` component may be justified. |
-| Flux is overkill for the first implementation.                      | Flux adds dispatcher/store/action/view roles for predictable data flow in complex multi-view apps.                                                                                            | High for this repository's current three-file state.                                |
+| Flux is often overkill before multiple stores exist.                 | Flux adds dispatcher/store/action/view roles for predictable data flow in complex multi-view apps.                                                                                            | High; reconsider only when one update path becomes a real bottleneck.               |
 
 ## Important Terms
 
@@ -59,10 +61,15 @@ only later splitting into components if local state proves necessary.
 ## Questions for Review
 
 - Why is a single `update` function a better first fit than a component trait hierarchy?
-- Which terminal details should be hidden behind a wrapper before app logic is written?
+  - **Recommendation**: Start with one update path because it keeps state transitions obvious until independent component state actually appears.
+- Which terminal details should be hidden behind a wrapper so app logic stays
+  testable?
+  - **Recommendation**: Hide raw mode, screen setup, event polling, terminal size, cleanup, and backend writes behind a thin wrapper.
 - How can `update` chain follow-up messages without making the event loop know about
   business logic?
+  - **Recommendation**: Let `update` return follow-up messages and keep the event loop responsible only for delivery.
 - When would this harness need a component boundary?
+  - **Recommendation**: Add a component boundary when a subview owns enough state and behavior that keeping it inline makes the app harder to reason about.
 
 ## Connections
 
@@ -72,12 +79,15 @@ only later splitting into components if local state proves necessary.
   agent-core event flow.
 - Contradictions or tensions: Ratatui examples often use alternate-screen full-screen UI;
   Pi argues coding-agent chat works better when preserving native scrollback.
-- Useful applications: Use Ratatui's TEA structure for state, but decide separately whether
-  the final UX should own the full terminal viewport.
+- Conceptual use: borrow TEA structure for state, while deciding separately
+  whether the final UX owns the full terminal viewport or preserves native
+  scrollback.
 
 ## Open Questions
 
-- Should `thndrs` use alternate screen from the start, or follow Pi's
-  append-to-scrollback approach even though Ratatui is usually full-screen?
+- When should component boundaries be introduced?
+  - **Recommendation**: Use a single update/message path with a thin terminal wrapper until splitting components makes state ownership clearer rather than just more abstract.
 - Which text editor/input crate should handle multi-line prompt editing, if any?
+  - **Recommendation**: Keep input editing local until a crate solves a proven editing gap without taking over rendering.
 - How much async infrastructure is needed before real model/tool streaming exists?
+  - **Recommendation**: Add only enough async structure to deliver typed events into the update loop and defer broader task orchestration.

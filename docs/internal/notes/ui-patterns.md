@@ -35,7 +35,8 @@ suggestions, model/status display, and keyboard-first focus handling.
   This is directly transferable to Ratatui constraints.
 - **Bottom-sticky transcript:** The AI chat demo uses a scrollbox with bottom sticky
   behavior, `paddingX={1}`, `paddingBottom={1}`, and a one-cell gap between messages.
-  `thndrs` should keep newest content pinned while preserving intentional breathing room.
+  The transferable lesson is to keep newest content pinned while preserving
+  intentional breathing room.
 - **Role shells, not labels only:** `Message` aligns user content to the right and
   assistant content to the left, with message content bounded to about `85%` width and
   padded inside the bubble. Tool/reasoning rows remain siblings rather than being hidden
@@ -49,17 +50,17 @@ suggestions, model/status display, and keyboard-first focus handling.
 
 ## Claims & Evidence
 
-| Claim                                                                            | Support                                                                                                                            | Caveat / Confidence                                                      |
-| -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| The layout should be sidebar + transcript + bottom prompt.                       | Gridland's AI chat demo composes `SideNav`, a scrollbox message area, and `PromptInput` with dividers/model label.                 | High; this is the requested visual reference.                            |
-| Messages should stay SDK/runtime agnostic.                                       | Gridland's docs say the consumer maps Vercel AI SDK parts into message subcomponents; `Message` itself does not depend on the SDK. | High; Rust harness should model transcript parts itself and render them. |
-| Tool/reasoning UI should be sibling content, not hidden inside a message bubble. | Gridland removed `Message.Reasoning`/`Message.ToolCall` and recommends composing reasoning blocks separately.                      | Medium-high; terminal width may force simpler rendering.                 |
-| Prompt should own stop/error/submitted/streaming state.                          | `PromptInput` status controls disabled state, Escape stop handling, and status icon/hint.                                          | High; this maps to a simple Rust `RunStatus` enum.                       |
-| Command registry is optional in v0.                                              | Gridland uses `CommandProvider` for `/model` and `/clear`, but `PromptInput` also accepts commands directly.                       | High; start with a static command match in `update`.                     |
-| Transcript spacing should be deliberate, not accidental.                         | Gridland's message area uses one-cell horizontal padding, bottom padding, and one-cell vertical gaps between message groups.       | High; our snapshots currently rely on dense adjacent rows.               |
-| Prompt dividers can carry focus/status.                                          | Gridland's prompt divider accepts color and dashed/solid style, with status-specific prompt icons.                                 | Medium-high; useful for streaming/error focus states in Ratatui.         |
+| Claim                                                                            | Support                                                                                                                            | Caveat / Confidence                                                   |
+| -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Sidebar + transcript + bottom prompt is a proven chat shell.                     | Gridland's AI chat demo composes `SideNav`, a scrollbox message area, and `PromptInput` with dividers/model label.                 | High as a reference shape; specific products may hide the sidebar.    |
+| Messages should stay SDK/runtime agnostic.                                       | Gridland's docs say the consumer maps Vercel AI SDK parts into message subcomponents; `Message` itself does not depend on the SDK. | High; the transcript model should own semantic parts and render them. |
+| Tool/reasoning UI should be sibling content, not hidden inside a message bubble. | Gridland removed `Message.Reasoning`/`Message.ToolCall` and recommends composing reasoning blocks separately.                      | Medium-high; terminal width may force simpler rendering.              |
+| Prompt should own stop/error/submitted/streaming state.                          | `PromptInput` status controls disabled state, Escape stop handling, and status icon/hint.                                          | High; this maps cleanly to a small run-status state.                  |
+| A command registry is optional until commands become user-extensible.            | Gridland uses `CommandProvider` for `/model` and `/clear`, but `PromptInput` also accepts commands directly.                       | High; direct command matching stays simpler for a small command set.  |
+| Transcript spacing should be deliberate, not accidental.                         | Gridland's message area uses one-cell horizontal padding, bottom padding, and one-cell vertical gaps between message groups.       | High; spacing changes should be captured intentionally in snapshots.  |
+| Prompt dividers can carry focus/status.                                          | Gridland's prompt divider accepts color and dashed/solid style, with status-specific prompt icons.                                 | Medium-high; useful for streaming/error focus states in terminal UIs. |
 
-## Source-Level Details To Borrow
+## Source-Level Details To Borrow Conceptually
 
 - Message rows should be grouped by semantic block: user/assistant message, reasoning,
   tool result, source/result metadata. Within a group, content can wrap, but the group's
@@ -91,13 +92,18 @@ for`, running/done), not a normal assistant message row.
 
 ## Open Questions
 
-- Which parts of Gridland's prompt input are essential for v0: slash commands, file
-  mentions, history, model label, or stop?
+- Which parts of Gridland's prompt input are essential for the active product:
+  slash commands, file mentions, history, model label, or stop?
+  - **Recommendation**: Copy Gridland's cell-budget discipline and prompt/transcript structure first, then add sidebar, commands, and richer prompt states only when active workflows need them.
 - Should user messages align right in a narrow terminal, or should all messages align
   left for readability?
-- Do we need a sidebar before sessions exist, or can it start as a static placeholder?
+  - **Recommendation**: Prefer left alignment in narrow terminals and reserve right alignment for widths where it remains readable.
+- Does the product need a sidebar, or is native scrollback plus session commands
+  enough for the current workflow?
+  - **Recommendation**: Defer a sidebar until session navigation becomes frequent enough that commands or native scrollback feel slow.
 - How should tool calls render: compact status rows, expandable blocks, or full
   transcript entries?
+  - **Recommendation**: Render tool calls as compact status rows with access to details when output is long, failed, or user-relevant.
 
 ## Connections
 
@@ -105,13 +111,7 @@ for`, running/done), not a normal assistant message row.
   layout transfers cleanly.
 - Related sources: Gridland demo file `packages/demo/demos/ai-chat-interface.tsx`, docs
   block `packages/docs/content/docs/blocks/ai-chat-interface.mdx`.
-- Contradictions or tensions: Gridland uses React/OpenTUI focus/provider abstractions;
-  `thndrs` should avoid recreating those until needed.
-- Useful applications: Copy the screen structure, not the framework architecture.
-
-## Open Questions
-
-- Should the sidebar be hidden below a minimum width?
-- How much scrollback should be kept in memory before persistence exists?
-- Which command set should exist on day one: `/clear`, `/model`, `/quit`, `/help`,
-  maybe `/run`?
+- Contradictions or tensions: Gridland uses React/OpenTUI focus/provider
+  abstractions; terminal harnesses should avoid recreating those until needed.
+- Conceptual use: copy the screen structure and cell-budget discipline, not the
+  framework architecture.

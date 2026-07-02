@@ -16,9 +16,9 @@ Sources: >
 
 ## Summary
 
-`AGENTS.md` should be treated as scoped, repo-owned operating instructions for
-the harness: useful enough to load automatically, but never powerful enough to
-override user instructions, tool permissions, or safety limits.
+`AGENTS.md` should be treated as scoped, repo-owned operating instructions:
+useful enough to load automatically, but never powerful enough to override user
+instructions, tool permissions, or safety limits.
 
 ## Key Ideas
 
@@ -48,9 +48,9 @@ override user instructions, tool permissions, or safety limits.
 | Claim                                                 | Support                                                                                                                                                                                                                  | Caveat / Confidence                                                |
 | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
 | AGENTS.md is intentionally simple and interoperable.  | agents.md describes it as an open format and standard Markdown with no required fields.                                                                                                                                  | High.                                                              |
-| Nested files should be supported.                     | agents.md recommends per-package files and says the nearest file in the tree takes precedence.                                                                                                                           | High. Need define behavior when a task spans multiple subtrees.    |
+| Nested files are part of the AGENTS.md model.         | agents.md recommends per-package files and says the nearest file in the tree takes precedence.                                                                                                                           | High. Need define behavior when a task spans multiple subtrees.    |
 | AGENTS.md should not be treated as a permission file. | agents.md describes project guidance, while OpenCode puts permissions in separate config keys with allow/ask/deny.                                                                                                       | High. Keep permissions in harness/config, not repo prose.          |
-| Harnesses should expose loaded context.               | Pi notes stress visible context; agents.md positions the file as explicit instructions.                                                                                                                                  | High for `thndrs` UX.                                              |
+| Harnesses should expose loaded context.               | Pi notes stress visible context; agents.md positions the file as explicit instructions.                                                                                                                                  | High for explainable agent behavior.                               |
 | AGENTS.md quality matters.                            | Research on configuration smells found frequent context bloat, lint leakage, skill leakage, and conflicting instructions; another paper found context files can hurt performance when they add unnecessary requirements. | Medium-high. Findings are recent and may vary by agent/model/task. |
 | Good AGENTS.md files can improve efficiency.          | One study found AGENTS.md associated with lower median runtime and reduced output token consumption while maintaining comparable task completion behavior.                                                               | Medium. Small sample and not a guarantee for every repo.           |
 
@@ -91,12 +91,21 @@ Observed examples:
 
 ## Open Questions
 
-- Should alpha load only root AGENTS.md, or should nested support ship with the
-  first real provider?
-- What is the default size cap for AGENTS.md content?
-- Should `thndrs` warn when a nested AGENTS.md exists but no target file is known
-  yet?
+- When should a harness load only root AGENTS.md versus supporting nested scoped
+  files?
+  - **Recommendation**: Treat AGENTS.md as visible scoped guidance and keep
+    permissions, policy, and direct user intent outside repo prose.
+- What default size cap keeps AGENTS.md useful without letting it dominate the
+  prompt?
+  - **Recommendation**: Keep AGENTS.md size-capped and visibly truncated so project
+    guidance stays useful without becoming the dominant prompt input.
+- Should a harness warn when a nested AGENTS.md exists but no target file is
+  known yet?
+  - **Recommendation**: Warn only when nested guidance is likely relevant to the
+    active task, otherwise record it in diagnostics rather than interrupting the user.
 - Should AGENTS.md be reloaded automatically when it changes during a session?
+  - **Recommendation**: Reload AGENTS.md at turn boundaries and show the changed
+    context metadata rather than changing model-visible instructions mid-turn.
 
 ## Connections
 
@@ -107,15 +116,24 @@ Observed examples:
   [ui-patterns](./ui-patterns.md), [providers/umans](./providers/umans.md).
 - Contradictions or tensions: AGENTS.md can reduce repeated explanation, but it
   can also add irrelevant constraints and token cost.
-- Useful applications: root context loading in alpha; nested scoped loading and
-  session audit trail by v1.
+- Conceptual uses: root context loading, nested scoped loading, context
+  visibility, and session audit trails.
 
 ## Open Questions
 
 - Whether to lint AGENTS.md for common smells or only document guidance.
+  - **Recommendation**: Document quality guidance first and add linting only for
+    high-signal issues such as excessive length, conflicting instructions, or
+    permission-like claims.
 - Whether to support compatibility symlinks such as `AGENT.md` -> `AGENTS.md`.
+  - **Recommendation**: Support only the standard `AGENTS.md` name unless compatibility
+    data shows alternate names are common enough to justify extra precedence rules.
 - Whether to offer a `thndrs init-agents` scaffold command after v1.
+  - **Recommendation**: Defer scaffolding until the recommended AGENTS.md shape is
+    stable and validated by real project use.
 - How to display conflicting nested instructions without overwhelming the TUI.
+  - **Recommendation**: Show a compact loaded-context summary in the TUI and reserve
+    detailed conflict explanation for an inspect/debug view.
 
 ## Notable Quotes
 

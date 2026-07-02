@@ -31,13 +31,13 @@ compaction, subagents, recipes, app generation, permissions, and tiny-model beha
 
 ## Claims & Evidence
 
-| Claim                                                                    | Support                                                                                                              | Caveat / Confidence                                      |
-| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| Goose favors focused prompt templates over one monolith.                 | Directory files include `system.md`, `plan.md`, `compaction.md`, `subagent_system.md`, `recipe.md`, and app prompts. | High.                                                    |
-| Dynamic tool context belongs near the runtime data.                      | `system.md` renders active extensions and extension instructions conditionally.                                      | High.                                                    |
-| Planning and compaction are treated as separate tasks.                   | `plan.md` and `compaction.md` define specialized outputs and context requirements.                                   | High.                                                    |
-| Subagent prompts can reduce tool sprawl by emphasizing scope and limits. | `subagent_system.md` tells the agent to use the minimum tools needed and stay within assigned scope.                 | Medium-high; `thndrs` does not currently have subagents. |
-| Small-model prompts benefit from concrete examples.                      | `tiny_model_system.md` shows how to run commands and when not to.                                                    | Medium; useful pattern, not a required feature.          |
+| Claim                                                                    | Support                                                                                                              | Caveat / Confidence                                                  |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| Goose favors focused prompt templates over one monolith.                 | Directory files include `system.md`, `plan.md`, `compaction.md`, `subagent_system.md`, `recipe.md`, and app prompts. | High.                                                                |
+| Dynamic tool context belongs near the runtime data.                      | `system.md` renders active extensions and extension instructions conditionally.                                      | High.                                                                |
+| Planning and compaction are treated as separate tasks.                   | `plan.md` and `compaction.md` define specialized outputs and context requirements.                                   | High.                                                                |
+| Subagent prompts can reduce tool sprawl by emphasizing scope and limits. | `subagent_system.md` tells the agent to use the minimum tools needed and stay within assigned scope.                 | Medium-high; only relevant if the product has child-agent workflows. |
+| Small-model prompts benefit from concrete examples.                      | `tiny_model_system.md` shows how to run commands and when not to.                                                    | Medium; useful pattern, not a required feature.                      |
 
 ## Important Terms
 
@@ -51,21 +51,32 @@ compaction, subagents, recipes, app generation, permissions, and tiny-model beha
 
 ## Questions for Review
 
-- Which Goose prompt roles are useful to copy as separate `thndrs` features, and which should remain external inspiration?
-- How can `thndrs` keep dynamic tool/context instructions visible without importing Goose's extension system?
-- What is the smallest useful continuation summary for `thndrs` sessions?
+- Which Goose prompt roles are useful as separate product features, and which
+  should remain external inspiration?
+  - **Recommendation**: Treat compaction and session naming as plausible future features, and leave subagents, recipes, and app generation as external inspiration.
+- How can dynamic tool/context instructions stay visible without importing
+  Goose's extension system?
+  - **Recommendation**: Render dynamic tool and context sections from local runtime data rather than adopting an extension framework.
+- What is the smallest useful continuation summary for a coding-agent session?
+  - **Recommendation**: Preserve user intent, changed files, tool failures, constraints, and the next concrete step.
 
 ## Connections
 
-- Related ideas: `thndrs` prompt assembly, session persistence, future compaction, tool catalog rendering.
+- Related ideas: prompt assembly, session persistence, compaction, tool catalog rendering.
 - Related sources: [prompts](prompts.md), [sessions](./sessions.md), [pi-prompts](pi-prompts.md).
-- Tension: Goose supports extensions and subagents; `thndrs` should not add those until the simpler local harness needs them.
-- Useful application: keep prompt fragments focused and put runtime-specific context in generated sections.
+- Tension: Goose supports extensions and subagents; smaller harnesses should add
+  those only when the local workflow needs them.
+- Conceptual use: keep prompt fragments focused and put runtime-specific context
+  in generated sections.
 
 ## Open Questions
 
-- Should `thndrs` eventually add a compaction prompt, or wait until session persistence is stable?
+- Should a harness add a compaction prompt only after session persistence is stable?
+  - **Recommendation**: Add compaction only after sessions can persist enough
+    structured context to verify what was preserved and what was dropped.
 - Should future "plan" behavior be a mode, a slash command, or just ordinary user prompting?
+  - **Recommendation**: Keep runtime context generated and visible, and split
+    specialized prompts only when the workflow is real and repeated.
 
 ## Takeaways
 

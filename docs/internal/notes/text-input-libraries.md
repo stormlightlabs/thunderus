@@ -149,39 +149,50 @@ padding, truncation, cursor coordinates, and deterministic snapshots.
 ## Questions For Review
 
 - Which prompt operations should move by grapheme rather than char?
+  - **Recommendation**: Move cursor left/right, backspace, delete, and selection boundaries to grapheme-aware behavior first.
 - Should word movement use Unicode word boundaries instead of whitespace-only
   scanning?
+  - **Recommendation**: Use Unicode word boundaries once grapheme-safe cursor movement is in place and tests cover mixed-language input.
 - Where do we need display width, and where do we need text boundaries?
+  - **Recommendation**: Use display width for terminal layout and cursor columns, and text boundaries for editing operations.
 - What prompt size and edit pattern would justify a rope instead of `String`?
+  - **Recommendation**: Consider a rope only after benchmarks show large pasted prompts with middle edits make `String` mutation or indexing a bottleneck.
 - What transcript feature would justify a rope-derived view instead of
   structured entries alone?
+  - **Recommendation**: Add a rope-derived view only for editable or searchable rendered transcript text, not as the canonical transcript store.
 - Which wrapping mode matters more for assistant prose: stable first-fit or
   nicer optimal-fit paragraphs?
+  - **Recommendation**: Prefer stable first-fit wrapping in the live UI and reserve optimal-fit paragraph wrapping for exported or static prose.
 - Can Textwrap handle our desired CJK and emoji line-break behavior better than
   the current custom wrapper without destabilizing snapshots?
+  - **Recommendation**: Evaluate Textwrap behind fixtures for CJK, emoji, and snapshot stability before replacing custom wrapping.
 
 ## Connections
 
 - Related ideas: Unicode Standard Annex #29, Unicode line breaking, terminal
   cell measurement, editor buffer design, native scrollback, row snapshots.
-- Related sources: `docs/internal/specs/v0.md`, `src/input.rs`,
+- Related sources: `ROADMAP.md`, `src/input.rs`,
   `src/renderer/layout.rs`, `src/renderer/cursor.rs`.
 - Contradictions or tensions: A library can improve correctness while still
   making the code harder to reason about. The first adoption target should be a
   small boundary or wrapping helper, not a replacement editor.
-- Useful applications: grapheme-safe editing, Unicode word movement, optional
+- Conceptual uses: grapheme-safe editing, Unicode word movement, optional
   plain-prose wrapping, tests that separate storage offsets from display cells.
 
 ## Open Questions
 
 - Should the prompt cursor be stored as a grapheme index, a byte index on
   validated grapheme boundaries, or continue as char index with helper methods?
+  - **Recommendation**: Add grapheme-boundary helpers before changing storage, and adopt Ropey or Textwrap only behind narrow boundaries when tests show the current model is insufficient.
 - Should `unicode-segmentation` become a direct dependency, or should we first
   add tests that expose the current char-index limitations?
+  - **Recommendation**: Add failing Unicode editing tests first, then introduce `unicode-segmentation` to satisfy the demonstrated behavior.
 - Should Textwrap's Unicode line-breaking behavior replace only `wrap_text`, or
   should styled `wrap_spans` stay fully custom?
+  - **Recommendation**: Evaluate Textwrap behind plain-text wrapping only and keep styled span wrapping renderer-owned.
 - Do we need paragraph refilling on terminal resize for already-committed prose,
   or is current re-rendering of semantic entries enough?
+  - **Recommendation**: Re-render semantic entries on resize and avoid paragraph refilling until users need prose-quality reflow for committed text.
 
 ## Takeaways
 

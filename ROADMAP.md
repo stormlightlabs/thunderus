@@ -1,70 +1,49 @@
-# v1 Spec
-
-v1 defines the supported user-facing contract for `thndrs` after the alpha
-renderer replacement and core tool/session behavior settle. v0 is allowed to
-change terminal internals aggressively; v1 should make the installed CLI
-predictable to use repeatedly.
+# Roadmap
 
 ## References
 
-- [v0 / Alpha Renderer Spec](./v0.md)
-- [Prompt Editing Libraries and Renderer Ownership](../notes/prompt-renderer-research.md)
-- [Text Input Library Lessons](../notes/text-input-libraries.md)
-- [Pi Coding Agent Harness Lessons](../notes/pi.md)
+- [Prompt Editing Libraries and Renderer Ownership](docs/internal/notes/prompt-renderer-research.md)
+- [Text Input Library Lessons](docs/internal/notes/text-input-libraries.md)
+- [Pi Coding Agent Harness Lessons](docs/internal/notes/pi.md)
+- [Ratatui Application Patterns](docs/internal/notes/ratatui.md)
+- [Ratatui Snapshot Testing](docs/internal/notes/ratatui-testing.md)
+- [UI Patterns](docs/internal/notes/ui-patterns.md)
+- [Agent Skills Specification](docs/internal/notes/skills.md)
 - [Semantic Versioning](https://semver.org/)
 - [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 - [Rust CLI Book: Testing](https://rust-cli.github.io/book/tutorial/testing.html)
 - [Rust CLI Book: Packaging](https://rust-cli.github.io/book/tutorial/packaging.html)
 - [Rust CLI Book: Config files](https://rust-cli.github.io/book/in-depth/config-files.html)
 
-## Release Goal
+## Completed Renderer Foundation
 
-Goal: define the supported user-facing contract and make the harness predictable
-enough to install, configure, run, inspect, and upgrade.
+The direct renderer work established the terminal interface direction:
 
-Required:
+- Completed transcript blocks are committed into native terminal scrollback.
+- A small live region redraws prompt, status, picker/help, suggestions, and
+  active streaming content.
+- Mouse wheel and trackpad scrolling are left to the terminal except where a
+  focused picker explicitly handles selection.
+- Prompt input supports multiline editing, wrapping, cursor movement, and
+  history without cursor drift.
+- Resize recomputes rows and cursor position deterministically.
+- Rendering is testable without Ratatui widgets as the source of truth.
 
-- Direct inline renderer from v0 is the default terminal UI.
-- Renderer behavior is documented for native scrollback, live prompt/status
-  redraw, resize, mouse scrolling, multiline input, file picker, help, and
-  `@` mentions.
-- Config file support with CLI/env overrides and clear precedence.
-- Non-TUI session inspect/export commands.
-- Read-only LSP-backed code intelligence where a language server exists.
-- Skill engine support for reusable task instructions with progressive
-  disclosure.
-- Agent self-knowledge for current prompt assembly, loaded resources, active
-  tools, and `thndrs` docs.
-- Release notes follow a changelog format.
-- Packaging supports at least `cargo install`.
-- CI runs formatting, clippy, unit tests, renderer snapshots, integration tests,
-  and no-network provider fixture tests.
-- Upgrade behavior is documented for alpha session/config changes.
+The direct renderer owns:
 
-## Public Contract
+- terminal size and event integration;
+- row layout, wrapping, padding, truncation, and ANSI style output;
+- cursor placement;
+- committed transcript writes;
+- live-region clear/redraw;
+- resize invalidation.
 
-For v1, the supported public surface includes:
-
-- CLI flags, subcommands, and exit codes.
-- Config file path, keys, and precedence.
-- Environment variables.
-- Session/event storage format and compatibility policy.
-- Non-TUI inspect/export output shapes.
-- Tool names, inputs, outputs, errors, and audit metadata.
-- Renderer behavior that users can rely on.
-- Search fallback behavior when `fd` or `rg` is missing.
-- LSP tool names, inputs, outputs, and no-server fallback behavior.
-- Skill discovery, activation, loading, validation, and precedence rules.
-- Agent self-description/introspection output shape.
-- Documented install and upgrade workflow.
-
-Implementation modules and renderer internals are not public API. The row model
-can change as long as the visible behavior and documented CLI/session contracts
-hold.
+Ratatui may remain useful for tests, references, or alternate-screen
+experiments, but it is not the source of truth for inline rendering.
 
 ## Renderer Contract
 
-The v1 terminal UI should guarantee:
+The supported terminal UI should guarantee:
 
 - Completed transcript blocks remain in native terminal scrollback.
 - The live region redraws only prompt, status, active streaming output, picker,
@@ -85,13 +64,80 @@ Prompt editing should use Unicode-aware text boundaries:
 - Benchmark long-prompt editing before replacing the prompt backing store with
   a rope or other editor buffer.
 
-The renderer should not guarantee internal Ratatui widget compatibility.
-Ratatui may remain only for tests, experiments, or unrelated alternate-screen
-surfaces.
+## Message Rendering
+
+Message blocks should follow the Gridland/Codex/Pi direction:
+
+- full-width backgrounds for colored blocks;
+- one-cell horizontal padding inside blocks;
+- vertical padding inside blocks where the block is visually grouped;
+- labels above the body, not cramped into the body text;
+- role-specific label colors;
+- assistant, reasoning, tool, process, error, and user blocks share one wrapping
+  and padding path;
+- long paths, commands, URLs, and diagnostics truncate or wrap intentionally;
+- syntax highlighting applies only to code fences, diffs, snippets, and useful
+  command output.
+
+## Prompt And Accessories
+
+The prompt remains an internal model rather than a prompt-library-owned editor.
+
+Expected behavior:
+
+- multiline insertion with `shift+enter` and `ctrl+j`;
+- cursor-aware editing across wrapped and explicit newline rows;
+- history navigation that preserves the current draft when appropriate;
+- stable prompt indent on every visual row;
+- slash-command suggestions rendered as rows, not overlays;
+- file picker and `@` mentions rendered as rows, not overlays;
+- `escape` closes picker/help/suggestions before it stops work or exits a mode;
+- accepted file mentions can be styled distinctly in the prompt without changing
+  provider-visible prompt semantics at first.
+
+## Public Contract
+
+The supported user-facing contract includes:
+
+- CLI flags, subcommands, and exit codes.
+- Config file path, keys, and precedence.
+- Environment variables.
+- Session/event storage format and compatibility policy.
+- Non-TUI inspect/export output shapes.
+- Tool names, inputs, outputs, errors, and audit metadata.
+- Renderer behavior that users can rely on.
+- Search fallback behavior when `fd` or `rg` is missing.
+- LSP tool names, inputs, outputs, and no-server fallback behavior.
+- Skill discovery, activation, loading, validation, and precedence rules.
+- Agent self-description/introspection output shape.
+- Documented install and upgrade workflow.
+
+Implementation modules and renderer internals are not public API. The row model
+can change as long as the visible behavior and documented CLI/session contracts
+hold.
+
+## Requirements
+
+- Direct inline renderer is the default terminal UI.
+- Renderer behavior is documented for native scrollback, live prompt/status
+  redraw, resize, mouse scrolling, multiline input, file picker, help, and
+  `@` mentions.
+- Config file support with CLI/env overrides and clear precedence.
+- Non-TUI session inspect/export commands.
+- Read-only LSP-backed code intelligence where a language server exists.
+- Skill engine support for reusable task instructions with progressive
+  disclosure.
+- Agent self-knowledge for current prompt assembly, loaded resources, active
+  tools, and `thndrs` docs.
+- Release notes follow a changelog format.
+- Packaging supports at least `cargo install`.
+- CI runs formatting, clippy, unit tests, renderer snapshots, integration tests,
+  and no-network provider fixture tests.
+- Upgrade behavior is documented for session/config changes.
 
 ## CLI And Config
 
-v1 adds non-TUI `inspect` and `export` commands for persisted sessions.
+Add non-TUI `inspect` and `export` commands for persisted sessions.
 
 Config precedence:
 
@@ -129,8 +175,7 @@ Inspect/export must not leak API keys or machine-specific transient data.
 
 ## Search And File Discovery
 
-v1 should document that repository file discovery prefers `fd` and content
-search prefers `rg --json`.
+Repository file discovery prefers `fd`; content search prefers `rg --json`.
 
 Required fallback behavior:
 
@@ -142,8 +187,8 @@ Required fallback behavior:
 
 ## LSP And Code Intelligence
 
-v1 should add read-only LSP-backed tools when they are clearly better than plain
-file search.
+Add read-only LSP-backed tools only when they are clearly better than plain file
+search.
 
 Supported operations:
 
@@ -172,10 +217,8 @@ Out of scope:
 
 ## Skill Engine
 
-Phase goal: add a small skill engine modeled on the Agent Skills specification,
-without importing a plugin marketplace, installer, or multi-agent framework.
-
-Reference note: [Agent Skills Specification](../notes/skills.md).
+Add a small skill engine modeled on the Agent Skills specification, without
+importing a plugin marketplace, installer, or multi-agent framework.
 
 Supported skill shape:
 
@@ -217,8 +260,8 @@ Out of scope:
 
 ## Agent Self-Knowledge
 
-v1 should let the agent answer questions about `thndrs` itself without guessing
-from stale model knowledge.
+The agent should answer questions about `thndrs` itself without guessing from
+stale model knowledge.
 
 Required behavior:
 
@@ -243,9 +286,9 @@ Non-goals:
 - No ability for project files, skills, or remote resources to rewrite harness
   identity, direct instructions, tool schemas, or safety boundaries.
 
-## Additional v1 Fits
+## Additional Fits
 
-These fit v1 if they remain narrow and reuse the session/tool contracts:
+These fit if they remain narrow and reuse the session/tool contracts:
 
 - Session title generation from transcript metadata.
 - Transcript chunk summaries for long sessions.
@@ -260,7 +303,7 @@ These fit v1 if they remain narrow and reuse the session/tool contracts:
 - No subagent or multi-agent orchestration.
 - No custom terminal multiplexer.
 
-## Release Candidate Bar
+## Release Bar
 
 - No known data-loss bugs.
 - No known terminal cleanup bugs.
@@ -270,7 +313,7 @@ These fit v1 if they remain narrow and reuse the session/tool contracts:
 - All non-network tests pass from a clean checkout.
 - Manual Umans smoke test passes with `UMANS_API_KEY`.
 - Packaging smoke test passes from a local package artifact.
-- v1 known limitations are documented.
+- Known limitations are documented.
 
 ## Required Checks
 
