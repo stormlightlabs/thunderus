@@ -116,6 +116,30 @@ Implementation modules and renderer internals are not public API. The row model
 can change as long as the visible behavior and documented CLI/session contracts
 hold.
 
+## Architecture Refactors
+
+- Normalize provider wire streams before they enter the app. Provider modules
+  should own Anthropic/OpenAI/Umans/OpenCode protocol quirks and emit a small
+  provider-neutral stream/turn shape. The agent loop should own retry,
+  cancellation, tool orchestration, and turn budgeting, not SSE details.
+- Turn tools into executable registry entries. Each tool module should own its
+  model-visible definition, input parsing, execution, and output mapping. The
+  catalog should be derived from the registry rather than manually synchronized
+  with a large dispatch match.
+- Introduce a small runtime/run controller between terminal I/O and app state.
+  It should own the active agent slot, steering sender, cancellation, run
+  spawning, event draining, and lifecycle logging. `App` should remain focused
+  on state and message updates.
+- Split runtime events, durable turn events, and renderer entries. Provider and
+  tool events should reduce to stable semantic turn events before they become
+  transcript rows or append-only session records.
+- Precompute renderer view geometry and row groups before drawing. Rendering
+  should read a pure view model for transcript blocks, prompt/accessory rows,
+  status, and future hit areas instead of mixing layout decisions with terminal
+  output.
+- Move raw key handling toward command primitives. Terminal keys should map to
+  small input/app commands, and those commands should drive `App` updates.
+
 ## Requirements
 
 - Direct inline renderer is the default terminal UI.

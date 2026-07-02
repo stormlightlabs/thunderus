@@ -11,8 +11,10 @@
 //!   are opt-in only.
 //! - Timeout, result-count, stdout/stderr byte, and line-length caps enforced.
 //! - `rg` exit code `1` is treated as "no matches", not an error.
-//! - `fd --exec`, `fd --exec-batch`, `rg --pre`, arbitrary `sed`/`awk`, `sed -i`,
-//!   and `awk system()` are never exposed.
+//! - Arbitrary `sed`/`awk`, `sed -i`, and `awk system()` are not exposed; only
+//!   typed read-only `sawk` inspection actions are available.
+
+pub mod shell;
 
 mod create_file;
 mod find_files;
@@ -20,8 +22,8 @@ mod list_searchable_files;
 mod path;
 mod read_file_range;
 mod replace_range;
+mod sawk;
 mod search_text;
-pub mod shell;
 mod subproc;
 mod write_patch;
 
@@ -44,6 +46,15 @@ pub const MAX_TOOL_ITERATIONS: usize = 8;
 /// Maximum number of automatic tool-budget continuations per user turn.
 pub const MAX_TOOL_CONTINUATIONS: usize = 3;
 
+/// Default maximum number of results from a search or list operation.
+pub const MAX_RESULTS: usize = 100;
+/// Maximum stdout/stderr bytes captured from a subprocess.
+pub const MAX_OUTPUT_BYTES: usize = 65_536;
+/// Timeout in seconds for subprocess execution.
+pub const TIMEOUT_SECS: u64 = 10;
+/// Maximum line length before truncation in tool output.
+pub const MAX_LINE_LEN: usize = 512;
+
 /// Decision returned by [`ToolIterationBudget`] before a provider request.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ToolBudgetDecision {
@@ -59,15 +70,6 @@ pub enum ToolBudgetDecision {
         continuations_used: usize,
     },
 }
-
-/// Default maximum number of results from a search or list operation.
-pub const MAX_RESULTS: usize = 100;
-/// Maximum stdout/stderr bytes captured from a subprocess.
-pub const MAX_OUTPUT_BYTES: usize = 65_536;
-/// Timeout in seconds for subprocess execution.
-pub const TIMEOUT_SECS: u64 = 10;
-/// Maximum line length before truncation in tool output.
-pub const MAX_LINE_LEN: usize = 512;
 
 /// The kind of write operation performed on a file.
 ///
@@ -208,29 +210,6 @@ pub struct ToolOutput {
     pub error: Option<String>,
 }
 
-/// Return searchable file paths for UI features that need file selection.
-pub fn searchable_file_paths(root: &Path, max_results: usize) -> Result<Vec<String>, String> {
-    let output = list_searchable_files::exec(root, None, max_results, false);
-    if output.status == ToolStatus::Failed {
-        return Err(output.error.unwrap_or_else(|| "file listing failed".to_string()));
-    }
-
-    Ok(output
-        .output
-        .into_iter()
-        .map(|p| normalize_tool_path(root, &p))
-        .collect())
-}
-
-fn normalize_tool_path(root: &Path, path: &str) -> String {
-    let path_buf = PathBuf::from(path);
-    path_buf
-        .strip_prefix(root)
-        .unwrap_or(&path_buf)
-        .to_string_lossy()
-        .to_string()
-}
-
 impl ToolOutput {
     /// Create a successful tool output.
     pub fn ok(name: &str, output: Vec<String>) -> Self {
@@ -252,67 +231,6 @@ pub struct SearchMatch {
     pub line_number: u32,
     /// Matched line text.
     pub text: String,
-}
-
-#[cfg(test)]
-mod budget_tests {
-    use super::*;
-
-    #[test]
-    fn tool_budget_continues_before_segment_cap() {
-        let mut budget = ToolIterationBudget::new(2, 3);
-        budget.record_tool_batch();
-        assert_eq!(budget.before_provider_request(), ToolBudgetDecision::Continue);
-    }
-
-    #[test]
-    fn tool_budget_continues_after_first_segment_cap() {
-        let mut budget = ToolIterationBudget::new(2, 3);
-        budget.record_tool_batch();
-        budget.record_tool_batch();
-
-        assert_eq!(
-            budget.before_provider_request(),
-            ToolBudgetDecision::ContinueAfterBudgetMessage
-        );
-
-        assert_eq!(budget.total_batches(), 2);
-        assert_eq!(budget.continuations_used(), 1);
-    }
-
-    #[test]
-    fn tool_budget_resets_segment_counter_after_continuation() {
-        let mut budget = ToolIterationBudget::new(2, 3);
-        budget.record_tool_batch();
-        budget.record_tool_batch();
-        assert_eq!(
-            budget.before_provider_request(),
-            ToolBudgetDecision::ContinueAfterBudgetMessage
-        );
-
-        budget.record_tool_batch();
-        assert_eq!(budget.before_provider_request(), ToolBudgetDecision::Continue);
-    }
-
-    #[test]
-    fn tool_budget_exhausts_after_three_auto_continuations() {
-        let mut budget = ToolIterationBudget::new(2, 3);
-        for _ in 0..3 {
-            budget.record_tool_batch();
-            budget.record_tool_batch();
-            assert_eq!(
-                budget.before_provider_request(),
-                ToolBudgetDecision::ContinueAfterBudgetMessage
-            );
-        }
-
-        budget.record_tool_batch();
-        budget.record_tool_batch();
-        assert_eq!(
-            budget.before_provider_request(),
-            ToolBudgetDecision::Exhausted { segment_iterations: 2, total_batches: 8, continuations_used: 3 }
-        );
-    }
 }
 
 /// Structured result of a file write operation.
@@ -452,6 +370,32 @@ escapes are rejected. Output is capped at 65536 bytes; long lines truncate at 51
             }),
         },
         ToolDefinition {
+            name: "sawk",
+            description: r#"sawk
+
+Run safe read-only sed/awk-style inspection actions.
+
+Use this for line printing, substitution previews, or field extraction when it is clearer
+than raw shell. Actions are typed: sed_print, sed_substitute_preview, awk_fields.
+Paths are contained; output is capped/truncated; no sed -i or awk system()."#,
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "action": { "type": "string", "enum": ["sed_print", "sed_substitute_preview", "awk_fields"] },
+                    "path": { "type": "string", "description": "Path relative to the workspace root." },
+                    "start_line": { "type": "integer" },
+                    "end_line": { "type": "integer" },
+                    "max_lines": { "type": "integer" },
+                    "pattern": { "type": "string", "description": "Regex pattern for preview/filter actions." },
+                    "replacement": { "type": "string", "description": "Replacement text for sed_substitute_preview." },
+                    "global": { "type": "boolean", "description": "Replace all matches per line in previews." },
+                    "fields": { "type": "array", "items": { "type": "integer" }, "description": "1-indexed fields for awk_fields." },
+                    "delimiter": { "type": "string", "description": "Optional literal field delimiter; defaults to whitespace." }
+                },
+                "required": ["action", "path"]
+            }),
+        },
+        ToolDefinition {
             name: "web_search",
             description: r#"web_search
 
@@ -521,7 +465,8 @@ uniqueness. Paths are contained to the root; failed edits leave files unchanged.
                 "properties": {
                     "path": { "type": "string", "description": "Path relative to the workspace root." },
                     "old_string": { "type": "string", "description": "The exact string to find. Must appear exactly once." },
-                    "new_string": { "type": "string", "description": "The replacement string." }
+                    "new_string": { "type": "string", "description": "The replacement string." },
+                    "expected_before_hash": { "type": "integer", "description": "Optional current-content hash guard." }
                 },
                 "required": ["path", "old_string", "new_string"]
             }),
@@ -533,16 +478,18 @@ uniqueness. Paths are contained to the root; failed edits leave files unchanged.
 Apply a structured patch to create, replace, or edit a file.
 
 Use this as the preferred file-write tool. Set op=create for new files, op=edit
-for small exact replacements, or op=replace only for intentional whole-file
-rewrites. Paths are contained to the root; failed patches leave files unchanged."#,
+for exact replacements, or op=replace only for intentional whole-file rewrites.
+Supports multi-edit arrays and stale hash guards. Paths are contained; failures leave files unchanged."#,
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
                     "op": { "type": "string", "enum": ["create", "replace", "edit"], "description": "The patch operation." },
                     "path": { "type": "string", "description": "Path relative to the workspace root." },
                     "content": { "type": "string", "description": "Full file content for create/replace ops." },
-                    "old_string": { "type": "string", "description": "The exact string to find for edit ops." },
-                    "new_string": { "type": "string", "description": "The replacement string for edit ops." }
+                    "old_string": { "type": "string", "description": "The exact string to find for legacy single edit ops." },
+                    "new_string": { "type": "string", "description": "The replacement string for legacy single edit ops." },
+                    "edits": { "type": "array", "items": { "type": "object", "properties": { "old_string": { "type": "string" }, "new_string": { "type": "string" } }, "required": ["old_string", "new_string"] }, "description": "Multiple disjoint replacements for edit ops; all match the original file." },
+                    "expected_before_hash": { "type": "integer", "description": "Optional current-content hash guard for edit/replace ops." }
                 },
                 "required": ["op", "path"]
             }),
@@ -667,6 +614,7 @@ pub fn dispatch_tool(request: &ToolUseRequest, root: &Path) -> ToolOutput {
             let end_line = args.get("end_line").and_then(|v| v.as_u64()).map(|n| n as u32);
             read_file_range::exec(&path, root, start_line, end_line)
         }
+        "sawk" => sawk::exec(&args, root),
         "web_search" => {
             let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
             let max_results = args
@@ -709,7 +657,21 @@ pub fn dispatch_tool(request: &ToolUseRequest, root: &Path) -> ToolOutput {
             let path_str = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
             let old_string = args.get("old_string").and_then(|v| v.as_str()).unwrap_or("");
             let new_string = args.get("new_string").and_then(|v| v.as_str()).unwrap_or("");
-            replace_range::exec(path_str, root, old_string, new_string).0
+            let expected_before_hash = args.get("expected_before_hash").and_then(|v| v.as_u64());
+            if let Some(expected_before_hash) = expected_before_hash {
+                replace_range::exec_many(
+                    path_str,
+                    root,
+                    &[replace_range::Replacement {
+                        old_string: old_string.to_string(),
+                        new_string: new_string.to_string(),
+                    }],
+                    Some(expected_before_hash),
+                )
+                .0
+            } else {
+                replace_range::exec(path_str, root, old_string, new_string).0
+            }
         }
         "write_patch" => match write_patch::Patch::from_json(&request.arguments) {
             Ok(patch) => write_patch::exec(&patch, root).0,
@@ -761,7 +723,20 @@ pub fn dispatch_write(request: &ToolUseRequest, root: &Path) -> (ToolOutput, Opt
             let path_str = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
             let old_string = args.get("old_string").and_then(|v| v.as_str()).unwrap_or("");
             let new_string = args.get("new_string").and_then(|v| v.as_str()).unwrap_or("");
-            replace_range::exec(path_str, root, old_string, new_string)
+            let expected_before_hash = args.get("expected_before_hash").and_then(|v| v.as_u64());
+            if let Some(expected_before_hash) = expected_before_hash {
+                replace_range::exec_many(
+                    path_str,
+                    root,
+                    &[replace_range::Replacement {
+                        old_string: old_string.to_string(),
+                        new_string: new_string.to_string(),
+                    }],
+                    Some(expected_before_hash),
+                )
+            } else {
+                replace_range::exec(path_str, root, old_string, new_string)
+            }
         }
         "write_patch" => match write_patch::Patch::from_json(&request.arguments) {
             Ok(patch) => write_patch::exec(&patch, root),
@@ -788,6 +763,29 @@ pub fn dispatch_full(
 
     let (output, write_result) = dispatch_write(request, root);
     (output, write_result, None)
+}
+
+/// Return searchable file paths for UI features that need file selection.
+pub fn searchable_file_paths(root: &Path, max_results: usize) -> Result<Vec<String>, String> {
+    let output = list_searchable_files::exec(root, None, max_results, false);
+    if output.status == ToolStatus::Failed {
+        return Err(output.error.unwrap_or_else(|| "file listing failed".to_string()));
+    }
+
+    Ok(output
+        .output
+        .into_iter()
+        .map(|p| normalize_tool_path(root, &p))
+        .collect())
+}
+
+fn normalize_tool_path(root: &Path, path: &str) -> String {
+    let path_buf = PathBuf::from(path);
+    path_buf
+        .strip_prefix(root)
+        .unwrap_or(&path_buf)
+        .to_string_lossy()
+        .to_string()
 }
 
 /// Dispatch a `run_shell` tool-use request and return the tool output plus the
@@ -970,5 +968,61 @@ mod tests {
     fn tool_catalog_schemas_empty_for_no_definitions() {
         let schemas = tool_catalog_schemas(&[]);
         assert!(schemas.as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn tool_budget_continues_before_segment_cap() {
+        let mut budget = ToolIterationBudget::new(2, 3);
+        budget.record_tool_batch();
+        assert_eq!(budget.before_provider_request(), ToolBudgetDecision::Continue);
+    }
+
+    #[test]
+    fn tool_budget_continues_after_first_segment_cap() {
+        let mut budget = ToolIterationBudget::new(2, 3);
+        budget.record_tool_batch();
+        budget.record_tool_batch();
+
+        assert_eq!(
+            budget.before_provider_request(),
+            ToolBudgetDecision::ContinueAfterBudgetMessage
+        );
+
+        assert_eq!(budget.total_batches(), 2);
+        assert_eq!(budget.continuations_used(), 1);
+    }
+
+    #[test]
+    fn tool_budget_resets_segment_counter_after_continuation() {
+        let mut budget = ToolIterationBudget::new(2, 3);
+        budget.record_tool_batch();
+        budget.record_tool_batch();
+        assert_eq!(
+            budget.before_provider_request(),
+            ToolBudgetDecision::ContinueAfterBudgetMessage
+        );
+
+        budget.record_tool_batch();
+        assert_eq!(budget.before_provider_request(), ToolBudgetDecision::Continue);
+    }
+
+    #[test]
+    fn tool_budget_exhausts_after_three_auto_continuations() {
+        let mut budget = ToolIterationBudget::new(2, 3);
+        for _ in 0..3 {
+            budget.record_tool_batch();
+            budget.record_tool_batch();
+            assert_eq!(
+                budget.before_provider_request(),
+                ToolBudgetDecision::ContinueAfterBudgetMessage
+            );
+        }
+
+        budget.record_tool_batch();
+        budget.record_tool_batch();
+        assert_eq!(
+            budget.before_provider_request(),
+            ToolBudgetDecision::Exhausted { segment_iterations: 2, total_batches: 8, continuations_used: 3 }
+        );
     }
 }

@@ -1,5 +1,6 @@
 ---
 source: src/prompt/tests.rs
+assertion_line: 784
 expression: json
 ---
 [
@@ -108,6 +109,63 @@ expression: json
     "name": "read_file_range"
   },
   {
+    "description": "sawk\n\nRun safe read-only sed/awk-style inspection actions.\n\nUse this for line printing, substitution previews, or field extraction when it is clearer\nthan raw shell. Actions are typed: sed_print, sed_substitute_preview, awk_fields.\nPaths are contained; output is capped/truncated; no sed -i or awk system().",
+    "input_schema": {
+      "properties": {
+        "action": {
+          "enum": [
+            "sed_print",
+            "sed_substitute_preview",
+            "awk_fields"
+          ],
+          "type": "string"
+        },
+        "delimiter": {
+          "description": "Optional literal field delimiter; defaults to whitespace.",
+          "type": "string"
+        },
+        "end_line": {
+          "type": "integer"
+        },
+        "fields": {
+          "description": "1-indexed fields for awk_fields.",
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "global": {
+          "description": "Replace all matches per line in previews.",
+          "type": "boolean"
+        },
+        "max_lines": {
+          "type": "integer"
+        },
+        "path": {
+          "description": "Path relative to the workspace root.",
+          "type": "string"
+        },
+        "pattern": {
+          "description": "Regex pattern for preview/filter actions.",
+          "type": "string"
+        },
+        "replacement": {
+          "description": "Replacement text for sed_substitute_preview.",
+          "type": "string"
+        },
+        "start_line": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "action",
+        "path"
+      ],
+      "type": "object"
+    },
+    "name": "sawk"
+  },
+  {
     "description": "web_search\n\nSearch the web for current information.\n\nUse this when the workspace does not contain the answer and you need external\ndocumentation, API specs, or current facts. Prefer reading local files and\nsearching the workspace first. With native/exa modes, Umans executes server-side\nsearch; with none, a local DuckDuckGo fallback is used. Capped at 10 results by default.",
     "input_schema": {
       "properties": {
@@ -168,6 +226,10 @@ expression: json
     "description": "replace_range\n\nReplace a unique exact string occurrence in an existing file.\n\nUse this for direct small edits. Prefer write_patch op=edit when doing a mixed\nedit. old_string must match exactly and once; include surrounding context for\nuniqueness. Paths are contained to the root; failed edits leave files unchanged.",
     "input_schema": {
       "properties": {
+        "expected_before_hash": {
+          "description": "Optional current-content hash guard.",
+          "type": "integer"
+        },
         "new_string": {
           "description": "The replacement string.",
           "type": "string"
@@ -191,19 +253,42 @@ expression: json
     "name": "replace_range"
   },
   {
-    "description": "write_patch\n\nApply a structured patch to create, replace, or edit a file.\n\nUse this as the preferred file-write tool. Set op=create for new files, op=edit\nfor small exact replacements, or op=replace only for intentional whole-file\nrewrites. Paths are contained to the root; failed patches leave files unchanged.",
+    "description": "write_patch\n\nApply a structured patch to create, replace, or edit a file.\n\nUse this as the preferred file-write tool. Set op=create for new files, op=edit\nfor exact replacements, or op=replace only for intentional whole-file rewrites.\nSupports multi-edit arrays and stale hash guards. Paths are contained; failures leave files unchanged.",
     "input_schema": {
       "properties": {
         "content": {
           "description": "Full file content for create/replace ops.",
           "type": "string"
         },
+        "edits": {
+          "description": "Multiple disjoint replacements for edit ops; all match the original file.",
+          "items": {
+            "properties": {
+              "new_string": {
+                "type": "string"
+              },
+              "old_string": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "old_string",
+              "new_string"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "expected_before_hash": {
+          "description": "Optional current-content hash guard for edit/replace ops.",
+          "type": "integer"
+        },
         "new_string": {
-          "description": "The replacement string for edit ops.",
+          "description": "The replacement string for legacy single edit ops.",
           "type": "string"
         },
         "old_string": {
-          "description": "The exact string to find for edit ops.",
+          "description": "The exact string to find for legacy single edit ops.",
           "type": "string"
         },
         "op": {
