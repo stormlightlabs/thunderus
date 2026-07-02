@@ -11,4 +11,13 @@ Example:
 export UMANS_API_KEY=sk-...
 ```
 
-Do not put secrets in shared config examples, docs, prompts, or `AGENTS.md`.
+## `OPENCODE_GO_KEY`
+
+API key used by the OpenCode Go provider. `thndrs` reads this from the
+environment or from a workspace `.env` file.
+
+Example:
+
+```sh
+export OPENCODE_GO_KEY=sk-...
+```

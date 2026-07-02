@@ -23,7 +23,6 @@
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
-use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -33,38 +32,13 @@ use std::time::Duration;
 use ureq::http::Response;
 
 use crate::app::AgentEvent;
-use crate::providers::{ProviderContentBlock, ProviderMessage, ProviderTurn, umans};
+use crate::providers::{
+    ProviderContentBlock, ProviderError, ProviderMessage, ProviderTurn, StreamFormat, StreamingProvider, anthropic,
+    openai, opencode, umans,
+};
 use crate::tools::{self, AgentRunConfig, ToolUseRequest};
 
 const PROVIDER_RETRY_POLICY: RetryPolicy = RetryPolicy::new(4, Duration::from_millis(2500));
-
-trait StreamingProvider {
-    type Client;
-    type Metadata;
-    type RequestError;
-
-    fn name(&self) -> &'static str;
-    fn load_status(&self) -> String;
-    fn request_status(&self, model: &str, search_mode: crate::cli::WebSearchMode) -> String;
-    fn load_client(&self, root: &Path) -> Result<Self::Client, Self::RequestError>;
-    fn load_metadata(&self, client: &Self::Client) -> Result<Self::Metadata, Self::RequestError>;
-    fn metadata_loaded_event(&self, _metadata: &Self::Metadata) -> Option<AgentEvent> {
-        None
-    }
-    fn metadata_status(&self, _model: &str, _metadata: &Self::Metadata) -> Option<String> {
-        None
-    }
-    fn token_budget(&self, model: &str, metadata: Option<&Self::Metadata>) -> u32;
-    fn send_streaming_request(
-        &self, client: &Self::Client, model: &str, messages: &[ProviderMessage], max_tokens: u32,
-        search_mode: crate::cli::WebSearchMode, tools: &serde_json::Value,
-    ) -> Result<Response<ureq::Body>, Self::RequestError>;
-    fn stream_response(
-        &self, response: Response<ureq::Body>, tx: &Sender<AgentEvent>, cancel: &CancelToken, max_tokens: u32,
-    ) -> Result<ProviderTurn, String>;
-    fn request_error_message(&self, error: &Self::RequestError) -> String;
-    fn is_retryable_request_error(&self, error: &Self::RequestError) -> bool;
-}
 
 /// Which provider drives this agent run.
 ///
@@ -76,101 +50,41 @@ pub enum ProviderKind {
     Fake,
     /// Umans Code provider
     Umans,
+    /// OpenCode Go provider.
+    OpenCodeGo,
+}
+
+impl ProviderKind {
+    pub fn for_model(model: &str) -> Self {
+        if opencode::is_model_id(model) { ProviderKind::OpenCodeGo } else { ProviderKind::Umans }
+    }
 }
 
 #[derive(Debug)]
-enum ProviderAttemptError<E> {
-    Request(E),
+enum ProviderAttemptError {
+    Request(ProviderError),
     Stream(String),
 }
 
-impl<E> ProviderAttemptError<E> {
-    fn message<P>(&self, provider: &P) -> String
+impl ProviderAttemptError {
+    fn message<P>(&self) -> String
     where
-        P: StreamingProvider<RequestError = E>,
+        P: StreamingProvider,
     {
         match self {
-            ProviderAttemptError::Request(err) => provider.request_error_message(err),
+            ProviderAttemptError::Request(err) => P::request_error_message(err),
             ProviderAttemptError::Stream(msg) => msg.clone(),
         }
     }
 
-    fn is_retryable<P>(&self, provider: &P) -> bool
+    fn is_retryable<P>(&self) -> bool
     where
-        P: StreamingProvider<RequestError = E>,
+        P: StreamingProvider,
     {
         match self {
-            ProviderAttemptError::Request(err) => provider.is_retryable_request_error(err),
+            ProviderAttemptError::Request(err) => P::is_retryable_request_error(err),
             ProviderAttemptError::Stream(msg) => is_retryable_stream_error(msg),
         }
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-struct UmansProvider;
-
-impl StreamingProvider for UmansProvider {
-    type Client = umans::UmansClient;
-    type Metadata = HashMap<String, umans::ModelInfo>;
-    type RequestError = umans::UmansError;
-
-    fn name(&self) -> &'static str {
-        "Umans"
-    }
-
-    fn load_status(&self) -> String {
-        String::from("provider: loading UMANS_API_KEY")
-    }
-
-    fn request_status(&self, model: &str, search_mode: crate::cli::WebSearchMode) -> String {
-        format!(
-            "provider: POST /v1/messages model={model} search={}",
-            search_mode.header_value()
-        )
-    }
-
-    fn load_client(&self, root: &Path) -> Result<Self::Client, Self::RequestError> {
-        umans::UmansClient::from_env_or_dotenv(root)
-    }
-
-    fn load_metadata(&self, client: &Self::Client) -> Result<Self::Metadata, Self::RequestError> {
-        client.fetch_models_info()
-    }
-
-    fn metadata_loaded_event(&self, metadata: &Self::Metadata) -> Option<AgentEvent> {
-        Some(AgentEvent::ModelMetadataLoaded(umans::model_picker_items(metadata)))
-    }
-
-    fn metadata_status(&self, model: &str, metadata: &Self::Metadata) -> Option<String> {
-        umans::model_status(model, metadata)
-    }
-
-    fn token_budget(&self, model: &str, metadata: Option<&Self::Metadata>) -> u32 {
-        umans::recommended_max_tokens_for_model(model, metadata)
-    }
-
-    fn send_streaming_request(
-        &self, client: &Self::Client, model: &str, messages: &[ProviderMessage], max_tokens: u32,
-        search_mode: crate::cli::WebSearchMode, tools: &serde_json::Value,
-    ) -> Result<Response<ureq::Body>, Self::RequestError> {
-        client.send_streaming_request(model, messages, max_tokens, search_mode, Some(tools))
-    }
-
-    fn stream_response(
-        &self, response: Response<ureq::Body>, tx: &Sender<AgentEvent>, cancel: &CancelToken, max_tokens: u32,
-    ) -> Result<ProviderTurn, String> {
-        stream_umans_response(response, tx, cancel, max_tokens)
-    }
-
-    fn request_error_message(&self, error: &Self::RequestError) -> String {
-        match umans::error_to_agent_event(error) {
-            AgentEvent::Failed(msg) => msg,
-            _ => error.to_string(),
-        }
-    }
-
-    fn is_retryable_request_error(&self, error: &Self::RequestError) -> bool {
-        umans::is_retryable_error(error)
     }
 }
 
@@ -238,6 +152,23 @@ impl ToolUseBuilder {
     }
 }
 
+#[derive(Clone, Debug)]
+struct ChatToolCallBuilder {
+    id: String,
+    name: String,
+    arguments_json: String,
+}
+
+impl ChatToolCallBuilder {
+    fn finish(self) -> Option<ToolUseRequest> {
+        if self.name.is_empty() {
+            return None;
+        }
+        let arguments = if self.arguments_json.trim().is_empty() { "{}".to_string() } else { self.arguments_json };
+        Some(ToolUseRequest::new(self.name, arguments, self.id))
+    }
+}
+
 /// Handle for a single agent run: provider kind, config, prompt, and cancel.
 #[derive(Debug)]
 pub struct RunHandle {
@@ -265,12 +196,13 @@ impl RunHandle {
         }
     }
 
-    /// Create an Umans-provider run handle with a steering-message receiver.
-    pub fn umans_with_steering(
+    /// Create a provider run handle with a steering-message receiver.
+    pub fn provider_with_steering(
         config: AgentRunConfig, messages: Vec<ProviderMessage>, expects_write: bool, steering: Receiver<String>,
     ) -> Self {
+        let provider = ProviderKind::for_model(&config.model);
         RunHandle {
-            provider: ProviderKind::Umans,
+            provider,
             config,
             prompt: String::new(),
             messages,
@@ -279,6 +211,36 @@ impl RunHandle {
             cancel: CancelToken::new(),
         }
     }
+}
+
+#[derive(Default)]
+struct AnthropicStreamState {
+    tool_blocks: HashMap<usize, ToolUseBuilder>,
+    tool_requests: Vec<ToolUseRequest>,
+    assistant_text: String,
+    stop_reason: Option<String>,
+    provider_content_blocks: Vec<String>,
+}
+
+#[cfg(test)]
+impl AnthropicStreamState {
+    fn collect(
+        &mut self, event_type: &str, data: &str, tx: &Sender<AgentEvent>, cancel: &CancelToken,
+    ) -> Result<(), String> {
+        collect_anthropic_event(event_type, data, self, tx, cancel)
+    }
+}
+
+struct ProviderTurnRequest<'a, P>
+where
+    P: StreamingProvider,
+{
+    provider: &'a P,
+    model: &'a str,
+    messages: &'a [ProviderMessage],
+    max_tokens: u32,
+    search_mode: crate::cli::WebSearchMode,
+    tool_schemas: &'a serde_json::Value,
 }
 
 /// Best-effort classifier for prompts that should not finish without a
@@ -346,14 +308,896 @@ fn run_agent(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
     match handle.provider {
         #[cfg(test)]
         ProviderKind::Fake => run_fake(handle, tx, cancel),
-        ProviderKind::Umans => run_provider(UmansProvider, handle, tx, cancel),
+        ProviderKind::Umans => run_provider::<umans::UmansClient>(handle, tx, cancel),
+        ProviderKind::OpenCodeGo => run_provider::<opencode::OpenCodeGoClient>(handle, tx, cancel),
     }
+}
+
+fn is_retryable_stream_error(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    if lower.contains("cancel")
+        || lower.contains("aborted")
+        || lower.contains("max_tokens")
+        || lower.contains("without writing")
+        || lower.contains("provider returned only provider-side content blocks")
+    {
+        return false;
+    }
+
+    [
+        "429",
+        "500",
+        "502",
+        "503",
+        "504",
+        "overloaded",
+        "rate limit",
+        "server error",
+        "service unavailable",
+        "stream read error",
+        "stream ended without",
+        "connection",
+        "timed out",
+        "timeout",
+        "provider error",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
+}
+
+fn sleep_with_cancel(delay: Duration, tx: &Sender<AgentEvent>, cancel: &CancelToken) -> bool {
+    let mut slept = Duration::ZERO;
+    let tick = Duration::from_millis(100);
+    while slept < delay {
+        if cancel.is_cancelled() {
+            let _ = tx.send(AgentEvent::Cancelled);
+            return false;
+        }
+        let remaining = delay.saturating_sub(slept);
+        let nap = remaining.min(tick);
+        thread::sleep(nap);
+        slept += nap;
+    }
+    true
+}
+
+/// A streaming provider sends the prompt to its API, streams the response,
+/// dispatches any tool-use requests, feeds the tool results back as
+/// provider-native tool result messages, and repeats until the model stops
+/// requesting tools or the per-turn cap is hit.
+fn run_provider<P>(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken)
+where
+    P: StreamingProvider,
+{
+    let provider = match P::from_env_or_dotenv(&handle.config.root) {
+        Ok(provider) => provider,
+        Err(e) => {
+            let message = P::request_error_message(&e);
+            tracing::error!(error = %message, "failed to load provider client");
+            let _ = send(tx, AgentEvent::Failed(message), cancel);
+            return;
+        }
+    };
+
+    tracing::info!(
+        provider = provider.name(),
+        model = %handle.config.model,
+        cwd = %handle.config.root.display(),
+        messages = handle.messages.len(),
+        max_tool_iterations = handle.config.max_tool_iterations,
+        "starting provider agent run"
+    );
+    if send(tx, AgentEvent::Status(provider.load_status()), cancel).is_none() {
+        return;
+    }
+
+    let Some(model_metadata) = load_provider_metadata(&provider, &handle.config.model, tx, cancel) else {
+        return;
+    };
+
+    let tool_defs = tools::tool_definitions();
+    let tool_schemas = tools::tool_catalog_schemas(&tool_defs);
+    let mut messages = if handle.messages.is_empty() {
+        vec![ProviderMessage::user(&handle.prompt)]
+    } else {
+        handle.messages.clone()
+    };
+    let mut tool_budget =
+        tools::ToolIterationBudget::new(handle.config.max_tool_iterations, tools::MAX_TOOL_CONTINUATIONS);
+    let mut wrote_file = false;
+
+    loop {
+        if cancel.is_cancelled() {
+            tracing::warn!(
+                provider = provider.name(),
+                "provider run cancelled before provider request"
+            );
+            let _ = send(tx, AgentEvent::Cancelled, cancel);
+            return;
+        }
+
+        match tool_budget.before_provider_request() {
+            tools::ToolBudgetDecision::Continue => {}
+            tools::ToolBudgetDecision::ContinueAfterBudgetMessage => {
+                let text = format!(
+                    "[tool-budget]\nTool batch segment limit reached after {} total batches. Continue from the current state, avoid repeating completed work, and stop requesting tools once you can answer.",
+                    tool_budget.total_batches()
+                );
+                tracing::warn!(
+                    total_batches = tool_budget.total_batches(),
+                    continuations_used = tool_budget.continuations_used(),
+                    "continuing after tool-budget segment cap"
+                );
+                messages.push(ProviderMessage::user(&text));
+                if send(
+                    tx,
+                    AgentEvent::Status(format!(
+                        "tool budget: auto-continue {}/{} after {} batches",
+                        tool_budget.continuations_used(),
+                        tools::MAX_TOOL_CONTINUATIONS,
+                        tool_budget.total_batches()
+                    )),
+                    cancel,
+                )
+                .is_none()
+                {
+                    return;
+                }
+            }
+            tools::ToolBudgetDecision::Exhausted { segment_iterations, total_batches, continuations_used } => {
+                tracing::error!(
+                    segment_iterations,
+                    total_batches,
+                    continuations_used,
+                    "tool-call budget exhausted"
+                );
+                let _ = send(
+                    tx,
+                    AgentEvent::Failed(format!(
+                        "tool-call budget exhausted ({total_batches} tool batches, {continuations_used} auto-continuations, {segment_iterations} in current segment)"
+                    )),
+                    cancel,
+                );
+                return;
+            }
+        }
+
+        if send(
+            tx,
+            AgentEvent::Status(provider.request_status(&handle.config.model, handle.config.search_mode)),
+            cancel,
+        )
+        .is_none()
+        {
+            return;
+        }
+
+        let max_tokens = provider.token_budget(&handle.config.model, model_metadata.as_ref());
+        let request = ProviderTurnRequest {
+            provider: &provider,
+            model: &handle.config.model,
+            messages: &messages,
+            max_tokens,
+            search_mode: handle.config.search_mode,
+            tool_schemas: &tool_schemas,
+        };
+        let Some(turn) = request_provider_turn_with_retries(&request, tool_budget.total_batches(), tx, cancel) else {
+            return;
+        };
+        tracing::info!(
+            text_chars = turn.assistant_text.chars().count(),
+            tool_calls = turn.tool_requests.len(),
+            "provider turn completed"
+        );
+
+        if turn.tool_requests.is_empty() {
+            if turn.assistant_text.is_empty() && turn.stop_reason.as_deref() == Some("max_tokens") {
+                let _ = send(
+                    tx,
+                    AgentEvent::Failed(format!(
+                        "provider stopped at max_tokens ({}) before producing assistant text",
+                        max_tokens
+                    )),
+                    cancel,
+                );
+                return;
+            }
+            if handle.expects_write && !wrote_file {
+                let _ = send(
+                    tx,
+                    AgentEvent::Failed(String::from(
+                        "model stopped without writing a file for an edit-like request",
+                    )),
+                    cancel,
+                );
+                return;
+            }
+            if append_steering_messages(&mut messages, handle) {
+                tracing::info!(
+                    provider = provider.name(),
+                    "continuing provider run with queued steering messages"
+                );
+                continue;
+            }
+            let _ = send(tx, AgentEvent::Finished, cancel);
+            return;
+        }
+
+        tool_budget.record_tool_batch();
+
+        let mut assistant_blocks = Vec::new();
+        if !turn.assistant_text.is_empty() {
+            assistant_blocks.push(ProviderContentBlock::Text { text: turn.assistant_text });
+        }
+
+        let mut tool_results: Vec<ProviderMessage> = Vec::new();
+        for req in &turn.tool_requests {
+            if cancel.is_cancelled() {
+                tracing::warn!(provider = provider.name(), tool = %req.name, tool_id = %req.tool_use_id, "provider run cancelled before tool dispatch");
+                let _ = send(tx, AgentEvent::Cancelled, cancel);
+                return;
+            }
+
+            let tool_id = req.tool_use_id.clone();
+            tracing::info!(tool = %req.name, tool_id = %tool_id, "dispatching tool request");
+            if send(
+                tx,
+                AgentEvent::ToolStarted {
+                    id: tool_id.clone(),
+                    name: req.name.clone(),
+                    arguments: req.arguments.clone(),
+                },
+                cancel,
+            )
+            .is_none()
+            {
+                return;
+            }
+
+            let (output, write_result, shell_result) = tools::dispatch_full(req, &handle.config.root);
+            let status = output.status;
+            if write_result.is_some() && status == crate::app::ToolStatus::Ok {
+                wrote_file = true;
+            }
+            tracing::info!(tool = %req.name, tool_id = %tool_id, status = ?status, "tool request finished");
+            if send(
+                tx,
+                AgentEvent::ToolFinished {
+                    id: tool_id.clone(),
+                    output: output.output.clone(),
+                    status,
+                    write_result,
+                    shell_result: shell_result.map(Box::new),
+                },
+                cancel,
+            )
+            .is_none()
+            {
+                return;
+            }
+
+            let input: serde_json::Value = serde_json::from_str(&req.arguments).unwrap_or(serde_json::Value::Null);
+            assistant_blocks.push(ProviderContentBlock::ToolUse { id: tool_id.clone(), name: req.name.clone(), input });
+
+            let result_content = if output.output.is_empty() {
+                output.error.unwrap_or_else(|| "(no output)".to_string())
+            } else {
+                output.output.join("\n")
+            };
+            let is_error = status == crate::app::ToolStatus::Failed;
+            tool_results.push(ProviderMessage::tool_result(&tool_id, &result_content, is_error));
+        }
+
+        messages.push(ProviderMessage::assistant_blocks(assistant_blocks));
+        messages.extend(tool_results);
+        append_steering_messages(&mut messages, handle);
+    }
+}
+
+fn load_provider_metadata<P>(
+    provider: &P, model: &str, tx: &Sender<AgentEvent>, cancel: &CancelToken,
+) -> Option<Option<P::Metadata>>
+where
+    P: StreamingProvider,
+{
+    match provider.load_metadata() {
+        Ok(models) => {
+            tracing::info!("loaded provider model metadata");
+            if let Some(event) = provider.metadata_loaded_event(&models)
+                && send(tx, event, cancel).is_none()
+            {
+                return None;
+            }
+            if let Some(status) = provider.metadata_status(model, &models)
+                && send(tx, AgentEvent::Status(status), cancel).is_none()
+            {
+                return None;
+            }
+            Some(Some(models))
+        }
+        Err(e) => {
+            let message = P::request_error_message(&e);
+            tracing::warn!(error = %message, "failed to load provider model metadata; using fallback token budget");
+            send(
+                tx,
+                AgentEvent::Status(String::from(
+                    "provider: model metadata unavailable; using fallback token budget",
+                )),
+                cancel,
+            )?;
+            Some(None)
+        }
+    }
+}
+
+fn request_provider_turn_with_retries<P>(
+    request: &ProviderTurnRequest<'_, P>, iteration: usize, tx: &Sender<AgentEvent>, cancel: &CancelToken,
+) -> Option<ProviderTurn>
+where
+    P: StreamingProvider,
+{
+    let mut retry_attempt = 0;
+    loop {
+        tracing::info!(
+            iteration,
+            messages = request.messages.len(),
+            retry_attempt,
+            "requesting provider turn"
+        );
+        let attempt_result = provider_request_attempt(request, tx, cancel);
+
+        match attempt_result {
+            Ok(turn) => return Some(turn),
+            Err(error) if error.is_retryable::<P>() && retry_attempt < PROVIDER_RETRY_POLICY.max_retries => {
+                retry_attempt += 1;
+                if !send_retry_event(request.provider, error.message::<P>(), retry_attempt, tx, cancel) {
+                    return None;
+                }
+            }
+            Err(error) => {
+                let message = error.message::<P>();
+                tracing::error!(provider = request.provider.name(), error = %message, "provider attempt failed");
+                let _ = send(tx, AgentEvent::Failed(message), cancel);
+                return None;
+            }
+        }
+    }
+}
+
+fn provider_request_attempt<P>(
+    request: &ProviderTurnRequest<'_, P>, tx: &Sender<AgentEvent>, cancel: &CancelToken,
+) -> Result<ProviderTurn, ProviderAttemptError>
+where
+    P: StreamingProvider,
+{
+    match request.provider.send_streaming_request(
+        request.model,
+        request.messages,
+        request.max_tokens,
+        request.search_mode,
+        request.tool_schemas,
+    ) {
+        Ok(response) => {
+            if send(
+                tx,
+                AgentEvent::Status(format!("provider: connected HTTP {}", response.status().as_u16())),
+                cancel,
+            )
+            .is_none()
+            {
+                return Err(ProviderAttemptError::Stream("cancelled".to_string()));
+            }
+            stream_provider_response(
+                request.provider,
+                request.model,
+                response,
+                tx,
+                cancel,
+                request.max_tokens,
+            )
+            .map_err(ProviderAttemptError::Stream)
+        }
+        Err(e) => Err(ProviderAttemptError::Request(e)),
+    }
+}
+
+fn send_retry_event<P>(
+    provider: &P, message: String, retry_attempt: u32, tx: &Sender<AgentEvent>, cancel: &CancelToken,
+) -> bool
+where
+    P: StreamingProvider,
+{
+    let delay = PROVIDER_RETRY_POLICY.delay_for_attempt(retry_attempt);
+    tracing::warn!(
+        provider = provider.name(),
+        attempt = retry_attempt,
+        max_retries = PROVIDER_RETRY_POLICY.max_retries,
+        delay_ms = delay.as_millis(),
+        error = %message,
+        "retrying provider attempt"
+    );
+    if send(
+        tx,
+        AgentEvent::Retrying {
+            attempt: retry_attempt,
+            max_attempts: PROVIDER_RETRY_POLICY.max_retries,
+            delay_ms: delay.as_millis() as u64,
+            error: message,
+        },
+        cancel,
+    )
+    .is_none()
+    {
+        return false;
+    }
+    sleep_with_cancel(delay, tx, cancel)
+}
+
+fn append_steering_messages(messages: &mut Vec<ProviderMessage>, handle: &RunHandle) -> bool {
+    let Some(rx) = handle.steering.as_ref() else {
+        return false;
+    };
+
+    let mut appended = false;
+    while let Ok(text) = rx.try_recv() {
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        messages.push(ProviderMessage::user(&format!("[steering]\n{trimmed}")));
+        appended = true;
+    }
+    if appended {
+        tracing::debug!(messages = messages.len(), "appended steering messages");
+    }
+    appended
+}
+
+/// Read an Anthropic-compatible SSE streaming response, converting events to [`AgentEvent`]
+/// instances and collecting any tool-use requests plus the assistant text.
+///
+/// Returns a [`TurnOutput`] with the tool-use requests and the accumulated
+/// assistant text, or an error message if the stream failed.
+fn stream_anthropic_response(
+    resp: Response<ureq::Body>, tx: &Sender<AgentEvent>, cancel: &CancelToken, max_tokens: u32,
+) -> Result<ProviderTurn, String> {
+    let reader = BufReader::new(resp.into_body().into_reader());
+    let mut buffer = String::new();
+    let mut state = AnthropicStreamState::default();
+    let mut event_count = 0usize;
+    let mut saw_response = false;
+    tracing::info!("reading Anthropic-compatible SSE stream");
+
+    for line_result in reader.lines() {
+        if cancel.is_cancelled() {
+            tracing::warn!("cancelled while reading Anthropic-compatible SSE stream");
+            return Err("cancelled".to_string());
+        }
+
+        match line_result {
+            Ok(line) => {
+                buffer.push_str(&line);
+                buffer.push('\n');
+
+                if line.is_empty() {
+                    let events = anthropic::parse_sse_chunk(&buffer);
+                    buffer.clear();
+
+                    for (event_type, data) in events {
+                        event_count += 1;
+                        log_sse_event(event_count, &event_type, &data);
+                        if !saw_response {
+                            saw_response = true;
+                            if send(tx, AgentEvent::Status(String::from("provider: receiving SSE")), cancel).is_none() {
+                                return Err("cancelled".to_string());
+                            }
+                        }
+                        collect_anthropic_event(&event_type, &data, &mut state, tx, cancel)?;
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "failed reading Anthropic-compatible SSE stream");
+                return Err(format!("stream read error: {e}"));
+            }
+        }
+    }
+
+    if !buffer.is_empty() {
+        let events = anthropic::parse_sse_chunk(&buffer);
+        for (event_type, data) in events {
+            event_count += 1;
+            log_sse_event(event_count, &event_type, &data);
+            if !saw_response {
+                saw_response = true;
+                if send(tx, AgentEvent::Status(String::from("provider: receiving SSE")), cancel).is_none() {
+                    return Err("cancelled".to_string());
+                }
+            }
+            collect_anthropic_event(&event_type, &data, &mut state, tx, cancel)?;
+        }
+    }
+
+    for (_, block) in state.tool_blocks {
+        if let Some(req) = block.finish() {
+            state.tool_requests.push(req);
+        }
+    }
+
+    if state.assistant_text.is_empty() && state.tool_requests.is_empty() {
+        tracing::error!(
+            event_count,
+            "Anthropic-compatible stream ended without assistant text or tool calls"
+        );
+        if state.stop_reason.as_deref() == Some("max_tokens") {
+            return Err(format!(
+                "provider stopped at max_tokens ({max_tokens}) before producing assistant text"
+            ));
+        }
+        if !state.provider_content_blocks.is_empty() {
+            let blocks = state.provider_content_blocks.join(", ");
+            return Err(format!(
+                "provider returned only provider-side content blocks ({blocks}) and no assistant text or tool calls; retry with --websearch none"
+            ));
+        }
+        return Err(format!(
+            "provider stream ended without assistant text or tool calls ({event_count} SSE events)"
+        ));
+    }
+
+    tracing::info!(
+        event_count,
+        text_chars = state.assistant_text.chars().count(),
+        tool_calls = state.tool_requests.len(),
+        "finished reading Anthropic-compatible SSE stream"
+    );
+    let _ = send(
+        tx,
+        AgentEvent::Status(format!(
+            "provider: stream ended ({event_count} SSE events, {} text chars, {} tool calls)",
+            state.assistant_text.chars().count(),
+            state.tool_requests.len()
+        )),
+        cancel,
+    );
+
+    Ok(ProviderTurn {
+        tool_requests: state.tool_requests,
+        assistant_text: state.assistant_text,
+        stop_reason: state.stop_reason,
+    })
+}
+
+fn stream_provider_response<P: StreamingProvider>(
+    provider: &P, model: &str, resp: Response<ureq::Body>, tx: &Sender<AgentEvent>, cancel: &CancelToken,
+    max_tokens: u32,
+) -> Result<ProviderTurn, String> {
+    match provider
+        .stream_format(model)
+        .map_err(|e| P::request_error_message(&e))?
+    {
+        StreamFormat::OpenAiChat => stream_openai_chat_response(resp, tx, cancel, max_tokens),
+        StreamFormat::AnthropicMessages => stream_anthropic_response(resp, tx, cancel, max_tokens),
+    }
+}
+
+fn stream_openai_chat_response(
+    resp: Response<ureq::Body>, tx: &Sender<AgentEvent>, cancel: &CancelToken, max_tokens: u32,
+) -> Result<ProviderTurn, String> {
+    let reader = BufReader::new(resp.into_body().into_reader());
+    let mut assistant_text = String::new();
+    let mut tool_blocks: HashMap<usize, ChatToolCallBuilder> = HashMap::new();
+    let mut tool_requests = Vec::new();
+    let mut event_count = 0usize;
+    let mut saw_response = false;
+    let mut stop_reason = None;
+    tracing::info!("reading OpenCode Go chat-completions SSE stream");
+
+    for line_result in reader.lines() {
+        if cancel.is_cancelled() {
+            tracing::warn!("cancelled while reading OpenCode Go SSE stream");
+            return Err("cancelled".to_string());
+        }
+
+        let line = line_result.map_err(|e| {
+            tracing::error!(error = %e, "failed reading OpenCode Go SSE stream");
+            format!("stream read error: {e}")
+        })?;
+        if !line.starts_with("data: ") {
+            continue;
+        }
+
+        if !saw_response {
+            saw_response = true;
+            if send(tx, AgentEvent::Status(String::from("provider: receiving SSE")), cancel).is_none() {
+                return Err("cancelled".to_string());
+            }
+        }
+
+        for data in openai::parse_chat_sse_chunk(&(line + "\n")) {
+            event_count += 1;
+            let events = openai::parse_chat_sse_event(&data);
+            for event in events {
+                collect_opencode_chat_event(
+                    event,
+                    &mut tool_blocks,
+                    &mut tool_requests,
+                    &mut assistant_text,
+                    &mut stop_reason,
+                    tx,
+                    cancel,
+                )?;
+            }
+        }
+    }
+
+    for (_, block) in tool_blocks {
+        if let Some(req) = block.finish() {
+            tool_requests.push(req);
+        }
+    }
+
+    if assistant_text.is_empty() && tool_requests.is_empty() {
+        tracing::error!(
+            event_count,
+            "OpenCode Go stream ended without assistant text or tool calls"
+        );
+        if stop_reason.as_deref() == Some("length") {
+            return Err(format!(
+                "provider stopped at max_tokens ({max_tokens}) before producing assistant text"
+            ));
+        }
+        return Err(format!(
+            "provider stream ended without assistant text or tool calls ({event_count} SSE events)"
+        ));
+    }
+
+    tracing::info!(
+        event_count,
+        text_chars = assistant_text.chars().count(),
+        tool_calls = tool_requests.len(),
+        "finished reading OpenCode Go SSE stream"
+    );
+    let _ = send(
+        tx,
+        AgentEvent::Status(format!(
+            "provider: stream ended ({event_count} SSE events, {} text chars, {} tool calls)",
+            assistant_text.chars().count(),
+            tool_requests.len()
+        )),
+        cancel,
+    );
+
+    Ok(ProviderTurn { tool_requests, assistant_text, stop_reason })
+}
+
+fn collect_opencode_chat_event(
+    event: openai::ChatSseEvent, tool_blocks: &mut HashMap<usize, ChatToolCallBuilder>,
+    tool_requests: &mut Vec<ToolUseRequest>, assistant_text: &mut String, stop_reason: &mut Option<String>,
+    tx: &Sender<AgentEvent>, cancel: &CancelToken,
+) -> Result<(), String> {
+    match event {
+        openai::ChatSseEvent::TextDelta(text) => {
+            assistant_text.push_str(&text);
+            if send(tx, AgentEvent::AssistantDelta(text), cancel).is_none() {
+                return Err("cancelled".to_string());
+            }
+        }
+        openai::ChatSseEvent::ReasoningDelta(text) => {
+            if send(tx, AgentEvent::ReasoningDelta(text), cancel).is_none() {
+                return Err("cancelled".to_string());
+            }
+        }
+        openai::ChatSseEvent::ToolCallStart { index, id, name } => {
+            tool_blocks.insert(index, ChatToolCallBuilder { id, name, arguments_json: String::new() });
+        }
+        openai::ChatSseEvent::ToolCallArgumentsDelta { index, arguments } => {
+            let block = tool_blocks.entry(index).or_insert_with(|| ChatToolCallBuilder {
+                id: format!("call_{index}"),
+                name: String::new(),
+                arguments_json: String::new(),
+            });
+            block.arguments_json.push_str(&arguments);
+        }
+        openai::ChatSseEvent::FinishReason(reason) => {
+            *stop_reason = Some(reason.clone());
+            if reason == "tool_calls" {
+                let finished = std::mem::take(tool_blocks);
+                for (_, block) in finished {
+                    if let Some(req) = block.finish() {
+                        tool_requests.push(req);
+                    }
+                }
+            }
+        }
+        openai::ChatSseEvent::Usage { input_tokens, output_tokens } => {
+            if send(tx, AgentEvent::Usage { input_tokens, output_tokens }, cancel).is_none() {
+                return Err("cancelled".to_string());
+            }
+        }
+        openai::ChatSseEvent::Done | openai::ChatSseEvent::Other => {}
+    }
+
+    Ok(())
+}
+
+fn log_sse_event(seq: usize, event_type: &str, data: &str) {
+    let (content_type, delta_type, stop_reason) = summarize_sse_data(data);
+    tracing::info!(
+        seq,
+        event_type,
+        content_type = content_type.as_deref().unwrap_or(""),
+        delta_type = delta_type.as_deref().unwrap_or(""),
+        stop_reason = stop_reason.as_deref().unwrap_or(""),
+        "received SSE event"
+    );
+}
+
+fn summarize_sse_data(data: &str) -> (Option<String>, Option<String>, Option<String>) {
+    let v: serde_json::Value = serde_json::from_str(data).unwrap_or(serde_json::Value::Null);
+    let content_type = v
+        .get("content_block")
+        .and_then(|cb| cb.get("type"))
+        .and_then(|t| t.as_str())
+        .map(|s| s.to_string());
+    let delta_type = v
+        .get("delta")
+        .and_then(|d| d.get("type"))
+        .and_then(|t| t.as_str())
+        .map(|s| s.to_string());
+    let stop_reason = v
+        .get("delta")
+        .and_then(|d| d.get("stop_reason"))
+        .and_then(|s| s.as_str())
+        .map(|s| s.to_string());
+
+    (content_type, delta_type, stop_reason)
+}
+
+fn collect_anthropic_event(
+    event_type: &str, data: &str, state: &mut AnthropicStreamState, tx: &Sender<AgentEvent>, cancel: &CancelToken,
+) -> Result<(), String> {
+    let sse_event = anthropic::parse_sse_event(event_type, data);
+
+    if let Some((input_tokens, output_tokens)) = extract_usage(data)
+        && send(tx, AgentEvent::Usage { input_tokens, output_tokens }, cancel).is_none()
+    {
+        return Err("cancelled".to_string());
+    }
+
+    if event_type == "content_block_start"
+        && let Some((index, block)) = extract_tool_use_start(data)
+    {
+        state.tool_blocks.insert(index, block);
+    }
+
+    if event_type == "content_block_start" {
+        collect_content_block_start_text(
+            data,
+            &mut state.assistant_text,
+            &mut state.provider_content_blocks,
+            tx,
+            cancel,
+        )?;
+    }
+
+    match &sse_event {
+        anthropic::SseEvent::TextDelta(text) => state.assistant_text.push_str(text),
+        anthropic::SseEvent::InputJsonDelta { index, partial_json } => {
+            if let Some(block) = state.tool_blocks.get_mut(index) {
+                block.input_json.push_str(partial_json);
+            }
+        }
+        anthropic::SseEvent::ContentBlockStop { index } => {
+            if let Some(index) = index
+                && let Some(block) = state.tool_blocks.remove(index)
+                && let Some(req) = block.finish()
+            {
+                state.tool_requests.push(req);
+            }
+        }
+        anthropic::SseEvent::MessageDelta { stop_reason: Some(reason) } => {
+            state.stop_reason = Some(reason.clone());
+            tracing::info!(stop_reason = %reason, "provider message stop reason");
+        }
+        anthropic::SseEvent::Error(msg) => {
+            tracing::error!(error = %msg, "provider emitted SSE error");
+            return Err(format!("provider error: {msg}"));
+        }
+        _ => {}
+    }
+
+    if let Some(agent_event) = anthropic::sse_to_agent_event(&sse_event)
+        && send(tx, agent_event, cancel).is_none()
+    {
+        return Err("cancelled".to_string());
+    }
+
+    Ok(())
+}
+
+fn extract_usage(data: &str) -> Option<(u64, u64)> {
+    let v: serde_json::Value = serde_json::from_str(data).ok()?;
+    let usage = v
+        .get("usage")
+        .or_else(|| v.get("message").and_then(|m| m.get("usage")))
+        .or_else(|| v.get("delta").and_then(|d| d.get("usage")))?;
+    let input_tokens = usage.get("input_tokens").and_then(|t| t.as_u64()).unwrap_or(0);
+    let output_tokens = usage.get("output_tokens").and_then(|t| t.as_u64()).unwrap_or(0);
+    if input_tokens == 0 && output_tokens == 0 { None } else { Some((input_tokens, output_tokens)) }
+}
+
+fn collect_content_block_start_text(
+    data: &str, assistant_text: &mut String, provider_content_blocks: &mut Vec<String>, tx: &Sender<AgentEvent>,
+    cancel: &CancelToken,
+) -> Result<(), String> {
+    let v: serde_json::Value = serde_json::from_str(data).unwrap_or(serde_json::Value::Null);
+    let Some(block) = v.get("content_block") else {
+        return Ok(());
+    };
+
+    match block.get("type").and_then(|t| t.as_str()) {
+        Some("text") => {
+            let text = block.get("text").and_then(|t| t.as_str()).unwrap_or("");
+            if !text.is_empty() {
+                assistant_text.push_str(text);
+                if send(tx, AgentEvent::AssistantDelta(text.to_string()), cancel).is_none() {
+                    return Err("cancelled".to_string());
+                }
+            }
+        }
+        Some("thinking") => {
+            let thinking = block.get("thinking").and_then(|t| t.as_str()).unwrap_or("");
+            if !thinking.is_empty() && send(tx, AgentEvent::ReasoningDelta(thinking.to_string()), cancel).is_none() {
+                return Err("cancelled".to_string());
+            }
+        }
+        Some(other) => {
+            provider_content_blocks.push(other.to_string());
+            tracing::info!(content_type = other, "unhandled content block start");
+        }
+        None => {}
+    }
+
+    Ok(())
+}
+
+fn extract_tool_use_start(data: &str) -> Option<(usize, ToolUseBuilder)> {
+    let v: serde_json::Value = serde_json::from_str(data).ok()?;
+    let index = v.get("index").and_then(|i| i.as_u64()).unwrap_or(0) as usize;
+    let cb = v.get("content_block")?;
+    let block_type = cb.get("type").and_then(|t| t.as_str())?;
+    if block_type != "tool_use" {
+        return None;
+    }
+    let name = cb.get("name").and_then(|n| n.as_str())?.to_string();
+    let id = cb.get("id").and_then(|n| n.as_str()).unwrap_or("").to_string();
+    let initial_input = cb.get("input").cloned().unwrap_or(serde_json::Value::Null);
+    Some((
+        index,
+        ToolUseBuilder { id, name, initial_input, input_json: String::new() },
+    ))
+}
+
+/// Send an event, respecting cancellation. Returns `Some(())` on success, or
+/// `None` if the send failed (receiver dropped) or cancellation was requested.
+fn send(tx: &Sender<AgentEvent>, event: AgentEvent, cancel: &CancelToken) -> Option<()> {
+    if cancel.is_cancelled() {
+        return None;
+    }
+    if tx.send(event).is_err() {
+        return None;
+    }
+    Some(())
+}
+
+/// Sleep briefly to simulate streaming latency in the fake provider.
+fn step() {
+    thread::sleep(Duration::from_millis(40));
 }
 
 /// Deterministic fake provider: emits reasoning, a tool-use request, assistant
 /// text, and finishes. Demonstrates the tool dispatch path end-to-end.
-///
-/// TODO: Move to test mod or remove
 #[cfg(test)]
 fn run_fake(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
     if send(
@@ -472,694 +1316,6 @@ fn run_fake(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
     let _ = tx.send(AgentEvent::Finished);
 }
 
-fn is_retryable_stream_error(message: &str) -> bool {
-    let lower = message.to_ascii_lowercase();
-    if lower.contains("cancel")
-        || lower.contains("aborted")
-        || lower.contains("max_tokens")
-        || lower.contains("without writing")
-        || lower.contains("provider returned only provider-side content blocks")
-    {
-        return false;
-    }
-
-    [
-        "429",
-        "500",
-        "502",
-        "503",
-        "504",
-        "overloaded",
-        "rate limit",
-        "server error",
-        "service unavailable",
-        "stream read error",
-        "stream ended without",
-        "connection",
-        "timed out",
-        "timeout",
-        "provider error",
-    ]
-    .iter()
-    .any(|needle| lower.contains(needle))
-}
-
-fn sleep_with_cancel(delay: Duration, tx: &Sender<AgentEvent>, cancel: &CancelToken) -> bool {
-    let mut slept = Duration::ZERO;
-    let tick = Duration::from_millis(100);
-    while slept < delay {
-        if cancel.is_cancelled() {
-            let _ = tx.send(AgentEvent::Cancelled);
-            return false;
-        }
-        let remaining = delay.saturating_sub(slept);
-        let nap = remaining.min(tick);
-        thread::sleep(nap);
-        slept += nap;
-    }
-    true
-}
-
-/// A streaming provider sends the prompt to its API, streams the response,
-/// dispatches any tool-use requests, feeds the tool results back as
-/// provider-native tool result messages, and repeats until the model stops
-/// requesting tools or the per-turn cap is hit.
-fn run_provider<P>(provider: P, handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken)
-where
-    P: StreamingProvider,
-{
-    tracing::info!(
-        provider = provider.name(),
-        model = %handle.config.model,
-        cwd = %handle.config.root.display(),
-        messages = handle.messages.len(),
-        max_tool_iterations = handle.config.max_tool_iterations,
-        "starting provider agent run"
-    );
-    if send(tx, AgentEvent::Status(provider.load_status()), cancel).is_none() {
-        return;
-    }
-
-    let client = match provider.load_client(&handle.config.root) {
-        Ok(c) => c,
-        Err(e) => {
-            let _ = send(tx, AgentEvent::Failed(provider.request_error_message(&e)), cancel);
-            return;
-        }
-    };
-    let model_metadata = match provider.load_metadata(&client) {
-        Ok(models) => {
-            tracing::info!("loaded provider model metadata");
-            if let Some(event) = provider.metadata_loaded_event(&models)
-                && send(tx, event, cancel).is_none()
-            {
-                return;
-            }
-            if let Some(status) = provider.metadata_status(&handle.config.model, &models)
-                && send(tx, AgentEvent::Status(status), cancel).is_none()
-            {
-                return;
-            }
-            Some(models)
-        }
-        Err(e) => {
-            let message = provider.request_error_message(&e);
-            tracing::warn!(error = %message, "failed to load provider model metadata; using fallback token budget");
-            if send(
-                tx,
-                AgentEvent::Status(String::from(
-                    "provider: model metadata unavailable; using fallback token budget",
-                )),
-                cancel,
-            )
-            .is_none()
-            {
-                return;
-            }
-            None
-        }
-    };
-
-    let tool_defs = tools::tool_definitions();
-    let tool_schemas = tools::tool_catalog_schemas(&tool_defs);
-    let mut messages = if handle.messages.is_empty() {
-        vec![ProviderMessage::user(&handle.prompt)]
-    } else {
-        handle.messages.clone()
-    };
-    let mut tool_budget =
-        tools::ToolIterationBudget::new(handle.config.max_tool_iterations, tools::MAX_TOOL_CONTINUATIONS);
-    let mut wrote_file = false;
-
-    loop {
-        if cancel.is_cancelled() {
-            tracing::warn!("Umans run cancelled before provider request");
-            let _ = send(tx, AgentEvent::Cancelled, cancel);
-            return;
-        }
-
-        match tool_budget.before_provider_request() {
-            tools::ToolBudgetDecision::Continue => {}
-            tools::ToolBudgetDecision::ContinueAfterBudgetMessage => {
-                let text = format!(
-                    "[tool-budget]\nTool batch segment limit reached after {} total batches. Continue from the current state, avoid repeating completed work, and stop requesting tools once you can answer.",
-                    tool_budget.total_batches()
-                );
-                tracing::warn!(
-                    total_batches = tool_budget.total_batches(),
-                    continuations_used = tool_budget.continuations_used(),
-                    "continuing after tool-budget segment cap"
-                );
-                messages.push(ProviderMessage::user(&text));
-                if send(
-                    tx,
-                    AgentEvent::Status(format!(
-                        "tool budget: auto-continue {}/{} after {} batches",
-                        tool_budget.continuations_used(),
-                        tools::MAX_TOOL_CONTINUATIONS,
-                        tool_budget.total_batches()
-                    )),
-                    cancel,
-                )
-                .is_none()
-                {
-                    return;
-                }
-            }
-            tools::ToolBudgetDecision::Exhausted { segment_iterations, total_batches, continuations_used } => {
-                tracing::error!(
-                    segment_iterations,
-                    total_batches,
-                    continuations_used,
-                    "tool-call budget exhausted"
-                );
-                let _ = send(
-                    tx,
-                    AgentEvent::Failed(format!(
-                        "tool-call budget exhausted ({total_batches} tool batches, {continuations_used} auto-continuations, {segment_iterations} in current segment)"
-                    )),
-                    cancel,
-                );
-                return;
-            }
-        }
-
-        if send(
-            tx,
-            AgentEvent::Status(provider.request_status(&handle.config.model, handle.config.search_mode)),
-            cancel,
-        )
-        .is_none()
-        {
-            return;
-        }
-
-        let max_tokens = provider.token_budget(&handle.config.model, model_metadata.as_ref());
-        let mut retry_attempt = 0;
-        let turn = loop {
-            tracing::info!(
-                iteration = tool_budget.total_batches(),
-                messages = messages.len(),
-                retry_attempt,
-                "requesting Umans turn"
-            );
-            let attempt_result = match provider.send_streaming_request(
-                &client,
-                &handle.config.model,
-                &messages,
-                max_tokens,
-                handle.config.search_mode,
-                &tool_schemas,
-            ) {
-                Ok(response) => {
-                    if send(
-                        tx,
-                        AgentEvent::Status(format!("provider: connected HTTP {}", response.status().as_u16())),
-                        cancel,
-                    )
-                    .is_none()
-                    {
-                        return;
-                    }
-
-                    provider
-                        .stream_response(response, tx, cancel, max_tokens)
-                        .map_err(ProviderAttemptError::Stream)
-                }
-                Err(e) => Err(ProviderAttemptError::Request(e)),
-            };
-
-            match attempt_result {
-                Ok(turn) => break turn,
-                Err(error) if error.is_retryable(&provider) && retry_attempt < PROVIDER_RETRY_POLICY.max_retries => {
-                    retry_attempt += 1;
-                    let delay = PROVIDER_RETRY_POLICY.delay_for_attempt(retry_attempt);
-                    let message = error.message(&provider);
-                    tracing::warn!(
-                        provider = provider.name(),
-                        attempt = retry_attempt,
-                        max_retries = PROVIDER_RETRY_POLICY.max_retries,
-                        delay_ms = delay.as_millis(),
-                        error = %message,
-                        "retrying Umans provider attempt"
-                    );
-                    if send(
-                        tx,
-                        AgentEvent::Retrying {
-                            attempt: retry_attempt,
-                            max_attempts: PROVIDER_RETRY_POLICY.max_retries,
-                            delay_ms: delay.as_millis() as u64,
-                            error: message,
-                        },
-                        cancel,
-                    )
-                    .is_none()
-                    {
-                        return;
-                    }
-                    if !sleep_with_cancel(delay, tx, cancel) {
-                        return;
-                    }
-                }
-                Err(error) => {
-                    let message = error.message(&provider);
-                    tracing::error!(provider = provider.name(), error = %message, "provider attempt failed");
-                    let _ = send(tx, AgentEvent::Failed(message), cancel);
-                    return;
-                }
-            }
-        };
-        tracing::info!(
-            text_chars = turn.assistant_text.chars().count(),
-            tool_calls = turn.tool_requests.len(),
-            "Umans turn completed"
-        );
-
-        if turn.tool_requests.is_empty() {
-            if turn.assistant_text.is_empty() && turn.stop_reason.as_deref() == Some("max_tokens") {
-                let _ = send(
-                    tx,
-                    AgentEvent::Failed(format!(
-                        "provider stopped at max_tokens ({}) before producing assistant text",
-                        max_tokens
-                    )),
-                    cancel,
-                );
-                return;
-            }
-            if handle.expects_write && !wrote_file {
-                let _ = send(
-                    tx,
-                    AgentEvent::Failed(String::from(
-                        "model stopped without writing a file for an edit-like request",
-                    )),
-                    cancel,
-                );
-                return;
-            }
-            if append_steering_messages(&mut messages, handle) {
-                tracing::info!("continuing Umans run with queued steering messages");
-                continue;
-            }
-            let _ = send(tx, AgentEvent::Finished, cancel);
-            return;
-        }
-
-        tool_budget.record_tool_batch();
-
-        let mut assistant_blocks = Vec::new();
-        if !turn.assistant_text.is_empty() {
-            assistant_blocks.push(ProviderContentBlock::Text { text: turn.assistant_text });
-        }
-
-        let mut tool_results: Vec<ProviderMessage> = Vec::new();
-        for req in &turn.tool_requests {
-            if cancel.is_cancelled() {
-                tracing::warn!(tool = %req.name, tool_id = %req.tool_use_id, "Umans run cancelled before tool dispatch");
-                let _ = send(tx, AgentEvent::Cancelled, cancel);
-                return;
-            }
-
-            let tool_id = req.tool_use_id.clone();
-            tracing::info!(tool = %req.name, tool_id = %tool_id, "dispatching tool request");
-            if send(
-                tx,
-                AgentEvent::ToolStarted {
-                    id: tool_id.clone(),
-                    name: req.name.clone(),
-                    arguments: req.arguments.clone(),
-                },
-                cancel,
-            )
-            .is_none()
-            {
-                return;
-            }
-
-            let (output, write_result, shell_result) = tools::dispatch_full(req, &handle.config.root);
-            let status = output.status;
-            if write_result.is_some() && status == crate::app::ToolStatus::Ok {
-                wrote_file = true;
-            }
-            tracing::info!(tool = %req.name, tool_id = %tool_id, status = ?status, "tool request finished");
-            if send(
-                tx,
-                AgentEvent::ToolFinished {
-                    id: tool_id.clone(),
-                    output: output.output.clone(),
-                    status,
-                    write_result,
-                    shell_result: shell_result.map(Box::new),
-                },
-                cancel,
-            )
-            .is_none()
-            {
-                return;
-            }
-
-            let input: serde_json::Value = serde_json::from_str(&req.arguments).unwrap_or(serde_json::Value::Null);
-            assistant_blocks.push(ProviderContentBlock::ToolUse { id: tool_id.clone(), name: req.name.clone(), input });
-
-            let result_content = if output.output.is_empty() {
-                output.error.unwrap_or_else(|| "(no output)".to_string())
-            } else {
-                output.output.join("\n")
-            };
-            let is_error = status == crate::app::ToolStatus::Failed;
-            tool_results.push(ProviderMessage::tool_result(&tool_id, &result_content, is_error));
-        }
-
-        messages.push(ProviderMessage::assistant_blocks(assistant_blocks));
-        messages.extend(tool_results);
-        append_steering_messages(&mut messages, handle);
-    }
-}
-
-fn append_steering_messages(messages: &mut Vec<ProviderMessage>, handle: &RunHandle) -> bool {
-    let Some(rx) = handle.steering.as_ref() else {
-        return false;
-    };
-
-    let mut appended = false;
-    while let Ok(text) = rx.try_recv() {
-        let trimmed = text.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        messages.push(ProviderMessage::user(&format!("[steering]\n{trimmed}")));
-        appended = true;
-    }
-    if appended {
-        tracing::debug!(messages = messages.len(), "appended steering messages");
-    }
-    appended
-}
-
-/// Read an Umans SSE streaming response, converting events to [`AgentEvent`]
-/// instances and collecting any tool-use requests plus the assistant text.
-///
-/// Returns a [`TurnOutput`] with the tool-use requests and the accumulated
-/// assistant text, or an error message if the stream failed.
-fn stream_umans_response(
-    resp: Response<ureq::Body>, tx: &Sender<AgentEvent>, cancel: &CancelToken, max_tokens: u32,
-) -> Result<ProviderTurn, String> {
-    let reader = BufReader::new(resp.into_body().into_reader());
-    let mut buffer = String::new();
-    let mut tool_requests = Vec::new();
-    let mut tool_blocks: HashMap<usize, ToolUseBuilder> = HashMap::new();
-    let mut assistant_text = String::new();
-    let mut event_count = 0usize;
-    let mut saw_response = false;
-    let mut stop_reason = None;
-    let mut provider_content_blocks = Vec::new();
-    tracing::info!("reading Umans SSE stream");
-
-    for line_result in reader.lines() {
-        if cancel.is_cancelled() {
-            tracing::warn!("cancelled while reading Umans SSE stream");
-            return Err("cancelled".to_string());
-        }
-
-        match line_result {
-            Ok(line) => {
-                buffer.push_str(&line);
-                buffer.push('\n');
-
-                if line.is_empty() {
-                    let events = umans::parse_sse_chunk(&buffer);
-                    buffer.clear();
-
-                    for (event_type, data) in events {
-                        event_count += 1;
-                        log_sse_event(event_count, &event_type, &data);
-                        if !saw_response {
-                            saw_response = true;
-                            if send(tx, AgentEvent::Status(String::from("provider: receiving SSE")), cancel).is_none() {
-                                return Err("cancelled".to_string());
-                            }
-                        }
-                        collect_umans_event(
-                            &event_type,
-                            &data,
-                            &mut tool_blocks,
-                            &mut tool_requests,
-                            &mut assistant_text,
-                            &mut stop_reason,
-                            &mut provider_content_blocks,
-                            tx,
-                            cancel,
-                        )?;
-                    }
-                }
-            }
-            Err(e) => {
-                tracing::error!(error = %e, "failed reading Umans SSE stream");
-                return Err(format!("stream read error: {e}"));
-            }
-        }
-    }
-
-    if !buffer.is_empty() {
-        let events = umans::parse_sse_chunk(&buffer);
-        for (event_type, data) in events {
-            event_count += 1;
-            log_sse_event(event_count, &event_type, &data);
-            if !saw_response {
-                saw_response = true;
-                if send(tx, AgentEvent::Status(String::from("provider: receiving SSE")), cancel).is_none() {
-                    return Err("cancelled".to_string());
-                }
-            }
-            collect_umans_event(
-                &event_type,
-                &data,
-                &mut tool_blocks,
-                &mut tool_requests,
-                &mut assistant_text,
-                &mut stop_reason,
-                &mut provider_content_blocks,
-                tx,
-                cancel,
-            )?;
-        }
-    }
-
-    for (_, block) in tool_blocks {
-        if let Some(req) = block.finish() {
-            tool_requests.push(req);
-        }
-    }
-
-    if assistant_text.is_empty() && tool_requests.is_empty() {
-        tracing::error!(event_count, "Umans stream ended without assistant text or tool calls");
-        if stop_reason.as_deref() == Some("max_tokens") {
-            return Err(format!(
-                "provider stopped at max_tokens ({max_tokens}) before producing assistant text"
-            ));
-        }
-        if !provider_content_blocks.is_empty() {
-            let blocks = provider_content_blocks.join(", ");
-            return Err(format!(
-                "provider returned only provider-side content blocks ({blocks}) and no assistant text or tool calls; retry with --websearch none"
-            ));
-        }
-        return Err(format!(
-            "provider stream ended without assistant text or tool calls ({event_count} SSE events)"
-        ));
-    }
-
-    tracing::info!(
-        event_count,
-        text_chars = assistant_text.chars().count(),
-        tool_calls = tool_requests.len(),
-        "finished reading Umans SSE stream"
-    );
-    let _ = send(
-        tx,
-        AgentEvent::Status(format!(
-            "provider: stream ended ({event_count} SSE events, {} text chars, {} tool calls)",
-            assistant_text.chars().count(),
-            tool_requests.len()
-        )),
-        cancel,
-    );
-
-    Ok(ProviderTurn { tool_requests, assistant_text, stop_reason })
-}
-
-fn log_sse_event(seq: usize, event_type: &str, data: &str) {
-    let (content_type, delta_type, stop_reason) = summarize_sse_data(data);
-    tracing::info!(
-        seq,
-        event_type,
-        content_type = content_type.as_deref().unwrap_or(""),
-        delta_type = delta_type.as_deref().unwrap_or(""),
-        stop_reason = stop_reason.as_deref().unwrap_or(""),
-        "received SSE event"
-    );
-}
-
-fn summarize_sse_data(data: &str) -> (Option<String>, Option<String>, Option<String>) {
-    let v: serde_json::Value = serde_json::from_str(data).unwrap_or(serde_json::Value::Null);
-    let content_type = v
-        .get("content_block")
-        .and_then(|cb| cb.get("type"))
-        .and_then(|t| t.as_str())
-        .map(|s| s.to_string());
-    let delta_type = v
-        .get("delta")
-        .and_then(|d| d.get("type"))
-        .and_then(|t| t.as_str())
-        .map(|s| s.to_string());
-    let stop_reason = v
-        .get("delta")
-        .and_then(|d| d.get("stop_reason"))
-        .and_then(|s| s.as_str())
-        .map(|s| s.to_string());
-
-    (content_type, delta_type, stop_reason)
-}
-
-/// TODO: change args to a param list struct.
-fn collect_umans_event(
-    event_type: &str, data: &str, tool_blocks: &mut HashMap<usize, ToolUseBuilder>,
-    tool_requests: &mut Vec<ToolUseRequest>, assistant_text: &mut String, stop_reason: &mut Option<String>,
-    provider_content_blocks: &mut Vec<String>, tx: &Sender<AgentEvent>, cancel: &CancelToken,
-) -> Result<(), String> {
-    let sse_event = umans::parse_sse_event(event_type, data);
-
-    if let Some((input_tokens, output_tokens)) = extract_usage(data)
-        && send(tx, AgentEvent::Usage { input_tokens, output_tokens }, cancel).is_none()
-    {
-        return Err("cancelled".to_string());
-    }
-
-    if event_type == "content_block_start"
-        && let Some((index, block)) = extract_tool_use_start(data)
-    {
-        tool_blocks.insert(index, block);
-    }
-
-    if event_type == "content_block_start" {
-        collect_content_block_start_text(data, assistant_text, provider_content_blocks, tx, cancel)?;
-    }
-
-    match &sse_event {
-        umans::SseEvent::TextDelta(text) => assistant_text.push_str(text),
-        umans::SseEvent::InputJsonDelta { index, partial_json } => {
-            if let Some(block) = tool_blocks.get_mut(index) {
-                block.input_json.push_str(partial_json);
-            }
-        }
-        umans::SseEvent::ContentBlockStop { index } => {
-            if let Some(index) = index
-                && let Some(block) = tool_blocks.remove(index)
-                && let Some(req) = block.finish()
-            {
-                tool_requests.push(req);
-            }
-        }
-        umans::SseEvent::MessageDelta { stop_reason: Some(reason) } => {
-            *stop_reason = Some(reason.clone());
-            tracing::info!(stop_reason = %reason, "provider message stop reason");
-        }
-        umans::SseEvent::Error(msg) => {
-            tracing::error!(error = %msg, "provider emitted SSE error");
-            return Err(format!("provider error: {msg}"));
-        }
-        _ => {}
-    }
-
-    if let Some(agent_event) = umans::sse_to_agent_event(&sse_event)
-        && send(tx, agent_event, cancel).is_none()
-    {
-        return Err("cancelled".to_string());
-    }
-
-    Ok(())
-}
-
-fn extract_usage(data: &str) -> Option<(u64, u64)> {
-    let v: serde_json::Value = serde_json::from_str(data).ok()?;
-    let usage = v
-        .get("usage")
-        .or_else(|| v.get("message").and_then(|m| m.get("usage")))
-        .or_else(|| v.get("delta").and_then(|d| d.get("usage")))?;
-    let input_tokens = usage.get("input_tokens").and_then(|t| t.as_u64()).unwrap_or(0);
-    let output_tokens = usage.get("output_tokens").and_then(|t| t.as_u64()).unwrap_or(0);
-    if input_tokens == 0 && output_tokens == 0 { None } else { Some((input_tokens, output_tokens)) }
-}
-
-fn collect_content_block_start_text(
-    data: &str, assistant_text: &mut String, provider_content_blocks: &mut Vec<String>, tx: &Sender<AgentEvent>,
-    cancel: &CancelToken,
-) -> Result<(), String> {
-    let v: serde_json::Value = serde_json::from_str(data).unwrap_or(serde_json::Value::Null);
-    let Some(block) = v.get("content_block") else {
-        return Ok(());
-    };
-
-    match block.get("type").and_then(|t| t.as_str()) {
-        Some("text") => {
-            let text = block.get("text").and_then(|t| t.as_str()).unwrap_or("");
-            if !text.is_empty() {
-                assistant_text.push_str(text);
-                if send(tx, AgentEvent::AssistantDelta(text.to_string()), cancel).is_none() {
-                    return Err("cancelled".to_string());
-                }
-            }
-        }
-        Some("thinking") => {
-            let thinking = block.get("thinking").and_then(|t| t.as_str()).unwrap_or("");
-            if !thinking.is_empty() && send(tx, AgentEvent::ReasoningDelta(thinking.to_string()), cancel).is_none() {
-                return Err("cancelled".to_string());
-            }
-        }
-        Some(other) => {
-            provider_content_blocks.push(other.to_string());
-            tracing::info!(content_type = other, "unhandled content block start");
-        }
-        None => {}
-    }
-
-    Ok(())
-}
-
-fn extract_tool_use_start(data: &str) -> Option<(usize, ToolUseBuilder)> {
-    let v: serde_json::Value = serde_json::from_str(data).ok()?;
-    let index = v.get("index").and_then(|i| i.as_u64()).unwrap_or(0) as usize;
-    let cb = v.get("content_block")?;
-    let block_type = cb.get("type").and_then(|t| t.as_str())?;
-    if block_type != "tool_use" {
-        return None;
-    }
-    let name = cb.get("name").and_then(|n| n.as_str())?.to_string();
-    let id = cb.get("id").and_then(|n| n.as_str()).unwrap_or("").to_string();
-    let initial_input = cb.get("input").cloned().unwrap_or(serde_json::Value::Null);
-    Some((
-        index,
-        ToolUseBuilder { id, name, initial_input, input_json: String::new() },
-    ))
-}
-
-/// Send an event, respecting cancellation. Returns `Some(())` on success, or
-/// `None` if the send failed (receiver dropped) or cancellation was requested.
-fn send(tx: &Sender<AgentEvent>, event: AgentEvent, cancel: &CancelToken) -> Option<()> {
-    if cancel.is_cancelled() {
-        return None;
-    }
-    if tx.send(event).is_err() {
-        return None;
-    }
-    Some(())
-}
-
-/// Sleep briefly to simulate streaming latency in the fake provider.
-fn step() {
-    thread::sleep(Duration::from_millis(40));
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1174,7 +1330,6 @@ mod tests {
 
     #[test]
     fn provider_retry_policy_and_classification_match_defaults() {
-        let provider = UmansProvider;
         assert_eq!(PROVIDER_RETRY_POLICY.max_retries, 4);
         assert_eq!(PROVIDER_RETRY_POLICY.delay_for_attempt(1), Duration::from_millis(2500));
         assert_eq!(
@@ -1183,58 +1338,29 @@ mod tests {
         );
 
         assert!(
-            ProviderAttemptError::Request(umans::UmansError::Status {
+            ProviderAttemptError::Request(crate::providers::ProviderError::Status {
                 code: 503,
                 body: "temporarily unavailable".to_string(),
             })
-            .is_retryable(&provider)
+            .is_retryable::<umans::UmansClient>()
         );
-        assert!(ProviderAttemptError::Stream("stream read error: connection lost".to_string()).is_retryable(&provider));
         assert!(
-            !ProviderAttemptError::Request(umans::UmansError::Status { code: 401, body: "unauthorized".to_string() })
-                .is_retryable(&provider)
+            ProviderAttemptError::Stream("stream read error: connection lost".to_string())
+                .is_retryable::<umans::UmansClient>()
+        );
+        assert!(
+            !ProviderAttemptError::Request(crate::providers::ProviderError::Status {
+                code: 401,
+                body: "unauthorized".to_string()
+            })
+            .is_retryable::<umans::UmansClient>()
         );
         assert!(
             !ProviderAttemptError::Stream(
                 "provider stopped at max_tokens (32768) before producing assistant text".to_string()
             )
-            .is_retryable(&provider)
+            .is_retryable::<umans::UmansClient>()
         );
-    }
-
-    struct EventCollectState {
-        tool_blocks: HashMap<usize, ToolUseBuilder>,
-        tool_requests: Vec<ToolUseRequest>,
-        assistant_text: String,
-        stop_reason: Option<String>,
-        provider_content_blocks: Vec<String>,
-    }
-
-    impl EventCollectState {
-        fn new() -> Self {
-            EventCollectState {
-                tool_blocks: HashMap::new(),
-                tool_requests: Vec::new(),
-                assistant_text: String::new(),
-                stop_reason: None,
-                provider_content_blocks: Vec::new(),
-            }
-        }
-
-        fn collect(&mut self, event_type: &str, data: &str, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
-            collect_umans_event(
-                event_type,
-                data,
-                &mut self.tool_blocks,
-                &mut self.tool_requests,
-                &mut self.assistant_text,
-                &mut self.stop_reason,
-                &mut self.provider_content_blocks,
-                tx,
-                cancel,
-            )
-            .expect("collect event");
-        }
     }
 
     #[test]
@@ -1408,20 +1534,20 @@ mod tests {
     #[test]
     fn parse_tool_use_fixture_extracts_request_with_id() {
         let sse = include_str!("./providers/fixtures/tool_use_turn.sse");
-        let chunks = umans::parse_sse_chunk(sse);
+        let chunks = anthropic::parse_sse_chunk(sse);
 
         let mut tool_requests = Vec::new();
         let mut assistant_text = String::new();
         for (event_type, data) in &chunks {
-            let sse_event = umans::parse_sse_event(event_type, data);
-            if let umans::SseEvent::Other(ref t) = sse_event
+            let sse_event = anthropic::parse_sse_event(event_type, data);
+            if let anthropic::SseEvent::Other(ref t) = sse_event
                 && t.starts_with("content_block_start")
                 && let Some((_index, block)) = extract_tool_use_start(data)
                 && let Some(req) = block.finish()
             {
                 tool_requests.push(req);
             }
-            if let umans::SseEvent::TextDelta(ref text) = sse_event {
+            if let anthropic::SseEvent::TextDelta(ref text) = sse_event {
                 assistant_text.push_str(text);
             }
         }
@@ -1438,48 +1564,55 @@ mod tests {
     fn collect_umans_event_reconstructs_streamed_tool_input_json() {
         let (tx, _rx) = mpsc::channel();
         let cancel = CancelToken::new();
-        let mut state = EventCollectState::new();
+        let mut state = AnthropicStreamState::default();
 
         state.collect(
             "content_block_start",
             r#"{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_1","name":"find_files","input":{}}}"#,
             &tx,
             &cancel,
-        );
-        state.collect(
-            "content_block_delta",
-            &serde_json::json!({
-                "type": "content_block_delta",
-                "index": 1,
-                "delta": {
-                    "type": "input_json_delta",
-                    "partial_json": "{\"pattern\""
-                }
-            })
-            .to_string(),
-            &tx,
-            &cancel,
-        );
-        state.collect(
-            "content_block_delta",
-            &serde_json::json!({
-                "type": "content_block_delta",
-                "index": 1,
-                "delta": {
-                    "type": "input_json_delta",
-                    "partial_json": ":\"Cargo\"}"
-                }
-            })
-            .to_string(),
-            &tx,
-            &cancel,
-        );
-        state.collect(
-            "content_block_stop",
-            r#"{"type":"content_block_stop","index":1}"#,
-            &tx,
-            &cancel,
-        );
+        )
+        .expect("collect event");
+        state
+            .collect(
+                "content_block_delta",
+                &serde_json::json!({
+                    "type": "content_block_delta",
+                    "index": 1,
+                    "delta": {
+                        "type": "input_json_delta",
+                        "partial_json": "{\"pattern\""
+                    }
+                })
+                .to_string(),
+                &tx,
+                &cancel,
+            )
+            .expect("collect event");
+        state
+            .collect(
+                "content_block_delta",
+                &serde_json::json!({
+                    "type": "content_block_delta",
+                    "index": 1,
+                    "delta": {
+                        "type": "input_json_delta",
+                        "partial_json": ":\"Cargo\"}"
+                    }
+                })
+                .to_string(),
+                &tx,
+                &cancel,
+            )
+            .expect("collect event");
+        state
+            .collect(
+                "content_block_stop",
+                r#"{"type":"content_block_stop","index":1}"#,
+                &tx,
+                &cancel,
+            )
+            .expect("collect event");
 
         assert_eq!(state.tool_requests.len(), 1);
         assert_eq!(state.tool_requests[0].name, "find_files");
@@ -1491,20 +1624,22 @@ mod tests {
     fn collect_umans_event_tracks_provider_side_content_blocks() {
         let (tx, _rx) = mpsc::channel();
         let cancel = CancelToken::new();
-        let mut state = EventCollectState::new();
+        let mut state = AnthropicStreamState::default();
 
         state.collect(
             "content_block_start",
             r#"{"type":"content_block_start","index":0,"content_block":{"type":"server_tool_use","id":"srv_1","name":"web_search","input":{}}}"#,
             &tx,
             &cancel,
-        );
+        )
+        .expect("collect event");
         state.collect(
             "content_block_start",
             r#"{"type":"content_block_start","index":1,"content_block":{"type":"web_search_tool_result","content":[]}}"#,
             &tx,
             &cancel,
-        );
+        )
+        .expect("collect event");
 
         assert_eq!(
             state.provider_content_blocks,
@@ -1520,7 +1655,7 @@ mod tests {
         tx.send("look at tests first".to_string()).expect("send steering");
         drop(tx);
 
-        let handle = RunHandle::umans_with_steering(config(), Vec::new(), false, rx);
+        let handle = RunHandle::provider_with_steering(config(), Vec::new(), false, rx);
         let mut messages = Vec::new();
 
         assert!(append_steering_messages(&mut messages, &handle));

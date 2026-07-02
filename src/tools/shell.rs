@@ -32,6 +32,7 @@
 mod tests;
 
 use std::collections::HashMap;
+use std::fmt;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -98,13 +99,17 @@ pub enum ProcessKind {
 
 impl ProcessKind {
     /// Lowercase label used in display and records.
-    ///
-    /// TODO: Display impl
     pub fn label(&self) -> &'static str {
         match self {
             ProcessKind::OneShot => "one-shot",
             ProcessKind::Background => "background",
         }
+    }
+}
+
+impl fmt::Display for ProcessKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.label())
     }
 }
 
@@ -448,6 +453,29 @@ pub fn exec(args: &ShellArgs, root: &Path) -> ToolOutput {
     }
 }
 
+/// Redact known secret patterns from a line of command output.
+///
+/// This is a best-effort deterministic redaction — it covers common formats
+/// (API keys prefixed with `sk-`, bearer tokens, password assignments) but
+/// cannot catch every possible secret. The patterns are intentionally simple
+/// so they are predictable and auditable.
+///
+/// Redacted values are replaced with `[REDACTED]` so the user can see that a
+/// secret was present and scrubbed.
+pub fn redact_secrets(line: &str) -> String {
+    let mut result = line.to_string();
+    let sk_re = regex_lite::Regex::new(r"\bsk-[A-Za-z0-9_]{8,}").expect("valid regex");
+    result = sk_re.replace_all(&result, "sk-[REDACTED]").to_string();
+
+    let bearer_re = regex_lite::Regex::new(r"(?i)bearer\s+[A-Za-z0-9_\-\.]{10,}").expect("valid regex");
+    result = bearer_re.replace_all(&result, "Bearer [REDACTED]").to_string();
+
+    let assign_re = regex_lite::Regex::new(r"(?i)(password|passwd|api_key|apikey|access_token|secret)\s*[:=]\s*\S{4,}")
+        .expect("valid regex");
+
+    assign_re.replace_all(&result, "$1=[REDACTED]").to_string()
+}
+
 /// Wait for a child to exit, killing it if the timeout elapses or cancellation
 /// is signalled.
 fn wait_with_timeout(child: &mut Child, timeout: &Duration, cancel: &CancelFlag, start: &Instant) -> WaitOutcome {
@@ -535,27 +563,4 @@ fn split_and_cap(buf: &[u8]) -> Vec<String> {
     }
 
     lines
-}
-
-/// Redact known secret patterns from a line of command output.
-///
-/// This is a best-effort deterministic redaction — it covers common formats
-/// (API keys prefixed with `sk-`, bearer tokens, password assignments) but
-/// cannot catch every possible secret. The patterns are intentionally simple
-/// so they are predictable and auditable.
-///
-/// Redacted values are replaced with `[REDACTED]` so the user can see that a
-/// secret was present and scrubbed.
-pub fn redact_secrets(line: &str) -> String {
-    let mut result = line.to_string();
-    let sk_re = regex_lite::Regex::new(r"\bsk-[A-Za-z0-9_]{8,}").expect("valid regex");
-    result = sk_re.replace_all(&result, "sk-[REDACTED]").to_string();
-
-    let bearer_re = regex_lite::Regex::new(r"(?i)bearer\s+[A-Za-z0-9_\-\.]{10,}").expect("valid regex");
-    result = bearer_re.replace_all(&result, "Bearer [REDACTED]").to_string();
-
-    let assign_re = regex_lite::Regex::new(r"(?i)(password|passwd|api_key|apikey|access_token|secret)\s*[:=]\s*\S{4,}")
-        .expect("valid regex");
-
-    assign_re.replace_all(&result, "$1=[REDACTED]").to_string()
 }

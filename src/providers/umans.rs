@@ -1,18 +1,19 @@
 //! Umans Code provider — Anthropic-compatible Messages API.
 //!
 //! Uses `POST /v1/messages` with `x-api-key` and `anthropic-version` headers.
-//! Streaming responses arrive as SSE events, parsed into [`AgentEvent`].
+//! Streaming responses arrive as SSE events and parsed into [`AgentEvent`].
 
 use std::collections::HashMap;
 use std::env;
-use std::fs;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
 use crate::app::AgentEvent;
 use crate::cli::WebSearchMode;
-use crate::providers::ProviderMessage;
+use crate::providers::{
+    KnownModel, ProviderError, ProviderHttpClient, ProviderMessage, Result, StreamFormat, StreamingProvider,
+};
 
 /// Umans Code base URL.
 pub const BASE_URL: &str = "https://api.code.umans.ai";
@@ -28,79 +29,6 @@ pub const API_KEY_ENV: &str = "UMANS_API_KEY";
 
 pub const DEFAULT_RECOMMENDED_MAX_TOKENS: u32 = 32_768;
 
-type Result<T> = std::result::Result<T, UmansError>;
-
-/// Errors from the Umans client.
-#[derive(Debug, thiserror::Error)]
-pub enum UmansError {
-    /// `UMANS_API_KEY` is not set.
-    #[error("UMANS_API_KEY is not set")]
-    MissingApiKey,
-    /// HTTP transport error.
-    #[error("http error: {0}")]
-    Http(String),
-    /// HTTP status error (non-2xx response).
-    #[error("HTTP {code}: {body}")]
-    Status { code: u16, body: String },
-    /// JSON serialization/deserialization error.
-    #[error("json error: {0}")]
-    Json(String),
-}
-
-/// A parsed SSE event from the streaming response.
-#[derive(Clone, Debug, PartialEq)]
-pub enum SseEvent {
-    /// `event: message_start`
-    MessageStart,
-    /// `event: content_block_start` with content type `thinking`.
-    ThinkingStart,
-    /// `event: content_block_start` with content type `text`.
-    TextStart,
-    /// `event: content_block_delta` with a thinking delta.
-    ThinkingDelta(String),
-    /// `event: content_block_delta` with a text delta.
-    TextDelta(String),
-    /// `event: content_block_delta` with a partial tool input JSON delta.
-    InputJsonDelta { index: usize, partial_json: String },
-    /// `event: content_block_stop`
-    ContentBlockStop { index: Option<usize> },
-    /// `event: message_delta` with stop reason.
-    MessageDelta { stop_reason: Option<String> },
-    /// `event: message_stop`
-    MessageStop,
-    /// `event: error`
-    Error(String),
-    /// An unhandled event type.
-    Other(String),
-}
-
-/// Convert an [`SseEvent`] into an [`AgentEvent`].
-///
-/// `TextDelta` → `AssistantDelta`, `ThinkingDelta` → `ReasoningDelta`,
-/// `Error` → `Failed`.
-///
-/// `MessageStop` is intentionally not converted here. Only the agent loop
-/// knows whether a provider turn ended because the assistant is done or
-/// because tool calls must be dispatched and fed back.
-impl From<&SseEvent> for Option<AgentEvent> {
-    fn from(event: &SseEvent) -> Self {
-        match event {
-            SseEvent::MessageStart => Some(AgentEvent::Started),
-            SseEvent::TextDelta(text) => Some(AgentEvent::AssistantDelta(text.clone())),
-            SseEvent::ThinkingDelta(text) => Some(AgentEvent::ReasoningDelta(text.clone())),
-            SseEvent::Error(msg) => Some(AgentEvent::Failed(msg.clone())),
-            _ => None,
-        }
-    }
-}
-
-/// Static model entry used by the offline model picker.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct KnownModel {
-    pub id: &'static str,
-    pub description: &'static str,
-}
-
 /// Model information from `GET /v1/models/info`.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct ModelInfo {
@@ -113,9 +41,7 @@ pub struct ModelInfo {
     pub benchmarks: serde_json::Value,
 }
 
-/// Base model descriptor.
-///
-/// TODO: surface provider/family/base model labels in model metadata display.
+/// Base model descriptor used by model metadata display.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct BaseModel {
     pub name: String,
@@ -129,9 +55,7 @@ pub struct BaseModel {
 
 /// Concrete Umans Code API client.
 pub struct UmansClient {
-    base_url: String,
-    api_key: String,
-    agent: ureq::Agent,
+    http: ProviderHttpClient,
 }
 
 impl UmansClient {
@@ -142,42 +66,39 @@ impl UmansClient {
                 tracing::debug!(source = "environment", "loaded Umans API key");
                 Ok(Self::new(BASE_URL, &api_key))
             }
-            Err(_) => api_key_from_dotenv(workspace_root)
+            Err(_) => super::api_key_from_dotenv(workspace_root, API_KEY_ENV)
                 .map(|api_key| {
                     tracing::debug!(source = ".env", path = %workspace_root.join(".env").display(), "loaded Umans API key");
                     Self::new(BASE_URL, &api_key)
                 })
                 .ok_or_else(|| {
                     tracing::error!(env = API_KEY_ENV, cwd = %workspace_root.display(), "missing Umans API key");
-                    UmansError::MissingApiKey
+                    ProviderError::missing_api_key(API_KEY_ENV)
                 }),
         }
     }
 
     /// Create a client with an explicit base URL and API key.
     pub fn new(base_url: &str, api_key: &str) -> Self {
-        UmansClient {
-            base_url: base_url.to_string(),
-            api_key: api_key.to_string(),
-            agent: ureq::Agent::new_with_defaults(),
-        }
+        UmansClient { http: ProviderHttpClient::new(base_url, api_key) }
     }
 
     /// Fetch model metadata from `GET /v1/models/info`.
     pub fn fetch_models_info(&self) -> Result<HashMap<String, ModelInfo>> {
-        let url = format!("{}/v1/models/info", self.base_url);
+        let url = format!("{}/v1/models/info", self.http.base_url());
         let mut resp = self
-            .agent
+            .http
+            .agent()
             .get(&url)
             .call()
-            .map_err(|e| UmansError::Http(e.to_string()))?;
+            .map_err(|e| ProviderError::Http(e.to_string()))?;
 
         let body = resp
             .body_mut()
             .read_to_string()
-            .map_err(|e| UmansError::Http(e.to_string()))?;
+            .map_err(|e| ProviderError::Http(e.to_string()))?;
 
-        serde_json::from_str::<HashMap<String, ModelInfo>>(&body).map_err(|e| UmansError::Json(e.to_string()))
+        serde_json::from_str::<HashMap<String, ModelInfo>>(&body).map_err(|e| ProviderError::Json(e.to_string()))
     }
 
     /// Build the request body for `POST /v1/messages`.
@@ -192,24 +113,13 @@ impl UmansClient {
     pub fn build_messages_request_body(
         model: &str, messages: &[ProviderMessage], max_tokens: u32, stream: bool, tools: Option<&serde_json::Value>,
     ) -> serde_json::Value {
-        let mut body = serde_json::json!({
-            "model": model,
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "stream": stream,
-        });
-        if let Some(t) = tools
-            && !t.as_array().is_some_and(|arr| arr.is_empty())
-        {
-            body["tools"] = t.clone();
-        }
-        body
+        crate::providers::anthropic::build_messages_request_body(model, messages, max_tokens, stream, tools)
     }
 
     /// Build the HTTP headers map for a Messages API request.
     pub fn build_headers(&self, search_mode: WebSearchMode) -> Vec<(String, String)> {
         vec![
-            ("x-api-key".to_string(), self.api_key.clone()),
+            ("x-api-key".to_string(), self.http.api_key().to_string()),
             ("anthropic-version".to_string(), ANTHROPIC_VERSION.to_string()),
             ("Content-Type".to_string(), "application/json".to_string()),
             (WEBSEARCH_HEADER.to_string(), search_mode.header_value().to_string()),
@@ -233,7 +143,7 @@ impl UmansClient {
         &self, model: &str, messages: &[ProviderMessage], max_tokens: u32, mode: WebSearchMode,
         tools: Option<&serde_json::Value>,
     ) -> Result<ureq::http::Response<ureq::Body>> {
-        let url = format!("{}/v1/messages", self.base_url);
+        let url = format!("{}/v1/messages", self.http.base_url());
         let body = Self::build_messages_request_body(model, messages, max_tokens, true, tools);
         let tool_count = tools.and_then(|t| t.as_array()).map_or(0, Vec::len);
         tracing::info!(
@@ -245,7 +155,7 @@ impl UmansClient {
             "sending Umans streaming request"
         );
 
-        let mut request = self.agent.post(&url);
+        let mut request = self.http.agent().post(&url);
         for (key, value) in self.build_headers(mode) {
             request = request.header(&key, &value);
         }
@@ -257,7 +167,7 @@ impl UmansClient {
             .send_json(&body)
             .map_err(|e| {
                 tracing::error!(error = %e, "Umans request failed before HTTP response");
-                UmansError::Http(e.to_string())
+                ProviderError::Http(e.to_string())
             })?;
 
         let status = response.status().as_u16();
@@ -266,13 +176,80 @@ impl UmansClient {
                 .body_mut()
                 .read_to_string()
                 .unwrap_or_else(|e| format!("failed to read error body: {e}"));
-            let body = summarize_error_body(&body);
+            let body = crate::providers::summarize_error_body(&body);
             tracing::error!(status, error = %body, "Umans request returned non-success status");
-            return Err(UmansError::Status { code: status, body });
+            return Err(ProviderError::Status { code: status, body });
         }
 
         tracing::info!(status, "Umans streaming request connected");
         Ok(response)
+    }
+}
+
+impl StreamingProvider for UmansClient {
+    type Metadata = HashMap<String, ModelInfo>;
+
+    fn name(&self) -> &'static str {
+        "Umans"
+    }
+
+    fn load_status(&self) -> String {
+        String::from("provider: loading UMANS_API_KEY")
+    }
+
+    fn request_status(&self, model: &str, search_mode: WebSearchMode) -> String {
+        format!(
+            "provider: POST /v1/messages model={model} search={}",
+            search_mode.header_value()
+        )
+    }
+
+    fn from_env_or_dotenv(root: &Path) -> Result<Self> {
+        UmansClient::from_env_or_dotenv(root)
+    }
+
+    fn load_metadata(&self) -> Result<Self::Metadata> {
+        self.fetch_models_info()
+    }
+
+    fn metadata_loaded_event(&self, metadata: &Self::Metadata) -> Option<AgentEvent> {
+        let mut items = model_picker_items(metadata);
+        items.extend(
+            crate::providers::opencode::known_models()
+                .into_iter()
+                .map(|model| (model.id.to_string(), model.description.to_string())),
+        );
+        Some(AgentEvent::ModelMetadataLoaded(items))
+    }
+
+    fn metadata_status(&self, model: &str, metadata: &Self::Metadata) -> Option<String> {
+        model_status(model, metadata)
+    }
+
+    fn token_budget(&self, model: &str, metadata: Option<&Self::Metadata>) -> u32 {
+        recommended_max_tokens_for_model(model, metadata)
+    }
+
+    fn send_streaming_request(
+        &self, model: &str, messages: &[ProviderMessage], max_tokens: u32, search_mode: WebSearchMode,
+        tools: &serde_json::Value,
+    ) -> Result<ureq::http::Response<ureq::Body>> {
+        UmansClient::send_streaming_request(self, model, messages, max_tokens, search_mode, Some(tools))
+    }
+
+    fn stream_format(&self, _model: &str) -> Result<StreamFormat> {
+        Ok(StreamFormat::AnthropicMessages)
+    }
+
+    fn request_error_message(error: &ProviderError) -> String {
+        match error_to_agent_event(error) {
+            AgentEvent::Failed(msg) => msg,
+            _ => error.to_string(),
+        }
+    }
+
+    fn is_retryable_request_error(error: &ProviderError) -> bool {
+        is_retryable_error(error)
     }
 }
 
@@ -309,15 +286,8 @@ pub fn recommended_max_tokens_for_model(model: &str, models: Option<&HashMap<Str
         .unwrap_or(DEFAULT_RECOMMENDED_MAX_TOKENS)
 }
 
-pub fn is_retryable_error(err: &UmansError) -> bool {
-    match err {
-        UmansError::MissingApiKey | UmansError::Json(_) => false,
-        UmansError::Status { code, .. } => *code == 429 || (500..=599).contains(code),
-        UmansError::Http(message) => {
-            let lower = message.to_ascii_lowercase();
-            !lower.contains("cancel") && !lower.contains("abort")
-        }
-    }
+pub fn is_retryable_error(err: &ProviderError) -> bool {
+    err.is_retryable()
 }
 
 /// Current Umans Code models from the public docs.
@@ -349,158 +319,14 @@ pub fn model_status(model: &str, models: &HashMap<String, ModelInfo>) -> Option<
         .map(|info| format!("model: {}  {}", info.display_name, model_picker_detail(info)))
 }
 
-/// Parse a single SSE line pair into an [`SseEvent`].
-///
-/// SSE format: lines starting with `event:` give the event type, lines starting
-/// with `data:` give the JSON payload.
-///
-/// This function takes the event type and the data JSON string.
-pub fn parse_sse_event(event_type: &str, data: &str) -> SseEvent {
-    match event_type {
-        "message_start" => SseEvent::MessageStart,
-        "content_block_start" => {
-            let v: serde_json::Value = serde_json::from_str(data).unwrap_or(serde_json::Value::Null);
-            let content_type = v
-                .get("content_block")
-                .and_then(|cb| cb.get("type"))
-                .and_then(|t| t.as_str())
-                .unwrap_or("");
-            match content_type {
-                "thinking" => SseEvent::ThinkingStart,
-                "text" => SseEvent::TextStart,
-                _ => SseEvent::Other(format!("content_block_start: {content_type}")),
-            }
-        }
-        "content_block_delta" => {
-            let v: serde_json::Value = serde_json::from_str(data).unwrap_or(serde_json::Value::Null);
-            let index = v.get("index").and_then(|i| i.as_u64()).unwrap_or(0) as usize;
-            let delta_type = v
-                .get("delta")
-                .and_then(|d| d.get("type"))
-                .and_then(|t| t.as_str())
-                .unwrap_or("");
-            match delta_type {
-                "thinking_delta" => {
-                    let text = v
-                        .get("delta")
-                        .and_then(|d| d.get("thinking"))
-                        .and_then(|t| t.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    SseEvent::ThinkingDelta(text)
-                }
-                "text_delta" => {
-                    let text = v
-                        .get("delta")
-                        .and_then(|d| d.get("text"))
-                        .and_then(|t| t.as_str())
-                        .unwrap_or("")
-                        .replace("<think>", "")
-                        .replace("</think>", "");
-                    SseEvent::TextDelta(text)
-                }
-                "input_json_delta" => {
-                    let partial_json = v
-                        .get("delta")
-                        .and_then(|d| d.get("partial_json"))
-                        .and_then(|t| t.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    SseEvent::InputJsonDelta { index, partial_json }
-                }
-                _ => SseEvent::Other(format!("content_block_delta: {delta_type}")),
-            }
-        }
-        "content_block_stop" => {
-            let v: serde_json::Value = serde_json::from_str(data).unwrap_or(serde_json::Value::Null);
-            SseEvent::ContentBlockStop { index: v.get("index").and_then(|i| i.as_u64()).map(|i| i as usize) }
-        }
-        "message_delta" => {
-            let v: serde_json::Value = serde_json::from_str(data).unwrap_or(serde_json::Value::Null);
-            let stop_reason = v
-                .get("delta")
-                .and_then(|d| d.get("stop_reason"))
-                .and_then(|s| s.as_str())
-                .map(|s| s.to_string());
-            SseEvent::MessageDelta { stop_reason }
-        }
-        "message_stop" => SseEvent::MessageStop,
-        "error" => {
-            let v: serde_json::Value = serde_json::from_str(data).unwrap_or(serde_json::Value::Null);
-            let msg = v
-                .get("error")
-                .and_then(|e| e.get("message"))
-                .and_then(|m| m.as_str())
-                .unwrap_or("unknown error")
-                .to_string();
-            SseEvent::Error(msg)
-        }
-        other => SseEvent::Other(other.to_string()),
-    }
-}
-
-/// Convenience wrapper for `Option<AgentEvent>::from(&sse_event)`.
-pub fn sse_to_agent_event(event: &SseEvent) -> Option<AgentEvent> {
-    event.into()
-}
-
-/// Parse a raw SSE chunk (multiple lines) and extract any event/data pairs.
-///
-/// Returns a list of `(event_type, data)` tuples. Lines starting with `event:`
-/// set the event type; lines starting with `data:` provide the JSON payload.
-/// A blank line delimits events.
-pub fn parse_sse_chunk(chunk: &str) -> Vec<(String, String)> {
-    let mut events = Vec::new();
-    let mut current_event = String::new();
-    let mut current_data = String::new();
-
-    for line in chunk.lines() {
-        if line.is_empty() {
-            if !current_event.is_empty() {
-                events.push((current_event.clone(), current_data.clone()));
-            }
-            current_event.clear();
-            current_data.clear();
-            continue;
-        }
-        if let Some(rest) = line.strip_prefix("event: ") {
-            current_event = rest.to_string();
-        } else if let Some(rest) = line.strip_prefix("data: ") {
-            if current_data.is_empty() {
-                current_data = rest.to_string();
-            } else {
-                current_data.push('\n');
-                current_data.push_str(rest);
-            }
-        }
-    }
-
-    if !current_event.is_empty() {
-        events.push((current_event, current_data));
-    }
-
-    events
-}
-
-/// Convert an [`UmansError`] into an [`AgentEvent::Failed`] with a
+/// Convert a [`ProviderError`] into an [`AgentEvent::Failed`] with a
 /// human-readable message.
 ///
 /// HTTP status errors include the status code.
 ///
 /// Auth errors (401/403) and rate-limit errors (429) are labeled distinctly.
-pub fn error_to_agent_event(err: &UmansError) -> AgentEvent {
-    let msg = match err {
-        UmansError::MissingApiKey => "UMANS_API_KEY is not set".to_string(),
-        UmansError::Status { code, body } => match code {
-            401 | 403 => format!("authentication failed (HTTP {code})"),
-            429 => "rate limit exceeded".to_string(),
-            500..=599 => format!("server error (HTTP {code}): {body}"),
-            _ => format!("HTTP {code}: {body}"),
-        },
-        UmansError::Http(e) => format!("network error: {e}"),
-        UmansError::Json(e) => format!("response parse error: {e}"),
-    };
-    AgentEvent::Failed(msg)
+pub fn error_to_agent_event(err: &ProviderError) -> AgentEvent {
+    AgentEvent::Failed(err.failure_message("rate limit exceeded"))
 }
 
 fn model_picker_detail(info: &ModelInfo) -> String {
@@ -526,63 +352,20 @@ fn compact_token_count(tokens: u64) -> String {
     const K: u64 = 1024;
     const M: u64 = K * K;
 
-    if tokens >= M && tokens % M == 0 {
+    if tokens >= M && tokens.is_multiple_of(M) {
         format!("{}M", tokens / M)
-    } else if tokens >= K && tokens % K == 0 {
+    } else if tokens >= K && tokens.is_multiple_of(K) {
         format!("{}k", tokens / K)
     } else {
         tokens.to_string()
     }
 }
 
-fn summarize_error_body(body: &str) -> String {
-    let trimmed = body.trim();
-    if trimmed.is_empty() {
-        return "(empty response body)".to_string();
-    }
-
-    serde_json::from_str::<serde_json::Value>(trimmed)
-        .ok()
-        .and_then(|v| {
-            v.pointer("/error/message")
-                .or_else(|| v.get("message"))
-                .and_then(|m| m.as_str())
-                .map(|m| m.to_string())
-        })
-        .unwrap_or_else(|| trimmed.chars().take(500).collect())
-}
-
-fn api_key_from_dotenv(workspace_root: &Path) -> Option<String> {
-    let contents = fs::read_to_string(workspace_root.join(".env")).ok()?;
-    contents.lines().find_map(parse_api_key_line)
-}
-
-fn parse_api_key_line(line: &str) -> Option<String> {
-    let line = line.trim();
-    if line.is_empty() || line.starts_with('#') {
-        return None;
-    }
-
-    let line = line.strip_prefix("export ").unwrap_or(line);
-    let (key, value) = line.split_once('=')?;
-    if key.trim() != API_KEY_ENV {
-        return None;
-    }
-
-    let value = value.trim();
-    let value = value
-        .strip_prefix('"')
-        .and_then(|v| v.strip_suffix('"'))
-        .or_else(|| value.strip_prefix('\'').and_then(|v| v.strip_suffix('\'')))
-        .unwrap_or(value);
-
-    if value.is_empty() { None } else { Some(value.to_string()) }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::cli::WebSearchMode;
+    use crate::providers::anthropic::{SseEvent, parse_sse_chunk, parse_sse_event, sse_to_agent_event};
     use crate::providers::{ProviderContentBlock, ProviderMessage, ProviderMessageContent};
 
     #[test]
@@ -673,25 +456,25 @@ mod tests {
 
     #[test]
     fn retryable_error_classification_matches_policy() {
-        assert!(!is_retryable_error(&UmansError::MissingApiKey));
-        assert!(!is_retryable_error(&UmansError::Status {
+        assert!(!is_retryable_error(&ProviderError::missing_api_key(API_KEY_ENV)));
+        assert!(!is_retryable_error(&ProviderError::Status {
             code: 400,
             body: "bad request".into()
         }));
-        assert!(!is_retryable_error(&UmansError::Status {
+        assert!(!is_retryable_error(&ProviderError::Status {
             code: 401,
             body: "unauthorized".into()
         }));
-        assert!(is_retryable_error(&UmansError::Status {
+        assert!(is_retryable_error(&ProviderError::Status {
             code: 429,
             body: "too many requests".into()
         }));
-        assert!(is_retryable_error(&UmansError::Status {
+        assert!(is_retryable_error(&ProviderError::Status {
             code: 503,
             body: "service unavailable".into()
         }));
-        assert!(is_retryable_error(&UmansError::Http("connection reset".into())));
-        assert!(!is_retryable_error(&UmansError::Http("request aborted".into())));
+        assert!(is_retryable_error(&ProviderError::Http("connection reset".into())));
+        assert!(!is_retryable_error(&ProviderError::Http("request aborted".into())));
     }
 
     #[test]
@@ -728,7 +511,7 @@ mod tests {
         }
         let dir = tempfile::tempdir().unwrap();
         let result = UmansClient::from_env_or_dotenv(dir.path());
-        assert!(matches!(result, Err(UmansError::MissingApiKey)));
+        assert!(matches!(result, Err(ProviderError::MissingApiKey { env }) if env == API_KEY_ENV));
     }
 
     #[test]
@@ -998,37 +781,37 @@ mod tests {
 
     #[test]
     fn error_to_agent_event_missing_api_key() {
-        let event = error_to_agent_event(&UmansError::MissingApiKey);
+        let event = error_to_agent_event(&ProviderError::missing_api_key(API_KEY_ENV));
         assert!(matches!(event, AgentEvent::Failed(msg) if msg.contains("UMANS_API_KEY")));
     }
 
     #[test]
     fn error_to_agent_event_auth_failure() {
-        let event = error_to_agent_event(&UmansError::Status { code: 401, body: "Unauthorized".into() });
+        let event = error_to_agent_event(&ProviderError::Status { code: 401, body: "Unauthorized".into() });
         assert!(matches!(event, AgentEvent::Failed(msg) if msg.contains("authentication failed")));
     }
 
     #[test]
     fn error_to_agent_event_rate_limit() {
-        let event = error_to_agent_event(&UmansError::Status { code: 429, body: "Too Many Requests".into() });
+        let event = error_to_agent_event(&ProviderError::Status { code: 429, body: "Too Many Requests".into() });
         assert!(matches!(event, AgentEvent::Failed(msg) if msg.contains("rate limit")));
     }
 
     #[test]
     fn error_to_agent_event_server_error() {
-        let event = error_to_agent_event(&UmansError::Status { code: 500, body: "Internal Server Error".into() });
+        let event = error_to_agent_event(&ProviderError::Status { code: 500, body: "Internal Server Error".into() });
         assert!(matches!(event, AgentEvent::Failed(msg) if msg.contains("server error")));
     }
 
     #[test]
     fn error_to_agent_event_network_error() {
-        let event = error_to_agent_event(&UmansError::Http("connection refused".into()));
+        let event = error_to_agent_event(&ProviderError::Http("connection refused".into()));
         assert!(matches!(event, AgentEvent::Failed(msg) if msg.contains("network error")));
     }
 
     #[test]
     fn error_to_agent_event_json_error() {
-        let event = error_to_agent_event(&UmansError::Json("bad metadata".into()));
+        let event = error_to_agent_event(&ProviderError::Json("bad metadata".into()));
         assert!(matches!(event, AgentEvent::Failed(msg) if msg.contains("response parse error")));
     }
 

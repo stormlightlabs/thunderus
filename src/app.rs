@@ -12,12 +12,12 @@ use std::path::PathBuf;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use serde::{Deserialize, Serialize};
 
+use super::{context, fuzzy, session, tools};
 use crate::cli::{Cli, Theme, WebSearchMode};
-use crate::fuzzy;
 use crate::input::PromptInput;
+use crate::providers::{opencode, umans};
 use crate::renderer::git::GitStatusSummary;
 use crate::tools::shell::ProcessRegistry;
-use crate::{context, providers::umans, session, tools};
 
 /// Number of UI ticks the user has to press Ctrl+D a second time before the
 /// quit confirmation expires and a fresh double-press is needed.
@@ -1101,6 +1101,11 @@ fn offline_model_picker_items() -> Vec<PickerItem> {
     umans::known_models()
         .into_iter()
         .map(|model| PickerItem::new(model.id, model.description))
+        .chain(
+            opencode::known_models()
+                .into_iter()
+                .map(|model| PickerItem::new(model.id, model.description)),
+        )
         .collect()
 }
 

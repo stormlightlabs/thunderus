@@ -726,7 +726,7 @@ mod tests {
         assert_eq!(out.iter().map(|s| s.text.chars().count()).sum::<usize>(), 5);
     }
 
-    fn picker_app(files: Vec<String>) -> App {
+    fn picker_app(files: &[String]) -> App {
         let mut app = test_app();
         let items: Vec<crate::app::PickerItem> = files
             .iter()
@@ -739,7 +739,7 @@ mod tests {
 
     #[test]
     fn snapshot_file_picker_empty_query() {
-        let app = picker_app(vec![
+        let app = picker_app(&[
             "src/main.rs".to_string(),
             "src/lib.rs".to_string(),
             "Cargo.toml".to_string(),
@@ -751,7 +751,7 @@ mod tests {
 
     #[test]
     fn snapshot_file_picker_filtered_results() {
-        let mut app = picker_app(vec![
+        let mut app = picker_app(&[
             "src/main.rs".to_string(),
             "src/lib.rs".to_string(),
             "Cargo.toml".to_string(),
@@ -768,7 +768,7 @@ mod tests {
 
     #[test]
     fn snapshot_file_picker_no_matches() {
-        let mut app = picker_app(vec!["src/main.rs".to_string()]);
+        let mut app = picker_app(&["src/main.rs".to_string()]);
         if let Some(picker) = app.picker.as_mut() {
             picker.query = "xyz".to_string();
             picker.matches = Vec::new();
@@ -781,7 +781,7 @@ mod tests {
 
     #[test]
     fn snapshot_file_picker_long_path_clipping() {
-        let app = picker_app(vec!["src/very/deeply/nested/path/to/some/module/file.rs".to_string()]);
+        let app = picker_app(&["src/very/deeply/nested/path/to/some/module/file.rs".to_string()]);
         let rows = accessory_rows(&app, 30, 12);
         let frame = crate::renderer::row::Frame { rows, width: 30, cursor: None, cursor_visible: true };
         insta::assert_snapshot!("file_picker_long_path", frame.render_styled());
@@ -790,7 +790,7 @@ mod tests {
     #[test]
     fn snapshot_file_picker_scrolled_selection() {
         let files: Vec<String> = (0..15).map(|i| format!("src/file_{i:02}.rs")).collect();
-        let mut app = picker_app(files);
+        let mut app = picker_app(&files);
         if let Some(picker) = app.picker.as_mut() {
             picker.selected = 5;
             picker.scroll = 3;

@@ -283,6 +283,125 @@ impl TranscriptRenderPlan {
     }
 }
 
+/// Build a tool block: header row + args summary + output lines + vertical padding.
+struct ToolBlockView<'a> {
+    name: &'a str,
+    args: &'a str,
+    status: ToolStatus,
+    output: &'a [String],
+    width: usize,
+    body_width: usize,
+    bg: Color,
+    cwd: &'a Path,
+}
+
+impl ToolBlockView<'_> {
+    fn rows(&self) -> Vec<Row> {
+        let name = self.name;
+        let args = self.args;
+        let status = self.status;
+        let output = self.output;
+        let width = self.width;
+        let body_width = self.body_width;
+        let bg = self.bg;
+        let cwd = self.cwd;
+        let p = style::palette();
+        let (status_label, status_color, icon) = match status {
+            ToolStatus::Running => ("running", p.peach, "·"),
+            ToolStatus::Ok => ("ok", p.green, "✓"),
+            ToolStatus::Failed => ("failed", p.red, "✕"),
+        };
+        let header_style = CellStyle::new().fg(p.text).bg(bg).bold();
+        let status_style = CellStyle::new().fg(status_color).bg(bg);
+        let muted_style = CellStyle::new().fg(p.subtext0).bg(bg);
+        let gutter_style = CellStyle::new().fg(p.overlay0).bg(bg);
+
+        let args_summary = summarize_tool_args(args, cwd);
+        let base_name = name.split('#').next().unwrap_or(name);
+        let lang = super::highlight::tool_output_language(base_name, args);
+
+        let mut rows = vec![Row::blank(width, bg_style(bg))];
+
+        let mut header_spans = vec![
+            Span::styled(format!("{icon} "), status_style),
+            Span::styled(name.to_string(), header_style),
+            Span::styled(format!(" [{status_label}]"), status_style),
+        ];
+
+        if !args_summary.is_empty() {
+            let header_width: usize = header_spans
+                .iter()
+                .map(|s| crate::renderer::layout::display_width(&s.text))
+                .sum();
+            if header_width + 2 + crate::renderer::layout::display_width(&args_summary) <= body_width {
+                header_spans.push(Span::styled("  ", CellStyle::new().bg(bg)));
+                header_spans.push(Span::styled(args_summary, muted_style));
+                rows.push(Row::padded(header_spans, width, bg_style(bg)));
+            } else {
+                rows.push(Row::padded(header_spans, width, bg_style(bg)));
+                for wrapped in super::layout::wrap_text(&args_summary, body_width.saturating_sub(2)) {
+                    let spans = vec![
+                        Span::styled("  ", CellStyle::new().bg(bg)),
+                        Span::styled(wrapped, muted_style),
+                    ];
+                    rows.push(Row::padded(spans, width, bg_style(bg)));
+                }
+            }
+        } else {
+            rows.push(Row::padded(header_spans, width, bg_style(bg)));
+        }
+
+        match lang {
+            Some(lang_str) => {
+                let joined: String = output
+                    .iter()
+                    .take(MAX_TOOL_OUTPUT_LINES)
+                    .map(|line| {
+                        let line = crate::renderer::path_display::transcript_line(line, cwd);
+                        format!("{line}\n")
+                    })
+                    .collect();
+                let highlighted = super::highlight::highlight_lines(&joined, Some(lang_str));
+                for hl_row in highlighted {
+                    let mut spans = vec![Span::styled(GUTTER, gutter_style)];
+                    spans.extend(hl_row.into_iter().map(|s| Span { text: s.text, style: s.style.bg(bg) }));
+                    rows.push(Row::padded(spans, width, bg_style(bg)));
+                }
+            }
+            None => {
+                for line in output.iter().take(MAX_TOOL_OUTPUT_LINES) {
+                    let line = crate::renderer::path_display::transcript_line(line, cwd);
+                    let content_style = if is_section_header(&line) {
+                        CellStyle::new().fg(p.overlay1).bg(bg).bold()
+                    } else {
+                        CellStyle::new().fg(p.subtext0).bg(bg)
+                    };
+                    for wrapped in crate::renderer::layout::wrap_text(
+                        &line,
+                        body_width.saturating_sub(crate::renderer::layout::display_width(GUTTER)),
+                    ) {
+                        let spans = vec![Span::styled(GUTTER, gutter_style), Span::styled(wrapped, content_style)];
+                        rows.push(Row::padded(spans, width, bg_style(bg)));
+                    }
+                }
+            }
+        }
+
+        if output.len() > MAX_TOOL_OUTPUT_LINES {
+            rows.push(Row::padded(
+                vec![Span::styled(
+                    format!("   │ …({} more lines)", output.len() - MAX_TOOL_OUTPUT_LINES),
+                    muted_style,
+                )],
+                width,
+                bg_style(bg),
+            ));
+        }
+
+        rows
+    }
+}
+
 fn clip_live_tail_rows(mut active: Vec<Row>, height: usize) -> Vec<Row> {
     let max_active = height.saturating_sub(4).max(1);
     if active.len() > max_active { active.split_off(active.len() - max_active) } else { active }
@@ -431,7 +550,7 @@ fn entry_to_rows(entry: &Entry, user_label: &str, width: usize, cwd: &Path) -> V
             build_labeled_block(label, label_style, text_style, text, width, body_width, bg)
         }
         Entry::Tool { name, arguments, status, output } => {
-            tool_block_rows(name, arguments, *status, output, width, body_width, bg, cwd)
+            ToolBlockView { name, args: arguments, status: *status, output, width, body_width, bg, cwd }.rows()
         }
         Entry::Status { text } => {
             let label_style = CellStyle::new().fg(p.overlay1).bg(bg).bold();
@@ -553,107 +672,6 @@ fn render_markdown_body(markdown: &str, text_style: CellStyle, bg: Color, width:
 
     if rows.is_empty() {
         rows.push(Row::blank(width, bg_style(bg)));
-    }
-
-    rows
-}
-
-/// Build a tool block: header row + args summary + output lines + vertical padding.
-fn tool_block_rows(
-    name: &str, args: &str, status: ToolStatus, output: &[String], width: usize, body_width: usize, bg: Color,
-    cwd: &Path,
-) -> Vec<Row> {
-    let p = style::palette();
-    let (status_label, status_color, icon) = match status {
-        ToolStatus::Running => ("running", p.peach, "·"),
-        ToolStatus::Ok => ("ok", p.green, "✓"),
-        ToolStatus::Failed => ("failed", p.red, "✕"),
-    };
-    let header_style = CellStyle::new().fg(p.text).bg(bg).bold();
-    let status_style = CellStyle::new().fg(status_color).bg(bg);
-    let muted_style = CellStyle::new().fg(p.subtext0).bg(bg);
-    let gutter_style = CellStyle::new().fg(p.overlay0).bg(bg);
-
-    let args_summary = summarize_tool_args(args, cwd);
-    let base_name = name.split('#').next().unwrap_or(name);
-    let lang = super::highlight::tool_output_language(base_name, args);
-
-    let mut rows = vec![Row::blank(width, bg_style(bg))];
-
-    let mut header_spans = vec![
-        Span::styled(format!("{icon} "), status_style),
-        Span::styled(name.to_string(), header_style),
-        Span::styled(format!(" [{status_label}]"), status_style),
-    ];
-
-    if !args_summary.is_empty() {
-        let header_width: usize = header_spans
-            .iter()
-            .map(|s| crate::renderer::layout::display_width(&s.text))
-            .sum();
-        if header_width + 2 + crate::renderer::layout::display_width(&args_summary) <= body_width {
-            header_spans.push(Span::styled("  ", CellStyle::new().bg(bg)));
-            header_spans.push(Span::styled(args_summary, muted_style));
-            rows.push(Row::padded(header_spans, width, bg_style(bg)));
-        } else {
-            rows.push(Row::padded(header_spans, width, bg_style(bg)));
-            for wrapped in super::layout::wrap_text(&args_summary, body_width.saturating_sub(2)) {
-                let spans = vec![
-                    Span::styled("  ", CellStyle::new().bg(bg)),
-                    Span::styled(wrapped, muted_style),
-                ];
-                rows.push(Row::padded(spans, width, bg_style(bg)));
-            }
-        }
-    } else {
-        rows.push(Row::padded(header_spans, width, bg_style(bg)));
-    }
-
-    match lang {
-        Some(lang_str) => {
-            let joined: String = output
-                .iter()
-                .take(MAX_TOOL_OUTPUT_LINES)
-                .map(|line| {
-                    let line = crate::renderer::path_display::transcript_line(line, cwd);
-                    format!("{line}\n")
-                })
-                .collect();
-            let highlighted = super::highlight::highlight_lines(&joined, Some(lang_str));
-            for hl_row in highlighted {
-                let mut spans = vec![Span::styled(GUTTER, gutter_style)];
-                spans.extend(hl_row.into_iter().map(|s| Span { text: s.text, style: s.style.bg(bg) }));
-                rows.push(Row::padded(spans, width, bg_style(bg)));
-            }
-        }
-        None => {
-            for line in output.iter().take(MAX_TOOL_OUTPUT_LINES) {
-                let line = crate::renderer::path_display::transcript_line(line, cwd);
-                let content_style = if is_section_header(&line) {
-                    CellStyle::new().fg(p.overlay1).bg(bg).bold()
-                } else {
-                    CellStyle::new().fg(p.subtext0).bg(bg)
-                };
-                for wrapped in crate::renderer::layout::wrap_text(
-                    &line,
-                    body_width.saturating_sub(crate::renderer::layout::display_width(GUTTER)),
-                ) {
-                    let spans = vec![Span::styled(GUTTER, gutter_style), Span::styled(wrapped, content_style)];
-                    rows.push(Row::padded(spans, width, bg_style(bg)));
-                }
-            }
-        }
-    }
-
-    if output.len() > MAX_TOOL_OUTPUT_LINES {
-        rows.push(Row::padded(
-            vec![Span::styled(
-                format!("   │ …({} more lines)", output.len() - MAX_TOOL_OUTPUT_LINES),
-                muted_style,
-            )],
-            width,
-            bg_style(bg),
-        ));
     }
 
     rows

@@ -10,14 +10,14 @@ fn new_is_empty() {
 
 #[test]
 fn from_str_places_cursor_at_end() {
-    let p = PromptInput::from_str("hello");
+    let p = PromptInput::from("hello");
     assert_eq!(p.as_str(), "hello");
     assert_eq!(p.cursor(), 5);
 }
 
 #[test]
 fn insert_char_advances_cursor() {
-    let mut p = PromptInput::from_str("helo");
+    let mut p = PromptInput::from("helo");
     p.cursor_left();
     assert_eq!(p.cursor(), 3);
 
@@ -28,7 +28,7 @@ fn insert_char_advances_cursor() {
 
 #[test]
 fn insert_char_at_start() {
-    let mut p = PromptInput::from_str("world");
+    let mut p = PromptInput::from("world");
     p.cursor_to_start();
     p.insert_char('!');
     assert_eq!(p.as_str(), "!world");
@@ -37,7 +37,7 @@ fn insert_char_at_start() {
 
 #[test]
 fn insert_char_at_end() {
-    let mut p = PromptInput::from_str("hi");
+    let mut p = PromptInput::from("hi");
     p.insert_char('!');
     assert_eq!(p.as_str(), "hi!");
     assert_eq!(p.cursor(), 3);
@@ -45,7 +45,7 @@ fn insert_char_at_end() {
 
 #[test]
 fn backspace_deletes_left() {
-    let mut p = PromptInput::from_str("hello");
+    let mut p = PromptInput::from("hello");
     p.cursor_left();
     assert!(p.backspace());
     assert_eq!(p.as_str(), "helo");
@@ -54,7 +54,7 @@ fn backspace_deletes_left() {
 
 #[test]
 fn backspace_at_start_is_noop() {
-    let mut p = PromptInput::from_str("hello");
+    let mut p = PromptInput::from("hello");
     p.cursor_to_start();
     assert!(!p.backspace());
     assert_eq!(p.as_str(), "hello");
@@ -63,7 +63,7 @@ fn backspace_at_start_is_noop() {
 
 #[test]
 fn delete_forward_deletes_right() {
-    let mut p = PromptInput::from_str("hello");
+    let mut p = PromptInput::from("hello");
     p.cursor_to_start();
     p.cursor_right();
     assert!(p.delete_forward());
@@ -73,14 +73,14 @@ fn delete_forward_deletes_right() {
 
 #[test]
 fn delete_forward_at_end_is_noop() {
-    let mut p = PromptInput::from_str("hello");
+    let mut p = PromptInput::from("hello");
     assert!(!p.delete_forward());
     assert_eq!(p.as_str(), "hello");
 }
 
 #[test]
 fn cursor_left_clamped() {
-    let mut p = PromptInput::from_str("ab");
+    let mut p = PromptInput::from("ab");
     p.cursor_left();
     p.cursor_left();
     p.cursor_left();
@@ -89,14 +89,14 @@ fn cursor_left_clamped() {
 
 #[test]
 fn cursor_right_clamped() {
-    let mut p = PromptInput::from_str("ab");
+    let mut p = PromptInput::from("ab");
     p.cursor_right();
     assert_eq!(p.cursor(), 2);
 }
 
 #[test]
 fn cursor_to_start_and_end() {
-    let mut p = PromptInput::from_str("hello");
+    let mut p = PromptInput::from("hello");
     p.cursor_to_start();
     assert_eq!(p.cursor(), 0);
 
@@ -106,7 +106,7 @@ fn cursor_to_start_and_end() {
 
 #[test]
 fn cursor_up_moves_between_logical_lines() {
-    let mut p = PromptInput::from_str("x\n x\n x");
+    let mut p = PromptInput::from("x\n x\n x");
     assert!(p.cursor_up());
     assert_eq!(p.cursor(), 4);
 
@@ -119,7 +119,7 @@ fn cursor_up_moves_between_logical_lines() {
 
 #[test]
 fn cursor_down_moves_between_logical_lines() {
-    let mut p = PromptInput::from_str("x\n x\n x");
+    let mut p = PromptInput::from("x\n x\n x");
     p.cursor_to_start();
     p.cursor_right();
 
@@ -135,7 +135,7 @@ fn cursor_down_moves_between_logical_lines() {
 
 #[test]
 fn cursor_up_and_down_clamp_to_shorter_lines() {
-    let mut p = PromptInput::from_str("long\nx\nwide");
+    let mut p = PromptInput::from("long\nx\nwide");
     p.cursor_to_start();
     p.cursor_right();
     p.cursor_right();
@@ -150,7 +150,7 @@ fn cursor_up_and_down_clamp_to_shorter_lines() {
 
 #[test]
 fn word_left_skips_whitespace_then_word() {
-    let mut p = PromptInput::from_str("foo bar baz");
+    let mut p = PromptInput::from("foo bar baz");
     p.cursor_word_left();
     assert_eq!(p.cursor(), 8);
 
@@ -163,7 +163,7 @@ fn word_left_skips_whitespace_then_word() {
 
 #[test]
 fn word_left_from_within_word() {
-    let mut p = PromptInput::from_str("foo bar");
+    let mut p = PromptInput::from("foo bar");
     p.cursor_word_left();
     assert_eq!(p.cursor(), 4);
 
@@ -176,7 +176,7 @@ fn word_left_from_within_word() {
 
 #[test]
 fn word_right_skips_word_then_whitespace() {
-    let mut p = PromptInput::from_str("foo bar baz");
+    let mut p = PromptInput::from("foo bar baz");
     p.cursor_to_start();
     p.cursor_word_right();
     assert_eq!(p.cursor(), 4);
@@ -190,7 +190,7 @@ fn word_right_skips_word_then_whitespace() {
 
 #[test]
 fn word_left_multiple_spaces() {
-    let mut p = PromptInput::from_str("a   b");
+    let mut p = PromptInput::from("a   b");
     p.cursor_word_left();
     assert_eq!(p.cursor(), 4);
     p.cursor_word_left();
@@ -199,7 +199,7 @@ fn word_left_multiple_spaces() {
 
 #[test]
 fn insert_str_at_cursor() {
-    let mut p = PromptInput::from_str("hello world");
+    let mut p = PromptInput::from("hello world");
     p.cursor_to_start();
     p.cursor_word_right();
     p.cursor_left();
@@ -210,7 +210,7 @@ fn insert_str_at_cursor() {
 
 #[test]
 fn insert_str_empty_is_noop() {
-    let mut p = PromptInput::from_str("hi");
+    let mut p = PromptInput::from("hi");
     p.insert_str("");
     assert_eq!(p.as_str(), "hi");
     assert_eq!(p.cursor(), 2);
@@ -218,7 +218,7 @@ fn insert_str_empty_is_noop() {
 
 #[test]
 fn clear_resets_cursor() {
-    let mut p = PromptInput::from_str("hello");
+    let mut p = PromptInput::from("hello");
     p.clear();
     assert!(p.is_empty());
     assert_eq!(p.cursor(), 0);
@@ -226,7 +226,7 @@ fn clear_resets_cursor() {
 
 #[test]
 fn set_text_places_cursor_at_end() {
-    let mut p = PromptInput::from_str("old");
+    let mut p = PromptInput::from("old");
     p.set_text("new value");
     assert_eq!(p.as_str(), "new value");
     assert_eq!(p.cursor(), 9);
@@ -234,7 +234,7 @@ fn set_text_places_cursor_at_end() {
 
 #[test]
 fn kill_to_end_of_line() {
-    let mut p = PromptInput::from_str("hello world");
+    let mut p = PromptInput::from("hello world");
     p.cursor_left();
     p.cursor_left();
     p.cursor_left();
@@ -246,7 +246,7 @@ fn kill_to_end_of_line() {
 
 #[test]
 fn kill_to_start_of_line() {
-    let mut p = PromptInput::from_str("hello world");
+    let mut p = PromptInput::from("hello world");
     p.cursor_left();
     p.cursor_left();
     p.cursor_left();
@@ -258,7 +258,7 @@ fn kill_to_start_of_line() {
 
 #[test]
 fn kill_word_left() {
-    let mut p = PromptInput::from_str("foo bar baz");
+    let mut p = PromptInput::from("foo bar baz");
     let killed = p.kill_word_left();
     assert_eq!(killed, "baz");
     assert_eq!(p.as_str(), "foo bar ");
@@ -267,7 +267,7 @@ fn kill_word_left() {
 
 #[test]
 fn kill_word_left_multiple_spaces() {
-    let mut p = PromptInput::from_str("a   b");
+    let mut p = PromptInput::from("a   b");
     let killed = p.kill_word_left();
     assert_eq!(killed, "b");
     assert_eq!(p.as_str(), "a   ");
@@ -275,7 +275,7 @@ fn kill_word_left_multiple_spaces() {
 
 #[test]
 fn kill_word_right() {
-    let mut p = PromptInput::from_str("foo bar baz");
+    let mut p = PromptInput::from("foo bar baz");
     p.cursor_to_start();
     let killed = p.kill_word_right();
     assert_eq!(killed, "foo ");
@@ -285,7 +285,7 @@ fn kill_word_right() {
 
 #[test]
 fn transpose_chars_at_cursor() {
-    let mut p = PromptInput::from_str("ab");
+    let mut p = PromptInput::from("ab");
     p.cursor_to_start();
     p.transpose_chars();
     assert_eq!(p.as_str(), "ba");
@@ -294,14 +294,14 @@ fn transpose_chars_at_cursor() {
 
 #[test]
 fn transpose_chars_at_end() {
-    let mut p = PromptInput::from_str("hello");
+    let mut p = PromptInput::from("hello");
     p.transpose_chars();
     assert_eq!(p.as_str(), "helol");
 }
 
 #[test]
 fn yank_pastes_at_cursor() {
-    let mut p = PromptInput::from_str("hello");
+    let mut p = PromptInput::from("hello");
     p.cursor_left();
     p.yank(" world");
     assert_eq!(p.as_str(), "hell worldo");
@@ -310,7 +310,7 @@ fn yank_pastes_at_cursor() {
 
 #[test]
 fn insert_newline() {
-    let mut p = PromptInput::from_str("line1");
+    let mut p = PromptInput::from("line1");
     p.insert_char('\n');
     p.insert_str("line2");
     assert_eq!(p.as_str(), "line1\nline2");
@@ -319,7 +319,7 @@ fn insert_newline() {
 
 #[test]
 fn text_before_cursor() {
-    let mut p = PromptInput::from_str("hello world");
+    let mut p = PromptInput::from("hello world");
     p.cursor_to_start();
     p.cursor_word_right();
     assert_eq!(p.text_before_cursor(), "hello ");
@@ -327,7 +327,7 @@ fn text_before_cursor() {
 
 #[test]
 fn multibyte_char_handling() {
-    let mut p = PromptInput::from_str("héllo");
+    let mut p = PromptInput::from("héllo");
     assert_eq!(p.len_graphemes(), 5);
     assert_eq!(p.cursor(), 5);
 
@@ -341,7 +341,7 @@ fn multibyte_char_handling() {
 
 #[test]
 fn backspace_multibyte() {
-    let mut p = PromptInput::from_str("héllo");
+    let mut p = PromptInput::from("héllo");
     p.cursor_left();
     p.backspace();
     assert_eq!(p.as_str(), "hélo");
@@ -351,7 +351,7 @@ fn backspace_multibyte() {
 #[test]
 fn combining_mark_is_one_grapheme() {
     let text = "e\u{0301}llo";
-    let p = PromptInput::from_str(text);
+    let p = PromptInput::from(text);
     assert_eq!(p.len_graphemes(), 4, "e + combining acute should be 1 grapheme");
     assert_eq!(p.cursor(), 4);
 }
@@ -359,7 +359,7 @@ fn combining_mark_is_one_grapheme() {
 #[test]
 fn combining_mark_cursor_left_right() {
     let text = "he\u{0301}llo";
-    let mut p = PromptInput::from_str(text);
+    let mut p = PromptInput::from(text);
     assert_eq!(p.len_graphemes(), 5);
 
     p.cursor_left();
@@ -375,7 +375,7 @@ fn combining_mark_cursor_left_right() {
 #[test]
 fn combining_mark_backspace_deletes_whole_cluster() {
     let text = "he\u{0301}llo";
-    let mut p = PromptInput::from_str(text);
+    let mut p = PromptInput::from(text);
     p.cursor_left();
     p.backspace();
     assert_eq!(p.as_str(), "he\u{0301}lo");
@@ -385,7 +385,7 @@ fn combining_mark_backspace_deletes_whole_cluster() {
 #[test]
 fn combining_mark_delete_forward() {
     let text = "he\u{0301}llo";
-    let mut p = PromptInput::from_str(text);
+    let mut p = PromptInput::from(text);
     p.cursor_to_start();
     p.cursor_right();
     p.delete_forward();
@@ -396,7 +396,7 @@ fn combining_mark_delete_forward() {
 #[test]
 fn emoji_zwj_sequence_is_one_grapheme() {
     let text = "a\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}b";
-    let p = PromptInput::from_str(text);
+    let p = PromptInput::from(text);
     assert_eq!(p.len_graphemes(), 3, "a + family-emoji + b = 3 graphemes");
     assert_eq!(p.cursor(), 3);
 }
@@ -404,7 +404,7 @@ fn emoji_zwj_sequence_is_one_grapheme() {
 #[test]
 fn emoji_zwj_backspace_deletes_whole_cluster() {
     let text = "x\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}y";
-    let mut p = PromptInput::from_str(text);
+    let mut p = PromptInput::from(text);
     p.cursor_left();
     p.backspace();
     assert_eq!(p.as_str(), "xy");
@@ -414,7 +414,7 @@ fn emoji_zwj_backspace_deletes_whole_cluster() {
 #[test]
 fn emoji_zwj_cursor_navigation() {
     let text = "ab\u{1F468}\u{200D}\u{1F469}cd";
-    let mut p = PromptInput::from_str(text);
+    let mut p = PromptInput::from(text);
     assert_eq!(p.len_graphemes(), 5);
 
     p.cursor_to_start();
@@ -426,14 +426,14 @@ fn emoji_zwj_cursor_navigation() {
 
 #[test]
 fn cjk_wide_char_graphemes() {
-    let p = PromptInput::from_str("你好世界");
+    let p = PromptInput::from("你好世界");
     assert_eq!(p.len_graphemes(), 4);
     assert_eq!(p.cursor(), 4);
 }
 
 #[test]
 fn cjk_wide_char_backspace() {
-    let mut p = PromptInput::from_str("你好世界");
+    let mut p = PromptInput::from("你好世界");
     p.backspace();
     assert_eq!(p.as_str(), "你好世");
     assert_eq!(p.cursor(), 3);
@@ -441,7 +441,7 @@ fn cjk_wide_char_backspace() {
 
 #[test]
 fn cjk_wide_char_mixed() {
-    let mut p = PromptInput::from_str("hi你好");
+    let mut p = PromptInput::from("hi你好");
     assert_eq!(p.len_graphemes(), 4);
     p.cursor_to_start();
     p.cursor_right();
@@ -454,21 +454,21 @@ fn cjk_wide_char_mixed() {
 #[test]
 fn zero_width_combining_mark_in_cjk() {
     let text = "中\u{0302}文";
-    let p = PromptInput::from_str(text);
+    let p = PromptInput::from(text);
     assert_eq!(p.len_graphemes(), 2, "中+combining and 文 = 2 graphemes");
 }
 
 #[test]
 fn emoji_skin_tone_modifier_is_one_grapheme() {
     let text = "a\u{1F44D}\u{1F3FF}b";
-    let p = PromptInput::from_str(text);
+    let p = PromptInput::from(text);
     assert_eq!(p.len_graphemes(), 3, "a + thumbs-up-dark + b = 3 graphemes");
 }
 
 #[test]
 fn emoji_skin_tone_backspace() {
     let text = "x\u{1F44D}\u{1F3FF}y";
-    let mut p = PromptInput::from_str(text);
+    let mut p = PromptInput::from(text);
     p.cursor_left();
     p.backspace();
     assert_eq!(p.as_str(), "xy");
@@ -477,7 +477,7 @@ fn emoji_skin_tone_backspace() {
 
 #[test]
 fn transpose_emoji_clusters() {
-    let mut p = PromptInput::from_str("a\u{1F600}"); // a + 😀
+    let mut p = PromptInput::from("a\u{1F600}"); // a + 😀
     p.transpose_chars();
     assert_eq!(p.as_str(), "\u{1F600}a");
     assert_eq!(p.cursor(), 2);
@@ -485,7 +485,7 @@ fn transpose_emoji_clusters() {
 
 #[test]
 fn transpose_combining_mark() {
-    let mut p = PromptInput::from_str("he\u{0301}x"); // h, é, x
+    let mut p = PromptInput::from("he\u{0301}x"); // h, é, x
     p.cursor_to_end();
     p.transpose_chars(); // swaps é and x
     assert_eq!(p.as_str(), "hxe\u{0301}");
@@ -493,7 +493,7 @@ fn transpose_combining_mark() {
 
 #[test]
 fn word_boundaries_with_punctuation() {
-    let mut p = PromptInput::from_str("foo.bar baz");
+    let mut p = PromptInput::from("foo.bar baz");
     p.cursor_to_start();
     p.cursor_word_right();
     assert_eq!(p.cursor(), 8);
@@ -501,7 +501,7 @@ fn word_boundaries_with_punctuation() {
 
 #[test]
 fn word_boundaries_with_cjk() {
-    let mut p = PromptInput::from_str("hello 世界 test");
+    let mut p = PromptInput::from("hello 世界 test");
     p.cursor_to_start();
     p.cursor_word_right();
     assert_eq!(p.cursor(), 6);
@@ -510,7 +510,7 @@ fn word_boundaries_with_cjk() {
 #[test]
 fn kill_word_left_with_emoji() {
     let text = "foo \u{1F600} bar";
-    let mut p = PromptInput::from_str(text);
+    let mut p = PromptInput::from(text);
     let killed = p.kill_word_left();
     assert_eq!(killed, "bar");
     assert_eq!(p.as_str(), "foo \u{1F600} ");
@@ -518,7 +518,7 @@ fn kill_word_left_with_emoji() {
 
 #[test]
 fn multiline_kill_to_end_of_line() {
-    let mut p = PromptInput::from_str("line1\nline2\nline3");
+    let mut p = PromptInput::from("line1\nline2\nline3");
     p.cursor_to_start();
     p.cursor_right();
     p.cursor_right();
@@ -531,7 +531,7 @@ fn multiline_kill_to_end_of_line() {
 
 #[test]
 fn multiline_kill_to_start_of_line() {
-    let mut p = PromptInput::from_str("line1\nline2\nline3");
+    let mut p = PromptInput::from("line1\nline2\nline3");
     p.cursor_to_start();
     for _ in 0..11 {
         p.cursor_right();

@@ -373,7 +373,7 @@ fn trailing_bg(row: &Row) -> Color {
 }
 
 /// Convert a renderer [`CellStyle`] to a crossterm [`cts::ContentStyle`].
-pub(crate) fn style_to_crossterm(style: CellStyle) -> cts::ContentStyle {
+pub fn style_to_crossterm(style: CellStyle) -> cts::ContentStyle {
     let mut out = cts::ContentStyle::new();
     out.foreground_color = Some(style.fg);
     out.background_color = Some(style.bg);

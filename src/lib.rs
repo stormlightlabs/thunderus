@@ -203,7 +203,7 @@ pub fn render_print_prompt(bundle: &PromptBundle) -> String {
     out.push_str(&serde_json::to_string_pretty(&tool_catalog).unwrap_or_default());
     out.push_str("\n\n");
     out.push_str(&format!(
-        "=== Lowered Umans Messages ({} messages) ===\n",
+        "=== Lowered Provider Messages ({} messages) ===\n",
         messages.len()
     ));
     for (i, msg) in messages.iter().enumerate() {
@@ -478,11 +478,8 @@ fn drain_git_status_watcher<W: io::Write>(
     app: &mut App, watcher: &GitStatusWatcher, backend: &mut TerminalBackend<W>,
     live: &mut renderer::region::LiveRegion,
 ) -> io::Result<()> {
-    loop {
-        match watcher.receiver.try_recv() {
-            Ok(status) => handle_direct_msg(app, Msg::GitStatusChanged(status), backend, live)?,
-            Err(mpsc::TryRecvError::Empty) | Err(mpsc::TryRecvError::Disconnected) => break,
-        }
+    while let Ok(status) = watcher.receiver.try_recv() {
+        handle_direct_msg(app, Msg::GitStatusChanged(status), backend, live)?;
     }
     Ok(())
 }
@@ -490,8 +487,9 @@ fn drain_git_status_watcher<W: io::Write>(
 /// Spawn the unified agent stream if the app is in [`RunState::Working`] state
 /// and no agent slot exists yet.
 ///
-/// The run uses the Umans provider. The [`agent::CancelToken`] is retained so
-/// `Escape` can signal cooperative cancellation.
+/// The run chooses a provider from the selected model id. The
+/// [`agent::CancelToken`] is retained so `Escape` can signal cooperative
+/// cancellation.
 fn maybe_spawn_agent(app: &App, cli: &Cli, agent: &mut Option<AgentSlot>) {
     if app.run_state != RunState::Working {
         return;
@@ -531,7 +529,7 @@ fn maybe_spawn_agent(app: &App, cli: &Cli, agent: &mut Option<AgentSlot>) {
     let messages = prompt::lower_to_umans_messages(&bundle);
     let expects_write = agent::prompt_expects_workspace_write(&prompt);
     let (steering_tx, steering_rx) = mpsc::channel();
-    let handle = agent::RunHandle::umans_with_steering(config, messages, expects_write, steering_rx);
+    let handle = agent::RunHandle::provider_with_steering(config, messages, expects_write, steering_rx);
     let cancel = handle.cancel.clone();
     let receiver = agent::spawn_run(handle);
     *agent = Some(AgentSlot { receiver, cancel, steering: steering_tx });
@@ -626,7 +624,7 @@ mod tests {
         );
         assert!(output.contains("=== Tool Catalog"), "should have tool catalog section");
         assert!(
-            output.contains("=== Lowered Umans Messages"),
+            output.contains("=== Lowered Provider Messages"),
             "should have messages section"
         );
         assert!(

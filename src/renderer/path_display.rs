@@ -66,10 +66,10 @@ pub fn footer_segment(path: &Path, line_width: usize, used_width: usize) -> Stri
 
 pub fn transcript_line(line: &str, workspace: &Path) -> String {
     let home = std::env::var_os("HOME").map(PathBuf::from);
-    transcript_line_with_home(line, workspace, home)
+    transcript_line_with_home(line, workspace, home.as_ref())
 }
 
-fn transcript_line_with_home(line: &str, workspace: &Path, home: Option<PathBuf>) -> String {
+fn transcript_line_with_home(line: &str, workspace: &Path, home: Option<&PathBuf>) -> String {
     let mut out = String::new();
     let mut last = 0usize;
     let mut i = 0usize;
@@ -81,7 +81,7 @@ fn transcript_line_with_home(line: &str, workspace: &Path, home: Option<PathBuf>
         if is_path_start(line, i) {
             out.push_str(&line[last..i]);
             let end = path_token_end(line, i);
-            out.push_str(&shorten_path_token(&line[i..end], workspace, home.clone()));
+            out.push_str(&shorten_path_token(&line[i..end], workspace, home));
             i = end;
             last = end;
         } else {
@@ -115,15 +115,15 @@ fn is_path_token_boundary(ch: char) -> bool {
     ch.is_whitespace() || matches!(ch, '"' | '\'' | '`' | '<' | '>' | '(' | ')' | '[' | ']' | '{' | '}')
 }
 
-fn shorten_path_token(token: &str, workspace: &Path, home: Option<PathBuf>) -> String {
+fn shorten_path_token(token: &str, workspace: &Path, home: Option<&PathBuf>) -> String {
     let (core, trailing) = split_trailing_punctuation(token);
     let (path_text, location) = split_location_suffix(core);
 
-    let Some(path) = token_path(path_text, home.as_ref()) else {
+    let Some(path) = token_path(path_text, home) else {
         return token.to_string();
     };
 
-    let shortened = shorten_absolute_path(&path, workspace, home.as_ref()).unwrap_or_else(|| path_text.to_string());
+    let shortened = shorten_absolute_path(&path, workspace, home).unwrap_or_else(|| path_text.to_string());
     format!("{shortened}{location}{trailing}")
 }
 
@@ -392,9 +392,10 @@ mod tests {
     fn transcript_line_drops_workspace_prefix_and_preserves_line_suffix() {
         let workspace = PathBuf::from("/home/owais/Projects/thndrs");
         let line = "/home/owais/Projects/thndrs/src/session/tests.rs:1420: Entry::Status";
+        let home = PathBuf::from("/home/owais");
 
         assert_eq!(
-            transcript_line_with_home(line, &workspace, Some(PathBuf::from("/home/owais"))),
+            transcript_line_with_home(line, &workspace, Some(&home)),
             "src/session/tests.rs:1420: Entry::Status"
         );
     }
@@ -403,9 +404,10 @@ mod tests {
     fn transcript_line_shortens_home_paths_outside_workspace() {
         let workspace = PathBuf::from("/home/owais/Projects/thndrs");
         let line = "read /home/owais/.config/thndrs/config.toml";
+        let home = PathBuf::from("/home/owais");
 
         assert_eq!(
-            transcript_line_with_home(line, &workspace, Some(PathBuf::from("/home/owais"))),
+            transcript_line_with_home(line, &workspace, Some(&home)),
             "read ~/.config/thndrs/config.toml"
         );
     }
@@ -414,9 +416,10 @@ mod tests {
     fn transcript_line_preserves_non_home_absolute_paths() {
         let workspace = PathBuf::from("/home/owais/Projects/thndrs");
         let line = "/var/log/system.log:12";
+        let home = PathBuf::from("/home/owais");
 
         assert_eq!(
-            transcript_line_with_home(line, &workspace, Some(PathBuf::from("/home/owais"))),
+            transcript_line_with_home(line, &workspace, Some(&home)),
             "/var/log/system.log:12"
         );
     }

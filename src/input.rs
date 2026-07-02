@@ -13,6 +13,9 @@
 #[cfg(test)]
 mod tests;
 
+use std::convert::Infallible;
+use std::str::FromStr;
+
 use unicode_segmentation::UnicodeSegmentation;
 
 /// A cursor-aware text buffer used for the prompt input line.
@@ -29,13 +32,21 @@ pub struct PromptInput {
 
 impl From<String> for PromptInput {
     fn from(s: String) -> Self {
-        Self::from_str(&s)
+        Self::from_text(&s)
     }
 }
 
 impl From<&str> for PromptInput {
     fn from(s: &str) -> Self {
-        Self::from_str(s)
+        Self::from_text(s)
+    }
+}
+
+impl FromStr for PromptInput {
+    type Err = Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self::from_text(s))
     }
 }
 
@@ -45,8 +56,7 @@ impl PromptInput {
         Self::default()
     }
 
-    /// Create from an existing string, placing the cursor at the end.
-    pub fn from_str(s: &str) -> Self {
+    fn from_text(s: &str) -> Self {
         let cursor = s.graphemes(true).count();
         Self { text: s.to_string(), cursor }
     }

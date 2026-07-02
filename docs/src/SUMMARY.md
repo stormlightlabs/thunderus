@@ -30,7 +30,8 @@
 # Providers
 
 - [Umans](./providers/umans.md)
-- [Search and Extraction](providers/search-and-extraction.md)
+  - [Search and Extraction](providers/search-and-extraction.md)
+- [OpenCode Go](./providers/opencode-go.md)
 
 # Reference
 
