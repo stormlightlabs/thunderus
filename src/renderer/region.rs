@@ -378,8 +378,8 @@ fn banner_rows(app: &App, width: usize) -> Vec<Row> {
         &[
             Span::styled("?  ", title_style),
             Span::styled("help", muted_style),
-            Span::styled("   Ctrl+P ", title_style),
-            Span::styled("files", muted_style),
+            Span::styled("   /model ", title_style),
+            Span::styled("switch models", muted_style),
         ],
         width,
         bg,

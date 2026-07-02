@@ -796,11 +796,6 @@ fn handle_command_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
 /// - `backspace`: delete char before cursor
 /// - `delete`: delete char after cursor (forward delete)
 fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
-    if key.code == KeyCode::Char('p') && key.modifiers.contains(KeyModifiers::CONTROL) {
-        open_file_picker(app, FilePickerSource::Forced);
-        return None;
-    }
-
     if key.modifiers.contains(KeyModifiers::ALT) {
         let handled = match key.code {
             KeyCode::Left | KeyCode::Char('b') => {

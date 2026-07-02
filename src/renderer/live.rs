@@ -482,7 +482,6 @@ fn help_rows(width: usize, max_height: usize) -> Vec<Row> {
         ("Alt+D", "delete next word"),
         ("Alt+Bksp", "delete previous word"),
         ("── Files ──", ""),
-        ("Ctrl+P", "pick a file"),
         ("@path", "mention a file from fuzzy search"),
         ("── App ──", ""),
         ("Ctrl+D", "quit after double-press"),

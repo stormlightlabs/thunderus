@@ -1652,18 +1652,6 @@ fn typing_inserts_at_cursor_not_at_end() {
 }
 
 #[test]
-fn ctrl_p_still_opens_file_picker() {
-    let mut app = fresh_app();
-    let dir = tempfile::tempdir().expect("create temp dir");
-    app.cwd = dir.path().to_path_buf();
-    let _ = std::fs::write(app.cwd.join("test.txt"), "test");
-    update(&mut app, &key(KeyCode::Char('p'), KeyModifiers::CONTROL));
-    assert_eq!(app.mode, Mode::Prompt);
-    assert_eq!(app.prompt_accessory, PromptAccessory::Files(FilePickerSource::Forced));
-    assert!(app.picker.is_some());
-}
-
-#[test]
 fn at_token_opens_file_picker_and_accepts_mention() {
     let mut app = fresh_app();
     let dir = tempfile::tempdir().expect("create temp dir");
