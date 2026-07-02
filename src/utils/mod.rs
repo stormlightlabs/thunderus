@@ -1,57 +1,82 @@
 use crate::tools::MAX_LINE_LEN;
 
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
+
 /// Truncate a string to [`MAX_LINE_LEN`] chars, adding `...` if truncated.
 pub fn truncate_line(s: &str) -> String {
     if s.chars().count() <= MAX_LINE_LEN {
         s.to_string()
     } else {
-        let truncated: String = s.chars().take(MAX_LINE_LEN).collect();
-        format!("{truncated}...")
+        format!("{}...", s.chars().take(MAX_LINE_LEN).collect::<String>())
     }
 }
 
-/// Truncate a string to `max_chars` visible chars, appending `…` if truncated.
+/// Truncate a string to `max_width` terminal columns, appending `…` if truncated.
 ///
 /// Unlike [`truncate_line`] which uses a fixed cap and `...`, this is a
 /// general-purpose helper for width-aware UI truncation: it takes an explicit
-/// max, uses a single `…` ellipsis, and counts chars (not bytes).
-pub fn truncate_ellipsis(s: &str, max_chars: usize) -> String {
-    if max_chars == 0 {
+/// max, uses a single `…` ellipsis, and counts display columns (not bytes).
+pub fn truncate_ellipsis(s: &str, max_width: usize) -> String {
+    if max_width == 0 {
         return String::new();
     }
-    let count = s.chars().count();
-    if count <= max_chars {
+    if text_width(s) <= max_width {
         return s.to_string();
     }
-    if max_chars <= 1 {
+    if max_width <= 1 {
         return "…".to_string();
     }
-    let keep = max_chars - 1;
-    let truncated: String = s.chars().take(keep).collect();
-    format!("{truncated}…")
+    format!("{}…", take_display_width(s, max_width - 1))
 }
 
 /// Truncate from the start (keeping the end), prefixing `…` if truncated.
 ///
 /// Useful for paths and URLs where the end is more informative.
-pub fn truncate_ellipsis_start(s: &str, max_chars: usize) -> String {
-    if max_chars == 0 {
+pub fn truncate_ellipsis_start(s: &str, max_width: usize) -> String {
+    if max_width == 0 {
         return String::new();
     }
-    let count = s.chars().count();
-    if count <= max_chars {
+    if text_width(s) <= max_width {
         return s.to_string();
     }
-    if max_chars <= 1 {
+    if max_width <= 1 {
         return "…".to_string();
     }
-    let skip = count - (max_chars - 1);
-    let kept: String = s.chars().skip(skip).collect();
-    format!("…{kept}")
+
+    format!("…{}", take_display_width_from_end(s, max_width - 1))
 }
 
 pub fn text_width(text: &str) -> usize {
-    text.chars().count()
+    UnicodeWidthStr::width(text)
+}
+
+fn take_display_width(text: &str, max_width: usize) -> String {
+    let mut out = String::new();
+    let mut used = 0usize;
+    for grapheme in text.graphemes(true) {
+        let width = text_width(grapheme);
+        if used + width > max_width {
+            break;
+        }
+        out.push_str(grapheme);
+        used += width;
+    }
+    out
+}
+
+fn take_display_width_from_end(text: &str, max_width: usize) -> String {
+    let mut chunks = Vec::new();
+    let mut used = 0usize;
+    for grapheme in text.graphemes(true).rev() {
+        let width = text_width(grapheme);
+        if used + width > max_width {
+            break;
+        }
+        chunks.push(grapheme);
+        used += width;
+    }
+    chunks.into_iter().rev().collect()
 }
 
 #[cfg(test)]
@@ -87,6 +112,17 @@ mod tests {
     }
 
     #[test]
+    fn truncate_ellipsis_uses_display_width() {
+        assert_eq!(truncate_ellipsis("ab中cd", 5), "ab中…");
+    }
+
+    #[test]
+    fn truncate_ellipsis_keeps_grapheme_together() {
+        let family = "👨\u{200d}👩\u{200d}👧";
+        assert_eq!(truncate_ellipsis(&format!("{family}abc"), 4), format!("{family}a…"));
+    }
+
+    #[test]
     fn truncate_ellipsis_zero_max() {
         assert_eq!(truncate_ellipsis("hello", 0), "");
     }
@@ -99,6 +135,11 @@ mod tests {
     #[test]
     fn truncate_ellipsis_start_keeps_end() {
         assert_eq!(truncate_ellipsis_start("/long/path/to/file.rs", 15), "…ath/to/file.rs");
+    }
+
+    #[test]
+    fn truncate_ellipsis_start_uses_display_width() {
+        assert_eq!(truncate_ellipsis_start("ab中cd", 5), "…中cd");
     }
 
     #[test]

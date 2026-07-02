@@ -287,7 +287,7 @@ fn direct_loop<W: io::Write>(
     );
 
     let mut agent: Option<AgentSlot> = None;
-    let git_watcher = GitStatusWatcher::spawn(workspace_root.clone());
+    let git_watcher = GitStatusWatcher::spawn(workspace_root);
     let mut mouse_captured = false;
     let (width, height) = backend_size(backend);
     direct_render(backend, live, &mut app, width, height)?;

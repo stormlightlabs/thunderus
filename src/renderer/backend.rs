@@ -14,9 +14,10 @@ use crossterm::queue;
 use crossterm::style as cts;
 use crossterm::terminal::{Clear as CtClear, ClearType};
 
-use super::layout::{char_width, display_width};
+use super::layout::{display_width, grapheme_width};
 use super::row::{CursorCoord, Frame, Row};
 use super::style::{CellStyle, Color, Span};
+use unicode_segmentation::UnicodeSegmentation;
 
 /// Set the terminal scroll region (DECSTBM) to constrain scrolling to a
 /// range of rows. Rows are 1-based per the ANSI spec.
@@ -356,13 +357,13 @@ fn write_spans_unpadded(writer: &mut impl Write, spans: &[Span], width: usize) -
 fn take_display_width(text: &str, width: usize) -> String {
     let mut out = String::new();
     let mut used = 0usize;
-    for ch in text.chars() {
-        let ch_width = char_width(ch);
-        if used + ch_width > width {
+    for grapheme in text.graphemes(true) {
+        let g_width = grapheme_width(grapheme);
+        if used + g_width > width {
             break;
         }
-        out.push(ch);
-        used += ch_width;
+        out.push_str(grapheme);
+        used += g_width;
     }
     out
 }
@@ -586,5 +587,17 @@ mod tests {
         let out = String::from_utf8(buf).unwrap();
         assert!(out.contains("a中"));
         assert!(!out.contains("b"));
+    }
+
+    #[test]
+    fn write_spans_truncates_without_splitting_grapheme() {
+        let mut buf = Vec::new();
+        let family = "👨\u{200d}👩\u{200d}👧";
+        let spans = vec![Span::plain(format!("a{family}b"))];
+        write_spans(&mut buf, &spans, 3).unwrap();
+
+        let out = String::from_utf8(buf).unwrap();
+        assert!(out.contains(&format!("a{family}")));
+        assert!(!out.contains('b'));
     }
 }

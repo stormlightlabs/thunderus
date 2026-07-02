@@ -5,7 +5,8 @@
 //! truncation so that cursor placement and snapshots stay deterministic.
 
 use super::style::{CellStyle, Span};
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
 
 /// Maximum width usable for body content inside a padded block.
 ///
@@ -71,14 +72,14 @@ fn split_long_word(word: &str, width: usize) -> Vec<String> {
     let mut chunks = Vec::new();
     let mut current = String::new();
     let mut current_width = 0usize;
-    for ch in word.chars() {
-        let ch_width = char_width(ch);
-        if current_width > 0 && current_width + ch_width > width {
+    for grapheme in word.graphemes(true) {
+        let g_width = grapheme_width(grapheme);
+        if current_width > 0 && current_width + g_width > width {
             chunks.push(std::mem::take(&mut current));
             current_width = 0;
         }
-        current.push(ch);
-        current_width += ch_width;
+        current.push_str(grapheme);
+        current_width += g_width;
     }
     if !current.is_empty() {
         chunks.push(current);
@@ -100,25 +101,25 @@ pub fn wrap_spans(spans: &[Span], width: usize) -> Vec<Vec<Span>> {
     let mut current_width = 0usize;
 
     for span in spans {
-        for ch in span.text.chars() {
-            if ch == '\n' {
+        for grapheme in span.text.graphemes(true) {
+            if grapheme.contains('\n') {
                 rows.push(std::mem::take(&mut current));
                 current_width = 0;
                 continue;
             }
-            let ch_width = char_width(ch);
-            if current_width > 0 && current_width + ch_width > width {
+            let g_width = grapheme_width(grapheme);
+            if current_width > 0 && current_width + g_width > width {
                 rows.push(std::mem::take(&mut current));
                 current_width = 0;
             }
             if let Some(last) = current.last_mut()
                 && last.style == span.style
             {
-                last.text.push(ch);
+                last.text.push_str(grapheme);
             } else {
-                current.push(Span { text: ch.to_string(), style: span.style });
+                current.push(Span { text: grapheme.to_string(), style: span.style });
             }
-            current_width += ch_width;
+            current_width += g_width;
         }
     }
 
@@ -193,13 +194,13 @@ pub fn truncate_spans(spans: &[Span], width: usize, ellipsis_style: CellStyle) -
             break;
         }
         let mut taken = String::new();
-        for ch in span.text.chars() {
-            let ch_width = char_width(ch);
-            if used + ch_width > keep_width {
+        for grapheme in span.text.graphemes(true) {
+            let g_width = grapheme_width(grapheme);
+            if used + g_width > keep_width {
                 break;
             }
-            taken.push(ch);
-            used += ch_width;
+            taken.push_str(grapheme);
+            used += g_width;
         }
         if !taken.is_empty() {
             out.push(Span { text: taken, style: span.style });
@@ -220,9 +221,9 @@ pub fn display_width(text: &str) -> usize {
     UnicodeWidthStr::width(text)
 }
 
-/// Display width of one character in terminal columns.
-pub fn char_width(ch: char) -> usize {
-    UnicodeWidthChar::width(ch).unwrap_or(0)
+/// Display width of one grapheme cluster in terminal columns.
+pub fn grapheme_width(grapheme: &str) -> usize {
+    UnicodeWidthStr::width(grapheme)
 }
 
 #[cfg(test)]
@@ -266,6 +267,13 @@ mod tests {
     fn wrap_text_uses_display_width() {
         let rows = wrap_text("ab中cd", 4);
         assert_eq!(rows, vec!["ab中", "cd"]);
+    }
+
+    #[test]
+    fn wrap_text_keeps_emoji_zwj_grapheme_together() {
+        let family = "👨\u{200d}👩\u{200d}👧";
+        let rows = wrap_text(&format!("a{family}b"), 3);
+        assert_eq!(rows, vec![format!("a{family}"), "b".to_string()]);
     }
 
     #[test]
@@ -315,6 +323,24 @@ mod tests {
     }
 
     #[test]
+    fn wrap_spans_keeps_combining_mark_with_base() {
+        let spans = vec![Span::plain("ab\u{0327}")];
+        let rows = wrap_spans(&spans, 2);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0][0].text, "ab\u{0327}");
+    }
+
+    #[test]
+    fn wrap_spans_keeps_emoji_zwj_grapheme_together() {
+        let family = "👨\u{200d}👩\u{200d}👧";
+        let spans = vec![Span::plain(format!("a{family}b"))];
+        let rows = wrap_spans(&spans, 3);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0][0].text, format!("a{family}"));
+        assert_eq!(rows[1][0].text, "b");
+    }
+
+    #[test]
     fn pad_row_adds_left_and_right_padding() {
         let spans = vec![Span::plain("hi")];
         let padded = pad_row(spans, 10, CellStyle::new());
@@ -351,5 +377,15 @@ mod tests {
         let spans = vec![Span::plain("hi")];
         let out = truncate_spans(&spans, 0, CellStyle::default());
         assert!(out.is_empty());
+    }
+
+    #[test]
+    fn truncate_spans_keeps_emoji_zwj_grapheme_together() {
+        let family = "👨\u{200d}👩\u{200d}👧";
+        let spans = vec![Span::plain(format!("{family}abc"))];
+        let out = truncate_spans(&spans, 4, CellStyle::default());
+        assert_eq!(spans_width(&out), 4);
+        assert_eq!(out[0].text, format!("{family}a"));
+        assert_eq!(out.last().unwrap().text, "…");
     }
 }
