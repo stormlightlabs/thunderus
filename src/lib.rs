@@ -393,7 +393,6 @@ fn direct_render<W: io::Write>(
     height: usize,
 ) -> io::Result<()> {
     renderer::style::set_theme(app.theme);
-    let _ = backend.hide_cursor();
     live.render_frame(app, backend, width, height)?;
     backend.flush()
 }
@@ -670,6 +669,28 @@ mod tests {
         let output = String::from_utf8_lossy(backend.writer());
         assert!(output.contains("\u{1b}[2J"), "visible screen should be cleared");
         assert!(output.contains("\u{1b}[3J"), "terminal scrollback should be purged");
+    }
+
+    #[test]
+    fn direct_render_does_not_emit_redundant_hide_cursor() {
+        let cli = Cli::default();
+        let mut app = App::from_cli(&cli);
+        app.session_writer = None;
+
+        let mut live = renderer::region::LiveRegion::new();
+        let mut backend = TerminalBackend::new(Vec::new(), 80, 24);
+
+        direct_render(&mut backend, &mut live, &mut app, 80, 24).expect("initial render");
+        let first_len = String::from_utf8(backend.writer().clone()).unwrap().len();
+
+        direct_render(&mut backend, &mut live, &mut app, 80, 24).expect("second render");
+        let second_output = String::from_utf8(backend.writer().clone()).unwrap();
+        let new_bytes = &second_output[first_len..];
+
+        assert!(
+            !new_bytes.contains("\x1b[?25l"),
+            "direct_render should not emit Hide cursor on re-render of identical frame: {new_bytes:?}"
+        );
     }
 
     #[test]

@@ -129,9 +129,8 @@ impl LiveRegion {
             .extend(live.rows.into_iter().skip(live_start).take(live_height));
         frame.cursor = cursor;
 
-        let blink_on = app.ui_tick.is_multiple_of(5);
         let prompt_editable = matches!(app.prompt_state(), crate::app::PromptState::Editable);
-        frame.cursor_visible = !prompt_editable || blink_on;
+        frame.cursor_visible = prompt_editable;
 
         while frame.rows.len() < height {
             frame.push(Row::blank(width, bg_style(p.panel_bg)));
@@ -855,6 +854,77 @@ mod tests {
         let lr = LiveRegion::new();
         let frame = lr.build_frame(&app, 80, 24);
         assert!(frame.cursor.is_some(), "cursor should be set for editable prompt");
+    }
+
+    #[test]
+    fn build_frame_cursor_visible_for_editable_prompt_across_ticks() {
+        let mut app = test_app();
+        app.input.set_text("hello");
+
+        let lr = LiveRegion::new();
+        for tick in 0..20u64 {
+            app.ui_tick = tick;
+            let frame = lr.build_frame(&app, 80, 24);
+            assert!(
+                frame.cursor_visible,
+                "cursor should be visible on every tick for editable prompt (tick={tick})"
+            );
+        }
+    }
+
+    #[test]
+    fn build_frame_cursor_hidden_for_non_editable_prompt() {
+        let mut app = test_app();
+        app.input.set_text("hello");
+        app.run_state = RunState::Working;
+        app.transcript.push(Entry::User { text: "go".to_string() });
+        app.transcript.push(Entry::Assistant { text: "working...".to_string(), streaming: false });
+
+        let lr = LiveRegion::new();
+        let frame = lr.build_frame(&app, 80, 24);
+        assert!(
+            !frame.cursor_visible,
+            "cursor should be hidden when prompt is not editable"
+        );
+    }
+
+    #[test]
+    fn render_frame_diff_emits_no_hide_when_cursor_stays_visible() {
+        let app = test_app();
+        let mut backend = TerminalBackend::new(Vec::new(), 80, 24);
+        let mut lr = LiveRegion::new();
+
+        lr.render_frame(&app, &mut backend, 80, 24).unwrap();
+        let first_len = String::from_utf8(backend.writer().clone()).unwrap().len();
+
+        lr.render_frame(&app, &mut backend, 80, 24).unwrap();
+        let second_output = String::from_utf8(backend.writer().clone()).unwrap();
+        let new_bytes = &second_output[first_len..];
+
+        assert!(
+            !new_bytes.contains("\x1b[?25l"),
+            "re-render of identical visible-cursor frame should not emit Hide: {new_bytes:?}"
+        );
+    }
+
+    #[test]
+    fn render_frame_diff_emits_no_show_on_unchanged_visible_cursor() {
+        let app = test_app();
+        let mut backend = TerminalBackend::new(Vec::new(), 80, 24);
+        let mut lr = LiveRegion::new();
+
+        lr.render_frame(&app, &mut backend, 80, 24).unwrap();
+        let first_len = String::from_utf8(backend.writer().clone()).unwrap().len();
+
+        lr.render_frame(&app, &mut backend, 80, 24).unwrap();
+        let second_output = String::from_utf8(backend.writer().clone()).unwrap();
+        let new_bytes = &second_output[first_len..];
+
+        assert_eq!(
+            new_bytes.len(),
+            0,
+            "identical frame with unchanged cursor should produce zero output, got: {new_bytes:?}"
+        );
     }
 
     #[test]

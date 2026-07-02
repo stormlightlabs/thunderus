@@ -16,7 +16,7 @@ pub struct Row {
 impl Row {
     /// Create a row from spans, padded to `width` using `pad_style`.
     pub fn padded(spans: Vec<Span>, width: usize, pad_style: CellStyle) -> Self {
-        let spans = crate::renderer::layout::pad_row(spans, width, pad_style);
+        let spans = super::layout::pad_row(spans, width, pad_style);
         Row { spans, width }
     }
 
@@ -31,10 +31,11 @@ impl Row {
     /// Visible width (column count) of the row's spans.
     #[cfg(test)]
     pub fn text_width(&self) -> usize {
-        crate::renderer::layout::spans_width(&self.spans)
+        super::layout::spans_width(&self.spans)
     }
 
     /// Plain-text rendering of the row (for snapshot readability).
+    #[cfg(test)]
     pub fn text(&self) -> String {
         let mut out = String::new();
         for span in &self.spans {

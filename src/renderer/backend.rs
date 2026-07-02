@@ -101,11 +101,6 @@ impl<W: Write> TerminalBackend<W> {
         &mut self.writer
     }
 
-    /// Hide the cursor.
-    pub fn hide_cursor(&mut self) -> io::Result<()> {
-        queue!(self.writer, Hide)
-    }
-
     /// Show the cursor.
     pub fn show_cursor(&mut self) -> io::Result<()> {
         queue!(self.writer, Show)
@@ -551,17 +546,6 @@ mod tests {
         let out = String::from_utf8(b.writer().clone()).unwrap();
         assert!(out.contains("history"));
         assert!(!out.contains("\x1b[1;0r"));
-    }
-
-    #[test]
-    fn hide_and_show_cursor_queue_sequences() {
-        let mut b = backend(10, 5);
-        b.hide_cursor().unwrap();
-        b.show_cursor().unwrap();
-
-        let out = String::from_utf8(b.writer().clone()).unwrap();
-        assert!(out.contains("\x1b[?25l"));
-        assert!(out.contains("\x1b[?25h"));
     }
 
     #[test]
