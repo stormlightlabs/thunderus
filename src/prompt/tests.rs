@@ -13,6 +13,7 @@ fn test_bundle() -> PromptBundle {
         },
         project_context: Vec::new(),
         tool_catalog: tools::tool_definitions(),
+        available_skills: Vec::new(),
         transcript_tail: Vec::new(),
         user_turn: "explain this repo".to_string(),
         history_reuse: HistoryReuse::default(),

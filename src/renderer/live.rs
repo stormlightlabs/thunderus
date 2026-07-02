@@ -6,8 +6,8 @@
 use crate::app::{App, Mode, PromptAccessory, PromptState, RunState};
 use crate::renderer::cursor::{prompt_cursor, prompt_rows};
 use crate::renderer::row::{CursorCoord, Row};
-use crate::renderer::style as renderer_style;
 use crate::renderer::style::{CellStyle, Color, Span};
+use crate::utils;
 
 const LIVE_INSET: usize = 1;
 
@@ -15,12 +15,12 @@ const LIVE_INSET: usize = 1;
 ///
 /// Sits above the prompt input in the live region.
 pub fn dynamic_status_row(app: &App, width: usize) -> Row {
-    let p = renderer_style::palette();
+    let p = super::style::palette();
     let bg = p.surface0;
 
     let label = app.status_label();
-    let status_color = renderer_style::status_color(label);
-    let icon = renderer_style::status_icon(label, app.ui_tick);
+    let status_color = super::style::status_color(label);
+    let icon = super::style::status_icon(label, app.ui_tick);
     let session = if app.session_id.is_empty() { "thndrs" } else { &app.session_id };
 
     let mut spans = vec![
@@ -50,7 +50,7 @@ pub fn dynamic_status_row(app: &App, width: usize) -> Row {
 ///
 /// Returns the rows and the cursor coordinate (relative to the first row).
 pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord>) {
-    let p = renderer_style::palette();
+    let p = super::style::palette();
     let surface = p.surface0;
     let prompt_state = app.prompt_state();
 
@@ -63,7 +63,7 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
     };
 
     let prefix_width = prompt_prefix_width(app);
-    let row_body_width = crate::renderer::layout::content_width(width);
+    let row_body_width = super::layout::content_width(width);
     let body_width = row_body_width.saturating_sub(LIVE_INSET + prefix_width).max(1);
     let cursor_indent = width.min(2) + LIVE_INSET + prefix_width;
     let input_text = app.input.as_str();
@@ -141,6 +141,7 @@ pub fn accessory_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
         PromptAccessory::Commands { selected } => command_rows(app, selected, width, max_height),
         PromptAccessory::Files(_) => picker_rows(app, "files", width, max_height),
         PromptAccessory::Models => picker_rows(app, "models", width, max_height),
+        PromptAccessory::Skills => picker_rows(app, "skills", width, max_height),
     }
 }
 
@@ -148,7 +149,7 @@ pub fn accessory_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
 ///
 /// Width-aware clipping hides segments that don't fit.
 pub fn static_status_row(app: &App, width: usize) -> Row {
-    let p = renderer_style::palette();
+    let p = super::style::palette();
     let bg = p.surface0;
     let subtext = CellStyle::new().fg(p.subtext0).bg(bg);
     let muted = CellStyle::new().fg(p.overlay0).bg(bg);
@@ -169,12 +170,10 @@ pub fn static_status_row(app: &App, width: usize) -> Row {
         _ => (true, true, true, true, true),
     };
 
-    let model_len = crate::renderer::layout::display_width(&model_label);
-    let search_len = crate::renderer::layout::display_width(&search_text);
-    let token_len = crate::renderer::layout::display_width(&token_text);
-    let git_len = git_text
-        .as_ref()
-        .map_or(0, |text| crate::renderer::layout::display_width(text));
+    let model_len = super::layout::display_width(&model_label);
+    let search_len = super::layout::display_width(&search_text);
+    let token_len = super::layout::display_width(&token_text);
+    let git_len = git_text.as_ref().map_or(0, |text| super::layout::display_width(text));
 
     let mut spans: Vec<Span> = Vec::new();
     spans.push(Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(bg)));
@@ -201,7 +200,7 @@ pub fn static_status_row(app: &App, width: usize) -> Row {
             + if show_tokens { token_len + 3 } else { 0 }
             + if show_git && git_len > 0 { git_len + 3 } else { 0 }
             + 6;
-        let cwd_display = crate::renderer::path_display::footer_segment(&app.cwd, width, used);
+        let cwd_display = super::path_display::footer_segment(&app.cwd, width, used);
         spans.push(Span::styled(cwd_display, muted));
     }
 
@@ -218,7 +217,7 @@ fn prompt_prefix_width(app: &App) -> usize {
 }
 
 fn command_rows(app: &App, selected: usize, width: usize, max_height: usize) -> Vec<Row> {
-    let p = renderer_style::palette();
+    let p = super::style::palette();
     let bg = p.surface0;
     let commands = crate::app::command_suggestions_for_app(app);
 
@@ -316,7 +315,7 @@ fn is_mention_char(ch: char) -> bool {
 /// Renders: query header, match list with selection marker + fuzzy highlight
 /// indices + long label clipping, "no matches" row, and footer hints.
 fn picker_rows(app: &App, title: &str, width: usize, max_height: usize) -> Vec<Row> {
-    let p = renderer_style::palette();
+    let p = super::style::palette();
     let bg = p.surface0;
     let surface1 = p.surface1;
     let label_style = CellStyle::new().fg(p.accent).bg(bg).bold();
@@ -356,7 +355,7 @@ fn picker_rows(app: &App, title: &str, width: usize, max_height: usize) -> Vec<R
     } else {
         let visible_rows = picker.matches.len().clamp(1, crate::app::VISIBLE_ROWS);
         let end = (picker.scroll + visible_rows).min(picker.matches.len());
-        let available = width.saturating_sub(6); // marker + indent
+        let available = width.saturating_sub(6);
 
         for (idx, item) in picker.matches[picker.scroll..end].iter().enumerate() {
             let absolute_idx = picker.scroll + idx;
@@ -365,13 +364,10 @@ fn picker_rows(app: &App, title: &str, width: usize, max_height: usize) -> Vec<R
             let marker = if is_selected { "›" } else { " " };
             let marker_style = if is_selected { selected_marker_style } else { CellStyle::new().bg(bg) };
 
-            let detail_len = if item.detail.is_empty() {
-                0
-            } else {
-                crate::renderer::layout::display_width(&item.detail).min(24) + 2
-            };
+            let detail_len =
+                if item.detail.is_empty() { 0 } else { super::layout::display_width(&item.detail).min(24) + 2 };
             let label_available = available.saturating_sub(detail_len).max(8);
-            let truncated = crate::utils::truncate_ellipsis(&item.label, label_available);
+            let truncated = utils::truncate_ellipsis(&item.label, label_available);
             let indices = picker.match_indices.get(absolute_idx).cloned().unwrap_or_default();
 
             let label_spans = build_fuzzy_highlight_spans(
@@ -390,9 +386,9 @@ fn picker_rows(app: &App, title: &str, width: usize, max_height: usize) -> Vec<R
             if !item.detail.is_empty() {
                 spans.push(Span::styled("  ", CellStyle::new().bg(row_bg)));
                 spans.push(Span::styled(
-                    crate::utils::truncate_ellipsis(
+                    utils::truncate_ellipsis(
                         &item.detail,
-                        available.saturating_sub(crate::renderer::layout::display_width(&truncated) + 2),
+                        available.saturating_sub(super::layout::display_width(&truncated) + 2),
                     ),
                     detail_style,
                 ));
@@ -464,7 +460,7 @@ fn build_fuzzy_highlight_spans(
 }
 
 fn help_rows(width: usize, max_height: usize) -> Vec<Row> {
-    let p = renderer_style::palette();
+    let p = super::style::palette();
     let bg = p.surface0;
     let label_style = CellStyle::new().fg(p.accent).bg(bg).bold();
     let desc_style = CellStyle::new().fg(p.subtext0).bg(bg);
@@ -533,6 +529,7 @@ mod tests {
             verbose: false,
             theme: Theme::EldritchMinimal,
             print_prompt: false,
+            skill_dirs: Vec::new(),
         });
         app.git_status = Some(crate::renderer::git::GitStatusSummary {
             branch: Some("main".to_string()),

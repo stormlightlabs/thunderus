@@ -566,3 +566,4 @@ Build with cargo. Run tests with cargo test.
   search: native
   date: [date]
   context_sources: 1
+  skills: 0

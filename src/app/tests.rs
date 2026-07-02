@@ -1,5 +1,6 @@
 use super::*;
 use crate::input::PromptInput;
+use crate::skills::{SkillMetadata, SkillSource};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::io::Write;
 
@@ -18,8 +19,26 @@ fn fresh_app() -> App {
 fn picker_from_paths(paths: Vec<String>) -> PickerState {
     PickerState::new(
         paths.into_iter().map(|path| PickerItem::new(path, "")).collect(),
-        FILE_PICKER_LIMIT,
+        LARGE_PICKER_LIMIT,
     )
+}
+
+fn test_skill(path: std::path::PathBuf, markdown: &str) -> SkillMetadata {
+    std::fs::create_dir_all(path.parent().expect("skill parent")).expect("create skill dir");
+    std::fs::write(&path, markdown).expect("write skill");
+    SkillMetadata {
+        name: "example-skill".to_string(),
+        description: "Helps test the skills picker.".to_string(),
+        root: path.parent().expect("skill root").to_path_buf(),
+        path,
+        content_hash: tools::hash_content(markdown),
+        byte_count: markdown.len(),
+        source: SkillSource::Project,
+        allowed_tools: Vec::new(),
+        license: None,
+        compatibility: None,
+        metadata: None,
+    }
 }
 
 #[test]
@@ -1739,6 +1758,28 @@ fn model_command_opens_picker_and_selects_model() {
     assert_eq!(app.prompt_accessory, PromptAccessory::None);
     assert_eq!(app.model, "umans-glm-5.2");
     assert!(app.picker.is_none());
+}
+
+#[test]
+fn skills_command_opens_picker_and_renders_selected_skill_markdown() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let markdown = "---\nname: example-skill\ndescription: Helps test.\n---\n# Example Skill\n\nUse carefully.\n";
+    let mut app = fresh_app();
+    app.skills = vec![test_skill(dir.path().join("example-skill").join("SKILL.md"), markdown)];
+    app.input = PromptInput::from("/skills");
+
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+    assert_eq!(app.prompt_accessory, PromptAccessory::Skills);
+
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+
+    assert_eq!(app.prompt_accessory, PromptAccessory::None);
+    assert!(app.picker.is_none());
+    assert!(app.transcript.iter().any(|entry| matches!(
+        entry,
+        Entry::Assistant { text, streaming: false }
+            if text.contains("# Skill: example-skill") && text.contains("# Example Skill")
+    )));
 }
 
 #[test]

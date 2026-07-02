@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use serde::{Deserialize, Serialize};
 
-use super::{context, fuzzy, session, tools};
+use super::{context, fuzzy, session, skills, tools};
 use crate::cli::{Cli, Theme, WebSearchMode};
 use crate::input::PromptInput;
 use crate::providers::{opencode, umans};
@@ -27,7 +27,9 @@ const QUIT_CONFIRM_TIMEOUT_TICKS: u64 = 30;
 
 pub const VISIBLE_ROWS: usize = 8;
 
-const FILE_PICKER_LIMIT: usize = 200;
+/// Shared cap for large filesystem-backed picker inventories so fuzzy matching
+/// stays responsive while still surfacing enough nearby files or skills.
+const LARGE_PICKER_LIMIT: usize = 200;
 const MODEL_PICKER_LIMIT: usize = 50;
 
 /// Top-level interaction mode.
@@ -50,6 +52,7 @@ pub enum PromptAccessory {
     },
     Files(FilePickerSource),
     Models,
+    Skills,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -336,6 +339,10 @@ pub struct App {
     pub session_tokens_out: u64,
     /// Loaded context sources (e.g. AGENTS.md).
     pub context_sources: Vec<context::ContextSource>,
+    /// Discovered Agent Skills metadata.
+    pub skills: Vec<skills::SkillMetadata>,
+    /// Skill discovery diagnostics for ignored malformed skills.
+    pub skill_diagnostics: Vec<skills::SkillDiagnostic>,
     /// Monotonic UI tick used for lightweight animated affordances.
     pub ui_tick: u64,
     /// When `Some`, the user pressed Ctrl+D once and we are waiting for a
@@ -381,13 +388,13 @@ impl App {
             Some(source) => vec![source],
             None => Vec::new(),
         };
+        let skill_inventory = skills::discover(&workspace_root, &cli.skill_dirs);
 
         let mut transcript = Vec::new();
         if !context_sources.is_empty() {
             let summaries: Vec<String> = context_sources.iter().map(|s| s.summary()).collect();
             transcript.push(Entry::Status { text: format!("context  {}", summaries.join(", ")) });
         }
-
         let sessions_dir = session::sessions_dir(&workspace_root);
         let session_id = session::generate_session_id();
         let mut session_writer = session::SessionWriter::create(
@@ -428,6 +435,8 @@ impl App {
             session_tokens_in: 0,
             session_tokens_out: 0,
             context_sources,
+            skills: skill_inventory.skills,
+            skill_diagnostics: skill_inventory.diagnostics,
             ui_tick: 0,
             ctrl_d_pending: None,
             session_writer,
@@ -558,6 +567,7 @@ pub fn command_suggestions_for_app(app: &App) -> Vec<(&'static str, &'static str
         ("help", "show help"),
         ("bg", "list background processes"),
         ("model", "switch Umans model"),
+        ("skills", "browse loaded skills"),
     ];
     commands
         .into_iter()
@@ -625,7 +635,7 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
 
 fn handle_mouse(app: &mut App, mouse: MouseEvent) -> Option<Msg> {
     match app.prompt_accessory {
-        PromptAccessory::Files(_) | PromptAccessory::Models => {
+        PromptAccessory::Files(_) | PromptAccessory::Models | PromptAccessory::Skills => {
             if let Some(picker) = app.picker.as_mut() {
                 match mouse.kind {
                     MouseEventKind::ScrollUp => picker.move_up(),
@@ -651,6 +661,7 @@ fn handle_accessory_key(app: &mut App, key: KeyEvent) -> Option<Option<Msg>> {
         PromptAccessory::Commands { .. } => handle_command_accessory_key(app, key),
         PromptAccessory::Files(_) => handle_file_accessory_key(app, key),
         PromptAccessory::Models => handle_model_accessory_key(app, key),
+        PromptAccessory::Skills => handle_skill_accessory_key(app, key),
         PromptAccessory::None => None,
     }
 }
@@ -740,6 +751,47 @@ fn handle_model_accessory_key(app: &mut App, key: KeyEvent) -> Option<Option<Msg
         }
         KeyCode::Enter => {
             accept_model_suggestion(app);
+            Some(None)
+        }
+        KeyCode::Up => {
+            picker.move_up();
+            Some(None)
+        }
+        KeyCode::Down => {
+            picker.move_down();
+            Some(None)
+        }
+        KeyCode::PageUp => {
+            picker.page_up();
+            Some(None)
+        }
+        KeyCode::PageDown => {
+            picker.page_down();
+            Some(None)
+        }
+        KeyCode::Backspace => {
+            picker.query.pop();
+            picker.refresh_matches();
+            Some(None)
+        }
+        KeyCode::Char(ch) => {
+            picker.query.push(ch);
+            picker.refresh_matches();
+            Some(None)
+        }
+        _ => None,
+    }
+}
+
+fn handle_skill_accessory_key(app: &mut App, key: KeyEvent) -> Option<Option<Msg>> {
+    let picker = app.picker.as_mut()?;
+    match key.code {
+        KeyCode::Esc => {
+            close_prompt_accessory(app);
+            Some(None)
+        }
+        KeyCode::Enter => {
+            accept_skill_suggestion(app);
             Some(None)
         }
         KeyCode::Up => {
@@ -1076,7 +1128,7 @@ fn open_file_picker(app: &mut App, source: FilePickerSource) {
     match tools::searchable_file_paths(&app.cwd, 2_000) {
         Ok(files) => {
             let items = files.into_iter().map(|path| PickerItem::new(path, "")).collect();
-            app.picker = Some(PickerState::new(items, FILE_PICKER_LIMIT));
+            app.picker = Some(PickerState::new(items, LARGE_PICKER_LIMIT));
             app.prompt_accessory = PromptAccessory::Files(source);
             sync_file_picker_query(app);
         }
@@ -1097,6 +1149,26 @@ fn open_model_picker(app: &mut App) {
     app.prompt_accessory = PromptAccessory::Models;
 }
 
+fn open_skill_picker(app: &mut App) {
+    for diagnostic in &app.skill_diagnostics {
+        app.transcript.push(Entry::Error { text: diagnostic.summary() });
+    }
+
+    if app.skills.is_empty() {
+        app.transcript
+            .push(Entry::Status { text: String::from("skills  none loaded") });
+        return;
+    }
+
+    let items = app
+        .skills
+        .iter()
+        .map(|skill| PickerItem::new(skill.name.clone(), skill.description.clone()))
+        .collect();
+    app.picker = Some(PickerState::new(items, LARGE_PICKER_LIMIT));
+    app.prompt_accessory = PromptAccessory::Skills;
+}
+
 fn offline_model_picker_items() -> Vec<PickerItem> {
     umans::known_models()
         .into_iter()
@@ -1112,7 +1184,7 @@ fn offline_model_picker_items() -> Vec<PickerItem> {
 fn close_prompt_accessory(app: &mut App) {
     if matches!(
         app.prompt_accessory,
-        PromptAccessory::Files(_) | PromptAccessory::Models
+        PromptAccessory::Files(_) | PromptAccessory::Models | PromptAccessory::Skills
     ) {
         app.picker = None;
     }
@@ -1185,6 +1257,37 @@ fn accept_model_suggestion(app: &mut App) {
 
     app.model = model.clone();
     app.transcript.push(Entry::Status { text: format!("model: {model}") });
+    close_prompt_accessory(app);
+}
+
+fn accept_skill_suggestion(app: &mut App) {
+    let Some(name) = app
+        .picker
+        .as_ref()
+        .and_then(|picker| picker.selected().map(|item| item.label.clone()))
+    else {
+        return;
+    };
+    let Some(skill) = app.skills.iter().find(|skill| skill.name == name).cloned() else {
+        close_prompt_accessory(app);
+        return;
+    };
+
+    match skills::load_skill(&skill) {
+        Ok(loaded) => {
+            let text = format!(
+                "# Skill: {}\n\n_Source: {}_\n\n{}",
+                loaded.activation.name,
+                loaded.activation.path.display(),
+                loaded.markdown
+            );
+            app.transcript.push(Entry::Assistant { text, streaming: false });
+            if let Some(ref mut writer) = app.session_writer {
+                let _ = writer.append_skill_activation(&loaded.activation);
+            }
+        }
+        Err(diagnostic) => app.transcript.push(Entry::Error { text: diagnostic.summary() }),
+    }
     close_prompt_accessory(app);
 }
 
@@ -1332,6 +1435,10 @@ fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
         }
         "model" => {
             open_model_picker(app);
+            None
+        }
+        "skills" => {
+            open_skill_picker(app);
             None
         }
         _ => None,

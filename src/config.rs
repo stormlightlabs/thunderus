@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 use crate::cli::{Theme, WebSearchMode};
+use crate::utils;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
@@ -40,6 +41,7 @@ pub struct Config {
     pub verbose: Option<bool>,
     pub print_prompt: Option<bool>,
     pub theme: Option<Theme>,
+    pub skill_dirs: Vec<PathBuf>,
 }
 
 impl Config {
@@ -54,6 +56,7 @@ impl Config {
         self.verbose = other.verbose.or(self.verbose);
         self.print_prompt = other.print_prompt.or(self.print_prompt);
         self.theme = other.theme.or(self.theme);
+        self.skill_dirs.extend(other.skill_dirs);
         self
     }
 }
@@ -78,7 +81,7 @@ fn load_file(path: &Path) -> Result<Config, ConfigError> {
 }
 
 fn global_candidates() -> Vec<PathBuf> {
-    match home_dir() {
+    match utils::home_dir() {
         Some(home) => {
             let dir = home.join(".thndrs");
             vec![
@@ -104,12 +107,6 @@ fn project_candidates(root: &Path) -> Vec<PathBuf> {
         typo_dir.join(".thndrs.toml"),
         typo_dir.join("thndrs.toml"),
     ]
-}
-
-fn home_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("USERPROFILE").map(PathBuf::from))
 }
 
 #[cfg(test)]
@@ -147,6 +144,7 @@ mod tests {
             tick_rate_ms = 250
             mouse = true
             theme = "catppuccin-mocha"
+            skill_dirs = ["vendor/agent-skills"]
             "#,
         )
         .expect("config parses");
@@ -156,6 +154,7 @@ mod tests {
         assert_eq!(config.tick_rate_ms, Some(250));
         assert_eq!(config.mouse, Some(true));
         assert_eq!(config.theme, Some(Theme::CatppuccinMocha));
+        assert_eq!(config.skill_dirs, vec![PathBuf::from("vendor/agent-skills")]);
     }
 
     #[test]

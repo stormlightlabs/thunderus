@@ -18,6 +18,7 @@ mod prompt;
 mod providers;
 mod renderer;
 mod search;
+mod skills;
 mod tools;
 mod utils;
 
@@ -167,13 +168,15 @@ fn run_print_prompt(cli: &Cli) -> io::Result<()> {
         Some(source) => vec![source],
         None => Vec::new(),
     };
+    let skill_inventory = skills::discover(&workspace_root, &cli.skill_dirs);
 
     let user_turn = String::from("(no user prompt — print-prompt debug mode)");
-    let bundle = PromptBundle::new(
+    let bundle = PromptBundle::new_with_skills(
         &workspace_root,
         &cli.model,
         cli.websearch,
         &context_sources,
+        &skill_inventory.skills,
         &[],
         &user_turn,
     );
@@ -218,6 +221,7 @@ pub fn render_print_prompt(bundle: &PromptBundle) -> String {
     out.push_str(&format!("  search: {}\n", bundle.environment.search_mode));
     out.push_str("  date: [date]\n");
     out.push_str(&format!("  context_sources: {}\n", bundle.project_context.len()));
+    out.push_str(&format!("  skills: {}\n", bundle.available_skills.len()));
 
     out
 }
@@ -368,7 +372,10 @@ fn sync_mouse_capture(app: &App, captured: &mut bool, mouse_enabled: bool) {
     if !mouse_enabled {
         return;
     }
-    let picker_open = matches!(app.prompt_accessory, crate::app::PromptAccessory::Files(_));
+    let picker_open = matches!(
+        app.prompt_accessory,
+        crate::app::PromptAccessory::Files(_) | crate::app::PromptAccessory::Skills
+    );
     if picker_open && !*captured {
         let _ = crossterm::execute!(io::stdout(), EnableMouseCapture);
         *captured = true;
@@ -518,11 +525,12 @@ fn maybe_spawn_agent(app: &App, cli: &Cli, agent: &mut Option<AgentSlot>) {
         "spawning agent run"
     );
 
-    let bundle = PromptBundle::new(
+    let bundle = PromptBundle::new_with_skills(
         &config.root,
         &config.model,
         config.search_mode,
         &app.context_sources,
+        &app.skills,
         &app.transcript,
         &prompt,
     );
@@ -588,6 +596,7 @@ mod tests {
             },
             project_context: vec![source],
             tool_catalog: tools::tool_definitions(),
+            available_skills: Vec::new(),
             transcript_tail: Vec::new(),
             user_turn: "explain this repo".to_string(),
             history_reuse: prompt::HistoryReuse::Unavailable,

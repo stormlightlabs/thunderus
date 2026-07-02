@@ -56,6 +56,10 @@ struct CliArgs {
     /// and exit without calling the provider.
     #[arg(long, default_value_t = false)]
     print_prompt: bool,
+
+    /// Additional skill directory to scan. Can be repeated.
+    #[arg(long = "skill-dir")]
+    skill_dirs: Vec<PathBuf>,
 }
 
 /// Normalized runtime configuration after defaults, TOML, and flags are merged.
@@ -81,6 +85,8 @@ pub struct Cli {
     pub theme: Theme,
     /// Print the assembled prompt bundle/lowered messages with secrets redacted.
     pub print_prompt: bool,
+    /// Additional skill directories to scan.
+    pub skill_dirs: Vec<PathBuf>,
 }
 
 /// Built-in UI color theme.
@@ -187,6 +193,7 @@ impl Default for Cli {
             verbose: false,
             theme: Theme::default(),
             print_prompt: false,
+            skill_dirs: Vec::new(),
         }
     }
 }
@@ -238,6 +245,7 @@ impl Cli {
             verbose: args.verbose || config.verbose.unwrap_or(defaults.verbose),
             theme: args.theme.or(config.theme).unwrap_or(defaults.theme),
             print_prompt: args.print_prompt || config.print_prompt.unwrap_or(defaults.print_prompt),
+            skill_dirs: config.skill_dirs.into_iter().chain(args.skill_dirs).collect(),
         }
     }
 }
@@ -245,6 +253,7 @@ impl Cli {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn cli_defaults_match_spec() {
         let cli = Cli::try_parse_from(["thndrs"]).expect("default parse");
@@ -257,6 +266,7 @@ mod tests {
         assert!(!cli.mouse);
         assert!(!cli.verbose);
         assert_eq!(cli.theme, Theme::EldritchMinimal);
+        assert!(cli.skill_dirs.is_empty());
     }
 
     #[test]

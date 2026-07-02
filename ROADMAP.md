@@ -255,7 +255,7 @@ Supported skill shape:
 
 Required behavior:
 
-- Discover skills from configured skill roots.
+- Discover skills from configured skill dirs.
 - Validate skill metadata before exposing it to the model.
 - Load only skill metadata at startup.
 - Load the full `SKILL.md` only after the model or harness activates the skill

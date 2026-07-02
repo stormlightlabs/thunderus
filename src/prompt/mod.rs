@@ -33,8 +33,27 @@ use crate::cli::WebSearchMode;
 use crate::context::ContextSource;
 use crate::datetime;
 use crate::providers::ProviderMessage;
+use crate::skills;
+use crate::skills::SkillMetadata;
 use crate::tools;
 use crate::tools::ToolDefinition;
+
+/// Whether the provider supports reusable history / prompt caching for
+/// AGENTS.md content.
+///
+/// Umans does not currently expose explicit reusable-history or prompt-cache
+/// behavior, so the default is [`HistoryReuse::Unavailable`], which always
+/// includes the active size-capped AGENTS.md content.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
+pub enum HistoryReuse {
+    /// Provider supports reusable history. Full AGENTS.md text is included
+    /// only when its content hash changes; otherwise only metadata is sent.
+    Available,
+    /// Provider does not support reusable history (default). The active
+    /// size-capped AGENTS.md content is always included.
+    #[default]
+    Unavailable,
+}
 
 /// A named prompt fragment — one focused piece of model-visible context.
 ///
@@ -56,28 +75,6 @@ impl PromptFragment {
     }
 }
 
-/// Build the default ordered set of prompt fragments.
-///
-/// Each fragment is a separate concern:
-/// 1. **base_identity** — who thndrs is.
-/// 2. **communication_style** — how to talk to the user.
-/// 3. **action_model** — when to act, explore, or ask.
-/// 4. **edit_guidance** — exact-edit and write-tool behavior.
-/// 5. **action_safety** — tool boundaries, workspace containment, no shell.
-/// 6. **self_knowledge** — how to answer questions about `thndrs`.
-/// 7. **web_source_guidance** — when and how to use web tools.
-pub fn default_fragments() -> Vec<PromptFragment> {
-    vec![
-        PromptFragment::new("base_identity", include_str!("fragments/base_identity.xml")),
-        PromptFragment::new("communication_style", include_str!("fragments/communication_style.xml")),
-        PromptFragment::new("action_model", include_str!("fragments/action_model.xml")),
-        PromptFragment::new("edit_guidance", include_str!("fragments/edit_guidance.xml")),
-        PromptFragment::new("action_safety", include_str!("fragments/action_safety.xml")),
-        PromptFragment::new("self_knowledge", include_str!("fragments/self_knowledge.xml")),
-        PromptFragment::new("web_source_guidance", include_str!("fragments/web_source_guidance.xml")),
-    ]
-}
-
 /// The structured prompt bundle before provider-specific lowering.
 ///
 /// Each field is a separate piece of model context. The [`Display`] impl
@@ -94,6 +91,9 @@ pub struct PromptBundle {
     pub project_context: Vec<ContextSource>,
     /// Tool catalog as provider-native schemas.
     pub tool_catalog: Vec<ToolDefinition>,
+    /// Available Agent Skills metadata. Full skill instructions are read only
+    /// after activation.
+    pub available_skills: Vec<SkillMetadata>,
     /// Projected model-visible transcript tail.
     pub transcript_tail: Vec<Entry>,
     /// Current user prompt text.
@@ -115,6 +115,14 @@ impl PromptBundle {
         cwd: &Path, model: &str, mode: WebSearchMode, context_sources: &[ContextSource], transcript: &[Entry],
         user_turn: &str,
     ) -> PromptBundle {
+        PromptBundle::new_with_skills(cwd, model, mode, context_sources, &[], transcript, user_turn)
+    }
+
+    /// Build a [`PromptBundle`] including discovered Agent Skills metadata.
+    pub fn new_with_skills(
+        cwd: &Path, model: &str, mode: WebSearchMode, context_sources: &[ContextSource],
+        available_skills: &[SkillMetadata], transcript: &[Entry], user_turn: &str,
+    ) -> PromptBundle {
         let tool_catalog = tools::tool_definitions();
         let transcript_tail = project_transcript_tail(transcript);
         PromptBundle {
@@ -122,29 +130,13 @@ impl PromptBundle {
             environment: EnvironmentMetadata::new(cwd, model, mode),
             project_context: context_sources.to_vec(),
             tool_catalog,
+            available_skills: available_skills.to_vec(),
             transcript_tail,
             user_turn: user_turn.to_string(),
             history_reuse: HistoryReuse::default(),
             prev_context_hash: None,
         }
     }
-}
-
-/// Whether the provider supports reusable history / prompt caching for
-/// AGENTS.md content.
-///
-/// Umans does not currently expose explicit reusable-history or prompt-cache
-/// behavior, so the default is [`HistoryReuse::Unavailable`], which always
-/// includes the active size-capped AGENTS.md content.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
-pub enum HistoryReuse {
-    /// Provider supports reusable history. Full AGENTS.md text is included
-    /// only when its content hash changes; otherwise only metadata is sent.
-    Available,
-    /// Provider does not support reusable history (default). The active
-    /// size-capped AGENTS.md content is always included.
-    #[default]
-    Unavailable,
 }
 
 /// Environment metadata included in the prompt for cache stability.
@@ -172,6 +164,28 @@ impl EnvironmentMetadata {
             date: datetime::rounded_date(),
         }
     }
+}
+
+/// Build the default ordered set of prompt fragments.
+///
+/// Each fragment is a separate concern:
+/// 1. **base_identity** — who thndrs is.
+/// 2. **communication_style** — how to talk to the user.
+/// 3. **action_model** — when to act, explore, or ask.
+/// 4. **edit_guidance** — exact-edit and write-tool behavior.
+/// 5. **action_safety** — tool boundaries, workspace containment, no shell.
+/// 6. **self_knowledge** — how to answer questions about `thndrs`.
+/// 7. **web_source_guidance** — when and how to use web tools.
+pub fn default_fragments() -> Vec<PromptFragment> {
+    vec![
+        PromptFragment::new("base_identity", include_str!("fragments/base_identity.xml")),
+        PromptFragment::new("communication_style", include_str!("fragments/communication_style.xml")),
+        PromptFragment::new("action_model", include_str!("fragments/action_model.xml")),
+        PromptFragment::new("edit_guidance", include_str!("fragments/edit_guidance.xml")),
+        PromptFragment::new("action_safety", include_str!("fragments/action_safety.xml")),
+        PromptFragment::new("self_knowledge", include_str!("fragments/self_knowledge.xml")),
+        PromptFragment::new("web_source_guidance", include_str!("fragments/web_source_guidance.xml")),
+    ]
 }
 
 /// Render the system prompt text from the bundle.
@@ -237,6 +251,11 @@ pub fn render_system_prompt(bundle: &PromptBundle) -> String {
         }
         context_lines.push("</project_context>".to_string());
         parts.push(context_lines.join("\n"));
+    }
+
+    let available_skills = skills::format_available_skills(&bundle.available_skills);
+    if !available_skills.is_empty() {
+        parts.push(available_skills);
     }
 
     parts.join("\n\n")

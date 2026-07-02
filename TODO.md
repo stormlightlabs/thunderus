@@ -106,7 +106,7 @@ See:
 
 - [ ] Define config file path.
 - [ ] Define config keys for model, web search mode, session path, tick/render
-      rate, skill roots, and default workspace behavior.
+      rate, skill dirs, and default workspace behavior.
 - [ ] Implement config loading.
 - [ ] Implement precedence: CLI flags override env vars, env vars override
       config, config overrides built-in defaults.
@@ -144,11 +144,11 @@ See:
 
 ### Skill Engine And Self-Knowledge
 
-- [ ] Discover skills from configured skill roots.
-- [ ] Validate skill metadata before exposing it to the model.
-- [ ] Load full skill instructions only after activation.
-- [ ] Bound skill reference traversal with depth, byte, file, and cycle limits.
-- [ ] Record activated skills and loaded references in session metadata.
+- [x] Discover skills from configured skill dirs.
+- [x] Validate skill metadata before exposing it to the model.
+- [x] Load full skill instructions only after activation.
+- [x] Bound skill reference traversal with depth, byte, file, and cycle limits.
+- [x] Record activated skills and loaded references in session metadata.
 - [ ] Add a stable `thndrs` self-description fragment.
 - [ ] Expose a compact model-visible map of local docs and runtime state.
 - [ ] Add self-knowledge snapshots for prompt fragments, tools, skills,

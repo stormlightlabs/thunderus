@@ -37,6 +37,7 @@ use serde::{Deserialize, Serialize};
 use crate::app::{Entry, ToolStatus};
 use crate::context::ContextSource;
 use crate::prompt::{EnvironmentMetadata, HistoryReuse, PromptBundle};
+use crate::skills::{SkillActivation, SkillReferenceMeta};
 use crate::tools::{WriteOp, shell};
 use crate::{datetime, tools};
 
@@ -201,6 +202,18 @@ pub enum SessionRecord {
         /// "one-shot" or "background".
         kind: String,
     },
+    /// A skill was explicitly opened/activated in the session.
+    #[serde(rename = "skill_activated")]
+    SkillActivated {
+        schema_version: u32,
+        seq: u64,
+        time: String,
+        name: String,
+        path: String,
+        content_hash: u64,
+        byte_count: usize,
+        loaded_references: Vec<SkillReferenceRecord>,
+    },
 }
 
 impl SessionRecord {
@@ -219,7 +232,8 @@ impl SessionRecord {
             | SessionRecord::Failed { seq, .. }
             | SessionRecord::SessionRenamed { seq, .. }
             | SessionRecord::FileWrite { seq, .. }
-            | SessionRecord::ShellExec { seq, .. } => *seq,
+            | SessionRecord::ShellExec { seq, .. }
+            | SessionRecord::SkillActivated { seq, .. } => *seq,
         }
     }
 
@@ -308,6 +322,9 @@ impl SessionRecord {
             SessionRecord::ShellExec { command, process_status, elapsed_ms, .. } => {
                 Some(Entry::Status { text: format!("shell {process_status}: {command} ({elapsed_ms}ms)") })
             }
+            SessionRecord::SkillActivated { name, path, .. } => {
+                Some(Entry::Status { text: format!("skill activated: {name} ({path})") })
+            }
             _ => None,
         }
     }
@@ -342,6 +359,8 @@ pub struct PromptMetadata {
     pub context_sources: Vec<ContextSourceMeta>,
     /// Number of tools in the catalog sent this turn.
     pub tool_catalog_size: usize,
+    /// Number of available Agent Skills exposed as metadata this turn.
+    pub skill_catalog_size: usize,
     /// Whether history reuse was active for this turn.
     pub history_reuse: bool,
     /// Content hash of the root AGENTS.md from the previous turn, if any.
@@ -370,6 +389,26 @@ pub struct ContextSourceMeta {
     pub byte_count: usize,
 }
 
+/// Persisted metadata for a loaded skill reference.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SkillReferenceRecord {
+    pub path: String,
+    pub content_hash: u64,
+    pub byte_count: usize,
+    pub truncated: bool,
+}
+
+impl From<&SkillReferenceMeta> for SkillReferenceRecord {
+    fn from(reference: &SkillReferenceMeta) -> Self {
+        SkillReferenceRecord {
+            path: reference.path.display().to_string(),
+            content_hash: reference.content_hash,
+            byte_count: reference.byte_count,
+            truncated: reference.truncated,
+        }
+    }
+}
+
 impl PromptMetadata {
     /// Extract prompt metadata from a [`PromptBundle`] for session storage.
     ///
@@ -390,6 +429,7 @@ impl PromptMetadata {
                 .map(ContextSourceMeta::from_source)
                 .collect(),
             tool_catalog_size: bundle.tool_catalog.len(),
+            skill_catalog_size: bundle.available_skills.len(),
             history_reuse: bundle.history_reuse == HistoryReuse::Available,
             prev_context_hash: bundle.prev_context_hash,
             transcript_tail_size: bundle.transcript_tail.len(),
@@ -612,6 +652,30 @@ impl SessionWriter {
         Ok(())
     }
 
+    /// Append a skill activation metadata record.
+    pub fn append_skill_activation(&mut self, activation: &SkillActivation) -> std::io::Result<()> {
+        let record = SessionRecord::SkillActivated {
+            schema_version: SCHEMA_VERSION,
+            seq: self.seq,
+            time: datetime::now_iso8601(),
+            name: activation.name.clone(),
+            path: activation.path.display().to_string(),
+            content_hash: activation.content_hash,
+            byte_count: activation.byte_count,
+            loaded_references: activation
+                .loaded_references
+                .iter()
+                .map(SkillReferenceRecord::from)
+                .collect(),
+        };
+        self.seq += 1;
+        let line = record.to_json().map_err(io_err)?;
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new().append(true).open(&self.path)?;
+        writeln!(file, "{line}")?;
+        Ok(())
+    }
+
     /// The session file path.
     pub fn path(&self) -> &Path {
         &self.path
@@ -638,7 +702,8 @@ fn set_seq(record: &mut SessionRecord, seq: u64) {
         | SessionRecord::Failed { seq: s, .. }
         | SessionRecord::SessionRenamed { seq: s, .. }
         | SessionRecord::FileWrite { seq: s, .. }
-        | SessionRecord::ShellExec { seq: s, .. } => *s = seq,
+        | SessionRecord::ShellExec { seq: s, .. }
+        | SessionRecord::SkillActivated { seq: s, .. } => *s = seq,
     }
 }
 

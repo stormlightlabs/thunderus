@@ -1,7 +1,26 @@
 use crate::tools::MAX_LINE_LEN;
 
+use std::path::PathBuf;
+
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
+
+/// Return the current user's home directory from common platform env vars.
+pub fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("USERPROFILE").map(PathBuf::from))
+}
+
+/// Escape text for XML element content.
+pub fn escape_xml(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
 
 /// Truncate a string to [`MAX_LINE_LEN`] chars, adding `...` if truncated.
 pub fn truncate_line(s: &str) -> String {
@@ -82,6 +101,7 @@ fn take_display_width_from_end(text: &str, max_width: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn truncate_line_short_unchanged() {
         assert_eq!(truncate_line("hello"), "hello");

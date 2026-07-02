@@ -1,7 +1,9 @@
+use std::time::Duration;
+
 use super::*;
 use crate::cli::WebSearchMode;
 use crate::prompt::PromptBundle;
-use std::time::Duration;
+use crate::skills::SkillActivation;
 
 fn bundle_with_context() -> PromptBundle {
     let source = ContextSource {
@@ -1448,4 +1450,28 @@ fn shell_exec_failed_record_maps_to_status_entry_on_resume() {
         }
         _ => panic!("expected Status entry for failed shell_exec, got {entry:?}"),
     }
+}
+
+#[test]
+fn append_skill_activation_persists_metadata() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let mut writer = test_writer(dir.path(), "skill-activation");
+    let activation = SkillActivation {
+        name: "example-skill".to_string(),
+        path: PathBuf::from("/repo/.thndrs/skills/example-skill/SKILL.md"),
+        content_hash: 4242,
+        byte_count: 128,
+        loaded_references: Vec::new(),
+    };
+
+    writer
+        .append_skill_activation(&activation)
+        .expect("append skill activation");
+
+    let records = SessionReader::read_records(writer.path());
+    assert!(records.iter().any(|record| matches!(
+        record,
+        SessionRecord::SkillActivated { name, content_hash: 4242, byte_count: 128, .. }
+            if name == "example-skill"
+    )));
 }
