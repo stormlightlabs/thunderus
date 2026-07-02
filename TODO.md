@@ -66,6 +66,7 @@ See:
 - [v0 / Alpha Renderer Spec](docs/internal/specs/v0.md)
 - [v1 Spec](docs/internal/specs/v1.md)
 - [Prompt Editing Libraries and Renderer Ownership](docs/internal/notes/prompt-renderer-research.md)
+- [Text Input Library Lessons](docs/internal/notes/text-input-libraries.md)
 
 ## v1 Backlog
 
@@ -120,6 +121,18 @@ See:
 - [ ] Expose a compact model-visible map of local docs and runtime state.
 - [ ] Add self-knowledge snapshots for prompt fragments, tools, skills,
       renderer mode, provider/model, search mode, and diagnostics.
+
+### Prompt Input Correctness
+
+- [ ] Add `unicode-segmentation` for grapheme and Unicode word boundaries.
+- [ ] Keep `unicode-width` as the source of truth for terminal cell
+      measurement.
+- [ ] Make left/right, backspace/delete, transpose, and cursor placement respect
+      grapheme clusters.
+- [ ] Evaluate Unicode word boundaries for `alt/ctrl` word movement instead of
+      whitespace-only scanning.
+- [ ] Add prompt tests for combining marks, emoji sequences, CJK, zero-width
+      characters, wide characters, explicit newlines, and wrapped rows.
 
 ## Parking Lot
 
