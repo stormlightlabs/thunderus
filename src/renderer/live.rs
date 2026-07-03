@@ -132,7 +132,7 @@ pub fn accessory_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
 
     match app.prompt_accessory {
         PromptAccessory::None => Vec::new(),
-        PromptAccessory::Help => help_rows(width, max_height),
+        PromptAccessory::Help => help_rows(app, width, max_height),
         PromptAccessory::Commands { selected } => command_rows(app, selected, width, max_height),
         PromptAccessory::Files(_) => picker_rows(app, "files", width, max_height),
         PromptAccessory::Models => picker_rows(app, "models", width, max_height),
@@ -555,13 +555,18 @@ fn build_fuzzy_highlight_spans(
     spans
 }
 
-fn help_rows(width: usize, max_height: usize) -> Vec<Row> {
+fn help_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
     let p = super::style::palette();
     let bg = p.surface0;
     let label_style = CellStyle::new().fg(p.accent).bg(bg).bold();
     let desc_style = CellStyle::new().fg(p.subtext0).bg(bg);
     let section_style = CellStyle::new().fg(p.overlay1).bg(bg).bold();
 
+    let ctrl_t_desc = if matches!(app.run_state, RunState::Working) {
+        "toggle queue target"
+    } else {
+        "transpose characters"
+    };
     let entries: &[(&str, &str)] = &[
         ("── Navigation ──", ""),
         ("Up/Down", "move cursor or recall history"),
@@ -575,7 +580,7 @@ fn help_rows(width: usize, max_height: usize) -> Vec<Row> {
         ("Ctrl+K", "delete to end of line"),
         ("Ctrl+U", "delete to start of line"),
         ("Ctrl+Y", "yank (paste) last kill"),
-        ("Ctrl+T", "transpose characters"),
+        ("Ctrl+T", ctrl_t_desc),
         ("Alt+B/F", "move word left/right"),
         ("Alt+D", "delete next word"),
         ("Alt+Bksp", "delete previous word"),
@@ -928,6 +933,20 @@ mod tests {
         let rows = accessory_rows(&app, 80, 16);
         let frame = crate::renderer::row::Frame { rows, width: 80, cursor: None, cursor_visible: true };
         insta::assert_snapshot!("help_rows", frame.render_styled());
+    }
+
+    #[test]
+    fn help_rows_show_running_ctrl_t_binding() {
+        let mut app = test_app();
+        app.run_state = RunState::Working;
+        app.prompt_accessory = PromptAccessory::Help;
+        let rows = accessory_rows(&app, 80, 16);
+        let text = rows.iter().map(Row::text).collect::<Vec<_>>().join("\n");
+
+        assert!(
+            text.contains("Ctrl+T          toggle queue target"),
+            "running help should describe queue-target toggle: {text}"
+        );
     }
 
     #[test]

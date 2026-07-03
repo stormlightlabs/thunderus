@@ -1905,16 +1905,25 @@ fn multiline_input_while_working() {
 }
 
 #[test]
-fn slash_clear_while_working_executes_immediately() {
+fn slash_clear_while_working_is_rejected() {
     let mut app = working_app_with_streaming();
+    app.transcript.push(Entry::User { text: "keep me".to_string() });
     app.input = PromptInput::from("/clear");
 
     let result = update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-    assert_eq!(
-        result,
-        Some(Msg::Clear),
-        "/clear should execute immediately while working"
+    assert_eq!(result, None, "/clear should not execute while working");
+    assert!(
+        app.transcript
+            .iter()
+            .any(|e| matches!(e, Entry::User { text } if text == "keep me")),
+        "transcript should not be cleared while an agent can still emit events"
+    );
+    assert!(
+        app.transcript
+            .iter()
+            .any(|e| matches!(e, Entry::Status { text } if text.contains("not available"))),
+        "/clear should be rejected with a status message"
     );
     assert!(app.input.is_empty(), "input should be cleared after /clear");
 }
@@ -1994,6 +2003,21 @@ fn slash_unknown_while_working_is_rejected() {
 }
 
 #[test]
+fn double_slash_while_working_queues_literal_slash_followup() {
+    let mut app = working_app_with_streaming();
+    app.input = PromptInput::from("//clear after this run");
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(
+        app.queued_followups,
+        vec!["/clear after this run".to_string()],
+        "double slash should escape a literal slash-prefixed follow-up"
+    );
+    assert!(app.input.is_empty(), "input should be cleared after queueing");
+}
+
+#[test]
 fn queued_input_persisted_to_session_writer() {
     let dir = tempfile::tempdir().expect("create temp dir");
     let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
@@ -2022,5 +2046,32 @@ fn queued_input_persisted_to_session_writer() {
     assert!(
         content.contains("follow-up"),
         "session file should contain the kind field: {content}"
+    );
+}
+
+#[test]
+fn queued_input_append_failure_is_visible() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
+    let mut app = App::from_cli(&cli);
+    let session_path = app
+        .session_writer
+        .as_ref()
+        .expect("session writer should exist")
+        .path()
+        .to_path_buf();
+    std::fs::remove_file(&session_path).expect("remove session file to force append failure");
+    app.run_state = RunState::Working;
+    app.queue_target = QueueTarget::FollowUp;
+    app.input = PromptInput::from("cannot audit this");
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(app.queued_followups, vec!["cannot audit this".to_string()]);
+    assert!(
+        app.transcript
+            .iter()
+            .any(|e| matches!(e, Entry::Error { text } if text.contains("failed to record queued follow-up"))),
+        "append failure should be surfaced in the transcript"
     );
 }

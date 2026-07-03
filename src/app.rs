@@ -1520,6 +1520,10 @@ fn handle_submit(app: &mut App) -> Option<Msg> {
             app.input.clear();
             return None;
         }
+        if let Some(literal) = text.strip_prefix("//") {
+            queue_running_input(app, &format!("/{literal}"));
+            return None;
+        }
         if let Some(command) = text.strip_prefix('/') {
             app.input.clear();
             return handle_running_command(app, command);
@@ -1548,23 +1552,25 @@ fn handle_submit(app: &mut App) -> Option<Msg> {
 fn queue_running_input(app: &mut App, text: &str) {
     app.input.clear();
     remember_input(app, text);
-    match app.queue_target {
+    let (kind, count) = match app.queue_target {
         QueueTarget::Steering => {
             app.queued_steering.push(text.to_string());
-            if let Some(ref mut writer) = app.session_writer {
-                let _ = writer.append_queued("steering", text);
-            }
-            app.transcript
-                .push(Entry::Status { text: format!("queued steering ({})", app.queued_steering.len()) });
+            ("steering", app.queued_steering.len())
         }
         QueueTarget::FollowUp => {
             app.queued_followups.push(text.to_string());
-            if let Some(ref mut writer) = app.session_writer {
-                let _ = writer.append_queued("follow-up", text);
-            }
-            app.transcript
-                .push(Entry::Status { text: format!("queued follow-up ({})", app.queued_followups.len()) });
+            ("follow-up", app.queued_followups.len())
         }
+    };
+    let audit_error = app
+        .session_writer
+        .as_mut()
+        .and_then(|writer| writer.append_queued(kind, text).err());
+    app.transcript
+        .push(Entry::Status { text: format!("queued {kind} ({count})") });
+    if let Some(err) = audit_error {
+        app.transcript
+            .push(Entry::Error { text: format!("failed to record queued {kind} in session audit log: {err}") });
     }
 }
 
@@ -1620,18 +1626,16 @@ fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
 
 /// Handle a slash command submitted while the agent is working.
 ///
-/// Safe commands (`clear`, `quit`, `exit`, `help`, `bg`) execute immediately.
-/// Unsafe commands that require an idle prompt (`model`, `skills`) are rejected
-/// with a status message instead of being queued as literal text.
+/// Safe commands (`quit`, `exit`, `help`, `bg`) execute immediately. Commands
+/// that mutate idle-only UI state are rejected instead of being queued as text.
+/// Prefix with `//` to queue a literal slash-prefixed follow-up.
 fn handle_running_command(app: &mut App, command: &str) -> Option<Msg> {
-    let is_safe = matches!(command, "clear" | "quit" | "exit" | "help" | "bg");
+    let is_safe = matches!(command, "quit" | "exit" | "help" | "bg");
     if is_safe {
         return handle_command(app, command);
     }
     app.transcript.push(Entry::Status {
-        text: format!(
-            "/{command} is not available while the agent is working — queue it as text or wait for the run to finish"
-        ),
+        text: format!("/{command} is not available while the agent is working; use //{command} to queue it as text"),
     });
     None
 }

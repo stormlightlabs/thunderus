@@ -675,6 +675,30 @@ mod tests {
     }
 
     #[test]
+    fn flush_steering_sends_queued_messages_to_active_agent() {
+        let cli = Cli::default();
+        let mut app = App::from_cli(&cli);
+        app.session_writer = None;
+        app.run_state = RunState::Working;
+        app.queued_steering.push("use the failing test first".to_string());
+        let (event_tx, event_rx) = mpsc::channel();
+        drop(event_tx);
+        let (steering_tx, steering_rx) = mpsc::channel();
+        let slot = AgentSlot { receiver: event_rx, cancel: agent::CancelToken::new(), steering: steering_tx };
+
+        flush_steering(&mut app, &Some(slot));
+
+        assert!(
+            app.queued_steering.is_empty(),
+            "sent steering should leave the app queue"
+        );
+        assert_eq!(
+            steering_rx.try_recv().expect("active run should receive steering"),
+            "use the failing test first"
+        );
+    }
+
+    #[test]
     fn direct_render_does_not_emit_redundant_hide_cursor() {
         let cli = Cli::default();
         let mut app = App::from_cli(&cli);

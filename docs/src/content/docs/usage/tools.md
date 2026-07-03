@@ -60,6 +60,18 @@ tool.
 While the agent is running, typed input can be queued instead of ignored.
 `Ctrl+T` toggles the target between steering and follow-up. Steering is sent
 before the next model request in the active run. Follow-up is submitted as a
-new user turn after the active run finishes. `Esc` cancels the active run and
-clears pending steering for that run; queued follow-ups remain until submitted
-or cleared with `/clear`.
+new user turn after the active run finishes.
+
+Queued input is written to the session log as audit metadata, but resume does
+not rebuild pending queues after a crash. If that audit append fails, the TUI
+keeps the in-memory queue and shows an error in the transcript.
+
+Slash commands are restricted while a run is active. `/help`, `/bg`, `/quit`,
+and `/exit` can run immediately; commands that mutate idle-only UI state, such
+as `/clear`, `/model`, and `/skills`, are rejected until the run finishes. To
+queue a follow-up that intentionally starts with `/`, prefix it with `//`; for
+example `//clear after this run` queues `/clear after this run` as text.
+
+`Esc` cancels the active run and clears pending steering for that run. Queued
+follow-ups remain until they are submitted after the active run, cancelled by
+quitting the app, or cleared later with `/clear` while idle.

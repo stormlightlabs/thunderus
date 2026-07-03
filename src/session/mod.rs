@@ -214,7 +214,7 @@ pub enum SessionRecord {
         byte_count: usize,
         loaded_references: Vec<SkillReferenceRecord>,
     },
-    /// Queued input persisted before replay so it survives crashes.
+    /// Queued input recorded for audit. Resume does not rebuild pending queues.
     #[serde(rename = "queued_input")]
     QueuedInput {
         schema_version: u32,
@@ -728,7 +728,7 @@ impl SessionWriter {
         Ok(())
     }
 
-    /// Append a queued input record so it survives crashes before replay.
+    /// Append a queued input audit record.
     pub fn append_queued(&mut self, kind: &str, text: &str) -> std::io::Result<()> {
         let record = SessionRecord::QueuedInput {
             schema_version: SCHEMA_VERSION,

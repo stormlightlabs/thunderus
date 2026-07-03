@@ -25,7 +25,10 @@ as the file picker.
 The prompt area has a top divider and an explicit state marker. Submitted,
 streaming, stopped, and errored states use compact icons. The dynamic line above
 the input shows the session and current run status, including queued steering
-and follow-up prompts.
+and follow-up prompts. While the agent is running, `Ctrl+T` changes whether
+`Enter` sends the current input as steering for the active run or queues it as a
+follow-up turn. Help rows show that running-specific binding instead of the idle
+`Ctrl+T` transpose binding.
 
 ## Status Line
 
