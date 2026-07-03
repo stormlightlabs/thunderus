@@ -40,7 +40,7 @@ export default defineConfig({
         {
           label: "Getting Started",
           items: [
-            { label: "Introduction", slug: "introduction" },
+            { label: "Introduction", slug: "index" },
             { label: "Installation", slug: "getting-started/installation" },
             { label: "Quick Start", slug: "getting-started/quick-start" },
             { label: "Manual", slug: "getting-started/cli-usage" },
@@ -86,13 +86,11 @@ export default defineConfig({
           items: [
             { label: "Umans", slug: "providers/umans" },
             { label: "OpenCode Go", slug: "providers/opencode-go" },
-            { label: "Search and Extraction", slug: "providers/search-and-extraction" },
           ],
         },
         /* Reference: exact contracts, schemas, commands, and configuration surfaces. */
         {
           label: "Reference",
-          collapsed: true,
           items: [
             { label: "CLI Reference", slug: "reference/cli" },
             { label: "Configuration", slug: "reference/configuration" },

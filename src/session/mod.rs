@@ -26,6 +26,7 @@
 //! - `cancelled`: turn id and reason.
 //! - `failed`: turn id and error message.
 //! - `session_renamed`: new title (latest wins).
+//! - `skill_activated`: activated skill file and rendered activation metadata.
 
 #[cfg(test)]
 mod tests;
@@ -210,8 +211,16 @@ pub enum SessionRecord {
         time: String,
         name: String,
         path: String,
+        /// Hash of the raw `SKILL.md` file at `path`.
         content_hash: u64,
+        /// Byte count of the raw `SKILL.md` file at `path`.
         byte_count: usize,
+        /// Hash of the model-visible activation text after references are appended.
+        #[serde(default)]
+        rendered_content_hash: u64,
+        /// Byte count of the model-visible activation text after references are appended.
+        #[serde(default)]
+        rendered_byte_count: usize,
         loaded_references: Vec<SkillReferenceRecord>,
     },
     /// Queued input recorded for audit. Resume does not rebuild pending queues.
@@ -264,24 +273,23 @@ impl SessionRecord {
     /// reasoning still streaming, tools still running) are skipped because
     /// they represent incomplete live state.
     pub fn from_entry(entry: &Entry, seq: u64, time: &str, turn_id: &str) -> Option<SessionRecord> {
-        let sv = SCHEMA_VERSION;
         match entry {
             Entry::User { text } => Some(SessionRecord::User {
-                schema_version: sv,
+                schema_version: SCHEMA_VERSION,
                 seq,
                 time: time.to_string(),
                 turn_id: turn_id.to_string(),
                 text: text.clone(),
             }),
             Entry::Agent { text, streaming: false } => Some(SessionRecord::AssistantFinished {
-                schema_version: sv,
+                schema_version: SCHEMA_VERSION,
                 seq,
                 time: time.to_string(),
                 turn_id: turn_id.to_string(),
                 text: text.clone(),
             }),
             Entry::Reasoning { text, streaming: false } => Some(SessionRecord::ReasoningFinished {
-                schema_version: sv,
+                schema_version: SCHEMA_VERSION,
                 seq,
                 time: time.to_string(),
                 turn_id: turn_id.to_string(),
@@ -290,7 +298,7 @@ impl SessionRecord {
             Entry::Tool { name, arguments, status, output } if *status != ToolStatus::Running => {
                 let (tool_name, call_id) = split_tool_name_id(name);
                 Some(SessionRecord::ToolFinished {
-                    schema_version: sv,
+                    schema_version: SCHEMA_VERSION,
                     seq,
                     time: time.to_string(),
                     turn_id: turn_id.to_string(),
@@ -338,16 +346,6 @@ impl SessionRecord {
             }
             _ => None,
         }
-    }
-}
-
-/// Split a tool entry name like `"search_text#0"` into `("search_text", "0")`.
-///
-/// If there is no `#`, the whole string is the name and the id defaults to `"?"`.
-fn split_tool_name_id(name: &str) -> (String, String) {
-    match name.rsplit_once('#') {
-        Some((n, id)) => (n.to_string(), id.to_string()),
-        None => (name.to_string(), "?".to_string()),
     }
 }
 
@@ -401,44 +399,6 @@ pub struct PromptMetadata {
     pub transcript_tail_size: usize,
     /// Whether the user turn was non-empty.
     pub has_user_turn: bool,
-}
-
-/// Metadata for a loaded context source, without the content itself.
-///
-/// Records the path, scope, content hash, and truncation state so the
-/// session can audit which AGENTS.md was loaded and whether it was capped.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct ContextSourceMeta {
-    /// Absolute path to the source file.
-    pub path: String,
-    /// Scope label — `"."` for root, or a relative subtree path.
-    pub scope: String,
-    /// Stable hash of the full original content (before truncation).
-    pub content_hash: u64,
-    /// Whether the content was truncated to fit the size cap.
-    pub truncated: bool,
-    /// Original byte count of the file (before truncation).
-    pub byte_count: usize,
-}
-
-/// Persisted metadata for a loaded skill reference.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct SkillReferenceRecord {
-    pub path: String,
-    pub content_hash: u64,
-    pub byte_count: usize,
-    pub truncated: bool,
-}
-
-impl From<&SkillReferenceMeta> for SkillReferenceRecord {
-    fn from(reference: &SkillReferenceMeta) -> Self {
-        SkillReferenceRecord {
-            path: reference.path.display().to_string(),
-            content_hash: reference.content_hash,
-            byte_count: reference.byte_count,
-            truncated: reference.truncated,
-        }
-    }
 }
 
 impl PromptMetadata {
@@ -500,15 +460,59 @@ impl PromptMetadata {
     }
 }
 
-impl ContextSourceMeta {
-    /// Extract metadata from a [`ContextSource`], omitting the content.
-    pub fn from_source(source: &ContextSource) -> Self {
+/// Metadata for a loaded context source, without the content itself.
+///
+/// Records the path, scope, content hash, and truncation state so the
+/// session can audit which AGENTS.md was loaded and whether it was capped.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ContextSourceMeta {
+    /// Absolute path to the source file.
+    pub path: String,
+    /// Scope label — `"."` for root, or a relative subtree path.
+    pub scope: String,
+    /// Stable hash of the full original content (before truncation).
+    pub content_hash: u64,
+    /// Whether the content was truncated to fit the size cap.
+    pub truncated: bool,
+    /// Original byte count of the file (before truncation).
+    pub byte_count: usize,
+}
+
+impl From<&ContextSource> for ContextSourceMeta {
+    fn from(source: &ContextSource) -> Self {
         ContextSourceMeta {
             path: source.path.display().to_string(),
             scope: source.scope.clone(),
             content_hash: source.content_hash,
             truncated: source.truncated,
             byte_count: source.byte_count,
+        }
+    }
+}
+
+impl ContextSourceMeta {
+    /// Extract metadata from a [`ContextSource`], omitting the content.
+    pub fn from_source(source: &ContextSource) -> Self {
+        Self::from(source)
+    }
+}
+
+/// Persisted metadata for a loaded skill reference.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SkillReferenceRecord {
+    pub path: String,
+    pub content_hash: u64,
+    pub byte_count: usize,
+    pub truncated: bool,
+}
+
+impl From<&SkillReferenceMeta> for SkillReferenceRecord {
+    fn from(reference: &SkillReferenceMeta) -> Self {
+        SkillReferenceRecord {
+            path: reference.path.display().to_string(),
+            content_hash: reference.content_hash,
+            byte_count: reference.byte_count,
+            truncated: reference.truncated,
         }
     }
 }
@@ -714,6 +718,8 @@ impl SessionWriter {
             path: activation.path.display().to_string(),
             content_hash: activation.content_hash,
             byte_count: activation.byte_count,
+            rendered_content_hash: activation.rendered_content_hash,
+            rendered_byte_count: activation.rendered_byte_count,
             loaded_references: activation
                 .loaded_references
                 .iter()
@@ -753,27 +759,6 @@ impl SessionWriter {
     /// The session id.
     pub fn session_id(&self) -> &str {
         &self.session_id
-    }
-}
-
-/// Set the seq field on a record (used by `SessionWriter::append`).
-fn set_seq(record: &mut SessionRecord, seq: u64) {
-    match record {
-        SessionRecord::SessionMeta { seq: s, .. }
-        | SessionRecord::Context { seq: s, .. }
-        | SessionRecord::User { seq: s, .. }
-        | SessionRecord::AssistantFinished { seq: s, .. }
-        | SessionRecord::ReasoningFinished { seq: s, .. }
-        | SessionRecord::Usage { seq: s, .. }
-        | SessionRecord::ToolStarted { seq: s, .. }
-        | SessionRecord::ToolFinished { seq: s, .. }
-        | SessionRecord::Cancelled { seq: s, .. }
-        | SessionRecord::Failed { seq: s, .. }
-        | SessionRecord::SessionRenamed { seq: s, .. }
-        | SessionRecord::FileWrite { seq: s, .. }
-        | SessionRecord::ShellExec { seq: s, .. }
-        | SessionRecord::SkillActivated { seq: s, .. }
-        | SessionRecord::QueuedInput { seq: s, .. } => *s = seq,
     }
 }
 
@@ -951,4 +936,35 @@ pub fn generate_session_id() -> String {
 /// Convert a serde_json error into an io::Error.
 fn io_err(e: serde_json::Error) -> std::io::Error {
     std::io::Error::new(std::io::ErrorKind::InvalidData, e)
+}
+
+/// Split a tool entry name like `"search_text#0"` into `("search_text", "0")`.
+///
+/// If there is no `#`, the whole string is the name and the id defaults to `"?"`.
+fn split_tool_name_id(name: &str) -> (String, String) {
+    match name.rsplit_once('#') {
+        Some((n, id)) => (n.to_string(), id.to_string()),
+        None => (name.to_string(), "?".to_string()),
+    }
+}
+
+/// Set the seq field on a record (used by `SessionWriter::append`).
+fn set_seq(record: &mut SessionRecord, seq: u64) {
+    match record {
+        SessionRecord::SessionMeta { seq: s, .. }
+        | SessionRecord::Context { seq: s, .. }
+        | SessionRecord::User { seq: s, .. }
+        | SessionRecord::AssistantFinished { seq: s, .. }
+        | SessionRecord::ReasoningFinished { seq: s, .. }
+        | SessionRecord::Usage { seq: s, .. }
+        | SessionRecord::ToolStarted { seq: s, .. }
+        | SessionRecord::ToolFinished { seq: s, .. }
+        | SessionRecord::Cancelled { seq: s, .. }
+        | SessionRecord::Failed { seq: s, .. }
+        | SessionRecord::SessionRenamed { seq: s, .. }
+        | SessionRecord::FileWrite { seq: s, .. }
+        | SessionRecord::ShellExec { seq: s, .. }
+        | SessionRecord::SkillActivated { seq: s, .. }
+        | SessionRecord::QueuedInput { seq: s, .. } => *s = seq,
+    }
 }

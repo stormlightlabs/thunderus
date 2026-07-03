@@ -1440,6 +1440,9 @@ fn accept_skill_suggestion(app: &mut App) {
 
     match skills::load_skill(&skill) {
         Ok(loaded) => {
+            for diagnostic in &loaded.diagnostics {
+                app.transcript.push(Entry::Error { text: diagnostic.summary() });
+            }
             let text = format!(
                 "# Skill: {}\n\n_Source: {}_\n\n{}",
                 loaded.activation.name,

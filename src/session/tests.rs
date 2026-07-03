@@ -1472,6 +1472,8 @@ fn append_skill_activation_persists_metadata() {
         path: PathBuf::from("/repo/.thndrs/skills/example-skill/SKILL.md"),
         content_hash: 4242,
         byte_count: 128,
+        rendered_content_hash: 9999,
+        rendered_byte_count: 256,
         loaded_references: Vec::new(),
     };
 
@@ -1482,7 +1484,32 @@ fn append_skill_activation_persists_metadata() {
     let records = SessionReader::read_records(writer.path());
     assert!(records.iter().any(|record| matches!(
         record,
-        SessionRecord::SkillActivated { name, content_hash: 4242, byte_count: 128, .. }
+        SessionRecord::SkillActivated {
+            name,
+            content_hash: 4242,
+            byte_count: 128,
+            rendered_content_hash: 9999,
+            rendered_byte_count: 256,
+            ..
+        }
             if name == "example-skill"
     )));
+}
+
+#[test]
+fn skill_activation_record_defaults_rendered_metadata_for_old_sessions() {
+    let json = r#"{"type":"skill_activated","schema_version":1,"seq":1,"time":"2026-07-03T00:00:00Z","name":"example-skill","path":"/repo/.thndrs/skills/example-skill/SKILL.md","content_hash":4242,"byte_count":128,"loaded_references":[]}"#;
+
+    let restored = SessionRecord::from_json(json).expect("deserialize old skill activation");
+
+    assert!(matches!(
+        restored,
+        SessionRecord::SkillActivated {
+            content_hash: 4242,
+            byte_count: 128,
+            rendered_content_hash: 0,
+            rendered_byte_count: 0,
+            ..
+        }
+    ));
 }

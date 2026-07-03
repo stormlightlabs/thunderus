@@ -18,10 +18,7 @@ const DOCUMENTATION_MAP: &[DocumentationEntry] = &[
     DocumentationEntry { topic: "sessions", path: "docs/src/content/docs/reference/session-format.md" },
     DocumentationEntry { topic: "tool boundary", path: "docs/src/content/docs/concepts/tool-boundary.md" },
     DocumentationEntry { topic: "tools", path: "docs/src/content/docs/reference/tools.md" },
-    DocumentationEntry {
-        topic: "web search and URL reading",
-        path: "docs/src/content/docs/providers/search-and-extraction.md",
-    },
+    DocumentationEntry { topic: "web search and URL reading", path: "docs/src/content/docs/usage/web-search.md" },
     DocumentationEntry { topic: "prompt assembly", path: "docs/src/content/docs/concepts/prompt-assembly.md" },
     DocumentationEntry { topic: "project context", path: "docs/src/content/docs/usage/project-context.md" },
     DocumentationEntry { topic: "skills", path: "docs/src/content/docs/usage/skills.md" },
@@ -423,6 +420,7 @@ mod tests {
             license: None,
             compatibility: None,
             metadata: None,
+            references: Vec::new(),
         }
     }
 

@@ -127,20 +127,6 @@ See:
 - [ ] Unit-test no-server fallback behavior.
 - [ ] Add snapshots for LSP transcript entries.
 
-### Skill Engine And Self-Knowledge
-
-- [ ] Accept optional `references` in skill YAML frontmatter while keeping
-      `deny_unknown_fields` for unsupported keys.
-- [ ] Parse `references` as a list of relative paths, normalize it into
-      `SkillMetadata`, and reject empty, absolute, parent-traversing, or
-      non-string entries with clear skill diagnostics.
-- [ ] Use frontmatter `references` as the default path list for `load_skill`,
-      preserving the existing depth, byte, file, and cycle limits in
-      `load_references`.
-- [ ] Add discovery and activation tests covering a skill like
-      `~/.pi/agent/skills/cloudflare/SKILL.md` with
-      `references: [workers, pages, d1]`, plus invalid reference-path cases.
-
 ## Parking Lot
 
 - [ ] Tool call failures should have debuggable logs and more information about

@@ -12,13 +12,27 @@ A skill is a directory with a required `SKILL.md` file. `thndrs` discovers
 skills from configured skill directories and project-local skill locations when
 they are available.
 
+Built-in discovery checks these project directories:
+
+- `.thndrs/skills`
+- `.agents/skills`
+- `.claude/skills`
+- `.codex/skills`
+- `.pi/skills`
+- `.pi/agent/skills`
+
+It also checks the same names under the user's home directory. `.agents/skills`
+matches the Agent Skills convention; `.claude`, `.codex`, and `.pi` are
+compatibility locations for existing local skill packages.
+
 At discovery time, only compact metadata is used:
 
 - name;
 - description;
 - source label;
 - path;
-- optional license, compatibility, metadata, and allowed-tools fields;
+- optional license, compatibility, metadata, allowed-tools, and references
+  fields;
 - discovery diagnostics for malformed skill files.
 
 The full `SKILL.md` body and any referenced files are not part of the startup
@@ -48,6 +62,7 @@ Optional frontmatter fields are preserved as metadata when present:
 - `compatibility`
 - `metadata`
 - `allowed-tools`
+- `references`
 
 Good skills keep the main instruction file short. Conditional detail belongs in
 focused reference files under the skill directory, and reusable material belongs
@@ -62,7 +77,10 @@ Skill instructions are loaded progressively. Startup discovery reads only
 metadata. The full `SKILL.md` body is loaded only when the skill is activated
 for the current task.
 
-Reference files are loaded on demand from paths relative to the skill root.
+Reference files are loaded on demand from paths relative to the skill root. A
+skill can declare default activation references in frontmatter, for example
+`references: [workers, pages, d1]`. Reference paths must be non-empty relative
+paths that stay inside the skill directory.
 Reference traversal is bounded by depth, total bytes, per-file bytes, file
 count, and cycle detection. When traversal stops early, `thndrs` surfaces a
 diagnostic instead of silently expanding more context.

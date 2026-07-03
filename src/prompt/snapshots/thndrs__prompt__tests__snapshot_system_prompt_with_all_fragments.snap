@@ -223,7 +223,7 @@ expression: prompt
     </doc>
     <doc>
       <topic>web search and URL reading</topic>
-      <path>docs/src/content/docs/providers/search-and-extraction.md</path>
+      <path>docs/src/content/docs/usage/web-search.md</path>
     </doc>
     <doc>
       <topic>prompt assembly</topic>

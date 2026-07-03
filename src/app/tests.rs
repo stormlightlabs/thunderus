@@ -39,6 +39,7 @@ fn test_skill(path: std::path::PathBuf, markdown: &str) -> SkillMetadata {
         license: None,
         compatibility: None,
         metadata: None,
+        references: Vec::new(),
     }
 }
 
@@ -1778,6 +1779,30 @@ fn skills_command_opens_picker_and_renders_selected_skill_markdown() {
         entry,
         Entry::Agent { text, streaming: false }
             if text.contains("# Skill: example-skill") && text.contains("# Example Skill")
+    )));
+}
+
+#[test]
+fn skills_command_surfaces_activation_reference_diagnostics() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let markdown = "---\nname: example-skill\ndescription: Helps test.\n---\n# Example Skill\n";
+    let mut skill = test_skill(dir.path().join("example-skill").join("SKILL.md"), markdown);
+    skill.references = vec![PathBuf::from("missing.md")];
+
+    let mut app = fresh_app();
+    app.skills = vec![skill];
+    app.input = PromptInput::from("/skills");
+
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+
+    assert!(app.transcript.iter().any(|entry| matches!(
+        entry,
+        Entry::Error { text } if text.contains("missing.md") && text.contains("does not exist")
+    )));
+    assert!(app.transcript.iter().any(|entry| matches!(
+        entry,
+        Entry::Agent { text, streaming: false } if text.contains("# Example Skill")
     )));
 }
 
