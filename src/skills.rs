@@ -5,7 +5,7 @@
 //! loading full instructions. Full Markdown is read only when a skill is
 //! explicitly opened from the UI or a later tool reads the file.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -567,6 +567,7 @@ fn discover_from_roots(roots: Vec<SkillRoot>) -> SkillInventory {
     let mut skills = Vec::new();
     let mut diagnostics = Vec::new();
     let mut seen_names: HashMap<String, PathBuf> = HashMap::new();
+    let mut duplicate_names: BTreeMap<String, usize> = BTreeMap::new();
 
     for root in roots {
         if !root.path.is_dir() {
@@ -577,22 +578,78 @@ fn discover_from_roots(roots: Vec<SkillRoot>) -> SkillInventory {
 
     let mut deduped = Vec::new();
     for skill in skills {
-        if let Some(existing) = seen_names.get(&skill.name) {
-            diagnostics.push(SkillDiagnostic::new(
-                &skill.path,
-                format!(
-                    "name {:?} already loaded from {}; ignoring duplicate",
-                    skill.name,
-                    existing.display()
-                ),
-            ));
+        if seen_names.contains_key(&skill.name) {
+            *duplicate_names.entry(skill.name).or_default() += 1;
             continue;
         }
         seen_names.insert(skill.name.clone(), skill.path.clone());
         deduped.push(skill);
     }
+    if !duplicate_names.is_empty() {
+        diagnostics.push(duplicate_skill_diagnostic(&duplicate_names));
+    }
 
-    SkillInventory { skills: deduped, diagnostics }
+    SkillInventory { skills: deduped, diagnostics: collapse_redundant_diagnostics(diagnostics) }
+}
+
+fn duplicate_skill_diagnostic(duplicate_names: &BTreeMap<String, usize>) -> SkillDiagnostic {
+    let duplicate_installs = duplicate_names.values().sum::<usize>();
+    let total_names = duplicate_names.len();
+    let mut names = duplicate_names.keys().take(8).cloned().collect::<Vec<_>>();
+    if duplicate_names.len() > names.len() {
+        names.push(format!("and {} more", duplicate_names.len() - names.len()));
+    }
+    SkillDiagnostic::new(
+        "skills",
+        format!(
+            "{duplicate_installs} duplicate skill install(s) ignored across {total_names} skill name(s): {}",
+            names.join(", ")
+        ),
+    )
+}
+
+fn collapse_redundant_diagnostics(diagnostics: Vec<SkillDiagnostic>) -> Vec<SkillDiagnostic> {
+    let mut collapsed = Vec::new();
+    let mut by_skill_install = BTreeMap::<(PathBuf, String), (SkillDiagnostic, usize)>::new();
+
+    for diagnostic in diagnostics {
+        let Some(suffix) = skill_install_suffix(&diagnostic.path) else {
+            collapsed.push(diagnostic);
+            continue;
+        };
+        let key = (suffix, diagnostic.message.clone());
+        by_skill_install
+            .entry(key)
+            .and_modify(|(_, count)| *count += 1)
+            .or_insert((diagnostic, 1));
+    }
+
+    for (_, (mut diagnostic, count)) in by_skill_install {
+        if count > 1 {
+            diagnostic.message = format!(
+                "{} (also found in {} other skill root(s))",
+                diagnostic.message,
+                count - 1
+            );
+        }
+        collapsed.push(diagnostic);
+    }
+    collapsed
+}
+
+fn skill_install_suffix(path: &Path) -> Option<PathBuf> {
+    let mut suffix = PathBuf::new();
+    let mut found = false;
+    for component in path.components() {
+        if found {
+            suffix.push(component.as_os_str());
+            continue;
+        }
+        if component.as_os_str() == "skills" {
+            found = true;
+        }
+    }
+    found.then_some(suffix).filter(|suffix| !suffix.as_os_str().is_empty())
 }
 
 fn discover_dir(
@@ -705,6 +762,58 @@ mod tests {
         assert_eq!(inventory.skills.len(), 1);
         assert_eq!(inventory.skills[0].name, "react-best-practices");
         assert_eq!(inventory.skills[0].source, SkillSource::Configured);
+    }
+
+    #[test]
+    fn duplicate_skill_installs_are_collapsed_into_one_diagnostic() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        for root in [".agents/skills", ".claude/skills", ".codex/skills"] {
+            write(
+                &dir.path().join(root).join("example-skill/SKILL.md"),
+                "---\nname: example-skill\ndescription: Helps.\n---\n# Skill\n",
+            );
+        }
+
+        let inventory = discover_from_roots(vec![
+            SkillRoot { path: dir.path().join(".agents/skills"), source: SkillSource::User },
+            SkillRoot { path: dir.path().join(".claude/skills"), source: SkillSource::User },
+            SkillRoot { path: dir.path().join(".codex/skills"), source: SkillSource::User },
+        ]);
+
+        assert_eq!(inventory.skills.len(), 1);
+        assert_eq!(inventory.diagnostics.len(), 1);
+        assert_eq!(inventory.diagnostics[0].path, PathBuf::from("skills"));
+        assert!(
+            inventory.diagnostics[0]
+                .message
+                .contains("2 duplicate skill install(s) ignored")
+        );
+        assert!(inventory.diagnostics[0].message.contains("example-skill"));
+    }
+
+    #[test]
+    fn repeated_malformed_skill_installs_are_collapsed() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        for root in [".claude/skills", ".codex/skills"] {
+            write(
+                &dir.path().join(root).join("skill-deslop/SKILL.md"),
+                "---\nname: deslop\ndescription: Helps.\n---\n# Skill\n",
+            );
+        }
+
+        let inventory = discover_from_roots(vec![
+            SkillRoot { path: dir.path().join(".claude/skills"), source: SkillSource::User },
+            SkillRoot { path: dir.path().join(".codex/skills"), source: SkillSource::User },
+        ]);
+
+        assert!(inventory.skills.is_empty());
+        assert_eq!(inventory.diagnostics.len(), 1);
+        assert!(inventory.diagnostics[0].message.contains("must match parent directory"));
+        assert!(
+            inventory.diagnostics[0]
+                .message
+                .contains("also found in 1 other skill root")
+        );
     }
 
     #[test]
