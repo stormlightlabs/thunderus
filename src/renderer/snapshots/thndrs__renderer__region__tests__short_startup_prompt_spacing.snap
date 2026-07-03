@@ -1,0 +1,12 @@
+---
+source: src/renderer/region/tests.rs
+expression: contents
+---
+│   thndrs  coding agent                                                            # [bg=#171928]=   [fg=#37f499 bg=#171928 b]=thndrs  coding agent [bg=#171928]=                                                         [bg=#171928]=  
+│   cwd: ~/Projects/StormlightLabs/OpenSource/thndrs                                # [bg=#171928]=   [fg=#abb4da bg=#171928]=cwd: ~/Projects/StormlightLabs/OpenSource/thndrs [bg=#171928]=                             [bg=#171928]=  
+│   ... 21 rows hidden                                                              # [bg=#171928]=   [fg=#abb4da bg=#171928]=... 21 rows hidden [bg=#171928]=                                                           [bg=#171928]=  
+│                                                                                   # [bg=#171928]=                                                                                
+│    test-session  · idle                                                           # [bg=#212337]=   [bg=#212337]=  [fg=#37f499 bg=#212337 b]=test-session [bg=#212337]=   [fg=#3b4261 bg=#212337]=· idle [bg=#212337]=                                                        [bg=#212337]=  
+│    ›                                                                              # [bg=#212337]=   [bg=#212337]=  [fg=#e0e0e0 bg=#212337]=› [bg=#212337]=   [bg=#212337]=                                                                         [bg=#212337]=  
+│    model: test-model   search: native   tok: ↑0 ↓0   git: main clean              # [bg=#212337]=   [bg=#212337]=  [fg=#abb4da bg=#212337]=model: test-model [bg=#212337]=    [fg=#abb4da bg=#212337]=search: native [bg=#212337]=    [fg=#e0e0e0 bg=#212337]=tok: ↑0 ↓0 [bg=#212337]=    [fg=#37f499 bg=#212337]=git: main clean [bg=#212337]=           [bg=#212337]=  
+│                                                                                   # [bg=#212337]=

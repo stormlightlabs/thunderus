@@ -124,7 +124,7 @@ fn build_frame_short_startup_prioritizes_identity_context_and_help() {
         "prompt help should survive when the constrained budget allows it:\n{combined}"
     );
     assert!(
-        combined.contains("startup rows hidden by terminal height"),
+        combined.contains("rows hidden"),
         "compressed startup rows should be explicit:\n{combined}"
     );
 }
@@ -141,7 +141,7 @@ fn build_frame_very_short_startup_marks_hidden_banner_rows() {
         "startup identity should be prioritized over bottom banner rows:\n{combined}"
     );
     assert!(
-        combined.contains("startup rows hidden by terminal height"),
+        combined.contains("rows hidden"),
         "very short startup viewports should show an explicit hidden-info row:\n{combined}"
     );
     assert!(
@@ -205,6 +205,36 @@ fn build_frame_keeps_live_rows_at_bottom_with_status_notice() {
         Some(renderer::row::CursorCoord::new(frame.len() - 3, 6)),
         "cursor should be on the bottom-pinned prompt row"
     );
+}
+
+#[test]
+fn build_frame_trims_prompt_gutters_as_pair_when_height_is_constrained() {
+    let mut app = test_app();
+    app.input.set_text("hello");
+
+    let frame = LiveRegion::new().build_frame(&app, 80, 4);
+
+    assert_eq!(frame.len(), 4);
+    assert!(
+        frame.rows.iter().all(|row| !row.text().trim().is_empty()),
+        "too-short live chrome should drop top and bottom prompt gutters together:\n{}",
+        frame.render_text()
+    );
+    assert!(frame.render_text().contains("hello"));
+    assert!(frame.render_text().contains("model:"));
+}
+
+#[test]
+fn build_frame_keeps_prompt_gutters_as_pair_when_height_allows_them() {
+    let mut app = test_app();
+    app.input.set_text("hello");
+
+    let frame = LiveRegion::new().build_frame(&app, 80, 5);
+
+    assert_eq!(frame.len(), 5);
+    assert!(frame.rows[0].text().trim().is_empty());
+    assert!(frame.rows[4].text().trim().is_empty());
+    assert!(frame.render_text().contains("hello"));
 }
 
 #[test]
@@ -738,6 +768,45 @@ fn snapshot_narrow_live_frame() {
     let lr = LiveRegion::new();
     let frame = lr.build_frame(&app, 40, 20);
     assert_region_snapshot("narrow_live_frame", &frame.render_styled());
+}
+
+#[test]
+fn snapshot_short_error_prompt_spacing() {
+    let mut app = test_app();
+    app.transcript
+        .push(Entry::Error { text: "Provider request failed: connection refused".to_string() });
+    app.run_state = RunState::Error("Provider request failed".to_string());
+    let lr = LiveRegion::new();
+    let frame = lr.build_frame(&app, 80, 8);
+    assert_region_snapshot("short_error_prompt_spacing", &frame.render_styled());
+}
+
+#[test]
+fn snapshot_short_startup_diagnostics_prompt_spacing() {
+    let mut app = test_app();
+    app.context_sources = vec![context::ContextSource {
+        path: app.cwd.join("AGENTS.md"),
+        scope: ".".to_string(),
+        content: "# Project".to_string(),
+        content_hash: 42,
+        truncated: false,
+        byte_count: 9,
+    }];
+    app.skill_diagnostics = vec![crate::skills::SkillDiagnostic {
+        path: PathBuf::from("/Users/test/.thndrs/skills/bad/SKILL.md"),
+        message: "invalid YAML frontmatter".to_string(),
+    }];
+    let lr = LiveRegion::new();
+    let frame = lr.build_frame(&app, 80, 12);
+    assert_region_snapshot("short_startup_diagnostics_prompt_spacing", &frame.render_styled());
+}
+
+#[test]
+fn snapshot_short_startup_prompt_spacing() {
+    let app = test_app();
+    let lr = LiveRegion::new();
+    let frame = lr.build_frame(&app, 80, 8);
+    assert_region_snapshot("short_startup_prompt_spacing", &frame.render_styled());
 }
 
 #[test]

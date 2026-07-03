@@ -168,10 +168,20 @@ impl LiveRegion {
         let p = style::palette();
         let surface_bg = bg_style(p.surface0);
 
-        let footer = vec![live.static_status.clone(), Row::blank(width, surface_bg)];
+        let min_prompt_chrome = live.prompt_rows.len() + 2;
+        let keep_prompt_gutters = height >= min_prompt_chrome + 2;
+
+        let mut footer = vec![live.static_status.clone()];
+        if keep_prompt_gutters {
+            footer.push(Row::blank(width, surface_bg));
+        }
         let prompt = live.prompt_rows.clone();
 
-        let status_chrome = vec![Row::blank(width, bg_style(p.panel_bg)), live.dynamic_status.clone()];
+        let mut status_chrome = Vec::new();
+        if keep_prompt_gutters {
+            status_chrome.push(Row::blank(width, bg_style(p.panel_bg)));
+        }
+        status_chrome.push(live.dynamic_status.clone());
 
         let accessory =
             if !live.detail_pane.is_empty() { live.detail_pane.clone() } else { live.accessory_rows.clone() };
@@ -410,7 +420,7 @@ fn hidden_startup_row(width: usize, hidden: usize) -> Row {
     let p = style::palette();
     Row::padded(
         vec![Span::styled(
-            format!("... {hidden} startup rows hidden by terminal height"),
+            format!("... {hidden} rows hidden"),
             CellStyle::new().fg(p.subtext0).bg(p.panel_bg),
         )],
         width,

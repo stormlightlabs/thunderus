@@ -15,7 +15,7 @@ expression: contents
 │   ›  Ask for a change, run a command,     # [bg=#171928]=   [fg=#37f499 bg=#171928 b]=›   [fg=#abb4da bg=#171928]=Ask for a change, run a command,  [bg=#171928]=  
 │   ?  help                                 # [bg=#171928]=   [fg=#37f499 bg=#171928 b]=?   [fg=#abb4da bg=#171928]=help [bg=#171928]=                              [bg=#171928]=  
 │   /model switch models                    # [bg=#171928]=   [fg=#37f499 bg=#171928 b]=/model  [fg=#abb4da bg=#171928]=switch models [bg=#171928]=                 [bg=#171928]=  
-│   ... 14 startup rows hidden by terminal height  # [bg=#171928]=   [fg=#abb4da bg=#171928]=... 14 startup rows hidden by terminal height
+│   ... 14 rows hidden                      # [bg=#171928]=   [fg=#abb4da bg=#171928]=... 14 rows hidden [bg=#171928]=                   [bg=#171928]=  
 │                                           # [bg=#171928]=                                        
 │    test-session  · idle                   # [bg=#212337]=   [bg=#212337]=  [fg=#37f499 bg=#212337 b]=test-session [bg=#212337]=   [fg=#3b4261 bg=#212337]=· idle [bg=#212337]=                [bg=#212337]=  
 │    ›  a longer prompt that should wrap    # [bg=#212337]=   [bg=#212337]=  [fg=#e0e0e0 bg=#212337]=› [bg=#212337]=   [fg=#ebfafa bg=#212337]=a longer prompt that should wrap [bg=#212337]=  

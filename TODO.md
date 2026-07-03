@@ -141,18 +141,6 @@ See:
       `~/.pi/agent/skills/cloudflare/SKILL.md` with
       `references: [workers, pages, d1]`, plus invalid reference-path cases.
 
-### Prompt Input Correctness
-
-- [x] Add `unicode-segmentation` for grapheme and Unicode word boundaries.
-- [x] Keep `unicode-width` as the source of truth for terminal cell
-      measurement.
-- [x] Make left/right, backspace/delete, transpose, and cursor placement respect
-      grapheme clusters.
-- [x] Evaluate Unicode word boundaries for `alt/ctrl` word movement instead of
-      whitespace-only scanning.
-- [x] Add prompt tests for combining marks, emoji sequences, CJK, zero-width
-      characters, wide characters, explicit newlines, and wrapped rows.
-
 ## Parking Lot
 
 - [ ] Tool call failures should have debuggable logs and more information about
@@ -171,16 +159,3 @@ See:
       direct instructions, tool schemas, or safety boundaries?
 
 ### Bugs
-
-#### Renderer Polish
-
-- [ ] Fix prompt/input live-region spacing so vertical padding is symmetric:
-      when the prompt has a blank row below the input, preserve a matching
-      blank row above it unless constrained terminal height forces trimming.
-- [ ] Add narrow-height renderer snapshots for prompt spacing around errors,
-      diagnostics, and startup rows so the top and bottom prompt gutters cannot
-      regress independently.
-- [ ] Shorten the startup overflow message from
-      `n startup rows hidden by terminal height` to `n rows hidden`.
-- [ ] Cover the shortened startup overflow copy with transcript and live-region
-      snapshots.
