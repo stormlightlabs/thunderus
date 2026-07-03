@@ -68,24 +68,6 @@ pub fn banner_rows(app: &crate::app::App, width: usize) -> Vec<Row> {
     let mut rows = Vec::new();
     rows.push(Row::blank(width, bg_style(bg)));
 
-    let banner_width = width.saturating_sub(4) as u16;
-    let banner_lines = crate::banner::banner_lines(banner_width);
-    let banner_is_art = banner_lines.len() > 1;
-    for line in banner_lines {
-        push_banner_art_row(&mut rows, Span::styled(line, title_style), width, bg);
-    }
-    if banner_is_art {
-        push_banner_art_row(
-            &mut rows,
-            Span::styled(
-                "─".repeat(width.saturating_sub(4)),
-                CellStyle::new().fg(p.overlay0).bg(bg),
-            ),
-            width,
-            bg,
-        );
-    }
-
     let title = String::from("thndrs  coding agent");
     push_wrapped_banner_row(&mut rows, &[Span::styled(title, title_style)], width, bg);
     push_wrapped_banner_row(

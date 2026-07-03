@@ -623,3 +623,34 @@ fn entry_rows_omit_group_id_when_entry_index_none() {
         "rows should not carry a group_id when entry_index is None"
     );
 }
+
+#[test]
+fn banner_normal_viewport_shows_all_sections() {
+    let app = test_app();
+    let rendered = render_banner_styled(&app, 80);
+
+    for section in ["[Runtime]", "[Context]", "[Search]", "[Skills]", "[Diagnostics]"] {
+        assert!(
+            rendered.contains(section),
+            "normal viewport should show {section}:\n{rendered}"
+        );
+    }
+
+    assert!(rendered.contains("help"), "banner should show help row");
+    assert!(rendered.contains("/model"), "banner should show model switcher row");
+}
+
+#[test]
+fn banner_narrow_viewport_preserves_sections() {
+    let app = test_app();
+    let rendered = render_banner_styled(&app, 40);
+
+    assert!(
+        rendered.contains("[Runtime]"),
+        "narrow viewport should show Runtime section"
+    );
+    assert!(
+        rendered.contains("[Context]"),
+        "narrow viewport should show Context section"
+    );
+}

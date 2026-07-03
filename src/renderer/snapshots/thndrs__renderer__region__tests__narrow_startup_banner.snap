@@ -3,7 +3,6 @@ source: src/renderer/region/tests.rs
 expression: contents
 ---
 │                                           # [bg=#171928]=                                        
-│   THNDRS                                  # [bg=#171928]=   [fg=#37f499 bg=#171928 b]=THNDRS [bg=#171928]=                               [bg=#171928]=  
 │   thndrs  coding agent                    # [bg=#171928]=   [fg=#37f499 bg=#171928 b]=thndrs  coding agent [bg=#171928]=                 [bg=#171928]=  
 │   model: test-model   search: native      # [bg=#171928]=   [fg=#abb4da bg=#171928]=model:  [fg=#ebfafa bg=#171928]=test-model [fg=#abb4da bg=#171928]=   search:  [fg=#ebfafa bg=#171928]=native [bg=#171928]=   [bg=#171928]=  
 │   cwd: ~/Pr/St/O/thndrs                   # [bg=#171928]=   [fg=#abb4da bg=#171928]=cwd: ~/Pr/St/O/thndrs [bg=#171928]=                [bg=#171928]=  
