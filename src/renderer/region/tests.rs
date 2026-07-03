@@ -186,7 +186,7 @@ fn build_frame_cursor_visible_for_editable_prompt_across_ticks() {
 }
 
 #[test]
-fn build_frame_cursor_hidden_for_non_editable_prompt() {
+fn build_frame_cursor_visible_for_submitted_prompt() {
     let mut app = test_app();
     app.input.set_text("hello");
     app.run_state = RunState::Working;
@@ -197,8 +197,8 @@ fn build_frame_cursor_hidden_for_non_editable_prompt() {
     let lr = LiveRegion::new();
     let frame = lr.build_frame(&app, 80, 24);
     assert!(
-        !frame.cursor_visible,
-        "cursor should be hidden when prompt is not editable"
+        frame.cursor_visible,
+        "cursor should be visible for submitted prompt acting as queue composer"
     );
 }
 
@@ -1360,4 +1360,112 @@ fn build_frame_priority_model_orders_surfaces_correctly() {
     assert!(queued_pos < accessory_pos, "queued summary should be above accessory");
     assert!(accessory_pos < prompt_pos, "accessory should be above prompt");
     assert!(prompt_pos < footer_pos, "prompt should be above footer");
+}
+
+#[test]
+fn build_frame_cursor_visible_during_streaming_prompt() {
+    let mut app = test_app();
+    app.input.set_text("queue this");
+    app.run_state = RunState::Working;
+    app.transcript.push(Entry::User { text: "go".to_string() });
+    app.transcript.push(Entry::Agent {
+        text: "streaming response that is currently being generated".to_string(),
+        streaming: true,
+    });
+
+    let frame = LiveRegion::new().build_frame(&app, 80, 24);
+
+    assert!(
+        frame.cursor_visible,
+        "cursor should be visible during streaming so the queue composer feels editable"
+    );
+    assert!(
+        frame.cursor.is_some(),
+        "cursor coordinate should be set during streaming"
+    );
+}
+
+#[test]
+fn build_frame_cursor_visible_during_running_tool_prompt() {
+    let mut app = test_app();
+    app.input.set_text("queue this");
+    app.run_state = RunState::Working;
+    app.transcript.push(Entry::User { text: "go".to_string() });
+    app.transcript.push(Entry::Tool {
+        name: "run_shell".to_string(),
+        arguments: r#"{"program": "cargo test"}"#.to_string(),
+        status: ToolStatus::Running,
+        output: vec!["running tests".to_string()],
+    });
+
+    let frame = LiveRegion::new().build_frame(&app, 80, 24);
+
+    assert!(
+        frame.cursor_visible,
+        "cursor should be visible during running tool so the queue composer feels editable"
+    );
+    assert!(
+        frame.cursor.is_some(),
+        "cursor coordinate should be set during running tool"
+    );
+}
+
+#[test]
+fn build_frame_cursor_visible_during_submitted_prompt() {
+    let mut app = test_app();
+    app.input.set_text("queue this");
+    app.run_state = RunState::Working;
+    app.transcript.push(Entry::User { text: "go".to_string() });
+
+    let frame = LiveRegion::new().build_frame(&app, 80, 24);
+
+    assert!(
+        frame.cursor_visible,
+        "cursor should be visible during submitted state so the queue composer feels editable"
+    );
+}
+
+#[test]
+fn build_frame_cursor_hidden_during_stopped_prompt() {
+    let mut app = test_app();
+    app.input.set_text("hello");
+    app.run_state = RunState::Stopping;
+
+    let frame = LiveRegion::new().build_frame(&app, 80, 24);
+
+    assert!(!frame.cursor_visible, "cursor should be hidden during stopped state");
+}
+
+#[test]
+fn build_frame_cursor_hidden_during_errored_prompt() {
+    let mut app = test_app();
+    app.input.set_text("hello");
+    app.run_state = RunState::Error("something went wrong".to_string());
+
+    let frame = LiveRegion::new().build_frame(&app, 80, 24);
+
+    assert!(!frame.cursor_visible, "cursor should be hidden during errored state");
+}
+
+#[test]
+fn build_frame_queue_icon_shown_during_streaming() {
+    let mut app = test_app();
+    app.input.set_text("queue this");
+    app.run_state = RunState::Working;
+    app.transcript.push(Entry::User { text: "go".to_string() });
+    app.transcript
+        .push(Entry::Agent { text: "streaming".to_string(), streaming: true });
+
+    let frame = LiveRegion::new().build_frame(&app, 80, 24);
+    let prompt_row = frame
+        .rows
+        .iter()
+        .find(|r| r.text().contains("queue this"))
+        .expect("prompt row with queue text should be visible");
+
+    assert!(
+        prompt_row.text().contains("»"),
+        "streaming prompt should show queue composer icon: {}",
+        prompt_row.text()
+    );
 }

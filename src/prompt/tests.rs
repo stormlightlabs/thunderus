@@ -156,7 +156,7 @@ fn system_prompt_includes_stable_self_description_and_docs_map() {
     assert!(prompt.contains("<mode>native</mode>"));
     assert!(prompt.contains("<url_reader>read_url fetches public HTTP(S) and extracts HTML with Lectito</url_reader>"));
     assert!(prompt.contains("<renderer_mode>direct-inline</renderer_mode>"));
-    assert!(prompt.contains("<path>docs/src/reference/tools.md</path>"));
+    assert!(prompt.contains("<path>docs/src/content/docs/reference/tools.md</path>"));
     assert!(prompt.contains("<fragment>base_identity</fragment>"));
     assert!(prompt.contains("<tool>read_file_range</tool>"));
 }

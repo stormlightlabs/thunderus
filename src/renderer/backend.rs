@@ -262,7 +262,7 @@ impl<W: Write> TerminalBackend<W> {
                 let cursor_changed = prev.is_none_or(|p| p.cursor != Some(cursor) || !p.cursor_visible);
                 if wrote_rows || cursor_changed {
                     queue!(self.writer, Show)?;
-                    self.move_cursor(CursorCoord { row: top_row as usize + cursor.row, col: cursor.col })?;
+                    self.move_cursor(CursorCoord::new(top_row as usize + cursor.row, cursor.col))?;
                 }
             } else {
                 let was_hidden = prev.is_none_or(|p| !p.cursor_visible);

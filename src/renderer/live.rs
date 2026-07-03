@@ -61,10 +61,10 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
     let surface = p.surface0;
     let prompt_state = app.prompt_state();
 
-    let (prompt_color, show_input, icon) = match prompt_state {
+    let (prompt_color, _show_input, icon) = match prompt_state {
         PromptState::Editable => (p.yellow, true, "›"),
-        PromptState::Submitted => (p.yellow, false, "·"),
-        PromptState::Streaming | PromptState::RunningTool => (p.teal, true, "›"),
+        PromptState::Submitted => (p.teal, true, "»"),
+        PromptState::Streaming | PromptState::RunningTool => (p.teal, true, "»"),
         PromptState::Stopped => (p.teal, true, "○"),
         PromptState::Errored => (p.red, true, "✕"),
     };
@@ -75,18 +75,6 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
     let cursor_indent = width.min(2) + LIVE_INSET + prefix_width;
     let input_text = app.input.as_str();
     let cursor_pos = app.input.cursor();
-
-    if !show_input {
-        let spans = vec![
-            Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(surface)),
-            Span::styled(icon, CellStyle::new().fg(prompt_color).bg(surface)),
-            Span::styled("  submitted", CellStyle::new().fg(p.overlay0).bg(surface)),
-        ];
-        return (
-            vec![Row::padded(spans, width, bg_style(surface))],
-            Some(CursorCoord::new(0, 0)),
-        );
-    }
 
     let visual_rows = prompt_rows(input_text, body_width);
     let cursor = prompt_cursor(input_text, cursor_pos, body_width, cursor_indent);
@@ -729,14 +717,14 @@ mod tests {
     }
 
     #[test]
-    fn prompt_rows_submitted_hides_input() {
+    fn prompt_rows_submitted_shows_queue_icon() {
         let mut app = test_app();
         app.run_state = RunState::Working;
 
         let (rows, _) = prompt_rows_for(&app, 80);
         assert!(
-            rows[0].text().contains("submitted"),
-            "submitted state should show 'submitted'"
+            rows[0].text().contains("»"),
+            "submitted state should show queue composer icon"
         );
     }
 

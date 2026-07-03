@@ -214,6 +214,16 @@ pub enum SessionRecord {
         byte_count: usize,
         loaded_references: Vec<SkillReferenceRecord>,
     },
+    /// Queued input persisted before replay so it survives crashes.
+    #[serde(rename = "queued_input")]
+    QueuedInput {
+        schema_version: u32,
+        seq: u64,
+        time: String,
+        /// "steering" or "follow-up".
+        kind: String,
+        text: String,
+    },
 }
 
 impl SessionRecord {
@@ -233,7 +243,8 @@ impl SessionRecord {
             | SessionRecord::SessionRenamed { seq, .. }
             | SessionRecord::FileWrite { seq, .. }
             | SessionRecord::ShellExec { seq, .. }
-            | SessionRecord::SkillActivated { seq, .. } => *seq,
+            | SessionRecord::SkillActivated { seq, .. }
+            | SessionRecord::QueuedInput { seq, .. } => *seq,
         }
     }
 
@@ -717,6 +728,23 @@ impl SessionWriter {
         Ok(())
     }
 
+    /// Append a queued input record so it survives crashes before replay.
+    pub fn append_queued(&mut self, kind: &str, text: &str) -> std::io::Result<()> {
+        let record = SessionRecord::QueuedInput {
+            schema_version: SCHEMA_VERSION,
+            seq: self.seq,
+            time: datetime::now_iso8601(),
+            kind: kind.to_string(),
+            text: text.to_string(),
+        };
+        self.seq += 1;
+        let line = record.to_json().map_err(io_err)?;
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new().append(true).open(&self.path)?;
+        writeln!(file, "{line}")?;
+        Ok(())
+    }
+
     /// The session file path.
     pub fn path(&self) -> &Path {
         &self.path
@@ -744,7 +772,8 @@ fn set_seq(record: &mut SessionRecord, seq: u64) {
         | SessionRecord::SessionRenamed { seq: s, .. }
         | SessionRecord::FileWrite { seq: s, .. }
         | SessionRecord::ShellExec { seq: s, .. }
-        | SessionRecord::SkillActivated { seq: s, .. } => *s = seq,
+        | SessionRecord::SkillActivated { seq: s, .. }
+        | SessionRecord::QueuedInput { seq: s, .. } => *s = seq,
     }
 }
 

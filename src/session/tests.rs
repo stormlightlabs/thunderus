@@ -62,7 +62,10 @@ fn from_bundle_captures_self_knowledge_inputs_without_content() {
     assert_eq!(meta.provider, "umans");
     assert_eq!(meta.renderer_mode, "direct-inline");
     assert!(meta.prompt_fragments.contains(&"base_identity".to_string()));
-    assert!(meta.docs_map.contains(&"docs/src/reference/tools.md".to_string()));
+    assert!(
+        meta.docs_map
+            .contains(&"docs/src/content/docs/reference/tools.md".to_string())
+    );
     assert!(meta.tool_names.contains(&"read_file_range".to_string()));
     assert!(meta.skill_names.is_empty());
     assert!(meta.diagnostics.is_empty());

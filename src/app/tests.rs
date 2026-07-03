@@ -1830,3 +1830,197 @@ fn ctrl_a_in_command_mode_inserts_literal_a() {
     update(&mut app, &key(KeyCode::Char('a'), KeyModifiers::CONTROL));
     assert_eq!(app.input.as_str(), "testa");
 }
+
+fn working_app_with_streaming() -> App {
+    let mut app = fresh_app();
+    app.run_state = RunState::Working;
+    app.transcript.push(Entry::User { text: "do the thing".to_string() });
+    app.transcript
+        .push(Entry::Agent { text: "working on it".to_string(), streaming: true });
+    app
+}
+
+#[test]
+fn typing_while_streaming_appends_to_input() {
+    let mut app = working_app_with_streaming();
+    app.input = PromptInput::from("hel");
+
+    update(&mut app, &key(KeyCode::Char('l'), KeyModifiers::NONE));
+    update(&mut app, &key(KeyCode::Char('o'), KeyModifiers::NONE));
+    assert_eq!(app.input.as_str(), "hello", "typing should work while streaming");
+}
+
+#[test]
+fn backspace_while_streaming_deletes_char() {
+    let mut app = working_app_with_streaming();
+    app.input = PromptInput::from("hello");
+    update(&mut app, &key(KeyCode::Backspace, KeyModifiers::NONE));
+    assert_eq!(app.input.as_str(), "hell", "backspace should work while streaming");
+}
+
+#[test]
+fn history_recall_while_streaming_works() {
+    let mut app = working_app_with_streaming();
+    app.input_history.push("previous prompt".to_string());
+    app.input = PromptInput::from("current draft");
+
+    update(&mut app, &key(KeyCode::Up, KeyModifiers::NONE));
+
+    assert_eq!(
+        app.input.as_str(),
+        "previous prompt",
+        "Up should recall history while streaming"
+    );
+}
+
+#[test]
+fn file_mention_activation_while_working() {
+    let mut app = working_app_with_streaming();
+    app.input = PromptInput::from("check @src");
+
+    update(&mut app, &key(KeyCode::Char('r'), KeyModifiers::NONE));
+
+    assert!(
+        app.input.as_str().contains("@srcr"),
+        "typing should append after @mention"
+    );
+    assert!(
+        matches!(app.prompt_accessory, PromptAccessory::Files(_)),
+        "@mention should activate file picker while working"
+    );
+}
+
+#[test]
+fn multiline_input_while_working() {
+    let mut app = working_app_with_streaming();
+    app.input = PromptInput::from("line one");
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::SHIFT));
+
+    assert!(
+        app.input.as_str().contains('\n'),
+        "Shift+Enter should insert newline while working"
+    );
+    assert_eq!(app.run_state, RunState::Working, "run state should not change");
+}
+
+#[test]
+fn slash_clear_while_working_executes_immediately() {
+    let mut app = working_app_with_streaming();
+    app.input = PromptInput::from("/clear");
+
+    let result = update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(
+        result,
+        Some(Msg::Clear),
+        "/clear should execute immediately while working"
+    );
+    assert!(app.input.is_empty(), "input should be cleared after /clear");
+}
+
+#[test]
+fn slash_help_while_working_executes_immediately() {
+    let mut app = working_app_with_streaming();
+    app.input = PromptInput::from("/help");
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(
+        app.prompt_accessory,
+        PromptAccessory::Help,
+        "/help should open help while working"
+    );
+    assert!(app.input.is_empty(), "input should be cleared after /help");
+}
+
+#[test]
+fn slash_model_while_working_is_rejected() {
+    let mut app = working_app_with_streaming();
+    app.input = PromptInput::from("/model");
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(
+        app.prompt_accessory,
+        PromptAccessory::None,
+        "/model should not open picker while working"
+    );
+    assert!(
+        app.transcript
+            .iter()
+            .any(|e| matches!(e, Entry::Status { text } if text.contains("not available"))),
+        "/model should be rejected with a status message"
+    );
+}
+
+#[test]
+fn slash_skills_while_working_is_rejected() {
+    let mut app = working_app_with_streaming();
+    app.input = PromptInput::from("/skills");
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(
+        app.prompt_accessory,
+        PromptAccessory::None,
+        "/skills should not open picker while working"
+    );
+    assert!(
+        app.transcript
+            .iter()
+            .any(|e| matches!(e, Entry::Status { text } if text.contains("not available"))),
+        "/skills should be rejected with a status message"
+    );
+}
+
+#[test]
+fn slash_unknown_while_working_is_rejected() {
+    let mut app = working_app_with_streaming();
+    app.input = PromptInput::from("/unknown");
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert!(
+        app.queued_followups.is_empty(),
+        "unknown slash command should not be queued as text"
+    );
+    assert!(
+        app.transcript
+            .iter()
+            .any(|e| matches!(e, Entry::Status { text } if text.contains("not available"))),
+        "unknown slash command should be rejected with a status message"
+    );
+}
+
+#[test]
+fn queued_input_persisted_to_session_writer() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
+    let mut app = App::from_cli(&cli);
+    app.run_state = RunState::Working;
+    app.queue_target = QueueTarget::FollowUp;
+    app.input = PromptInput::from("persisted follow-up");
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    let session_path = app
+        .session_writer
+        .as_ref()
+        .expect("session writer should exist")
+        .path()
+        .to_path_buf();
+    let content = std::fs::read_to_string(&session_path).expect("read session file");
+    assert!(
+        content.contains("queued_input"),
+        "session file should contain a queued_input record: {content}"
+    );
+    assert!(
+        content.contains("persisted follow-up"),
+        "session file should contain the queued text: {content}"
+    );
+    assert!(
+        content.contains("follow-up"),
+        "session file should contain the kind field: {content}"
+    );
+}

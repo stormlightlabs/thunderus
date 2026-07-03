@@ -1515,7 +1515,16 @@ fn sync_file_picker_query(app: &mut App) {
 /// Returns an optional follow-up [`Msg`].
 fn handle_submit(app: &mut App) -> Option<Msg> {
     if app.run_state == RunState::Working {
-        queue_running_input(app);
+        let text = app.input.as_str().trim().to_string();
+        if text.is_empty() {
+            app.input.clear();
+            return None;
+        }
+        if let Some(command) = text.strip_prefix('/') {
+            app.input.clear();
+            return handle_running_command(app, command);
+        }
+        queue_running_input(app, &text);
         return None;
     }
 
@@ -1536,23 +1545,23 @@ fn handle_submit(app: &mut App) -> Option<Msg> {
     submit_user_turn(app, text)
 }
 
-fn queue_running_input(app: &mut App) {
-    let text = app.input.as_str().trim().to_string();
-    if text.is_empty() {
-        app.input.clear();
-        return;
-    }
-
+fn queue_running_input(app: &mut App, text: &str) {
     app.input.clear();
-    remember_input(app, &text);
+    remember_input(app, text);
     match app.queue_target {
         QueueTarget::Steering => {
-            app.queued_steering.push(text);
+            app.queued_steering.push(text.to_string());
+            if let Some(ref mut writer) = app.session_writer {
+                let _ = writer.append_queued("steering", text);
+            }
             app.transcript
                 .push(Entry::Status { text: format!("queued steering ({})", app.queued_steering.len()) });
         }
         QueueTarget::FollowUp => {
-            app.queued_followups.push(text);
+            app.queued_followups.push(text.to_string());
+            if let Some(ref mut writer) = app.session_writer {
+                let _ = writer.append_queued("follow-up", text);
+            }
             app.transcript
                 .push(Entry::Status { text: format!("queued follow-up ({})", app.queued_followups.len()) });
         }
@@ -1607,6 +1616,24 @@ fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
         }
         _ => None,
     }
+}
+
+/// Handle a slash command submitted while the agent is working.
+///
+/// Safe commands (`clear`, `quit`, `exit`, `help`, `bg`) execute immediately.
+/// Unsafe commands that require an idle prompt (`model`, `skills`) are rejected
+/// with a status message instead of being queued as literal text.
+fn handle_running_command(app: &mut App, command: &str) -> Option<Msg> {
+    let is_safe = matches!(command, "clear" | "quit" | "exit" | "help" | "bg");
+    if is_safe {
+        return handle_command(app, command);
+    }
+    app.transcript.push(Entry::Status {
+        text: format!(
+            "/{command} is not available while the agent is working — queue it as text or wait for the run to finish"
+        ),
+    });
+    None
 }
 
 /// List background processes in the transcript.

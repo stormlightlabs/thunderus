@@ -116,8 +116,11 @@ impl LiveRegion {
             .extend(live.rows.into_iter().skip(live_start).take(live_height));
         frame.cursor = cursor;
 
-        let prompt_editable = matches!(app.prompt_state(), crate::app::PromptState::Editable);
-        frame.cursor_visible = prompt_editable;
+        let cursor_visible = !matches!(
+            app.prompt_state(),
+            crate::app::PromptState::Stopped | crate::app::PromptState::Errored
+        );
+        frame.cursor_visible = cursor_visible;
 
         while frame.rows.len() < height {
             frame.push(Row::blank(width, bg_style(p.panel_bg)));

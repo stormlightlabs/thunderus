@@ -203,55 +203,55 @@ expression: prompt
   <docs_map>
     <doc>
       <topic>CLI</topic>
-      <path>docs/src/reference/cli.md</path>
+      <path>docs/src/content/docs/reference/cli.md</path>
     </doc>
     <doc>
       <topic>configuration</topic>
-      <path>docs/src/reference/configuration.md</path>
+      <path>docs/src/content/docs/reference/configuration.md</path>
     </doc>
     <doc>
       <topic>sessions</topic>
-      <path>docs/src/reference/session-format.md</path>
+      <path>docs/src/content/docs/reference/session-format.md</path>
     </doc>
     <doc>
       <topic>tool boundary</topic>
-      <path>docs/src/concepts/tool-boundary.md</path>
+      <path>docs/src/content/docs/concepts/tool-boundary.md</path>
     </doc>
     <doc>
       <topic>tools</topic>
-      <path>docs/src/reference/tools.md</path>
+      <path>docs/src/content/docs/reference/tools.md</path>
     </doc>
     <doc>
       <topic>web search and URL reading</topic>
-      <path>docs/src/providers/search-and-extraction.md</path>
+      <path>docs/src/content/docs/providers/search-and-extraction.md</path>
     </doc>
     <doc>
       <topic>prompt assembly</topic>
-      <path>docs/src/concepts/prompt-assembly.md</path>
+      <path>docs/src/content/docs/concepts/prompt-assembly.md</path>
     </doc>
     <doc>
       <topic>project context</topic>
-      <path>docs/src/usage/project-context.md</path>
+      <path>docs/src/content/docs/usage/project-context.md</path>
     </doc>
     <doc>
       <topic>skills</topic>
-      <path>docs/src/usage/skills.md</path>
+      <path>docs/src/content/docs/usage/skills.md</path>
     </doc>
     <doc>
       <topic>Umans provider</topic>
-      <path>docs/src/providers/umans.md</path>
+      <path>docs/src/content/docs/providers/umans.md</path>
     </doc>
     <doc>
       <topic>OpenCode Go provider</topic>
-      <path>docs/src/providers/opencode-go.md</path>
+      <path>docs/src/content/docs/providers/opencode-go.md</path>
     </doc>
     <doc>
       <topic>renderer</topic>
-      <path>docs/src/usage/tui.md</path>
+      <path>docs/src/content/docs/usage/tui.md</path>
     </doc>
     <doc>
       <topic>development workflow</topic>
-      <path>docs/src/development/workflow.md</path>
+      <path>docs/src/content/docs/development/workflow.md</path>
     </doc>
   </docs_map>
   <runtime_state>
