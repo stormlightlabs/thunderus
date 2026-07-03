@@ -14,7 +14,8 @@ use crossterm::queue;
 use crossterm::style as cts;
 use crossterm::terminal::{Clear as CtClear, ClearType};
 
-use super::layout::{display_width, grapheme_width};
+use crate::utils;
+
 use super::row::{CursorCoord, Frame, Row};
 use super::style::{CellStyle, Color, Span};
 use unicode_segmentation::UnicodeSegmentation;
@@ -292,12 +293,14 @@ fn write_spans(writer: &mut impl Write, spans: &[Span], width: usize) -> io::Res
     let mut last_bg = Color::Reset;
 
     for span in spans {
+        use crate::utils;
+
         if used >= width {
             break;
         }
         let remaining = width - used;
         let text = take_display_width(&sanitize_terminal_text(&span.text), remaining);
-        let taken = display_width(&text);
+        let taken = utils::text_width(&text);
         used += taken;
         last_bg = span.style.bg;
 
@@ -349,7 +352,7 @@ fn write_spans_unpadded(writer: &mut impl Write, spans: &[Span], width: usize) -
         }
         let remaining = width - used;
         let text = take_display_width(&sanitize_terminal_text(&span.text), remaining);
-        used += display_width(&text);
+        used += utils::text_width(&text);
         if !text.is_empty() {
             queue!(
                 writer,
@@ -364,7 +367,7 @@ fn take_display_width(text: &str, width: usize) -> String {
     let mut out = String::new();
     let mut used = 0usize;
     for grapheme in text.graphemes(true) {
-        let g_width = grapheme_width(grapheme);
+        let g_width = utils::grapheme_width(grapheme);
         if used + g_width > width {
             break;
         }
@@ -778,8 +781,7 @@ mod tests {
 
     #[test]
     fn write_row_regional_indicators() {
-        let flag = "🇺🇸"; // US flag: two regional indicators, one grapheme, width 2
-
+        let flag = "🇺🇸";
         let mut b = backend(20, 5);
         let row = Row::padded(vec![Span::plain(flag.to_string())], 20, CellStyle::default());
         b.write_row(0, &row).unwrap();

@@ -66,8 +66,14 @@ pub fn truncate_ellipsis_start(s: &str, max_width: usize) -> String {
     format!("…{}", take_display_width_from_end(s, max_width - 1))
 }
 
+/// Display width of a string in terminal columns.
 pub fn text_width(text: &str) -> usize {
     UnicodeWidthStr::width(text)
+}
+
+/// Display width of one grapheme cluster in terminal columns.
+pub fn grapheme_width(grapheme: &str) -> usize {
+    UnicodeWidthStr::width(grapheme)
 }
 
 fn take_display_width(text: &str, max_width: usize) -> String {

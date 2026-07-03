@@ -16,6 +16,8 @@
 //! - a leading prompt indent applied to every visual row;
 //! - multibyte and grapheme clusters.
 
+use crate::utils;
+
 use super::row::CursorCoord;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -47,7 +49,7 @@ pub fn prompt_cursor(text: &str, cursor: usize, body_width: usize, indent: usize
             continue;
         }
 
-        let g_width = grapheme_width(grapheme);
+        let g_width = utils::grapheme_width(grapheme);
         if col - indent + g_width > body_width {
             row += 1;
             col = indent;
@@ -77,7 +79,7 @@ pub fn prompt_rows(text: &str, body_width: usize) -> Vec<String> {
             current_width = 0;
             continue;
         }
-        let g_width = grapheme_width(grapheme);
+        let g_width = utils::grapheme_width(grapheme);
         if current_width > 0 && current_width + g_width > body_width {
             rows.push(std::mem::take(&mut current));
             current_width = 0;
@@ -94,10 +96,6 @@ pub fn prompt_rows(text: &str, body_width: usize) -> Vec<String> {
 /// Uses `unicode-width` on the full grapheme cluster string so that ZWJ
 /// sequences, combining marks, and other zero-width joiners are measured
 /// correctly as a single unit rather than summing individual codepoint widths.
-fn grapheme_width(grapheme: &str) -> usize {
-    use unicode_width::UnicodeWidthStr;
-    UnicodeWidthStr::width(grapheme)
-}
 
 #[cfg(test)]
 mod tests {

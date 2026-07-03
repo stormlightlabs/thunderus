@@ -234,7 +234,7 @@ pub fn detail_pane_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> 
         title_spans.push(Span::styled(args_summary, muted_style));
     }
 
-    let body_width = super::layout::content_width(width).saturating_sub(super::layout::display_width(GUTTER));
+    let body_width = super::layout::content_width(width).saturating_sub(utils::text_width(GUTTER));
     let mut body_rows = Vec::new();
 
     for line in output {
@@ -279,10 +279,10 @@ pub fn static_status_row(app: &App, width: usize) -> Row {
         _ => (true, true, true, true, true),
     };
 
-    let model_len = super::layout::display_width(&model_label);
-    let search_len = super::layout::display_width(&search_text);
-    let token_len = super::layout::display_width(&token_text);
-    let git_len = git_text.as_ref().map_or(0, |text| super::layout::display_width(text));
+    let model_len = utils::text_width(&model_label);
+    let search_len = utils::text_width(&search_text);
+    let token_len = utils::text_width(&token_text);
+    let git_len = git_text.as_ref().map_or(0, |text| utils::text_width(text));
 
     let mut spans: Vec<Span> = Vec::new();
     spans.push(Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(bg)));
@@ -473,8 +473,7 @@ fn picker_rows(app: &App, title: &str, width: usize, max_height: usize) -> Vec<R
             let marker = if is_selected { "›" } else { " " };
             let marker_style = if is_selected { selected_marker_style } else { CellStyle::new().bg(bg) };
 
-            let detail_len =
-                if item.detail.is_empty() { 0 } else { super::layout::display_width(&item.detail).min(24) + 2 };
+            let detail_len = if item.detail.is_empty() { 0 } else { utils::text_width(&item.detail).min(24) + 2 };
             let label_available = available.saturating_sub(detail_len).max(8);
             let truncated = utils::truncate_ellipsis(&item.label, label_available);
             let indices = picker.match_indices.get(absolute_idx).cloned().unwrap_or_default();
@@ -497,7 +496,7 @@ fn picker_rows(app: &App, title: &str, width: usize, max_height: usize) -> Vec<R
                 spans.push(Span::styled(
                     utils::truncate_ellipsis(
                         &item.detail,
-                        available.saturating_sub(super::layout::display_width(&truncated) + 2),
+                        available.saturating_sub(utils::text_width(&truncated) + 2),
                     ),
                     detail_style,
                 ));

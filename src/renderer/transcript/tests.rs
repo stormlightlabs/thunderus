@@ -215,6 +215,25 @@ fn snapshot_tool_ok_highlighted() {
 }
 
 #[test]
+fn highlighted_tool_output_marks_horizontal_truncation() {
+    let entry = Entry::Tool {
+        name: "run_shell".to_string(),
+        arguments: r#"{"program": "cargo test"}"#.to_string(),
+        status: ToolStatus::Failed,
+        output: vec![format!(
+            "error: {}",
+            "this compiler diagnostic is far wider than the terminal body width ".repeat(3)
+        )],
+    };
+    let rendered = render_entry_styled(&entry, 48);
+
+    assert!(
+        rendered.contains('…'),
+        "wide highlighted tool output should include visible truncation marker:\n{rendered}"
+    );
+}
+
+#[test]
 fn snapshot_tool_failed_normal() {
     let entry = Entry::Tool {
         name: "run_shell".to_string(),
@@ -384,6 +403,22 @@ fn snapshot_tool_search_results_narrow() {
         ],
     };
     assert_snapshot("transcript_tool_search_results_narrow", render_entry_styled(&entry, 40));
+}
+
+#[test]
+fn plain_tool_output_preserves_code_indentation_after_search_prefix() {
+    let entry = Entry::Tool {
+        name: "search_text".to_string(),
+        arguments: r#"{"pattern": "println", "path": "src/main.rs"}"#.to_string(),
+        status: ToolStatus::Ok,
+        output: vec!["src/main.rs:2:    println!(\"hello\");".to_string()],
+    };
+    let rendered = render_entry_styled(&entry, 80);
+
+    assert!(
+        rendered.contains("src/main.rs:2:    println!"),
+        "plain tool output should preserve repeated spaces after path prefix:\n{rendered}"
+    );
 }
 
 #[test]

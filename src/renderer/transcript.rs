@@ -9,6 +9,7 @@ use std::path::Path;
 use crate::app::{Entry, ToolStatus};
 use crate::renderer::row::Row;
 use crate::renderer::style::{CellStyle, Color, Span};
+use crate::utils;
 
 /// Maximum tool output lines rendered before a truncation marker is shown.
 const MAX_TOOL_OUTPUT_LINES: usize = 6;
@@ -179,6 +180,7 @@ impl ToolBlockView<'_> {
         let status_style = CellStyle::new().fg(status_color).bg(bg);
         let muted_style = CellStyle::new().fg(p.subtext0).bg(bg);
         let gutter_style = CellStyle::new().fg(p.overlay0).bg(bg);
+        let tool_content_width = body_width.saturating_sub(utils::text_width(GUTTER));
 
         let args_summary = summarize_tool_args(args, cwd);
         let base_name = name.split('#').next().unwrap_or(name);
@@ -193,8 +195,8 @@ impl ToolBlockView<'_> {
         ];
 
         if !args_summary.is_empty() {
-            let header_width: usize = header_spans.iter().map(|s| super::layout::display_width(&s.text)).sum();
-            if header_width + 2 + super::layout::display_width(&args_summary) <= body_width {
+            let header_width: usize = header_spans.iter().map(|s| utils::text_width(&s.text)).sum();
+            if header_width + 2 + utils::text_width(&args_summary) <= body_width {
                 header_spans.push(Span::styled("  ", CellStyle::new().bg(bg)));
                 header_spans.push(Span::styled(args_summary, muted_style));
                 rows.push(Row::padded(header_spans, width, bg_style(bg)));
@@ -225,7 +227,15 @@ impl ToolBlockView<'_> {
                 let highlighted = super::highlight::highlight_lines(&joined, Some(lang_str));
                 for hl_row in highlighted {
                     let mut spans = vec![Span::styled(GUTTER, gutter_style)];
-                    spans.extend(hl_row.into_iter().map(|s| Span { text: s.text, style: s.style.bg(bg) }));
+                    let content_spans: Vec<_> = hl_row
+                        .into_iter()
+                        .map(|s| Span { text: s.text, style: s.style.bg(bg) })
+                        .collect();
+                    spans.extend(super::layout::truncate_spans(
+                        &content_spans,
+                        tool_content_width,
+                        muted_style,
+                    ));
                     rows.push(Row::padded(spans, width, bg_style(bg)));
                 }
             }
@@ -237,9 +247,7 @@ impl ToolBlockView<'_> {
                     } else {
                         CellStyle::new().fg(p.subtext0).bg(bg)
                     };
-                    for wrapped in
-                        super::layout::wrap_text(&line, body_width.saturating_sub(super::layout::display_width(GUTTER)))
-                    {
+                    for wrapped in super::layout::wrap_text_preserving_whitespace(&line, tool_content_width) {
                         let spans = vec![Span::styled(GUTTER, gutter_style), Span::styled(wrapped, content_style)];
                         rows.push(Row::padded(spans, width, bg_style(bg)));
                     }

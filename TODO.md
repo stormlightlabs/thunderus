@@ -161,3 +161,5 @@ See:
 - [ ] Git status should be in the statusline
 - [ ] Model switcher for Umans
 - [ ] OpenCode Go support
+
+### Bugs

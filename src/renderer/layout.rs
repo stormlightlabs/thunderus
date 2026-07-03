@@ -4,9 +4,10 @@
 //! types. They are the single source of truth for wrapping, padding, and
 //! truncation so that cursor placement and snapshots stay deterministic.
 
+use crate::utils;
+
 use super::style::{CellStyle, Span};
 use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::UnicodeWidthStr;
 
 /// Maximum width usable for body content inside a padded block.
 ///
@@ -34,7 +35,7 @@ pub fn wrap_text(text: &str, width: usize) -> Vec<String> {
         let mut current = String::new();
         let mut current_width = 0usize;
         for word in raw_line.split_whitespace() {
-            let word_len = display_width(word);
+            let word_len = utils::text_width(word);
 
             if current_width == 0 {
                 if word_len <= width {
@@ -67,24 +68,36 @@ pub fn wrap_text(text: &str, width: usize) -> Vec<String> {
     rows
 }
 
-/// Hard-split a single word into chunks no wider than `width`.
-fn split_long_word(word: &str, width: usize) -> Vec<String> {
-    let mut chunks = Vec::new();
-    let mut current = String::new();
-    let mut current_width = 0usize;
-    for grapheme in word.graphemes(true) {
-        let g_width = grapheme_width(grapheme);
-        if current_width > 0 && current_width + g_width > width {
-            chunks.push(std::mem::take(&mut current));
-            current_width = 0;
+/// Wrap plain text without normalizing whitespace.
+///
+/// Existing `\n` line breaks, indentation, and repeated spaces are preserved.
+/// Overlong lines are hard-split at grapheme boundaries.
+pub fn wrap_text_preserving_whitespace(text: &str, width: usize) -> Vec<String> {
+    let width = width.max(1);
+    let mut rows = Vec::new();
+
+    for raw_line in text.split('\n') {
+        if raw_line.is_empty() {
+            rows.push(String::new());
+            continue;
         }
-        current.push_str(grapheme);
-        current_width += g_width;
+
+        let mut current = String::new();
+        let mut current_width = 0usize;
+        for grapheme in raw_line.graphemes(true) {
+            let g_width = utils::grapheme_width(grapheme);
+            if current_width > 0 && current_width + g_width > width {
+                rows.push(std::mem::take(&mut current));
+                current_width = 0;
+            }
+            current.push_str(grapheme);
+            current_width += g_width;
+        }
+
+        rows.push(current);
     }
-    if !current.is_empty() {
-        chunks.push(current);
-    }
-    chunks
+
+    rows
 }
 
 /// Wrap styled spans into rows no wider than `width`, preserving explicit
@@ -107,7 +120,7 @@ pub fn wrap_spans(spans: &[Span], width: usize) -> Vec<Vec<Span>> {
                 current_width = 0;
                 continue;
             }
-            let g_width = grapheme_width(grapheme);
+            let g_width = utils::grapheme_width(grapheme);
             if current_width > 0 && current_width + g_width > width {
                 rows.push(std::mem::take(&mut current));
                 current_width = 0;
@@ -176,7 +189,6 @@ pub fn pad_row(spans: Vec<Span>, width: usize, pad_style: CellStyle) -> Vec<Span
 ///
 /// The ellipsis occupies one column, so the maximum retained content is
 /// `width - 1` when truncation occurs.
-#[cfg(test)]
 pub fn truncate_spans(spans: &[Span], width: usize, ellipsis_style: CellStyle) -> Vec<Span> {
     if width == 0 {
         return Vec::new();
@@ -195,7 +207,7 @@ pub fn truncate_spans(spans: &[Span], width: usize, ellipsis_style: CellStyle) -
         }
         let mut taken = String::new();
         for grapheme in span.text.graphemes(true) {
-            let g_width = grapheme_width(grapheme);
+            let g_width = utils::grapheme_width(grapheme);
             if used + g_width > keep_width {
                 break;
             }
@@ -213,17 +225,27 @@ pub fn truncate_spans(spans: &[Span], width: usize, ellipsis_style: CellStyle) -
 
 /// Width (column count) of a span slice.
 pub fn spans_width(spans: &[Span]) -> usize {
-    spans.iter().map(|s| display_width(&s.text)).sum()
+    spans.iter().map(|s| utils::text_width(&s.text)).sum()
 }
 
-/// Display width of a string in terminal columns.
-pub fn display_width(text: &str) -> usize {
-    UnicodeWidthStr::width(text)
-}
-
-/// Display width of one grapheme cluster in terminal columns.
-pub fn grapheme_width(grapheme: &str) -> usize {
-    UnicodeWidthStr::width(grapheme)
+/// Hard-split a single word into chunks no wider than `width`.
+fn split_long_word(word: &str, width: usize) -> Vec<String> {
+    let mut chunks = Vec::new();
+    let mut current = String::new();
+    let mut current_width = 0usize;
+    for grapheme in word.graphemes(true) {
+        let g_width = utils::grapheme_width(grapheme);
+        if current_width > 0 && current_width + g_width > width {
+            chunks.push(std::mem::take(&mut current));
+            current_width = 0;
+        }
+        current.push_str(grapheme);
+        current_width += g_width;
+    }
+    if !current.is_empty() {
+        chunks.push(current);
+    }
+    chunks
 }
 
 #[cfg(test)]
@@ -249,6 +271,24 @@ mod tests {
     fn wrap_text_empty_line_preserved() {
         let rows = wrap_text("a\n\nb", 80);
         assert_eq!(rows, vec!["a", "", "b"]);
+    }
+
+    #[test]
+    fn wrap_text_preserving_whitespace_keeps_indentation() {
+        let rows = wrap_text_preserving_whitespace("src/main.rs:2:    println!(\"hello\");", 80);
+        assert_eq!(rows, vec!["src/main.rs:2:    println!(\"hello\");"]);
+    }
+
+    #[test]
+    fn wrap_text_preserving_whitespace_keeps_repeated_spaces() {
+        let rows = wrap_text_preserving_whitespace("alpha    beta", 80);
+        assert_eq!(rows, vec!["alpha    beta"]);
+    }
+
+    #[test]
+    fn wrap_text_preserving_whitespace_hard_splits_lines() {
+        let rows = wrap_text_preserving_whitespace("  abcdef", 4);
+        assert_eq!(rows, vec!["  ab", "cdef"]);
     }
 
     #[test]
@@ -395,7 +435,7 @@ mod tests {
         let rows = wrap_text(url, 30);
         assert!(rows.len() > 1, "long URL should wrap to multiple rows");
         assert!(
-            rows.iter().all(|r| display_width(r) <= 30),
+            rows.iter().all(|r| utils::text_width(r) <= 30),
             "no wrapped row should exceed width 30"
         );
 
@@ -409,7 +449,7 @@ mod tests {
         let rows = wrap_text(url, 20);
         assert!(rows.len() > 1, "long unbroken URL should hard-split");
         assert!(
-            rows.iter().all(|r| display_width(r) <= 20),
+            rows.iter().all(|r| utils::text_width(r) <= 20),
             "no row should exceed width 20"
         );
     }
@@ -422,7 +462,7 @@ mod tests {
         let rows = wrap_text(prose, 40);
         assert!(rows.len() > 2, "prose paragraph should wrap to multiple rows");
         assert!(
-            rows.iter().all(|r| display_width(r) <= 40),
+            rows.iter().all(|r| utils::text_width(r) <= 40),
             "no wrapped row should exceed width 40"
         );
         assert!(
@@ -500,6 +540,6 @@ mod tests {
     #[test]
     fn no_textwrap_dependency() {
         let rows = wrap_text("a b c d e f", 5);
-        assert!(rows.iter().all(|r| display_width(r) <= 5));
+        assert!(rows.iter().all(|r| utils::text_width(r) <= 5));
     }
 }
