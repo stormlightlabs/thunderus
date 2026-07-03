@@ -4,6 +4,7 @@
 
 - [Prompt Editing Libraries and Renderer Ownership](docs/internal/notes/prompt-renderer-research.md)
 - [Text Input Library Lessons](docs/internal/notes/text-input-libraries.md)
+- [Configuration Plan](docs/internal/features/003_configuration/plan.md)
 - [Pi Coding Agent Harness Lessons](docs/internal/notes/pi.md)
 - [Ratatui Application Patterns](docs/internal/notes/ratatui.md)
 - [Ratatui Snapshot Testing](docs/internal/notes/ratatui-testing.md)
@@ -13,7 +14,6 @@
 - [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 - [Rust CLI Book: Testing](https://rust-cli.github.io/book/tutorial/testing.html)
 - [Rust CLI Book: Packaging](https://rust-cli.github.io/book/tutorial/packaging.html)
-- [Rust CLI Book: Config files](https://rust-cli.github.io/book/in-depth/config-files.html)
 
 ## Completed Renderer Foundation
 
@@ -100,8 +100,6 @@ Expected behavior:
 The supported user-facing contract includes:
 
 - CLI flags, subcommands, and exit codes.
-- Config file path, keys, and precedence.
-- Environment variables.
 - Session/event storage format and compatibility policy.
 - Non-TUI inspect/export output shapes.
 - Tool names, inputs, outputs, errors, and audit metadata.
@@ -146,7 +144,6 @@ hold.
 - Renderer behavior is documented for native scrollback, live prompt/status
   redraw, resize, mouse scrolling, multiline input, file picker, help, and
   `@` mentions.
-- Config file support with CLI/env overrides and clear precedence.
 - Non-TUI session inspect/export commands.
 - Read-only LSP-backed code intelligence where a language server exists.
 - Skill engine support for reusable task instructions with progressive
@@ -157,30 +154,7 @@ hold.
 - Packaging supports at least `cargo install`.
 - CI runs formatting, clippy, unit tests, renderer snapshots, integration tests,
   and no-network provider fixture tests.
-- Upgrade behavior is documented for session/config changes.
-
-## CLI And Config
-
-Add non-TUI `inspect` and `export` commands for persisted sessions.
-
-Config precedence:
-
-1. CLI flags.
-2. Environment variables.
-3. Config file.
-4. Built-in defaults.
-
-Config should cover:
-
-- Default model.
-- Web search mode.
-- Session path.
-- Tick/render rate if still configurable.
-- Default workspace behavior.
-- Skill roots.
-- Optional LSP enablement.
-
-Secrets stay out of config examples. `UMANS_API_KEY` remains the secret path.
+- Upgrade behavior is documented for session changes.
 
 ## Session Inspect And Export
 
@@ -346,7 +320,6 @@ These fit if they remain narrow and reuse the session/tool contracts:
   movement, word movement, wrapping, and cursor placement.
 - Long-prompt benchmark or spike covering `String` versus Ropey before adopting
   a rope-backed prompt buffer.
-- Config precedence tests.
 - Inspect/export integration tests.
 - LSP fixture tests and no-server fallback tests.
 - Skill metadata validation and progressive-loading tests.
@@ -359,7 +332,6 @@ These fit if they remain narrow and reuse the session/tool contracts:
 
 - `CHANGELOG.md` using Keep a Changelog categories.
 - Install documentation.
-- Config/env documentation.
 - Session inspect/export documentation.
 - Umans provider setup documentation.
 - Search mode and fallback documentation.

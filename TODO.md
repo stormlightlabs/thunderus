@@ -102,16 +102,10 @@ See:
       before mutating `App`.
 - [ ] Move mode-specific key handling toward command translation tests.
 
-### Config, Inspect, And Export
+### Inspect And Export
 
-- [ ] Define config file path.
-- [ ] Define config keys for model, web search mode, session path, tick/render
-      rate, skill dirs, and default workspace behavior.
-- [ ] Implement config loading.
-- [ ] Implement precedence: CLI flags override env vars, env vars override
-      config, config overrides built-in defaults.
-  - [ ] Add non-TUI session inspect/export command.
-  - [ ] Keep inspect/export output JSON or JSONL.
+- [ ] Add non-TUI session inspect/export command.
+- [ ] Keep inspect/export output JSON or JSONL.
 - [ ] Include loaded `AGENTS.md` files, scopes, hashes, and truncation state in
       inspect/export output.
 - [ ] Include renderer-independent message metadata needed for later rendering.
