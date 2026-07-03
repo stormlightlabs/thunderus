@@ -325,57 +325,69 @@ impl SelfKnowledgeSnapshot {
         vec![
             StartupSection::new(
                 "Runtime",
-                format!(
-                    "{} | {} | search {} | {}",
-                    self.runtime.provider.provider,
-                    self.runtime.provider.model,
-                    self.runtime.provider.search.mode,
-                    self.runtime.renderer_mode
-                ),
+                vec![
+                    format!("provider = \"{}\"", self.runtime.provider.provider),
+                    format!("model = \"{}\"", self.runtime.provider.model),
+                    format!("search = \"{}\"", self.runtime.provider.search.mode),
+                ],
             ),
             StartupSection::new(
                 "Context",
-                join_or_none(
-                    self.inventory
-                        .prompt_context
-                        .context_sources
-                        .iter()
-                        .map(|source| source.path.as_str()),
-                ),
+                context_startup_lines(&self.inventory.prompt_context.context_sources),
             ),
             StartupSection::new(
                 "Search",
-                format!(
+                vec![format!(
                     "{}; {}; {}",
                     self.runtime.provider.search.provider_native_search,
                     self.runtime.provider.search.local_search,
                     self.runtime.provider.search.url_reader
-                ),
+                )],
             ),
+            StartupSection::new("Skills", {
+                let names = self
+                    .inventory
+                    .references
+                    .skills
+                    .iter()
+                    .map(|skill| skill.name.as_str())
+                    .collect::<Vec<&str>>();
+                vec![if names.is_empty() { "(none)".to_string() } else { names.join(", ") }]
+            }),
             StartupSection::new(
-                "Skills",
-                join_or_none(self.inventory.references.skills.iter().map(|skill| skill.name.as_str())),
+                "Diagnostics",
+                if self.diagnostics.is_empty() { vec!["(none)".to_string()] } else { self.diagnostics.clone() },
             ),
-            StartupSection::new("Diagnostics", join_or_none(self.diagnostics.iter().map(String::as_str))),
         ]
     }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StartupSection {
+    /// TOML-style section heading shown in the startup banner.
     pub heading: &'static str,
-    pub body: String,
+    /// Preformatted display lines shown under the section heading.
+    pub lines: Vec<String>,
 }
 
 impl StartupSection {
-    fn new(heading: &'static str, body: String) -> Self {
-        Self { heading, body }
+    fn new(heading: &'static str, lines: Vec<String>) -> Self {
+        Self { heading, lines }
     }
 }
 
-fn join_or_none<'a>(items: impl Iterator<Item = &'a str>) -> String {
-    let values = items.map(str::trim).filter(|item| !item.is_empty()).collect::<Vec<_>>();
-    if values.is_empty() { "(none)".to_string() } else { values.join(", ") }
+fn context_startup_lines(sources: &[ContextSnapshot]) -> Vec<String> {
+    if sources.is_empty() {
+        vec!["(none)".to_string()]
+    } else {
+        sources
+            .iter()
+            .map(|source| match source.truncated {
+                true => format!("{} (truncated, {} bytes)", source.path, source.byte_count),
+                false => source.path.clone(),
+            })
+            .collect()
+    }
 }
 
 fn element(out: &mut String, indent: usize, name: &str, value: &str) {
@@ -478,10 +490,24 @@ mod tests {
         );
         let sections = snapshot.startup_sections();
         assert!(sections.iter().any(|section| section.heading == "Runtime"));
+        let context = sections
+            .iter()
+            .find(|section| section.heading == "Context")
+            .expect("Context section should exist");
         assert!(
-            sections
-                .iter()
-                .any(|section| section.heading == "Context" && section.body == "(none)")
+            context.lines.iter().any(|line| line == "(none)"),
+            "Context with no sources should show (none): {:?}",
+            context.lines
+        );
+
+        let runtime = sections
+            .iter()
+            .find(|section| section.heading == "Runtime")
+            .expect("Runtime section should exist");
+        assert!(
+            runtime.lines.iter().any(|line| line.starts_with("provider =")),
+            "Runtime section should have provider = ... line: {:?}",
+            runtime.lines
         );
     }
 }

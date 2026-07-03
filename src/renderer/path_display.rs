@@ -58,8 +58,14 @@ struct DisplayPathComponent {
 }
 
 pub fn footer_segment(path: &Path, line_width: usize, used_width: usize) -> String {
+    let budget = line_width.saturating_sub(used_width + 1);
+    cwd_segment(path, budget)
+}
+
+/// Render a `cwd:` segment capped to `max_width` terminal cells.
+pub fn cwd_segment(path: &Path, max_width: usize) -> String {
     let prefix = "cwd: ";
-    let budget = line_width.saturating_sub(used_width + 1 + prefix.len());
+    let budget = max_width.saturating_sub(prefix.len());
     let home = std::env::var_os("HOME").map(PathBuf::from);
     format!("{prefix}{}", cwd_display_for_width_with_home(path, budget, home))
 }

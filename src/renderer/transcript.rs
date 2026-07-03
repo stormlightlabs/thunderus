@@ -14,6 +14,9 @@ use crate::utils;
 /// Maximum tool output lines rendered before a truncation marker is shown.
 const MAX_TOOL_OUTPUT_LINES: usize = 6;
 
+/// Horizontal rule glyph used to visually split startup banner sections.
+const BANNER_DIVIDER: &str = "─";
+
 /// Gutter prefix for tool output lines.
 pub const GUTTER: &str = "   │ ";
 
@@ -98,25 +101,39 @@ pub fn banner_rows(app: &crate::app::App, width: usize) -> Vec<Row> {
     );
 
     if !app.cwd.as_os_str().is_empty() {
-        push_wrapped_banner_row(
-            &mut rows,
-            &[Span::styled(format!("cwd: {}", app.cwd.display()), muted_style)],
-            width,
-            bg,
-        );
+        let body_width = super::layout::content_width(width);
+        let cwd_line = super::path_display::cwd_segment(&app.cwd, body_width);
+        push_banner_art_row(&mut rows, Span::styled(cwd_line, muted_style), width, bg);
     }
+    push_banner_divider_row(&mut rows, width, bg);
 
     for section in app.self_knowledge_snapshot().startup_sections() {
         push_wrapped_banner_row(
             &mut rows,
-            &[
-                Span::styled(format!("[{}] ", section.heading), title_style),
-                Span::styled(section.body, muted_style),
-            ],
+            &[Span::styled(format!("[{}]", section.heading), title_style)],
             width,
             bg,
         );
+        let body_width = super::layout::content_width(width).saturating_sub(2);
+        for line in &section.lines {
+            let display_line = match section.heading {
+                "Context" | "Diagnostics" => super::path_display::transcript_line(line, &app.cwd),
+                _ => line.clone(),
+            };
+            for wrapped in super::layout::wrap_text(&display_line, body_width) {
+                push_wrapped_banner_row(
+                    &mut rows,
+                    &[
+                        Span::styled("  ", CellStyle::new().bg(bg)),
+                        Span::styled(wrapped, muted_style),
+                    ],
+                    width,
+                    bg,
+                );
+            }
+        }
     }
+    push_banner_divider_row(&mut rows, width, bg);
 
     push_wrapped_banner_row(
         &mut rows,
@@ -455,6 +472,19 @@ fn push_wrapped_banner_row(rows: &mut Vec<Row>, spans: &[Span], width: usize, bg
 
 fn push_banner_art_row(rows: &mut Vec<Row>, span: Span, width: usize, bg: Color) {
     rows.push(Row::padded(vec![span], width, bg_style(bg)));
+}
+
+fn push_banner_divider_row(rows: &mut Vec<Row>, width: usize, bg: Color) {
+    let p = super::style::palette();
+    push_banner_art_row(
+        rows,
+        Span::styled(
+            BANNER_DIVIDER.repeat(width.saturating_sub(4)),
+            CellStyle::new().fg(p.overlay0).bg(bg),
+        ),
+        width,
+        bg,
+    );
 }
 
 /// Detect whether a tool output line is a section header.

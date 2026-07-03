@@ -23,7 +23,7 @@ fn render_entry_styled(entry: &Entry, width: usize) -> String {
     frame.render_styled()
 }
 
-fn assert_region_snapshot(name: &str, contents: String) {
+fn assert_region_snapshot(name: &str, contents: &str) {
     insta::with_settings!({snapshot_path => "../snapshots"}, {
         insta::assert_snapshot!(name, contents);
     });
@@ -577,8 +577,8 @@ fn vt100_resize_replays_startup_banner_with_committed_scrollback() {
 
     let contents = vt100_contents(backend.writer(), 80, 22);
     assert!(
-        contents.contains("thndrs  coding agent"),
-        "startup banner metadata should be replayed with committed scrollback after resize:\n{contents}"
+        contents.contains("[Context]"),
+        "startup banner section headings should be replayed with committed scrollback after resize:\n{contents}"
     );
     assert!(
         contents.contains("trigger scrollback replay"),
@@ -662,7 +662,7 @@ fn snapshot_empty_live_frame() {
     let app = test_app();
     let lr = LiveRegion::new();
     let frame = lr.build_frame(&app, 80, 24);
-    assert_region_snapshot("empty_live_frame", frame.render_styled());
+    assert_region_snapshot("empty_live_frame", &frame.render_styled());
 }
 
 #[test]
@@ -673,7 +673,7 @@ fn snapshot_streaming_live_frame() {
     app.input.set_text("follow up");
     let lr = LiveRegion::new();
     let frame = lr.build_frame(&app, 80, 24);
-    assert_region_snapshot("streaming_live_frame", frame.render_styled());
+    assert_region_snapshot("streaming_live_frame", &frame.render_styled());
 }
 
 #[test]
@@ -682,7 +682,7 @@ fn snapshot_narrow_live_frame() {
     app.input.set_text("a longer prompt that should wrap at narrow width");
     let lr = LiveRegion::new();
     let frame = lr.build_frame(&app, 40, 20);
-    assert_region_snapshot("narrow_live_frame", frame.render_styled());
+    assert_region_snapshot("narrow_live_frame", &frame.render_styled());
 }
 
 #[test]
@@ -690,7 +690,7 @@ fn snapshot_startup_banner() {
     let app = test_app();
     let rows = transcript::banner_rows(&app, 80);
     let frame = row::Frame { rows, width: 80, cursor: None, cursor_visible: true };
-    assert_region_snapshot("startup_banner", frame.render_styled());
+    assert_region_snapshot("startup_banner", &frame.render_styled());
 }
 
 #[test]
@@ -698,20 +698,20 @@ fn snapshot_narrow_startup_banner() {
     let app = test_app();
     let rows = transcript::banner_rows(&app, 40);
     let frame = row::Frame { rows, width: 40, cursor: None, cursor_visible: true };
-    assert_region_snapshot("narrow_startup_banner", frame.render_styled());
+    assert_region_snapshot("narrow_startup_banner", &frame.render_styled());
 }
 
 #[test]
 fn snapshot_user_message() {
     let entry = Entry::User { text: "Hello, can you help me with this?".to_string() };
-    assert_region_snapshot("user_message", render_entry_styled(&entry, 80));
+    assert_region_snapshot("user_message", &render_entry_styled(&entry, 80));
 }
 
 #[test]
 fn snapshot_assistant_text() {
     let entry =
         Entry::Assistant { text: "Sure! I can help with that. Let me take a look.".to_string(), streaming: false };
-    assert_region_snapshot("assistant_text", render_entry_styled(&entry, 80));
+    assert_region_snapshot("assistant_text", &render_entry_styled(&entry, 80));
 }
 
 #[test]
@@ -720,13 +720,13 @@ fn snapshot_assistant_with_code_fence() {
         text: "````md\nHere is the code:\n\n```rs\nfn main() {\n    println!(\"hello\");\n}\n```\n````".to_string(),
         streaming: false,
     };
-    assert_region_snapshot("assistant_code_fence", render_entry_styled(&entry, 80));
+    assert_region_snapshot("assistant_code_fence", &render_entry_styled(&entry, 80));
 }
 
 #[test]
 fn snapshot_reasoning() {
     let entry = Entry::Reasoning { text: "I need to check the file structure first.".to_string(), streaming: false };
-    assert_region_snapshot("reasoning_block", render_entry_styled(&entry, 80));
+    assert_region_snapshot("reasoning_block", &render_entry_styled(&entry, 80));
 }
 
 #[test]
@@ -741,7 +741,7 @@ fn snapshot_tool_ok() {
             "src/main.rs:3:}".to_string(),
         ],
     };
-    assert_region_snapshot("tool_ok", render_entry_styled(&entry, 80));
+    assert_region_snapshot("tool_ok", &render_entry_styled(&entry, 80));
 }
 
 #[test]
@@ -758,13 +758,13 @@ fn snapshot_tool_failed() {
             "   |               ^^^^^^^^".to_string(),
         ],
     };
-    assert_region_snapshot("tool_failed", render_entry_styled(&entry, 80));
+    assert_region_snapshot("tool_failed", &render_entry_styled(&entry, 80));
 }
 
 #[test]
 fn snapshot_error_message() {
     let entry = Entry::Error { text: "Provider request failed: connection refused".to_string() };
-    assert_region_snapshot("error_message", render_entry_styled(&entry, 80));
+    assert_region_snapshot("error_message", &render_entry_styled(&entry, 80));
 }
 
 #[test]
@@ -782,7 +782,7 @@ fn snapshot_rust_compiler_output() {
             "   |                    ^^^^^".to_string(),
         ],
     };
-    assert_region_snapshot("rust_compiler_output", render_entry_styled(&entry, 80));
+    assert_region_snapshot("rust_compiler_output", &render_entry_styled(&entry, 80));
 }
 
 #[test]
@@ -798,7 +798,7 @@ fn snapshot_json_output() {
             "}".to_string(),
         ],
     };
-    assert_region_snapshot("json_output", render_entry_styled(&entry, 80));
+    assert_region_snapshot("json_output", &render_entry_styled(&entry, 80));
 }
 
 #[test]
@@ -807,7 +807,7 @@ fn snapshot_plain_prose() {
             text: "This is a plain prose response without any code or special formatting. It should wrap nicely across multiple lines when the terminal is narrow enough.".to_string(),
             streaming: false,
         };
-    assert_region_snapshot("plain_prose", render_entry_styled(&entry, 60));
+    assert_region_snapshot("plain_prose", &render_entry_styled(&entry, 60));
 }
 
 #[test]
@@ -826,7 +826,7 @@ fn snapshot_diff_output() {
             " }".to_string(),
         ],
     };
-    assert_region_snapshot("diff_output", render_entry_styled(&entry, 80));
+    assert_region_snapshot("diff_output", &render_entry_styled(&entry, 80));
 }
 
 #[test]
@@ -837,13 +837,13 @@ fn snapshot_tool_with_truncated_output() {
         status: ToolStatus::Ok,
         output: (0..20).map(|i| format!("file_{i}.rs")).collect(),
     };
-    assert_region_snapshot("tool_truncated_output", render_entry_styled(&entry, 80));
+    assert_region_snapshot("tool_truncated_output", &render_entry_styled(&entry, 80));
 }
 
 #[test]
 fn snapshot_status_entry() {
     let entry = Entry::Status { text: "context  AGENTS.md (scope: .)".to_string() };
-    assert_region_snapshot("status_entry", render_entry_styled(&entry, 80));
+    assert_region_snapshot("status_entry", &render_entry_styled(&entry, 80));
 }
 
 #[test]
@@ -903,7 +903,7 @@ fn snapshot_streaming_tool_with_output() {
     });
     let lr = LiveRegion::new();
     let frame = lr.build_frame(&app, 80, 24);
-    assert_region_snapshot("streaming_tool_with_output", frame.render_styled());
+    assert_region_snapshot("streaming_tool_with_output", &frame.render_styled());
 }
 
 #[test]

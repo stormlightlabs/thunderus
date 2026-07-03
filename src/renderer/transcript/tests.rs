@@ -2,6 +2,7 @@ use std::path::Path;
 
 use crate::app::{Entry, ToolStatus};
 use crate::renderer::row;
+use crate::skills;
 
 use super::{TranscriptRowContext, banner_rows, entry_rows};
 
@@ -21,7 +22,7 @@ fn render_banner_styled(app: &crate::app::App, width: usize) -> String {
     frame.render_styled()
 }
 
-fn assert_snapshot(name: &str, contents: String) {
+fn assert_snapshot(name: &str, contents: &str) {
     insta::with_settings!({snapshot_path => "../snapshots"}, {
         insta::assert_snapshot!(name, contents);
     });
@@ -61,27 +62,27 @@ fn test_app() -> crate::app::App {
 #[test]
 fn snapshot_user_message_normal() {
     let entry = Entry::User { text: "Hello, can you help me with this?".to_string() };
-    assert_snapshot("transcript_user_message_normal", render_entry_styled(&entry, 80));
+    assert_snapshot("transcript_user_message_normal", &render_entry_styled(&entry, 80));
 }
 
 #[test]
 fn snapshot_user_message_narrow() {
     let entry = Entry::User { text: "Hello, can you help me with this?".to_string() };
-    assert_snapshot("transcript_user_message_narrow", render_entry_styled(&entry, 40));
+    assert_snapshot("transcript_user_message_narrow", &render_entry_styled(&entry, 40));
 }
 
 #[test]
 fn snapshot_assistant_text_normal() {
     let entry =
         Entry::Assistant { text: "Sure! I can help with that. Let me take a look.".to_string(), streaming: false };
-    assert_snapshot("transcript_assistant_text_normal", render_entry_styled(&entry, 80));
+    assert_snapshot("transcript_assistant_text_normal", &render_entry_styled(&entry, 80));
 }
 
 #[test]
 fn snapshot_assistant_text_narrow() {
     let entry =
         Entry::Assistant { text: "Sure! I can help with that. Let me take a look.".to_string(), streaming: false };
-    assert_snapshot("transcript_assistant_text_narrow", render_entry_styled(&entry, 40));
+    assert_snapshot("transcript_assistant_text_narrow", &render_entry_styled(&entry, 40));
 }
 
 #[test]
@@ -92,7 +93,7 @@ fn snapshot_assistant_code_fence_normal() {
     };
     assert_snapshot(
         "transcript_assistant_code_fence_normal",
-        render_entry_styled(&entry, 80),
+        &render_entry_styled(&entry, 80),
     );
 }
 
@@ -104,20 +105,20 @@ fn snapshot_assistant_code_fence_narrow() {
     };
     assert_snapshot(
         "transcript_assistant_code_fence_narrow",
-        render_entry_styled(&entry, 40),
+        &render_entry_styled(&entry, 40),
     );
 }
 
 #[test]
 fn snapshot_reasoning_normal() {
     let entry = Entry::Reasoning { text: "I need to check the file structure first.".to_string(), streaming: false };
-    assert_snapshot("transcript_reasoning_normal", render_entry_styled(&entry, 80));
+    assert_snapshot("transcript_reasoning_normal", &render_entry_styled(&entry, 80));
 }
 
 #[test]
 fn snapshot_reasoning_narrow() {
     let entry = Entry::Reasoning { text: "I need to check the file structure first.".to_string(), streaming: false };
-    assert_snapshot("transcript_reasoning_narrow", render_entry_styled(&entry, 40));
+    assert_snapshot("transcript_reasoning_narrow", &render_entry_styled(&entry, 40));
 }
 
 #[test]
@@ -132,7 +133,7 @@ fn snapshot_tool_running_normal() {
             "test tests::bar ... ok".to_string(),
         ],
     };
-    assert_snapshot("transcript_tool_running_normal", render_entry_styled(&entry, 80));
+    assert_snapshot("transcript_tool_running_normal", &render_entry_styled(&entry, 80));
 }
 
 #[test]
@@ -147,7 +148,7 @@ fn snapshot_tool_running_narrow() {
             "test tests::bar ... ok".to_string(),
         ],
     };
-    assert_snapshot("transcript_tool_running_narrow", render_entry_styled(&entry, 40));
+    assert_snapshot("transcript_tool_running_narrow", &render_entry_styled(&entry, 40));
 }
 
 #[test]
@@ -166,7 +167,7 @@ fn snapshot_tool_running_partial_output() {
     };
     assert_snapshot(
         "transcript_tool_running_partial_output",
-        render_entry_styled(&entry, 80),
+        &render_entry_styled(&entry, 80),
     );
 }
 
@@ -182,7 +183,7 @@ fn snapshot_tool_ok_normal() {
             "src/main.rs:3:}".to_string(),
         ],
     };
-    assert_snapshot("transcript_tool_ok_normal", render_entry_styled(&entry, 80));
+    assert_snapshot("transcript_tool_ok_normal", &render_entry_styled(&entry, 80));
 }
 
 #[test]
@@ -197,7 +198,7 @@ fn snapshot_tool_ok_narrow() {
             "src/main.rs:3:}".to_string(),
         ],
     };
-    assert_snapshot("transcript_tool_ok_narrow", render_entry_styled(&entry, 40));
+    assert_snapshot("transcript_tool_ok_narrow", &render_entry_styled(&entry, 40));
 }
 
 #[test]
@@ -211,7 +212,7 @@ fn snapshot_tool_ok_highlighted() {
             "    Finished `dev` profile [unoptimized + debuginfo] target(s)".to_string(),
         ],
     };
-    assert_snapshot("transcript_tool_ok_highlighted", render_entry_styled(&entry, 80));
+    assert_snapshot("transcript_tool_ok_highlighted", &render_entry_styled(&entry, 80));
 }
 
 #[test]
@@ -247,7 +248,7 @@ fn snapshot_tool_failed_normal() {
             "   |               ^^^^^^^^".to_string(),
         ],
     };
-    assert_snapshot("transcript_tool_failed_normal", render_entry_styled(&entry, 80));
+    assert_snapshot("transcript_tool_failed_normal", &render_entry_styled(&entry, 80));
 }
 
 #[test]
@@ -264,7 +265,7 @@ fn snapshot_tool_failed_narrow() {
             "   |               ^^^^^^^^".to_string(),
         ],
     };
-    assert_snapshot("transcript_tool_failed_narrow", render_entry_styled(&entry, 40));
+    assert_snapshot("transcript_tool_failed_narrow", &render_entry_styled(&entry, 40));
 }
 
 #[test]
@@ -282,43 +283,175 @@ fn snapshot_tool_failed_compiler() {
             "   |                    ^^^^^".to_string(),
         ],
     };
-    assert_snapshot("transcript_tool_failed_compiler", render_entry_styled(&entry, 80));
+    assert_snapshot("transcript_tool_failed_compiler", &render_entry_styled(&entry, 80));
 }
 
 #[test]
 fn snapshot_status_entry_normal() {
     let entry = Entry::Status { text: "context  AGENTS.md (scope: .)".to_string() };
-    assert_snapshot("transcript_status_entry_normal", render_entry_styled(&entry, 80));
+    assert_snapshot("transcript_status_entry_normal", &render_entry_styled(&entry, 80));
 }
 
 #[test]
 fn snapshot_status_entry_narrow() {
     let entry = Entry::Status { text: "context  AGENTS.md (scope: .)".to_string() };
-    assert_snapshot("transcript_status_entry_narrow", render_entry_styled(&entry, 40));
+    assert_snapshot("transcript_status_entry_narrow", &render_entry_styled(&entry, 40));
 }
 
 #[test]
 fn snapshot_error_message_normal() {
     let entry = Entry::Error { text: "Provider request failed: connection refused".to_string() };
-    assert_snapshot("transcript_error_message_normal", render_entry_styled(&entry, 80));
+    assert_snapshot("transcript_error_message_normal", &render_entry_styled(&entry, 80));
 }
 
 #[test]
 fn snapshot_error_message_narrow() {
     let entry = Entry::Error { text: "Provider request failed: connection refused".to_string() };
-    assert_snapshot("transcript_error_message_narrow", render_entry_styled(&entry, 40));
+    assert_snapshot("transcript_error_message_narrow", &render_entry_styled(&entry, 40));
 }
 
 #[test]
 fn snapshot_startup_banner_normal() {
     let app = test_app();
-    assert_snapshot("transcript_startup_banner_normal", render_banner_styled(&app, 80));
+    assert_snapshot("transcript_startup_banner_normal", &render_banner_styled(&app, 80));
 }
 
 #[test]
 fn snapshot_startup_banner_narrow() {
     let app = test_app();
-    assert_snapshot("transcript_startup_banner_narrow", render_banner_styled(&app, 40));
+    assert_snapshot("transcript_startup_banner_narrow", &render_banner_styled(&app, 40));
+}
+
+#[test]
+fn snapshot_startup_banner_with_context_and_diagnostics() {
+    let mut app = test_app();
+    app.context_sources = vec![crate::context::ContextSource {
+        path: app.cwd.join("AGENTS.md"),
+        scope: ".".to_string(),
+        content: "# Project".to_string(),
+        content_hash: 42,
+        truncated: false,
+        byte_count: 9,
+    }];
+    app.skill_diagnostics = vec![crate::skills::SkillDiagnostic {
+        path: std::path::PathBuf::from("/Users/test/.thndrs/skills/bad/SKILL.md"),
+        message: "invalid YAML frontmatter".to_string(),
+    }];
+    assert_snapshot(
+        "transcript_startup_banner_with_context_and_diagnostics",
+        &render_banner_styled(&app, 80),
+    );
+}
+
+#[test]
+fn banner_context_section_shows_agents_md_not_full_path() {
+    let mut app = test_app();
+    app.context_sources = vec![crate::context::ContextSource {
+        path: app.cwd.join("AGENTS.md"),
+        scope: ".".to_string(),
+        content: "# Project".to_string(),
+        content_hash: 42,
+        truncated: false,
+        byte_count: 9,
+    }];
+
+    let rendered = render_banner_styled(&app, 80);
+
+    assert!(
+        rendered.contains("AGENTS.md"),
+        "Context section should show AGENTS.md:\n{rendered}"
+    );
+}
+
+#[test]
+fn banner_context_section_shows_truncation() {
+    let mut app = test_app();
+    app.context_sources = vec![crate::context::ContextSource {
+        path: app.cwd.join("AGENTS.md"),
+        scope: ".".to_string(),
+        content: "# Project".to_string(),
+        content_hash: 42,
+        truncated: true,
+        byte_count: 40_000,
+    }];
+
+    let rendered = render_banner_styled(&app, 80);
+
+    assert!(
+        rendered.contains("AGENTS.md (truncated, 40000 bytes)"),
+        "Context section should preserve AGENTS.md truncation metadata:\n{rendered}"
+    );
+}
+
+#[test]
+fn banner_cwd_uses_statusline_truncation_without_wrapping() {
+    let app = test_app();
+    let rendered = render_banner_styled(&app, 40);
+
+    assert!(
+        rendered.contains("cwd: ~/Pr/St/O/thndrs"),
+        "cwd row should use statusline-style path truncation:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("ource/thndrs"),
+        "cwd row should not wrap onto a second row:\n{rendered}"
+    );
+}
+
+#[test]
+fn banner_diagnostics_section_shortens_home_paths() {
+    let mut app = test_app();
+    let home = std::env::var_os("HOME")
+        .map(std::path::PathBuf::from)
+        .expect("HOME should be set for startup banner path shortening test");
+    let home_path = home.join(".thndrs/skills/bad/SKILL.md");
+    app.skill_diagnostics = vec![skills::SkillDiagnostic {
+        path: home_path.clone(),
+        message: "invalid YAML frontmatter: unknown field".to_string(),
+    }];
+
+    let rendered = render_banner_styled(&app, 80);
+
+    assert!(
+        rendered.contains("~/.thndrs/skills/bad/SKILL.md"),
+        "Diagnostics section should shorten HOME paths:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains(&home_path.display().to_string()),
+        "Diagnostics section should not show the full HOME path:\n{rendered}"
+    );
+}
+
+#[test]
+fn banner_no_duplicate_context_loaded_status_entry() {
+    let mut app = test_app();
+    app.context_sources = vec![crate::context::ContextSource {
+        path: app.cwd.join("AGENTS.md"),
+        scope: ".".to_string(),
+        content: "# Project".to_string(),
+        content_hash: 42,
+        truncated: false,
+        byte_count: 9,
+    }];
+
+    assert!(
+        app.transcript.is_empty(),
+        "transcript should not contain a context-loaded status entry"
+    );
+
+    let rendered = render_banner_styled(&app, 80);
+    assert!(
+        rendered.contains("[Context]"),
+        "banner should have a Context section:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("AGENTS.md"),
+        "Context section should list the AGENTS.md source:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("loaded "),
+        "banner should not contain a 'loaded' status message:\n{rendered}"
+    );
 }
 
 #[test]
@@ -329,7 +462,7 @@ fn snapshot_tool_truncated_output() {
         status: ToolStatus::Ok,
         output: (0..20).map(|i| format!("file_{i}.rs")).collect(),
     };
-    assert_snapshot("transcript_tool_truncated_output", render_entry_styled(&entry, 80));
+    assert_snapshot("transcript_tool_truncated_output", &render_entry_styled(&entry, 80));
 }
 
 #[test]
@@ -388,7 +521,7 @@ fn snapshot_tool_search_results() {
             "src/lib.rs:25:    helper();".to_string(),
         ],
     };
-    assert_snapshot("transcript_tool_search_results", render_entry_styled(&entry, 80));
+    assert_snapshot("transcript_tool_search_results", &render_entry_styled(&entry, 80));
 }
 
 #[test]
@@ -402,7 +535,10 @@ fn snapshot_tool_search_results_narrow() {
             "src/main.rs:2:    println!(\"hello\");".to_string(),
         ],
     };
-    assert_snapshot("transcript_tool_search_results_narrow", render_entry_styled(&entry, 40));
+    assert_snapshot(
+        "transcript_tool_search_results_narrow",
+        &render_entry_styled(&entry, 40),
+    );
 }
 
 #[test]
@@ -429,7 +565,7 @@ fn snapshot_tool_cancelled() {
         status: ToolStatus::Cancelled,
         output: vec!["running 3 tests".to_string(), "test tests::foo ... ok".to_string()],
     };
-    assert_snapshot("transcript_tool_cancelled", render_entry_styled(&entry, 80));
+    assert_snapshot("transcript_tool_cancelled", &render_entry_styled(&entry, 80));
 }
 
 #[test]
@@ -440,7 +576,7 @@ fn snapshot_tool_cancelled_narrow() {
         status: ToolStatus::Cancelled,
         output: vec!["running 3 tests".to_string(), "test tests::foo ... ok".to_string()],
     };
-    assert_snapshot("transcript_tool_cancelled_narrow", render_entry_styled(&entry, 40));
+    assert_snapshot("transcript_tool_cancelled_narrow", &render_entry_styled(&entry, 40));
 }
 
 #[test]

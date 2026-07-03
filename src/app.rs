@@ -262,6 +262,22 @@ pub enum Msg {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+enum KeyOutcome {
+    Unhandled,
+    Handled,
+    Followup(Msg),
+}
+
+impl KeyOutcome {
+    fn with(followup: Option<Msg>) -> Self {
+        match followup {
+            Some(msg) => Self::Followup(msg),
+            None => Self::Handled,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PickerItem {
     pub label: String,
     pub detail: String,
@@ -414,25 +430,16 @@ pub struct App {
     pub quit: bool,
 }
 
-impl App {
-    /// Build the initial app from parsed CLI args.
-    ///
-    /// Discovers the workspace root from `--cwd` (preferring the git root),
-    /// loads root `AGENTS.md` if present, and adds a transcript status entry
-    /// showing loaded context sources.
-    pub fn from_cli(cli: &Cli) -> Self {
-        let workspace_root = context::discover_workspace_root(&cli.cwd);
+impl From<&Cli> for App {
+    fn from(value: &Cli) -> Self {
+        let workspace_root = context::discover_workspace_root(&value.cwd);
         let context_sources = match context::load_agents_md(&workspace_root) {
             Some(source) => vec![source],
             None => Vec::new(),
         };
-        let skill_inventory = skills::discover(&workspace_root, &cli.skill_dirs);
+        let skill_inventory = skills::discover(&workspace_root, &value.skill_dirs);
 
-        let mut transcript = Vec::new();
-        if !context_sources.is_empty() {
-            let summaries: Vec<String> = context_sources.iter().map(|s| s.summary()).collect();
-            transcript.push(Entry::Status { text: format!("context  {}", summaries.join(", ")) });
-        }
+        let transcript = Vec::new();
         let sessions_dir = session::sessions_dir(&workspace_root);
         let session_id = session::generate_session_id();
         let mut session_writer = session::SessionWriter::create(
@@ -440,9 +447,9 @@ impl App {
             &session_id,
             &workspace_root.display().to_string(),
             "scratch",
-            agent::ProviderKind::for_model(&cli.model).label(),
-            &cli.model,
-            cli.websearch.label(),
+            agent::ProviderKind::for_model(&value.model).label(),
+            &value.model,
+            value.websearch.label(),
             env!("CARGO_PKG_VERSION"),
         )
         .ok();
@@ -464,12 +471,12 @@ impl App {
             transcript,
             git_status: crate::renderer::git::collect(&workspace_root),
             cwd: workspace_root,
-            model: cli.model.clone(),
+            model: value.model.clone(),
             model_picker_items: offline_model_picker_items(),
             user_label: default_user_label(),
-            websearch: cli.websearch,
-            theme: cli.theme,
-            verbose: cli.verbose,
+            websearch: value.websearch,
+            theme: value.theme,
+            verbose: value.verbose,
             session_tokens_in: 0,
             session_tokens_out: 0,
             context_sources,
@@ -490,6 +497,16 @@ impl App {
             detail_pane: DetailPane::default(),
             quit: false,
         }
+    }
+}
+
+impl App {
+    /// Build the initial app from parsed CLI args.
+    ///
+    /// Discovers the workspace root from `--cwd` (preferring the git root), loads root
+    /// `AGENTS.md` if present, and records context source metadata in the session.
+    pub fn from_cli(cli: &Cli) -> Self {
+        cli.into()
     }
 
     /// Build the compact self-knowledge snapshot used by the startup display.
@@ -530,9 +547,8 @@ impl App {
 
     /// Derive the granular status label for the status line.
     ///
-    /// Maps `RunState` plus the last transcript entry into one of
-    /// idle, sending, thinking, working, running tool, stopping,
-    /// cancelled, failed, error, done.
+    /// Maps `RunState` plus the last transcript entry into one of idle, sending,
+    /// thinking, working, running tool, stopping, cancelled, failed, error, done.
     pub fn status_label(&self) -> &'static str {
         match self.run_state {
             RunState::Working => match self.transcript.last() {
@@ -545,19 +561,17 @@ impl App {
             },
             RunState::Stopping => "stopping",
             RunState::Error(_) => "failed",
-            RunState::Idle => {
-                if matches!(self.transcript.last(), Some(Entry::Status { text }) if text == "cancelled") {
-                    return "cancelled";
-                }
-                match self.last_non_status_entry() {
+            RunState::Idle => match self.transcript.last() {
+                Some(Entry::Status { text }) if text == "cancelled" => "cancelled",
+                _ => match self.last_non_status_entry() {
                     Some(Entry::Error { .. }) => "failed",
                     Some(Entry::Tool { status: ToolStatus::Failed, .. }) => "failed",
                     Some(Entry::Tool { status: ToolStatus::Cancelled, .. }) => "cancelled",
                     Some(Entry::Assistant { streaming: false, .. })
                     | Some(Entry::Tool { status: ToolStatus::Ok, .. }) => "done",
                     _ => "idle",
-                }
-            }
+                },
+            },
         }
     }
 
@@ -565,23 +579,20 @@ impl App {
     pub fn prompt_state(&self) -> PromptState {
         match self.run_state {
             RunState::Working => match self.transcript.last() {
-                Some(Entry::Reasoning { streaming: true, .. }) | Some(Entry::Assistant { streaming: true, .. }) => {
-                    PromptState::Streaming
-                }
+                Some(Entry::Reasoning { streaming: true, .. }) => PromptState::Streaming,
+                Some(Entry::Assistant { streaming: true, .. }) => PromptState::Streaming,
                 Some(Entry::Tool { status: ToolStatus::Running, .. }) => PromptState::RunningTool,
                 _ => PromptState::Submitted,
             },
             RunState::Stopping => PromptState::Stopped,
             RunState::Error(_) => PromptState::Errored,
-            RunState::Idle => {
-                if matches!(self.transcript.last(), Some(Entry::Status { text }) if text == "cancelled") {
-                    return PromptState::Stopped;
-                }
-                match self.last_non_status_entry() {
+            RunState::Idle => match self.transcript.last() {
+                Some(Entry::Status { text }) if text == "cancelled" => PromptState::Stopped,
+                _ => match self.last_non_status_entry() {
                     Some(Entry::Error { .. }) => PromptState::Errored,
                     _ => PromptState::Editable,
-                }
-            }
+                },
+            },
         }
     }
 
@@ -703,10 +714,12 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
         return handle_detail_pane_key(app, key);
     }
 
-    if !matches!(app.prompt_accessory, PromptAccessory::None)
-        && let Some(msg) = handle_accessory_key(app, key)
-    {
-        return msg;
+    if !matches!(app.prompt_accessory, PromptAccessory::None) {
+        match handle_accessory_key(app, key) {
+            KeyOutcome::Unhandled => {}
+            KeyOutcome::Handled => return None,
+            KeyOutcome::Followup(msg) => return Some(msg),
+        }
     }
 
     match app.mode {
@@ -731,41 +744,41 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) -> Option<Msg> {
     }
 }
 
-fn handle_accessory_key(app: &mut App, key: KeyEvent) -> Option<Option<Msg>> {
+fn handle_accessory_key(app: &mut App, key: KeyEvent) -> KeyOutcome {
     match app.prompt_accessory {
         PromptAccessory::Help => match key.code {
             KeyCode::Esc => {
                 close_prompt_accessory(app);
-                Some(None)
+                KeyOutcome::Handled
             }
-            _ => None,
+            _ => KeyOutcome::Unhandled,
         },
         PromptAccessory::Commands { .. } => handle_command_accessory_key(app, key),
         PromptAccessory::Files(_) => handle_file_accessory_key(app, key),
         PromptAccessory::Models => handle_model_accessory_key(app, key),
         PromptAccessory::Skills => handle_skill_accessory_key(app, key),
-        PromptAccessory::None => None,
+        PromptAccessory::None => KeyOutcome::Unhandled,
     }
 }
 
-fn handle_command_accessory_key(app: &mut App, key: KeyEvent) -> Option<Option<Msg>> {
+fn handle_command_accessory_key(app: &mut App, key: KeyEvent) -> KeyOutcome {
     let count = command_suggestions_for_app(app).len();
     match key.code {
         KeyCode::Esc => {
             close_prompt_accessory(app);
-            Some(None)
+            KeyOutcome::Handled
         }
         KeyCode::Up => {
             if let PromptAccessory::Commands { selected } = &mut app.prompt_accessory {
                 *selected = selected.saturating_sub(1);
             }
-            Some(None)
+            KeyOutcome::Handled
         }
         KeyCode::Down => {
             if let PromptAccessory::Commands { selected } = &mut app.prompt_accessory {
                 *selected = (*selected + 1).min(count.saturating_sub(1));
             }
-            Some(None)
+            KeyOutcome::Handled
         }
         KeyCode::Enter
             if count > 0
@@ -773,136 +786,142 @@ fn handle_command_accessory_key(app: &mut App, key: KeyEvent) -> Option<Option<M
                     .iter()
                     .any(|(cmd, _)| *cmd == command_query(app)) =>
         {
-            Some(accept_command_suggestion(app))
+            KeyOutcome::with(accept_command_suggestion(app))
         }
-        _ => None,
+        _ => KeyOutcome::Unhandled,
     }
 }
 
-fn handle_file_accessory_key(app: &mut App, key: KeyEvent) -> Option<Option<Msg>> {
+fn handle_file_accessory_key(app: &mut App, key: KeyEvent) -> KeyOutcome {
     let source = match app.prompt_accessory {
         PromptAccessory::Files(source) => source,
-        _ => return None,
+        _ => return KeyOutcome::Unhandled,
     };
-    let picker = app.picker.as_mut()?;
+    let Some(picker) = app.picker.as_mut() else {
+        return KeyOutcome::Unhandled;
+    };
     match key.code {
         KeyCode::Esc => {
             close_prompt_accessory(app);
-            Some(None)
+            KeyOutcome::Handled
         }
         KeyCode::Enter => {
             accept_file_suggestion(app);
-            Some(None)
+            KeyOutcome::Handled
         }
         KeyCode::Up => {
             picker.move_up();
-            Some(None)
+            KeyOutcome::Handled
         }
         KeyCode::Down => {
             picker.move_down();
-            Some(None)
+            KeyOutcome::Handled
         }
         KeyCode::PageUp => {
             picker.page_up();
-            Some(None)
+            KeyOutcome::Handled
         }
         KeyCode::PageDown => {
             picker.page_down();
-            Some(None)
+            KeyOutcome::Handled
         }
         KeyCode::Backspace if source == FilePickerSource::Forced => {
             picker.query.pop();
             picker.refresh_matches();
-            Some(None)
+            KeyOutcome::Handled
         }
         KeyCode::Char(ch) if source == FilePickerSource::Forced => {
             picker.query.push(ch);
             picker.refresh_matches();
-            Some(None)
+            KeyOutcome::Handled
         }
-        _ => None,
+        _ => KeyOutcome::Unhandled,
     }
 }
 
-fn handle_model_accessory_key(app: &mut App, key: KeyEvent) -> Option<Option<Msg>> {
-    let picker = app.picker.as_mut()?;
+fn handle_model_accessory_key(app: &mut App, key: KeyEvent) -> KeyOutcome {
+    let Some(picker) = app.picker.as_mut() else {
+        return KeyOutcome::Unhandled;
+    };
     match key.code {
         KeyCode::Esc => {
             close_prompt_accessory(app);
-            Some(None)
+            KeyOutcome::Handled
         }
         KeyCode::Enter => {
             accept_model_suggestion(app);
-            Some(None)
+            KeyOutcome::Handled
         }
         KeyCode::Up => {
             picker.move_up();
-            Some(None)
+            KeyOutcome::Handled
         }
         KeyCode::Down => {
             picker.move_down();
-            Some(None)
+            KeyOutcome::Handled
         }
         KeyCode::PageUp => {
             picker.page_up();
-            Some(None)
+            KeyOutcome::Handled
         }
         KeyCode::PageDown => {
             picker.page_down();
-            Some(None)
+            KeyOutcome::Handled
         }
         KeyCode::Backspace => {
             picker.query.pop();
             picker.refresh_matches();
-            Some(None)
+            KeyOutcome::Handled
         }
         KeyCode::Char(ch) => {
             picker.query.push(ch);
             picker.refresh_matches();
-            Some(None)
+            KeyOutcome::Handled
         }
-        _ => None,
+        _ => KeyOutcome::Unhandled,
     }
 }
 
-fn handle_skill_accessory_key(app: &mut App, key: KeyEvent) -> Option<Option<Msg>> {
-    let picker = app.picker.as_mut()?;
+fn handle_skill_accessory_key(app: &mut App, key: KeyEvent) -> KeyOutcome {
+    let Some(picker) = app.picker.as_mut() else {
+        return KeyOutcome::Unhandled;
+    };
     match key.code {
         KeyCode::Esc => {
             close_prompt_accessory(app);
-            Some(None)
+            KeyOutcome::Handled
         }
         KeyCode::Enter => {
             accept_skill_suggestion(app);
-            Some(None)
+            KeyOutcome::Handled
         }
         KeyCode::Up => {
             picker.move_up();
-            Some(None)
+            KeyOutcome::Handled
         }
         KeyCode::Down => {
             picker.move_down();
-            Some(None)
+            KeyOutcome::Handled
         }
         KeyCode::PageUp => {
             picker.page_up();
-            Some(None)
+            KeyOutcome::Handled
         }
         KeyCode::PageDown => {
             picker.page_down();
-            Some(None)
+            KeyOutcome::Handled
         }
         KeyCode::Backspace => {
             picker.query.pop();
             picker.refresh_matches();
-            Some(None)
+            KeyOutcome::Handled
         }
         KeyCode::Char(ch) => {
             picker.query.push(ch);
             picker.refresh_matches();
-            Some(None)
+            KeyOutcome::Handled
         }
-        _ => None,
+        _ => KeyOutcome::Unhandled,
     }
 }
 

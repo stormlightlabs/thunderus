@@ -872,12 +872,10 @@ fn app_with_agents_md_loads_context_and_adds_status() {
     assert_eq!(source.scope, ".");
     assert!(!source.truncated);
     assert!(source.content.contains("# Project"));
-
-    assert_eq!(app.transcript.len(), 1);
-    match &app.transcript[0] {
-        Entry::Status { text } => assert!(text.contains("loaded")),
-        _ => panic!("expected Status entry for context source"),
-    }
+    assert!(
+        app.transcript.is_empty(),
+        "transcript should be empty at startup; context is shown in the banner"
+    );
 }
 
 #[test]
@@ -896,10 +894,10 @@ fn app_with_oversized_agents_md_marks_truncation() {
     assert!(source.truncated);
     assert!(source.content.len() <= context::AGENTS_MD_SIZE_CAP);
 
-    match &app.transcript[0] {
-        Entry::Status { text } => assert!(text.contains("truncated")),
-        _ => panic!("expected Status entry"),
-    }
+    assert!(
+        app.transcript.is_empty(),
+        "transcript should be empty at startup; context is shown in the banner"
+    );
 }
 
 #[test]

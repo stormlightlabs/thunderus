@@ -97,6 +97,13 @@ impl ProviderAttemptError {
     }
 }
 
+#[derive(Debug)]
+enum MetadataLoaded<T> {
+    Abort,
+    Loaded(T),
+    Unavailable,
+}
+
 /// Shared cancellation flag. Checked cooperatively by the agent loop.
 #[derive(Clone, Debug, Default)]
 pub struct CancelToken(Arc<AtomicBool>);
@@ -400,8 +407,10 @@ where
         return;
     }
 
-    let Some(model_metadata) = load_provider_metadata(&provider, &handle.config.model, tx, cancel) else {
-        return;
+    let model_metadata = match load_provider_metadata(&provider, &handle.config.model, tx, cancel) {
+        MetadataLoaded::Abort => return,
+        MetadataLoaded::Loaded(metadata) => Some(metadata),
+        MetadataLoaded::Unavailable => None,
     };
 
     let tool_defs = tools::tool_definitions();
@@ -605,7 +614,7 @@ where
 
 fn load_provider_metadata<P>(
     provider: &P, model: &str, tx: &Sender<AgentEvent>, cancel: &CancelToken,
-) -> Option<Option<P::Metadata>>
+) -> MetadataLoaded<P::Metadata>
 where
     P: StreamingProvider,
 {
@@ -615,26 +624,30 @@ where
             if let Some(event) = provider.metadata_loaded_event(&models)
                 && send(tx, event, cancel).is_none()
             {
-                return None;
+                return MetadataLoaded::Abort;
             }
             if let Some(status) = provider.metadata_status(model, &models)
                 && send(tx, AgentEvent::Status(status), cancel).is_none()
             {
-                return None;
+                return MetadataLoaded::Abort;
             }
-            Some(Some(models))
+            MetadataLoaded::Loaded(models)
         }
         Err(e) => {
             let message = P::request_error_message(&e);
             tracing::warn!(error = %message, "failed to load provider model metadata; using fallback token budget");
-            send(
+            if send(
                 tx,
                 AgentEvent::Status(String::from(
                     "provider: model metadata unavailable; using fallback token budget",
                 )),
                 cancel,
-            )?;
-            Some(None)
+            )
+            .is_none()
+            {
+                return MetadataLoaded::Abort;
+            }
+            MetadataLoaded::Unavailable
         }
     }
 }
