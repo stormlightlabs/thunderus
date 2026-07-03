@@ -179,7 +179,7 @@ impl LiveRegion {
 
         let mut status_chrome = Vec::new();
         if keep_prompt_gutters {
-            status_chrome.push(Row::blank(width, bg_style(p.panel_bg)));
+            status_chrome.push(Row::blank(width, surface_bg));
         }
         status_chrome.push(live.dynamic_status.clone());
 

@@ -179,8 +179,8 @@ fn build_frame_keeps_live_rows_at_bottom() {
     assert!(frame.rows[frame.len() - 5].text().trim().is_empty());
     assert_eq!(
         frame.rows[frame.len() - 5].spans[0].style.bg,
-        renderer::style::palette().panel_bg,
-        "spacer above live status should visually separate transcript from input chrome"
+        renderer::style::palette().surface0,
+        "spacer above live status should be part of the input surface"
     );
 }
 
@@ -235,6 +235,28 @@ fn build_frame_keeps_prompt_gutters_as_pair_when_height_allows_them() {
     assert!(frame.rows[0].text().trim().is_empty());
     assert!(frame.rows[4].text().trim().is_empty());
     assert!(frame.render_text().contains("hello"));
+}
+
+#[test]
+fn build_frame_uses_matching_surface_gutters_around_prompt_chrome() {
+    let mut app = test_app();
+    app.input.set_text("hello");
+
+    let frame = LiveRegion::new().build_frame(&app, 80, 12);
+    let top_gutter = &frame.rows[frame.len() - 5];
+    let bottom_gutter = &frame.rows[frame.len() - 1];
+
+    assert!(top_gutter.text().trim().is_empty());
+    assert!(bottom_gutter.text().trim().is_empty());
+    assert_eq!(
+        top_gutter.spans[0].style.bg, bottom_gutter.spans[0].style.bg,
+        "blank row above session should match the blank row below the footer"
+    );
+    assert_eq!(
+        top_gutter.spans[0].style.bg,
+        renderer::style::palette().surface0,
+        "prompt gutters should be painted as input surface padding"
+    );
 }
 
 #[test]
