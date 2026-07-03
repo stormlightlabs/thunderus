@@ -91,7 +91,7 @@ fn from_bundle_defaults_history_reuse_false() {
 fn from_bundle_captures_transcript_tail_size_and_user_turn() {
     let transcript = vec![
         Entry::User { text: "hello".to_string() },
-        Entry::Assistant { text: "hi".to_string(), streaming: false },
+        Entry::Agent { text: "hi".to_string(), streaming: false },
     ];
     let bundle = PromptBundle::new(
         Path::new("/repo"),
@@ -401,10 +401,10 @@ fn session_record_from_json_rejects_malformed() {
 
 #[test]
 fn session_record_from_entry_skips_streaming() {
-    let entry = Entry::Assistant { text: "partial".to_string(), streaming: true };
+    let entry = Entry::Agent { text: "partial".to_string(), streaming: true };
     assert!(SessionRecord::from_entry(&entry, 1, "t", "turn_1").is_none());
 
-    let entry = Entry::Assistant { text: "done".to_string(), streaming: false };
+    let entry = Entry::Agent { text: "done".to_string(), streaming: false };
     let record = SessionRecord::from_entry(&entry, 1, "t", "turn_1");
     assert!(record.is_some());
 }
@@ -564,7 +564,7 @@ fn reader_reconstructs_transcript() {
         .expect("append");
     writer
         .append_entry(
-            &Entry::Assistant { text: "hi there".to_string(), streaming: false },
+            &Entry::Agent { text: "hi there".to_string(), streaming: false },
             "turn_1",
         )
         .expect("append");
@@ -577,7 +577,7 @@ fn reader_reconstructs_transcript() {
     assert_eq!(transcript[0], Entry::User { text: "hello".to_string() });
     assert_eq!(
         transcript[1],
-        Entry::Assistant { text: "hi there".to_string(), streaming: false }
+        Entry::Agent { text: "hi there".to_string(), streaming: false }
     );
 }
 
@@ -647,10 +647,7 @@ fn reader_projects_tool_write_shell_and_status_rows() {
         })
         .expect("append status");
     writer
-        .append_entry(
-            &Entry::Assistant { text: "done".to_string(), streaming: false },
-            "turn_1",
-        )
+        .append_entry(&Entry::Agent { text: "done".to_string(), streaming: false }, "turn_1")
         .expect("append assistant");
 
     let path = writer.path().to_path_buf();
@@ -685,7 +682,7 @@ fn reader_projects_tool_write_shell_and_status_rows() {
     assert_eq!(transcript[4], Entry::Status { text: "manual status".to_string() });
     assert_eq!(
         transcript[5],
-        Entry::Assistant { text: "done".to_string(), streaming: false }
+        Entry::Agent { text: "done".to_string(), streaming: false }
     );
 }
 
@@ -734,10 +731,7 @@ fn reader_preserves_record_order() {
         .append_entry(&Entry::User { text: "first".to_string() }, "turn_1")
         .expect("append");
     writer
-        .append_entry(
-            &Entry::Assistant { text: "second".to_string(), streaming: false },
-            "turn_1",
-        )
+        .append_entry(&Entry::Agent { text: "second".to_string(), streaming: false }, "turn_1")
         .expect("append");
     writer
         .append_entry(&Entry::User { text: "third".to_string() }, "turn_2")
@@ -751,7 +745,7 @@ fn reader_preserves_record_order() {
     assert_eq!(transcript[0], Entry::User { text: "first".to_string() });
     assert_eq!(
         transcript[1],
-        Entry::Assistant { text: "second".to_string(), streaming: false }
+        Entry::Agent { text: "second".to_string(), streaming: false }
     );
     assert_eq!(transcript[2], Entry::User { text: "third".to_string() });
 }

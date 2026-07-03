@@ -1,7 +1,8 @@
 ---
-source: src/renderer/region.rs
-expression: "render_entry_styled(&entry, 80)"
+source: src/renderer/region/tests.rs
+assertion_line: 28
+expression: contents
 ---
 │                                                                                   # [bg=#171928]=                                                                                
-│   Assistant                                                                       # [bg=#171928]=   [fg=#37f499 bg=#171928 b]=Assistant [bg=#171928]=                                                                    [bg=#171928]=  
+│   Agent                                                                           # [bg=#171928]=   [fg=#37f499 bg=#171928 b]=Agent [bg=#171928]=                                                                        [bg=#171928]=  
 │   Sure! I can help with that. Let me take a look.                                 # [bg=#171928]=   [fg=#ebfafa bg=#171928]=Sure! I can help with that. Let me take a look. [bg=#171928]=                              [bg=#171928]=

@@ -262,7 +262,7 @@ impl SessionRecord {
                 turn_id: turn_id.to_string(),
                 text: text.clone(),
             }),
-            Entry::Assistant { text, streaming: false } => Some(SessionRecord::AssistantFinished {
+            Entry::Agent { text, streaming: false } => Some(SessionRecord::AssistantFinished {
                 schema_version: sv,
                 seq,
                 time: time.to_string(),
@@ -302,7 +302,7 @@ impl SessionRecord {
         match self {
             SessionRecord::User { text, .. } => Some(Entry::User { text: text.clone() }),
             SessionRecord::AssistantFinished { text, .. } => {
-                Some(Entry::Assistant { text: text.clone(), streaming: false })
+                Some(Entry::Agent { text: text.clone(), streaming: false })
             }
             SessionRecord::ReasoningFinished { text, .. } => {
                 Some(Entry::Reasoning { text: text.clone(), streaming: false })

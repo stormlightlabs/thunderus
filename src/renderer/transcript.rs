@@ -302,9 +302,11 @@ fn entry_to_rows(entry: &Entry, user_label: &str, width: usize, cwd: &Path) -> V
             let surface1 = p.surface1;
             let label_style = CellStyle::new().fg(p.blue).bg(surface1).bold();
             let text_style = CellStyle::new().fg(p.text).bg(surface1);
-            build_labeled_block(user_label, label_style, text_style, text, width, body_width, surface1)
+            let mut rows = build_labeled_block(user_label, label_style, text_style, text, width, body_width, surface1);
+            rows.push(Row::blank(width, bg_style(surface1)));
+            rows
         }
-        Entry::Assistant { text, .. } => {
+        Entry::Agent { text, .. } => {
             let label_style = CellStyle::new().fg(p.green).bg(bg).bold();
             assistant_block_rows(text, label_style, bg, width, body_width)
         }
@@ -345,7 +347,7 @@ fn assistant_block_rows(text: &str, label_style: CellStyle, bg: Color, width: us
     let text_style = CellStyle::new().fg(p.text).bg(bg);
     let mut rows = vec![Row::blank(width, bg_style(bg))];
     rows.push(Row::padded(
-        vec![Span::styled("Assistant".to_string(), label_style)],
+        vec![Span::styled("Agent".to_string(), label_style)],
         width,
         bg_style(bg),
     ));

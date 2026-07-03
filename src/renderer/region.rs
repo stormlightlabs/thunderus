@@ -154,7 +154,7 @@ impl LiveRegion {
         let footer = vec![live.static_status.clone(), Row::blank(width, surface_bg)];
         let prompt = live.prompt_rows.clone();
 
-        let status_chrome = vec![Row::blank(width, surface_bg), live.dynamic_status.clone()];
+        let status_chrome = vec![Row::blank(width, bg_style(p.panel_bg)), live.dynamic_status.clone()];
 
         let accessory =
             if !live.detail_pane.is_empty() { live.detail_pane.clone() } else { live.accessory_rows.clone() };

@@ -130,7 +130,7 @@ fn entry_stable_and_live_rows(entry: &Entry, ctx: &super::transcript::Transcript
     let rows = super::transcript::entry_rows(entry, ctx);
 
     match entry {
-        Entry::Assistant { streaming: true, .. }
+        Entry::Agent { streaming: true, .. }
         | Entry::Reasoning { streaming: true, .. }
         | Entry::Tool { status: ToolStatus::Running, .. } => (Vec::new(), rows),
         _ => (rows, Vec::new()),

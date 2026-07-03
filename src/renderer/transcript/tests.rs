@@ -72,22 +72,35 @@ fn snapshot_user_message_narrow() {
 }
 
 #[test]
+fn user_message_has_balanced_vertical_padding() {
+    let entry = Entry::User { text: "hello".to_string() };
+    let rows = entry_rows(&entry, &ctx(80));
+
+    assert!(
+        rows.first().is_some_and(|row| row.text().trim().is_empty()),
+        "user block should start with vertical padding"
+    );
+    assert!(
+        rows.last().is_some_and(|row| row.text().trim().is_empty()),
+        "user block should end with vertical padding"
+    );
+}
+
+#[test]
 fn snapshot_assistant_text_normal() {
-    let entry =
-        Entry::Assistant { text: "Sure! I can help with that. Let me take a look.".to_string(), streaming: false };
+    let entry = Entry::Agent { text: "Sure! I can help with that. Let me take a look.".to_string(), streaming: false };
     assert_snapshot("transcript_assistant_text_normal", &render_entry_styled(&entry, 80));
 }
 
 #[test]
 fn snapshot_assistant_text_narrow() {
-    let entry =
-        Entry::Assistant { text: "Sure! I can help with that. Let me take a look.".to_string(), streaming: false };
+    let entry = Entry::Agent { text: "Sure! I can help with that. Let me take a look.".to_string(), streaming: false };
     assert_snapshot("transcript_assistant_text_narrow", &render_entry_styled(&entry, 40));
 }
 
 #[test]
 fn snapshot_assistant_code_fence_normal() {
-    let entry = Entry::Assistant {
+    let entry = Entry::Agent {
         text: "````md\nHere is the code:\n\n```rs\nfn main() {\n    println!(\"hello\");\n}\n```\n````".to_string(),
         streaming: false,
     };
@@ -99,7 +112,7 @@ fn snapshot_assistant_code_fence_normal() {
 
 #[test]
 fn snapshot_assistant_code_fence_narrow() {
-    let entry = Entry::Assistant {
+    let entry = Entry::Agent {
         text: "````md\nHere is the code:\n\n```rs\nfn main() {\n    println!(\"hello\");\n}\n```\n````".to_string(),
         streaming: false,
     };

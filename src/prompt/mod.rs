@@ -279,7 +279,7 @@ pub fn lower_to_umans_messages(bundle: &PromptBundle) -> Vec<ProviderMessage> {
     for entry in &bundle.transcript_tail {
         match entry {
             Entry::User { text } => messages.push(ProviderMessage::user(text)),
-            Entry::Assistant { text, streaming: false, .. } => messages.push(ProviderMessage::assistant(text)),
+            Entry::Agent { text, streaming: false, .. } => messages.push(ProviderMessage::assistant(text)),
             Entry::Reasoning { text, streaming: false, .. } => messages.push(ProviderMessage::assistant(text)),
             Entry::Tool { name, output, status, .. } if *status != ToolStatus::Running => {
                 messages.push(ProviderMessage::user(
@@ -324,7 +324,7 @@ fn project_transcript_tail(transcript: &[Entry]) -> Vec<Entry> {
         .take(20)
         .filter(|e| match e {
             Entry::User { .. } => true,
-            Entry::Assistant { streaming: false, .. } => true,
+            Entry::Agent { streaming: false, .. } => true,
             Entry::Reasoning { streaming: false, .. } => true,
             Entry::Tool { status, .. } => *status != ToolStatus::Running,
             _ => false,

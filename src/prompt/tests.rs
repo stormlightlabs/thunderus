@@ -311,7 +311,7 @@ fn lower_to_umans_includes_transcript_tail() {
     let mut bundle = test_bundle();
     bundle.transcript_tail = vec![
         Entry::User { text: "what is this?".to_string() },
-        Entry::Assistant { text: "a repo".to_string(), streaming: false },
+        Entry::Agent { text: "a repo".to_string(), streaming: false },
     ];
 
     let messages = lower_to_umans_messages(&bundle);
@@ -323,9 +323,9 @@ fn lower_to_umans_excludes_streaming_deltas() {
     let mut bundle = test_bundle();
     bundle.transcript_tail = vec![
         Entry::User { text: "hi".to_string() },
-        Entry::Assistant { text: "partial...".to_string(), streaming: true },
+        Entry::Agent { text: "partial...".to_string(), streaming: true },
         Entry::Reasoning { text: "thinking...".to_string(), streaming: true },
-        Entry::Assistant { text: "done".to_string(), streaming: false },
+        Entry::Agent { text: "done".to_string(), streaming: false },
     ];
 
     let messages = lower_to_umans_messages(&bundle);
@@ -398,7 +398,7 @@ fn project_transcript_tail_excludes_status_and_errors() {
     let transcript = vec![
         Entry::User { text: "hello".to_string() },
         Entry::Status { text: "loaded".to_string() },
-        Entry::Assistant { text: "hi".to_string(), streaming: false },
+        Entry::Agent { text: "hi".to_string(), streaming: false },
         Entry::Error { text: "fail".to_string() },
         Entry::Tool {
             name: "find_files#0".to_string(),
@@ -420,8 +420,8 @@ fn project_transcript_tail_excludes_status_and_errors() {
 fn project_transcript_tail_excludes_live_only_stream_deltas() {
     let transcript = vec![
         Entry::User { text: "hello".to_string() },
-        Entry::Assistant { text: "partial...".to_string(), streaming: true },
-        Entry::Assistant { text: "done".to_string(), streaming: false },
+        Entry::Agent { text: "partial...".to_string(), streaming: true },
+        Entry::Agent { text: "done".to_string(), streaming: false },
         Entry::Reasoning { text: "thinking...".to_string(), streaming: true },
         Entry::Reasoning { text: "decided".to_string(), streaming: false },
         Entry::Tool {
@@ -442,9 +442,7 @@ fn project_transcript_tail_excludes_live_only_stream_deltas() {
 
     assert_eq!(tail.len(), 4, "should keep user + finalized assistant/reasoning/tool");
 
-    let has_streaming_assistant = tail
-        .iter()
-        .any(|e| matches!(e, Entry::Assistant { streaming: true, .. }));
+    let has_streaming_assistant = tail.iter().any(|e| matches!(e, Entry::Agent { streaming: true, .. }));
     assert!(
         !has_streaming_assistant,
         "streaming assistant deltas should be excluded"
@@ -663,7 +661,7 @@ fn lowering_multi_turn_transcript_tail() {
     let mut bundle = test_bundle();
     bundle.transcript_tail = vec![
         Entry::User { text: "find the main file".to_string() },
-        Entry::Assistant { text: "Let me search.".to_string(), streaming: false },
+        Entry::Agent { text: "Let me search.".to_string(), streaming: false },
         Entry::Reasoning { text: "Need to check src/".to_string(), streaming: false },
         Entry::Tool {
             name: "search_text#0".to_string(),
@@ -671,7 +669,7 @@ fn lowering_multi_turn_transcript_tail() {
             status: ToolStatus::Ok,
             output: vec!["src/main.rs:1:fn main()".to_string()],
         },
-        Entry::Assistant { text: "The entry is src/main.rs.".to_string(), streaming: false },
+        Entry::Agent { text: "The entry is src/main.rs.".to_string(), streaming: false },
     ];
     bundle.user_turn = "now read it".to_string();
 
@@ -737,7 +735,7 @@ fn lowering_reasoning_entry_becomes_assistant_message() {
     bundle.transcript_tail = vec![
         Entry::User { text: "why?".to_string() },
         Entry::Reasoning { text: "thinking step".to_string(), streaming: false },
-        Entry::Assistant { text: "final answer".to_string(), streaming: false },
+        Entry::Agent { text: "final answer".to_string(), streaming: false },
     ];
 
     let messages = lower_to_umans_messages(&bundle);
@@ -769,7 +767,7 @@ fn lowering_role_sequence_is_correct() {
     let mut bundle = test_bundle();
     bundle.transcript_tail = vec![
         Entry::User { text: "q1".to_string() },
-        Entry::Assistant { text: "a1".to_string(), streaming: false },
+        Entry::Agent { text: "a1".to_string(), streaming: false },
     ];
     bundle.user_turn = "q2".to_string();
 

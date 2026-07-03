@@ -1,9 +1,10 @@
 ---
-source: src/renderer/region.rs
-expression: "render_entry_styled(&entry, 60)"
+source: src/renderer/region/tests.rs
+assertion_line: 28
+expression: contents
 ---
 │                                                               # [bg=#171928]=                                                            
-│   Assistant                                                   # [bg=#171928]=   [fg=#37f499 bg=#171928 b]=Assistant [bg=#171928]=                                                [bg=#171928]=  
+│   Agent                                                       # [bg=#171928]=   [fg=#37f499 bg=#171928 b]=Agent [bg=#171928]=                                                    [bg=#171928]=  
 │   This is a plain prose response without any code or          # [bg=#171928]=   [fg=#ebfafa bg=#171928]=This is a plain prose response without any code or [bg=#171928]=       [bg=#171928]=  
 │   special formatting. It should wrap nicely across            # [bg=#171928]=   [fg=#ebfafa bg=#171928]=special formatting. It should wrap nicely across [bg=#171928]=         [bg=#171928]=  
 │   multiple lines when the terminal is narrow enough.          # [bg=#171928]=   [fg=#ebfafa bg=#171928]=multiple lines when the terminal is narrow enough. [bg=#171928]=       [bg=#171928]=

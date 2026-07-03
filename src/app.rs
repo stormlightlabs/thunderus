@@ -172,8 +172,8 @@ impl DetailPane {
 
     /// Scroll down one rendered row.
     ///
-    /// The renderer clamps this value once terminal width and wrapped row
-    /// count are known.
+    /// The renderer clamps this value once terminal width and wrapped
+    /// row count are known.
     pub fn scroll_down(&mut self, total: usize) {
         if total > 0 {
             self.scroll = self.scroll.saturating_add(1);
@@ -186,8 +186,8 @@ impl DetailPane {
 pub enum Entry {
     /// User-submitted text.
     User { text: String },
-    /// Assistant text, possibly still streaming.
-    Assistant { text: String, streaming: bool },
+    /// Agent text, possibly still streaming.
+    Agent { text: String, streaming: bool },
     /// Reasoning/thinking text, kept separate from final assistant text.
     Reasoning { text: String, streaming: bool },
     /// A tool call block.
@@ -226,8 +226,7 @@ pub enum AgentEvent {
         /// Structured write result if this was a file-write tool, else `None`.
         write_result: Option<tools::WriteResult>,
         /// Structured shell result if this was a `run_shell` tool, else `None`.
-        /// Boxed to avoid a large enum variant (ProcessResult carries
-        /// multiple Vec<String>s).
+        /// Boxed to avoid a large enum variant (ProcessResult carries multiple Vec<String>).
         shell_result: Option<Box<tools::shell::ProcessResult>>,
     },
     ModelMetadataLoaded(Vec<(String, String)>),
@@ -553,7 +552,7 @@ impl App {
         match self.run_state {
             RunState::Working => match self.transcript.last() {
                 Some(Entry::Reasoning { streaming: true, .. }) => "thinking",
-                Some(Entry::Assistant { streaming: true, .. }) => "working",
+                Some(Entry::Agent { streaming: true, .. }) => "working",
                 Some(Entry::Tool { status: ToolStatus::Running, .. }) => "running tool",
                 Some(Entry::Tool { status: ToolStatus::Cancelled, .. }) => "cancelled tool",
                 Some(Entry::User { .. }) | None => "sending",
@@ -567,8 +566,9 @@ impl App {
                     Some(Entry::Error { .. }) => "failed",
                     Some(Entry::Tool { status: ToolStatus::Failed, .. }) => "failed",
                     Some(Entry::Tool { status: ToolStatus::Cancelled, .. }) => "cancelled",
-                    Some(Entry::Assistant { streaming: false, .. })
-                    | Some(Entry::Tool { status: ToolStatus::Ok, .. }) => "done",
+                    Some(Entry::Agent { streaming: false, .. }) | Some(Entry::Tool { status: ToolStatus::Ok, .. }) => {
+                        "done"
+                    }
                     _ => "idle",
                 },
             },
@@ -580,7 +580,7 @@ impl App {
         match self.run_state {
             RunState::Working => match self.transcript.last() {
                 Some(Entry::Reasoning { streaming: true, .. }) => PromptState::Streaming,
-                Some(Entry::Assistant { streaming: true, .. }) => PromptState::Streaming,
+                Some(Entry::Agent { streaming: true, .. }) => PromptState::Streaming,
                 Some(Entry::Tool { status: ToolStatus::Running, .. }) => PromptState::RunningTool,
                 _ => PromptState::Submitted,
             },
@@ -1445,7 +1445,7 @@ fn accept_skill_suggestion(app: &mut App) {
                 loaded.activation.path.display(),
                 loaded.markdown
             );
-            app.transcript.push(Entry::Assistant { text, streaming: false });
+            app.transcript.push(Entry::Agent { text, streaming: false });
             if let Some(ref mut writer) = app.session_writer {
                 let _ = writer.append_skill_activation(&loaded.activation);
             }
@@ -1654,10 +1654,10 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
         }
         AgentEvent::AssistantDelta(delta) => {
             finalize_reasoning(app);
-            if let Some(Entry::Assistant { text, streaming: true }) = app.transcript.last_mut() {
+            if let Some(Entry::Agent { text, streaming: true }) = app.transcript.last_mut() {
                 text.push_str(&delta);
             } else {
-                app.transcript.push(Entry::Assistant { text: delta, streaming: true });
+                app.transcript.push(Entry::Agent { text: delta, streaming: true });
             }
             None
         }
@@ -1866,7 +1866,7 @@ fn persist_final_response(app: &mut App) {
         && let Some(entry) = app.transcript.iter().rev().find(|entry| {
             matches!(
                 entry,
-                Entry::Assistant { streaming: false, .. } | Entry::Reasoning { streaming: false, .. }
+                Entry::Agent { streaming: false, .. } | Entry::Reasoning { streaming: false, .. }
             )
         })
     {
@@ -1888,7 +1888,7 @@ fn now_or_after_deadline(ui_tick: u64, deadline: u64) -> bool {
 fn finalize_streaming(app: &mut App) {
     for entry in &mut app.transcript {
         match entry {
-            Entry::Assistant { streaming, .. } => *streaming = false,
+            Entry::Agent { streaming, .. } => *streaming = false,
             Entry::Reasoning { streaming, .. } => *streaming = false,
             _ => {}
         }
@@ -1925,7 +1925,7 @@ fn finalize_reasoning(app: &mut App) {
 fn discard_retry_output(app: &mut App) {
     while matches!(
         app.transcript.last(),
-        Some(Entry::Assistant { .. } | Entry::Reasoning { .. })
+        Some(Entry::Agent { .. } | Entry::Reasoning { .. })
     ) {
         app.transcript.pop();
     }

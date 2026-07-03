@@ -77,7 +77,7 @@ fn build_frame_contains_live_prompt_and_status() {
     let mut app = test_app();
     app.transcript.push(Entry::User { text: "hello".to_string() });
     app.transcript
-        .push(Entry::Assistant { text: "hi there".to_string(), streaming: false });
+        .push(Entry::Agent { text: "hi there".to_string(), streaming: false });
     app.input.set_text("next question");
 
     let frame = LiveRegion::new().build_frame(&app, 80, 24);
@@ -93,7 +93,7 @@ fn build_frame_contains_live_prompt_and_status() {
 fn build_frame_includes_streaming_when_active() {
     let mut app = test_app();
     app.transcript
-        .push(Entry::Assistant { text: "streaming text".to_string(), streaming: true });
+        .push(Entry::Agent { text: "streaming text".to_string(), streaming: true });
     let lr = LiveRegion::new();
     let frame = lr.build_frame(&app, 80, 24);
 
@@ -102,10 +102,7 @@ fn build_frame_includes_streaming_when_active() {
         combined.contains("streaming text"),
         "streaming text should be in live frame"
     );
-    assert!(
-        combined.contains("Assistant"),
-        "assistant label should be in live frame"
-    );
+    assert!(combined.contains("Agent"), "agent label should be in live frame");
 }
 
 #[test]
@@ -119,6 +116,11 @@ fn build_frame_keeps_live_rows_at_bottom() {
     assert!(frame.rows[frame.len() - 3].text().contains("hello"));
     assert!(frame.rows[frame.len() - 4].text().contains("test-session"));
     assert!(frame.rows[frame.len() - 5].text().trim().is_empty());
+    assert_eq!(
+        frame.rows[frame.len() - 5].spans[0].style.bg,
+        crate::renderer::style::palette().panel_bg,
+        "spacer above live status should visually separate transcript from input chrome"
+    );
 }
 
 #[test]
@@ -190,7 +192,7 @@ fn build_frame_cursor_hidden_for_non_editable_prompt() {
     app.run_state = RunState::Working;
     app.transcript.push(Entry::User { text: "go".to_string() });
     app.transcript
-        .push(Entry::Assistant { text: "working...".to_string(), streaming: false });
+        .push(Entry::Agent { text: "working...".to_string(), streaming: false });
 
     let lr = LiveRegion::new();
     let frame = lr.build_frame(&app, 80, 24);
@@ -334,7 +336,7 @@ fn build_frame_places_streaming_output_above_status_line() {
     let mut app = test_app();
     app.run_state = RunState::Working;
     app.transcript
-        .push(Entry::Assistant { text: "streaming response text".to_string(), streaming: true });
+        .push(Entry::Agent { text: "streaming response text".to_string(), streaming: true });
 
     let frame = LiveRegion::new().build_frame(&app, 80, 24);
     let output_row = frame
@@ -405,7 +407,7 @@ fn build_frame_keeps_done_prompt_bottom_anchored_after_latest_assistant_message(
     let mut app = test_app();
     app.transcript.push(Entry::User { text: "summarize TODO".to_string() });
     app.transcript
-        .push(Entry::Assistant { text: "Here is the consolidated renderer summary.".to_string(), streaming: false });
+        .push(Entry::Agent { text: "Here is the consolidated renderer summary.".to_string(), streaming: false });
     app.input.set_text("Please update @TODO.md with the updated content");
 
     let frame = LiveRegion::new().build_frame(&app, 120, 32);
@@ -436,7 +438,7 @@ fn render_frame_keeps_long_streaming_assistant_uncommitted() {
     let mut app = test_app();
     app.run_state = RunState::Working;
     app.transcript.push(Entry::User { text: "start".to_string() });
-    app.transcript.push(Entry::Assistant {
+    app.transcript.push(Entry::Agent {
         text: (0..30).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n"),
         streaming: true,
     });
@@ -452,7 +454,7 @@ fn render_frame_keeps_long_streaming_assistant_uncommitted() {
 
     let out = String::from_utf8(backend.writer().clone()).unwrap();
     assert!(
-        !out.contains("\r\n  Assistant"),
+        !out.contains("\r\n  Agent"),
         "streaming assistant rows should not be inserted into scrollback: {out:?}"
     );
     assert!(
@@ -498,7 +500,7 @@ fn vt100_streaming_tail_stays_above_status_without_commit() {
     let mut lr = LiveRegion::new();
     lr.render_frame(&app, &mut backend, 32, 14).unwrap();
 
-    app.transcript.push(Entry::Assistant {
+    app.transcript.push(Entry::Agent {
         text: "mutable streaming text stays live above the prompt while rendering continues".to_string(),
         streaming: true,
     });
@@ -531,7 +533,7 @@ fn vt100_resize_replays_committed_rows_without_duplicate_prompt() {
     let mut lr = LiveRegion::new();
     lr.render_frame(&app, &mut backend, 48, 16).unwrap();
 
-    app.transcript.push(Entry::Assistant {
+    app.transcript.push(Entry::Agent {
         text: "stable response rows should reflow when the terminal changes size".to_string(),
         streaming: false,
     });
@@ -565,17 +567,17 @@ fn vt100_resize_replays_startup_banner_with_committed_scrollback() {
     app.transcript
         .push(Entry::User { text: "trigger scrollback replay".to_string() });
 
-    let mut backend = TerminalBackend::new(Vec::new(), 80, 22);
+    let mut backend = TerminalBackend::new(Vec::new(), 80, 23);
     let mut lr = LiveRegion::new();
-    lr.render_frame(&app, &mut backend, 80, 22).unwrap();
+    lr.render_frame(&app, &mut backend, 80, 23).unwrap();
 
-    backend.set_size(40, 22);
-    lr.render_frame(&app, &mut backend, 40, 22).unwrap();
+    backend.set_size(40, 23);
+    lr.render_frame(&app, &mut backend, 40, 23).unwrap();
 
-    backend.set_size(80, 22);
-    lr.render_frame(&app, &mut backend, 80, 22).unwrap();
+    backend.set_size(80, 23);
+    lr.render_frame(&app, &mut backend, 80, 23).unwrap();
 
-    let contents = vt100_contents(backend.writer(), 80, 22);
+    let contents = vt100_contents(backend.writer(), 80, 23);
     assert!(
         contents.contains("[Context]"),
         "startup banner section headings should be replayed with committed scrollback after resize:\n{contents}"
@@ -669,7 +671,7 @@ fn snapshot_empty_live_frame() {
 fn snapshot_streaming_live_frame() {
     let mut app = test_app();
     app.transcript
-        .push(Entry::Assistant { text: "streaming response text".to_string(), streaming: true });
+        .push(Entry::Agent { text: "streaming response text".to_string(), streaming: true });
     app.input.set_text("follow up");
     let lr = LiveRegion::new();
     let frame = lr.build_frame(&app, 80, 24);
@@ -709,14 +711,13 @@ fn snapshot_user_message() {
 
 #[test]
 fn snapshot_assistant_text() {
-    let entry =
-        Entry::Assistant { text: "Sure! I can help with that. Let me take a look.".to_string(), streaming: false };
+    let entry = Entry::Agent { text: "Sure! I can help with that. Let me take a look.".to_string(), streaming: false };
     assert_region_snapshot("assistant_text", &render_entry_styled(&entry, 80));
 }
 
 #[test]
 fn snapshot_assistant_with_code_fence() {
-    let entry = Entry::Assistant {
+    let entry = Entry::Agent {
         text: "````md\nHere is the code:\n\n```rs\nfn main() {\n    println!(\"hello\");\n}\n```\n````".to_string(),
         streaming: false,
     };
@@ -803,7 +804,7 @@ fn snapshot_json_output() {
 
 #[test]
 fn snapshot_plain_prose() {
-    let entry = Entry::Assistant {
+    let entry = Entry::Agent {
             text: "This is a plain prose response without any code or special formatting. It should wrap nicely across multiple lines when the terminal is narrow enough.".to_string(),
             streaming: false,
         };
@@ -1046,7 +1047,7 @@ fn streaming_assistant_rows_not_committed() {
     let committed_after_user = lr.committed_row_count;
 
     app.transcript
-        .push(Entry::Assistant { text: "short streaming block".to_string(), streaming: true });
+        .push(Entry::Agent { text: "short streaming block".to_string(), streaming: true });
     lr.render_frame(&app, &mut backend, 80, 24).unwrap();
 
     assert_eq!(
@@ -1090,7 +1091,7 @@ fn streaming_reasoning_rows_not_committed() {
 fn build_frame_active_picker_plus_streaming_output() {
     let mut app = test_app();
     app.run_state = RunState::Working;
-    app.transcript.push(Entry::Assistant {
+    app.transcript.push(Entry::Agent {
         text: "streaming response that is currently being generated by the model for the user".to_string(),
         streaming: true,
     });
@@ -1230,7 +1231,7 @@ fn build_frame_detail_pane_plus_running_tool() {
 fn build_frame_tiny_height_clips_all_surfaces_preserves_prompt_and_footer() {
     let mut app = test_app();
     app.run_state = RunState::Working;
-    app.transcript.push(Entry::Assistant {
+    app.transcript.push(Entry::Agent {
         text: "streaming line one. streaming line two. streaming line three. streaming line four.".to_string(),
         streaming: true,
     });
@@ -1272,7 +1273,7 @@ fn build_frame_tiny_height_with_live_tail_still_shows_prompt() {
 
     let text = "line a. line b. line c. line d. line e. line f. line g. line h. line i. line j.";
     app.transcript
-        .push(Entry::Assistant { text: text.to_string(), streaming: true });
+        .push(Entry::Agent { text: text.to_string(), streaming: true });
 
     let frame = LiveRegion::new().build_frame(&app, 80, 5);
     let lines: Vec<String> = frame.rows.iter().map(|r| r.text()).collect();
@@ -1322,7 +1323,7 @@ fn build_frame_detail_pane_replaces_picker_when_open() {
 fn build_frame_priority_model_orders_surfaces_correctly() {
     let mut app = test_app();
     app.run_state = RunState::Working;
-    app.transcript.push(Entry::Assistant {
+    app.transcript.push(Entry::Agent {
         text: "streaming assistant text that is currently being generated right now".to_string(),
         streaming: true,
     });

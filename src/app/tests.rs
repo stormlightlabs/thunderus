@@ -462,7 +462,7 @@ fn assistant_delta_creates_streaming_entry() {
     assert_eq!(app.transcript.len(), 1);
     assert_eq!(
         app.transcript[0],
-        Entry::Assistant { text: String::from("Hello"), streaming: true }
+        Entry::Agent { text: String::from("Hello"), streaming: true }
     );
 }
 
@@ -477,7 +477,7 @@ fn assistant_delta_appends_to_existing_streaming_entry() {
     assert_eq!(app.transcript.len(), 1);
     assert_eq!(
         app.transcript[0],
-        Entry::Assistant { text: String::from("Hello world"), streaming: true }
+        Entry::Agent { text: String::from("Hello world"), streaming: true }
     );
 }
 
@@ -493,11 +493,11 @@ fn assistant_delta_creates_new_entry_after_finished() {
     assert_eq!(app.transcript.len(), 2);
     assert_eq!(
         app.transcript[0],
-        Entry::Assistant { text: String::from("first"), streaming: false }
+        Entry::Agent { text: String::from("first"), streaming: false }
     );
     assert_eq!(
         app.transcript[1],
-        Entry::Assistant { text: String::from("second"), streaming: true }
+        Entry::Agent { text: String::from("second"), streaming: true }
     );
 }
 
@@ -546,7 +546,7 @@ fn assistant_delta_finishes_prior_reasoning_spinner() {
         app.transcript,
         vec![
             Entry::Reasoning { text: String::from("Thinking..."), streaming: false },
-            Entry::Assistant { text: String::from("Done."), streaming: true },
+            Entry::Agent { text: String::from("Done."), streaming: true },
         ]
     );
 }
@@ -672,7 +672,7 @@ fn cancelled_event_adds_status_and_returns_to_idle() {
     assert!(matches!(app.transcript.last(), Some(Entry::Status { text }) if text == "cancelled"));
 
     match &app.transcript[0] {
-        Entry::Assistant { streaming, .. } => assert!(!*streaming),
+        Entry::Agent { streaming, .. } => assert!(!*streaming),
         _ => panic!("expected Assistant entry"),
     }
 }
@@ -691,7 +691,7 @@ fn finished_marks_streaming_false_and_returns_to_idle() {
     update(&mut app, &Msg::Agent(AgentEvent::Finished));
     assert_eq!(app.run_state, RunState::Idle);
 
-    if let Entry::Assistant { streaming, .. } = &app.transcript[0] {
+    if let Entry::Agent { streaming, .. } = &app.transcript[0] {
         assert!(!*streaming);
     } else {
         panic!("expected Assistant entry");
@@ -721,7 +721,7 @@ fn failed_adds_error_entry_and_sets_error_state() {
     assert!(matches!(app.transcript.last(), Some(Entry::Error { text }) if text == "connection lost"));
 
     match &app.transcript[0] {
-        Entry::Assistant { streaming, .. } => assert!(!*streaming),
+        Entry::Agent { streaming, .. } => assert!(!*streaming),
         _ => panic!("expected Assistant entry"),
     }
 }
@@ -743,7 +743,7 @@ fn escape_cancels_working_stream() {
     assert_eq!(app.run_state, RunState::Idle);
 
     match &app.transcript[0] {
-        Entry::Assistant { streaming, .. } => assert!(!*streaming),
+        Entry::Agent { streaming, .. } => assert!(!*streaming),
         _ => panic!("expected Assistant entry"),
     }
 }
@@ -1525,7 +1525,7 @@ fn retrying_provider_discards_partial_output_without_restoring_input() {
     assert!(
         !app.transcript
             .iter()
-            .any(|entry| matches!(entry, Entry::Assistant { .. } | Entry::Reasoning { .. })),
+            .any(|entry| matches!(entry, Entry::Agent { .. } | Entry::Reasoning { .. })),
         "partial output from the failed attempt should be removed before retrying"
     );
     assert!(matches!(
@@ -1775,7 +1775,7 @@ fn skills_command_opens_picker_and_renders_selected_skill_markdown() {
     assert!(app.picker.is_none());
     assert!(app.transcript.iter().any(|entry| matches!(
         entry,
-        Entry::Assistant { text, streaming: false }
+        Entry::Agent { text, streaming: false }
             if text.contains("# Skill: example-skill") && text.contains("# Example Skill")
     )));
 }
