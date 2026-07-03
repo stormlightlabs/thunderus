@@ -10,8 +10,11 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::providers::{
-    KnownModel, ProviderError, ProviderHttpClient, ProviderMessage, Result, StreamFormat, StreamingProvider,
+use crate::{
+    app::AgentEvent,
+    providers::{
+        self, KnownModel, ProviderError, ProviderHttpClient, ProviderMessage, Result, StreamFormat, StreamingProvider,
+    },
 };
 
 /// OpenCode Go base URL.
@@ -135,7 +138,7 @@ impl OpenCodeGoClient {
         model: &str, messages: &[ProviderMessage], max_tokens: u32, stream: bool, tools: Option<&serde_json::Value>,
     ) -> Result<serde_json::Value> {
         let raw_model = raw_model_id(model)?;
-        Ok(crate::providers::openai::build_chat_request_body(
+        Ok(providers::openai::build_chat_request_body(
             raw_model, messages, max_tokens, stream, tools,
         ))
     }
@@ -145,7 +148,7 @@ impl OpenCodeGoClient {
         model: &str, messages: &[ProviderMessage], max_tokens: u32, stream: bool, tools: Option<&serde_json::Value>,
     ) -> Result<serde_json::Value> {
         let raw_model = raw_model_id(model)?;
-        Ok(crate::providers::anthropic::build_messages_request_body(
+        Ok(providers::anthropic::build_messages_request_body(
             raw_model, messages, max_tokens, stream, tools,
         ))
     }
@@ -187,7 +190,7 @@ impl OpenCodeGoClient {
                 .body_mut()
                 .read_to_string()
                 .unwrap_or_else(|e| format!("failed to read error body: {e}"));
-            return Err(ProviderError::Status { code: status, body: crate::providers::summarize_error_body(&body) });
+            return Err(ProviderError::Status { code: status, body: providers::summarize_error_body(&body) });
         }
 
         Ok(response)
@@ -221,13 +224,13 @@ impl StreamingProvider for OpenCodeGoClient {
         self.fetch_models()
     }
 
-    fn metadata_loaded_event(&self, metadata: &Self::Metadata) -> Option<crate::app::AgentEvent> {
-        let mut items: Vec<(String, String)> = crate::providers::umans::known_models()
+    fn metadata_loaded_event(&self, metadata: &Self::Metadata) -> Option<AgentEvent> {
+        let mut items: Vec<(String, String)> = providers::umans::known_models()
             .into_iter()
             .map(|model| (model.id.to_string(), model.description.to_string()))
             .collect();
         items.extend(model_picker_items(metadata));
-        Some(crate::app::AgentEvent::ModelMetadataLoaded(items))
+        Some(AgentEvent::ModelMetadataLoaded(items))
     }
 
     fn metadata_status(&self, model: &str, metadata: &Self::Metadata) -> Option<String> {

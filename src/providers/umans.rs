@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::app::AgentEvent;
 use crate::cli::WebSearchMode;
 use crate::providers::{
-    KnownModel, ProviderError, ProviderHttpClient, ProviderMessage, Result, StreamFormat, StreamingProvider,
+    self, KnownModel, ProviderError, ProviderHttpClient, ProviderMessage, Result, StreamFormat, StreamingProvider,
 };
 
 /// Umans Code base URL.
@@ -113,7 +113,7 @@ impl UmansClient {
     pub fn build_messages_request_body(
         model: &str, messages: &[ProviderMessage], max_tokens: u32, stream: bool, tools: Option<&serde_json::Value>,
     ) -> serde_json::Value {
-        crate::providers::anthropic::build_messages_request_body(model, messages, max_tokens, stream, tools)
+        providers::anthropic::build_messages_request_body(model, messages, max_tokens, stream, tools)
     }
 
     /// Build the HTTP headers map for a Messages API request.
@@ -176,7 +176,7 @@ impl UmansClient {
                 .body_mut()
                 .read_to_string()
                 .unwrap_or_else(|e| format!("failed to read error body: {e}"));
-            let body = crate::providers::summarize_error_body(&body);
+            let body = providers::summarize_error_body(&body);
             tracing::error!(status, error = %body, "Umans request returned non-success status");
             return Err(ProviderError::Status { code: status, body });
         }
@@ -215,7 +215,7 @@ impl StreamingProvider for UmansClient {
     fn metadata_loaded_event(&self, metadata: &Self::Metadata) -> Option<AgentEvent> {
         let mut items = model_picker_items(metadata);
         items.extend(
-            crate::providers::opencode::known_models()
+            providers::opencode::known_models()
                 .into_iter()
                 .map(|model| (model.id.to_string(), model.description.to_string())),
         );

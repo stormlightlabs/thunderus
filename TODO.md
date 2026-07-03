@@ -129,15 +129,17 @@ See:
 
 ### Skill Engine And Self-Knowledge
 
-- [x] Discover skills from configured skill dirs.
-- [x] Validate skill metadata before exposing it to the model.
-- [x] Load full skill instructions only after activation.
-- [x] Bound skill reference traversal with depth, byte, file, and cycle limits.
-- [x] Record activated skills and loaded references in session metadata.
-- [x] Add a stable `thndrs` self-description fragment.
-- [x] Expose a compact model-visible map of local docs and runtime state.
-- [x] Add self-knowledge snapshots for prompt fragments, tools, skills,
-      renderer mode, provider/model, search mode, and diagnostics.
+- [ ] Accept optional `references` in skill YAML frontmatter while keeping
+      `deny_unknown_fields` for unsupported keys.
+- [ ] Parse `references` as a list of relative paths, normalize it into
+      `SkillMetadata`, and reject empty, absolute, parent-traversing, or
+      non-string entries with clear skill diagnostics.
+- [ ] Use frontmatter `references` as the default path list for `load_skill`,
+      preserving the existing depth, byte, file, and cycle limits in
+      `load_references`.
+- [ ] Add discovery and activation tests covering a skill like
+      `~/.pi/agent/skills/cloudflare/SKILL.md` with
+      `references: [workers, pages, d1]`, plus invalid reference-path cases.
 
 ### Prompt Input Correctness
 
@@ -155,11 +157,18 @@ See:
 
 - [ ] Tool call failures should have debuggable logs and more information about
       why in the transcript.
-- [ ] Keybinds should be readline-like
-- [ ] Text should selectable in messages and input
-- [ ] The app should be scrollable
-- [ ] Git status should be in the statusline
-- [ ] Model switcher for Umans
-- [ ] OpenCode Go support
 
 ### Bugs
+
+#### Renderer Polish
+
+- [ ] Fix prompt/input live-region spacing so vertical padding is symmetric:
+      when the prompt has a blank row below the input, preserve a matching
+      blank row above it unless constrained terminal height forces trimming.
+- [ ] Add narrow-height renderer snapshots for prompt spacing around errors,
+      diagnostics, and startup rows so the top and bottom prompt gutters cannot
+      regress independently.
+- [ ] Shorten the startup overflow message from
+      `n startup rows hidden by terminal height` to `n rows hidden`.
+- [ ] Cover the shortened startup overflow copy with transcript and live-region
+      snapshots.

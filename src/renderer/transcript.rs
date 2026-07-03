@@ -9,7 +9,7 @@ use std::path::Path;
 use crate::app::{Entry, ToolStatus};
 use crate::renderer::row::Row;
 use crate::renderer::style::{CellStyle, Color, Span};
-use crate::utils;
+use crate::{renderer, utils};
 
 /// Maximum tool output lines rendered before a truncation marker is shown.
 const MAX_TOOL_OUTPUT_LINES: usize = 6;
@@ -49,7 +49,7 @@ impl<'a> TranscriptRowContext<'a> {
 pub fn entry_rows(entry: &Entry, ctx: &TranscriptRowContext) -> Vec<Row> {
     let mut rows = entry_to_rows(entry, ctx.user_label, ctx.width, ctx.cwd);
     if let Some(index) = ctx.entry_index {
-        let group_id = crate::renderer::row::RowGroupId { entry_index: index };
+        let group_id = renderer::row::RowGroupId { entry_index: index };
         for row in &mut rows {
             row.group_id = Some(group_id);
         }
@@ -485,24 +485,24 @@ pub fn summarize_tool_args(arguments: &str, cwd: &Path) -> String {
     }
     let v: serde_json::Value = match serde_json::from_str(trimmed) {
         Ok(v) => v,
-        Err(_) => return crate::utils::truncate_ellipsis(trimmed, 48),
+        Err(_) => return utils::truncate_ellipsis(trimmed, 48),
     };
     let Some(obj) = v.as_object() else {
-        return crate::utils::truncate_ellipsis(trimmed, 48);
+        return utils::truncate_ellipsis(trimmed, 48);
     };
     for key in &["pattern", "path", "query", "root", "glob", "file", "program", "url"] {
         if let Some(val) = obj.get(*key).and_then(|f| f.as_str()) {
             let val = super::path_display::transcript_line(val, cwd);
-            return format!("{}: {}", key, crate::utils::truncate_ellipsis(&val, 40));
+            return format!("{}: {}", key, utils::truncate_ellipsis(&val, 40));
         }
     }
     for (k, val) in obj {
         if let Some(s) = val.as_str() {
             let s = super::path_display::transcript_line(s, cwd);
-            return format!("{k}: {}", crate::utils::truncate_ellipsis(&s, 40));
+            return format!("{k}: {}", utils::truncate_ellipsis(&s, 40));
         }
     }
-    crate::utils::truncate_ellipsis(trimmed, 48)
+    utils::truncate_ellipsis(trimmed, 48)
 }
 
 /// Derive a label for status entries based on text content.

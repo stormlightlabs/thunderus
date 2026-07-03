@@ -36,6 +36,8 @@ use prompt::PromptBundle;
 use renderer::backend::TerminalBackend;
 use tools::AgentRunConfig;
 
+use crate::app::PromptAccessory;
+
 /// State carried by the main loop for a single agent run.
 struct AgentSlot {
     receiver: mpsc::Receiver<app::AgentEvent>,
@@ -370,7 +372,7 @@ fn sync_mouse_capture(app: &App, captured: &mut bool, mouse_enabled: bool) {
     }
     let picker_open = matches!(
         app.prompt_accessory,
-        crate::app::PromptAccessory::Files(_) | crate::app::PromptAccessory::Skills
+        PromptAccessory::Files(_) | PromptAccessory::Skills
     );
     if picker_open && !*captured {
         let _ = crossterm::execute!(io::stdout(), EnableMouseCapture);

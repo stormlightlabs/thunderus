@@ -1,5 +1,6 @@
 use super::*;
 use crate::input::PromptInput;
+use crate::renderer;
 use crate::skills::{SkillMetadata, SkillSource};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::io::Write;
@@ -1808,7 +1809,7 @@ fn git_status_changed_message_updates_app_summary() {
 
     update(
         &mut app,
-        &Msg::GitStatusChanged(Some(crate::renderer::git::GitStatusSummary {
+        &Msg::GitStatusChanged(Some(renderer::git::GitStatusSummary {
             branch: Some("main".to_string()),
             added: 1,
             modified: 2,

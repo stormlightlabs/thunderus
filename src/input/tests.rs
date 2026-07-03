@@ -1,4 +1,4 @@
-use crate::utils;
+use crate::{renderer, utils};
 
 use super::*;
 
@@ -705,7 +705,7 @@ fn timing_separates_prompt_editing_from_wrapping_and_width() {
     let edit_elapsed = edit_start.elapsed();
 
     let wrap_start = Instant::now();
-    let lines = crate::renderer::layout::wrap_text(p.as_str(), 80);
+    let lines = renderer::layout::wrap_text(p.as_str(), 80);
     let wrap_elapsed = wrap_start.elapsed();
 
     let width_start = Instant::now();

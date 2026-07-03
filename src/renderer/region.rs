@@ -19,16 +19,31 @@
 
 use std::io;
 
-use crate::app::App;
+use crate::app::{App, PromptState};
 use crate::renderer::backend::TerminalBackend;
 use crate::renderer::row::{Frame, Row};
-use crate::renderer::style::{self, CellStyle, Color};
+use crate::renderer::style::{self, CellStyle, Color, Span};
 use crate::renderer::view::{self, RendererView};
+
+trait RowPolicyText {
+    fn text_for_policy(&self) -> String;
+}
+
+impl RowPolicyText for Row {
+    fn text_for_policy(&self) -> String {
+        let mut out = String::new();
+        for span in &self.spans {
+            out.push_str(&span.text);
+        }
+        out
+    }
+}
 
 /// State tracking the live region render and committed history.
 ///
 /// Transcript rows that are stable are written to the terminal's native
-/// scrollback via [`insert_history_lines`](TerminalBackend::insert_history_lines).
+/// scrollback via [`TerminalBackend::insert_history_lines`].
+///
 /// The viewport redraw includes the visible tail of committed transcript rows,
 /// plus live chrome (prompt/status/accessories) and any mutable transcript tail
 /// that cannot be safely appended yet.
@@ -86,14 +101,16 @@ impl LiveRegion {
         let live = self.build_live_frame(&view);
         let live_height = live.rows.len().min(height);
 
-        let history_rows =
-            if app.transcript.is_empty() { view.transcript.banner_rows } else { view.transcript.stable_rows };
+        let startup = app.transcript.is_empty();
+        let history_rows = if startup { view.transcript.banner_rows } else { view.transcript.stable_rows };
         let available_history = height.saturating_sub(live_height);
-        let history_start = history_rows.len().saturating_sub(available_history);
+        let history_rows = if startup {
+            startup_history_rows(history_rows, width, available_history)
+        } else {
+            clip_from_top(history_rows, available_history)
+        };
 
-        frame
-            .rows
-            .extend(history_rows.into_iter().skip(history_start).take(available_history));
+        frame.rows.extend(history_rows);
 
         let p = style::palette();
         let live_start = live.rows.len().saturating_sub(live_height);
@@ -116,10 +133,7 @@ impl LiveRegion {
             .extend(live.rows.into_iter().skip(live_start).take(live_height));
         frame.cursor = cursor;
 
-        let cursor_visible = !matches!(
-            app.prompt_state(),
-            crate::app::PromptState::Stopped | crate::app::PromptState::Errored
-        );
+        let cursor_visible = !matches!(app.prompt_state(), PromptState::Stopped | PromptState::Errored);
         frame.cursor_visible = cursor_visible;
 
         while frame.rows.len() < height {
@@ -306,6 +320,102 @@ fn clip_from_top(mut rows: Vec<Row>, budget: usize) -> Vec<Row> {
         return rows;
     }
     rows.split_off(rows.len() - budget)
+}
+
+/// Apply startup-specific clipping instead of blindly taking the bottom rows.
+///
+/// Short terminals should keep the compact identity and the most actionable
+/// context/diagnostic/help rows when possible. If rows are omitted, a visible
+/// marker replaces the silent gap so the user knows the startup shell was
+/// constrained by height.
+fn startup_history_rows(rows: Vec<Row>, width: usize, budget: usize) -> Vec<Row> {
+    match budget {
+        0 => Vec::new(),
+        budget if rows.len() <= budget => rows,
+        1 => vec![hidden_startup_row(width, rows.len())],
+        _ => {
+            let keep_budget = budget - 1;
+            let keep = startup_priority_indexes(&rows, keep_budget);
+            let hidden = rows.len().saturating_sub(keep.len());
+            let mut out = Vec::with_capacity(budget);
+            for (index, row) in rows.into_iter().enumerate() {
+                if keep.contains(&index) {
+                    out.push(row);
+                }
+            }
+
+            out.push(hidden_startup_row(width, hidden));
+            out
+        }
+    }
+}
+
+fn startup_priority_indexes(rows: &[Row], budget: usize) -> Vec<usize> {
+    let mut ranked: Vec<(usize, usize)> = rows
+        .iter()
+        .enumerate()
+        .map(|(index, _)| (startup_row_priority(rows, index), index))
+        .collect();
+    ranked.sort_by_key(|(priority, index)| (*priority, *index));
+
+    let mut indexes: Vec<usize> = ranked.into_iter().take(budget).map(|(_, index)| index).collect();
+    indexes.sort_unstable();
+    indexes
+}
+
+fn startup_row_priority(rows: &[Row], index: usize) -> usize {
+    let text = rows[index].text_for_policy();
+    let trimmed = text.trim();
+
+    if trimmed.contains("thndrs") {
+        return 0;
+    }
+    if trimmed.starts_with("model:") || trimmed.starts_with("cwd:") {
+        return 1;
+    }
+    if startup_row_is_in_section(rows, index, "[Context]") || startup_row_is_in_section(rows, index, "[Diagnostics]") {
+        return 2;
+    }
+    if trimmed.starts_with("›") || trimmed.starts_with("?") || trimmed.starts_with("/model") {
+        return 3;
+    }
+    if trimmed.starts_with("[Runtime]") || trimmed.starts_with("[Search]") || trimmed.starts_with("[Skills]") {
+        return 4;
+    }
+    if trimmed.is_empty() {
+        return 6;
+    }
+    5
+}
+
+fn startup_row_is_in_section(rows: &[Row], index: usize, section: &str) -> bool {
+    for row in rows[..=index].iter().rev() {
+        let text = row.text_for_policy();
+        let trimmed = text.trim();
+        if trimmed.is_empty() || startup_row_is_divider(trimmed) {
+            return false;
+        }
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            return trimmed == section;
+        }
+    }
+    false
+}
+
+fn startup_row_is_divider(trimmed: &str) -> bool {
+    !trimmed.is_empty() && trimmed.chars().all(|ch| ch == '─')
+}
+
+fn hidden_startup_row(width: usize, hidden: usize) -> Row {
+    let p = style::palette();
+    Row::padded(
+        vec![Span::styled(
+            format!("... {hidden} startup rows hidden by terminal height"),
+            CellStyle::new().fg(p.subtext0).bg(p.panel_bg),
+        )],
+        width,
+        bg_style(p.panel_bg),
+    )
 }
 
 #[cfg(test)]

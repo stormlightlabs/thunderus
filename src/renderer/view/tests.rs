@@ -1,5 +1,8 @@
-use crate::app::{App, Entry, RunState, ToolStatus};
+use crate::app::{
+    App, DetailPane, Entry, FilePickerSource, PickerItem, PickerState, PromptAccessory, RunState, ToolStatus,
+};
 use crate::cli::{Cli, Theme, WebSearchMode};
+use crate::renderer;
 use crate::renderer::view::build_view;
 use std::path::PathBuf;
 
@@ -18,12 +21,8 @@ fn test_app() -> App {
         skill_dirs: Vec::new(),
     });
     app.session_id = "test-session".to_string();
-    app.git_status = Some(crate::renderer::git::GitStatusSummary {
-        branch: Some("main".to_string()),
-        added: 0,
-        modified: 0,
-        deleted: 0,
-    });
+    app.git_status =
+        Some(renderer::git::GitStatusSummary { branch: Some("main".to_string()), added: 0, modified: 0, deleted: 0 });
     app.transcript.clear();
     app.context_sources.clear();
     app.skills.clear();
@@ -265,14 +264,14 @@ fn build_view_prompt_clipping_keeps_cursor_row() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert_eq!(view.live.prompt_rows.len(), crate::renderer::live::MAX_PROMPT_ROWS);
+    assert_eq!(view.live.prompt_rows.len(), renderer::live::MAX_PROMPT_ROWS);
     assert!(
         text.contains("line 19"),
         "prompt clipping should keep the editable tail:\n{text}"
     );
     assert_eq!(
         view.live.prompt_cursor.map(|cursor| cursor.row),
-        Some(crate::renderer::live::MAX_PROMPT_ROWS - 1),
+        Some(renderer::live::MAX_PROMPT_ROWS - 1),
         "cursor row should be rebased into the clipped prompt rows"
     );
 }
@@ -322,11 +321,8 @@ fn build_view_streaming_with_tool_has_live_tail_and_running_status() {
 fn build_view_accessory_surfaces_are_present_when_active() {
     let mut app = test_app();
     app.input.set_text("@src");
-    app.prompt_accessory = crate::app::PromptAccessory::Files(crate::app::FilePickerSource::Forced);
-    app.picker = Some(crate::app::PickerState::new(
-        vec![crate::app::PickerItem::new("src/main.rs", "main entry")],
-        50,
-    ));
+    app.prompt_accessory = PromptAccessory::Files(FilePickerSource::Forced);
+    app.picker = Some(PickerState::new(vec![PickerItem::new("src/main.rs", "main entry")], 50));
 
     let view = build_view(&app, 80, 24);
 
@@ -388,7 +384,7 @@ fn build_view_detail_pane_appears_when_open() {
         status: ToolStatus::Ok,
         output: vec!["file_a.rs".to_string(), "file_b.rs".to_string()],
     });
-    app.detail_pane = crate::app::DetailPane { entry_index: 0, scroll: 0, open: true };
+    app.detail_pane = DetailPane { entry_index: 0, scroll: 0, open: true };
 
     let view = build_view(&app, 80, 24);
 
@@ -415,7 +411,7 @@ fn build_view_detail_pane_scrolls_wrapped_rows() {
         status: ToolStatus::Ok,
         output: vec!["alpha beta gamma delta epsilon zeta eta theta iota kappa lambda".to_string()],
     });
-    app.detail_pane = crate::app::DetailPane { entry_index: 0, scroll: 1, open: true };
+    app.detail_pane = DetailPane { entry_index: 0, scroll: 1, open: true };
 
     let view = build_view(&app, 30, 24);
     let body = view
@@ -467,7 +463,7 @@ fn build_view_handles_large_transcript_with_running_tool_and_detail_pane() {
         status: ToolStatus::Running,
         output: (0..200).map(|index| format!("running output line {index}")).collect(),
     });
-    app.detail_pane = crate::app::DetailPane { entry_index: detail_index, scroll: 120, open: true };
+    app.detail_pane = DetailPane { entry_index: detail_index, scroll: 120, open: true };
 
     let view = build_view(&app, 100, 32);
 

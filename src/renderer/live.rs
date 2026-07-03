@@ -613,7 +613,7 @@ fn help_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::{App, Mode, RunState};
+    use crate::app::{App, FilePickerSource, Mode, PickerItem, PickerState, RunState};
     use crate::cli::{Cli, Theme, WebSearchMode};
     use crate::renderer::layout::truncate_spans;
     use std::path::PathBuf;
@@ -826,12 +826,9 @@ mod tests {
 
     fn picker_app(files: &[String]) -> App {
         let mut app = test_app();
-        let items: Vec<crate::app::PickerItem> = files
-            .iter()
-            .map(|file| crate::app::PickerItem::new(file.clone(), ""))
-            .collect();
-        app.picker = Some(crate::app::PickerState::new(items, 200));
-        app.prompt_accessory = PromptAccessory::Files(crate::app::FilePickerSource::Forced);
+        let items: Vec<PickerItem> = files.iter().map(|file| PickerItem::new(file.clone(), "")).collect();
+        app.picker = Some(PickerState::new(items, 200));
+        app.prompt_accessory = PromptAccessory::Files(FilePickerSource::Forced);
         app
     }
 
@@ -856,7 +853,7 @@ mod tests {
         ]);
         if let Some(picker) = app.picker.as_mut() {
             picker.query = "main".to_string();
-            picker.matches = vec![crate::app::PickerItem::new("src/main.rs", "")];
+            picker.matches = vec![PickerItem::new("src/main.rs", "")];
             picker.match_indices = vec![vec![4, 5, 6, 7]];
         }
         let rows = accessory_rows(&app, 80, 12);
@@ -901,10 +898,10 @@ mod tests {
     #[test]
     fn snapshot_model_picker() {
         let mut app = test_app();
-        app.picker = Some(crate::app::PickerState::new(
+        app.picker = Some(PickerState::new(
             vec![
-                crate::app::PickerItem::new("umans-coder", "Default route to Kimi K2.7-Code"),
-                crate::app::PickerItem::new("umans-glm-5.2", "Largest context window"),
+                PickerItem::new("umans-coder", "Default route to Kimi K2.7-Code"),
+                PickerItem::new("umans-glm-5.2", "Largest context window"),
             ],
             50,
         ));
@@ -1013,12 +1010,12 @@ mod tests {
     fn snapshot_picker_cjk() {
         let mut app = test_app();
         let items = vec![
-            crate::app::PickerItem::new("src/日本語.rs".to_string(), ""),
-            crate::app::PickerItem::new("src/テスト.rs".to_string(), ""),
-            crate::app::PickerItem::new("Cargo.toml".to_string(), ""),
+            PickerItem::new("src/日本語.rs".to_string(), ""),
+            PickerItem::new("src/テスト.rs".to_string(), ""),
+            PickerItem::new("Cargo.toml".to_string(), ""),
         ];
-        app.picker = Some(crate::app::PickerState::new(items, 200));
-        app.prompt_accessory = PromptAccessory::Files(crate::app::FilePickerSource::Forced);
+        app.picker = Some(PickerState::new(items, 200));
+        app.prompt_accessory = PromptAccessory::Files(FilePickerSource::Forced);
 
         let mut combined = String::new();
         for width in [80, 40] {

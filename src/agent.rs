@@ -31,7 +31,7 @@ use std::time::Duration;
 
 use ureq::http::Response;
 
-use crate::app::AgentEvent;
+use crate::app::{AgentEvent, ToolStatus};
 use crate::providers::{
     ProviderContentBlock, ProviderError, ProviderMessage, ProviderTurn, StreamFormat, StreamingProvider,
 };
@@ -574,7 +574,7 @@ where
 
             let (output, write_result, shell_result) = tools::dispatch_full(req, &handle.config.root);
             let status = output.status;
-            if write_result.is_some() && status == crate::app::ToolStatus::Ok {
+            if write_result.is_some() && status == ToolStatus::Ok {
                 wrote_file = true;
             }
             tracing::info!(tool = %req.name, tool_id = %tool_id, status = ?status, "tool request finished");
@@ -602,7 +602,7 @@ where
             } else {
                 output.output.join("\n")
             };
-            let is_error = status == crate::app::ToolStatus::Failed;
+            let is_error = status == ToolStatus::Failed;
             tool_results.push(ProviderMessage::tool_result(&tool_id, &result_content, is_error));
         }
 
@@ -1343,6 +1343,7 @@ mod tests {
     use super::*;
     use crate::app::ToolStatus;
     use crate::cli::WebSearchMode;
+    use crate::providers;
     use crate::tools::{self, AgentRunConfig, MAX_TOOL_ITERATIONS, dispatch_tool};
     use std::path::{Path, PathBuf};
 
@@ -1360,7 +1361,7 @@ mod tests {
         );
 
         assert!(
-            ProviderAttemptError::Request(crate::providers::ProviderError::Status {
+            ProviderAttemptError::Request(providers::ProviderError::Status {
                 code: 503,
                 body: "temporarily unavailable".to_string(),
             })
@@ -1371,7 +1372,7 @@ mod tests {
                 .is_retryable::<umans::UmansClient>()
         );
         assert!(
-            !ProviderAttemptError::Request(crate::providers::ProviderError::Status {
+            !ProviderAttemptError::Request(providers::ProviderError::Status {
                 code: 401,
                 body: "unauthorized".to_string()
             })

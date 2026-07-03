@@ -16,6 +16,7 @@ use super::{agent, context, fuzzy, internals, prompt, session, skills, tools};
 use crate::cli::{Cli, Theme, WebSearchMode};
 use crate::input::PromptInput;
 use crate::providers::{opencode, umans};
+use crate::renderer;
 use crate::renderer::git::GitStatusSummary;
 use crate::tools::shell::ProcessRegistry;
 
@@ -468,7 +469,7 @@ impl From<&Cli> for App {
             history_cursor: None,
             history_draft: String::new(),
             transcript,
-            git_status: crate::renderer::git::collect(&workspace_root),
+            git_status: renderer::git::collect(&workspace_root),
             cwd: workspace_root,
             model: value.model.clone(),
             model_picker_items: offline_model_picker_items(),
@@ -1813,7 +1814,7 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
 }
 
 fn refresh_git_status(app: &mut App) {
-    app.git_status = crate::renderer::git::collect(&app.cwd);
+    app.git_status = renderer::git::collect(&app.cwd);
 }
 
 /// Cancel an active stream by marking all streaming entries complete,

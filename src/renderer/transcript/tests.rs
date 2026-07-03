@@ -1,7 +1,7 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::app::{Entry, ToolStatus};
-use crate::renderer::row;
+use crate::renderer::{self, row};
 use crate::skills;
 
 use super::{TranscriptRowContext, banner_rows, entry_rows};
@@ -30,7 +30,6 @@ fn assert_snapshot(name: &str, contents: &str) {
 
 fn test_app() -> crate::app::App {
     use crate::cli::{Cli, Theme, WebSearchMode};
-    use std::path::PathBuf;
 
     let mut app = crate::app::App::from_cli(&Cli {
         cwd: PathBuf::from("."),
@@ -46,12 +45,8 @@ fn test_app() -> crate::app::App {
         skill_dirs: Vec::new(),
     });
     app.session_id = "test-session".to_string();
-    app.git_status = Some(crate::renderer::git::GitStatusSummary {
-        branch: Some("main".to_string()),
-        added: 0,
-        modified: 0,
-        deleted: 0,
-    });
+    app.git_status =
+        Some(renderer::git::GitStatusSummary { branch: Some("main".to_string()), added: 0, modified: 0, deleted: 0 });
     app.transcript.clear();
     app.context_sources.clear();
     app.skills.clear();

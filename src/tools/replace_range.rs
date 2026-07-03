@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use super::{ToolOutput, WriteOp, WriteResult, hash_content, path};
+use crate::utils;
 
 static FILE_LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
 
@@ -365,7 +366,7 @@ fn file_preview(content: &str) -> String {
         .iter()
         .take(NO_MATCH_PREVIEW_LINES)
         .enumerate()
-        .map(|(i, line)| format!("{:>4}: {}", i + 1, crate::utils::truncate_line(line)))
+        .map(|(i, line)| format!("{:>4}: {}", i + 1, utils::truncate_line(line)))
         .collect::<Vec<_>>()
         .join("\n");
     if lines.len() > NO_MATCH_PREVIEW_LINES {
@@ -410,16 +411,16 @@ fn diff_lines(before: &str, after: &str) -> Vec<String> {
     ));
 
     for line in &before_lines[old_start..prefix] {
-        out.push(format!(" {}", crate::utils::truncate_line(line)));
+        out.push(format!(" {}", utils::truncate_line(line)));
     }
     for line in &before_lines[prefix..before_lines.len().saturating_sub(suffix)] {
-        out.push(format!("-{}", crate::utils::truncate_line(line)));
+        out.push(format!("-{}", utils::truncate_line(line)));
     }
     for line in &after_lines[prefix..after_lines.len().saturating_sub(suffix)] {
-        out.push(format!("+{}", crate::utils::truncate_line(line)));
+        out.push(format!("+{}", utils::truncate_line(line)));
     }
     for line in &after_lines[after_lines.len().saturating_sub(suffix)..new_end] {
-        out.push(format!(" {}", crate::utils::truncate_line(line)));
+        out.push(format!(" {}", utils::truncate_line(line)));
     }
 
     if out.len() > MAX_DIFF_LINES {

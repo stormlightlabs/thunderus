@@ -1,10 +1,12 @@
 use std::path::{Path, PathBuf};
 
 use super::*;
-use crate::app::{App, Entry, RunState, ToolStatus};
+use crate::app::{
+    App, DetailPane, Entry, FilePickerSource, PickerItem, PickerState, PromptAccessory, RunState, ToolStatus,
+};
 use crate::cli::{Cli, Theme, WebSearchMode};
-use crate::renderer::row;
-use crate::renderer::transcript;
+use crate::context;
+use crate::renderer::{self, row, transcript};
 
 fn vt100_contents(bytes: &[u8], width: u16, height: u16) -> String {
     let mut parser = vt100::Parser::new(height, width, 200);
@@ -44,12 +46,8 @@ fn test_app() -> App {
         skill_dirs: Vec::new(),
     });
     app.session_id = "test-session".to_string();
-    app.git_status = Some(crate::renderer::git::GitStatusSummary {
-        branch: Some("main".to_string()),
-        added: 0,
-        modified: 0,
-        deleted: 0,
-    });
+    app.git_status =
+        Some(renderer::git::GitStatusSummary { branch: Some("main".to_string()), added: 0, modified: 0, deleted: 0 });
     app.transcript.clear();
     app.context_sources.clear();
     app.skills.clear();
@@ -90,6 +88,69 @@ fn build_frame_contains_live_prompt_and_status() {
 }
 
 #[test]
+fn build_frame_short_startup_prioritizes_identity_context_and_help() {
+    let mut app = test_app();
+    app.context_sources = vec![context::ContextSource {
+        path: app.cwd.join("AGENTS.md"),
+        scope: ".".to_string(),
+        content: "# Project".to_string(),
+        content_hash: 42,
+        truncated: false,
+        byte_count: 9,
+    }];
+    app.skill_diagnostics = vec![crate::skills::SkillDiagnostic {
+        path: PathBuf::from("/Users/test/.thndrs/skills/bad/SKILL.md"),
+        message: "invalid YAML frontmatter".to_string(),
+    }];
+
+    let frame = LiveRegion::new().build_frame(&app, 80, 16);
+    let combined = frame.render_text();
+
+    assert_eq!(frame.len(), 16);
+    assert!(
+        combined.contains("thndrs  coding agent"),
+        "startup identity should survive short-height clipping:\n{combined}"
+    );
+    assert!(
+        combined.contains("AGENTS.md"),
+        "context state should survive short-height clipping:\n{combined}"
+    );
+    assert!(
+        combined.contains("invalid YAML") && combined.contains("frontmatter"),
+        "critical diagnostics should survive short-height clipping:\n{combined}"
+    );
+    assert!(
+        combined.contains("?  help"),
+        "prompt help should survive when the constrained budget allows it:\n{combined}"
+    );
+    assert!(
+        combined.contains("startup rows hidden by terminal height"),
+        "compressed startup rows should be explicit:\n{combined}"
+    );
+}
+
+#[test]
+fn build_frame_very_short_startup_marks_hidden_banner_rows() {
+    let app = test_app();
+    let frame = LiveRegion::new().build_frame(&app, 80, 8);
+    let combined = frame.render_text();
+
+    assert_eq!(frame.len(), 8);
+    assert!(
+        combined.contains("thndrs  coding agent"),
+        "startup identity should be prioritized over bottom banner rows:\n{combined}"
+    );
+    assert!(
+        combined.contains("startup rows hidden by terminal height"),
+        "very short startup viewports should show an explicit hidden-info row:\n{combined}"
+    );
+    assert!(
+        combined.contains("test-session") && combined.contains("model:"),
+        "live prompt chrome should remain visible with compressed startup rows:\n{combined}"
+    );
+}
+
+#[test]
 fn build_frame_includes_streaming_when_active() {
     let mut app = test_app();
     app.transcript
@@ -118,7 +179,7 @@ fn build_frame_keeps_live_rows_at_bottom() {
     assert!(frame.rows[frame.len() - 5].text().trim().is_empty());
     assert_eq!(
         frame.rows[frame.len() - 5].spans[0].style.bg,
-        crate::renderer::style::palette().panel_bg,
+        renderer::style::palette().panel_bg,
         "spacer above live status should visually separate transcript from input chrome"
     );
 }
@@ -141,7 +202,7 @@ fn build_frame_keeps_live_rows_at_bottom_with_status_notice() {
     assert!(frame.rows[frame.len() - 5].text().trim().is_empty());
     assert_eq!(
         frame.cursor,
-        Some(crate::renderer::row::CursorCoord::new(frame.len() - 3, 6)),
+        Some(renderer::row::CursorCoord::new(frame.len() - 3, 6)),
         "cursor should be on the bottom-pinned prompt row"
     );
 }
@@ -591,23 +652,15 @@ fn vt100_resize_replays_startup_banner_with_committed_scrollback() {
 #[test]
 fn vt100_resize_keeps_latest_git_statusline_without_duplicates() {
     let mut app = test_app();
-    app.git_status = Some(crate::renderer::git::GitStatusSummary {
-        branch: Some("main".to_string()),
-        added: 1,
-        modified: 0,
-        deleted: 0,
-    });
+    app.git_status =
+        Some(renderer::git::GitStatusSummary { branch: Some("main".to_string()), added: 1, modified: 0, deleted: 0 });
 
     let mut backend = TerminalBackend::new(Vec::new(), 100, 18);
     let mut lr = LiveRegion::new();
     lr.render_frame(&app, &mut backend, 100, 18).unwrap();
 
-    app.git_status = Some(crate::renderer::git::GitStatusSummary {
-        branch: Some("main".to_string()),
-        added: 1,
-        modified: 2,
-        deleted: 1,
-    });
+    app.git_status =
+        Some(renderer::git::GitStatusSummary { branch: Some("main".to_string()), added: 1, modified: 2, deleted: 1 });
     lr.render_frame(&app, &mut backend, 100, 18).unwrap();
 
     backend.set_size(72, 18);
@@ -1095,11 +1148,11 @@ fn build_frame_active_picker_plus_streaming_output() {
         text: "streaming response that is currently being generated by the model for the user".to_string(),
         streaming: true,
     });
-    app.prompt_accessory = crate::app::PromptAccessory::Files(crate::app::FilePickerSource::Forced);
-    app.picker = Some(crate::app::PickerState::new(
+    app.prompt_accessory = PromptAccessory::Files(FilePickerSource::Forced);
+    app.picker = Some(PickerState::new(
         vec![
-            crate::app::PickerItem::new("src/main.rs", "main entry"),
-            crate::app::PickerItem::new("src/lib.rs", "library root"),
+            PickerItem::new("src/main.rs", "main entry"),
+            PickerItem::new("src/lib.rs", "library root"),
         ],
         50,
     ));
@@ -1198,7 +1251,7 @@ fn build_frame_detail_pane_plus_running_tool() {
         status: ToolStatus::Running,
         output: vec!["Compiling thndrs v0.1.0".to_string()],
     });
-    app.detail_pane = crate::app::DetailPane { entry_index: 0, scroll: 0, open: true };
+    app.detail_pane = DetailPane { entry_index: 0, scroll: 0, open: true };
 
     let frame = LiveRegion::new().build_frame(&app, 80, 24);
     let lines: Vec<String> = frame.rows.iter().map(|r| r.text()).collect();
@@ -1235,11 +1288,8 @@ fn build_frame_tiny_height_clips_all_surfaces_preserves_prompt_and_footer() {
         text: "streaming line one. streaming line two. streaming line three. streaming line four.".to_string(),
         streaming: true,
     });
-    app.prompt_accessory = crate::app::PromptAccessory::Files(crate::app::FilePickerSource::Forced);
-    app.picker = Some(crate::app::PickerState::new(
-        vec![crate::app::PickerItem::new("src/main.rs", "entry")],
-        50,
-    ));
+    app.prompt_accessory = PromptAccessory::Files(FilePickerSource::Forced);
+    app.picker = Some(PickerState::new(vec![PickerItem::new("src/main.rs", "entry")], 50));
 
     app.queued_followups.push("next task".to_string());
     app.input.set_text("hello world this is a prompt");
@@ -1302,12 +1352,9 @@ fn build_frame_detail_pane_replaces_picker_when_open() {
         status: ToolStatus::Ok,
         output: vec!["fn main() {}".to_string()],
     });
-    app.prompt_accessory = crate::app::PromptAccessory::Files(crate::app::FilePickerSource::Forced);
-    app.picker = Some(crate::app::PickerState::new(
-        vec![crate::app::PickerItem::new("src/lib.rs", "lib root")],
-        50,
-    ));
-    app.detail_pane = crate::app::DetailPane { entry_index: 0, scroll: 0, open: true };
+    app.prompt_accessory = PromptAccessory::Files(FilePickerSource::Forced);
+    app.picker = Some(PickerState::new(vec![PickerItem::new("src/lib.rs", "lib root")], 50));
+    app.detail_pane = DetailPane { entry_index: 0, scroll: 0, open: true };
 
     let frame = LiveRegion::new().build_frame(&app, 80, 24);
     let text = frame.render_text();
@@ -1329,7 +1376,7 @@ fn build_frame_priority_model_orders_surfaces_correctly() {
     });
 
     app.queued_followups.push("follow up".to_string());
-    app.prompt_accessory = crate::app::PromptAccessory::Help;
+    app.prompt_accessory = PromptAccessory::Help;
     app.input.set_text("my prompt");
 
     let frame = LiveRegion::new().build_frame(&app, 80, 30);
