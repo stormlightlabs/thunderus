@@ -1,0 +1,92 @@
+# Rendering Engine Hardening Tasks
+
+Status: Draft
+Captured: 2026-07-03
+
+## P0: Prevent Regressions
+
+- [ ] Move transcript-entry row construction out of `src/renderer/region.rs`
+      into a focused transcript module.
+- [ ] Add direct row snapshots for user, assistant, reasoning, tool, status,
+      error, and startup banner entries.
+- [ ] Add normal-width and narrow-width transcript snapshots for every `Entry`
+      variant.
+- [ ] Add tool row fixtures for running, ok, failed, highlighted, truncated,
+      and path-shortened output.
+- [ ] Add width-epoch tests proving committed rows reset and replay after
+      terminal width changes.
+- [ ] Add tests proving mutable live rows are not committed as stable history.
+- [ ] Add backend tests for scroll-region insertion and reset.
+- [ ] Add backend byte-output fixture for history insertion followed by live
+      diff rendering.
+- [ ] Add prompt Unicode snapshots for combining marks, ZWJ emoji, regional
+      indicators, CJK, zero-width characters, long words, and explicit newlines.
+- [ ] Add transcript, picker, footer, and backend Unicode fixtures for the same
+      width classes where relevant.
+
+## P1: Implement Advanced Live Surfaces
+
+- [ ] Introduce a small renderer-owned view projection from `App` plus terminal
+      dimensions.
+- [ ] Keep the view projection free of crossterm types and terminal writes.
+- [ ] Add view projection tests for idle, working, streaming, accessory, narrow,
+      and tiny-height states.
+- [ ] Make live-region composition use explicit surface priority instead of
+      incidental append order.
+- [ ] Represent Pi-style execution in renderer state with visible status,
+      running tool output, failure, cancellation, and transcript rows.
+- [ ] Preserve footer and prompt visibility under streaming pressure.
+- [ ] Add tests for active picker plus streaming output.
+- [ ] Add tests for queued prompt summary plus running tool output.
+- [ ] Add tests for focused detail pane plus running tool output.
+- [ ] Add tests for tiny-height clipping with prompt, footer, accessory, and
+      live tail present.
+
+## P2: Improve Tool And Transcript Rendering
+
+- [ ] Add fixtures for compiler or test failure output.
+- [ ] Add fixtures for search result output.
+- [ ] Add fixtures for JSON output.
+- [ ] Add fixtures for diff output.
+- [ ] Add fixtures for long absolute paths and workspace-relative path display.
+- [ ] Add row grouping metadata needed for transcript navigation.
+- [ ] Add display truncation indicators that distinguish stored output from
+      rendered output.
+- [ ] Add cancelled-tool rendering if the app exposes cancelled tool state.
+- [ ] Keep `wrap_text` and `wrap_spans` renderer-owned; do not add Textwrap for
+      this milestone.
+- [ ] Add wrapping fixtures for CJK, emoji, URLs, prose, long words, mixed
+      styled spans, and terminal-cell clipping.
+- [ ] Keep prompt storage `String`-backed; do not add Ropey for this milestone.
+- [ ] Add long-prompt stress tests for 10 KB, 100 KB, and 1 MB prompts with
+      edits at start, middle, and end.
+- [ ] Add timing assertions or benchmark notes that separate prompt editing
+      cost from visual wrapping and display-width measurement cost.
+
+## P3: Terminal Compatibility
+
+- [ ] Run manual QA at 80x24.
+- [ ] Run manual QA at narrow width.
+- [ ] Run manual QA at short height.
+- [ ] Verify prompt wrap and cursor movement in a real terminal.
+- [ ] Verify multiline prompt editing in a real terminal.
+- [ ] Verify file picker and command suggestions in a real terminal.
+- [ ] Verify streaming assistant text in a real terminal.
+- [ ] Verify running tool output in a real terminal.
+- [ ] Verify native scrollback with mouse or trackpad.
+- [ ] Verify wheel capture only inside active focused surfaces: picker, help,
+      model/skill picker, command picker, and long tool detail pane.
+- [ ] Verify unfocused transcript history remains usable through native
+      terminal scrollback.
+- [ ] Verify resize during and after streaming.
+- [ ] Verify tmux behavior as part of the release target.
+- [ ] Verify herdr behavior as part of the release target.
+- [ ] Verify Zellij behavior as part of the release target.
+- [ ] Record terminal name, shell, dimensions, multiplexer, command, and result
+      in a status file.
+
+## Validation Commands
+
+- [ ] `cargo test renderer`
+- [ ] `cargo test input`
+- [ ] `cargo test`
