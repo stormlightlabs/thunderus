@@ -91,12 +91,6 @@ pub fn prompt_rows(text: &str, body_width: usize) -> Vec<String> {
     rows
 }
 
-/// Compute the display width of a grapheme cluster.
-///
-/// Uses `unicode-width` on the full grapheme cluster string so that ZWJ
-/// sequences, combining marks, and other zero-width joiners are measured
-/// correctly as a single unit rather than summing individual codepoint widths.
-
 #[cfg(test)]
 mod tests {
     use super::*;
