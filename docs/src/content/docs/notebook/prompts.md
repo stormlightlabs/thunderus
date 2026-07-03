@@ -48,13 +48,13 @@ set.
 
 ## Claims & Evidence
 
-| Claim                                                          | Support                                                                                                                                               | Caveat / Confidence                                   |
-| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| Prompt assembly should be layered.                             | Codex uses base instructions plus contextual fragments; Goose uses a `PromptManager`; OpenCode has prompt variants and typed prompt schemas.          | High.                                                 |
-| Project instructions are context, not enforcement.             | Claude Code memory docs describe instruction files as loaded guidance; Codex describes `AGENTS.md` as scoped repo guidance below direct instructions. | High.                                                 |
-| Tool and edit constraints should live near the base prompt.    | Codex and OpenCode include tool usage and editing constraints in base instructions; Aider's edit-format prompts define exact diff output rules.       | High.                                                 |
-| Prompt structure can be simpler than Codex/OpenCode.           | A small harness can have one provider, a small tool set, and no plugin/MCP/subagent system while still preserving typed prompt assembly.              | High; avoid importing unnecessary framework concepts. |
-| Prompt logs should record what context was sent.               | Session research showed durable context metadata matters for audit and resume; prompt assembly should expose this as structured metadata.             | Medium-high.                                          |
+| Claim                                                       | Support                                                                                                                                               | Caveat / Confidence                                   |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Prompt assembly should be layered.                          | Codex uses base instructions plus contextual fragments; Goose uses a `PromptManager`; OpenCode has prompt variants and typed prompt schemas.          | High.                                                 |
+| Project instructions are context, not enforcement.          | Claude Code memory docs describe instruction files as loaded guidance; Codex describes `AGENTS.md` as scoped repo guidance below direct instructions. | High.                                                 |
+| Tool and edit constraints should live near the base prompt. | Codex and OpenCode include tool usage and editing constraints in base instructions; Aider's edit-format prompts define exact diff output rules.       | High.                                                 |
+| Prompt structure can be simpler than Codex/OpenCode.        | A small harness can have one provider, a small tool set, and no plugin/MCP/subagent system while still preserving typed prompt assembly.              | High; avoid importing unnecessary framework concepts. |
+| Prompt logs should record what context was sent.            | Session research showed durable context metadata matters for audit and resume; prompt assembly should expose this as structured metadata.             | Medium-high.                                          |
 
 ## Important Terms
 
@@ -93,8 +93,8 @@ set.
 
 - Related ideas: session logs can record prompt metadata; AGENTS.md notes define
   project-context precedence; fs traversal notes define tool boundaries.
-- Related sources: [sessions](./sessions.md), [agents-md](./agents-md.md),
-  [fs-traversal](./fs-traversal.md), [providers/umans](./providers/umans.md).
+- Related sources: [sessions](/notebook/sessions/), [agents-md](/notebook/agents-md/),
+  [fs-traversal](/notebook/fs-traversal/), [providers/umans](/notebook/providers/umans/).
 - Contradictions or tensions: Rich prompts improve behavior, but long prompts
   burn context and hide policy in prose. Keep the structure explicit and small.
 - Conceptual uses: prompt assembly, provider lowering, search/source metadata,

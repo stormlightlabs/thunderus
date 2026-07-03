@@ -2,30 +2,31 @@
 title: "Introduction"
 ---
 
-## What thndrs Is
+`thndrs` is an agentic coding harness meant to act as an LLM powered pair
+programmer. It provides a terminal UI for chatting with an LLM, while it
+shares its reasoning and tool activity, loading project guidance, and safely
+inspecting a repository.
 
-`thndrs` is an agentic coding harness. It provides a terminal UI for
-chatting with a coding model, showing reasoning and tool activity, loading
-project guidance, and safely inspecting a repository.
+## Features
 
-## Implemented
-
-- Direct terminal renderer with transcript entries emitted into native
-  terminal scrollback and only the live prompt/status region redrawn.
-- Clap-based CLI with model, workspace, web-search, tick-rate, terminal, and
-  prompt-inspection options.
-- Umans provider support for `umans-coder` and `umans-glm-5.2`.
-- Streaming assistant, reasoning, tool, status, and error transcript entries.
-- Root `AGENTS.md` loading with visible context metadata and truncation handling.
-- Read-only repository tools for file discovery, text search, and file-range
-  reads.
-- Native, Exa, and disabled web-search modes.
-- Prompt assembly via a structured prompt bundle before provider lowering.
-- Unit tests and renderer row-model/backend snapshot tests.
+- Chat with a coding agent in the terminal while keeping normal terminal
+  scrollback, search, and text selection.
+- `AGENTS.md` support
+- `SKILL.md` support
+- Umans.ai & OpenCode Go support
+- Choose automatic web search, provider-native search, Exa-backed search, or no
+  provider-side web search.
+- Session history
+- Internal inspection for the agent
 
 ## Coming Soon
 
-- Session persistence.
-- Safe file-edit operations.
-- Config file support.
-- Non-TUI inspect and export commands.
+- Headless inspect and export commands for reviewing sessions
+- Read-only code-intelligence (LSP-based) tools such as document symbols,
+  workspace symbols, go to definition, references, hover, and implementations
+  when a language server is available.
+- Granular context control
+- File (markdown) backed memory
+- ChatGPT Codex provider support through `chatgpt-codex/` models and ChatGPT
+  subscription auth.
+- Better config/session controls

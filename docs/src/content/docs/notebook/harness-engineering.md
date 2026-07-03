@@ -88,9 +88,9 @@ reliable work.
   disclosure, tool affordances, structural tests, self-review, observability as
   context.
 - Related sources:
-  [codex-prompting-guide](./codex-prompting-guide.md),
-  [codex-prompts](./codex-prompts.md), [agents-md](./agents-md.md),
-  [skills](./skills.md), [sessions](./sessions.md).
+  [codex-prompting-guide](/notebook/codex-prompting-guide/),
+  [codex-prompts](/notebook/codex-prompts/), [agents-md](/notebook/agents-md/),
+  [skills](/notebook/skills/), [sessions](/notebook/sessions/).
 - Contradictions or tensions: the essay values agent-readable in-repo
   reimplementation over opaque dependencies, but that can conflict with normal
   maintainability instincts that prefer battle-tested libraries.

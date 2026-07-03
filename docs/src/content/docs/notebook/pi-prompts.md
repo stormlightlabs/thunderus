@@ -61,7 +61,7 @@ maintainer workflows, written as explicit checklists with safety rules and expec
 ## Connections
 
 - Related ideas: project context, prompt XML fragments, GitHub workflow automation.
-- Related sources: [pi](pi.md), [prompts](prompts.md), [goose-prompts](goose-prompts.md).
+- Related sources: [pi](/notebook/pi/), [prompts](/notebook/prompts/), [goose-prompts](/notebook/goose-prompts/).
 - Tension: command prompts are useful, but prompt-command infrastructure should
   follow repeated workflows rather than one-off cleanup needs.
 - Conceptual use: write prompt instructions as concrete steps when the workflow

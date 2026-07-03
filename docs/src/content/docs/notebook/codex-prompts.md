@@ -59,7 +59,8 @@ permissions, review, goals, compaction, realtime, and patch-tool instructions.
 ## Connections
 
 - Related ideas: prompt assembly, XML syntax docs, tool boundary, future review workflows.
-- Related sources: [prompts](prompts.md), [claude-system-prompts](claude-system-prompts.md).
+- Related sources: [prompts](/notebook/prompts/),
+  [claude-system-prompts](/notebook/claude-system-prompts/).
 - Tension: Codex's prompt system is mature and policy-rich; smaller harnesses
   should borrow the typed rendering discipline without adopting the whole
   surface.

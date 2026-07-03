@@ -17,8 +17,9 @@ Current user-controlled settings:
 - `--no-alt-screen`: compatibility no-op; inline direct rendering is always used.
 - `--print-prompt`: inspect prompt assembly without contacting the provider.
 
-Secrets are read from environment variables, not config examples. See
-[Environment Variables](./environment-variables.md).
+Secrets are read from environment variables, not config examples.
+
+See [Environment Variables](/reference/environment-variables/).
 
 ## Config Files
 

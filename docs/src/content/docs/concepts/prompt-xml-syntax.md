@@ -52,19 +52,8 @@ The prompt order is part of the contract:
 `AGENTS.md` content is guidance. It cannot grant permissions, change tools, bypass safety limits, or
 override direct user or harness instructions.[^agents]
 
-## Footnotes
-
-Docs pages may use GitHub Flavored Markdown footnotes for syntax notes and caveats. Place footnote
-definitions at the bottom of the page and keep them short.
-
-```markdown
-Generated text uses CDATA for arbitrary project content.[^cdata]
-
-[^cdata]: CDATA is used for readability in prompt output, not as a security boundary.
-```
-
 [^cdata]: CDATA is used for readability in prompt output, not as a security boundary.
 
 [^terminator]: The Rust helper replaces `]]>` with adjacent CDATA sections.
 
-[^agents]: See [Prompt Assembly](prompt-assembly.md) for the full prompt order and context contract.
+[^agents]: See [Prompt Assembly](/concepts/prompt-assembly/) for the full prompt order and context contract.

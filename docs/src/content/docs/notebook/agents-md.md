@@ -110,10 +110,10 @@ Observed examples:
 ## Connections
 
 - Related ideas: visible context from Pi, scoped project layout from monorepos,
-  read-only traversal tools from [fs-traversal](./fs-traversal.md), release
-  gates from [release](./release.md).
-- Related sources: [pi](./pi.md), [herdr](./herdr.md),
-  [ui-patterns](./ui-patterns.md), [providers/umans](./providers/umans.md).
+  read-only traversal tools from [fs-traversal](/notebook/fs-traversal/), release
+  gates from [release](/notebook/release/).
+- Related sources: [pi](/notebook/pi/), [herdr](/notebook/herdr/),
+  [ui-patterns](/notebook/ui-patterns/), [providers/umans](/notebook/providers/umans/).
 - Contradictions or tensions: AGENTS.md can reduce repeated explanation, but it
   can also add irrelevant constraints and token cost.
 - Conceptual uses: root context loading, nested scoped loading, context

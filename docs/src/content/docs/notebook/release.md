@@ -5,19 +5,12 @@ Author: >
 Date: 2026-06-28
 Captured: 2026-06-28
 Tags: [release-planning, cli, tui, rust, coding-agent]
+sources:
+  - Internal notes in `docs/internal/notes/`
+  - https://semver.org/
+  - https://keepachangelog.com/en/1.1.0/
+  - https://rust-cli.github.io/book/
 ---
-
-Source:
-
-- Internal notes in `docs/internal/notes/`
-- https://semver.org/
-- https://keepachangelog.com/en/1.1.0/
-- https://rust-cli.github.io/book/tutorial/testing.html
-- https://rust-cli.github.io/book/tutorial/packaging.html
-- https://rust-cli.github.io/book/in-depth/config-files.html
-- https://rust-cli.github.io/book/in-depth/exit-code.html
-- https://rust-cli.github.io/book/in-depth/human-communication.html
-- https://rust-cli.github.io/book/in-depth/machine-communication.html
 
 ## Summary
 
@@ -47,26 +40,26 @@ on.
 
 ## Claims & Evidence
 
-| Claim                                                     | Support                                                                                                         | Caveat / Confidence                                                      |
-| --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| Major version zero is allowed to change freely.           | SemVer says `0.y.z` is for initial development and the public API should not be considered stable.              | High. Good fit for experimental prereleases.                             |
-| `1.0.0` means the public API is defined.                  | SemVer says version 1.0.0 defines the public API.                                                               | High. We must define what "public API" means for a TUI CLI.              |
+| Claim                                                     | Support                                                                                                         | Caveat / Confidence                                                         |
+| --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Major version zero is allowed to change freely.           | SemVer says `0.y.z` is for initial development and the public API should not be considered stable.              | High. Good fit for experimental prereleases.                                |
+| `1.0.0` means the public API is defined.                  | SemVer says version 1.0.0 defines the public API.                                                               | High. We must define what "public API" means for a TUI CLI.                 |
 | Pre-release identifiers communicate instability.          | SemVer allows labels like `alpha` and `rc`; pre-release versions have lower precedence than the normal release. | High. Use this to distinguish unstable prereleases from release candidates. |
-| A CLI should be tested through both units and the binary. | Rust CLI book separates unit tests from black-box integration tests under `tests/`.                             | High.                                                                    |
-| Human-facing output should be consistent and clear.       | Rust CLI book recommends concise progress/error messages and consistent severity/log levels.                    | High; applies to transcript errors and non-TUI commands.                 |
-| Machine-facing output should use parseable formats.       | Rust CLI book recommends JSON/line-delimited JSON when output is consumed by other programs.                    | Medium; only needed for documented machine-facing commands or exports.   |
-| Packaging needs metadata and install path decisions.      | Rust CLI book calls out Cargo metadata, `cargo install`, and binary distribution tradeoffs.                     | High for v1.                                                             |
+| A CLI should be tested through both units and the binary. | Rust CLI book separates unit tests from black-box integration tests under `tests/`.                             | High.                                                                       |
+| Human-facing output should be consistent and clear.       | Rust CLI book recommends concise progress/error messages and consistent severity/log levels.                    | High; applies to transcript errors and non-TUI commands.                    |
+| Machine-facing output should use parseable formats.       | Rust CLI book recommends JSON/line-delimited JSON when output is consumed by other programs.                    | Medium; only needed for documented machine-facing commands or exports.      |
+| Packaging needs metadata and install path decisions.      | Rust CLI book calls out Cargo metadata, `cargo install`, and binary distribution tradeoffs.                     | High for v1.                                                                |
 
 ## Important Terms
 
-| Term              | Meaning                                                                                                                   |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Term               | Meaning                                                                                                                   |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------- |
 | experimental build | Runnable harness that validates UI, state, provider/tool loops, and tests without promising stable contracts.             |
 | alpha/prerelease   | Usable but unstable release: real provider, sessions, local tools, guarded file edits, and known rough edges.             |
-| v1                | Stable supported release: clear CLI/config/session/tool contracts, docs, packaging, and release process.                  |
-| public API        | For this app: CLI flags, config file keys, env vars, session/event formats, tool behavior, and documented user workflows. |
-| release candidate | A pre-release build intended to become v1 if no blocking issues are found.                                                |
-| changelog         | Human-authored record of notable changes grouped by categories such as Added, Changed, Fixed, Security.                   |
+| v1                 | Stable supported release: clear CLI/config/session/tool contracts, docs, packaging, and release process.                  |
+| public API         | For this app: CLI flags, config file keys, env vars, session/event formats, tool behavior, and documented user workflows. |
+| release candidate  | A pre-release build intended to become v1 if no blocking issues are found.                                                |
+| changelog          | Human-authored record of notable changes grouped by categories such as Added, Changed, Fixed, Security.                   |
 
 ## Questions for Review
 
@@ -84,8 +77,8 @@ on.
 - Related ideas: Pi's visible context and event stream; Herdr's durable session
   discipline; Gridland's chat layout; Ratatui snapshot tests; provider
   reliability.
-- Related sources: [pi](pi.md), [herdr](herdr.md), [ui-patterns](ui-patterns.md),
-  [umans](./providers/umans.md), [ratatui-testing](ratatui-testing.md).
+- Related sources: [pi](/notebook/pi/), [herdr](/notebook/herdr/), [ui-patterns](/notebook/ui-patterns/),
+  [umans](/notebook/providers/umans/), [ratatui-testing](/notebook/ratatui-testing/).
 - Contradictions or tensions: prereleases need write/edit tools to be useful
   coding harnesses, but permission prompts are not a real sandbox. The
   conceptual compromise is clear local execution, narrow file operations, audit

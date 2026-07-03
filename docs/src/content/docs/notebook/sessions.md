@@ -50,15 +50,15 @@ indexes, and replay by reducing records into UI/model state.
 
 ## Claims & Evidence
 
-| Claim                                                                    | Support                                                                                                                                                             | Caveat / Confidence                                                                      |
-| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| No broad coding-agent session file standard exists.                      | Codex, OpenCode, Goose, and Aider all use different persistence models: JSONL rollouts, event-sourced DB rows, SQLite conversations, and Markdown history.          | High; sampled prominent tools, not exhaustive.                                           |
-| Append-only records are the safest local structure.                      | Codex rollout files and session name index are append-only; OpenCode event streams replay by durable sequence; Aider appends Markdown history.                      | High; append-only recovery is simpler than in-place mutation.                            |
-| Store metadata separately from transcript entries.                       | Codex has `SessionMetaLine`; Goose has a `Session` row; OpenCode has `Session.Info`.                                                                                | High; listing/resume should not require rendering the whole transcript every time.       |
-| Persist completed content, not every live delta, for replay.             | OpenCode comments mark `Text.Delta` and `Reasoning.Delta` as live-only, with `Text.Ended` and `Reasoning.Ended` as replayable boundaries.                           | High for most local harnesses; raw delta persistence is a separate debugging feature.    |
-| Tool records need both request and settlement data.                      | Goose separates `ToolRequest` and `ToolResponse`; OpenCode has started/ended/failed events; Codex raw trace has start/runtime/end payloads.                         | High; otherwise resume cannot distinguish pending, failed, or completed tools.           |
-| Context and environment snapshots matter for audit.                      | Codex persists turn context such as cwd, approval policy, sandbox policy, model, and network info; OpenCode has Context Epochs for exact privileged system context. | Medium-high; the exact fields depend on the harness threat model and provider surface.   |
-| A separate search/list index is useful but not part of the transcript.   | Codex uses `session_index.jsonl`; Goose/OpenCode rely on DB queryable metadata.                                                                                     | Medium; indexes can be derived until listing/search performance requires persistence.    |
+| Claim                                                                  | Support                                                                                                                                                             | Caveat / Confidence                                                                    |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| No broad coding-agent session file standard exists.                    | Codex, OpenCode, Goose, and Aider all use different persistence models: JSONL rollouts, event-sourced DB rows, SQLite conversations, and Markdown history.          | High; sampled prominent tools, not exhaustive.                                         |
+| Append-only records are the safest local structure.                    | Codex rollout files and session name index are append-only; OpenCode event streams replay by durable sequence; Aider appends Markdown history.                      | High; append-only recovery is simpler than in-place mutation.                          |
+| Store metadata separately from transcript entries.                     | Codex has `SessionMetaLine`; Goose has a `Session` row; OpenCode has `Session.Info`.                                                                                | High; listing/resume should not require rendering the whole transcript every time.     |
+| Persist completed content, not every live delta, for replay.           | OpenCode comments mark `Text.Delta` and `Reasoning.Delta` as live-only, with `Text.Ended` and `Reasoning.Ended` as replayable boundaries.                           | High for most local harnesses; raw delta persistence is a separate debugging feature.  |
+| Tool records need both request and settlement data.                    | Goose separates `ToolRequest` and `ToolResponse`; OpenCode has started/ended/failed events; Codex raw trace has start/runtime/end payloads.                         | High; otherwise resume cannot distinguish pending, failed, or completed tools.         |
+| Context and environment snapshots matter for audit.                    | Codex persists turn context such as cwd, approval policy, sandbox policy, model, and network info; OpenCode has Context Epochs for exact privileged system context. | Medium-high; the exact fields depend on the harness threat model and provider surface. |
+| A separate search/list index is useful but not part of the transcript. | Codex uses `session_index.jsonl`; Goose/OpenCode rely on DB queryable metadata.                                                                                     | Medium; indexes can be derived until listing/search performance requires persistence.  |
 
 ## Important Terms
 
@@ -132,8 +132,8 @@ Avoid in the core log:
 
 - Related ideas: Codex rollout JSONL, OpenCode durable/live event split, Goose
   typed conversation parts, Aider's human-readable history.
-- Related sources: [pi](./pi.md), [herdr](./herdr.md), [ui-patterns](./ui-patterns.md),
-  [agents-md](./agents-md.md), [fs-traversal](./fs-traversal.md).
+- Related sources: [pi](/notebook/pi/), [herdr](/notebook/herdr/), [ui-patterns](/notebook/ui-patterns/),
+  [agents-md](/notebook/agents-md/), [fs-traversal](/notebook/fs-traversal/).
 - Contradictions or tensions: JSONL is simple and inspectable, while richer
   search/listing wants SQLite-style queries. The conceptual split is durable log
   versus derived index.

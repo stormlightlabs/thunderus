@@ -128,8 +128,8 @@ product documentation.
 
 ## Connections
 
-- Related ideas: [prompts](prompts.md), [fs-traversal](fs-traversal.md),
-  [sessions](./sessions.md), prompt XML syntax, review prompts, and session
+- Related ideas: [prompts](/notebook/prompts/), [fs-traversal](/notebook/fs-traversal/),
+  [sessions](/notebook/sessions/), prompt XML syntax, review prompts, and session
   summaries.
 - Related sources: Claude Code overview docs, Codex prompt sources, Polytoken
   docs IA, Pi docs IA, and the Piebald AI extracted Claude Code prompt corpus.

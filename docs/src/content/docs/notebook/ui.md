@@ -273,9 +273,9 @@ The reusable design lessons are:
 
 ## Connections
 
-- Related ideas: [ui-patterns](./ui-patterns.md), [pi](./pi.md),
-  [ratatui](./ratatui.md), [harness-engineering](./harness-engineering.md),
-  [sessions](./sessions.md).
+- Related ideas: [ui-patterns](/notebook/ui-patterns/), [pi](/notebook/pi/),
+  [ratatui](/notebook/ratatui/), [harness-engineering](/notebook/harness-engineering/),
+  [sessions](/notebook/sessions/).
 - Related sources: Pi, Codex, OpenCode, Goose, Aider, and Gridland repositories
   and docs.
 - Contradictions or tensions: Pi favors extreme minimalism; Codex/OpenCode/Goose

@@ -116,7 +116,8 @@ Recommendation:
 - Related ideas: Pi's explicit small tool set; Herdr's semantic tool/process
   states; deterministic snapshots for tool-result rendering; narrow tool
   boundaries before broad process execution.
-- Related sources: [pi](./pi.md), [herdr](./herdr.md), [release](./release.md).
+- Related sources: [pi](/notebook/pi/), [herdr](/notebook/herdr/),
+  [release](/notebook/release/).
 - Contradictions or tensions: developer muscle memory favors raw shell commands,
   but an agent-facing harness needs typed, bounded, auditable operations.
 - Conceptual uses: reliable repo search, file discovery, context gathering,

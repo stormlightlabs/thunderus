@@ -281,9 +281,9 @@ retrieval channel.
 
 ## Connections
 
-- Related ideas: [Letta memory](./letta.md), [Pi](./pi.md),
-  [Polytoken](./polytoken.md), [sessions](./sessions.md),
-  [AGENTS.md](./agents-md.md), [skills](./skills.md), [prompts](./prompts.md).
+- Related ideas: [Letta memory](/notebook/letta/), [Pi](/notebook/pi/),
+  [Polytoken](/notebook/polytoken/), [sessions](/notebook/sessions/),
+  [AGENTS.md](/notebook/agents-md/), [skills](/notebook/skills/), [prompts](/notebook/prompts/).
 - Related sources: Memory Sandbox, VISTA, the 2026 memory survey, AGENTS.md
   public guidance, OpenAI tokenizer guidance, Git ignore documentation.
 - Contradictions or tensions: always-loaded memory improves continuity but can

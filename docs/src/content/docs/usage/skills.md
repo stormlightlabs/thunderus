@@ -42,9 +42,33 @@ small metadata first, then read the skill instructions when the task needs them.
 important routing fields. The name should be stable and match the skill
 directory. The description should say what the skill does and when to use it.
 
+Optional frontmatter fields are preserved as metadata when present:
+
+- `license`
+- `compatibility`
+- `metadata`
+- `allowed-tools`
+
 Good skills keep the main instruction file short. Conditional detail belongs in
 focused reference files under the skill directory, and reusable material belongs
 in assets or scripts. Avoid recursive reference chains.
+
+Common optional directories are `scripts/`, `references/`, and `assets/`.
+Scripts are not executed automatically.
+
+## Loading References
+
+Skill instructions are loaded progressively. Startup discovery reads only
+metadata. The full `SKILL.md` body is loaded only when the skill is activated
+for the current task.
+
+Reference files are loaded on demand from paths relative to the skill root.
+Reference traversal is bounded by depth, total bytes, per-file bytes, file
+count, and cycle detection. When traversal stops early, `thndrs` surfaces a
+diagnostic instead of silently expanding more context.
+
+Activated skill names, content hashes, byte counts, and loaded reference paths
+are recorded in session metadata.
 
 ## Boundaries
 
@@ -63,6 +87,6 @@ into prompt noise.
 
 ## Related Docs
 
-- [Project Context](project-context.md)
-- [Prompt Assembly](../concepts/prompt-assembly.md)
-- [Tool Boundary](../concepts/tool-boundary.md)
+- [Project Context](/usage/project-context/)
+- [Prompt Assembly](/concepts/prompt-assembly/)
+- [Tool Boundary](/concepts/tool-boundary/)

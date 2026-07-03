@@ -152,7 +152,7 @@ source as truncated.
 
 ## Related Docs
 
-- [Prompt Assembly](../concepts/prompt-assembly.md)
-- [Tool Boundary](../concepts/tool-boundary.md)
-- [Session Format](../reference/session-format.md)
-- [Security and Permissions](security-and-permissions.md)
+- [Prompt Assembly](/concepts/prompt-assembly/)
+- [Tool Boundary](/concepts/tool-boundary/)
+- [Session Format](/reference/session-format/)
+- [Security and Permissions](/usage/security-and-permissions/)

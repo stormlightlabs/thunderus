@@ -1,11 +1,13 @@
 // @ts-check
 import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
+import starlinkValidator from "starlight-links-validator";
 
 export default defineConfig({
   site: "https://thndrs.stormlightlabs.org",
   integrations: [
     starlight({
+      plugins: [starlinkValidator()],
       title: "thndrs",
       description:
         "thndrs is a Rust coding harness with a terminal-first workflow, visible context, \
@@ -62,9 +64,16 @@ export default defineConfig({
         /* Concepts: stable mental models that explain behavior. */
         {
           label: "Concepts",
+          collapsed: true,
           items: [
-            { label: "Prompt Assembly", slug: "concepts/prompt-assembly" },
-            { label: "Prompt XML", slug: "concepts/prompt-xml-syntax" },
+            {
+              label: "Prompts",
+              items: [
+                { label: "Prompt Assembly", slug: "concepts/prompt-assembly" },
+                { label: "Prompt XML", slug: "concepts/prompt-xml-syntax" },
+              ],
+              collapsed: true,
+            },
             { label: "Transcripts", slug: "concepts/transcript-model" },
             { label: "Tools", slug: "concepts/tool-boundary" },
             { label: "TUI", slug: "usage/tui" },
@@ -73,6 +82,7 @@ export default defineConfig({
         /* Providers: integration-specific behavior and provider boundaries. */
         {
           label: "Providers",
+          collapsed: true,
           items: [
             { label: "Umans", slug: "providers/umans" },
             { label: "OpenCode Go", slug: "providers/opencode-go" },

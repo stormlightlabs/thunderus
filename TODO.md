@@ -157,6 +157,18 @@ See:
 
 - [ ] Tool call failures should have debuggable logs and more information about
       why in the transcript.
+- [ ] Plan mode?
+- [ ] In-app task management
+- [ ] Subagents or multi-agent orchestration
+- [ ] Custom terminal multiplexer?
+- [ ] LSP code actions or automatic refactors?
+- [ ] Long-lived LSP server process management?
+- [ ] Skill marketplace, installer, sharing, or publishing?
+- [ ] Skill-specific tool permission enforcement?
+- [ ] Plugin framework for self-description?
+- [ ] Provider-private state introspection?
+- [ ] Project files, skills, or remote resources rewriting harness identity,
+      direct instructions, tool schemas, or safety boundaries?
 
 ### Bugs
 

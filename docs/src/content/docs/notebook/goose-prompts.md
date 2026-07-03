@@ -63,7 +63,8 @@ compaction, subagents, recipes, app generation, permissions, and tiny-model beha
 ## Connections
 
 - Related ideas: prompt assembly, session persistence, compaction, tool catalog rendering.
-- Related sources: [prompts](prompts.md), [sessions](./sessions.md), [pi-prompts](pi-prompts.md).
+- Related sources: [prompts](/notebook/prompts/), [sessions](/notebook/sessions/),
+  [pi-prompts](/notebook/pi-prompts/).
 - Tension: Goose supports extensions and subagents; smaller harnesses should add
   those only when the local workflow needs them.
 - Conceptual use: keep prompt fragments focused and put runtime-specific context

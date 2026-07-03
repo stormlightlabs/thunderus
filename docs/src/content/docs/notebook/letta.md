@@ -272,8 +272,8 @@ an editable, versioned workspace that both users and agents can inspect.
 - Related ideas: durable session logs, context compaction, retrieval-augmented
   generation, reflective memory, shared mutable state, git-backed state, memory
   as context assembly.
-- Related sources: [sessions](./sessions.md), [skills](./skills.md),
-  [agents-md](./agents-md.md), [prompt-renderer-research](./prompt-renderer-research.md).
+- Related sources: [sessions](/notebook/sessions/), [skills](/notebook/skills/),
+  [agents-md](/notebook/agents-md/), [prompt-renderer-research](/notebook/prompt-renderer-research/).
 - Contradictions or tensions: always-visible memory improves reliability but
   consumes prompt budget; retrieval memory scales but can be missed; shared
   memory simplifies coordination but introduces global mutable state; background

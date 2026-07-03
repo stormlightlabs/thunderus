@@ -77,8 +77,8 @@ are loaded only when the active task needs them.
 
 - Related ideas: prompt fragments, tool descriptions, slash-command prompts,
   project-local instruction files.
-- Related sources: [prompts](./prompts.md), [codex-prompts](./codex-prompts.md),
-  [goose-prompts](./goose-prompts.md), [pi-prompts](./pi-prompts.md).
+- Related sources: [prompts](/notebook/prompts/), [codex-prompts](/notebook/codex-prompts/),
+  [goose-prompts](/notebook/goose-prompts/), [pi-prompts](/notebook/pi-prompts/).
 - Tension: Skills can package rich workflows, but skill infrastructure should
   wait until repeated workflows justify the extra loader, validation, and
   precedence rules.

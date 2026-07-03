@@ -9,7 +9,7 @@ messages. This keeps prompt construction inspectable and avoids ad hoc string
 concatenation.
 
 The rendered prompt uses XML-shaped sections for scanability. See
-[Prompt XML Syntax](prompt-xml-syntax.md) for the tag and CDATA conventions.
+[Prompt XML Syntax](/concepts/prompt-xml-syntax/) for the tag and CDATA conventions.
 
 ## Base Identity
 
