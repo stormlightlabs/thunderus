@@ -9,6 +9,12 @@ use crate::renderer::row::{CursorCoord, Row};
 use crate::renderer::style::{CellStyle, Color, Span};
 use crate::utils;
 
+/// Maximum rows the prompt input can occupy before scrolling within the live region.
+pub const MAX_PROMPT_ROWS: usize = 8;
+
+/// Maximum accessory rows (help/commands/files) shown in the live region.
+pub const MAX_ACCESSORY_ROWS: usize = 8;
+
 const LIVE_INSET: usize = 1;
 
 /// Build the dynamic status row: session id + status icon + queue info.
@@ -843,5 +849,92 @@ mod tests {
         let rows = accessory_rows(&app, 80, 8);
         let frame = crate::renderer::row::Frame { rows, width: 80, cursor: None, cursor_visible: true };
         insta::assert_snapshot!("command_suggestions", frame.render_styled());
+    }
+
+    fn snapshot_prompt_at_widths(name: &str, text: &str) {
+        let mut combined = String::new();
+        for width in [80, 40] {
+            let mut app = test_app();
+            app.input.set_text(text);
+            let (rows, _) = prompt_rows_for(&app, width);
+            let frame = crate::renderer::row::Frame { rows, width, cursor: None, cursor_visible: true };
+            combined.push_str(&format!("width={width}:\n"));
+            combined.push_str(&frame.render_styled());
+            combined.push('\n');
+        }
+        insta::assert_snapshot!(name, combined);
+    }
+
+    #[test]
+    fn snapshot_prompt_combining_marks() {
+        snapshot_prompt_at_widths("prompt_combining_marks", "ab\u{0327}cd");
+    }
+
+    #[test]
+    fn snapshot_prompt_zwj_emoji() {
+        snapshot_prompt_at_widths("prompt_zwj_emoji", "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}");
+    }
+
+    #[test]
+    fn snapshot_prompt_regional_indicators() {
+        snapshot_prompt_at_widths("prompt_regional_indicators", "\u{1f1fa}\u{1f1f8}\u{1f1ec}\u{1f1e7}");
+    }
+
+    #[test]
+    fn snapshot_prompt_cjk() {
+        snapshot_prompt_at_widths("prompt_cjk", "日本語テキスト");
+    }
+
+    #[test]
+    fn snapshot_prompt_zero_width() {
+        snapshot_prompt_at_widths("prompt_zero_width", "a\u{200b}b\u{200d}c");
+    }
+
+    #[test]
+    fn snapshot_prompt_long_word() {
+        snapshot_prompt_at_widths("prompt_long_word", &"a".repeat(120));
+    }
+
+    #[test]
+    fn snapshot_prompt_explicit_newline() {
+        snapshot_prompt_at_widths("prompt_explicit_newline", "line one\nline two\nline three");
+    }
+
+    #[test]
+    fn snapshot_picker_cjk() {
+        let mut app = test_app();
+        let items = vec![
+            crate::app::PickerItem::new("src/日本語.rs".to_string(), ""),
+            crate::app::PickerItem::new("src/テスト.rs".to_string(), ""),
+            crate::app::PickerItem::new("Cargo.toml".to_string(), ""),
+        ];
+        app.picker = Some(crate::app::PickerState::new(items, 200));
+        app.prompt_accessory = PromptAccessory::Files(crate::app::FilePickerSource::Forced);
+
+        let mut combined = String::new();
+        for width in [80, 40] {
+            let rows = accessory_rows(&app, width, 12);
+            let frame = crate::renderer::row::Frame { rows, width, cursor: None, cursor_visible: true };
+            combined.push_str(&format!("width={width}:\n"));
+            combined.push_str(&frame.render_styled());
+            combined.push('\n');
+        }
+        insta::assert_snapshot!("picker_cjk", combined);
+    }
+
+    #[test]
+    fn snapshot_footer_cjk() {
+        let mut app = test_app();
+        app.cwd = std::path::PathBuf::from("/Users/owais/日本語プロジェクト");
+
+        let mut combined = String::new();
+        for width in [80, 40] {
+            let row = static_status_row(&app, width);
+            let frame = crate::renderer::row::Frame { rows: vec![row], width, cursor: None, cursor_visible: true };
+            combined.push_str(&format!("width={width}:\n"));
+            combined.push_str(&frame.render_styled());
+            combined.push('\n');
+        }
+        insta::assert_snapshot!("footer_cjk", combined);
     }
 }

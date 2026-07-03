@@ -600,4 +600,143 @@ mod tests {
         assert!(out.contains(&format!("a{family}")));
         assert!(!out.contains('b'));
     }
+
+    #[test]
+    fn insert_history_lines_multiple_rows() {
+        let mut b = backend(20, 10);
+        let rows = [
+            Row::padded(vec![Span::plain("one")], 20, CellStyle::default()),
+            Row::padded(vec![Span::plain("two")], 20, CellStyle::default()),
+            Row::padded(vec![Span::plain("three")], 20, CellStyle::default()),
+        ];
+        b.insert_history_lines(&rows, 8).unwrap();
+
+        let out = String::from_utf8(b.writer().clone()).unwrap();
+        assert_eq!(
+            out.matches("\r\n").count(),
+            3,
+            "each history row should be inserted with a newline"
+        );
+        assert!(out.contains("one"));
+        assert!(out.contains("two"));
+        assert!(out.contains("three"));
+        assert!(out.contains("\x1b[r"), "scroll region should be reset after insertion");
+    }
+
+    #[test]
+    fn insert_history_lines_resets_scroll_region() {
+        let mut b = backend(20, 10);
+        let row = Row::padded(vec![Span::plain("history")], 20, CellStyle::default());
+        b.insert_history_lines(&[row], 8).unwrap();
+
+        let out = String::from_utf8(b.writer().clone()).unwrap();
+        assert!(out.contains("\x1b[r"), "scroll region should be reset after insertion");
+    }
+
+    #[test]
+    fn insert_history_lines_empty_is_noop() {
+        let mut b = backend(20, 10);
+        b.insert_history_lines(&[], 8).unwrap();
+
+        let out = String::from_utf8(b.writer().clone()).unwrap();
+        assert!(out.is_empty(), "empty history insert should produce no output");
+    }
+
+    #[test]
+    fn history_insert_then_live_diff_renders_viewport() {
+        let mut b = backend(20, 10);
+
+        let mut prev = Frame::new(20);
+        prev.push(Row::padded(vec![Span::plain("live old")], 20, CellStyle::default()));
+        prev.set_cursor(CursorCoord::new(0, 8));
+        b.render_frame(&prev, 0).unwrap();
+        b.writer().clear();
+
+        let history_row = Row::padded(vec![Span::plain("history")], 20, CellStyle::default());
+        b.insert_history_lines(&[history_row], 10).unwrap();
+        let after_insert = String::from_utf8(b.writer().clone()).unwrap().len();
+
+        let mut frame = Frame::new(20);
+        frame.push(Row::padded(vec![Span::plain("live new")], 20, CellStyle::default()));
+        frame.set_cursor(CursorCoord::new(0, 8));
+        b.render_frame_diff(&frame, Some(&prev), 0).unwrap();
+        let total = String::from_utf8(b.writer().clone()).unwrap();
+        let diff_bytes = &total[after_insert..];
+
+        assert!(
+            total.contains("\x1b[1;10r"),
+            "history insert should use a constrained scroll region"
+        );
+        assert!(
+            diff_bytes.contains("live new"),
+            "live diff should render the changed row: {diff_bytes:?}"
+        );
+        assert!(
+            diff_bytes.contains("\x1b[1;9H"),
+            "cursor should be placed after the diffed row: {diff_bytes:?}"
+        );
+    }
+
+    #[test]
+    fn write_row_cjk() {
+        let mut b = backend(20, 5);
+        let row = Row::padded(vec![Span::plain("日本語")], 20, CellStyle::default());
+        b.write_row(0, &row).unwrap();
+
+        let out = String::from_utf8(b.writer().clone()).unwrap();
+        assert!(out.contains("日本語"), "CJK text should be written intact: {out:?}");
+        assert!(out.ends_with("\x1b[0m"), "row write should end with reset: {out:?}");
+    }
+
+    #[test]
+    fn write_row_emoji() {
+        let mut b = backend(20, 5);
+        let family = "👨\u{200d}👩\u{200d}👧";
+        let row = Row::padded(vec![Span::plain(family.to_string())], 20, CellStyle::default());
+        b.write_row(0, &row).unwrap();
+
+        let out = String::from_utf8(b.writer().clone()).unwrap();
+        assert!(
+            out.contains(family),
+            "ZWJ emoji should be written as one grapheme: {out:?}"
+        );
+    }
+
+    #[test]
+    fn write_row_regional_indicators() {
+        let flag = "🇺🇸"; // US flag: two regional indicators, one grapheme, width 2
+
+        let mut b = backend(20, 5);
+        let row = Row::padded(vec![Span::plain(flag.to_string())], 20, CellStyle::default());
+        b.write_row(0, &row).unwrap();
+        let wide = String::from_utf8(b.writer().clone()).unwrap();
+        assert!(wide.contains(flag), "flag should render when it fits: {wide:?}");
+
+        let mut b = backend(20, 5);
+        let row = Row::padded(vec![Span::plain(flag.to_string())], 2, CellStyle::default());
+        b.write_row(0, &row).unwrap();
+        let narrow = String::from_utf8(b.writer().clone()).unwrap();
+        assert!(
+            !narrow.contains(flag),
+            "flag should be omitted entirely when it does not fit: {narrow:?}"
+        );
+        assert!(
+            !narrow.contains('\u{1f1fa}') && !narrow.contains('\u{1f1f8}'),
+            "flag codepoints should not be split across the clip boundary: {narrow:?}"
+        );
+    }
+
+    #[test]
+    fn write_row_long_unbroken_text() {
+        let mut b = backend(10, 5);
+        let row = Row::padded(vec![Span::plain("a".repeat(100))], 10, CellStyle::default());
+        b.write_row(0, &row).unwrap();
+
+        let out = String::from_utf8(b.writer().clone()).unwrap();
+        let a_count = out.matches('a').count();
+        assert!(
+            a_count > 0 && a_count <= 9,
+            "long unbroken text should be clipped to the printable width without splitting: {a_count}"
+        );
+    }
 }

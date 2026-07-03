@@ -1,0 +1,7 @@
+---
+source: src/renderer/transcript/tests.rs
+expression: contents
+---
+│                                                                                   # [bg=#292e42]=                                                                                
+│   User                                                                            # [bg=#292e42]=   [fg=#04d1f9 bg=#292e42 b]=User [bg=#292e42]=                                                                         [bg=#292e42]=  
+│   Hello, can you help me with this?                                               # [bg=#292e42]=   [fg=#ebfafa bg=#292e42]=Hello, can you help me with this? [bg=#292e42]=                                            [bg=#292e42]=

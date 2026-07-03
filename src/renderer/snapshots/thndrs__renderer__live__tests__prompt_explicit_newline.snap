@@ -1,0 +1,12 @@
+---
+source: src/renderer/live.rs
+expression: combined
+---
+width=80:
+│    ›  line one                                                                    # [bg=#212337]=   [bg=#212337]=  [fg=#e0e0e0 bg=#212337]=› [bg=#212337]=   [fg=#ebfafa bg=#212337]=line one [bg=#212337]=                                                                 [bg=#212337]=  
+│       line two                                                                    # [bg=#212337]=   [bg=#212337]=     [fg=#ebfafa bg=#212337]=line two [bg=#212337]=                                                                 [bg=#212337]=  
+│       line three                                                                  # [bg=#212337]=   [bg=#212337]=     [fg=#ebfafa bg=#212337]=line three [bg=#212337]=                                                               [bg=#212337]=  
+width=40:
+│    ›  line one                            # [bg=#212337]=   [bg=#212337]=  [fg=#e0e0e0 bg=#212337]=› [bg=#212337]=   [fg=#ebfafa bg=#212337]=line one [bg=#212337]=                         [bg=#212337]=  
+│       line two                            # [bg=#212337]=   [bg=#212337]=     [fg=#ebfafa bg=#212337]=line two [bg=#212337]=                         [bg=#212337]=  
+│       line three                          # [bg=#212337]=   [bg=#212337]=     [fg=#ebfafa bg=#212337]=line three [bg=#212337]=                       [bg=#212337]=

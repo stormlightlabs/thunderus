@@ -27,7 +27,7 @@ enum LineEnding {
     Crlf,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum MatchError {
     NotFound,
     Duplicate(usize),

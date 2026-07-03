@@ -1,9 +1,10 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::*;
 use crate::app::{App, Entry, RunState, ToolStatus};
 use crate::cli::{Cli, Theme, WebSearchMode};
 use crate::renderer::row;
+use crate::renderer::transcript;
 
 fn vt100_contents(bytes: &[u8], width: u16, height: u16) -> String {
     let mut parser = vt100::Parser::new(height, width, 200);
@@ -16,7 +17,8 @@ fn nonblank_lines(contents: &str) -> Vec<&str> {
 }
 
 fn render_entry_styled(entry: &Entry, width: usize) -> String {
-    let rows = entry_to_rows(entry, "User", width, Path::new("."));
+    let ctx = transcript::TranscriptRowContext { user_label: "User", cwd: Path::new("."), width };
+    let rows = transcript::entry_rows(entry, &ctx);
     let frame = row::Frame { rows, width, cursor: None, cursor_visible: true };
     frame.render_styled()
 }
@@ -674,7 +676,7 @@ fn snapshot_narrow_live_frame() {
 #[test]
 fn snapshot_startup_banner() {
     let app = test_app();
-    let rows = banner_rows(&app, 80);
+    let rows = transcript::banner_rows(&app, 80);
     let frame = row::Frame { rows, width: 80, cursor: None, cursor_visible: true };
     assert_region_snapshot("startup_banner", frame.render_styled());
 }
@@ -682,7 +684,7 @@ fn snapshot_startup_banner() {
 #[test]
 fn snapshot_narrow_startup_banner() {
     let app = test_app();
-    let rows = banner_rows(&app, 40);
+    let rows = transcript::banner_rows(&app, 40);
     let frame = row::Frame { rows, width: 40, cursor: None, cursor_visible: true };
     assert_region_snapshot("narrow_startup_banner", frame.render_styled());
 }
@@ -859,7 +861,8 @@ fn tool_output_shortens_workspace_absolute_paths() {
                 .to_string(),
         ],
     };
-    let rows = entry_to_rows(&entry, "User", 120, cwd);
+    let ctx = transcript::TranscriptRowContext { user_label: "User", cwd, width: 120 };
+    let rows = transcript::entry_rows(&entry, &ctx);
     let frame = row::Frame { rows, width: 120, cursor: None, cursor_visible: true };
     let rendered = frame.render_text();
 
@@ -889,4 +892,184 @@ fn snapshot_streaming_tool_with_output() {
     let lr = LiveRegion::new();
     let frame = lr.build_frame(&app, 80, 24);
     assert_region_snapshot("streaming_tool_with_output", frame.render_styled());
+}
+
+#[test]
+fn committed_row_count_resets_on_width_change() {
+    let mut app = test_app();
+    app.run_state = RunState::Working;
+    app.transcript.push(Entry::User { text: "do the thing".to_string() });
+
+    let mut backend = TerminalBackend::new(Vec::new(), 80, 24);
+    let mut lr = LiveRegion::new();
+    lr.render_frame(&app, &mut backend, 80, 24).unwrap();
+    let first_committed = lr.committed_row_count;
+    assert!(first_committed > 0, "user entry should have been committed");
+    assert_eq!(lr.committed_width, Some(80));
+
+    let first_len = String::from_utf8(backend.writer().clone()).unwrap().len();
+    lr.render_frame(&app, &mut backend, 40, 24).unwrap();
+    let second_output = String::from_utf8(backend.writer().clone()).unwrap();
+    let new_bytes = &second_output[first_len..];
+
+    assert!(
+        new_bytes.contains("\x1b[2J"),
+        "width change should clear the viewport before replay: {new_bytes:?}"
+    );
+    assert!(
+        new_bytes.contains("\x1b[3J"),
+        "width change should purge scrollback before replay: {new_bytes:?}"
+    );
+    assert!(
+        new_bytes.contains("\x1b[1;24r"),
+        "replayed rows should be inserted through a scroll region: {new_bytes:?}"
+    );
+    assert_eq!(
+        lr.committed_width,
+        Some(40),
+        "committed width should move to the new epoch"
+    );
+    assert_ne!(
+        lr.committed_row_count, first_committed,
+        "committed row count should reflect the new width epoch"
+    );
+}
+
+#[test]
+fn stable_rows_replay_after_width_change() {
+    let mut app = test_app();
+    app.run_state = RunState::Working;
+    app.transcript
+        .push(Entry::User { text: "resize replay test".to_string() });
+
+    let mut backend = TerminalBackend::new(Vec::new(), 80, 24);
+    let mut lr = LiveRegion::new();
+    lr.render_frame(&app, &mut backend, 80, 24).unwrap();
+    let first_len = String::from_utf8(backend.writer().clone()).unwrap().len();
+
+    lr.render_frame(&app, &mut backend, 40, 24).unwrap();
+    let second_output = String::from_utf8(backend.writer().clone()).unwrap();
+    let new_bytes = &second_output[first_len..];
+
+    assert!(
+        new_bytes.contains("\x1b[2J"),
+        "width change should clear the viewport before replay: {new_bytes:?}"
+    );
+    assert!(
+        new_bytes.contains("\x1b[1;24r"),
+        "replayed rows should be inserted through a scroll region: {new_bytes:?}"
+    );
+    assert!(
+        new_bytes.contains("resize replay test"),
+        "replayed rows should contain the user entry text: {new_bytes:?}"
+    );
+}
+
+#[test]
+fn width_change_clears_all_before_rebuild() {
+    let mut app = test_app();
+    app.run_state = RunState::Working;
+    app.transcript
+        .push(Entry::User { text: "trigger width epoch".to_string() });
+
+    let mut backend = TerminalBackend::new(Vec::new(), 80, 24);
+    let mut lr = LiveRegion::new();
+    lr.render_frame(&app, &mut backend, 80, 24).unwrap();
+    let first_len = String::from_utf8(backend.writer().clone()).unwrap().len();
+
+    lr.render_frame(&app, &mut backend, 40, 24).unwrap();
+    let second_output = String::from_utf8(backend.writer().clone()).unwrap();
+    let new_bytes = &second_output[first_len..];
+
+    assert!(
+        new_bytes.contains("\x1b[2J"),
+        "width change should clear the visible screen: {new_bytes:?}"
+    );
+    assert!(
+        new_bytes.contains("\x1b[3J"),
+        "width change should purge scrollback: {new_bytes:?}"
+    );
+}
+
+#[test]
+fn running_tool_rows_not_committed() {
+    let mut app = test_app();
+    app.run_state = RunState::Working;
+    app.transcript.push(Entry::User { text: "run the tool".to_string() });
+
+    let mut backend = TerminalBackend::new(Vec::new(), 80, 24);
+    let mut lr = LiveRegion::new();
+    lr.render_frame(&app, &mut backend, 80, 24).unwrap();
+    let committed_after_user = lr.committed_row_count;
+    assert!(committed_after_user > 0, "stable user entry should have been committed");
+
+    app.transcript.push(Entry::Tool {
+        name: "run_shell".to_string(),
+        arguments: r#"{"program": "cargo test"}"#.to_string(),
+        status: ToolStatus::Running,
+        output: vec!["running tests".to_string()],
+    });
+    lr.render_frame(&app, &mut backend, 80, 24).unwrap();
+
+    assert_eq!(
+        lr.committed_row_count, committed_after_user,
+        "running tool should not add committed rows"
+    );
+    let frame_text = lr.rendered_frame.as_ref().unwrap().render_text();
+    assert!(
+        frame_text.contains("running tests"),
+        "running tool should appear in the live frame"
+    );
+}
+
+#[test]
+fn streaming_assistant_rows_not_committed() {
+    let mut app = test_app();
+    app.run_state = RunState::Working;
+    app.transcript.push(Entry::User { text: "continue".to_string() });
+
+    let mut backend = TerminalBackend::new(Vec::new(), 80, 24);
+    let mut lr = LiveRegion::new();
+    lr.render_frame(&app, &mut backend, 80, 24).unwrap();
+    let committed_after_user = lr.committed_row_count;
+
+    app.transcript
+        .push(Entry::Assistant { text: "short streaming block".to_string(), streaming: true });
+    lr.render_frame(&app, &mut backend, 80, 24).unwrap();
+
+    assert_eq!(
+        lr.committed_row_count, committed_after_user,
+        "short streaming assistant should not add committed rows"
+    );
+    let frame_text = lr.rendered_frame.as_ref().unwrap().render_text();
+    assert!(
+        frame_text.contains("short streaming block"),
+        "streaming assistant should stay live"
+    );
+}
+
+#[test]
+fn streaming_reasoning_rows_not_committed() {
+    let mut app = test_app();
+    app.run_state = RunState::Working;
+    app.transcript.push(Entry::User { text: "think".to_string() });
+
+    let mut backend = TerminalBackend::new(Vec::new(), 80, 24);
+    let mut lr = LiveRegion::new();
+    lr.render_frame(&app, &mut backend, 80, 24).unwrap();
+    let committed_after_user = lr.committed_row_count;
+
+    app.transcript
+        .push(Entry::Reasoning { text: "short reasoning block".to_string(), streaming: true });
+    lr.render_frame(&app, &mut backend, 80, 24).unwrap();
+
+    assert_eq!(
+        lr.committed_row_count, committed_after_user,
+        "short streaming reasoning should not add committed rows"
+    );
+    let frame_text = lr.rendered_frame.as_ref().unwrap().render_text();
+    assert!(
+        frame_text.contains("short reasoning block"),
+        "streaming reasoning should stay live"
+    );
 }

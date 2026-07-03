@@ -1,0 +1,7 @@
+---
+source: src/renderer/transcript/tests.rs
+expression: contents
+---
+│                                                                                   # [bg=#171928]=                                                                                
+│   Context                                                                         # [bg=#171928]=   [fg=#6473b7 bg=#171928 b]=Context [bg=#171928]=                                                                      [bg=#171928]=  
+│   context AGENTS.md (scope: .)                                                    # [bg=#171928]=   [fg=#ebfafa bg=#171928]=context AGENTS.md (scope: .) [bg=#171928]=                                                 [bg=#171928]=

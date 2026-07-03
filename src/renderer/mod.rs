@@ -16,6 +16,8 @@ pub mod path_display;
 pub mod region;
 pub mod row;
 pub mod style;
+pub mod transcript;
+pub mod view;
 
 pub use backend::{enter_raw_mode, leave_raw_mode, terminal_size};
 

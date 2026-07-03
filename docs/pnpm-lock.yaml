@@ -20,9 +20,6 @@ importers:
       astro:
         specifier: ^7.0.2
         version: 7.0.4(@astrojs/markdown-remark@7.2.0)(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)(@types/node@24.13.2)
-      figlet:
-        specifier: ^1.11.0
-        version: 1.11.0
       sharp:
         specifier: ^0.34.5
         version: 0.34.5
@@ -893,10 +890,6 @@ packages:
     resolution: {integrity: sha512-yPVavfyCcRhmorC7rWlkHn15b4wDVgVmBA7kV4QVBsF7kv/9TKJAbAXVTxvTnwP8HHKjRCJDClKbciiYS7p0DQ==}
     engines: {node: '>=16'}
 
-  commander@14.0.3:
-    resolution: {integrity: sha512-H+y0Jo/T1RZ9qPP4Eh1pkcQcLRglraJaSLoyOtHxu6AapkjWVCy2Sit1QQ4x3Dng8qDlSsZEet7g5Pq06MvTgw==}
-    engines: {node: '>=20'}
-
   common-ancestor-path@2.0.0:
     resolution: {integrity: sha512-dnN3ibLeoRf2HNC+OlCiNc5d2zxbLJXOtiZUudNFSXZrNSydxcCsSpRzXwfu7BBWCIfHPw+xTayeBvJCP/D8Ng==}
     engines: {node: '>= 18'}
@@ -1071,11 +1064,6 @@ packages:
     peerDependenciesMeta:
       picomatch:
         optional: true
-
-  figlet@1.11.0:
-    resolution: {integrity: sha512-EEx3OS/l2bFqcUNN2NM9FPJp8vAMrgbCxsbl2hbcJNNxOEwVe3mEzrhan7TbJQViZa8mMqhihlbCaqD+LyYKTQ==}
-    engines: {node: '>= 17.0.0'}
-    hasBin: true
 
   flattie@1.1.1:
     resolution: {integrity: sha512-9UbaD6XdAL97+k/n+N7JwX46K/M6Zc6KcFYskrYL8wbBV/Uyk0CTAMY0VT+qiK5PM7AIc9aTWYtq65U7T+aCNQ==}
@@ -2820,8 +2808,6 @@ snapshots:
 
   commander@11.1.0: {}
 
-  commander@14.0.3: {}
-
   common-ancestor-path@2.0.0: {}
 
   cookie-es@1.2.3: {}
@@ -3016,10 +3002,6 @@ snapshots:
   fdir@6.5.0(picomatch@4.0.4):
     optionalDependencies:
       picomatch: 4.0.4
-
-  figlet@1.11.0:
-    dependencies:
-      commander: 14.0.3
 
   flattie@1.1.1: {}
 

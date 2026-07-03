@@ -197,7 +197,7 @@ expression: output
       <capability>agent skills metadata</capability>
       <capability>append-only JSONL sessions</capability>
       <capability>provider-native and local web search modes</capability>
-      <capability>Lectito-backed URL reading</capability>
+      <capability>URL/article reading</capability>
       <capability>direct inline terminal renderer</capability>
     </capabilities>
   </self_description>

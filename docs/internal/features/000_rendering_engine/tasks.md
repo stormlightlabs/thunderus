@@ -5,30 +5,30 @@ Captured: 2026-07-03
 
 ## P0: Prevent Regressions
 
-- [ ] Move transcript-entry row construction out of `src/renderer/region.rs`
+- [x] Move transcript-entry row construction out of `src/renderer/region.rs`
       into a focused transcript module.
-- [ ] Add direct row snapshots for user, assistant, reasoning, tool, status,
+- [x] Add direct row snapshots for user, assistant, reasoning, tool, status,
       error, and startup banner entries.
-- [ ] Add normal-width and narrow-width transcript snapshots for every `Entry`
+- [x] Add normal-width and narrow-width transcript snapshots for every `Entry`
       variant.
-- [ ] Add tool row fixtures for running, ok, failed, highlighted, truncated,
+- [x] Add tool row fixtures for running, ok, failed, highlighted, truncated,
       and path-shortened output.
-- [ ] Add width-epoch tests proving committed rows reset and replay after
+- [x] Add width-epoch tests proving committed rows reset and replay after
       terminal width changes.
-- [ ] Add tests proving mutable live rows are not committed as stable history.
-- [ ] Add backend tests for scroll-region insertion and reset.
-- [ ] Add backend byte-output fixture for history insertion followed by live
+- [x] Add tests proving mutable live rows are not committed as stable history.
+- [x] Add backend tests for scroll-region insertion and reset.
+- [x] Add backend byte-output fixture for history insertion followed by live
       diff rendering.
-- [ ] Add prompt Unicode snapshots for combining marks, ZWJ emoji, regional
+- [x] Add prompt Unicode snapshots for combining marks, ZWJ emoji, regional
       indicators, CJK, zero-width characters, long words, and explicit newlines.
-- [ ] Add transcript, picker, footer, and backend Unicode fixtures for the same
+- [x] Add transcript, picker, footer, and backend Unicode fixtures for the same
       width classes where relevant.
 
 ## P1: Implement Advanced Live Surfaces
 
-- [ ] Introduce a small renderer-owned view projection from `App` plus terminal
+- [x] Introduce a small renderer-owned view projection from `App` plus terminal
       dimensions.
-- [ ] Keep the view projection free of crossterm types and terminal writes.
+- [x] Keep the view projection free of crossterm types and terminal writes.
 - [ ] Add view projection tests for idle, working, streaming, accessory, narrow,
       and tiny-height states.
 - [ ] Make live-region composition use explicit surface priority instead of
@@ -87,6 +87,6 @@ Captured: 2026-07-03
 
 ## Validation Commands
 
-- [ ] `cargo test renderer`
-- [ ] `cargo test input`
-- [ ] `cargo test`
+- [x] `cargo test renderer`
+- [x] `cargo test input`
+- [x] `cargo test`

@@ -1,0 +1,8 @@
+---
+source: src/renderer/transcript/tests.rs
+expression: contents
+---
+│                                           # [bg=#171928]=                                        
+│   Assistant                               # [bg=#171928]=   [fg=#37f499 bg=#171928 b]=Assistant [bg=#171928]=                            [bg=#171928]=  
+│   Sure! I can help with that. Let me      # [bg=#171928]=   [fg=#ebfafa bg=#171928]=Sure! I can help with that. Let me [bg=#171928]=   [bg=#171928]=  
+│   take a look.                            # [bg=#171928]=   [fg=#ebfafa bg=#171928]=take a look. [bg=#171928]=                         [bg=#171928]=

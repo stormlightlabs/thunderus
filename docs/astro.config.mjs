@@ -167,6 +167,7 @@ export default defineConfig({
                   label: "Releasing",
                   slug: "notebook/release",
                 },
+                { label: "Memory (Letta)", slug: "notebook/letta" },
               ],
             },
           ],
