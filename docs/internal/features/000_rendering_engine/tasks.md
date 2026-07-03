@@ -44,23 +44,23 @@ Captured: 2026-07-03
 
 ## P2: Improve Tool And Transcript Rendering
 
-- [ ] Add fixtures for compiler or test failure output.
-- [ ] Add fixtures for search result output.
-- [ ] Add fixtures for JSON output.
-- [ ] Add fixtures for diff output.
-- [ ] Add fixtures for long absolute paths and workspace-relative path display.
-- [ ] Add row grouping metadata needed for transcript navigation.
-- [ ] Add display truncation indicators that distinguish stored output from
+- [x] Add fixtures for compiler or test failure output.
+- [x] Add fixtures for search result output.
+- [x] Add fixtures for JSON output.
+- [x] Add fixtures for diff output.
+- [x] Add fixtures for long absolute paths and workspace-relative path display.
+- [x] Add row grouping metadata needed for transcript navigation.
+- [x] Add display truncation indicators that distinguish stored output from
       rendered output.
-- [ ] Add cancelled-tool rendering if the app exposes cancelled tool state.
-- [ ] Keep `wrap_text` and `wrap_spans` renderer-owned; do not add Textwrap for
+- [x] Add cancelled-tool rendering if the app exposes cancelled tool state.
+- [x] Keep `wrap_text` and `wrap_spans` renderer-owned; do not add Textwrap for
       this milestone.
-- [ ] Add wrapping fixtures for CJK, emoji, URLs, prose, long words, mixed
+- [x] Add wrapping fixtures for CJK, emoji, URLs, prose, long words, mixed
       styled spans, and terminal-cell clipping.
-- [ ] Keep prompt storage `String`-backed; do not add Ropey for this milestone.
-- [ ] Add long-prompt stress tests for 10 KB, 100 KB, and 1 MB prompts with
+- [x] Keep prompt storage `String`-backed; do not add Ropey for this milestone.
+- [x] Add long-prompt stress tests for 10 KB, 100 KB, and 1 MB prompts with
       edits at start, middle, and end.
-- [ ] Add timing assertions or benchmark notes that separate prompt editing
+- [x] Add timing assertions or benchmark notes that separate prompt editing
       cost from visual wrapping and display-width measurement cost.
 
 ## P3: Terminal Compatibility

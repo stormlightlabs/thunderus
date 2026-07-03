@@ -17,10 +17,24 @@ const MAX_TOOL_OUTPUT_LINES: usize = 6;
 pub const GUTTER: &str = "   │ ";
 
 /// Context needed to render a single transcript entry into rows.
+#[derive(Clone)]
 pub struct TranscriptRowContext<'a> {
     pub user_label: &'a str,
     pub cwd: &'a Path,
     pub width: usize,
+    /// Index of the entry in the transcript. When present, rows are tagged with
+    /// a [`RowGroupId`] so native scrollback navigation can correlate rows to
+    /// the originating entry.
+    pub entry_index: Option<usize>,
+}
+
+impl<'a> TranscriptRowContext<'a> {
+    /// Build a context without entry grouping. Useful for tests that only need
+    /// row snapshots and do not exercise scrollback navigation.
+    #[cfg(test)]
+    pub fn for_test(user_label: &'a str, cwd: &'a Path, width: usize) -> Self {
+        Self { user_label, cwd, width, entry_index: None }
+    }
 }
 
 /// Build all rows for a single transcript entry.
@@ -29,7 +43,14 @@ pub struct TranscriptRowContext<'a> {
 /// split streaming or running content into stable/live portions do that on top
 /// of this merged result.
 pub fn entry_rows(entry: &Entry, ctx: &TranscriptRowContext) -> Vec<Row> {
-    entry_to_rows(entry, ctx.user_label, ctx.width, ctx.cwd)
+    let mut rows = entry_to_rows(entry, ctx.user_label, ctx.width, ctx.cwd);
+    if let Some(index) = ctx.entry_index {
+        let group_id = crate::renderer::row::RowGroupId { entry_index: index };
+        for row in &mut rows {
+            row.group_id = Some(group_id);
+        }
+    }
+    rows
 }
 
 /// Build startup banner rows from app state.
@@ -152,6 +173,7 @@ impl ToolBlockView<'_> {
             ToolStatus::Running => ("running", p.peach, "·"),
             ToolStatus::Ok => ("ok", p.green, "✓"),
             ToolStatus::Failed => ("failed", p.red, "✕"),
+            ToolStatus::Cancelled => ("cancelled", p.peach, "○"),
         };
         let header_style = CellStyle::new().fg(p.text).bg(bg).bold();
         let status_style = CellStyle::new().fg(status_color).bg(bg);
@@ -228,7 +250,11 @@ impl ToolBlockView<'_> {
         if output.len() > MAX_TOOL_OUTPUT_LINES {
             rows.push(Row::padded(
                 vec![Span::styled(
-                    format!("   │ …({} more lines)", output.len() - MAX_TOOL_OUTPUT_LINES),
+                    format!(
+                        "   │ … ({} lines stored, {} shown here)",
+                        output.len(),
+                        MAX_TOOL_OUTPUT_LINES
+                    ),
                     muted_style,
                 )],
                 width,

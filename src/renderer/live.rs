@@ -208,6 +208,7 @@ pub fn detail_pane_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> 
         ToolStatus::Running => p.peach,
         ToolStatus::Ok => p.green,
         ToolStatus::Failed => p.red,
+        ToolStatus::Cancelled => p.peach,
     };
     let status_style = CellStyle::new().fg(status_color).bg(bg);
     let muted_style = CellStyle::new().fg(p.subtext0).bg(bg);
@@ -218,6 +219,7 @@ pub fn detail_pane_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> 
         ToolStatus::Running => "running",
         ToolStatus::Ok => "ok",
         ToolStatus::Failed => "failed",
+        ToolStatus::Cancelled => "cancelled",
     };
 
     let mut title_spans = vec![

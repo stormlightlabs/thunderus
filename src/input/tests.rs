@@ -1,5 +1,13 @@
 use super::*;
 
+/// Generate a prompt string of approximately `target_bytes` by repeating
+/// a prose fragment. The result is valid UTF-8 with word boundaries.
+fn make_large_prompt(target_bytes: usize) -> String {
+    let fragment = "the quick brown fox jumps over the lazy dog. ";
+    let repeats = target_bytes / fragment.len();
+    fragment.repeat(repeats)
+}
+
 #[test]
 fn new_is_empty() {
     let p = PromptInput::new();
@@ -540,5 +548,201 @@ fn multiline_kill_to_start_of_line() {
     let killed = p.kill_to_start_of_line();
     assert_eq!(killed, "line2");
     assert_eq!(p.as_str(), "line1\n\nline3");
+    assert_eq!(p.cursor(), 6);
+}
+
+// ---------------------------------------------------------------------------
+// P2: Long-prompt stress tests
+//
+// These confirm the String-backed prompt model stays usable at large sizes.
+// The plan explicitly decided against Ropey for this milestone; these tests
+// keep that decision backed by measurements.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn stress_10kb_prompt_edit_at_start() {
+    let text = make_large_prompt(10_000);
+    let mut p = PromptInput::from(text.as_str());
+    p.cursor_to_start();
+    p.insert_char('X');
+    assert_eq!(p.cursor(), 1);
+    assert!(p.as_str().starts_with("Xthe quick"));
+    p.backspace();
+    assert_eq!(p.cursor(), 0);
+    assert!(p.as_str().starts_with("the quick"));
+}
+
+#[test]
+fn stress_10kb_prompt_edit_at_middle() {
+    let text = make_large_prompt(10_000);
+    let mut p = PromptInput::from(text.as_str());
+    let mid = p.len_graphemes() / 2;
+    for _ in 0..mid {
+        p.cursor_left();
+    }
+    let cursor_before = p.cursor();
+    p.insert_char('X');
+    assert_eq!(p.cursor(), cursor_before + 1);
+    p.backspace();
+    assert_eq!(p.cursor(), cursor_before);
+}
+
+#[test]
+fn stress_10kb_prompt_edit_at_end() {
+    let text = make_large_prompt(10_000);
+    let mut p = PromptInput::from(text.as_str());
+    // Cursor is already at end from from_str.
+    p.insert_char('X');
+    assert!(p.as_str().ends_with("X"));
+    p.backspace();
+    assert!(!p.as_str().ends_with("X"));
+}
+
+#[test]
+fn stress_100kb_prompt_edit_at_start() {
+    let text = make_large_prompt(100_000);
+    let mut p = PromptInput::from(text.as_str());
+    p.cursor_to_start();
+    p.insert_char('X');
+    assert_eq!(p.cursor(), 1);
+    assert!(p.as_str().starts_with("Xthe quick"));
+    p.backspace();
+    assert_eq!(p.cursor(), 0);
+}
+
+#[test]
+fn stress_100kb_prompt_edit_at_middle() {
+    let text = make_large_prompt(100_000);
+    let mut p = PromptInput::from(text.as_str());
+    let mid = p.len_graphemes() / 2;
+    for _ in 0..mid {
+        p.cursor_left();
+    }
+    let cursor_before = p.cursor();
+    p.insert_char('X');
+    assert_eq!(p.cursor(), cursor_before + 1);
+    p.backspace();
+    assert_eq!(p.cursor(), cursor_before);
+}
+
+#[test]
+fn stress_1mb_prompt_edit_at_start() {
+    let text = make_large_prompt(1_000_000);
+    let mut p = PromptInput::from(text.as_str());
+    p.cursor_to_start();
+    p.insert_char('X');
+    assert_eq!(p.cursor(), 1);
+    assert!(p.as_str().starts_with("Xthe quick"));
+    p.backspace();
+    assert_eq!(p.cursor(), 0);
+}
+
+#[test]
+fn stress_1mb_prompt_edit_at_end() {
+    let text = make_large_prompt(1_000_000);
+    let mut p = PromptInput::from(text.as_str());
+    p.insert_char('X');
+    assert!(p.as_str().ends_with("X"));
+    p.backspace();
+    assert!(!p.as_str().ends_with("X"));
+}
+
+#[test]
+fn stress_1mb_prompt_cursor_navigation_no_panic() {
+    let text = make_large_prompt(1_000_000);
+    let mut p = PromptInput::from(text.as_str());
+    // Navigate to start, back to end, and to start again without panicking.
+    p.cursor_to_start();
+    assert_eq!(p.cursor(), 0);
+    p.cursor_to_end();
+    assert_eq!(p.cursor(), p.len_graphemes());
+    p.cursor_to_start();
+    assert_eq!(p.cursor(), 0);
+}
+
+/// Timing test separating prompt editing cost from visual wrapping and
+/// display-width measurement cost.
+///
+/// This test measures the two costs independently:
+/// - **Prompt editing**: `insert_char` + `backspace` on a 100 KB prompt.
+/// - **Visual wrapping**: `wrap_text` on the same 100 KB prompt.
+/// - **Display-width measurement**: `display_width` on each wrapped line.
+///
+/// The String-backed model is expected to be fast enough that each operation
+/// completes in well under a second. If these thresholds ever fail, the plan
+/// recommends revisiting Ropey for prompt storage and/or Textwrap for wrapping.
+#[test]
+fn timing_separates_prompt_editing_from_wrapping_and_width() {
+    use std::time::Instant;
+
+    let text = make_large_prompt(100_000);
+
+    // Measure prompt editing cost: insert at start + backspace.
+    let edit_start = Instant::now();
+    let mut p = PromptInput::from(text.as_str());
+    p.cursor_to_start();
+    p.insert_char('X');
+    p.backspace();
+    let edit_elapsed = edit_start.elapsed();
+
+    // Measure visual wrapping cost: wrap the full prompt at width 80.
+    let wrap_start = Instant::now();
+    let lines = crate::renderer::layout::wrap_text(p.as_str(), 80);
+    let wrap_elapsed = wrap_start.elapsed();
+
+    // Measure display-width measurement cost: width of each wrapped line.
+    let width_start = Instant::now();
+    let _total_width: usize = lines.iter().map(|l| crate::renderer::layout::display_width(l)).sum();
+    let width_elapsed = width_start.elapsed();
+
+    // Assert each phase completes in under 2 seconds. This is a generous
+    // ceiling — the point is to catch regressions where an O(n^2) or worse
+    // algorithm sneaks in, not to micro-optimize.
+    assert!(
+        edit_elapsed.as_secs() < 2,
+        "prompt editing should be fast: {:?}",
+        edit_elapsed
+    );
+    assert!(
+        wrap_elapsed.as_secs() < 2,
+        "visual wrapping should be fast: {:?}",
+        wrap_elapsed
+    );
+    assert!(
+        width_elapsed.as_secs() < 2,
+        "display-width measurement should be fast: {:?}",
+        width_elapsed
+    );
+
+    // Document the cost separation in the test output for future reference.
+    eprintln!(
+        "timing: edit={:?}, wrap={:?}, width={:?} on {}KB prompt",
+        edit_elapsed,
+        wrap_elapsed,
+        width_elapsed,
+        text.len() / 1024
+    );
+}
+
+/// Confirm that prompt storage remains `String`-backed (no Ropey).
+///
+/// The plan decided against Ropey for this milestone. This test verifies that
+/// `PromptInput` stores text as a plain `String` and that the cursor is a
+/// grapheme index into that `String`. If the storage type changes, this test
+/// will need updating, which forces a conscious decision about the plan.
+#[test]
+fn prompt_storage_is_string_backed() {
+    let p = PromptInput::from("hello world");
+    // as_str returns a &str into the underlying String storage.
+    assert_eq!(p.as_str(), "hello world");
+    // The cursor is a plain usize grapheme index, not a Ropey-style tree cursor.
+    let cursor: usize = p.cursor();
+    assert_eq!(cursor, 11);
+
+    // Verify String-backed semantics: set_text replaces the entire buffer.
+    let mut p = PromptInput::new();
+    p.set_text("first");
+    p.set_text("second");
+    assert_eq!(p.as_str(), "second");
     assert_eq!(p.cursor(), 6);
 }

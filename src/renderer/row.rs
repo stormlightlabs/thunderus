@@ -5,27 +5,40 @@
 
 use super::style::{CellStyle, Span};
 
+/// Stable identity for a group of rows that belong to the same transcript
+/// entry. This metadata is used for native terminal scrollback navigation: a
+/// screen reader or terminal search can correlate rows back to the originating
+/// entry without parsing the rendered text.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct RowGroupId {
+    /// Index into [`crate::app::App::transcript`] for the entry that produced
+    /// this row.
+    pub entry_index: usize,
+}
+
 /// One terminal row: a sequence of styled spans padded to a known width.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Row {
     pub spans: Vec<Span>,
     /// Width in display columns the row is padded/truncated to.
     pub width: usize,
+    /// Optional transcript entry grouping metadata for scrollback navigation.
+    pub group_id: Option<RowGroupId>,
 }
 
 impl Row {
     /// Create a row from spans, padded to `width` using `pad_style`.
     pub fn padded(spans: Vec<Span>, width: usize, pad_style: CellStyle) -> Self {
         let spans = super::layout::pad_row(spans, width, pad_style);
-        Row { spans, width }
+        Row { spans, width, group_id: None }
     }
 
     /// Create an empty (blank) row of `width` columns.
     pub fn blank(width: usize, style: CellStyle) -> Self {
         if width == 0 {
-            return Row { spans: Vec::new(), width: 0 };
+            return Row { spans: Vec::new(), width: 0, group_id: None };
         }
-        Row { spans: vec![Span::styled(" ".repeat(width), style)], width }
+        Row { spans: vec![Span::styled(" ".repeat(width), style)], width, group_id: None }
     }
 
     /// Visible width (column count) of the row's spans.

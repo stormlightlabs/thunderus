@@ -388,4 +388,118 @@ mod tests {
         assert_eq!(out[0].text, format!("{family}a"));
         assert_eq!(out.last().unwrap().text, "…");
     }
+
+    #[test]
+    fn wrap_text_wraps_long_url() {
+        let url = "https://github.com/stormlight-labs/thndrs/blob/main/src/renderer/layout.rs";
+        let rows = wrap_text(url, 30);
+        assert!(rows.len() > 1, "long URL should wrap to multiple rows");
+        assert!(
+            rows.iter().all(|r| display_width(r) <= 30),
+            "no wrapped row should exceed width 30"
+        );
+
+        let joined = rows.join("");
+        assert!(joined.contains("thndrs"), "URL content should survive wrapping");
+    }
+
+    #[test]
+    fn wrap_text_hard_splits_unbroken_url() {
+        let url = "https://example.com/very/long/path/that/exceeds/the/width";
+        let rows = wrap_text(url, 20);
+        assert!(rows.len() > 1, "long unbroken URL should hard-split");
+        assert!(
+            rows.iter().all(|r| display_width(r) <= 20),
+            "no row should exceed width 20"
+        );
+    }
+
+    #[test]
+    fn wrap_text_wraps_prose_paragraph() {
+        let prose = "The renderer must keep display width and text boundaries separate. \
+                     Display width decides cell budgets and cursor columns. Grapheme \
+                     boundaries decide edit, wrap, truncate, and backend clipping steps.";
+        let rows = wrap_text(prose, 40);
+        assert!(rows.len() > 2, "prose paragraph should wrap to multiple rows");
+        assert!(
+            rows.iter().all(|r| display_width(r) <= 40),
+            "no wrapped row should exceed width 40"
+        );
+        assert!(
+            rows[0].contains("renderer"),
+            "first row should start with the beginning of the prose"
+        );
+    }
+
+    #[test]
+    fn wrap_spans_wraps_mixed_styled_spans() {
+        let spans = vec![
+            Span::styled("error: ", CellStyle::new().fg(Color::Red).bold()),
+            Span::styled("mismatched types", CellStyle::new().fg(Color::Yellow)),
+            Span::plain(" in src/main.rs at line 42"),
+        ];
+        let rows = wrap_spans(&spans, 20);
+        assert!(rows.len() > 1, "mixed styled spans should wrap to multiple rows");
+        assert!(
+            rows.iter().all(|r| spans_width(r) <= 20),
+            "no wrapped row should exceed width 20"
+        );
+        assert!(rows[0][0].text.contains("error"));
+    }
+
+    #[test]
+    fn wrap_spans_preserves_style_boundaries_across_wrap() {
+        let spans = vec![
+            Span::styled("red-text-here", CellStyle::new().fg(Color::Red)),
+            Span::styled("blue-text-here", CellStyle::new().fg(Color::Blue)),
+        ];
+        let rows = wrap_spans(&spans, 14);
+        assert!(rows.len() > 1, "should wrap at width 14");
+        for row in &rows {
+            let styles: Vec<_> = row.iter().map(|s| s.style).collect();
+            for window in styles.windows(2) {
+                assert_ne!(window[0], window[1], "adjacent spans should have distinct styles");
+            }
+        }
+    }
+
+    #[test]
+    fn wrap_text_terminal_cell_clipping_cjk_at_boundary() {
+        let rows = wrap_text("ab中c", 3);
+        assert_eq!(rows, vec!["ab".to_string(), "中c".to_string()]);
+    }
+
+    #[test]
+    fn wrap_spans_clips_wide_grapheme_at_boundary() {
+        let flag = "🇺🇸";
+        let spans = vec![Span::plain(format!("a{flag}b"))];
+        let rows = wrap_spans(&spans, 2);
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0][0].text, "a");
+        assert_eq!(rows[1][0].text, flag);
+        assert_eq!(rows[2][0].text, "b");
+    }
+
+    /// Confirm that `wrap_text` and `wrap_spans` remain renderer-owned
+    /// (no Textwrap dependency). If someone adds Textwrap, the Cargo.toml
+    /// dependency check below will fail.
+    #[test]
+    fn wrap_text_and_wrap_spans_are_renderer_owned() {
+        let text_rows = wrap_text("hello world test", 10);
+        assert_eq!(text_rows, vec!["hello", "world test"]);
+
+        let spans = vec![
+            Span::styled("red", CellStyle::new().fg(Color::Red)),
+            Span::styled("blue", CellStyle::new().fg(Color::Blue)),
+        ];
+        let span_rows = wrap_spans(&spans, 10);
+        assert_eq!(span_rows.len(), 1, "renderer-owned wrap_spans should work");
+    }
+
+    /// Confirm that the project does not depend on the `textwrap` crate.
+    #[test]
+    fn no_textwrap_dependency() {
+        let rows = wrap_text("a b c d e f", 5);
+        assert!(rows.iter().all(|r| display_width(r) <= 5));
+    }
 }

@@ -6,7 +6,7 @@ use crate::renderer::row;
 use super::{TranscriptRowContext, banner_rows, entry_rows};
 
 fn ctx(width: usize) -> TranscriptRowContext<'static> {
-    TranscriptRowContext { user_label: "User", cwd: Path::new("."), width }
+    TranscriptRowContext::for_test("User", Path::new("."), width)
 }
 
 fn render_entry_styled(entry: &Entry, width: usize) -> String {
@@ -325,7 +325,7 @@ fn snapshot_tool_path_shortened() {
                 .to_string(),
         ],
     };
-    let ctx = TranscriptRowContext { user_label: "User", cwd, width: 120 };
+    let ctx = TranscriptRowContext::for_test("User", cwd, 120);
     let rows = entry_rows(&entry, &ctx);
     let frame = row::Frame { rows, width: 120, cursor: None, cursor_visible: true };
     let rendered = frame.render_text();
@@ -352,5 +352,90 @@ fn plain_status_entries_render_as_system() {
     assert!(
         !rendered.contains("Notice"),
         "plain status label should not be Notice:\n{rendered}"
+    );
+}
+
+#[test]
+fn snapshot_tool_search_results() {
+    let entry = Entry::Tool {
+        name: "search_text".to_string(),
+        arguments: r#"{"pattern": "fn main", "path": "src"}"#.to_string(),
+        status: ToolStatus::Ok,
+        output: vec![
+            "src/main.rs:1:fn main() {".to_string(),
+            "src/main.rs:2:    println!(\"hello\");".to_string(),
+            "src/main.rs:3:}".to_string(),
+            "src/lib.rs:10:fn helper() {}".to_string(),
+            "src/lib.rs:25:    helper();".to_string(),
+        ],
+    };
+    assert_snapshot("transcript_tool_search_results", render_entry_styled(&entry, 80));
+}
+
+#[test]
+fn snapshot_tool_search_results_narrow() {
+    let entry = Entry::Tool {
+        name: "search_text".to_string(),
+        arguments: r#"{"pattern": "fn main", "path": "src"}"#.to_string(),
+        status: ToolStatus::Ok,
+        output: vec![
+            "src/main.rs:1:fn main() {".to_string(),
+            "src/main.rs:2:    println!(\"hello\");".to_string(),
+        ],
+    };
+    assert_snapshot("transcript_tool_search_results_narrow", render_entry_styled(&entry, 40));
+}
+
+#[test]
+fn snapshot_tool_cancelled() {
+    let entry = Entry::Tool {
+        name: "run_shell".to_string(),
+        arguments: r#"{"program": "cargo test"}"#.to_string(),
+        status: ToolStatus::Cancelled,
+        output: vec!["running 3 tests".to_string(), "test tests::foo ... ok".to_string()],
+    };
+    assert_snapshot("transcript_tool_cancelled", render_entry_styled(&entry, 80));
+}
+
+#[test]
+fn snapshot_tool_cancelled_narrow() {
+    let entry = Entry::Tool {
+        name: "run_shell".to_string(),
+        arguments: r#"{"program": "cargo test"}"#.to_string(),
+        status: ToolStatus::Cancelled,
+        output: vec!["running 3 tests".to_string(), "test tests::foo ... ok".to_string()],
+    };
+    assert_snapshot("transcript_tool_cancelled_narrow", render_entry_styled(&entry, 40));
+}
+
+#[test]
+fn entry_rows_tag_group_id_when_entry_index_set() {
+    let entry = Entry::User { text: "hello world".to_string() };
+    let mut ctx = TranscriptRowContext::for_test("User", Path::new("."), 80);
+    ctx.entry_index = Some(42);
+
+    let rows = entry_rows(&entry, &ctx);
+
+    assert!(
+        rows.iter().all(|row| row.group_id.is_some()),
+        "all rows should carry a group_id when entry_index is set"
+    );
+    let group_ids: Vec<_> = rows.iter().filter_map(|r| r.group_id).collect();
+    assert!(
+        group_ids.iter().all(|g| g.entry_index == 42),
+        "all group_ids should reference entry_index 42"
+    );
+}
+
+#[test]
+fn entry_rows_omit_group_id_when_entry_index_none() {
+    let entry = Entry::User { text: "hello world".to_string() };
+    let ctx = TranscriptRowContext::for_test("User", Path::new("."), 80);
+
+    let rows = entry_rows(&entry, &ctx);
+
+    assert!(
+        rows.iter().all(|row| row.group_id.is_none()),
+        "rows should not carry a group_id when entry_index is None"
     );
 }

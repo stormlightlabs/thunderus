@@ -17,7 +17,7 @@ fn nonblank_lines(contents: &str) -> Vec<&str> {
 }
 
 fn render_entry_styled(entry: &Entry, width: usize) -> String {
-    let ctx = transcript::TranscriptRowContext { user_label: "User", cwd: Path::new("."), width };
+    let ctx = transcript::TranscriptRowContext::for_test("User", Path::new("."), width);
     let rows = transcript::entry_rows(entry, &ctx);
     let frame = row::Frame { rows, width, cursor: None, cursor_visible: true };
     frame.render_styled()
@@ -873,7 +873,7 @@ fn tool_output_shortens_workspace_absolute_paths() {
                 .to_string(),
         ],
     };
-    let ctx = transcript::TranscriptRowContext { user_label: "User", cwd, width: 120 };
+    let ctx = transcript::TranscriptRowContext::for_test("User", cwd, 120);
     let rows = transcript::entry_rows(&entry, &ctx);
     let frame = row::Frame { rows, width: 120, cursor: None, cursor_visible: true };
     let rendered = frame.render_text();

@@ -132,6 +132,8 @@ pub enum ToolStatus {
     Ok,
     /// Tool failed.
     Failed,
+    /// Tool was cancelled while running (e.g. the user interrupted the run).
+    Cancelled,
 }
 
 impl ToolStatus {
@@ -141,6 +143,7 @@ impl ToolStatus {
             ToolStatus::Ok => "✓ wrote",
             ToolStatus::Failed => "✕ write failed",
             ToolStatus::Running => "⠋ writing",
+            ToolStatus::Cancelled => "✕ write cancelled",
         }
     }
 }
@@ -536,6 +539,7 @@ impl App {
                 Some(Entry::Reasoning { streaming: true, .. }) => "thinking",
                 Some(Entry::Assistant { streaming: true, .. }) => "working",
                 Some(Entry::Tool { status: ToolStatus::Running, .. }) => "running tool",
+                Some(Entry::Tool { status: ToolStatus::Cancelled, .. }) => "cancelled tool",
                 Some(Entry::User { .. }) | None => "sending",
                 _ => "working",
             },
@@ -548,6 +552,7 @@ impl App {
                 match self.last_non_status_entry() {
                     Some(Entry::Error { .. }) => "failed",
                     Some(Entry::Tool { status: ToolStatus::Failed, .. }) => "failed",
+                    Some(Entry::Tool { status: ToolStatus::Cancelled, .. }) => "cancelled",
                     Some(Entry::Assistant { streaming: false, .. })
                     | Some(Entry::Tool { status: ToolStatus::Ok, .. }) => "done",
                     _ => "idle",
@@ -1743,6 +1748,7 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
         }
         AgentEvent::Cancelled => {
             finalize_streaming(app);
+            cancel_running_tools(app);
             if app.run_state == RunState::Working {
                 app.transcript.push(Entry::Status { text: String::from("cancelled") });
             }
@@ -1866,6 +1872,20 @@ fn finalize_streaming(app: &mut App) {
             Entry::Assistant { streaming, .. } => *streaming = false,
             Entry::Reasoning { streaming, .. } => *streaming = false,
             _ => {}
+        }
+    }
+}
+
+/// Mark any running tool entries as cancelled.
+///
+/// Called when the active run is interrupted so that the renderer can show a
+/// distinct cancelled-tool row instead of leaving the tool in a running state.
+fn cancel_running_tools(app: &mut App) {
+    for entry in &mut app.transcript {
+        if let Entry::Tool { status, .. } = entry
+            && *status == ToolStatus::Running
+        {
+            *status = ToolStatus::Cancelled;
         }
     }
 }

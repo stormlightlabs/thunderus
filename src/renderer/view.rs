@@ -72,10 +72,17 @@ fn build_transcript_view(app: &App, width: usize) -> TranscriptView {
 
     stable_rows.extend(banner_rows);
 
-    let ctx = super::transcript::TranscriptRowContext { user_label: &app.user_label, cwd: &app.cwd, width };
+    let ctx = super::transcript::TranscriptRowContext {
+        user_label: &app.user_label,
+        cwd: &app.cwd,
+        width,
+        entry_index: None,
+    };
 
-    for entry in &app.transcript {
-        let (entry_stable, entry_live) = entry_stable_and_live_rows(entry, &ctx);
+    for (index, entry) in app.transcript.iter().enumerate() {
+        let mut entry_ctx = ctx.clone();
+        entry_ctx.entry_index = Some(index);
+        let (entry_stable, entry_live) = entry_stable_and_live_rows(entry, &entry_ctx);
         if entry_stable.is_empty() {
             live_rows.extend(entry_live);
         } else {
