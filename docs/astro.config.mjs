@@ -136,6 +136,7 @@ export default defineConfig({
               label: "Context",
               collapsed: true,
               items: [
+                { label: "Context Control", slug: "notebook/context-control" },
                 { label: "AGENTS.md", slug: "notebook/agents-md" },
                 { label: "SKILLS.md", slug: "notebook/skills" },
               ],
