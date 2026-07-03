@@ -101,6 +101,7 @@ export default defineConfig({
               label: "Agent Harnesses",
               collapsed: true,
               items: [
+                { label: "Harness Engineering", slug: "notebook/harness-engineering" },
                 { label: "Pi", slug: "notebook/pi" },
                 { label: "Herdr (multiplexer)", slug: "notebook/herdr" },
               ],

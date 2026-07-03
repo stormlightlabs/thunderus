@@ -127,20 +127,70 @@ impl LiveRegion {
     }
 
     /// Build bottom-anchored live prompt/status rows from the view projection.
+    ///
+    /// Surfaces are composed in explicit priority order. The priority
+    /// determines which surfaces are clipped first when the terminal is too
+    /// short (lowest priority = clipped first):
+    ///
+    /// 1. static footer (static status + trailing blank) — always kept
+    /// 2. prompt input rows + cursor — always kept
+    /// 3. accessory or detail pane — clipped last of the optional surfaces
+    /// 4. queued prompt summary — clipped before accessory
+    /// 5. live tail (mutable transcript rows) — clipped first
+    ///
+    /// The dynamic status row (session + spinner) is part of the prompt
+    /// chrome and stays between the live tail and the queued/accessory block;
+    /// it is kept as long as the prompt is visible.
+    ///
+    /// Vertical order (top to bottom):
+    ///   live_tail → blank → dynamic_status → queued → accessory → prompt → footer
     fn build_live_frame(&self, view: &RendererView) -> Frame {
         let width = view.width;
+        let height = view.height;
         let live = &view.live;
+        let p = style::palette();
+        let surface_bg = bg_style(p.surface0);
+
+        let footer = vec![live.static_status.clone(), Row::blank(width, surface_bg)];
+        let prompt = live.prompt_rows.clone();
+
+        let status_chrome = vec![Row::blank(width, surface_bg), live.dynamic_status.clone()];
+
+        let accessory =
+            if !live.detail_pane.is_empty() { live.detail_pane.clone() } else { live.accessory_rows.clone() };
+
+        let queued: Vec<Row> = live.queued_summary.clone().into_iter().collect();
+        let tail = live.live_tail.clone();
+        let reserved = footer.len() + prompt.len() + status_chrome.len();
+        let remaining = height.saturating_sub(reserved);
+
+        let accessory_budget = accessory.len().min(remaining);
+        let after_accessory = remaining.saturating_sub(accessory_budget);
+        let queued_budget = queued.len().min(after_accessory);
+        let after_queued = after_accessory.saturating_sub(queued_budget);
+        let tail_budget = tail.len().min(after_queued);
+
+        let tail_rows = clip_from_top(tail, tail_budget);
+        let queued_rows = clip_from_top(queued, queued_budget);
+        let accessory_rows = clip_from_top(accessory, accessory_budget);
+
         let mut frame = Frame::new(width);
 
-        for row in live.live_tail.clone() {
+        for row in tail_rows {
+            frame.push(row);
+        }
+        for row in status_chrome {
+            frame.push(row);
+        }
+        for row in queued_rows {
+            frame.push(row);
+        }
+        for row in accessory_rows {
             frame.push(row);
         }
 
-        frame.push(Row::blank(width, bg_style(style::palette().surface0)));
-        frame.push(live.dynamic_status.clone());
-
         let prompt_offset = frame.len();
-        for row in live.prompt_rows.clone() {
+        for row in prompt {
             frame.push(row);
         }
 
@@ -149,12 +199,10 @@ impl LiveRegion {
             frame.set_cursor(c);
         }
 
-        for row in live.accessory_rows.clone() {
+        for row in footer {
             frame.push(row);
         }
 
-        frame.push(live.static_status.clone());
-        frame.push(Row::blank(width, bg_style(style::palette().surface0)));
         frame
     }
 
@@ -241,6 +289,20 @@ impl LiveRegion {
 /// Build a [`CellStyle`] with only a background color.
 fn bg_style(color: Color) -> CellStyle {
     CellStyle::new().bg(color)
+}
+
+/// Keep the last `budget` rows, dropping older rows from the top.
+///
+/// When `budget` exceeds the row count, all rows are returned unchanged.
+/// A zero budget returns an empty vec.
+fn clip_from_top(mut rows: Vec<Row>, budget: usize) -> Vec<Row> {
+    if budget == 0 {
+        return Vec::new();
+    }
+    if rows.len() <= budget {
+        return rows;
+    }
+    rows.split_off(rows.len() - budget)
 }
 
 #[cfg(test)]

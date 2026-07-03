@@ -3,11 +3,12 @@
 //! The live chrome is rebuilt each tick and composed into the full viewport by
 //! [`super::region::LiveRegion`].
 
-use crate::app::{App, Mode, PromptAccessory, PromptState, RunState};
+use crate::app::{App, Entry, Mode, PromptAccessory, PromptState, RunState, ToolStatus};
 use crate::renderer::cursor::{prompt_cursor, prompt_rows};
 use crate::renderer::row::{CursorCoord, Row};
 use crate::renderer::style::{CellStyle, Color, Span};
-use crate::utils;
+use crate::renderer::transcript::GUTTER;
+use crate::{renderer, utils};
 
 /// Maximum rows the prompt input can occupy before scrolling within the live region.
 pub const MAX_PROMPT_ROWS: usize = 8;
@@ -149,6 +150,106 @@ pub fn accessory_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
         PromptAccessory::Models => picker_rows(app, "models", width, max_height),
         PromptAccessory::Skills => picker_rows(app, "skills", width, max_height),
     }
+}
+
+/// Build a queued-prompt summary row when steering or follow-up prompts are
+/// pending.
+///
+/// Returns `None` when the queue is empty or the agent is idle.
+pub fn queued_summary_row(app: &App, width: usize) -> Option<Row> {
+    let steering = app.queued_steering.len();
+    let followups = app.queued_followups.len();
+    if steering == 0 && followups == 0 {
+        return None;
+    }
+
+    let p = super::style::palette();
+    let bg = p.surface0;
+    let label_style = CellStyle::new().fg(p.peach).bg(bg).bold();
+    let muted_style = CellStyle::new().fg(p.subtext0).bg(bg);
+
+    let mut spans = vec![
+        Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(bg)),
+        Span::styled("queued", label_style),
+    ];
+
+    if steering > 0 {
+        spans.push(Span::styled(format!("  {steering} steering"), muted_style));
+    }
+    if followups > 0 {
+        spans.push(Span::styled(format!("  {followups} follow-up"), muted_style));
+    }
+
+    Some(Row::padded(spans, width, bg_style(bg)))
+}
+
+/// Build detail pane rows for the expanded tool entry.
+///
+/// Shows a title bar with the tool name and status, then the full output
+/// wrapped into visual rows. The scroll offset is applied to those rendered
+/// rows so long lines scroll by visible terminal row rather than by raw output
+/// line.
+pub fn detail_pane_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
+    if max_height == 0 {
+        return Vec::new();
+    }
+
+    let Some(entry) = app.transcript.get(app.detail_pane.entry_index) else {
+        return Vec::new();
+    };
+    let Entry::Tool { name, arguments, status, output } = entry else {
+        return Vec::new();
+    };
+
+    let p = super::style::palette();
+    let bg = p.surface0;
+    let title_style = CellStyle::new().fg(p.accent).bg(bg).bold();
+    let status_color = match status {
+        ToolStatus::Running => p.peach,
+        ToolStatus::Ok => p.green,
+        ToolStatus::Failed => p.red,
+    };
+    let status_style = CellStyle::new().fg(status_color).bg(bg);
+    let muted_style = CellStyle::new().fg(p.subtext0).bg(bg);
+    let body_style = CellStyle::new().fg(p.text).bg(bg);
+    let gutter_style = CellStyle::new().fg(p.overlay0).bg(bg);
+
+    let status_label = match status {
+        ToolStatus::Running => "running",
+        ToolStatus::Ok => "ok",
+        ToolStatus::Failed => "failed",
+    };
+
+    let mut title_spans = vec![
+        Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(bg)),
+        Span::styled(name.to_string(), title_style),
+        Span::styled(format!(" [{status_label}]"), status_style),
+    ];
+
+    let args_summary = renderer::transcript::summarize_tool_args(arguments, &app.cwd);
+    if !args_summary.is_empty() {
+        title_spans.push(Span::styled("  ", CellStyle::new().bg(bg)));
+        title_spans.push(Span::styled(args_summary, muted_style));
+    }
+
+    let body_width = super::layout::content_width(width).saturating_sub(super::layout::display_width(GUTTER));
+    let mut body_rows = Vec::new();
+
+    for line in output {
+        let line = renderer::path_display::transcript_line(line, &app.cwd);
+        for wrapped in super::layout::wrap_text(&line, body_width) {
+            let spans = vec![Span::styled(GUTTER, gutter_style), Span::styled(wrapped, body_style)];
+            body_rows.push(Row::padded(spans, width, bg_style(bg)));
+        }
+    }
+
+    let mut rows = Vec::with_capacity(max_height);
+    let scroll = app.detail_pane.scroll.min(body_rows.len().saturating_sub(1));
+
+    rows.push(Row::padded(title_spans, width, bg_style(bg)));
+    rows.extend(body_rows.into_iter().skip(scroll));
+    rows.truncate(max_height);
+    rows
 }
 
 /// Build the static status row (model/search/tokens/cwd) below the prompt.

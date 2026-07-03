@@ -41,6 +41,10 @@ pub struct LiveView {
     pub prompt_cursor: Option<CursorCoord>,
     /// Optional accessory rows (help, commands, file picker, etc.).
     pub accessory_rows: Vec<Row>,
+    /// Summary row for queued steering/follow-up prompts, shown when non-empty.
+    pub queued_summary: Option<Row>,
+    /// Scrollable detail pane rows for the expanded tool entry.
+    pub detail_pane: Vec<Row>,
     /// Static status row below the prompt.
     pub static_status: Row,
 }
@@ -83,67 +87,68 @@ fn build_transcript_view(app: &App, width: usize) -> TranscriptView {
     TranscriptView { banner_rows: Vec::new(), stable_rows, live_rows }
 }
 
-fn build_live_view(app: &App, width: usize, height: usize, transcript: &TranscriptView) -> LiveView {
-    let live_tail = clip_live_tail_rows(transcript.live_rows.clone(), height);
+fn build_live_view(app: &App, width: usize, _height: usize, transcript: &TranscriptView) -> LiveView {
+    let live_tail = transcript.live_rows.clone();
     let dynamic_status = super::live::dynamic_status_row(app, width);
     let (prompt_rows, prompt_cursor) = super::live::prompt_rows_for(app, width);
+    let (prompt_rows, prompt_cursor) =
+        clip_prompt_rows_around_cursor(prompt_rows, prompt_cursor, super::live::MAX_PROMPT_ROWS);
 
-    let prompt_count = prompt_rows.len().min(super::live::MAX_PROMPT_ROWS);
-    let base_height = live_tail.len() + 1 + 1; // live_tail + blank + dynamic_status
-    let prompt_block_count = prompt_count + 1;
-    let remaining_after_prompt = height.saturating_sub(base_height + prompt_block_count + 1);
-    let accessory_height = remaining_after_prompt.min(super::live::MAX_ACCESSORY_ROWS);
-
-    let accessory_rows = super::live::accessory_rows(app, width, accessory_height);
+    let accessory_rows = super::live::accessory_rows(app, width, super::live::MAX_ACCESSORY_ROWS);
+    let queued_summary = super::live::queued_summary_row(app, width);
+    let detail_pane = if app.detail_pane.open {
+        super::live::detail_pane_rows(app, width, super::live::MAX_ACCESSORY_ROWS)
+    } else {
+        Vec::new()
+    };
     let static_status = super::live::static_status_row(app, width);
 
     LiveView {
         live_tail,
         dynamic_status,
-        prompt_rows: prompt_rows.into_iter().take(prompt_count).collect(),
+        prompt_rows,
         prompt_cursor,
         accessory_rows,
+        queued_summary,
+        detail_pane,
         static_status,
     }
 }
 
 /// Split a single entry into stable and live rows.
 ///
-/// Streaming assistant/reasoning blocks keep the last two rows live when the
-/// block exceeds three rows so the stable prefix can be committed to scrollback
-/// while the mutable tail stays visible. Running tools are entirely live until
-/// they finish. All other entries are fully stable.
+/// Streaming assistant/reasoning blocks and running tools are entirely live
+/// until they finish. All other entries are fully stable.
 fn entry_stable_and_live_rows(entry: &Entry, ctx: &super::transcript::TranscriptRowContext) -> (Vec<Row>, Vec<Row>) {
     let rows = super::transcript::entry_rows(entry, ctx);
 
     match entry {
-        Entry::Assistant { streaming: true, .. } | Entry::Reasoning { streaming: true, .. } => {
-            split_streaming_rows(rows)
-        }
-        Entry::Tool { status: ToolStatus::Running, .. } => (Vec::new(), rows),
+        Entry::Assistant { streaming: true, .. }
+        | Entry::Reasoning { streaming: true, .. }
+        | Entry::Tool { status: ToolStatus::Running, .. } => (Vec::new(), rows),
         _ => (rows, Vec::new()),
     }
 }
 
-fn split_streaming_rows(rows: Vec<Row>) -> (Vec<Row>, Vec<Row>) {
-    if rows.len() <= 3 {
-        return (Vec::new(), rows);
+fn clip_prompt_rows_around_cursor(
+    rows: Vec<Row>, cursor: Option<CursorCoord>, max_rows: usize,
+) -> (Vec<Row>, Option<CursorCoord>) {
+    if rows.len() <= max_rows || max_rows == 0 {
+        return (rows, cursor);
     }
 
-    let stable_len = rows.len().saturating_sub(2);
-    let stable_rows = rows[..stable_len].to_vec();
-    let live_rows = rows[stable_len..].to_vec();
-    (stable_rows, live_rows)
-}
+    let cursor_row = cursor.map_or_else(
+        || rows.len().saturating_sub(1),
+        |cursor| cursor.row.min(rows.len().saturating_sub(1)),
+    );
+    let start = cursor_row.saturating_add(1).saturating_sub(max_rows);
+    let clipped_rows = rows.into_iter().skip(start).take(max_rows).collect();
+    let clipped_cursor = cursor.map(|mut cursor| {
+        cursor.row = cursor.row.saturating_sub(start);
+        cursor
+    });
 
-/// Clip the mutable transcript tail to a reasonable share of the viewport.
-///
-/// This is a viewport policy detail duplicated here so the view projection can
-/// stay self-contained. The same clipping is applied again by
-/// [`super::region::LiveRegion`] when composing the final frame.
-fn clip_live_tail_rows(mut active: Vec<Row>, height: usize) -> Vec<Row> {
-    let max_active = height.saturating_sub(4).max(1);
-    if active.len() > max_active { active.split_off(active.len() - max_active) } else { active }
+    (clipped_rows, clipped_cursor)
 }
 
 #[cfg(test)]

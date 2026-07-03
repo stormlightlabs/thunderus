@@ -29,17 +29,17 @@ Captured: 2026-07-03
 - [x] Introduce a small renderer-owned view projection from `App` plus terminal
       dimensions.
 - [x] Keep the view projection free of crossterm types and terminal writes.
-- [ ] Add view projection tests for idle, working, streaming, accessory, narrow,
+- [x] Add view projection tests for idle, working, streaming, accessory, narrow,
       and tiny-height states.
-- [ ] Make live-region composition use explicit surface priority instead of
+- [x] Make live-region composition use explicit surface priority instead of
       incidental append order.
-- [ ] Represent Pi-style execution in renderer state with visible status,
+- [x] Represent Pi-style execution in renderer state with visible status,
       running tool output, failure, cancellation, and transcript rows.
-- [ ] Preserve footer and prompt visibility under streaming pressure.
-- [ ] Add tests for active picker plus streaming output.
-- [ ] Add tests for queued prompt summary plus running tool output.
-- [ ] Add tests for focused detail pane plus running tool output.
-- [ ] Add tests for tiny-height clipping with prompt, footer, accessory, and
+- [x] Preserve footer and prompt visibility under streaming pressure.
+- [x] Add tests for active picker plus streaming output.
+- [x] Add tests for queued prompt summary plus running tool output.
+- [x] Add tests for focused detail pane plus running tool output.
+- [x] Add tests for tiny-height clipping with prompt, footer, accessory, and
       live tail present.
 
 ## P2: Improve Tool And Transcript Rendering

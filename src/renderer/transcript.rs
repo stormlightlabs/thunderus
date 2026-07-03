@@ -14,7 +14,7 @@ use crate::renderer::style::{CellStyle, Color, Span};
 const MAX_TOOL_OUTPUT_LINES: usize = 6;
 
 /// Gutter prefix for tool output lines.
-const GUTTER: &str = "   │ ";
+pub const GUTTER: &str = "   │ ";
 
 /// Context needed to render a single transcript entry into rows.
 pub struct TranscriptRowContext<'a> {
@@ -430,7 +430,7 @@ fn is_section_header(line: &str) -> bool {
 }
 
 /// Produce a short summary of a tool's arguments for the transcript line.
-fn summarize_tool_args(arguments: &str, cwd: &Path) -> String {
+pub fn summarize_tool_args(arguments: &str, cwd: &Path) -> String {
     let trimmed = arguments.trim();
     if trimmed.is_empty() || trimmed == "{}" {
         return String::new();

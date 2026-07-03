@@ -145,6 +145,39 @@ impl ToolStatus {
     }
 }
 
+/// Lines to render when a tool detail pane is open.
+///
+/// The detail pane expands a transcript [`Entry::Tool`] into a scrollable
+/// surface so the user can read full tool output without leaving the TUI.
+/// It tracks which transcript entry (by index) is expanded and the current
+/// scroll offset within that entry's rendered output rows.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct DetailPane {
+    /// Index into `app.transcript` for the expanded tool entry.
+    pub entry_index: usize,
+    /// Scroll offset: number of rendered output rows skipped from the top.
+    pub scroll: usize,
+    /// Whether the detail pane is currently open.
+    pub open: bool,
+}
+
+impl DetailPane {
+    /// Scroll up one line, clamped at zero.
+    pub fn scroll_up(&mut self) {
+        self.scroll = self.scroll.saturating_sub(1);
+    }
+
+    /// Scroll down one rendered row.
+    ///
+    /// The renderer clamps this value once terminal width and wrapped row
+    /// count are known.
+    pub fn scroll_down(&mut self, total: usize) {
+        if total > 0 {
+            self.scroll = self.scroll.saturating_add(1);
+        }
+    }
+}
+
 /// One transcript row.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Entry {
@@ -372,6 +405,8 @@ pub struct App {
     pub queued_followups: Vec<String>,
     /// Kill-ring for readline-style yank (Ctrl+Y).
     pub kill_ring: Vec<String>,
+    /// Scrollable detail pane for inspecting full tool output.
+    pub detail_pane: DetailPane,
     /// When true the loop should stop and the app exit.
     pub quit: bool,
 }
@@ -449,6 +484,7 @@ impl App {
             queued_steering: Vec::new(),
             queued_followups: Vec::new(),
             kill_ring: Vec::new(),
+            detail_pane: DetailPane::default(),
             quit: false,
         }
     }
@@ -584,6 +620,7 @@ pub fn update(app: &mut App, msg: &Msg) -> Option<Msg> {
         }
         Msg::Clear => {
             app.transcript.clear();
+            app.detail_pane = DetailPane::default();
             None
         }
         Msg::Agent(event) => handle_agent_event(app, event.clone()),
@@ -656,6 +693,10 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
     }
 
     app.ctrl_d_pending = None;
+
+    if app.detail_pane.open {
+        return handle_detail_pane_key(app, key);
+    }
 
     if !matches!(app.prompt_accessory, PromptAccessory::None)
         && let Some(msg) = handle_accessory_key(app, key)
@@ -1123,6 +1164,10 @@ fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
             None
         }
         KeyCode::Enter => handle_submit(app),
+        KeyCode::Tab => {
+            toggle_detail_pane(app);
+            None
+        }
         KeyCode::Esc if app.run_state == RunState::Working => {
             cancel_stream(app);
             None
@@ -1225,6 +1270,65 @@ fn close_prompt_accessory(app: &mut App) {
         app.picker = None;
     }
     app.prompt_accessory = PromptAccessory::None;
+}
+
+/// Find the index of the most recent `Entry::Tool` in the transcript.
+fn last_tool_entry_index(app: &App) -> Option<usize> {
+    app.transcript
+        .iter()
+        .rposition(|entry| matches!(entry, Entry::Tool { .. }))
+}
+
+/// Toggle the detail pane on the most recent tool entry.
+///
+/// When opening, the pane targets the last `Entry::Tool` in the transcript
+/// and resets the scroll offset. When closing, it clears the open flag.
+fn toggle_detail_pane(app: &mut App) {
+    let Some(index) = last_tool_entry_index(app) else {
+        return;
+    };
+    if app.detail_pane.open && app.detail_pane.entry_index == index {
+        app.detail_pane.open = false;
+    } else {
+        app.detail_pane = DetailPane { entry_index: index, scroll: 0, open: true };
+    }
+}
+
+/// Handle keys while the detail pane is open.
+///
+/// - `Tab`/`Esc` close the pane and return control to the prompt.
+/// - `Up`/`PageUp` scroll up.
+/// - `Down`/`PageDown` scroll down.
+/// - All other keys are swallowed so the prompt is not mutated while the
+///   detail pane has focus.
+fn handle_detail_pane_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
+    let total = detail_pane_output_count(app);
+    match key.code {
+        KeyCode::Tab | KeyCode::Esc => {
+            app.detail_pane.open = false;
+            None
+        }
+        KeyCode::Up | KeyCode::PageUp => {
+            app.detail_pane.scroll_up();
+            None
+        }
+        KeyCode::Down | KeyCode::PageDown => {
+            app.detail_pane.scroll_down(total);
+            None
+        }
+        _ => None,
+    }
+}
+
+/// Count output lines available for the detail pane's current target entry.
+fn detail_pane_output_count(app: &App) -> usize {
+    let Some(entry) = app.transcript.get(app.detail_pane.entry_index) else {
+        return 0;
+    };
+    match entry {
+        Entry::Tool { output, .. } => output.len(),
+        _ => 0,
+    }
 }
 
 /// Run fuzzy filter and split results into parallel item + index vectors.

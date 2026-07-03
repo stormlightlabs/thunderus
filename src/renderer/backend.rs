@@ -121,8 +121,14 @@ impl<W: Write> TerminalBackend<W> {
         Ok(())
     }
 
-    /// Clear the visible screen and purge terminal scrollback where supported.
+    /// Clear the visible screen.
     pub fn clear_all(&mut self) -> io::Result<()> {
+        queue!(self.writer, MoveTo(0, 0), CtClear(ClearType::All))?;
+        self.writer.flush()
+    }
+
+    /// Clear the visible screen and purge terminal scrollback where supported.
+    pub fn clear_all_and_scrollback(&mut self) -> io::Result<()> {
         queue!(
             self.writer,
             MoveTo(0, 0),
@@ -290,7 +296,7 @@ fn write_spans(writer: &mut impl Write, spans: &[Span], width: usize) -> io::Res
             break;
         }
         let remaining = width - used;
-        let text = take_display_width(&span.text, remaining);
+        let text = take_display_width(&sanitize_terminal_text(&span.text), remaining);
         let taken = display_width(&text);
         used += taken;
         last_bg = span.style.bg;
@@ -342,7 +348,7 @@ fn write_spans_unpadded(writer: &mut impl Write, spans: &[Span], width: usize) -
             break;
         }
         let remaining = width - used;
-        let text = take_display_width(&span.text, remaining);
+        let text = take_display_width(&sanitize_terminal_text(&span.text), remaining);
         used += display_width(&text);
         if !text.is_empty() {
             queue!(
@@ -364,6 +370,49 @@ fn take_display_width(text: &str, width: usize) -> String {
         }
         out.push_str(grapheme);
         used += g_width;
+    }
+    out
+}
+
+fn sanitize_terminal_text(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '\x00' => out.push('␀'),
+            '\x01' => out.push('␁'),
+            '\x02' => out.push('␂'),
+            '\x03' => out.push('␃'),
+            '\x04' => out.push('␄'),
+            '\x05' => out.push('␅'),
+            '\x06' => out.push('␆'),
+            '\x07' => out.push('␇'),
+            '\x08' => out.push('␈'),
+            '\t' => out.push_str("    "),
+            '\n' => out.push('␊'),
+            '\x0b' => out.push('␋'),
+            '\x0c' => out.push('␌'),
+            '\r' => out.push('␍'),
+            '\x0e' => out.push('␎'),
+            '\x0f' => out.push('␏'),
+            '\x10' => out.push('␐'),
+            '\x11' => out.push('␑'),
+            '\x12' => out.push('␒'),
+            '\x13' => out.push('␓'),
+            '\x14' => out.push('␔'),
+            '\x15' => out.push('␕'),
+            '\x16' => out.push('␖'),
+            '\x17' => out.push('␗'),
+            '\x18' => out.push('␘'),
+            '\x19' => out.push('␙'),
+            '\x1a' => out.push('␚'),
+            '\x1b' => out.push('␛'),
+            '\x1c' => out.push('␜'),
+            '\x1d' => out.push('␝'),
+            '\x1e' => out.push('␞'),
+            '\x1f' => out.push('␟'),
+            '\x7f' => out.push('␡'),
+            _ => out.push(ch),
+        }
     }
     out
 }
@@ -510,13 +559,16 @@ mod tests {
     }
 
     #[test]
-    fn clear_all_emits_clear_and_purge() {
+    fn clear_all_emits_visible_screen_clear_without_purge() {
         let mut b = backend(10, 5);
         b.clear_all().unwrap();
 
         let out = String::from_utf8(b.writer().clone()).unwrap();
         assert!(out.contains("\x1b[2J"));
-        assert!(out.contains("\x1b[3J"));
+        assert!(
+            !out.contains("\x1b[3J"),
+            "visible-screen clear should not purge native scrollback"
+        );
     }
 
     #[test]
@@ -599,6 +651,28 @@ mod tests {
         let out = String::from_utf8(buf).unwrap();
         assert!(out.contains(&format!("a{family}")));
         assert!(!out.contains('b'));
+    }
+
+    #[test]
+    fn write_row_sanitizes_terminal_control_sequences() {
+        let mut b = backend(80, 5);
+        let row = Row::padded(
+            vec![Span::plain("before \x1b]52;c;clipboard\x07 after \x1b[2J")],
+            80,
+            CellStyle::default(),
+        );
+        b.write_row(0, &row).unwrap();
+
+        let out = String::from_utf8(b.writer().clone()).unwrap();
+        assert!(out.contains("before ␛]52;c;clipboard␇ after ␛[2J"));
+        assert!(
+            !out.contains("\x1b]52;c;clipboard"),
+            "OSC clipboard sequence should be rendered inertly: {out:?}"
+        );
+        assert!(
+            !out.contains("\x1b[2J after"),
+            "embedded CSI clear sequence should be rendered inertly: {out:?}"
+        );
     }
 
     #[test]

@@ -17,8 +17,7 @@
 //! 7. **web_source_guidance** — when and how to use web tools.
 //! 8. Environment metadata — cwd, model, search mode, rounded date.
 //! 9. Self-knowledge snapshot — docs map and compact runtime state.
-//! 10. Project context — loaded `AGENTS.md` text (below policy and user
-//!    instructions).
+//! 10. Project context — loaded `AGENTS.md` text (below policy and user instructions).
 //! 11. Tool catalog — provider-native schemas for local tools.
 //! 12. Transcript tail — projected model-visible entries.
 //! 13. User turn — current prompt text.

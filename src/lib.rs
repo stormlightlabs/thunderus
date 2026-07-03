@@ -425,7 +425,7 @@ fn handle_direct_msg<W: io::Write>(
         next = update(app, &m);
         if is_clear {
             live.reset();
-            backend.clear_all()?;
+            backend.clear_all_and_scrollback()?;
         }
         if app.quit {
             return Ok(());
