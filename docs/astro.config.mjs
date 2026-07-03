@@ -163,6 +163,7 @@ export default defineConfig({
                   label: "Prompt Libs",
                   slug: "notebook/prompt-renderer-research",
                 },
+                { label: "Terminal Agent UI", slug: "notebook/ui" },
                 { label: "Yoga Layout Engine", slug: "notebook/yoga" },
                 { label: "Yoga for Gridland", slug: "notebook/yoga-gridland" },
                 { label: "Gridland UI", slug: "notebook/ui-patterns" },
