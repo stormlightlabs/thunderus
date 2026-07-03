@@ -1,14 +1,6 @@
 ---
 title: "Letta Memory and Stateful Agents"
 description: "Notes on Letta's memory-first agent model, memory blocks, archival memory, shared state, MemFS, dreaming, and stateful agent APIs."
-sources:
-  - https://docs.letta.com/letta-agent
-  - https://docs.letta.com/letta-agent/memory
-  - https://docs.letta.com/letta-agent-sdk/overview
-  - https://docs.letta.com/guides/core-concepts/stateful-agents
-  - https://docs.letta.com/guides/core-concepts/memory/
-  - https://github.com/letta-ai/letta
-  - https://arxiv.org/abs/2310.08560
 author: Letta maintainers; Charles Packer, Sarah Wooders, Kevin Lin, Vivian Fang, Shishir G. Patil, Ion Stoica, Joseph E. Gonzalez
 captured: 2026-07-03
 tags: [letta, memgpt, stateful-agents, memory, context-management, archival-memory]
@@ -24,10 +16,10 @@ background reflection.
 
 ## Key Ideas
 
-- Letta is the continuation of MemGPT. The open source repository describes
+- Letta is the continuation of MemGPT. The open source repository[^6] describes
   Letta as formerly MemGPT and frames it as a platform for agents with advanced
   memory that can learn and self-improve over time.
-- The current Letta Agent product is memory-first. Its docs emphasize using the
+- The current Letta Agent product is memory-first. Its docs[^1] emphasize using the
   same agent indefinitely across sessions, with the agent learning preferences,
   remembering past interactions, and editing its own memory as it works.
 - Letta separates agents from conversations. An agent has durable memory, model
@@ -65,7 +57,7 @@ background reflection.
 - `/init`, `/remember`, `/doctor`, and `/sleeptime` expose memory management as
   user-facing workflows. Users can bootstrap memory, explicitly teach durable
   facts, audit memory placement/token usage, and configure background reflection.
-- The MemGPT paper supplies the architecture lineage: virtual context management
+- The MemGPT paper[^7] supplies the architecture lineage: virtual context management
   moves information between fast and slow memory tiers, borrowing from operating
   system memory hierarchies to make a limited context window behave like a larger
   working memory.
@@ -74,14 +66,14 @@ background reflection.
 
 ### Letta's central abstraction is a stateful agent, not a stateless chat call.
 
-The docs define stateful agents as agents that maintain memory and context across
-conversations. The SDK creates and resumes durable agents and sessions.
+The docs[^1] define stateful agents as agents that maintain memory and context across
+conversations. The SDK[^3] creates and resumes durable agents and sessions.
 
 Caveat/confidence: High.
 
 ### Letta persists more than visible context.
 
-The stateful-agents guide says memories, messages, reasoning, and tool calls are
+The stateful-agents guide[^4] says memories, messages, reasoning, and tool calls are
 persisted in a database and remain retrievable after compaction or eviction.
 
 Caveat/confidence: High for the API/SDK layer; exact storage implementation
@@ -89,42 +81,42 @@ depends on deployment.
 
 ### Memory blocks are for high-salience state that should always be in context.
 
-The memory-block docs describe blocks as persistent context sections that are
+The memory-block docs[^2] describe blocks as persistent context sections that are
 always visible and need no retrieval.
 
 Caveat/confidence: High.
 
 ### Block labels and descriptions guide autonomous memory edits.
 
-The memory-block docs say descriptions are crucial because they tell the agent
+The memory-block docs[^2] say descriptions are crucial because they tell the agent
 how to use each block.
 
 Caveat/confidence: High.
 
 ### Shared memory is a coordination primitive.
 
-The shared-memory docs describe multiple agents attaching to the same block and
+The shared-memory docs[^2] describe multiple agents attaching to the same block and
 seeing updates immediately.
 
 Caveat/confidence: High.
 
 ### Archival memory is retrieval-backed, not pinned context.
 
-The archival-memory docs contrast it with memory blocks and describe
+The archival-memory docs[^2] contrast it with memory blocks and describe
 insert/search tools plus SDK passage endpoints.
 
 Caveat/confidence: High.
 
 ### Letta uses a hierarchy rather than one memory store.
 
-The context-hierarchy docs compare memory blocks, files, archival memory, and
+The context-hierarchy docs[^5] compare memory blocks, files, archival memory, and
 external RAG by access pattern, tools, size, and count limits.
 
 Caveat/confidence: High.
 
 ### Current Letta Agent stores memory as inspectable files.
 
-The memory docs describe MemFS as a git-backed memory filesystem that projects
+The memory docs[^2] describe MemFS as a git-backed memory filesystem that projects
 memory blocks into markdown files.
 
 Caveat/confidence: High for Letta Agent; the V1 API docs still describe
@@ -132,14 +124,14 @@ database-backed concepts.
 
 ### Background reflection is part of the product model.
 
-The memory docs describe dream subagents triggered by message count or
+The memory docs[^2] describe dream subagents triggered by message count or
 compaction, plus memory defragmentation flows.
 
 Caveat/confidence: High.
 
 ### Letta's design lineage comes from MemGPT's virtual context management.
 
-The MemGPT paper proposes OS-inspired memory tiers and control flow for
+The MemGPT paper[^7] proposes OS-inspired memory tiers and control flow for
 long-running conversations and large-document analysis.
 
 Caveat/confidence: High.
@@ -199,7 +191,7 @@ A memory block has four important fields:
 - `value`: the actual memory content.
 - `limit`: the block's character budget.
 
-The docs present blocks as XML-like prompt sections. That matters because the
+The docs[^2] present blocks as XML-like prompt sections. That matters because the
 model does not see "memory" as an abstract database handle; it sees structured
 text inside its active prompt. This makes blocks simple and inspectable, but it
 also means block count and block size compete directly with the rest of the
@@ -252,7 +244,7 @@ dumping ground.
 
 ## Current Letta Agent Memory
 
-The newer Letta Agent docs describe a more file-like memory experience than the
+The newer Letta Agent docs[^1] describe a more file-like memory experience than the
 V1 SDK concept pages. Memory lives in MemFS, a git-backed memory filesystem. Each
 projected memory file is markdown with YAML frontmatter; local agents store this
 in local git repositories, while Constellation agents sync through Letta's cloud
@@ -344,3 +336,17 @@ an editable, versioned workspace that both users and agents can inspect.
   learning easier to audit and edit.
 - Dreaming moves memory improvement into background compute, but introduces more
   state mutation paths to reason about.
+
+[^1]: https://docs.letta.com/letta-agent
+
+[^2]: https://docs.letta.com/letta-agent/memory
+
+[^3]: https://docs.letta.com/letta-agent-sdk/overview
+
+[^4]: https://docs.letta.com/guides/core-concepts/stateful-agents
+
+[^5]: https://docs.letta.com/guides/core-concepts/memory/
+
+[^6]: https://github.com/letta-ai/letta
+
+[^7]: https://arxiv.org/abs/2310.08560

@@ -8,7 +8,8 @@ export default defineConfig({
     starlight({
       title: "thndrs",
       description:
-        "thndrs is a Rust coding harness with a terminal-first workflow, visible context, and bounded repository tools.",
+        "thndrs is a Rust coding harness with a terminal-first workflow, visible context, \
+        and bounded repository tools.",
       social: [
         { icon: "github", label: "GitHub", href: "https://github.com/stormlightlabs/thndrs" },
         { icon: "blueSky", label: "BlueSky", href: "https://bsky.app/profile/stormlightlabs.org" },
@@ -24,7 +25,8 @@ export default defineConfig({
           attrs: {
             property: "og:description",
             content:
-              "Use coding models from a terminal UI with visible context, structured transcript events, and bounded repository tools.",
+              "Use coding models from a terminal UI with visible context,\
+              structured transcript events, and bounded repository tools.",
           },
         },
         { tag: "meta", attrs: { property: "og:type", content: "website" } },
@@ -32,67 +34,74 @@ export default defineConfig({
         { tag: "meta", attrs: { name: "twitter:card", content: "summary" } },
       ],
       sidebar: [
+        /* Getting Started: short orientation and first-run material for readers who are new to thndrs. */
         {
           label: "Getting Started",
           items: [
-            { label: "Introduction", slug: "guides" },
-            { label: "Installation", slug: "guides/getting-started/installation" },
-            { label: "Quick Start", slug: "guides/getting-started/quick-start" },
-            { label: "Manual", slug: "guides/getting-started/cli-usage" },
+            { label: "Introduction", slug: "introduction" },
+            { label: "Installation", slug: "getting-started/installation" },
+            { label: "Quick Start", slug: "getting-started/quick-start" },
+            { label: "Manual", slug: "getting-started/cli-usage" },
           ],
         },
+        /* Usage: task-oriented pages for operating thndrs. */
         {
           label: "Usage",
           items: [
-            { label: "Interaction", slug: "guides/usage/prompting-and-input" },
-            { label: "Keybindings", slug: "guides/keybinds" },
-            { label: "Project Context", slug: "guides/usage/project-context" },
-            { label: "Skills", slug: "guides/usage/skills" },
-            { label: "Tools", slug: "guides/usage/tools" },
-            { label: "Web Search", slug: "guides/usage/web-search" },
-            { label: "Models", slug: "guides/usage/models" },
-            { label: "Sessions", slug: "guides/usage/sessions" },
-            { label: "Security", slug: "guides/usage/security-and-permissions" },
+            { label: "Interaction", slug: "usage/prompting-and-input" },
+            { label: "Keybindings", slug: "usage/keybinds" },
+            { label: "Project Context", slug: "usage/project-context" },
+            { label: "Skills", slug: "usage/skills" },
+            { label: "Tools", slug: "usage/tools" },
+            { label: "Web Search", slug: "usage/web-search" },
+            { label: "Models", slug: "usage/models" },
+            { label: "Sessions", slug: "usage/sessions" },
+            { label: "Security", slug: "usage/security-and-permissions" },
           ],
         },
+        /* Concepts: stable mental models that explain behavior. */
         {
           label: "Concepts",
           items: [
-            { label: "Prompt Assembly", slug: "guides/concepts/prompt-assembly" },
-            { label: "Prompt XML", slug: "guides/concepts/prompt-xml-syntax" },
-            { label: "Transcripts", slug: "guides/concepts/transcript-model" },
-            { label: "Tools", slug: "guides/concepts/tool-boundary" },
-            { label: "TUI", slug: "guides/usage/tui" },
+            { label: "Prompt Assembly", slug: "concepts/prompt-assembly" },
+            { label: "Prompt XML", slug: "concepts/prompt-xml-syntax" },
+            { label: "Transcripts", slug: "concepts/transcript-model" },
+            { label: "Tools", slug: "concepts/tool-boundary" },
+            { label: "TUI", slug: "usage/tui" },
           ],
         },
+        /* Providers: integration-specific behavior and provider boundaries. */
         {
           label: "Providers",
           items: [
-            { label: "Umans", slug: "guides/providers/umans" },
-            { label: "OpenCode Go", slug: "guides/providers/opencode-go" },
-            { label: "Search and Extraction", slug: "guides/providers/search-and-extraction" },
+            { label: "Umans", slug: "providers/umans" },
+            { label: "OpenCode Go", slug: "providers/opencode-go" },
+            { label: "Search and Extraction", slug: "providers/search-and-extraction" },
           ],
         },
+        /* Reference: exact contracts, schemas, commands, and configuration surfaces. */
         {
           label: "Reference",
           collapsed: true,
           items: [
-            { label: "CLI Reference", slug: "guides/reference/cli" },
-            { label: "Configuration", slug: "guides/reference/configuration" },
-            { label: "Environment Variables", slug: "guides/reference/environment-variables" },
-            { label: "Tool Reference", slug: "guides/reference/tools" },
-            { label: "Session Format", slug: "guides/reference/session-format" },
+            { label: "CLI Reference", slug: "reference/cli" },
+            { label: "Configuration", slug: "reference/configuration" },
+            { label: "Environment Variables", slug: "reference/environment-variables" },
+            { label: "Tool Reference", slug: "reference/tools" },
+            { label: "Session Format", slug: "reference/session-format" },
           ],
         },
+        /* Development: contributor-facing internals, workflows, invariants, and test strategy */
         {
           label: "Development",
           collapsed: true,
           items: [
-            { label: "Architecture", slug: "guides/development/architecture" },
-            { label: "Workflow", slug: "guides/development/workflow" },
-            { label: "Testing", slug: "guides/development/testing" },
+            { label: "Architecture", slug: "development/architecture" },
+            { label: "Workflow", slug: "development/workflow" },
+            { label: "Testing", slug: "development/testing" },
           ],
         },
+        /* Notebook: research notes and working synthesis */
         {
           label: "Notebook",
           collapsed: true,
@@ -163,6 +172,7 @@ export default defineConfig({
               label: "Meta",
               collapsed: true,
               items: [
+                { label: "Docs", slug: "notebook/docs" },
                 { label: "Sessions", slug: "notebook/sessions" },
                 {
                   label: "Releasing",
