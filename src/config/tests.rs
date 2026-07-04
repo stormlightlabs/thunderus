@@ -1,6 +1,30 @@
 use super::*;
 use crate::cli::{Theme, WebSearchMode};
 use std::path::PathBuf;
+use std::sync::Mutex;
+
+static HOME_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+fn with_home<T>(home: &Path, f: impl FnOnce() -> T) -> T {
+    let _guard = HOME_ENV_LOCK.lock().expect("home env lock");
+    let old_home = std::env::var_os("HOME");
+
+    unsafe {
+        std::env::set_var("HOME", home);
+    }
+
+    let result = f();
+
+    unsafe {
+        if let Some(old_home) = old_home {
+            std::env::set_var("HOME", old_home);
+        } else {
+            std::env::remove_var("HOME");
+        }
+    }
+
+    result
+}
 
 #[test]
 fn config_merge_overrides_only_present_values() {
@@ -184,6 +208,31 @@ fn env_rejects_invalid_boolean() {
 }
 
 #[test]
+fn env_rejects_invalid_tick_rate_ms() {
+    let mut o = BTreeMap::new();
+    let mut d = Vec::new();
+    let err = load_env(
+        &[("THNDRS_TICK_RATE_MS".to_string(), "fast".to_string())],
+        &mut o,
+        &mut d,
+    )
+    .unwrap_err();
+    assert!(
+        matches!(err, ConfigError::InvalidEnv { name, message } if name == "THNDRS_TICK_RATE_MS" && message.contains("positive integer"))
+    );
+}
+
+#[test]
+fn env_rejects_invalid_theme() {
+    let mut o = BTreeMap::new();
+    let mut d = Vec::new();
+    let err = load_env(&[("THNDRS_THEME".to_string(), "sepia".to_string())], &mut o, &mut d).unwrap_err();
+    assert!(
+        matches!(err, ConfigError::InvalidEnv { name, message } if name == "THNDRS_THEME" && message.contains("unknown theme"))
+    );
+}
+
+#[test]
 fn env_rejects_unknown_var() {
     let mut o = BTreeMap::new();
     let mut d = Vec::new();
@@ -194,6 +243,24 @@ fn env_rejects_unknown_var() {
     )
     .unwrap_err();
     assert!(matches!(err, ConfigError::UnknownEnv { name } if name == "THNDRS_LSP_ENABLED"));
+}
+
+#[test]
+fn env_rejects_cli_only_keys() {
+    for key in [
+        "THNDRS_PRINT_PROMPT",
+        "THNDRS_CWD",
+        "THNDRS_NO_ALT_SCREEN",
+        "THNDRS_NO_MOUSE",
+    ] {
+        let mut o = BTreeMap::new();
+        let mut d = Vec::new();
+        let err = load_env(&[(key.to_string(), "true".to_string())], &mut o, &mut d).unwrap_err();
+        assert!(
+            matches!(err, ConfigError::UnknownEnv { name } if name == key),
+            "{key} should be rejected as a CLI-only key"
+        );
+    }
 }
 
 #[test]
@@ -265,10 +332,28 @@ fn env_ignores_non_thndrs_vars() {
 }
 
 #[test]
+fn provider_secret_env_vars_do_not_enter_config_or_origins() {
+    let mut origins = BTreeMap::new();
+    let mut diagnostics = Vec::new();
+    let config = load_env(
+        &[
+            ("UMANS_API_KEY".to_string(), "sk-umans-secret".to_string()),
+            ("OPENCODE_GO_KEY".to_string(), "sk-opencode-secret".to_string()),
+        ],
+        &mut origins,
+        &mut diagnostics,
+    )
+    .unwrap();
+
+    assert_eq!(config, Config::default());
+    assert!(origins.is_empty());
+    assert!(diagnostics.is_empty());
+}
+
+#[test]
 fn effective_config_defaults_when_no_files() {
     let tmp = tempfile::tempdir().unwrap();
-    let cli_flags = CliFlagValues::default();
-    let effective = load_effective(tmp.path(), &cli_flags, &[]).unwrap();
+    let effective = load_effective(tmp.path(), &[]).unwrap();
 
     assert!(effective.layers.is_empty(), "no config files should produce no layers");
     assert_eq!(effective.config.model.as_deref(), Some("umans-coder"));
@@ -297,8 +382,7 @@ fn effective_config_defaults_when_no_files() {
 
 #[test]
 fn effective_config_default_session_dir_is_absolute_for_relative_workspace() {
-    let cli_flags = CliFlagValues::default();
-    let effective = load_effective(Path::new("."), &cli_flags, &[]).unwrap();
+    let effective = load_effective(Path::new("."), &[]).unwrap();
 
     assert!(
         effective
@@ -317,13 +401,7 @@ fn effective_config_loads_global_file() {
     fs::create_dir_all(home.join(".thndrs")).unwrap();
     fs::write(home.join(".thndrs").join("config.toml"), "model = \"global-model\"\n").unwrap();
 
-    let old_home = std::env::var_os("HOME");
-    unsafe {
-        std::env::set_var("HOME", &home);
-    }
-
-    let cli_flags = CliFlagValues::default();
-    let effective = load_effective(tmp.path(), &cli_flags, &[]).unwrap();
+    let effective = with_home(&home, || load_effective(tmp.path(), &[]).unwrap());
 
     assert_eq!(effective.config.model.as_deref(), Some("global-model"));
     assert_eq!(effective.layers.len(), 1);
@@ -333,14 +411,6 @@ fn effective_config_loads_global_file() {
         Some("~/.thndrs/config.toml")
     );
     assert!(effective.layers[0].hash.is_some(), "global file should have a hash");
-
-    unsafe {
-        if let Some(old_home) = old_home {
-            std::env::set_var("HOME", old_home);
-        } else {
-            std::env::remove_var("HOME");
-        }
-    }
 }
 
 #[test]
@@ -354,42 +424,27 @@ fn effective_config_project_overrides_global() {
     fs::create_dir_all(workspace.join(".thndrs")).unwrap();
     fs::write(workspace.join(".thndrs").join("config.toml"), "model = \"project\"\n").unwrap();
 
-    let old_home = std::env::var_os("HOME");
-
-    unsafe {
-        std::env::set_var("HOME", &home);
-    }
-
-    let cli_flags = CliFlagValues::default();
-    let effective = load_effective(&workspace, &cli_flags, &[]).unwrap();
+    let effective = with_home(&home, || load_effective(&workspace, &[]).unwrap());
 
     assert_eq!(effective.config.model.as_deref(), Some("project"));
     assert_eq!(effective.layers.len(), 2);
     assert_eq!(effective.layers[1].display_path.as_deref(), Some(".thndrs/config.toml"));
-
-    unsafe {
-        if let Some(old_home) = old_home {
-            std::env::set_var("HOME", old_home);
-        } else {
-            std::env::remove_var("HOME");
-        }
-    }
 }
 
 #[test]
-fn effective_config_env_overrides_project() {
+fn effective_config_env_overrides_config_files() {
     let tmp = tempfile::tempdir().unwrap();
-    let workspace = tmp.path();
+    let home = tmp.path().join("home");
+    fs::create_dir_all(home.join(".thndrs")).unwrap();
+    fs::write(home.join(".thndrs").join("config.toml"), "model = \"global\"\n").unwrap();
+
+    let workspace = tmp.path().join("workspace");
     fs::create_dir_all(workspace.join(".thndrs")).unwrap();
     fs::write(workspace.join(".thndrs").join("config.toml"), "model = \"project\"\n").unwrap();
 
-    let cli_flags = CliFlagValues::default();
-    let effective = load_effective(
-        workspace,
-        &cli_flags,
-        &[("THNDRS_MODEL".to_string(), "env-model".to_string())],
-    )
-    .unwrap();
+    let effective = with_home(&home, || {
+        load_effective(&workspace, &[("THNDRS_MODEL".to_string(), "env-model".to_string())]).unwrap()
+    });
 
     assert_eq!(effective.config.model.as_deref(), Some("env-model"));
     assert_eq!(
@@ -399,43 +454,53 @@ fn effective_config_env_overrides_project() {
 }
 
 #[test]
-fn effective_config_cli_overrides_env() {
+fn old_and_typo_project_config_paths_are_ignored() {
     let tmp = tempfile::tempdir().unwrap();
-    let cli_flags = CliFlagValues { model: Some("cli-model".to_string()), ..CliFlagValues::default() };
-    let effective = load_effective(
-        tmp.path(),
-        &cli_flags,
-        &[("THNDRS_MODEL".to_string(), "env-model".to_string())],
+    let workspace = tmp.path();
+    fs::create_dir_all(workspace.join(".thndrs")).unwrap();
+    fs::create_dir_all(workspace.join(".thdrs")).unwrap();
+    fs::write(workspace.join(".thndrs.toml"), "model = \"old-root\"\n").unwrap();
+    fs::write(
+        workspace.join(".thndrs").join(".thndrs.toml"),
+        "model = \"old-hidden\"\n",
     )
     .unwrap();
+    fs::write(workspace.join(".thndrs").join("thndrs.toml"), "model = \"old-name\"\n").unwrap();
+    fs::write(
+        workspace.join(".thdrs").join("config.toml"),
+        "model = \"typo-config\"\n",
+    )
+    .unwrap();
+    fs::write(
+        workspace.join(".thdrs").join(".thndrs.toml"),
+        "model = \"typo-hidden\"\n",
+    )
+    .unwrap();
+    fs::write(workspace.join(".thdrs").join("thndrs.toml"), "model = \"typo-name\"\n").unwrap();
 
-    assert_eq!(effective.config.model.as_deref(), Some("cli-model"));
-    assert_eq!(
-        effective.origins.get("model"),
-        Some(&ConfigOrigin { source: ConfigSource::CliFlag, detail: "--model".to_string() })
-    );
+    let effective = load_effective(workspace, &[]).unwrap();
+
+    assert!(effective.layers.is_empty());
+    assert_eq!(effective.config.model.as_deref(), Some("umans-coder"));
 }
 
 #[test]
-fn effective_config_cli_mouse_overrides_env() {
+fn old_global_config_paths_are_ignored() {
     let tmp = tempfile::tempdir().unwrap();
-    let cli_flags = CliFlagValues { mouse: Some(false), ..CliFlagValues::default() };
-    let effective = load_effective(
-        tmp.path(),
-        &cli_flags,
-        &[("THNDRS_MOUSE".to_string(), "true".to_string())],
-    )
-    .unwrap();
+    let home = tmp.path().join("home");
+    fs::create_dir_all(home.join(".thndrs")).unwrap();
+    fs::write(home.join(".thndrs.toml"), "model = \"old-root\"\n").unwrap();
+    fs::write(home.join(".thndrs").join(".thndrs.toml"), "model = \"old-hidden\"\n").unwrap();
+    fs::write(home.join(".thndrs").join("thndrs.toml"), "model = \"old-name\"\n").unwrap();
 
-    assert_eq!(effective.config.mouse, Some(false));
-    assert_eq!(
-        effective.origins.get("mouse"),
-        Some(&ConfigOrigin { source: ConfigSource::CliFlag, detail: "--mouse/--no-mouse".to_string() })
-    );
+    let effective = with_home(&home, || load_effective(tmp.path(), &[]).unwrap());
+
+    assert!(effective.layers.is_empty());
+    assert_eq!(effective.config.model.as_deref(), Some("umans-coder"));
 }
 
 #[test]
-fn load_effective_resolves_paths_without_dropping_env_or_cli_skill_dirs() {
+fn load_effective_resolves_paths_without_dropping_env_skill_dirs() {
     let tmp = tempfile::tempdir().unwrap();
     let workspace = tmp.path().join("workspace");
     fs::create_dir_all(workspace.join(".thndrs")).unwrap();
@@ -446,27 +511,18 @@ fn load_effective_resolves_paths_without_dropping_env_or_cli_skill_dirs() {
     .unwrap();
 
     let cwd = std::env::current_dir().unwrap();
-    let cli_flags = CliFlagValues {
-        skill_dirs: vec![PathBuf::from("cli-skills")],
-        session_dir: Some(PathBuf::from("cli-sessions")),
-        ..CliFlagValues::default()
-    };
     let env_vars = [
         ("THNDRS_SKILL_DIRS".to_string(), "env-skills".to_string()),
         ("THNDRS_SESSION_DIR".to_string(), "env-sessions".to_string()),
     ];
 
-    let effective = load_effective(&workspace, &cli_flags, &env_vars).unwrap();
+    let effective = load_effective(&workspace, &env_vars).unwrap();
 
     assert_eq!(
         effective.config.skill_dirs,
-        vec![
-            workspace.join(".thndrs").join("project-skills"),
-            cwd.join("env-skills"),
-            cwd.join("cli-skills"),
-        ]
+        vec![workspace.join(".thndrs").join("project-skills"), cwd.join("env-skills"),]
     );
-    assert_eq!(effective.config.session_dir, Some(cwd.join("cli-sessions")));
+    assert_eq!(effective.config.session_dir, Some(cwd.join("env-sessions")));
     assert_eq!(
         effective.config.default_workspace,
         Some(workspace.join(".thndrs").join("project-workspace"))
@@ -485,7 +541,7 @@ fn resolve_paths_makes_skill_dirs_absolute() {
     let layers = vec![LoadedConfigLayer {
         source: ConfigSource::ProjectFile,
         config: config.clone(),
-        path: Some(config_path.clone()),
+        path: Some(config_path),
         display_path: Some(".thndrs/config.toml".to_string()),
         hash: Some(hash),
     }];
@@ -521,7 +577,7 @@ fn resolve_paths_deduplicates_skill_dirs() {
     let layers = vec![LoadedConfigLayer {
         source: ConfigSource::ProjectFile,
         config: config.clone(),
-        path: Some(config_path.clone()),
+        path: Some(config_path),
         display_path: Some(".thndrs/config.toml".to_string()),
         hash: Some(hash),
     }];
@@ -538,26 +594,104 @@ fn resolve_paths_deduplicates_skill_dirs() {
 
 #[test]
 fn global_config_path_is_thndrs_config_toml() {
-    let home = std::env::var_os("HOME");
-    if let Some(home) = home {
-        unsafe {
-            std::env::set_var("HOME", &home);
-        }
-        let path = global_config_path().unwrap();
-        let p = match path.to_str() {
-            Some(s) => s,
-            None => "",
-        }
-        .to_string();
-        assert!(
-            path.ends_with(".thndrs/config.toml"),
-            "global path should be ~/.thndrs/config.toml: {p}"
-        );
-    }
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    fs::create_dir_all(&home).unwrap();
+
+    let path = with_home(&home, || global_config_path().unwrap());
+
+    assert_eq!(path, home.join(".thndrs").join("config.toml"));
 }
 
 #[test]
 fn project_config_path_is_under_workspace() {
     let path = project_config_path(Path::new("/repo"));
     assert_eq!(path, PathBuf::from("/repo/.thndrs/config.toml"));
+}
+
+#[test]
+fn config_path_display_prefers_workspace_home_then_absolute() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    let workspace = tmp.path().join("workspace");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&workspace).unwrap();
+
+    let global = with_home(&home, || global_path_display(&home.join(".thndrs").join("config.toml")));
+    assert_eq!(global, "~/.thndrs/config.toml");
+
+    assert_eq!(
+        project_path_display(&workspace.join(".thndrs").join("config.toml"), &workspace),
+        ".thndrs/config.toml"
+    );
+
+    let outside = tmp.path().join("outside").join(".thndrs").join("config.toml");
+    assert_eq!(
+        project_path_display(&outside, &workspace),
+        outside.display().to_string()
+    );
+}
+
+#[test]
+fn origins_only_include_config_keys() {
+    let tmp = tempfile::tempdir().unwrap();
+    let effective = load_effective(tmp.path(), &[]).unwrap();
+
+    assert_eq!(effective.origins.len(), config_keys().len());
+    for key in effective.origins.keys() {
+        assert!(
+            config_keys().contains(&key.as_str()),
+            "repository search diagnostics must not be exposed as config keys: {key}"
+        );
+    }
+}
+
+#[test]
+fn effective_config_snapshot() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    let workspace = tmp.path().join("workspace");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(workspace.join(".thndrs")).unwrap();
+    fs::write(
+        workspace.join(".thndrs").join("config.toml"),
+        "model = \"project-model\"\nwebsearch = \"native\"\nsession_dir = \"sessions\"\n",
+    )
+    .unwrap();
+
+    let effective = with_home(&home, || {
+        load_effective(&workspace, &[("THNDRS_VERBOSE".to_string(), "on".to_string())]).unwrap()
+    });
+    let snapshot = format!(
+        "model={:?}\nwebsearch={:?}\nverbose={:?}\nsession_dir_suffix={}\nlayers={:?}\norigins={:?}",
+        effective.config.model,
+        effective.config.websearch,
+        effective.config.verbose,
+        effective
+            .config
+            .session_dir
+            .as_ref()
+            .and_then(|path| path.strip_prefix(&workspace).ok())
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "<outside>".to_string()),
+        effective
+            .layers
+            .iter()
+            .map(|layer| (layer.source.as_str(), layer.display_path.as_deref().unwrap_or("")))
+            .collect::<Vec<_>>(),
+        effective
+            .origins
+            .iter()
+            .map(|(key, origin)| (key.as_str(), origin.source.as_str(), origin.detail.as_str()))
+            .collect::<Vec<_>>()
+    );
+
+    insta::assert_snapshot!(snapshot, @r###"
+model=Some("project-model")
+websearch=Some(Native)
+verbose=Some(true)
+session_dir_suffix=.thndrs/sessions
+layers=[("project", ".thndrs/config.toml")]
+origins=[("default_workspace", "default", "default"), ("model", "project", ".thndrs/config.toml"), ("mouse", "default", "default"), ("session_dir", "project", ".thndrs/config.toml"), ("skill_dirs", "default", "default"), ("theme", "default", "default"), ("tick_rate_ms", "default", "default"), ("verbose", "env", "THNDRS_VERBOSE"), ("websearch", "project", ".thndrs/config.toml")]
+"###);
 }

@@ -5,85 +5,85 @@ Captured: 2026-07-03
 
 ## P2: Wire Runtime Behavior
 
-- [ ] Make `default_workspace` apply only when `--cwd` is omitted.
-- [ ] Add `session_dir` support to session writer creation.
-- [ ] Preserve current `.thndrs/sessions` behavior as the default.
-- [ ] Keep `cwd` CLI-only and document why it is not a config key.
-- [ ] Surface config diagnostics in prompt inspection.
-- [ ] Surface config diagnostics in verbose startup rows.
-- [ ] Include effective provider, model, web-search mode, workspace, session
+- [x] Make `default_workspace` apply only when `--cwd` is omitted.
+- [x] Add `session_dir` support to session writer creation.
+- [x] Preserve current `.thndrs/sessions` behavior as the default.
+- [x] Keep `cwd` CLI-only and document why it is not a config key.
+- [x] Surface config diagnostics in prompt inspection.
+- [x] Surface config diagnostics in verbose startup rows.
+- [x] Include effective provider, model, web-search mode, workspace, session
       directory, loaded config files, and key origins in inspect/export metadata
       as part of the initial inspect/export implementation.
-- [ ] Persist effective config metadata in the initial `session_meta` record
+- [x] Persist effective config metadata in the initial `session_meta` record
       under a `config` object.
-- [ ] Include loaded `AGENTS.md` path, scope, hash, and truncation metadata in
+- [x] Include loaded `AGENTS.md` path, scope, hash, and truncation metadata in
       session/inspect-export metadata alongside effective config metadata.
-- [ ] Include activated skill and loaded skill reference metadata in
+- [x] Include activated skill and loaded skill reference metadata in
       session/inspect-export metadata without exposing skill file contents
       unnecessarily.
-- [ ] Preserve provider/model and web-search metadata needed for future
+- [x] Preserve provider/model and web-search metadata needed for future
       renderer-independent session export.
-- [ ] Keep full non-TUI inspect/export command implementation as session work
+- [x] Keep full non-TUI inspect/export command implementation as session work
       unless it is intentionally implemented with this feature.
 
 ## P3: Tests
 
-- [ ] Add tests for the canonical global config path.
-- [ ] Add tests for the canonical project config path.
-- [ ] Add tests proving unsupported old/typo config paths are ignored.
-- [ ] Add tests that project config overrides global config.
-- [ ] Add tests that environment variables override config files.
-- [ ] Add tests that CLI flags override environment variables.
-- [ ] Add tests proving `print_prompt`, `cwd`, `no_alt_screen`, and `no_mouse`
+- [x] Add tests for the canonical global config path.
+- [x] Add tests for the canonical project config path.
+- [x] Add tests proving unsupported old/typo config paths are ignored.
+- [x] Add tests that project config overrides global config.
+- [x] Add tests that environment variables override config files.
+- [x] Add tests that CLI flags override environment variables.
+- [x] Add tests proving `print_prompt`, `cwd`, `no_alt_screen`, and `no_mouse`
       are rejected as TOML/env keys.
-- [ ] Add tests proving unknown `THNDRS_` environment variables are errors.
+- [x] Add tests proving unknown `THNDRS_` environment variables are errors.
 - [x] Add tests proving `--mouse` and `--no-mouse` conflict in one CLI
       invocation.
-- [ ] Add tests for invalid env values and parse diagnostics.
-- [ ] Add tests for boolean env values: `1`, `0`, `true`, `false`, `yes`,
+- [x] Add tests for invalid env values and parse diagnostics.
+- [x] Add tests for boolean env values: `1`, `0`, `true`, `false`, `yes`,
       `no`, `on`, and `off`.
-- [ ] Add tests for path-list env parsing using platform path separators.
+- [x] Add tests for path-list env parsing using platform path separators.
 - [x] Add tests for file-relative `skill_dirs`, `session_dir`, and
       `default_workspace`.
-- [ ] Add tests proving secrets are not serialized into config diagnostics,
+- [x] Add tests proving secrets are not serialized into config diagnostics,
       logs, errors, prompt inspection, session metadata, snapshots, or export
       metadata.
 - [x] Add tests proving secret-shaped TOML keys are rejected.
-- [ ] Add tests proving `lsp_enabled` and `THNDRS_LSP_ENABLED` are rejected as
+- [x] Add tests proving `lsp_enabled` and `THNDRS_LSP_ENABLED` are rejected as
       unknown keys.
-- [ ] Add session tests for custom `session_dir`.
-- [ ] Add session metadata tests for loaded config files, key origins,
+- [x] Add session tests for custom `session_dir`.
+- [x] Add session metadata tests for loaded config files, key origins,
       effective model, web-search mode, workspace, and session directory.
-- [ ] Add tests proving config path display uses workspace-relative,
+- [x] Add tests proving config path display uses workspace-relative,
       `~`-relative, or absolute paths according to the session/export
       convention.
-- [ ] Add prompt-inspection snapshots for config metadata.
-- [ ] Add effective-config snapshot tests.
-- [ ] Add tests proving repository search fallback diagnostics are not exposed
+- [x] Add prompt-inspection snapshots for config metadata.
+- [x] Add effective-config snapshot tests.
+- [x] Add tests proving repository search fallback diagnostics are not exposed
       as config keys.
 
 ## P4: Docs
 
-- [ ] Update public configuration docs with precedence, paths, keys, defaults,
+- [x] Update public configuration docs with precedence, paths, keys, defaults,
       and examples.
-- [ ] Update environment-variable docs with all `THNDRS_` overrides and provider
+- [x] Update environment-variable docs with all `THNDRS_` overrides and provider
       secret variables.
-- [ ] Add a sample TOML config that excludes secrets.
-- [ ] Update README configuration section from placeholder text.
-- [ ] Document the two supported config paths.
-- [ ] Document all supported `THNDRS_` config environment variables.
-- [ ] Document provider secret variables separately from ordinary config:
+- [x] Add a sample TOML config that excludes secrets.
+- [x] Update README configuration section from placeholder text.
+- [x] Document the two supported config paths.
+- [x] Document all supported `THNDRS_` config environment variables.
+- [x] Document provider secret variables separately from ordinary config:
       `UMANS_API_KEY` and `OPENCODE_GO_KEY`.
-- [ ] Document `session_dir`, the default `.thndrs/sessions` behavior, and what
+- [x] Document `session_dir`, the default `.thndrs/sessions` behavior, and what
       metadata is safe to persist.
-- [ ] Document `default_workspace` and why `--cwd` remains CLI-only.
-- [ ] Document search mode selection through `websearch`.
-- [ ] Document common diagnostics for malformed TOML, unknown keys, invalid env
+- [x] Document `default_workspace` and why `--cwd` remains CLI-only.
+- [x] Document search mode selection through `websearch`.
+- [x] Document common diagnostics for malformed TOML, unknown keys, invalid env
       values, unknown `THNDRS_` variables, and rejected secret-shaped keys.
-- [ ] Document how config/session changes are handled before the first stable
+- [x] Document how config/session changes are handled before the first stable
       release.
-- [ ] Remove public docs that advertise unsupported old/typo config paths.
-- [ ] Keep release notes/changelog updates outside this feature until behavior
+- [x] Remove public docs that advertise unsupported old/typo config paths.
+- [x] Keep release notes/changelog updates outside this feature until behavior
       changes are implemented.
 
 ## P5: Boundary Decisions

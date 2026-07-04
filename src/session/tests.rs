@@ -220,11 +220,106 @@ fn session_record_json_round_trip_session_meta() {
         model: "umans-coder".to_string(),
         websearch: "native".to_string(),
         app_version: "0.1.0".to_string(),
+        config: None,
     };
     let json = record.to_json().expect("serialize");
     let restored = SessionRecord::from_json(&json).expect("deserialize");
     assert_eq!(record, restored);
     assert!(json.contains("\"type\":\"session_meta\""));
+}
+
+#[test]
+fn session_record_session_meta_persists_config_session_dir() {
+    let record = SessionRecord::SessionMeta {
+        schema_version: 1,
+        seq: 0,
+        time: "2026-06-29T12:00:00Z".to_string(),
+        session_id: "test-1".to_string(),
+        cwd: "/repo".to_string(),
+        title: "scratch".to_string(),
+        provider: "umans".to_string(),
+        model: "umans-coder".to_string(),
+        websearch: "native".to_string(),
+        app_version: "0.1.0".to_string(),
+        config: Some(SessionConfigMeta {
+            session_dir: Some("/repo/.thndrs/sessions".to_string()),
+            ..SessionConfigMeta::default()
+        }),
+    };
+
+    let json = record.to_json().expect("serialize");
+    let restored = SessionRecord::from_json(&json).expect("deserialize");
+
+    assert!(json.contains("\"session_dir\":\"/repo/.thndrs/sessions\""));
+    assert_eq!(record, restored);
+}
+
+#[test]
+fn session_record_session_meta_persists_effective_config_metadata() {
+    let mut origins = std::collections::BTreeMap::new();
+    origins.insert("model".to_string(), "env:THNDRS_MODEL".to_string());
+    origins.insert("websearch".to_string(), "project:.thndrs/config.toml".to_string());
+
+    let record = SessionRecord::SessionMeta {
+        schema_version: 1,
+        seq: 0,
+        time: "2026-06-29T12:00:00Z".to_string(),
+        session_id: "test-1".to_string(),
+        cwd: "/repo".to_string(),
+        title: "scratch".to_string(),
+        provider: "umans".to_string(),
+        model: "env-model".to_string(),
+        websearch: "native".to_string(),
+        app_version: "0.1.0".to_string(),
+        config: Some(SessionConfigMeta {
+            session_dir: Some("/repo/custom-sessions".to_string()),
+            files: vec![SessionConfigFile {
+                path: ".thndrs/config.toml".to_string(),
+                source: "project".to_string(),
+                sha256: "abc123".to_string(),
+            }],
+            origins,
+            diagnostics: Vec::new(),
+        }),
+    };
+
+    let json = record.to_json().expect("serialize");
+    let restored = SessionRecord::from_json(&json).expect("deserialize");
+
+    assert_eq!(record, restored);
+    assert!(json.contains("\"cwd\":\"/repo\""));
+    assert!(json.contains("\"model\":\"env-model\""));
+    assert!(json.contains("\"websearch\":\"native\""));
+    assert!(json.contains("\"session_dir\":\"/repo/custom-sessions\""));
+    assert!(json.contains("\"path\":\".thndrs/config.toml\""));
+    assert!(json.contains("\"model\":\"env:THNDRS_MODEL\""));
+}
+
+#[test]
+fn session_config_metadata_does_not_include_provider_secret_values() {
+    let record = SessionRecord::SessionMeta {
+        schema_version: 1,
+        seq: 0,
+        time: "2026-06-29T12:00:00Z".to_string(),
+        session_id: "test-1".to_string(),
+        cwd: "/repo".to_string(),
+        title: "scratch".to_string(),
+        provider: "umans".to_string(),
+        model: "umans-coder".to_string(),
+        websearch: "native".to_string(),
+        app_version: "0.1.0".to_string(),
+        config: Some(SessionConfigMeta {
+            session_dir: Some("/repo/.thndrs/sessions".to_string()),
+            origins: std::collections::BTreeMap::from([("model".to_string(), "default:default".to_string())]),
+            ..SessionConfigMeta::default()
+        }),
+    };
+
+    let json = record.to_json().expect("serialize");
+
+    assert!(!json.contains("UMANS_API_KEY"));
+    assert!(!json.contains("OPENCODE_GO_KEY"));
+    assert!(!json.contains("sk-provider-secret"));
 }
 
 #[test]
@@ -432,6 +527,7 @@ fn writer_creates_file_and_appends_records() {
         "umans-coder",
         "native",
         "0.1.0",
+        None,
     )
     .expect("create writer");
 
@@ -449,6 +545,28 @@ fn writer_creates_file_and_appends_records() {
 }
 
 #[test]
+fn writer_creates_session_file_in_custom_session_dir() {
+    let workspace = tempfile::tempdir().expect("workspace");
+    let custom_dir = workspace.path().join("state").join("sessions");
+    let writer = SessionWriter::create(
+        &custom_dir,
+        "custom-session",
+        "/repo",
+        "scratch",
+        "umans",
+        "umans-coder",
+        "native",
+        "0.1.0",
+        Some(SessionConfigMeta { session_dir: Some(custom_dir.display().to_string()), ..SessionConfigMeta::default() }),
+    )
+    .expect("create writer");
+
+    assert_eq!(writer.path(), custom_dir.join("custom-session.jsonl"));
+    let content = std::fs::read_to_string(writer.path()).expect("read file");
+    assert!(content.contains(&format!("\"session_dir\":\"{}\"", custom_dir.display())));
+}
+
+#[test]
 fn writer_appends_context_metadata() {
     let dir = tempfile::tempdir().expect("temp dir");
     let mut writer = SessionWriter::create(
@@ -460,6 +578,7 @@ fn writer_appends_context_metadata() {
         "umans-coder",
         "native",
         "0.1.0",
+        None,
     )
     .expect("create writer");
 
@@ -491,6 +610,7 @@ fn context_metadata_write_read_round_trip() {
         "umans-coder",
         "native",
         "0.1.0",
+        None,
     )
     .expect("create writer");
 
@@ -559,6 +679,7 @@ fn reader_reconstructs_transcript() {
         "umans-coder",
         "native",
         "0.1.0",
+        None,
     )
     .expect("create writer");
 
@@ -596,6 +717,7 @@ fn reader_projects_tool_write_shell_and_status_rows() {
         "umans-coder",
         "native",
         "0.1.0",
+        None,
     )
     .expect("create writer");
 
@@ -727,6 +849,7 @@ fn reader_preserves_record_order() {
         "umans-coder",
         "native",
         "0.1.0",
+        None,
     )
     .expect("create writer");
 
@@ -765,6 +888,7 @@ fn reader_reads_title_from_session_meta() {
         "umans-coder",
         "native",
         "0.1.0",
+        None,
     )
     .expect("create writer");
 
@@ -787,6 +911,7 @@ fn reader_reads_latest_renamed_title() {
         "umans-coder",
         "native",
         "0.1.0",
+        None,
     )
     .expect("create writer");
 
@@ -819,6 +944,7 @@ fn list_session_files_returns_jsonl_sorted_newest_first() {
         "umans-coder",
         "native",
         "0.1.0",
+        None,
     )
     .expect("create writer");
 
@@ -833,6 +959,7 @@ fn list_session_files_returns_jsonl_sorted_newest_first() {
         "umans-coder",
         "native",
         "0.1.0",
+        None,
     )
     .expect("create writer");
 
@@ -860,6 +987,7 @@ fn list_session_titles_returns_titles_newest_first() {
         "umans-coder",
         "native",
         "0.1.0",
+        None,
     )
     .expect("create writer");
 
@@ -874,6 +1002,7 @@ fn list_session_titles_returns_titles_newest_first() {
         "umans-coder",
         "native",
         "0.1.0",
+        None,
     )
     .expect("create writer");
 
@@ -895,6 +1024,7 @@ fn latest_session_file_returns_newest() {
         "umans-coder",
         "native",
         "0.1.0",
+        None,
     )
     .expect("create writer");
     std::thread::sleep(std::time::Duration::from_millis(50));
@@ -907,6 +1037,7 @@ fn latest_session_file_returns_newest() {
         "umans-coder",
         "native",
         "0.1.0",
+        None,
     )
     .expect("create writer");
 
@@ -942,7 +1073,18 @@ fn sessions_dir_is_under_thndrs() {
 
 /// Helper: create a session writer in a temp dir.
 fn test_writer(dir: &Path, name: &str) -> SessionWriter {
-    SessionWriter::create(dir, name, "/repo", "test", "umans", "umans-coder", "native", "0.1.0").expect("create writer")
+    SessionWriter::create(
+        dir,
+        name,
+        "/repo",
+        "test",
+        "umans",
+        "umans-coder",
+        "native",
+        "0.1.0",
+        None,
+    )
+    .expect("create writer")
 }
 
 #[test]

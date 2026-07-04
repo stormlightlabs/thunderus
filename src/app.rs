@@ -426,6 +426,9 @@ pub struct App {
     pub kill_ring: Vec<String>,
     /// Scrollable detail pane for inspecting full tool output.
     pub detail_pane: DetailPane,
+    /// Non-fatal config diagnostics from effective config loading. Surfaced in
+    /// verbose startup rows and prompt inspection.
+    pub config_diagnostics: Vec<String>,
     /// When true the loop should stop and the app exit.
     pub quit: bool,
 }
@@ -440,8 +443,35 @@ impl From<&Cli> for App {
         let skill_inventory = skills::discover(&workspace_root, &value.skill_dirs);
 
         let transcript = Vec::new();
-        let sessions_dir = session::sessions_dir(&workspace_root);
+        let sessions_dir = value
+            .session_dir
+            .clone()
+            .unwrap_or_else(|| session::sessions_dir(&workspace_root));
         let session_id = session::generate_session_id();
+
+        let config_meta = {
+            let files: Vec<session::SessionConfigFile> = value
+                .config_layers
+                .iter()
+                .filter_map(|layer| {
+                    let path = layer.display_path.as_ref()?;
+                    Some(session::SessionConfigFile {
+                        path: path.clone(),
+                        source: layer.source.as_str().to_string(),
+                        sha256: layer.hash.clone().unwrap_or_default(),
+                    })
+                })
+                .collect();
+            let origins: std::collections::BTreeMap<String, String> = value
+                .config_origins
+                .iter()
+                .map(|(key, origin)| (key.clone(), format!("{}:{}", origin.source.as_str(), origin.detail)))
+                .collect();
+            let diagnostics = value.config_diagnostics.clone();
+            let session_dir = Some(sessions_dir.display().to_string());
+            Some(session::SessionConfigMeta { session_dir, files, origins, diagnostics })
+        };
+
         let mut session_writer = session::SessionWriter::create(
             &sessions_dir,
             &session_id,
@@ -451,6 +481,7 @@ impl From<&Cli> for App {
             &value.model,
             value.websearch.label(),
             env!("CARGO_PKG_VERSION"),
+            config_meta,
         )
         .ok();
 
@@ -495,6 +526,7 @@ impl From<&Cli> for App {
             queued_followups: Vec::new(),
             kill_ring: Vec::new(),
             detail_pane: DetailPane::default(),
+            config_diagnostics: value.config_diagnostics.clone(),
             quit: false,
         }
     }
@@ -532,11 +564,12 @@ impl App {
             &self.context_sources,
         );
         let inventory = internals::KnowledgeInventorySnapshot::new(references, prompt_context);
-        let diagnostics = self
+        let mut diagnostics: Vec<String> = self
             .skill_diagnostics
             .iter()
             .map(skills::SkillDiagnostic::summary)
             .collect();
+        diagnostics.extend(self.config_diagnostics.iter().cloned());
         internals::SelfKnowledgeSnapshot::new(
             internals::AppIdentitySnapshot::default(),
             runtime,
@@ -607,16 +640,6 @@ impl App {
 }
 
 /// The only mutation path. Returns an optional follow-up message.
-///
-/// - Printable chars append to the input buffer.
-/// - `Backspace` removes the last char.
-/// - `Enter` submits: slash commands (`/clear`, `/quit`) are routed, otherwise
-///   the input is appended as [`Entry::User`] and cleared.
-/// - `Ctrl+C` always quits immediately.
-/// - `Ctrl+D` requires a double-press: the first press shows a confirmation
-///   message, the second press within [`QUIT_CONFIRM_TIMEOUT_TICKS`] ticks
-///   quits. The pending state is cleared on timeout or any other key.
-/// - `q` is a normal input character (no longer quits).
 pub fn update(app: &mut App, msg: &Msg) -> Option<Msg> {
     match msg {
         Msg::Key(key) => handle_key(app, *key),
@@ -671,7 +694,8 @@ pub fn command_suggestions_for_app(app: &App) -> Vec<(&'static str, &'static str
 ///   quits. Any other key (or timeout) cancels the pending state.
 /// - Printable characters append to the input buffer.
 /// - Backspace removes the last character.
-/// - Enter submits the current input.
+/// - `Enter` submits: slash commands (`/clear`, `/quit`) are routed, otherwise
+///   the input is appended as [`Entry::User`] and cleared.
 /// - Escape cancels an active agent stream.
 /// - Up/Down recall prompt history.
 fn handle_key(app: &mut App, key: KeyEvent) -> Option<Msg> {

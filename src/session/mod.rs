@@ -31,6 +31,7 @@
 #[cfg(test)]
 mod tests;
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -50,6 +51,37 @@ pub const SCHEMA_VERSION: u32 = 1;
 /// Every record carries `schema_version`, `seq` (monotonic within the session),
 /// `time` (ISO 8601 UTC), and a `type` tag. Records are never rewritten;
 /// appends are the only mutation.
+/// Effective config metadata persisted in `session_meta` for audit and export.
+///
+/// Includes loaded config file paths with SHA-256 hashes, per-key origins,
+/// and diagnostics. Never includes raw secret values.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SessionConfigMeta {
+    /// Effective session directory used for append-only JSONL files.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_dir: Option<String>,
+    /// Loaded config files with source, display path, and SHA-256 hash.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<SessionConfigFile>,
+    /// Per-key origin labels (e.g. `"env:THNDRS_MODEL"`, `"project:.thndrs/config.toml"`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub origins: BTreeMap<String, String>,
+    /// Non-fatal config diagnostics.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics: Vec<String>,
+}
+
+/// A loaded config file recorded in session metadata.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SessionConfigFile {
+    /// Display path: workspace-relative, `~`-relative, or absolute.
+    pub path: String,
+    /// Source label: `"global"` or `"project"`.
+    pub source: String,
+    /// Lowercase hex SHA-256 of file bytes.
+    pub sha256: String,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum SessionRecord {
@@ -66,6 +98,10 @@ pub enum SessionRecord {
         model: String,
         websearch: String,
         app_version: String,
+        /// Effective config metadata: loaded config files, key origins, and
+        /// diagnostics. `None` when config metadata was not captured.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        config: Option<SessionConfigMeta>,
     },
     /// Loaded context source metadata (AGENTS.md etc.).
     #[serde(rename = "context")]
@@ -538,7 +574,7 @@ impl SessionWriter {
     )]
     pub fn create(
         dir: &Path, session_id: &str, cwd: &str, title: &str, provider: &str, model: &str, websearch: &str,
-        app_version: &str,
+        app_version: &str, config: Option<SessionConfigMeta>,
     ) -> std::io::Result<Self> {
         std::fs::create_dir_all(dir)?;
         let path = dir.join(format!("{session_id}.jsonl"));
@@ -554,6 +590,7 @@ impl SessionWriter {
             model: model.to_string(),
             websearch: websearch.to_string(),
             app_version: app_version.to_string(),
+            config,
         };
 
         std::fs::write(&path, format!("{}\n", record.to_json().map_err(io_err)?))?;

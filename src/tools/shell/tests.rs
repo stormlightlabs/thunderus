@@ -794,6 +794,7 @@ fn shell_output_persisted_in_tool_finished_is_redacted() {
         "umans-coder",
         "native",
         "0.1.0",
+        None,
     )
     .expect("create writer");
 
@@ -830,6 +831,7 @@ fn shell_exec_persists_full_lifecycle_for_success() {
         "umans-coder",
         "native",
         "0.1.0",
+        None,
     )
     .expect("create writer");
 

@@ -7,8 +7,6 @@
 //! Malformed files and unknown keys are errors so users do not run with
 //! silently ignored settings.
 
-#![allow(dead_code)]
-
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -41,40 +39,6 @@ pub enum ConfigError {
     SecretInConfig { key: String },
     #[error("conflicting CLI flags: --mouse and --no-mouse cannot both be set")]
     ConflictingMouseFlags,
-}
-
-/// A diagnostic produced during config loading, suitable for display in
-/// verbose startup rows, prompt inspection, and session metadata.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ConfigDiagnostic {
-    pub code: ConfigDiagnosticCode,
-    pub message: String,
-    pub path: Option<PathBuf>,
-    pub key: Option<String>,
-}
-
-/// Diagnostic category for config loading issues.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ConfigDiagnosticCode {
-    UnknownKey,
-    ParseError,
-    InvalidEnvValue,
-    UnknownEnvVar,
-    SecretInConfig,
-    ConflictingFlags,
-}
-
-impl ConfigDiagnosticCode {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            ConfigDiagnosticCode::UnknownKey => "unknown_key",
-            ConfigDiagnosticCode::ParseError => "parse_error",
-            ConfigDiagnosticCode::InvalidEnvValue => "invalid_env_value",
-            ConfigDiagnosticCode::UnknownEnvVar => "unknown_env_var",
-            ConfigDiagnosticCode::SecretInConfig => "secret_in_config",
-            ConfigDiagnosticCode::ConflictingFlags => "conflicting_flags",
-        }
-    }
 }
 
 /// User-editable configuration loaded from TOML.
@@ -120,22 +84,12 @@ impl Config {
 pub struct EffectiveConfig {
     /// Final resolved runtime config values.
     pub config: Config,
-    /// CLI-only overrides that are not TOML/env keys.
-    pub cli_overrides: CliOverrides,
     /// Loaded config file layers in precedence order (global first, then project).
     pub layers: Vec<LoadedConfigLayer>,
     /// Per-key origin tracking.
     pub origins: BTreeMap<String, ConfigOrigin>,
-    /// Diagnostics produced during loading.
-    pub diagnostics: Vec<ConfigDiagnostic>,
-}
-
-/// CLI-only overrides that are not TOML/env keys.
-#[derive(Clone, Debug, Default)]
-pub struct CliOverrides {
-    pub cwd: Option<PathBuf>,
-    pub print_prompt: bool,
-    pub no_alt_screen: bool,
+    /// Non-fatal diagnostics produced during loading.
+    pub diagnostics: Vec<String>,
 }
 
 /// A single loaded config file layer.
@@ -265,8 +219,7 @@ fn hex_encode(bytes: &[u8]) -> String {
 }
 
 pub fn load_env(
-    env_vars: &[(String, String)], origins: &mut BTreeMap<String, ConfigOrigin>,
-    _diagnostics: &mut Vec<ConfigDiagnostic>,
+    env_vars: &[(String, String)], origins: &mut BTreeMap<String, ConfigOrigin>, _diagnostics: &mut Vec<String>,
 ) -> Result<Config, ConfigError> {
     let mut config = Config::default();
 
@@ -376,12 +329,11 @@ fn parse_path_list_env(value: &str) -> Vec<PathBuf> {
         .collect()
 }
 
-/// Load and merge all config layers, producing an [`EffectiveConfig`].
+/// Load and merge config layers, producing an [`EffectiveConfig`].
 ///
-/// Precedence: CLI flags > environment > project config > global config > defaults.
-pub fn load_effective(
-    workspace: &Path, cli_flags: &CliFlagValues, env_vars: &[(String, String)],
-) -> Result<EffectiveConfig, ConfigError> {
+/// Precedence here is environment > project config > global config > defaults.
+/// Command-line flags are applied by [`crate::cli::Cli`] after parsing.
+pub fn load_effective(workspace: &Path, env_vars: &[(String, String)]) -> Result<EffectiveConfig, ConfigError> {
     let mut layers = Vec::new();
     let mut origins: BTreeMap<String, ConfigOrigin> = BTreeMap::new();
     let mut diagnostics = Vec::new();
@@ -429,98 +381,42 @@ pub fn load_effective(
         merged = merged.merge(env_config);
     }
 
-    if let Some(ref model) = cli_flags.model {
-        merged.model = Some(model.clone());
-        origins.insert(
-            "model".to_string(),
-            ConfigOrigin { source: ConfigSource::CliFlag, detail: "--model".to_string() },
-        );
-    }
-    if let Some(websearch) = cli_flags.websearch {
-        merged.websearch = Some(websearch);
-        origins.insert(
-            "websearch".to_string(),
-            ConfigOrigin { source: ConfigSource::CliFlag, detail: "--websearch".to_string() },
-        );
-    }
-    if let Some(tick_rate_ms) = cli_flags.tick_rate_ms {
-        merged.tick_rate_ms = Some(tick_rate_ms);
-        origins.insert(
-            "tick_rate_ms".to_string(),
-            ConfigOrigin { source: ConfigSource::CliFlag, detail: "--tick-rate-ms".to_string() },
-        );
-    }
-    if let Some(theme) = cli_flags.theme {
-        merged.theme = Some(theme);
-        origins.insert(
-            "theme".to_string(),
-            ConfigOrigin { source: ConfigSource::CliFlag, detail: "--theme".to_string() },
-        );
-    }
-    if let Some(mouse) = cli_flags.mouse {
-        merged.mouse = Some(mouse);
-        origins.insert(
-            "mouse".to_string(),
-            ConfigOrigin { source: ConfigSource::CliFlag, detail: "--mouse/--no-mouse".to_string() },
-        );
-    }
-    if let Some(verbose) = cli_flags.verbose {
-        merged.verbose = Some(verbose);
-        origins.insert(
-            "verbose".to_string(),
-            ConfigOrigin { source: ConfigSource::CliFlag, detail: "--verbose".to_string() },
-        );
-    }
-    if !cli_flags.skill_dirs.is_empty() {
-        merged
-            .skill_dirs
-            .extend(cli_flags.skill_dirs.iter().map(|dir| resolve_path(dir, &cwd)));
-        origins.insert(
-            "skill_dirs".to_string(),
-            ConfigOrigin { source: ConfigSource::CliFlag, detail: "--skill-dir".to_string() },
-        );
-    }
-    if let Some(ref session_dir) = cli_flags.session_dir {
-        merged.session_dir = Some(resolve_path(session_dir, &cwd));
-        origins.insert(
-            "session_dir".to_string(),
-            ConfigOrigin { source: ConfigSource::CliFlag, detail: "--session-dir".to_string() },
-        );
-    }
-
     deduplicate_paths(&mut merged.skill_dirs);
 
     for key in config_keys() {
         origins.entry(key.to_string()).or_insert_with(ConfigOrigin::default);
     }
 
-    Ok(EffectiveConfig {
-        config: merged,
-        cli_overrides: CliOverrides {
-            cwd: cli_flags.cwd.clone(),
-            print_prompt: cli_flags.print_prompt,
-            no_alt_screen: cli_flags.no_alt_screen,
-        },
-        layers,
-        origins,
-        diagnostics,
-    })
+    Ok(EffectiveConfig { config: merged, layers, origins, diagnostics })
 }
 
-/// CLI flag values extracted from `CliArgs`, preserving presence for merge.
-#[derive(Clone, Debug, Default)]
-pub struct CliFlagValues {
-    pub cwd: Option<PathBuf>,
-    pub model: Option<String>,
-    pub websearch: Option<WebSearchMode>,
-    pub tick_rate_ms: Option<u64>,
-    pub theme: Option<Theme>,
-    pub mouse: Option<bool>,
-    pub verbose: Option<bool>,
-    pub print_prompt: bool,
-    pub no_alt_screen: bool,
-    pub skill_dirs: Vec<PathBuf>,
-    pub session_dir: Option<PathBuf>,
+/// Resolve the workspace used to find project config when `--cwd` is omitted.
+///
+/// Project config cannot be loaded until the workspace is known, so this uses
+/// only defaults, global config, and environment variables. The full effective
+/// config is loaded afterward from the returned workspace.
+pub fn default_workspace_before_project_config(env_vars: &[(String, String)]) -> Result<PathBuf, ConfigError> {
+    let cwd = process_cwd();
+    let mut merged = default_config(Path::new("."), &cwd);
+
+    if let Some(ref global_path) = global_config_path()
+        && global_path.is_file()
+    {
+        let (mut global_config, _) = load_file(global_path)?;
+        let base = global_path.parent().unwrap_or_else(|| Path::new("."));
+        resolve_config_paths(&mut global_config, base);
+        merged = merged.merge(global_config);
+    }
+
+    let mut origins = BTreeMap::new();
+    let mut diagnostics = Vec::new();
+    let mut env_config = load_env(env_vars, &mut origins, &mut diagnostics)?;
+    if has_any_value(&env_config) {
+        resolve_config_paths(&mut env_config, &cwd);
+        merged = merged.merge(env_config);
+    }
+
+    Ok(merged.default_workspace.unwrap_or(cwd))
 }
 
 fn record_origins(config: &Config, source: ConfigSource, detail: &str, origins: &mut BTreeMap<String, ConfigOrigin>) {
@@ -632,6 +528,7 @@ fn project_path_display(path: &Path, workspace: &Path) -> String {
 /// `skill_dirs`, `session_dir`, and `default_workspace` are resolved relative
 /// to their declaring file's parent directory. Environment values resolve
 /// against the process cwd. CLI values resolve against the process cwd.
+#[cfg(test)]
 pub fn resolve_paths(config: &mut Config, layers: &[LoadedConfigLayer], workspace: &Path) {
     let mut resolved_skill_dirs = Vec::new();
     for layer in layers {
@@ -664,6 +561,10 @@ fn resolve_path(path: &Path, base: &Path) -> PathBuf {
     if path.is_absolute() { normalize_path(path) } else { normalize_path(base.join(path)) }
 }
 
+pub(crate) fn resolve_cli_path(path: &Path) -> PathBuf {
+    resolve_path(path, &process_cwd())
+}
+
 fn process_cwd() -> PathBuf {
     std::env::current_dir()
         .map(normalize_path)
@@ -686,7 +587,7 @@ fn normalize_path(path: impl AsRef<Path>) -> PathBuf {
     normalized
 }
 
-fn deduplicate_paths(paths: &mut Vec<PathBuf>) {
+pub(crate) fn deduplicate_paths(paths: &mut Vec<PathBuf>) {
     let mut deduped = Vec::new();
     for path in paths.drain(..) {
         if !deduped.contains(&path) {

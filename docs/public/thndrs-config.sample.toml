@@ -1,0 +1,14 @@
+# Sample thndrs config.
+# Copy values into ~/.thndrs/config.toml or .thndrs/config.toml.
+# Do not put provider API keys, tokens, passwords, or other secrets here.
+
+model = "umans-coder"
+websearch = "auto"
+tick_rate_ms = 100
+theme = "eldritch-minimal"
+mouse = false
+verbose = false
+
+skill_dirs = ["vendor/agent-skills"]
+session_dir = ".thndrs/sessions"
+default_workspace = "."

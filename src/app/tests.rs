@@ -56,6 +56,7 @@ fn from_cli_starts_with_fresh_transcript_not_latest_session() {
         "umans-coder",
         "none",
         "0.1.0",
+        None,
     )
     .expect("create old session");
     writer
@@ -72,6 +73,71 @@ fn from_cli_starts_with_fresh_transcript_not_latest_session() {
         !app.transcript
             .iter()
             .any(|e| matches!(e, Entry::User { text } if text.contains("old message")))
+    );
+}
+
+#[test]
+fn from_cli_writes_effective_config_metadata_to_session_meta() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let session_dir = dir.path().join("custom-sessions");
+    let mut origins = std::collections::BTreeMap::new();
+    origins.insert(
+        "model".to_string(),
+        crate::config::ConfigOrigin {
+            source: crate::config::ConfigSource::Environment,
+            detail: "THNDRS_MODEL".to_string(),
+        },
+    );
+    origins.insert(
+        "websearch".to_string(),
+        crate::config::ConfigOrigin {
+            source: crate::config::ConfigSource::ProjectFile,
+            detail: ".thndrs/config.toml".to_string(),
+        },
+    );
+
+    let cli = Cli {
+        cwd: dir.path().to_path_buf(),
+        model: "env-model".to_string(),
+        websearch: crate::cli::WebSearchMode::Native,
+        session_dir: Some(session_dir.clone()),
+        config_layers: vec![crate::config::LoadedConfigLayer {
+            source: crate::config::ConfigSource::ProjectFile,
+            config: crate::config::Config::default(),
+            path: None,
+            display_path: Some(".thndrs/config.toml".to_string()),
+            hash: Some("abc123".to_string()),
+        }],
+        config_origins: origins,
+        ..Cli::default()
+    };
+
+    let app = App::from_cli(&cli);
+    let path = app
+        .session_writer
+        .as_ref()
+        .expect("session writer")
+        .path()
+        .to_path_buf();
+    let records = session::SessionReader::read_records(&path);
+
+    let session_dir_display = session_dir.display().to_string();
+    let session::SessionRecord::SessionMeta { cwd, model, websearch, config, .. } = &records[0] else {
+        panic!("expected first record to be session_meta");
+    };
+    let config = config.as_ref().expect("config metadata");
+
+    let workspace_root = crate::context::discover_workspace_root(dir.path());
+    assert_eq!(cwd, &workspace_root.display().to_string());
+    assert_eq!(model, "env-model");
+    assert_eq!(websearch, "native");
+    assert_eq!(config.session_dir.as_deref(), Some(session_dir_display.as_str()));
+    assert_eq!(config.files[0].path, ".thndrs/config.toml");
+    assert_eq!(config.files[0].source, "project");
+    assert_eq!(config.files[0].sha256, "abc123");
+    assert_eq!(
+        config.origins.get("model").map(String::as_str),
+        Some("env:THNDRS_MODEL")
     );
 }
 

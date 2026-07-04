@@ -182,7 +182,8 @@ fn run_print_prompt(cli: &Cli) -> io::Result<()> {
         &user_turn,
     );
 
-    let output = render_print_prompt(&bundle);
+    let mut output = render_print_prompt(&bundle);
+    output.push_str(&render_print_prompt_config(cli, &workspace_root));
     print!("{output}");
     Ok(())
 }
@@ -220,6 +221,55 @@ pub fn render_print_prompt(bundle: &PromptBundle) -> String {
     out.push_str("  date: [date]\n");
     out.push_str(&format!("  context_sources: {}\n", bundle.project_context.len()));
     out.push_str(&format!("  skills: {}\n", bundle.available_skills.len()));
+
+    out
+}
+
+fn render_print_prompt_config(cli: &Cli, workspace_root: &Path) -> String {
+    let session_dir = cli
+        .session_dir
+        .clone()
+        .unwrap_or_else(|| session::sessions_dir(workspace_root));
+    let mut out = String::new();
+
+    out.push_str("\n\n=== Effective Config ===\n");
+    out.push_str(&format!(
+        "  provider: {}\n",
+        agent::ProviderKind::for_model(&cli.model).label()
+    ));
+    out.push_str(&format!("  model: {}\n", cli.model));
+    out.push_str(&format!("  search: {}\n", cli.websearch.label()));
+    out.push_str(&format!("  workspace: {}\n", workspace_root.display()));
+    out.push_str(&format!("  session_dir: {}\n", session_dir.display()));
+
+    out.push_str("  files:\n");
+    if cli.config_layers.is_empty() {
+        out.push_str("    none\n");
+    } else {
+        for layer in &cli.config_layers {
+            let path = layer.display_path.as_deref().unwrap_or("<unknown>");
+            let hash = layer.hash.as_deref().unwrap_or("");
+            out.push_str(&format!("    {} {} {}\n", layer.source.as_str(), path, hash));
+        }
+    }
+
+    out.push_str("  origins:\n");
+    if cli.config_origins.is_empty() {
+        out.push_str("    none\n");
+    } else {
+        for (key, origin) in &cli.config_origins {
+            out.push_str(&format!("    {key}: {}:{}\n", origin.source.as_str(), origin.detail));
+        }
+    }
+
+    out.push_str("  diagnostics:\n");
+    if cli.config_diagnostics.is_empty() {
+        out.push_str("    none");
+    } else {
+        for diagnostic in &cli.config_diagnostics {
+            out.push_str(&format!("    {}\n", redact_secret(diagnostic)));
+        }
+    }
 
     out
 }
@@ -570,7 +620,7 @@ mod tests {
     use super::*;
     use context::ContextSource;
     use prompt::PromptBundle;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::process::Command;
 
     /// Build a deterministic bundle for snapshot testing — no workspace
@@ -638,6 +688,59 @@ mod tests {
             output.contains("=== Environment ==="),
             "should have environment section"
         );
+    }
+
+    #[test]
+    fn render_print_prompt_config_includes_effective_config_metadata() {
+        let mut origins = std::collections::BTreeMap::new();
+        origins.insert(
+            "model".to_string(),
+            config::ConfigOrigin { source: config::ConfigSource::CliFlag, detail: "--model".to_string() },
+        );
+        let cli = Cli {
+            model: "umans-glm-5.2".to_string(),
+            websearch: cli::WebSearchMode::Exa,
+            session_dir: Some(PathBuf::from("/repo/custom-sessions")),
+            config_layers: vec![config::LoadedConfigLayer {
+                source: config::ConfigSource::ProjectFile,
+                config: config::Config::default(),
+                path: None,
+                display_path: Some(".thndrs/config.toml".to_string()),
+                hash: Some("abc123".to_string()),
+            }],
+            config_origins: origins,
+            config_diagnostics: vec!["diagnostic with sk-secret".to_string()],
+            ..Cli::default()
+        };
+
+        let output = render_print_prompt_config(&cli, Path::new("/repo"));
+
+        assert!(output.contains("=== Effective Config ==="));
+        assert!(output.contains("provider: umans"));
+        assert!(output.contains("model: umans-glm-5.2"));
+        assert!(output.contains("search: exa"));
+        assert!(output.contains("workspace: /repo"));
+        assert!(output.contains("session_dir: /repo/custom-sessions"));
+        assert!(output.contains("project .thndrs/config.toml abc123"));
+        assert!(output.contains("model: cli:--model"));
+        assert!(output.contains("sk-[REDACTED]secret"));
+
+        insta::assert_snapshot!(output, @r###"
+
+
+=== Effective Config ===
+  provider: umans
+  model: umans-glm-5.2
+  search: exa
+  workspace: /repo
+  session_dir: /repo/custom-sessions
+  files:
+    project .thndrs/config.toml abc123
+  origins:
+    model: cli:--model
+  diagnostics:
+    diagnostic with sk-[REDACTED]secret
+"###);
     }
 
     #[test]
