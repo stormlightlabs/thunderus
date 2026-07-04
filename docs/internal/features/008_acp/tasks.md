@@ -75,34 +75,43 @@ which begins in M4.
 
 ## M4: ACP Connection Lifecycle
 
-- [ ] Build `agent_client_protocol::AcpAgent` from validated config.
-- [ ] Register `SessionNotification` handler.
-- [ ] Register `RequestPermissionRequest` handler.
-- [ ] Register `ReadTextFileRequest` handler.
-- [ ] Register `WriteTextFileRequest` handler.
-- [ ] Send `InitializeRequest::new(ProtocolVersion::V1)`.
-- [ ] Validate selected protocol version.
-- [ ] Surface `agent_info` in a status row and session metadata.
-- [ ] Reject unsupported required auth with a clear `AgentEvent::Failed`.
-- [ ] Create `session/new` with workspace root as `cwd`.
-- [ ] Store ACP session id as opaque external metadata.
-- [ ] Send `session/prompt` with text `ContentBlock`.
-- [ ] Convert prompt `stop_reason` into `Finished`, `Cancelled`, or `Failed`.
-- [ ] Ensure the child process is cleaned up on finish, failure, and drop.
+- [x] Build `agent_client_protocol::AcpAgent` from validated config.
+- [x] Register `SessionNotification` handler.
+- [x] Register `RequestPermissionRequest` handler.
+- [x] Register `ReadTextFileRequest` handler.
+- [x] Register `WriteTextFileRequest` handler.
+- [x] Send `InitializeRequest::new(ProtocolVersion::V1)`.
+- [x] Validate selected protocol version.
+- [x] Surface `agent_info` in a status row and session metadata.
+- [x] Reject unsupported required auth with a clear `AgentEvent::Failed`.
+- [x] Create `session/new` with workspace root as `cwd`.
+- [x] Store ACP session id as opaque external metadata.
+- [x] Send `session/prompt` with text `ContentBlock`.
+- [x] Convert prompt `stop_reason` into `Finished`, `Cancelled`, or `Failed`.
+- [x] Ensure the child process is cleaned up on finish, failure, and drop.
+
+Result: `src/acp/runner.rs` now drives the official SDK through initialize,
+new-session, prompt, update handling, callback registration, stop-reason
+conversion, and clear auth/protocol failures. ACP session ids are surfaced as
+opaque status metadata; durable persistence remains in M9.
 
 ## M5: Session Update Mapping
 
-- [ ] Map ACP assistant message chunks to `AgentEvent::AssistantDelta`.
-- [ ] Map ACP plan/reasoning-like updates to `AgentEvent::ReasoningDelta` or
+- [x] Map ACP assistant message chunks to `AgentEvent::AssistantDelta`.
+- [x] Map ACP plan/reasoning-like updates to `AgentEvent::ReasoningDelta` or
       `AgentEvent::Status`.
-- [ ] Map ACP usage updates to `AgentEvent::Usage`.
-- [ ] Map ACP tool-call start/update/completion to `ToolStarted` and
+- [x] Map ACP usage updates to `AgentEvent::Usage`.
+- [x] Map ACP tool-call start/update/completion to `ToolStarted` and
       `ToolFinished` where possible.
-- [ ] Preserve ACP tool call ids for correlation.
-- [ ] Cap and redact tool raw input/output before display/session storage.
-- [ ] Emit stable status rows for unsupported update variants.
-- [ ] Add pure fixture tests for every mapped update kind.
-- [ ] Add regression tests for unknown/ext update variants.
+- [x] Preserve ACP tool call ids for correlation.
+- [x] Cap and redact tool raw input/output before display/session storage.
+- [x] Emit stable status rows for unsupported update variants.
+- [x] Add pure fixture tests for every mapped update kind.
+- [x] Add regression tests for unknown/ext update variants.
+
+Result: `src/acp/events.rs` converts stable ACP v1 updates into existing
+`AgentEvent` variants and keeps unsupported metadata/update shapes visible as
+stable status rows.
 
 ## M6: Permission UI
 

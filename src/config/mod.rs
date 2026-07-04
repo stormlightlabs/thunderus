@@ -17,7 +17,7 @@ use sha2::{Digest, Sha256};
 use crate::cli::{Theme, WebSearchMode};
 use crate::utils;
 
-static CONFIG_KEYS: [&'static str; 10] = [
+static CONFIG_KEYS: [&str; 10] = [
     "model",
     "websearch",
     "tick_rate_ms",
