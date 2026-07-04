@@ -1,0 +1,274 @@
+# ACP Tasks
+
+Status: Draft
+Captured: 2026-07-04
+
+## M0: Confirm The Contract
+
+- [ ] Confirm ACP milestone is client-side external-agent support, not
+      `thndrs` as an ACP server.
+- [ ] Confirm stdio is the only milestone-1 ACP transport.
+- [ ] Confirm routing through `--model acp:<name>`.
+- [ ] Confirm config shape for `[acp_agents.<name>]`.
+- [ ] Confirm auth-required agents fail clearly in milestone 1.
+- [ ] Confirm terminal capability is not advertised in milestone 1.
+- [ ] Confirm MCP-over-ACP is out of scope until after `007_mcp`.
+- [ ] Confirm no unstable `agent-client-protocol` features are enabled.
+- [ ] Confirm dependency choice:
+      `agent-client-protocol = "1.0.1"` and `futures = "0.3"`.
+
+## M1: SDK Spike
+
+- [ ] Add a temporary local spike or focused test proving
+      `agent-client-protocol::AcpAgent` can be driven from a background thread
+      with `futures::executor::block_on`.
+- [ ] Use a fake stdio ACP agent process for the spike.
+- [ ] Exercise `initialize`.
+- [ ] Exercise `session/new`.
+- [ ] Exercise `session/prompt`.
+- [ ] Receive at least one `session/update` notification.
+- [ ] Verify stderr capture/debug callbacks do not leak into protocol stdout.
+- [ ] Verify dropping the connection kills or exits the child process.
+- [ ] If Tokio is required, stop and update `plan.md` before adding it.
+
+## M2: Config
+
+- [ ] Add `AcpAgentConfig` and `AcpAgentsConfig`.
+- [ ] Parse `[acp_agents.<name>]` from TOML.
+- [ ] Validate agent names as `[A-Za-z0-9_-]+`.
+- [ ] Require `command`.
+- [ ] Default `args` to `[]`.
+- [ ] Default `env` to `{}`.
+- [ ] Default `enabled` to `true`.
+- [ ] Default `timeout_secs` to `60`.
+- [ ] Merge project ACP agents over global ACP agents by name.
+- [ ] Preserve existing unknown-key rejection.
+- [ ] Keep secret-shaped key rejection.
+- [ ] Redact ACP env values in config diagnostics and session metadata.
+- [ ] Add config tests for valid agent, invalid name, missing command,
+      disabled agent, project override, and env redaction.
+
+## M3: Runtime Boundary
+
+- [ ] Add `src/acp/mod.rs`.
+- [ ] Add `src/acp/config.rs`.
+- [ ] Add `src/acp/runner.rs`.
+- [ ] Add `src/acp/events.rs`.
+- [ ] Add `src/acp/permissions.rs`.
+- [ ] Add `src/acp/fs.rs`.
+- [ ] Add `src/acp/tests.rs`.
+- [ ] Add model-id parser for `acp:<name>`.
+- [ ] Route `acp:<name>` prompt submissions to `acp::spawn_run`.
+- [ ] Keep built-in provider models on the existing `agent::spawn_run` path.
+- [ ] Return the existing `Receiver<AgentEvent>` shape from ACP runs.
+- [ ] Preserve existing app cancellation behavior for non-ACP runs.
+
+## M4: ACP Connection Lifecycle
+
+- [ ] Build `agent_client_protocol::AcpAgent` from validated config.
+- [ ] Register `SessionNotification` handler.
+- [ ] Register `RequestPermissionRequest` handler.
+- [ ] Register `ReadTextFileRequest` handler.
+- [ ] Register `WriteTextFileRequest` handler.
+- [ ] Send `InitializeRequest::new(ProtocolVersion::V1)`.
+- [ ] Validate selected protocol version.
+- [ ] Surface `agent_info` in a status row and session metadata.
+- [ ] Reject unsupported required auth with a clear `AgentEvent::Failed`.
+- [ ] Create `session/new` with workspace root as `cwd`.
+- [ ] Store ACP session id as opaque external metadata.
+- [ ] Send `session/prompt` with text `ContentBlock`.
+- [ ] Convert prompt `stop_reason` into `Finished`, `Cancelled`, or `Failed`.
+- [ ] Ensure the child process is cleaned up on finish, failure, and drop.
+
+## M5: Session Update Mapping
+
+- [ ] Map ACP assistant message chunks to `AgentEvent::AssistantDelta`.
+- [ ] Map ACP plan/reasoning-like updates to `AgentEvent::ReasoningDelta` or
+      `AgentEvent::Status`.
+- [ ] Map ACP usage updates to `AgentEvent::Usage`.
+- [ ] Map ACP tool-call start/update/completion to `ToolStarted` and
+      `ToolFinished` where possible.
+- [ ] Preserve ACP tool call ids for correlation.
+- [ ] Cap and redact tool raw input/output before display/session storage.
+- [ ] Emit stable status rows for unsupported update variants.
+- [ ] Add pure fixture tests for every mapped update kind.
+- [ ] Add regression tests for unknown/ext update variants.
+
+## M6: Permission UI
+
+- [ ] Add app state for one pending ACP permission request.
+- [ ] Add `AgentEvent` variant or side channel for permission requests.
+- [ ] Render a focused permission prompt with title and options.
+- [ ] Allow keyboard selection of an agent-provided option.
+- [ ] Allow cancellation of the permission request.
+- [ ] Block normal prompt submission while permission is pending.
+- [ ] If the run is cancelled, respond with
+      `RequestPermissionOutcome::Cancelled`.
+- [ ] Record permission request and selected/cancelled outcome in session JSONL.
+- [ ] Add app update tests for select, cancel, and run-cancel cases.
+- [ ] Add renderer snapshot tests for the permission surface.
+
+## M7: Filesystem Callbacks
+
+- [ ] Implement `fs/read_text_file` for workspace-contained text files.
+- [ ] Implement `fs/write_text_file` for workspace-contained text writes.
+- [ ] Reuse existing path normalization/containment helpers where possible.
+- [ ] Reject path traversal outside the workspace.
+- [ ] Reject directories.
+- [ ] Reject symlink escapes.
+- [ ] Reject oversized reads using existing output limits.
+- [ ] Return protocol errors or failed responses for denied reads/writes.
+- [ ] Emit status/tool rows for filesystem requests.
+- [ ] Record successful writes with existing file-write audit metadata.
+- [ ] Record failed writes as stable failures without modifying files.
+- [ ] Add tests for read ok, write ok, traversal denied, symlink denied,
+      oversized read denied, and binary/non-UTF-8 read denied.
+
+## M8: Cancellation And Timeouts
+
+- [ ] Wire Escape/local cancel to ACP prompt cancellation.
+- [ ] Send `session/cancel` for an active ACP session.
+- [ ] Cancel pending permission requests.
+- [ ] Apply initialize timeout.
+- [ ] Apply session creation timeout.
+- [ ] Apply prompt completion watchdog timeout.
+- [ ] Convert timeout to `AgentEvent::Failed` with a clear message.
+- [ ] Ensure child process cleanup after timeout.
+- [ ] Add tests for local cancel, pending permission cancel, and timeout.
+
+## M9: Session Persistence
+
+- [ ] Add session record for ACP external session metadata.
+- [ ] Add session record for ACP permission request/outcome.
+- [ ] Extend inspect/export to include ACP metadata.
+- [ ] Persist local `thndrs` session id and ACP session id separately.
+- [ ] Persist agent name and redacted command display.
+- [ ] Persist selected protocol version and agent info.
+- [ ] Persist assistant/reasoning/tool/usage records through existing records
+      where possible.
+- [ ] Ensure raw stdio lines are not persisted.
+- [ ] Add session serialization/deserialization tests.
+- [ ] Add inspect/export tests for ACP records.
+
+## M10: CLI Commands
+
+- [ ] Add `thndrs acp list`.
+- [ ] Add `thndrs acp inspect <name>`.
+- [ ] Add `thndrs acp smoke <name> --prompt <text>`.
+- [ ] `acp list` shows enabled/disabled configured agents.
+- [ ] `acp inspect` shows redacted command, args, env keys, timeout, and source.
+- [ ] `acp smoke` initializes, creates a temporary session, sends one prompt,
+      streams status/text, and exits.
+- [ ] Add CLI parser tests.
+- [ ] Add command output tests with a fake ACP agent.
+
+## M11: Manual Fake Agent
+
+- [ ] Add a test-only fake ACP agent binary or fixture process.
+- [ ] Support scripted initialize/session/prompt behavior.
+- [ ] Support scripted permission request.
+- [ ] Support scripted filesystem read request.
+- [ ] Support scripted filesystem write request.
+- [ ] Support scripted malformed/unknown update.
+- [ ] Support scripted timeout/no-response.
+- [ ] Use the fake agent in integration tests instead of relying on network
+      package managers such as `npx`.
+
+## M12: Docs
+
+- [ ] Document ACP config examples.
+- [ ] Document `--model acp:<name>`.
+- [ ] Document ACP permission prompts.
+- [ ] Document supported and unsupported ACP capabilities.
+- [ ] Document `thndrs acp list`.
+- [ ] Document `thndrs acp inspect <name>`.
+- [ ] Document `thndrs acp smoke <name> --prompt <text>`.
+- [ ] Add troubleshooting for auth-required agents, missing commands, protocol
+      stdout pollution, and unsupported terminal requests.
+
+## M13: Auth
+
+- [ ] Design where ACP auth state is stored.
+- [ ] Redact auth state in logs, sessions, diagnostics, and inspect/export.
+- [ ] Implement `authenticate` for advertised auth methods that fit local CLI
+      use.
+- [ ] Implement `logout` when the agent advertises logout support.
+- [ ] Add recovery behavior for expired, rejected, or missing credentials.
+- [ ] Add tests for auth-required startup, auth failure, auth success, and
+      logout.
+
+## M14: Terminal Callbacks
+
+- [ ] Decide when `thndrs` advertises terminal capability.
+- [ ] Implement `terminal/create` with argv arrays and workspace cwd policy.
+- [ ] Implement `terminal/output` with byte caps and incremental display.
+- [ ] Implement `terminal/wait_for_exit`.
+- [ ] Implement `terminal/kill`.
+- [ ] Implement `terminal/release`.
+- [ ] Record terminal lifecycle metadata in session JSONL.
+- [ ] Add UI tests and process lifecycle tests.
+
+## M15: Agent-Owned Sessions
+
+- [ ] Implement `session/list` when an agent advertises support.
+- [ ] Implement `session/load` with replay through `session/update`.
+- [ ] Implement `session/resume` when an agent advertises support.
+- [ ] Implement `session/close` when an agent advertises support.
+- [ ] Keep local `thndrs` session ids distinct from external ACP session ids.
+- [ ] Add inspect/export support for external session metadata.
+- [ ] Add tests for unsupported, supported, failed, and replayed sessions.
+
+## M16: ACP Registry
+
+- [ ] Decide whether registry discovery belongs in core `thndrs` or docs only.
+- [ ] Fetch or read registry metadata from a stable source.
+- [ ] Show available agents without installing them automatically.
+- [ ] Add install/update only after command provenance and security review.
+- [ ] Record installed agent source/version metadata.
+- [ ] Add tests for registry parse, display, redaction, and failure behavior.
+
+## M17: MCP-Over-ACP
+
+- [ ] Wait for local MCP support from `007_mcp`.
+- [ ] Decide whether ACP sessions receive user MCP servers, project MCP
+      servers, or both.
+- [ ] Pass MCP server config through `session/new` when supported.
+- [ ] Support thndrs-provided MCP self-proxy only after a separate design.
+- [ ] Add tests for no MCP support, stdio MCP config, and redacted diagnostics.
+
+## M18: Remote And Custom Transports
+
+- [ ] Re-check ACP transport docs before implementation.
+- [ ] Add Streamable HTTP only after the spec is no longer draft or a target
+      agent requires it.
+- [ ] Add WebSocket/custom bridge support only for a concrete target client or
+      deployment.
+- [ ] Preserve the same JSON-RPC lifecycle, capability, timeout, redaction, and
+      session-audit behavior as stdio.
+- [ ] Add transport fixture tests before enabling user config.
+
+## M19: ACP Agent Server
+
+- [x] Split editor-driven harness mode into
+      `docs/internal/features/009_acp_agent_server/`.
+
+## Validation Commands
+
+- [ ] `cargo fmt`
+- [ ] `cargo clippy --fix --allow-dirty --allow-staged`
+- [ ] `cargo clippy`
+- [ ] `cargo test acp`
+- [ ] `cargo test config`
+- [ ] `cargo test session`
+- [ ] `cargo test app`
+- [ ] `cargo test`
+- [ ] `thndrs acp smoke <fake-agent> --prompt "hello"`
+- [ ] `thndrs --model acp:<fake-agent>`
+
+## Review Checkpoints
+
+- [ ] After M1, decide whether `futures::executor::block_on` is enough.
+- [ ] After M2, review config shape before it becomes documented.
+- [ ] After M6, review permission UX before wiring real write approvals.
+- [ ] After M7, review filesystem callback policy against built-in tool policy.
+- [ ] Before release, smoke test at least one real ACP agent manually.
