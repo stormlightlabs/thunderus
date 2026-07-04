@@ -588,9 +588,14 @@ fn loaded_config_layers_redact_acp_env_values() {
     .unwrap();
 
     let effective = load_effective(&workspace, &[]).unwrap();
+    let redacted_layer = effective
+        .layers
+        .iter()
+        .find(|layer| layer.config.acp_agents.contains_key("local"))
+        .expect("project ACP config layer");
 
     assert_eq!(effective.config.acp_agents["local"].env["FOO"], "plain-value");
-    assert_eq!(effective.layers[0].config.acp_agents["local"].env["FOO"], "[redacted]");
+    assert_eq!(redacted_layer.config.acp_agents["local"].env["FOO"], "[redacted]");
 }
 
 #[test]

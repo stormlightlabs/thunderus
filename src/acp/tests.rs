@@ -1,6 +1,6 @@
 use super::config::parse_model_id;
 use super::events::map_session_update;
-use super::runner::{RunHandle, spawn_run};
+use super::runner::{RunHandle, close_session, list_sessions, load_session, resume_session, spawn_run};
 use crate::app::{AgentEvent, ToolStatus};
 use crate::config::AcpAgentConfig;
 use agent_client_protocol::schema::v1::{
@@ -435,6 +435,91 @@ fn acp_runner_handles_fixture_terminal_lifecycle() {
             .any(|event| matches!(event, AgentEvent::AssistantDelta(text) if text.contains("terminal: terminal ok")))
     );
     assert_eq!(events.last(), Some(&AgentEvent::Finished));
+}
+
+#[test]
+fn acp_session_list_reports_unsupported_agent() {
+    let temp = tempfile::tempdir().expect("create temp dir");
+    let err = list_sessions(
+        "fake",
+        fake_agent_config("lifecycle", Some(2)),
+        temp.path().to_path_buf(),
+    )
+    .expect_err("unsupported list should fail");
+
+    assert!(err.contains("does not advertise session/list support"));
+}
+
+#[test]
+fn acp_session_list_returns_agent_sessions() {
+    let temp = tempfile::tempdir().expect("create temp dir");
+    let sessions = list_sessions(
+        "fake",
+        fake_agent_config("sessions", Some(2)),
+        temp.path().to_path_buf(),
+    )
+    .expect("list sessions");
+
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0].session_id, "external-session-1");
+    assert_eq!(sessions[0].cwd, temp.path());
+    assert_eq!(sessions[0].title.as_deref(), Some("Fixture Session"));
+    assert_eq!(sessions[0].updated_at.as_deref(), Some("2026-07-04T00:00:00Z"));
+}
+
+#[test]
+fn acp_session_list_surfaces_agent_failure() {
+    let temp = tempfile::tempdir().expect("create temp dir");
+    let err = list_sessions(
+        "fake",
+        fake_agent_config("sessions-failure", Some(2)),
+        temp.path().to_path_buf(),
+    )
+    .expect_err("failed list should fail");
+
+    assert!(err.contains("session list failed"));
+}
+
+#[test]
+fn acp_session_load_replays_updates() {
+    let temp = tempfile::tempdir().expect("create temp dir");
+    let events = load_session(
+        "fake",
+        fake_agent_config("sessions", Some(2)),
+        temp.path().to_path_buf(),
+        "external-session-1".to_string(),
+    )
+    .expect("load session");
+
+    assert!(events.contains(&AgentEvent::AssistantDelta("replayed external-session-1".to_string())));
+}
+
+#[test]
+fn acp_session_resume_returns_external_metadata() {
+    let temp = tempfile::tempdir().expect("create temp dir");
+    let metadata = resume_session(
+        "fake",
+        fake_agent_config("sessions", Some(2)),
+        temp.path().to_path_buf(),
+        "external-session-1".to_string(),
+    )
+    .expect("resume session");
+
+    assert_eq!(metadata.agent_name, "fake");
+    assert_eq!(metadata.acp_session_id, "external-session-1");
+    assert_eq!(metadata.agent_info_name.as_deref(), Some("fake-acp-agent"));
+}
+
+#[test]
+fn acp_session_close_reports_closed_session() {
+    let lines = close_session(
+        "fake",
+        fake_agent_config("sessions", Some(2)),
+        "external-session-1".to_string(),
+    )
+    .expect("close session");
+
+    assert_eq!(lines, vec!["acp: closed `fake` session external-session-1"]);
 }
 
 fn collect_until_terminal(rx: mpsc::Receiver<AgentEvent>, timeout: Duration) -> Vec<AgentEvent> {

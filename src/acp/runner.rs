@@ -7,19 +7,11 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use agent_client_protocol::schema::ProtocolVersion;
+use agent_client_protocol::schema::v1::*;
+use agent_client_protocol::{AcpAgent, Agent, Client, ConnectionTo, JsonRpcRequest, LineDirection};
 use futures::channel::oneshot;
 use futures::future::{Either, FutureExt, select};
-
-use agent_client_protocol::schema::ProtocolVersion;
-use agent_client_protocol::schema::v1::{
-    AuthMethod, AuthenticateRequest, CancelNotification, ClientCapabilities, ContentBlock, CreateTerminalRequest,
-    FileSystemCapabilities, InitializeRequest, KillTerminalRequest, LogoutRequest, NewSessionRequest, PromptRequest,
-    ReadTextFileRequest, ReadTextFileResponse, ReleaseTerminalRequest, RequestPermissionOutcome,
-    RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome, SessionId, SessionNotification,
-    StopReason, TerminalOutputRequest, TextContent, WaitForTerminalExitRequest, WriteTextFileRequest,
-    WriteTextFileResponse,
-};
-use agent_client_protocol::{AcpAgent, Agent, Client, ConnectionTo, JsonRpcRequest, LineDirection};
 
 use crate::acp::{config, events, fs, permissions, terminal};
 use crate::agent::CancelToken;
@@ -28,6 +20,12 @@ use crate::config::AcpAgentConfig;
 use crate::session::AcpSessionMetadata;
 
 const CANCEL_POLL_INTERVAL: Duration = Duration::from_millis(50);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum WatchSignal {
+    Cancelled,
+    TimedOut,
+}
 
 /// Handle for a client-side ACP run.
 #[derive(Clone, Debug)]
@@ -44,6 +42,21 @@ impl RunHandle {
     pub fn new(root: PathBuf, name: String, agent: Option<AcpAgentConfig>, prompt: String) -> Self {
         Self { root, name, agent, prompt, cancel: CancelToken::new() }
     }
+}
+
+/// ACP session listed by an external agent.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ListedSession {
+    /// Opaque external ACP session id.
+    pub session_id: String,
+    /// Workspace root reported by the ACP agent.
+    pub cwd: PathBuf,
+    /// Additional workspace roots reported by the ACP agent.
+    pub additional_directories: Vec<PathBuf>,
+    /// Human-readable title reported by the ACP agent.
+    pub title: Option<String>,
+    /// Last activity timestamp reported by the ACP agent.
+    pub updated_at: Option<String>,
 }
 
 struct SessionRunContext<'a> {
@@ -69,6 +82,34 @@ pub fn logout(name: &str, agent_config: AcpAgentConfig) -> Result<Vec<String>, S
         return Err(format!("ACP agent `{name}` is disabled"));
     }
     futures::executor::block_on(logout_async(name.to_string(), agent_config))
+}
+
+/// List agent-owned ACP sessions when the agent advertises list support.
+pub fn list_sessions(name: &str, agent_config: AcpAgentConfig, root: PathBuf) -> Result<Vec<ListedSession>, String> {
+    validate_admin_agent(name, &agent_config)?;
+    futures::executor::block_on(list_sessions_async(name.to_string(), agent_config, root))
+}
+
+/// Load an agent-owned ACP session and return replayed session update events.
+pub fn load_session(
+    name: &str, agent_config: AcpAgentConfig, root: PathBuf, session_id: String,
+) -> Result<Vec<AgentEvent>, String> {
+    validate_admin_agent(name, &agent_config)?;
+    futures::executor::block_on(load_session_async(name.to_string(), agent_config, root, session_id))
+}
+
+/// Resume an agent-owned ACP session without replaying its history.
+pub fn resume_session(
+    name: &str, agent_config: AcpAgentConfig, root: PathBuf, session_id: String,
+) -> Result<AcpSessionMetadata, String> {
+    validate_admin_agent(name, &agent_config)?;
+    futures::executor::block_on(resume_session_async(name.to_string(), agent_config, root, session_id))
+}
+
+/// Close an agent-owned ACP session when the agent advertises close support.
+pub fn close_session(name: &str, agent_config: AcpAgentConfig, session_id: String) -> Result<Vec<String>, String> {
+    validate_admin_agent(name, &agent_config)?;
+    futures::executor::block_on(close_session_async(name.to_string(), agent_config, session_id))
 }
 
 async fn logout_async(name: String, agent_config: AcpAgentConfig) -> Result<Vec<String>, String> {
@@ -106,6 +147,167 @@ async fn logout_async(name: String, agent_config: AcpAgentConfig) -> Result<Vec<
         })
         .await
         .map_err(|err| format!("ACP agent `{error_name}` logout failed: {err}"))
+}
+
+async fn list_sessions_async(
+    name: String, agent_config: AcpAgentConfig, root: PathBuf,
+) -> Result<Vec<ListedSession>, String> {
+    let agent = build_agent(&agent_config)?;
+    let timeout = Duration::from_secs(agent_config.timeout_secs.max(1));
+    let cancel = CancelToken::new();
+    let error_name = name.clone();
+
+    Client
+        .builder()
+        .connect_with(agent, async move |connection: ConnectionTo<Agent>| {
+            let initialize = initialize_for_admin(&connection, &name, timeout, &cancel).await?;
+            if initialize.agent_capabilities.session_capabilities.list.is_none() {
+                return Err(agent_client_protocol::util::internal_error(format!(
+                    "ACP agent `{name}` does not advertise session/list support"
+                )));
+            }
+            let mut sessions = Vec::new();
+            let mut cursor = None;
+            loop {
+                let response = request_with_timeout(
+                    &connection,
+                    ListSessionsRequest::new()
+                        .cwd(Some(root.clone()))
+                        .cursor(cursor.clone()),
+                    timeout,
+                    &name,
+                    "session list",
+                    &cancel,
+                )
+                .await
+                .map_err(timed_request_to_error)?;
+                sessions.extend(response.sessions.into_iter().map(listed_session));
+                let Some(next_cursor) = response.next_cursor else {
+                    break;
+                };
+                cursor = Some(next_cursor);
+            }
+            Ok(sessions)
+        })
+        .await
+        .map_err(|err| format!("ACP agent `{error_name}` session list failed: {err}"))
+}
+
+async fn load_session_async(
+    name: String, agent_config: AcpAgentConfig, root: PathBuf, session_id: String,
+) -> Result<Vec<AgentEvent>, String> {
+    let agent = build_agent(&agent_config)?;
+    let timeout = Duration::from_secs(agent_config.timeout_secs.max(1));
+    let cancel = CancelToken::new();
+    let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let update_events = events.clone();
+    let error_name = name.clone();
+
+    Client
+        .builder()
+        .on_receive_notification(
+            async move |notification: SessionNotification, _cx| {
+                let mut guard = update_events.lock().expect("ACP session load event lock");
+                guard.extend(events::map_session_update(notification.update));
+                Ok(())
+            },
+            agent_client_protocol::on_receive_notification!(),
+        )
+        .connect_with(agent, async move |connection: ConnectionTo<Agent>| {
+            let initialize = initialize_for_admin(&connection, &name, timeout, &cancel).await?;
+            if !initialize.agent_capabilities.load_session {
+                return Err(agent_client_protocol::util::internal_error(format!(
+                    "ACP agent `{name}` does not advertise session/load support"
+                )));
+            }
+            request_with_timeout(
+                &connection,
+                LoadSessionRequest::new(SessionId::new(session_id), root),
+                timeout,
+                &name,
+                "session load",
+                &cancel,
+            )
+            .await
+            .map_err(timed_request_to_error)?;
+            Ok(events.lock().expect("ACP session load event lock").clone())
+        })
+        .await
+        .map_err(|err| format!("ACP agent `{error_name}` session load failed: {err}"))
+}
+
+async fn resume_session_async(
+    name: String, agent_config: AcpAgentConfig, root: PathBuf, session_id: String,
+) -> Result<AcpSessionMetadata, String> {
+    let agent = build_agent(&agent_config)?;
+    let timeout = Duration::from_secs(agent_config.timeout_secs.max(1));
+    let cancel = CancelToken::new();
+    let command = config::redacted_command_display(&agent_config);
+    let error_name = name.clone();
+
+    Client
+        .builder()
+        .connect_with(agent, async move |connection: ConnectionTo<Agent>| {
+            let initialize = initialize_for_admin(&connection, &name, timeout, &cancel).await?;
+            if initialize.agent_capabilities.session_capabilities.resume.is_none() {
+                return Err(agent_client_protocol::util::internal_error(format!(
+                    "ACP agent `{name}` does not advertise session/resume support"
+                )));
+            }
+            request_with_timeout(
+                &connection,
+                ResumeSessionRequest::new(SessionId::new(session_id.clone()), root),
+                timeout,
+                &name,
+                "session resume",
+                &cancel,
+            )
+            .await
+            .map_err(timed_request_to_error)?;
+            Ok(AcpSessionMetadata {
+                agent_name: name,
+                acp_session_id: session_id,
+                command,
+                protocol_version: format!("{:?}", initialize.protocol_version),
+                agent_info_name: initialize.agent_info.as_ref().map(|info| info.name.clone()),
+                agent_info_version: initialize.agent_info.as_ref().map(|info| info.version.clone()),
+            })
+        })
+        .await
+        .map_err(|err| format!("ACP agent `{error_name}` session resume failed: {err}"))
+}
+
+async fn close_session_async(
+    name: String, agent_config: AcpAgentConfig, session_id: String,
+) -> Result<Vec<String>, String> {
+    let agent = build_agent(&agent_config)?;
+    let timeout = Duration::from_secs(agent_config.timeout_secs.max(1));
+    let cancel = CancelToken::new();
+    let error_name = name.clone();
+
+    Client
+        .builder()
+        .connect_with(agent, async move |connection: ConnectionTo<Agent>| {
+            let initialize = initialize_for_admin(&connection, &name, timeout, &cancel).await?;
+            if initialize.agent_capabilities.session_capabilities.close.is_none() {
+                return Err(agent_client_protocol::util::internal_error(format!(
+                    "ACP agent `{name}` does not advertise session/close support"
+                )));
+            }
+            request_with_timeout(
+                &connection,
+                CloseSessionRequest::new(SessionId::new(session_id.clone())),
+                timeout,
+                &name,
+                "session close",
+                &cancel,
+            )
+            .await
+            .map_err(timed_request_to_error)?;
+            Ok(vec![format!("acp: closed `{name}` session {session_id}")])
+        })
+        .await
+        .map_err(|err| format!("ACP agent `{error_name}` session close failed: {err}"))
 }
 
 fn run(handle: &RunHandle, tx: &Sender<AgentEvent>) {
@@ -437,6 +639,30 @@ async fn authenticate_if_advertised(
     }
 }
 
+async fn initialize_for_admin(
+    connection: &ConnectionTo<Agent>, name: &str, timeout: Duration, cancel: &CancelToken,
+) -> Result<agent_client_protocol::schema::v1::InitializeResponse, agent_client_protocol::Error> {
+    let initialize = request_with_timeout(
+        connection,
+        InitializeRequest::new(ProtocolVersion::V1),
+        timeout,
+        name,
+        "initialize",
+        cancel,
+    )
+    .await
+    .map_err(timed_request_to_error)?;
+    if initialize.protocol_version != ProtocolVersion::V1 {
+        return Err(agent_client_protocol::util::internal_error(format!(
+            "ACP agent `{name}` selected unsupported protocol version {:?}",
+            initialize.protocol_version
+        )));
+    }
+    let (tx, _rx) = mpsc::channel();
+    authenticate_if_advertised(connection, name, timeout, cancel, &tx, &initialize.auth_methods).await?;
+    Ok(initialize)
+}
+
 async fn run_session(
     connection: ConnectionTo<Agent>, context: SessionRunContext<'_>,
 ) -> Result<(), agent_client_protocol::Error> {
@@ -546,14 +772,20 @@ enum TimedRequestError {
     Cancelled,
 }
 
-fn timed_request_to_error(error: TimedRequestError) -> agent_client_protocol::Error {
-    match error {
-        TimedRequestError::Protocol(error) => error,
-        TimedRequestError::Timeout(message) => agent_client_protocol::util::internal_error(message),
-        TimedRequestError::Cancelled => {
-            agent_client_protocol::util::internal_error("ACP request cancelled".to_string())
+impl Into<agent_client_protocol::Error> for TimedRequestError {
+    fn into(self) -> agent_client_protocol::Error {
+        match self {
+            TimedRequestError::Protocol(error) => error,
+            TimedRequestError::Timeout(message) => agent_client_protocol::util::internal_error(message),
+            TimedRequestError::Cancelled => {
+                agent_client_protocol::util::internal_error("ACP request cancelled".to_string())
+            }
         }
     }
+}
+
+fn timed_request_to_error(error: TimedRequestError) -> agent_client_protocol::Error {
+    error.into()
 }
 
 async fn request_with_timeout<Req>(
@@ -614,12 +846,6 @@ fn send_session_cancel(connection: &ConnectionTo<Agent>, session_id: &SessionId,
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum WatchSignal {
-    Cancelled,
-    TimedOut,
-}
-
 async fn watch_receiver(rx: oneshot::Receiver<WatchSignal>) -> WatchSignal {
     rx.await.unwrap_or(WatchSignal::Cancelled)
 }
@@ -660,6 +886,23 @@ fn build_agent(agent: &AcpAgentConfig) -> Result<AcpAgent, String> {
     args.push(agent.command.clone());
     args.extend(agent.args.iter().cloned());
     AcpAgent::from_args(args).map_err(|err| format!("failed to build ACP agent command: {err}"))
+}
+
+fn listed_session(session: SessionInfo) -> ListedSession {
+    ListedSession {
+        session_id: session.session_id.to_string(),
+        cwd: session.cwd,
+        additional_directories: session.additional_directories,
+        title: session.title,
+        updated_at: session.updated_at,
+    }
+}
+
+fn validate_admin_agent(name: &str, agent_config: &AcpAgentConfig) -> Result<(), String> {
+    if !agent_config.enabled {
+        return Err(format!("ACP agent `{name}` is disabled"));
+    }
+    Ok(())
 }
 
 fn send_stop_reason(tx: &Sender<AgentEvent>, stop_reason: StopReason) {

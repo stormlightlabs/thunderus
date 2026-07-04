@@ -22,6 +22,9 @@ are appended and not rewritten.
 - `tool_finished`: tool call id, status, and capped/redacted output.
 - `file_write`: file write audit metadata.
 - `shell_exec`: shell command lifecycle metadata.
+- `acp_session`: external ACP session metadata.
+- `acp_permission_request`: ACP permission prompt metadata.
+- `acp_permission_outcome`: ACP permission outcome metadata.
 - `cancelled`: cancelled turn and reason.
 - `failed`: failed turn and error message.
 - `session_renamed`: updated session title.
@@ -36,6 +39,16 @@ byte counts, and status. It does not store full file content.
 `shell_exec` stores the command, working directory, process status, exit code,
 elapsed time, and whether the process was one-shot or background. Stdout and
 stderr are represented through the corresponding capped `tool_finished` output.
+
+## ACP Records
+
+`acp_session` stores the configured ACP agent name, opaque external ACP session
+id, redacted command display, selected protocol version, and optional agent info.
+The local `thndrs` session id and the external ACP session id are stored as
+separate fields.
+
+ACP permission records store the prompt title, option metadata, and selected or
+cancelled outcome. They do not store credentials or raw protocol stdio lines.
 
 ## Prompt Metadata
 

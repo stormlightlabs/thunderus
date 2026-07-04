@@ -80,6 +80,15 @@ def initialize(request_id, script):
             }
         ]
         agent_capabilities = {"auth": {"logout": {}}}
+    if script.startswith("sessions"):
+        agent_capabilities = {
+            "loadSession": True,
+            "sessionCapabilities": {
+                "list": {},
+                "resume": {},
+                "close": {},
+            },
+        }
     response(
         request_id,
         {
@@ -202,6 +211,53 @@ def terminal(request_id, cwd):
     response(request_id, {"stopReason": "end_turn"})
 
 
+def list_sessions(request_id, message, script):
+    if script == "sessions-failure":
+        error(request_id, "session list failed")
+        return
+    cwd = message.get("params", {}).get("cwd", ".")
+    response(
+        request_id,
+        {
+            "sessions": [
+                {
+                    "sessionId": "external-session-1",
+                    "cwd": cwd,
+                    "title": "Fixture Session",
+                    "updatedAt": "2026-07-04T00:00:00Z",
+                }
+            ]
+        },
+    )
+
+
+def load_session(request_id, message, script):
+    if script == "sessions-failure":
+        error(request_id, "session load failed")
+        return
+    session_id = message.get("params", {}).get("sessionId", SESSION_ID)
+    update(
+        "agent_message_chunk",
+        content={"type": "text", "text": f"replayed {session_id}"},
+        messageId="replay-message-1",
+    )
+    response(request_id, {})
+
+
+def resume_session(request_id, _message, script):
+    if script == "sessions-failure":
+        error(request_id, "session resume failed")
+        return
+    response(request_id, {})
+
+
+def close_session(request_id, _message, script):
+    if script == "sessions-failure":
+        error(request_id, "session close failed")
+        return
+    response(request_id, {})
+
+
 def timeout_prompt(_request_id, _cwd):
     while True:
         time.sleep(1)
@@ -255,6 +311,14 @@ def main():
                 "timeout-prompt": timeout_prompt,
             }
             scripts.get(script, lifecycle)(request_id, cwd)
+        elif method == "session/list":
+            list_sessions(request_id, message, script)
+        elif method == "session/load":
+            load_session(request_id, message, script)
+        elif method == "session/resume":
+            resume_session(request_id, message, script)
+        elif method == "session/close":
+            close_session(request_id, message, script)
         else:
             error(request_id, f"unsupported method: {method}")
 

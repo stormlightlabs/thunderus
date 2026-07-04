@@ -12,3 +12,14 @@ title: "CLI Reference"
 - `--mouse`: enable terminal mouse capture for overlay mouse events.
 - `--no-alt-screen`: compatibility no-op; the TUI always renders inline without using the alternate screen.
 - `--print-prompt`: print the assembled prompt bundle and exit without calling the provider.
+
+## ACP Commands
+
+- `thndrs acp list`: list configured ACP agents.
+- `thndrs acp inspect <name>`: show one configured ACP agent with command values redacted.
+- `thndrs acp smoke <name> --prompt <text>`: initialize an ACP agent, create a temporary session, send one prompt, and print streamed events.
+- `thndrs acp logout <name>`: call agent-owned logout when advertised.
+- `thndrs acp list-sessions <name>`: list external sessions owned by an ACP agent when it advertises `session/list`.
+- `thndrs acp load-session <name> <session-id>`: load an external ACP session and print replayed `session/update` events.
+- `thndrs acp resume-session <name> <session-id>`: resume an external ACP session without replaying history.
+- `thndrs acp close-session <name> <session-id>`: close an external ACP session when the agent advertises `session/close`.

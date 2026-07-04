@@ -74,6 +74,32 @@ pub enum AcpCommand {
         /// Configured ACP agent name.
         name: String,
     },
+    /// List sessions owned by an ACP agent.
+    ListSessions {
+        /// Configured ACP agent name.
+        name: String,
+    },
+    /// Load an ACP agent-owned session and print replayed updates.
+    LoadSession {
+        /// Configured ACP agent name.
+        name: String,
+        /// Opaque external ACP session id.
+        session_id: String,
+    },
+    /// Resume an ACP agent-owned session without replaying history.
+    ResumeSession {
+        /// Configured ACP agent name.
+        name: String,
+        /// Opaque external ACP session id.
+        session_id: String,
+    },
+    /// Close an ACP agent-owned session.
+    CloseSession {
+        /// Configured ACP agent name.
+        name: String,
+        /// Opaque external ACP session id.
+        session_id: String,
+    },
 }
 
 impl WebSearchMode {
@@ -580,6 +606,39 @@ mod tests {
         assert_eq!(
             cli.command,
             Some(Command::Acp { command: AcpCommand::Logout { name: "local".to_string() } })
+        );
+    }
+
+    #[test]
+    fn acp_session_commands_parse() {
+        let list = Cli::try_parse_from(["thndrs", "acp", "list-sessions", "local"]).expect("parse");
+        assert_eq!(
+            list.command,
+            Some(Command::Acp { command: AcpCommand::ListSessions { name: "local".to_string() } })
+        );
+
+        let load = Cli::try_parse_from(["thndrs", "acp", "load-session", "local", "external-1"]).expect("parse");
+        assert_eq!(
+            load.command,
+            Some(Command::Acp {
+                command: AcpCommand::LoadSession { name: "local".to_string(), session_id: "external-1".to_string() }
+            })
+        );
+
+        let resume = Cli::try_parse_from(["thndrs", "acp", "resume-session", "local", "external-1"]).expect("parse");
+        assert_eq!(
+            resume.command,
+            Some(Command::Acp {
+                command: AcpCommand::ResumeSession { name: "local".to_string(), session_id: "external-1".to_string() }
+            })
+        );
+
+        let close = Cli::try_parse_from(["thndrs", "acp", "close-session", "local", "external-1"]).expect("parse");
+        assert_eq!(
+            close.command,
+            Some(Command::Acp {
+                command: AcpCommand::CloseSession { name: "local".to_string(), session_id: "external-1".to_string() }
+            })
         );
     }
 

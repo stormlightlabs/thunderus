@@ -298,13 +298,21 @@ metadata through the existing `shell_exec` session audit path.
 
 ## M15: Agent-Owned Sessions
 
-- [ ] Implement `session/list` when an agent advertises support.
-- [ ] Implement `session/load` with replay through `session/update`.
-- [ ] Implement `session/resume` when an agent advertises support.
-- [ ] Implement `session/close` when an agent advertises support.
-- [ ] Keep local `thndrs` session ids distinct from external ACP session ids.
-- [ ] Add inspect/export support for external session metadata.
-- [ ] Add tests for unsupported, supported, failed, and replayed sessions.
+- [x] Implement `session/list` when an agent advertises support.
+- [x] Implement `session/load` with replay through `session/update`.
+- [x] Implement `session/resume` when an agent advertises support.
+- [x] Implement `session/close` when an agent advertises support.
+- [x] Keep local `thndrs` session ids distinct from external ACP session ids.
+- [x] Add inspect/export support for external session metadata.
+- [x] Add tests for unsupported, supported, failed, and replayed sessions.
+
+Result: `src/acp/runner.rs` now exposes capability-gated `session/list`,
+`session/load`, `session/resume`, and `session/close` helpers. `thndrs acp
+list-sessions`, `load-session`, `resume-session`, and `close-session` provide
+headless access to agent-owned session ids; `load-session` replays
+`session/update` notifications through the existing ACP event mapper. Local
+append-only `thndrs` session ids remain separate from opaque external ACP
+session ids in the existing `acp_session` record.
 
 ## M16: ACP Registry
 

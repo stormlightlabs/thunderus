@@ -40,6 +40,13 @@ use crate::acp::config::provider_label;
 use crate::app::PromptAccessory;
 use crate::utils::datetime;
 
+enum AcpEventWrite {
+    Continue,
+    Finished,
+    Cancelled,
+    Failed(String),
+}
+
 /// State carried by the main loop for a single agent run.
 struct AgentSlot {
     receiver: mpsc::Receiver<app::AgentEvent>,
@@ -87,6 +94,12 @@ impl Drop for GitStatusWatcher {
     }
 }
 
+#[derive(Clone, Debug)]
+struct Observability {
+    session_log_path: PathBuf,
+    daily_log_path: PathBuf,
+}
+
 /// Run the TUI to completion using the given CLI configuration.
 ///
 /// Sets up the terminal, drives the draw loop, polls events on a tick, and
@@ -100,6 +113,43 @@ pub fn run(cli: &Cli) -> io::Result<()> {
     }
     let tick = Duration::from_millis(cli.tick_rate_ms);
     run_inline(tick, cli)
+}
+
+/// Render the `--print-prompt` debug view as a string.
+///
+/// Produces a human-readable dump of the assembled prompt bundle: system prompt,
+/// tool catalog, lowered Umans messages, and environment metadata. Secrets
+/// (`sk-` prefixed values) are redacted. The date is replaced with `[date]` so
+/// the output is stable for snapshot testing.
+pub fn render_print_prompt(bundle: &PromptBundle) -> String {
+    let system_prompt = prompt::render_system_prompt(bundle);
+    let messages = prompt::lower_to_umans_messages(bundle);
+    let tool_catalog = prompt::render_tool_catalog(bundle);
+    let mut out = String::new();
+
+    out.push_str(&format!("=== System Prompt ===\n{}\n\n", &system_prompt));
+    out.push_str(&format!("=== Tool Catalog ({} tools) ===\n", bundle.tool_catalog.len()));
+    out.push_str(&serde_json::to_string_pretty(&tools::sorted_json_value(&tool_catalog)).unwrap_or_default());
+    out.push_str(&format!(
+        "\n\n=== Lowered Provider Messages ({} messages) ===\n",
+        messages.len()
+    ));
+
+    for (i, msg) in messages.iter().enumerate() {
+        let redacted = redact_secret(&msg.as_text());
+        let truncated = if redacted.len() > 200 { format!("{}...", &redacted[..200]) } else { redacted };
+        out.push_str(&format!("[{i}] {}: {truncated}\n", msg.role));
+    }
+
+    out.push_str("\n=== Environment ===\n");
+    out.push_str(&format!("  cwd: {}\n", bundle.environment.cwd));
+    out.push_str(&format!("  model: {}\n", bundle.environment.model));
+    out.push_str(&format!("  search: {}\n", bundle.environment.search_mode.label()));
+    out.push_str("  date: [date]\n");
+    out.push_str(&format!("  context_sources: {}\n", bundle.project_context.len()));
+    out.push_str(&format!("  skills: {}\n", bundle.available_skills.len()));
+
+    out
 }
 
 fn run_command(cli: &Cli, command: &Command) -> io::Result<()> {
@@ -127,6 +177,26 @@ fn run_acp_command(cli: &Cli, command: &AcpCommand) -> io::Result<()> {
             let stdout = io::stdout();
             let mut lock = stdout.lock();
             run_acp_logout(cli, name, &mut lock)
+        }
+        AcpCommand::ListSessions { name } => {
+            let stdout = io::stdout();
+            let mut lock = stdout.lock();
+            run_acp_list_sessions(cli, name, &mut lock)
+        }
+        AcpCommand::LoadSession { name, session_id } => {
+            let stdout = io::stdout();
+            let mut lock = stdout.lock();
+            run_acp_load_session(cli, name, session_id, &mut lock)
+        }
+        AcpCommand::ResumeSession { name, session_id } => {
+            let stdout = io::stdout();
+            let mut lock = stdout.lock();
+            run_acp_resume_session(cli, name, session_id, &mut lock)
+        }
+        AcpCommand::CloseSession { name, session_id } => {
+            let stdout = io::stdout();
+            let mut lock = stdout.lock();
+            run_acp_close_session(cli, name, session_id, &mut lock)
         }
     }
 }
@@ -190,42 +260,17 @@ fn run_acp_smoke<W: io::Write>(cli: &Cli, name: &str, prompt: &str, writer: &mut
     let handle = acp::runner::RunHandle::new(workspace_root, name.to_string(), Some(agent), prompt.to_string());
     let rx = acp::spawn_run(handle);
     for event in rx {
-        match event {
-            app::AgentEvent::Started => writeln!(writer, "started")?,
-            app::AgentEvent::Status(text) => writeln!(writer, "status: {text}")?,
-            app::AgentEvent::AssistantDelta(text) => write!(writer, "{text}")?,
-            app::AgentEvent::ReasoningDelta(text) => writeln!(writer, "reasoning: {text}")?,
-            app::AgentEvent::Usage { input_tokens, output_tokens } => {
-                writeln!(writer, "usage: input={input_tokens} output={output_tokens}")?
-            }
-            app::AgentEvent::ToolStarted { id, name, arguments } => {
-                writeln!(writer, "tool_started: {name}#{id} {arguments}")?
-            }
-            app::AgentEvent::ToolFinished { id, status, output, .. } => {
-                writeln!(writer, "tool_finished: {id} {status:?} {}", output.join("\n"))?
-            }
-            app::AgentEvent::PermissionRequest(permission) => {
-                writeln!(writer, "permission: {} ({})", permission.title, permission.tool_call_id)?;
-                let _ = permission.cancel();
-            }
-            app::AgentEvent::PermissionResolved { tool_call_id, outcome } => {
-                writeln!(writer, "permission_resolved: {tool_call_id} {outcome}")?
-            }
-            app::AgentEvent::AcpSession(metadata) => writeln!(
-                writer,
-                "acp_session: {} {}",
-                metadata.agent_name, metadata.acp_session_id
-            )?,
-            app::AgentEvent::ModelMetadataLoaded(_) | app::AgentEvent::Retrying { .. } => {}
-            app::AgentEvent::Finished => {
+        match write_acp_event(writer, event)? {
+            AcpEventWrite::Continue => {}
+            AcpEventWrite::Finished => {
                 writeln!(writer, "\nfinished")?;
                 return Ok(());
             }
-            app::AgentEvent::Cancelled => {
+            AcpEventWrite::Cancelled => {
                 writeln!(writer, "\ncancelled")?;
                 return Ok(());
             }
-            app::AgentEvent::Failed(message) => {
+            AcpEventWrite::Failed(message) => {
                 writeln!(writer, "\nfailed: {message}")?;
                 return Err(io::Error::other(message));
             }
@@ -249,10 +294,123 @@ fn run_acp_logout<W: io::Write>(cli: &Cli, name: &str, writer: &mut W) -> io::Re
     Ok(())
 }
 
-#[derive(Clone, Debug)]
-struct Observability {
-    session_log_path: PathBuf,
-    daily_log_path: PathBuf,
+fn run_acp_list_sessions<W: io::Write>(cli: &Cli, name: &str, writer: &mut W) -> io::Result<()> {
+    let agent = configured_acp_agent(cli, name)?;
+    let workspace_root = context::discover_workspace_root(&cli.cwd);
+    let sessions = acp::runner::list_sessions(name, agent, workspace_root).map_err(io::Error::other)?;
+    if sessions.is_empty() {
+        writeln!(writer, "no ACP sessions found")?;
+        return Ok(());
+    }
+    for session in sessions {
+        let title = session.title.unwrap_or_else(|| "-".to_string());
+        let updated_at = session.updated_at.unwrap_or_else(|| "-".to_string());
+        writeln!(
+            writer,
+            "{}\t{}\t{}\t{}",
+            session.session_id,
+            session.cwd.display(),
+            title,
+            updated_at
+        )?;
+        if !session.additional_directories.is_empty() {
+            let dirs = session
+                .additional_directories
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            writeln!(writer, "  additional_directories: {dirs}")?;
+        }
+    }
+    Ok(())
+}
+
+fn run_acp_load_session<W: io::Write>(cli: &Cli, name: &str, session_id: &str, writer: &mut W) -> io::Result<()> {
+    let agent = configured_acp_agent(cli, name)?;
+    let workspace_root = context::discover_workspace_root(&cli.cwd);
+    let events =
+        acp::runner::load_session(name, agent, workspace_root, session_id.to_string()).map_err(io::Error::other)?;
+    for event in events {
+        match write_acp_event(writer, event)? {
+            AcpEventWrite::Continue | AcpEventWrite::Finished | AcpEventWrite::Cancelled | AcpEventWrite::Failed(_) => {
+            }
+        }
+    }
+    writeln!(writer, "\nloaded: {name} {session_id}")?;
+    Ok(())
+}
+
+fn run_acp_resume_session<W: io::Write>(cli: &Cli, name: &str, session_id: &str, writer: &mut W) -> io::Result<()> {
+    let agent = configured_acp_agent(cli, name)?;
+    let workspace_root = context::discover_workspace_root(&cli.cwd);
+    let metadata =
+        acp::runner::resume_session(name, agent, workspace_root, session_id.to_string()).map_err(io::Error::other)?;
+    writeln!(
+        writer,
+        "acp_session: {} {}",
+        metadata.agent_name, metadata.acp_session_id
+    )?;
+    writeln!(writer, "resumed: {name} {session_id}")?;
+    Ok(())
+}
+
+fn run_acp_close_session<W: io::Write>(cli: &Cli, name: &str, session_id: &str, writer: &mut W) -> io::Result<()> {
+    let agent = configured_acp_agent(cli, name)?;
+    for line in acp::runner::close_session(name, agent, session_id.to_string()).map_err(io::Error::other)? {
+        writeln!(writer, "{line}")?;
+    }
+    Ok(())
+}
+
+fn write_acp_event<W: io::Write>(writer: &mut W, event: app::AgentEvent) -> io::Result<AcpEventWrite> {
+    match event {
+        app::AgentEvent::Started => writeln!(writer, "started")?,
+        app::AgentEvent::Status(text) => writeln!(writer, "status: {text}")?,
+        app::AgentEvent::AssistantDelta(text) => write!(writer, "{text}")?,
+        app::AgentEvent::ReasoningDelta(text) => writeln!(writer, "reasoning: {text}")?,
+        app::AgentEvent::Usage { input_tokens, output_tokens } => {
+            writeln!(writer, "usage: input={input_tokens} output={output_tokens}")?
+        }
+        app::AgentEvent::ToolStarted { id, name, arguments } => {
+            writeln!(writer, "tool_started: {name}#{id} {arguments}")?
+        }
+        app::AgentEvent::ToolFinished { id, status, output, .. } => {
+            writeln!(writer, "tool_finished: {id} {status:?} {}", output.join("\n"))?
+        }
+        app::AgentEvent::PermissionRequest(permission) => {
+            writeln!(writer, "permission: {} ({})", permission.title, permission.tool_call_id)?;
+            let _ = permission.cancel();
+        }
+        app::AgentEvent::PermissionResolved { tool_call_id, outcome } => {
+            writeln!(writer, "permission_resolved: {tool_call_id} {outcome}")?
+        }
+        app::AgentEvent::AcpSession(metadata) => writeln!(
+            writer,
+            "acp_session: {} {}",
+            metadata.agent_name, metadata.acp_session_id
+        )?,
+        app::AgentEvent::ModelMetadataLoaded(_) | app::AgentEvent::Retrying { .. } => {}
+        app::AgentEvent::Finished => return Ok(AcpEventWrite::Finished),
+        app::AgentEvent::Cancelled => return Ok(AcpEventWrite::Cancelled),
+        app::AgentEvent::Failed(message) => return Ok(AcpEventWrite::Failed(message)),
+    }
+    Ok(AcpEventWrite::Continue)
+}
+
+fn configured_acp_agent(cli: &Cli, name: &str) -> io::Result<config::AcpAgentConfig> {
+    let agent = cli
+        .acp_agents
+        .get(name)
+        .cloned()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("ACP agent `{name}` is not configured")))?;
+    if !agent.enabled {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("ACP agent `{name}` is disabled"),
+        ));
+    }
+    Ok(agent)
 }
 
 fn init_tracing(workspace_root: &Path, session_id: &str) -> Option<Observability> {
@@ -338,43 +496,6 @@ fn run_print_prompt(cli: &Cli) -> io::Result<()> {
     output.push_str(&render_print_prompt_config(cli, &workspace_root));
     print!("{output}");
     Ok(())
-}
-
-/// Render the `--print-prompt` debug view as a string.
-///
-/// Produces a human-readable dump of the assembled prompt bundle: system prompt,
-/// tool catalog, lowered Umans messages, and environment metadata. Secrets
-/// (`sk-` prefixed values) are redacted. The date is replaced with `[date]` so
-/// the output is stable for snapshot testing.
-pub fn render_print_prompt(bundle: &PromptBundle) -> String {
-    let system_prompt = prompt::render_system_prompt(bundle);
-    let messages = prompt::lower_to_umans_messages(bundle);
-    let tool_catalog = prompt::render_tool_catalog(bundle);
-    let mut out = String::new();
-
-    out.push_str(&format!("=== System Prompt ===\n{}\n\n", &system_prompt));
-    out.push_str(&format!("=== Tool Catalog ({} tools) ===\n", bundle.tool_catalog.len()));
-    out.push_str(&serde_json::to_string_pretty(&tools::sorted_json_value(&tool_catalog)).unwrap_or_default());
-    out.push_str(&format!(
-        "\n\n=== Lowered Provider Messages ({} messages) ===\n",
-        messages.len()
-    ));
-
-    for (i, msg) in messages.iter().enumerate() {
-        let redacted = redact_secret(&msg.as_text());
-        let truncated = if redacted.len() > 200 { format!("{}...", &redacted[..200]) } else { redacted };
-        out.push_str(&format!("[{i}] {}: {truncated}\n", msg.role));
-    }
-
-    out.push_str("\n=== Environment ===\n");
-    out.push_str(&format!("  cwd: {}\n", bundle.environment.cwd));
-    out.push_str(&format!("  model: {}\n", bundle.environment.model));
-    out.push_str(&format!("  search: {}\n", bundle.environment.search_mode.label()));
-    out.push_str("  date: [date]\n");
-    out.push_str(&format!("  context_sources: {}\n", bundle.project_context.len()));
-    out.push_str(&format!("  skills: {}\n", bundle.available_skills.len()));
-
-    out
 }
 
 fn render_print_prompt_config(cli: &Cli, workspace_root: &Path) -> String {
@@ -1042,6 +1163,50 @@ mod tests {
     }
 
     #[test]
+    fn acp_list_sessions_runs_fake_agent_and_prints_sessions() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let cli = acp_fixture_cli(temp.path(), "sessions");
+        let mut output = Vec::new();
+
+        run_acp_list_sessions(&cli, "local", &mut output).expect("list sessions");
+        let output = String::from_utf8(output).expect("utf8");
+
+        assert!(output.contains("external-session-1"));
+        assert!(output.contains("Fixture Session"));
+        assert!(output.contains("2026-07-04T00:00:00Z"));
+    }
+
+    #[test]
+    fn acp_load_session_runs_fake_agent_and_prints_replay() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let cli = acp_fixture_cli(temp.path(), "sessions");
+        let mut output = Vec::new();
+
+        run_acp_load_session(&cli, "local", "external-session-1", &mut output).expect("load session");
+        let output = String::from_utf8(output).expect("utf8");
+
+        assert!(output.contains("replayed external-session-1"));
+        assert!(output.contains("loaded: local external-session-1"));
+    }
+
+    #[test]
+    fn acp_resume_and_close_session_run_fake_agent() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let cli = acp_fixture_cli(temp.path(), "sessions");
+        let mut resume_output = Vec::new();
+        let mut close_output = Vec::new();
+
+        run_acp_resume_session(&cli, "local", "external-session-1", &mut resume_output).expect("resume session");
+        run_acp_close_session(&cli, "local", "external-session-1", &mut close_output).expect("close session");
+        let resume_output = String::from_utf8(resume_output).expect("utf8");
+        let close_output = String::from_utf8(close_output).expect("utf8");
+
+        assert!(resume_output.contains("acp_session: local external-session-1"));
+        assert!(resume_output.contains("resumed: local external-session-1"));
+        assert!(close_output.contains("acp: closed `local` session external-session-1"));
+    }
+
+    #[test]
     fn clear_resets_direct_renderer_and_purges_terminal() {
         let cli = Cli::default();
         let mut app = App::from_cli(&cli);
@@ -1151,5 +1316,19 @@ mod tests {
             .join("tests")
             .join("fixtures")
             .join("fake_acp_agent.py")
+    }
+
+    fn acp_fixture_cli(cwd: &Path, script: &str) -> Cli {
+        let mut agents = config::AcpAgentsConfig::new();
+        agents.insert(
+            "local".to_string(),
+            config::AcpAgentConfig {
+                command: "python3".to_string(),
+                args: vec![fake_agent_fixture().display().to_string(), script.to_string()],
+                timeout_secs: 2,
+                ..config::AcpAgentConfig::default()
+            },
+        );
+        Cli { cwd: cwd.to_path_buf(), acp_agents: agents, ..Cli::default() }
     }
 }
