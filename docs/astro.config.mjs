@@ -2,16 +2,16 @@
 import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
 import starlinkValidator from "starlight-links-validator";
+import starLlmsTxt from "starlight-llms-txt";
 
 export default defineConfig({
   site: "https://thndrs.stormlightlabs.org",
   integrations: [
     starlight({
-      plugins: [starlinkValidator()],
+      plugins: [starlinkValidator(), starLlmsTxt()],
       title: "thndrs",
       description:
-        "thndrs is a Rust coding harness with a terminal-first workflow, visible context, \
-        and bounded repository tools.",
+        "thndrs is a Rust coding harness with a terminal-first workflow, visible context, and bounded repository tools.",
       social: [
         { icon: "github", label: "GitHub", href: "https://github.com/stormlightlabs/thndrs" },
         { icon: "blueSky", label: "BlueSky", href: "https://bsky.app/profile/stormlightlabs.org" },
