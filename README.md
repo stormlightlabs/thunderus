@@ -2,7 +2,7 @@
 
 A minimal AI pair programmer.
 
-<!-- good screenshot: terminal hero showing the empty thndrs TUI with banner, prompt, model/search footer, and clean dark theme -->
+![terminal hero showing the empty thndrs TUI](./docs/public/screenshot.png)
 
 ## Overview
 
