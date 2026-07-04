@@ -130,6 +130,9 @@ pub struct Cli {
     /// Effective config key origins for session metadata.
     #[arg(skip)]
     pub config_origins: BTreeMap<String, config::ConfigOrigin>,
+    /// Effective external ACP agent configs.
+    #[arg(skip)]
+    pub acp_agents: config::AcpAgentsConfig,
 }
 
 impl Default for Cli {
@@ -151,6 +154,7 @@ impl Default for Cli {
             config_diagnostics: Vec::new(),
             config_layers: Vec::new(),
             config_origins: BTreeMap::new(),
+            acp_agents: BTreeMap::new(),
         }
     }
 }
@@ -279,6 +283,7 @@ impl Cli {
         self.config_diagnostics = effective.diagnostics;
         self.config_layers = effective.layers;
         self.config_origins = origins;
+        self.acp_agents = config.acp_agents;
         self
     }
 }
@@ -431,6 +436,34 @@ mod tests {
     }
 
     #[test]
+    fn configured_cli_carries_acp_agents() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let workspace = tmp.path().join("workspace");
+        fs::create_dir_all(workspace.join(".thndrs")).expect("create project config dir");
+        fs::write(
+            workspace.join(".thndrs").join("config.toml"),
+            r#"
+            model = "acp:local"
+
+            [acp_agents.local]
+            command = "agent"
+            args = ["--stdio"]
+            "#,
+        )
+        .expect("write project config");
+
+        let env_vars = [("THNDRS_DEFAULT_WORKSPACE".to_string(), workspace.display().to_string())];
+        let cli = Cli::try_parse_configured_from_env(["thndrs"], &env_vars)
+            .expect("parse args")
+            .expect("load config");
+
+        assert_eq!(cli.model, "acp:local");
+        assert_eq!(cli.acp_agents["local"].command, "agent");
+        assert_eq!(cli.acp_agents["local"].args, vec!["--stdio"]);
+    }
+
+    #[test]
+    // TODO: this should be a table drive test
     fn websearch_explicit_values_parse() {
         let auto = Cli::try_parse_from(["thndrs", "--websearch", "auto"]).unwrap();
         assert_eq!(auto.websearch, WebSearchMode::Auto);

@@ -635,6 +635,7 @@ mod tests {
             config_diagnostics: Vec::new(),
             config_layers: Vec::new(),
             config_origins: std::collections::BTreeMap::new(),
+            acp_agents: std::collections::BTreeMap::new(),
         });
         app.git_status = Some(crate::renderer::git::GitStatusSummary {
             branch: Some("main".to_string()),

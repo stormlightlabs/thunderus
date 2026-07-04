@@ -12,7 +12,8 @@ use std::path::PathBuf;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use serde::{Deserialize, Serialize};
 
-use super::{agent, context, fuzzy, internals, prompt, session, skills, tools};
+use super::{context, fuzzy, internals, prompt, session, skills, tools};
+use crate::acp::config::provider_label;
 use crate::cli::{Cli, Theme, WebSearchMode};
 use crate::input::PromptInput;
 use crate::providers::{opencode, umans};
@@ -477,7 +478,7 @@ impl From<&Cli> for App {
             &session_id,
             &workspace_root.display().to_string(),
             "scratch",
-            agent::ProviderKind::for_model(&value.model).label(),
+            provider_label(&value.model),
             &value.model,
             value.websearch.label(),
             env!("CARGO_PKG_VERSION"),
@@ -544,11 +545,7 @@ impl App {
     /// Build the compact self-knowledge snapshot used by the startup display.
     pub fn self_knowledge_snapshot(&self) -> internals::SelfKnowledgeSnapshot {
         let tools = tools::tool_definitions();
-        let provider = internals::ProviderSnapshot::new(
-            agent::ProviderKind::for_model(&self.model).label(),
-            &self.model,
-            self.websearch,
-        );
+        let provider = internals::ProviderSnapshot::new(provider_label(&self.model), &self.model, self.websearch);
         let runtime = internals::RuntimeSnapshot::new(
             provider,
             self.cwd.display().to_string(),

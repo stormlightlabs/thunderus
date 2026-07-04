@@ -7,6 +7,7 @@ pub mod cli;
 pub mod input;
 pub mod session;
 
+mod acp;
 mod agent;
 mod app;
 mod config;
@@ -35,6 +36,7 @@ use prompt::PromptBundle;
 use renderer::backend::TerminalBackend;
 use tools::AgentRunConfig;
 
+use crate::acp::config::provider_label;
 use crate::app::PromptAccessory;
 use crate::utils::datetime;
 
@@ -233,10 +235,7 @@ fn render_print_prompt_config(cli: &Cli, workspace_root: &Path) -> String {
     let mut out = String::new();
 
     out.push_str("\n\n=== Effective Config ===\n");
-    out.push_str(&format!(
-        "  provider: {}\n",
-        agent::ProviderKind::for_model(&cli.model).label()
-    ));
+    out.push_str(&format!("  provider: {}\n", provider_label(&cli.model)));
     out.push_str(&format!("  model: {}\n", cli.model));
     out.push_str(&format!("  search: {}\n", cli.websearch.label()));
     out.push_str(&format!("  workspace: {}\n", workspace_root.display()));
@@ -565,6 +564,25 @@ fn maybe_spawn_agent(app: &App, cli: &Cli, agent: &mut Option<AgentSlot>) {
     let workspace_root = context::discover_workspace_root(&cli.cwd);
     let resolved_websearch = cli.websearch.resolve_for_prompt(&prompt);
     let config = AgentRunConfig::new(workspace_root, cli.model.clone(), resolved_websearch);
+    if let Some(acp_name) = acp::config::parse_model_id(&cli.model) {
+        tracing::info!(
+            cwd = %config.root.display(),
+            model = %config.model,
+            acp_agent = %acp_name,
+            "spawning ACP agent run"
+        );
+        let (steering_tx, _steering_rx) = mpsc::channel();
+        let handle = acp::runner::RunHandle::new(
+            config.root,
+            acp_name.to_string(),
+            cli.acp_agents.get(acp_name).cloned(),
+            prompt,
+        );
+        let cancel = handle.cancel.clone();
+        let receiver = acp::spawn_run(handle);
+        *agent = Some(AgentSlot { receiver, cancel, steering: steering_tx });
+        return;
+    }
     tracing::info!(
         cwd = %config.root.display(),
         model = %config.model,

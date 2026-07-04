@@ -546,7 +546,7 @@ pub fn tool_catalog_schemas(defs: &[ToolDefinition]) -> serde_json::Value {
 }
 
 /// Return a recursively sorted JSON value for deterministic debug rendering.
-pub(crate) fn sorted_json_value(value: &serde_json::Value) -> serde_json::Value {
+pub fn sorted_json_value(value: &serde_json::Value) -> serde_json::Value {
     match value {
         serde_json::Value::Array(items) => serde_json::Value::Array(items.iter().map(sorted_json_value).collect()),
         serde_json::Value::Object(object) => {

@@ -17,6 +17,19 @@ use sha2::{Digest, Sha256};
 use crate::cli::{Theme, WebSearchMode};
 use crate::utils;
 
+static CONFIG_KEYS: [&'static str; 10] = [
+    "model",
+    "websearch",
+    "tick_rate_ms",
+    "theme",
+    "mouse",
+    "verbose",
+    "skill_dirs",
+    "session_dir",
+    "default_workspace",
+    "acp_agents",
+];
+
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
     #[error("failed to read config {path}: {source}")]
@@ -37,9 +50,48 @@ pub enum ConfigError {
     UnknownEnv { name: String },
     #[error("secret-shaped key `{key}` is not allowed in config; use provider env vars instead")]
     SecretInConfig { key: String },
+    #[error("invalid config {key}: {message}")]
+    InvalidConfig { key: String, message: String },
     #[error("conflicting CLI flags: --mouse and --no-mouse cannot both be set")]
     ConflictingMouseFlags,
 }
+
+/// Configuration for one external ACP agent.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct AcpAgentConfig {
+    /// Executable command launched over stdio.
+    pub command: String,
+    /// Command-line arguments passed after [`AcpAgentConfig::command`].
+    pub args: Vec<String>,
+    /// Environment variables passed to the ACP child process.
+    pub env: BTreeMap<String, String>,
+    /// Whether this agent is selectable.
+    pub enabled: bool,
+    /// Timeout for lifecycle requests in seconds.
+    pub timeout_secs: u64,
+}
+
+impl Default for AcpAgentConfig {
+    fn default() -> Self {
+        Self { command: String::new(), args: Vec::new(), env: BTreeMap::new(), enabled: true, timeout_secs: 60 }
+    }
+}
+
+impl AcpAgentConfig {
+    /// Return a copy with environment values redacted for diagnostics/metadata.
+    pub fn redacted(&self) -> Self {
+        let env = self
+            .env
+            .keys()
+            .map(|key| (key.clone(), "[redacted]".to_string()))
+            .collect();
+        Self { env, ..self.clone() }
+    }
+}
+
+/// Named ACP agent configurations.
+pub type AcpAgentsConfig = BTreeMap<String, AcpAgentConfig>;
 
 /// User-editable configuration loaded from TOML.
 ///
@@ -58,6 +110,7 @@ pub struct Config {
     pub skill_dirs: Vec<PathBuf>,
     pub session_dir: Option<PathBuf>,
     pub default_workspace: Option<PathBuf>,
+    pub acp_agents: AcpAgentsConfig,
 }
 
 impl Config {
@@ -72,7 +125,19 @@ impl Config {
         self.session_dir = other.session_dir.or(self.session_dir);
         self.default_workspace = other.default_workspace.or(self.default_workspace);
         self.skill_dirs.extend(other.skill_dirs);
+        self.acp_agents.extend(other.acp_agents);
         self
+    }
+
+    /// Return a copy with ACP environment values redacted.
+    pub fn redacted(&self) -> Self {
+        let mut redacted = self.clone();
+        redacted.acp_agents = redacted
+            .acp_agents
+            .iter()
+            .map(|(name, agent)| (name.clone(), agent.redacted()))
+            .collect();
+        redacted
     }
 }
 
@@ -199,8 +264,37 @@ fn load_file(path: &Path) -> Result<(Config, String), ConfigError> {
     check_for_secret_keys(&content)?;
     let config: Config =
         toml::from_str(&content).map_err(|source| ConfigError::Parse { path: path.to_path_buf(), source })?;
+    validate_config(&config)?;
     let hash = sha256_hex(content.as_bytes());
     Ok((config, hash))
+}
+
+fn validate_config(config: &Config) -> Result<(), ConfigError> {
+    for (name, agent) in &config.acp_agents {
+        validate_acp_agent_name(name)?;
+        if agent.command.trim().is_empty() {
+            return Err(ConfigError::InvalidConfig {
+                key: format!("acp_agents.{name}.command"),
+                message: "command is required".to_string(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Validate an ACP agent name accepted by `acp:<name>` model ids.
+pub fn validate_acp_agent_name(name: &str) -> Result<(), ConfigError> {
+    if name.is_empty()
+        || !name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    {
+        return Err(ConfigError::InvalidConfig {
+            key: format!("acp_agents.{name}"),
+            message: "name must match [A-Za-z0-9_-]+".to_string(),
+        });
+    }
+    Ok(())
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -349,7 +443,7 @@ pub fn load_effective(workspace: &Path, env_vars: &[(String, String)]) -> Result
         resolve_config_paths(&mut global_config, base);
         layers.push(LoadedConfigLayer {
             source: ConfigSource::GlobalFile,
-            config: global_config.clone(),
+            config: global_config.redacted(),
             path: Some(global_path.clone()),
             display_path: Some(display_path.clone()),
             hash: Some(hash),
@@ -366,7 +460,7 @@ pub fn load_effective(workspace: &Path, env_vars: &[(String, String)]) -> Result
         resolve_config_paths(&mut project_config, base);
         layers.push(LoadedConfigLayer {
             source: ConfigSource::ProjectFile,
-            config: project_config.clone(),
+            config: project_config.redacted(),
             path: Some(project_path.clone()),
             display_path: Some(display_path.clone()),
             hash: Some(hash),
@@ -383,7 +477,7 @@ pub fn load_effective(workspace: &Path, env_vars: &[(String, String)]) -> Result
 
     deduplicate_paths(&mut merged.skill_dirs);
 
-    for key in config_keys() {
+    for key in CONFIG_KEYS {
         origins.entry(key.to_string()).or_insert_with(ConfigOrigin::default);
     }
 
@@ -465,6 +559,18 @@ fn record_origins(config: &Config, source: ConfigSource, detail: &str, origins: 
             ConfigOrigin { source, detail: detail.to_string() },
         );
     }
+    if !config.acp_agents.is_empty() {
+        origins.insert(
+            "acp_agents".to_string(),
+            ConfigOrigin { source, detail: detail.to_string() },
+        );
+        for name in config.acp_agents.keys() {
+            origins.insert(
+                format!("acp_agents.{name}"),
+                ConfigOrigin { source, detail: detail.to_string() },
+            );
+        }
+    }
 }
 
 fn has_any_value(config: &Config) -> bool {
@@ -477,20 +583,7 @@ fn has_any_value(config: &Config) -> bool {
         || !config.skill_dirs.is_empty()
         || config.session_dir.is_some()
         || config.default_workspace.is_some()
-}
-
-fn config_keys() -> [&'static str; 9] {
-    [
-        "model",
-        "websearch",
-        "tick_rate_ms",
-        "theme",
-        "mouse",
-        "verbose",
-        "skill_dirs",
-        "session_dir",
-        "default_workspace",
-    ]
+        || !config.acp_agents.is_empty()
 }
 
 fn default_config(workspace: &Path, cwd: &Path) -> Config {
@@ -504,6 +597,7 @@ fn default_config(workspace: &Path, cwd: &Path) -> Config {
         skill_dirs: Vec::new(),
         session_dir: Some(resolve_path(&workspace.join(".thndrs").join("sessions"), cwd)),
         default_workspace: Some(cwd.to_path_buf()),
+        acp_agents: BTreeMap::new(),
     }
 }
 
@@ -561,7 +655,7 @@ fn resolve_path(path: &Path, base: &Path) -> PathBuf {
     if path.is_absolute() { normalize_path(path) } else { normalize_path(base.join(path)) }
 }
 
-pub(crate) fn resolve_cli_path(path: &Path) -> PathBuf {
+pub fn resolve_cli_path(path: &Path) -> PathBuf {
     resolve_path(path, &process_cwd())
 }
 
@@ -587,7 +681,7 @@ fn normalize_path(path: impl AsRef<Path>) -> PathBuf {
     normalized
 }
 
-pub(crate) fn deduplicate_paths(paths: &mut Vec<PathBuf>) {
+pub fn deduplicate_paths(paths: &mut Vec<PathBuf>) {
     let mut deduped = Vec::new();
     for path in paths.drain(..) {
         if !deduped.contains(&path) {

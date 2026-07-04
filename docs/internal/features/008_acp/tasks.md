@@ -38,35 +38,40 @@ Tokio is not required for the client-side M1 spike.
 
 ## M2: Config
 
-- [ ] Add `AcpAgentConfig` and `AcpAgentsConfig`.
-- [ ] Parse `[acp_agents.<name>]` from TOML.
-- [ ] Validate agent names as `[A-Za-z0-9_-]+`.
-- [ ] Require `command`.
-- [ ] Default `args` to `[]`.
-- [ ] Default `env` to `{}`.
-- [ ] Default `enabled` to `true`.
-- [ ] Default `timeout_secs` to `60`.
-- [ ] Merge project ACP agents over global ACP agents by name.
-- [ ] Preserve existing unknown-key rejection.
-- [ ] Keep secret-shaped key rejection.
-- [ ] Redact ACP env values in config diagnostics and session metadata.
-- [ ] Add config tests for valid agent, invalid name, missing command,
+- [x] Add `AcpAgentConfig` and `AcpAgentsConfig`.
+- [x] Parse `[acp_agents.<name>]` from TOML.
+- [x] Validate agent names as `[A-Za-z0-9_-]+`.
+- [x] Require `command`.
+- [x] Default `args` to `[]`.
+- [x] Default `env` to `{}`.
+- [x] Default `enabled` to `true`.
+- [x] Default `timeout_secs` to `60`.
+- [x] Merge project ACP agents over global ACP agents by name.
+- [x] Preserve existing unknown-key rejection.
+- [x] Keep secret-shaped key rejection.
+- [x] Redact ACP env values in config diagnostics and session metadata.
+- [x] Add config tests for valid agent, invalid name, missing command,
       disabled agent, project override, and env redaction.
 
 ## M3: Runtime Boundary
 
-- [ ] Add `src/acp/mod.rs`.
-- [ ] Add `src/acp/config.rs`.
-- [ ] Add `src/acp/runner.rs`.
-- [ ] Add `src/acp/events.rs`.
-- [ ] Add `src/acp/permissions.rs`.
-- [ ] Add `src/acp/fs.rs`.
-- [ ] Add `src/acp/tests.rs`.
-- [ ] Add model-id parser for `acp:<name>`.
-- [ ] Route `acp:<name>` prompt submissions to `acp::spawn_run`.
-- [ ] Keep built-in provider models on the existing `agent::spawn_run` path.
-- [ ] Return the existing `Receiver<AgentEvent>` shape from ACP runs.
-- [ ] Preserve existing app cancellation behavior for non-ACP runs.
+- [x] Add `src/acp/mod.rs`.
+- [x] Add `src/acp/config.rs`.
+- [x] Add `src/acp/runner.rs`.
+- [x] Add `src/acp/events.rs`.
+- [x] Add `src/acp/permissions.rs`.
+- [x] Add `src/acp/fs.rs`.
+- [x] Add `src/acp/tests.rs`.
+- [x] Add model-id parser for `acp:<name>`.
+- [x] Route `acp:<name>` prompt submissions to `acp::spawn_run`.
+- [x] Keep built-in provider models on the existing `agent::spawn_run` path.
+- [x] Return the existing `Receiver<AgentEvent>` shape from ACP runs.
+- [x] Preserve existing app cancellation behavior for non-ACP runs.
+
+Result: `src/config/mod.rs` now loads, validates, merges, and redacts
+`[acp_agents.<name>]`. `src/acp/runner.rs` is wired as the runtime boundary for
+`--model acp:<name>` and intentionally stops before the protocol lifecycle,
+which begins in M4.
 
 ## M4: ACP Connection Lifecycle
 

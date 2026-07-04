@@ -60,6 +60,13 @@ fn parses_known_config_fields() {
         skill_dirs = ["vendor/agent-skills"]
         session_dir = "/tmp/sessions"
         default_workspace = "/home/user/projects"
+
+        [acp_agents.claude]
+        command = "claude"
+        args = ["--acp"]
+        env = { FOO = "bar" }
+        enabled = false
+        timeout_secs = 15
         "#,
     )
     .expect("config parses");
@@ -72,11 +79,29 @@ fn parses_known_config_fields() {
     assert_eq!(config.skill_dirs, vec![PathBuf::from("vendor/agent-skills")]);
     assert_eq!(config.session_dir, Some(PathBuf::from("/tmp/sessions")));
     assert_eq!(config.default_workspace, Some(PathBuf::from("/home/user/projects")));
+    assert_eq!(config.acp_agents["claude"].command, "claude");
+    assert_eq!(config.acp_agents["claude"].args, vec!["--acp"]);
+    assert_eq!(config.acp_agents["claude"].env["FOO"], "bar");
+    assert!(!config.acp_agents["claude"].enabled);
+    assert_eq!(config.acp_agents["claude"].timeout_secs, 15);
 }
 
 #[test]
 fn rejects_unknown_config_fields() {
     let err = toml::from_str::<Config>("unknown = true").expect_err("unknown rejected");
+    assert!(err.to_string().contains("unknown field"));
+}
+
+#[test]
+fn rejects_unknown_acp_agent_fields() {
+    let err = toml::from_str::<Config>(
+        r#"
+        [acp_agents.local]
+        command = "agent"
+        transport = "tcp"
+        "#,
+    )
+    .expect_err("unknown ACP field rejected");
     assert!(err.to_string().contains("unknown field"));
 }
 
@@ -138,6 +163,58 @@ fn rejects_nested_secret_shaped_key() {
 fn rejects_dotted_secret_shaped_key() {
     let err = check_for_secret_keys("provider.api_token = \"abc\"").expect_err("dotted secret key rejected");
     assert!(matches!(err, ConfigError::SecretInConfig { key } if key == "provider.api_token"));
+}
+
+#[test]
+fn rejects_secret_shaped_acp_env_key() {
+    let err = check_for_secret_keys(
+        r#"
+        [acp_agents.local]
+        command = "agent"
+        env.OPENAI_API_KEY = "secret"
+        "#,
+    )
+    .expect_err("ACP env secret key rejected");
+    assert!(matches!(err, ConfigError::SecretInConfig { key } if key == "acp_agents.local.env.OPENAI_API_KEY"));
+}
+
+#[test]
+fn validates_acp_agent_names() {
+    assert!(validate_acp_agent_name("claude_1-local").is_ok());
+    let err = validate_acp_agent_name("bad/name").expect_err("invalid name rejected");
+    assert!(
+        matches!(err, ConfigError::InvalidConfig { key, message } if key == "acp_agents.bad/name" && message.contains("[A-Za-z0-9_-]+"))
+    );
+}
+
+#[test]
+fn load_file_requires_acp_agent_command() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config_path = tmp.path().join("config.toml");
+    fs::write(&config_path, "[acp_agents.local]\n").unwrap();
+
+    let err = load_file(&config_path).expect_err("missing command rejected");
+
+    assert!(
+        matches!(err, ConfigError::InvalidConfig { key, message } if key == "acp_agents.local.command" && message == "command is required")
+    );
+}
+
+#[test]
+fn acp_agent_defaults_are_applied() {
+    let config: Config = toml::from_str(
+        r#"
+        [acp_agents.local]
+        command = "agent"
+        "#,
+    )
+    .expect("config parses");
+
+    let agent = &config.acp_agents["local"];
+    assert!(agent.args.is_empty());
+    assert!(agent.env.is_empty());
+    assert!(agent.enabled);
+    assert_eq!(agent.timeout_secs, 60);
 }
 
 #[test]
@@ -432,6 +509,91 @@ fn effective_config_project_overrides_global() {
 }
 
 #[test]
+fn effective_config_project_overrides_global_acp_agent_by_name() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    fs::create_dir_all(home.join(".thndrs")).unwrap();
+    fs::write(
+        home.join(".thndrs").join("config.toml"),
+        r#"
+        [acp_agents.shared]
+        command = "global-agent"
+        args = ["--global"]
+
+        [acp_agents.global_only]
+        command = "global-only"
+        "#,
+    )
+    .unwrap();
+
+    let workspace = tmp.path().join("workspace");
+    fs::create_dir_all(workspace.join(".thndrs")).unwrap();
+    fs::write(
+        workspace.join(".thndrs").join("config.toml"),
+        r#"
+        [acp_agents.shared]
+        command = "project-agent"
+
+        [acp_agents.project_only]
+        command = "project-only"
+        "#,
+    )
+    .unwrap();
+
+    let effective = with_home(&home, || load_effective(&workspace, &[]).unwrap());
+
+    assert_eq!(effective.config.acp_agents["shared"].command, "project-agent");
+    assert!(effective.config.acp_agents["shared"].args.is_empty());
+    assert_eq!(effective.config.acp_agents["global_only"].command, "global-only");
+    assert_eq!(effective.config.acp_agents["project_only"].command, "project-only");
+    assert_eq!(
+        effective.origins.get("acp_agents.shared"),
+        Some(&ConfigOrigin { source: ConfigSource::ProjectFile, detail: ".thndrs/config.toml".to_string() })
+    );
+}
+
+#[test]
+fn effective_config_preserves_disabled_acp_agent() {
+    let tmp = tempfile::tempdir().unwrap();
+    let workspace = tmp.path().join("workspace");
+    fs::create_dir_all(workspace.join(".thndrs")).unwrap();
+    fs::write(
+        workspace.join(".thndrs").join("config.toml"),
+        r#"
+        [acp_agents.disabled]
+        command = "agent"
+        enabled = false
+        "#,
+    )
+    .unwrap();
+
+    let effective = load_effective(&workspace, &[]).unwrap();
+
+    assert!(!effective.config.acp_agents["disabled"].enabled);
+}
+
+#[test]
+fn loaded_config_layers_redact_acp_env_values() {
+    let tmp = tempfile::tempdir().unwrap();
+    let workspace = tmp.path().join("workspace");
+    fs::create_dir_all(workspace.join(".thndrs")).unwrap();
+    fs::write(
+        workspace.join(".thndrs").join("config.toml"),
+        r#"
+        [acp_agents.local]
+        command = "agent"
+        env = { FOO = "plain-value" }
+        "#,
+    )
+    .unwrap();
+
+    let effective = load_effective(&workspace, &[]).unwrap();
+
+    assert_eq!(effective.config.acp_agents["local"].env["FOO"], "plain-value");
+    assert_eq!(effective.layers[0].config.acp_agents["local"].env["FOO"], "[redacted]");
+}
+
+#[test]
 fn effective_config_env_overrides_config_files() {
     let tmp = tempfile::tempdir().unwrap();
     let home = tmp.path().join("home");
@@ -637,10 +799,10 @@ fn origins_only_include_config_keys() {
     let tmp = tempfile::tempdir().unwrap();
     let effective = load_effective(tmp.path(), &[]).unwrap();
 
-    assert_eq!(effective.origins.len(), config_keys().len());
+    assert_eq!(effective.origins.len(), CONFIG_KEYS.len());
     for key in effective.origins.keys() {
         assert!(
-            config_keys().contains(&key.as_str()),
+            CONFIG_KEYS.contains(&key.as_str()),
             "repository search diagnostics must not be exposed as config keys: {key}"
         );
     }
@@ -692,6 +854,6 @@ websearch=Some(Native)
 verbose=Some(true)
 session_dir_suffix=.thndrs/sessions
 layers=[("project", ".thndrs/config.toml")]
-origins=[("default_workspace", "default", "default"), ("model", "project", ".thndrs/config.toml"), ("mouse", "default", "default"), ("session_dir", "project", ".thndrs/config.toml"), ("skill_dirs", "default", "default"), ("theme", "default", "default"), ("tick_rate_ms", "default", "default"), ("verbose", "env", "THNDRS_VERBOSE"), ("websearch", "project", ".thndrs/config.toml")]
+origins=[("acp_agents", "default", "default"), ("default_workspace", "default", "default"), ("model", "project", ".thndrs/config.toml"), ("mouse", "default", "default"), ("session_dir", "project", ".thndrs/config.toml"), ("skill_dirs", "default", "default"), ("theme", "default", "default"), ("tick_rate_ms", "default", "default"), ("verbose", "env", "THNDRS_VERBOSE"), ("websearch", "project", ".thndrs/config.toml")]
 "###);
 }
