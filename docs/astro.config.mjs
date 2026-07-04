@@ -165,6 +165,7 @@ export default defineConfig({
                   label: "Filesystem Traversal",
                   slug: "notebook/fs-traversal",
                 },
+                { label: "Shell Execution", slug: "notebook/shellexec" },
                 { label: "Protocols", slug: "notebook/providers/protocols" },
                 { label: "Umans.ai", slug: "notebook/providers/umans" },
                 { label: "OpenCode Go", slug: "notebook/providers/opencode-go" },
