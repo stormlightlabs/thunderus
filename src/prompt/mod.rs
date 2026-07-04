@@ -31,13 +31,13 @@ use crate::app::Entry;
 use crate::app::ToolStatus;
 use crate::cli::WebSearchMode;
 use crate::context::ContextSource;
-use crate::datetime;
 use crate::internals;
 use crate::providers::ProviderMessage;
 use crate::skills;
 use crate::skills::SkillMetadata;
 use crate::tools;
 use crate::tools::ToolDefinition;
+use crate::utils::datetime;
 
 /// Whether the provider supports reusable history / prompt caching for
 /// AGENTS.md content.

@@ -5,6 +5,9 @@
 - [Prompt Editing Libraries and Renderer Ownership](docs/internal/notes/prompt-renderer-research.md)
 - [Text Input Library Lessons](docs/internal/notes/text-input-libraries.md)
 - [Configuration Plan](docs/internal/features/003_configuration/plan.md)
+- [Sessions Plan](docs/internal/features/005_sessions/plan.md)
+- [Tool Registry Plan](docs/internal/features/007_tool_registry/plan.md)
+- [MCP Plan](docs/internal/features/008_mcp/plan.md)
 - [Pi Coding Agent Harness Lessons](docs/internal/notes/pi.md)
 - [Ratatui Application Patterns](docs/internal/notes/ratatui.md)
 - [Ratatui Snapshot Testing](docs/internal/notes/ratatui-testing.md)
@@ -42,7 +45,13 @@
 ## Requirements
 
 - Non-TUI session inspect/export commands.
+- TUI and CLI session operations for listing, showing, resuming, inspecting,
+  exporting, and reading bounded runtime logs.
+- Explicit durable memory in the context-control plan, with inspectable
+  Markdown source and rebuildable SQLite metadata, FTS5, and sqlite-vec indexes.
 - Read-only LSP-backed code intelligence where a language server exists.
+- MCP external tools only after built-in tools are registry-backed and
+  namespaced external execution can reuse the same audit path.
 - Release notes follow a changelog format.
 - Packaging supports at least `cargo install`.
 - CI runs formatting, clippy, unit tests, renderer snapshots, integration tests,
@@ -109,6 +118,24 @@ machinery:
 - Session search once persistence exists.
 - Review and security-review prompt fragments that operate on explicit diffs or
   session events.
+
+## Thunderus Legacy Extraction
+
+The original `stormlightlabs/thunderus` repo is a reference for product
+affordances, not architecture. The old workspace split and Iced GUI are not
+future work for this repository.
+
+Useful pieces have been split into internal plans:
+
+- session history, resume, debug logs, and inspect/export:
+  `docs/internal/features/005_sessions/`;
+- durable memory kinds, explicit store/recall, sqlite-vec semantic recall, and
+  context selection:
+  `docs/internal/features/001_context_control/`;
+- tool schema/dispatch co-location:
+  `docs/internal/features/007_tool_registry/`;
+- MCP server configuration and namespaced external tools:
+  `docs/internal/features/008_mcp/`.
 
 ## Release Bar
 

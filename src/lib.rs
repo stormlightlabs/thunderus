@@ -11,7 +11,6 @@ mod agent;
 mod app;
 mod config;
 mod context;
-mod datetime;
 mod fuzzy;
 mod internals;
 mod prompt;
@@ -37,6 +36,7 @@ use renderer::backend::TerminalBackend;
 use tools::AgentRunConfig;
 
 use crate::app::PromptAccessory;
+use crate::utils::datetime;
 
 /// State carried by the main loop for a single agent run.
 struct AgentSlot {

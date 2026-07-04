@@ -5,15 +5,15 @@ Captured: 2026-07-03
 
 ## P0: Define The Contract
 
-- [x] Decide the supported config file paths.
+- [x] Supported config file paths are fixed.
 - [x] Document supported config layers: defaults, global config, project config,
       environment variables, and CLI flags.
 - [x] Define the final key list and value types for `model`, `websearch`,
       `tick_rate_ms`, `theme`, `mouse`, `verbose`, `skill_dirs`,
       `session_dir`, and `default_workspace`.
-- [x] Decide that `print_prompt`, `cwd`, `no_alt_screen`, and `no_mouse` are
+- [x] `print_prompt`, `cwd`, `no_alt_screen`, and `no_mouse` are
       CLI-only and are not TOML/env keys.
-- [x] Decide that LSP is not configurable in this feature; `lsp_enabled` is an
+- [x] LSP is not configurable in this feature; `lsp_enabled` is an
       unknown key.
 - [x] Define `THNDRS_` environment variable names for every non-secret config
       key.
@@ -21,11 +21,11 @@ Captured: 2026-07-03
 - [x] Define path-resolution rules for file-relative config values.
 - [x] Define what effective config metadata can be persisted in sessions and
       exported without leaking secrets.
-- [x] Decide that search mode is configured only through `websearch`; `fd` and
+- [x] Search mode is configured only through `websearch`; `fd` and
       `rg` fallback behavior remains tool/session metadata, not config.
-- [x] Decide that provider secrets stay provider-owned and are not ordinary
+- [x] Provider secrets stay provider-owned and are not ordinary
       `THNDRS_` config values.
-- [x] Decide that unsupported old/typo config paths are ignored before the first
+- [x] Unsupported old/typo config paths are ignored before the first
       stable release instead of retained as aliases.
 
 ## P1: Implement Effective Config
@@ -144,17 +144,20 @@ Captured: 2026-07-03
 - [ ] Keep release notes/changelog updates outside this feature until behavior
       changes are implemented.
 
-## P5: Explicit Non-Goals To Preserve
+## P5: Boundary Decisions
 
-- [ ] Do not add `lsp_enabled` or any other LSP config key in this feature.
-- [ ] Do not add config keys for `fd`, `rg`, LSP server paths, provider-private
-      state, permission rules, plugins, commands, workflow definitions, or
-      secret values.
-- [ ] Do not fold provider stream normalization, tool registry refactors,
-      runtime/run controller work, renderer row-model work, or input command
-      refactors into the configuration implementation.
-- [ ] Do not implement session search, skill marketplace/install/publishing, or
-      subagent orchestration as part of configuration.
+- [x] LSP configuration is owned by the LSP/code-intelligence feature, not by
+      this configuration milestone.
+- [x] Repository search implementation details (`fd`, `rg`, fallbacks) are
+      tool diagnostics, not config keys.
+- [x] Provider-private state and provider secrets remain provider-owned.
+- [x] Permission rules, plugins, commands, workflow definitions, and secret
+      values are outside the ordinary TOML config schema.
+- [x] Provider stream normalization, tool registry refactors, runtime/run
+      controller work, renderer row-model work, and input command refactors have
+      separate feature plans.
+- [x] Session search, skill marketplace/install/publishing, and subagent
+      orchestration are separate product features.
 
 ## Validation Commands
 

@@ -147,6 +147,7 @@ export default defineConfig({
                 { label: "Context Control", slug: "notebook/context-control" },
                 { label: "AGENTS.md", slug: "notebook/agents-md" },
                 { label: "SKILLS.md", slug: "notebook/skills" },
+                { label: "MCP", slug: "notebook/mcp" },
               ],
             },
             {
@@ -157,6 +158,7 @@ export default defineConfig({
                   label: "Filesystem Traversal",
                   slug: "notebook/fs-traversal",
                 },
+                { label: "Protocols", slug: "notebook/providers/protocols" },
                 { label: "Umans.ai", slug: "notebook/providers/umans" },
                 { label: "OpenCode Go", slug: "notebook/providers/opencode-go" },
               ],
@@ -176,12 +178,14 @@ export default defineConfig({
                 { label: "Yoga Layout Engine", slug: "notebook/yoga" },
                 { label: "Yoga for Gridland", slug: "notebook/yoga-gridland" },
                 { label: "Gridland UI", slug: "notebook/ui-patterns" },
+                { label: "iocraft", slug: "notebook/iocraft" },
               ],
             },
             {
               label: "Meta",
               collapsed: true,
               items: [
+                { label: "New Codebases", slug: "notebook/new-codebase" },
                 { label: "Docs", slug: "notebook/docs" },
                 { label: "Sessions", slug: "notebook/sessions" },
                 {
@@ -189,6 +193,7 @@ export default defineConfig({
                   slug: "notebook/release",
                 },
                 { label: "Memory (Letta)", slug: "notebook/letta" },
+                { label: "Memory Retrieval", slug: "notebook/memory-retrieval" },
               ],
             },
           ],

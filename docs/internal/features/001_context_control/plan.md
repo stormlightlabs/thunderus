@@ -1,7 +1,6 @@
 # Context Control And Memory Plan
 
 Status: Draft
-Owner: thndrs maintainers
 Captured: 2026-07-03
 
 ## Background
@@ -28,6 +27,10 @@ behavior difficult to predict and difficult to debug.
 
 Reference review points to a broader target:
 
+- The original `stormlightlabs/thunderus` memory design contributes durable
+  memory kinds, per-workspace/global stores, `memory_store` and
+  `memory_recall`, deduplication, access/decay metadata, and sqlite-vec-backed
+  semantic recall.
 - Pi contributes explicit context, small prompt/tool surfaces, and visible local
   harness state.
 - Letta contributes the memory hierarchy: always-visible memory blocks,
@@ -105,21 +108,22 @@ and audit contract exists.
    path.
 9. Persist context ledger, memory write, pin/drop, and compaction metadata in
    append-only session records.
-10. Keep the first implementation simple enough to audit: explicit memory
-    writes, file-backed storage, a rebuildable SQLite FTS5/BM25 index, visible
-    dashboard metadata, and append-only records.
+10. Keep the first implementation simple enough to audit while still shipping a
+    real sqlite-vec memory path: explicit memory writes, file-backed Markdown
+    source, rebuildable SQLite metadata/FTS/vector indexes, visible dashboard
+    metadata, and append-only audit records.
 
 ## Research-Backed Decisions
 
-| Question                                                                | Decision                                                                                                                                               | Basis                                                                                                           |
-| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
-| How should token estimates work before exact provider tokenizers exist? | Use `ceil(utf8_bytes / 3) + 16` per item as a conservative approximate budget guard, label it approximate, and keep the type boundary ready for provider-specific tokenizers. | OpenAI tokenizer guidance says model encodings differ and exact counts come from the model encoding.            |
-| Should memory items have scopes?                                        | Require explicit scope metadata for every memory item: user, project, path, or session.                                                                | Memory Sandbox and the memory survey emphasize user control, write filtering, privacy, and governance.          |
-| Should project memory be committed or ignored?                          | Let projects choose, but document the split: shared project memory may be committed; personal project memory belongs in local exclude/user memory.     | Git's ignore model distinguishes shared `.gitignore`, local `.git/info/exclude`, and user-global excludes.      |
-| How should stale or conflicting memory be handled?                      | Show diagnostics with source, scope, timestamp/hash, and the conflicting item; never silently resolve conflict by overwriting.                         | AGENTS.md precedence and memory-governance research both favor visible source/scope boundaries.                 |
-| When can autonomous memory writes appear?                               | Only after explicit memory CRUD, source metadata, conflict diagnostics, and audit records exist; first as suggestions requiring confirmation.          | The memory survey highlights write-path filtering and trustworthy reflection as hard engineering areas.         |
-| Should archival memory start with embeddings?                           | No. Store Markdown as the source of truth and ship v1 retrieval with a rebuildable SQLite metadata plus FTS5/BM25 index under `~/.thndrs/cache/memory/`. Embeddings can be added later as another derived index over the same files. | SQLite FTS5 provides local full-text search, relevance ranking, snippets, prefix/phrase/NEAR queries, and external-content indexing while preserving Markdown as the editable source. |
-| Should compaction delete old context?                                   | Compaction reduces the active working set but preserves durable session evidence.                                                                      | VISTA distinguishes summaries from recoverable exact payloads under context pressure.                           |
+| Question                                                                | Decision                                                                                                                                                                                                                                | Basis                                                                                                                                                                                                                                          |
+| ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| How should token estimates work before exact provider tokenizers exist? | Use `ceil(utf8_bytes / 3) + 16` per item as a conservative approximate budget guard, label it approximate, and keep the type boundary ready for provider-specific tokenizers.                                                           | OpenAI tokenizer guidance says model encodings differ and exact counts come from the model encoding.                                                                                                                                           |
+| Should memory items have scopes?                                        | Require explicit scope metadata for every memory item: user, project, path, or session.                                                                                                                                                 | Memory Sandbox and the memory survey emphasize user control, write filtering, privacy, and governance.                                                                                                                                         |
+| Should project memory be committed or ignored?                          | Let projects choose, but document the split: shared project memory may be committed; personal project memory belongs in local exclude/user memory.                                                                                      | Git's ignore model distinguishes shared `.gitignore`, local `.git/info/exclude`, and user-global excludes.                                                                                                                                     |
+| How should stale or conflicting memory be handled?                      | Show diagnostics with source, scope, timestamp/hash, and the conflicting item; never silently resolve conflict by overwriting.                                                                                                          | AGENTS.md precedence and memory-governance research both favor visible source/scope boundaries.                                                                                                                                                |
+| When can autonomous memory writes appear?                               | Only after explicit memory CRUD, source metadata, conflict diagnostics, and audit records exist; first as suggestions requiring confirmation.                                                                                           | The memory survey highlights write-path filtering and trustworthy reflection as hard engineering areas.                                                                                                                                        |
+| Should archival memory include semantic recall in this feature?         | Yes. Store Markdown as the source of truth and ship v1 retrieval with rebuildable SQLite metadata, FTS5/BM25, and sqlite-vec indexes under `~/.thndrs/cache/memory/`. Lexical recall remains available when embeddings are unavailable. | The old `thunderus` design shows semantic memory is valuable enough to be part of context control. SQLite FTS5 provides reliable lexical recovery, while sqlite-vec gives a local derived vector index over the same inspectable source files. |
+| Should compaction delete old context?                                   | Compaction reduces the active working set but preserves durable session evidence.                                                                                                                                                       | VISTA distinguishes summaries from recoverable exact payloads under context pressure.                                                                                                                                                          |
 
 ## Design Principles
 
@@ -215,10 +219,9 @@ truncated before summarization.
 ### Archival Memory
 
 Archival memory is stored as Markdown notes with frontmatter. It is discovered
-by metadata and indexed into a rebuildable SQLite cache for v1. The cache should
-include ordinary metadata tables plus FTS5 full-text search with BM25 ranking.
-Embeddings or vector indexes can later act as additional indexes over the same
-files if semantic recall becomes the bottleneck.
+by metadata and indexed into a rebuildable SQLite cache for v1. The cache
+includes ordinary metadata tables, FTS5 full-text search with BM25 ranking, and
+a sqlite-vec table for semantic recall over embedding vectors.
 
 Archival memory is not loaded by default. It becomes active when selected by
 search, pin, explicit `/memory open`, or a later confirmed retrieval policy.
@@ -227,6 +230,25 @@ Derived SQLite indexes live under `~/.thndrs/cache/memory/`, not inside the
 project memory tree. Project memory indexes use a workspace-root hash in the
 cache filename so `.thndrs/memory/` can remain ordinary source material without
 requiring generated cache files to be committed or ignored.
+
+Semantic recall uses sqlite-vec as a derived index, not as the durable source of
+truth. If embeddings are unavailable, stale, or incompatible with the configured
+embedding model, retrieval degrades to metadata and FTS5/BM25 with a visible
+diagnostic. Mixed embedding models are rejected for a single index unless an
+explicit rebuild or migration command chooses a new model.
+
+## Memory Kinds
+
+Carry forward the old `thunderus` memory kind model:
+
+- `fact`: durable facts about the codebase or domain;
+- `preference`: user or team workflow preferences;
+- `procedure`: repeatable steps that worked;
+- `context`: conversation-derived context that should survive the current turn.
+
+Every memory item records kind, scope, source, tags, timestamps, content hash,
+and optional path scope. Kind and scope are separate: for example, a
+path-scoped memory can still be a `procedure`.
 
 ## Memory Store
 
@@ -244,12 +266,15 @@ Initial frontmatter fields:
 ```yaml
 id: mem_...
 title: Preferred testing workflow
+kind: procedure
 scope: user | project | path | session
 paths: []
 tags: []
 created: 2026-07-03T00:00:00Z
 updated: 2026-07-03T00:00:00Z
 source: explicit-user
+embedding_model: text-embedding-3-small
+embedding_dimensions: 256
 ```
 
 The body is plain Markdown. Memory files are normal files: users can inspect,
@@ -276,6 +301,12 @@ Use existing slash/command-mode plumbing. The first command contract is:
 - `/remember session <text>`: append an explicit session-scoped memory item.
 - `/memory`: list memory items and diagnostics.
 - `/memory open <id>`: load a memory item into the working set.
+- `/memory recall <query>`: search memory with metadata, FTS5, and sqlite-vec
+  when available.
+- `/memory stats`: show memory counts, index status, embedding model, and cache
+  health.
+- `/memory index rebuild`: rebuild derived metadata, FTS5, and sqlite-vec
+  indexes.
 - `/memory forget <id>`: delete a memory file after confirmation and append a
   content-free audit record.
 - `/compact`: summarize older session context into a durable summary record.
@@ -287,8 +318,9 @@ Use existing slash/command-mode plumbing. The first command contract is:
 Only read-only commands run while the agent is working: `/context`,
 `/context all`, `/memory`, and `/doctor`. Mutating or prompt-affecting commands
 require idle state: `/pin`, `/drop`, `/recover`, `/remember`, `/memory open`,
-`/memory forget`, `/compact`, and `/clear-context`. Rejected running commands
-produce a clear status row and are not queued as ordinary prompt text.
+`/memory forget`, `/memory index rebuild`, `/compact`, and `/clear-context`.
+Rejected running commands produce a clear status row and are not queued as
+ordinary prompt text.
 
 ## Implementation Shape
 
@@ -398,7 +430,7 @@ Detailed views can reuse the existing focused surface/picker machinery.
 - `src/context_control.rs` or `src/context/mod.rs`: new context ledger,
   selection policy, token estimates, pins, and diagnostics.
 - `src/memory.rs`: file-backed memory discovery, validation, write/delete, and
-  SQLite FTS5/BM25 indexing and search.
+  SQLite metadata, FTS5/BM25, sqlite-vec indexing, embeddings, and search.
 - `src/prompt/mod.rs`: render selected context projection and dashboard.
 - `src/internals.rs`: include context dashboard metadata.
 - `src/session/mod.rs`: add context ledger, pin/drop, memory, and compaction
@@ -421,7 +453,8 @@ Testing should focus on pure policy first:
 - dropped items staying out of the next projection;
 - compaction summary replacing older transcript entries;
 - memory read/write/delete metadata;
-- SQLite memory index rebuild and BM25 search behavior;
+- SQLite memory index rebuild, BM25 search behavior, sqlite-vec indexing, and
+  semantic recall behavior;
 - session JSONL round trips;
 - prompt snapshots with dashboard metadata;
 - TUI snapshots for context and memory rows.

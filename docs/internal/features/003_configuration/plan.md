@@ -1,7 +1,6 @@
 # Configuration Plan
 
 Status: Draft
-Owner: thndrs maintainers
 Captured: 2026-07-03
 
 ## Background
