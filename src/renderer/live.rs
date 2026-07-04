@@ -631,6 +631,7 @@ mod tests {
             theme: Theme::EldritchMinimal,
             print_prompt: false,
             skill_dirs: Vec::new(),
+            session_dir: None,
         });
         app.git_status = Some(crate::renderer::git::GitStatusSummary {
             branch: Some("main".to_string()),

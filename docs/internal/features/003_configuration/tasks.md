@@ -3,64 +3,6 @@
 Status: Draft
 Captured: 2026-07-03
 
-## P0: Define The Contract
-
-- [x] Supported config file paths are fixed.
-- [x] Document supported config layers: defaults, global config, project config,
-      environment variables, and CLI flags.
-- [x] Define the final key list and value types for `model`, `websearch`,
-      `tick_rate_ms`, `theme`, `mouse`, `verbose`, `skill_dirs`,
-      `session_dir`, and `default_workspace`.
-- [x] `print_prompt`, `cwd`, `no_alt_screen`, and `no_mouse` are
-      CLI-only and are not TOML/env keys.
-- [x] LSP is not configurable in this feature; `lsp_enabled` is an
-      unknown key.
-- [x] Define `THNDRS_` environment variable names for every non-secret config
-      key.
-- [x] Define boolean and list env parsing rules.
-- [x] Define path-resolution rules for file-relative config values.
-- [x] Define what effective config metadata can be persisted in sessions and
-      exported without leaking secrets.
-- [x] Search mode is configured only through `websearch`; `fd` and
-      `rg` fallback behavior remains tool/session metadata, not config.
-- [x] Provider secrets stay provider-owned and are not ordinary
-      `THNDRS_` config values.
-- [x] Unsupported old/typo config paths are ignored before the first
-      stable release instead of retained as aliases.
-
-## P1: Implement Effective Config
-
-- [ ] Introduce config source/layer metadata that records where each loaded
-      value came from.
-- [ ] Keep `Config` as the TOML schema with `deny_unknown_fields`.
-- [ ] Add an env-config loader for `THNDRS_` overrides.
-- [ ] Reject unknown `THNDRS_` variables with a clear error.
-- [ ] Parse boolean env values case-insensitively for `1`, `0`, `true`,
-      `false`, `yes`, `no`, `on`, and `off`.
-- [ ] Parse path-list env values using platform path separators.
-- [ ] Merge precedence as CLI flags over env vars over project config over
-      global config over defaults.
-- [ ] Track per-key origins with redacted labels such as `default`,
-      `~/.thndrs/config.toml`, `.thndrs/config.toml`, `THNDRS_MODEL`, and
-      `--model`.
-- [ ] Record loaded config file metadata with source, display path, and
-      lowercase SHA-256 hash of file bytes.
-- [ ] Change CLI boolean parsing so omitted flags and explicit flags are
-      distinguishable during merge.
-- [ ] Implement `--mouse` / `--no-mouse` as conflicting CLI flags that both map
-      to the single `mouse` effective key.
-- [ ] Resolve `skill_dirs`, `session_dir`, and `default_workspace` relative to
-      the config file that declared them.
-- [ ] Deduplicate merged skill directories after path resolution.
-- [ ] Load only `~/.thndrs/config.toml` for global config.
-- [ ] Load only `.thndrs/config.toml` for project config.
-- [ ] Reject secret-shaped TOML keys with a clear error.
-- [ ] Keep provider secret lookup in provider code through `UMANS_API_KEY`,
-      `OPENCODE_GO_KEY`, and workspace `.env`.
-- [ ] Ensure effective config, diagnostics, logs, prompt inspection, sessions,
-      and exports never include raw provider secret values or raw `.env`
-      contents.
-
 ## P2: Wire Runtime Behavior
 
 - [ ] Make `default_workspace` apply only when `--cwd` is omitted.
@@ -95,18 +37,18 @@ Captured: 2026-07-03
 - [ ] Add tests proving `print_prompt`, `cwd`, `no_alt_screen`, and `no_mouse`
       are rejected as TOML/env keys.
 - [ ] Add tests proving unknown `THNDRS_` environment variables are errors.
-- [ ] Add tests proving `--mouse` and `--no-mouse` conflict in one CLI
+- [x] Add tests proving `--mouse` and `--no-mouse` conflict in one CLI
       invocation.
 - [ ] Add tests for invalid env values and parse diagnostics.
 - [ ] Add tests for boolean env values: `1`, `0`, `true`, `false`, `yes`,
       `no`, `on`, and `off`.
 - [ ] Add tests for path-list env parsing using platform path separators.
-- [ ] Add tests for file-relative `skill_dirs`, `session_dir`, and
+- [x] Add tests for file-relative `skill_dirs`, `session_dir`, and
       `default_workspace`.
 - [ ] Add tests proving secrets are not serialized into config diagnostics,
       logs, errors, prompt inspection, session metadata, snapshots, or export
       metadata.
-- [ ] Add tests proving secret-shaped TOML keys are rejected.
+- [x] Add tests proving secret-shaped TOML keys are rejected.
 - [ ] Add tests proving `lsp_enabled` and `THNDRS_LSP_ENABLED` are rejected as
       unknown keys.
 - [ ] Add session tests for custom `session_dir`.
@@ -161,10 +103,10 @@ Captured: 2026-07-03
 
 ## Validation Commands
 
-- [ ] `cargo fmt`
-- [ ] `cargo clippy --fix --allow-dirty --allow-staged`
-- [ ] `cargo clippy`
-- [ ] `cargo test config`
-- [ ] `cargo test cli`
-- [ ] `cargo test session`
-- [ ] `cargo test`
+- [x] `cargo fmt`
+- [x] `cargo clippy --fix --allow-dirty --allow-staged`
+- [x] `cargo clippy`
+- [x] `cargo test config`
+- [x] `cargo test cli`
+- [x] `cargo test session`
+- [x] `cargo test`

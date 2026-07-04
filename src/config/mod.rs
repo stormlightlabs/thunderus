@@ -1,0 +1,700 @@
+//! TOML configuration loading and effective config resolution.
+//!
+//! Config files are optional. Supported paths are exactly:
+//! - Global: `~/.thndrs/config.toml`
+//! - Project: `.thndrs/config.toml`
+//!
+//! Malformed files and unknown keys are errors so users do not run with
+//! silently ignored settings.
+
+#![allow(dead_code)]
+
+use std::collections::BTreeMap;
+use std::fs;
+use std::path::{Component, Path, PathBuf};
+
+use serde::Deserialize;
+use sha2::{Digest, Sha256};
+
+use crate::cli::{Theme, WebSearchMode};
+use crate::utils;
+
+#[derive(Debug, thiserror::Error)]
+pub enum ConfigError {
+    #[error("failed to read config {path}: {source}")]
+    Read {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("failed to parse config {path}: {source}")]
+    Parse {
+        path: PathBuf,
+        #[source]
+        source: toml::de::Error,
+    },
+    #[error("invalid environment variable {name}: {message}")]
+    InvalidEnv { name: String, message: String },
+    #[error("unknown environment variable {name}")]
+    UnknownEnv { name: String },
+    #[error("secret-shaped key `{key}` is not allowed in config; use provider env vars instead")]
+    SecretInConfig { key: String },
+    #[error("conflicting CLI flags: --mouse and --no-mouse cannot both be set")]
+    ConflictingMouseFlags,
+}
+
+/// A diagnostic produced during config loading, suitable for display in
+/// verbose startup rows, prompt inspection, and session metadata.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConfigDiagnostic {
+    pub code: ConfigDiagnosticCode,
+    pub message: String,
+    pub path: Option<PathBuf>,
+    pub key: Option<String>,
+}
+
+/// Diagnostic category for config loading issues.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConfigDiagnosticCode {
+    UnknownKey,
+    ParseError,
+    InvalidEnvValue,
+    UnknownEnvVar,
+    SecretInConfig,
+    ConflictingFlags,
+}
+
+impl ConfigDiagnosticCode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ConfigDiagnosticCode::UnknownKey => "unknown_key",
+            ConfigDiagnosticCode::ParseError => "parse_error",
+            ConfigDiagnosticCode::InvalidEnvValue => "invalid_env_value",
+            ConfigDiagnosticCode::UnknownEnvVar => "unknown_env_var",
+            ConfigDiagnosticCode::SecretInConfig => "secret_in_config",
+            ConfigDiagnosticCode::ConflictingFlags => "conflicting_flags",
+        }
+    }
+}
+
+/// User-editable configuration loaded from TOML.
+///
+/// Only ordinary runtime keys are present. CLI-only flags (`print_prompt`,
+/// `cwd`, `no_alt_screen`, `no_mouse`) are not TOML keys. Secret-shaped keys
+/// are rejected before deserialization reaches this struct.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Config {
+    pub model: Option<String>,
+    pub websearch: Option<WebSearchMode>,
+    pub tick_rate_ms: Option<u64>,
+    pub mouse: Option<bool>,
+    pub verbose: Option<bool>,
+    pub theme: Option<Theme>,
+    pub skill_dirs: Vec<PathBuf>,
+    pub session_dir: Option<PathBuf>,
+    pub default_workspace: Option<PathBuf>,
+}
+
+impl Config {
+    /// Merge `other` over `self`, keeping existing values when `other` omits a field.
+    pub fn merge(mut self, other: Config) -> Self {
+        self.model = other.model.or(self.model);
+        self.websearch = other.websearch.or(self.websearch);
+        self.tick_rate_ms = other.tick_rate_ms.or(self.tick_rate_ms);
+        self.mouse = other.mouse.or(self.mouse);
+        self.verbose = other.verbose.or(self.verbose);
+        self.theme = other.theme.or(self.theme);
+        self.session_dir = other.session_dir.or(self.session_dir);
+        self.default_workspace = other.default_workspace.or(self.default_workspace);
+        self.skill_dirs.extend(other.skill_dirs);
+        self
+    }
+}
+
+/// The fully resolved configuration after merging all layers.
+///
+/// Records where each loaded value came from so prompt inspection, sessions,
+/// and export can explain provenance without leaking secrets.
+#[derive(Clone, Debug)]
+pub struct EffectiveConfig {
+    /// Final resolved runtime config values.
+    pub config: Config,
+    /// CLI-only overrides that are not TOML/env keys.
+    pub cli_overrides: CliOverrides,
+    /// Loaded config file layers in precedence order (global first, then project).
+    pub layers: Vec<LoadedConfigLayer>,
+    /// Per-key origin tracking.
+    pub origins: BTreeMap<String, ConfigOrigin>,
+    /// Diagnostics produced during loading.
+    pub diagnostics: Vec<ConfigDiagnostic>,
+}
+
+/// CLI-only overrides that are not TOML/env keys.
+#[derive(Clone, Debug, Default)]
+pub struct CliOverrides {
+    pub cwd: Option<PathBuf>,
+    pub print_prompt: bool,
+    pub no_alt_screen: bool,
+}
+
+/// A single loaded config file layer.
+#[derive(Clone, Debug)]
+pub struct LoadedConfigLayer {
+    pub source: ConfigSource,
+    pub config: Config,
+    pub path: Option<PathBuf>,
+    /// Redacted path label safe for diagnostics and persisted metadata.
+    pub display_path: Option<String>,
+    /// Lowercase hex SHA-256 of file bytes.
+    pub hash: Option<String>,
+}
+
+/// Where a config value originated.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConfigSource {
+    Default,
+    GlobalFile,
+    ProjectFile,
+    Environment,
+    CliFlag,
+}
+
+impl ConfigSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ConfigSource::Default => "default",
+            ConfigSource::GlobalFile => "global",
+            ConfigSource::ProjectFile => "project",
+            ConfigSource::Environment => "env",
+            ConfigSource::CliFlag => "cli",
+        }
+    }
+}
+
+/// Provenance label for a single config key.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConfigOrigin {
+    pub source: ConfigSource,
+    pub detail: String,
+}
+
+impl ConfigOrigin {
+    pub fn default() -> Self {
+        Self { source: ConfigSource::Default, detail: "default".to_string() }
+    }
+}
+
+/// The single supported global config path: `~/.thndrs/config.toml`.
+fn global_config_path() -> Option<PathBuf> {
+    utils::home_dir().map(|home| home.join(".thndrs").join("config.toml"))
+}
+
+/// The single supported project config path: `<workspace>/.thndrs/config.toml`.
+fn project_config_path(workspace: &Path) -> PathBuf {
+    workspace.join(".thndrs").join("config.toml")
+}
+
+/// Keys that look like secrets and must not appear in TOML config.
+fn is_secret_shaped_key(key: &str) -> bool {
+    let lower = key.to_lowercase();
+    lower.ends_with("_api_key")
+        || lower.ends_with("_token")
+        || lower.ends_with("_secret")
+        || lower.ends_with("_password")
+        || lower.ends_with("secret")
+        || lower.ends_with("password")
+}
+
+/// Check raw TOML text for secret-shaped keys before deserialization.
+fn check_for_secret_keys(content: &str) -> Result<(), ConfigError> {
+    let parsed: toml::Value = match toml::from_str(content) {
+        Ok(v) => v,
+        Err(_) => return Ok(()), // parse errors are caught later by load_file
+    };
+    check_value_for_secret_keys(&parsed, None)
+}
+
+fn check_value_for_secret_keys(value: &toml::Value, parent: Option<&str>) -> Result<(), ConfigError> {
+    match value {
+        toml::Value::Table(table) => {
+            for (key, value) in table {
+                let dotted = match parent {
+                    Some(parent) => format!("{parent}.{key}"),
+                    None => key.clone(),
+                };
+                if is_secret_shaped_key(key) {
+                    return Err(ConfigError::SecretInConfig { key: dotted });
+                }
+                check_value_for_secret_keys(value, Some(&dotted))?;
+            }
+            Ok(())
+        }
+        toml::Value::Array(values) => {
+            for value in values {
+                check_value_for_secret_keys(value, parent)?;
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
+fn load_file(path: &Path) -> Result<(Config, String), ConfigError> {
+    let content = fs::read_to_string(path).map_err(|source| ConfigError::Read { path: path.to_path_buf(), source })?;
+    check_for_secret_keys(&content)?;
+    let config: Config =
+        toml::from_str(&content).map_err(|source| ConfigError::Parse { path: path.to_path_buf(), source })?;
+    let hash = sha256_hex(content.as_bytes());
+    Ok((config, hash))
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let result = hasher.finalize();
+    hex_encode(&result)
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out
+}
+
+pub fn load_env(
+    env_vars: &[(String, String)], origins: &mut BTreeMap<String, ConfigOrigin>,
+    _diagnostics: &mut Vec<ConfigDiagnostic>,
+) -> Result<Config, ConfigError> {
+    let mut config = Config::default();
+
+    for (key, value) in env_vars {
+        if !key.starts_with("THNDRS_") {
+            continue;
+        }
+        let config_key = &key["THNDRS_".len()..];
+        let lower = config_key.to_lowercase();
+
+        match lower.as_str() {
+            "model" => {
+                config.model = Some(value.clone());
+                origins.insert("model".to_string(), env_origin(key));
+            }
+            "websearch" => {
+                config.websearch = Some(parse_websearch_env(key, value)?);
+                origins.insert("websearch".to_string(), env_origin(key));
+            }
+            "tick_rate_ms" => {
+                config.tick_rate_ms = Some(parse_u64_env(key, value)?);
+                origins.insert("tick_rate_ms".to_string(), env_origin(key));
+            }
+            "theme" => {
+                config.theme = Some(parse_theme_env(key, value)?);
+                origins.insert("theme".to_string(), env_origin(key));
+            }
+            "mouse" => {
+                config.mouse = Some(parse_bool_env(key, value)?);
+                origins.insert("mouse".to_string(), env_origin(key));
+            }
+            "verbose" => {
+                config.verbose = Some(parse_bool_env(key, value)?);
+                origins.insert("verbose".to_string(), env_origin(key));
+            }
+            "skill_dirs" => {
+                config.skill_dirs = parse_path_list_env(value);
+                origins.insert("skill_dirs".to_string(), env_origin(key));
+            }
+            "session_dir" => {
+                config.session_dir = Some(PathBuf::from(value));
+                origins.insert("session_dir".to_string(), env_origin(key));
+            }
+            "default_workspace" => {
+                config.default_workspace = Some(PathBuf::from(value));
+                origins.insert("default_workspace".to_string(), env_origin(key));
+            }
+            _ => {
+                return Err(ConfigError::UnknownEnv { name: key.clone() });
+            }
+        }
+    }
+
+    Ok(config)
+}
+
+fn env_origin(env_var: &str) -> ConfigOrigin {
+    ConfigOrigin { source: ConfigSource::Environment, detail: env_var.to_string() }
+}
+
+fn parse_bool_env(name: &str, value: &str) -> Result<bool, ConfigError> {
+    match value.to_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Ok(true),
+        "0" | "false" | "no" | "off" => Ok(false),
+        _ => Err(ConfigError::InvalidEnv {
+            name: name.to_string(),
+            message: format!("expected one of 1, 0, true, false, yes, no, on, off (got '{value}')"),
+        }),
+    }
+}
+
+fn parse_u64_env(name: &str, value: &str) -> Result<u64, ConfigError> {
+    value.parse().map_err(|_| ConfigError::InvalidEnv {
+        name: name.to_string(),
+        message: format!("expected a positive integer (got '{value}')"),
+    })
+}
+
+fn parse_websearch_env(name: &str, value: &str) -> Result<WebSearchMode, ConfigError> {
+    match value.to_lowercase().as_str() {
+        "auto" => Ok(WebSearchMode::Auto),
+        "native" => Ok(WebSearchMode::Native),
+        "exa" => Ok(WebSearchMode::Exa),
+        "none" => Ok(WebSearchMode::None),
+        _ => Err(ConfigError::InvalidEnv {
+            name: name.to_string(),
+            message: format!("must be one of auto, native, exa, none (got '{value}')"),
+        }),
+    }
+}
+
+fn parse_theme_env(name: &str, value: &str) -> Result<Theme, ConfigError> {
+    match value.to_lowercase().as_str() {
+        "eldritch-minimal" | "eldritch_minimal" | "eldritchminimal" => Ok(Theme::EldritchMinimal),
+        "iceberg-dark" | "iceberg_dark" | "icebergdark" => Ok(Theme::IcebergDark),
+        "catppuccin-mocha" | "catppuccin_mocha" | "catppuccinmocha" => Ok(Theme::CatppuccinMocha),
+        _ => Err(ConfigError::InvalidEnv { name: name.to_string(), message: format!("unknown theme '{value}'") }),
+    }
+}
+
+fn parse_path_list_env(value: &str) -> Vec<PathBuf> {
+    let separator = if cfg!(windows) { ';' } else { ':' };
+    value
+        .split(separator)
+        .filter(|s| !s.trim().is_empty())
+        .map(PathBuf::from)
+        .collect()
+}
+
+/// Load and merge all config layers, producing an [`EffectiveConfig`].
+///
+/// Precedence: CLI flags > environment > project config > global config > defaults.
+pub fn load_effective(
+    workspace: &Path, cli_flags: &CliFlagValues, env_vars: &[(String, String)],
+) -> Result<EffectiveConfig, ConfigError> {
+    let mut layers = Vec::new();
+    let mut origins: BTreeMap<String, ConfigOrigin> = BTreeMap::new();
+    let mut diagnostics = Vec::new();
+    let cwd = process_cwd();
+    let mut merged = default_config(workspace, &cwd);
+
+    if let Some(ref global_path) = global_config_path()
+        && global_path.is_file()
+    {
+        let (mut global_config, hash) = load_file(global_path)?;
+        let display_path = global_path_display(global_path);
+        let base = global_path.parent().unwrap_or(workspace);
+        resolve_config_paths(&mut global_config, base);
+        layers.push(LoadedConfigLayer {
+            source: ConfigSource::GlobalFile,
+            config: global_config.clone(),
+            path: Some(global_path.clone()),
+            display_path: Some(display_path.clone()),
+            hash: Some(hash),
+        });
+        record_origins(&global_config, ConfigSource::GlobalFile, &display_path, &mut origins);
+        merged = merged.merge(global_config);
+    }
+
+    let project_path = project_config_path(workspace);
+    if project_path.is_file() {
+        let (mut project_config, hash) = load_file(&project_path)?;
+        let display_path = project_path_display(&project_path, workspace);
+        let base = project_path.parent().unwrap_or(workspace);
+        resolve_config_paths(&mut project_config, base);
+        layers.push(LoadedConfigLayer {
+            source: ConfigSource::ProjectFile,
+            config: project_config.clone(),
+            path: Some(project_path.clone()),
+            display_path: Some(display_path.clone()),
+            hash: Some(hash),
+        });
+        record_origins(&project_config, ConfigSource::ProjectFile, &display_path, &mut origins);
+        merged = merged.merge(project_config);
+    }
+
+    let mut env_config = load_env(env_vars, &mut origins, &mut diagnostics)?;
+    if has_any_value(&env_config) {
+        resolve_config_paths(&mut env_config, &cwd);
+        merged = merged.merge(env_config);
+    }
+
+    if let Some(ref model) = cli_flags.model {
+        merged.model = Some(model.clone());
+        origins.insert(
+            "model".to_string(),
+            ConfigOrigin { source: ConfigSource::CliFlag, detail: "--model".to_string() },
+        );
+    }
+    if let Some(websearch) = cli_flags.websearch {
+        merged.websearch = Some(websearch);
+        origins.insert(
+            "websearch".to_string(),
+            ConfigOrigin { source: ConfigSource::CliFlag, detail: "--websearch".to_string() },
+        );
+    }
+    if let Some(tick_rate_ms) = cli_flags.tick_rate_ms {
+        merged.tick_rate_ms = Some(tick_rate_ms);
+        origins.insert(
+            "tick_rate_ms".to_string(),
+            ConfigOrigin { source: ConfigSource::CliFlag, detail: "--tick-rate-ms".to_string() },
+        );
+    }
+    if let Some(theme) = cli_flags.theme {
+        merged.theme = Some(theme);
+        origins.insert(
+            "theme".to_string(),
+            ConfigOrigin { source: ConfigSource::CliFlag, detail: "--theme".to_string() },
+        );
+    }
+    if let Some(mouse) = cli_flags.mouse {
+        merged.mouse = Some(mouse);
+        origins.insert(
+            "mouse".to_string(),
+            ConfigOrigin { source: ConfigSource::CliFlag, detail: "--mouse/--no-mouse".to_string() },
+        );
+    }
+    if let Some(verbose) = cli_flags.verbose {
+        merged.verbose = Some(verbose);
+        origins.insert(
+            "verbose".to_string(),
+            ConfigOrigin { source: ConfigSource::CliFlag, detail: "--verbose".to_string() },
+        );
+    }
+    if !cli_flags.skill_dirs.is_empty() {
+        merged
+            .skill_dirs
+            .extend(cli_flags.skill_dirs.iter().map(|dir| resolve_path(dir, &cwd)));
+        origins.insert(
+            "skill_dirs".to_string(),
+            ConfigOrigin { source: ConfigSource::CliFlag, detail: "--skill-dir".to_string() },
+        );
+    }
+    if let Some(ref session_dir) = cli_flags.session_dir {
+        merged.session_dir = Some(resolve_path(session_dir, &cwd));
+        origins.insert(
+            "session_dir".to_string(),
+            ConfigOrigin { source: ConfigSource::CliFlag, detail: "--session-dir".to_string() },
+        );
+    }
+
+    deduplicate_paths(&mut merged.skill_dirs);
+
+    for key in config_keys() {
+        origins.entry(key.to_string()).or_insert_with(ConfigOrigin::default);
+    }
+
+    Ok(EffectiveConfig {
+        config: merged,
+        cli_overrides: CliOverrides {
+            cwd: cli_flags.cwd.clone(),
+            print_prompt: cli_flags.print_prompt,
+            no_alt_screen: cli_flags.no_alt_screen,
+        },
+        layers,
+        origins,
+        diagnostics,
+    })
+}
+
+/// CLI flag values extracted from `CliArgs`, preserving presence for merge.
+#[derive(Clone, Debug, Default)]
+pub struct CliFlagValues {
+    pub cwd: Option<PathBuf>,
+    pub model: Option<String>,
+    pub websearch: Option<WebSearchMode>,
+    pub tick_rate_ms: Option<u64>,
+    pub theme: Option<Theme>,
+    pub mouse: Option<bool>,
+    pub verbose: Option<bool>,
+    pub print_prompt: bool,
+    pub no_alt_screen: bool,
+    pub skill_dirs: Vec<PathBuf>,
+    pub session_dir: Option<PathBuf>,
+}
+
+fn record_origins(config: &Config, source: ConfigSource, detail: &str, origins: &mut BTreeMap<String, ConfigOrigin>) {
+    if config.model.is_some() {
+        origins.insert("model".to_string(), ConfigOrigin { source, detail: detail.to_string() });
+    }
+    if config.websearch.is_some() {
+        origins.insert(
+            "websearch".to_string(),
+            ConfigOrigin { source, detail: detail.to_string() },
+        );
+    }
+    if config.tick_rate_ms.is_some() {
+        origins.insert(
+            "tick_rate_ms".to_string(),
+            ConfigOrigin { source, detail: detail.to_string() },
+        );
+    }
+    if config.theme.is_some() {
+        origins.insert("theme".to_string(), ConfigOrigin { source, detail: detail.to_string() });
+    }
+    if config.mouse.is_some() {
+        origins.insert("mouse".to_string(), ConfigOrigin { source, detail: detail.to_string() });
+    }
+    if config.verbose.is_some() {
+        origins.insert(
+            "verbose".to_string(),
+            ConfigOrigin { source, detail: detail.to_string() },
+        );
+    }
+    if !config.skill_dirs.is_empty() {
+        origins.insert(
+            "skill_dirs".to_string(),
+            ConfigOrigin { source, detail: detail.to_string() },
+        );
+    }
+    if config.session_dir.is_some() {
+        origins.insert(
+            "session_dir".to_string(),
+            ConfigOrigin { source, detail: detail.to_string() },
+        );
+    }
+    if config.default_workspace.is_some() {
+        origins.insert(
+            "default_workspace".to_string(),
+            ConfigOrigin { source, detail: detail.to_string() },
+        );
+    }
+}
+
+fn has_any_value(config: &Config) -> bool {
+    config.model.is_some()
+        || config.websearch.is_some()
+        || config.tick_rate_ms.is_some()
+        || config.theme.is_some()
+        || config.mouse.is_some()
+        || config.verbose.is_some()
+        || !config.skill_dirs.is_empty()
+        || config.session_dir.is_some()
+        || config.default_workspace.is_some()
+}
+
+fn config_keys() -> [&'static str; 9] {
+    [
+        "model",
+        "websearch",
+        "tick_rate_ms",
+        "theme",
+        "mouse",
+        "verbose",
+        "skill_dirs",
+        "session_dir",
+        "default_workspace",
+    ]
+}
+
+fn default_config(workspace: &Path, cwd: &Path) -> Config {
+    Config {
+        model: Some("umans-coder".to_string()),
+        websearch: Some(WebSearchMode::Auto),
+        tick_rate_ms: Some(100),
+        mouse: Some(false),
+        verbose: Some(false),
+        theme: Some(Theme::default()),
+        skill_dirs: Vec::new(),
+        session_dir: Some(resolve_path(&workspace.join(".thndrs").join("sessions"), cwd)),
+        default_workspace: Some(cwd.to_path_buf()),
+    }
+}
+
+fn global_path_display(path: &Path) -> String {
+    if let Some(home) = utils::home_dir()
+        && let Ok(rel) = path.strip_prefix(&home)
+    {
+        return format!("~/{}", rel.display());
+    }
+    path.display().to_string()
+}
+
+fn project_path_display(path: &Path, workspace: &Path) -> String {
+    if let Ok(rel) = path.strip_prefix(workspace) {
+        return rel.display().to_string();
+    }
+    path.display().to_string()
+}
+
+/// Resolve relative path config values against the config file that declared them.
+///
+/// `skill_dirs`, `session_dir`, and `default_workspace` are resolved relative
+/// to their declaring file's parent directory. Environment values resolve
+/// against the process cwd. CLI values resolve against the process cwd.
+pub fn resolve_paths(config: &mut Config, layers: &[LoadedConfigLayer], workspace: &Path) {
+    let mut resolved_skill_dirs = Vec::new();
+    for layer in layers {
+        let base = layer.path.as_ref().and_then(|p| p.parent()).unwrap_or(workspace);
+        for dir in &layer.config.skill_dirs {
+            let resolved = resolve_path(dir, base);
+            if !resolved_skill_dirs.contains(&resolved) {
+                resolved_skill_dirs.push(resolved);
+            }
+        }
+    }
+
+    config.skill_dirs = resolved_skill_dirs;
+    resolve_config_paths(config, workspace);
+}
+
+fn resolve_config_paths(config: &mut Config, base: &Path) {
+    for dir in &mut config.skill_dirs {
+        *dir = resolve_path(dir, base);
+    }
+    if let Some(session_dir) = &mut config.session_dir {
+        *session_dir = resolve_path(session_dir, base);
+    }
+    if let Some(default_workspace) = &mut config.default_workspace {
+        *default_workspace = resolve_path(default_workspace, base);
+    }
+}
+
+fn resolve_path(path: &Path, base: &Path) -> PathBuf {
+    if path.is_absolute() { normalize_path(path) } else { normalize_path(base.join(path)) }
+}
+
+fn process_cwd() -> PathBuf {
+    std::env::current_dir()
+        .map(normalize_path)
+        .unwrap_or_else(|_| PathBuf::from("."))
+}
+
+fn normalize_path(path: impl AsRef<Path>) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.as_ref().components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            Component::RootDir => normalized.push(component.as_os_str()),
+            Component::Normal(part) => normalized.push(part),
+        }
+    }
+    normalized
+}
+
+fn deduplicate_paths(paths: &mut Vec<PathBuf>) {
+    let mut deduped = Vec::new();
+    for path in paths.drain(..) {
+        if !deduped.contains(&path) {
+            deduped.push(path);
+        }
+    }
+    *paths = deduped;
+}
+
+#[cfg(test)]
+mod tests;

@@ -43,6 +43,7 @@ fn test_app() -> crate::app::App {
         theme: Theme::EldritchMinimal,
         print_prompt: false,
         skill_dirs: Vec::new(),
+        session_dir: None,
     });
     app.session_id = "test-session".to_string();
     app.git_status =

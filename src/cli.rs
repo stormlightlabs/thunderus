@@ -31,17 +31,17 @@ struct CliArgs {
     tick_rate_ms: Option<u64>,
 
     /// Compatibility no-op; the TUI always renders inline.
-    #[arg(long, default_value_t = false)]
+    #[arg(long, default_value_t = true)]
     no_alt_screen: bool,
 
     /// Disable mouse capture entirely (no file picker scroll wheel).
-    #[arg(long, default_value_t = false)]
+    #[arg(long, default_value_t = false, conflicts_with = "mouse")]
     no_mouse: bool,
 
     /// Enable mouse capture for the file picker scroll wheel. Mouse capture
     /// is toggled on only while the picker is open, so native terminal text
     /// selection works at all other times.
-    #[arg(long, default_value_t = false)]
+    #[arg(long, default_value_t = false, conflicts_with = "no_mouse")]
     mouse: bool,
 
     /// Show diagnostic transcript rows such as provider events and log paths.
@@ -60,6 +60,10 @@ struct CliArgs {
     /// Additional skill directory to scan. Can be repeated.
     #[arg(long = "skill-dir")]
     skill_dirs: Vec<PathBuf>,
+
+    /// Directory for append-only session JSONL files.
+    #[arg(long = "session-dir")]
+    session_dir: Option<PathBuf>,
 }
 
 /// Normalized runtime configuration after defaults, TOML, and flags are merged.
@@ -87,6 +91,8 @@ pub struct Cli {
     pub print_prompt: bool,
     /// Additional skill directories to scan.
     pub skill_dirs: Vec<PathBuf>,
+    /// Directory for append-only session JSONL files.
+    pub session_dir: Option<PathBuf>,
 }
 
 /// Built-in UI color theme.
@@ -194,7 +200,33 @@ impl Default for Cli {
             theme: Theme::default(),
             print_prompt: false,
             skill_dirs: Vec::new(),
+            session_dir: None,
         }
+    }
+}
+
+/// Convert parsed `CliArgs` into `CliFlagValues` for the effective config loader.
+fn cli_args_to_flag_values(args: &CliArgs) -> config::CliFlagValues {
+    let mouse = if args.mouse {
+        Some(true)
+    } else if args.no_mouse {
+        Some(false)
+    } else {
+        None
+    };
+    let verbose = if args.verbose { Some(true) } else { None };
+    config::CliFlagValues {
+        cwd: args.cwd.clone(),
+        model: args.model.clone(),
+        websearch: args.websearch,
+        tick_rate_ms: args.tick_rate_ms,
+        theme: args.theme,
+        mouse,
+        verbose,
+        print_prompt: args.print_prompt,
+        no_alt_screen: args.no_alt_screen,
+        skill_dirs: args.skill_dirs.clone(),
+        session_dir: args.session_dir.clone(),
     }
 }
 
@@ -213,10 +245,11 @@ impl Cli {
         I: IntoIterator<Item = T>,
         T: Into<std::ffi::OsString> + Clone,
     {
-        Ok(Self::from_parts(
-            CliArgs::try_parse_from(itr)?,
-            config::Config::default(),
-        ))
+        let args = CliArgs::try_parse_from(itr)?;
+        let cli_flags = cli_args_to_flag_values(&args);
+        let effective = config::load_effective(Path::new("."), &cli_flags, &[])
+            .map_err(|e| clap::Error::raw(clap::error::ErrorKind::InvalidValue, format!("{e}")))?;
+        Ok(Self::from_effective(args, effective))
     }
 
     fn try_parse_configured_from<I, T>(itr: I) -> Result<Result<Self, config::ConfigError>, clap::Error>
@@ -226,26 +259,28 @@ impl Cli {
     {
         let args = CliArgs::try_parse_from(itr)?;
         let workspace_root = context::discover_workspace_root(args.cwd.as_deref().unwrap_or_else(|| Path::new(".")));
-        Ok(config::load(&workspace_root).map(|config| Self::from_parts(args, config)))
+        let cli_flags = cli_args_to_flag_values(&args);
+        let env_vars: Vec<(String, String)> = std::env::vars().filter(|(key, _)| key.starts_with("THNDRS_")).collect();
+        Ok(config::load_effective(&workspace_root, &cli_flags, &env_vars)
+            .map(|effective| Self::from_effective(args, effective)))
     }
 
-    fn from_parts(args: CliArgs, config: config::Config) -> Self {
+    fn from_effective(args: CliArgs, effective: config::EffectiveConfig) -> Self {
         let defaults = Self::default();
+        let config = effective.config;
         Cli {
             cwd: args.cwd.unwrap_or(defaults.cwd),
-            model: args.model.or(config.model).unwrap_or(defaults.model),
-            websearch: args.websearch.or(config.websearch).unwrap_or(defaults.websearch),
-            tick_rate_ms: args
-                .tick_rate_ms
-                .or(config.tick_rate_ms)
-                .unwrap_or(defaults.tick_rate_ms),
-            no_alt_screen: args.no_alt_screen || config.no_alt_screen.unwrap_or(defaults.no_alt_screen),
-            no_mouse: args.no_mouse || config.no_mouse.unwrap_or(defaults.no_mouse),
-            mouse: args.mouse || config.mouse.unwrap_or(defaults.mouse),
-            verbose: args.verbose || config.verbose.unwrap_or(defaults.verbose),
-            theme: args.theme.or(config.theme).unwrap_or(defaults.theme),
-            print_prompt: args.print_prompt || config.print_prompt.unwrap_or(defaults.print_prompt),
-            skill_dirs: config.skill_dirs.into_iter().chain(args.skill_dirs).collect(),
+            model: config.model.unwrap_or(defaults.model),
+            websearch: config.websearch.unwrap_or(defaults.websearch),
+            tick_rate_ms: config.tick_rate_ms.unwrap_or(defaults.tick_rate_ms),
+            no_alt_screen: args.no_alt_screen,
+            no_mouse: args.no_mouse,
+            mouse: config.mouse.unwrap_or(defaults.mouse),
+            verbose: config.verbose.unwrap_or(defaults.verbose),
+            theme: config.theme.unwrap_or(defaults.theme),
+            print_prompt: args.print_prompt,
+            skill_dirs: config.skill_dirs,
+            session_dir: config.session_dir,
         }
     }
 }
@@ -253,6 +288,7 @@ impl Cli {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn cli_defaults_match_spec() {
@@ -271,6 +307,15 @@ mod tests {
 
     #[test]
     fn cli_args_override_config_values() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let workspace = tmp.path();
+        fs::create_dir_all(workspace.join(".thndrs")).expect("create .thndrs dir");
+        fs::write(
+            workspace.join(".thndrs").join("config.toml"),
+            "model = \"config-model\"\nwebsearch = \"native\"\ntick_rate_ms = 250\nverbose = false\ntheme = \"eldritch-minimal\"\n",
+        )
+        .expect("write config");
+
         let args = CliArgs::try_parse_from([
             "thndrs",
             "--model",
@@ -280,16 +325,9 @@ mod tests {
             "catppuccin-mocha",
         ])
         .unwrap();
-        let config = config::Config {
-            model: Some("config-model".to_string()),
-            websearch: Some(WebSearchMode::Native),
-            tick_rate_ms: Some(250),
-            verbose: Some(false),
-            theme: Some(Theme::EldritchMinimal),
-            ..config::Config::default()
-        };
-
-        let cli = Cli::from_parts(args, config);
+        let cli_flags = cli_args_to_flag_values(&args);
+        let effective = config::load_effective(workspace, &cli_flags, &[]).expect("load effective");
+        let cli = Cli::from_effective(args, effective);
 
         assert_eq!(cli.model, "cli-model");
         assert_eq!(cli.websearch, WebSearchMode::Native);
@@ -354,6 +392,12 @@ mod tests {
     fn mouse_flag_parses() {
         let cli = Cli::try_parse_from(["thndrs", "--mouse"]).expect("parse");
         assert!(cli.mouse);
+    }
+
+    #[test]
+    fn mouse_and_no_mouse_conflict() {
+        let err = CliArgs::try_parse_from(["thndrs", "--mouse", "--no-mouse"]).expect_err("conflict rejected");
+        assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
     }
 
     #[test]
