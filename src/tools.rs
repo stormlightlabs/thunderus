@@ -545,6 +545,24 @@ pub fn tool_catalog_schemas(defs: &[ToolDefinition]) -> serde_json::Value {
     )
 }
 
+/// Return a recursively sorted JSON value for deterministic debug rendering.
+pub(crate) fn sorted_json_value(value: &serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Array(items) => serde_json::Value::Array(items.iter().map(sorted_json_value).collect()),
+        serde_json::Value::Object(object) => {
+            let mut entries: Vec<_> = object.iter().collect();
+            entries.sort_by_key(|(key, _)| *key);
+            serde_json::Value::Object(
+                entries
+                    .into_iter()
+                    .map(|(key, value)| (key.clone(), sorted_json_value(value)))
+                    .collect(),
+            )
+        }
+        _ => value.clone(),
+    }
+}
+
 /// Dispatch a provider tool-use request to the matching read-only tool
 /// and execute it against `root`.
 ///

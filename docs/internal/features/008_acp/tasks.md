@@ -5,31 +5,36 @@ Captured: 2026-07-04
 
 ## M0: Confirm The Contract
 
-- [ ] Confirm ACP milestone is client-side external-agent support, not
+- [x] Confirm ACP milestone is client-side external-agent support, not
       `thndrs` as an ACP server.
-- [ ] Confirm stdio is the only milestone-1 ACP transport.
-- [ ] Confirm routing through `--model acp:<name>`.
-- [ ] Confirm config shape for `[acp_agents.<name>]`.
-- [ ] Confirm auth-required agents fail clearly in milestone 1.
-- [ ] Confirm terminal capability is not advertised in milestone 1.
-- [ ] Confirm MCP-over-ACP is out of scope until after `007_mcp`.
-- [ ] Confirm no unstable `agent-client-protocol` features are enabled.
-- [ ] Confirm dependency choice:
+- [x] Confirm stdio is the only milestone-1 ACP transport.
+- [x] Confirm routing through `--model acp:<name>`.
+- [x] Confirm config shape for `[acp_agents.<name>]`.
+- [x] Confirm auth-required agents fail clearly in milestone 1.
+- [x] Confirm terminal capability is not advertised in milestone 1.
+- [x] Confirm MCP-over-ACP is out of scope until after `007_mcp`.
+- [x] Confirm no unstable `agent-client-protocol` features are enabled.
+- [x] Confirm dependency choice:
       `agent-client-protocol = "1.0.1"` and `futures = "0.3"`.
 
 ## M1: SDK Spike
 
-- [ ] Add a temporary local spike or focused test proving
+- [x] Add a temporary local spike or focused test proving
       `agent-client-protocol::AcpAgent` can be driven from a background thread
       with `futures::executor::block_on`.
-- [ ] Use a fake stdio ACP agent process for the spike.
-- [ ] Exercise `initialize`.
-- [ ] Exercise `session/new`.
-- [ ] Exercise `session/prompt`.
-- [ ] Receive at least one `session/update` notification.
-- [ ] Verify stderr capture/debug callbacks do not leak into protocol stdout.
-- [ ] Verify dropping the connection kills or exits the child process.
-- [ ] If Tokio is required, stop and update `plan.md` before adding it.
+- [x] Use a fake stdio ACP agent process for the spike.
+- [x] Exercise `initialize`.
+- [x] Exercise `session/new`.
+- [x] Exercise `session/prompt`.
+- [x] Receive at least one `session/update` notification.
+- [x] Verify stderr capture/debug callbacks do not leak into protocol stdout.
+- [x] Verify dropping the connection kills or exits the child process.
+- [x] Confirm Tokio is not required for the spike; no `plan.md` runtime update
+      is needed.
+
+Result: `tests/acp_sdk_spike.rs` proves `AcpAgent` works from a background
+thread with `futures::executor::block_on` against a fake stdio ACP agent.
+Tokio is not required for the client-side M1 spike.
 
 ## M2: Config
 

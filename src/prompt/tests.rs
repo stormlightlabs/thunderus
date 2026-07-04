@@ -802,7 +802,7 @@ fn snapshot_system_prompt_with_agents_md_context() {
 fn snapshot_tool_catalog_json() {
     let bundle = test_bundle();
     let catalog = render_tool_catalog(&bundle);
-    let json = serde_json::to_string_pretty(&catalog).unwrap_or_default();
+    let json = serde_json::to_string_pretty(&tools::sorted_json_value(&catalog)).unwrap_or_default();
     insta::assert_snapshot!(json);
 }
 
