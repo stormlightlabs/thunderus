@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{context, fuzzy, internals, prompt, session, skills, tools};
 use crate::acp::config::provider_label;
+use crate::acp::permissions::{PendingPermission, PermissionDecision};
 use crate::cli::{Cli, Theme, WebSearchMode};
 use crate::input::PromptInput;
 use crate::providers::{opencode, umans};
@@ -238,6 +239,11 @@ pub enum AgentEvent {
         delay_ms: u64,
         error: String,
     },
+    PermissionRequest(PendingPermission),
+    PermissionResolved {
+        tool_call_id: String,
+        outcome: String,
+    },
     Finished,
     Failed(String),
     Cancelled,
@@ -427,6 +433,8 @@ pub struct App {
     pub kill_ring: Vec<String>,
     /// Scrollable detail pane for inspecting full tool output.
     pub detail_pane: DetailPane,
+    /// One pending ACP permission request, if an external agent is blocked on a user decision.
+    pub pending_permission: Option<PendingPermission>,
     /// Non-fatal config diagnostics from effective config loading. Surfaced in
     /// verbose startup rows and prompt inspection.
     pub config_diagnostics: Vec<String>,
@@ -527,6 +535,7 @@ impl From<&Cli> for App {
             queued_followups: Vec::new(),
             kill_ring: Vec::new(),
             detail_pane: DetailPane::default(),
+            pending_permission: None,
             config_diagnostics: value.config_diagnostics.clone(),
             quit: false,
         }
@@ -731,6 +740,10 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
     }
 
     app.ctrl_d_pending = None;
+
+    if app.pending_permission.is_some() {
+        return handle_permission_key(app, key);
+    }
 
     if app.detail_pane.open {
         return handle_detail_pane_key(app, key);
@@ -996,6 +1009,10 @@ fn handle_command_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
 /// - `backspace`: delete char before cursor
 /// - `delete`: delete char after cursor (forward delete)
 fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
+    if app.pending_permission.is_some() {
+        return None;
+    }
+
     if key.modifiers.contains(KeyModifiers::ALT) {
         let handled = match key.code {
             KeyCode::Left | KeyCode::Char('b') => {
@@ -1539,6 +1556,10 @@ fn sync_file_picker_query(app: &mut App) {
 ///
 /// Returns an optional follow-up [`Msg`].
 fn handle_submit(app: &mut App) -> Option<Msg> {
+    if app.pending_permission.is_some() {
+        return None;
+    }
+
     if app.run_state == RunState::Working {
         let text = app.input.as_str().trim().to_string();
         if text.is_empty() {
@@ -1797,8 +1818,32 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             });
             None
         }
+        AgentEvent::PermissionRequest(permission) => {
+            finalize_streaming(app);
+            if app.pending_permission.is_some() {
+                let _ = permission.cancel();
+                app.transcript.push(Entry::Error {
+                    text: "acp: received a second permission request while one is pending; cancelled it".to_string(),
+                });
+                return None;
+            }
+            let turn_id = format!("turn_{}", app.turn_count);
+            if let Some(ref mut writer) = app.session_writer {
+                let _ = writer.append_acp_permission_request(&turn_id, &permission);
+            }
+            app.pending_permission = Some(permission);
+            None
+        }
+        AgentEvent::PermissionResolved { tool_call_id, outcome } => {
+            let turn_id = format!("turn_{}", app.turn_count);
+            if let Some(ref mut writer) = app.session_writer {
+                let _ = writer.append_acp_permission_outcome(&turn_id, &tool_call_id, &outcome);
+            }
+            None
+        }
         AgentEvent::Finished => {
             finalize_streaming(app);
+            cancel_pending_permission(app);
             app.run_state = RunState::Idle;
             app.last_input = None;
             refresh_git_status(app);
@@ -1812,6 +1857,7 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
         }
         AgentEvent::Failed(msg) => {
             finalize_streaming(app);
+            cancel_pending_permission(app);
             app.transcript.push(Entry::Error { text: msg.clone() });
             app.run_state = RunState::Error(msg);
             if let Some(input) = app.last_input.take() {
@@ -1823,6 +1869,7 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
         }
         AgentEvent::Cancelled => {
             finalize_streaming(app);
+            cancel_pending_permission(app);
             cancel_running_tools(app);
             if app.run_state == RunState::Working {
                 app.transcript.push(Entry::Status { text: String::from("cancelled") });
@@ -1834,6 +1881,42 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             refresh_git_status(app);
             None
         }
+    }
+}
+
+fn handle_permission_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
+    match key.code {
+        KeyCode::Up => {
+            if let Some(permission) = app.pending_permission.as_mut() {
+                permission.move_up();
+            }
+            None
+        }
+        KeyCode::Down => {
+            if let Some(permission) = app.pending_permission.as_mut() {
+                permission.move_down();
+            }
+            None
+        }
+        KeyCode::Enter => {
+            if let Some(permission) = app.pending_permission.take()
+                && let Some(PermissionDecision::Selected(option_id)) = permission.select()
+            {
+                app.transcript.push(Entry::Status {
+                    text: format!("acp permission {}: selected {option_id}", permission.tool_call_id),
+                });
+            }
+            None
+        }
+        KeyCode::Esc => {
+            if let Some(permission) = app.pending_permission.take() {
+                let _ = permission.cancel();
+                app.transcript
+                    .push(Entry::Status { text: format!("acp permission {}: cancelled", permission.tool_call_id) });
+            }
+            None
+        }
+        _ => None,
     }
 }
 
@@ -1849,10 +1932,17 @@ fn refresh_git_status(app: &mut App) {
 /// When the `Cancelled` agent event arrives (or the channel disconnects), the
 /// state transitions from `Stopping` to `Idle`.
 fn cancel_stream(app: &mut App) {
+    cancel_pending_permission(app);
     finalize_streaming(app);
     app.transcript.push(Entry::Status { text: String::from("cancelled") });
     app.run_state = RunState::Stopping;
     persist_last_entry(app);
+}
+
+fn cancel_pending_permission(app: &mut App) {
+    if let Some(permission) = app.pending_permission.take() {
+        let _ = permission.cancel();
+    }
 }
 
 fn remember_input(app: &mut App, text: &str) {

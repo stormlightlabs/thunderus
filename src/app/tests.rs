@@ -1,9 +1,11 @@
 use super::*;
+use crate::acp::permissions::{PendingPermission, PermissionDecision, PermissionKindView, PermissionOptionView};
 use crate::input::PromptInput;
 use crate::renderer;
 use crate::skills::{SkillMetadata, SkillSource};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::io::Write;
+use std::sync::mpsc;
 
 fn key(code: KeyCode, modifiers: KeyModifiers) -> Msg {
     Msg::Key(KeyEvent::new(code, modifiers))
@@ -2166,4 +2168,82 @@ fn queued_input_append_failure_is_visible() {
             .any(|e| matches!(e, Entry::Error { text } if text.contains("failed to record queued follow-up"))),
         "append failure should be surfaced in the transcript"
     );
+}
+
+fn pending_permission(tx: mpsc::Sender<PermissionDecision>) -> PendingPermission {
+    PendingPermission {
+        tool_call_id: "call_1".to_string(),
+        title: "Edit file".to_string(),
+        options: vec![
+            PermissionOptionView {
+                id: "reject".to_string(),
+                name: "Reject".to_string(),
+                kind: PermissionKindView::RejectOnce,
+            },
+            PermissionOptionView {
+                id: "allow".to_string(),
+                name: "Allow".to_string(),
+                kind: PermissionKindView::AllowOnce,
+            },
+        ],
+        selected: 0,
+        responder: tx,
+    }
+}
+
+#[test]
+fn acp_permission_select_sends_selected_option() {
+    let mut app = fresh_app();
+    let (tx, rx) = mpsc::channel();
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::PermissionRequest(pending_permission(tx))),
+    );
+
+    update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(
+        rx.try_recv().expect("permission decision"),
+        PermissionDecision::Selected("allow".to_string())
+    );
+    assert!(app.pending_permission.is_none());
+}
+
+#[test]
+fn acp_permission_escape_cancels_request() {
+    let mut app = fresh_app();
+    let (tx, rx) = mpsc::channel();
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::PermissionRequest(pending_permission(tx))),
+    );
+
+    update(&mut app, &key(KeyCode::Esc, KeyModifiers::NONE));
+
+    assert_eq!(
+        rx.try_recv().expect("permission decision"),
+        PermissionDecision::Cancelled
+    );
+    assert!(app.pending_permission.is_none());
+}
+
+#[test]
+fn acp_permission_run_cancel_responds_cancelled() {
+    let mut app = fresh_app();
+    app.run_state = RunState::Working;
+    let (tx, rx) = mpsc::channel();
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::PermissionRequest(pending_permission(tx))),
+    );
+
+    update(&mut app, &Msg::Agent(AgentEvent::Cancelled));
+
+    assert_eq!(
+        rx.try_recv().expect("permission decision"),
+        PermissionDecision::Cancelled
+    );
+    assert!(app.pending_permission.is_none());
+    assert_eq!(app.run_state, RunState::Idle);
 }

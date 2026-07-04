@@ -282,6 +282,11 @@ pub fn hash_content(content: &str) -> u64 {
     hasher.finish()
 }
 
+/// Resolve a workspace path using the same containment and symlink checks as tools.
+pub fn resolve_workspace_path(root: &Path, path: &Path) -> std::io::Result<PathBuf> {
+    path::resolve_within_root(root, &path.display().to_string())
+}
+
 /// The catalog of read-only filesystem tools exposed to the model.
 ///
 /// These map directly to tool implementations. The model sees typed tool

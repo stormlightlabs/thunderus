@@ -32,12 +32,6 @@ pub fn resolve_within_root(root: &Path, relative: &str) -> io::Result<PathBuf> {
         canonical_root.join(relative)
     };
     let normalized = lexical_normalize(&candidate);
-    if !normalized.starts_with(&canonical_root) {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            format!("path escapes workspace root: {relative}"),
-        ));
-    }
 
     if let Some(existing) = nearest_existing_ancestor(&normalized) {
         let canonical_existing = existing.canonicalize()?;
@@ -47,6 +41,18 @@ pub fn resolve_within_root(root: &Path, relative: &str) -> io::Result<PathBuf> {
                 format!("path escapes workspace root through symlink: {relative}"),
             ));
         }
+        let suffix = normalized.strip_prefix(&existing).unwrap_or_else(|_| Path::new(""));
+        if suffix.as_os_str().is_empty() {
+            return Ok(canonical_existing);
+        }
+        return Ok(canonical_existing.join(suffix));
+    }
+
+    if !normalized.starts_with(&canonical_root) {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("path escapes workspace root: {relative}"),
+        ));
     }
 
     Ok(normalized)

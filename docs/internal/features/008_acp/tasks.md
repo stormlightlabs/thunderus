@@ -115,33 +115,45 @@ stable status rows.
 
 ## M6: Permission UI
 
-- [ ] Add app state for one pending ACP permission request.
-- [ ] Add `AgentEvent` variant or side channel for permission requests.
-- [ ] Render a focused permission prompt with title and options.
-- [ ] Allow keyboard selection of an agent-provided option.
-- [ ] Allow cancellation of the permission request.
-- [ ] Block normal prompt submission while permission is pending.
-- [ ] If the run is cancelled, respond with
+- [x] Add app state for one pending ACP permission request.
+- [x] Add `AgentEvent` variant or side channel for permission requests.
+- [x] Render a focused permission prompt with title and options.
+- [x] Allow keyboard selection of an agent-provided option.
+- [x] Allow cancellation of the permission request.
+- [x] Block normal prompt submission while permission is pending.
+- [x] If the run is cancelled, respond with
       `RequestPermissionOutcome::Cancelled`.
-- [ ] Record permission request and selected/cancelled outcome in session JSONL.
-- [ ] Add app update tests for select, cancel, and run-cancel cases.
-- [ ] Add renderer snapshot tests for the permission surface.
+- [x] Record permission request and selected/cancelled outcome in session JSONL.
+- [x] Add app update tests for select, cancel, and run-cancel cases.
+- [x] Add renderer snapshot tests for the permission surface.
+
+Result: `src/acp/permissions.rs`, `src/app.rs`, and `src/renderer/live.rs`
+now support one focused ACP permission request at a time. User selection and
+cancellation are returned to the ACP runner, normal prompt submission is blocked
+while a permission is pending, run cancellation responds with `Cancelled`, and
+permission request/outcome metadata is recorded in session JSONL.
 
 ## M7: Filesystem Callbacks
 
-- [ ] Implement `fs/read_text_file` for workspace-contained text files.
-- [ ] Implement `fs/write_text_file` for workspace-contained text writes.
-- [ ] Reuse existing path normalization/containment helpers where possible.
-- [ ] Reject path traversal outside the workspace.
-- [ ] Reject directories.
-- [ ] Reject symlink escapes.
-- [ ] Reject oversized reads using existing output limits.
-- [ ] Return protocol errors or failed responses for denied reads/writes.
-- [ ] Emit status/tool rows for filesystem requests.
-- [ ] Record successful writes with existing file-write audit metadata.
-- [ ] Record failed writes as stable failures without modifying files.
-- [ ] Add tests for read ok, write ok, traversal denied, symlink denied,
+- [x] Implement `fs/read_text_file` for workspace-contained text files.
+- [x] Implement `fs/write_text_file` for workspace-contained text writes.
+- [x] Reuse existing path normalization/containment helpers where possible.
+- [x] Reject path traversal outside the workspace.
+- [x] Reject directories.
+- [x] Reject symlink escapes.
+- [x] Reject oversized reads using existing output limits.
+- [x] Return protocol errors or failed responses for denied reads/writes.
+- [x] Emit status/tool rows for filesystem requests.
+- [x] Record successful writes with existing file-write audit metadata.
+- [x] Record failed writes as stable failures without modifying files.
+- [x] Add tests for read ok, write ok, traversal denied, symlink denied,
       oversized read denied, and binary/non-UTF-8 read denied.
+
+Result: `src/acp/fs.rs` now implements workspace-contained ACP read/write
+callbacks using the shared tool path policy. Denied requests produce failed tool
+rows and JSON-RPC errors, successful writes flow through existing `file_write`
+audit metadata, and callback tests cover success, traversal, symlink, oversized,
+directory, and non-UTF-8 failures.
 
 ## M8: Cancellation And Timeouts
 

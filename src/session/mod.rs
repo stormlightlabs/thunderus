@@ -25,6 +25,8 @@
 //! - `file_write`: file write audit (op, path, before/after hash+bytes, status).
 //! - `cancelled`: turn id and reason.
 //! - `failed`: turn id and error message.
+//! - `acp_permission_request`: ACP permission prompt metadata.
+//! - `acp_permission_outcome`: ACP permission selected/cancelled outcome.
 //! - `session_renamed`: new title (latest wins).
 //! - `skill_activated`: activated skill file and rendered activation metadata.
 
@@ -36,6 +38,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::acp::permissions::PendingPermission;
 use crate::app::{Entry, ToolStatus};
 use crate::context::ContextSource;
 use crate::prompt::{EnvironmentMetadata, HistoryReuse, PromptBundle};
@@ -269,6 +272,27 @@ pub enum SessionRecord {
         kind: String,
         text: String,
     },
+    /// ACP permission request metadata.
+    #[serde(rename = "acp_permission_request")]
+    AcpPermissionRequest {
+        schema_version: u32,
+        seq: u64,
+        time: String,
+        turn_id: String,
+        tool_call_id: String,
+        title: String,
+        options: Vec<AcpPermissionOptionRecord>,
+    },
+    /// ACP permission request outcome.
+    #[serde(rename = "acp_permission_outcome")]
+    AcpPermissionOutcome {
+        schema_version: u32,
+        seq: u64,
+        time: String,
+        turn_id: String,
+        tool_call_id: String,
+        outcome: String,
+    },
 }
 
 impl SessionRecord {
@@ -289,7 +313,9 @@ impl SessionRecord {
             | SessionRecord::FileWrite { seq, .. }
             | SessionRecord::ShellExec { seq, .. }
             | SessionRecord::SkillActivated { seq, .. }
-            | SessionRecord::QueuedInput { seq, .. } => *seq,
+            | SessionRecord::QueuedInput { seq, .. }
+            | SessionRecord::AcpPermissionRequest { seq, .. }
+            | SessionRecord::AcpPermissionOutcome { seq, .. } => *seq,
         }
     }
 
@@ -380,9 +406,26 @@ impl SessionRecord {
             SessionRecord::SkillActivated { name, path, .. } => {
                 Some(Entry::Status { text: format!("skill activated: {name} ({path})") })
             }
+            SessionRecord::AcpPermissionRequest { tool_call_id, title, .. } => {
+                Some(Entry::Status { text: format!("acp permission requested: {title} ({tool_call_id})") })
+            }
+            SessionRecord::AcpPermissionOutcome { tool_call_id, outcome, .. } => {
+                Some(Entry::Status { text: format!("acp permission {tool_call_id}: {outcome}") })
+            }
             _ => None,
         }
     }
+}
+
+/// Persisted ACP permission option metadata.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AcpPermissionOptionRecord {
+    /// ACP option id.
+    pub id: String,
+    /// Human-readable option label.
+    pub name: String,
+    /// Lowercase option kind.
+    pub kind: String,
 }
 
 /// Metadata for a single prompt turn, suitable for append-only JSONL storage.
@@ -788,6 +831,53 @@ impl SessionWriter {
         Ok(())
     }
 
+    /// Append ACP permission request metadata.
+    pub fn append_acp_permission_request(&mut self, turn_id: &str, request: &PendingPermission) -> std::io::Result<()> {
+        let record = SessionRecord::AcpPermissionRequest {
+            schema_version: SCHEMA_VERSION,
+            seq: self.seq,
+            time: datetime::now_iso8601(),
+            turn_id: turn_id.to_string(),
+            tool_call_id: request.tool_call_id.clone(),
+            title: request.title.clone(),
+            options: request
+                .options
+                .iter()
+                .map(|option| AcpPermissionOptionRecord {
+                    id: option.id.clone(),
+                    name: option.name.clone(),
+                    kind: option.kind.label().to_string(),
+                })
+                .collect(),
+        };
+        self.seq += 1;
+        let line = record.to_json().map_err(io_err)?;
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new().append(true).open(&self.path)?;
+        writeln!(file, "{line}")?;
+        Ok(())
+    }
+
+    /// Append ACP permission outcome metadata.
+    pub fn append_acp_permission_outcome(
+        &mut self, turn_id: &str, tool_call_id: &str, outcome: &str,
+    ) -> std::io::Result<()> {
+        let record = SessionRecord::AcpPermissionOutcome {
+            schema_version: SCHEMA_VERSION,
+            seq: self.seq,
+            time: datetime::now_iso8601(),
+            turn_id: turn_id.to_string(),
+            tool_call_id: tool_call_id.to_string(),
+            outcome: outcome.to_string(),
+        };
+        self.seq += 1;
+        let line = record.to_json().map_err(io_err)?;
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new().append(true).open(&self.path)?;
+        writeln!(file, "{line}")?;
+        Ok(())
+    }
+
     /// The session file path.
     pub fn path(&self) -> &Path {
         &self.path
@@ -1002,6 +1092,8 @@ fn set_seq(record: &mut SessionRecord, seq: u64) {
         | SessionRecord::FileWrite { seq: s, .. }
         | SessionRecord::ShellExec { seq: s, .. }
         | SessionRecord::SkillActivated { seq: s, .. }
-        | SessionRecord::QueuedInput { seq: s, .. } => *s = seq,
+        | SessionRecord::QueuedInput { seq: s, .. }
+        | SessionRecord::AcpPermissionRequest { seq: s, .. }
+        | SessionRecord::AcpPermissionOutcome { seq: s, .. } => *s = seq,
     }
 }

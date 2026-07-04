@@ -7,14 +7,14 @@ use std::thread;
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1::{
     ContentBlock, InitializeRequest, NewSessionRequest, PromptRequest, ReadTextFileRequest, ReadTextFileResponse,
-    RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse, SessionNotification, StopReason,
-    TextContent, WriteTextFileRequest, WriteTextFileResponse,
+    RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome,
+    SessionNotification, StopReason, TextContent, WriteTextFileRequest, WriteTextFileResponse,
 };
 use agent_client_protocol::{AcpAgent, Agent, Client, ConnectionTo, LineDirection};
 
-use crate::acp::{config, events};
+use crate::acp::{config, events, fs, permissions};
 use crate::agent::CancelToken;
-use crate::app::AgentEvent;
+use crate::app::{AgentEvent, ToolStatus};
 use crate::config::AcpAgentConfig;
 
 /// Handle for a client-side ACP run.
@@ -99,6 +99,8 @@ async fn run_async(handle: RunHandle, agent_config: AcpAgentConfig, tx: Sender<A
     let read_tx = tx.clone();
     let write_tx = tx.clone();
     let root = handle.root.clone();
+    let read_root = handle.root.clone();
+    let write_root = handle.root.clone();
     let prompt = handle.prompt.clone();
     let cancel = handle.cancel.clone();
     let name = handle.name.clone();
@@ -116,31 +118,100 @@ async fn run_async(handle: RunHandle, agent_config: AcpAgentConfig, tx: Sender<A
         )
         .on_receive_request(
             async move |request: RequestPermissionRequest, responder, _cx| {
-                let _ = permission_tx.send(AgentEvent::Status(format!(
-                    "acp: permission requested for {}; cancelling until permission UI is implemented",
-                    request.tool_call.tool_call_id
-                )));
-                responder.respond(RequestPermissionResponse::new(RequestPermissionOutcome::Cancelled))
+                let (decision_tx, decision_rx) = mpsc::channel();
+                let pending = permissions::PendingPermission::from_request(&request, decision_tx);
+                let request_id = pending.tool_call_id.clone();
+                let _ = permission_tx.send(AgentEvent::PermissionRequest(pending));
+                let outcome = match decision_rx.recv() {
+                    Ok(permissions::PermissionDecision::Selected(option_id)) => {
+                        RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(option_id))
+                    }
+                    Ok(permissions::PermissionDecision::Cancelled) | Err(_) => RequestPermissionOutcome::Cancelled,
+                };
+                let _ = permission_tx.send(AgentEvent::PermissionResolved {
+                    tool_call_id: request_id,
+                    outcome: permission_outcome_label(&outcome).to_string(),
+                });
+                responder.respond(RequestPermissionResponse::new(outcome))
             },
             agent_client_protocol::on_receive_request!(),
         )
         .on_receive_request(
             async move |request: ReadTextFileRequest, responder, _cx| {
-                let _ = read_tx.send(AgentEvent::Status(format!(
-                    "acp: read_text_file requested for {}; returning empty content until filesystem callbacks are implemented",
-                    request.path.display()
-                )));
-                responder.respond(ReadTextFileResponse::new(""))
+                let id = format!("acp-read-{}", request.path.display());
+                let args = serde_json::json!({
+                    "path": request.path.display().to_string(),
+                    "line": request.line,
+                    "limit": request.limit,
+                })
+                .to_string();
+                let _ = read_tx.send(AgentEvent::ToolStarted {
+                    id: id.clone(),
+                    name: "acp.fs.read_text_file".to_string(),
+                    arguments: args,
+                });
+                match fs::read_text_file(&request.path, &read_root, request.line, request.limit) {
+                    Ok(result) => {
+                        let _ = read_tx.send(AgentEvent::ToolFinished {
+                            id,
+                            output: result.output,
+                            status: ToolStatus::Ok,
+                            write_result: None,
+                            shell_result: None,
+                        });
+                        responder.respond(ReadTextFileResponse::new(result.content))
+                    }
+                    Err(message) => {
+                        let (output, status) = fs::failed_output(&message);
+                        let _ = read_tx.send(AgentEvent::ToolFinished {
+                            id,
+                            output,
+                            status,
+                            write_result: None,
+                            shell_result: None,
+                        });
+                        responder.respond_with_error(agent_client_protocol::util::internal_error(message))
+                    }
+                }
             },
             agent_client_protocol::on_receive_request!(),
         )
         .on_receive_request(
             async move |request: WriteTextFileRequest, responder, _cx| {
-                let _ = write_tx.send(AgentEvent::Status(format!(
-                    "acp: write_text_file requested for {}; ignoring until filesystem callbacks are implemented",
-                    request.path.display()
-                )));
-                responder.respond(WriteTextFileResponse::new())
+                let id = format!("acp-write-{}", request.path.display());
+                let args = serde_json::json!({
+                    "path": request.path.display().to_string(),
+                    "content_bytes": request.content.len(),
+                })
+                .to_string();
+                let _ = write_tx.send(AgentEvent::ToolStarted {
+                    id: id.clone(),
+                    name: "acp.fs.write_text_file".to_string(),
+                    arguments: args,
+                });
+                match fs::write_text_file(&request.path, &write_root, &request.content) {
+                    Ok(result) => {
+                        let _ = write_tx.send(AgentEvent::ToolFinished {
+                            id,
+                            output: result.output,
+                            status: ToolStatus::Ok,
+                            write_result: Some(result.write_result),
+                            shell_result: None,
+                        });
+                        responder.respond(WriteTextFileResponse::new())
+                    }
+                    Err(message) => {
+                        let (output, status) = fs::failed_output(&message);
+                        let _ = write_tx.send(AgentEvent::ToolFinished {
+                            id,
+                            output,
+                            status,
+                            write_result: None,
+                            shell_result: None,
+                        });
+                        responder.respond_with_error(agent_client_protocol::util::internal_error(message))
+                    }
+                }
             },
             agent_client_protocol::on_receive_request!(),
         )
@@ -149,6 +220,14 @@ async fn run_async(handle: RunHandle, agent_config: AcpAgentConfig, tx: Sender<A
         })
         .await
         .map_err(|err| format!("ACP agent `{}` failed: {err}", handle.name))
+}
+
+fn permission_outcome_label(outcome: &RequestPermissionOutcome) -> &'static str {
+    match outcome {
+        RequestPermissionOutcome::Cancelled => "cancelled",
+        RequestPermissionOutcome::Selected(_) => "selected",
+        _ => "unknown",
+    }
 }
 
 async fn run_session(

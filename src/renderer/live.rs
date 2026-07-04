@@ -130,6 +130,10 @@ pub fn accessory_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
         return Vec::new();
     }
 
+    if app.pending_permission.is_some() {
+        return permission_rows(app, width, max_height);
+    }
+
     match app.prompt_accessory {
         PromptAccessory::None => Vec::new(),
         PromptAccessory::Help => help_rows(app, width, max_height),
@@ -138,6 +142,53 @@ pub fn accessory_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
         PromptAccessory::Models => picker_rows(app, "models", width, max_height),
         PromptAccessory::Skills => picker_rows(app, "skills", width, max_height),
     }
+}
+
+fn permission_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
+    let Some(permission) = app.pending_permission.as_ref() else {
+        return Vec::new();
+    };
+    let p = super::style::palette();
+    let bg = p.surface0;
+    let title_style = CellStyle::new().fg(p.peach).bg(bg).bold();
+    let muted_style = CellStyle::new().fg(p.subtext0).bg(bg);
+    let selected_style = CellStyle::new().fg(p.text).bg(bg).bold();
+    let option_style = CellStyle::new().fg(p.text).bg(bg);
+
+    let mut rows = Vec::new();
+    rows.push(Row::padded(
+        vec![
+            Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(bg)),
+            Span::styled("permission", title_style),
+            Span::styled(format!("  {}", permission.title), muted_style),
+        ],
+        width,
+        bg_style(bg),
+    ));
+
+    for (index, option) in permission.options.iter().enumerate() {
+        if rows.len() >= max_height {
+            break;
+        }
+        let selected = index == permission.selected;
+        let marker = if selected { "›" } else { " " };
+        rows.push(Row::padded(
+            vec![
+                Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(bg)),
+                Span::styled(marker, if selected { selected_style } else { muted_style }),
+                Span::styled(" ", CellStyle::new().bg(bg)),
+                Span::styled(
+                    option.name.clone(),
+                    if selected { selected_style } else { option_style },
+                ),
+                Span::styled(format!("  {}", option.kind.label()), muted_style),
+            ],
+            width,
+            bg_style(bg),
+        ));
+    }
+
+    rows
 }
 
 /// Build a queued-prompt summary row when steering or follow-up prompts are
@@ -613,10 +664,12 @@ fn help_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::acp::permissions::{PendingPermission, PermissionKindView, PermissionOptionView};
     use crate::app::{App, FilePickerSource, Mode, PickerItem, PickerState, RunState};
     use crate::cli::{Cli, Theme, WebSearchMode};
     use crate::renderer::layout::truncate_spans;
     use std::path::PathBuf;
+    use std::sync::mpsc;
 
     fn test_app() -> App {
         let mut app = App::from_cli(&Cli {
@@ -847,6 +900,34 @@ mod tests {
         let rows = accessory_rows(&app, 80, 12);
         let frame = crate::renderer::row::Frame { rows, width: 80, cursor: None, cursor_visible: true };
         insta::assert_snapshot!("file_picker_empty_query", frame.render_styled());
+    }
+
+    #[test]
+    fn snapshot_permission_prompt() {
+        let mut app = test_app();
+        let (tx, _rx) = mpsc::channel();
+        app.pending_permission = Some(PendingPermission {
+            tool_call_id: "call_1".to_string(),
+            title: "Write src/main.rs".to_string(),
+            options: vec![
+                PermissionOptionView {
+                    id: "allow".to_string(),
+                    name: "Allow once".to_string(),
+                    kind: PermissionKindView::AllowOnce,
+                },
+                PermissionOptionView {
+                    id: "reject".to_string(),
+                    name: "Reject".to_string(),
+                    kind: PermissionKindView::RejectOnce,
+                },
+            ],
+            selected: 1,
+            responder: tx,
+        });
+
+        let rows = accessory_rows(&app, 80, 12);
+        let frame = crate::renderer::row::Frame { rows, width: 80, cursor: None, cursor_visible: true };
+        insta::assert_snapshot!("permission_prompt", frame.render_styled());
     }
 
     #[test]
