@@ -157,15 +157,23 @@ directory, and non-UTF-8 failures.
 
 ## M8: Cancellation And Timeouts
 
-- [ ] Wire Escape/local cancel to ACP prompt cancellation.
-- [ ] Send `session/cancel` for an active ACP session.
-- [ ] Cancel pending permission requests.
-- [ ] Apply initialize timeout.
-- [ ] Apply session creation timeout.
-- [ ] Apply prompt completion watchdog timeout.
-- [ ] Convert timeout to `AgentEvent::Failed` with a clear message.
-- [ ] Ensure child process cleanup after timeout.
-- [ ] Add tests for local cancel, pending permission cancel, and timeout.
+- [x] Wire Escape/local cancel to ACP prompt cancellation.
+- [x] Send `session/cancel` for an active ACP session.
+- [x] Cancel pending permission requests.
+- [x] Apply initialize timeout.
+- [x] Apply session creation timeout.
+- [x] Apply prompt completion watchdog timeout.
+- [x] Convert timeout to `AgentEvent::Failed` with a clear message.
+- [x] Ensure child process cleanup after timeout.
+- [x] Add tests for local cancel, pending permission cancel, and timeout.
+
+Result: `src/acp/runner.rs` now drives initialize, session creation, and
+prompt requests through cancellation-aware timeout guards. Local cancellation
+sends `session/cancel` for active ACP prompts, pending permission callbacks
+observe the shared cancel token and respond with `Cancelled`, and prompt
+timeouts fail visibly while dropping the connection to clean up the child
+process. Fake-agent tests cover local cancel, pending permission cancel,
+initialize timeout, session creation timeout, and prompt timeout.
 
 ## M9: Session Persistence
 
