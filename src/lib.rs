@@ -123,6 +123,11 @@ fn run_acp_command(cli: &Cli, command: &AcpCommand) -> io::Result<()> {
             let mut lock = stdout.lock();
             run_acp_smoke(cli, name, prompt, &mut lock)
         }
+        AcpCommand::Logout { name } => {
+            let stdout = io::stdout();
+            let mut lock = stdout.lock();
+            run_acp_logout(cli, name, &mut lock)
+        }
     }
 }
 
@@ -230,6 +235,18 @@ fn run_acp_smoke<W: io::Write>(cli: &Cli, name: &str, prompt: &str, writer: &mut
         io::ErrorKind::UnexpectedEof,
         "ACP smoke stream ended before a terminal event",
     ))
+}
+
+fn run_acp_logout<W: io::Write>(cli: &Cli, name: &str, writer: &mut W) -> io::Result<()> {
+    let agent = cli
+        .acp_agents
+        .get(name)
+        .cloned()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("ACP agent `{name}` is not configured")))?;
+    for line in acp::runner::logout(name, agent).map_err(io::Error::other)? {
+        writeln!(writer, "{line}")?;
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug)]
@@ -1001,6 +1018,27 @@ mod tests {
         assert!(output.contains("acp_session: local fake-session-1"));
         assert!(output.contains("pong from fake ACP agent"));
         assert!(output.contains("finished"));
+    }
+
+    #[test]
+    fn acp_logout_runs_fake_agent_and_prints_result() {
+        let mut agents = config::AcpAgentsConfig::new();
+        agents.insert(
+            "local".to_string(),
+            config::AcpAgentConfig {
+                command: "python3".to_string(),
+                args: vec![fake_agent_fixture().display().to_string(), "auth-success".to_string()],
+                timeout_secs: 2,
+                ..config::AcpAgentConfig::default()
+            },
+        );
+        let cli = Cli { acp_agents: agents, ..Cli::default() };
+        let mut output = Vec::new();
+
+        run_acp_logout(&cli, "local", &mut output).expect("logout run");
+        let output = String::from_utf8(output).expect("utf8");
+
+        assert!(output.contains("acp: logged out `local`"));
     }
 
     #[test]

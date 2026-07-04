@@ -250,14 +250,14 @@ writing one-off inline Python agents.
 ## M13: Auth
 
 - [x] Design where ACP auth state is stored.
-- [ ] Redact auth state in logs, sessions, diagnostics, and inspect/export.
-- [ ] Implement `authenticate` for advertised auth methods that fit local CLI
+- [x] Redact auth state in logs, sessions, diagnostics, and inspect/export.
+- [x] Implement `authenticate` for advertised auth methods that fit local CLI
       use.
-- [ ] Implement `logout` when the agent advertises logout support.
-- [ ] Add recovery behavior for expired, rejected, or missing credentials.
-- [ ] Add a separate OS credential-store design before supporting any
+- [x] Implement `logout` when the agent advertises logout support.
+- [x] Add recovery behavior for expired, rejected, or missing credentials.
+- [x] Add a separate OS credential-store design before supporting any
       client-owned ACP auth method.
-- [ ] Add tests for auth-required startup, auth failure, auth success, and
+- [x] Add tests for auth-required startup, auth failure, auth success, and
       logout.
 
 Decision: ACP auth state is agent-owned. `thndrs` may call stable
@@ -266,23 +266,35 @@ not store credentials, tokens, cookies, or refresh state in TOML, sessions, or
 diagnostics. If ACP later requires client-owned secret storage, use a separate
 design with an OS credential store instead of extending session/config files.
 
+Result: `src/acp/runner.rs` now calls stable agent-owned `authenticate` methods
+before session creation and reports auth success/failure without storing
+credential state. `thndrs acp logout <name>` initializes the agent and calls
+`logout` only when advertised. Auth method ids/names and outcomes may appear in
+status rows, but no tokens, cookies, or raw auth payloads are persisted.
+
 ## M14: Terminal Callbacks
 
 - [x] Decide when `thndrs` advertises terminal capability.
-- [ ] Implement `terminal/create` with argv arrays and workspace cwd policy.
-- [ ] Implement `terminal/output` with byte caps and incremental display.
-- [ ] Implement `terminal/wait_for_exit`.
-- [ ] Implement `terminal/kill`.
-- [ ] Implement `terminal/release`.
-- [ ] Record terminal lifecycle metadata in session JSONL.
-- [ ] Advertise `clientCapabilities.terminal` only after terminal callbacks,
+- [x] Implement `terminal/create` with argv arrays and workspace cwd policy.
+- [x] Implement `terminal/output` with byte caps and incremental display.
+- [x] Implement `terminal/wait_for_exit`.
+- [x] Implement `terminal/kill`.
+- [x] Implement `terminal/release`.
+- [x] Record terminal lifecycle metadata in session JSONL.
+- [x] Advertise `clientCapabilities.terminal` only after terminal callbacks,
       UI display, cleanup, output caps, and audit tests are complete.
-- [ ] Add UI tests and process lifecycle tests.
+- [x] Add UI tests and process lifecycle tests.
 
 Decision: keep `clientCapabilities.terminal` absent/false until all terminal
 callbacks share the built-in shell safety contract: argv-only execution,
 workspace-contained cwd handling, env redaction, byte-capped output,
 incremental display, cancellation/kill/release cleanup, and session audit.
+
+Result: `src/acp/terminal.rs` owns ACP terminal processes behind a registry.
+The runner now advertises terminal support, handles create/output/wait/kill/
+release callbacks, caps and redacts output, keeps cwd workspace-contained,
+updates the normal tool row for incremental display, and records final process
+metadata through the existing `shell_exec` session audit path.
 
 ## M15: Agent-Owned Sessions
 

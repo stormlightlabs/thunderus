@@ -12,14 +12,16 @@ use futures::future::{Either, FutureExt, select};
 
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1::{
-    CancelNotification, ContentBlock, InitializeRequest, NewSessionRequest, PromptRequest, ReadTextFileRequest,
-    ReadTextFileResponse, RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
-    SelectedPermissionOutcome, SessionId, SessionNotification, StopReason, TextContent, WriteTextFileRequest,
+    AuthMethod, AuthenticateRequest, CancelNotification, ClientCapabilities, ContentBlock, CreateTerminalRequest,
+    FileSystemCapabilities, InitializeRequest, KillTerminalRequest, LogoutRequest, NewSessionRequest, PromptRequest,
+    ReadTextFileRequest, ReadTextFileResponse, ReleaseTerminalRequest, RequestPermissionOutcome,
+    RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome, SessionId, SessionNotification,
+    StopReason, TerminalOutputRequest, TextContent, WaitForTerminalExitRequest, WriteTextFileRequest,
     WriteTextFileResponse,
 };
 use agent_client_protocol::{AcpAgent, Agent, Client, ConnectionTo, JsonRpcRequest, LineDirection};
 
-use crate::acp::{config, events, fs, permissions};
+use crate::acp::{config, events, fs, permissions, terminal};
 use crate::agent::CancelToken;
 use crate::app::{AgentEvent, ToolStatus};
 use crate::config::AcpAgentConfig;
@@ -59,6 +61,51 @@ pub fn spawn_run(handle: RunHandle) -> Receiver<AgentEvent> {
     let (tx, rx) = mpsc::channel::<AgentEvent>();
     thread::spawn(move || run(&handle, &tx));
     rx
+}
+
+/// Log out of an ACP agent when the agent advertises logout support.
+pub fn logout(name: &str, agent_config: AcpAgentConfig) -> Result<Vec<String>, String> {
+    if !agent_config.enabled {
+        return Err(format!("ACP agent `{name}` is disabled"));
+    }
+    futures::executor::block_on(logout_async(name.to_string(), agent_config))
+}
+
+async fn logout_async(name: String, agent_config: AcpAgentConfig) -> Result<Vec<String>, String> {
+    let agent = build_agent(&agent_config)?;
+    let timeout = Duration::from_secs(agent_config.timeout_secs.max(1));
+    let cancel = CancelToken::new();
+    let error_name = name.clone();
+
+    Client
+        .builder()
+        .connect_with(agent, async move |connection: ConnectionTo<Agent>| {
+            let initialize = request_with_timeout(
+                &connection,
+                InitializeRequest::new(ProtocolVersion::V1),
+                timeout,
+                &name,
+                "initialize",
+                &cancel,
+            )
+            .await
+            .map_err(timed_request_to_error)?;
+            if initialize.protocol_version != ProtocolVersion::V1 {
+                return Err(agent_client_protocol::util::internal_error(format!(
+                    "ACP agent `{name}` selected unsupported protocol version {:?}",
+                    initialize.protocol_version
+                )));
+            }
+            if initialize.agent_capabilities.auth.logout.is_none() {
+                return Ok(vec![format!("acp: `{name}` does not advertise logout support")]);
+            }
+            request_with_timeout(&connection, LogoutRequest::new(), timeout, &name, "logout", &cancel)
+                .await
+                .map_err(timed_request_to_error)?;
+            Ok(vec![format!("acp: logged out `{name}`")])
+        })
+        .await
+        .map_err(|err| format!("ACP agent `{error_name}` logout failed: {err}"))
 }
 
 fn run(handle: &RunHandle, tx: &Sender<AgentEvent>) {
@@ -121,11 +168,13 @@ async fn run_async(handle: RunHandle, agent_config: AcpAgentConfig, tx: Sender<A
     let root = handle.root.clone();
     let read_root = handle.root.clone();
     let write_root = handle.root.clone();
+    let terminal_root = handle.root.clone();
     let prompt = handle.prompt.clone();
     let cancel = handle.cancel.clone();
     let permission_cancel = handle.cancel.clone();
     let name = handle.name.clone();
     let timeout_secs = agent_config.timeout_secs;
+    let terminal_registry = Arc::new(terminal::TerminalRegistry::new());
 
     Client
         .builder()
@@ -245,6 +294,81 @@ async fn run_async(handle: RunHandle, agent_config: AcpAgentConfig, tx: Sender<A
             },
             agent_client_protocol::on_receive_request!(),
         )
+        .on_receive_request(
+            {
+                let terminal_registry = terminal_registry.clone();
+                let terminal_tx = tx.clone();
+                let terminal_root = terminal_root.clone();
+                async move |request: CreateTerminalRequest, responder, _cx| match terminal_registry
+                    .create(&request, &terminal_root)
+                {
+                    Ok((response, event)) => {
+                        let _ = terminal_tx.send(event);
+                        responder.respond(response)
+                    }
+                    Err(message) => responder.respond_with_error(agent_client_protocol::util::internal_error(message)),
+                }
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            {
+                let terminal_registry = terminal_registry.clone();
+                let terminal_tx = tx.clone();
+                async move |request: TerminalOutputRequest, responder, _cx| match terminal_registry.output(&request) {
+                    Ok((response, event)) => {
+                        let _ = terminal_tx.send(event);
+                        responder.respond(response)
+                    }
+                    Err(message) => responder.respond_with_error(agent_client_protocol::util::internal_error(message)),
+                }
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            {
+                let terminal_registry = terminal_registry.clone();
+                let terminal_tx = tx.clone();
+                async move |request: WaitForTerminalExitRequest, responder, _cx| match terminal_registry
+                    .wait_for_exit(&request)
+                {
+                    Ok((response, event)) => {
+                        let _ = terminal_tx.send(event);
+                        responder.respond(response)
+                    }
+                    Err(message) => responder.respond_with_error(agent_client_protocol::util::internal_error(message)),
+                }
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            {
+                let terminal_registry = terminal_registry.clone();
+                let terminal_tx = tx.clone();
+                async move |request: KillTerminalRequest, responder, _cx| match terminal_registry.kill(&request) {
+                    Ok((response, event)) => {
+                        let _ = terminal_tx.send(event);
+                        responder.respond(response)
+                    }
+                    Err(message) => responder.respond_with_error(agent_client_protocol::util::internal_error(message)),
+                }
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            {
+                let terminal_registry = terminal_registry.clone();
+                let terminal_tx = tx.clone();
+                async move |request: ReleaseTerminalRequest, responder, _cx| match terminal_registry.release(&request) {
+                    Ok((response, event)) => {
+                        let _ = terminal_tx.send(event);
+                        responder.respond(response)
+                    }
+                    Err(message) => responder.respond_with_error(agent_client_protocol::util::internal_error(message)),
+                }
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
         .connect_with(agent, async move |connection: ConnectionTo<Agent>| {
             let command = config::redacted_command_display(&agent_config);
             let context = SessionRunContext {
@@ -270,6 +394,49 @@ fn permission_outcome_label(outcome: &RequestPermissionOutcome) -> &'static str 
     }
 }
 
+async fn authenticate_if_advertised(
+    connection: &ConnectionTo<Agent>, name: &str, timeout: Duration, cancel: &CancelToken, tx: &Sender<AgentEvent>,
+    methods: &[AuthMethod],
+) -> Result<(), agent_client_protocol::Error> {
+    let Some(method) = methods.first() else {
+        return Ok(());
+    };
+    let method_id = method.id().clone();
+    let _ = tx.send(AgentEvent::Status(format!(
+        "acp: authenticating `{name}` with {}",
+        method.name()
+    )));
+    match request_with_timeout(
+        connection,
+        AuthenticateRequest::new(method_id.clone()),
+        timeout,
+        name,
+        "authentication",
+        cancel,
+    )
+    .await
+    {
+        Ok(_) => {
+            let _ = tx.send(AgentEvent::Status(format!(
+                "acp: authentication succeeded for `{name}` via {}",
+                method_id
+            )));
+            Ok(())
+        }
+        Err(TimedRequestError::Cancelled) => {
+            let _ = tx.send(AgentEvent::Cancelled);
+            Ok(())
+        }
+        Err(TimedRequestError::Timeout(message)) => Err(agent_client_protocol::util::internal_error(message)),
+        Err(TimedRequestError::Protocol(error)) => {
+            let _ = tx.send(AgentEvent::Failed(format!(
+                "ACP agent `{name}` authentication failed for method {method_id}"
+            )));
+            Err(error)
+        }
+    }
+}
+
 async fn run_session(
     connection: ConnectionTo<Agent>, context: SessionRunContext<'_>,
 ) -> Result<(), agent_client_protocol::Error> {
@@ -280,15 +447,13 @@ async fn run_session(
     }
 
     let timeout = Duration::from_secs(timeout_secs.max(1));
-    let initialize = match request_with_timeout(
-        &connection,
-        InitializeRequest::new(ProtocolVersion::V1),
-        timeout,
-        name,
-        "initialize",
-        cancel,
-    )
-    .await
+    let initialize_request = InitializeRequest::new(ProtocolVersion::V1).client_capabilities(
+        ClientCapabilities::new()
+            .fs(FileSystemCapabilities::new().read_text_file(true).write_text_file(true))
+            .terminal(true),
+    );
+    let initialize = match request_with_timeout(&connection, initialize_request, timeout, name, "initialize", cancel)
+        .await
     {
         Ok(response) => response,
         Err(TimedRequestError::Cancelled) => {
@@ -305,12 +470,7 @@ async fn run_session(
         )));
         return Ok(());
     }
-    if !initialize.auth_methods.is_empty() {
-        let _ = tx.send(AgentEvent::Failed(format!(
-            "ACP agent `{name}` requires authentication, which is not implemented yet"
-        )));
-        return Ok(());
-    }
+    authenticate_if_advertised(&connection, name, timeout, cancel, tx, &initialize.auth_methods).await?;
     let protocol_version = format!("{:?}", initialize.protocol_version);
     let agent_info = initialize.agent_info;
     if let Some(info) = &agent_info {
@@ -384,6 +544,16 @@ enum TimedRequestError {
     Protocol(agent_client_protocol::Error),
     Timeout(String),
     Cancelled,
+}
+
+fn timed_request_to_error(error: TimedRequestError) -> agent_client_protocol::Error {
+    match error {
+        TimedRequestError::Protocol(error) => error,
+        TimedRequestError::Timeout(message) => agent_client_protocol::util::internal_error(message),
+        TimedRequestError::Cancelled => {
+            agent_client_protocol::util::internal_error("ACP request cancelled".to_string())
+        }
+    }
 }
 
 async fn request_with_timeout<Req>(

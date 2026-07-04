@@ -5,6 +5,7 @@ pub mod events;
 pub mod fs;
 pub mod permissions;
 pub mod runner;
+pub mod terminal;
 
 pub use runner::spawn_run;
 

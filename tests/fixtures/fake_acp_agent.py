@@ -6,6 +6,7 @@ import sys
 import time
 
 SESSION_ID = "fake-session-1"
+AUTHENTICATED = False
 
 
 def send(message):
@@ -67,19 +68,35 @@ def read_until_response(request_id):
             return message
 
 
-def initialize(request_id):
+def initialize(request_id, script):
+    auth_methods = []
+    agent_capabilities = {}
+    if script.startswith("auth"):
+        auth_methods = [
+            {
+                "id": "agent-login",
+                "name": "Agent login",
+                "description": "Fake agent-owned login",
+            }
+        ]
+        agent_capabilities = {"auth": {"logout": {}}}
     response(
         request_id,
         {
             "protocolVersion": 1,
-            "agentCapabilities": {},
-            "authMethods": [],
+            "agentCapabilities": agent_capabilities,
+            "authMethods": auth_methods,
             "agentInfo": {"name": "fake-acp-agent", "version": "0.0.0"},
         },
     )
 
 
 def session_new(request_id, message):
+    if script_requires_auth(sys.argv[1] if len(sys.argv) > 1 else "lifecycle"):
+        global AUTHENTICATED
+        if not AUTHENTICATED:
+            error(request_id, "auth_required")
+            return "."
     cwd = message.get("params", {}).get("cwd", ".")
     response(request_id, {"sessionId": SESSION_ID})
     return cwd
@@ -148,12 +165,54 @@ def unknown_update(request_id, _cwd):
     response(request_id, {"stopReason": "end_turn"})
 
 
+def terminal(request_id, cwd):
+    request(
+        "term-create-1",
+        "terminal/create",
+        {
+            "sessionId": SESSION_ID,
+            "command": "python3",
+            "args": ["-c", "print('terminal ok')"],
+            "cwd": cwd,
+            "outputByteLimit": 4096,
+        },
+    )
+    message = read_until_response("term-create-1")
+    terminal_id = message.get("result", {}).get("terminalId", "") if message else ""
+    request(
+        "term-wait-1",
+        "terminal/wait_for_exit",
+        {"sessionId": SESSION_ID, "terminalId": terminal_id},
+    )
+    read_until_response("term-wait-1")
+    request(
+        "term-output-1",
+        "terminal/output",
+        {"sessionId": SESSION_ID, "terminalId": terminal_id},
+    )
+    message = read_until_response("term-output-1")
+    output = message.get("result", {}).get("output", "") if message else ""
+    request(
+        "term-release-1",
+        "terminal/release",
+        {"sessionId": SESSION_ID, "terminalId": terminal_id},
+    )
+    read_until_response("term-release-1")
+    text_update(f"terminal: {output}")
+    response(request_id, {"stopReason": "end_turn"})
+
+
 def timeout_prompt(_request_id, _cwd):
     while True:
         time.sleep(1)
 
 
+def script_requires_auth(script):
+    return script in {"auth-success", "auth-failure"}
+
+
 def main():
+    global AUTHENTICATED
     script = sys.argv[1] if len(sys.argv) > 1 else "lifecycle"
     print("fake-agent stderr diagnostic", file=sys.stderr, flush=True)
     cwd = "."
@@ -167,7 +226,16 @@ def main():
         request_id = message.get("id")
 
         if method == "initialize":
-            initialize(request_id)
+            initialize(request_id, script)
+        elif method == "authenticate":
+            if script == "auth-failure":
+                error(request_id, "auth rejected")
+            else:
+                AUTHENTICATED = True
+                response(request_id, {})
+        elif method == "logout":
+            AUTHENTICATED = False
+            response(request_id, {})
         elif method == "session/new":
             if script == "timeout-session":
                 while True:
@@ -181,6 +249,9 @@ def main():
                 "fs-read": fs_read,
                 "fs-write": fs_write,
                 "unknown-update": unknown_update,
+                "auth-success": lifecycle,
+                "auth-failure": lifecycle,
+                "terminal": terminal,
                 "timeout-prompt": timeout_prompt,
             }
             scripts.get(script, lifecycle)(request_id, cwd)

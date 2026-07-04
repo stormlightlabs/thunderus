@@ -370,6 +370,73 @@ fn acp_runner_handles_fixture_unknown_update() {
     assert_eq!(events.last(), Some(&AgentEvent::Finished));
 }
 
+#[test]
+fn acp_runner_authenticates_with_agent_owned_method() {
+    let temp = tempfile::tempdir().expect("create temp dir");
+    let events = collect(RunHandle::new(
+        temp.path().to_path_buf(),
+        "fake".to_string(),
+        Some(fake_agent_config("auth-success", None)),
+        "auth".to_string(),
+    ));
+
+    assert!(
+        events
+            .iter()
+            .any(|event| { matches!(event, AgentEvent::Status(text) if text.contains("authentication succeeded")) })
+    );
+    assert_eq!(events.last(), Some(&AgentEvent::Finished));
+}
+
+#[test]
+fn acp_runner_reports_authentication_failure() {
+    let temp = tempfile::tempdir().expect("create temp dir");
+    let events = collect_until_terminal(
+        spawn_run(RunHandle::new(
+            temp.path().to_path_buf(),
+            "fake".to_string(),
+            Some(fake_agent_config("auth-failure", None)),
+            "auth".to_string(),
+        )),
+        Duration::from_secs(3),
+    );
+
+    assert!(
+        events
+            .iter()
+            .any(|event| { matches!(event, AgentEvent::Failed(text) if text.contains("authentication failed")) })
+    );
+}
+
+#[test]
+fn acp_runner_handles_fixture_terminal_lifecycle() {
+    let temp = tempfile::tempdir().expect("create temp dir");
+    let events = collect(RunHandle::new(
+        temp.path().to_path_buf(),
+        "fake".to_string(),
+        Some(fake_agent_config("terminal", None)),
+        "terminal".to_string(),
+    ));
+
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, AgentEvent::ToolStarted { name, .. } if name == "acp.terminal"))
+    );
+    assert!(events.iter().any(|event| {
+        matches!(
+            event,
+            AgentEvent::ToolFinished { status: ToolStatus::Ok, shell_result: Some(_), .. }
+        )
+    }));
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, AgentEvent::AssistantDelta(text) if text.contains("terminal: terminal ok")))
+    );
+    assert_eq!(events.last(), Some(&AgentEvent::Finished));
+}
+
 fn collect_until_terminal(rx: mpsc::Receiver<AgentEvent>, timeout: Duration) -> Vec<AgentEvent> {
     let mut events = Vec::new();
     loop {

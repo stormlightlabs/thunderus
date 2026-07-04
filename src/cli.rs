@@ -69,6 +69,11 @@ pub enum AcpCommand {
         #[arg(long)]
         prompt: String,
     },
+    /// Log out through the ACP agent when it advertises logout support.
+    Logout {
+        /// Configured ACP agent name.
+        name: String,
+    },
 }
 
 impl WebSearchMode {
@@ -566,6 +571,15 @@ mod tests {
             Some(Command::Acp {
                 command: AcpCommand::Smoke { name: "local".to_string(), prompt: "hello".to_string() }
             })
+        );
+    }
+
+    #[test]
+    fn acp_logout_command_parses() {
+        let cli = Cli::try_parse_from(["thndrs", "acp", "logout", "local"]).expect("parse");
+        assert_eq!(
+            cli.command,
+            Some(Command::Acp { command: AcpCommand::Logout { name: "local".to_string() } })
         );
     }
 
