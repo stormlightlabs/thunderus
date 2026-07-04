@@ -3,6 +3,7 @@
 //! These tests intentionally exercise the official SDK against a real stdio
 //! subprocess before the production ACP runner exists.
 
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 
@@ -16,8 +17,7 @@ use agent_client_protocol::{AcpAgent, Agent, Client, ConnectionTo, LineDirection
 #[test]
 fn acp_agent_runs_from_background_thread_with_block_on() {
     let temp = tempfile::tempdir().expect("create temp dir");
-    let fake_agent = temp.path().join("fake_acp_agent.py");
-    std::fs::write(&fake_agent, fake_agent_script()).expect("write fake agent");
+    let fake_agent = fake_agent_fixture();
 
     let cwd = temp.path().to_path_buf();
     let debug_lines = Arc::new(Mutex::new(Vec::<(LineDirection, String)>::new()));
@@ -26,14 +26,17 @@ fn acp_agent_runs_from_background_thread_with_block_on() {
     let thread_debug_lines = Arc::clone(&debug_lines);
     let handle = std::thread::spawn(move || {
         futures::executor::block_on(async move {
-            let agent = AcpAgent::from_args(["python3".to_string(), fake_agent.display().to_string()])?.with_debug(
-                move |line, direction| {
-                    thread_debug_lines
-                        .lock()
-                        .expect("debug lock")
-                        .push((direction, line.to_string()));
-                },
-            );
+            let agent = AcpAgent::from_args([
+                "python3".to_string(),
+                fake_agent.display().to_string(),
+                "lifecycle".to_string(),
+            ])?
+            .with_debug(move |line, direction| {
+                thread_debug_lines
+                    .lock()
+                    .expect("debug lock")
+                    .push((direction, line.to_string()));
+            });
 
             Client
                 .builder()
@@ -104,63 +107,9 @@ fn acp_agent_runs_from_background_thread_with_block_on() {
     );
 }
 
-fn fake_agent_script() -> &'static str {
-    r#"#!/usr/bin/env python3
-import json
-import sys
-
-SESSION_ID = "fake-session-1"
-
-print("fake-agent stderr diagnostic", file=sys.stderr, flush=True)
-
-for line in sys.stdin:
-    message = json.loads(line)
-    method = message.get("method")
-    request_id = message.get("id")
-
-    if method == "initialize":
-        result = {
-            "protocolVersion": 1,
-            "agentCapabilities": {},
-            "authMethods": [],
-            "agentInfo": {
-                "name": "fake-acp-agent",
-                "version": "0.0.0"
-            }
-        }
-    elif method == "session/new":
-        result = {"sessionId": SESSION_ID}
-    elif method == "session/prompt":
-        update = {
-            "jsonrpc": "2.0",
-            "method": "session/update",
-            "params": {
-                "sessionId": SESSION_ID,
-                "update": {
-                    "sessionUpdate": "agent_message_chunk",
-                    "content": {
-                        "type": "text",
-                        "text": "pong from fake ACP agent"
-                    },
-                    "messageId": "fake-message-1"
-                }
-            }
-        }
-        print(json.dumps(update, separators=(",", ":")), flush=True)
-        result = {"stopReason": "end_turn"}
-    else:
-        error = {
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "error": {
-                "code": -32601,
-                "message": f"unsupported method: {method}"
-            }
-        }
-        print(json.dumps(error, separators=(",", ":")), flush=True)
-        continue
-
-    response = {"jsonrpc": "2.0", "id": request_id, "result": result}
-    print(json.dumps(response, separators=(",", ":")), flush=True)
-"#
+fn fake_agent_fixture() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("fake_acp_agent.py")
 }

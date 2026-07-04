@@ -31,7 +31,7 @@ use std::time::{Duration, Instant};
 use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEvent};
 
 use app::{App, Msg, RunState, update};
-use cli::Cli;
+use cli::{AcpCommand, Cli, Command};
 use prompt::PromptBundle;
 use renderer::backend::TerminalBackend;
 use tools::AgentRunConfig;
@@ -92,11 +92,144 @@ impl Drop for GitStatusWatcher {
 /// Sets up the terminal, drives the draw loop, polls events on a tick, and
 /// restores the terminal on exit.
 pub fn run(cli: &Cli) -> io::Result<()> {
+    if let Some(command) = &cli.command {
+        return run_command(cli, command);
+    }
     if cli.print_prompt {
         return run_print_prompt(cli);
     }
     let tick = Duration::from_millis(cli.tick_rate_ms);
     run_inline(tick, cli)
+}
+
+fn run_command(cli: &Cli, command: &Command) -> io::Result<()> {
+    match command {
+        Command::Acp { command } => run_acp_command(cli, command),
+    }
+}
+
+fn run_acp_command(cli: &Cli, command: &AcpCommand) -> io::Result<()> {
+    match command {
+        AcpCommand::List => {
+            print!("{}", render_acp_list(cli));
+            Ok(())
+        }
+        AcpCommand::Inspect { name } => {
+            print!("{}", render_acp_inspect(cli, name)?);
+            Ok(())
+        }
+        AcpCommand::Smoke { name, prompt } => {
+            let stdout = io::stdout();
+            let mut lock = stdout.lock();
+            run_acp_smoke(cli, name, prompt, &mut lock)
+        }
+    }
+}
+
+fn render_acp_list(cli: &Cli) -> String {
+    let mut out = String::new();
+    if cli.acp_agents.is_empty() {
+        out.push_str("no ACP agents configured\n");
+        return out;
+    }
+
+    for (name, agent) in &cli.acp_agents {
+        let status = if agent.enabled { "enabled" } else { "disabled" };
+        out.push_str(&format!(
+            "{name}\t{status}\t{}\n",
+            acp::config::redacted_command_display(agent)
+        ));
+    }
+    out
+}
+
+fn render_acp_inspect(cli: &Cli, name: &str) -> io::Result<String> {
+    let agent = cli
+        .acp_agents
+        .get(name)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("ACP agent `{name}` is not configured")))?;
+    let source = cli
+        .config_origins
+        .get("acp_agents")
+        .map(|origin| format!("{}:{}", origin.source.as_str(), origin.detail))
+        .unwrap_or_else(|| "default:default".to_string());
+    let env_keys = if agent.env.is_empty() {
+        String::from("none")
+    } else {
+        agent.env.keys().cloned().collect::<Vec<_>>().join(", ")
+    };
+    let args = if agent.args.is_empty() { String::from("none") } else { agent.args.join(" ") };
+
+    Ok(format!(
+        "name: {name}\nstatus: {}\ncommand: {}\nargs: {args}\nenv_keys: {env_keys}\ntimeout_secs: {}\nsource: {source}\n",
+        if agent.enabled { "enabled" } else { "disabled" },
+        acp::config::redacted_command_display(agent),
+        agent.timeout_secs,
+    ))
+}
+
+fn run_acp_smoke<W: io::Write>(cli: &Cli, name: &str, prompt: &str, writer: &mut W) -> io::Result<()> {
+    let agent = cli
+        .acp_agents
+        .get(name)
+        .cloned()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("ACP agent `{name}` is not configured")))?;
+    if !agent.enabled {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("ACP agent `{name}` is disabled"),
+        ));
+    }
+
+    let workspace_root = context::discover_workspace_root(&cli.cwd);
+    let handle = acp::runner::RunHandle::new(workspace_root, name.to_string(), Some(agent), prompt.to_string());
+    let rx = acp::spawn_run(handle);
+    for event in rx {
+        match event {
+            app::AgentEvent::Started => writeln!(writer, "started")?,
+            app::AgentEvent::Status(text) => writeln!(writer, "status: {text}")?,
+            app::AgentEvent::AssistantDelta(text) => write!(writer, "{text}")?,
+            app::AgentEvent::ReasoningDelta(text) => writeln!(writer, "reasoning: {text}")?,
+            app::AgentEvent::Usage { input_tokens, output_tokens } => {
+                writeln!(writer, "usage: input={input_tokens} output={output_tokens}")?
+            }
+            app::AgentEvent::ToolStarted { id, name, arguments } => {
+                writeln!(writer, "tool_started: {name}#{id} {arguments}")?
+            }
+            app::AgentEvent::ToolFinished { id, status, output, .. } => {
+                writeln!(writer, "tool_finished: {id} {status:?} {}", output.join("\n"))?
+            }
+            app::AgentEvent::PermissionRequest(permission) => {
+                writeln!(writer, "permission: {} ({})", permission.title, permission.tool_call_id)?;
+                let _ = permission.cancel();
+            }
+            app::AgentEvent::PermissionResolved { tool_call_id, outcome } => {
+                writeln!(writer, "permission_resolved: {tool_call_id} {outcome}")?
+            }
+            app::AgentEvent::AcpSession(metadata) => writeln!(
+                writer,
+                "acp_session: {} {}",
+                metadata.agent_name, metadata.acp_session_id
+            )?,
+            app::AgentEvent::ModelMetadataLoaded(_) | app::AgentEvent::Retrying { .. } => {}
+            app::AgentEvent::Finished => {
+                writeln!(writer, "\nfinished")?;
+                return Ok(());
+            }
+            app::AgentEvent::Cancelled => {
+                writeln!(writer, "\ncancelled")?;
+                return Ok(());
+            }
+            app::AgentEvent::Failed(message) => {
+                writeln!(writer, "\nfailed: {message}")?;
+                return Err(io::Error::other(message));
+            }
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::UnexpectedEof,
+        "ACP smoke stream ended before a terminal event",
+    ))
 }
 
 #[derive(Clone, Debug)]
@@ -779,6 +912,98 @@ mod tests {
     }
 
     #[test]
+    fn acp_list_renders_enabled_and_disabled_agents() {
+        let mut agents = config::AcpAgentsConfig::new();
+        agents.insert(
+            "disabled".to_string(),
+            config::AcpAgentConfig {
+                command: "agent-off".to_string(),
+                enabled: false,
+                ..config::AcpAgentConfig::default()
+            },
+        );
+        agents.insert(
+            "local".to_string(),
+            config::AcpAgentConfig {
+                command: "agent".to_string(),
+                args: vec!["--acp".to_string()],
+                ..config::AcpAgentConfig::default()
+            },
+        );
+        let cli = Cli { acp_agents: agents, ..Cli::default() };
+
+        let output = render_acp_list(&cli);
+
+        assert!(output.contains("disabled\tdisabled\tagent-off"));
+        assert!(output.contains("local\tenabled\tagent --acp"));
+    }
+
+    #[test]
+    fn acp_inspect_renders_redacted_config_details() {
+        let mut agents = config::AcpAgentsConfig::new();
+        agents.insert(
+            "local".to_string(),
+            config::AcpAgentConfig {
+                command: "agent".to_string(),
+                args: vec!["--acp".to_string()],
+                env: std::collections::BTreeMap::from([
+                    ("TOKEN".to_string(), "secret-value".to_string()),
+                    ("PLAIN".to_string(), "visible-value".to_string()),
+                ]),
+                timeout_secs: 12,
+                ..config::AcpAgentConfig::default()
+            },
+        );
+        let mut origins = std::collections::BTreeMap::new();
+        origins.insert(
+            "acp_agents".to_string(),
+            config::ConfigOrigin {
+                source: config::ConfigSource::ProjectFile,
+                detail: ".thndrs/config.toml".to_string(),
+            },
+        );
+        let cli = Cli { acp_agents: agents, config_origins: origins, ..Cli::default() };
+
+        let output = render_acp_inspect(&cli, "local").expect("inspect");
+
+        assert!(output.contains("name: local"));
+        assert!(output.contains("status: enabled"));
+        assert!(output.contains("command: agent --acp"));
+        assert!(output.contains("args: --acp"));
+        assert!(output.contains("env_keys: PLAIN, TOKEN"));
+        assert!(output.contains("timeout_secs: 12"));
+        assert!(output.contains("source: project:.thndrs/config.toml"));
+        assert!(!output.contains("secret-value"));
+        assert!(!output.contains("visible-value"));
+    }
+
+    #[test]
+    fn acp_smoke_runs_fake_agent_and_prints_events() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let mut agents = config::AcpAgentsConfig::new();
+        agents.insert(
+            "local".to_string(),
+            config::AcpAgentConfig {
+                command: "python3".to_string(),
+                args: vec![fake_agent_fixture().display().to_string(), "lifecycle".to_string()],
+                timeout_secs: 2,
+                ..config::AcpAgentConfig::default()
+            },
+        );
+        let cli = Cli { cwd: temp.path().to_path_buf(), acp_agents: agents, ..Cli::default() };
+        let mut output = Vec::new();
+
+        run_acp_smoke(&cli, "local", "ping", &mut output).expect("smoke run");
+        let output = String::from_utf8(output).expect("utf8");
+
+        assert!(output.contains("started"));
+        assert!(output.contains("status: acp: connected to fake-acp-agent 0.0.0"));
+        assert!(output.contains("acp_session: local fake-session-1"));
+        assert!(output.contains("pong from fake ACP agent"));
+        assert!(output.contains("finished"));
+    }
+
+    #[test]
     fn clear_resets_direct_renderer_and_purges_terminal() {
         let cli = Cli::default();
         let mut app = App::from_cli(&cli);
@@ -881,5 +1106,12 @@ mod tests {
             "git {args:?} failed: {}",
             String::from_utf8_lossy(&output.stderr)
         );
+    }
+
+    fn fake_agent_fixture() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join("fake_acp_agent.py")
     }
 }

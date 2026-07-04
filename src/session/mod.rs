@@ -25,6 +25,7 @@
 //! - `file_write`: file write audit (op, path, before/after hash+bytes, status).
 //! - `cancelled`: turn id and reason.
 //! - `failed`: turn id and error message.
+//! - `acp_session`: external ACP session metadata.
 //! - `acp_permission_request`: ACP permission prompt metadata.
 //! - `acp_permission_outcome`: ACP permission selected/cancelled outcome.
 //! - `session_renamed`: new title (latest wins).
@@ -190,6 +191,29 @@ pub enum SessionRecord {
         turn_id: String,
         error: String,
     },
+    /// External ACP session metadata.
+    #[serde(rename = "acp_session")]
+    AcpSession {
+        schema_version: u32,
+        seq: u64,
+        time: String,
+        /// Local append-only `thndrs` session id.
+        local_session_id: String,
+        /// Configured ACP agent name.
+        agent_name: String,
+        /// Opaque external ACP session id returned by the agent.
+        acp_session_id: String,
+        /// Redacted command display used to start the agent.
+        command: String,
+        /// Selected ACP protocol version.
+        protocol_version: String,
+        /// Optional ACP agent info name.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        agent_info_name: Option<String>,
+        /// Optional ACP agent info version.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        agent_info_version: Option<String>,
+    },
     /// Session title was renamed (latest wins).
     #[serde(rename = "session_renamed")]
     SessionRenamed {
@@ -309,6 +333,7 @@ impl SessionRecord {
             | SessionRecord::ToolFinished { seq, .. }
             | SessionRecord::Cancelled { seq, .. }
             | SessionRecord::Failed { seq, .. }
+            | SessionRecord::AcpSession { seq, .. }
             | SessionRecord::SessionRenamed { seq, .. }
             | SessionRecord::FileWrite { seq, .. }
             | SessionRecord::ShellExec { seq, .. }
@@ -397,6 +422,9 @@ impl SessionRecord {
             }),
             SessionRecord::Cancelled { reason, .. } => Some(Entry::Status { text: reason.clone() }),
             SessionRecord::Failed { error, .. } => Some(Entry::Error { text: error.clone() }),
+            SessionRecord::AcpSession { agent_name, acp_session_id, .. } => {
+                Some(Entry::Status { text: format!("acp session {agent_name}: {acp_session_id}") })
+            }
             SessionRecord::FileWrite { op, path, status, .. } => {
                 Some(Entry::Status { text: format!("{} {}: {path}", status.icon(), op.label()) })
             }
@@ -426,6 +454,23 @@ pub struct AcpPermissionOptionRecord {
     pub name: String,
     /// Lowercase option kind.
     pub kind: String,
+}
+
+/// External ACP session metadata persisted once per ACP run.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AcpSessionMetadata {
+    /// Configured ACP agent name.
+    pub agent_name: String,
+    /// Opaque external ACP session id returned by the agent.
+    pub acp_session_id: String,
+    /// Redacted command display used to start the agent.
+    pub command: String,
+    /// Selected ACP protocol version.
+    pub protocol_version: String,
+    /// Optional ACP agent info name.
+    pub agent_info_name: Option<String>,
+    /// Optional ACP agent info version.
+    pub agent_info_version: Option<String>,
 }
 
 /// Metadata for a single prompt turn, suitable for append-only JSONL storage.
@@ -858,6 +903,28 @@ impl SessionWriter {
         Ok(())
     }
 
+    /// Append external ACP session metadata.
+    pub fn append_acp_session(&mut self, metadata: &AcpSessionMetadata) -> std::io::Result<()> {
+        let record = SessionRecord::AcpSession {
+            schema_version: SCHEMA_VERSION,
+            seq: self.seq,
+            time: datetime::now_iso8601(),
+            local_session_id: self.session_id.clone(),
+            agent_name: metadata.agent_name.clone(),
+            acp_session_id: metadata.acp_session_id.clone(),
+            command: metadata.command.clone(),
+            protocol_version: metadata.protocol_version.clone(),
+            agent_info_name: metadata.agent_info_name.clone(),
+            agent_info_version: metadata.agent_info_version.clone(),
+        };
+        self.seq += 1;
+        let line = record.to_json().map_err(io_err)?;
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new().append(true).open(&self.path)?;
+        writeln!(file, "{line}")?;
+        Ok(())
+    }
+
     /// Append ACP permission outcome metadata.
     pub fn append_acp_permission_outcome(
         &mut self, turn_id: &str, tool_call_id: &str, outcome: &str,
@@ -1088,6 +1155,7 @@ fn set_seq(record: &mut SessionRecord, seq: u64) {
         | SessionRecord::ToolFinished { seq: s, .. }
         | SessionRecord::Cancelled { seq: s, .. }
         | SessionRecord::Failed { seq: s, .. }
+        | SessionRecord::AcpSession { seq: s, .. }
         | SessionRecord::SessionRenamed { seq: s, .. }
         | SessionRecord::FileWrite { seq: s, .. }
         | SessionRecord::ShellExec { seq: s, .. }

@@ -23,6 +23,7 @@ use crate::acp::{config, events, fs, permissions};
 use crate::agent::CancelToken;
 use crate::app::{AgentEvent, ToolStatus};
 use crate::config::AcpAgentConfig;
+use crate::session::AcpSessionMetadata;
 
 const CANCEL_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
@@ -41,6 +42,16 @@ impl RunHandle {
     pub fn new(root: PathBuf, name: String, agent: Option<AcpAgentConfig>, prompt: String) -> Self {
         Self { root, name, agent, prompt, cancel: CancelToken::new() }
     }
+}
+
+struct SessionRunContext<'a> {
+    name: &'a str,
+    command: &'a str,
+    root: &'a Path,
+    prompt: &'a str,
+    cancel: &'a CancelToken,
+    timeout_secs: u64,
+    tx: &'a Sender<AgentEvent>,
 }
 
 /// Spawn an ACP run and return the normal agent event receiver.
@@ -235,7 +246,17 @@ async fn run_async(handle: RunHandle, agent_config: AcpAgentConfig, tx: Sender<A
             agent_client_protocol::on_receive_request!(),
         )
         .connect_with(agent, async move |connection: ConnectionTo<Agent>| {
-            run_session(connection, &name, &root, &prompt, &cancel, timeout_secs, &tx).await
+            let command = config::redacted_command_display(&agent_config);
+            let context = SessionRunContext {
+                name: &name,
+                command: &command,
+                root: &root,
+                prompt: &prompt,
+                cancel: &cancel,
+                timeout_secs,
+                tx: &tx,
+            };
+            run_session(connection, context).await
         })
         .await
         .map_err(|err| format!("ACP agent `{}` failed: {err}", handle.name))
@@ -250,9 +271,9 @@ fn permission_outcome_label(outcome: &RequestPermissionOutcome) -> &'static str 
 }
 
 async fn run_session(
-    connection: ConnectionTo<Agent>, name: &str, root: &Path, prompt: &str, cancel: &CancelToken, timeout_secs: u64,
-    tx: &Sender<AgentEvent>,
+    connection: ConnectionTo<Agent>, context: SessionRunContext<'_>,
 ) -> Result<(), agent_client_protocol::Error> {
+    let SessionRunContext { name, command, root, prompt, cancel, timeout_secs, tx } = context;
     if cancel.is_cancelled() {
         let _ = tx.send(AgentEvent::Cancelled);
         return Ok(());
@@ -290,7 +311,9 @@ async fn run_session(
         )));
         return Ok(());
     }
-    if let Some(info) = initialize.agent_info {
+    let protocol_version = format!("{:?}", initialize.protocol_version);
+    let agent_info = initialize.agent_info;
+    if let Some(info) = &agent_info {
         let _ = tx.send(AgentEvent::Status(format!(
             "acp: connected to {} {}",
             info.name, info.version
@@ -318,6 +341,14 @@ async fn run_session(
         Err(TimedRequestError::Protocol(error)) => return Err(error),
     };
     let _ = tx.send(AgentEvent::Status(format!("acp: session {}", session.session_id)));
+    let _ = tx.send(AgentEvent::AcpSession(AcpSessionMetadata {
+        agent_name: name.to_string(),
+        acp_session_id: session.session_id.to_string(),
+        command: command.to_string(),
+        protocol_version,
+        agent_info_name: agent_info.as_ref().map(|info| info.name.clone()),
+        agent_info_version: agent_info.as_ref().map(|info| info.version.clone()),
+    }));
 
     if cancel.is_cancelled() {
         send_session_cancel(&connection, &session.session_id, tx);

@@ -49,6 +49,7 @@ fn test_app() -> App {
         config_layers: Vec::new(),
         config_origins: std::collections::BTreeMap::new(),
         acp_agents: std::collections::BTreeMap::new(),
+        command: None,
     });
     app.session_id = "test-session".to_string();
     app.git_status =

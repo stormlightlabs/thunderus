@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use clap::parser::ValueSource;
-use clap::{CommandFactory, FromArgMatches, Parser, ValueEnum};
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 use serde::Deserialize;
 
 use crate::config;
@@ -39,6 +39,36 @@ pub enum WebSearchMode {
     Exa,
     /// Pass a local `web_search` tool through unchanged.
     None,
+}
+
+/// Top-level non-interactive commands.
+#[derive(Clone, Debug, Eq, PartialEq, Subcommand)]
+pub enum Command {
+    /// Inspect configured ACP agents without opening the TUI.
+    Acp {
+        #[command(subcommand)]
+        command: AcpCommand,
+    },
+}
+
+/// ACP inspection and smoke-test commands.
+#[derive(Clone, Debug, Eq, PartialEq, Subcommand)]
+pub enum AcpCommand {
+    /// List configured ACP agents.
+    List,
+    /// Show one configured ACP agent with redacted values.
+    Inspect {
+        /// Configured ACP agent name.
+        name: String,
+    },
+    /// Initialize an ACP agent, create a temporary session, send one prompt, and print events.
+    Smoke {
+        /// Configured ACP agent name.
+        name: String,
+        /// Prompt text to send.
+        #[arg(long)]
+        prompt: String,
+    },
 }
 
 impl WebSearchMode {
@@ -133,6 +163,9 @@ pub struct Cli {
     /// Effective external ACP agent configs.
     #[arg(skip)]
     pub acp_agents: config::AcpAgentsConfig,
+    /// Optional non-interactive command.
+    #[command(subcommand)]
+    pub command: Option<Command>,
 }
 
 impl Default for Cli {
@@ -155,6 +188,7 @@ impl Default for Cli {
             config_layers: Vec::new(),
             config_origins: BTreeMap::new(),
             acp_agents: BTreeMap::new(),
+            command: None,
         }
     }
 }
@@ -507,6 +541,32 @@ mod tests {
     fn print_prompt_flag_parses() {
         let cli = Cli::try_parse_from(["thndrs", "--print-prompt"]).expect("parse");
         assert!(cli.print_prompt);
+    }
+
+    #[test]
+    fn acp_list_command_parses() {
+        let cli = Cli::try_parse_from(["thndrs", "acp", "list"]).expect("parse");
+        assert_eq!(cli.command, Some(Command::Acp { command: AcpCommand::List }));
+    }
+
+    #[test]
+    fn acp_inspect_command_parses() {
+        let cli = Cli::try_parse_from(["thndrs", "acp", "inspect", "local"]).expect("parse");
+        assert_eq!(
+            cli.command,
+            Some(Command::Acp { command: AcpCommand::Inspect { name: "local".to_string() } })
+        );
+    }
+
+    #[test]
+    fn acp_smoke_command_parses_prompt() {
+        let cli = Cli::try_parse_from(["thndrs", "acp", "smoke", "local", "--prompt", "hello"]).expect("parse");
+        assert_eq!(
+            cli.command,
+            Some(Command::Acp {
+                command: AcpCommand::Smoke { name: "local".to_string(), prompt: "hello".to_string() }
+            })
+        );
     }
 
     #[test]

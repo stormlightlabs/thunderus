@@ -177,41 +177,63 @@ initialize timeout, session creation timeout, and prompt timeout.
 
 ## M9: Session Persistence
 
-- [ ] Add session record for ACP external session metadata.
-- [ ] Add session record for ACP permission request/outcome.
-- [ ] Extend inspect/export to include ACP metadata.
-- [ ] Persist local `thndrs` session id and ACP session id separately.
-- [ ] Persist agent name and redacted command display.
-- [ ] Persist selected protocol version and agent info.
-- [ ] Persist assistant/reasoning/tool/usage records through existing records
+- [x] Add session record for ACP external session metadata.
+- [x] Add session record for ACP permission request/outcome.
+- [x] Extend inspect/export to include ACP metadata.
+- [x] Persist local `thndrs` session id and ACP session id separately.
+- [x] Persist agent name and redacted command display.
+- [x] Persist selected protocol version and agent info.
+- [x] Persist assistant/reasoning/tool/usage records through existing records
       where possible.
-- [ ] Ensure raw stdio lines are not persisted.
-- [ ] Add session serialization/deserialization tests.
-- [ ] Add inspect/export tests for ACP records.
+- [x] Ensure raw stdio lines are not persisted.
+- [x] Add session serialization/deserialization tests.
+- [x] Add inspect/export tests for ACP records.
+
+Result: `src/session/mod.rs` now persists external ACP session metadata in an
+`acp_session` record while keeping the local `thndrs` session id separate from
+the opaque ACP session id. The record includes agent name, redacted command
+display, selected protocol version, and optional agent info. Existing
+assistant, reasoning, tool, usage, file-write, and ACP permission records carry
+the rest of the run without storing raw stdio protocol lines. Session and
+headless ACP command-output tests cover the new metadata surface.
 
 ## M10: CLI Commands
 
-- [ ] Add `thndrs acp list`.
-- [ ] Add `thndrs acp inspect <name>`.
-- [ ] Add `thndrs acp smoke <name> --prompt <text>`.
-- [ ] `acp list` shows enabled/disabled configured agents.
-- [ ] `acp inspect` shows redacted command, args, env keys, timeout, and source.
-- [ ] `acp smoke` initializes, creates a temporary session, sends one prompt,
+- [x] Add `thndrs acp list`.
+- [x] Add `thndrs acp inspect <name>`.
+- [x] Add `thndrs acp smoke <name> --prompt <text>`.
+- [x] `acp list` shows enabled/disabled configured agents.
+- [x] `acp inspect` shows redacted command, args, env keys, timeout, and source.
+- [x] `acp smoke` initializes, creates a temporary session, sends one prompt,
       streams status/text, and exits.
-- [ ] Add CLI parser tests.
-- [ ] Add command output tests with a fake ACP agent.
+- [x] Add CLI parser tests.
+- [x] Add command output tests with a fake ACP agent.
+
+Result: `src/cli.rs` now parses the `acp` subcommands, and `src/lib.rs`
+dispatches them before entering the TUI. `acp list` and `acp inspect` render
+headless config diagnostics with env values omitted, and `acp smoke` reuses
+the ACP runner to initialize, create a session, send a prompt, print stream
+events, and exit. Parser and command-output tests cover all three commands,
+including a local fake ACP agent smoke run.
 
 ## M11: Manual Fake Agent
 
-- [ ] Add a test-only fake ACP agent binary or fixture process.
-- [ ] Support scripted initialize/session/prompt behavior.
-- [ ] Support scripted permission request.
-- [ ] Support scripted filesystem read request.
-- [ ] Support scripted filesystem write request.
-- [ ] Support scripted malformed/unknown update.
-- [ ] Support scripted timeout/no-response.
-- [ ] Use the fake agent in integration tests instead of relying on network
+- [x] Add a test-only fake ACP agent binary or fixture process.
+- [x] Support scripted initialize/session/prompt behavior.
+- [x] Support scripted permission request.
+- [x] Support scripted filesystem read request.
+- [x] Support scripted filesystem write request.
+- [x] Support scripted malformed/unknown update.
+- [x] Support scripted timeout/no-response.
+- [x] Use the fake agent in integration tests instead of relying on network
       package managers such as `npx`.
+
+Result: `tests/fixtures/fake_acp_agent.py` is now the shared manual ACP
+fixture for unit and integration tests. It supports lifecycle, cancellation,
+permission, filesystem read/write, unknown update, initialize timeout, session
+timeout, and prompt timeout scripts. ACP runner tests, the SDK spike, and the
+`acp smoke` command-output test now invoke this fixture directly instead of
+writing one-off inline Python agents.
 
 ## M12: Docs
 
@@ -227,25 +249,40 @@ initialize timeout, session creation timeout, and prompt timeout.
 
 ## M13: Auth
 
-- [ ] Design where ACP auth state is stored.
+- [x] Design where ACP auth state is stored.
 - [ ] Redact auth state in logs, sessions, diagnostics, and inspect/export.
 - [ ] Implement `authenticate` for advertised auth methods that fit local CLI
       use.
 - [ ] Implement `logout` when the agent advertises logout support.
 - [ ] Add recovery behavior for expired, rejected, or missing credentials.
+- [ ] Add a separate OS credential-store design before supporting any
+      client-owned ACP auth method.
 - [ ] Add tests for auth-required startup, auth failure, auth success, and
       logout.
 
+Decision: ACP auth state is agent-owned. `thndrs` may call stable
+agent-handled `authenticate` methods and report success/failure, but it does
+not store credentials, tokens, cookies, or refresh state in TOML, sessions, or
+diagnostics. If ACP later requires client-owned secret storage, use a separate
+design with an OS credential store instead of extending session/config files.
+
 ## M14: Terminal Callbacks
 
-- [ ] Decide when `thndrs` advertises terminal capability.
+- [x] Decide when `thndrs` advertises terminal capability.
 - [ ] Implement `terminal/create` with argv arrays and workspace cwd policy.
 - [ ] Implement `terminal/output` with byte caps and incremental display.
 - [ ] Implement `terminal/wait_for_exit`.
 - [ ] Implement `terminal/kill`.
 - [ ] Implement `terminal/release`.
 - [ ] Record terminal lifecycle metadata in session JSONL.
+- [ ] Advertise `clientCapabilities.terminal` only after terminal callbacks,
+      UI display, cleanup, output caps, and audit tests are complete.
 - [ ] Add UI tests and process lifecycle tests.
+
+Decision: keep `clientCapabilities.terminal` absent/false until all terminal
+callbacks share the built-in shell safety contract: argv-only execution,
+workspace-contained cwd handling, env redaction, byte-capped output,
+incremental display, cancellation/kill/release cleanup, and session audit.
 
 ## M15: Agent-Owned Sessions
 
@@ -259,25 +296,43 @@ initialize timeout, session creation timeout, and prompt timeout.
 
 ## M16: ACP Registry
 
-- [ ] Decide whether registry discovery belongs in core `thndrs` or docs only.
+- [x] Decide whether registry discovery belongs in core `thndrs` or docs only.
+- [ ] Confirm local ACP config/docs path is stable before enabling core
+      registry discovery.
 - [ ] Fetch or read registry metadata from a stable source.
 - [ ] Show available agents without installing them automatically.
+- [ ] Design command provenance, package-manager behavior, and security review
+      before registry install/update support.
 - [ ] Add install/update only after command provenance and security review.
 - [ ] Record installed agent source/version metadata.
 - [ ] Add tests for registry parse, display, redaction, and failure behavior.
 
+Decision: read-only registry discovery belongs in core `thndrs` after the local
+config/docs path is stable. Docs alone will stale quickly, but core support must
+only fetch/read official registry metadata and display available agents. It must
+not install or update agents until command provenance, package-manager behavior,
+and security review are designed separately.
+
 ## M17: MCP-Over-ACP
 
 - [ ] Wait for local MCP support from `007_mcp`.
-- [ ] Decide whether ACP sessions receive user MCP servers, project MCP
+- [x] Decide whether ACP sessions receive user MCP servers, project MCP
       servers, or both.
+- [ ] Map the effective user-plus-project MCP config into stable ACP
+      `mcpServers` entries.
 - [ ] Pass MCP server config through `session/new` when supported.
 - [ ] Support thndrs-provided MCP self-proxy only after a separate design.
 - [ ] Add tests for no MCP support, stdio MCP config, and redacted diagnostics.
 
+Decision: after `007_mcp`, ACP sessions receive the effective MCP config from
+both user and project scopes, using the same merge, enable/disable, redaction,
+and provenance rules as local `thndrs` MCP. Initially pass only MCP server
+entries that fit the stable ACP `mcpServers` shape; a thndrs-provided MCP
+self-proxy remains a separate design.
+
 ## M18: Remote And Custom Transports
 
-- [ ] Re-check ACP transport docs before implementation.
+- [x] Re-check ACP transport docs before implementation.
 - [ ] Add Streamable HTTP only after the spec is no longer draft or a target
       agent requires it.
 - [ ] Add WebSocket/custom bridge support only for a concrete target client or
@@ -285,6 +340,12 @@ initialize timeout, session creation timeout, and prompt timeout.
 - [ ] Preserve the same JSON-RPC lifecycle, capability, timeout, redaction, and
       session-audit behavior as stdio.
 - [ ] Add transport fixture tests before enabling user config.
+
+Decision: keep stdio as the only supported transport. Current ACP v1 transport
+docs still make stdio the stable baseline, describe Streamable HTTP as draft,
+and allow custom transports only when they preserve ACP JSON-RPC lifecycle
+requirements. Do not add remote/custom transport code without a concrete target
+agent or deployment.
 
 ## M19: ACP Agent Server
 
@@ -306,8 +367,22 @@ initialize timeout, session creation timeout, and prompt timeout.
 
 ## Review Checkpoints
 
-- [ ] After M1, decide whether `futures::executor::block_on` is enough.
-- [ ] After M2, review config shape before it becomes documented.
-- [ ] After M6, review permission UX before wiring real write approvals.
-- [ ] After M7, review filesystem callback policy against built-in tool policy.
+- [x] After M1, decide whether `futures::executor::block_on` is enough.
+- [x] After M2, review config shape before it becomes documented.
+- [x] After M6, review permission UX before wiring real write approvals.
+- [x] After M7, review filesystem callback policy against built-in tool policy.
 - [ ] Before release, smoke test at least one real ACP agent manually.
+
+Review results:
+
+- M1: `futures::executor::block_on` remains enough for the implemented stdio
+  ACP path; no Tokio dependency is needed without new evidence.
+- M2: `[acp_agents.<name>]` is accepted for docs as implemented: required
+  `command`, defaulted `args`/`env`/`enabled`/`timeout_secs`, strict names,
+  project-over-global merge, and redacted env values.
+- M6: the permission UX is acceptable for real ACP write approvals because only
+  one request can be pending, normal prompt input is blocked, cancellation is
+  explicit, blanket approvals are not stored, and outcomes are audited.
+- M7: filesystem callbacks match built-in tool policy closely enough to keep
+  enabled: paths are workspace-contained, symlink/directory/binary/oversized
+  cases fail closed, writes are audited, and denied requests are visible.

@@ -244,6 +244,7 @@ pub enum AgentEvent {
         tool_call_id: String,
         outcome: String,
     },
+    AcpSession(session::AcpSessionMetadata),
     Finished,
     Failed(String),
     Cancelled,
@@ -1838,6 +1839,12 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             let turn_id = format!("turn_{}", app.turn_count);
             if let Some(ref mut writer) = app.session_writer {
                 let _ = writer.append_acp_permission_outcome(&turn_id, &tool_call_id, &outcome);
+            }
+            None
+        }
+        AgentEvent::AcpSession(metadata) => {
+            if let Some(ref mut writer) = app.session_writer {
+                let _ = writer.append_acp_session(&metadata);
             }
             None
         }

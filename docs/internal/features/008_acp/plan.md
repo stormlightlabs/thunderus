@@ -283,6 +283,26 @@ If the run is cancelled while a permission is pending, return
 
 Do not persist blanket approvals in this feature.
 
+### Auth State Policy
+
+ACP auth state remains agent-owned unless a later ACP version or target agent
+requires client-owned secrets.
+
+For the stable `agent` auth method, `thndrs` may call `authenticate` with the
+advertised method id and let the external agent run its own login flow. Any
+tokens, cookies, refresh state, or account-specific credentials must be stored
+by that agent using its own CLI/keychain behavior, not by `thndrs`.
+
+`thndrs` may persist non-secret auth metadata only when it is useful for audit
+or troubleshooting, such as the ACP agent name, advertised method id/name, and
+success/failure status. Session JSONL, config diagnostics, inspect/export, and
+logs must never contain credential material or raw auth payloads.
+
+If a future ACP auth method requires `thndrs` to own credentials directly, add
+a separate design before implementation. That design should use an OS
+credential store or similarly explicit secret backend; TOML config and session
+JSONL are not acceptable secret stores.
+
 ### Filesystem Callback Policy
 
 Support:
@@ -309,18 +329,64 @@ a cancelled/failed response and emit a status row. Terminal support needs a
 separate plan because it touches process lifecycle, UI display, output caps,
 and session audit.
 
+After the M11 fake-agent milestone, the decision remains: advertise
+`clientCapabilities.terminal` only after every terminal callback satisfies the
+same safety shape as the built-in shell path. That means argv-only execution,
+workspace-contained absolute cwd handling, explicit env redaction, capped
+incremental output, reliable wait/kill/release lifecycle cleanup, visible tool
+rows, and append-only session audit records. Until those pieces and tests exist,
+terminal capability stays absent/false even if target ACP agents can use it.
+
 ### Transport Policy
 
-ACP v1 names stdio as the concrete transport and marks Streamable HTTP as a
-draft proposal. The architecture docs describe the editor booting an agent
-subprocess and communicating over stdin/stdout. That means stdio is the
-required first transport for ordinary editor/client interoperability.
+As of 2026-07-04, ACP v1 names stdio as the concrete transport and marks
+Streamable HTTP as a draft proposal. The architecture docs describe the editor
+booting an agent subprocess and communicating over stdin/stdout. That means
+stdio is the required first transport for ordinary editor/client
+interoperability.
 
 Multiple transports are not required for baseline VS Code, Neovim, or Zed
 compatibility. Those clients can launch stdio ACP agents. Remote transports are
 useful later for web, mobile, multi-user, hosted, or bridge-based deployments,
 but implementing them before stdio is stable would add complexity before it
 unblocks the main editor use case.
+
+Remote or custom transports remain out of scope until either Streamable HTTP is
+no longer draft or a concrete target client/deployment requires a bridge. Any
+new transport must preserve the same JSON-RPC lifecycle, capability checks,
+timeouts, redaction, process/session cleanup, and fixture coverage as stdio
+before it becomes configurable.
+
+### Registry Discovery Policy
+
+Read-only ACP registry discovery belongs in core `thndrs` after the local
+config and docs path is stable. The registry changes over time, so documentation
+alone will stale quickly, while a read-only command can show users available
+agents without changing their system.
+
+The first core registry milestone should only fetch or read official registry
+metadata from a stable source, parse it, and display agent names, descriptions,
+versions, and distribution hints with redaction where needed. It must not
+install, update, or execute registry-provided commands automatically.
+
+Install/update support requires a later security review covering command
+provenance, package-manager behavior, source/version metadata, cache policy,
+and failure modes.
+
+### MCP-Over-ACP Policy
+
+MCP-over-ACP waits for local MCP support from `007_mcp`. Once local MCP config
+exists, ACP sessions should receive the effective MCP server set from both user
+and project scopes, using the same merge, enable/disable, provenance, timeout,
+and redaction behavior as local `thndrs` MCP. Project entries override user
+entries by server name, matching the rest of project-local configuration.
+
+Initially pass only MCP server entries that fit the stable ACP `mcpServers`
+shape. Do not invent an ACP-specific MCP config format and do not let an ACP
+agent choose arbitrary MCP servers outside the effective `thndrs` config. A
+thndrs-provided MCP self-proxy remains a separate design because it changes the
+trust boundary from "agent connects to configured servers" to "agent calls back
+into thndrs tools."
 
 ### Session Persistence
 
@@ -359,7 +425,16 @@ Never persist raw stdio lines, raw secrets, or uncapped raw tool payloads.
 - Terminal capability is intentionally not advertised yet.
 - ACP auth methods are detected but not completed yet; authenticated agents are
   a follow-up unless an unauthenticated smoke test is impossible.
-- MCP-over-ACP waits for the local MCP feature and a separate integration plan.
+- ACP auth state is agent-owned; `thndrs` does not store ACP credentials,
+  tokens, cookies, or refresh state.
+- Terminal capability is advertised only after terminal callbacks meet built-in
+  shell policy, output caps, cleanup, UI, and audit requirements.
+- Read-only ACP registry discovery belongs in core `thndrs`; install/update is
+  a separate security-reviewed feature.
+- MCP-over-ACP waits for the local MCP feature, then passes the effective
+  user-plus-project MCP server config when it fits stable ACP `mcpServers`.
+- Remote/custom transports wait for a stable Streamable HTTP spec or a concrete
+  target deployment.
 
 ## Dependencies
 

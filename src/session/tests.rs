@@ -255,6 +255,30 @@ fn session_record_session_meta_persists_config_session_dir() {
 }
 
 #[test]
+fn session_record_json_round_trip_acp_session() {
+    let record = SessionRecord::AcpSession {
+        schema_version: 1,
+        seq: 1,
+        time: "2026-07-04T12:00:00Z".to_string(),
+        local_session_id: "session-local".to_string(),
+        agent_name: "local".to_string(),
+        acp_session_id: "external-session".to_string(),
+        command: "agent --acp".to_string(),
+        protocol_version: "V1".to_string(),
+        agent_info_name: Some("fake-agent".to_string()),
+        agent_info_version: Some("0.0.0".to_string()),
+    };
+
+    let json = record.to_json().expect("serialize");
+    let restored = SessionRecord::from_json(&json).expect("deserialize");
+
+    assert_eq!(record, restored);
+    assert!(json.contains("\"type\":\"acp_session\""));
+    assert!(json.contains("\"local_session_id\":\"session-local\""));
+    assert!(json.contains("\"acp_session_id\":\"external-session\""));
+}
+
+#[test]
 fn session_record_session_meta_persists_effective_config_metadata() {
     let mut origins = std::collections::BTreeMap::new();
     origins.insert("model".to_string(), "env:THNDRS_MODEL".to_string());
@@ -564,6 +588,38 @@ fn writer_creates_session_file_in_custom_session_dir() {
     assert_eq!(writer.path(), custom_dir.join("custom-session.jsonl"));
     let content = std::fs::read_to_string(writer.path()).expect("read file");
     assert!(content.contains(&format!("\"session_dir\":\"{}\"", custom_dir.display())));
+}
+
+#[test]
+fn writer_appends_acp_session_metadata() {
+    let dir = tempfile::tempdir().expect("session dir");
+    let mut writer = test_writer(dir.path(), "acp-session");
+    writer
+        .append_acp_session(&AcpSessionMetadata {
+            agent_name: "local".to_string(),
+            acp_session_id: "external-session".to_string(),
+            command: "agent --acp".to_string(),
+            protocol_version: "V1".to_string(),
+            agent_info_name: Some("fake-agent".to_string()),
+            agent_info_version: Some("0.0.0".to_string()),
+        })
+        .expect("append acp session");
+
+    let records = SessionReader::read_records(writer.path());
+
+    assert!(matches!(
+        records.last(),
+        Some(SessionRecord::AcpSession {
+            local_session_id,
+            agent_name,
+            acp_session_id,
+            command,
+            ..
+        }) if local_session_id == "acp-session"
+            && agent_name == "local"
+            && acp_session_id == "external-session"
+            && command == "agent --acp"
+    ));
 }
 
 #[test]

@@ -143,13 +143,7 @@ fn maps_unknown_like_metadata_updates_to_stable_status() {
 #[test]
 fn acp_runner_completes_fake_agent_lifecycle() {
     let temp = tempfile::tempdir().expect("create temp dir");
-    let fake_agent = temp.path().join("fake_acp_agent.py");
-    std::fs::write(&fake_agent, fake_agent_script()).expect("write fake agent");
-    let agent = AcpAgentConfig {
-        command: "python3".to_string(),
-        args: vec![fake_agent.display().to_string()],
-        ..AcpAgentConfig::default()
-    };
+    let agent = fake_agent_config("lifecycle", None);
 
     let events = collect(RunHandle::new(
         temp.path().to_path_buf(),
@@ -171,13 +165,7 @@ fn acp_runner_completes_fake_agent_lifecycle() {
 #[test]
 fn acp_runner_sends_session_cancel_on_local_cancel() {
     let temp = tempfile::tempdir().expect("create temp dir");
-    let fake_agent = temp.path().join("fake_acp_cancel_agent.py");
-    std::fs::write(&fake_agent, fake_agent_cancel_script()).expect("write fake agent");
-    let agent = AcpAgentConfig {
-        command: "python3".to_string(),
-        args: vec![fake_agent.display().to_string()],
-        ..AcpAgentConfig::default()
-    };
+    let agent = fake_agent_config("cancel", None);
     let handle = RunHandle::new(
         temp.path().to_path_buf(),
         "fake".to_string(),
@@ -213,13 +201,7 @@ fn acp_runner_sends_session_cancel_on_local_cancel() {
 #[test]
 fn acp_runner_cancels_pending_permission_on_local_cancel() {
     let temp = tempfile::tempdir().expect("create temp dir");
-    let fake_agent = temp.path().join("fake_acp_permission_agent.py");
-    std::fs::write(&fake_agent, fake_agent_permission_script()).expect("write fake agent");
-    let agent = AcpAgentConfig {
-        command: "python3".to_string(),
-        args: vec![fake_agent.display().to_string()],
-        ..AcpAgentConfig::default()
-    };
+    let agent = fake_agent_config("permission", None);
     let handle = RunHandle::new(
         temp.path().to_path_buf(),
         "fake".to_string(),
@@ -252,14 +234,7 @@ fn acp_runner_cancels_pending_permission_on_local_cancel() {
 #[test]
 fn acp_runner_times_out_prompt_and_cleans_up() {
     let temp = tempfile::tempdir().expect("create temp dir");
-    let fake_agent = temp.path().join("fake_acp_timeout_agent.py");
-    std::fs::write(&fake_agent, fake_agent_timeout_script()).expect("write fake agent");
-    let agent = AcpAgentConfig {
-        command: "python3".to_string(),
-        args: vec![fake_agent.display().to_string()],
-        timeout_secs: 1,
-        ..AcpAgentConfig::default()
-    };
+    let agent = fake_agent_config("timeout-prompt", Some(1));
 
     let events = collect_until_terminal(
         spawn_run(RunHandle::new(
@@ -284,14 +259,7 @@ fn acp_runner_times_out_prompt_and_cleans_up() {
 #[test]
 fn acp_runner_times_out_initialize() {
     let temp = tempfile::tempdir().expect("create temp dir");
-    let fake_agent = temp.path().join("fake_acp_initialize_timeout_agent.py");
-    std::fs::write(&fake_agent, fake_agent_initialize_timeout_script()).expect("write fake agent");
-    let agent = AcpAgentConfig {
-        command: "python3".to_string(),
-        args: vec![fake_agent.display().to_string()],
-        timeout_secs: 1,
-        ..AcpAgentConfig::default()
-    };
+    let agent = fake_agent_config("timeout-initialize", Some(1));
 
     let events = collect_until_terminal(
         spawn_run(RunHandle::new(
@@ -311,14 +279,7 @@ fn acp_runner_times_out_initialize() {
 #[test]
 fn acp_runner_times_out_session_creation() {
     let temp = tempfile::tempdir().expect("create temp dir");
-    let fake_agent = temp.path().join("fake_acp_session_timeout_agent.py");
-    std::fs::write(&fake_agent, fake_agent_session_timeout_script()).expect("write fake agent");
-    let agent = AcpAgentConfig {
-        command: "python3".to_string(),
-        args: vec![fake_agent.display().to_string()],
-        timeout_secs: 1,
-        ..AcpAgentConfig::default()
-    };
+    let agent = fake_agent_config("timeout-session", Some(1));
 
     let events = collect_until_terminal(
         spawn_run(RunHandle::new(
@@ -333,6 +294,80 @@ fn acp_runner_times_out_session_creation() {
     assert!(events.iter().any(|event| {
         matches!(event, AgentEvent::Failed(text) if text.contains("session creation timed out after 1 seconds"))
     }));
+}
+
+#[test]
+fn acp_runner_handles_fixture_filesystem_read_request() {
+    let temp = tempfile::tempdir().expect("create temp dir");
+    std::fs::write(temp.path().join("readme.txt"), "alpha\nbeta\n").expect("write fixture file");
+    let events = collect(RunHandle::new(
+        temp.path().to_path_buf(),
+        "fake".to_string(),
+        Some(fake_agent_config("fs-read", None)),
+        "read".to_string(),
+    ));
+
+    assert!(
+        events
+            .iter()
+            .any(|event| { matches!(event, AgentEvent::ToolStarted { name, .. } if name == "acp.fs.read_text_file") })
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| { matches!(event, AgentEvent::ToolFinished { status: ToolStatus::Ok, .. }) })
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, AgentEvent::AssistantDelta(text) if text.contains("read: alpha\nbeta")))
+    );
+    assert_eq!(events.last(), Some(&AgentEvent::Finished));
+}
+
+#[test]
+fn acp_runner_handles_fixture_filesystem_write_request() {
+    let temp = tempfile::tempdir().expect("create temp dir");
+    let events = collect(RunHandle::new(
+        temp.path().to_path_buf(),
+        "fake".to_string(),
+        Some(fake_agent_config("fs-write", None)),
+        "write".to_string(),
+    ));
+
+    assert_eq!(
+        std::fs::read_to_string(temp.path().join("acp-write.txt")).expect("written file"),
+        "written by fake ACP\n"
+    );
+    assert!(events.iter().any(|event| {
+        matches!(
+            event,
+            AgentEvent::ToolFinished { status: ToolStatus::Ok, write_result: Some(_), .. }
+        )
+    }));
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, AgentEvent::AssistantDelta(text) if text.contains("write ok")))
+    );
+}
+
+#[test]
+fn acp_runner_handles_fixture_unknown_update() {
+    let temp = tempfile::tempdir().expect("create temp dir");
+    let events = collect(RunHandle::new(
+        temp.path().to_path_buf(),
+        "fake".to_string(),
+        Some(fake_agent_config("unknown-update", None)),
+        "unknown".to_string(),
+    ));
+
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, AgentEvent::Status(text) if text == "acp: available commands updated"))
+    );
+    assert_eq!(events.last(), Some(&AgentEvent::Finished));
 }
 
 fn collect_until_terminal(rx: mpsc::Receiver<AgentEvent>, timeout: Duration) -> Vec<AgentEvent> {
@@ -351,206 +386,18 @@ fn collect_until_terminal(rx: mpsc::Receiver<AgentEvent>, timeout: Duration) -> 
     events
 }
 
-fn fake_agent_script() -> &'static str {
-    r#"#!/usr/bin/env python3
-import json
-import sys
-
-SESSION_ID = "fake-session-1"
-
-for line in sys.stdin:
-    message = json.loads(line)
-    method = message.get("method")
-    request_id = message.get("id")
-
-    if method == "initialize":
-        result = {
-            "protocolVersion": 1,
-            "agentCapabilities": {},
-            "authMethods": [],
-            "agentInfo": {
-                "name": "fake-acp-agent",
-                "version": "0.0.0"
-            }
-        }
-    elif method == "session/new":
-        result = {"sessionId": SESSION_ID}
-    elif method == "session/prompt":
-        update = {
-            "jsonrpc": "2.0",
-            "method": "session/update",
-            "params": {
-                "sessionId": SESSION_ID,
-                "update": {
-                    "sessionUpdate": "agent_message_chunk",
-                    "content": {
-                        "type": "text",
-                        "text": "pong from fake ACP agent"
-                    },
-                    "messageId": "fake-message-1"
-                }
-            }
-        }
-        print(json.dumps(update, separators=(",", ":")), flush=True)
-        result = {"stopReason": "end_turn"}
-    else:
-        error = {
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "error": {
-                "code": -32601,
-                "message": f"unsupported method: {method}"
-            }
-        }
-        print(json.dumps(error, separators=(",", ":")), flush=True)
-        continue
-
-    response = {"jsonrpc": "2.0", "id": request_id, "result": result}
-    print(json.dumps(response, separators=(",", ":")), flush=True)
-"#
+fn fake_agent_config(script: &str, timeout_secs: Option<u64>) -> AcpAgentConfig {
+    AcpAgentConfig {
+        command: "python3".to_string(),
+        args: vec![fake_agent_fixture().display().to_string(), script.to_string()],
+        timeout_secs: timeout_secs.unwrap_or(AcpAgentConfig::default().timeout_secs),
+        ..AcpAgentConfig::default()
+    }
 }
 
-fn fake_agent_cancel_script() -> &'static str {
-    r#"#!/usr/bin/env python3
-import json
-import sys
-
-SESSION_ID = "fake-session-1"
-
-for line in sys.stdin:
-    message = json.loads(line)
-    method = message.get("method")
-    request_id = message.get("id")
-
-    if method == "initialize":
-        result = {"protocolVersion": 1, "agentCapabilities": {}, "authMethods": []}
-        print(json.dumps({"jsonrpc": "2.0", "id": request_id, "result": result}), flush=True)
-    elif method == "session/new":
-        print(json.dumps({"jsonrpc": "2.0", "id": request_id, "result": {"sessionId": SESSION_ID}}), flush=True)
-    elif method == "session/prompt":
-        update = {
-            "jsonrpc": "2.0",
-            "method": "session/update",
-            "params": {
-                "sessionId": SESSION_ID,
-                "update": {
-                    "sessionUpdate": "agent_message_chunk",
-                    "content": {"type": "text", "text": "waiting"},
-                    "messageId": "fake-message-1"
-                }
-            }
-        }
-        print(json.dumps(update), flush=True)
-        prompt_request_id = request_id
-        for nested_line in sys.stdin:
-            nested = json.loads(nested_line)
-            if nested.get("method") == "session/cancel":
-                print(json.dumps({
-                    "jsonrpc": "2.0",
-                    "id": prompt_request_id,
-                    "result": {"stopReason": "cancelled"}
-                }), flush=True)
-                sys.exit(0)
-"#
-}
-
-fn fake_agent_permission_script() -> &'static str {
-    r#"#!/usr/bin/env python3
-import json
-import sys
-
-SESSION_ID = "fake-session-1"
-
-for line in sys.stdin:
-    message = json.loads(line)
-    method = message.get("method")
-    request_id = message.get("id")
-
-    if method == "initialize":
-        result = {"protocolVersion": 1, "agentCapabilities": {}, "authMethods": []}
-        print(json.dumps({"jsonrpc": "2.0", "id": request_id, "result": result}), flush=True)
-    elif method == "session/new":
-        print(json.dumps({"jsonrpc": "2.0", "id": request_id, "result": {"sessionId": SESSION_ID}}), flush=True)
-    elif method == "session/prompt":
-        permission = {
-            "jsonrpc": "2.0",
-            "id": "perm-1",
-            "method": "session/request_permission",
-            "params": {
-                "sessionId": SESSION_ID,
-                "toolCall": {
-                    "toolCallId": "tool-1",
-                    "title": "Write file"
-                },
-                "options": [
-                    {"optionId": "allow", "name": "Allow", "kind": "allow_once"},
-                    {"optionId": "reject", "name": "Reject", "kind": "reject_once"}
-                ]
-            }
-        }
-        print(json.dumps(permission), flush=True)
-        prompt_request_id = request_id
-        for nested_line in sys.stdin:
-            nested = json.loads(nested_line)
-            if nested.get("id") == "perm-1":
-                print(json.dumps({
-                    "jsonrpc": "2.0",
-                    "id": prompt_request_id,
-                    "result": {"stopReason": "cancelled"}
-                }), flush=True)
-                sys.exit(0)
-"#
-}
-
-fn fake_agent_timeout_script() -> &'static str {
-    r#"#!/usr/bin/env python3
-import json
-import sys
-import time
-
-SESSION_ID = "fake-session-1"
-
-for line in sys.stdin:
-    message = json.loads(line)
-    method = message.get("method")
-    request_id = message.get("id")
-
-    if method == "initialize":
-        result = {"protocolVersion": 1, "agentCapabilities": {}, "authMethods": []}
-        print(json.dumps({"jsonrpc": "2.0", "id": request_id, "result": result}), flush=True)
-    elif method == "session/new":
-        print(json.dumps({"jsonrpc": "2.0", "id": request_id, "result": {"sessionId": SESSION_ID}}), flush=True)
-    elif method == "session/prompt":
-        while True:
-            time.sleep(1)
-"#
-}
-
-fn fake_agent_initialize_timeout_script() -> &'static str {
-    r#"#!/usr/bin/env python3
-import time
-
-while True:
-    time.sleep(1)
-"#
-}
-
-fn fake_agent_session_timeout_script() -> &'static str {
-    r#"#!/usr/bin/env python3
-import json
-import sys
-import time
-
-for line in sys.stdin:
-    message = json.loads(line)
-    method = message.get("method")
-    request_id = message.get("id")
-
-    if method == "initialize":
-        result = {"protocolVersion": 1, "agentCapabilities": {}, "authMethods": []}
-        print(json.dumps({"jsonrpc": "2.0", "id": request_id, "result": result}), flush=True)
-    elif method == "session/new":
-        while True:
-            time.sleep(1)
-"#
+fn fake_agent_fixture() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("fake_acp_agent.py")
 }
