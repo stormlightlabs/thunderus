@@ -7,7 +7,6 @@ Date: captured 2026-07-04
 Tags: [rust, tui, terminal-ui, components, hooks, flexbox]
 ---
 
-
 ## Summary
 
 iocraft is a Rust terminal UI library that uses a declarative,

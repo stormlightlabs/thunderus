@@ -15,17 +15,17 @@ than silently running with a lower-precedence value.
 These variables override TOML config files and built-in defaults. CLI flags
 still override environment variables.
 
-| Variable | Value |
-| --- | --- |
-| `THNDRS_MODEL` | Completion model string. |
-| `THNDRS_WEBSEARCH` | `auto`, `native`, `exa`, or `none`. |
-| `THNDRS_TICK_RATE_MS` | Positive integer milliseconds. |
-| `THNDRS_THEME` | `eldritch-minimal`, `iceberg-dark`, or `catppuccin-mocha`. |
-| `THNDRS_MOUSE` | Boolean. |
-| `THNDRS_VERBOSE` | Boolean. |
-| `THNDRS_SKILL_DIRS` | Path list using the platform path separator. |
-| `THNDRS_SESSION_DIR` | Session JSONL directory path. |
-| `THNDRS_DEFAULT_WORKSPACE` | Workspace path used when `--cwd` is omitted. |
+| Variable                   | Value                                                      |
+| -------------------------- | ---------------------------------------------------------- |
+| `THNDRS_MODEL`             | Completion model string.                                   |
+| `THNDRS_WEBSEARCH`         | `auto`, `native`, `exa`, or `none`.                        |
+| `THNDRS_TICK_RATE_MS`      | Positive integer milliseconds.                             |
+| `THNDRS_THEME`             | `eldritch-minimal`, `iceberg-dark`, or `catppuccin-mocha`. |
+| `THNDRS_MOUSE`             | Boolean.                                                   |
+| `THNDRS_VERBOSE`           | Boolean.                                                   |
+| `THNDRS_SKILL_DIRS`        | Path list using the platform path separator.               |
+| `THNDRS_SESSION_DIR`       | Session JSONL directory path.                              |
+| `THNDRS_DEFAULT_WORKSPACE` | Workspace path used when `--cwd` is omitted.               |
 
 Boolean values accept `1`, `0`, `true`, `false`, `yes`, `no`, `on`, and `off`,
 case-insensitively.

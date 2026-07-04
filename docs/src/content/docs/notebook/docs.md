@@ -27,36 +27,36 @@ Good internals documentation gives readers a stable mental model and gives contr
 
 ## Claims & Evidence
 
-| Claim | Support | Caveat / Confidence |
-| --- | --- | --- |
-| Architecture docs work best when they start with a high-level model. | rust-analyzer opens its architecture chapter with a bird's-eye view, entry points, and code map before drilling into modules. | High; this pattern maps well to thndrs because the app has clear boundaries: app state, prompt assembly, provider loop, tools, sessions, renderer. |
-| Invariants are more valuable than file summaries. | rust-analyzer repeatedly calls out architecture invariants such as API boundaries, absent dependencies, and cancellation behavior. | High; thndrs should document what must stay true around tool containment, append-only sessions, provider ownership, and renderer row models. |
-| Deep contributor books should be distinct from user docs. | The Rust compiler development guide is a contributor handbook, not a user manual. | High; thndrs is smaller, so this should be a Development section rather than a separate book. |
-| TUI internals benefit from mechanism-level concept docs. | Ratatui's rendering docs explain the buffer/render/flush flow instead of only listing APIs. | High; thndrs can use the same style for direct inline rendering, live regions, transcript blocks, and snapshots. |
-| AI coding tool docs often expose internal concepts when they affect outcomes. | Aider documents repository maps and edit formats because those internals shape user-visible agent behavior. | Medium; thndrs should do this for prompt assembly, project context, tool boundaries, sessions, and provider behavior. |
-| A clear information architecture prevents docs from becoming a junk drawer. | Diataxis separates tutorials, how-to guides, reference, and explanation. | High; thndrs can keep Getting Started, Usage, Concepts, Reference, Development, Providers, and Notebook as separate jobs. |
+| Claim                                                                         | Support                                                                                                                            | Caveat / Confidence                                                                                                                                |
+| ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Architecture docs work best when they start with a high-level model.          | rust-analyzer opens its architecture chapter with a bird's-eye view, entry points, and code map before drilling into modules.      | High; this pattern maps well to thndrs because the app has clear boundaries: app state, prompt assembly, provider loop, tools, sessions, renderer. |
+| Invariants are more valuable than file summaries.                             | rust-analyzer repeatedly calls out architecture invariants such as API boundaries, absent dependencies, and cancellation behavior. | High; thndrs should document what must stay true around tool containment, append-only sessions, provider ownership, and renderer row models.       |
+| Deep contributor books should be distinct from user docs.                     | The Rust compiler development guide is a contributor handbook, not a user manual.                                                  | High; thndrs is smaller, so this should be a Development section rather than a separate book.                                                      |
+| TUI internals benefit from mechanism-level concept docs.                      | Ratatui's rendering docs explain the buffer/render/flush flow instead of only listing APIs.                                        | High; thndrs can use the same style for direct inline rendering, live regions, transcript blocks, and snapshots.                                   |
+| AI coding tool docs often expose internal concepts when they affect outcomes. | Aider documents repository maps and edit formats because those internals shape user-visible agent behavior.                        | Medium; thndrs should do this for prompt assembly, project context, tool boundaries, sessions, and provider behavior.                              |
+| A clear information architecture prevents docs from becoming a junk drawer.   | Diataxis separates tutorials, how-to guides, reference, and explanation.                                                           | High; thndrs can keep Getting Started, Usage, Concepts, Reference, Development, Providers, and Notebook as separate jobs.                          |
 
 ## Important Terms
 
-| Term | Meaning |
-| --- | --- |
-| Concept page | An explanatory page that teaches a stable mental model or behavior. |
-| Development page | Contributor-facing documentation for architecture, invariants, source ownership, and change workflow. |
-| Reference page | Exact, lookup-oriented documentation for schemas, commands, configuration, and APIs. |
-| Notebook page | A research or synthesis note that may be useful later but is not yet a polished contract. |
-| Invariant | A property the codebase intentionally preserves across changes. |
-| Boundary | A point where ownership changes, such as app state to renderer, agent loop to provider, or tool dispatcher to filesystem. |
+| Term             | Meaning                                                                                                                   |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Concept page     | An explanatory page that teaches a stable mental model or behavior.                                                       |
+| Development page | Contributor-facing documentation for architecture, invariants, source ownership, and change workflow.                     |
+| Reference page   | Exact, lookup-oriented documentation for schemas, commands, configuration, and APIs.                                      |
+| Notebook page    | A research or synthesis note that may be useful later but is not yet a polished contract.                                 |
+| Invariant        | A property the codebase intentionally preserves across changes.                                                           |
+| Boundary         | A point where ownership changes, such as app state to renderer, agent loop to provider, or tool dispatcher to filesystem. |
 
 ## Patterns From Similar Projects
 
-| Project | Useful Pattern | Application to thndrs |
-| --- | --- | --- |
-| rust-analyzer | Bird's-eye view, entry points, code map, architecture invariants, cross-cutting concerns. | Expand Architecture around the turn lifecycle and document invariants per subsystem. |
-| Rust compiler dev guide | Contributor-first handbook organized by subsystem and development task. | Keep thndrs contributor internals in Development, not mixed into Usage. |
-| Ratatui | Mechanism-level concept docs for rendering internals. | Explain the row model, live region, backend boundary, wrapping, cursor placement, and snapshots. |
-| Aider | User-facing docs for internals that affect agent results. | Keep prompt assembly, project context, tools, sessions, and provider behavior visible in Concepts. |
-| OpenCode | Product docs organized around usage, config, tools, agents, SDK/server/plugin surfaces. | Keep usage docs operational and move exact config/tool details to Reference. |
-| Diataxis | Separate explanation, how-to, reference, and learning paths. | Use Concepts for explanation, Usage for tasks, Reference for contracts, Development for contributors, Notebook for research. |
+| Project                 | Useful Pattern                                                                            | Application to thndrs                                                                                                        |
+| ----------------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| rust-analyzer           | Bird's-eye view, entry points, code map, architecture invariants, cross-cutting concerns. | Expand Architecture around the turn lifecycle and document invariants per subsystem.                                         |
+| Rust compiler dev guide | Contributor-first handbook organized by subsystem and development task.                   | Keep thndrs contributor internals in Development, not mixed into Usage.                                                      |
+| Ratatui                 | Mechanism-level concept docs for rendering internals.                                     | Explain the row model, live region, backend boundary, wrapping, cursor placement, and snapshots.                             |
+| Aider                   | User-facing docs for internals that affect agent results.                                 | Keep prompt assembly, project context, tools, sessions, and provider behavior visible in Concepts.                           |
+| OpenCode                | Product docs organized around usage, config, tools, agents, SDK/server/plugin surfaces.   | Keep usage docs operational and move exact config/tool details to Reference.                                                 |
+| Diataxis                | Separate explanation, how-to, reference, and learning paths.                              | Use Concepts for explanation, Usage for tasks, Reference for contracts, Development for contributors, Notebook for research. |
 
 ## Local Documentation Shape
 
@@ -76,13 +76,21 @@ Use this structure for subsystem internals:
 
 ```md
 ## Why This Exists
+
 ## User-Visible Behavior
+
 ## Data Flow
+
 ## Code Map
+
 ## Invariants
+
 ## Extension Points
+
 ## Failure Modes / Security Notes
+
 ## Tests
+
 ## Related Reading
 ```
 

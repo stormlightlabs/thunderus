@@ -3,10 +3,12 @@ import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
 import starlinkValidator from "starlight-links-validator";
 import starLlmsTxt from "starlight-llms-txt";
+import ogImages from "./src/integrations/og-images/index.ts";
 
 export default defineConfig({
   site: "https://thndrs.stormlightlabs.org",
   integrations: [
+    ogImages(),
     starlight({
       plugins: [starlinkValidator(), starLlmsTxt()],
       title: "thndrs",
@@ -33,7 +35,12 @@ export default defineConfig({
         },
         { tag: "meta", attrs: { property: "og:type", content: "website" } },
         { tag: "meta", attrs: { property: "og:site_name", content: "thndrs" } },
-        { tag: "meta", attrs: { name: "twitter:card", content: "summary" } },
+        { tag: "meta", attrs: { property: "og:image", content: "https://thndrs.stormlightlabs.org/og.png" } },
+        { tag: "meta", attrs: { property: "og:image:width", content: "1200" } },
+        { tag: "meta", attrs: { property: "og:image:height", content: "630" } },
+        { tag: "meta", attrs: { property: "og:image:type", content: "image/png" } },
+        { tag: "meta", attrs: { name: "twitter:card", content: "summary_large_image" } },
+        { tag: "meta", attrs: { name: "twitter:image", content: "https://thndrs.stormlightlabs.org/og.png" } },
       ],
       sidebar: [
         /* Getting Started: short orientation and first-run material for readers who are new to thndrs. */
