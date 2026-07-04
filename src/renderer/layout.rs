@@ -107,6 +107,7 @@ pub fn wrap_text_preserving_whitespace(text: &str, width: usize) -> Vec<String> 
 /// individual styles. A single logical row can contain multiple spans. Blank
 /// (empty-text) input produces a single empty row so callers always get at
 /// least one row.
+#[cfg(test)]
 pub fn wrap_spans(spans: &[Span], width: usize) -> Vec<Vec<Span>> {
     let width = width.max(1);
     let mut rows: Vec<Vec<Span>> = Vec::new();

@@ -4,7 +4,7 @@ use crate::app::{Entry, ToolStatus};
 use crate::renderer::{self, row};
 use crate::skills;
 
-use super::{TranscriptRowContext, banner_rows, entry_rows};
+use super::{TranscriptRowContext, banner_rows, entry_rows, startup_loaded_skill_lines};
 
 fn ctx(width: usize) -> TranscriptRowContext<'static> {
     TranscriptRowContext::for_test("User", Path::new("."), width)
@@ -52,6 +52,23 @@ fn test_app() -> crate::app::App {
     app.skills.clear();
     app.skill_diagnostics.clear();
     app
+}
+
+fn test_skill(name: &str) -> skills::SkillMetadata {
+    skills::SkillMetadata {
+        name: name.to_string(),
+        description: "test skill".to_string(),
+        path: PathBuf::from(format!("/tmp/{name}/SKILL.md")),
+        root: PathBuf::from(format!("/tmp/{name}")),
+        content_hash: 0,
+        byte_count: 0,
+        source: skills::SkillSource::Project,
+        allowed_tools: Vec::new(),
+        license: None,
+        compatibility: None,
+        metadata: None,
+        references: Vec::new(),
+    }
 }
 
 #[test]
@@ -386,7 +403,7 @@ fn banner_context_section_shows_truncation() {
     let rendered = render_banner_styled(&app, 80);
 
     assert!(
-        rendered.contains("AGENTS.md (truncated, 40000 bytes)"),
+        rendered.contains("AGENTS.md (truncated, 40000") && rendered.contains("bytes)"),
         "Context section should preserve AGENTS.md truncation metadata:\n{rendered}"
     );
 }
@@ -397,7 +414,7 @@ fn banner_cwd_uses_statusline_truncation_without_wrapping() {
     let rendered = render_banner_styled(&app, 40);
 
     assert!(
-        rendered.contains("cwd: ~/Pr/St/O/thndrs"),
+        rendered.contains("cwd ~/Pr/St/O/thndrs"),
         "cwd row should use statusline-style path truncation:\n{rendered}"
     );
     assert!(
@@ -449,16 +466,55 @@ fn banner_no_duplicate_context_loaded_status_entry() {
 
     let rendered = render_banner_styled(&app, 80);
     assert!(
-        rendered.contains("[Context]"),
-        "banner should have a Context section:\n{rendered}"
+        rendered.contains("project"),
+        "banner should have a project workbench section:\n{rendered}"
     );
     assert!(
         rendered.contains("AGENTS.md"),
         "Context section should list the AGENTS.md source:\n{rendered}"
     );
     assert!(
-        !rendered.contains("loaded "),
-        "banner should not contain a 'loaded' status message:\n{rendered}"
+        !rendered.contains("loaded AGENTS.md"),
+        "banner should not show context as a duplicate loaded status message:\n{rendered}"
+    );
+}
+
+#[test]
+fn startup_loaded_skills_wrap_at_hyphens_and_hide_extra_rows() {
+    let mut app = test_app();
+    app.skills = [
+        "make-interfaces-feel-better",
+        "code-change-status",
+        "copywriting",
+        "fallow",
+        "frontend-design",
+        "grill-me",
+        "notetaking",
+        "opentui",
+    ]
+    .into_iter()
+    .map(test_skill)
+    .collect();
+
+    let snapshot = app.self_knowledge_snapshot();
+    let lines = startup_loaded_skill_lines(&snapshot, 31);
+    let rendered = lines.join("\n");
+
+    assert!(
+        lines.len() <= 4,
+        "loaded skills should be capped at four rows:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("make-interfaces-feel-\n     better,"),
+        "long hyphenated skill names should wrap at a hyphen:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("...6 skills hidden"),
+        "loaded skills should report hidden skill count:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("feel-bette"),
+        "loaded skills should not split a hyphenated word mid-segment:\n{rendered}"
     );
 }
 
@@ -624,7 +680,7 @@ fn banner_normal_viewport_shows_all_sections() {
     let app = test_app();
     let rendered = render_banner_styled(&app, 80);
 
-    for section in ["[Runtime]", "[Context]", "[Search]", "[Skills]", "[Diagnostics]"] {
+    for section in ["THNDRS", "workbench", "system", "project", "search", "attention"] {
         assert!(
             rendered.contains(section),
             "normal viewport should show {section}:\n{rendered}"
@@ -641,11 +697,11 @@ fn banner_narrow_viewport_preserves_sections() {
     let rendered = render_banner_styled(&app, 40);
 
     assert!(
-        rendered.contains("[Runtime]"),
-        "narrow viewport should show Runtime section"
+        rendered.contains("system"),
+        "narrow viewport should show system section"
     );
     assert!(
-        rendered.contains("[Context]"),
-        "narrow viewport should show Context section"
+        rendered.contains("project"),
+        "narrow viewport should show project section"
     );
 }

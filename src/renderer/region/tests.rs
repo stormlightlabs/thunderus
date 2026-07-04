@@ -108,7 +108,7 @@ fn build_frame_short_startup_prioritizes_identity_context_and_help() {
 
     assert_eq!(frame.len(), 16);
     assert!(
-        combined.contains("thndrs  coding agent"),
+        combined.contains("THNDRS"),
         "startup identity should survive short-height clipping:\n{combined}"
     );
     assert!(
@@ -120,7 +120,7 @@ fn build_frame_short_startup_prioritizes_identity_context_and_help() {
         "critical diagnostics should survive short-height clipping:\n{combined}"
     );
     assert!(
-        combined.contains("?  help"),
+        combined.contains("help"),
         "prompt help should survive when the constrained budget allows it:\n{combined}"
     );
     assert!(
@@ -137,7 +137,7 @@ fn build_frame_very_short_startup_marks_hidden_banner_rows() {
 
     assert_eq!(frame.len(), 8);
     assert!(
-        combined.contains("thndrs  coding agent"),
+        combined.contains("THNDRS"),
         "startup identity should be prioritized over bottom banner rows:\n{combined}"
     );
     assert!(
@@ -692,8 +692,8 @@ fn vt100_resize_replays_startup_banner_with_committed_scrollback() {
 
     let contents = vt100_contents(backend.writer(), 80, 23);
     assert!(
-        contents.contains("[Context]"),
-        "startup banner section headings should be replayed with committed scrollback after resize:\n{contents}"
+        contents.contains("+ search"),
+        "startup banner rail markers should be replayed with committed scrollback after resize:\n{contents}"
     );
     assert!(
         contents.contains("trigger scrollback replay"),

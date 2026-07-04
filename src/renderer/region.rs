@@ -376,20 +376,34 @@ fn startup_priority_indexes(rows: &[Row], budget: usize) -> Vec<usize> {
 fn startup_row_priority(rows: &[Row], index: usize) -> usize {
     let text = rows[index].text_for_policy();
     let trimmed = text.trim();
+    let key = startup_row_key(trimmed);
 
-    if trimmed.contains("thndrs") {
+    if key.contains("THNDRS") || key.contains("thndrs") {
         return 0;
     }
-    if trimmed.starts_with("model:") || trimmed.starts_with("cwd:") {
+    if key.starts_with("cwd ") {
         return 1;
     }
-    if startup_row_is_in_section(rows, index, "[Context]") || startup_row_is_in_section(rows, index, "[Diagnostics]") {
+    if startup_row_is_in_rail_section(rows, index, "workbench")
+        && (key.starts_with("project")
+            || key.starts_with("context")
+            || key.starts_with("attention")
+            || key.starts_with("skill diagnostic")
+            || key.contains("AGENTS.md")
+            || key.contains("SKILL.md")
+            || key.contains("invalid YAML")
+            || key.contains("frontmatter"))
+    {
         return 2;
     }
-    if trimmed.starts_with("›") || trimmed.starts_with("?") || trimmed.starts_with("/model") {
+    if startup_row_is_in_rail_section(rows, index, "ready")
+        || key.starts_with('>')
+        || key.starts_with('?')
+        || key.starts_with("/model")
+    {
         return 3;
     }
-    if trimmed.starts_with("[Runtime]") || trimmed.starts_with("[Search]") || trimmed.starts_with("[Skills]") {
+    if startup_row_is_rail_marker(trimmed) {
         return 4;
     }
     if trimmed.is_empty() {
@@ -398,22 +412,29 @@ fn startup_row_priority(rows: &[Row], index: usize) -> usize {
     5
 }
 
-fn startup_row_is_in_section(rows: &[Row], index: usize, section: &str) -> bool {
+fn startup_row_key(trimmed: &str) -> &str {
+    trimmed.strip_prefix('|').map(str::trim).unwrap_or(trimmed)
+}
+
+fn startup_row_is_in_rail_section(rows: &[Row], index: usize, section: &str) -> bool {
     for row in rows[..=index].iter().rev() {
         let text = row.text_for_policy();
         let trimmed = text.trim();
-        if trimmed.is_empty() || startup_row_is_divider(trimmed) {
+        let key = startup_row_key(trimmed);
+        if key.is_empty() {
             return false;
         }
-        if trimmed.starts_with('[') && trimmed.ends_with(']') {
-            return trimmed == section;
+        if let Some(marker) = trimmed.strip_prefix('+') {
+            return marker.trim() == section;
         }
     }
     false
 }
 
-fn startup_row_is_divider(trimmed: &str) -> bool {
-    !trimmed.is_empty() && trimmed.chars().all(|ch| ch == '─')
+fn startup_row_is_rail_marker(trimmed: &str) -> bool {
+    trimmed
+        .strip_prefix('+')
+        .is_some_and(|marker| matches!(marker.trim(), "workbench" | "search" | "ready"))
 }
 
 fn hidden_startup_row(width: usize, hidden: usize) -> Row {

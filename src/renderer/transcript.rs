@@ -7,6 +7,7 @@
 use std::path::Path;
 
 use crate::app::{Entry, ToolStatus};
+use crate::internals::StartupSection;
 use crate::renderer::row::Row;
 use crate::renderer::style::{CellStyle, Color, Span};
 use crate::{renderer, utils};
@@ -14,8 +15,11 @@ use crate::{renderer, utils};
 /// Maximum tool output lines rendered before a truncation marker is shown.
 const MAX_TOOL_OUTPUT_LINES: usize = 6;
 
-/// Horizontal rule glyph used to visually split startup banner sections.
-const BANNER_DIVIDER: &str = "─";
+/// Content width where the startup workbench can use two columns.
+const WIDE_STARTUP_WORKBENCH_WIDTH: usize = 72;
+
+/// Maximum skill-list rows shown under the startup workbench loaded heading.
+const MAX_STARTUP_LOADED_SKILL_ROWS: usize = 4;
 
 /// Gutter prefix for tool output lines.
 pub const GUTTER: &str = "   │ ";
@@ -30,6 +34,22 @@ pub struct TranscriptRowContext<'a> {
     /// a [`RowGroupId`] so native scrollback navigation can correlate rows to
     /// the originating entry.
     pub entry_index: Option<usize>,
+}
+
+#[derive(Clone, Copy)]
+struct StartupBannerTheme {
+    width: usize,
+    bg: Color,
+    rail_style: CellStyle,
+    marker_style: CellStyle,
+    heading_style: CellStyle,
+    muted_style: CellStyle,
+}
+
+impl StartupBannerTheme {
+    fn body_width(self) -> usize {
+        super::layout::content_width(self.width).saturating_sub(3)
+    }
 }
 
 impl<'a> TranscriptRowContext<'a> {
@@ -61,89 +81,390 @@ pub fn entry_rows(entry: &Entry, ctx: &TranscriptRowContext) -> Vec<Row> {
 pub fn banner_rows(app: &crate::app::App, width: usize) -> Vec<Row> {
     let p = super::style::palette();
     let bg = p.panel_bg;
-    let title_style = CellStyle::new().fg(p.accent).bg(bg).bold();
-    let text_style = CellStyle::new().fg(p.text).bg(bg);
-    let muted_style = CellStyle::new().fg(p.subtext0).bg(bg);
+    let theme = StartupBannerTheme {
+        width,
+        bg,
+        rail_style: CellStyle::new().fg(p.overlay0).bg(bg),
+        marker_style: CellStyle::new().fg(p.accent).bg(bg).bold(),
+        heading_style: CellStyle::new().fg(p.text).bg(bg).bold(),
+        muted_style: CellStyle::new().fg(p.subtext0).bg(bg),
+    };
+    let snapshot = app.self_knowledge_snapshot();
+    let sections = snapshot.startup_sections();
 
     let mut rows = Vec::new();
     rows.push(Row::blank(width, bg_style(bg)));
 
-    let title = String::from("thndrs  coding agent");
-    push_wrapped_banner_row(&mut rows, &[Span::styled(title, title_style)], width, bg);
-    push_wrapped_banner_row(
+    push_rail_text_row(&mut rows, "THNDRS", theme, theme.marker_style);
+    if !app.cwd.as_os_str().is_empty() {
+        let cwd_line = super::path_display::cwd_segment(&app.cwd, theme.body_width());
+        let cwd_line = cwd_line.strip_prefix("cwd: ").unwrap_or(&cwd_line);
+        push_rail_text_row(&mut rows, &format!("cwd {cwd_line}"), theme, theme.muted_style);
+    }
+    push_rail_empty_row(&mut rows, theme);
+
+    push_startup_workbench(&mut rows, &snapshot, &sections, app, theme);
+
+    push_rail_marker_row(&mut rows, "search", theme);
+    for line in startup_section_lines(&sections, "Search", app) {
+        push_wrapped_rail_text(&mut rows, &line, 3, 3, theme, theme.muted_style);
+    }
+
+    push_rail_empty_row(&mut rows, theme);
+    push_rail_marker_row(&mut rows, "ready", theme);
+    push_rail_command_row(
         &mut rows,
-        &[
-            Span::styled("model: ", muted_style),
-            Span::styled(app.model.clone(), text_style),
-            Span::styled("   search: ", muted_style),
-            Span::styled(app.websearch.label(), text_style),
-        ],
-        width,
-        bg,
+        ">",
+        "Ask for a change, run a command, or inspect this repo.",
+        theme,
+    );
+    push_rail_command_row(&mut rows, "?", "help", theme);
+    push_rail_command_row(&mut rows, "/model", "switch models", theme);
+
+    rows.push(Row::blank(width, bg_style(bg)));
+    rows
+}
+
+fn push_startup_workbench(
+    rows: &mut Vec<Row>, snapshot: &crate::internals::SelfKnowledgeSnapshot, sections: &[StartupSection],
+    app: &crate::app::App, theme: StartupBannerTheme,
+) {
+    push_rail_marker_row(rows, "workbench", theme);
+    let body_width = theme.body_width();
+    if body_width >= WIDE_STARTUP_WORKBENCH_WIDTH {
+        push_wide_startup_workbench(rows, snapshot, sections, app, theme);
+    } else {
+        push_narrow_startup_workbench(rows, snapshot, sections, app, theme);
+    }
+}
+
+fn push_wide_startup_workbench(
+    rows: &mut Vec<Row>, snapshot: &crate::internals::SelfKnowledgeSnapshot, sections: &[StartupSection],
+    app: &crate::app::App, theme: StartupBannerTheme,
+) {
+    let body_width = theme.body_width();
+    let gap_width = 3usize;
+    let left_width = 31usize.min(body_width.saturating_sub(gap_width));
+    let right_width = body_width.saturating_sub(left_width + gap_width);
+
+    let mut left = vec![
+        "  system".to_string(),
+        format!("     provider  {}", snapshot.runtime.provider.provider),
+        format!("     model     {}", snapshot.runtime.provider.model),
+        format!("     search    {}", snapshot.runtime.provider.search.mode),
+        String::new(),
+        "  loaded".to_string(),
+    ];
+    left.extend(startup_loaded_skill_lines(snapshot, left_width));
+
+    let mut right = vec!["project".to_string()];
+    for line in startup_section_lines(sections, "Context", app) {
+        right.extend(wrap_labeled_value("context", &line, 3, 9, right_width));
+    }
+    right.push(String::new());
+    right.push("attention".to_string());
+    for line in startup_section_lines(sections, "Diagnostics", app) {
+        right.extend(wrap_with_indent(&line, 3, 3, right_width));
+    }
+
+    let count = left.len().max(right.len());
+    for index in 0..count {
+        let left_line = left.get(index).map_or("", String::as_str);
+        let right_line = right.get(index).map_or("", String::as_str);
+        push_wide_workbench_row(rows, left_line, left_width, gap_width, right_line, theme);
+    }
+}
+
+fn push_narrow_startup_workbench(
+    rows: &mut Vec<Row>, snapshot: &crate::internals::SelfKnowledgeSnapshot, sections: &[StartupSection],
+    app: &crate::app::App, theme: StartupBannerTheme,
+) {
+    push_rail_text_row(rows, "  system", theme, theme.heading_style);
+    push_rail_text_row(
+        rows,
+        &format!("     provider  {}", snapshot.runtime.provider.provider),
+        theme,
+        theme.muted_style,
+    );
+    push_rail_text_row(
+        rows,
+        &format!("     model     {}", snapshot.runtime.provider.model),
+        theme,
+        theme.muted_style,
+    );
+    push_rail_text_row(
+        rows,
+        &format!("     search    {}", snapshot.runtime.provider.search.mode),
+        theme,
+        theme.muted_style,
     );
 
-    if !app.cwd.as_os_str().is_empty() {
-        let body_width = super::layout::content_width(width);
-        let cwd_line = super::path_display::cwd_segment(&app.cwd, body_width);
-        push_banner_art_row(&mut rows, Span::styled(cwd_line, muted_style), width, bg);
+    push_rail_empty_row(rows, theme);
+    push_rail_text_row(rows, "  project", theme, theme.heading_style);
+    for line in startup_section_lines(sections, "Context", app) {
+        push_wrapped_rail_text(rows, &format!("context   {line}"), 5, 5, theme, theme.muted_style);
     }
-    push_banner_divider_row(&mut rows, width, bg);
 
-    for section in app.self_knowledge_snapshot().startup_sections() {
-        push_wrapped_banner_row(
-            &mut rows,
-            &[Span::styled(format!("[{}]", section.heading), title_style)],
-            width,
-            bg,
-        );
-        let body_width = super::layout::content_width(width).saturating_sub(2);
-        for line in &section.lines {
-            let display_line = match section.heading {
-                "Context" | "Diagnostics" => super::path_display::transcript_line(line, &app.cwd),
-                _ => line.clone(),
-            };
-            for wrapped in super::layout::wrap_text(&display_line, body_width) {
-                push_wrapped_banner_row(
-                    &mut rows,
-                    &[
-                        Span::styled("  ", CellStyle::new().bg(bg)),
-                        Span::styled(wrapped, muted_style),
-                    ],
-                    width,
-                    bg,
+    push_rail_empty_row(rows, theme);
+    push_rail_text_row(rows, "  attention", theme, theme.heading_style);
+    for line in startup_section_lines(sections, "Diagnostics", app) {
+        push_wrapped_rail_text(rows, &line, 5, 5, theme, theme.muted_style);
+    }
+}
+
+fn startup_section_lines(sections: &[StartupSection], heading: &str, app: &crate::app::App) -> Vec<String> {
+    sections
+        .iter()
+        .find(|section| section.heading == heading)
+        .map(|section| {
+            section
+                .lines
+                .iter()
+                .map(|line| match section.heading {
+                    "Context" | "Diagnostics" => super::path_display::transcript_line(line, &app.cwd),
+                    _ => line.clone(),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn startup_loaded_skill_lines(snapshot: &crate::internals::SelfKnowledgeSnapshot, width: usize) -> Vec<String> {
+    let skill_names = snapshot
+        .inventory
+        .references
+        .skills
+        .iter()
+        .map(|skill| skill.name.as_str())
+        .collect::<Vec<_>>();
+    if skill_names.is_empty() {
+        return vec!["     (none)".to_string()];
+    }
+
+    let indent = "     ";
+    let content_width = width.saturating_sub(indent.len()).max(1);
+    let mut shown = 0usize;
+    let mut rows = Vec::new();
+    for count in 1..=skill_names.len() {
+        let hidden = skill_names.len() - count;
+        let candidate = loaded_skill_rows(&skill_names[..count], hidden > 0, content_width);
+        let available_rows = if hidden > 0 {
+            MAX_STARTUP_LOADED_SKILL_ROWS.saturating_sub(1)
+        } else {
+            MAX_STARTUP_LOADED_SKILL_ROWS
+        };
+        if candidate.len() > available_rows {
+            break;
+        }
+        shown = count;
+        rows = candidate;
+    }
+
+    let hidden = skill_names.len() - shown;
+    if hidden > 0 {
+        rows.push(format!("...{hidden} skills hidden"));
+    }
+
+    rows.into_iter().map(|line| format!("{indent}{line}")).collect()
+}
+
+fn loaded_skill_rows(skill_names: &[&str], has_hidden: bool, width: usize) -> Vec<String> {
+    let mut rows = vec![String::new()];
+    for (index, name) in skill_names.iter().enumerate() {
+        let suffix = if has_hidden || index + 1 < skill_names.len() { "," } else { "" };
+        add_loaded_skill(&mut rows, &format!("{name}{suffix}"), width);
+    }
+    rows.into_iter().filter(|line| !line.is_empty()).collect()
+}
+
+fn add_loaded_skill(rows: &mut Vec<String>, token: &str, width: usize) {
+    for part in split_hyphenated_token(token, width) {
+        let current = rows.last_mut().expect("loaded skill rows should keep one active row");
+        let separator_width = usize::from(!current.is_empty());
+        if current.is_empty() {
+            current.push_str(&part);
+        } else if utils::text_width(current) + separator_width + utils::text_width(&part) <= width {
+            current.push(' ');
+            current.push_str(&part);
+        } else {
+            rows.push(part);
+        }
+    }
+}
+
+fn split_hyphenated_token(token: &str, width: usize) -> Vec<String> {
+    let width = width.max(1);
+    let mut remaining = token;
+    let mut parts = Vec::new();
+    while utils::text_width(remaining) > width {
+        let split = hyphen_split_index(remaining, width);
+        parts.push(remaining[..split].to_string());
+        remaining = &remaining[split..];
+    }
+    if !remaining.is_empty() {
+        parts.push(remaining.to_string());
+    }
+    parts
+}
+
+fn hyphen_split_index(text: &str, width: usize) -> usize {
+    let mut fallback = text.len();
+    for (index, _) in text.char_indices() {
+        if index > 0 && utils::text_width(&text[..index]) > width {
+            fallback = index;
+            break;
+        }
+    }
+
+    text.char_indices()
+        .filter_map(|(index, ch)| {
+            let split = index + ch.len_utf8();
+            (ch == '-' && split <= fallback && utils::text_width(&text[..split]) <= width).then_some(split)
+        })
+        .next_back()
+        .unwrap_or_else(|| fallback.max(1))
+}
+
+fn startup_workbench_heading(line: &str) -> bool {
+    matches!(line.trim(), "system" | "loaded" | "project" | "attention")
+}
+
+fn wrap_labeled_value(label: &str, value: &str, first_indent: usize, value_indent: usize, width: usize) -> Vec<String> {
+    let first_prefix = format!("{}{}  ", " ".repeat(first_indent), label);
+    let continuation_prefix = " ".repeat(value_indent);
+    let first_width = width.saturating_sub(utils::text_width(&first_prefix));
+    let continuation_width = width.saturating_sub(value_indent);
+    let wrapped = super::layout::wrap_text(value, first_width.max(1));
+    let mut out = Vec::with_capacity(wrapped.len());
+    for (index, line) in wrapped.into_iter().enumerate() {
+        if index == 0 {
+            out.push(format!("{first_prefix}{line}"));
+        } else {
+            for continued in super::layout::wrap_text(&line, continuation_width.max(1)) {
+                out.push(format!("{continuation_prefix}{continued}"));
+            }
+        }
+    }
+    out
+}
+
+fn wrap_with_indent(text: &str, first_indent: usize, continuation_indent: usize, width: usize) -> Vec<String> {
+    let first_width = width.saturating_sub(first_indent).max(1);
+    let continuation_width = width.saturating_sub(continuation_indent).max(1);
+    let mut out = Vec::new();
+    for (index, line) in super::layout::wrap_text(text, first_width).into_iter().enumerate() {
+        if index == 0 {
+            out.push(format!("{}{}", " ".repeat(first_indent), line));
+        } else {
+            for continued in super::layout::wrap_text(&line, continuation_width) {
+                out.push(format!("{}{}", " ".repeat(continuation_indent), continued));
+            }
+        }
+    }
+    out
+}
+
+fn pad_display_width(text: &str, width: usize) -> String {
+    let used = utils::text_width(text);
+    if used >= width {
+        return text.to_string();
+    }
+    format!("{text}{}", " ".repeat(width - used))
+}
+
+fn push_wide_workbench_row(
+    rows: &mut Vec<Row>, left: &str, left_width: usize, gap_width: usize, right: &str, theme: StartupBannerTheme,
+) {
+    let left_style = if startup_workbench_heading(left) { theme.heading_style } else { theme.muted_style };
+    let right_style = if startup_workbench_heading(right) { theme.heading_style } else { theme.muted_style };
+
+    rows.push(Row::padded(
+        vec![
+            Span::styled(" | ", theme.rail_style),
+            Span::styled(pad_display_width(left, left_width), left_style),
+            Span::styled(" ".repeat(gap_width), theme.muted_style),
+            Span::styled(right.to_string(), right_style),
+        ],
+        theme.width,
+        bg_style(theme.bg),
+    ));
+}
+
+fn push_rail_marker_row(rows: &mut Vec<Row>, label: &str, theme: StartupBannerTheme) {
+    rows.push(Row::padded(
+        vec![
+            Span::styled(" + ", theme.marker_style),
+            Span::styled(label.to_string(), theme.heading_style),
+        ],
+        theme.width,
+        bg_style(theme.bg),
+    ));
+}
+
+fn push_rail_empty_row(rows: &mut Vec<Row>, theme: StartupBannerTheme) {
+    rows.push(Row::padded(
+        vec![Span::styled(" |", theme.rail_style)],
+        theme.width,
+        bg_style(theme.bg),
+    ));
+}
+
+fn push_rail_text_row(rows: &mut Vec<Row>, text: &str, theme: StartupBannerTheme, text_style: CellStyle) {
+    rows.push(Row::padded(
+        vec![
+            Span::styled(" | ", theme.rail_style),
+            Span::styled(text.to_string(), text_style),
+        ],
+        theme.width,
+        bg_style(theme.bg),
+    ));
+}
+
+fn push_wrapped_rail_text(
+    rows: &mut Vec<Row>, text: &str, first_indent: usize, continuation_indent: usize, theme: StartupBannerTheme,
+    text_style: CellStyle,
+) {
+    let wrapped = wrap_with_indent(text, first_indent, continuation_indent, theme.body_width());
+    for line in wrapped {
+        push_rail_text_row(rows, &line, theme, text_style);
+    }
+}
+
+fn push_rail_command_row(rows: &mut Vec<Row>, command: &str, description: &str, theme: StartupBannerTheme) {
+    let body_width = theme.body_width();
+    let command_width = 7usize.min(body_width);
+    let first_prefix = format!("  {command:<command_width$}");
+    let continuation_prefix = " ".repeat(2 + command_width);
+    let first_width = body_width.saturating_sub(utils::text_width(&first_prefix)).max(1);
+    let continuation_width = body_width
+        .saturating_sub(utils::text_width(&continuation_prefix))
+        .max(1);
+
+    for (index, line) in super::layout::wrap_text(description, first_width)
+        .into_iter()
+        .enumerate()
+    {
+        if index == 0 {
+            rows.push(Row::padded(
+                vec![
+                    Span::styled(" | ", theme.rail_style),
+                    Span::styled(first_prefix.clone(), theme.marker_style),
+                    Span::styled(line, theme.muted_style),
+                ],
+                theme.width,
+                bg_style(theme.bg),
+            ));
+        } else {
+            for continued in super::layout::wrap_text(&line, continuation_width) {
+                push_rail_text_row(
+                    rows,
+                    &format!("{continuation_prefix}{continued}"),
+                    theme,
+                    theme.muted_style,
                 );
             }
         }
     }
-    push_banner_divider_row(&mut rows, width, bg);
-
-    push_wrapped_banner_row(
-        &mut rows,
-        &[
-            Span::styled("›  ", title_style),
-            Span::styled("Ask for a change, run a command, or inspect this repo.", muted_style),
-        ],
-        width,
-        bg,
-    );
-    push_wrapped_banner_row(
-        &mut rows,
-        &[Span::styled("?  ", title_style), Span::styled("help", muted_style)],
-        width,
-        bg,
-    );
-    push_wrapped_banner_row(
-        &mut rows,
-        &[
-            Span::styled("/model ", title_style),
-            Span::styled("switch models", muted_style),
-        ],
-        width,
-        bg,
-    );
-
-    rows.push(Row::blank(width, bg_style(bg)));
-    rows
 }
 
 /// Build a tool block: header row + args summary + output lines + vertical padding.
@@ -445,30 +766,6 @@ fn build_labeled_block(
         }
     }
     rows
-}
-
-fn push_wrapped_banner_row(rows: &mut Vec<Row>, spans: &[Span], width: usize, bg: Color) {
-    let body_width = super::layout::content_width(width);
-    for line in super::layout::wrap_spans(spans, body_width) {
-        rows.push(Row::padded(line, width, bg_style(bg)));
-    }
-}
-
-fn push_banner_art_row(rows: &mut Vec<Row>, span: Span, width: usize, bg: Color) {
-    rows.push(Row::padded(vec![span], width, bg_style(bg)));
-}
-
-fn push_banner_divider_row(rows: &mut Vec<Row>, width: usize, bg: Color) {
-    let p = super::style::palette();
-    push_banner_art_row(
-        rows,
-        Span::styled(
-            BANNER_DIVIDER.repeat(width.saturating_sub(4)),
-            CellStyle::new().fg(p.overlay0).bg(bg),
-        ),
-        width,
-        bg,
-    );
 }
 
 /// Detect whether a tool output line is a section header.

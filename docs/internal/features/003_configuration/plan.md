@@ -161,6 +161,12 @@ or environment key, and `deny_unknown_fields` rejects it like any other unknown
 key. `THNDRS_LSP_ENABLED` is an unknown `THNDRS_` environment variable and is
 an error.
 
+Search provider selection is configurable only through `websearch`. Repository
+file discovery remains an implementation detail of the read-only tools: `fd` is
+preferred for discovery, `rg --json` is preferred for content search, and
+fallback diagnostics belong to tool/session metadata rather than new config
+keys.
+
 ### Environment Variables
 
 Use a `THNDRS_` prefix for ordinary config overrides:
@@ -193,6 +199,10 @@ Secrets may be read from the process environment or workspace `.env`, but they
 are never serialized into effective config, logs, sessions, prompt inspection,
 or docs examples. TOML keys ending in `_api_key`, `_token`, `secret`, or
 `password` are rejected with `secret_in_config`.
+
+Unknown provider secret environment variables are not accepted as ordinary
+`THNDRS_` config. If more providers are added, each provider owns its secret
+names and redaction behavior.
 
 ## Implementation Shape
 
@@ -294,6 +304,10 @@ Config diagnostics should be visible through:
 Diagnostics include loaded config file paths, unknown key errors, parse errors,
 invalid env values, and rejected secret-shaped TOML keys.
 
+Diagnostics must not include raw secret values, raw `.env` contents, machine
+specific transient data, or enough provider request metadata to reconstruct a
+secret.
+
 ## Inspect And Export Fit
 
 Inspect/export are session features, but they need config metadata. Their
@@ -337,6 +351,31 @@ workspace-relative when inside the workspace, `~`-relative when inside the home
 directory, absolute otherwise. This is intentional because config provenance is
 part of the audit trail.
 
+The initial configuration work should write the session metadata needed by
+future inspect/export commands. The full non-TUI inspect/export command surface,
+JSON/JSONL formatting, transcript export, tool event export, and renderer
+replay metadata are separate session work unless they are implemented together
+with this feature.
+
+## Documentation Fit
+
+Public docs for this feature should cover:
+
+- the two supported config paths;
+- precedence from CLI flags down to defaults;
+- every supported TOML key, `THNDRS_` environment variable, value type, and
+  default;
+- provider secret variables and the fact that secrets do not belong in TOML;
+- the default session path and `session_dir` override;
+- default workspace behavior and the distinction between `default_workspace`
+  and CLI-only `--cwd`;
+- search mode selection through `websearch`;
+- unsupported old or typo config paths before the first stable release;
+- common diagnostics and how to fix them.
+
+Docs should be driven from the same schema and examples that tests exercise so
+they do not drift from the implementation.
+
 ## Verification
 
 Required automated checks:
@@ -352,6 +391,7 @@ Required automated checks:
 - Prompt inspection snapshots.
 - Effective-config snapshots.
 - Session metadata tests for effective config fields that are persisted.
+- Public docs checks by review, including removal of unsupported path spellings.
 
 Required commands for implementation work:
 
