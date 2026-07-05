@@ -164,6 +164,7 @@ export default defineConfig({
                 { label: "Protocols", slug: "notebook/providers/protocols" },
                 { label: "Umans.ai", slug: "notebook/providers/umans" },
                 { label: "OpenCode Go", slug: "notebook/providers/opencode-go" },
+                { label: "OpenCode Zen", slug: "notebook/providers/opencode-zen" },
               ],
             },
             {
@@ -175,6 +176,7 @@ export default defineConfig({
                 { label: "Text Input Libs", slug: "notebook/text-input-libraries" },
                 { label: "Prompt Libs", slug: "notebook/prompt-renderer-research" },
                 { label: "Terminal Agent UI", slug: "notebook/ui" },
+                { label: "Time to First Token", slug: "notebook/ttft" },
                 { label: "Yoga Layout Engine", slug: "notebook/yoga" },
                 { label: "Yoga for Gridland", slug: "notebook/yoga-gridland" },
                 { label: "Gridland UI", slug: "notebook/ui-patterns" },
