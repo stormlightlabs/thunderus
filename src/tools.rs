@@ -21,6 +21,7 @@ mod find_files;
 mod list_searchable_files;
 mod path;
 mod read_file_range;
+mod registry;
 mod replace_range;
 mod sawk;
 mod search_text;
@@ -160,6 +161,8 @@ pub struct ToolDefinition {
     pub input_schema: serde_json::Value,
 }
 
+pub use registry::ProviderSchemaFormat;
+
 /// Configuration for an agent run, shared by the fake and Umans providers.
 #[derive(Clone, Debug)]
 pub struct AgentRunConfig {
@@ -287,12 +290,15 @@ pub fn resolve_workspace_path(root: &Path, path: &Path) -> std::io::Result<PathB
     path::resolve_within_root(root, &path.display().to_string())
 }
 
-/// The catalog of read-only filesystem tools exposed to the model.
+/// The catalog of tools exposed to the model.
 ///
-/// These map directly to tool implementations. The model sees typed tool
-/// definitions; the harness dispatches `tool_use` requests to the matching
-/// handler in [`dispatch_tool`] (or [`dispatch_full`] for write/shell tools).
+/// These definitions are derived from the built-in registry so every
+/// provider-visible tool has a matching registry entry.
 pub fn tool_definitions() -> Vec<ToolDefinition> {
+    registry::tool_definitions()
+}
+
+fn legacy_tool_definitions() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition {
             name: "find_files",
@@ -527,6 +533,17 @@ Timeouts enforced."#,
     ]
 }
 
+fn legacy_tool_definition(name: &str) -> Option<ToolDefinition> {
+    legacy_tool_definitions()
+        .into_iter()
+        .find(|definition| definition.name == name)
+}
+
+/// Convert the tool catalog into provider-compatible tool schemas.
+pub fn provider_tool_catalog_schemas(defs: &[ToolDefinition], format: ProviderSchemaFormat) -> serde_json::Value {
+    registry::provider_tool_catalog_schemas(defs, format)
+}
+
 /// Convert the tool catalog into Anthropic-compatible tool schemas.
 ///
 /// Returns a compact, stably-ordered JSON array of tool definitions suitable
@@ -537,17 +554,7 @@ Timeouts enforced."#,
 /// reusable-history or prompt-cache behavior for tool definitions, so we do
 /// not rely on hidden provider memory for them.
 pub fn tool_catalog_schemas(defs: &[ToolDefinition]) -> serde_json::Value {
-    serde_json::Value::Array(
-        defs.iter()
-            .map(|t| {
-                serde_json::json!({
-                    "name": t.name,
-                    "description": t.description,
-                    "input_schema": t.input_schema,
-                })
-            })
-            .collect(),
-    )
+    provider_tool_catalog_schemas(defs, ProviderSchemaFormat::Anthropic)
 }
 
 /// Return a recursively sorted JSON value for deterministic debug rendering.
@@ -574,7 +581,12 @@ pub fn sorted_json_value(value: &serde_json::Value) -> serde_json::Value {
 /// Unknown tool names produce a failed [`ToolOutput`]. Argument parsing is
 /// best-effort: missing fields fall back to safe defaults rather than failing
 /// the whole turn.
+#[allow(dead_code)]
 pub fn dispatch_tool(request: &ToolUseRequest, root: &Path) -> ToolOutput {
+    registry::execute(request, registry::ToolContext::new(root)).output
+}
+
+fn dispatch_tool_legacy(request: &ToolUseRequest, root: &Path) -> ToolOutput {
     let args = serde_json::from_str(&request.arguments).unwrap_or(serde_json::Value::Null);
 
     match request.name.as_str() {
@@ -734,7 +746,13 @@ pub fn dispatch_tool(request: &ToolUseRequest, root: &Path) -> ToolOutput {
 /// Write-capable tools return both a [`ToolOutput`] for the transcript and an
 /// optional [`WriteResult`] for session audit persistence. Non-write tools
 /// delegate to [`dispatch_tool`] and return `None` for the write result.
+#[allow(dead_code)]
 pub fn dispatch_write(request: &ToolUseRequest, root: &Path) -> (ToolOutput, Option<WriteResult>) {
+    let execution = registry::execute(request, registry::ToolContext::new(root));
+    (execution.output, execution.write_result)
+}
+
+fn dispatch_write_legacy(request: &ToolUseRequest, root: &Path) -> (ToolOutput, Option<WriteResult>) {
     let args = serde_json::from_str(&request.arguments).unwrap_or(serde_json::Value::Null);
 
     match request.name.as_str() {
@@ -766,7 +784,7 @@ pub fn dispatch_write(request: &ToolUseRequest, root: &Path) -> (ToolOutput, Opt
             Ok(patch) => write_patch::exec(&patch, root),
             Err(e) => (ToolOutput::failed("write_patch", e), None),
         },
-        _ => (dispatch_tool(request, root), None),
+        _ => (dispatch_tool_legacy(request, root), None),
     }
 }
 
@@ -780,12 +798,19 @@ pub fn dispatch_write(request: &ToolUseRequest, root: &Path) -> (ToolOutput, Opt
 pub fn dispatch_full(
     request: &ToolUseRequest, root: &Path,
 ) -> (ToolOutput, Option<WriteResult>, Option<shell::ProcessResult>) {
+    let execution = registry::execute(request, registry::ToolContext::new(root));
+    (execution.output, execution.write_result, execution.shell_result)
+}
+
+fn dispatch_full_legacy(
+    request: &ToolUseRequest, root: &Path,
+) -> (ToolOutput, Option<WriteResult>, Option<shell::ProcessResult>) {
     if request.name == "run_shell" {
         let (output, result) = dispatch_shell(request, root);
         return (output, None, result);
     }
 
-    let (output, write_result) = dispatch_write(request, root);
+    let (output, write_result) = dispatch_write_legacy(request, root);
     (output, write_result, None)
 }
 
@@ -992,6 +1017,105 @@ mod tests {
     fn tool_catalog_schemas_empty_for_no_definitions() {
         let schemas = tool_catalog_schemas(&[]);
         assert!(schemas.as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn registry_validates_builtin_entries() {
+        registry::validate().expect("built-in registry should validate");
+    }
+
+    #[test]
+    fn registry_names_are_stable_and_unique() {
+        let names: Vec<&str> = registry::builtins().iter().map(|entry| entry.name).collect();
+        assert_eq!(
+            names,
+            vec![
+                "find_files",
+                "list_searchable_files",
+                "search_text",
+                "read_file_range",
+                "sawk",
+                "web_search",
+                "read_url",
+                "create_file",
+                "replace_range",
+                "write_patch",
+                "run_shell",
+            ]
+        );
+
+        let unique: std::collections::HashSet<&str> = names.iter().copied().collect();
+        assert_eq!(unique.len(), names.len(), "tool names should be unique");
+    }
+
+    #[test]
+    fn tool_definitions_are_derived_from_registry() {
+        let defs = tool_definitions();
+        let registry_names: Vec<&str> = registry::builtins().iter().map(|entry| entry.name).collect();
+        let definition_names: Vec<&str> = defs.iter().map(|definition| definition.name).collect();
+        assert_eq!(definition_names, registry_names);
+    }
+
+    #[test]
+    fn registry_schemas_are_json_objects_with_required_fields() {
+        for entry in registry::builtins() {
+            let definition = (entry.definition)();
+            let schema = &definition.input_schema;
+            assert_eq!(
+                schema.get("type").and_then(|value| value.as_str()),
+                Some("object"),
+                "{} schema should be a JSON object",
+                entry.name
+            );
+            assert!(
+                schema.get("properties").is_some_and(|value| value.is_object()),
+                "{} schema should define properties",
+                entry.name
+            );
+
+            match schema.get("required") {
+                Some(required) => {
+                    assert!(required.is_array(), "{} required fields should be an array", entry.name);
+                }
+                None => {
+                    assert_eq!(
+                        entry.name, "list_searchable_files",
+                        "{} should declare required fields unless all inputs are optional",
+                        entry.name
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn registry_examples_are_valid_json_objects() {
+        for entry in registry::builtins() {
+            let value: serde_json::Value = serde_json::from_str(entry.example_input)
+                .unwrap_or_else(|err| panic!("{} example should parse as JSON: {err}", entry.name));
+            assert!(value.is_object(), "{} example should be a JSON object", entry.name);
+        }
+    }
+
+    #[test]
+    fn tool_catalog_snapshot_from_registry() {
+        let schemas = tool_catalog_schemas(&tool_definitions());
+        let json = serde_json::to_string_pretty(&sorted_json_value(&schemas)).expect("catalog JSON");
+        insta::assert_snapshot!(json);
+    }
+
+    #[test]
+    fn provider_tool_catalog_schemas_supports_openai_function_format() {
+        let defs = tool_definitions();
+        let schemas = provider_tool_catalog_schemas(&defs, ProviderSchemaFormat::OpenAiFunction);
+        let arr = schemas.as_array().expect("OpenAI schemas should be an array");
+        assert_eq!(arr.len(), defs.len());
+
+        let first = &arr[0];
+        assert_eq!(first["type"], "function");
+        assert_eq!(first["function"]["name"], defs[0].name);
+        assert_eq!(first["function"]["description"], defs[0].description);
+        assert_eq!(first["function"]["parameters"], defs[0].input_schema);
     }
 
     #[test]

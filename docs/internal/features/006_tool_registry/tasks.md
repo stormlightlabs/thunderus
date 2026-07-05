@@ -5,13 +5,13 @@ Captured: 2026-07-04
 
 ## P0: Define The Registry Contract
 
-- [ ] Define `ToolContext`.
-- [ ] Define `ToolExecution` or equivalent unified result type.
-- [ ] Define `ToolError`.
-- [ ] Define the registry entry shape.
-- [ ] Define how schemas are converted for each provider.
-- [ ] Define how structured side effects flow to session records.
-- [ ] Define stable test examples for every existing tool.
+- [x] Define `ToolContext`.
+- [x] Define `ToolExecution` or equivalent unified result type.
+- [x] Define `ToolError`.
+- [x] Define the registry entry shape.
+- [x] Define how schemas are converted for each provider.
+- [x] Define how structured side effects flow to session records.
+- [x] Define stable test examples for every existing tool.
 - [x] Existing `thndrs` tool names stay stable during the registry migration.
 - [x] Old `read`, `write`, `edit`, `bash`, and `research` names are not
       compatibility aliases.
@@ -21,13 +21,13 @@ Captured: 2026-07-04
 
 ## P1: Add Registry Around Existing Tools
 
-- [ ] Add registry module-level docs.
-- [ ] Add unique-name validation.
-- [ ] Derive `tool_definitions()` from the registry.
-- [ ] Keep old dispatch temporarily behind registry lookup.
-- [ ] Add snapshot test for the derived catalog.
-- [ ] Add tests proving names are stable and unique.
-- [ ] Add tests proving schemas are JSON objects with expected required fields.
+- [x] Add registry module-level docs.
+- [x] Add unique-name validation.
+- [x] Derive `tool_definitions()` from the registry.
+- [x] Keep old dispatch temporarily behind registry lookup.
+- [x] Add snapshot test for the derived catalog.
+- [x] Add tests proving names are stable and unique.
+- [x] Add tests proving schemas are JSON objects with expected required fields.
 
 ## P2: Move Read-Only Tools
 

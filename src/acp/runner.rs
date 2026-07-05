@@ -772,9 +772,9 @@ enum TimedRequestError {
     Cancelled,
 }
 
-impl Into<agent_client_protocol::Error> for TimedRequestError {
-    fn into(self) -> agent_client_protocol::Error {
-        match self {
+impl From<TimedRequestError> for agent_client_protocol::Error {
+    fn from(val: TimedRequestError) -> Self {
+        match val {
             TimedRequestError::Protocol(error) => error,
             TimedRequestError::Timeout(message) => agent_client_protocol::util::internal_error(message),
             TimedRequestError::Cancelled => {
