@@ -1,0 +1,11 @@
+---
+source: src/cli/renderer/live.rs
+expression: frame.render_styled()
+---
+│    setup  provider=opencode-go model=opencode-go/kimi-k2.7-code missing=OPENCODE_GO_KEY  # [bg=#212337]=   [bg=#212337]=  [fg=#e0e0e0 bg=#212337 b]=setup [fg=#abb4da bg=#212337]=  provider=opencode-go model=opencode-go/kimi-k2.7-code missing=OPENCODE_GO_KEY
+│    Missing credential. Choose an action before submitting this prompt.  # [bg=#212337]=   [bg=#212337]=  [fg=#ebfafa bg=#212337]=Missing credential. Choose an action before submitting this prompt.
+│    › enter API key                        # [bg=#212337]=   [bg=#212337]=  [fg=#ebfafa bg=#212337 b]=› [bg=#212337]=  [fg=#ebfafa bg=#212337 b]=enter API key [bg=#212337]=                     [bg=#212337]=  
+│      switch model/provider                # [bg=#212337]=   [bg=#212337]=  [fg=#abb4da bg=#212337]=  [bg=#212337]=  [fg=#ebfafa bg=#212337]=switch model/provider [bg=#212337]=             [bg=#212337]=  
+│      show setup instructions              # [bg=#212337]=   [bg=#212337]=  [fg=#abb4da bg=#212337]=  [bg=#212337]=  [fg=#ebfafa bg=#212337]=show setup instructions [bg=#212337]=           [bg=#212337]=  
+│      continue without setup               # [bg=#212337]=   [bg=#212337]=  [fg=#abb4da bg=#212337]=  [bg=#212337]=  [fg=#ebfafa bg=#212337]=continue without setup [bg=#212337]=            [bg=#212337]=  
+│      quit                                 # [bg=#212337]=   [bg=#212337]=  [fg=#abb4da bg=#212337]=  [bg=#212337]=  [fg=#ebfafa bg=#212337]=quit [bg=#212337]=                              [bg=#212337]=

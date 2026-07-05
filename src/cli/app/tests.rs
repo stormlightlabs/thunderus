@@ -35,13 +35,49 @@ fn with_home<T>(home: &Path, f: impl FnOnce() -> T) -> T {
     result
 }
 
+fn with_provider_env_removed<T>(f: impl FnOnce() -> T) -> T {
+    let _guard = HOME_ENV_LOCK.lock().expect("provider env lock");
+    let old_umans = std::env::var_os(auth::UMANS_API_KEY_ENV);
+    let old_opencode = std::env::var_os(auth::OPENCODE_GO_KEY_ENV);
+
+    unsafe {
+        std::env::remove_var(auth::UMANS_API_KEY_ENV);
+        std::env::remove_var(auth::OPENCODE_GO_KEY_ENV);
+    }
+
+    let result = f();
+
+    unsafe {
+        if let Some(value) = old_umans {
+            std::env::set_var(auth::UMANS_API_KEY_ENV, value);
+        } else {
+            std::env::remove_var(auth::UMANS_API_KEY_ENV);
+        }
+        if let Some(value) = old_opencode {
+            std::env::set_var(auth::OPENCODE_GO_KEY_ENV, value);
+        } else {
+            std::env::remove_var(auth::OPENCODE_GO_KEY_ENV);
+        }
+    }
+
+    result
+}
+
 fn key(code: KeyCode, modifiers: KeyModifiers) -> Msg {
     Msg::Key(KeyEvent::new(code, modifiers))
 }
 
 fn fresh_app() -> App {
     let dir = tempfile::tempdir().expect("create temp dir");
-    let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
+    let cwd = dir.path().to_path_buf();
+    auth::set_credential(
+        &auth::project_credentials_path(&cwd),
+        auth::UMANS_API_KEY_ENV,
+        "test-umans-key",
+    )
+    .expect("seed test credential");
+    std::mem::forget(dir);
+    let cli = Cli { cwd, ..Cli::default() };
     let mut app = App::from_cli(&cli);
     app.session_writer = None;
     app
@@ -206,6 +242,12 @@ fn submit_user_turn_records_mcp_config_change_before_user() {
     let home = dir.path().join("home");
     std::fs::create_dir_all(&home).expect("create home");
     std::fs::create_dir_all(dir.path().join(".thndrs")).expect("create thndrs dir");
+    auth::set_credential(
+        &auth::project_credentials_path(dir.path()),
+        auth::UMANS_API_KEY_ENV,
+        "test-umans-key",
+    )
+    .expect("seed test credential");
     let mcp_path = dir.path().join(".thndrs").join("mcp.toml");
     std::fs::write(
         &mcp_path,
@@ -640,6 +682,201 @@ fn slash_mcp_tools_requires_name() {
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
 
     assert!(matches!(app.transcript.last(), Some(Entry::Error { text }) if text.contains("usage: /mcp tools <name>")));
+}
+
+#[test]
+fn missing_provider_credential_opens_recovery_and_preserves_prompt() {
+    with_provider_env_removed(|| {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
+        let mut app = App::from_cli(&cli);
+        app.session_writer = None;
+        app.input = PromptInput::from("hello");
+
+        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert_eq!(app.input.as_str(), "hello");
+        assert!(app.transcript.is_empty());
+        let recovery = app.first_run_recovery.as_ref().expect("recovery");
+        assert_eq!(recovery.stage, RecoveryStage::MissingCredential);
+        assert_eq!(recovery.provider, Some(ApiKeyProviderArg::Umans));
+        assert!(recovery.pending_provider_prompt);
+    });
+}
+
+#[test]
+fn acp_missing_config_uses_acp_recovery_not_provider_key_setup() {
+    with_provider_env_removed(|| {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let cli = Cli { cwd: dir.path().to_path_buf(), model: "acp:missing".to_string(), ..Cli::default() };
+        let mut app = App::from_cli(&cli);
+        app.session_writer = None;
+        app.input = PromptInput::from("hello");
+
+        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+        let recovery = app.first_run_recovery.as_ref().expect("recovery");
+        assert_eq!(recovery.stage, RecoveryStage::AcpMissing);
+        assert_eq!(recovery.provider, None);
+    });
+}
+
+#[test]
+fn recovery_enter_key_stores_project_credential_without_transcript_secret() {
+    with_provider_env_removed(|| {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
+        let mut app = App::from_cli(&cli);
+        app.session_writer = None;
+        app.first_run_recovery = Some(FirstRunRecovery::login(ApiKeyProviderArg::Umans));
+
+        for ch in "sk-secret-from-test".chars() {
+            update(&mut app, &key(KeyCode::Char(ch), KeyModifiers::NONE));
+        }
+        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+        update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
+        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+        let stored = auth::read_credentials(&auth::project_credentials_path(dir.path())).expect("read credentials");
+        assert_eq!(
+            stored.get(auth::UMANS_API_KEY_ENV).map(String::as_str),
+            Some("sk-secret-from-test")
+        );
+        let transcript = format!("{:?}", app.transcript);
+        assert!(!transcript.contains("sk-secret-from-test"));
+    });
+}
+
+#[test]
+fn recovery_actions_handle_switch_instructions_continue_and_quit() {
+    let mut app = fresh_app();
+    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(ApiKeyProviderArg::Umans, true));
+
+    update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(app.first_run_recovery.is_none());
+    assert_eq!(app.prompt_accessory, PromptAccessory::Models);
+
+    app.prompt_accessory = PromptAccessory::None;
+    app.picker = None;
+    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(ApiKeyProviderArg::Umans, true));
+    update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
+    update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(
+        app.first_run_recovery.as_ref().map(|recovery| recovery.stage),
+        Some(RecoveryStage::Instructions)
+    );
+
+    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(ApiKeyProviderArg::Umans, true));
+    for _ in 0..3 {
+        update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
+    }
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(
+        app.first_run_recovery.is_some(),
+        "pending provider prompts cannot continue without setup"
+    );
+    assert!(app.transcript.iter().any(|entry| matches!(
+        entry,
+        Entry::Status { text } if text.contains("setup required before submitting")
+    )));
+
+    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(ApiKeyProviderArg::Umans, false));
+    for _ in 0..3 {
+        update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
+    }
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(
+        app.first_run_recovery.is_none(),
+        "manual setup can be skipped without submitting a prompt"
+    );
+
+    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(ApiKeyProviderArg::Umans, false));
+    for _ in 0..4 {
+        update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
+    }
+    let follow = update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(app.quit);
+    assert_eq!(follow, Some(Msg::Quit));
+}
+
+#[test]
+fn slash_setup_and_login_open_recovery_surfaces() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from("/setup");
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(matches!(
+        app.first_run_recovery.as_ref().map(|recovery| recovery.stage),
+        Some(RecoveryStage::MissingCredential)
+    ));
+
+    app.first_run_recovery = None;
+    app.input = PromptInput::from("/login opencode-go");
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    let recovery = app.first_run_recovery.as_ref().expect("login recovery");
+    assert_eq!(recovery.stage, RecoveryStage::EnterKey);
+    assert_eq!(recovery.provider, Some(ApiKeyProviderArg::OpencodeGo));
+}
+
+#[test]
+fn slash_logout_requires_confirmation_surface() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from("/logout umans");
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    let recovery = app.first_run_recovery.as_ref().expect("logout recovery");
+    assert_eq!(recovery.stage, RecoveryStage::LogoutConfirm);
+    assert_eq!(recovery.provider, Some(ApiKeyProviderArg::Umans));
+}
+
+#[test]
+fn slash_auth_config_and_doctor_append_redacted_output() {
+    let mut app = fresh_app();
+
+    app.input = PromptInput::from("/auth status");
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(matches!(app.transcript.last(), Some(Entry::Status { text }) if text.contains("umans")));
+
+    app.input = PromptInput::from("/config path");
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(
+        matches!(app.transcript.last(), Some(Entry::Status { text }) if text.contains("global:") && text.contains("project:"))
+    );
+
+    app.input = PromptInput::from("/config show");
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(matches!(app.transcript.last(), Some(Entry::Status { text }) if text.contains("effective_config:")));
+
+    app.input = PromptInput::from("/doctor");
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    let transcript = format!("{:?}", app.transcript);
+    assert!(transcript.contains("thndrs doctor"));
+    assert!(!transcript.contains("test-umans-key"));
+}
+
+#[test]
+fn slash_config_edit_reports_cli_only() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from("/config edit");
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert!(matches!(
+        app.transcript.last(),
+        Some(Entry::Status { text }) if text.contains("config edit is CLI-only")
+    ));
+}
+
+#[test]
+fn slash_command_rejects_api_key_like_extra_argument() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from("/login umans sk-secret-should-not-appear");
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert!(app.first_run_recovery.is_none());
+    let transcript = format!("{:?}", app.transcript);
+    assert!(transcript.contains("do not accept API keys"));
+    assert!(!transcript.contains("sk-secret-should-not-appear"));
 }
 
 #[test]
@@ -1764,6 +2001,7 @@ fn finished_clears_last_input() {
 #[test]
 fn tui_update_path_handles_fake_provider_turn() {
     let mut app = fresh_app();
+    std::fs::write(app.cwd.join("Cargo.toml"), "[package]\nname = \"fake\"\n").expect("write fake Cargo.toml");
     app.websearch = WebSearchMode::None;
     app.input = PromptInput::from("inspect project");
     let follow = update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));

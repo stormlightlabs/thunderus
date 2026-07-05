@@ -41,13 +41,14 @@ pub struct ConfigEditCommand {
 }
 
 /// Run `thndrs config`.
-pub fn run(_cli: &Cli, command: &ConfigCommand) -> io::Result<()> {
+pub fn run(cli: &Cli, command: &ConfigCommand) -> io::Result<()> {
     let stdout = io::stdout();
     let mut lock = stdout.lock();
-    run_with_writer(_cli, command, &mut lock)
+    run_with_writer(cli, command, &mut lock)
 }
 
-fn run_with_writer<W: Write>(cli: &Cli, command: &ConfigCommand, writer: &mut W) -> io::Result<()> {
+/// Run `thndrs config` with an injected writer.
+pub fn run_with_writer<W: Write>(cli: &Cli, command: &ConfigCommand, writer: &mut W) -> io::Result<()> {
     match command {
         ConfigCommand::Path => run_config_path(cli, writer),
         ConfigCommand::Show(command) => run_config_show(cli, command, writer),

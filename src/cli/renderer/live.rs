@@ -3,7 +3,7 @@
 //! The live chrome is rebuilt each tick and composed into the full viewport by
 //! [`super::region::LiveRegion`].
 
-use crate::app::{App, Entry, Mode, PromptAccessory, PromptState, RunState, ToolStatus};
+use crate::app::{App, Entry, Mode, PromptAccessory, PromptState, RecoveryStage, RunState, ToolStatus};
 use crate::renderer::cursor::{prompt_cursor, prompt_rows};
 use crate::renderer::row::{CursorCoord, Row};
 use crate::renderer::style::{CellStyle, Color, Span};
@@ -73,8 +73,13 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
     let row_body_width = super::layout::content_width(width);
     let body_width = row_body_width.saturating_sub(LIVE_INSET + prefix_width).max(1);
     let cursor_indent = width.min(2) + LIVE_INSET + prefix_width;
-    let input_text = app.input.as_str();
-    let cursor_pos = app.input.cursor();
+    let hidden_entry_active = app
+        .first_run_recovery
+        .as_ref()
+        .is_some_and(|recovery| recovery.stage == RecoveryStage::EnterKey);
+    let hidden_display = String::from("credential: [hidden]");
+    let input_text = if hidden_entry_active { hidden_display.as_str() } else { app.input.as_str() };
+    let cursor_pos = if hidden_entry_active { input_text.len() } else { app.input.cursor() };
 
     let visual_rows = prompt_rows(input_text, body_width);
     let cursor = prompt_cursor(input_text, cursor_pos, body_width, cursor_indent);
@@ -119,7 +124,7 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
         rows.push(Row::padded(spans, width, bg_style(surface)));
     }
 
-    (rows, Some(cursor))
+    (rows, if hidden_entry_active { None } else { Some(cursor) })
 }
 
 /// Build accessory rows (help, commands, or file picker) if active.
@@ -134,6 +139,10 @@ pub fn accessory_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
         return permission_rows(app, width, max_height);
     }
 
+    if app.first_run_recovery.is_some() {
+        return first_run_recovery_rows(app, width, max_height);
+    }
+
     match app.prompt_accessory {
         PromptAccessory::None => Vec::new(),
         PromptAccessory::Help => help_rows(app, width, max_height),
@@ -141,6 +150,191 @@ pub fn accessory_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
         PromptAccessory::Files(_) => picker_rows(app, "files", width, max_height),
         PromptAccessory::Models => picker_rows(app, "models", width, max_height),
         PromptAccessory::Skills => picker_rows(app, "skills", width, max_height),
+    }
+}
+
+fn first_run_recovery_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
+    let Some(recovery) = app.first_run_recovery.as_ref() else {
+        return Vec::new();
+    };
+    let p = super::style::palette();
+    let bg = p.surface0;
+    let title_style = CellStyle::new().fg(p.peach).bg(bg).bold();
+    let muted_style = CellStyle::new().fg(p.subtext0).bg(bg);
+    let text_style = CellStyle::new().fg(p.text).bg(bg);
+    let selected_style = CellStyle::new().fg(p.text).bg(bg).bold();
+
+    let provider = recovery.provider.map(|provider| provider.label()).unwrap_or("acp");
+    let env_var = recovery
+        .provider
+        .map(|provider| provider.env_var())
+        .unwrap_or("ACP agent config");
+
+    let mut rows = Vec::new();
+    rows.push(Row::padded(
+        vec![
+            Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(bg)),
+            Span::styled("setup", title_style),
+            Span::styled(
+                format!("  provider={provider} model={} missing={env_var}", app.model),
+                muted_style,
+            ),
+        ],
+        width,
+        bg_style(bg),
+    ));
+
+    match recovery.stage {
+        RecoveryStage::MissingCredential => {
+            rows.push(recovery_body_row(
+                width,
+                bg,
+                text_style,
+                "Missing credential. Choose an action before submitting this prompt.",
+            ));
+            push_recovery_actions(
+                &mut rows,
+                width,
+                max_height,
+                recovery.selected,
+                &[
+                    "enter API key",
+                    "switch model/provider",
+                    "show setup instructions",
+                    "continue without setup",
+                    "quit",
+                ],
+                selected_style,
+                muted_style,
+                text_style,
+                bg,
+            );
+        }
+        RecoveryStage::EnterKey => {
+            rows.push(recovery_body_row(
+                width,
+                bg,
+                text_style,
+                "Type the API key. Input is hidden. Enter continues, Esc cancels.",
+            ));
+        }
+        RecoveryStage::ConfirmStore => {
+            rows.push(recovery_body_row(width, bg, text_style, "Store this credential where?"));
+            push_recovery_actions(
+                &mut rows,
+                width,
+                max_height,
+                recovery.selected,
+                &["global credentials", "project credentials", "cancel"],
+                selected_style,
+                muted_style,
+                text_style,
+                bg,
+            );
+        }
+        RecoveryStage::Instructions => {
+            rows.push(recovery_body_row(
+                width,
+                bg,
+                text_style,
+                "Run `thndrs setup` or `thndrs login <provider>` outside the TUI.",
+            ));
+            push_recovery_actions(
+                &mut rows,
+                width,
+                max_height,
+                recovery.selected,
+                &["back", "close"],
+                selected_style,
+                muted_style,
+                text_style,
+                bg,
+            );
+        }
+        RecoveryStage::LogoutConfirm => {
+            rows.push(recovery_body_row(
+                width,
+                bg,
+                text_style,
+                "Remove the stored credential from which store?",
+            ));
+            push_recovery_actions(
+                &mut rows,
+                width,
+                max_height,
+                recovery.selected,
+                &["global credentials", "project credentials", "cancel"],
+                selected_style,
+                muted_style,
+                text_style,
+                bg,
+            );
+        }
+        RecoveryStage::AcpMissing => {
+            rows.push(recovery_body_row(
+                width,
+                bg,
+                text_style,
+                "ACP models use ACP agent config, not provider API keys.",
+            ));
+            push_recovery_actions(
+                &mut rows,
+                width,
+                max_height,
+                recovery.selected,
+                &[
+                    "switch model/provider",
+                    "show ACP setup",
+                    "continue without setup",
+                    "quit",
+                ],
+                selected_style,
+                muted_style,
+                text_style,
+                bg,
+            );
+        }
+    }
+
+    rows.truncate(max_height);
+    rows
+}
+
+fn recovery_body_row(width: usize, bg: Color, style: CellStyle, text: &str) -> Row {
+    Row::padded(
+        vec![
+            Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(bg)),
+            Span::styled(text.to_string(), style),
+        ],
+        width,
+        bg_style(bg),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn push_recovery_actions(
+    rows: &mut Vec<Row>, width: usize, max_height: usize, selected: usize, actions: &[&str], selected_style: CellStyle,
+    muted_style: CellStyle, text_style: CellStyle, bg: Color,
+) {
+    for (index, action) in actions.iter().enumerate() {
+        if rows.len() >= max_height {
+            break;
+        }
+        let is_selected = index == selected;
+        let marker = if is_selected { "›" } else { " " };
+        rows.push(Row::padded(
+            vec![
+                Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(bg)),
+                Span::styled(marker, if is_selected { selected_style } else { muted_style }),
+                Span::styled(" ", CellStyle::new().bg(bg)),
+                Span::styled(
+                    (*action).to_string(),
+                    if is_selected { selected_style } else { text_style },
+                ),
+            ],
+            width,
+            bg_style(bg),
+        ));
     }
 }
 
@@ -665,7 +859,8 @@ fn help_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
 mod tests {
     use super::*;
     use crate::acp::permissions::{PendingPermission, PermissionKindView, PermissionOptionView};
-    use crate::app::{App, FilePickerSource, Mode, PickerItem, PickerState, RunState};
+    use crate::app::{App, FilePickerSource, FirstRunRecovery, Mode, PickerItem, PickerState, RecoveryStage, RunState};
+    use crate::cli::commands::setup::ApiKeyProviderArg;
     use crate::cli::{Cli, Theme, WebSearchMode};
     use crate::renderer::git::GitStatusSummary;
     use crate::renderer::layout::truncate_spans;
@@ -1039,6 +1234,56 @@ mod tests {
         let rows = accessory_rows(&app, 80, 8);
         let frame = Frame { rows, width: 80, cursor: None, cursor_visible: true };
         insta::assert_snapshot!("command_suggestions", frame.render_styled());
+    }
+
+    #[test]
+    fn snapshot_first_run_recovery_normal() {
+        let mut app = test_app();
+        app.model = "umans-coder".to_string();
+        app.first_run_recovery = Some(FirstRunRecovery {
+            provider: Some(ApiKeyProviderArg::Umans),
+            stage: RecoveryStage::MissingCredential,
+            pending_provider_prompt: true,
+            selected: 0,
+            secret_input: String::new(),
+        });
+        let rows = accessory_rows(&app, 80, 8);
+        let frame = Frame { rows, width: 80, cursor: None, cursor_visible: true };
+        insta::assert_snapshot!("first_run_recovery_normal", frame.render_styled());
+    }
+
+    #[test]
+    fn snapshot_first_run_recovery_narrow() {
+        let mut app = test_app();
+        app.model = "opencode-go/kimi-k2.7-code".to_string();
+        app.first_run_recovery = Some(FirstRunRecovery {
+            provider: Some(ApiKeyProviderArg::OpencodeGo),
+            stage: RecoveryStage::MissingCredential,
+            pending_provider_prompt: true,
+            selected: 0,
+            secret_input: String::new(),
+        });
+        let rows = accessory_rows(&app, 40, 8);
+        let frame = Frame { rows, width: 40, cursor: None, cursor_visible: true };
+        insta::assert_snapshot!("first_run_recovery_narrow", frame.render_styled());
+    }
+
+    #[test]
+    fn snapshot_first_run_recovery_tiny() {
+        let mut app = test_app();
+        app.model = "umans-coder".to_string();
+        app.first_run_recovery = Some(FirstRunRecovery {
+            provider: Some(ApiKeyProviderArg::Umans),
+            stage: RecoveryStage::ConfirmStore,
+            pending_provider_prompt: true,
+            selected: 1,
+            secret_input: "sk-hidden".to_string(),
+        });
+        let rows = accessory_rows(&app, 24, 3);
+        let frame = Frame { rows, width: 24, cursor: None, cursor_visible: true };
+        let rendered = frame.render_styled();
+        assert!(!rendered.contains("sk-hidden"));
+        insta::assert_snapshot!("first_run_recovery_tiny", rendered);
     }
 
     fn snapshot_prompt_at_widths(name: &str, text: &str) {

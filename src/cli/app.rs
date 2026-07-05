@@ -14,10 +14,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::acp::config::provider_label;
 use crate::acp::permissions::{PendingPermission, PermissionDecision};
+use crate::cli::commands::auth::CredentialScope;
+use crate::cli::commands::setup::ApiKeyProviderArg;
 use crate::cli::{Cli, Theme, WebSearchMode};
 use crate::input::PromptInput;
 use crate::providers::{opencode, umans};
 use crate::renderer::git::GitStatusSummary;
+use crate::thndrs_core::auth;
 use crate::tools::shell::ProcessRegistry;
 use crate::{context, fuzzy, internals, prompt, session, skills, tools};
 use crate::{mcp, renderer};
@@ -56,6 +59,80 @@ pub enum PromptAccessory {
     Files(FilePickerSource),
     Models,
     Skills,
+}
+
+/// Focused first-run and credential recovery surface.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FirstRunRecovery {
+    /// Provider being configured or diagnosed.
+    pub provider: Option<ApiKeyProviderArg>,
+    /// Current recovery step.
+    pub stage: RecoveryStage,
+    /// Whether a prompt submit is waiting on this recovery.
+    pub pending_provider_prompt: bool,
+    /// Selected action row.
+    pub selected: usize,
+    /// Hidden API-key buffer. This is never rendered or written to transcripts.
+    pub secret_input: String,
+}
+
+impl FirstRunRecovery {
+    fn missing_provider(provider: ApiKeyProviderArg, pending_provider_prompt: bool) -> Self {
+        Self {
+            provider: Some(provider),
+            stage: RecoveryStage::MissingCredential,
+            pending_provider_prompt,
+            selected: 0,
+            secret_input: String::new(),
+        }
+    }
+
+    fn acp_missing(pending_provider_prompt: bool) -> Self {
+        Self {
+            provider: None,
+            stage: RecoveryStage::AcpMissing,
+            pending_provider_prompt,
+            selected: 0,
+            secret_input: String::new(),
+        }
+    }
+
+    fn login(provider: ApiKeyProviderArg) -> Self {
+        Self {
+            provider: Some(provider),
+            stage: RecoveryStage::EnterKey,
+            pending_provider_prompt: false,
+            selected: 0,
+            secret_input: String::new(),
+        }
+    }
+
+    fn logout(provider: ApiKeyProviderArg) -> Self {
+        Self {
+            provider: Some(provider),
+            stage: RecoveryStage::LogoutConfirm,
+            pending_provider_prompt: false,
+            selected: 0,
+            secret_input: String::new(),
+        }
+    }
+}
+
+/// Step within the first-run recovery surface.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RecoveryStage {
+    /// Selected provider is missing an API-key credential.
+    MissingCredential,
+    /// Hidden API-key entry is active.
+    EnterKey,
+    /// Select global/project storage before writing the key.
+    ConfirmStore,
+    /// Show setup instructions in a focused surface.
+    Instructions,
+    /// Confirm logout and storage scope.
+    LogoutConfirm,
+    /// ACP model recovery, separate from provider API-key setup.
+    AcpMissing,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -372,6 +449,8 @@ impl PickerState {
 /// The full application state used to draw the screen.
 #[derive(Debug)]
 pub struct App {
+    /// Snapshot of the effective CLI config used by command-like TUI flows.
+    pub cli: Cli,
     pub session_id: String,
     pub mode: Mode,
     pub run_state: RunState,
@@ -426,6 +505,8 @@ pub struct App {
     pub picker: Option<PickerState>,
     /// Inline prompt accessory rendered above the input.
     pub prompt_accessory: PromptAccessory,
+    /// Focused first-run or credential recovery surface.
+    pub first_run_recovery: Option<FirstRunRecovery>,
     /// Steering messages waiting to be sent to the active agent thread.
     pub queued_steering: Vec<String>,
     /// Follow-up prompts to submit as new turns after the active run completes.
@@ -450,6 +531,8 @@ pub struct App {
 impl From<&Cli> for App {
     fn from(value: &Cli) -> Self {
         let workspace_root = context::discover_workspace_root(&value.cwd);
+        let mut cli_snapshot = value.clone();
+        cli_snapshot.cwd = workspace_root.clone();
         let context_sources = match context::load_agents_md(&workspace_root) {
             Some(source) => vec![source],
             None => Vec::new(),
@@ -514,6 +597,7 @@ impl From<&Cli> for App {
         }
 
         App {
+            cli: cli_snapshot,
             session_id,
             mode: Mode::default(),
             run_state: RunState::default(),
@@ -544,6 +628,7 @@ impl From<&Cli> for App {
             queue_target: QueueTarget::default(),
             picker: None,
             prompt_accessory: PromptAccessory::None,
+            first_run_recovery: None,
             queued_steering: Vec::new(),
             queued_followups: Vec::new(),
             kill_ring: Vec::new(),
@@ -703,6 +788,13 @@ pub fn command_suggestions_for_app(app: &App) -> Vec<(&'static str, &'static str
         ("bg", "list background processes"),
         ("model", "switch Umans model"),
         ("skills", "browse loaded skills"),
+        ("doctor", "show redacted diagnostics"),
+        ("auth status", "show credential sources"),
+        ("config path", "show config paths"),
+        ("config show", "show redacted config"),
+        ("setup", "open setup"),
+        ("login", "enter provider key"),
+        ("logout", "remove provider key"),
     ];
     commands
         .into_iter()
@@ -761,6 +853,10 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
         return handle_permission_key(app, key);
     }
 
+    if app.first_run_recovery.is_some() {
+        return handle_first_run_key(app, key);
+    }
+
     if app.detail_pane.open {
         return handle_detail_pane_key(app, key);
     }
@@ -780,6 +876,10 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
 }
 
 fn handle_mouse(app: &mut App, mouse: MouseEvent) -> Option<Msg> {
+    if app.first_run_recovery.is_some() {
+        return None;
+    }
+
     match app.prompt_accessory {
         PromptAccessory::Files(_) | PromptAccessory::Models | PromptAccessory::Skills => {
             if let Some(picker) = app.picker.as_mut() {
@@ -1351,6 +1451,250 @@ fn close_prompt_accessory(app: &mut App) {
     app.prompt_accessory = PromptAccessory::None;
 }
 
+fn provider_for_model(model: &str) -> ApiKeyProviderArg {
+    if opencode::is_model_id(model) { ApiKeyProviderArg::OpencodeGo } else { ApiKeyProviderArg::Umans }
+}
+
+fn selected_provider_missing(app: &App) -> Option<FirstRunRecovery> {
+    if let Some(acp_name) = crate::acp::config::parse_model_id(&app.model) {
+        if app.cli.acp_agents.contains_key(acp_name) {
+            return None;
+        }
+        return Some(FirstRunRecovery::acp_missing(true));
+    }
+
+    let provider = provider_for_model(&app.model);
+    if auth::credential_source(provider.env_var(), &app.cwd).is_none() {
+        Some(FirstRunRecovery::missing_provider(provider, true))
+    } else {
+        None
+    }
+}
+
+fn recovery_action_count(recovery: &FirstRunRecovery) -> usize {
+    match recovery.stage {
+        RecoveryStage::MissingCredential => 5,
+        RecoveryStage::EnterKey => 1,
+        RecoveryStage::ConfirmStore | RecoveryStage::LogoutConfirm => 3,
+        RecoveryStage::Instructions => 2,
+        RecoveryStage::AcpMissing => 4,
+    }
+}
+
+fn handle_first_run_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
+    let recovery = app.first_run_recovery.as_mut()?;
+
+    if recovery.stage == RecoveryStage::EnterKey {
+        match key.code {
+            KeyCode::Esc => {
+                recovery.secret_input.clear();
+                recovery.stage = RecoveryStage::MissingCredential;
+                recovery.selected = 0;
+            }
+            KeyCode::Backspace => {
+                recovery.secret_input.pop();
+            }
+            KeyCode::Enter => {
+                if recovery.secret_input.trim().is_empty() {
+                    app.transcript
+                        .push(Entry::Error { text: String::from("API key cannot be empty") });
+                } else {
+                    recovery.stage = RecoveryStage::ConfirmStore;
+                    recovery.selected = 0;
+                }
+            }
+            KeyCode::Char(ch) => recovery.secret_input.push(ch),
+            _ => {}
+        }
+        return None;
+    }
+
+    match key.code {
+        KeyCode::Esc => {
+            app.first_run_recovery = None;
+            None
+        }
+        KeyCode::Up => {
+            recovery.selected = recovery.selected.saturating_sub(1);
+            None
+        }
+        KeyCode::Down => {
+            let max = recovery_action_count(recovery).saturating_sub(1);
+            recovery.selected = (recovery.selected + 1).min(max);
+            None
+        }
+        KeyCode::Enter => accept_recovery_action(app),
+        _ => None,
+    }
+}
+
+fn accept_recovery_action(app: &mut App) -> Option<Msg> {
+    let recovery = app.first_run_recovery.clone()?;
+
+    match recovery.stage {
+        RecoveryStage::MissingCredential => match recovery.selected {
+            0 => {
+                if let Some(active) = app.first_run_recovery.as_mut() {
+                    active.stage = RecoveryStage::EnterKey;
+                    active.selected = 0;
+                    active.secret_input.clear();
+                }
+            }
+            1 => {
+                app.first_run_recovery = None;
+                open_model_picker(app);
+            }
+            2 => {
+                if let Some(active) = app.first_run_recovery.as_mut() {
+                    active.stage = RecoveryStage::Instructions;
+                    active.selected = 0;
+                }
+            }
+            3 => {
+                if recovery.pending_provider_prompt {
+                    app.transcript.push(Entry::Status {
+                        text: String::from(
+                            "setup required before submitting this provider-backed prompt; enter a key or switch model",
+                        ),
+                    });
+                } else {
+                    app.first_run_recovery = None;
+                    app.transcript
+                        .push(Entry::Status { text: String::from("setup skipped") });
+                }
+            }
+            4 => {
+                app.quit = true;
+                return Some(Msg::Quit);
+            }
+            _ => {}
+        },
+        RecoveryStage::ConfirmStore => store_recovery_credential(app, &recovery),
+        RecoveryStage::Instructions => match recovery.selected {
+            0 => {
+                if let Some(active) = app.first_run_recovery.as_mut() {
+                    active.stage = RecoveryStage::MissingCredential;
+                    active.selected = 0;
+                }
+            }
+            1 => app.first_run_recovery = None,
+            _ => {}
+        },
+        RecoveryStage::LogoutConfirm => remove_recovery_credential(app, &recovery),
+        RecoveryStage::AcpMissing => match recovery.selected {
+            0 => {
+                app.first_run_recovery = None;
+                open_model_picker(app);
+            }
+            1 => {
+                app.transcript.push(Entry::Status {
+                    text: String::from("ACP setup: run `thndrs acp list` or `thndrs acp registry` outside the TUI"),
+                });
+            }
+            2 => {
+                if recovery.pending_provider_prompt {
+                    app.transcript.push(Entry::Status {
+                        text: String::from(
+                            "ACP agent config is required before submitting this prompt; switch model or configure ACP",
+                        ),
+                    });
+                } else {
+                    app.first_run_recovery = None;
+                }
+            }
+            3 => {
+                app.quit = true;
+                return Some(Msg::Quit);
+            }
+            _ => {}
+        },
+        RecoveryStage::EnterKey => {}
+    }
+
+    None
+}
+
+fn selected_scope(selected: usize) -> Option<CredentialScope> {
+    match selected {
+        0 => Some(CredentialScope::Global),
+        1 => Some(CredentialScope::Project),
+        _ => None,
+    }
+}
+
+fn store_recovery_credential(app: &mut App, recovery: &FirstRunRecovery) {
+    let Some(provider) = recovery.provider else {
+        app.first_run_recovery = None;
+        return;
+    };
+    let Some(scope) = selected_scope(recovery.selected) else {
+        app.first_run_recovery = Some(FirstRunRecovery::missing_provider(
+            provider,
+            recovery.pending_provider_prompt,
+        ));
+        return;
+    };
+
+    let key = recovery.secret_input.trim();
+    let path = match crate::cli::commands::auth::credential_path(scope, &app.cwd) {
+        Ok(path) => path,
+        Err(err) => {
+            app.transcript
+                .push(Entry::Error { text: format!("credential store unavailable: {err}") });
+            return;
+        }
+    };
+
+    match auth::set_credential(&path, provider.env_var(), key) {
+        Ok(()) => {
+            if scope == CredentialScope::Project {
+                if let Err(err) = auth::ensure_git_exclude(&app.cwd) {
+                    app.transcript
+                        .push(Entry::Error { text: format!("git exclude update failed: {err}") });
+                }
+            }
+            app.transcript
+                .push(Entry::Status { text: format!("{} credential stored in {}", provider.label(), scope.label()) });
+            app.first_run_recovery = None;
+        }
+        Err(err) => app
+            .transcript
+            .push(Entry::Error { text: format!("credential write failed: {err}") }),
+    }
+}
+
+fn remove_recovery_credential(app: &mut App, recovery: &FirstRunRecovery) {
+    let Some(provider) = recovery.provider else {
+        app.first_run_recovery = None;
+        return;
+    };
+    let Some(scope) = selected_scope(recovery.selected) else {
+        app.first_run_recovery = None;
+        app.transcript
+            .push(Entry::Status { text: String::from("logout cancelled") });
+        return;
+    };
+    let path = match crate::cli::commands::auth::credential_path(scope, &app.cwd) {
+        Ok(path) => path,
+        Err(err) => {
+            app.transcript
+                .push(Entry::Error { text: format!("credential store unavailable: {err}") });
+            return;
+        }
+    };
+    match auth::remove_credential(&path, provider.env_var()) {
+        Ok(()) => {
+            app.first_run_recovery = None;
+            app.transcript.push(Entry::Status {
+                text: format!("{} credential removed from {}", provider.label(), scope.label()),
+            });
+        }
+        Err(err) => app
+            .transcript
+            .push(Entry::Error { text: format!("credential remove failed: {err}") }),
+    }
+}
+
 /// Find the index of the most recent `Entry::Tool` in the transcript.
 fn last_tool_entry_index(app: &App) -> Option<usize> {
     app.transcript
@@ -1475,6 +1819,7 @@ fn accept_model_suggestion(app: &mut App) {
     };
 
     app.model = model.clone();
+    app.cli.model = model.clone();
     app.transcript.push(Entry::Status { text: format!("model: {model}") });
     close_prompt_accessory(app);
 }
@@ -1637,6 +1982,11 @@ fn queue_running_input(app: &mut App, text: &str) {
 }
 
 fn submit_user_turn(app: &mut App, text: String) -> Option<Msg> {
+    if let Some(recovery) = selected_provider_missing(app) {
+        app.first_run_recovery = Some(recovery);
+        return None;
+    }
+
     remember_input(app, &text);
     let user_entry = Entry::User { text: text.clone() };
     app.transcript.push(user_entry.clone());
@@ -1655,6 +2005,14 @@ fn submit_user_turn(app: &mut App, text: String) -> Option<Msg> {
 
 /// Route a slash command (the part after `/` or the text after `:`).
 fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
+    if command_contains_api_key_like_argument(command) {
+        app.transcript.push(Entry::Error {
+            text: String::from("slash commands do not accept API keys as arguments; use /login <provider>"),
+        });
+        app.input.clear();
+        return None;
+    }
+
     if command == "mcp" {
         list_mcp_servers(app);
         return None;
@@ -1665,6 +2023,30 @@ fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
     }
     if let Some(name) = command.strip_prefix("mcp tools ") {
         list_mcp_tools(app, name.trim());
+        return None;
+    }
+    if let Some(rest) = command.strip_prefix("login ") {
+        app.input.clear();
+        match parse_api_key_provider(rest.trim()) {
+            Some(provider) => {
+                app.first_run_recovery = Some(FirstRunRecovery::login(provider));
+            }
+            None => app
+                .transcript
+                .push(Entry::Error { text: String::from("usage: /login <umans|opencode-go>") }),
+        }
+        return None;
+    }
+    if let Some(rest) = command.strip_prefix("logout ") {
+        app.input.clear();
+        match parse_api_key_provider(rest.trim()) {
+            Some(provider) => {
+                app.first_run_recovery = Some(FirstRunRecovery::logout(provider));
+            }
+            None => app
+                .transcript
+                .push(Entry::Error { text: String::from("usage: /logout <umans|opencode-go>") }),
+        }
         return None;
     }
 
@@ -1697,7 +2079,122 @@ fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
             open_skill_picker(app);
             None
         }
+        "doctor" => {
+            run_doctor_slash(app);
+            app.input.clear();
+            None
+        }
+        "auth status" => {
+            run_auth_status_slash(app);
+            app.input.clear();
+            None
+        }
+        "config path" => {
+            run_config_slash(app, &crate::cli::commands::config::ConfigCommand::Path);
+            app.input.clear();
+            None
+        }
+        "config show" => {
+            run_config_slash(
+                app,
+                &crate::cli::commands::config::ConfigCommand::Show(crate::cli::commands::config::ConfigShowCommand {
+                    redacted: true,
+                }),
+            );
+            app.input.clear();
+            None
+        }
+        "config edit" => {
+            app.transcript.push(Entry::Status {
+                text: String::from(
+                    "config edit is CLI-only; run `thndrs config edit --global` or `thndrs config edit --project` outside the TUI",
+                ),
+            });
+            app.input.clear();
+            None
+        }
+        "setup" => {
+            let provider = provider_for_model(&app.model);
+            app.first_run_recovery = Some(FirstRunRecovery::missing_provider(provider, false));
+            app.input.clear();
+            None
+        }
+        "login" => {
+            app.transcript
+                .push(Entry::Error { text: String::from("usage: /login <umans|opencode-go>") });
+            app.input.clear();
+            None
+        }
+        "logout" => {
+            app.transcript
+                .push(Entry::Error { text: String::from("usage: /logout <umans|opencode-go>") });
+            app.input.clear();
+            None
+        }
         _ => None,
+    }
+}
+
+fn parse_api_key_provider(input: &str) -> Option<ApiKeyProviderArg> {
+    match input {
+        "umans" => Some(ApiKeyProviderArg::Umans),
+        "opencode-go" => Some(ApiKeyProviderArg::OpencodeGo),
+        _ => None,
+    }
+}
+
+fn command_contains_api_key_like_argument(command: &str) -> bool {
+    let mut parts = command.split_whitespace();
+    let Some(head) = parts.next() else {
+        return false;
+    };
+    let skip = match head {
+        "login" | "logout" => 1,
+        _ => 0,
+    };
+    parts.skip(skip).any(is_api_key_like)
+}
+
+fn is_api_key_like(value: &str) -> bool {
+    let value = value.trim_matches(|ch: char| ch == '"' || ch == '\'' || ch == '`' || ch == ',' || ch == ';');
+    let lower = value.to_ascii_lowercase();
+    value.starts_with("sk-")
+        || lower.contains("api_key=")
+        || lower.contains("apikey=")
+        || lower.contains("opencode_go_key=")
+        || lower.contains("umans_api_key=")
+        || (value.len() >= 32
+            && value.chars().any(|ch| ch.is_ascii_digit())
+            && value.chars().any(|ch| ch.is_ascii_alphabetic()))
+}
+
+fn run_doctor_slash(app: &mut App) {
+    let mut output = Vec::new();
+    let command = crate::cli::commands::doctor::DoctorCommand { json: false };
+    let result = crate::cli::commands::doctor::run_with_writer(&app.cli, &command, &mut output);
+    push_command_output(app, "doctor", &output, result);
+}
+
+fn run_auth_status_slash(app: &mut App) {
+    let mut output = Vec::new();
+    let result = crate::cli::commands::auth::write_auth_status(&app.cwd, &mut output);
+    push_command_output(app, "auth status", &output, result);
+}
+
+fn run_config_slash(app: &mut App, command: &crate::cli::commands::config::ConfigCommand) {
+    let mut output = Vec::new();
+    let result = crate::cli::commands::config::run_with_writer(&app.cli, command, &mut output);
+    push_command_output(app, "config", &output, result);
+}
+
+fn push_command_output(app: &mut App, label: &str, output: &[u8], result: std::io::Result<()>) {
+    let text = String::from_utf8_lossy(output).trim_end().to_string();
+    if !text.is_empty() {
+        app.transcript.push(Entry::Status { text });
+    }
+    if let Err(err) = result {
+        app.transcript
+            .push(Entry::Error { text: format!("{label} exited with {}: {err}", err.kind()) });
     }
 }
 

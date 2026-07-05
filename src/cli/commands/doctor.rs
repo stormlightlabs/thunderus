@@ -37,7 +37,8 @@ pub fn run(cli: &crate::cli::Cli, command: &DoctorCommand) -> io::Result<()> {
     run_with_writer(cli, command, &mut lock)
 }
 
-fn run_with_writer<W: Write>(cli: &crate::cli::Cli, command: &DoctorCommand, writer: &mut W) -> io::Result<()> {
+/// Run `thndrs doctor` with an injected writer.
+pub fn run_with_writer<W: Write>(cli: &crate::cli::Cli, command: &DoctorCommand, writer: &mut W) -> io::Result<()> {
     let report = gather_doctor_report(cli);
     if command.json {
         writeln!(writer, "{}", to_string_pretty(&report).map_err(io::Error::other)?)?;

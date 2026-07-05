@@ -126,47 +126,47 @@ Captured: 2026-07-05
 
 ## P6: TUI First-Run Recovery
 
-- [ ] Add app state for first-run/missing-provider-credential recovery.
-- [ ] Detect missing selected-provider credential before first provider-backed
+- [x] Add app state for first-run/missing-provider-credential recovery.
+- [x] Detect missing selected-provider credential before first provider-backed
       prompt.
-- [ ] Render focused recovery surface with provider, model, missing env var,
+- [x] Render focused recovery surface with provider, model, missing env var,
       and actions.
-- [ ] Add action to enter API key.
-- [ ] Add action to switch model/provider through existing picker affordance or
+- [x] Add action to enter API key.
+- [x] Add action to switch model/provider through existing picker affordance or
       a simple provider list.
-- [ ] Add action to show setup instructions.
-- [ ] Add action to continue without setup only when it will not immediately
+- [x] Add action to show setup instructions.
+- [x] Add action to continue without setup only when it will not immediately
       submit a provider-backed prompt.
-- [ ] Add action to quit.
-- [ ] Store entered keys through the same credential-store path as `login`.
-- [ ] Confirm global vs project storage before writing.
-- [ ] Keep prompt draft intact after recovery.
-- [ ] Add app update tests for each action.
-- [ ] Add renderer snapshots for normal, narrow, and tiny terminal widths.
-- [ ] Add tests proving ACP model recovery uses ACP-specific messaging.
+- [x] Add action to quit.
+- [x] Store entered keys through the same credential-store path as `login`.
+- [x] Confirm global vs project storage before writing.
+- [x] Keep prompt draft intact after recovery.
+- [x] Add app update tests for each action.
+- [x] Add renderer snapshots for normal, narrow, and tiny terminal widths.
+- [x] Add tests proving ACP model recovery uses ACP-specific messaging.
 
 ## P6.5: TUI Slash Commands
 
-- [ ] Add `/doctor`.
-- [ ] Add `/auth status`.
-- [ ] Add `/config path`.
-- [ ] Add `/config show`.
-- [ ] Add `/setup`.
-- [ ] Add `/login <provider>`.
-- [ ] Add `/logout <provider>`.
-- [ ] Make `/setup` open the focused setup surface.
-- [ ] Make `/login <provider>` open hidden credential entry.
-- [ ] Make `/logout <provider>` require confirmation.
-- [ ] Reject slash commands that include API-key-looking extra arguments.
-- [ ] Do not add `/config edit`.
-- [ ] If a user enters `/config edit`, show the CLI command to run outside the
+- [x] Add `/doctor`.
+- [x] Add `/auth status`.
+- [x] Add `/config path`.
+- [x] Add `/config show`.
+- [x] Add `/setup`.
+- [x] Add `/login <provider>`.
+- [x] Add `/logout <provider>`.
+- [x] Make `/setup` open the focused setup surface.
+- [x] Make `/login <provider>` open hidden credential entry.
+- [x] Make `/logout <provider>` require confirmation.
+- [x] Reject slash commands that include API-key-looking extra arguments.
+- [x] Do not add `/config edit`.
+- [x] If a user enters `/config edit`, show the CLI command to run outside the
       TUI.
-- [ ] Preserve prompt draft after every slash-command success, cancellation, or
+- [x] Preserve prompt draft after every slash-command success, cancellation, or
       failure.
-- [ ] Add command suggestion entries for supported slash commands.
-- [ ] Add app update tests for each slash command.
-- [ ] Add renderer snapshots for slash-command output and focused surfaces.
-- [ ] Add tests proving secrets never appear in slash-command transcript
+- [x] Add command suggestion entries for supported slash commands.
+- [x] Add app update tests for each slash command.
+- [x] Add renderer snapshots for slash-command output and focused surfaces.
+- [x] Add tests proving secrets never appear in slash-command transcript
       entries.
 
 ## P7: Docs And README
