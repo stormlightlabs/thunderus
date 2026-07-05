@@ -3,33 +3,38 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, mpsc};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1::*;
-use agent_client_protocol::{Agent, Client, ConnectionTo, Dispatch, Error, Lines, Result};
+use agent_client_protocol::{Agent, Client, ConnectionTo, Dispatch, Error, JsonRpcRequest, Lines, Result};
 use futures::channel::oneshot;
 use futures::future::{Either, select};
 use futures::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, FutureExt, Sink, Stream, StreamExt};
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
 use crate::agent::prompt_expects_workspace_write;
-use crate::agent::{CancelToken, ToolPermissionDecision, ToolPermissionHook};
+use crate::agent::{CancelToken, ToolExecutionHook, ToolPermissionDecision, ToolPermissionHook};
 use crate::app::AgentEvent;
 use crate::cli::WebSearchMode;
 use crate::harness::HarnessHandle;
+use crate::mcp::config::{McpConfig, McpServerConfig, McpTransport};
+use crate::mcp::manager::McpManager;
 use crate::prompt;
 use crate::server::ServerConfig;
 use crate::server::config_options::{ConfigOptionValue, acp_config_options, validate_config_option};
-use crate::server::events::{SessionUpdateIntent, classify_tool, map_agent_event, sanitize_tool_payload};
+use crate::server::events::{
+    SessionUpdateIntent, ToolStatusIntent, classify_tool, map_agent_event, sanitize_tool_payload,
+};
 use crate::server::session::{AcpServerSession, AcpSessionStore, validate_and_normalize_cwd};
 use crate::session::{
     AcpPermissionOptionRecord, AcpSessionMetadata, SCHEMA_VERSION, SessionReader, SessionRecord, SessionWriter,
 };
-use crate::tools::AgentRunConfig;
-use crate::tools::ToolUseRequest;
+use crate::tools::shell::{ProcessKind, ProcessResult, ProcessStatus, ShellArgs, redact_secrets};
+use crate::tools::{AgentRunConfig, MAX_OUTPUT_BYTES, ToolOutput, ToolUseRequest};
 
 const PERMISSION_POLL_INTERVAL: Duration = Duration::from_millis(100);
+const TERMINAL_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Shared handler state for one ACP stdio server process.
 #[derive(Clone, Debug)]
@@ -137,6 +142,14 @@ impl ServerState {
             .unwrap_or_default()
     }
 
+    /// Return whether the initialized ACP client can run terminal commands.
+    pub fn client_can_run_terminal(&self) -> bool {
+        self.inner
+            .lock()
+            .map(|inner| inner.client_capabilities.terminal)
+            .unwrap_or(false)
+    }
+
     /// Return whether the initialized ACP client can serve editor-visible reads.
     pub fn client_can_read_text_files(&self) -> bool {
         self.client_fs_capabilities().read_text_file
@@ -201,6 +214,17 @@ impl ServerState {
             .session(session_id)
             .cloned()
             .ok_or_else(|| format!("unknown ACP session id `{session_id}`"))
+    }
+
+    fn attach_mcp_config(&self, session_id: &str, mcp_config: McpConfig) -> Result<(), String> {
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|_| String::from("ACP server state lock poisoned"))?;
+        inner
+            .sessions
+            .attach_mcp_config(session_id, mcp_config)
+            .map_err(|error| error.to_string())
     }
 
     fn list_sessions(&self, cwd: Option<&Path>) -> Result<Vec<SessionInfo>, String> {
@@ -399,495 +423,6 @@ impl ServerState {
     }
 }
 
-/// Run the ACP server over stdio with all v1 baseline handlers registered.
-pub async fn run_stdio(config: ServerConfig) -> Result<()> {
-    let state = ServerState::new(config);
-    let initialize_state = state.clone();
-    let new_session_state = state.clone();
-    let list_session_state = state.clone();
-    let load_session_state = state.clone();
-    let resume_session_state = state.clone();
-    let close_session_state = state.clone();
-    let delete_session_state = state.clone();
-    let prompt_state = state.clone();
-    let config_option_state = state.clone();
-    let cancel_state = state;
-    let (eof_tx, eof_rx) = oneshot::channel();
-    let transport = Lines::new(
-        stdout_line_sink(tokio::io::stdout().compat_write()),
-        eof_signaling_lines(tokio::io::stdin().compat(), eof_tx),
-    );
-
-    let connection = Agent
-        .builder()
-        .name("thndrs")
-        .on_receive_request(
-            async move |request: InitializeRequest, responder, _connection| {
-                let response = initialize(&initialize_state, &request);
-                responder.respond(response)
-            },
-            agent_client_protocol::on_receive_request!(),
-        )
-        .on_receive_request(
-            async move |request: NewSessionRequest, responder, _connection| match new_session(
-                &new_session_state,
-                &request,
-            ) {
-                Ok(response) => responder.respond(response),
-                Err(error) => responder.respond_with_error(Error::invalid_params().data(error)),
-            },
-            agent_client_protocol::on_receive_request!(),
-        )
-        .on_receive_request(
-            async move |request: ListSessionsRequest, responder, _connection| match list_sessions(
-                &list_session_state,
-                &request,
-            ) {
-                Ok(response) => responder.respond(response),
-                Err(error) => responder.respond_with_error(Error::invalid_params().data(error)),
-            },
-            agent_client_protocol::on_receive_request!(),
-        )
-        .on_receive_request(
-            async move |request: LoadSessionRequest, responder, connection: ConnectionTo<Client>| match load_session(
-                &load_session_state,
-                &request,
-                &connection,
-            ) {
-                Ok(response) => responder.respond(response),
-                Err(error) => responder.respond_with_error(Error::invalid_params().data(error)),
-            },
-            agent_client_protocol::on_receive_request!(),
-        )
-        .on_receive_request(
-            async move |request: ResumeSessionRequest, responder, _connection| match resume_session(
-                &resume_session_state,
-                &request,
-            ) {
-                Ok(response) => responder.respond(response),
-                Err(error) => responder.respond_with_error(Error::invalid_params().data(error)),
-            },
-            agent_client_protocol::on_receive_request!(),
-        )
-        .on_receive_request(
-            async move |request: CloseSessionRequest, responder, _connection| match close_session(
-                &close_session_state,
-                &request,
-            ) {
-                Ok(response) => responder.respond(response),
-                Err(error) => responder.respond_with_error(Error::invalid_params().data(error)),
-            },
-            agent_client_protocol::on_receive_request!(),
-        )
-        .on_receive_request(
-            async move |request: DeleteSessionRequest, responder, _connection| match delete_session(
-                &delete_session_state,
-                &request,
-            ) {
-                Ok(response) => responder.respond(response),
-                Err(error) => responder.respond_with_error(Error::invalid_params().data(error)),
-            },
-            agent_client_protocol::on_receive_request!(),
-        )
-        .on_receive_request(
-            async move |request: SetSessionConfigOptionRequest, responder, _connection| match set_config_option(
-                &config_option_state,
-                &request,
-            ) {
-                Ok(response) => responder.respond(response),
-                Err(error) => responder.respond_with_error(Error::invalid_params().data(error)),
-            },
-            agent_client_protocol::on_receive_request!(),
-        )
-        .on_receive_request(
-            async move |request: PromptRequest, responder, connection: ConnectionTo<Client>| {
-                let state = prompt_state.clone();
-                match tokio::task::spawn_blocking(move || prompt(&state, &request, &connection)).await {
-                    Ok(Ok(response)) => responder.respond(response),
-                    Ok(Err(error)) => responder.respond_with_error(Error::invalid_params().data(error)),
-                    Err(error) => responder
-                        .respond_with_error(Error::internal_error().data(format!("ACP prompt task failed: {error}"))),
-                }
-            },
-            agent_client_protocol::on_receive_request!(),
-        )
-        .on_receive_notification(
-            async move |notification: CancelNotification, _connection| {
-                cancel_state.cancel_session(notification.session_id.0.as_ref());
-                Ok(())
-            },
-            agent_client_protocol::on_receive_notification!(),
-        )
-        .on_receive_dispatch(
-            async move |message: Dispatch, cx: ConnectionTo<Client>| {
-                message.respond_with_error(Error::method_not_found().data("unhandled ACP method"), cx)
-            },
-            agent_client_protocol::on_receive_dispatch!(),
-        )
-        .connect_to(transport);
-
-    match select(Box::pin(connection), Box::pin(eof_rx.map(|_| Ok(())))).await {
-        Either::Left((result, _)) | Either::Right((result, _)) => result,
-    }
-}
-
-pub fn initialize(state: &ServerState, request: &InitializeRequest) -> InitializeResponse {
-    state.record_client_info(request);
-    InitializeResponse::new(negotiate_protocol_version(request.protocol_version))
-        .agent_info(Some(
-            Implementation::new("thndrs", env!("CARGO_PKG_VERSION")).title(Some(String::from("thndrs"))),
-        ))
-        .agent_capabilities(capabilities(state))
-}
-
-fn new_session(state: &ServerState, request: &NewSessionRequest) -> Result<NewSessionResponse, String> {
-    if !request.cwd.is_absolute() {
-        return Err(format!("ACP session cwd must be absolute: {}", request.cwd.display()));
-    }
-    let cwd = validate_and_normalize_cwd(&request.cwd, None).map_err(|err| err.to_string())?;
-    let session_id = state.create_session(&cwd)?;
-    let config_options = state.config_options_for_session(&session_id)?;
-    Ok(NewSessionResponse::new(session_id).config_options(config_options))
-}
-
-fn list_sessions(state: &ServerState, request: &ListSessionsRequest) -> Result<ListSessionsResponse, String> {
-    if request.cursor.is_some() {
-        return Ok(ListSessionsResponse::new(Vec::new()));
-    }
-    if let Some(cwd) = &request.cwd
-        && !cwd.is_absolute()
-    {
-        return Err(format!("ACP session list cwd must be absolute: {}", cwd.display()));
-    }
-    Ok(ListSessionsResponse::new(state.list_sessions(request.cwd.as_deref())?))
-}
-
-fn load_session(
-    state: &ServerState, request: &LoadSessionRequest, connection: &ConnectionTo<Client>,
-) -> Result<LoadSessionResponse, String> {
-    if !request.cwd.is_absolute() {
-        return Err(format!(
-            "ACP session load cwd must be absolute: {}",
-            request.cwd.display()
-        ));
-    }
-    let session_id = request.session_id.0.as_ref();
-    let records = state.load_session(session_id, &request.cwd)?;
-    for record in records {
-        if let Some(update) = replay_record_update(&record) {
-            send_update(connection, request.session_id.clone(), update)?;
-        }
-    }
-    Ok(LoadSessionResponse::new().config_options(state.config_options_for_session(session_id)?))
-}
-
-fn resume_session(state: &ServerState, request: &ResumeSessionRequest) -> Result<ResumeSessionResponse, String> {
-    if !request.cwd.is_absolute() {
-        return Err(format!(
-            "ACP session resume cwd must be absolute: {}",
-            request.cwd.display()
-        ));
-    }
-    let session_id = request.session_id.0.as_ref();
-    state.resume_session(session_id, &request.cwd)?;
-    Ok(ResumeSessionResponse::new().config_options(state.config_options_for_session(session_id)?))
-}
-
-fn close_session(state: &ServerState, request: &CloseSessionRequest) -> Result<CloseSessionResponse, String> {
-    state.close_session(request.session_id.0.as_ref())?;
-    Ok(CloseSessionResponse::new())
-}
-
-fn delete_session(state: &ServerState, request: &DeleteSessionRequest) -> Result<DeleteSessionResponse, String> {
-    state.delete_session(request.session_id.0.as_ref())?;
-    Ok(DeleteSessionResponse::new())
-}
-
-pub fn set_config_option(
-    state: &ServerState, request: &SetSessionConfigOptionRequest,
-) -> Result<SetSessionConfigOptionResponse, String> {
-    let session_id = request.session_id.0.as_ref();
-    let option_id = request.config_id.0.as_ref();
-    let value = request.value.to_string();
-    let option = validate_config_option(option_id, &value).map_err(|error| error.to_string())?;
-    state.set_config_option(session_id, &option)?;
-    Ok(SetSessionConfigOptionResponse::new(
-        state.config_options_for_session(session_id)?,
-    ))
-}
-
-fn prompt(
-    state: &ServerState, request: &PromptRequest, connection: &ConnectionTo<Client>,
-) -> Result<PromptResponse, String> {
-    let session_id = request.session_id.clone();
-    execute_prompt(
-        state,
-        request,
-        move |intent| send_update(connection, session_id.clone(), intent),
-        {
-            let connection = connection.clone();
-            move |config, messages, expects_write, _prompt_text| {
-                let permission_hook = server_permission_hook(
-                    state.clone(),
-                    request.session_id.clone(),
-                    turn_id(request.session_id.0.as_ref()),
-                    connection.clone(),
-                );
-                let (_steering_tx, steering_rx) = mpsc::channel();
-                drop(_steering_tx);
-                crate::harness::HarnessTurn::provider_with_steering_and_permissions(
-                    config,
-                    messages,
-                    expects_write,
-                    steering_rx,
-                    permission_hook,
-                )
-                .start()
-            }
-        },
-    )
-}
-
-fn server_permission_hook(
-    state: ServerState, session_id: agent_client_protocol::schema::v1::SessionId, turn_id: String,
-    connection: ConnectionTo<Client>,
-) -> ToolPermissionHook {
-    ToolPermissionHook::new(move |request, _config, cancel| {
-        request_client_permission(&state, &connection, session_id.clone(), &turn_id, request, cancel)
-    })
-}
-
-fn request_client_permission(
-    state: &ServerState, connection: &ConnectionTo<Client>, session_id: agent_client_protocol::schema::v1::SessionId,
-    turn_id: &str, request: &ToolUseRequest, cancel: &CancelToken,
-) -> ToolPermissionDecision {
-    if cancel.is_cancelled() {
-        return ToolPermissionDecision::Cancelled;
-    }
-
-    let options = vec![
-        PermissionOption::new("allow_once", "Allow once", PermissionOptionKind::AllowOnce),
-        PermissionOption::new("reject_once", "Reject once", PermissionOptionKind::RejectOnce),
-    ];
-    let title = permission_title(request);
-    let session_id_text = session_id.0.to_string();
-    state.append_record(
-        &session_id_text,
-        SessionRecord::AcpPermissionRequest {
-            schema_version: SCHEMA_VERSION,
-            seq: 0,
-            time: crate::utils::datetime::now_iso8601(),
-            turn_id: turn_id.to_string(),
-            tool_call_id: request.tool_use_id.clone(),
-            title: title.clone(),
-            options: options
-                .iter()
-                .map(|option| AcpPermissionOptionRecord {
-                    id: option.option_id.0.to_string(),
-                    name: option.name.clone(),
-                    kind: permission_option_kind_label(&option.kind).to_string(),
-                })
-                .collect(),
-        },
-    );
-
-    let permission = RequestPermissionRequest::new(
-        session_id,
-        ToolCallUpdate::new(
-            request.tool_use_id.clone(),
-            ToolCallUpdateFields::new()
-                .title(title)
-                .kind(classify_tool(&request.name).to_acp_kind())
-                .status(ToolCallStatus::InProgress)
-                .raw_input(json_text_or_value(sanitize_tool_payload(&request.arguments))),
-        ),
-        options,
-    );
-    let (tx, rx) = mpsc::channel();
-    let sent = connection.send_request(permission);
-    if connection
-        .spawn(async move {
-            let _ = tx.send(sent.block_task().await);
-            Ok(())
-        })
-        .is_err()
-    {
-        return ToolPermissionDecision::Reject;
-    }
-
-    loop {
-        if cancel.is_cancelled() {
-            return ToolPermissionDecision::Cancelled;
-        }
-        match rx.recv_timeout(PERMISSION_POLL_INTERVAL) {
-            Ok(Ok(response)) => {
-                let decision = permission_response_decision(response.outcome);
-                state.append_record(
-                    &session_id_text,
-                    SessionRecord::AcpPermissionOutcome {
-                        schema_version: SCHEMA_VERSION,
-                        seq: 0,
-                        time: crate::utils::datetime::now_iso8601(),
-                        turn_id: turn_id.to_string(),
-                        tool_call_id: request.tool_use_id.clone(),
-                        outcome: permission_decision_label(&decision).to_string(),
-                    },
-                );
-                return decision;
-            }
-            Ok(Err(_)) | Err(mpsc::RecvTimeoutError::Disconnected) => {
-                state.append_record(
-                    &session_id_text,
-                    SessionRecord::AcpPermissionOutcome {
-                        schema_version: SCHEMA_VERSION,
-                        seq: 0,
-                        time: crate::utils::datetime::now_iso8601(),
-                        turn_id: turn_id.to_string(),
-                        tool_call_id: request.tool_use_id.clone(),
-                        outcome: "rejected".to_string(),
-                    },
-                );
-                return ToolPermissionDecision::Reject;
-            }
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
-        }
-    }
-}
-
-fn permission_response_decision(outcome: RequestPermissionOutcome) -> ToolPermissionDecision {
-    match outcome {
-        RequestPermissionOutcome::Cancelled => ToolPermissionDecision::Cancelled,
-        RequestPermissionOutcome::Selected(selected) => {
-            let option_id = selected.option_id.0.as_ref();
-            if option_id.starts_with("allow") {
-                ToolPermissionDecision::Allow
-            } else {
-                ToolPermissionDecision::Reject
-            }
-        }
-        _ => ToolPermissionDecision::Reject,
-    }
-}
-
-fn permission_title(request: &ToolUseRequest) -> String {
-    match request.name.as_str() {
-        "run_shell" => "Run shell command".to_string(),
-        "create_file" => "Create file".to_string(),
-        "replace_range" => "Edit file".to_string(),
-        "write_patch" => "Apply patch".to_string(),
-        _ => format!("Run {}", request.name),
-    }
-}
-
-fn permission_decision_label(decision: &ToolPermissionDecision) -> &'static str {
-    match decision {
-        ToolPermissionDecision::Allow => "allowed",
-        ToolPermissionDecision::Reject => "rejected",
-        ToolPermissionDecision::Cancelled => "cancelled",
-    }
-}
-
-fn permission_option_kind_label(kind: &PermissionOptionKind) -> &'static str {
-    match kind {
-        PermissionOptionKind::AllowOnce => "allow_once",
-        PermissionOptionKind::AllowAlways => "allow_always",
-        PermissionOptionKind::RejectOnce => "reject_once",
-        PermissionOptionKind::RejectAlways => "reject_always",
-        _ => "other",
-    }
-}
-
-pub fn execute_prompt(
-    state: &ServerState, request: &PromptRequest, mut on_update: impl FnMut(SessionUpdateIntent) -> Result<(), String>,
-    run_harness: impl FnOnce(AgentRunConfig, Vec<crate::providers::ProviderMessage>, bool, String) -> HarnessHandle,
-) -> Result<PromptResponse, String> {
-    let session_id = request.session_id.0.to_string();
-    let prompt = text_prompt(&request.prompt)?;
-
-    if state.is_cancelled(&session_id) {
-        return Ok(PromptResponse::new(StopReason::Cancelled));
-    }
-
-    let turn_guard = state.begin_turn(&session_id)?;
-    persist_user_prompt(state, &session_id, &prompt);
-    let response = run_prompt_turn(&prompt, state, &session_id, &mut on_update, run_harness)?;
-
-    drop(turn_guard);
-
-    Ok(response)
-}
-
-/// Run one harness-backed ACP prompt turn and stream updates while pending.
-fn run_prompt_turn(
-    prompt: &str, state: &ServerState, session_id: &str,
-    on_update: &mut impl FnMut(SessionUpdateIntent) -> Result<(), String>,
-    run_harness: impl FnOnce(AgentRunConfig, Vec<crate::providers::ProviderMessage>, bool, String) -> HarnessHandle,
-) -> Result<PromptResponse, String> {
-    let session = state.session(session_id)?;
-    let websearch = session
-        .metadata
-        .websearch
-        .or_else(|| websearch_mode(&state.config.websearch))
-        .unwrap_or(WebSearchMode::Auto);
-    let model = session.metadata.model.unwrap_or_else(|| state.config.model.clone());
-
-    let config = AgentRunConfig::new(session.cwd, model, websearch);
-    let bundle = prompt::PromptBundle::new(&config.root, &config.model, config.search_mode, &[], &[], prompt);
-    let messages = crate::prompt::lower_to_umans_messages(&bundle);
-    let expects_write = prompt_expects_workspace_write(prompt);
-    let handle = run_harness(config, messages, expects_write, prompt.to_string());
-    state.register_turn_cancel_token(session_id, handle.cancel.clone());
-    if state.is_cancelled(session_id) {
-        handle.cancel.cancel();
-    }
-
-    let response = run_prompt_handle(state, session_id, &handle, on_update)?;
-    state.clear_turn_cancel_token(session_id);
-    Ok(response)
-}
-
-fn run_prompt_handle(
-    state: &ServerState, session_id: &str, handle: &HarnessHandle,
-    on_update: &mut impl FnMut(SessionUpdateIntent) -> Result<(), String>,
-) -> Result<PromptResponse, String> {
-    let mut persisted = PersistedTurn::new(turn_id(session_id));
-    loop {
-        match handle.events.recv() {
-            Ok(event) => {
-                persisted.record_event(state, session_id, &event);
-                for intent in map_agent_event(&event) {
-                    on_update(intent)?;
-                }
-                if handle.cancel.is_cancelled() {
-                    persisted.finish(state, session_id);
-                    return Ok(PromptResponse::new(StopReason::Cancelled));
-                }
-
-                match event {
-                    AgentEvent::Finished => {
-                        persisted.finish(state, session_id);
-                        return Ok(PromptResponse::new(StopReason::EndTurn));
-                    }
-                    AgentEvent::Cancelled => {
-                        persisted.finish(state, session_id);
-                        return Ok(PromptResponse::new(StopReason::Cancelled));
-                    }
-                    AgentEvent::Failed(_) => {
-                        persisted.finish(state, session_id);
-                        return Ok(PromptResponse::new(StopReason::Refusal));
-                    }
-                    _ => (),
-                }
-            }
-            Err(_) if handle.cancel.is_cancelled() => {
-                persisted.finish(state, session_id);
-                return Ok(PromptResponse::new(StopReason::Cancelled));
-            }
-            Err(_) => return Err(String::from("prompt turn ended without a terminal event")),
-        }
-    }
-}
-
 #[derive(Debug)]
 struct PersistedTurn {
     turn_id: String,
@@ -1043,23 +578,6 @@ impl PersistedTurn {
     }
 }
 
-fn persist_user_prompt(state: &ServerState, session_id: &str, prompt: &str) {
-    state.append_record(
-        session_id,
-        SessionRecord::User {
-            schema_version: SCHEMA_VERSION,
-            seq: 0,
-            time: crate::utils::datetime::now_iso8601(),
-            turn_id: turn_id(session_id),
-            text: prompt.to_string(),
-        },
-    );
-}
-
-fn turn_id(session_id: &str) -> String {
-    format!("{session_id}-turn")
-}
-
 struct PromptTurnGuard {
     session_id: String,
     state: ServerState,
@@ -1069,6 +587,749 @@ impl Drop for PromptTurnGuard {
     fn drop(&mut self) {
         let _ = self.state.end_turn(&self.session_id);
         self.state.clear_turn_cancel_token(&self.session_id);
+    }
+}
+
+/// Run the ACP server over stdio with all v1 baseline handlers registered.
+pub async fn run_stdio(config: ServerConfig) -> Result<()> {
+    let state = ServerState::new(config);
+    let initialize_state = state.clone();
+    let new_session_state = state.clone();
+    let list_session_state = state.clone();
+    let load_session_state = state.clone();
+    let resume_session_state = state.clone();
+    let close_session_state = state.clone();
+    let delete_session_state = state.clone();
+    let prompt_state = state.clone();
+    let config_option_state = state.clone();
+    let cancel_state = state;
+    let (eof_tx, eof_rx) = oneshot::channel();
+    let transport = Lines::new(
+        stdout_line_sink(tokio::io::stdout().compat_write()),
+        eof_signaling_lines(tokio::io::stdin().compat(), eof_tx),
+    );
+
+    let connection = Agent
+        .builder()
+        .name("thndrs")
+        .on_receive_request(
+            async move |request: InitializeRequest, responder, _connection| {
+                let response = initialize(&initialize_state, &request);
+                responder.respond(response)
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |request: NewSessionRequest, responder, _connection| match new_session(
+                &new_session_state,
+                &request,
+            ) {
+                Ok(response) => responder.respond(response),
+                Err(error) => responder.respond_with_error(Error::invalid_params().data(error)),
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |request: ListSessionsRequest, responder, _connection| match list_sessions(
+                &list_session_state,
+                &request,
+            ) {
+                Ok(response) => responder.respond(response),
+                Err(error) => responder.respond_with_error(Error::invalid_params().data(error)),
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |request: LoadSessionRequest, responder, connection: ConnectionTo<Client>| match load_session(
+                &load_session_state,
+                &request,
+                &connection,
+            ) {
+                Ok(response) => responder.respond(response),
+                Err(error) => responder.respond_with_error(Error::invalid_params().data(error)),
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |request: ResumeSessionRequest, responder, _connection| match resume_session(
+                &resume_session_state,
+                &request,
+            ) {
+                Ok(response) => responder.respond(response),
+                Err(error) => responder.respond_with_error(Error::invalid_params().data(error)),
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |request: CloseSessionRequest, responder, _connection| match close_session(
+                &close_session_state,
+                &request,
+            ) {
+                Ok(response) => responder.respond(response),
+                Err(error) => responder.respond_with_error(Error::invalid_params().data(error)),
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |request: DeleteSessionRequest, responder, _connection| match delete_session(
+                &delete_session_state,
+                &request,
+            ) {
+                Ok(response) => responder.respond(response),
+                Err(error) => responder.respond_with_error(Error::invalid_params().data(error)),
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |request: SetSessionConfigOptionRequest, responder, _connection| match set_config_option(
+                &config_option_state,
+                &request,
+            ) {
+                Ok(response) => responder.respond(response),
+                Err(error) => responder.respond_with_error(Error::invalid_params().data(error)),
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |request: PromptRequest, responder, connection: ConnectionTo<Client>| {
+                let state = prompt_state.clone();
+                match tokio::task::spawn_blocking(move || prompt(&state, &request, &connection)).await {
+                    Ok(Ok(response)) => responder.respond(response),
+                    Ok(Err(error)) => responder.respond_with_error(Error::invalid_params().data(error)),
+                    Err(error) => responder
+                        .respond_with_error(Error::internal_error().data(format!("ACP prompt task failed: {error}"))),
+                }
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_notification(
+            async move |notification: CancelNotification, _connection| {
+                cancel_state.cancel_session(notification.session_id.0.as_ref());
+                Ok(())
+            },
+            agent_client_protocol::on_receive_notification!(),
+        )
+        .on_receive_dispatch(
+            async move |message: Dispatch, cx: ConnectionTo<Client>| {
+                message.respond_with_error(Error::method_not_found().data("unhandled ACP method"), cx)
+            },
+            agent_client_protocol::on_receive_dispatch!(),
+        )
+        .connect_to(transport);
+
+    match select(Box::pin(connection), Box::pin(eof_rx.map(|_| Ok(())))).await {
+        Either::Left((result, _)) | Either::Right((result, _)) => result,
+    }
+}
+
+pub fn initialize(state: &ServerState, request: &InitializeRequest) -> InitializeResponse {
+    state.record_client_info(request);
+    InitializeResponse::new(negotiate_protocol_version(request.protocol_version))
+        .agent_info(Some(
+            Implementation::new("thndrs", env!("CARGO_PKG_VERSION")).title(Some(String::from("thndrs"))),
+        ))
+        .agent_capabilities(capabilities(state))
+}
+
+pub fn set_config_option(
+    state: &ServerState, request: &SetSessionConfigOptionRequest,
+) -> Result<SetSessionConfigOptionResponse, String> {
+    let session_id = request.session_id.0.as_ref();
+    let option_id = request.config_id.0.as_ref();
+    let value = request.value.to_string();
+    let option = validate_config_option(option_id, &value).map_err(|error| error.to_string())?;
+    state.set_config_option(session_id, &option)?;
+    Ok(SetSessionConfigOptionResponse::new(
+        state.config_options_for_session(session_id)?,
+    ))
+}
+
+pub fn acp_mcp_config(servers: &[McpServer]) -> Result<McpConfig, String> {
+    let mut config = McpConfig::default();
+    for server in servers {
+        match server {
+            McpServer::Stdio(server) => {
+                crate::mcp::config::validate_mcp_server_name(&server.name).map_err(|error| error.to_string())?;
+                if server.command.as_os_str().is_empty() {
+                    return Err(format!("MCP server `{}` has an empty stdio command", server.name));
+                }
+                config.servers.insert(
+                    server.name.clone(),
+                    McpServerConfig {
+                        transport: McpTransport::Stdio,
+                        command: server.command.display().to_string(),
+                        args: server.args.clone(),
+                        env: server
+                            .env
+                            .iter()
+                            .map(|entry| (entry.name.clone(), entry.value.clone()))
+                            .collect(),
+                        ..McpServerConfig::default()
+                    },
+                );
+            }
+            McpServer::Http(server) => {
+                return Err(format!(
+                    "MCP server `{}` uses unsupported transport `http` in session/new",
+                    server.name
+                ));
+            }
+            McpServer::Sse(server) => {
+                return Err(format!(
+                    "MCP server `{}` uses unsupported transport `sse` in session/new",
+                    server.name
+                ));
+            }
+            _ => return Err(String::from("MCP server uses unsupported transport in session/new")),
+        }
+    }
+    Ok(config)
+}
+
+pub fn execute_prompt(
+    state: &ServerState, request: &PromptRequest, mut on_update: impl FnMut(SessionUpdateIntent) -> Result<(), String>,
+    run_harness: impl FnOnce(AgentRunConfig, Vec<crate::providers::ProviderMessage>, bool, String) -> HarnessHandle,
+) -> Result<PromptResponse, String> {
+    let session_id = request.session_id.0.to_string();
+    let prompt = text_prompt(&request.prompt)?;
+
+    if state.is_cancelled(&session_id) {
+        return Ok(PromptResponse::new(StopReason::Cancelled));
+    }
+
+    let turn_guard = state.begin_turn(&session_id)?;
+
+    state.append_record(
+        &session_id,
+        SessionRecord::User {
+            schema_version: SCHEMA_VERSION,
+            seq: 0,
+            time: crate::utils::datetime::now_iso8601(),
+            turn_id: format!("{session_id}-turn"),
+            text: (&prompt).to_string(),
+        },
+    );
+
+    let response = run_prompt_turn(&prompt, state, &session_id, &mut on_update, run_harness)?;
+
+    drop(turn_guard);
+
+    Ok(response)
+}
+
+/// Read editor-visible text from an ACP client when it advertised support.
+pub async fn client_read_text_file(
+    state: &ServerState, connection: &ConnectionTo<Client>, session_id: agent_client_protocol::schema::v1::SessionId,
+    path: PathBuf, line: Option<u32>, limit: Option<u32>,
+) -> Result<Option<String>, String> {
+    if !state.client_can_read_text_files() {
+        return Ok(None);
+    }
+    let request = ReadTextFileRequest::new(session_id, path).line(line).limit(limit);
+    connection
+        .send_request(request)
+        .block_task()
+        .await
+        .map(|response| Some(response.content))
+        .map_err(|error| format!("client fs/read_text_file failed: {error}"))
+}
+
+/// Write editor-visible text through an ACP client when it advertised support.
+pub async fn client_write_text_file(
+    state: &ServerState, connection: &ConnectionTo<Client>, session_id: agent_client_protocol::schema::v1::SessionId,
+    path: PathBuf, content: String,
+) -> Result<bool, String> {
+    if !state.client_can_write_text_files() {
+        return Ok(false);
+    }
+    connection
+        .send_request(WriteTextFileRequest::new(session_id, path, content))
+        .block_task()
+        .await
+        .map(|_| true)
+        .map_err(|error| format!("client fs/write_text_file failed: {error}"))
+}
+
+fn new_session(state: &ServerState, request: &NewSessionRequest) -> Result<NewSessionResponse, String> {
+    if !request.cwd.is_absolute() {
+        return Err(format!("ACP session cwd must be absolute: {}", request.cwd.display()));
+    }
+    let cwd = validate_and_normalize_cwd(&request.cwd, None).map_err(|err| err.to_string())?;
+    let mcp_config = acp_mcp_config(&request.mcp_servers)?;
+    let session_id = state.create_session(&cwd)?;
+    if !mcp_config.servers.is_empty() {
+        state.attach_mcp_config(&session_id, mcp_config)?;
+    }
+    let config_options = state.config_options_for_session(&session_id)?;
+    Ok(NewSessionResponse::new(session_id).config_options(config_options))
+}
+
+fn list_sessions(state: &ServerState, request: &ListSessionsRequest) -> Result<ListSessionsResponse, String> {
+    if request.cursor.is_some() {
+        return Ok(ListSessionsResponse::new(Vec::new()));
+    }
+    if let Some(cwd) = &request.cwd
+        && !cwd.is_absolute()
+    {
+        return Err(format!("ACP session list cwd must be absolute: {}", cwd.display()));
+    }
+    Ok(ListSessionsResponse::new(state.list_sessions(request.cwd.as_deref())?))
+}
+
+fn load_session(
+    state: &ServerState, request: &LoadSessionRequest, connection: &ConnectionTo<Client>,
+) -> Result<LoadSessionResponse, String> {
+    if !request.cwd.is_absolute() {
+        return Err(format!(
+            "ACP session load cwd must be absolute: {}",
+            request.cwd.display()
+        ));
+    }
+    let session_id = request.session_id.0.as_ref();
+    let records = state.load_session(session_id, &request.cwd)?;
+    for record in records {
+        if let Some(update) = replay_record_update(&record) {
+            send_update(connection, request.session_id.clone(), update)?;
+        }
+    }
+    Ok(LoadSessionResponse::new().config_options(state.config_options_for_session(session_id)?))
+}
+
+fn resume_session(state: &ServerState, request: &ResumeSessionRequest) -> Result<ResumeSessionResponse, String> {
+    if !request.cwd.is_absolute() {
+        return Err(format!(
+            "ACP session resume cwd must be absolute: {}",
+            request.cwd.display()
+        ));
+    }
+    let session_id = request.session_id.0.as_ref();
+    state.resume_session(session_id, &request.cwd)?;
+    Ok(ResumeSessionResponse::new().config_options(state.config_options_for_session(session_id)?))
+}
+
+fn close_session(state: &ServerState, request: &CloseSessionRequest) -> Result<CloseSessionResponse, String> {
+    state.close_session(request.session_id.0.as_ref())?;
+    Ok(CloseSessionResponse::new())
+}
+
+fn delete_session(state: &ServerState, request: &DeleteSessionRequest) -> Result<DeleteSessionResponse, String> {
+    state.delete_session(request.session_id.0.as_ref())?;
+    Ok(DeleteSessionResponse::new())
+}
+
+fn prompt(
+    state: &ServerState, request: &PromptRequest, connection: &ConnectionTo<Client>,
+) -> Result<PromptResponse, String> {
+    let session_id = request.session_id.clone();
+    execute_prompt(
+        state,
+        request,
+        move |intent| send_update(connection, session_id.clone(), intent),
+        {
+            let connection = connection.clone();
+            move |config, messages, expects_write, _prompt_text| {
+                let permission_hook = server_permission_hook(
+                    state.clone(),
+                    request.session_id.clone(),
+                    format!("{}-turn", request.session_id.0.as_ref()),
+                    connection.clone(),
+                );
+                let execution_hook = server_execution_hook(state.clone(), request.session_id.clone(), connection);
+                let (_steering_tx, steering_rx) = mpsc::channel();
+                drop(_steering_tx);
+                crate::harness::HarnessTurn::provider_with_steering_permissions_and_execution(
+                    config,
+                    messages,
+                    expects_write,
+                    steering_rx,
+                    permission_hook,
+                    execution_hook,
+                )
+                .start()
+            }
+        },
+    )
+}
+
+fn server_execution_hook(
+    state: ServerState, session_id: agent_client_protocol::schema::v1::SessionId, connection: ConnectionTo<Client>,
+) -> ToolExecutionHook {
+    ToolExecutionHook::new(move |request, config, cancel| {
+        if request.name != "run_shell" || !state.client_can_run_terminal() {
+            return None;
+        }
+        Some(execute_shell_in_client_terminal(
+            &connection,
+            session_id.clone(),
+            request,
+            config,
+            cancel,
+        ))
+    })
+}
+
+fn server_permission_hook(
+    state: ServerState, session_id: agent_client_protocol::schema::v1::SessionId, turn_id: String,
+    connection: ConnectionTo<Client>,
+) -> ToolPermissionHook {
+    ToolPermissionHook::new(move |request, _config, cancel| {
+        request_client_permission(&state, &connection, session_id.clone(), &turn_id, request, cancel)
+    })
+}
+
+fn request_client_permission(
+    state: &ServerState, connection: &ConnectionTo<Client>, session_id: agent_client_protocol::schema::v1::SessionId,
+    turn_id: &str, request: &ToolUseRequest, cancel: &CancelToken,
+) -> ToolPermissionDecision {
+    if cancel.is_cancelled() {
+        return ToolPermissionDecision::Cancelled;
+    }
+
+    let options = vec![
+        PermissionOption::new("allow_once", "Allow once", PermissionOptionKind::AllowOnce),
+        PermissionOption::new("reject_once", "Reject once", PermissionOptionKind::RejectOnce),
+    ];
+    let title = permission_title(request);
+    let session_id_text = session_id.0.to_string();
+    state.append_record(
+        &session_id_text,
+        SessionRecord::AcpPermissionRequest {
+            schema_version: SCHEMA_VERSION,
+            seq: 0,
+            time: crate::utils::datetime::now_iso8601(),
+            turn_id: turn_id.to_string(),
+            tool_call_id: request.tool_use_id.clone(),
+            title: title.clone(),
+            options: options
+                .iter()
+                .map(|option| AcpPermissionOptionRecord {
+                    id: option.option_id.0.to_string(),
+                    name: option.name.clone(),
+                    kind: match &option.kind {
+                        PermissionOptionKind::AllowOnce => "allow_once",
+                        PermissionOptionKind::AllowAlways => "allow_always",
+                        PermissionOptionKind::RejectOnce => "reject_once",
+                        PermissionOptionKind::RejectAlways => "reject_always",
+                        _ => "other",
+                    }
+                    .to_string(),
+                })
+                .collect(),
+        },
+    );
+
+    let permission = RequestPermissionRequest::new(
+        session_id,
+        ToolCallUpdate::new(
+            request.tool_use_id.clone(),
+            ToolCallUpdateFields::new()
+                .title(title)
+                .kind(classify_tool(&request.name).to_acp_kind())
+                .status(ToolCallStatus::InProgress)
+                .raw_input(json_text_or_value(sanitize_tool_payload(&request.arguments))),
+        ),
+        options,
+    );
+    let (tx, rx) = mpsc::channel();
+    let sent = connection.send_request(permission);
+    if connection
+        .spawn(async move {
+            let _ = tx.send(sent.block_task().await);
+            Ok(())
+        })
+        .is_err()
+    {
+        return ToolPermissionDecision::Reject;
+    }
+
+    loop {
+        if cancel.is_cancelled() {
+            return ToolPermissionDecision::Cancelled;
+        }
+        match rx.recv_timeout(PERMISSION_POLL_INTERVAL) {
+            Ok(Ok(response)) => {
+                let decision = permission_response_decision(response.outcome);
+                state.append_record(
+                    &session_id_text,
+                    SessionRecord::AcpPermissionOutcome {
+                        schema_version: SCHEMA_VERSION,
+                        seq: 0,
+                        time: crate::utils::datetime::now_iso8601(),
+                        turn_id: turn_id.to_string(),
+                        tool_call_id: request.tool_use_id.clone(),
+                        outcome: match &decision {
+                            ToolPermissionDecision::Allow => "allowed",
+                            ToolPermissionDecision::Reject => "rejected",
+                            ToolPermissionDecision::Cancelled => "cancelled",
+                        }
+                        .to_string(),
+                    },
+                );
+                return decision;
+            }
+            Ok(Err(_)) | Err(mpsc::RecvTimeoutError::Disconnected) => {
+                state.append_record(
+                    &session_id_text,
+                    SessionRecord::AcpPermissionOutcome {
+                        schema_version: SCHEMA_VERSION,
+                        seq: 0,
+                        time: crate::utils::datetime::now_iso8601(),
+                        turn_id: turn_id.to_string(),
+                        tool_call_id: request.tool_use_id.clone(),
+                        outcome: "rejected".to_string(),
+                    },
+                );
+                return ToolPermissionDecision::Reject;
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+        }
+    }
+}
+
+fn execute_shell_in_client_terminal(
+    connection: &ConnectionTo<Client>, session_id: agent_client_protocol::schema::v1::SessionId,
+    request: &ToolUseRequest, config: &AgentRunConfig, cancel: &CancelToken,
+) -> (ToolOutput, Option<crate::tools::WriteResult>, Option<ProcessResult>) {
+    let args = match crate::tools::shell::parse_arguments(&request.arguments) {
+        Ok(args) if !args.program.trim().is_empty() => args,
+        Ok(_) => return failed_shell_execution("missing or empty 'program' field"),
+        Err(error) => return failed_shell_execution(&error.to_string()),
+    };
+    let cwd = match client_terminal_cwd(&config.root, &args.cwd) {
+        Ok(cwd) => cwd,
+        Err(error) => return failed_shell_execution(&error),
+    };
+
+    let create = CreateTerminalRequest::new(session_id.clone(), args.program.clone())
+        .args(args.args.clone())
+        .cwd(Some(cwd.clone()))
+        .output_byte_limit(Some(MAX_OUTPUT_BYTES as u64));
+    let create_response = match block_client_request(connection, create) {
+        Ok(response) => response,
+        Err(error) => return failed_shell_execution(&format!("client terminal/create failed: {error}")),
+    };
+
+    let terminal_id = create_response.terminal_id;
+    let start = Instant::now();
+    let (mut final_output, exit_status) = loop {
+        if cancel.is_cancelled() {
+            let _ = block_client_request(
+                connection,
+                KillTerminalRequest::new(session_id.clone(), terminal_id.clone()),
+            );
+            let output = block_client_request(
+                connection,
+                TerminalOutputRequest::new(session_id.clone(), terminal_id.clone()),
+            )
+            .unwrap_or_else(|_| TerminalOutputResponse::new(String::new(), false));
+            break (output, None);
+        }
+
+        match block_client_request(
+            connection,
+            TerminalOutputRequest::new(session_id.clone(), terminal_id.clone()),
+        ) {
+            Ok(output) => {
+                let status = output.exit_status.clone();
+                if status.is_some() {
+                    break (output, status);
+                }
+            }
+            Err(error) => {
+                let _ = block_client_request(connection, ReleaseTerminalRequest::new(session_id, terminal_id));
+                return failed_shell_execution(&format!("client terminal/output failed: {error}"));
+            }
+        }
+
+        std::thread::sleep(TERMINAL_POLL_INTERVAL);
+    };
+
+    let wait_status = match exit_status {
+        Some(status) => status,
+        None => TerminalExitStatus::new(),
+    };
+    let wait = block_client_request(
+        connection,
+        WaitForTerminalExitRequest::new(session_id.clone(), terminal_id.clone()),
+    )
+    .ok()
+    .map(|response| response.exit_status)
+    .unwrap_or(wait_status);
+    if let Ok(output) = block_client_request(
+        connection,
+        TerminalOutputRequest::new(session_id.clone(), terminal_id.clone()),
+    ) {
+        final_output = output;
+    }
+    let _ = block_client_request(connection, ReleaseTerminalRequest::new(session_id, terminal_id));
+
+    let result = process_result_from_terminal(&args, cwd, start.elapsed(), &final_output, &wait, cancel);
+    let output = match result.status {
+        ProcessStatus::Ok => ToolOutput::ok("run_shell", result.to_output_lines()),
+        _ => {
+            let mut output = result.to_failed_output();
+            output.output = result.to_output_lines();
+            output
+        }
+    };
+    (output, None, Some(result))
+}
+
+fn block_client_request<R>(
+    connection: &ConnectionTo<Client>, request: R,
+) -> std::result::Result<R::Response, agent_client_protocol::Error>
+where
+    R: JsonRpcRequest,
+{
+    futures::executor::block_on(connection.send_request(request).block_task())
+}
+
+fn failed_shell_execution(message: &str) -> (ToolOutput, Option<crate::tools::WriteResult>, Option<ProcessResult>) {
+    (ToolOutput::failed("run_shell", message.to_string()), None, None)
+}
+
+fn client_terminal_cwd(root: &Path, cwd: &Option<PathBuf>) -> Result<PathBuf, String> {
+    let root = root
+        .canonicalize()
+        .map_err(|error| format!("invalid workspace root for terminal: {error}"))?;
+    let Some(cwd) = cwd else {
+        return Ok(root);
+    };
+    if cwd.is_absolute() {
+        return Err(String::from("run_shell cwd must be relative to the workspace root"));
+    }
+    let resolved = crate::tools::resolve_workspace_path(&root, cwd).map_err(|error| error.to_string())?;
+    if !resolved.is_dir() {
+        return Err(format!("working directory is not a directory: {}", resolved.display()));
+    }
+    Ok(resolved)
+}
+
+fn process_result_from_terminal(
+    args: &ShellArgs, cwd: PathBuf, elapsed: Duration, output: &TerminalOutputResponse,
+    exit_status: &TerminalExitStatus, cancel: &CancelToken,
+) -> ProcessResult {
+    let status = if cancel.is_cancelled() {
+        ProcessStatus::Cancelled
+    } else {
+        match exit_status.exit_code {
+            Some(0) => ProcessStatus::Ok,
+            Some(_) => ProcessStatus::Failed,
+            None => ProcessStatus::Failed,
+        }
+    };
+    let mut stdout = output.output.lines().map(redact_secrets).collect::<Vec<_>>();
+    if output.truncated {
+        stdout.insert(0, "[terminal output truncated]".to_string());
+    }
+    ProcessResult {
+        command: args.argv(),
+        cwd,
+        status,
+        exit_code: exit_status.exit_code.and_then(|code| i32::try_from(code).ok()),
+        stdout,
+        stderr: Vec::new(),
+        elapsed,
+        kind: ProcessKind::OneShot,
+    }
+}
+
+fn permission_response_decision(outcome: RequestPermissionOutcome) -> ToolPermissionDecision {
+    match outcome {
+        RequestPermissionOutcome::Cancelled => ToolPermissionDecision::Cancelled,
+        RequestPermissionOutcome::Selected(selected) => {
+            let option_id = selected.option_id.0.as_ref();
+            if option_id.starts_with("allow") {
+                ToolPermissionDecision::Allow
+            } else {
+                ToolPermissionDecision::Reject
+            }
+        }
+        _ => ToolPermissionDecision::Reject,
+    }
+}
+
+fn permission_title(request: &ToolUseRequest) -> String {
+    match request.name.as_str() {
+        "run_shell" => "Run shell command".to_string(),
+        "create_file" => "Create file".to_string(),
+        "replace_range" => "Edit file".to_string(),
+        "write_patch" => "Apply patch".to_string(),
+        _ => format!("Run {}", request.name),
+    }
+}
+
+/// Run one harness-backed ACP prompt turn and stream updates while pending.
+fn run_prompt_turn(
+    prompt: &str, state: &ServerState, session_id: &str,
+    on_update: &mut impl FnMut(SessionUpdateIntent) -> Result<(), String>,
+    run_harness: impl FnOnce(AgentRunConfig, Vec<crate::providers::ProviderMessage>, bool, String) -> HarnessHandle,
+) -> Result<PromptResponse, String> {
+    let session = state.session(session_id)?;
+    let websearch = session
+        .metadata
+        .websearch
+        .or_else(|| websearch_mode(&state.config.websearch))
+        .unwrap_or(WebSearchMode::Auto);
+    let model = session.metadata.model.unwrap_or_else(|| state.config.model.clone());
+
+    let mut config = AgentRunConfig::new(session.cwd, model, websearch);
+    if let Some(mcp_config) = session.mcp_config {
+        config = config.with_mcp_manager(Arc::new(McpManager::from_config(&mcp_config)));
+    }
+    let bundle = prompt::PromptBundle::new(&config.root, &config.model, config.search_mode, &[], &[], prompt);
+    let messages = crate::prompt::lower_to_umans_messages(&bundle);
+    let expects_write = prompt_expects_workspace_write(prompt);
+    let handle = run_harness(config, messages, expects_write, prompt.to_string());
+    state.register_turn_cancel_token(session_id, handle.cancel.clone());
+    if state.is_cancelled(session_id) {
+        handle.cancel.cancel();
+    }
+
+    let response = run_prompt_handle(state, session_id, &handle, on_update)?;
+    state.clear_turn_cancel_token(session_id);
+    Ok(response)
+}
+
+fn run_prompt_handle(
+    state: &ServerState, session_id: &str, handle: &HarnessHandle,
+    on_update: &mut impl FnMut(SessionUpdateIntent) -> Result<(), String>,
+) -> Result<PromptResponse, String> {
+    let mut persisted = PersistedTurn::new(format!("{session_id}-turn"));
+    loop {
+        match handle.events.recv() {
+            Ok(event) => {
+                persisted.record_event(state, session_id, &event);
+                for intent in map_agent_event(&event) {
+                    on_update(intent)?;
+                }
+                if handle.cancel.is_cancelled() {
+                    persisted.finish(state, session_id);
+                    return Ok(PromptResponse::new(StopReason::Cancelled));
+                }
+
+                match event {
+                    AgentEvent::Finished => {
+                        persisted.finish(state, session_id);
+                        return Ok(PromptResponse::new(StopReason::EndTurn));
+                    }
+                    AgentEvent::Cancelled => {
+                        persisted.finish(state, session_id);
+                        return Ok(PromptResponse::new(StopReason::Cancelled));
+                    }
+                    AgentEvent::Failed(_) => {
+                        persisted.finish(state, session_id);
+                        return Ok(PromptResponse::new(StopReason::Refusal));
+                    }
+                    _ => (),
+                }
+            }
+            Err(_) if handle.cancel.is_cancelled() => {
+                persisted.finish(state, session_id);
+                return Ok(PromptResponse::new(StopReason::Cancelled));
+            }
+            Err(_) => return Err(String::from("prompt turn ended without a terminal event")),
+        }
     }
 }
 
@@ -1113,12 +1374,12 @@ fn send_update(
     connection: &ConnectionTo<Client>, session_id: agent_client_protocol::schema::v1::SessionId,
     intent: SessionUpdateIntent,
 ) -> Result<(), String> {
-    let Some(update) = lower_update_intent(intent) else {
-        return Ok(());
-    };
-    connection
-        .send_notification(SessionNotification::new(session_id, update))
-        .map_err(|err| format!("failed to send ACP session update: {err}"))
+    match lower_update_intent(intent) {
+        Some(update) => connection
+            .send_notification(SessionNotification::new(session_id, update))
+            .map_err(|err| format!("failed to send ACP session update: {err}")),
+        None => Ok(()),
+    }
 }
 
 fn lower_update_intent(intent: SessionUpdateIntent) -> Option<SessionUpdate> {
@@ -1148,7 +1409,13 @@ fn lower_update_intent(intent: SessionUpdateIntent) -> Option<SessionUpdate> {
                 .status(tool_call_status(status))
                 .raw_output(json_text_or_value(output_text.clone()))
                 .locations(locations)
-                .content(content_from_text_if_any(&output_text));
+                .content(if output_text.is_empty() {
+                    None
+                } else {
+                    Some(vec![ToolCallContent::Content(Content::new(ContentBlock::Text(
+                        TextContent::new(output_text.to_string()),
+                    )))])
+                });
             Some(SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(id, fields)))
         }
         SessionUpdateIntent::Failed(message) => Some(SessionUpdate::AgentMessageChunk(ContentChunk::new(
@@ -1191,26 +1458,25 @@ fn replay_record_update(record: &SessionRecord) -> Option<SessionUpdateIntent> {
 
 fn session_info_from_file(path: &Path, cwd_filter: Option<&Path>) -> Option<SessionInfo> {
     let records = SessionReader::read_records(path);
-    let session_id = session_id_from_records(&records)
+    let session_id = &records
+        .iter()
+        .find_map(|record| match record {
+            SessionRecord::SessionMeta { session_id, .. } => Some(session_id.clone()),
+            _ => None,
+        })
         .or_else(|| path.file_stem().and_then(|stem| stem.to_str()).map(str::to_string))?;
     let cwd = session_cwd(&records)?;
     if cwd_filter.is_some_and(|expected| expected != cwd) {
         return None;
     }
+
     let title = SessionReader::read_title(path);
     let updated_at = records.iter().rev().find_map(record_time);
     Some(
-        SessionInfo::new(session_id, cwd)
+        SessionInfo::new(session_id.to_string(), cwd)
             .title(Some(title))
             .updated_at(updated_at),
     )
-}
-
-fn session_id_from_records(records: &[SessionRecord]) -> Option<String> {
-    records.iter().find_map(|record| match record {
-        SessionRecord::SessionMeta { session_id, .. } => Some(session_id.clone()),
-        _ => None,
-    })
 }
 
 fn session_cwd(records: &[SessionRecord]) -> Option<PathBuf> {
@@ -1245,59 +1511,16 @@ fn record_time(record: &SessionRecord) -> Option<String> {
     }
 }
 
-/// Read editor-visible text from an ACP client when it advertised support.
-pub async fn client_read_text_file(
-    state: &ServerState, connection: &ConnectionTo<Client>, session_id: agent_client_protocol::schema::v1::SessionId,
-    path: PathBuf, line: Option<u32>, limit: Option<u32>,
-) -> Result<Option<String>, String> {
-    if !state.client_can_read_text_files() {
-        return Ok(None);
-    }
-    let request = ReadTextFileRequest::new(session_id, path).line(line).limit(limit);
-    connection
-        .send_request(request)
-        .block_task()
-        .await
-        .map(|response| Some(response.content))
-        .map_err(|error| format!("client fs/read_text_file failed: {error}"))
-}
-
-/// Write editor-visible text through an ACP client when it advertised support.
-pub async fn client_write_text_file(
-    state: &ServerState, connection: &ConnectionTo<Client>, session_id: agent_client_protocol::schema::v1::SessionId,
-    path: PathBuf, content: String,
-) -> Result<bool, String> {
-    if !state.client_can_write_text_files() {
-        return Ok(false);
-    }
-    connection
-        .send_request(WriteTextFileRequest::new(session_id, path, content))
-        .block_task()
-        .await
-        .map(|_| true)
-        .map_err(|error| format!("client fs/write_text_file failed: {error}"))
-}
-
-fn tool_call_status(intent: crate::server::events::ToolStatusIntent) -> ToolCallStatus {
+fn tool_call_status(intent: ToolStatusIntent) -> ToolCallStatus {
     match intent {
-        crate::server::events::ToolStatusIntent::InProgress => ToolCallStatus::InProgress,
-        crate::server::events::ToolStatusIntent::Completed => ToolCallStatus::Completed,
-        crate::server::events::ToolStatusIntent::Failed => ToolCallStatus::Failed,
+        ToolStatusIntent::InProgress => ToolCallStatus::InProgress,
+        ToolStatusIntent::Completed => ToolCallStatus::Completed,
+        ToolStatusIntent::Failed => ToolCallStatus::Failed,
     }
 }
 
 fn json_text_or_value(raw: String) -> serde_json::Value {
     serde_json::from_str(&raw).unwrap_or_else(|_| serde_json::Value::String(raw))
-}
-
-fn content_from_text_if_any(text: &str) -> Option<Vec<ToolCallContent>> {
-    if text.is_empty() {
-        return None;
-    }
-
-    Some(vec![ToolCallContent::Content(Content::new(ContentBlock::Text(
-        TextContent::new(text.to_string()),
-    )))])
 }
 
 fn websearch_mode(value: &str) -> Option<WebSearchMode> {

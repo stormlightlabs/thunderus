@@ -191,20 +191,20 @@ Captured: 2026-07-04
 
 ## M16: Client Terminal Integration
 
-- [ ] Detect client terminal capability.
-- [ ] Decide when shell tools should use client terminal methods.
-- [ ] Map shell lifecycle to `terminal/create`, `terminal/output`,
+- [x] Detect client terminal capability.
+- [x] Decide when shell tools should use client terminal methods.
+- [x] Map shell lifecycle to `terminal/create`, `terminal/output`,
       `terminal/wait_for_exit`, `terminal/kill`, and `terminal/release`.
-- [ ] Preserve local shell audit records.
-- [ ] Add tests for output caps, cancellation, failure, and release.
+- [x] Preserve local shell audit records.
+- [x] Add tests for output caps, cancellation, failure, and release.
 
 ## M17: MCP Server Config
 
-- [ ] Wait for local MCP support from `007_mcp`.
-- [ ] Accept MCP servers in `session/new`.
-- [ ] Pass compatible MCP server config into the tool registry/runtime.
-- [ ] Redact MCP env values in diagnostics and sessions.
-- [ ] Add tests for no MCP, stdio MCP config, unsupported MCP transport, and
+- [x] Wait for local MCP support from `007_mcp`.
+- [x] Accept MCP servers in `session/new`.
+- [x] Pass compatible MCP server config into the tool registry/runtime.
+- [x] Redact MCP env values in diagnostics and sessions.
+- [x] Add tests for no MCP, stdio MCP config, unsupported MCP transport, and
       redaction.
 
 ## M18: Rich Content

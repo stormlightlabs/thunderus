@@ -35,7 +35,7 @@ use crate::providers::{
     ProviderContentBlock, ProviderError, ProviderMessage, ProviderTurn, StreamFormat, StreamingProvider,
 };
 use crate::providers::{anthropic, openai, opencode, umans};
-use crate::tools::{self, AgentRunConfig, ToolOutput, ToolUseRequest};
+use crate::tools::{self, AgentRunConfig, ToolOutput, ToolUseRequest, WriteResult, shell::ProcessResult};
 
 const PROVIDER_RETRY_POLICY: RetryPolicy = RetryPolicy::new(4, Duration::from_millis(2500));
 
@@ -140,6 +140,13 @@ pub enum ToolPermissionDecision {
 
 type ToolPermissionCallback =
     dyn Fn(&ToolUseRequest, &AgentRunConfig, &CancelToken) -> ToolPermissionDecision + Send + Sync;
+type ToolExecutionCallback = dyn Fn(
+        &ToolUseRequest,
+        &AgentRunConfig,
+        &CancelToken,
+    ) -> Option<(ToolOutput, Option<WriteResult>, Option<ProcessResult>)>
+    + Send
+    + Sync;
 
 /// Hook used by headless front ends to approve sensitive tool calls.
 #[derive(Clone)]
@@ -163,6 +170,38 @@ impl ToolPermissionHook {
 impl std::fmt::Debug for ToolPermissionHook {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("ToolPermissionHook(..)")
+    }
+}
+
+/// Hook used by headless front ends to override selected tool execution.
+#[derive(Clone)]
+pub struct ToolExecutionHook(Arc<ToolExecutionCallback>);
+
+impl ToolExecutionHook {
+    /// Create an execution hook from a callback.
+    pub fn new(
+        callback: impl Fn(
+            &ToolUseRequest,
+            &AgentRunConfig,
+            &CancelToken,
+        ) -> Option<(ToolOutput, Option<WriteResult>, Option<ProcessResult>)>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Self {
+        Self(Arc::new(callback))
+    }
+
+    fn execute(
+        &self, request: &ToolUseRequest, config: &AgentRunConfig, cancel: &CancelToken,
+    ) -> Option<(ToolOutput, Option<WriteResult>, Option<ProcessResult>)> {
+        (self.0)(request, config, cancel)
+    }
+}
+
+impl std::fmt::Debug for ToolExecutionHook {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ToolExecutionHook(..)")
     }
 }
 
@@ -234,6 +273,7 @@ pub struct RunHandle {
     pub steering: Option<Receiver<String>>,
     pub cancel: CancelToken,
     pub permission_hook: Option<ToolPermissionHook>,
+    pub execution_hook: Option<ToolExecutionHook>,
 }
 
 impl RunHandle {
@@ -249,6 +289,7 @@ impl RunHandle {
             steering: None,
             cancel: CancelToken::new(),
             permission_hook: None,
+            execution_hook: None,
         }
     }
 
@@ -266,12 +307,19 @@ impl RunHandle {
             steering: Some(steering),
             cancel: CancelToken::new(),
             permission_hook: None,
+            execution_hook: None,
         }
     }
 
     /// Attach a permission hook for sensitive tool calls.
     pub fn with_permission_hook(mut self, hook: ToolPermissionHook) -> Self {
         self.permission_hook = Some(hook);
+        self
+    }
+
+    /// Attach an execution hook for front-end-specific tool handling.
+    pub fn with_execution_hook(mut self, hook: ToolExecutionHook) -> Self {
+        self.execution_hook = Some(hook);
         self
     }
 }
@@ -620,9 +668,7 @@ where
             }
 
             let (output, write_result, shell_result) = match approve_tool_request(req, handle, cancel) {
-                ToolPermissionDecision::Allow => {
-                    tools::dispatch_runtime_full(req, &handle.config.root, handle.config.mcp_manager.as_deref())
-                }
+                ToolPermissionDecision::Allow => dispatch_tool_request(req, handle, cancel),
                 ToolPermissionDecision::Reject => (
                     ToolOutput::failed(&req.name, String::from("tool call rejected by ACP client")),
                     None,
@@ -670,6 +716,17 @@ where
         messages.extend(tool_results);
         append_steering_messages(&mut messages, handle);
     }
+}
+
+fn dispatch_tool_request(
+    request: &ToolUseRequest, handle: &RunHandle, cancel: &CancelToken,
+) -> (ToolOutput, Option<WriteResult>, Option<ProcessResult>) {
+    if let Some(hook) = &handle.execution_hook
+        && let Some(output) = hook.execute(request, &handle.config, cancel)
+    {
+        return output;
+    }
+    tools::dispatch_runtime_full(request, &handle.config.root, handle.config.mcp_manager.as_deref())
 }
 
 fn approve_tool_request(request: &ToolUseRequest, handle: &RunHandle, cancel: &CancelToken) -> ToolPermissionDecision {

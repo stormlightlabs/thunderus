@@ -11,8 +11,8 @@ use crate::cli::WebSearchMode;
 use crate::harness::{HarnessHandle, HarnessTurn};
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1::{
-    ContentBlock, Implementation, InitializeRequest, PromptRequest, ResourceLink, SetSessionConfigOptionRequest,
-    StopReason, TextContent,
+    ClientCapabilities, ContentBlock, EnvVariable, Implementation, InitializeRequest, McpServer, McpServerHttp,
+    McpServerStdio, PromptRequest, ResourceLink, SetSessionConfigOptionRequest, StopReason, TextContent,
 };
 use tempfile::tempdir;
 
@@ -21,7 +21,7 @@ use super::config_options::{
     initial_config_options, validate_config_option,
 };
 use super::events::{SessionUpdateIntent, ToolCallKind, ToolStatusIntent, classify_tool, map_agent_event};
-use super::handlers::{ServerState, execute_prompt, initialize, set_config_option};
+use super::handlers::{ServerState, acp_mcp_config, execute_prompt, initialize, set_config_option};
 use super::session::{
     AcpSessionError, AcpSessionStore, LocalSessionMetadata, generate_session_id, validate_and_normalize_cwd,
 };
@@ -530,6 +530,52 @@ fn execute_prompt_uses_selected_config_options() {
     .expect("prompt succeeds");
 
     assert_eq!(response.stop_reason, StopReason::EndTurn);
+}
+
+#[test]
+fn initialize_detects_client_terminal_capability() {
+    let workspace = tempdir().expect("temp workspace");
+    let state = state_for_tests(workspace.path().to_path_buf(), None);
+    let request =
+        InitializeRequest::new(ProtocolVersion::V1).client_capabilities(ClientCapabilities::new().terminal(true));
+
+    let _response = initialize(&state, &request);
+
+    assert!(state.client_can_run_terminal());
+}
+
+#[test]
+fn acp_mcp_config_accepts_no_servers() {
+    let config = acp_mcp_config(&[]).expect("empty MCP config");
+
+    assert!(config.servers.is_empty());
+}
+
+#[test]
+fn acp_mcp_config_accepts_stdio_servers() {
+    let server = McpServer::Stdio(
+        McpServerStdio::new("docs", PathBuf::from("docs-mcp"))
+            .args(vec!["--index".to_string()])
+            .env(vec![EnvVariable::new("DOCS_TOKEN", "secret-value")]),
+    );
+
+    let config = acp_mcp_config(&[server]).expect("stdio MCP config");
+
+    let server = &config.servers["docs"];
+    assert_eq!(server.command, "docs-mcp");
+    assert_eq!(server.args, vec!["--index"]);
+    assert_eq!(server.env["DOCS_TOKEN"], "secret-value");
+}
+
+#[test]
+fn acp_mcp_config_rejects_unsupported_transport_without_leaking_env() {
+    let server = McpServer::Http(McpServerHttp::new("web", "https://mcp.example.test"));
+
+    let error = acp_mcp_config(&[server]).expect_err("http MCP should be rejected");
+
+    assert!(error.contains("unsupported transport"));
+    assert!(error.contains("web"));
+    assert!(!error.contains("https://mcp.example.test"));
 }
 
 fn state_for_tests(cwd: PathBuf, session_dir: Option<PathBuf>) -> ServerState {

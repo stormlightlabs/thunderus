@@ -9,6 +9,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use crate::cli::WebSearchMode;
+use crate::mcp::config::McpConfig;
 use crate::session::SessionWriter;
 
 /// Prefix for generated opaque ACP session IDs.
@@ -44,6 +45,8 @@ pub struct AcpServerSession {
     pub turn_in_progress: bool,
     /// Optional local session writer persisted to JSONL.
     pub session_writer: Option<SessionWriter>,
+    /// MCP servers accepted from ACP `session/new`.
+    pub mcp_config: Option<McpConfig>,
 }
 
 /// Errors for ACP session state operations.
@@ -124,6 +127,7 @@ impl AcpSessionStore {
             cwd,
             turn_in_progress: false,
             session_writer: None,
+            mcp_config: None,
         };
 
         self.sessions.insert(acp_session_id.clone(), session);
@@ -156,6 +160,7 @@ impl AcpSessionStore {
             cwd,
             turn_in_progress: false,
             session_writer,
+            mcp_config: None,
         };
 
         self.sessions.insert(acp_session_id.clone(), session);
@@ -233,6 +238,15 @@ impl AcpSessionStore {
             return Err(AcpSessionError::MissingSession { acp_session_id: acp_session_id.to_string() });
         };
         session.session_writer = Some(session_writer);
+        Ok(())
+    }
+
+    /// Attach ACP-provided MCP server config to a session.
+    pub fn attach_mcp_config(&mut self, acp_session_id: &str, mcp_config: McpConfig) -> Result<(), AcpSessionError> {
+        let Some(session) = self.sessions.get_mut(acp_session_id) else {
+            return Err(AcpSessionError::MissingSession { acp_session_id: acp_session_id.to_string() });
+        };
+        session.mcp_config = Some(mcp_config);
         Ok(())
     }
 
