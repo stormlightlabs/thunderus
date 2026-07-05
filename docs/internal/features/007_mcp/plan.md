@@ -123,6 +123,34 @@ timeout_secs = 20
 Environment expansion is allowed only for values. Unresolved variables skip the
 server with a diagnostic.
 
+Supported server config fields:
+
+- `transport`: `"stdio"` or `"streamable_http"`; defaults to `"stdio"`.
+- `command`: required for stdio servers.
+- `args`: stdio argv entries after `command`.
+- `env`: stdio child-process environment values.
+- `url`: required for Streamable HTTP servers.
+- `headers`: Streamable HTTP request headers.
+- `enabled`: defaults to `true`.
+- `timeout_secs`: defaults to `20` and must be greater than zero.
+
+Server names must match `[A-Za-z0-9_-]+`. Registry tool names are assembled as
+`mcp__{server}__{tool}`. The original server name and original MCP tool name are
+kept in session metadata so exports remain inspectable even if provider-facing
+names are normalized later.
+
+The initial supported protocol version is `2025-06-18`. If a server negotiates
+a different version, the adapter records the negotiated version in diagnostics
+and session metadata; compatibility failures become ordinary server diagnostics
+instead of startup panics.
+
+Startup status is reported per server:
+
+- `disabled`: configured but not eligible for discovery or calls.
+- `skipped`: ignored before connection, such as unresolved environment values.
+- `failed`: attempted but initialize/listing failed.
+- `ready`: initialized and available for tool discovery.
+
 ## Public Commands
 
 CLI:
@@ -178,9 +206,9 @@ TUI:
 - `006_tool_registry` for registry-backed external tool entries.
 - `003_configuration` for config-source diagnostics if shared helpers exist.
 - `005_sessions` for inspect/export metadata.
-- `rmcp` for MCP client protocol and transports. Start with the narrow client
-  and child-process transport features needed for stdio; add Streamable HTTP
-  features only in Stage 2.
+- `rmcp` for MCP client protocol and transports. The stdio adapter should use
+  `client` and `transport-child-process`; add
+  `transport-streamable-http-client-reqwest` only in Stage 2.
 
 ## Verification
 

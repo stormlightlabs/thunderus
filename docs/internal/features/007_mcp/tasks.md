@@ -5,19 +5,19 @@ Captured: 2026-07-04
 
 ## P0: Define The Contract
 
-- [ ] Confirm `rmcp` dependency features for stdio client support.
-- [ ] Spike `rmcp` against a fake stdio server from a background thread.
-- [ ] Decide whether `rmcp` can remain behind the existing synchronous
+- [x] Confirm `rmcp` dependency features for stdio client support.
+- [x] Spike `rmcp` against a fake stdio server from a background thread.
+- [x] Decide whether `rmcp` can remain behind the existing synchronous
       thread/channel boundary.
-- [ ] Define supported MCP protocol version behavior.
-- [ ] Define stdio server config schema.
-- [ ] Define Streamable HTTP server config schema.
-- [ ] Define user and project config precedence.
-- [ ] Define environment expansion rules.
-- [ ] Define server naming and tool namespacing rules.
-- [ ] Define startup diagnostics for disabled, skipped, failed, and ready
+- [x] Define supported MCP protocol version behavior.
+- [x] Define stdio server config schema.
+- [x] Define Streamable HTTP server config schema.
+- [x] Define user and project config precedence.
+- [x] Define environment expansion rules.
+- [x] Define server naming and tool namespacing rules.
+- [x] Define startup diagnostics for disabled, skipped, failed, and ready
       servers.
-- [ ] Define session metadata for MCP tool calls.
+- [x] Define session metadata for MCP tool calls.
 - [x] MCP starts after `006_tool_registry`.
 - [x] Stdio is the first implemented transport.
 - [x] Streamable HTTP is part of the config contract and follows stdio.
@@ -27,16 +27,16 @@ Captured: 2026-07-04
 
 ## P1: Config Loading
 
-- [ ] Add `McpConfig`.
-- [ ] Load `~/.thndrs/mcp.toml`.
-- [ ] Load `.thndrs/mcp.toml`.
-- [ ] Merge project definitions over user definitions by server name.
-- [ ] Parse `transport`, `command`, `args`, `env`, `url`, `headers`,
+- [x] Add `McpConfig`.
+- [x] Load `~/.thndrs/mcp.toml`.
+- [x] Load `.thndrs/mcp.toml`.
+- [x] Merge project definitions over user definitions by server name.
+- [x] Parse `transport`, `command`, `args`, `env`, `url`, `headers`,
       `timeout_secs`, and `enabled`.
-- [ ] Expand environment variables in values.
-- [ ] Skip servers with unresolved variables and record diagnostics.
-- [ ] Redact secret-looking config values in errors and diagnostics.
-- [ ] Add config tests for merge, disabled servers, unresolved env vars, and
+- [x] Expand environment variables in values.
+- [x] Skip servers with unresolved variables and record diagnostics.
+- [x] Redact secret-looking config values in errors and diagnostics.
+- [x] Add config tests for merge, disabled servers, unresolved env vars, and
       redaction.
 
 ## P2: SDK Adapter

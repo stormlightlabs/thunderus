@@ -1,0 +1,610 @@
+//! MCP configuration loading.
+//!
+//! MCP server definitions live in separate files from ordinary `thndrs`
+//! runtime config:
+//! - Global: `~/.thndrs/mcp.toml`
+//! - Project: `.thndrs/mcp.toml`
+//!
+//! Project server definitions override global definitions by server name.
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use serde::Deserialize;
+
+use crate::config::{ConfigError, ConfigSource};
+use crate::utils;
+
+const DEFAULT_TIMEOUT_SECS: u64 = 20;
+
+/// Supported MCP transport types.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum McpTransport {
+    /// Launch a local MCP server subprocess and communicate over stdin/stdout.
+    #[default]
+    Stdio,
+    /// Use MCP Streamable HTTP.
+    StreamableHttp,
+}
+
+/// Configuration for one MCP server.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct McpServerConfig {
+    /// Transport used to reach this server.
+    pub transport: McpTransport,
+    /// Executable command for stdio servers.
+    pub command: String,
+    /// Command-line arguments passed after [`McpServerConfig::command`].
+    pub args: Vec<String>,
+    /// Environment variables passed to stdio child processes.
+    pub env: BTreeMap<String, String>,
+    /// URL used by Streamable HTTP servers.
+    pub url: Option<String>,
+    /// Headers sent to Streamable HTTP servers.
+    pub headers: BTreeMap<String, String>,
+    /// Whether this server is discoverable and callable.
+    pub enabled: bool,
+    /// Timeout for startup and tool calls in seconds.
+    pub timeout_secs: u64,
+}
+
+impl Default for McpServerConfig {
+    fn default() -> Self {
+        Self {
+            transport: McpTransport::Stdio,
+            command: String::new(),
+            args: Vec::new(),
+            env: BTreeMap::new(),
+            url: None,
+            headers: BTreeMap::new(),
+            enabled: true,
+            timeout_secs: DEFAULT_TIMEOUT_SECS,
+        }
+    }
+}
+
+impl McpServerConfig {
+    /// Return a copy with secret-bearing values redacted for diagnostics.
+    pub fn redacted(&self) -> Self {
+        Self { env: redact_map_values(&self.env), headers: redact_map_values(&self.headers), ..self.clone() }
+    }
+}
+
+/// MCP server map keyed by configured server name.
+pub type McpServersConfig = BTreeMap<String, McpServerConfig>;
+
+/// User-editable MCP configuration loaded from TOML.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct McpConfig {
+    /// Named MCP server definitions.
+    pub servers: McpServersConfig,
+}
+
+impl McpConfig {
+    /// Merge `other` over `self`, replacing servers with the same name.
+    pub fn merge(mut self, other: McpConfig) -> Self {
+        self.servers.extend(other.servers);
+        self
+    }
+
+    /// Return a copy with server env/header values redacted.
+    pub fn redacted(&self) -> Self {
+        Self {
+            servers: self
+                .servers
+                .iter()
+                .map(|(name, server)| (name.clone(), server.redacted()))
+                .collect(),
+        }
+    }
+}
+
+/// Fully resolved MCP configuration.
+#[derive(Clone, Debug)]
+pub struct EffectiveMcpConfig {
+    /// Final resolved server definitions after precedence and env expansion.
+    pub config: McpConfig,
+    /// Loaded MCP config file layers in precedence order.
+    pub layers: Vec<LoadedMcpConfigLayer>,
+    /// Non-fatal loading diagnostics.
+    pub diagnostics: Vec<String>,
+}
+
+/// A single loaded MCP config file layer.
+#[derive(Clone, Debug)]
+pub struct LoadedMcpConfigLayer {
+    pub source: ConfigSource,
+    pub config: McpConfig,
+    pub path: Option<PathBuf>,
+    /// Redacted path label safe for diagnostics and metadata.
+    pub display_path: Option<String>,
+    /// Lowercase hex SHA-256 of file bytes.
+    pub hash: Option<String>,
+}
+
+/// Validate an MCP server name accepted by `mcp__{server}__{tool}` namespacing.
+pub fn validate_mcp_server_name(name: &str) -> Result<(), ConfigError> {
+    if name.is_empty()
+        || !name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    {
+        return Err(ConfigError::InvalidConfig {
+            key: format!("mcp.servers.{name}"),
+            message: "name must match [A-Za-z0-9_-]+".to_string(),
+        });
+    }
+    Ok(())
+}
+
+/// Load and merge MCP config layers.
+pub fn load_effective_mcp(workspace: &Path, env_vars: &[(String, String)]) -> Result<EffectiveMcpConfig, ConfigError> {
+    let mut layers = Vec::new();
+    let mut merged = McpConfig::default();
+
+    if let Some(global_path) = global_mcp_config_path()
+        && global_path.is_file()
+    {
+        let (global_config, hash) = load_mcp_file(&global_path)?;
+        let display_path = mcp_global_path_display(&global_path);
+        layers.push(LoadedMcpConfigLayer {
+            source: ConfigSource::GlobalFile,
+            config: global_config.redacted(),
+            path: Some(global_path),
+            display_path: Some(display_path),
+            hash: Some(hash),
+        });
+        merged = merged.merge(global_config);
+    }
+
+    let project_path = project_mcp_config_path(workspace);
+    if project_path.is_file() {
+        let (project_config, hash) = load_mcp_file(&project_path)?;
+        let display_path = mcp_project_path_display(&project_path, workspace);
+        layers.push(LoadedMcpConfigLayer {
+            source: ConfigSource::ProjectFile,
+            config: project_config.redacted(),
+            path: Some(project_path),
+            display_path: Some(display_path),
+            hash: Some(hash),
+        });
+        merged = merged.merge(project_config);
+    }
+
+    let mut diagnostics = Vec::new();
+    expand_mcp_env(&mut merged, env_vars, &mut diagnostics);
+    validate_mcp_config(&merged)?;
+
+    Ok(EffectiveMcpConfig { config: merged, layers, diagnostics })
+}
+
+fn global_mcp_config_path() -> Option<PathBuf> {
+    utils::home_dir().map(|home| home.join(".thndrs").join("mcp.toml"))
+}
+
+fn project_mcp_config_path(workspace: &Path) -> PathBuf {
+    workspace.join(".thndrs").join("mcp.toml")
+}
+
+fn mcp_global_path_display(path: &Path) -> String {
+    if let Some(home) = utils::home_dir()
+        && let Ok(rel) = path.strip_prefix(&home)
+    {
+        return format!("~/{}", rel.display());
+    }
+    path.display().to_string()
+}
+
+fn mcp_project_path_display(path: &Path, workspace: &Path) -> String {
+    if let Ok(rel) = path.strip_prefix(workspace) {
+        return rel.display().to_string();
+    }
+    path.display().to_string()
+}
+
+fn load_mcp_file(path: &Path) -> Result<(McpConfig, String), ConfigError> {
+    let content = fs::read_to_string(path).map_err(|source| ConfigError::Read { path: path.to_path_buf(), source })?;
+    let config: McpConfig =
+        toml::from_str(&content).map_err(|source| ConfigError::Parse { path: path.to_path_buf(), source })?;
+    validate_mcp_config(&config)?;
+    let hash = sha256_hex(content.as_bytes());
+    Ok((config, hash))
+}
+
+fn validate_mcp_config(config: &McpConfig) -> Result<(), ConfigError> {
+    for (name, server) in &config.servers {
+        validate_mcp_server_name(name)?;
+        if server.timeout_secs == 0 {
+            return Err(ConfigError::InvalidConfig {
+                key: format!("mcp.servers.{name}.timeout_secs"),
+                message: "timeout_secs must be greater than 0".to_string(),
+            });
+        }
+        match server.transport {
+            McpTransport::Stdio if server.command.trim().is_empty() => {
+                return Err(ConfigError::InvalidConfig {
+                    key: format!("mcp.servers.{name}.command"),
+                    message: "command is required for stdio transport".to_string(),
+                });
+            }
+            McpTransport::StreamableHttp if server.url.as_ref().is_none_or(|url| url.trim().is_empty()) => {
+                return Err(ConfigError::InvalidConfig {
+                    key: format!("mcp.servers.{name}.url"),
+                    message: "url is required for streamable_http transport".to_string(),
+                });
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn expand_mcp_env(config: &mut McpConfig, env_vars: &[(String, String)], diagnostics: &mut Vec<String>) {
+    let env = env_vars.iter().cloned().collect::<BTreeMap<_, _>>();
+    let mut skipped = Vec::new();
+
+    for (name, server) in &mut config.servers {
+        let missing = expand_server_env(server, &env);
+        if !missing.is_empty() {
+            diagnostics.push(format!(
+                "mcp server `{name}` skipped: unresolved environment variable{} {}",
+                if missing.len() == 1 { "" } else { "s" },
+                missing.into_iter().collect::<Vec<_>>().join(", ")
+            ));
+            skipped.push(name.clone());
+        }
+    }
+
+    for name in skipped {
+        config.servers.remove(&name);
+    }
+}
+
+fn expand_server_env(server: &mut McpServerConfig, env: &BTreeMap<String, String>) -> BTreeSet<String> {
+    let mut missing = BTreeSet::new();
+    server.command = expand_value(&server.command, env, &mut missing);
+    server.args = server
+        .args
+        .iter()
+        .map(|value| expand_value(value, env, &mut missing))
+        .collect();
+    server.env = expand_map(&server.env, env, &mut missing);
+    server.url = server.url.as_ref().map(|value| expand_value(value, env, &mut missing));
+    server.headers = expand_map(&server.headers, env, &mut missing);
+    missing
+}
+
+fn expand_map(
+    values: &BTreeMap<String, String>, env: &BTreeMap<String, String>, missing: &mut BTreeSet<String>,
+) -> BTreeMap<String, String> {
+    values
+        .iter()
+        .map(|(key, value)| (key.clone(), expand_value(value, env, missing)))
+        .collect()
+}
+
+fn expand_value(value: &str, env: &BTreeMap<String, String>, missing: &mut BTreeSet<String>) -> String {
+    let mut expanded = String::new();
+    let mut rest = value;
+
+    while let Some(start) = rest.find("${") {
+        expanded.push_str(&rest[..start]);
+        let after_start = &rest[start + 2..];
+        let Some(end) = after_start.find('}') else {
+            expanded.push_str(&rest[start..]);
+            return expanded;
+        };
+
+        let name = &after_start[..end];
+        if let Some(replacement) = env.get(name) {
+            expanded.push_str(replacement);
+        } else {
+            missing.insert(name.to_string());
+            expanded.push_str(&rest[start..start + end + 3]);
+        }
+        rest = &after_start[end + 1..];
+    }
+
+    expanded.push_str(rest);
+    expanded
+}
+
+fn redact_map_values(values: &BTreeMap<String, String>) -> BTreeMap<String, String> {
+    values
+        .keys()
+        .map(|key| (key.clone(), "[redacted]".to_string()))
+        .collect()
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let result = hasher.finalize();
+    hex_encode(&result)
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use super::*;
+
+    static HOME_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn with_home<T>(home: &Path, f: impl FnOnce() -> T) -> T {
+        let _guard = HOME_ENV_LOCK.lock().expect("home env lock");
+        let old_home = std::env::var_os("HOME");
+
+        unsafe {
+            std::env::set_var("HOME", home);
+        }
+
+        let result = f();
+
+        unsafe {
+            if let Some(old_home) = old_home {
+                std::env::set_var("HOME", old_home);
+            } else {
+                std::env::remove_var("HOME");
+            }
+        }
+
+        result
+    }
+
+    #[test]
+    fn parses_stdio_server_config() {
+        let config: McpConfig = toml::from_str(
+            r#"
+            [servers.docs]
+            transport = "stdio"
+            command = "docs-mcp"
+            args = ["--workspace", "${THNDRS_WORKSPACE}"]
+            env = { TOKEN = "${DOCS_TOKEN}" }
+            enabled = false
+            timeout_secs = 15
+            "#,
+        )
+        .expect("mcp config parses");
+
+        let server = &config.servers["docs"];
+        assert_eq!(server.transport, McpTransport::Stdio);
+        assert_eq!(server.command, "docs-mcp");
+        assert_eq!(server.args, vec!["--workspace", "${THNDRS_WORKSPACE}"]);
+        assert_eq!(server.env["TOKEN"], "${DOCS_TOKEN}");
+        assert!(!server.enabled);
+        assert_eq!(server.timeout_secs, 15);
+    }
+
+    #[test]
+    fn parses_streamable_http_server_config() {
+        let config: McpConfig = toml::from_str(
+            r#"
+            [servers.web]
+            transport = "streamable_http"
+            url = "https://mcp.example.test"
+            headers = { Authorization = "Bearer ${MCP_TOKEN}" }
+            "#,
+        )
+        .expect("mcp config parses");
+
+        let server = &config.servers["web"];
+        assert_eq!(server.transport, McpTransport::StreamableHttp);
+        assert_eq!(server.url.as_deref(), Some("https://mcp.example.test"));
+        assert_eq!(server.headers["Authorization"], "Bearer ${MCP_TOKEN}");
+        assert_eq!(server.timeout_secs, DEFAULT_TIMEOUT_SECS);
+    }
+
+    #[test]
+    fn rejects_unknown_fields() {
+        let err = toml::from_str::<McpConfig>(
+            r#"
+            [servers.docs]
+            command = "docs-mcp"
+            prompt_injection = true
+            "#,
+        )
+        .expect_err("unknown fields rejected");
+        assert!(err.to_string().contains("unknown field"));
+    }
+
+    #[test]
+    fn rejects_invalid_server_names() {
+        let err = validate_mcp_server_name("bad/name").expect_err("invalid name rejected");
+        assert!(
+            matches!(err, ConfigError::InvalidConfig { key, message } if key == "mcp.servers.bad/name" && message.contains("[A-Za-z0-9_-]+"))
+        );
+    }
+
+    #[test]
+    fn requires_stdio_command() {
+        let config: McpConfig = toml::from_str(
+            r#"
+            [servers.docs]
+            transport = "stdio"
+            "#,
+        )
+        .expect("mcp config parses");
+
+        let err = validate_mcp_config(&config).expect_err("missing command rejected");
+        assert!(
+            matches!(err, ConfigError::InvalidConfig { key, message } if key == "mcp.servers.docs.command" && message.contains("stdio"))
+        );
+    }
+
+    #[test]
+    fn requires_http_url() {
+        let config: McpConfig = toml::from_str(
+            r#"
+            [servers.web]
+            transport = "streamable_http"
+            "#,
+        )
+        .expect("mcp config parses");
+
+        let err = validate_mcp_config(&config).expect_err("missing url rejected");
+        assert!(
+            matches!(err, ConfigError::InvalidConfig { key, message } if key == "mcp.servers.web.url" && message.contains("streamable_http"))
+        );
+    }
+
+    #[test]
+    fn project_servers_override_global_by_name() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("home");
+        fs::create_dir_all(home.join(".thndrs")).unwrap();
+        fs::write(
+            home.join(".thndrs").join("mcp.toml"),
+            r#"
+            [servers.shared]
+            command = "global"
+
+            [servers.global_only]
+            command = "global-only"
+            "#,
+        )
+        .unwrap();
+
+        let workspace = tmp.path().join("workspace");
+        fs::create_dir_all(workspace.join(".thndrs")).unwrap();
+        fs::write(
+            workspace.join(".thndrs").join("mcp.toml"),
+            r#"
+            [servers.shared]
+            command = "project"
+
+            [servers.project_only]
+            command = "project-only"
+            "#,
+        )
+        .unwrap();
+
+        let effective = with_home(&home, || load_effective_mcp(&workspace, &[]).unwrap());
+
+        assert_eq!(effective.config.servers["shared"].command, "project");
+        assert_eq!(effective.config.servers["global_only"].command, "global-only");
+        assert_eq!(effective.config.servers["project_only"].command, "project-only");
+        assert_eq!(effective.layers.len(), 2);
+        assert_eq!(effective.layers[0].display_path.as_deref(), Some("~/.thndrs/mcp.toml"));
+        assert_eq!(effective.layers[1].display_path.as_deref(), Some(".thndrs/mcp.toml"));
+    }
+
+    #[test]
+    fn expands_environment_values() {
+        let mut config: McpConfig = toml::from_str(
+            r#"
+            [servers.docs]
+            command = "${DOCS_BIN}"
+            args = ["--workspace", "${THNDRS_WORKSPACE}"]
+            env = { TOKEN = "${DOCS_TOKEN}" }
+            "#,
+        )
+        .expect("mcp config parses");
+        let mut diagnostics = Vec::new();
+
+        expand_mcp_env(
+            &mut config,
+            &[
+                ("DOCS_BIN".to_string(), "docs-mcp".to_string()),
+                ("THNDRS_WORKSPACE".to_string(), "/repo".to_string()),
+                ("DOCS_TOKEN".to_string(), "secret".to_string()),
+            ],
+            &mut diagnostics,
+        );
+
+        let server = &config.servers["docs"];
+        assert_eq!(server.command, "docs-mcp");
+        assert_eq!(server.args, vec!["--workspace", "/repo"]);
+        assert_eq!(server.env["TOKEN"], "secret");
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn skips_servers_with_unresolved_environment_values() {
+        let mut config: McpConfig = toml::from_str(
+            r#"
+            [servers.docs]
+            command = "docs-mcp"
+            args = ["${MISSING_WORKSPACE}"]
+
+            [servers.ready]
+            command = "ready-mcp"
+            "#,
+        )
+        .expect("mcp config parses");
+        let mut diagnostics = Vec::new();
+
+        expand_mcp_env(&mut config, &[], &mut diagnostics);
+
+        assert!(!config.servers.contains_key("docs"));
+        assert!(config.servers.contains_key("ready"));
+        assert_eq!(
+            diagnostics,
+            vec!["mcp server `docs` skipped: unresolved environment variable MISSING_WORKSPACE"]
+        );
+    }
+
+    #[test]
+    fn redacts_env_and_headers_in_loaded_layers() {
+        let tmp = tempfile::tempdir().unwrap();
+        let workspace = tmp.path().join("workspace");
+        fs::create_dir_all(workspace.join(".thndrs")).unwrap();
+        fs::write(
+            workspace.join(".thndrs").join("mcp.toml"),
+            r#"
+            [servers.web]
+            transport = "streamable_http"
+            url = "https://mcp.example.test"
+            env = { TOKEN = "env-secret" }
+            headers = { Authorization = "Bearer header-secret" }
+            "#,
+        )
+        .unwrap();
+
+        let effective = load_effective_mcp(&workspace, &[]).unwrap();
+        let redacted = &effective.layers[0].config.servers["web"];
+
+        assert_eq!(effective.config.servers["web"].env["TOKEN"], "env-secret");
+        assert_eq!(
+            effective.config.servers["web"].headers["Authorization"],
+            "Bearer header-secret"
+        );
+        assert_eq!(redacted.env["TOKEN"], "[redacted]");
+        assert_eq!(redacted.headers["Authorization"], "[redacted]");
+    }
+
+    #[test]
+    fn diagnostics_do_not_include_secret_values_for_unresolved_env() {
+        let mut config: McpConfig = toml::from_str(
+            r#"
+            [servers.web]
+            transport = "streamable_http"
+            url = "https://mcp.example.test"
+            headers = { Authorization = "Bearer ${MISSING_TOKEN}" }
+            "#,
+        )
+        .expect("mcp config parses");
+        let mut diagnostics = Vec::new();
+
+        expand_mcp_env(&mut config, &[], &mut diagnostics);
+
+        assert_eq!(
+            diagnostics,
+            vec!["mcp server `web` skipped: unresolved environment variable MISSING_TOKEN"]
+        );
+    }
+}

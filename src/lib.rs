@@ -5,6 +5,7 @@
 
 pub mod cli;
 pub mod input;
+pub mod mcp;
 pub mod session;
 
 mod acp;
@@ -14,7 +15,6 @@ mod config;
 mod context;
 mod fuzzy;
 mod internals;
-mod mcp;
 mod prompt;
 mod providers;
 mod renderer;
