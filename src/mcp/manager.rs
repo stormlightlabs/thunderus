@@ -299,14 +299,15 @@ mod tests {
         let manager = McpManager::from_config(&config);
         let definitions = crate::tools::runtime_tool_definitions(Some(&manager));
         let schemas = crate::tools::tool_catalog_schemas(&definitions);
-        let tool_names: Vec<&str> = schemas
-            .as_array()
-            .expect("schemas")
-            .iter()
-            .filter_map(|schema| schema["name"].as_str())
-            .collect();
+        assert!(
+            schemas
+                .as_array()
+                .expect("schemas")
+                .iter()
+                .filter_map(|schema| schema["name"].as_str())
+                .any(|name| name == "mcp__docs__echo")
+        );
 
-        assert!(tool_names.contains(&"mcp__docs__echo"));
         assert_eq!(
             schemas
                 .as_array()

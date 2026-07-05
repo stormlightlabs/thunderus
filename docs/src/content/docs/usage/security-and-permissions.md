@@ -41,6 +41,21 @@ are namespaced as `mcp__{server}__{tool}` and use the shared timeout, output
 cap, redaction, and session audit path. Those limits bound what `thndrs`
 records and shows but do not sandbox what the MCP server itself can do.
 
+## ACP Agents
+
+[ACP](/usage/acp) agents are external local child processes configured by the
+user. A configured agent owns its model loop, but `thndrs` still owns the
+workspace boundary, TUI permission prompts, cancellation, and local session
+records.
+
+ACP filesystem callbacks are workspace-contained. ACP terminal callbacks run as
+local child processes under the same user account as `thndrs`; their cwd is
+kept inside the workspace, output is capped and redacted, and lifecycle metadata
+is recorded in the session log.
+
+ACP permission prompts are user interaction, not a sandbox. Only configure ACP
+agents you are willing to run locally.
+
 ## Writes
 
 Write-capable tools are workspace-contained and transcripted. Failed writes

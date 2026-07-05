@@ -15,6 +15,9 @@ title: "CLI Reference"
 
 ## ACP Commands
 
+ACP agents are selected in the TUI with `--model acp:<name>`. They are
+configured under `[acp_agents.<name>]`. For more information see [ACP](/usage/acp/).
+
 - `thndrs acp list`: list configured ACP agents.
 - `thndrs acp inspect <name>`: show one configured ACP agent with command values redacted.
 - `thndrs acp smoke <name> --prompt <text>`: initialize an ACP agent, create a temporary session, send one prompt, and print streamed events.

@@ -59,6 +59,7 @@ export default defineConfig({
             { label: "Skills", slug: "usage/skills" },
             { label: "Tools", slug: "usage/tools" },
             { label: "MCP", slug: "usage/mcp" },
+            { label: "ACP", slug: "usage/acp" },
             { label: "Web Search", slug: "usage/web-search" },
             { label: "Models", slug: "usage/models" },
             { label: "Sessions", slug: "usage/sessions" },

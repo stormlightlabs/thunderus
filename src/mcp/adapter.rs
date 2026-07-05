@@ -614,7 +614,7 @@ mod tests {
         let fixture = HttpMcpFixture::spawn(HttpResponseMode::Json);
         let server = McpServerConfig {
             transport: McpTransport::StreamableHttp,
-            url: Some(fixture.url.clone()),
+            url: Some(fixture.url),
             timeout_secs: 5,
             ..McpServerConfig::default()
         };
@@ -636,7 +636,7 @@ mod tests {
         let fixture = HttpMcpFixture::spawn(HttpResponseMode::Sse);
         let server = McpServerConfig {
             transport: McpTransport::StreamableHttp,
-            url: Some(fixture.url.clone()),
+            url: Some(fixture.url),
             timeout_secs: 5,
             ..McpServerConfig::default()
         };

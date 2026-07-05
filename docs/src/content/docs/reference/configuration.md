@@ -49,6 +49,7 @@ errors.
 | `skill_dirs`        | array of paths     | `[]`                                | Additional local skill discovery roots.        |
 | `session_dir`       | path               | `.thndrs/sessions` in the workspace | Directory for append-only session JSONL files. |
 | `default_workspace` | path               | current process directory           | Workspace used when `--cwd` is omitted.        |
+| `acp_agents`        | table              | `{}`                                | Configured external ACP agents.                |
 
 Relative `skill_dirs`, `session_dir`, and `default_workspace` values are
 resolved relative to the config file that declares them.
@@ -69,6 +70,13 @@ verbose = false
 skill_dirs = ["vendor/agent-skills"]
 session_dir = ".thndrs/sessions"
 default_workspace = ".."
+
+[acp_agents.codex]
+command = "npx"
+args = ["-y", "@zed-industries/codex-acp@latest"]
+env = {}
+enabled = true
+timeout_secs = 60
 ```
 
 A standalone sample is available at
@@ -158,6 +166,38 @@ diagnostics.
 
 See [MCP](/usage/mcp/) for stdio setup, Streamable HTTP examples, tool
 namespacing, diagnostics, and security limits.
+
+## ACP Agents
+
+ACP agents are configured in the normal `thndrs` config files:
+
+- Global: `~/.thndrs/config.toml`
+- Project: `.thndrs/config.toml`
+
+Project ACP agent definitions override global definitions with the same agent
+name. Agent names must match `[A-Za-z0-9_-]+`.
+
+```toml
+[acp_agents.codex]
+command = "npx"
+args = ["-y", "@zed-industries/codex-acp@latest"]
+env = {}
+enabled = true
+timeout_secs = 60
+```
+
+Supported agent keys are `command`, `args`, `env`, `enabled`, and
+`timeout_secs`. `command` is required. `args` defaults to `[]`, `env` defaults
+to `{}`, `enabled` defaults to `true`, and `timeout_secs` defaults to `60`.
+
+ACP currently supports stdio agents only. The command is launched as a local
+child process and must speak ACP JSON-RPC over stdin/stdout.
+
+Environment values in `env` are passed to the child process and redacted in
+diagnostics and session metadata.
+
+Select a configured agent with `--model acp:<name>`. See [ACP](/usage/acp/) for
+permission prompts, supported capabilities, troubleshooting, and ACP commands.
 
 ## Diagnostics
 

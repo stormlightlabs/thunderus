@@ -12,3 +12,11 @@ verbose = false
 skill_dirs = ["vendor/agent-skills"]
 session_dir = ".thndrs/sessions"
 default_workspace = "."
+
+# External ACP agents are selected with --model acp:<name>.
+# [acp_agents.codex]
+# command = "npx"
+# args = ["-y", "@zed-industries/codex-acp@latest"]
+# env = {}
+# enabled = true
+# timeout_secs = 60

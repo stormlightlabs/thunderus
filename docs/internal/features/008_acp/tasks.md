@@ -238,15 +238,23 @@ inline Python agents.
 
 ## M12: Docs
 
-- [ ] Document ACP config examples.
-- [ ] Document `--model acp:<name>`.
-- [ ] Document ACP permission prompts.
-- [ ] Document supported and unsupported ACP capabilities.
-- [ ] Document `thndrs acp list`.
-- [ ] Document `thndrs acp inspect <name>`.
-- [ ] Document `thndrs acp smoke <name> --prompt <text>`.
-- [ ] Add troubleshooting for auth-required agents, missing commands, protocol
+- [x] Document ACP config examples.
+- [x] Document `--model acp:<name>`.
+- [x] Document ACP permission prompts.
+- [x] Document supported and unsupported ACP capabilities.
+- [x] Document `thndrs acp list`.
+- [x] Document `thndrs acp inspect <name>`.
+- [x] Document `thndrs acp smoke <name> --prompt <text>`.
+- [x] Add troubleshooting for auth-required agents, missing commands, protocol
       stdout pollution, and unsupported terminal requests.
+
+Result: public docs now include a dedicated ACP usage page, reference config
+examples, `--model acp:<name>` selection, permission prompt behavior,
+supported and unsupported ACP capabilities, `acp list`/`inspect`/`smoke`
+commands, auth/session admin commands, and troubleshooting for missing
+commands, auth failures, stdout protocol pollution, timeouts, unsupported
+protocol versions, and transport limitations. The sample config includes a
+commented ACP agent block.
 
 ## M13: Auth
 
@@ -336,7 +344,7 @@ and security review are designed separately.
 
 ## M17: MCP-Over-ACP
 
-- [ ] Wait for local MCP support from `007_mcp`.
+- [x] Wait for local MCP support from `007_mcp`.
 - [x] Decide whether ACP sessions receive user MCP servers, project MCP
       servers, or both.
 - [ ] Map the effective user-plus-project MCP config into stable ACP
@@ -367,6 +375,21 @@ docs still make stdio the stable baseline, describe Streamable HTTP as draft,
 and allow custom transports only when they preserve ACP JSON-RPC lifecycle
 requirements. Do not add remote/custom transport code without a concrete target
 agent or deployment.
+
+Research update, 2026-07-05: current mainstream ACP agent setup still does not
+force `thndrs` past stdio. Codex ACP, Claude Agent ACP, Gemini/Qwen-style Zed
+setups, and gateway-style agents can be configured as local commands. Transport
+pressure comes from daemon/bridge deployments rather than ordinary local agent
+selection: Qwen Code's `qwen serve` exposes a northbound HTTP/SSE daemon and is
+tracking official Streamable HTTP; ACP Remote exposes ACP over WebSocket but
+also offers a local stdio facade; Aptove Bridge and AgentRQ bridge remote/mobile
+surfaces to stdio ACP agents; OpenClaw targets remote gateways through
+`openclaw acp --url ...` while still presenting stdio to the ACP client.
+
+Therefore M18 should stay closed until either a user explicitly wants direct
+Qwen daemon/Streamable HTTP without `qwen --acp`, direct ACP Remote WebSocket
+without a local facade, or a similar hosted deployment where a local stdio
+bridge is unacceptable.
 
 ## M19: ACP Agent Server
 

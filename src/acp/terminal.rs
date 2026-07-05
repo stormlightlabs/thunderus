@@ -400,7 +400,7 @@ mod tests {
         let (response, started) = registry.create(&request, root.path()).expect("create terminal");
         assert!(matches!(started, AgentEvent::ToolStarted { name, .. } if name == "acp.terminal"));
 
-        let wait = WaitForTerminalExitRequest::new(SessionId::new("s"), response.terminal_id.clone());
+        let wait = WaitForTerminalExitRequest::new(SessionId::new("s"), response.terminal_id);
         let (_, event) = registry.wait_for_exit(&wait).expect("wait");
 
         assert!(matches!(
