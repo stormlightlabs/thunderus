@@ -85,16 +85,16 @@ pub fn exec(args: &Value, root: &Path) -> ToolOutput {
 
 /// Provider-visible definition for `sawk`.
 pub fn definition() -> ToolDefinition {
-    ToolDefinition {
-        name: NAME,
-        description: r#"sawk
+    ToolDefinition::new(
+        NAME,
+        r#"sawk
 
 Run safe read-only sed/awk-style inspection actions.
 
 Use this for line printing, substitution previews, or field extraction when it is clearer
 than raw shell. Actions are typed: sed_print, sed_substitute_preview, awk_fields.
 Paths are contained; output is capped/truncated; no sed -i or awk system()."#,
-        input_schema: serde_json::json!({
+        serde_json::json!({
             "type": "object",
             "properties": {
                 "action": { "type": "string", "enum": ["sed_print", "sed_substitute_preview", "awk_fields"] },
@@ -110,7 +110,7 @@ Paths are contained; output is capped/truncated; no sed -i or awk system()."#,
             },
             "required": ["action", "path"]
         }),
-    }
+    )
 }
 
 /// Parse provider JSON arguments for `sawk`.

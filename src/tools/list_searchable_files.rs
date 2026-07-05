@@ -58,23 +58,23 @@ pub fn exec(root: &Path, glob: Option<&str>, max_results: usize, include_hidden:
 
 /// Provider-visible definition for `list_searchable_files`.
 pub fn definition() -> ToolDefinition {
-    ToolDefinition {
-        name: NAME,
-        description: r#"list_searchable_files
+    ToolDefinition::new(
+        NAME,
+        r#"list_searchable_files
 
 Enumerate searchable files under the workspace root.
 
 Use this to get an overview of the project structure. Prefer find_files when you know
 a file name, or search_text when you need content matches. Respects ignore rules and
 skips hidden files by default. Capped at 100 results."#,
-        input_schema: serde_json::json!({
+        serde_json::json!({
             "type": "object",
             "properties": {
                 "glob": { "type": "string" },
                 "include_hidden": { "type": "boolean" }
             }
         }),
-    }
+    )
 }
 
 /// Parse provider JSON arguments for `list_searchable_files`.

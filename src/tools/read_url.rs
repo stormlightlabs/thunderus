@@ -18,9 +18,9 @@ pub struct ReadUrlInput {
 
 /// Provider-visible definition for `read_url`.
 pub fn definition() -> ToolDefinition {
-    ToolDefinition {
-        name: NAME,
-        description: r#"read_url
+    ToolDefinition::new(
+        NAME,
+        r#"read_url
 
 Fetch a public HTTP/HTTPS URL and extract readable text.
 
@@ -29,14 +29,14 @@ local files when available. HTML is extracted to Markdown with Lectito; JSON,
 XML, plain text, feeds, and YAML are returned raw. Binary content is rejected.
 Private targets, redirects, and non-http(s) schemes are rejected. Size,
 redirects, and timeouts are capped; output may truncate."#,
-        input_schema: serde_json::json!({
+        serde_json::json!({
             "type": "object",
             "properties": {
                 "url": { "type": "string", "description": "The public HTTP/HTTPS URL to fetch." }
             },
             "required": ["url"]
         }),
-    }
+    )
 }
 
 /// Parse provider JSON arguments for `read_url`.

@@ -20,9 +20,9 @@ pub struct WebSearchInput {
 
 /// Provider-visible definition for `web_search`.
 pub fn definition() -> ToolDefinition {
-    ToolDefinition {
-        name: NAME,
-        description: r#"web_search
+    ToolDefinition::new(
+        NAME,
+        r#"web_search
 
 Search the web for current information.
 
@@ -31,7 +31,7 @@ documentation, API specs, or current facts. Prefer reading local files and
 searching the workspace first. With native/exa modes, Umans executes server-side
 search; with none, a local DuckDuckGo HTML fallback is used. Pair results with
 read_url when page content is needed. Capped at 10 results by default."#,
-        input_schema: serde_json::json!({
+        serde_json::json!({
             "type": "object",
             "properties": {
                 "query": { "type": "string", "description": "The search query." },
@@ -39,7 +39,7 @@ read_url when page content is needed. Capped at 10 results by default."#,
             },
             "required": ["query"]
         }),
-    }
+    )
 }
 
 /// Parse provider JSON arguments for `web_search`.

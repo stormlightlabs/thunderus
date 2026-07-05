@@ -136,16 +136,16 @@ impl FdFind<'_> {
 
 /// Provider-visible definition for `find_files`.
 pub fn definition() -> ToolDefinition {
-    ToolDefinition {
-        name: NAME,
-        description: r#"find_files
+    ToolDefinition::new(
+        NAME,
+        r#"find_files
 
 Locate files by name or glob under the workspace root.
 
 Use this when you know (or can guess) a file name and need its path. Prefer this over
 listing all files. Paths are contained to the root; hidden files and symlinks are off
 unless requested. Capped at 100 results; long lines truncate at 512 chars."#,
-        input_schema: serde_json::json!({
+        serde_json::json!({
             "type": "object",
             "properties": {
                 "pattern": { "type": "string", "description": "File name or glob pattern to search for." },
@@ -157,7 +157,7 @@ unless requested. Capped at 100 results; long lines truncate at 512 chars."#,
             },
             "required": ["pattern"]
         }),
-    }
+    )
 }
 
 /// Parse provider JSON arguments for `find_files`.

@@ -561,6 +561,8 @@ mod tests {
     #[test]
     fn redacts_env_and_headers_in_loaded_layers() {
         let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("home");
+        fs::create_dir_all(home.join(".thndrs")).unwrap();
         let workspace = tmp.path().join("workspace");
         fs::create_dir_all(workspace.join(".thndrs")).unwrap();
         fs::write(
@@ -575,7 +577,7 @@ mod tests {
         )
         .unwrap();
 
-        let effective = load_effective_mcp(&workspace, &[]).unwrap();
+        let effective = with_home(&home, || load_effective_mcp(&workspace, &[]).unwrap());
         let redacted = &effective.layers[0].config.servers["web"];
 
         assert_eq!(effective.config.servers["web"].env["TOKEN"], "env-secret");

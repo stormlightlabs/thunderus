@@ -71,16 +71,16 @@ pub fn exec(path_str: &str, root: &Path, content: &str) -> (ToolOutput, Option<W
 
 /// Provider-visible definition for `create_file`.
 pub fn definition() -> ToolDefinition {
-    ToolDefinition {
-        name: NAME,
-        description: r#"create_file
+    ToolDefinition::new(
+        NAME,
+        r#"create_file
 
 Create a new file with the given content.
 
 Use this for direct new-file writes. Prefer write_patch op=create when doing a
 mixed edit. Fails if the file exists. Paths are contained to the workspace root;
 escapes are rejected. Parent directories are created if needed."#,
-        input_schema: serde_json::json!({
+        serde_json::json!({
             "type": "object",
             "properties": {
                 "path": { "type": "string", "description": "Path relative to the workspace root." },
@@ -88,7 +88,7 @@ escapes are rejected. Parent directories are created if needed."#,
             },
             "required": ["path", "content"]
         }),
-    }
+    )
 }
 
 /// Parse provider JSON arguments for `create_file`.

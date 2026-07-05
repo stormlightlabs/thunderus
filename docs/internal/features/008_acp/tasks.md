@@ -32,9 +32,10 @@ Captured: 2026-07-04
 - [x] Confirm Tokio is not required for the spike; no `plan.md` runtime update
       is needed.
 
-Result: `tests/acp_sdk_spike.rs` proves `AcpAgent` works from a background
-thread with `futures::executor::block_on` against a fake stdio ACP agent.
-Tokio is not required for the client-side M1 spike.
+Result: the M1 spike proved `AcpAgent` works from a background thread with
+`futures::executor::block_on` against a fake stdio ACP agent. Tokio is not
+required for the client-side M1 spike. The temporary spike test was removed
+after the production ACP runner covered the same runtime boundary.
 
 ## M2: Config
 
@@ -231,9 +232,9 @@ including a local fake ACP agent smoke run.
 Result: `tests/fixtures/fake_acp_agent.py` is now the shared manual ACP
 fixture for unit and integration tests. It supports lifecycle, cancellation,
 permission, filesystem read/write, unknown update, initialize timeout, session
-timeout, and prompt timeout scripts. ACP runner tests, the SDK spike, and the
-`acp smoke` command-output test now invoke this fixture directly instead of
-writing one-off inline Python agents.
+timeout, and prompt timeout scripts. ACP runner tests and the `acp smoke`
+command-output test now invoke this fixture directly instead of writing one-off
+inline Python agents.
 
 ## M12: Docs
 

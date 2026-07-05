@@ -1732,7 +1732,7 @@ mod tests {
     #[test]
     fn tool_definitions_include_web_search_and_read_url() {
         let defs = tools::tool_definitions();
-        let names = defs.iter().map(|d| d.name).collect::<Vec<&str>>();
+        let names = defs.iter().map(|d| d.name.as_ref()).collect::<Vec<&str>>();
         assert!(names.contains(&"web_search"));
         assert!(names.contains(&"read_url"));
         assert!(names.contains(&"run_shell"), "tool catalog should include run_shell");

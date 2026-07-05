@@ -30,6 +30,7 @@ mod subproc;
 mod web_search;
 mod write_patch;
 
+use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -156,9 +157,18 @@ impl ToolIterationBudget {
 /// `input_schema` are sent in the request so the model knows how to call it.
 #[derive(Clone, Debug)]
 pub struct ToolDefinition {
-    pub name: &'static str,
-    pub description: &'static str,
+    pub name: Cow<'static, str>,
+    pub description: Cow<'static, str>,
     pub input_schema: serde_json::Value,
+}
+
+impl ToolDefinition {
+    /// Create a provider-visible tool definition.
+    pub fn new(
+        name: impl Into<Cow<'static, str>>, description: impl Into<Cow<'static, str>>, input_schema: serde_json::Value,
+    ) -> Self {
+        Self { name: name.into(), description: description.into(), input_schema }
+    }
 }
 
 pub use registry::ProviderSchemaFormat;
@@ -419,9 +429,9 @@ mod tests {
         assert!(!defs.is_empty(), "tool catalog should not be empty");
 
         for def in &defs {
-            let desc = def.description;
+            let desc = def.description.as_ref();
             assert!(
-                desc.starts_with(def.name),
+                desc.starts_with(def.name.as_ref()),
                 "description for `{}` should lead with its name, got: {desc}",
                 def.name
             );
@@ -470,9 +480,10 @@ mod tests {
         assert_eq!(arr.len(), defs.len(), "schema count should match definition count");
 
         for (schema, def) in arr.iter().zip(defs.iter()) {
-            assert_eq!(schema["name"], def.name, "schema name should match");
+            assert_eq!(schema["name"], def.name.as_ref(), "schema name should match");
             assert_eq!(
-                schema["description"], def.description,
+                schema["description"],
+                def.description.as_ref(),
                 "schema description should match"
             );
             assert!(
@@ -496,7 +507,7 @@ mod tests {
             .iter()
             .map(|s| s["name"].as_str().unwrap())
             .collect();
-        let names_defs: Vec<&str> = defs.iter().map(|d| d.name).collect();
+        let names_defs: Vec<&str> = defs.iter().map(|d| d.name.as_ref()).collect();
         assert_eq!(names_a, names_defs, "schema order should match definition order");
     }
 
@@ -539,7 +550,7 @@ mod tests {
     fn tool_definitions_are_derived_from_registry() {
         let defs = tool_definitions();
         let registry_names: Vec<&str> = registry::builtins().iter().map(|entry| entry.name).collect();
-        let definition_names: Vec<&str> = defs.iter().map(|definition| definition.name).collect();
+        let definition_names: Vec<&str> = defs.iter().map(|definition| definition.name.as_ref()).collect();
         assert_eq!(definition_names, registry_names);
     }
 
@@ -600,8 +611,8 @@ mod tests {
 
         let first = &arr[0];
         assert_eq!(first["type"], "function");
-        assert_eq!(first["function"]["name"], defs[0].name);
-        assert_eq!(first["function"]["description"], defs[0].description);
+        assert_eq!(first["function"]["name"], defs[0].name.as_ref());
+        assert_eq!(first["function"]["description"], defs[0].description.as_ref());
         assert_eq!(first["function"]["parameters"], defs[0].input_schema);
     }
 

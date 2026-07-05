@@ -103,16 +103,16 @@ pub fn exec(patch: &Patch, root: &Path) -> (ToolOutput, Option<WriteResult>) {
 
 /// Provider-visible definition for `write_patch`.
 pub fn definition() -> ToolDefinition {
-    ToolDefinition {
-        name: NAME,
-        description: r#"write_patch
+    ToolDefinition::new(
+        NAME,
+        r#"write_patch
 
 Apply a structured patch to create, replace, or edit a file.
 
 Use this as the preferred file-write tool. Set op=create for new files, op=edit
 for exact replacements, or op=replace only for intentional whole-file rewrites.
 Supports multi-edit arrays and stale hash guards. Paths are contained; failures leave files unchanged."#,
-        input_schema: serde_json::json!({
+        serde_json::json!({
             "type": "object",
             "properties": {
                 "op": { "type": "string", "enum": ["create", "replace", "edit"], "description": "The patch operation." },
@@ -136,7 +136,7 @@ Supports multi-edit arrays and stale hash guards. Paths are contained; failures 
             },
             "required": ["op", "path"]
         }),
-    }
+    )
 }
 
 /// Execute a registry request for `write_patch`.

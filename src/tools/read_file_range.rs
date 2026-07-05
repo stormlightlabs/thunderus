@@ -54,16 +54,16 @@ pub fn exec(path: &Path, root: &Path, start_line: u32, end_line: Option<u32>) ->
 
 /// Provider-visible definition for `read_file_range`.
 pub fn definition() -> ToolDefinition {
-    ToolDefinition {
-        name: NAME,
-        description: r#"read_file_range
+    ToolDefinition::new(
+        NAME,
+        r#"read_file_range
 
 Read a 1-indexed line range from a file under the workspace root.
 
 Use this to inspect file contents after finding a path with find_files or search_text.
 Prefer targeted ranges over reading entire large files. Paths are contained to the root;
 escapes are rejected. Output is capped at 65536 bytes; long lines truncate at 512 chars."#,
-        input_schema: serde_json::json!({
+        serde_json::json!({
             "type": "object",
             "properties": {
                 "path": { "type": "string", "description": "Path relative to the workspace root." },
@@ -72,7 +72,7 @@ escapes are rejected. Output is capped at 65536 bytes; long lines truncate at 51
             },
             "required": ["path", "start_line"]
         }),
-    }
+    )
 }
 
 /// Parse provider JSON arguments for `read_file_range`.

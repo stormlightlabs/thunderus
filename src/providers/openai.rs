@@ -219,7 +219,7 @@ mod tests {
             .iter()
             .map(|tool| tool["function"]["name"].as_str().expect("tool name"))
             .collect();
-        let definition_names: Vec<&str> = defs.iter().map(|definition| definition.name).collect();
+        let definition_names: Vec<&str> = defs.iter().map(|definition| definition.name.as_ref()).collect();
 
         assert_eq!(request_names, definition_names);
         assert_eq!(body["tools"][0]["type"], "function");

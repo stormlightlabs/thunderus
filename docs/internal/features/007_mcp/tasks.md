@@ -41,14 +41,14 @@ Captured: 2026-07-04
 
 ## P2: SDK Adapter
 
-- [ ] Add the minimal `rmcp` dependency features needed for stdio clients.
-- [ ] Wrap `rmcp` client initialization behind a small `thndrs` adapter.
-- [ ] Convert `rmcp` initialize/server-info results to startup diagnostics.
-- [ ] Convert `rmcp` tool definitions to registry tool definitions.
-- [ ] Convert `rmcp` call results and errors to unified tool execution output.
-- [ ] Add adapter tests for successful initialize, tools/list, and tools/call.
-- [ ] Add adapter tests for malformed server messages and SDK/protocol errors.
-- [ ] Avoid local JSON-RPC protocol structs unless `rmcp` lacks a required
+- [x] Add the minimal `rmcp` dependency features needed for stdio clients.
+- [x] Wrap `rmcp` client initialization behind a small `thndrs` adapter.
+- [x] Convert `rmcp` initialize/server-info results to startup diagnostics.
+- [x] Convert `rmcp` tool definitions to registry tool definitions.
+- [x] Convert `rmcp` call results and errors to unified tool execution output.
+- [x] Add adapter tests for successful initialize, tools/list, and tools/call.
+- [x] Add adapter tests for malformed server messages and SDK/protocol errors.
+- [x] Avoid local JSON-RPC protocol structs unless `rmcp` lacks a required
       model or stable conversion point.
 
 ## P3: Stdio Transport

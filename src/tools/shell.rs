@@ -365,9 +365,9 @@ impl ShellArgs {
 
 /// Provider-visible definition for `run_shell`.
 pub fn definition() -> ToolDefinition {
-    ToolDefinition {
-        name: NAME,
-        description: r#"run_shell
+    ToolDefinition::new(
+        NAME,
+        r#"run_shell
 
 Run a shell command in the workspace and capture stdout, stderr, and exit status.
 
@@ -377,7 +377,7 @@ create_file, replace_range, read_url. Use for build, test, format, inspection.
 Runs as thndrs with its permissions — not sandboxed. Avoid destructive commands
 unless explicitly requested. argv only. Output is capped, truncated, and redacted.
 Timeouts enforced."#,
-        input_schema: serde_json::json!({
+        serde_json::json!({
             "type": "object",
             "properties": {
                 "program": { "type": "string", "description": "The program to run (e.g. \"cargo\", \"ls\")." },
@@ -388,7 +388,7 @@ Timeouts enforced."#,
             },
             "required": ["program"]
         }),
-    }
+    )
 }
 
 /// Parse provider JSON arguments for `run_shell`.

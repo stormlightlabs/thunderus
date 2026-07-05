@@ -110,16 +110,16 @@ pub fn exec_many(
 
 /// Provider-visible definition for `replace_range`.
 pub fn definition() -> ToolDefinition {
-    ToolDefinition {
-        name: NAME,
-        description: r#"replace_range
+    ToolDefinition::new(
+        NAME,
+        r#"replace_range
 
 Replace a unique exact string occurrence in an existing file.
 
 Use this for direct small edits. Prefer write_patch op=edit when doing a mixed
 edit. old_string must match exactly and once; include surrounding context for
 uniqueness. Paths are contained to the root; failed edits leave files unchanged."#,
-        input_schema: serde_json::json!({
+        serde_json::json!({
             "type": "object",
             "properties": {
                 "path": { "type": "string", "description": "Path relative to the workspace root." },
@@ -129,7 +129,7 @@ uniqueness. Paths are contained to the root; failed edits leave files unchanged.
             },
             "required": ["path", "old_string", "new_string"]
         }),
-    }
+    )
 }
 
 /// Parse provider JSON arguments for `replace_range`.

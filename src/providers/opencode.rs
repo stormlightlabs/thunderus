@@ -382,7 +382,7 @@ mod tests {
         assert_eq!(body["model"], "kimi-k2.7-code");
         assert_eq!(body["messages"][0]["role"], "user");
         assert_eq!(body["tools"][0]["type"], "function");
-        assert_eq!(body["tools"][0]["function"]["name"], defs[0].name);
+        assert_eq!(body["tools"][0]["function"]["name"], defs[0].name.as_ref());
         assert_eq!(body["tools"][0]["function"]["parameters"], defs[0].input_schema);
         assert_eq!(body["stream"], true);
     }
@@ -427,7 +427,7 @@ mod tests {
         assert_eq!(body["model"], "minimax-m3");
         assert_eq!(body["messages"][0]["content"], "hello");
         assert_eq!(body["max_tokens"], 1024);
-        assert_eq!(body["tools"][0]["name"], defs[0].name);
+        assert_eq!(body["tools"][0]["name"], defs[0].name.as_ref());
     }
 
     #[test]

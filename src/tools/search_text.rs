@@ -89,9 +89,9 @@ pub fn exec(
 
 /// Provider-visible definition for `search_text`.
 pub fn definition() -> ToolDefinition {
-    ToolDefinition {
-        name: NAME,
-        description: "search_text
+    ToolDefinition::new(
+        NAME,
+        "search_text
 
 Grep file contents by regex under the workspace root.
 
@@ -99,7 +99,7 @@ Returns matching lines as file:line:text. Use this when you need to find where a
 symbol, string, or pattern appears in the codebase. Prefer this over listing files
 when you need content. Paths are contained to the root; hidden files are off unless
 requested. Capped at 100 matches; lines truncate at 512 chars.",
-        input_schema: serde_json::json!({
+        serde_json::json!({
             "type": "object",
             "properties": {
                 "pattern": { "type": "string", "description": "Regex pattern to search for." },
@@ -110,7 +110,7 @@ requested. Capped at 100 matches; lines truncate at 512 chars.",
             },
             "required": ["pattern"]
         }),
-    }
+    )
 }
 
 /// Parse provider JSON arguments for `search_text`.
