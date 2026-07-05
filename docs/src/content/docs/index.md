@@ -1,5 +1,5 @@
 ---
-title: "THNDRS AI Agent"
+title: "thndrs"
 ---
 
 `thndrs` is an agentic coding harness meant to act as an LLM powered pair
@@ -17,15 +17,19 @@ inspecting a repository.
   support
 - Choose automatic web search, provider-native search, Exa-backed search, or
   [no provider-side](https://lectito.stormlightlabs.org/docs/) web search.
+- Agent Client Protocol support: use external ACP agents from the TUI, or run
+  `thndrs-acp-server` so editors and IDEs can drive the `thndrs` harness over
+  stdio.
+  - See [ACP](/usage/acp/) for agent configuration, editor setup, supported
+    capabilities, permission behavior, and troubleshooting.
 - Session history
 - Internal inspection for the agent
 
 ## Coming Soon
 
-- Better session observability
 - Read-only code-intelligence (LSP-based) tools such as document symbols,
   workspace symbols, go to definition, references, hover, and implementations.
-- Granular context control & file (markdown) backed memory
 - ChatGPT Codex provider support through `chatgpt-codex/` models and ChatGPT
   subscription auth.
-- Better config/session controls
+- Granular context control & file (markdown) backed memory
+- Better session observability & config/session controls

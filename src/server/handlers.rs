@@ -694,12 +694,16 @@ pub async fn run_stdio(config: ServerConfig) -> Result<()> {
         .on_receive_request(
             async move |request: PromptRequest, responder, connection: ConnectionTo<Client>| {
                 let state = prompt_state.clone();
-                match tokio::task::spawn_blocking(move || prompt(&state, &request, &connection)).await {
-                    Ok(Ok(response)) => responder.respond(response),
-                    Ok(Err(error)) => responder.respond_with_error(Error::invalid_params().data(error)),
-                    Err(error) => responder
-                        .respond_with_error(Error::internal_error().data(format!("ACP prompt task failed: {error}"))),
-                }
+                let prompt_connection = connection.clone();
+                connection.spawn(async move {
+                    match tokio::task::spawn_blocking(move || prompt(&state, &request, &prompt_connection)).await {
+                        Ok(Ok(response)) => responder.respond(response),
+                        Ok(Err(error)) => responder.respond_with_error(Error::invalid_params().data(error)),
+                        Err(error) => responder.respond_with_error(
+                            Error::internal_error().data(format!("ACP prompt task failed: {error}")),
+                        ),
+                    }
+                })
             },
             agent_client_protocol::on_receive_request!(),
         )
@@ -1032,10 +1036,10 @@ fn request_client_permission(
         options,
     );
     let (tx, rx) = mpsc::channel();
-    let sent = connection.send_request(permission);
     if connection
-        .spawn(async move {
-            let _ = tx.send(sent.block_task().await);
+        .send_request(permission)
+        .on_receiving_result(async move |result| {
+            let _ = tx.send(result);
             Ok(())
         })
         .is_err()

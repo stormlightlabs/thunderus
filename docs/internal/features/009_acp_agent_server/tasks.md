@@ -150,23 +150,27 @@ Captured: 2026-07-04
 
 ## M12: Editor Smoke Tests
 
-- [ ] Add a fake ACP client integration fixture.
-- [ ] Smoke `thndrs-acp-server` initialize/session/prompt with the fake client.
-- [ ] Smoke permission approval with the fake client.
-- [ ] Smoke cancellation with the fake client.
-- [ ] Smoke malformed request handling.
+- [x] Add a fake ACP client integration fixture.
+- [x] Smoke `thndrs-acp-server` initialize/session/prompt with the fake client.
+- [x] Smoke permission approval with the fake client.
+- [x] Smoke cancellation with the fake client.
+- [x] Smoke malformed request handling.
 - [ ] Manually test one real editor/client path once available.
-- [ ] Record tested client name/version/date in the docs or release notes.
+- [x] Record tested client name/version/date in the docs or release notes.
+
+Tested client record: local fake ACP client fixture `fake-client` 0.1.0 on
+2026-07-05. No real editor ACP client was available in this workspace during
+M12 implementation.
 
 ## M13: Docs
 
-- [ ] Document `thndrs-acp-server`.
-- [ ] Document stdio setup.
-- [ ] Document editor configuration examples.
-- [ ] Document supported ACP capabilities.
-- [ ] Document permission behavior.
-- [ ] Document session id mapping.
-- [ ] Document troubleshooting for stdout pollution, config failures,
+- [x] Document `thndrs-acp-server`.
+- [x] Document stdio setup.
+- [x] Document editor configuration examples.
+- [x] Document supported ACP capabilities.
+- [x] Document permission behavior.
+- [x] Document session id mapping.
+- [x] Document troubleshooting for stdout pollution, config failures,
       unsupported content, and permission cancellation.
 
 ## M14: Agent-Owned Resume

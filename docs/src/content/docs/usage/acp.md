@@ -9,6 +9,11 @@ workspace boundary, permission prompts, cancellation, and session records.
 ACP agents are configured in normal `thndrs` TOML config and selected with the
 model id form `acp:<name>`.
 
+`thndrs` can also act as an ACP agent server through `thndrs-acp-server`. In
+that mode an editor or IDE launches `thndrs`, sends ACP requests over stdio,
+and receives streamed session updates while the normal `thndrs` harness,
+providers, tools, project context, and session records do the work.
+
 ## Configuration
 
 Add one table per agent under `[acp_agents.<name>]` in `~/.thndrs/config.toml`
@@ -64,6 +69,67 @@ session JSONL.
 Unknown, disabled, malformed, or failing agents are reported as normal startup
 or run failures.
 
+## Running The Agent Server
+
+Use `thndrs-acp-server` when another ACP client, usually an editor, should drive
+the `thndrs` harness:
+
+```sh
+thndrs-acp-server --cwd /path/to/project
+```
+
+The server speaks newline-delimited ACP JSON-RPC over stdio. stdout is reserved
+for protocol messages only; diagnostics and tracing go to stderr. The process
+exits when stdin closes or the ACP connection shuts down.
+
+Supported flags:
+
+- `--cwd <path>`: default workspace when the client does not provide a more
+  specific session cwd.
+- `--model <model>`: provider model for new ACP sessions.
+- `--websearch <auto|native|exa|none>`: web search mode.
+- `--session-dir <path>`: directory for append-only local session JSONL files.
+
+The binary also reads the normal `thndrs` config layers. CLI flags override
+environment and TOML config.
+
+### Editor Setup
+
+Configure the editor's ACP agent command to launch the binary with stdio. The
+exact key names vary by client, but the shape should be:
+
+```json
+{ "agents": { "thndrs": { "command": "thndrs-acp-server", "args": ["--cwd", "/path/to/project"] } } }
+```
+
+For per-project use, prefer an absolute `--cwd` and keep provider credentials in
+the parent process environment or the workspace `.env` file. Do not wrap the
+server in commands that print banners or progress text to stdout.
+
+## Server Capabilities
+
+`thndrs-acp-server` supports these ACP v1 agent behaviors:
+
+- `initialize`, `session/new`, `session/prompt`, `session/cancel`, and
+  streamed `session/update`.
+- Agent-owned session lifecycle: `session/list`, `session/load`,
+  `session/resume`, `session/close`, and non-destructive `session/delete`.
+- Text prompts, image prompt blocks, resource links, and embedded text/blob
+  resources. Audio prompt blocks are rejected.
+- Session config options for model and web search mode.
+- Tool-call updates for read, search, edit, fetch, shell, thinking, and other
+  tools.
+- Permission requests before local file writes and shell commands.
+- Client filesystem callbacks when the client advertises `fs/read_text_file` or
+  `fs/write_text_file`.
+- Client terminal callbacks when the client advertises `terminal`.
+- Stdio MCP server config passed through `session/new`; HTTP and SSE MCP
+  transports are rejected.
+
+Unsupported content or malformed requests return protocol errors. If provider
+credentials or config are missing, the prompt fails as a normal agent failure
+and the error is reported through ACP updates and the final prompt response.
+
 ## Permission Prompts
 
 An ACP agent can ask the client to choose from agent-provided permission
@@ -75,6 +141,25 @@ prompt submission is blocked until the request is answered or cancelled.
 
 Permission request and outcome metadata are written to the local session record.
 Credentials and raw protocol stdio lines are not stored.
+
+When `thndrs-acp-server` is the agent, the direction is reversed:
+`thndrs-acp-server` asks the editor client for permission before file writes and
+shell commands. The initial options are allow once and reject once. Blanket
+approvals are not persisted. If the client rejects the request, cancels it, or
+disconnects before answering, the tool operation is rejected or the active prompt
+is cancelled.
+
+## Server Session Mapping
+
+ACP session ids are opaque client-facing ids such as
+`acp-session-00000001`. Local `thndrs` session ids remain separate and are used
+for JSONL files, inspect/export commands, and local audit records.
+
+When `--session-dir` is configured, each ACP-created session writes an
+`acp_session` metadata record containing the ACP session id, local session id,
+agent/server name, protocol version, and client info from `initialize`.
+Permission request and outcome records are written to the same local session
+log.
 
 ## Supported Capabilities
 
@@ -104,7 +189,6 @@ command failure:
 - ACP agents choosing arbitrary MCP servers outside the effective `thndrs` MCP
   config.
 - ACP registry install or update.
-- `thndrs` acting as an ACP agent server.
 - Client-owned ACP credential storage.
 - Unsaved editor buffer access.
 
@@ -113,13 +197,9 @@ command failure:
 List configured agents:
 
 ```sh
-thndrs acp list
-```
+$ thndrs acp list
 
-Output is tab-separated:
-
-```text
-codex    enabled    npx -y @zed-industries/codex-acp@latest
+codex   enabled    npx -y @zed-industries/codex-acp@latest
 ```
 
 Inspect one agent:
@@ -203,41 +283,3 @@ thndrs acp update codex --yes
 Use `--file registry.json` with either command to install or update from a
 local registry file. Existing manually configured ACP agents are not overwritten;
 only blocks previously created by `thndrs acp install` are updated.
-
-## Troubleshooting
-
-`ACP agent '<name>' is not configured`: add `[acp_agents.<name>]` to the
-effective config, or check that project config did not override the global
-entry.
-
-`ACP agent '<name>' is disabled`: set `enabled = true` or choose another agent.
-
-`command is required`: set `command` in the agent table. `args` cannot replace
-`command`.
-
-`secret-shaped key 'acp_agents.<name>.env.<KEY>' is not allowed`: remove the
-credential from TOML. Use the parent process environment, the agent's own auth
-flow, or a wrapper command.
-
-Spawn or command-not-found errors: use an absolute executable path or ensure the
-command is on the `PATH` used to launch `thndrs`.
-
-Authentication failures: run the agent's own login command if it has one, then
-retry. `thndrs` calls agent-owned ACP auth methods but does not store tokens,
-cookies, refresh state, or client-owned credentials.
-
-Initialize, session, or prompt timeouts: increase `timeout_secs` for slow
-startup or long prompts, and check the agent's stderr output.
-
-Protocol parse errors or hangs: the ACP child process must keep stdout
-protocol-clean. Logs, banners, progress text, and warnings should go to stderr.
-
-Unsupported protocol version: the current client path expects ACP v1.
-
-Unsupported terminal requests should not occur with current `thndrs`, because
-terminal capability is advertised and implemented. If an agent still fails
-terminal calls, inspect the command, cwd, and output limits in the status rows.
-
-Unsupported remote transport requests require a stdio bridge today. Remote and
-custom ACP transports are intentionally not configurable until a concrete agent
-or deployment needs them.

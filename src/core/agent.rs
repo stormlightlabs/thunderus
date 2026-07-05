@@ -41,11 +41,11 @@ const PROVIDER_RETRY_POLICY: RetryPolicy = RetryPolicy::new(4, Duration::from_mi
 
 /// Which provider drives this agent run.
 ///
-/// The live app uses Umans. The fake provider is kept for deterministic tests.
+/// The live app usually uses Umans or OpenCode Go. The fake provider is kept
+/// for deterministic offline smoke tests.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProviderKind {
     /// Deterministic fake provider, i.e. no network, scripted events.
-    #[cfg(test)]
     Fake,
     /// Umans Code provider
     Umans,
@@ -55,12 +55,17 @@ pub enum ProviderKind {
 
 impl ProviderKind {
     pub fn for_model(model: &str) -> Self {
-        if opencode::is_model_id(model) { ProviderKind::OpenCodeGo } else { ProviderKind::Umans }
+        if model.starts_with("fake-agent") {
+            ProviderKind::Fake
+        } else if opencode::is_model_id(model) {
+            ProviderKind::OpenCodeGo
+        } else {
+            ProviderKind::Umans
+        }
     }
 
     pub fn label(self) -> &'static str {
         match self {
-            #[cfg(test)]
             ProviderKind::Fake => "fake",
             ProviderKind::Umans => "umans",
             ProviderKind::OpenCodeGo => "opencode-go",
@@ -278,7 +283,6 @@ pub struct RunHandle {
 
 impl RunHandle {
     /// Create a fake-provider run handle.
-    #[cfg(test)]
     pub fn fake(config: AgentRunConfig, prompt: String) -> Self {
         RunHandle {
             provider: ProviderKind::Fake,
@@ -417,7 +421,6 @@ fn run_agent(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
     step();
 
     match handle.provider {
-        #[cfg(test)]
         ProviderKind::Fake => run_fake(handle, tx, cancel),
         ProviderKind::Umans => run_provider::<umans::UmansClient>(handle, tx, cancel),
         ProviderKind::OpenCodeGo => run_provider::<opencode::OpenCodeGoClient>(handle, tx, cancel),
@@ -1351,7 +1354,6 @@ fn step() {
 
 /// Deterministic fake provider: emits reasoning, a tool-use request, assistant
 /// text, and finishes. Demonstrates the tool dispatch path end-to-end.
-#[cfg(test)]
 fn run_fake(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
     if send(
         tx,
@@ -1373,6 +1375,16 @@ fn run_fake(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
         return;
     }
     step();
+
+    if handle.config.model == "fake-agent-slow" {
+        for _ in 0..200 {
+            if cancel.is_cancelled() {
+                let _ = send(tx, AgentEvent::Cancelled, cancel);
+                return;
+            }
+            step();
+        }
+    }
 
     if handle.config.search_mode != crate::cli::WebSearchMode::None {
         let search_req = ToolUseRequest::new(
@@ -1450,6 +1462,59 @@ fn run_fake(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
         return;
     }
     step();
+
+    if handle.config.model == "fake-agent-shell" {
+        let shell_req = ToolUseRequest::new(
+            String::from("run_shell"),
+            serde_json::json!({ "program": "printf", "args": ["acp-permission-smoke\n"] }).to_string(),
+            String::from("shell-0"),
+        );
+        let shell_id = String::from("shell-0");
+        if send(
+            tx,
+            AgentEvent::ToolStarted {
+                id: shell_id.clone(),
+                name: shell_req.name.clone(),
+                arguments: shell_req.arguments.clone(),
+            },
+            cancel,
+        )
+        .is_none()
+        {
+            return;
+        }
+        step();
+
+        let (shell_output, write_result, shell_result) = match approve_tool_request(&shell_req, handle, cancel) {
+            ToolPermissionDecision::Allow => dispatch_tool_request(&shell_req, handle, cancel),
+            ToolPermissionDecision::Reject => (
+                ToolOutput::failed(&shell_req.name, String::from("tool call rejected by ACP client")),
+                None,
+                None,
+            ),
+            ToolPermissionDecision::Cancelled => {
+                let _ = send(tx, AgentEvent::Cancelled, cancel);
+                return;
+            }
+        };
+        let shell_status = shell_output.status;
+        if send(
+            tx,
+            AgentEvent::ToolFinished {
+                id: shell_id,
+                output: shell_output.output,
+                status: shell_status,
+                write_result,
+                shell_result: shell_result.map(Box::new),
+            },
+            cancel,
+        )
+        .is_none()
+        {
+            return;
+        }
+        step();
+    }
 
     if send(tx, AgentEvent::AssistantDelta(String::from("This is a ")), cancel).is_none() {
         return;

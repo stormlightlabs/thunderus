@@ -30,6 +30,16 @@ configured under `[acp_agents.<name>]`. For more information see [ACP](/usage/ac
 - `thndrs acp install <registry-id> [--name <name>] [--file <path>] --yes`: add a supported registry agent to workspace ACP config and installed-agent metadata.
 - `thndrs acp update <name> [--file <path>] --yes`: update a registry-managed ACP agent in workspace ACP config and installed-agent metadata.
 
+## ACP Agent Server
+
+`thndrs-acp-server` exposes `thndrs` as an ACP stdio agent for editors and IDEs.
+stdout is protocol-only; diagnostics go to stderr.
+
+- `thndrs-acp-server --cwd <path>`: start the ACP server for a workspace.
+- `--model <model>`: provider model for new sessions.
+- `--websearch <auto|native|exa|none>`: web search provider policy.
+- `--session-dir <path>`: append-only local session JSONL directory.
+
 ## MCP Commands
 
 - `thndrs mcp list`: list configured MCP servers as
