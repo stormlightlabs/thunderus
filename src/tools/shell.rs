@@ -40,11 +40,13 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use super::{MAX_OUTPUT_BYTES, TIMEOUT_SECS, ToolOutput, path};
+use super::{MAX_OUTPUT_BYTES, TIMEOUT_SECS, ToolDefinition, ToolOutput, ToolUseRequest, path};
+use crate::tools::registry::{ToolContext, ToolError, ToolExecution};
 use crate::utils;
 
 /// Maximum number of output lines retained for the transcript/tool result.
 const MAX_OUTPUT_LINES: usize = 200;
+const NAME: &str = "run_shell";
 
 /// Outcome of waiting for a process, honoring timeout and cancellation.
 enum WaitOutcome {
@@ -361,6 +363,75 @@ impl ShellArgs {
     }
 }
 
+/// Provider-visible definition for `run_shell`.
+pub fn definition() -> ToolDefinition {
+    ToolDefinition {
+        name: NAME,
+        description: r#"run_shell
+
+Run a shell command in the workspace and capture stdout, stderr, and exit status.
+
+Prefer narrow tools when they fit: find_files, search_text, read_file_range,
+create_file, replace_range, read_url. Use for build, test, format, inspection.
+
+Runs as thndrs with its permissions — not sandboxed. Avoid destructive commands
+unless explicitly requested. argv only. Output is capped, truncated, and redacted.
+Timeouts enforced."#,
+        input_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "program": { "type": "string", "description": "The program to run (e.g. \"cargo\", \"ls\")." },
+                "args": { "type": "array", "items": { "type": "string" }, "description": "Argv after the program." },
+                "cwd": { "type": "string", "description": "Optional working directory relative to the workspace root." },
+                "timeout_secs": { "type": "integer", "description": "Timeout in seconds." },
+                "background": { "type": "boolean", "description": "If true, run as a long-lived background process." }
+            },
+            "required": ["program"]
+        }),
+    }
+}
+
+/// Parse provider JSON arguments for `run_shell`.
+pub fn parse_arguments(arguments: &str) -> Result<ShellArgs, ToolError> {
+    let args = serde_json::from_str::<serde_json::Value>(arguments).unwrap_or(serde_json::Value::Null);
+    let program = args
+        .get("program")
+        .and_then(|value| value.as_str())
+        .unwrap_or("")
+        .to_string();
+    let cmd_args = args
+        .get("args")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|value| value.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    let cwd = args.get("cwd").and_then(|value| value.as_str()).map(PathBuf::from);
+    let timeout_secs = args.get("timeout_secs").and_then(|value| value.as_u64());
+    let kind = if args
+        .get("background")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+    {
+        ProcessKind::Background
+    } else {
+        ProcessKind::OneShot
+    };
+
+    Ok(ShellArgs { program, args: cmd_args, cwd, timeout_secs, kind })
+}
+
+/// Execute a registry request for `run_shell`.
+pub fn execute_request(request: &ToolUseRequest, ctx: ToolContext<'_>) -> ToolExecution {
+    match parse_arguments(&request.arguments) {
+        Ok(args) => execute_args(&args, ctx.root),
+        Err(error) => ToolExecution::output(ToolOutput::failed(NAME, error.to_string())),
+    }
+}
+
 /// Run a shell command with streaming output capture, timeout, and
 /// cancellation.
 ///
@@ -438,18 +509,12 @@ pub fn run_command(args: &ShellArgs, root: &Path, cancel: &CancelFlag) -> Result
 /// This is the entry point wired into [`crate::tools::dispatch_tool`]. It runs
 /// `run_command` on the calling thread (the agent loop already runs on a
 /// background thread), then converts the result into a [`ToolOutput`].
+#[cfg(test)]
 pub fn exec(args: &ShellArgs, root: &Path) -> ToolOutput {
     let cancel = CancelFlag::new();
     match run_command(args, root, &cancel) {
-        Ok(result) => match result.status {
-            ProcessStatus::Ok => ToolOutput::ok("run_shell", result.to_output_lines()),
-            _ => {
-                let mut output = result.to_failed_output();
-                output.output = result.to_output_lines();
-                output
-            }
-        },
-        Err(e) => ToolOutput::failed("run_shell", e),
+        Ok(result) => output_from_result(&result),
+        Err(e) => ToolOutput::failed(NAME, e),
     }
 }
 
@@ -563,4 +628,27 @@ fn split_and_cap(buf: &[u8]) -> Vec<String> {
     }
 
     lines
+}
+
+fn execute_args(args: &ShellArgs, root: &Path) -> ToolExecution {
+    if args.program.is_empty() {
+        return ToolExecution::output(ToolOutput::failed(NAME, "missing or empty 'program' field".to_string()));
+    }
+
+    let cancel = CancelFlag::new();
+    match run_command(args, root, &cancel) {
+        Ok(result) => ToolExecution::full(output_from_result(&result), None, Some(result)),
+        Err(error) => ToolExecution::output(ToolOutput::failed(NAME, error)),
+    }
+}
+
+fn output_from_result(result: &ProcessResult) -> ToolOutput {
+    match result.status {
+        ProcessStatus::Ok => ToolOutput::ok(NAME, result.to_output_lines()),
+        _ => {
+            let mut output = result.to_failed_output();
+            output.output = result.to_output_lines();
+            output
+        }
+    }
 }

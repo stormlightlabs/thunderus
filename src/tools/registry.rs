@@ -2,10 +2,8 @@
 //!
 //! The registry is a thin typed boundary around the current tool
 //! implementations. Each entry has one stable model-visible name, one schema,
-//! one executor, and one valid example input. During the migration the
-//! executors delegate to the existing dispatch paths; later milestones can
-//! move parsing and execution into each tool module without changing provider
-//! catalog generation or the agent loop.
+//! one executor, and one valid example input. Built-in tools own their schemas,
+//! parsing, execution, and side-effect metadata in their tool modules.
 //!
 //! Provider schemas are derived from [`ToolDefinition`] through
 //! [`provider_tool_catalog_schemas`]. Structured side effects flow through
@@ -255,7 +253,7 @@ fn definition_for_name(name: &'static str) -> fn() -> ToolDefinition {
         "create_file" => super::create_file::definition,
         "replace_range" => super::replace_range::definition,
         "write_patch" => super::write_patch::definition,
-        "run_shell" => || super::legacy_tool_definition("run_shell").expect("registered definition"),
+        "run_shell" => super::shell::definition,
         other => panic!("missing registry definition for {other}"),
     }
 }
@@ -272,7 +270,7 @@ fn execute_for_name(name: &'static str) -> fn(&ToolUseRequest, ToolContext<'_>) 
         "create_file" => super::create_file::execute_request,
         "replace_range" => super::replace_range::execute_request,
         "write_patch" => super::write_patch::execute_request,
-        "run_shell" => execute_legacy,
+        "run_shell" => super::shell::execute_request,
         other => panic!("missing registry executor for {other}"),
     }
 }
@@ -282,9 +280,4 @@ fn example_for_name(name: &str) -> &'static str {
         .iter()
         .find_map(|(example_name, input)| (*example_name == name).then_some(*input))
         .expect("registered tool should have an example input")
-}
-
-fn execute_legacy(request: &ToolUseRequest, ctx: ToolContext<'_>) -> ToolExecution {
-    let (output, write_result, shell_result) = super::dispatch_full_legacy(request, ctx.root);
-    ToolExecution::full(output, write_result, shell_result)
 }

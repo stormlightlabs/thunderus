@@ -80,6 +80,7 @@ pub fn with_file_lock<T>(path: &Path, f: impl FnOnce() -> T) -> T {
 /// This is the backward-compatible single-edit entry point. New callers that
 /// need multiple disjoint edits in the same file should use [`exec_many`] so all
 /// replacements are validated against one original snapshot.
+#[cfg(test)]
 pub fn exec(path_str: &str, root: &Path, old_string: &str, new_string: &str) -> (ToolOutput, Option<WriteResult>) {
     exec_many(
         path_str,

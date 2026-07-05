@@ -36,7 +36,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::app::ToolStatus;
 use crate::cli::WebSearchMode;
-use crate::search;
 
 /// Maximum number of tool-call iterations per agent turn before the loop
 /// stops with a cap-exceeded error.
@@ -299,141 +298,6 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
     registry::tool_definitions()
 }
 
-fn legacy_tool_definitions() -> Vec<ToolDefinition> {
-    vec![
-        ToolDefinition {
-            name: "web_search",
-            description: r#"web_search
-
-Search the web for current information.
-
-Use this when the workspace does not contain the answer and you need external
-documentation, API specs, or current facts. Prefer reading local files and
-searching the workspace first. With native/exa modes, Umans executes server-side
-search; with none, a local DuckDuckGo HTML fallback is used. Pair results with
-read_url when page content is needed. Capped at 10 results by default."#,
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "query": { "type": "string", "description": "The search query." },
-                    "max_results": { "type": "integer", "description": "Maximum number of results to return." }
-                },
-                "required": ["query"]
-            }),
-        },
-        ToolDefinition {
-            name: "read_url",
-            description: r#"read_url
-
-Fetch a public HTTP/HTTPS URL and extract readable text.
-
-Use to read a page found via web_search or referenced in the workspace. Prefer
-local files when available. HTML is extracted to Markdown with Lectito; JSON,
-XML, plain text, feeds, and YAML are returned raw. Binary content is rejected.
-Private targets, redirects, and non-http(s) schemes are rejected. Size,
-redirects, and timeouts are capped; output may truncate."#,
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "url": { "type": "string", "description": "The public HTTP/HTTPS URL to fetch." }
-                },
-                "required": ["url"]
-            }),
-        },
-        ToolDefinition {
-            name: "create_file",
-            description: r#"create_file
-
-Create a new file with the given content.
-
-Use this for direct new-file writes. Prefer write_patch op=create when doing a
-mixed edit. Fails if the file exists. Paths are contained to the workspace root;
-escapes are rejected. Parent directories are created if needed."#,
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string", "description": "Path relative to the workspace root." },
-                    "content": { "type": "string", "description": "The full file content to write." }
-                },
-                "required": ["path", "content"]
-            }),
-        },
-        ToolDefinition {
-            name: "replace_range",
-            description: r#"replace_range
-
-Replace a unique exact string occurrence in an existing file.
-
-Use this for direct small edits. Prefer write_patch op=edit when doing a mixed
-edit. old_string must match exactly and once; include surrounding context for
-uniqueness. Paths are contained to the root; failed edits leave files unchanged."#,
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string", "description": "Path relative to the workspace root." },
-                    "old_string": { "type": "string", "description": "The exact string to find. Must appear exactly once." },
-                    "new_string": { "type": "string", "description": "The replacement string." },
-                    "expected_before_hash": { "type": "integer", "description": "Optional current-content hash guard." }
-                },
-                "required": ["path", "old_string", "new_string"]
-            }),
-        },
-        ToolDefinition {
-            name: "write_patch",
-            description: r#"write_patch
-
-Apply a structured patch to create, replace, or edit a file.
-
-Use this as the preferred file-write tool. Set op=create for new files, op=edit
-for exact replacements, or op=replace only for intentional whole-file rewrites.
-Supports multi-edit arrays and stale hash guards. Paths are contained; failures leave files unchanged."#,
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "op": { "type": "string", "enum": ["create", "replace", "edit"], "description": "The patch operation." },
-                    "path": { "type": "string", "description": "Path relative to the workspace root." },
-                    "content": { "type": "string", "description": "Full file content for create/replace ops." },
-                    "old_string": { "type": "string", "description": "The exact string to find for legacy single edit ops." },
-                    "new_string": { "type": "string", "description": "The replacement string for legacy single edit ops." },
-                    "edits": { "type": "array", "items": { "type": "object", "properties": { "old_string": { "type": "string" }, "new_string": { "type": "string" } }, "required": ["old_string", "new_string"] }, "description": "Multiple disjoint replacements for edit ops; all match the original file." },
-                    "expected_before_hash": { "type": "integer", "description": "Optional current-content hash guard for edit/replace ops." }
-                },
-                "required": ["op", "path"]
-            }),
-        },
-        ToolDefinition {
-            name: "run_shell",
-            description: r#"run_shell
-
-Run a shell command in the workspace and capture stdout, stderr, and exit status.
-
-Prefer narrow tools when they fit: find_files, search_text, read_file_range,
-create_file, replace_range, read_url. Use for build, test, format, inspection.
-
-Runs as thndrs with its permissions — not sandboxed. Avoid destructive commands
-unless explicitly requested. argv only. Output is capped, truncated, and redacted.
-Timeouts enforced."#,
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "program": { "type": "string", "description": "The program to run (e.g. \"cargo\", \"ls\")." },
-                    "args": { "type": "array", "items": { "type": "string" }, "description": "Argv after the program." },
-                    "cwd": { "type": "string", "description": "Optional working directory relative to the workspace root." },
-                    "timeout_secs": { "type": "integer", "description": "Timeout in seconds." },
-                    "background": { "type": "boolean", "description": "If true, run as a long-lived background process." }
-                },
-                "required": ["program"]
-            }),
-        },
-    ]
-}
-
-fn legacy_tool_definition(name: &str) -> Option<ToolDefinition> {
-    legacy_tool_definitions()
-        .into_iter()
-        .find(|definition| definition.name == name)
-}
-
 /// Convert the tool catalog into provider-compatible tool schemas.
 pub fn provider_tool_catalog_schemas(defs: &[ToolDefinition], format: ProviderSchemaFormat) -> serde_json::Value {
     registry::provider_tool_catalog_schemas(defs, format)
@@ -470,7 +334,7 @@ pub fn sorted_json_value(value: &serde_json::Value) -> serde_json::Value {
     }
 }
 
-/// Dispatch a provider tool-use request to the matching read-only tool
+/// Dispatch a provider tool-use request to the matching registered tool
 /// and execute it against `root`.
 ///
 /// Unknown tool names produce a failed [`ToolOutput`]. Argument parsing is
@@ -479,100 +343,6 @@ pub fn sorted_json_value(value: &serde_json::Value) -> serde_json::Value {
 #[allow(dead_code)]
 pub fn dispatch_tool(request: &ToolUseRequest, root: &Path) -> ToolOutput {
     registry::execute(request, registry::ToolContext::new(root)).output
-}
-
-fn dispatch_tool_legacy(request: &ToolUseRequest, root: &Path) -> ToolOutput {
-    let args = serde_json::from_str(&request.arguments).unwrap_or(serde_json::Value::Null);
-
-    match request.name.as_str() {
-        "web_search" => {
-            let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
-            let max_results = args
-                .get("max_results")
-                .and_then(|v| v.as_u64())
-                .map(|n| n as usize)
-                .unwrap_or(search::DEFAULT_SEARCH_LIMIT);
-
-            match search::search_duckduckgo(query, max_results) {
-                Ok(results) if results.is_empty() => ToolOutput::ok("web_search", vec!["no results found".to_string()]),
-                Ok(results) => ToolOutput::ok("web_search", search::format_search_results(&results)),
-                Err(e) => ToolOutput::failed("web_search", e.to_string()),
-            }
-        }
-        "read_url" => {
-            let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("");
-            match search::fetch_url(url) {
-                Ok(content) => {
-                    let mut lines = vec![
-                        format!("title: {}", content.title),
-                        format!("url: {}", content.final_url),
-                        format!("status: {}", content.status),
-                    ];
-                    if content.truncated {
-                        lines.push("(content truncated)".to_string());
-                    }
-                    lines.push(format!("diagnostics: {}", content.diagnostics.join(", ")));
-                    lines.push(content.markdown);
-                    ToolOutput::ok("read_url", lines)
-                }
-                Err(e) => ToolOutput::failed("read_url", e.to_string()),
-            }
-        }
-        "create_file" => {
-            let path_str = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
-            let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
-            create_file::exec(path_str, root, content).0
-        }
-        "replace_range" => {
-            let path_str = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
-            let old_string = args.get("old_string").and_then(|v| v.as_str()).unwrap_or("");
-            let new_string = args.get("new_string").and_then(|v| v.as_str()).unwrap_or("");
-            let expected_before_hash = args.get("expected_before_hash").and_then(|v| v.as_u64());
-            if let Some(expected_before_hash) = expected_before_hash {
-                replace_range::exec_many(
-                    path_str,
-                    root,
-                    &[replace_range::Replacement {
-                        old_string: old_string.to_string(),
-                        new_string: new_string.to_string(),
-                    }],
-                    Some(expected_before_hash),
-                )
-                .0
-            } else {
-                replace_range::exec(path_str, root, old_string, new_string).0
-            }
-        }
-        "write_patch" => match write_patch::Patch::from_json(&request.arguments) {
-            Ok(patch) => write_patch::exec(&patch, root).0,
-            Err(e) => ToolOutput::failed("write_patch", e),
-        },
-        "run_shell" => {
-            let program = args.get("program").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let cmd_args: Vec<String> = args
-                .get("args")
-                .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-                .unwrap_or_default();
-            let cwd = args.get("cwd").and_then(|v| v.as_str()).map(PathBuf::from);
-            let timeout_secs = args.get("timeout_secs").and_then(|v| v.as_u64());
-            let kind = if args.get("background").and_then(|v| v.as_bool()).unwrap_or(false) {
-                shell::ProcessKind::Background
-            } else {
-                shell::ProcessKind::OneShot
-            };
-
-            if program.is_empty() {
-                ToolOutput::failed("run_shell", "missing or empty 'program' field".to_string())
-            } else {
-                shell::exec(
-                    &shell::ShellArgs { program, args: cmd_args, cwd, timeout_secs, kind },
-                    root,
-                )
-            }
-        }
-        other => ToolOutput::failed(other, format!("unknown tool: {other}")),
-    }
 }
 
 /// Dispatch a tool-use request that may produce a file write.
@@ -586,66 +356,16 @@ pub fn dispatch_write(request: &ToolUseRequest, root: &Path) -> (ToolOutput, Opt
     (execution.output, execution.write_result)
 }
 
-fn dispatch_write_legacy(request: &ToolUseRequest, root: &Path) -> (ToolOutput, Option<WriteResult>) {
-    let args = serde_json::from_str(&request.arguments).unwrap_or(serde_json::Value::Null);
-
-    match request.name.as_str() {
-        "create_file" => {
-            let path_str = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
-            let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
-            create_file::exec(path_str, root, content)
-        }
-        "replace_range" => {
-            let path_str = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
-            let old_string = args.get("old_string").and_then(|v| v.as_str()).unwrap_or("");
-            let new_string = args.get("new_string").and_then(|v| v.as_str()).unwrap_or("");
-            let expected_before_hash = args.get("expected_before_hash").and_then(|v| v.as_u64());
-            if let Some(expected_before_hash) = expected_before_hash {
-                replace_range::exec_many(
-                    path_str,
-                    root,
-                    &[replace_range::Replacement {
-                        old_string: old_string.to_string(),
-                        new_string: new_string.to_string(),
-                    }],
-                    Some(expected_before_hash),
-                )
-            } else {
-                replace_range::exec(path_str, root, old_string, new_string)
-            }
-        }
-        "write_patch" => match write_patch::Patch::from_json(&request.arguments) {
-            Ok(patch) => write_patch::exec(&patch, root),
-            Err(e) => (ToolOutput::failed("write_patch", e), None),
-        },
-        _ => (dispatch_tool_legacy(request, root), None),
-    }
-}
-
 /// Dispatch a provider tool-use request, returning the tool output, an optional
 /// file-write result, and an optional shell-execution result.
 ///
-/// This is the unified entry point for the agent loop: it delegates to
-/// [`dispatch_write`] for file-write tools and [`shell::run_command`] for
-/// `run_shell`, returning all structured side effects alongside the
-/// [`ToolOutput`].
+/// This is the unified entry point for the agent loop, returning all structured
+/// side effects alongside the [`ToolOutput`].
 pub fn dispatch_full(
     request: &ToolUseRequest, root: &Path,
 ) -> (ToolOutput, Option<WriteResult>, Option<shell::ProcessResult>) {
     let execution = registry::execute(request, registry::ToolContext::new(root));
     (execution.output, execution.write_result, execution.shell_result)
-}
-
-fn dispatch_full_legacy(
-    request: &ToolUseRequest, root: &Path,
-) -> (ToolOutput, Option<WriteResult>, Option<shell::ProcessResult>) {
-    if request.name == "run_shell" {
-        let (output, result) = dispatch_shell(request, root);
-        return (output, None, result);
-    }
-
-    let (output, write_result) = dispatch_write_legacy(request, root);
-    (output, write_result, None)
 }
 
 /// Return searchable file paths for UI features that need file selection.
@@ -669,51 +389,6 @@ fn normalize_tool_path(root: &Path, path: &str) -> String {
         .unwrap_or(&path_buf)
         .to_string_lossy()
         .to_string()
-}
-
-/// Dispatch a `run_shell` tool-use request and return the tool output plus the
-/// structured [`shell::ProcessResult`] for session audit.
-fn dispatch_shell(request: &ToolUseRequest, root: &Path) -> (ToolOutput, Option<shell::ProcessResult>) {
-    let args = serde_json::from_str(&request.arguments).unwrap_or(serde_json::Value::Null);
-
-    let program = args.get("program").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let cmd_args: Vec<String> = args
-        .get("args")
-        .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-        .unwrap_or_default();
-    let cwd = args.get("cwd").and_then(|v| v.as_str()).map(PathBuf::from);
-    let timeout_secs = args.get("timeout_secs").and_then(|v| v.as_u64());
-    let kind = if args.get("background").and_then(|v| v.as_bool()).unwrap_or(false) {
-        shell::ProcessKind::Background
-    } else {
-        shell::ProcessKind::OneShot
-    };
-
-    if program.is_empty() {
-        return (
-            ToolOutput::failed("run_shell", "missing or empty 'program' field".to_string()),
-            None,
-        );
-    }
-
-    let shell_args = shell::ShellArgs { program, args: cmd_args, cwd, timeout_secs, kind };
-    let cancel = shell::CancelFlag::new();
-
-    match shell::run_command(&shell_args, root, &cancel) {
-        Ok(result) => {
-            let output = match result.status {
-                shell::ProcessStatus::Ok => ToolOutput::ok("run_shell", result.to_output_lines()),
-                _ => {
-                    let mut output = result.to_failed_output();
-                    output.output = result.to_output_lines();
-                    output
-                }
-            };
-            (output, Some(result))
-        }
-        Err(e) => (ToolOutput::failed("run_shell", e), None),
-    }
 }
 
 #[cfg(test)]

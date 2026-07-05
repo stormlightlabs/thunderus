@@ -61,15 +61,15 @@ Captured: 2026-07-04
 
 ## P5: Move Shell Tool
 
-- [ ] Move `run_shell` schema into `shell` module.
-- [ ] Preserve argv-only execution.
-- [ ] Preserve working-directory containment.
-- [ ] Preserve timeout and truncation behavior.
-- [ ] Preserve background process registration.
-- [ ] Preserve shell audit metadata.
-- [ ] Add registry execution tests for foreground commands.
-- [ ] Add registry execution tests for background commands.
-- [ ] Add session tests proving shell side effects are recorded.
+- [x] Move `run_shell` schema into `shell` module.
+- [x] Preserve argv-only execution.
+- [x] Preserve working-directory containment.
+- [x] Preserve timeout and truncation behavior.
+- [x] Preserve background process registration.
+- [x] Preserve shell audit metadata.
+- [x] Add registry execution tests for foreground commands.
+- [x] Add registry execution tests for background commands.
+- [x] Add session tests proving shell side effects are recorded.
 
 ## P6: Delete Central Dispatch
 

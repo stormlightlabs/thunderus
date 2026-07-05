@@ -1577,6 +1577,36 @@ fn append_shell_exec_persists_metadata() {
 }
 
 #[test]
+fn registry_shell_side_effect_persists_to_session_record() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let workspace = dir.path().join("workspace");
+    std::fs::create_dir(&workspace).expect("create workspace");
+    let sessions = dir.path().join("sessions");
+    std::fs::create_dir(&sessions).expect("create sessions");
+
+    let request = tools::ToolUseRequest::new(
+        "run_shell".to_string(),
+        r#"{"program":"echo","args":["audit"]}"#.to_string(),
+        "call_1".to_string(),
+    );
+    let (output, write_result, shell_result) = tools::dispatch_full(&request, &workspace);
+    let shell_result = shell_result.expect("registry shell should return audit metadata");
+    assert_eq!(output.status, ToolStatus::Ok);
+    assert!(write_result.is_none());
+
+    let mut writer = test_writer(&sessions, "registry-shell-session");
+    writer
+        .append_shell_exec("turn_1", &shell_result)
+        .expect("append shell exec");
+
+    let content = std::fs::read_to_string(writer.path()).expect("read session");
+    assert!(content.contains("\"type\":\"shell_exec\""));
+    assert!(content.contains("echo audit"));
+    assert!(content.contains("\"ok\""));
+    assert!(content.contains("\"one-shot\""));
+}
+
+#[test]
 fn append_shell_exec_round_trip_for_timeout() {
     let dir = tempfile::tempdir().expect("temp dir");
     let mut writer = test_writer(dir.path(), "shell-timeout-session");

@@ -1,6 +1,6 @@
 use crate::app::{Entry, ToolStatus};
 use crate::session::{SessionReader, SessionRecord, SessionWriter};
-use crate::tools::MAX_LINE_LEN;
+use crate::tools::{self, MAX_LINE_LEN};
 
 use super::*;
 
@@ -636,6 +636,107 @@ fn exec_includes_command_summary_in_output() {
 fn shell_args_argv_joins_program_and_args() {
     let args = one_shot("cargo", vec!["test".to_string(), "--lib".to_string()]);
     assert_eq!(args.argv(), vec!["cargo", "test", "--lib"]);
+}
+
+#[test]
+fn parse_arguments_reads_all_fields() {
+    let args = parse_arguments(
+        r#"{"program":"cargo","args":["test","tools"],"cwd":"src","timeout_secs":7,"background":true}"#,
+    )
+    .expect("parse");
+
+    assert_eq!(args.program, "cargo");
+    assert_eq!(args.args, vec!["test".to_string(), "tools".to_string()]);
+    assert_eq!(args.cwd, Some(PathBuf::from("src")));
+    assert_eq!(args.timeout_secs, Some(7));
+    assert_eq!(args.kind, ProcessKind::Background);
+}
+
+#[test]
+fn parse_arguments_malformed_json_uses_safe_defaults() {
+    let args = parse_arguments("not json").expect("parse");
+
+    assert_eq!(args.program, "");
+    assert!(args.args.is_empty());
+    assert!(args.cwd.is_none());
+    assert!(args.timeout_secs.is_none());
+    assert_eq!(args.kind, ProcessKind::OneShot);
+}
+
+#[test]
+fn registry_execute_foreground_command_returns_shell_result() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let request = tools::ToolUseRequest::new(
+        "run_shell".to_string(),
+        r#"{"program":"echo","args":["hello"]}"#.to_string(),
+        "call_1".to_string(),
+    );
+
+    let execution = tools::registry::execute(&request, tools::registry::ToolContext::new(dir.path()));
+
+    assert_eq!(execution.output.status, ToolStatus::Ok);
+    let result = execution.shell_result.expect("shell audit metadata");
+    assert_eq!(result.kind, ProcessKind::OneShot);
+    assert_eq!(result.status, ProcessStatus::Ok);
+    assert_eq!(result.stdout, vec!["hello".to_string()]);
+}
+
+#[test]
+fn registry_execute_background_command_preserves_kind_for_registration() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let request = tools::ToolUseRequest::new(
+        "run_shell".to_string(),
+        r#"{"program":"echo","args":["background"],"background":true}"#.to_string(),
+        "call_1".to_string(),
+    );
+
+    let execution = tools::registry::execute(&request, tools::registry::ToolContext::new(dir.path()));
+
+    assert_eq!(execution.output.status, ToolStatus::Ok);
+    let result = execution.shell_result.expect("shell audit metadata");
+    assert_eq!(result.kind, ProcessKind::Background);
+    assert_eq!(result.stdout, vec!["background".to_string()]);
+}
+
+#[test]
+fn registry_execute_missing_program_fails_without_shell_result() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let request = tools::ToolUseRequest::new("run_shell".to_string(), r#"{}"#.to_string(), "call_1".to_string());
+
+    let execution = tools::registry::execute(&request, tools::registry::ToolContext::new(dir.path()));
+
+    assert_eq!(execution.output.status, ToolStatus::Failed);
+    assert!(execution.shell_result.is_none());
+    assert!(
+        execution
+            .output
+            .error
+            .as_ref()
+            .is_some_and(|error| error.contains("missing or empty 'program' field"))
+    );
+}
+
+#[test]
+fn registry_execute_rejects_cwd_escape() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let parent = dir.path().parent().unwrap();
+    let request = tools::ToolUseRequest::new(
+        "run_shell".to_string(),
+        format!(r#"{{"program":"echo","cwd":"{}"}}"#, parent.display()),
+        "call_1".to_string(),
+    );
+
+    let execution = tools::registry::execute(&request, tools::registry::ToolContext::new(dir.path()));
+
+    assert_eq!(execution.output.status, ToolStatus::Failed);
+    assert!(execution.shell_result.is_none());
+    assert!(
+        execution
+            .output
+            .error
+            .as_ref()
+            .is_some_and(|error| error.contains("escapes workspace root"))
+    );
 }
 
 /// The shell module never exposes a shell-string execution path. Commands
