@@ -108,22 +108,22 @@ Captured: 2026-07-04
 - [x] Include safe raw input when useful.
 - [x] Cap and redact raw input/output.
 - [x] Include file locations when available.
-- [ ] Before file writes, call `session/request_permission`.
-- [ ] Before shell commands, call `session/request_permission`.
-- [ ] Reject the tool operation when permission is cancelled or rejected.
-- [ ] Add tests for approved write, rejected write, approved shell, rejected
+- [x] Before file writes, call `session/request_permission`.
+- [x] Before shell commands, call `session/request_permission`.
+- [x] Reject the tool operation when permission is cancelled or rejected.
+- [x] Add tests for approved write, rejected write, approved shell, rejected
       shell, and permission cancellation.
 
 ## M9: Cancellation
 
 - [x] Register `session/cancel` handling.
 - [x] Cancel the active harness turn for the ACP session.
-- [ ] Cancel pending permission requests.
+- [x] Cancel pending permission requests.
 - [x] Return a cancelled prompt response or protocol cancellation error
       according to SDK/schema behavior.
 - [x] Preserve partial session updates already sent.
 - [x] Record cancellation in local session JSONL.
-- [ ] Add tests for prompt cancellation, permission cancellation, and
+- [x] Add tests for prompt cancellation, permission cancellation, and
       cancellation after completion.
 
 ## M10: Config Options

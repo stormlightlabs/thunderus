@@ -719,8 +719,34 @@ fn cancel_session_records_local_session_jsonl_when_enabled() {
     let session_dir = tempdir().expect("temp session dir");
     let state = state_for_tests(workspace.path().to_path_buf(), Some(session_dir.path().to_path_buf()));
     let session_id = state.create_session(workspace.path()).expect("session created");
+    let token = CancelToken::new();
+    let (event_tx, event_rx) = mpsc::channel();
+    let event_rx = Arc::new(Mutex::new(Some(event_rx)));
+    let (started_tx, started_rx) = mpsc::channel();
+    let token_for_turn = token.clone();
+    let state_for_turn = state.clone();
+    let session_for_turn = session_id.clone();
+    let turn_thread = thread::spawn(move || {
+        execute_prompt(
+            &state_for_turn,
+            &PromptRequest::new(
+                session_for_turn,
+                vec![ContentBlock::Text(TextContent::new("long turn"))],
+            ),
+            |_intent| Ok(()),
+            move |_config, _messages, _expects_write, _prompt| {
+                started_tx.send(()).expect("turn started");
+                let mut guard = event_rx.lock().expect("acquire harness event channel");
+                HarnessHandle { events: guard.take().expect("event receiver available"), cancel: token_for_turn }
+            },
+        )
+    });
 
+    started_rx.recv().expect("turn running");
     state.cancel_session(&session_id);
+    event_tx.send(AgentEvent::Finished).expect("finish turn");
+    let response = turn_thread.join().expect("turn thread").expect("turn response");
+    assert_eq!(response.stop_reason, StopReason::Cancelled);
 
     let payload = std::fs::read_dir(session_dir.path())
         .expect("read session dir")
@@ -731,6 +757,36 @@ fn cancel_session_records_local_session_jsonl_when_enabled() {
         .expect("session jsonl payload");
     assert!(payload.contains("\"type\":\"cancelled\""));
     assert!(payload.contains("cancelled by ACP client"));
+}
+
+#[test]
+fn cancel_after_completion_does_not_cancel_next_prompt() {
+    let workspace = tempdir().expect("temp workspace");
+    let state = state_for_tests(workspace.path().to_path_buf(), None);
+    let session_id = state.create_session(workspace.path()).expect("session created");
+
+    let first = execute_prompt(
+        &state,
+        &PromptRequest::new(
+            session_id.clone(),
+            vec![ContentBlock::Text(TextContent::new("first prompt"))],
+        ),
+        |_intent| Ok(()),
+        |config, _messages, _expects_write, _prompt| HarnessTurn::fake(config, String::new()).start(),
+    )
+    .expect("first turn succeeds");
+    assert_eq!(first.stop_reason, StopReason::EndTurn);
+
+    state.cancel_session(&session_id);
+
+    let second = execute_prompt(
+        &state,
+        &PromptRequest::new(session_id, vec![ContentBlock::Text(TextContent::new("second prompt"))]),
+        |_intent| Ok(()),
+        |config, _messages, _expects_write, _prompt| HarnessTurn::fake(config, String::new()).start(),
+    )
+    .expect("second turn succeeds");
+    assert_eq!(second.stop_reason, StopReason::EndTurn);
 }
 
 #[test]

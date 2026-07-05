@@ -35,7 +35,7 @@ use crate::providers::{
     ProviderContentBlock, ProviderError, ProviderMessage, ProviderTurn, StreamFormat, StreamingProvider,
 };
 use crate::providers::{anthropic, openai, opencode, umans};
-use crate::tools::{self, AgentRunConfig, ToolUseRequest};
+use crate::tools::{self, AgentRunConfig, ToolOutput, ToolUseRequest};
 
 const PROVIDER_RETRY_POLICY: RetryPolicy = RetryPolicy::new(4, Duration::from_millis(2500));
 
@@ -127,6 +127,45 @@ impl CancelToken {
     }
 }
 
+/// Decision returned by a tool permission hook.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ToolPermissionDecision {
+    /// The tool call may execute.
+    Allow,
+    /// The tool call must be rejected before execution.
+    Reject,
+    /// The prompt turn was cancelled while waiting for permission.
+    Cancelled,
+}
+
+type ToolPermissionCallback =
+    dyn Fn(&ToolUseRequest, &AgentRunConfig, &CancelToken) -> ToolPermissionDecision + Send + Sync;
+
+/// Hook used by headless front ends to approve sensitive tool calls.
+#[derive(Clone)]
+pub struct ToolPermissionHook(Arc<ToolPermissionCallback>);
+
+impl ToolPermissionHook {
+    /// Create a permission hook from a callback.
+    pub fn new(
+        callback: impl Fn(&ToolUseRequest, &AgentRunConfig, &CancelToken) -> ToolPermissionDecision + Send + Sync + 'static,
+    ) -> Self {
+        Self(Arc::new(callback))
+    }
+
+    fn decide(
+        &self, request: &ToolUseRequest, config: &AgentRunConfig, cancel: &CancelToken,
+    ) -> ToolPermissionDecision {
+        (self.0)(request, config, cancel)
+    }
+}
+
+impl std::fmt::Debug for ToolPermissionHook {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ToolPermissionHook(..)")
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RetryPolicy {
     pub max_retries: u32,
@@ -194,6 +233,7 @@ pub struct RunHandle {
     pub expects_write: bool,
     pub steering: Option<Receiver<String>>,
     pub cancel: CancelToken,
+    pub permission_hook: Option<ToolPermissionHook>,
 }
 
 impl RunHandle {
@@ -208,6 +248,7 @@ impl RunHandle {
             expects_write: false,
             steering: None,
             cancel: CancelToken::new(),
+            permission_hook: None,
         }
     }
 
@@ -224,7 +265,14 @@ impl RunHandle {
             expects_write,
             steering: Some(steering),
             cancel: CancelToken::new(),
+            permission_hook: None,
         }
+    }
+
+    /// Attach a permission hook for sensitive tool calls.
+    pub fn with_permission_hook(mut self, hook: ToolPermissionHook) -> Self {
+        self.permission_hook = Some(hook);
+        self
     }
 }
 
@@ -571,8 +619,20 @@ where
                 return;
             }
 
-            let (output, write_result, shell_result) =
-                tools::dispatch_runtime_full(req, &handle.config.root, handle.config.mcp_manager.as_deref());
+            let (output, write_result, shell_result) = match approve_tool_request(req, handle, cancel) {
+                ToolPermissionDecision::Allow => {
+                    tools::dispatch_runtime_full(req, &handle.config.root, handle.config.mcp_manager.as_deref())
+                }
+                ToolPermissionDecision::Reject => (
+                    ToolOutput::failed(&req.name, String::from("tool call rejected by ACP client")),
+                    None,
+                    None,
+                ),
+                ToolPermissionDecision::Cancelled => {
+                    let _ = send(tx, AgentEvent::Cancelled, cancel);
+                    return;
+                }
+            };
             let status = output.status;
             if write_result.is_some() && status == ToolStatus::Ok {
                 wrote_file = true;
@@ -610,6 +670,20 @@ where
         messages.extend(tool_results);
         append_steering_messages(&mut messages, handle);
     }
+}
+
+fn approve_tool_request(request: &ToolUseRequest, handle: &RunHandle, cancel: &CancelToken) -> ToolPermissionDecision {
+    if !requires_runtime_permission(&request.name) {
+        return ToolPermissionDecision::Allow;
+    }
+    let Some(hook) = &handle.permission_hook else {
+        return ToolPermissionDecision::Allow;
+    };
+    hook.decide(request, &handle.config, cancel)
+}
+
+fn requires_runtime_permission(tool_name: &str) -> bool {
+    matches!(tool_name, "create_file" | "replace_range" | "write_patch" | "run_shell")
 }
 
 fn load_provider_metadata<P>(
@@ -1690,6 +1764,66 @@ mod tests {
         assert_eq!(messages[0].role, "user");
         assert!(messages[0].as_text().contains("[steering]"));
         assert!(messages[0].as_text().contains("look at tests first"));
+    }
+
+    fn handle_with_permission(decision: ToolPermissionDecision) -> RunHandle {
+        let (_tx, rx) = mpsc::channel();
+        RunHandle::provider_with_steering(config(), Vec::new(), false, rx)
+            .with_permission_hook(ToolPermissionHook::new(move |_request, _config, _cancel| decision))
+    }
+
+    fn approve_request(name: &str, decision: ToolPermissionDecision) -> ToolPermissionDecision {
+        let request = ToolUseRequest::new(name.to_string(), "{}".to_string(), "tool-1".to_string());
+        let handle = handle_with_permission(decision);
+        approve_tool_request(&request, &handle, &CancelToken::new())
+    }
+
+    #[test]
+    fn permission_hook_allows_file_write_tool() {
+        assert_eq!(
+            approve_request("create_file", ToolPermissionDecision::Allow),
+            ToolPermissionDecision::Allow
+        );
+    }
+
+    #[test]
+    fn permission_hook_rejects_file_write_tool() {
+        assert_eq!(
+            approve_request("replace_range", ToolPermissionDecision::Reject),
+            ToolPermissionDecision::Reject
+        );
+    }
+
+    #[test]
+    fn permission_hook_allows_shell_tool() {
+        assert_eq!(
+            approve_request("run_shell", ToolPermissionDecision::Allow),
+            ToolPermissionDecision::Allow
+        );
+    }
+
+    #[test]
+    fn permission_hook_rejects_shell_tool() {
+        assert_eq!(
+            approve_request("run_shell", ToolPermissionDecision::Reject),
+            ToolPermissionDecision::Reject
+        );
+    }
+
+    #[test]
+    fn permission_hook_cancels_sensitive_tool() {
+        assert_eq!(
+            approve_request("write_patch", ToolPermissionDecision::Cancelled),
+            ToolPermissionDecision::Cancelled
+        );
+    }
+
+    #[test]
+    fn read_only_tool_bypasses_permission_hook() {
+        assert_eq!(
+            approve_request("read_file_range", ToolPermissionDecision::Reject),
+            ToolPermissionDecision::Allow
+        );
     }
 
     #[test]

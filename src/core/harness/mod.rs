@@ -6,7 +6,7 @@
 
 use std::sync::mpsc::Receiver;
 
-use crate::agent::{self, CancelToken, RunHandle};
+use crate::agent::{self, CancelToken, RunHandle, ToolPermissionHook};
 use crate::app::AgentEvent;
 use crate::providers::ProviderMessage;
 use crate::tools::AgentRunConfig;
@@ -42,6 +42,17 @@ impl HarnessTurn {
             expects_write,
             steering,
         ))
+    }
+
+    /// Build a provider-backed harness turn with optional steering and tool permission review.
+    pub fn provider_with_steering_and_permissions(
+        config: AgentRunConfig, messages: Vec<ProviderMessage>, expects_write: bool, steering: Receiver<String>,
+        permission_hook: ToolPermissionHook,
+    ) -> Self {
+        Self::from_run_handle(
+            RunHandle::provider_with_steering(config, messages, expects_write, steering)
+                .with_permission_hook(permission_hook),
+        )
     }
 
     /// Create and start the turn, returning the event stream and cancel handle.

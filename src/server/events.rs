@@ -368,7 +368,7 @@ fn tool_call_location((path, line): (String, Option<u32>)) -> Option<ToolCallLoc
     Some(ToolCallLocation::new(trimmed).line(line))
 }
 
-fn sanitize_tool_payload(payload: &str) -> String {
+pub(crate) fn sanitize_tool_payload(payload: &str) -> String {
     sanitize_tool_text(payload)
 }
 

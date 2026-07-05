@@ -3,13 +3,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex, mpsc};
+use std::time::Duration;
 
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1::{
     AgentCapabilities, CancelNotification, Content, ContentBlock, ContentChunk, Implementation, InitializeRequest,
-    InitializeResponse, McpCapabilities, NewSessionRequest, NewSessionResponse, PromptCapabilities, PromptRequest,
-    PromptResponse, SessionCapabilities, SessionNotification, SessionUpdate, StopReason, TextContent, ToolCall,
-    ToolCallContent, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, UsageUpdate,
+    InitializeResponse, McpCapabilities, NewSessionRequest, NewSessionResponse, PermissionOption, PermissionOptionKind,
+    PromptCapabilities, PromptRequest, PromptResponse, RequestPermissionOutcome, RequestPermissionRequest,
+    SessionCapabilities, SessionNotification, SessionUpdate, StopReason, TextContent, ToolCall, ToolCallContent,
+    ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, UsageUpdate,
 };
 use agent_client_protocol::{Agent, Client, ConnectionTo, Dispatch, Error, Lines, Result};
 use futures::channel::oneshot;
@@ -17,17 +19,20 @@ use futures::future::{Either, select};
 use futures::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, FutureExt, Sink, Stream, StreamExt};
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
-use crate::agent::CancelToken;
 use crate::agent::prompt_expects_workspace_write;
+use crate::agent::{CancelToken, ToolPermissionDecision, ToolPermissionHook};
 use crate::app::AgentEvent;
 use crate::cli::WebSearchMode;
 use crate::harness::HarnessHandle;
 use crate::prompt;
 use crate::server::ServerConfig;
-use crate::server::events::{SessionUpdateIntent, map_agent_event};
+use crate::server::events::{SessionUpdateIntent, classify_tool, map_agent_event, sanitize_tool_payload};
 use crate::server::session::{AcpServerSession, AcpSessionStore, validate_and_normalize_cwd};
 use crate::session::{AcpSessionMetadata, SCHEMA_VERSION, SessionRecord, SessionWriter};
 use crate::tools::AgentRunConfig;
+use crate::tools::ToolUseRequest;
+
+const PERMISSION_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Shared handler state for one ACP stdio server process.
 #[derive(Clone, Debug)]
@@ -156,6 +161,9 @@ impl ServerState {
     /// Mark a known session cancelled.
     pub fn cancel_session(&self, session_id: &str) {
         if let Ok(mut inner) = self.inner.lock() {
+            if !inner.sessions.is_turn_active(session_id) {
+                return;
+            }
             let first_cancel = inner.cancelled.insert(session_id.to_string());
             if let Some(token) = inner.active_turn_cancels.remove(session_id) {
                 token.cancel();
@@ -237,13 +245,14 @@ pub async fn run_stdio(config: ServerConfig) -> Result<()> {
             agent_client_protocol::on_receive_request!(),
         )
         .on_receive_request(
-            async move |request: PromptRequest, responder, connection: ConnectionTo<Client>| match prompt(
-                &prompt_state,
-                &request,
-                &connection,
-            ) {
-                Ok(response) => responder.respond(response),
-                Err(error) => responder.respond_with_error(Error::invalid_params().data(error)),
+            async move |request: PromptRequest, responder, connection: ConnectionTo<Client>| {
+                let state = prompt_state.clone();
+                match tokio::task::spawn_blocking(move || prompt(&state, &request, &connection)).await {
+                    Ok(Ok(response)) => responder.respond(response),
+                    Ok(Err(error)) => responder.respond_with_error(Error::invalid_params().data(error)),
+                    Err(error) => responder
+                        .respond_with_error(Error::internal_error().data(format!("ACP prompt task failed: {error}"))),
+                }
             },
             agent_client_protocol::on_receive_request!(),
         )
@@ -292,12 +301,103 @@ fn prompt(
         state,
         request,
         move |intent| send_update(connection, session_id.clone(), intent),
-        |config, messages, expects_write, _prompt_text| {
-            let (_steering_tx, steering_rx) = mpsc::channel();
-            drop(_steering_tx);
-            crate::harness::HarnessTurn::provider_with_steering(config, messages, expects_write, steering_rx).start()
+        {
+            let connection = connection.clone();
+            move |config, messages, expects_write, _prompt_text| {
+                let permission_hook = server_permission_hook(connection.clone(), request.session_id.clone());
+                let (_steering_tx, steering_rx) = mpsc::channel();
+                drop(_steering_tx);
+                crate::harness::HarnessTurn::provider_with_steering_and_permissions(
+                    config,
+                    messages,
+                    expects_write,
+                    steering_rx,
+                    permission_hook,
+                )
+                .start()
+            }
         },
     )
+}
+
+fn server_permission_hook(
+    connection: ConnectionTo<Client>, session_id: agent_client_protocol::schema::v1::SessionId,
+) -> ToolPermissionHook {
+    ToolPermissionHook::new(move |request, _config, cancel| {
+        request_client_permission(&connection, session_id.clone(), request, cancel)
+    })
+}
+
+fn request_client_permission(
+    connection: &ConnectionTo<Client>, session_id: agent_client_protocol::schema::v1::SessionId,
+    request: &ToolUseRequest, cancel: &CancelToken,
+) -> ToolPermissionDecision {
+    if cancel.is_cancelled() {
+        return ToolPermissionDecision::Cancelled;
+    }
+
+    let permission = RequestPermissionRequest::new(
+        session_id,
+        ToolCallUpdate::new(
+            request.tool_use_id.clone(),
+            ToolCallUpdateFields::new()
+                .title(permission_title(request))
+                .kind(classify_tool(&request.name).to_acp_kind())
+                .status(ToolCallStatus::InProgress)
+                .raw_input(json_text_or_value(sanitize_tool_payload(&request.arguments))),
+        ),
+        vec![
+            PermissionOption::new("allow_once", "Allow once", PermissionOptionKind::AllowOnce),
+            PermissionOption::new("reject_once", "Reject once", PermissionOptionKind::RejectOnce),
+        ],
+    );
+    let (tx, rx) = mpsc::channel();
+    let sent = connection.send_request(permission);
+    if connection
+        .spawn(async move {
+            let _ = tx.send(sent.block_task().await);
+            Ok(())
+        })
+        .is_err()
+    {
+        return ToolPermissionDecision::Reject;
+    }
+
+    loop {
+        if cancel.is_cancelled() {
+            return ToolPermissionDecision::Cancelled;
+        }
+        match rx.recv_timeout(PERMISSION_POLL_INTERVAL) {
+            Ok(Ok(response)) => return permission_response_decision(response.outcome),
+            Ok(Err(_)) | Err(mpsc::RecvTimeoutError::Disconnected) => return ToolPermissionDecision::Reject,
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+        }
+    }
+}
+
+fn permission_response_decision(outcome: RequestPermissionOutcome) -> ToolPermissionDecision {
+    match outcome {
+        RequestPermissionOutcome::Cancelled => ToolPermissionDecision::Cancelled,
+        RequestPermissionOutcome::Selected(selected) => {
+            let option_id = selected.option_id.0.as_ref();
+            if option_id.starts_with("allow") {
+                ToolPermissionDecision::Allow
+            } else {
+                ToolPermissionDecision::Reject
+            }
+        }
+        _ => ToolPermissionDecision::Reject,
+    }
+}
+
+fn permission_title(request: &ToolUseRequest) -> String {
+    match request.name.as_str() {
+        "run_shell" => "Run shell command".to_string(),
+        "create_file" => "Create file".to_string(),
+        "replace_range" => "Edit file".to_string(),
+        "write_patch" => "Apply patch".to_string(),
+        _ => format!("Run {}", request.name),
+    }
 }
 
 pub(crate) fn execute_prompt(
