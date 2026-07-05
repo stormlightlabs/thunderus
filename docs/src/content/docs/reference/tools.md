@@ -10,6 +10,11 @@ The public catalog is derived from the built-in tool registry in `src/tools/`.
 Schema descriptions and examples below should match the tool modules that parse
 and execute them.
 
+Configured MCP tools are appended to the same provider catalog at runtime. They
+are always namespaced as `mcp__{server}__{tool}` so external tools cannot
+replace built-in tool names. Session records keep both the configured server
+name and the original MCP tool name for inspection.
+
 ## `find_files`
 
 Locate files by name or glob under the workspace root.
@@ -150,3 +155,8 @@ counts, and status. `run_shell` also appends `shell_exec` metadata with command,
 working directory, process kind, exit status, elapsed time, and cancellation or
 background state. Full file contents and uncapped stdout/stderr are not stored
 in those side-effect records.
+
+MCP tool output follows the same transcript/session limits as built-in tool
+output: lines and bytes are capped, deterministic secret redaction is applied,
+timeouts become stable tool failures, and failed calls still append normal
+tool start/finish records.

@@ -116,6 +116,46 @@ Set `websearch` to choose the default search mode:
 Repository file discovery is not configured through `websearch`; it is an
 implementation detail of local read-only tools.
 
+## MCP Servers
+
+MCP servers use separate config files:
+
+- Global: `~/.thndrs/mcp.toml`
+- Project: `.thndrs/mcp.toml`
+
+Project MCP server definitions override global definitions with the same server
+name. Server names must match `[A-Za-z0-9_-]+`.
+
+Example stdio server:
+
+```toml
+[servers.docs]
+transport = "stdio"
+command = "docs-mcp"
+args = ["--workspace", "${THNDRS_WORKSPACE}"]
+enabled = true
+timeout_secs = 20
+```
+
+Example Streamable HTTP server:
+
+```toml
+[servers.search]
+transport = "streamable_http"
+url = "https://mcp.example.test/mcp"
+headers = { authorization = "Bearer ${THNDRS_MCP_TOKEN}" }
+timeout_secs = 20
+```
+
+Supported server keys are `transport`, `command`, `args`, `env`, `url`,
+`headers`, `enabled`, and `timeout_secs`. `transport` defaults to `stdio`.
+`command` is required for stdio; `url` is required for Streamable HTTP.
+
+Environment expansion uses `${NAME}` inside values only. If a referenced
+variable is missing, that server is skipped and a diagnostic is recorded. Secret
+values in `env` and `headers` are redacted in loaded config metadata and
+diagnostics.
+
 ## Diagnostics
 
 Startup fails for these configuration errors:

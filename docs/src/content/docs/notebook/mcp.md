@@ -92,3 +92,35 @@ Confidence: high.
 - MCP belongs behind the same tool registry and audit path as built-in tools.
 - Stdio needs careful process lifecycle and stdout/stderr separation.
 - Tool exposure and invocation must be visible to the user.
+
+## thndrs Implementation Notes
+
+`thndrs` uses the official Rust MCP SDK (`rmcp`) for initialize, `tools/list`,
+`tools/call`, stdio transport, and Streamable HTTP transport. Local code owns
+configuration loading, environment expansion, redaction, timeout policy,
+namespacing, provider catalog conversion, transcript output caps, and session
+records.
+
+MCP config files are separate from ordinary runtime config:
+
+- Global: `~/.thndrs/mcp.toml`
+- Project: `.thndrs/mcp.toml`
+
+Project server definitions override global definitions by server name. Stdio
+servers use `command`, `args`, and optional `env`. Streamable HTTP servers use
+`url` and optional `headers`. Values may reference environment variables with
+`${NAME}`; unresolved references skip that server and record a diagnostic.
+
+Provider-visible tool names are always `mcp__{server}__{tool}`. The original
+server and MCP tool names are preserved in session metadata.
+
+Useful CLI checks:
+
+- `thndrs mcp list`
+- `thndrs mcp test <name>`
+- `thndrs mcp tools <name>`
+- `thndrs mcp call <server> <tool> --json '{"key":"value"}'`
+
+Stdio stderr, tool output, and HTTP tool responses are bounded before transcript
+or session storage. Header and environment values are redacted in diagnostics
+where config metadata is displayed.

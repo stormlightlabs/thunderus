@@ -5,12 +5,16 @@
 //! definitions and outputs instead of exposing `rmcp` types through the rest of
 //! the app.
 
-use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock, Tool};
-use rmcp::service::{RoleClient, RunningService, ServiceExt};
-use rmcp::transport::TokioChildProcess;
+use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+use http::{HeaderName, HeaderValue};
+use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock, Tool};
+use rmcp::service::{RoleClient, RunningService, ServiceExt};
+use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
+use rmcp::transport::{StreamableHttpClientTransport, TokioChildProcess};
 use thiserror::Error;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
@@ -25,11 +29,9 @@ const SUPPORTED_PROTOCOL_VERSION: &str = "2025-06-18";
 /// Errors surfaced by the MCP SDK adapter.
 #[derive(Debug, Error)]
 pub enum McpSdkError {
-    #[error("unsupported MCP transport for SDK adapter: {0:?}")]
-    UnsupportedTransport(McpTransport),
     #[error("failed to build MCP runtime: {0}")]
     RuntimeBuild(std::io::Error),
-    #[error("failed to create MCP stdio transport: {0}")]
+    #[error("failed to create MCP transport: {0}")]
     TransportCreate(String),
     #[error("failed to initialize MCP server: {0}")]
     Initialize(String),
@@ -91,12 +93,16 @@ pub struct McpSdkClient {
 }
 
 impl McpSdkClient {
+    /// Connect to a configured MCP server and run the initialize handshake.
+    pub fn connect(server: &McpServerConfig) -> Result<Self, McpSdkError> {
+        match server.transport {
+            McpTransport::Stdio => Self::connect_stdio(server),
+            McpTransport::StreamableHttp => Self::connect_streamable_http(server),
+        }
+    }
+
     /// Connect to a configured stdio MCP server and run the initialize handshake.
     pub fn connect_stdio(server: &McpServerConfig) -> Result<Self, McpSdkError> {
-        if server.transport != McpTransport::Stdio {
-            return Err(McpSdkError::UnsupportedTransport(server.transport));
-        }
-
         let runtime = Builder::new_multi_thread()
             .enable_all()
             .build()
@@ -115,6 +121,44 @@ impl McpSdkClient {
                     operation: "initialize",
                     timeout_secs: server.timeout_secs,
                     stderr: stderr_error_suffix(&stderr),
+                });
+            }
+        };
+        let server_info = client
+            .peer_info()
+            .as_deref()
+            .map(server_info_from_sdk)
+            .unwrap_or_else(|| McpServerInfo {
+                protocol_version: "unknown".to_string(),
+                name: "unknown".to_string(),
+                version: "unknown".to_string(),
+                instructions: None,
+                diagnostics: vec!["mcp initialize completed without server info".to_string()],
+            });
+
+        Ok(Self { client: Some(client), runtime, server_info, stderr, timeout_secs: server.timeout_secs })
+    }
+
+    /// Connect to a configured Streamable HTTP MCP server and run initialize.
+    pub fn connect_streamable_http(server: &McpServerConfig) -> Result<Self, McpSdkError> {
+        let runtime = Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .map_err(McpSdkError::RuntimeBuild)?;
+        let stderr = Arc::new(Mutex::new(BoundedStderr::default()));
+        let client = match runtime.block_on(async {
+            tokio::time::timeout(
+                Duration::from_secs(server.timeout_secs),
+                connect_streamable_http_async(server),
+            )
+            .await
+        }) {
+            Ok(result) => result?,
+            Err(_) => {
+                return Err(McpSdkError::Timeout {
+                    operation: "initialize",
+                    timeout_secs: server.timeout_secs,
+                    stderr: String::new(),
                 });
             }
         };
@@ -232,6 +276,37 @@ async fn connect_stdio_async(
     ().serve(transport)
         .await
         .map_err(|err| McpSdkError::Initialize(err.to_string()))
+}
+
+async fn connect_streamable_http_async(
+    server: &McpServerConfig,
+) -> Result<RunningService<RoleClient, ()>, McpSdkError> {
+    let url = server
+        .url
+        .as_deref()
+        .ok_or_else(|| McpSdkError::TransportCreate("missing streamable_http url".to_string()))?;
+    let transport_config =
+        StreamableHttpClientTransportConfig::with_uri(url).custom_headers(http_headers(&server.headers)?);
+    let transport = StreamableHttpClientTransport::from_config(transport_config);
+    ().serve(transport)
+        .await
+        .map_err(|err| McpSdkError::Initialize(err.to_string()))
+}
+
+fn http_headers(
+    headers: &std::collections::BTreeMap<String, String>,
+) -> Result<HashMap<HeaderName, HeaderValue>, McpSdkError> {
+    headers
+        .iter()
+        .map(|(name, value)| {
+            let name = HeaderName::from_bytes(name.as_bytes())
+                .map_err(|err| McpSdkError::TransportCreate(format!("invalid HTTP header name `{name}`: {err}")))?;
+            let value = HeaderValue::from_str(value).map_err(|err| {
+                McpSdkError::TransportCreate(format!("invalid HTTP header value for `{name}`: {err}"))
+            })?;
+            Ok((name, value))
+        })
+        .collect()
 }
 
 fn server_info_from_sdk(info: &rmcp::model::ServerInfo) -> McpServerInfo {
@@ -356,7 +431,10 @@ fn stderr_error_suffix(capture: &Arc<Mutex<BoundedStderr>>) -> String {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::io::{Read, Write};
+    use std::net::{TcpListener, TcpStream};
     use std::path::Path;
+    use std::thread;
 
     use rmcp::model::{CallToolResult, ContentBlock, Tool};
     use serde_json::json;
@@ -447,6 +525,25 @@ mod tests {
     }
 
     #[test]
+    fn mismatched_protocol_version_is_a_diagnostic_not_failure() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let script = write_fake_server(temp.path(), FakeServerMode::OldProtocolVersion);
+        let server = McpServerConfig {
+            command: "python3".to_string(),
+            args: vec![script.display().to_string()],
+            ..McpServerConfig::default()
+        };
+
+        let client = McpSdkClient::connect_stdio(&server).expect("connect fake MCP server");
+
+        assert_eq!(client.server_info().protocol_version, "2024-11-05");
+        assert_eq!(
+            client.server_info().diagnostics,
+            vec!["mcp server negotiated protocol version 2024-11-05; expected 2025-06-18"]
+        );
+    }
+
+    #[test]
     fn malformed_server_message_becomes_initialize_error() {
         let temp = tempfile::tempdir().expect("tempdir");
         let script = write_fake_server(temp.path(), FakeServerMode::MalformedInitialize);
@@ -485,6 +582,90 @@ mod tests {
             McpSdkError::Timeout { operation: "initialize", timeout_secs: 1, .. }
         ));
         assert!(err.to_string().contains("starting slowly"));
+    }
+
+    #[test]
+    fn startup_timeout_truncates_bounded_stderr_diagnostics() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let script = write_fake_server(temp.path(), FakeServerMode::NoisySlowInitialize);
+        let server = McpServerConfig {
+            command: "python3".to_string(),
+            args: vec![script.display().to_string()],
+            timeout_secs: 1,
+            ..McpServerConfig::default()
+        };
+
+        let err = match McpSdkClient::connect_stdio(&server) {
+            Ok(_) => panic!("slow server should time out"),
+            Err(err) => err,
+        };
+        let text = err.to_string();
+
+        assert!(text.contains("[stderr truncated]"));
+        assert!(
+            text.len() < MAX_STDERR_BYTES + 512,
+            "stderr diagnostic should stay bounded"
+        );
+        assert!(!text.contains("noise-0"), "oldest stderr bytes should be dropped");
+    }
+
+    #[test]
+    fn streamable_http_client_initializes_lists_and_calls_json_fixture() {
+        let fixture = HttpMcpFixture::spawn(HttpResponseMode::Json);
+        let server = McpServerConfig {
+            transport: McpTransport::StreamableHttp,
+            url: Some(fixture.url.clone()),
+            timeout_secs: 5,
+            ..McpServerConfig::default()
+        };
+
+        let client = McpSdkClient::connect_streamable_http(&server).expect("connect HTTP MCP server");
+        assert_eq!(client.server_info().name, "fake-http");
+
+        let tools = client.list_tool_definitions("web").expect("list tools");
+        assert_eq!(tools[0].definition.name, "mcp__web__echo");
+
+        let output = client
+            .call_tool("mcp__web__echo", "echo", json!({ "text": "hello http" }))
+            .expect("call echo");
+        assert_eq!(output, ToolOutput::ok("mcp__web__echo", vec!["hello http".to_string()]));
+    }
+
+    #[test]
+    fn streamable_http_client_accepts_sse_fixture_responses() {
+        let fixture = HttpMcpFixture::spawn(HttpResponseMode::Sse);
+        let server = McpServerConfig {
+            transport: McpTransport::StreamableHttp,
+            url: Some(fixture.url.clone()),
+            timeout_secs: 5,
+            ..McpServerConfig::default()
+        };
+
+        let client = McpSdkClient::connect_streamable_http(&server).expect("connect SSE MCP server");
+        let tools = client.list_tool_definitions("web").expect("list tools");
+
+        assert_eq!(tools[0].definition.name, "mcp__web__echo");
+    }
+
+    #[test]
+    fn streamable_http_headers_are_validated() {
+        let mut server = McpServerConfig {
+            transport: McpTransport::StreamableHttp,
+            url: Some("http://127.0.0.1:1/mcp".to_string()),
+            timeout_secs: 1,
+            ..McpServerConfig::default()
+        };
+        server
+            .headers
+            .insert("bad header".to_string(), "secret-token-value".to_string());
+
+        let err = match McpSdkClient::connect_streamable_http(&server) {
+            Ok(_) => panic!("invalid header should fail before connect"),
+            Err(err) => err,
+        };
+
+        assert!(matches!(err, McpSdkError::TransportCreate(_)));
+        assert!(!err.to_string().contains("secret-token-value"));
     }
 
     #[test]
@@ -539,7 +720,9 @@ mod tests {
     enum FakeServerMode {
         Normal,
         MalformedInitialize,
+        OldProtocolVersion,
         SlowInitialize,
+        NoisySlowInitialize,
         SlowCall,
         ExitAfterInitialize,
     }
@@ -547,7 +730,9 @@ mod tests {
     fn write_fake_server(dir: &Path, mode: FakeServerMode) -> std::path::PathBuf {
         let path = dir.join("fake_mcp.py");
         let malformed = python_bool(matches!(mode, FakeServerMode::MalformedInitialize));
+        let old_protocol = python_bool(matches!(mode, FakeServerMode::OldProtocolVersion));
         let slow_initialize = python_bool(matches!(mode, FakeServerMode::SlowInitialize));
+        let noisy_slow_initialize = python_bool(matches!(mode, FakeServerMode::NoisySlowInitialize));
         let slow_call = python_bool(matches!(mode, FakeServerMode::SlowCall));
         let exit_after_initialize = python_bool(matches!(mode, FakeServerMode::ExitAfterInitialize));
         fs::write(
@@ -559,7 +744,9 @@ import sys
 import time
 
 malformed_initialize = {malformed}
+old_protocol = {old_protocol}
 slow_initialize = {slow_initialize}
+noisy_slow_initialize = {noisy_slow_initialize}
 slow_call = {slow_call}
 exit_after_initialize = {exit_after_initialize}
 
@@ -573,11 +760,15 @@ for line in sys.stdin:
         if slow_initialize:
             print("starting slowly", file=sys.stderr, flush=True)
             time.sleep(2)
+        if noisy_slow_initialize:
+            for i in range(900):
+                print(f"noise-{{i}}-" + ("x" * 80), file=sys.stderr, flush=True)
+            time.sleep(2)
         print(json.dumps({{
             "jsonrpc": "2.0",
             "id": msg["id"],
             "result": {{
-                "protocolVersion": "2025-06-18",
+                "protocolVersion": "2024-11-05" if old_protocol else "2025-06-18",
                 "capabilities": {{"tools": {{}}}},
                 "serverInfo": {{"name": "fake", "version": "0.1.0"}}
             }}
@@ -617,5 +808,128 @@ for line in sys.stdin:
 
     fn python_bool(value: bool) -> &'static str {
         if value { "True" } else { "False" }
+    }
+
+    struct HttpMcpFixture {
+        url: String,
+    }
+
+    #[derive(Clone, Copy)]
+    enum HttpResponseMode {
+        Json,
+        Sse,
+    }
+
+    impl HttpMcpFixture {
+        fn spawn(mode: HttpResponseMode) -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").expect("bind fixture");
+            let addr = listener.local_addr().expect("fixture addr");
+            thread::spawn(move || {
+                for stream in listener.incoming().take(8).flatten() {
+                    handle_http_mcp_request(stream, mode);
+                }
+            });
+            Self { url: format!("http://{addr}/mcp") }
+        }
+    }
+
+    fn handle_http_mcp_request(mut stream: TcpStream, mode: HttpResponseMode) {
+        let body = read_http_body(&mut stream);
+        let message: serde_json::Value = serde_json::from_str(&body).unwrap_or_else(|_| json!({}));
+        let Some(id) = message.get("id").cloned() else {
+            write_http_response(&mut stream, mode, None);
+            return;
+        };
+        let method = message
+            .get("method")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default();
+        let response = match method {
+            "initialize" => json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "fake-http", "version": "0.1.0"}
+                }
+            }),
+            "tools/list" => json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": {
+                    "tools": [{
+                        "name": "echo",
+                        "description": "Echo text",
+                        "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}}
+                    }]
+                }
+            }),
+            "tools/call" => {
+                let text = message["params"]["arguments"]["text"].as_str().unwrap_or_default();
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {"content": [{"type": "text", "text": text}], "isError": false}
+                })
+            }
+            _ => json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32601, "message": "not found"}}),
+        };
+        write_http_response(&mut stream, mode, Some(response));
+    }
+
+    fn read_http_body(stream: &mut TcpStream) -> String {
+        let mut buffer = Vec::new();
+        let mut chunk = [0_u8; 1024];
+        loop {
+            let n = stream.read(&mut chunk).expect("read request");
+            if n == 0 {
+                break;
+            }
+            buffer.extend_from_slice(&chunk[..n]);
+            if let Some((header_len, content_len)) = http_request_lengths(&buffer)
+                && buffer.len() >= header_len + content_len
+            {
+                return String::from_utf8_lossy(&buffer[header_len..header_len + content_len]).to_string();
+            }
+        }
+        String::new()
+    }
+
+    fn http_request_lengths(buffer: &[u8]) -> Option<(usize, usize)> {
+        let headers_end = buffer.windows(4).position(|window| window == b"\r\n\r\n")? + 4;
+        let headers = String::from_utf8_lossy(&buffer[..headers_end]);
+        let content_len = headers
+            .lines()
+            .find_map(|line| {
+                line.strip_prefix("Content-Length:")
+                    .or_else(|| line.strip_prefix("content-length:"))
+            })
+            .and_then(|value| value.trim().parse::<usize>().ok())
+            .unwrap_or(0);
+        Some((headers_end, content_len))
+    }
+
+    fn write_http_response(stream: &mut TcpStream, mode: HttpResponseMode, response: Option<serde_json::Value>) {
+        let Some(response) = response else {
+            stream
+                .write_all(b"HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\n\r\n")
+                .expect("write accepted");
+            return;
+        };
+        let body = match mode {
+            HttpResponseMode::Json => response.to_string(),
+            HttpResponseMode::Sse => format!("event: message\ndata: {response}\n\n"),
+        };
+        let content_type = match mode {
+            HttpResponseMode::Json => "application/json",
+            HttpResponseMode::Sse => "text/event-stream",
+        };
+        write!(
+            stream,
+            "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        )
+        .expect("write response");
     }
 }

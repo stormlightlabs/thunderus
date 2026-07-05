@@ -23,3 +23,10 @@ title: "CLI Reference"
 - `thndrs acp load-session <name> <session-id>`: load an external ACP session and print replayed `session/update` events.
 - `thndrs acp resume-session <name> <session-id>`: resume an external ACP session without replaying history.
 - `thndrs acp close-session <name> <session-id>`: close an external ACP session when the agent advertises `session/close`.
+
+## MCP Commands
+
+- `thndrs mcp list`: list configured MCP servers and their enabled/disabled status.
+- `thndrs mcp test <name>`: initialize one server and print readiness plus tool count.
+- `thndrs mcp tools <name>`: list provider-visible namespaced tools from one server.
+- `thndrs mcp call <server> <tool> --json <args>`: call one original MCP tool name with JSON object arguments.

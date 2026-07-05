@@ -35,7 +35,7 @@ impl McpClient {
     /// Initialize a server and cache its tool definitions.
     pub fn connect(name: impl Into<String>, config: &McpServerConfig) -> Result<Self, McpManagerError> {
         let name = name.into();
-        let sdk = McpSdkClient::connect_stdio(config)
+        let sdk = McpSdkClient::connect(config)
             .map_err(|source| McpManagerError::Initialize { server: name.clone(), source })?;
         let tools = sdk
             .list_tool_definitions(&name)
@@ -287,6 +287,35 @@ mod tests {
         assert!(output.output[0].contains("[REDACTED]"));
         assert!(output.output[1].ends_with("..."));
         assert!(output.output.iter().any(|line| line == "[mcp output truncated]"));
+    }
+
+    #[test]
+    fn provider_catalog_includes_cached_mcp_stdio_tools() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let script = write_fake_server(temp.path(), "echo", 0, false);
+        let mut config = McpConfig::default();
+        config.servers.insert("docs".to_string(), server_config(&script));
+
+        let manager = McpManager::from_config(&config);
+        let definitions = crate::tools::runtime_tool_definitions(Some(&manager));
+        let schemas = crate::tools::tool_catalog_schemas(&definitions);
+        let tool_names: Vec<&str> = schemas
+            .as_array()
+            .expect("schemas")
+            .iter()
+            .filter_map(|schema| schema["name"].as_str())
+            .collect();
+
+        assert!(tool_names.contains(&"mcp__docs__echo"));
+        assert_eq!(
+            schemas
+                .as_array()
+                .expect("schemas")
+                .iter()
+                .find(|schema| schema["name"] == "mcp__docs__echo")
+                .expect("mcp schema")["input_schema"]["properties"]["text"]["type"],
+            "string"
+        );
     }
 
     fn server_config(script: &Path) -> McpServerConfig {

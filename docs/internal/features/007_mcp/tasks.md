@@ -100,32 +100,91 @@ Stdio has a working implementation and the targeted MCP tests pass, but it is
 not stable enough to unblock HTTP transport work yet. Treat Streamable HTTP as
 blocked until this gate is complete.
 
-- [ ] Add MCP-specific provider catalog coverage proving cached stdio tools are
+- [x] Add MCP-specific provider catalog coverage proving cached stdio tools are
       included as stable `mcp__{server}__{tool}` entries in prompt/tool schema
       output.
-- [ ] Add a regression test for mismatched negotiated protocol versions so the
+- [x] Add a regression test for mismatched negotiated protocol versions so the
       current diagnostic-only compatibility behavior is locked down.
-- [ ] Add a regression test for bounded stderr truncation, not only stderr
+- [x] Add a regression test for bounded stderr truncation, not only stderr
       inclusion on timeout.
-- [ ] Smoke-test one real stdio MCP server through `thndrs mcp test`,
+- [x] Smoke-test one real stdio MCP server through `thndrs mcp test`,
       `thndrs mcp tools`, and `thndrs mcp call`, then record the exact config,
       command output shape, and any rough edges here.
-- [ ] Finish stdio-facing docs: config files, stdio setup, namespacing,
+- [x] Finish stdio-facing docs: config files, stdio setup, namespacing,
       diagnostics, security limits, and CLI commands.
-- [ ] Run and record the full validation set below after the docs and missing
+- [x] Run and record the full validation set below after the docs and missing
       regression tests are complete.
-- [ ] Reassess this section; only start P7 after all stdio stability items are
+- [x] Reassess this section; only start P7 after all stdio stability items are
       done.
+
+Notes, 2026-07-05:
+
+- Added `mcp::manager::tests::provider_catalog_includes_cached_mcp_stdio_tools`
+  for provider catalog coverage.
+- Added `mcp::adapter::tests::mismatched_protocol_version_is_a_diagnostic_not_failure`.
+- Added `mcp::adapter::tests::startup_timeout_truncates_bounded_stderr_diagnostics`.
+- Repeatable CLI output coverage remains in
+  `tests::mcp_list_tools_and_call_use_fake_server`; output shape is:
+  `mcp list` prints `<server>\t<enabled|disabled>\t<transport>`,
+  `mcp tools <name>` prints `<namespaced-tool>\t<description>`, and
+  `mcp call <server> <tool> --json <object>` prints tool output lines or
+  `failed: <message>`.
+- Real-server smoke tests passed with elevated permissions using temporary
+  `.thndrs/mcp.toml` configs:
+
+  ```toml
+  [servers.memory]
+  command = "npx"
+  args = ["-y", "@modelcontextprotocol/server-memory"]
+  timeout_secs = 60
+  ```
+
+  Commands and output shape:
+
+  - `thndrs mcp test memory` printed
+    `memory\tready\t9 tools`, plus diagnostics for negotiated protocol
+    `2025-11-25` and server stderr.
+  - `thndrs mcp tools memory` printed nine `mcp__memory__...` tools.
+  - `thndrs mcp call memory read_graph --json '{}'` printed an empty graph:
+    `{"entities":[],"relations":[]}` plus matching structured content.
+
+  ```toml
+  [servers.fs]
+  command = "npx"
+  args = ["-y", "@modelcontextprotocol/server-filesystem", "<temp-workspace>"]
+  timeout_secs = 60
+  ```
+
+  Commands and output shape:
+
+  - `thndrs mcp test fs` printed `fs\tready\t14 tools`, plus diagnostics for
+    negotiated protocol `2025-11-25` and server stderr.
+  - `thndrs mcp tools fs` printed fourteen `mcp__fs__...` tools.
+  - `thndrs mcp call fs list_allowed_directories --json '{}'` printed the
+    allowed temp workspace directories plus matching structured content.
 
 ## P7: HTTP Transport Follow-Up
 
-- [ ] Add HTTP transport only after P6.5 confirms stdio is stable.
-- [ ] Add `rmcp` Streamable HTTP client features.
-- [ ] Map URL and header config into the SDK HTTP transport.
-- [ ] Verify JSON POST and optional SSE behavior through SDK-backed fixtures.
-- [ ] Apply header redaction.
-- [ ] Apply response-size caps.
-- [ ] Add HTTP fixture tests.
+- [x] Add HTTP transport only after P6.5 confirms stdio is stable.
+- [x] Add `rmcp` Streamable HTTP client features.
+- [x] Map URL and header config into the SDK HTTP transport.
+- [x] Verify JSON POST and optional SSE behavior through SDK-backed fixtures.
+- [x] Apply header redaction.
+- [x] Apply response-size caps.
+- [x] Add HTTP fixture tests.
+
+Notes, 2026-07-05:
+
+- Enabled `transport-streamable-http-client-reqwest`.
+- `McpSdkClient::connect` now routes `stdio` and `streamable_http`.
+- `streamable_http` maps `url` and validated `headers` into
+  `StreamableHttpClientTransportConfig`.
+- Added JSON and SSE local HTTP fixture tests:
+  `streamable_http_client_initializes_lists_and_calls_json_fixture` and
+  `streamable_http_client_accepts_sse_fixture_responses`.
+- Header validation errors name the bad header but do not include header values.
+- MCP call output caps are enforced by the shared manager sanitation path for
+  stdio and HTTP transports.
 
 ## P8: Docs
 
@@ -141,11 +200,11 @@ blocked until this gate is complete.
 
 ## Validation Commands
 
-- [ ] `cargo fmt`
-- [ ] `cargo clippy --fix --allow-dirty --allow-staged`
-- [ ] `cargo clippy`
-- [x] `cargo test mcp` (passed 2026-07-04)
-- [ ] `cargo test tools`
-- [ ] `cargo test session`
-- [ ] `cargo test cli`
-- [ ] `cargo test`
+- [x] `cargo fmt` (passed 2026-07-05)
+- [x] `cargo clippy --fix --allow-dirty --allow-staged` (passed 2026-07-05; required escalation because Cargo's lock listener could not bind inside the sandbox)
+- [x] `cargo clippy` (passed 2026-07-05)
+- [x] `cargo test mcp` (passed 2026-07-05)
+- [x] `cargo test tools` (passed 2026-07-05)
+- [x] `cargo test session` (passed 2026-07-05)
+- [x] `cargo test cli` (passed 2026-07-05)
+- [x] `cargo test` (passed 2026-07-05: 1158 passed, 0 failed, 4 ignored)
