@@ -198,8 +198,8 @@ pub struct ConfigOrigin {
     pub detail: String,
 }
 
-impl ConfigOrigin {
-    pub fn default() -> Self {
+impl Default for ConfigOrigin {
+    fn default() -> Self {
         Self { source: ConfigSource::Default, detail: "default".to_string() }
     }
 }
@@ -478,7 +478,7 @@ pub fn load_effective(workspace: &Path, env_vars: &[(String, String)]) -> Result
     deduplicate_paths(&mut merged.skill_dirs);
 
     for key in CONFIG_KEYS {
-        origins.entry(key.to_string()).or_insert_with(ConfigOrigin::default);
+        origins.entry(key.to_string()).or_default();
     }
 
     Ok(EffectiveConfig { config: merged, layers, origins, diagnostics })

@@ -1,8 +1,10 @@
 use super::*;
 use crate::acp::permissions::{PendingPermission, PermissionDecision, PermissionKindView, PermissionOptionView};
+use crate::harness::HarnessTurn;
 use crate::input::PromptInput;
 use crate::renderer;
 use crate::skills::{SkillMetadata, SkillSource};
+use crate::tools::AgentRunConfig;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::io::Write;
 use std::sync::mpsc;
@@ -1638,6 +1640,45 @@ fn finished_clears_last_input() {
     update(&mut app, &Msg::Agent(AgentEvent::Finished));
     assert!(app.last_input.is_none(), "last_input should be cleared on finish");
     assert!(app.input.is_empty(), "input should remain empty on finish");
+}
+
+#[test]
+fn tui_update_path_handles_fake_provider_turn() {
+    let mut app = fresh_app();
+    app.websearch = WebSearchMode::None;
+    app.input = PromptInput::from("inspect project");
+    let follow = update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+    if let Some(message) = follow {
+        update(&mut app, &message);
+    }
+
+    let config = AgentRunConfig::new(app.cwd.clone(), String::from("fake-agent"), WebSearchMode::None);
+    let handle = HarnessTurn::fake(config, String::from("inspect project")).start();
+    while let Ok(event) = handle.events.recv() {
+        update(&mut app, &Msg::Agent(event));
+    }
+
+    assert_eq!(app.run_state, RunState::Idle);
+    assert!(
+        app.transcript
+            .iter()
+            .any(|entry| matches!(entry, Entry::User { text } if text == "inspect project"))
+    );
+    assert!(
+        app.transcript
+            .iter()
+            .any(|entry| matches!(entry, Entry::Reasoning { text, streaming: false } if !text.is_empty()))
+    );
+    assert!(
+        app.transcript
+            .iter()
+            .any(|entry| matches!(entry, Entry::Agent { text, streaming: false } if !text.is_empty()))
+    );
+    assert!(
+        app.transcript
+            .iter()
+            .any(|entry| matches!(entry, Entry::Tool { status: ToolStatus::Ok, .. }))
+    );
 }
 
 #[test]

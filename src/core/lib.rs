@@ -14,7 +14,7 @@ mod acp;
 mod agent;
 #[path = "../cli/app.rs"]
 mod app;
-mod config;
+pub mod config;
 mod context;
 mod fuzzy;
 mod harness;

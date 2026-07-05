@@ -9,6 +9,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use crate::cli::WebSearchMode;
+use crate::session::SessionWriter;
 
 /// Prefix for generated opaque ACP session IDs.
 pub const ACP_SESSION_ID_PREFIX: &str = "acp-session";
@@ -41,6 +42,8 @@ pub struct AcpServerSession {
     pub cwd: PathBuf,
     /// Whether an ACP turn is currently active.
     pub turn_in_progress: bool,
+    /// Optional local session writer persisted to JSONL.
+    pub session_writer: Option<SessionWriter>,
 }
 
 /// Errors for ACP session state operations.
@@ -120,6 +123,7 @@ impl AcpSessionStore {
             metadata: LocalSessionMetadata { local_session_id: local_session_id.clone(), model: None, websearch: None },
             cwd,
             turn_in_progress: false,
+            session_writer: None,
         };
 
         self.sessions.insert(acp_session_id.clone(), session);
@@ -180,6 +184,31 @@ impl AcpSessionStore {
         session.metadata.model = model;
         session.metadata.websearch = websearch;
         Ok(())
+    }
+
+    /// Attach a local session writer for persistence.
+    pub fn attach_session_writer(
+        &mut self, acp_session_id: &str, session_writer: SessionWriter,
+    ) -> Result<(), AcpSessionError> {
+        let Some(session) = self.sessions.get_mut(acp_session_id) else {
+            return Err(AcpSessionError::MissingSession { acp_session_id: acp_session_id.to_string() });
+        };
+        session.session_writer = Some(session_writer);
+        Ok(())
+    }
+
+    /// Return the active session writer when persistence is enabled.
+    pub fn session_writer(&self, acp_session_id: &str) -> Option<&SessionWriter> {
+        self.sessions
+            .get(acp_session_id)
+            .and_then(|session| session.session_writer.as_ref())
+    }
+
+    /// Return a mutable session writer when persistence is enabled.
+    pub fn session_writer_mut(&mut self, acp_session_id: &str) -> Option<&mut SessionWriter> {
+        self.sessions
+            .get_mut(acp_session_id)
+            .and_then(|session| session.session_writer.as_mut())
     }
 
     /// Drop a stored session and return its local session id when present.

@@ -1,14 +1,15 @@
 //! ACP server request and notification handlers.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1::{
-    AgentCapabilities, CancelNotification, ContentBlock, ContentChunk, Implementation, InitializeRequest,
-    InitializeResponse, NewSessionRequest, NewSessionResponse, PromptRequest, PromptResponse, SessionNotification,
-    SessionUpdate, StopReason, TextContent,
+    AgentCapabilities, CancelNotification, Content, ContentBlock, ContentChunk, Implementation, InitializeRequest,
+    InitializeResponse, McpCapabilities, NewSessionRequest, NewSessionResponse, PromptCapabilities, PromptRequest,
+    PromptResponse, SessionCapabilities, SessionNotification, SessionUpdate, StopReason, TextContent, ToolCall,
+    ToolCallContent, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, UsageUpdate,
 };
 use agent_client_protocol::{Agent, Client, ConnectionTo, Dispatch, Error, Lines, Result};
 use futures::channel::oneshot;
@@ -16,10 +17,17 @@ use futures::future::{Either, select};
 use futures::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, FutureExt, Sink, Stream, StreamExt};
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
+use crate::agent::CancelToken;
+use crate::agent::prompt_expects_workspace_write;
+use crate::app::AgentEvent;
 use crate::cli::WebSearchMode;
-use crate::server::events::SessionUpdateIntent;
-use crate::server::session::{AcpSessionStore, validate_and_normalize_cwd};
-use crate::server::{ServerConfig, config_options};
+use crate::harness::HarnessHandle;
+use crate::prompt;
+use crate::server::ServerConfig;
+use crate::server::events::{SessionUpdateIntent, map_agent_event};
+use crate::server::session::{AcpServerSession, AcpSessionStore, validate_and_normalize_cwd};
+use crate::session::{AcpSessionMetadata, SCHEMA_VERSION, SessionRecord, SessionWriter};
+use crate::tools::AgentRunConfig;
 
 /// Shared handler state for one ACP stdio server process.
 #[derive(Clone, Debug)]
@@ -33,6 +41,7 @@ struct ServerStateInner {
     next_local_session: u64,
     sessions: AcpSessionStore,
     cancelled: BTreeSet<String>,
+    active_turn_cancels: BTreeMap<String, CancelToken>,
 }
 
 impl ServerState {
@@ -55,7 +64,7 @@ impl ServerState {
         let local_session_id = format!("local-acp-session-{}", inner.next_local_session);
         let session_id = inner
             .sessions
-            .create_session(local_session_id, cwd, None)
+            .create_session(&local_session_id, cwd, None)
             .map_err(|err| err.to_string())?;
         inner
             .sessions
@@ -65,13 +74,116 @@ impl ServerState {
                 websearch_mode(&self.config.websearch),
             )
             .map_err(|err| err.to_string())?;
+
+        if let Some(session_dir) = &self.config.session_dir {
+            let mut writer = SessionWriter::create(
+                session_dir,
+                &local_session_id,
+                &cwd.display().to_string(),
+                "acp session",
+                "thndrs",
+                &self.config.model,
+                &self.config.websearch,
+                env!("CARGO_PKG_VERSION"),
+                None,
+            )
+            .map_err(|error| {
+                inner.sessions.remove_session(&session_id);
+                format!("ACP session writer initialization failed: {error}")
+            })?;
+
+            writer
+                .append_acp_session(&AcpSessionMetadata {
+                    agent_name: String::from("thndrs-acp-server"),
+                    acp_session_id: session_id.clone(),
+                    command: String::from("thndrs-acp-server"),
+                    protocol_version: format!("{:?}", ProtocolVersion::V1),
+                    agent_info_name: None,
+                    agent_info_version: None,
+                })
+                .map_err(|error| {
+                    inner.sessions.remove_session(&session_id);
+                    format!("ACP session metadata write failed: {error}")
+                })?;
+
+            inner
+                .sessions
+                .attach_session_writer(&session_id, writer)
+                .map_err(|error| {
+                    inner.sessions.remove_session(&session_id);
+                    error.to_string()
+                })?;
+        }
         Ok(session_id)
+    }
+
+    fn session(&self, session_id: &str) -> Result<AcpServerSession, String> {
+        let inner = self
+            .inner
+            .lock()
+            .map_err(|_| String::from("ACP server state lock poisoned"))?;
+        inner
+            .sessions
+            .session(session_id)
+            .cloned()
+            .ok_or_else(|| format!("unknown ACP session id `{session_id}`"))
+    }
+
+    fn begin_turn(&self, session_id: &str) -> Result<PromptTurnGuard, String> {
+        {
+            let mut inner = self
+                .inner
+                .lock()
+                .map_err(|_| String::from("ACP server state lock poisoned"))?;
+            inner.cancelled.remove(session_id);
+            inner
+                .sessions
+                .begin_turn(session_id)
+                .map_err(|error| error.to_string())?;
+        }
+
+        Ok(PromptTurnGuard { session_id: session_id.to_string(), state: self.clone() })
+    }
+
+    fn end_turn(&self, session_id: &str) -> Result<(), String> {
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|_| String::from("ACP server state lock poisoned"))?;
+        inner.sessions.end_turn(session_id).map_err(|error| error.to_string())
     }
 
     /// Mark a known session cancelled.
     pub fn cancel_session(&self, session_id: &str) {
         if let Ok(mut inner) = self.inner.lock() {
-            inner.cancelled.insert(session_id.to_string());
+            let first_cancel = inner.cancelled.insert(session_id.to_string());
+            if let Some(token) = inner.active_turn_cancels.remove(session_id) {
+                token.cancel();
+            }
+            if first_cancel && let Some(writer) = inner.sessions.session_writer_mut(session_id) {
+                let _ = writer.append(SessionRecord::Cancelled {
+                    schema_version: SCHEMA_VERSION,
+                    seq: 0,
+                    time: crate::utils::datetime::now_iso8601(),
+                    turn_id: String::from("acp-active-turn"),
+                    reason: String::from("cancelled by ACP client"),
+                });
+            }
+        }
+    }
+
+    /// Associate a running turn's cancel token with the session.
+    pub fn register_turn_cancel_token(&self, session_id: &str, token: CancelToken) {
+        if let Ok(mut inner) = self.inner.lock() {
+            inner.active_turn_cancels.insert(session_id.to_string(), token);
+        }
+    }
+
+    /// Drop any active-turn cancellation token for a finished turn.
+    pub fn clear_turn_cancel_token(&self, session_id: &str) {
+        if let Ok(mut inner) = self.inner.lock() {
+            inner.active_turn_cancels.remove(session_id);
+            inner.cancelled.remove(session_id);
         }
     }
 
@@ -127,7 +239,7 @@ pub async fn run_stdio(config: ServerConfig) -> Result<()> {
         .on_receive_request(
             async move |request: PromptRequest, responder, connection: ConnectionTo<Client>| match prompt(
                 &prompt_state,
-                request,
+                &request,
                 &connection,
             ) {
                 Ok(response) => responder.respond(response),
@@ -155,8 +267,8 @@ pub async fn run_stdio(config: ServerConfig) -> Result<()> {
     }
 }
 
-fn initialize(state: &ServerState, _request: &InitializeRequest) -> InitializeResponse {
-    InitializeResponse::new(ProtocolVersion::V1)
+fn initialize(state: &ServerState, request: &InitializeRequest) -> InitializeResponse {
+    InitializeResponse::new(negotiate_protocol_version(request.protocol_version))
         .agent_info(Some(
             Implementation::new("thndrs", env!("CARGO_PKG_VERSION")).title(Some(String::from("thndrs"))),
         ))
@@ -173,32 +285,122 @@ fn new_session(state: &ServerState, request: &NewSessionRequest) -> Result<NewSe
 }
 
 fn prompt(
-    state: &ServerState, request: PromptRequest, connection: &ConnectionTo<Client>,
+    state: &ServerState, request: &PromptRequest, connection: &ConnectionTo<Client>,
+) -> Result<PromptResponse, String> {
+    let session_id = request.session_id.clone();
+    execute_prompt(
+        state,
+        request,
+        move |intent| send_update(connection, session_id.clone(), intent),
+        |config, messages, expects_write, _prompt_text| {
+            let (_steering_tx, steering_rx) = mpsc::channel();
+            drop(_steering_tx);
+            crate::harness::HarnessTurn::provider_with_steering(config, messages, expects_write, steering_rx).start()
+        },
+    )
+}
+
+pub(crate) fn execute_prompt(
+    state: &ServerState, request: &PromptRequest, mut on_update: impl FnMut(SessionUpdateIntent) -> Result<(), String>,
+    run_harness: impl FnOnce(AgentRunConfig, Vec<crate::providers::ProviderMessage>, bool, String) -> HarnessHandle,
 ) -> Result<PromptResponse, String> {
     let session_id = request.session_id.0.to_string();
-    if !state.has_session(&session_id) {
-        return Err(format!("unknown ACP session id `{session_id}`"));
-    }
-
     let prompt = text_prompt(&request.prompt)?;
+
     if state.is_cancelled(&session_id) {
         return Ok(PromptResponse::new(StopReason::Cancelled));
     }
 
-    send_update(
-        connection,
-        request.session_id,
-        SessionUpdateIntent::AssistantDelta(format!("thndrs ACP server accepted prompt: {prompt}")),
-    )?;
+    let turn_guard = state.begin_turn(&session_id)?;
+    let response = run_prompt_turn(&prompt, state, &session_id, &mut on_update, run_harness)?;
 
-    Ok(PromptResponse::new(StopReason::EndTurn))
+    drop(turn_guard);
+
+    Ok(response)
+}
+
+/// Run one harness-backed ACP prompt turn and stream updates while pending.
+fn run_prompt_turn(
+    prompt: &str, state: &ServerState, session_id: &str,
+    on_update: &mut impl FnMut(SessionUpdateIntent) -> Result<(), String>,
+    run_harness: impl FnOnce(AgentRunConfig, Vec<crate::providers::ProviderMessage>, bool, String) -> HarnessHandle,
+) -> Result<PromptResponse, String> {
+    let session = state.session(session_id)?;
+    let websearch = session
+        .metadata
+        .websearch
+        .or_else(|| websearch_mode(&state.config.websearch))
+        .unwrap_or(WebSearchMode::Auto);
+    let model = session.metadata.model.unwrap_or_else(|| state.config.model.clone());
+
+    let config = AgentRunConfig::new(session.cwd, model, websearch);
+    let bundle = prompt::PromptBundle::new(&config.root, &config.model, config.search_mode, &[], &[], prompt);
+    let messages = crate::prompt::lower_to_umans_messages(&bundle);
+    let expects_write = prompt_expects_workspace_write(prompt);
+    let handle = run_harness(config, messages, expects_write, prompt.to_string());
+    state.register_turn_cancel_token(session_id, handle.cancel.clone());
+    if state.is_cancelled(session_id) {
+        handle.cancel.cancel();
+    }
+
+    let response = run_prompt_handle(&handle, on_update)?;
+    state.clear_turn_cancel_token(session_id);
+    Ok(response)
+}
+
+fn run_prompt_handle(
+    handle: &HarnessHandle, on_update: &mut impl FnMut(SessionUpdateIntent) -> Result<(), String>,
+) -> Result<PromptResponse, String> {
+    loop {
+        match handle.events.recv() {
+            Ok(event) => {
+                for intent in map_agent_event(&event) {
+                    on_update(intent)?;
+                }
+                if handle.cancel.is_cancelled() {
+                    return Ok(PromptResponse::new(StopReason::Cancelled));
+                }
+
+                match event {
+                    AgentEvent::Finished => {
+                        return Ok(PromptResponse::new(StopReason::EndTurn));
+                    }
+                    AgentEvent::Cancelled => {
+                        return Ok(PromptResponse::new(StopReason::Cancelled));
+                    }
+                    AgentEvent::Failed(_) => return Ok(PromptResponse::new(StopReason::Refusal)),
+                    _ => (),
+                }
+            }
+            Err(_) if handle.cancel.is_cancelled() => return Ok(PromptResponse::new(StopReason::Cancelled)),
+            Err(_) => return Err(String::from("prompt turn ended without a terminal event")),
+        }
+    }
+}
+
+struct PromptTurnGuard {
+    session_id: String,
+    state: ServerState,
+}
+
+impl Drop for PromptTurnGuard {
+    fn drop(&mut self) {
+        let _ = self.state.end_turn(&self.session_id);
+        self.state.clear_turn_cancel_token(&self.session_id);
+    }
 }
 
 fn capabilities(_state: &ServerState) -> AgentCapabilities {
-    let _model = &_state.config.model;
-    let _websearch = &_state.config.websearch;
-    let _options = config_options::initial_config_option_ids();
     AgentCapabilities::new()
+        .load_session(false)
+        .prompt_capabilities(PromptCapabilities::new())
+        .mcp_capabilities(McpCapabilities::new())
+        .session_capabilities(SessionCapabilities::new())
+}
+
+fn negotiate_protocol_version(requested: ProtocolVersion) -> ProtocolVersion {
+    let _ = requested;
+    ProtocolVersion::V1
 }
 
 fn text_prompt(blocks: &[ContentBlock]) -> Result<String, String> {
@@ -239,16 +441,58 @@ fn lower_update_intent(intent: SessionUpdateIntent) -> Option<SessionUpdate> {
         SessionUpdateIntent::ReasoningDelta(text) => Some(SessionUpdate::AgentThoughtChunk(ContentChunk::new(
             ContentBlock::Text(TextContent::new(text)),
         ))),
+        SessionUpdateIntent::Usage { input_tokens, output_tokens } => Some(SessionUpdate::UsageUpdate(
+            UsageUpdate::new(input_tokens, input_tokens.saturating_add(output_tokens)),
+        )),
         SessionUpdateIntent::Status(text) => Some(SessionUpdate::AgentMessageChunk(ContentChunk::new(
             ContentBlock::Text(TextContent::new(text)),
         ))),
-        SessionUpdateIntent::Usage { .. }
-        | SessionUpdateIntent::ToolStarted { .. }
-        | SessionUpdateIntent::ToolFinished { .. }
-        | SessionUpdateIntent::Failed(_)
-        | SessionUpdateIntent::Cancelled
-        | SessionUpdateIntent::Finished => None,
+        SessionUpdateIntent::ToolStarted { id, name, arguments, kind, locations } => Some(SessionUpdate::ToolCall(
+            ToolCall::new(id, name)
+                .status(ToolCallStatus::InProgress)
+                .kind(kind.to_acp_kind())
+                .locations(locations)
+                .raw_input(json_text_or_value(arguments)),
+        )),
+        SessionUpdateIntent::ToolFinished { id, status, output, locations, .. } => {
+            let output_text = output.join("\n");
+            let fields = ToolCallUpdateFields::new()
+                .status(tool_call_status(status))
+                .raw_output(json_text_or_value(output_text.clone()))
+                .locations(locations)
+                .content(content_from_text_if_any(&output_text));
+            Some(SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(id, fields)))
+        }
+        SessionUpdateIntent::Failed(message) => Some(SessionUpdate::AgentMessageChunk(ContentChunk::new(
+            ContentBlock::Text(TextContent::new(format!("prompt failed: {message}"))),
+        ))),
+        SessionUpdateIntent::Cancelled => Some(SessionUpdate::AgentMessageChunk(ContentChunk::new(
+            ContentBlock::Text(TextContent::new("prompt was cancelled")),
+        ))),
+        SessionUpdateIntent::Finished => None,
     }
+}
+
+fn tool_call_status(intent: crate::server::events::ToolStatusIntent) -> ToolCallStatus {
+    match intent {
+        crate::server::events::ToolStatusIntent::InProgress => ToolCallStatus::InProgress,
+        crate::server::events::ToolStatusIntent::Completed => ToolCallStatus::Completed,
+        crate::server::events::ToolStatusIntent::Failed => ToolCallStatus::Failed,
+    }
+}
+
+fn json_text_or_value(raw: String) -> serde_json::Value {
+    serde_json::from_str(&raw).unwrap_or_else(|_| serde_json::Value::String(raw))
+}
+
+fn content_from_text_if_any(text: &str) -> Option<Vec<ToolCallContent>> {
+    if text.is_empty() {
+        return None;
+    }
+
+    Some(vec![ToolCallContent::Content(Content::new(ContentBlock::Text(
+        TextContent::new(text.to_string()),
+    )))])
 }
 
 fn websearch_mode(value: &str) -> Option<WebSearchMode> {
@@ -341,6 +585,33 @@ mod tests {
         .expect("text prompt");
 
         assert_eq!("first\nsecond", prompt);
+    }
+
+    #[test]
+    fn initializes_with_supported_protocol_version() {
+        let request = InitializeRequest::new(ProtocolVersion::V1);
+        let response = initialize(&state(), &request);
+
+        assert_eq!(response.protocol_version, ProtocolVersion::V1);
+        assert_eq!(
+            response.agent_info,
+            Some(Implementation::new("thndrs", env!("CARGO_PKG_VERSION")).title(Some("thndrs".to_string())))
+        );
+        let expected = AgentCapabilities::new()
+            .load_session(false)
+            .prompt_capabilities(PromptCapabilities::new())
+            .mcp_capabilities(McpCapabilities::new())
+            .session_capabilities(SessionCapabilities::new());
+        assert_eq!(response.agent_capabilities, expected);
+    }
+
+    #[test]
+    fn initializes_with_protocol_fallback_to_supported_version() {
+        let request = InitializeRequest::new(ProtocolVersion::from(2u16));
+        let response = initialize(&state(), &request);
+
+        assert_eq!(response.protocol_version, ProtocolVersion::V1);
+        assert!(response.agent_capabilities.prompt_capabilities == PromptCapabilities::new());
     }
 
     #[test]

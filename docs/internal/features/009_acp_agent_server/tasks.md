@@ -26,7 +26,7 @@ Captured: 2026-07-04
 - [x] Send one `SessionNotification` during a prompt.
 - [x] Return `PromptResponse` with a stop reason.
 - [x] Run the spike under a Tokio runtime.
-- [ ] Drive the spike with a fake ACP client fixture.
+- [x] Drive the spike with a fake ACP client fixture.
 - [x] Verify stdout contains only ACP JSON-RPC messages.
 - [x] Verify diagnostics go to stderr.
 
@@ -39,39 +39,39 @@ Captured: 2026-07-04
 - [x] Preserve existing TUI behavior through the new harness boundary.
 - [x] Keep renderer dependencies out of the harness module.
 - [x] Keep config/session/tool dependencies explicit.
-- [ ] Add tests proving the TUI can still run a fake provider turn.
+- [x] Add tests proving the TUI can still run a fake provider turn.
 - [x] Add tests proving the harness can run without constructing `App`.
 
 ## M3: Binary
 
 - [x] Add `src/bin/thndrs-acp-server.rs`.
 - [x] Parse safe harness/config flags.
-- [ ] Reuse existing effective config loading where possible.
+- [x] Reuse existing effective config loading where possible.
 - [x] Exclude TUI-only flags.
-- [ ] Initialize tracing without writing to stdout.
+- [x] Initialize tracing without writing to stdout.
 - [x] Start `Agent.builder().connect_to(...)` with a stdio transport.
 - [x] Exit cleanly when stdin closes.
-- [ ] Add a smoke test that launches the binary as a subprocess.
+- [x] Add a smoke test that launches the binary as a subprocess.
 
 ## M4: Initialization
 
 - [x] Register `InitializeRequest` handler.
 - [x] Negotiate ACP protocol version 1.
 - [x] Return `agentInfo` for `thndrs`.
-- [ ] Return accurate `agentCapabilities`.
-- [ ] Advertise text prompt support.
+- [x] Return accurate `agentCapabilities`.
+- [x] Advertise text prompt support.
 - [x] Do not advertise rich content until M18.
 - [x] Do not advertise terminal capability until M16.
 - [x] Do not advertise session load/resume/list until M14.
-- [ ] Add fixture tests for supported and unsupported protocol versions.
+- [x] Add fixture tests for supported and unsupported protocol versions.
 
 ## M5: Sessions
 
 - [x] Register `NewSessionRequest` handler.
 - [x] Validate and normalize `cwd`.
 - [x] Create an opaque ACP session id.
-- [ ] Create or attach a local `thndrs` session writer.
-- [ ] Record ACP session metadata in local session JSONL.
+- [x] Create or attach a local `thndrs` session writer.
+- [x] Record ACP session metadata in local session JSONL.
 - [x] Store session state in a server session map.
 - [x] Reject duplicate or invalid session operations clearly.
 - [x] Add tests for session creation and id mapping.
@@ -82,32 +82,32 @@ Captured: 2026-07-04
 - [x] Validate session id.
 - [x] Convert text `ContentBlock`s into a user prompt.
 - [x] Reject unsupported content blocks with a stable protocol error.
-- [ ] Start a harness turn for the session.
-- [ ] Stream events while the prompt request is pending.
-- [ ] Return `PromptResponse` when the harness finishes.
-- [ ] Prevent concurrent prompt turns for the same ACP session.
-- [ ] Add tests for prompt success, unsupported content, missing session, and
+- [x] Start a harness turn for the session.
+- [x] Stream events while the prompt request is pending.
+- [x] Return `PromptResponse` when the harness finishes.
+- [x] Prevent concurrent prompt turns for the same ACP session.
+- [x] Add tests for prompt success, unsupported content, missing session, and
       concurrent prompt rejection.
 
 ## M7: Session Updates
 
 - [x] Map `AgentEvent::AssistantDelta` to agent message chunks.
 - [x] Map `AgentEvent::ReasoningDelta` to plan/reasoning/status updates.
-- [ ] Map `AgentEvent::Usage` to ACP usage updates when supported by the schema.
+- [x] Map `AgentEvent::Usage` to ACP usage updates when supported by the schema.
 - [x] Map `AgentEvent::Status` to useful ACP status/plan updates.
-- [ ] Map `AgentEvent::Failed` to failed prompt outcome and error updates.
-- [ ] Map `AgentEvent::Cancelled` to cancelled prompt outcome.
+- [x] Map `AgentEvent::Failed` to failed prompt outcome and error updates.
+- [x] Map `AgentEvent::Cancelled` to cancelled prompt outcome.
 - [x] Add pure conversion tests for each event variant.
-- [ ] Add fixture tests for notification ordering.
+- [x] Add fixture tests for notification ordering.
 
 ## M8: Tool Calls And Permissions
 
-- [ ] Map `ToolStarted` to ACP tool-call create/update.
-- [ ] Map `ToolFinished` to ACP tool-call completion or failure.
-- [ ] Classify tool kinds: read, edit, search, execute, fetch, think, or other.
-- [ ] Include safe raw input when useful.
-- [ ] Cap and redact raw input/output.
-- [ ] Include file locations when available.
+- [x] Map `ToolStarted` to ACP tool-call create/update.
+- [x] Map `ToolFinished` to ACP tool-call completion or failure.
+- [x] Classify tool kinds: read, edit, search, execute, fetch, think, or other.
+- [x] Include safe raw input when useful.
+- [x] Cap and redact raw input/output.
+- [x] Include file locations when available.
 - [ ] Before file writes, call `session/request_permission`.
 - [ ] Before shell commands, call `session/request_permission`.
 - [ ] Reject the tool operation when permission is cancelled or rejected.
@@ -117,12 +117,12 @@ Captured: 2026-07-04
 ## M9: Cancellation
 
 - [x] Register `session/cancel` handling.
-- [ ] Cancel the active harness turn for the ACP session.
+- [x] Cancel the active harness turn for the ACP session.
 - [ ] Cancel pending permission requests.
-- [ ] Return a cancelled prompt response or protocol cancellation error
+- [x] Return a cancelled prompt response or protocol cancellation error
       according to SDK/schema behavior.
-- [ ] Preserve partial session updates already sent.
-- [ ] Record cancellation in local session JSONL.
+- [x] Preserve partial session updates already sent.
+- [x] Record cancellation in local session JSONL.
 - [ ] Add tests for prompt cancellation, permission cancellation, and
       cancellation after completion.
 
