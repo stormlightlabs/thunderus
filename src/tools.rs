@@ -32,11 +32,13 @@ mod write_patch;
 
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
 use crate::app::ToolStatus;
 use crate::cli::WebSearchMode;
+use crate::mcp::manager::McpManager;
 
 /// Maximum number of tool-call iterations per agent turn before the loop
 /// stops with a cap-exceeded error.
@@ -184,11 +186,19 @@ pub struct AgentRunConfig {
     pub search_mode: WebSearchMode,
     /// Maximum tool-call iterations per turn.
     pub max_tool_iterations: usize,
+    /// Optional MCP manager used to extend the built-in tool registry.
+    pub mcp_manager: Option<Arc<McpManager>>,
 }
 
 impl AgentRunConfig {
     pub fn new(root: PathBuf, model: String, search_mode: WebSearchMode) -> Self {
-        AgentRunConfig { root, model, search_mode, max_tool_iterations: MAX_TOOL_ITERATIONS }
+        AgentRunConfig { root, model, search_mode, max_tool_iterations: MAX_TOOL_ITERATIONS, mcp_manager: None }
+    }
+
+    /// Attach an MCP manager to this run.
+    pub fn with_mcp_manager(mut self, manager: Arc<McpManager>) -> Self {
+        self.mcp_manager = Some(manager);
+        self
     }
 }
 
@@ -308,6 +318,15 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
     registry::tool_definitions()
 }
 
+/// Return built-in tools plus cached MCP tools for a run.
+pub fn runtime_tool_definitions(mcp_manager: Option<&McpManager>) -> Vec<ToolDefinition> {
+    let mut definitions = tool_definitions();
+    if let Some(manager) = mcp_manager {
+        definitions.extend(manager.tool_definitions());
+    }
+    definitions
+}
+
 /// Convert the tool catalog into provider-compatible tool schemas.
 pub fn provider_tool_catalog_schemas(defs: &[ToolDefinition], format: ProviderSchemaFormat) -> serde_json::Value {
     registry::provider_tool_catalog_schemas(defs, format)
@@ -354,6 +373,18 @@ pub fn dispatch_full(
 ) -> (ToolOutput, Option<WriteResult>, Option<shell::ProcessResult>) {
     let execution = registry::execute(request, registry::ToolContext::new(root));
     (execution.output, execution.write_result, execution.shell_result)
+}
+
+/// Dispatch through MCP first when a namespaced MCP tool is available.
+pub fn dispatch_runtime_full(
+    request: &ToolUseRequest, root: &Path, mcp_manager: Option<&McpManager>,
+) -> (ToolOutput, Option<WriteResult>, Option<shell::ProcessResult>) {
+    if request.name.starts_with("mcp__")
+        && let Some(manager) = mcp_manager
+    {
+        return (manager.call_tool(request), None, None);
+    }
+    dispatch_full(request, root)
 }
 
 /// Return searchable file paths for UI features that need file selection.

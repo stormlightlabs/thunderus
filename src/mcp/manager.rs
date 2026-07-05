@@ -8,7 +8,9 @@ use std::collections::BTreeMap;
 
 use super::adapter::{McpSdkClient, McpSdkError, McpToolDefinition, sdk_error_to_output};
 use super::config::{McpConfig, McpServerConfig};
-use crate::tools::{ToolDefinition, ToolOutput, ToolUseRequest};
+use crate::tools::{MAX_LINE_LEN, MAX_OUTPUT_BYTES, ToolDefinition, ToolOutput, ToolUseRequest, shell};
+
+const MAX_MCP_OUTPUT_LINES: usize = 100;
 
 /// Errors returned while building an MCP client or manager.
 #[derive(Debug, thiserror::Error)]
@@ -82,6 +84,7 @@ impl McpClient {
 
         self.sdk
             .call_tool(&request.name, original_name, arguments)
+            .map(sanitize_mcp_output)
             .unwrap_or_else(|err| sdk_error_to_output(&request.name, "call", &err))
     }
 }
@@ -91,6 +94,16 @@ pub struct McpManager {
     clients: BTreeMap<String, McpClient>,
     tool_routes: BTreeMap<String, String>,
     diagnostics: Vec<String>,
+}
+
+impl std::fmt::Debug for McpManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("McpManager")
+            .field("clients", &self.clients.keys().collect::<Vec<_>>())
+            .field("tool_routes", &self.tool_routes)
+            .field("diagnostics", &self.diagnostics)
+            .finish()
+    }
 }
 
 impl McpManager {
@@ -131,6 +144,11 @@ impl McpManager {
         &self.diagnostics
     }
 
+    /// Append loader diagnostics to this manager.
+    pub fn extend_diagnostics(&mut self, diagnostics: impl IntoIterator<Item = String>) {
+        self.diagnostics.extend(diagnostics);
+    }
+
     /// Route a namespaced tool request to the correct MCP client.
     pub fn call_tool(&self, request: &ToolUseRequest) -> ToolOutput {
         let Some(server_name) = self.tool_routes.get(&request.name) else {
@@ -142,6 +160,49 @@ impl McpManager {
 
         client.call_tool(request)
     }
+}
+
+fn sanitize_mcp_output(mut output: ToolOutput) -> ToolOutput {
+    let mut remaining_bytes = MAX_OUTPUT_BYTES;
+    let mut sanitized = Vec::new();
+    let mut truncated = false;
+
+    for line in output.output {
+        if sanitized.len() >= MAX_MCP_OUTPUT_LINES {
+            truncated = true;
+            break;
+        }
+
+        let redacted = shell::redact_secrets(&line);
+        let mut capped: String = redacted.chars().take(MAX_LINE_LEN).collect();
+        if capped.len() < redacted.len() {
+            capped.push_str("...");
+            truncated = true;
+        }
+
+        let bytes = capped.len();
+        if bytes > remaining_bytes {
+            let allowed = remaining_bytes.min(capped.len());
+            capped = capped.chars().take(allowed).collect();
+            capped.push_str("...");
+            sanitized.push(capped);
+            truncated = true;
+            break;
+        }
+
+        remaining_bytes = remaining_bytes.saturating_sub(bytes);
+        sanitized.push(capped);
+    }
+
+    if truncated {
+        sanitized.push("[mcp output truncated]".to_string());
+    }
+
+    if let Some(error) = output.error {
+        output.error = Some(shell::redact_secrets(&error));
+    }
+    output.output = sanitized;
+    output
 }
 
 #[cfg(test)]
@@ -214,6 +275,18 @@ mod tests {
 
         assert_eq!(output.status, ToolStatus::Failed);
         assert_eq!(output.error.as_deref(), Some("unknown MCP tool: mcp__missing__echo"));
+    }
+
+    #[test]
+    fn mcp_output_is_redacted_and_capped() {
+        let output = sanitize_mcp_output(ToolOutput::ok(
+            "mcp__docs__secret",
+            vec![format!("api_key=sk-{}", "a".repeat(80)), "x".repeat(MAX_LINE_LEN + 20)],
+        ));
+
+        assert!(output.output[0].contains("[REDACTED]"));
+        assert!(output.output[1].ends_with("..."));
+        assert!(output.output.iter().any(|line| line == "[mcp output truncated]"));
     }
 
     fn server_config(script: &Path) -> McpServerConfig {

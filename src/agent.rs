@@ -412,7 +412,7 @@ where
         MetadataLoaded::Unavailable => None,
     };
 
-    let tool_defs = tools::tool_definitions();
+    let tool_defs = tools::runtime_tool_definitions(handle.config.mcp_manager.as_deref());
     let tool_schemas = tools::tool_catalog_schemas(&tool_defs);
     let mut messages = if handle.messages.is_empty() {
         vec![ProviderMessage::user(&handle.prompt)]
@@ -571,7 +571,8 @@ where
                 return;
             }
 
-            let (output, write_result, shell_result) = tools::dispatch_full(req, &handle.config.root);
+            let (output, write_result, shell_result) =
+                tools::dispatch_runtime_full(req, &handle.config.root, handle.config.mcp_manager.as_deref());
             let status = output.status;
             if write_result.is_some() && status == ToolStatus::Ok {
                 wrote_file = true;

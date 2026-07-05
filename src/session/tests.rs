@@ -371,6 +371,7 @@ fn session_record_json_round_trip_tool_finished() {
         call_id: "call_1".to_string(),
         status: ToolStatus::Ok,
         output: vec!["src/main.rs:1:fn main()".to_string()],
+        mcp: None,
     };
     let json = record.to_json().expect("serialize");
     let restored = SessionRecord::from_json(&json).expect("deserialize");
@@ -433,6 +434,7 @@ fn session_record_json_round_trip_tool_started() {
         call_id: "call_1".to_string(),
         name: "search_text".to_string(),
         arguments: r#"{"pattern":"fn main"}"#.to_string(),
+        mcp: None,
     };
     let json = record.to_json().expect("serialize");
     let restored = SessionRecord::from_json(&json).expect("deserialize");
@@ -1406,6 +1408,40 @@ fn append_tool_started_persists_metadata() {
 }
 
 #[test]
+fn append_mcp_tool_records_include_metadata() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let mut writer = test_writer(dir.path(), "mcp-tool-session");
+
+    writer
+        .append_tool_started("turn_1", "call_1", "mcp__docs__search", r#"{"query":"rust"}"#)
+        .expect("append tool started");
+
+    let entry = Entry::Tool {
+        name: "mcp__docs__search#call_1".to_string(),
+        arguments: r#"{"query":"rust"}"#.to_string(),
+        status: ToolStatus::Ok,
+        output: vec!["ok".to_string()],
+    };
+    writer.append_entry(&entry, "turn_1").expect("append finished");
+
+    let records = SessionReader::read_records(writer.path());
+    assert!(records.iter().any(|record| matches!(
+        record,
+        SessionRecord::ToolStarted {
+            mcp: Some(McpToolSessionMeta { server_name, original_tool_name }),
+            ..
+        } if server_name == "docs" && original_tool_name == "search"
+    )));
+    assert!(records.iter().any(|record| matches!(
+        record,
+        SessionRecord::ToolFinished {
+            mcp: Some(McpToolSessionMeta { server_name, original_tool_name }),
+            ..
+        } if server_name == "docs" && original_tool_name == "search"
+    )));
+}
+
+#[test]
 fn append_tool_started_round_trip() {
     let dir = tempfile::tempdir().expect("temp dir");
     let mut writer = test_writer(dir.path(), "tool-started-rt");
@@ -1442,6 +1478,7 @@ fn tool_started_record_json_round_trip() {
         call_id: "call_1".to_string(),
         name: "run_shell".to_string(),
         arguments: r#"{"program":"echo","args":["hello"]}"#.to_string(),
+        mcp: None,
     };
     let json = record.to_json().expect("serialize");
     let restored = SessionRecord::from_json(&json).expect("deserialize");
@@ -1460,6 +1497,7 @@ fn tool_started_does_not_map_to_entry_on_resume() {
         call_id: "call_1".to_string(),
         name: "run_shell".to_string(),
         arguments: "{}".to_string(),
+        mcp: None,
     };
     assert!(record.to_entry().is_none(), "tool_started should not map to an entry");
 }

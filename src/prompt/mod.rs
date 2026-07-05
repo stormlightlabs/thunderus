@@ -138,6 +138,12 @@ impl PromptBundle {
             prev_context_hash: None,
         }
     }
+
+    /// Replace the bundle's tool catalog with a runtime-specific catalog.
+    pub fn with_tool_catalog(mut self, tool_catalog: Vec<ToolDefinition>) -> Self {
+        self.tool_catalog = tool_catalog;
+        self
+    }
 }
 
 /// Environment metadata included in the prompt for cache stability.

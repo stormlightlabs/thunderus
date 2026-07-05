@@ -20,8 +20,8 @@
 //! - `assistant_finished`: final replayable assistant text.
 //! - `reasoning_finished`: final replayable reasoning text.
 //! - `usage`: provider token usage increments.
-//! - `tool_started`: tool call id, name, input.
-//! - `tool_finished`: tool call id, status, output.
+//! - `tool_started`: tool call id, name, input, optional MCP metadata.
+//! - `tool_finished`: tool call id, status, output, optional MCP metadata.
 //! - `file_write`: file write audit (op, path, before/after hash+bytes, status).
 //! - `cancelled`: turn id and reason.
 //! - `failed`: turn id and error message.
@@ -84,6 +84,15 @@ pub struct SessionConfigFile {
     pub source: String,
     /// Lowercase hex SHA-256 of file bytes.
     pub sha256: String,
+}
+
+/// MCP-specific metadata attached to external tool calls.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct McpToolSessionMeta {
+    /// Configured MCP server name.
+    pub server_name: String,
+    /// Original MCP tool name before provider-visible namespacing.
+    pub original_tool_name: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -161,6 +170,9 @@ pub enum SessionRecord {
         call_id: String,
         name: String,
         arguments: String,
+        /// MCP metadata when this tool came from an MCP server.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mcp: Option<McpToolSessionMeta>,
     },
     /// A tool call finished.
     #[serde(rename = "tool_finished")]
@@ -172,6 +184,9 @@ pub enum SessionRecord {
         call_id: String,
         status: ToolStatus,
         output: Vec<String>,
+        /// MCP metadata when this tool came from an MCP server.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mcp: Option<McpToolSessionMeta>,
     },
     /// The agent run was cancelled.
     #[serde(rename = "cancelled")]
@@ -392,6 +407,7 @@ impl SessionRecord {
                     call_id,
                     status: *status,
                     output: output.clone(),
+                    mcp: mcp_tool_session_meta(&tool_name),
                 })
                 .map(|r| (r, tool_name))
                 .map(|(r, _)| r)
@@ -730,6 +746,7 @@ impl SessionWriter {
             call_id: call_id.to_string(),
             name: name.to_string(),
             arguments: args.to_string(),
+            mcp: mcp_tool_session_meta(name),
         };
         self.seq += 1;
         let line = record.to_json().map_err(io_err)?;
@@ -1140,6 +1157,18 @@ fn split_tool_name_id(name: &str) -> (String, String) {
         Some((n, id)) => (n.to_string(), id.to_string()),
         None => (name.to_string(), "?".to_string()),
     }
+}
+
+fn mcp_tool_session_meta(name: &str) -> Option<McpToolSessionMeta> {
+    let rest = name.strip_prefix("mcp__")?;
+    let (server_name, original_tool_name) = rest.split_once("__")?;
+    if server_name.is_empty() || original_tool_name.is_empty() {
+        return None;
+    }
+    Some(McpToolSessionMeta {
+        server_name: server_name.to_string(),
+        original_tool_name: original_tool_name.to_string(),
+    })
 }
 
 /// Set the seq field on a record (used by `SessionWriter::append`).

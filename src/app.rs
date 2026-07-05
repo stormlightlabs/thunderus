@@ -1638,6 +1638,19 @@ fn submit_user_turn(app: &mut App, text: String) -> Option<Msg> {
 
 /// Route a slash command (the part after `/` or the text after `:`).
 fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
+    if command == "mcp" {
+        list_mcp_servers(app);
+        return None;
+    }
+    if command == "mcp tools" {
+        list_mcp_tools(app, "");
+        return None;
+    }
+    if let Some(name) = command.strip_prefix("mcp tools ") {
+        list_mcp_tools(app, name.trim());
+        return None;
+    }
+
     match command {
         "clear" => {
             app.transcript.clear();
@@ -1706,6 +1719,80 @@ fn list_background_processes(app: &mut App) {
             .collect();
         app.transcript
             .push(Entry::Status { text: format!("background processes:\n{}", lines.join("\n")) });
+    }
+}
+
+fn list_mcp_servers(app: &mut App) {
+    let env_vars: Vec<(String, String)> = std::env::vars().collect();
+    match crate::mcp::config::load_effective_mcp(&app.cwd, &env_vars) {
+        Ok(effective) if effective.config.servers.is_empty() => {
+            app.transcript
+                .push(Entry::Status { text: String::from("no MCP servers configured") });
+        }
+        Ok(effective) => {
+            let mut lines = Vec::new();
+            for (name, server) in &effective.config.servers {
+                let status = if server.enabled { "enabled" } else { "disabled" };
+                lines.push(format!("{name}\t{status}\t{:?}", server.transport));
+            }
+            lines.extend(
+                effective
+                    .diagnostics
+                    .into_iter()
+                    .map(|diagnostic| format!("diagnostic: {diagnostic}")),
+            );
+            app.transcript
+                .push(Entry::Status { text: format!("MCP servers:\n{}", lines.join("\n")) });
+        }
+        Err(err) => app
+            .transcript
+            .push(Entry::Error { text: format!("failed to load MCP config: {err}") }),
+    }
+}
+
+fn list_mcp_tools(app: &mut App, name: &str) {
+    if name.is_empty() {
+        app.transcript
+            .push(Entry::Error { text: String::from("usage: /mcp tools <name>") });
+        return;
+    }
+
+    let env_vars: Vec<(String, String)> = std::env::vars().collect();
+    let effective = match crate::mcp::config::load_effective_mcp(&app.cwd, &env_vars) {
+        Ok(effective) => effective,
+        Err(err) => {
+            app.transcript
+                .push(Entry::Error { text: format!("failed to load MCP config: {err}") });
+            return;
+        }
+    };
+    let Some(server) = effective.config.servers.get(name) else {
+        app.transcript
+            .push(Entry::Error { text: format!("MCP server `{name}` is not configured") });
+        return;
+    };
+    if !server.enabled {
+        app.transcript
+            .push(Entry::Error { text: format!("MCP server `{name}` is disabled") });
+        return;
+    }
+
+    match crate::mcp::manager::McpClient::connect(name.to_string(), server) {
+        Ok(client) => {
+            let lines: Vec<String> = client
+                .tool_definitions()
+                .into_iter()
+                .map(|tool| format!("{}\t{}", tool.name, tool.description))
+                .collect();
+            app.transcript.push(Entry::Status {
+                text: if lines.is_empty() {
+                    format!("MCP server `{name}` exposes no tools")
+                } else {
+                    format!("MCP tools for `{name}`:\n{}", lines.join("\n"))
+                },
+            });
+        }
+        Err(err) => app.transcript.push(Entry::Error { text: err.to_string() }),
     }
 }
 

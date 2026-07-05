@@ -25,6 +25,7 @@ mod utils;
 
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -32,13 +33,14 @@ use std::time::{Duration, Instant};
 use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEvent};
 
 use app::{App, Msg, RunState, update};
-use cli::{AcpCommand, Cli, Command};
+use cli::{AcpCommand, Cli, Command, McpCommand};
 use prompt::PromptBundle;
 use renderer::backend::TerminalBackend;
 use tools::AgentRunConfig;
 
 use crate::acp::config::provider_label;
 use crate::app::PromptAccessory;
+use crate::mcp::manager::McpManager;
 use crate::utils::datetime;
 
 enum AcpEventWrite {
@@ -156,7 +158,113 @@ pub fn render_print_prompt(bundle: &PromptBundle) -> String {
 fn run_command(cli: &Cli, command: &Command) -> io::Result<()> {
     match command {
         Command::Acp { command } => run_acp_command(cli, command),
+        Command::Mcp { command } => run_mcp_command(cli, command),
     }
+}
+
+fn load_mcp_manager_for_workspace(workspace: &Path) -> io::Result<Arc<McpManager>> {
+    let env_vars: Vec<(String, String)> = std::env::vars().collect();
+    let effective = mcp::config::load_effective_mcp(workspace, &env_vars).map_err(io::Error::other)?;
+    let mut manager = McpManager::from_config(&effective.config);
+    manager.extend_diagnostics(effective.diagnostics);
+    Ok(Arc::new(manager))
+}
+
+fn load_effective_mcp_for_workspace(workspace: &Path) -> io::Result<mcp::config::EffectiveMcpConfig> {
+    let env_vars: Vec<(String, String)> = std::env::vars().collect();
+    mcp::config::load_effective_mcp(workspace, &env_vars).map_err(io::Error::other)
+}
+
+fn run_mcp_command(cli: &Cli, command: &McpCommand) -> io::Result<()> {
+    let stdout = io::stdout();
+    let mut lock = stdout.lock();
+    match command {
+        McpCommand::List => run_mcp_list(cli, &mut lock),
+        McpCommand::Test { name } => run_mcp_test(cli, name, &mut lock),
+        McpCommand::Tools { name } => run_mcp_tools(cli, name, &mut lock),
+        McpCommand::Call { server, tool, json } => run_mcp_call(cli, server, tool, json, &mut lock),
+    }
+}
+
+fn run_mcp_list<W: io::Write>(cli: &Cli, writer: &mut W) -> io::Result<()> {
+    let workspace = context::discover_workspace_root(&cli.cwd);
+    let effective = load_effective_mcp_for_workspace(&workspace)?;
+    if effective.config.servers.is_empty() {
+        writeln!(writer, "no MCP servers configured")?;
+        return Ok(());
+    }
+
+    for (name, server) in &effective.config.servers {
+        let status = if server.enabled { "enabled" } else { "disabled" };
+        writeln!(writer, "{name}\t{status}\t{:?}", server.transport)?;
+    }
+    for diagnostic in effective.diagnostics {
+        writeln!(writer, "diagnostic: {diagnostic}")?;
+    }
+    Ok(())
+}
+
+fn run_mcp_test<W: io::Write>(cli: &Cli, name: &str, writer: &mut W) -> io::Result<()> {
+    let workspace = context::discover_workspace_root(&cli.cwd);
+    let effective = load_effective_mcp_for_workspace(&workspace)?;
+    let server = configured_mcp_server(&effective.config, name)?;
+    let client = mcp::manager::McpClient::connect(name.to_string(), &server).map_err(io::Error::other)?;
+    writeln!(writer, "{name}\tready\t{} tools", client.tool_definitions().len())?;
+    for diagnostic in client.diagnostics() {
+        writeln!(writer, "diagnostic: {diagnostic}")?;
+    }
+    Ok(())
+}
+
+fn run_mcp_tools<W: io::Write>(cli: &Cli, name: &str, writer: &mut W) -> io::Result<()> {
+    let workspace = context::discover_workspace_root(&cli.cwd);
+    let effective = load_effective_mcp_for_workspace(&workspace)?;
+    let server = configured_mcp_server(&effective.config, name)?;
+    let client = mcp::manager::McpClient::connect(name.to_string(), &server).map_err(io::Error::other)?;
+    for tool in client.tool_definitions() {
+        writeln!(writer, "{}\t{}", tool.name, tool.description)?;
+    }
+    Ok(())
+}
+
+fn run_mcp_call<W: io::Write>(
+    cli: &Cli, server_name: &str, tool_name: &str, json: &str, writer: &mut W,
+) -> io::Result<()> {
+    let workspace = context::discover_workspace_root(&cli.cwd);
+    let effective = load_effective_mcp_for_workspace(&workspace)?;
+    let server = configured_mcp_server(&effective.config, server_name)?;
+    let client = mcp::manager::McpClient::connect(server_name.to_string(), &server).map_err(io::Error::other)?;
+    let namespaced = mcp::adapter::namespaced_tool_name(server_name, tool_name);
+    let request = tools::ToolUseRequest::new(namespaced, json.to_string(), "cli".to_string());
+    let output = client.call_tool(&request);
+    if output.status == app::ToolStatus::Failed {
+        writeln!(
+            writer,
+            "failed: {}",
+            output.error.unwrap_or_else(|| "MCP tool failed".to_string())
+        )?;
+        return Ok(());
+    }
+    for line in output.output {
+        writeln!(writer, "{line}")?;
+    }
+    Ok(())
+}
+
+fn configured_mcp_server(config: &mcp::config::McpConfig, name: &str) -> io::Result<mcp::config::McpServerConfig> {
+    let server = config.servers.get(name).cloned().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("MCP server `{name}` is not configured"),
+        )
+    })?;
+    if !server.enabled {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("MCP server `{name}` is disabled"),
+        ));
+    }
+    Ok(server)
 }
 
 fn run_acp_command(cli: &Cli, command: &AcpCommand) -> io::Result<()> {
@@ -481,6 +589,8 @@ fn run_print_prompt(cli: &Cli) -> io::Result<()> {
         None => Vec::new(),
     };
     let skill_inventory = skills::discover(&workspace_root, &cli.skill_dirs);
+    let mcp_manager = load_mcp_manager_for_workspace(&workspace_root).ok();
+    let tool_catalog = tools::runtime_tool_definitions(mcp_manager.as_deref());
 
     let user_turn = String::from("(no user prompt — print-prompt debug mode)");
     let bundle = PromptBundle::new_with_skills(
@@ -491,7 +601,8 @@ fn run_print_prompt(cli: &Cli) -> io::Result<()> {
         &skill_inventory.skills,
         &[],
         &user_turn,
-    );
+    )
+    .with_tool_catalog(tool_catalog);
 
     let mut output = render_print_prompt(&bundle);
     output.push_str(&render_print_prompt_config(cli, &workspace_root));
@@ -835,7 +946,11 @@ fn maybe_spawn_agent(app: &App, cli: &Cli, agent: &mut Option<AgentSlot>) {
         .unwrap_or_default();
     let workspace_root = context::discover_workspace_root(&cli.cwd);
     let resolved_websearch = cli.websearch.resolve_for_prompt(&prompt);
-    let config = AgentRunConfig::new(workspace_root, cli.model.clone(), resolved_websearch);
+    let mcp_manager = load_mcp_manager_for_workspace(&workspace_root).ok();
+    let mut config = AgentRunConfig::new(workspace_root, cli.model.clone(), resolved_websearch);
+    if let Some(manager) = mcp_manager.clone() {
+        config = config.with_mcp_manager(manager);
+    }
     if let Some(acp_name) = acp::config::parse_model_id(&cli.model) {
         tracing::info!(
             cwd = %config.root.display(),
@@ -863,6 +978,7 @@ fn maybe_spawn_agent(app: &App, cli: &Cli, agent: &mut Option<AgentSlot>) {
         "spawning agent run"
     );
 
+    let tool_catalog = tools::runtime_tool_definitions(mcp_manager.as_deref());
     let bundle = PromptBundle::new_with_skills(
         &config.root,
         &config.model,
@@ -871,7 +987,8 @@ fn maybe_spawn_agent(app: &App, cli: &Cli, agent: &mut Option<AgentSlot>) {
         &app.skills,
         &app.transcript,
         &prompt,
-    );
+    )
+    .with_tool_catalog(tool_catalog);
     let messages = prompt::lower_to_umans_messages(&bundle);
     let expects_write = agent::prompt_expects_workspace_write(&prompt);
     let (steering_tx, steering_rx) = mpsc::channel();
@@ -1208,6 +1325,44 @@ mod tests {
     }
 
     #[test]
+    fn mcp_list_tools_and_call_use_fake_server() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let workspace = tmp.path().join("workspace");
+        std::fs::create_dir_all(workspace.join(".thndrs")).expect("create config dir");
+        let script = write_fake_mcp_server(tmp.path());
+        std::fs::write(
+            workspace.join(".thndrs").join("mcp.toml"),
+            format!(
+                r#"
+                [servers.docs]
+                command = "python3"
+                args = [{:?}]
+                timeout_secs = 5
+                "#,
+                script.display().to_string()
+            ),
+        )
+        .expect("write mcp config");
+        let cli = Cli { cwd: workspace, ..Cli::default() };
+
+        let mut list_output = Vec::new();
+        run_mcp_list(&cli, &mut list_output).expect("list mcp");
+        let list = String::from_utf8(list_output).expect("utf8");
+        assert!(list.contains("docs"));
+        assert!(list.contains("enabled"));
+
+        let mut tools_output = Vec::new();
+        run_mcp_tools(&cli, "docs", &mut tools_output).expect("tools mcp");
+        let tools = String::from_utf8(tools_output).expect("utf8");
+        assert!(tools.contains("mcp__docs__echo"));
+
+        let mut call_output = Vec::new();
+        run_mcp_call(&cli, "docs", "echo", r#"{"text":"hello"}"#, &mut call_output).expect("call mcp");
+        let call = String::from_utf8(call_output).expect("utf8");
+        assert!(call.contains("hello"));
+    }
+
+    #[test]
     fn clear_resets_direct_renderer_and_purges_terminal() {
         let cli = Cli::default();
         let mut app = App::from_cli(&cli);
@@ -1331,5 +1486,53 @@ mod tests {
             },
         );
         Cli { cwd: cwd.to_path_buf(), acp_agents: agents, ..Cli::default() }
+    }
+
+    fn write_fake_mcp_server(dir: &Path) -> PathBuf {
+        let path = dir.join("fake_mcp_cli.py");
+        std::fs::write(
+            &path,
+            r#"#!/usr/bin/env python3
+import json
+import sys
+
+for line in sys.stdin:
+    msg = json.loads(line)
+    method = msg.get("method")
+    if method == "initialize":
+        print(json.dumps({
+            "jsonrpc": "2.0",
+            "id": msg["id"],
+            "result": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "fake", "version": "0.1.0"}
+            }
+        }), flush=True)
+    elif method == "notifications/initialized":
+        continue
+    elif method == "tools/list":
+        print(json.dumps({
+            "jsonrpc": "2.0",
+            "id": msg["id"],
+            "result": {
+                "tools": [{
+                    "name": "echo",
+                    "description": "Echo text",
+                    "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}}
+                }]
+            }
+        }), flush=True)
+    elif method == "tools/call":
+        args = msg.get("params", {}).get("arguments", {})
+        print(json.dumps({
+            "jsonrpc": "2.0",
+            "id": msg["id"],
+            "result": {"content": [{"type": "text", "text": args.get("text", "")}], "isError": False}
+        }), flush=True)
+"#,
+        )
+        .expect("write fake mcp server");
+        path
     }
 }

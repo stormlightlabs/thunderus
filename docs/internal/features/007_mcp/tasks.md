@@ -76,27 +76,50 @@ Captured: 2026-07-04
 
 ## P5: Runtime And Sessions
 
-- [ ] Include MCP tools in the provider tool catalog through the registry.
-- [ ] Record MCP tool start and finish records in session JSONL.
-- [ ] Include server name and original MCP tool name in session metadata.
-- [ ] Cap and redact MCP output before transcript/session storage.
-- [ ] Add inspect/export support for MCP calls.
-- [ ] Add tests proving failed MCP calls become stable tool failures.
+- [x] Include MCP tools in the provider tool catalog through the registry.
+- [x] Record MCP tool start and finish records in session JSONL.
+- [x] Include server name and original MCP tool name in session metadata.
+- [x] Cap and redact MCP output before transcript/session storage.
+- [x] Add inspect/export support for MCP calls.
+- [x] Add tests proving failed MCP calls become stable tool failures.
 
 ## P6: CLI And TUI Commands
 
-- [ ] Add `thndrs mcp list`.
-- [ ] Add `thndrs mcp test <name>`.
-- [ ] Add `thndrs mcp tools <name>`.
-- [ ] Add `thndrs mcp call <server> <tool> --json <args>`.
-- [ ] Add TUI `mcp` command.
-- [ ] Add TUI `mcp tools <name>` command.
-- [ ] Add CLI parser tests.
-- [ ] Add command output tests with fake servers.
+- [x] Add `thndrs mcp list`.
+- [x] Add `thndrs mcp test <name>`.
+- [x] Add `thndrs mcp tools <name>`.
+- [x] Add `thndrs mcp call <server> <tool> --json <args>`.
+- [x] Add TUI `mcp` command.
+- [x] Add TUI `mcp tools <name>` command.
+- [x] Add CLI parser tests.
+- [x] Add command output tests with fake servers.
+
+## P6.5: Stdio Stability Gate
+
+Stdio has a working implementation and the targeted MCP tests pass, but it is
+not stable enough to unblock HTTP transport work yet. Treat Streamable HTTP as
+blocked until this gate is complete.
+
+- [ ] Add MCP-specific provider catalog coverage proving cached stdio tools are
+      included as stable `mcp__{server}__{tool}` entries in prompt/tool schema
+      output.
+- [ ] Add a regression test for mismatched negotiated protocol versions so the
+      current diagnostic-only compatibility behavior is locked down.
+- [ ] Add a regression test for bounded stderr truncation, not only stderr
+      inclusion on timeout.
+- [ ] Smoke-test one real stdio MCP server through `thndrs mcp test`,
+      `thndrs mcp tools`, and `thndrs mcp call`, then record the exact config,
+      command output shape, and any rough edges here.
+- [ ] Finish stdio-facing docs: config files, stdio setup, namespacing,
+      diagnostics, security limits, and CLI commands.
+- [ ] Run and record the full validation set below after the docs and missing
+      regression tests are complete.
+- [ ] Reassess this section; only start P7 after all stdio stability items are
+      done.
 
 ## P7: HTTP Transport Follow-Up
 
-- [ ] Add HTTP transport only after stdio is stable.
+- [ ] Add HTTP transport only after P6.5 confirms stdio is stable.
 - [ ] Add `rmcp` Streamable HTTP client features.
 - [ ] Map URL and header config into the SDK HTTP transport.
 - [ ] Verify JSON POST and optional SSE behavior through SDK-backed fixtures.
@@ -121,7 +144,7 @@ Captured: 2026-07-04
 - [ ] `cargo fmt`
 - [ ] `cargo clippy --fix --allow-dirty --allow-staged`
 - [ ] `cargo clippy`
-- [ ] `cargo test mcp`
+- [x] `cargo test mcp` (passed 2026-07-04)
 - [ ] `cargo test tools`
 - [ ] `cargo test session`
 - [ ] `cargo test cli`

@@ -49,6 +49,11 @@ pub enum Command {
         #[command(subcommand)]
         command: AcpCommand,
     },
+    /// Inspect and call configured MCP servers without opening the TUI.
+    Mcp {
+        #[command(subcommand)]
+        command: McpCommand,
+    },
 }
 
 /// ACP inspection and smoke-test commands.
@@ -99,6 +104,33 @@ pub enum AcpCommand {
         name: String,
         /// Opaque external ACP session id.
         session_id: String,
+    },
+}
+
+/// MCP inspection and tool-call commands.
+#[derive(Clone, Debug, Eq, PartialEq, Subcommand)]
+pub enum McpCommand {
+    /// List configured MCP servers.
+    List,
+    /// Initialize one MCP server and report readiness.
+    Test {
+        /// Configured MCP server name.
+        name: String,
+    },
+    /// List tools exposed by one MCP server.
+    Tools {
+        /// Configured MCP server name.
+        name: String,
+    },
+    /// Call one MCP tool with JSON object arguments.
+    Call {
+        /// Configured MCP server name.
+        server: String,
+        /// Original MCP tool name.
+        tool: String,
+        /// JSON object arguments.
+        #[arg(long = "json")]
+        json: String,
     },
 }
 
@@ -710,6 +742,37 @@ mod tests {
         assert_eq!(
             WebSearchMode::Auto.resolve_for_prompt("Look up the latest Umans docs"),
             WebSearchMode::Native
+        );
+    }
+
+    #[test]
+    fn mcp_commands_parse() {
+        let list = Cli::try_parse_from(["thndrs", "mcp", "list"]).expect("parse");
+        assert_eq!(list.command, Some(Command::Mcp { command: McpCommand::List }));
+
+        let test = Cli::try_parse_from(["thndrs", "mcp", "test", "docs"]).expect("parse");
+        assert_eq!(
+            test.command,
+            Some(Command::Mcp { command: McpCommand::Test { name: "docs".to_string() } })
+        );
+
+        let tools = Cli::try_parse_from(["thndrs", "mcp", "tools", "docs"]).expect("parse");
+        assert_eq!(
+            tools.command,
+            Some(Command::Mcp { command: McpCommand::Tools { name: "docs".to_string() } })
+        );
+
+        let call = Cli::try_parse_from(["thndrs", "mcp", "call", "docs", "echo", "--json", r#"{"text":"ok"}"#])
+            .expect("parse");
+        assert_eq!(
+            call.command,
+            Some(Command::Mcp {
+                command: McpCommand::Call {
+                    server: "docs".to_string(),
+                    tool: "echo".to_string(),
+                    json: r#"{"text":"ok"}"#.to_string()
+                }
+            })
         );
     }
 }

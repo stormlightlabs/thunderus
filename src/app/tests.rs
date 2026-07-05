@@ -498,6 +498,30 @@ fn unknown_slash_command_is_ignored() {
 }
 
 #[test]
+fn slash_mcp_lists_empty_config() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let mut app = fresh_app();
+    app.cwd = temp.path().to_path_buf();
+    app.input = PromptInput::from("/mcp");
+
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+
+    assert!(
+        matches!(app.transcript.last(), Some(Entry::Status { text }) if text.contains("no MCP servers configured"))
+    );
+}
+
+#[test]
+fn slash_mcp_tools_requires_name() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from("/mcp tools ");
+
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+
+    assert!(matches!(app.transcript.last(), Some(Entry::Error { text }) if text.contains("usage: /mcp tools <name>")));
+}
+
+#[test]
 fn msg_clear_clears_transcript() {
     let mut app = fresh_app();
     app.transcript.push(Entry::User { text: String::from("a") });
