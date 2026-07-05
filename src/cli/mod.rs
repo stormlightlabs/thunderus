@@ -4,6 +4,7 @@
 //! runtime config.
 
 pub mod app;
+pub mod commands;
 pub mod input;
 pub mod renderer;
 
@@ -48,145 +49,38 @@ pub enum WebSearchMode {
 /// Top-level non-interactive commands.
 #[derive(Clone, Debug, Eq, PartialEq, Subcommand)]
 pub enum Command {
+    /// Run first-run setup checks and guided credential setup.
+    Setup(commands::setup::SetupCommand),
+    /// Store a provider API key in the credential store.
+    Login(commands::auth::LoginCommand),
+    /// Remove a provider API key from the credential store.
+    Logout(commands::auth::LogoutCommand),
+    /// Inspect provider authentication state.
+    Auth {
+        #[command(subcommand)]
+        command: commands::auth::AuthCommand,
+    },
+    /// Print safe setup diagnostics.
+    Doctor(commands::doctor::DoctorCommand),
+    /// Inspect and edit configuration files.
+    Config {
+        #[command(subcommand)]
+        command: commands::config::ConfigCommand,
+    },
     /// Inspect configured ACP agents without opening the TUI.
     Acp {
         #[command(subcommand)]
-        command: AcpCommand,
+        command: commands::acp::AcpCommand,
     },
     /// Inspect and call configured MCP servers without opening the TUI.
     Mcp {
         #[command(subcommand)]
-        command: McpCommand,
+        command: commands::mcp::McpCommand,
     },
     /// Inspect local append-only session history.
     Session {
         #[command(subcommand)]
-        command: SessionCommand,
-    },
-}
-
-/// ACP inspection and smoke-test commands.
-#[derive(Clone, Debug, Eq, PartialEq, Subcommand)]
-pub enum AcpCommand {
-    /// List configured ACP agents.
-    List,
-    /// Show one configured ACP agent with redacted values.
-    Inspect {
-        /// Configured ACP agent name.
-        name: String,
-    },
-    /// Initialize an ACP agent, create a temporary session, send one prompt, and print events.
-    Smoke {
-        /// Configured ACP agent name.
-        name: String,
-        /// Prompt text to send.
-        #[arg(long)]
-        prompt: String,
-    },
-    /// Log out through the ACP agent when it advertises logout support.
-    Logout {
-        /// Configured ACP agent name.
-        name: String,
-    },
-    /// List sessions owned by an ACP agent.
-    ListSessions {
-        /// Configured ACP agent name.
-        name: String,
-    },
-    /// Load an ACP agent-owned session and print replayed updates.
-    LoadSession {
-        /// Configured ACP agent name.
-        name: String,
-        /// Opaque external ACP session id.
-        session_id: String,
-    },
-    /// Resume an ACP agent-owned session without replaying history.
-    ResumeSession {
-        /// Configured ACP agent name.
-        name: String,
-        /// Opaque external ACP session id.
-        session_id: String,
-    },
-    /// Close an ACP agent-owned session.
-    CloseSession {
-        /// Configured ACP agent name.
-        name: String,
-        /// Opaque external ACP session id.
-        session_id: String,
-    },
-    /// List available agents from the read-only ACP Registry.
-    Registry {
-        /// Read registry JSON from a local file instead of the official CDN.
-        #[arg(long)]
-        file: Option<PathBuf>,
-    },
-    /// Install one registry agent into workspace ACP config metadata.
-    Install {
-        /// Registry agent id.
-        agent_id: String,
-        /// Local ACP agent name. Defaults to the registry id without a trailing `-acp`.
-        #[arg(long)]
-        name: Option<String>,
-        /// Read registry JSON from a local file instead of the official CDN.
-        #[arg(long)]
-        file: Option<PathBuf>,
-        /// Confirm writing workspace config and install metadata.
-        #[arg(long)]
-        yes: bool,
-    },
-    /// Update one registry-managed ACP agent in workspace config metadata.
-    Update {
-        /// Local ACP agent name.
-        name: String,
-        /// Read registry JSON from a local file instead of the official CDN.
-        #[arg(long)]
-        file: Option<PathBuf>,
-        /// Confirm writing workspace config and install metadata.
-        #[arg(long)]
-        yes: bool,
-    },
-}
-
-/// MCP inspection and tool-call commands.
-#[derive(Clone, Debug, Eq, PartialEq, Subcommand)]
-pub enum McpCommand {
-    /// List configured MCP servers.
-    List,
-    /// Initialize one MCP server and report readiness.
-    Test {
-        /// Configured MCP server name.
-        name: String,
-    },
-    /// List tools exposed by one MCP server.
-    Tools {
-        /// Configured MCP server name.
-        name: String,
-    },
-    /// Call one MCP tool with JSON object arguments.
-    Call {
-        /// Configured MCP server name.
-        server: String,
-        /// Original MCP tool name.
-        tool: String,
-        /// JSON object arguments.
-        #[arg(long = "json")]
-        json: String,
-    },
-}
-
-/// Local session history commands.
-#[derive(Clone, Debug, Eq, PartialEq, Subcommand)]
-pub enum SessionCommand {
-    /// List local sessions newest-first.
-    List,
-    /// Print the newest local session.
-    Latest,
-    /// List local session titles newest-first.
-    Titles,
-    /// Print replayable transcript entries for one local session id.
-    Show {
-        /// Session id without the `.jsonl` suffix.
-        session_id: String,
+        command: commands::session::SessionCommand,
     },
 }
 
@@ -665,7 +559,96 @@ mod tests {
     #[test]
     fn acp_list_command_parses() {
         let cli = Cli::try_parse_from(["thndrs", "acp", "list"]).expect("parse");
-        assert_eq!(cli.command, Some(Command::Acp { command: AcpCommand::List }));
+        assert_eq!(
+            cli.command,
+            Some(Command::Acp { command: commands::acp::AcpCommand::List })
+        );
+    }
+
+    #[test]
+    fn first_run_setup_command_parses() {
+        let cli = Cli::try_parse_from(["thndrs", "setup", "--provider", "umans", "--project"]).expect("parse");
+        assert_eq!(
+            cli.command,
+            Some(Command::Setup(commands::setup::SetupCommand {
+                provider: Some(commands::setup::ApiKeyProviderArg::Umans),
+                global: false,
+                project: true,
+            }))
+        );
+    }
+
+    #[test]
+    fn auth_commands_parse() {
+        let login = Cli::try_parse_from(["thndrs", "login", "opencode-go"]).expect("parse");
+        assert_eq!(
+            login.command,
+            Some(Command::Login(commands::auth::LoginCommand {
+                provider: commands::setup::ApiKeyProviderArg::OpencodeGo,
+            }))
+        );
+
+        let logout = Cli::try_parse_from(["thndrs", "logout", "umans"]).expect("parse");
+        assert_eq!(
+            logout.command,
+            Some(Command::Logout(commands::auth::LogoutCommand {
+                provider: commands::setup::ApiKeyProviderArg::Umans,
+            }))
+        );
+
+        let status = Cli::try_parse_from(["thndrs", "auth", "status"]).expect("parse");
+        assert_eq!(
+            status.command,
+            Some(Command::Auth { command: commands::auth::AuthCommand::Status })
+        );
+    }
+
+    #[test]
+    fn doctor_command_parses() {
+        let cli = Cli::try_parse_from(["thndrs", "doctor", "--json"]).expect("parse");
+        assert_eq!(
+            cli.command,
+            Some(Command::Doctor(commands::doctor::DoctorCommand { json: true }))
+        );
+    }
+
+    #[test]
+    fn config_commands_parse() {
+        let path = Cli::try_parse_from(["thndrs", "config", "path"]).expect("parse");
+        assert_eq!(
+            path.command,
+            Some(Command::Config { command: commands::config::ConfigCommand::Path })
+        );
+
+        let show = Cli::try_parse_from(["thndrs", "config", "show", "--redacted"]).expect("parse");
+        assert_eq!(
+            show.command,
+            Some(Command::Config {
+                command: commands::config::ConfigCommand::Show(commands::config::ConfigShowCommand { redacted: true })
+            })
+        );
+
+        let edit = Cli::try_parse_from(["thndrs", "config", "edit", "--global"]).expect("parse");
+        assert_eq!(
+            edit.command,
+            Some(Command::Config {
+                command: commands::config::ConfigCommand::Edit(commands::config::ConfigEditCommand {
+                    global: true,
+                    project: false,
+                })
+            })
+        );
+
+        let edit = Cli::try_parse_from(["thndrs", "config", "edit", "--project"]).expect("parse");
+        assert_eq!(
+            edit.command,
+            Some(Command::Config {
+                command: commands::config::ConfigCommand::Edit(commands::config::ConfigEditCommand {
+                    global: false,
+                    project: true,
+                })
+            })
+        );
     }
 
     #[test]
@@ -673,7 +656,7 @@ mod tests {
         let cli = Cli::try_parse_from(["thndrs", "acp", "inspect", "local"]).expect("parse");
         assert_eq!(
             cli.command,
-            Some(Command::Acp { command: AcpCommand::Inspect { name: "local".to_string() } })
+            Some(Command::Acp { command: commands::acp::AcpCommand::Inspect { name: "local".to_string() } })
         );
     }
 
@@ -683,7 +666,7 @@ mod tests {
         assert_eq!(
             cli.command,
             Some(Command::Acp {
-                command: AcpCommand::Smoke { name: "local".to_string(), prompt: "hello".to_string() }
+                command: commands::acp::AcpCommand::Smoke { name: "local".to_string(), prompt: "hello".to_string() }
             })
         );
     }
@@ -693,7 +676,7 @@ mod tests {
         let cli = Cli::try_parse_from(["thndrs", "acp", "logout", "local"]).expect("parse");
         assert_eq!(
             cli.command,
-            Some(Command::Acp { command: AcpCommand::Logout { name: "local".to_string() } })
+            Some(Command::Acp { command: commands::acp::AcpCommand::Logout { name: "local".to_string() } })
         );
     }
 
@@ -702,14 +685,17 @@ mod tests {
         let list = Cli::try_parse_from(["thndrs", "acp", "list-sessions", "local"]).expect("parse");
         assert_eq!(
             list.command,
-            Some(Command::Acp { command: AcpCommand::ListSessions { name: "local".to_string() } })
+            Some(Command::Acp { command: commands::acp::AcpCommand::ListSessions { name: "local".to_string() } })
         );
 
         let load = Cli::try_parse_from(["thndrs", "acp", "load-session", "local", "external-1"]).expect("parse");
         assert_eq!(
             load.command,
             Some(Command::Acp {
-                command: AcpCommand::LoadSession { name: "local".to_string(), session_id: "external-1".to_string() }
+                command: commands::acp::AcpCommand::LoadSession {
+                    name: "local".to_string(),
+                    session_id: "external-1".to_string()
+                }
             })
         );
 
@@ -717,7 +703,10 @@ mod tests {
         assert_eq!(
             resume.command,
             Some(Command::Acp {
-                command: AcpCommand::ResumeSession { name: "local".to_string(), session_id: "external-1".to_string() }
+                command: commands::acp::AcpCommand::ResumeSession {
+                    name: "local".to_string(),
+                    session_id: "external-1".to_string()
+                }
             })
         );
 
@@ -725,7 +714,10 @@ mod tests {
         assert_eq!(
             close.command,
             Some(Command::Acp {
-                command: AcpCommand::CloseSession { name: "local".to_string(), session_id: "external-1".to_string() }
+                command: commands::acp::AcpCommand::CloseSession {
+                    name: "local".to_string(),
+                    session_id: "external-1".to_string()
+                }
             })
         );
     }
@@ -735,7 +727,9 @@ mod tests {
         let cli = Cli::try_parse_from(["thndrs", "acp", "registry", "--file", "registry.json"]).expect("parse");
         assert_eq!(
             cli.command,
-            Some(Command::Acp { command: AcpCommand::Registry { file: Some(PathBuf::from("registry.json")) } })
+            Some(Command::Acp {
+                command: commands::acp::AcpCommand::Registry { file: Some(PathBuf::from("registry.json")) }
+            })
         );
     }
 
@@ -756,7 +750,7 @@ mod tests {
         assert_eq!(
             install.command,
             Some(Command::Acp {
-                command: AcpCommand::Install {
+                command: commands::acp::AcpCommand::Install {
                     agent_id: "codex-acp".to_string(),
                     name: Some("codex".to_string()),
                     file: Some(PathBuf::from("registry.json")),
@@ -770,7 +764,7 @@ mod tests {
         assert_eq!(
             update.command,
             Some(Command::Acp {
-                command: AcpCommand::Update {
+                command: commands::acp::AcpCommand::Update {
                     name: "codex".to_string(),
                     file: Some(PathBuf::from("registry.json")),
                     yes: true,
@@ -853,18 +847,21 @@ mod tests {
     #[test]
     fn mcp_commands_parse() {
         let list = Cli::try_parse_from(["thndrs", "mcp", "list"]).expect("parse");
-        assert_eq!(list.command, Some(Command::Mcp { command: McpCommand::List }));
+        assert_eq!(
+            list.command,
+            Some(Command::Mcp { command: commands::mcp::McpCommand::List })
+        );
 
         let test = Cli::try_parse_from(["thndrs", "mcp", "test", "docs"]).expect("parse");
         assert_eq!(
             test.command,
-            Some(Command::Mcp { command: McpCommand::Test { name: "docs".to_string() } })
+            Some(Command::Mcp { command: commands::mcp::McpCommand::Test { name: "docs".to_string() } })
         );
 
         let tools = Cli::try_parse_from(["thndrs", "mcp", "tools", "docs"]).expect("parse");
         assert_eq!(
             tools.command,
-            Some(Command::Mcp { command: McpCommand::Tools { name: "docs".to_string() } })
+            Some(Command::Mcp { command: commands::mcp::McpCommand::Tools { name: "docs".to_string() } })
         );
 
         let call = Cli::try_parse_from(["thndrs", "mcp", "call", "docs", "echo", "--json", r#"{"text":"ok"}"#])
@@ -872,7 +869,7 @@ mod tests {
         assert_eq!(
             call.command,
             Some(Command::Mcp {
-                command: McpCommand::Call {
+                command: commands::mcp::McpCommand::Call {
                     server: "docs".to_string(),
                     tool: "echo".to_string(),
                     json: r#"{"text":"ok"}"#.to_string()
@@ -884,24 +881,29 @@ mod tests {
     #[test]
     fn session_commands_parse() {
         let list = Cli::try_parse_from(["thndrs", "session", "list"]).expect("parse");
-        assert_eq!(list.command, Some(Command::Session { command: SessionCommand::List }));
+        assert_eq!(
+            list.command,
+            Some(Command::Session { command: commands::session::SessionCommand::List })
+        );
 
         let latest = Cli::try_parse_from(["thndrs", "session", "latest"]).expect("parse");
         assert_eq!(
             latest.command,
-            Some(Command::Session { command: SessionCommand::Latest })
+            Some(Command::Session { command: commands::session::SessionCommand::Latest })
         );
 
         let titles = Cli::try_parse_from(["thndrs", "session", "titles"]).expect("parse");
         assert_eq!(
             titles.command,
-            Some(Command::Session { command: SessionCommand::Titles })
+            Some(Command::Session { command: commands::session::SessionCommand::Titles })
         );
 
         let show = Cli::try_parse_from(["thndrs", "session", "show", "session-1"]).expect("parse");
         assert_eq!(
             show.command,
-            Some(Command::Session { command: SessionCommand::Show { session_id: "session-1".to_string() } })
+            Some(Command::Session {
+                command: commands::session::SessionCommand::Show { session_id: "session-1".to_string() }
+            })
         );
     }
 }

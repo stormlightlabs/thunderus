@@ -4,7 +4,6 @@
 //! Streaming responses arrive as SSE events and parsed into [`AgentEvent`].
 
 use std::collections::HashMap;
-use std::env;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -14,6 +13,7 @@ use crate::cli::WebSearchMode;
 use crate::providers::{
     self, KnownModel, ProviderError, ProviderHttpClient, ProviderMessage, Result, StreamFormat, StreamingProvider,
 };
+use crate::thndrs_core::auth;
 
 /// Umans Code base URL.
 pub const BASE_URL: &str = "https://api.code.umans.ai";
@@ -61,20 +61,12 @@ pub struct UmansClient {
 impl UmansClient {
     /// Create a client from `UMANS_API_KEY`, falling back to workspace `.env`.
     pub fn from_env_or_dotenv(workspace_root: &Path) -> Result<Self> {
-        match env::var(API_KEY_ENV) {
-            Ok(api_key) => {
-                tracing::debug!(source = "environment", "loaded Umans API key");
-                Ok(Self::new(BASE_URL, &api_key))
-            }
-            Err(_) => super::api_key_from_dotenv(workspace_root, API_KEY_ENV)
-                .map(|api_key| {
-                    tracing::debug!(source = ".env", path = %workspace_root.join(".env").display(), "loaded Umans API key");
-                    Self::new(BASE_URL, &api_key)
-                })
-                .ok_or_else(|| {
-                    tracing::error!(env = API_KEY_ENV, cwd = %workspace_root.display(), "missing Umans API key");
-                    ProviderError::missing_api_key(API_KEY_ENV)
-                }),
+        if let Some((api_key, source)) = auth::resolve_credential(API_KEY_ENV, workspace_root) {
+            tracing::debug!(source = source.label(), "loaded Umans API key");
+            Ok(Self::new(BASE_URL, &api_key))
+        } else {
+            tracing::error!(env = API_KEY_ENV, cwd = %workspace_root.display(), "missing Umans API key");
+            Err(ProviderError::missing_api_key(API_KEY_ENV))
         }
     }
 
@@ -367,7 +359,11 @@ fn compact_token_count(tokens: u64) -> String {
 /// or validation error returns an explanation. The credential should still be
 /// stored and reported as unverified when the network is unavailable.
 pub fn validate_api_key(api_key: &str) -> std::result::Result<(), String> {
-    let client = UmansClient::new(BASE_URL, api_key);
+    validate_api_key_at(BASE_URL, api_key)
+}
+
+fn validate_api_key_at(base_url: &str, api_key: &str) -> std::result::Result<(), String> {
+    let client = UmansClient::new(base_url, api_key);
     match client.fetch_models_info() {
         Ok(_) => Ok(()),
         Err(e) => Err(format!("validation failed: {e}")),
@@ -380,6 +376,27 @@ mod tests {
     use crate::cli::WebSearchMode;
     use crate::providers::anthropic::{SseEvent, parse_sse_chunk, parse_sse_event, sse_to_agent_event};
     use crate::providers::{ProviderContentBlock, ProviderMessage, ProviderMessageContent};
+    use std::env;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::thread;
+
+    fn mock_models_info_server(body: &'static str) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock server");
+        let addr = listener.local_addr().expect("local addr");
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept request");
+            let mut request = [0_u8; 1024];
+            let _ = stream.read(&mut request);
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream.write_all(response.as_bytes()).expect("write response");
+        });
+        format!("http://{addr}")
+    }
 
     #[test]
     fn build_messages_request_body_has_required_fields() {
@@ -560,6 +577,109 @@ mod tests {
         let headers: HashMap<String, String> = client.build_headers(WebSearchMode::Native).into_iter().collect();
 
         assert_eq!(headers.get("x-api-key").unwrap(), "sk-quoted-dotenv-key");
+    }
+
+    #[test]
+    fn from_env_or_dotenv_reads_global_credential_store() {
+        unsafe {
+            env::remove_var(API_KEY_ENV);
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(home.join(".thndrs")).unwrap();
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::write(
+            home.join(".thndrs").join("credentials.env"),
+            "UMANS_API_KEY=sk-global-key\n",
+        )
+        .unwrap();
+
+        let old_home = env::var_os("HOME");
+        unsafe { env::set_var("HOME", &home) };
+        let client = UmansClient::from_env_or_dotenv(&workspace).unwrap();
+        unsafe {
+            if let Some(home) = old_home {
+                env::set_var("HOME", home);
+            } else {
+                env::remove_var("HOME");
+            }
+        }
+
+        let headers: HashMap<String, String> = client.build_headers(WebSearchMode::Native).into_iter().collect();
+        assert_eq!(headers.get("x-api-key").unwrap(), "sk-global-key");
+    }
+
+    #[test]
+    fn from_env_or_dotenv_reads_project_credential_store() {
+        unsafe {
+            env::remove_var(API_KEY_ENV);
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(workspace.join(".thndrs")).unwrap();
+        std::fs::write(
+            workspace.join(".thndrs").join("credentials.env"),
+            "UMANS_API_KEY=sk-project-key\n",
+        )
+        .unwrap();
+
+        let old_home = env::var_os("HOME");
+        unsafe { env::set_var("HOME", &home) };
+        let client = UmansClient::from_env_or_dotenv(&workspace).unwrap();
+        unsafe {
+            if let Some(home) = old_home {
+                env::set_var("HOME", home);
+            } else {
+                env::remove_var("HOME");
+            }
+        }
+
+        let headers: HashMap<String, String> = client.build_headers(WebSearchMode::Native).into_iter().collect();
+        assert_eq!(headers.get("x-api-key").unwrap(), "sk-project-key");
+    }
+
+    #[test]
+    fn missing_key_error_includes_setup_hint() {
+        unsafe {
+            env::remove_var(API_KEY_ENV);
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let result = match UmansClient::from_env_or_dotenv(dir.path()) {
+            Ok(_) => panic!("missing key should fail"),
+            Err(err) => err,
+        };
+        let message = result.to_string();
+        assert!(message.contains("thndrs setup"));
+        assert!(message.contains("thndrs login"));
+        assert!(!message.contains("sk-"));
+    }
+
+    #[test]
+    fn validation_does_not_persist_provider_payloads() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&workspace).unwrap();
+
+        let body = r#"{"umans-coder":{"name":"umans-coder","display_name":"Umans Coder","description":"ok","base_model":{"name":"kimi"},"capabilities":{"max_completion_tokens":1,"recommended_max_tokens":1,"context_window":1,"supports_vision":false,"supports_tools":true,"reasoning":{"supported":false,"can_disable":false}}}}"#;
+        let base_url = mock_models_info_server(body);
+        let old_home = env::var_os("HOME");
+        unsafe { env::set_var("HOME", &home) };
+        validate_api_key_at(&base_url, "sk-validation").expect("validation succeeds");
+        unsafe {
+            if let Some(home) = old_home {
+                env::set_var("HOME", home);
+            } else {
+                env::remove_var("HOME");
+            }
+        }
+
+        assert!(!home.join(".thndrs").join("credentials.env").exists());
+        assert!(!workspace.join(".thndrs").join("credentials.env").exists());
     }
 
     #[test]

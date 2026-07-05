@@ -5,6 +5,7 @@ pub mod agent;
 pub mod auth;
 pub mod config;
 pub mod context;
+pub mod diagnostics;
 pub mod fuzzy;
 pub mod harness;
 pub mod internals;

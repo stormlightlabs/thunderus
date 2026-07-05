@@ -5,7 +5,6 @@
 //! documented `opencode-go/` prefix; the request body uses the raw
 //! OpenCode Go model id.
 
-use std::env;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -15,6 +14,7 @@ use crate::{
     providers::{
         self, KnownModel, ProviderError, ProviderHttpClient, ProviderMessage, Result, StreamFormat, StreamingProvider,
     },
+    thndrs_core::auth,
 };
 
 /// OpenCode Go base URL.
@@ -72,20 +72,12 @@ pub struct OpenCodeGoClient {
 impl OpenCodeGoClient {
     /// Create a client from `OPENCODE_GO_KEY`, falling back to workspace `.env`.
     pub fn from_env_or_dotenv(workspace_root: &Path) -> Result<Self> {
-        match env::var(API_KEY_ENV) {
-            Ok(api_key) => {
-                tracing::debug!(source = "environment", "loaded OpenCode Go API key");
-                Ok(Self::new(BASE_URL, &api_key))
-            }
-            Err(_) => super::api_key_from_dotenv(workspace_root, API_KEY_ENV)
-                .map(|api_key| {
-                    tracing::debug!(source = ".env", path = %workspace_root.join(".env").display(), "loaded OpenCode Go API key");
-                    Self::new(BASE_URL, &api_key)
-                })
-                .ok_or_else(|| {
-                    tracing::error!(env = API_KEY_ENV, cwd = %workspace_root.display(), "missing OpenCode Go API key");
-                    ProviderError::missing_api_key(API_KEY_ENV)
-                }),
+        if let Some((api_key, source)) = auth::resolve_credential(API_KEY_ENV, workspace_root) {
+            tracing::debug!(source = source.label(), "loaded OpenCode Go API key");
+            Ok(Self::new(BASE_URL, &api_key))
+        } else {
+            tracing::error!(env = API_KEY_ENV, cwd = %workspace_root.display(), "missing OpenCode Go API key");
+            Err(ProviderError::missing_api_key(API_KEY_ENV))
         }
     }
 
@@ -346,7 +338,11 @@ pub fn error_message(err: &ProviderError) -> String {
 /// or validation error returns an explanation. The credential should still be
 /// stored and reported as unverified when the network is unavailable.
 pub fn validate_api_key(api_key: &str) -> std::result::Result<(), String> {
-    let client = OpenCodeGoClient::new(BASE_URL, api_key);
+    validate_api_key_at(BASE_URL, api_key)
+}
+
+fn validate_api_key_at(base_url: &str, api_key: &str) -> std::result::Result<(), String> {
+    let client = OpenCodeGoClient::new(base_url, api_key);
     match client.fetch_models() {
         Ok(_) => Ok(()),
         Err(e) => Err(format!("validation failed: {e}")),
@@ -356,10 +352,31 @@ pub fn validate_api_key(api_key: &str) -> std::result::Result<(), String> {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::env;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::thread;
 
     use super::*;
     use crate::providers::openai::{ChatSseEvent, parse_chat_sse_event};
     use crate::providers::{ProviderContentBlock, ProviderMessage};
+
+    fn mock_models_server(body: &'static str) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock server");
+        let addr = listener.local_addr().expect("local addr");
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept request");
+            let mut request = [0_u8; 1024];
+            let _ = stream.read(&mut request);
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream.write_all(response.as_bytes()).expect("write response");
+        });
+        format!("http://{addr}")
+    }
 
     #[test]
     fn raw_model_id_requires_prefix() {
@@ -517,6 +534,110 @@ mod tests {
         let headers: HashMap<String, String> = client.build_chat_headers().into_iter().collect();
 
         assert_eq!(headers.get("Authorization").unwrap(), "Bearer go-quoted-dotenv-key");
+    }
+
+    #[test]
+    fn from_env_or_dotenv_reads_global_credential_store() {
+        unsafe {
+            env::remove_var(API_KEY_ENV);
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(home.join(".thndrs")).unwrap();
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::write(
+            home.join(".thndrs").join("credentials.env"),
+            "OPENCODE_GO_KEY=go-global-key\n",
+        )
+        .unwrap();
+
+        let old_home = env::var_os("HOME");
+        unsafe { env::set_var("HOME", &home) };
+        let client = OpenCodeGoClient::from_env_or_dotenv(&workspace).unwrap();
+        unsafe {
+            if let Some(home) = old_home {
+                env::set_var("HOME", home);
+            } else {
+                env::remove_var("HOME");
+            }
+        }
+
+        let headers: HashMap<String, String> = client.build_chat_headers().into_iter().collect();
+        assert_eq!(headers.get("Authorization").unwrap(), "Bearer go-global-key");
+    }
+
+    #[test]
+    fn from_env_or_dotenv_reads_project_credential_store() {
+        unsafe {
+            env::remove_var(API_KEY_ENV);
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(workspace.join(".thndrs")).unwrap();
+        std::fs::write(
+            workspace.join(".thndrs").join("credentials.env"),
+            "OPENCODE_GO_KEY=go-project-key\n",
+        )
+        .unwrap();
+
+        let old_home = env::var_os("HOME");
+        unsafe { env::set_var("HOME", &home) };
+        let client = OpenCodeGoClient::from_env_or_dotenv(&workspace).unwrap();
+        unsafe {
+            if let Some(home) = old_home {
+                env::set_var("HOME", home);
+            } else {
+                env::remove_var("HOME");
+            }
+        }
+
+        let headers: HashMap<String, String> = client.build_chat_headers().into_iter().collect();
+        assert_eq!(headers.get("Authorization").unwrap(), "Bearer go-project-key");
+    }
+
+    #[test]
+    fn missing_key_error_includes_setup_hint() {
+        unsafe {
+            env::remove_var(API_KEY_ENV);
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let result = match OpenCodeGoClient::from_env_or_dotenv(dir.path()) {
+            Ok(_) => panic!("missing key should fail"),
+            Err(err) => err,
+        };
+        let message = result.to_string();
+        assert!(message.contains("thndrs setup"));
+        assert!(message.contains("thndrs login"));
+        assert!(!message.contains("go-"));
+    }
+
+    #[test]
+    fn validation_does_not_persist_provider_payloads() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&workspace).unwrap();
+
+        let base_url = mock_models_server(
+            r#"{"object":"list","data":[{"id":"kimi-k2.7-code","object":"model","created":1,"owned_by":"opencode"}]}"#,
+        );
+        let old_home = env::var_os("HOME");
+        unsafe { env::set_var("HOME", &home) };
+        validate_api_key_at(&base_url, "go-validation").expect("validation succeeds");
+        unsafe {
+            if let Some(home) = old_home {
+                env::set_var("HOME", home);
+            } else {
+                env::remove_var("HOME");
+            }
+        }
+
+        assert!(!home.join(".thndrs").join("credentials.env").exists());
+        assert!(!workspace.join(".thndrs").join("credentials.env").exists());
     }
 
     #[test]

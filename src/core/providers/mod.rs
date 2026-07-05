@@ -48,7 +48,7 @@ pub trait StreamingProvider: Sized {
 #[derive(Debug, thiserror::Error)]
 pub enum ProviderError {
     /// Required API key environment variable is not set.
-    #[error("{env} is not set")]
+    #[error("{env} is not set; run `thndrs setup` or store the credential with `thndrs login`")]
     MissingApiKey { env: &'static str },
     /// The selected model id is not valid for this provider.
     #[error("{provider} model ids must use {prefix}<model-id>, got {model}")]

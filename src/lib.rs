@@ -29,7 +29,7 @@ use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, Key
 use acp::config::provider_label;
 use app::PromptAccessory;
 use app::{App, Msg, RunState, update};
-use cli::{AcpCommand, Cli, Command, McpCommand, SessionCommand};
+use cli::{Cli, Command, commands::acp::AcpCommand, commands::mcp::McpCommand, commands::session::SessionCommand};
 use mcp::manager::McpManager;
 use prompt::PromptBundle;
 use renderer::backend::TerminalBackend;
@@ -150,10 +150,40 @@ pub fn render_print_prompt(bundle: &PromptBundle) -> String {
 
 fn run_command(cli: &Cli, command: &Command) -> io::Result<()> {
     match command {
+        Command::Setup(command) => run_setup_command(cli, command),
+        Command::Login(command) => run_login_command(cli, command),
+        Command::Logout(command) => run_logout_command(cli, command),
+        Command::Auth { command } => run_auth_command(cli, command),
+        Command::Doctor(command) => run_doctor_command(cli, command),
+        Command::Config { command } => run_config_command(cli, command),
         Command::Acp { command } => run_acp_command(cli, command),
         Command::Mcp { command } => run_mcp_command(cli, command),
         Command::Session { command } => run_session_command(cli, command),
     }
+}
+
+fn run_setup_command(_cli: &Cli, _command: &cli::commands::setup::SetupCommand) -> io::Result<()> {
+    cli::commands::setup::run(_cli, _command)
+}
+
+fn run_login_command(_cli: &Cli, _command: &cli::commands::auth::LoginCommand) -> io::Result<()> {
+    cli::commands::auth::run_login(_cli, _command)
+}
+
+fn run_logout_command(_cli: &Cli, _command: &cli::commands::auth::LogoutCommand) -> io::Result<()> {
+    cli::commands::auth::run_logout(_cli, _command)
+}
+
+fn run_auth_command(_cli: &Cli, _command: &cli::commands::auth::AuthCommand) -> io::Result<()> {
+    cli::commands::auth::run_auth(_cli, _command)
+}
+
+fn run_doctor_command(_cli: &Cli, _command: &cli::commands::doctor::DoctorCommand) -> io::Result<()> {
+    cli::commands::doctor::run(_cli, _command)
+}
+
+fn run_config_command(_cli: &Cli, _command: &cli::commands::config::ConfigCommand) -> io::Result<()> {
+    cli::commands::config::run(_cli, _command)
 }
 
 fn load_mcp_manager_for_workspace(workspace: &Path) -> io::Result<Arc<McpManager>> {

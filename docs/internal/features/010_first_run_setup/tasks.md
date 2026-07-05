@@ -63,66 +63,66 @@ Captured: 2026-07-05
 - [x] Test empty env var is treated as missing.
 - [x] Test credential source label and Debug do not leak values.
 - [x] Test `KNOWN_API_KEY_VARS` is complete.
-- [ ] Wire `resolve_credential` into provider `from_env_or_dotenv`.
-- [ ] Add missing-key error with setup hint.
-- [ ] Test provider validation does not persist provider payloads (requires
+- [x] Wire `resolve_credential` into provider `from_env_or_dotenv`.
+- [x] Add missing-key error with setup hint.
+- [x] Test provider validation does not persist provider payloads (requires
       network mocking).
 
 ## P3: CLI Setup And Auth Commands
 
-- [ ] Add top-level `setup` command.
-- [ ] Add `setup --provider <umans|opencode-go>`.
-- [ ] Add `setup --global`.
-- [ ] Add `setup --project`.
-- [ ] Add `login <provider>`.
-- [ ] Add `logout <provider>`.
-- [ ] Add `auth status`.
-- [ ] Implement real hidden API-key input.
-- [ ] Detect non-interactive stdin and fail with actionable instructions unless
+- [x] Add top-level `setup` command.
+- [x] Add `setup --provider <umans|opencode-go>`.
+- [x] Add `setup --global`.
+- [x] Add `setup --project`.
+- [x] Add `login <provider>`.
+- [x] Add `logout <provider>`.
+- [x] Add `auth status`.
+- [x] Implement real hidden API-key input.
+- [x] Detect non-interactive stdin and fail with actionable instructions unless
       sufficient flags are present.
-- [ ] Ask before writing global config, project config, or credential files.
-- [ ] Make setup avoid duplicating existing config keys.
-- [ ] Print the next command after successful setup.
-- [ ] Add parser tests for every new command and flag.
-- [ ] Add command-output tests for setup dry paths.
-- [ ] Add login/logout command tests using temp HOME/workspace.
+- [x] Ask before writing global config, project config, or credential files.
+- [x] Make setup avoid duplicating existing config keys.
+- [x] Print the next command after successful setup.
+- [x] Add parser tests for every new command and flag.
+- [x] Add command-output tests for setup dry paths.
+- [x] Add login/logout command tests using temp HOME/workspace.
 
 ## P4: Doctor Command
 
-- [ ] Add top-level `doctor`.
-- [ ] Add `doctor --json`.
-- [ ] Report app version.
-- [ ] Report resolved workspace.
-- [ ] Report selected model/provider.
-- [ ] Report loaded config files and redacted diagnostics.
-- [ ] Report credential status by provider source, never value.
-- [ ] Report `rg` availability.
-- [ ] Report `fd` availability.
-- [ ] Report session directory writability.
-- [ ] Report MCP configured/ready/skipped/failed counts.
-- [ ] Report ACP configured/enabled/disabled counts.
-- [ ] Report terminal capability summary if available.
-- [ ] Return exit code `0` for no blocking issues.
-- [ ] Return exit code `1` for blocking setup issues.
-- [ ] Return exit code `2` for invalid config or CLI usage.
-- [ ] Add human-output snapshot tests.
-- [ ] Add JSON fixture tests.
-- [ ] Add tests proving secrets are absent from doctor output.
+- [x] Add top-level `doctor`.
+- [x] Add `doctor --json`.
+- [x] Report app version.
+- [x] Report resolved workspace.
+- [x] Report selected model/provider.
+- [x] Report loaded config files and redacted diagnostics.
+- [x] Report credential status by provider source, never value.
+- [x] Report `rg` availability.
+- [x] Report `fd` availability.
+- [x] Report session directory writability.
+- [x] Report MCP configured/ready/skipped/failed counts.
+- [x] Report ACP configured/enabled/disabled counts.
+- [x] Report terminal capability summary if available.
+- [x] Return exit code `0` for no blocking issues.
+- [x] Return exit code `1` for blocking setup issues.
+- [x] Return exit code `2` for invalid config or CLI usage.
+- [x] Add human-output snapshot tests.
+- [x] Add JSON fixture tests.
+- [x] Add tests proving secrets are absent from doctor output.
 
 ## P5: Config Commands
 
-- [ ] Add `config path`.
-- [ ] Add `config show --redacted`.
-- [ ] Add `config edit --global`.
-- [ ] Add `config edit --project`.
-- [ ] Print global and project config paths with display policy.
-- [ ] Show effective config, origins, loaded files, and diagnostics redacted.
-- [ ] Respect `$EDITOR` for `config edit`.
-- [ ] If `$EDITOR` is missing, print the path and exit clearly.
-- [ ] Ask before creating config parent directories.
-- [ ] Add parser tests.
-- [ ] Add redacted output tests.
-- [ ] Add no-editor behavior tests.
+- [x] Add `config path`.
+- [x] Add `config show --redacted`.
+- [x] Add `config edit --global`.
+- [x] Add `config edit --project`.
+- [x] Print global and project config paths with display policy.
+- [x] Show effective config, origins, loaded files, and diagnostics redacted.
+- [x] Respect `$EDITOR` for `config edit`.
+- [x] If `$EDITOR` is missing, print the path and exit clearly.
+- [x] Ask before creating config parent directories.
+- [x] Add parser tests.
+- [x] Add redacted output tests.
+- [x] Add no-editor behavior tests.
 
 ## P6: TUI First-Run Recovery
 
@@ -197,16 +197,16 @@ Captured: 2026-07-05
 
 ## Validation Commands
 
-- [ ] `cargo fmt`
-- [ ] `cargo clippy --fix --allow-dirty --allow-staged`
-- [ ] `cargo clippy`
-- [ ] `cargo test auth`
-- [ ] `cargo test config`
-- [ ] `cargo test cli`
-- [ ] `cargo test app`
-- [ ] `cargo test renderer`
-- [ ] `cargo test providers`
-- [ ] `cargo test`
+- [x] `cargo fmt`
+- [x] `cargo clippy --fix --allow-dirty --allow-staged`
+- [x] `cargo clippy`
+- [x] `cargo test auth`
+- [x] `cargo test config`
+- [x] `cargo test cli`
+- [x] `cargo test app`
+- [x] `cargo test renderer`
+- [x] `cargo test providers`
+- [x] `cargo test`
 
 ## Review Checkpoints
 

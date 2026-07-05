@@ -205,12 +205,12 @@ impl Default for ConfigOrigin {
 }
 
 /// The single supported global config path: `~/.thndrs/config.toml`.
-fn global_config_path() -> Option<PathBuf> {
+pub fn global_config_path() -> Option<PathBuf> {
     utils::home_dir().map(|home| home.join(".thndrs").join("config.toml"))
 }
 
 /// The single supported project config path: `<workspace>/.thndrs/config.toml`.
-fn project_config_path(workspace: &Path) -> PathBuf {
+pub fn project_config_path(workspace: &Path) -> PathBuf {
     workspace.join(".thndrs").join("config.toml")
 }
 
@@ -610,11 +610,21 @@ fn global_path_display(path: &Path) -> String {
     path.display().to_string()
 }
 
+/// Render global config path using `~` when it is under the current home directory.
+pub fn global_config_path_display(path: &Path) -> String {
+    global_path_display(path)
+}
+
 fn project_path_display(path: &Path, workspace: &Path) -> String {
     if let Ok(rel) = path.strip_prefix(workspace) {
         return rel.display().to_string();
     }
     path.display().to_string()
+}
+
+/// Render project config paths relative to workspace when possible.
+pub fn project_config_path_display(path: &Path, workspace: &Path) -> String {
+    project_path_display(path, workspace)
 }
 
 /// Resolve relative path config values against the config file that declared them.
