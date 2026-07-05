@@ -3,7 +3,9 @@
 //!
 //! The bin in [`main.rs`] just calls [`run`].
 
+pub mod acp_server;
 pub mod cli;
+pub mod harness;
 pub mod input;
 pub mod mcp;
 pub mod session;
@@ -34,6 +36,7 @@ use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, Key
 
 use app::{App, Msg, RunState, update};
 use cli::{AcpCommand, Cli, Command, McpCommand};
+use harness::HarnessTurn;
 use prompt::PromptBundle;
 use renderer::backend::TerminalBackend;
 use tools::AgentRunConfig;
@@ -1080,10 +1083,8 @@ fn maybe_spawn_agent(app: &App, cli: &Cli, agent: &mut Option<AgentSlot>) {
     let messages = prompt::lower_to_umans_messages(&bundle);
     let expects_write = agent::prompt_expects_workspace_write(&prompt);
     let (steering_tx, steering_rx) = mpsc::channel();
-    let handle = agent::RunHandle::provider_with_steering(config, messages, expects_write, steering_rx);
-    let cancel = handle.cancel.clone();
-    let receiver = agent::spawn_run(handle);
-    *agent = Some(AgentSlot { receiver, cancel, steering: steering_tx });
+    let turn = HarnessTurn::provider_with_steering(config, messages, expects_write, steering_rx).start();
+    *agent = Some(AgentSlot { receiver: turn.events, cancel: turn.cancel, steering: steering_tx });
 }
 
 fn flush_steering(app: &mut App, agent: &Option<AgentSlot>) {

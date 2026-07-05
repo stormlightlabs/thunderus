@@ -304,7 +304,7 @@ pub fn update(workspace: &Path, request: &UpdateRequest) -> Result<InstallOutcom
         return Err("refusing to update ACP registry agent without --yes".to_string());
     }
 
-    let _ = validate_acp_name(&request.name)?;
+    validate_acp_name(&request.name)?;
 
     let metadata_path = workspace.join(".thndrs").join("acp-installed.toml");
     let installed = read_installed_agents(&metadata_path)?;
