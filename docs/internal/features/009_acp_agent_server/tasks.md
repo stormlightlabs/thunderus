@@ -209,11 +209,11 @@ Captured: 2026-07-04
 
 ## M18: Rich Content
 
-- [ ] Add prompt assembly support for non-text content blocks.
-- [ ] Add provider support for image content where available.
-- [ ] Add resource/resource-link handling.
-- [ ] Add rejection tests for unsupported content.
-- [ ] Add fixture tests for supported rich content.
+- [x] Add prompt assembly support for non-text content blocks.
+- [x] Add provider support for image content where available.
+- [x] Add resource/resource-link handling.
+- [x] Add rejection tests for unsupported content.
+- [x] Add fixture tests for supported rich content.
 
 ## M19: Registry Packaging
 

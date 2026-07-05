@@ -934,6 +934,22 @@ mod tests {
     }
 
     #[test]
+    fn user_image_block_serializes_as_anthropic_content() {
+        let msg = ProviderMessage::user_blocks(vec![ProviderContentBlock::Image {
+            source: crate::providers::ProviderImageSource::Base64 {
+                media_type: "image/png".to_string(),
+                data: "aGVsbG8=".to_string(),
+            },
+        }]);
+        let json = serde_json::to_value(&msg).expect("serialize");
+        let block = &json["content"][0];
+        assert_eq!(block["type"], "image");
+        assert_eq!(block["source"]["type"], "base64");
+        assert_eq!(block["source"]["media_type"], "image/png");
+        assert_eq!(block["source"]["data"], "aGVsbG8=");
+    }
+
+    #[test]
     fn assistant_blocks_with_text_and_tool_use_serializes_in_order() {
         let blocks = vec![
             ProviderContentBlock::Text { text: "Let me search.".to_string() },

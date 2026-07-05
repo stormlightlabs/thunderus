@@ -21,6 +21,7 @@ use crate::harness::HarnessHandle;
 use crate::mcp::config::{McpConfig, McpServerConfig, McpTransport};
 use crate::mcp::manager::McpManager;
 use crate::prompt;
+use crate::providers::{ProviderContentBlock, ProviderImageSource, ProviderMessage};
 use crate::server::ServerConfig;
 use crate::server::config_options::{ConfigOptionValue, acp_config_options, validate_config_option};
 use crate::server::events::{
@@ -788,10 +789,10 @@ pub fn acp_mcp_config(servers: &[McpServer]) -> Result<McpConfig, String> {
 
 pub fn execute_prompt(
     state: &ServerState, request: &PromptRequest, mut on_update: impl FnMut(SessionUpdateIntent) -> Result<(), String>,
-    run_harness: impl FnOnce(AgentRunConfig, Vec<crate::providers::ProviderMessage>, bool, String) -> HarnessHandle,
+    run_harness: impl FnOnce(AgentRunConfig, Vec<ProviderMessage>, bool, String) -> HarnessHandle,
 ) -> Result<PromptResponse, String> {
     let session_id = request.session_id.0.to_string();
-    let prompt = text_prompt(&request.prompt)?;
+    let prompt = assemble_prompt(&request.prompt)?;
 
     if state.is_cancelled(&session_id) {
         return Ok(PromptResponse::new(StopReason::Cancelled));
@@ -806,11 +807,11 @@ pub fn execute_prompt(
             seq: 0,
             time: crate::utils::datetime::now_iso8601(),
             turn_id: format!("{session_id}-turn"),
-            text: (&prompt).to_string(),
+            text: prompt.text.clone(),
         },
     );
 
-    let response = run_prompt_turn(&prompt, state, &session_id, &mut on_update, run_harness)?;
+    let response = run_prompt_turn(prompt, state, &session_id, &mut on_update, run_harness)?;
 
     drop(turn_guard);
 
@@ -1261,9 +1262,9 @@ fn permission_title(request: &ToolUseRequest) -> String {
 
 /// Run one harness-backed ACP prompt turn and stream updates while pending.
 fn run_prompt_turn(
-    prompt: &str, state: &ServerState, session_id: &str,
+    prompt: PromptAssembly, state: &ServerState, session_id: &str,
     on_update: &mut impl FnMut(SessionUpdateIntent) -> Result<(), String>,
-    run_harness: impl FnOnce(AgentRunConfig, Vec<crate::providers::ProviderMessage>, bool, String) -> HarnessHandle,
+    run_harness: impl FnOnce(AgentRunConfig, Vec<ProviderMessage>, bool, String) -> HarnessHandle,
 ) -> Result<PromptResponse, String> {
     let session = state.session(session_id)?;
     let websearch = session
@@ -1277,10 +1278,13 @@ fn run_prompt_turn(
     if let Some(mcp_config) = session.mcp_config {
         config = config.with_mcp_manager(Arc::new(McpManager::from_config(&mcp_config)));
     }
-    let bundle = prompt::PromptBundle::new(&config.root, &config.model, config.search_mode, &[], &[], prompt);
-    let messages = crate::prompt::lower_to_umans_messages(&bundle);
-    let expects_write = prompt_expects_workspace_write(prompt);
-    let handle = run_harness(config, messages, expects_write, prompt.to_string());
+    let bundle = prompt::PromptBundle::new(&config.root, &config.model, config.search_mode, &[], &[], "");
+    let mut messages = crate::prompt::lower_to_umans_messages(&bundle);
+    if !prompt.provider_blocks.is_empty() {
+        messages.push(ProviderMessage::user_blocks(prompt.provider_blocks.clone()));
+    }
+    let expects_write = prompt_expects_workspace_write(&prompt.text);
+    let handle = run_harness(config, messages, expects_write, prompt.text);
     state.register_turn_cancel_token(session_id, handle.cancel.clone());
     if state.is_cancelled(session_id) {
         handle.cancel.cancel();
@@ -1336,7 +1340,7 @@ fn run_prompt_handle(
 fn capabilities(_state: &ServerState) -> AgentCapabilities {
     AgentCapabilities::new()
         .load_session(true)
-        .prompt_capabilities(PromptCapabilities::new())
+        .prompt_capabilities(PromptCapabilities::new().image(true).embedded_context(true))
         .mcp_capabilities(McpCapabilities::new())
         .session_capabilities(
             SessionCapabilities::new()
@@ -1352,22 +1356,86 @@ fn negotiate_protocol_version(requested: ProtocolVersion) -> ProtocolVersion {
     ProtocolVersion::V1
 }
 
-fn text_prompt(blocks: &[ContentBlock]) -> Result<String, String> {
-    let mut text = String::new();
+#[derive(Clone, Debug, PartialEq)]
+struct PromptAssembly {
+    text: String,
+    provider_blocks: Vec<ProviderContentBlock>,
+}
+
+fn assemble_prompt(blocks: &[ContentBlock]) -> Result<PromptAssembly, String> {
+    let mut text_parts = Vec::new();
+    let mut provider_blocks = Vec::new();
     for block in blocks {
         match block {
             ContentBlock::Text(content) => {
-                if !text.is_empty() {
-                    text.push('\n');
-                }
-                text.push_str(&content.text);
+                text_parts.push(content.text.clone());
+                provider_blocks.push(ProviderContentBlock::Text { text: content.text.clone() });
+            }
+            ContentBlock::Image(content) => {
+                let marker = image_prompt_marker(&content.mime_type, content.uri.as_deref());
+                text_parts.push(marker);
+                provider_blocks.push(ProviderContentBlock::Image {
+                    source: ProviderImageSource::Base64 {
+                        media_type: content.mime_type.clone(),
+                        data: content.data.clone(),
+                    },
+                });
+            }
+            ContentBlock::ResourceLink(link) => {
+                let marker = resource_link_prompt_marker(link);
+                text_parts.push(marker.clone());
+                provider_blocks.push(ProviderContentBlock::Text { text: marker });
+            }
+            ContentBlock::Resource(resource) => {
+                let marker = embedded_resource_prompt_marker(resource);
+                text_parts.push(marker.clone());
+                provider_blocks.push(ProviderContentBlock::Text { text: marker });
+            }
+            ContentBlock::Audio(_) => {
+                return Err(String::from("unsupported ACP prompt content block: audio"));
             }
             other => {
                 return Err(format!("unsupported ACP prompt content block: {other:?}"));
             }
         }
     }
-    Ok(text)
+    Ok(PromptAssembly { text: text_parts.join("\n"), provider_blocks })
+}
+
+fn image_prompt_marker(mime_type: &str, uri: Option<&str>) -> String {
+    match uri {
+        Some(uri) => format!("[image: {mime_type}; uri={uri}]"),
+        None => format!("[image: {mime_type}]"),
+    }
+}
+
+fn resource_link_prompt_marker(link: &ResourceLink) -> String {
+    let mut details = vec![link.uri.clone()];
+    if let Some(mime_type) = &link.mime_type {
+        details.push(format!("mime={mime_type}"));
+    }
+    if let Some(description) = &link.description {
+        details.push(format!("description={description}"));
+    }
+    format!("[resource link: {} ({})]", link.name, details.join(", "))
+}
+
+fn embedded_resource_prompt_marker(resource: &EmbeddedResource) -> String {
+    match &resource.resource {
+        EmbeddedResourceResource::TextResourceContents(contents) => {
+            let mime = contents.mime_type.as_deref().unwrap_or("text/plain");
+            format!("[embedded resource: {} ({mime})]\n{}", contents.uri, contents.text)
+        }
+        EmbeddedResourceResource::BlobResourceContents(contents) => {
+            let mime = contents.mime_type.as_deref().unwrap_or("application/octet-stream");
+            format!(
+                "[embedded resource: {} ({mime}); base64 bytes={}]",
+                contents.uri,
+                contents.blob.len()
+            )
+        }
+        other => format!("[embedded resource: unsupported payload {other:?}]"),
+    }
 }
 
 fn send_update(
@@ -1413,7 +1481,7 @@ fn lower_update_intent(intent: SessionUpdateIntent) -> Option<SessionUpdate> {
                     None
                 } else {
                     Some(vec![ToolCallContent::Content(Content::new(ContentBlock::Text(
-                        TextContent::new(output_text.to_string()),
+                        TextContent::new(output_text),
                     )))])
                 });
             Some(SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(id, fields)))
@@ -1606,13 +1674,54 @@ mod tests {
 
     #[test]
     fn joins_text_prompt_blocks() {
-        let prompt = text_prompt(&[
+        let prompt = assemble_prompt(&[
             ContentBlock::Text(TextContent::new("first")),
             ContentBlock::Text(TextContent::new("second")),
         ])
         .expect("text prompt");
 
-        assert_eq!("first\nsecond", prompt);
+        assert_eq!("first\nsecond", prompt.text);
+        assert_eq!(
+            prompt.provider_blocks,
+            vec![
+                ProviderContentBlock::Text { text: "first".to_string() },
+                ProviderContentBlock::Text { text: "second".to_string() },
+            ]
+        );
+    }
+
+    #[test]
+    fn assembles_rich_prompt_blocks() {
+        let prompt = assemble_prompt(&[
+            ContentBlock::Text(TextContent::new("look at this")),
+            ContentBlock::Image(ImageContent::new("aGVsbG8=", "image/png").uri("file:///tmp/image.png")),
+            ContentBlock::ResourceLink(
+                ResourceLink::new("notes.md", "file:///tmp/notes.md").mime_type("text/markdown"),
+            ),
+            ContentBlock::Resource(EmbeddedResource::new(EmbeddedResourceResource::TextResourceContents(
+                TextResourceContents::new("embedded notes", "file:///tmp/embedded.md").mime_type("text/markdown"),
+            ))),
+        ])
+        .expect("rich prompt");
+
+        assert!(prompt.text.contains("look at this"));
+        assert!(prompt.text.contains("[image: image/png; uri=file:///tmp/image.png]"));
+        assert!(
+            prompt
+                .text
+                .contains("[resource link: notes.md (file:///tmp/notes.md, mime=text/markdown)]")
+        );
+        assert!(
+            prompt
+                .text
+                .contains("[embedded resource: file:///tmp/embedded.md (text/markdown)]")
+        );
+        assert!(
+            prompt
+                .provider_blocks
+                .iter()
+                .any(|block| matches!(block, ProviderContentBlock::Image { .. }))
+        );
     }
 
     #[test]
@@ -1627,7 +1736,7 @@ mod tests {
         );
         let expected = AgentCapabilities::new()
             .load_session(true)
-            .prompt_capabilities(PromptCapabilities::new())
+            .prompt_capabilities(PromptCapabilities::new().image(true).embedded_context(true))
             .mcp_capabilities(McpCapabilities::new())
             .session_capabilities(
                 SessionCapabilities::new()
@@ -1645,7 +1754,10 @@ mod tests {
         let response = initialize(&state(), &request);
 
         assert_eq!(response.protocol_version, ProtocolVersion::V1);
-        assert!(response.agent_capabilities.prompt_capabilities == PromptCapabilities::new());
+        assert!(
+            response.agent_capabilities.prompt_capabilities
+                == PromptCapabilities::new().image(true).embedded_context(true)
+        );
     }
 
     #[test]
@@ -1775,10 +1887,8 @@ mod tests {
 
     #[test]
     fn rejects_unsupported_prompt_blocks() {
-        let err = text_prompt(&[ContentBlock::ResourceLink(
-            agent_client_protocol::schema::v1::ResourceLink::new("file:///tmp/a", "text/plain"),
-        )])
-        .expect_err("unsupported block rejected");
+        let err = assemble_prompt(&[ContentBlock::Audio(AudioContent::new("aGVsbG8=", "audio/wav"))])
+            .expect_err("unsupported block rejected");
 
         assert!(err.contains("unsupported ACP prompt content block"));
     }

@@ -411,6 +411,28 @@ mod tests {
     }
 
     #[test]
+    fn build_chat_request_body_converts_user_image_blocks() {
+        let messages = vec![ProviderMessage::user_blocks(vec![
+            ProviderContentBlock::Text { text: "describe this".to_string() },
+            ProviderContentBlock::Image {
+                source: crate::providers::ProviderImageSource::Base64 {
+                    media_type: "image/png".to_string(),
+                    data: "aGVsbG8=".to_string(),
+                },
+            },
+        ])];
+
+        let body = OpenCodeGoClient::build_chat_request_body("opencode-go/kimi-k2.7-code", &messages, 4096, true, None)
+            .expect("body");
+
+        let content = &body["messages"][0]["content"];
+        assert_eq!(content[0]["type"], "text");
+        assert_eq!(content[0]["text"], "describe this");
+        assert_eq!(content[1]["type"], "image_url");
+        assert_eq!(content[1]["image_url"]["url"], "data:image/png;base64,aGVsbG8=");
+    }
+
+    #[test]
     fn build_messages_request_body_uses_anthropic_shape() {
         let messages = vec![ProviderMessage::user("hello")];
         let defs = crate::tools::tool_definitions();

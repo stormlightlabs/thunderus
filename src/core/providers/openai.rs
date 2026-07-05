@@ -1,6 +1,6 @@
 //! Provider-neutral OpenAI-compatible chat-completions helpers.
 
-use crate::providers::{ProviderContentBlock, ProviderMessage, ProviderMessageContent};
+use crate::providers::{ProviderContentBlock, ProviderImageSource, ProviderMessage, ProviderMessageContent};
 
 /// Parsed OpenAI-compatible chat-completions stream event.
 #[derive(Clone, Debug, PartialEq)]
@@ -141,6 +141,7 @@ fn openai_messages_for_provider_message(message: &ProviderMessage) -> Vec<serde_
             for block in blocks {
                 match block {
                     ProviderContentBlock::Text { text: block_text } => text.push_str(block_text),
+                    ProviderContentBlock::Image { .. } => {}
                     ProviderContentBlock::ToolUse { id, name, input } => {
                         tool_calls.push(serde_json::json!({
                             "id": id,
@@ -163,6 +164,9 @@ fn openai_messages_for_provider_message(message: &ProviderMessage) -> Vec<serde_
             }
             vec![msg]
         }
+        ProviderMessageContent::Blocks(blocks) if message.role == "user" && blocks.iter().any(is_user_media_block) => {
+            vec![serde_json::json!({"role": message.role, "content": openai_user_content(blocks)})]
+        }
         ProviderMessageContent::Blocks(blocks) => blocks
             .iter()
             .filter_map(|block| match block {
@@ -172,9 +176,35 @@ fn openai_messages_for_provider_message(message: &ProviderMessage) -> Vec<serde_
                     "tool_call_id": tool_use_id,
                     "content": content,
                 })),
-                ProviderContentBlock::ToolUse { .. } => None,
+                ProviderContentBlock::ToolUse { .. } | ProviderContentBlock::Image { .. } => None,
             })
             .collect(),
+    }
+}
+
+fn is_user_media_block(block: &ProviderContentBlock) -> bool {
+    matches!(block, ProviderContentBlock::Image { .. })
+}
+
+fn openai_user_content(blocks: &[ProviderContentBlock]) -> Vec<serde_json::Value> {
+    blocks
+        .iter()
+        .filter_map(|block| match block {
+            ProviderContentBlock::Text { text } => Some(serde_json::json!({"type": "text", "text": text})),
+            ProviderContentBlock::Image { source } => Some(openai_image_content(source)),
+            ProviderContentBlock::ToolUse { .. } | ProviderContentBlock::ToolResult { .. } => None,
+        })
+        .collect()
+}
+
+fn openai_image_content(source: &ProviderImageSource) -> serde_json::Value {
+    match source {
+        ProviderImageSource::Base64 { media_type, data } => serde_json::json!({
+            "type": "image_url",
+            "image_url": {
+                "url": format!("data:{media_type};base64,{data}"),
+            },
+        }),
     }
 }
 

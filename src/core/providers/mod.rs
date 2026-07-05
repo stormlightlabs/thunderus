@@ -124,6 +124,8 @@ pub enum StreamFormat {
 pub enum ProviderContentBlock {
     /// A plain text block.
     Text { text: String },
+    /// Base64-encoded image content for providers that support vision inputs.
+    Image { source: ProviderImageSource },
     /// A tool-use request emitted by the assistant.
     ToolUse {
         /// Provider-assigned id (e.g. `toolu_01`), echoed back in `tool_result`.
@@ -140,6 +142,14 @@ pub enum ProviderContentBlock {
         #[serde(skip_serializing_if = "Option::is_none")]
         is_error: Option<bool>,
     },
+}
+
+/// Provider-neutral image source payload.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ProviderImageSource {
+    /// Base64 image data and its media type.
+    Base64 { media_type: String, data: String },
 }
 
 /// Message content: either a plain string or structured content blocks.
@@ -265,6 +275,11 @@ impl ProviderMessage {
     /// Create an `assistant`-role message from content blocks.
     pub fn assistant_blocks(blocks: Vec<ProviderContentBlock>) -> Self {
         ProviderMessage { role: "assistant".to_string(), content: ProviderMessageContent::Blocks(blocks) }
+    }
+
+    /// Create a `user`-role message from content blocks.
+    pub fn user_blocks(blocks: Vec<ProviderContentBlock>) -> Self {
+        ProviderMessage { role: "user".to_string(), content: ProviderMessageContent::Blocks(blocks) }
     }
 
     /// Return the concatenated text content of this message.

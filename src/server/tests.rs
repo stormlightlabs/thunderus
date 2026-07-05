@@ -11,8 +11,9 @@ use crate::cli::WebSearchMode;
 use crate::harness::{HarnessHandle, HarnessTurn};
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1::{
-    ClientCapabilities, ContentBlock, EnvVariable, Implementation, InitializeRequest, McpServer, McpServerHttp,
-    McpServerStdio, PromptRequest, ResourceLink, SetSessionConfigOptionRequest, StopReason, TextContent,
+    AudioContent, ClientCapabilities, ContentBlock, EnvVariable, ImageContent, Implementation, InitializeRequest,
+    McpServer, McpServerHttp, McpServerStdio, PromptRequest, ResourceLink, SetSessionConfigOptionRequest, StopReason,
+    TextContent,
 };
 use tempfile::tempdir;
 
@@ -27,6 +28,7 @@ use super::session::{
 };
 use crate::agent::CancelToken;
 use crate::app::{AgentEvent, ToolStatus};
+use crate::providers::{ProviderContentBlock, ProviderMessageContent};
 use crate::server::ServerConfig;
 use crate::session::{SessionReader, SessionRecord};
 use serde_json::Value;
@@ -1046,10 +1048,7 @@ fn execute_prompt_rejects_unsupported_content() {
 
     let request = PromptRequest::new(
         session_id,
-        vec![ContentBlock::ResourceLink(ResourceLink::new(
-            "file:///tmp/notes.md",
-            "text/plain",
-        ))],
+        vec![ContentBlock::Audio(AudioContent::new("aGVsbG8=", "audio/wav"))],
     );
     let result = execute_prompt(
         &state,
@@ -1059,6 +1058,44 @@ fn execute_prompt_rejects_unsupported_content() {
     );
 
     assert!(matches!(result, Err(err) if err.contains("unsupported ACP prompt content block")));
+}
+
+#[test]
+fn execute_prompt_accepts_supported_rich_content() {
+    let workspace = tempdir().expect("temp workspace");
+    let state = state_for_tests(workspace.path().to_path_buf(), None);
+    let session_id = state.create_session(workspace.path()).expect("session created");
+
+    let request = PromptRequest::new(
+        session_id,
+        vec![
+            ContentBlock::Text(TextContent::new("describe this")),
+            ContentBlock::Image(ImageContent::new("aGVsbG8=", "image/png")),
+            ContentBlock::ResourceLink(ResourceLink::new("notes.md", "file:///tmp/notes.md")),
+        ],
+    );
+    let response = execute_prompt(
+        &state,
+        &request,
+        |_intent| Ok(()),
+        |config, messages, _expects_write, prompt| {
+            assert!(prompt.contains("describe this"));
+            assert!(prompt.contains("[image: image/png]"));
+            assert!(prompt.contains("[resource link: notes.md (file:///tmp/notes.md)]"));
+            assert!(messages.iter().any(|message| match &message.content {
+                ProviderMessageContent::Blocks(blocks) => {
+                    blocks
+                        .iter()
+                        .any(|block| matches!(block, ProviderContentBlock::Image { .. }))
+                }
+                ProviderMessageContent::Text(_) => false,
+            }));
+            HarnessTurn::fake(config, String::new()).start()
+        },
+    )
+    .expect("rich prompt succeeds");
+
+    assert_eq!(response.stop_reason, StopReason::EndTurn);
 }
 
 #[test]
@@ -1119,9 +1156,22 @@ fn fake_acp_client_smoke_runs_initialize_new_and_prompt() {
     let Some(_) = find_acp_server_binary() else {
         return;
     };
-    let summary = run_fake_client(1);
+    let summary = run_fake_client(1, false);
     assert_eq!(summary["protocolVersion"], 1);
     assert_eq!(summary["textPromptCapable"], true);
+    assert_eq!(summary["updated"], true);
+}
+
+#[test]
+fn fake_acp_client_smoke_runs_rich_content_prompt() {
+    let Some(_) = find_acp_server_binary() else {
+        return;
+    };
+    let summary = run_fake_client(1, true);
+    assert_eq!(summary["protocolVersion"], 1);
+    assert_eq!(summary["richContent"], true);
+    assert_eq!(summary["promptCapabilities"]["image"], true);
+    assert_eq!(summary["promptCapabilities"]["embeddedContext"], true);
     assert_eq!(summary["updated"], true);
 }
 
@@ -1130,12 +1180,12 @@ fn fake_acp_client_falls_back_to_protocol_one_for_unsupported_requests() {
     let Some(_) = find_acp_server_binary() else {
         return;
     };
-    let summary = run_fake_client(2);
+    let summary = run_fake_client(2, false);
     assert_eq!(summary["protocolVersion"], 1);
     assert_eq!(summary["updated"], true);
 }
 
-fn run_fake_client(protocol_version: u16) -> Value {
+fn run_fake_client(protocol_version: u16, rich_content: bool) -> Value {
     let server_path = find_acp_server_binary().expect("thndrs-acp-server binary path");
     let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
@@ -1143,16 +1193,19 @@ fn run_fake_client(protocol_version: u16) -> Value {
         .join("fake_acp_client.py");
     let workspace = tempdir().expect("temp workspace");
 
-    let output = Command::new("python3")
+    let mut command = Command::new("python3");
+    command
         .arg(&fixture)
         .arg("--server")
         .arg(server_path)
         .arg("--protocol-version")
         .arg(protocol_version.to_string())
         .arg("--cwd")
-        .arg(workspace.path())
-        .output()
-        .expect("run fake ACP client fixture");
+        .arg(workspace.path());
+    if rich_content {
+        command.arg("--rich-content");
+    }
+    let output = command.output().expect("run fake ACP client fixture");
 
     assert!(
         output.status.success(),

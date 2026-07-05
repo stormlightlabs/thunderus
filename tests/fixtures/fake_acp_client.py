@@ -59,6 +59,7 @@ def main():
     parser.add_argument("--server", required=True)
     parser.add_argument("--protocol-version", type=int, default=1)
     parser.add_argument("--cwd", required=True)
+    parser.add_argument("--rich-content", action="store_true")
     args = parser.parse_args()
 
     process = subprocess.Popen(
@@ -100,13 +101,22 @@ def main():
         if not session_id:
             raise RuntimeError("session/new returned empty sessionId")
 
+        prompt = [{"type": "text", "text": "smoke test from fake client"}]
+        if args.rich_content:
+            prompt.extend(
+                [
+                    {"type": "image", "data": "aGVsbG8=", "mimeType": "image/png"},
+                    {"type": "resource_link", "name": "notes.md", "uri": "file:///tmp/notes.md"},
+                ]
+            )
+
         send(
             process,
             "session/prompt",
             "prompt",
             {
                 "sessionId": session_id,
-                "prompt": [{"type": "text", "text": "smoke test from fake client"}],
+                "prompt": prompt,
             },
         )
         updates, prompt_response = read_updates(process, "prompt", 5.0)
@@ -134,6 +144,7 @@ def main():
             "updated": len(updates) > 0,
             "promptCapabilities": initialize.get("result", {}).get("agentCapabilities", {}).get("promptCapabilities", {}),
             "textPromptCapable": has_text_prompt,
+            "richContent": args.rich_content,
         }
         print(json.dumps(summary, sort_keys=True))
     finally:
