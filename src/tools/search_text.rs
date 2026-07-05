@@ -2,8 +2,21 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
-use crate::tools::{SearchMatch, TIMEOUT_SECS, ToolOutput};
+use crate::tools::registry::{ToolContext, ToolError, ToolExecution};
+use crate::tools::{MAX_RESULTS, SearchMatch, TIMEOUT_SECS, ToolDefinition, ToolOutput, ToolUseRequest};
 use crate::utils;
+
+const NAME: &str = "search_text";
+
+/// Parsed provider input for `search_text`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SearchTextInput {
+    pattern: String,
+    glob: Option<String>,
+    extensions: Vec<String>,
+    context_lines: u32,
+    include_hidden: bool,
+}
 
 /// Search file contents using `rg --json`.
 ///
@@ -74,6 +87,68 @@ pub fn exec(
     }
 }
 
+/// Provider-visible definition for `search_text`.
+pub fn definition() -> ToolDefinition {
+    ToolDefinition {
+        name: NAME,
+        description: "search_text
+
+Grep file contents by regex under the workspace root.
+
+Returns matching lines as file:line:text. Use this when you need to find where a
+symbol, string, or pattern appears in the codebase. Prefer this over listing files
+when you need content. Paths are contained to the root; hidden files are off unless
+requested. Capped at 100 matches; lines truncate at 512 chars.",
+        input_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "pattern": { "type": "string", "description": "Regex pattern to search for." },
+                "glob": { "type": "string" },
+                "extensions": { "type": "array", "items": { "type": "string" } },
+                "context_lines": { "type": "integer" },
+                "include_hidden": { "type": "boolean" }
+            },
+            "required": ["pattern"]
+        }),
+    }
+}
+
+/// Parse provider JSON arguments for `search_text`.
+pub fn parse_arguments(arguments: &str) -> Result<SearchTextInput, ToolError> {
+    let args = serde_json::from_str::<serde_json::Value>(arguments).unwrap_or(serde_json::Value::Null);
+    Ok(SearchTextInput {
+        pattern: args
+            .get("pattern")
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
+            .to_string(),
+        glob: args.get("glob").and_then(|value| value.as_str()).map(str::to_string),
+        extensions: args
+            .get("extensions")
+            .and_then(|value| value.as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|value| value.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        context_lines: args.get("context_lines").and_then(|value| value.as_u64()).unwrap_or(0) as u32,
+        include_hidden: args
+            .get("include_hidden")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false),
+    })
+}
+
+/// Execute a registry request for `search_text`.
+pub fn execute_request(request: &ToolUseRequest, ctx: ToolContext<'_>) -> ToolExecution {
+    match parse_arguments(&request.arguments) {
+        Ok(input) => ToolExecution::output(exec_input(&input, ctx.root)),
+        Err(error) => ToolExecution::output(ToolOutput::failed(NAME, error.to_string())),
+    }
+}
+
 /// Parse `rg --json` output (NDJSON) into a list of search matches.
 ///
 /// `match` and `context` messages are extracted. `begin`, `end`, and `summary`
@@ -106,10 +181,25 @@ pub fn parse_rg_json(output: &str) -> Vec<SearchMatch> {
         .collect()
 }
 
+fn exec_input(input: &SearchTextInput, root: &Path) -> ToolOutput {
+    exec(
+        &input.pattern,
+        root,
+        input.glob.as_deref(),
+        &input.extensions,
+        MAX_RESULTS,
+        input.context_lines,
+        input.include_hidden,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{app::ToolStatus, tools::MAX_RESULTS};
+    use crate::{
+        app::ToolStatus,
+        tools::{self, MAX_RESULTS},
+    };
 
     #[test]
     fn parse_rg_json_extracts_matches() {
@@ -231,5 +321,45 @@ mod tests {
             "expected match plus context, got {:?}",
             output.output
         );
+    }
+
+    #[test]
+    fn parse_arguments_reads_all_fields() {
+        let input = parse_arguments(
+            r#"{"pattern":"fn main","glob":"src/**/*.rs","extensions":["rs"],"context_lines":2,"include_hidden":true}"#,
+        )
+        .expect("parse");
+
+        assert_eq!(input.pattern, "fn main");
+        assert_eq!(input.glob.as_deref(), Some("src/**/*.rs"));
+        assert_eq!(input.extensions, vec!["rs"]);
+        assert_eq!(input.context_lines, 2);
+        assert!(input.include_hidden);
+    }
+
+    #[test]
+    fn parse_arguments_malformed_json_uses_safe_defaults() {
+        let input = parse_arguments("not valid json").expect("parse");
+        assert_eq!(input.pattern, "");
+        assert_eq!(input.glob, None);
+        assert!(input.extensions.is_empty());
+        assert_eq!(input.context_lines, 0);
+        assert!(!input.include_hidden);
+    }
+
+    #[test]
+    fn registry_execute_finds_text() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        std::fs::write(dir.path().join("alpha.rs"), "fn alpha() {}\n").expect("write");
+        let request = ToolUseRequest::new(
+            NAME.to_string(),
+            serde_json::json!({"pattern":"alpha"}).to_string(),
+            "call_1".to_string(),
+        );
+
+        let output = tools::registry::execute(&request, tools::registry::ToolContext::new(dir.path())).output;
+
+        assert_eq!(output.status, ToolStatus::Ok);
+        assert!(output.output.iter().any(|line| line.contains("alpha.rs")));
     }
 }

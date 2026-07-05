@@ -35,7 +35,6 @@ use serde::{Deserialize, Serialize};
 use crate::app::ToolStatus;
 use crate::cli::WebSearchMode;
 use crate::search;
-use crate::tools::find_files::FindFiles;
 
 /// Maximum number of tool-call iterations per agent turn before the loop
 /// stops with a cap-exceeded error.
@@ -301,112 +300,6 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
 fn legacy_tool_definitions() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition {
-            name: "find_files",
-            description: r#"find_files
-
-Locate files by name or glob under the workspace root.
-
-Use this when you know (or can guess) a file name and need its path. Prefer this over
-listing all files. Paths are contained to the root; hidden files and symlinks are off
-unless requested. Capped at 100 results; long lines truncate at 512 chars."#,
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "pattern": { "type": "string", "description": "File name or glob pattern to search for." },
-                    "glob": { "type": "string", "description": "Optional additional glob filter." },
-                    "extensions": { "type": "array", "items": { "type": "string" } },
-                    "max_depth": { "type": "integer" },
-                    "include_hidden": { "type": "boolean" },
-                    "follow_symlinks": { "type": "boolean" }
-                },
-                "required": ["pattern"]
-            }),
-        },
-        ToolDefinition {
-            name: "list_searchable_files",
-            description: r#"list_searchable_files
-
-Enumerate searchable files under the workspace root.
-
-Use this to get an overview of the project structure. Prefer find_files when you know
-a file name, or search_text when you need content matches. Respects ignore rules and
-skips hidden files by default. Capped at 100 results."#,
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "glob": { "type": "string" },
-                    "include_hidden": { "type": "boolean" }
-                }
-            }),
-        },
-        ToolDefinition {
-            name: "search_text",
-            description: "search_text
-
-Grep file contents by regex under the workspace root.
-
-Returns matching lines as file:line:text. Use this when you need to find where a
-symbol, string, or pattern appears in the codebase. Prefer this over listing files
-when you need content. Paths are contained to the root; hidden files are off unless
-requested. Capped at 100 matches; lines truncate at 512 chars.",
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "pattern": { "type": "string", "description": "Regex pattern to search for." },
-                    "glob": { "type": "string" },
-                    "extensions": { "type": "array", "items": { "type": "string" } },
-                    "context_lines": { "type": "integer" },
-                    "include_hidden": { "type": "boolean" }
-                },
-                "required": ["pattern"]
-            }),
-        },
-        ToolDefinition {
-            name: "read_file_range",
-            description: r#"read_file_range
-
-Read a 1-indexed line range from a file under the workspace root.
-
-Use this to inspect file contents after finding a path with find_files or search_text.
-Prefer targeted ranges over reading entire large files. Paths are contained to the root;
-escapes are rejected. Output is capped at 65536 bytes; long lines truncate at 512 chars."#,
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string", "description": "Path relative to the workspace root." },
-                    "start_line": { "type": "integer" },
-                    "end_line": { "type": "integer" }
-                },
-                "required": ["path", "start_line"]
-            }),
-        },
-        ToolDefinition {
-            name: "sawk",
-            description: r#"sawk
-
-Run safe read-only sed/awk-style inspection actions.
-
-Use this for line printing, substitution previews, or field extraction when it is clearer
-than raw shell. Actions are typed: sed_print, sed_substitute_preview, awk_fields.
-Paths are contained; output is capped/truncated; no sed -i or awk system()."#,
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "action": { "type": "string", "enum": ["sed_print", "sed_substitute_preview", "awk_fields"] },
-                    "path": { "type": "string", "description": "Path relative to the workspace root." },
-                    "start_line": { "type": "integer" },
-                    "end_line": { "type": "integer" },
-                    "max_lines": { "type": "integer" },
-                    "pattern": { "type": "string", "description": "Regex pattern for preview/filter actions." },
-                    "replacement": { "type": "string", "description": "Replacement text for sed_substitute_preview." },
-                    "global": { "type": "boolean", "description": "Replace all matches per line in previews." },
-                    "fields": { "type": "array", "items": { "type": "integer" }, "description": "1-indexed fields for awk_fields." },
-                    "delimiter": { "type": "string", "description": "Optional literal field delimiter; defaults to whitespace." }
-                },
-                "required": ["action", "path"]
-            }),
-        },
-        ToolDefinition {
             name: "web_search",
             description: r#"web_search
 
@@ -590,67 +483,6 @@ fn dispatch_tool_legacy(request: &ToolUseRequest, root: &Path) -> ToolOutput {
     let args = serde_json::from_str(&request.arguments).unwrap_or(serde_json::Value::Null);
 
     match request.name.as_str() {
-        "find_files" => {
-            let pattern = args.get("pattern").and_then(|v| v.as_str()).unwrap_or("");
-            let glob = args.get("glob").and_then(|v| v.as_str()).map(|s| s.to_string());
-            let extensions: Vec<String> = args
-                .get("extensions")
-                .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-                .unwrap_or_default();
-
-            FindFiles {
-                pattern,
-                root,
-                glob: glob.as_deref(),
-                extensions: &extensions,
-                max_results: MAX_RESULTS,
-                max_depth: args.get("max_depth").and_then(|v| v.as_u64()).map(|n| n as u32),
-                include_hidden: args.get("include_hidden").and_then(|v| v.as_bool()).unwrap_or(false),
-                follow_symlinks: args.get("follow_symlinks").and_then(|v| v.as_bool()).unwrap_or(false),
-            }
-            .run()
-        }
-        "list_searchable_files" => list_searchable_files::exec(
-            root,
-            args.get("glob")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-                .as_deref(),
-            MAX_RESULTS,
-            args.get("include_hidden").and_then(|v| v.as_bool()).unwrap_or(false),
-        ),
-        "search_text" => {
-            let pattern = args.get("pattern").and_then(|v| v.as_str()).unwrap_or("");
-            let glob = args.get("glob").and_then(|v| v.as_str()).map(|s| s.to_string());
-            let extensions = args
-                .get("extensions")
-                .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| v.as_str().map(String::from))
-                        .collect::<Vec<String>>()
-                })
-                .unwrap_or_default();
-
-            search_text::exec(
-                pattern,
-                root,
-                glob.as_deref(),
-                &extensions,
-                MAX_RESULTS,
-                args.get("context_lines").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-                args.get("include_hidden").and_then(|v| v.as_bool()).unwrap_or(false),
-            )
-        }
-        "read_file_range" => {
-            let path_str = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
-            let path = path::resolve_within_root(root, path_str).unwrap_or_else(|_| PathBuf::from(path_str));
-            let start_line = args.get("start_line").and_then(|v| v.as_u64()).unwrap_or(1) as u32;
-            let end_line = args.get("end_line").and_then(|v| v.as_u64()).map(|n| n as u32);
-            read_file_range::exec(&path, root, start_line, end_line)
-        }
-        "sawk" => sawk::exec(&args, root),
         "web_search" => {
             let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
             let max_results = args

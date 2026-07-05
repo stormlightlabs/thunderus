@@ -3,8 +3,18 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
+use crate::tools::registry::{ToolContext, ToolError, ToolExecution};
 use crate::tools::subproc::CommandResult;
-use crate::tools::{TIMEOUT_SECS, ToolOutput};
+use crate::tools::{MAX_RESULTS, TIMEOUT_SECS, ToolDefinition, ToolOutput, ToolUseRequest};
+
+const NAME: &str = "list_searchable_files";
+
+/// Parsed provider input for `list_searchable_files`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ListSearchableFilesInput {
+    glob: Option<String>,
+    include_hidden: bool,
+}
 
 /// List searchable files in a directory tree.
 ///
@@ -43,6 +53,47 @@ pub fn exec(root: &Path, glob: Option<&str>, max_results: usize, include_hidden:
             ToolOutput::ok("list_searchable_files", paths)
         }
         Err(e) => ToolOutput::failed("list_searchable_files", format!("list failed: {e}")),
+    }
+}
+
+/// Provider-visible definition for `list_searchable_files`.
+pub fn definition() -> ToolDefinition {
+    ToolDefinition {
+        name: NAME,
+        description: r#"list_searchable_files
+
+Enumerate searchable files under the workspace root.
+
+Use this to get an overview of the project structure. Prefer find_files when you know
+a file name, or search_text when you need content matches. Respects ignore rules and
+skips hidden files by default. Capped at 100 results."#,
+        input_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "glob": { "type": "string" },
+                "include_hidden": { "type": "boolean" }
+            }
+        }),
+    }
+}
+
+/// Parse provider JSON arguments for `list_searchable_files`.
+pub fn parse_arguments(arguments: &str) -> Result<ListSearchableFilesInput, ToolError> {
+    let args = serde_json::from_str::<serde_json::Value>(arguments).unwrap_or(serde_json::Value::Null);
+    Ok(ListSearchableFilesInput {
+        glob: args.get("glob").and_then(|value| value.as_str()).map(str::to_string),
+        include_hidden: args
+            .get("include_hidden")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false),
+    })
+}
+
+/// Execute a registry request for `list_searchable_files`.
+pub fn execute_request(request: &ToolUseRequest, ctx: ToolContext<'_>) -> ToolExecution {
+    match parse_arguments(&request.arguments) {
+        Ok(input) => ToolExecution::output(exec(ctx.root, input.glob.as_deref(), MAX_RESULTS, input.include_hidden)),
+        Err(error) => ToolExecution::output(ToolOutput::failed(NAME, error.to_string())),
     }
 }
 
@@ -110,7 +161,7 @@ mod tests {
     use super::*;
     use crate::{
         app::ToolStatus,
-        tools::{MAX_RESULTS, TIMEOUT_SECS},
+        tools::{self, MAX_RESULTS, TIMEOUT_SECS},
     };
 
     #[test]
@@ -145,5 +196,35 @@ mod tests {
     #[test]
     fn matches_glob_prefix() {
         assert!(matches_glob("src/main.rs", "src/*"));
+    }
+
+    #[test]
+    fn parse_arguments_reads_optional_fields() {
+        let input = parse_arguments(r#"{"glob":"*.rs","include_hidden":true}"#).expect("parse");
+        assert_eq!(input.glob.as_deref(), Some("*.rs"));
+        assert!(input.include_hidden);
+    }
+
+    #[test]
+    fn parse_arguments_malformed_json_uses_safe_defaults() {
+        let input = parse_arguments("not valid json").expect("parse");
+        assert_eq!(input.glob, None);
+        assert!(!input.include_hidden);
+    }
+
+    #[test]
+    fn registry_execute_lists_files() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        std::fs::write(dir.path().join("alpha.rs"), "fn main() {}\n").expect("write");
+        let request = ToolUseRequest::new(
+            NAME.to_string(),
+            serde_json::json!({"glob":"*.rs"}).to_string(),
+            "call_1".to_string(),
+        );
+
+        let output = tools::registry::execute(&request, tools::registry::ToolContext::new(dir.path())).output;
+
+        assert_eq!(output.status, ToolStatus::Ok);
+        assert!(output.output.iter().any(|path| path.ends_with("alpha.rs")));
     }
 }

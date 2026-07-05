@@ -31,14 +31,14 @@ Captured: 2026-07-04
 
 ## P2: Move Read-Only Tools
 
-- [ ] Move `read_file_range` schema into its module.
-- [ ] Move `find_files` schema into its module.
-- [ ] Move `list_searchable_files` schema into its module.
-- [ ] Move `search_text` schema into its module.
-- [ ] Move `sawk` schema into its module.
-- [ ] Move argument parsing into each module.
-- [ ] Add per-tool parse tests.
-- [ ] Add per-tool execution tests through the registry.
+- [x] Move `read_file_range` schema into its module.
+- [x] Move `find_files` schema into its module.
+- [x] Move `list_searchable_files` schema into its module.
+- [x] Move `search_text` schema into its module.
+- [x] Move `sawk` schema into its module.
+- [x] Move argument parsing into each module.
+- [x] Add per-tool parse tests.
+- [x] Add per-tool execution tests through the registry.
 
 ## P3: Move Search And URL Tools
 

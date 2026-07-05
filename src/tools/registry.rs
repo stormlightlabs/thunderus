@@ -238,20 +238,18 @@ fn entry(name: &'static str) -> ToolEntry {
     ToolEntry {
         name,
         definition: definition_for_name(name),
-        execute: execute_legacy,
+        execute: execute_for_name(name),
         example_input: example_for_name(name),
     }
 }
 
 fn definition_for_name(name: &'static str) -> fn() -> ToolDefinition {
     match name {
-        "find_files" => || super::legacy_tool_definition("find_files").expect("registered definition"),
-        "list_searchable_files" => {
-            || super::legacy_tool_definition("list_searchable_files").expect("registered definition")
-        }
-        "search_text" => || super::legacy_tool_definition("search_text").expect("registered definition"),
-        "read_file_range" => || super::legacy_tool_definition("read_file_range").expect("registered definition"),
-        "sawk" => || super::legacy_tool_definition("sawk").expect("registered definition"),
+        "find_files" => super::find_files::definition,
+        "list_searchable_files" => super::list_searchable_files::definition,
+        "search_text" => super::search_text::definition,
+        "read_file_range" => super::read_file_range::definition,
+        "sawk" => super::sawk::definition,
         "web_search" => || super::legacy_tool_definition("web_search").expect("registered definition"),
         "read_url" => || super::legacy_tool_definition("read_url").expect("registered definition"),
         "create_file" => || super::legacy_tool_definition("create_file").expect("registered definition"),
@@ -259,6 +257,18 @@ fn definition_for_name(name: &'static str) -> fn() -> ToolDefinition {
         "write_patch" => || super::legacy_tool_definition("write_patch").expect("registered definition"),
         "run_shell" => || super::legacy_tool_definition("run_shell").expect("registered definition"),
         other => panic!("missing registry definition for {other}"),
+    }
+}
+
+fn execute_for_name(name: &'static str) -> fn(&ToolUseRequest, ToolContext<'_>) -> ToolExecution {
+    match name {
+        "find_files" => super::find_files::execute_request,
+        "list_searchable_files" => super::list_searchable_files::execute_request,
+        "search_text" => super::search_text::execute_request,
+        "read_file_range" => super::read_file_range::execute_request,
+        "sawk" => super::sawk::execute_request,
+        "web_search" | "read_url" | "create_file" | "replace_range" | "write_patch" | "run_shell" => execute_legacy,
+        other => panic!("missing registry executor for {other}"),
     }
 }
 

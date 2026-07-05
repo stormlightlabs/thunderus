@@ -1,6 +1,18 @@
 use std::path::Path;
+use std::path::PathBuf;
 
-use crate::{tools::ToolOutput, utils};
+use crate::tools::registry::{ToolContext, ToolError, ToolExecution};
+use crate::{tools::ToolDefinition, tools::ToolOutput, tools::ToolUseRequest, utils};
+
+const NAME: &str = "read_file_range";
+
+/// Parsed provider input for `read_file_range`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReadFileRangeInput {
+    path: String,
+    start_line: u32,
+    end_line: Option<u32>,
+}
 
 /// Read a range of lines from a file, implemented in Rust.
 ///
@@ -40,10 +52,63 @@ pub fn exec(path: &Path, root: &Path, start_line: u32, end_line: Option<u32>) ->
     ToolOutput::ok("read_file_range", lines)
 }
 
+/// Provider-visible definition for `read_file_range`.
+pub fn definition() -> ToolDefinition {
+    ToolDefinition {
+        name: NAME,
+        description: r#"read_file_range
+
+Read a 1-indexed line range from a file under the workspace root.
+
+Use this to inspect file contents after finding a path with find_files or search_text.
+Prefer targeted ranges over reading entire large files. Paths are contained to the root;
+escapes are rejected. Output is capped at 65536 bytes; long lines truncate at 512 chars."#,
+        input_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string", "description": "Path relative to the workspace root." },
+                "start_line": { "type": "integer" },
+                "end_line": { "type": "integer" }
+            },
+            "required": ["path", "start_line"]
+        }),
+    }
+}
+
+/// Parse provider JSON arguments for `read_file_range`.
+pub fn parse_arguments(arguments: &str) -> Result<ReadFileRangeInput, ToolError> {
+    let args = serde_json::from_str::<serde_json::Value>(arguments).unwrap_or(serde_json::Value::Null);
+    Ok(ReadFileRangeInput {
+        path: args
+            .get("path")
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
+            .to_string(),
+        start_line: args.get("start_line").and_then(|value| value.as_u64()).unwrap_or(1) as u32,
+        end_line: args
+            .get("end_line")
+            .and_then(|value| value.as_u64())
+            .map(|line| line as u32),
+    })
+}
+
+/// Execute a registry request for `read_file_range`.
+pub fn execute_request(request: &ToolUseRequest, ctx: ToolContext<'_>) -> ToolExecution {
+    match parse_arguments(&request.arguments) {
+        Ok(input) => ToolExecution::output(exec_input(&input, ctx.root)),
+        Err(error) => ToolExecution::output(ToolOutput::failed(NAME, error.to_string())),
+    }
+}
+
+fn exec_input(input: &ReadFileRangeInput, root: &Path) -> ToolOutput {
+    let path = super::path::resolve_within_root(root, &input.path).unwrap_or_else(|_| PathBuf::from(&input.path));
+    exec(&path, root, input.start_line, input.end_line)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::ToolStatus;
+    use crate::{app::ToolStatus, tools};
 
     #[test]
     fn read_file_range_reads_specific_lines() {
@@ -75,5 +140,37 @@ mod tests {
         let path = root.join("nonexistent_file_zzz.rs");
         let output = exec(&path, &root, 1, Some(10));
         assert_eq!(output.status, ToolStatus::Failed);
+    }
+
+    #[test]
+    fn parse_arguments_reads_required_and_optional_fields() {
+        let input = parse_arguments(r#"{"path":"Cargo.toml","start_line":2,"end_line":4}"#).expect("parse");
+        assert_eq!(input.path, "Cargo.toml");
+        assert_eq!(input.start_line, 2);
+        assert_eq!(input.end_line, Some(4));
+    }
+
+    #[test]
+    fn parse_arguments_malformed_json_uses_safe_defaults() {
+        let input = parse_arguments("not valid json").expect("parse");
+        assert_eq!(input.path, "");
+        assert_eq!(input.start_line, 1);
+        assert_eq!(input.end_line, None);
+    }
+
+    #[test]
+    fn registry_execute_reads_range() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        std::fs::write(dir.path().join("alpha.txt"), "a\nb\nc\n").expect("write");
+        let request = ToolUseRequest::new(
+            NAME.to_string(),
+            serde_json::json!({"path":"alpha.txt","start_line":2,"end_line":3}).to_string(),
+            "call_1".to_string(),
+        );
+
+        let output = tools::registry::execute(&request, tools::registry::ToolContext::new(dir.path())).output;
+
+        assert_eq!(output.status, ToolStatus::Ok);
+        assert_eq!(output.output, vec!["2: b", "3: c"]);
     }
 }

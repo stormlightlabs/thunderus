@@ -12,10 +12,62 @@ use std::path::Path;
 use regex_lite::Regex;
 use serde_json::Value;
 
-use super::{MAX_RESULTS, ToolOutput, path};
+use super::{MAX_RESULTS, ToolDefinition, ToolOutput, ToolUseRequest, path};
+use crate::tools::registry::{ToolContext, ToolError, ToolExecution};
 use crate::utils;
 
 const DEFAULT_RANGE_LINES: u32 = 40;
+const NAME: &str = "sawk";
+
+/// Parsed provider input for `sawk`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SawkInput {
+    action: String,
+    path: String,
+    start_line: Option<u64>,
+    end_line: Option<u64>,
+    max_lines: Option<u64>,
+    pattern: Option<String>,
+    replacement: Option<String>,
+    global: bool,
+    fields: Vec<u64>,
+    delimiter: Option<String>,
+}
+
+impl SawkInput {
+    fn from_value(args: &Value) -> Result<Self, ToolError> {
+        Ok(Self {
+            action: args
+                .get("action")
+                .and_then(|value| value.as_str())
+                .unwrap_or("")
+                .to_string(),
+            path: args
+                .get("path")
+                .and_then(|value| value.as_str())
+                .unwrap_or("")
+                .to_string(),
+            start_line: args.get("start_line").and_then(|value| value.as_u64()),
+            end_line: args.get("end_line").and_then(|value| value.as_u64()),
+            max_lines: args.get("max_lines").and_then(|value| value.as_u64()),
+            pattern: args.get("pattern").and_then(|value| value.as_str()).map(str::to_string),
+            replacement: args
+                .get("replacement")
+                .and_then(|value| value.as_str())
+                .map(str::to_string),
+            global: args.get("global").and_then(|value| value.as_bool()).unwrap_or(false),
+            fields: args
+                .get("fields")
+                .and_then(|value| value.as_array())
+                .map(|items| items.iter().filter_map(|value| value.as_u64()).collect())
+                .unwrap_or_default(),
+            delimiter: args
+                .get("delimiter")
+                .and_then(|value| value.as_str())
+                .map(str::to_string),
+        })
+    }
+}
 
 /// Execute a safe sed/awk-style action from provider JSON arguments.
 ///
@@ -23,10 +75,60 @@ const DEFAULT_RANGE_LINES: u32 = 40;
 /// - `sed_print`: print a 1-indexed line range.
 /// - `sed_substitute_preview`: show changed lines from a regex replacement preview.
 /// - `awk_fields`: extract 1-indexed fields from optionally filtered lines.
+#[allow(dead_code)]
 pub fn exec(args: &Value, root: &Path) -> ToolOutput {
-    let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("");
-    let path_str = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
-    let resolved = match path::resolve_within_root(root, path_str) {
+    match SawkInput::from_value(args) {
+        Ok(input) => exec_input(&input, root),
+        Err(error) => ToolOutput::failed(NAME, error.to_string()),
+    }
+}
+
+/// Provider-visible definition for `sawk`.
+pub fn definition() -> ToolDefinition {
+    ToolDefinition {
+        name: NAME,
+        description: r#"sawk
+
+Run safe read-only sed/awk-style inspection actions.
+
+Use this for line printing, substitution previews, or field extraction when it is clearer
+than raw shell. Actions are typed: sed_print, sed_substitute_preview, awk_fields.
+Paths are contained; output is capped/truncated; no sed -i or awk system()."#,
+        input_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "action": { "type": "string", "enum": ["sed_print", "sed_substitute_preview", "awk_fields"] },
+                "path": { "type": "string", "description": "Path relative to the workspace root." },
+                "start_line": { "type": "integer" },
+                "end_line": { "type": "integer" },
+                "max_lines": { "type": "integer" },
+                "pattern": { "type": "string", "description": "Regex pattern for preview/filter actions." },
+                "replacement": { "type": "string", "description": "Replacement text for sed_substitute_preview." },
+                "global": { "type": "boolean", "description": "Replace all matches per line in previews." },
+                "fields": { "type": "array", "items": { "type": "integer" }, "description": "1-indexed fields for awk_fields." },
+                "delimiter": { "type": "string", "description": "Optional literal field delimiter; defaults to whitespace." }
+            },
+            "required": ["action", "path"]
+        }),
+    }
+}
+
+/// Parse provider JSON arguments for `sawk`.
+pub fn parse_arguments(arguments: &str) -> Result<SawkInput, ToolError> {
+    let args = serde_json::from_str::<serde_json::Value>(arguments).unwrap_or(serde_json::Value::Null);
+    SawkInput::from_value(&args)
+}
+
+/// Execute a registry request for `sawk`.
+pub fn execute_request(request: &ToolUseRequest, ctx: ToolContext<'_>) -> ToolExecution {
+    match parse_arguments(&request.arguments) {
+        Ok(input) => ToolExecution::output(exec_input(&input, ctx.root)),
+        Err(error) => ToolExecution::output(ToolOutput::failed(NAME, error.to_string())),
+    }
+}
+
+fn exec_input(input: &SawkInput, root: &Path) -> ToolOutput {
+    let resolved = match path::resolve_within_root(root, &input.path) {
         Ok(path) => path,
         Err(e) => return ToolOutput::failed("sawk", e.to_string()),
     };
@@ -35,10 +137,10 @@ pub fn exec(args: &Value, root: &Path) -> ToolOutput {
         Err(e) => return ToolOutput::failed("sawk", format!("read failed: {e}")),
     };
 
-    match action {
-        "sed_print" => sed_print(&content, args),
-        "sed_substitute_preview" => sed_substitute_preview(&content, args),
-        "awk_fields" => awk_fields(&content, args),
+    match input.action.as_str() {
+        "sed_print" => sed_print(&content, input),
+        "sed_substitute_preview" => sed_substitute_preview(&content, input),
+        "awk_fields" => awk_fields(&content, input),
         _ => ToolOutput::failed(
             "sawk",
             "missing or invalid action (expected sed_print, sed_substitute_preview, or awk_fields)".to_string(),
@@ -47,14 +149,13 @@ pub fn exec(args: &Value, root: &Path) -> ToolOutput {
 }
 
 /// Print a bounded 1-indexed line range, mirroring `sed -n 'N,Mp'`.
-fn sed_print(content: &str, args: &Value) -> ToolOutput {
-    let start = args.get("start_line").and_then(|v| v.as_u64()).unwrap_or(1).max(1) as usize;
-    let end = args
-        .get("end_line")
-        .and_then(|v| v.as_u64())
+fn sed_print(content: &str, input: &SawkInput) -> ToolOutput {
+    let start = input.start_line.unwrap_or(1).max(1) as usize;
+    let end = input
+        .end_line
         .map(|n| n.max(start as u64) as usize)
         .unwrap_or(start + DEFAULT_RANGE_LINES as usize - 1);
-    let max_lines = max_lines(args);
+    let max_lines = max_lines(input);
 
     let lines = content
         .lines()
@@ -75,18 +176,17 @@ fn sed_print(content: &str, args: &Value) -> ToolOutput {
 ///
 /// Output alternates `-line: old` and `+line: new` for changed lines only. This
 /// intentionally omits an in-place equivalent of `sed -i`.
-fn sed_substitute_preview(content: &str, args: &Value) -> ToolOutput {
-    let pattern = args.get("pattern").and_then(|v| v.as_str()).unwrap_or("");
+fn sed_substitute_preview(content: &str, input: &SawkInput) -> ToolOutput {
+    let pattern = input.pattern.as_deref().unwrap_or("");
     if pattern.is_empty() {
         return ToolOutput::failed("sawk", "sed_substitute_preview requires pattern".to_string());
     }
-    let replacement = args.get("replacement").and_then(|v| v.as_str()).unwrap_or("");
-    let global = args.get("global").and_then(|v| v.as_bool()).unwrap_or(false);
+    let replacement = input.replacement.as_deref().unwrap_or("");
     let regex = match Regex::new(pattern) {
         Ok(regex) => regex,
         Err(e) => return ToolOutput::failed("sawk", format!("invalid regex: {e}")),
     };
-    let (start, end) = range(args);
+    let (start, end) = range(input);
     let mut out = Vec::new();
 
     for (i, line) in content.lines().enumerate() {
@@ -94,7 +194,7 @@ fn sed_substitute_preview(content: &str, args: &Value) -> ToolOutput {
         if line_no < start || line_no > end {
             continue;
         }
-        let replaced = if global {
+        let replaced = if input.global {
             regex.replace_all(line, replacement).to_string()
         } else {
             regex.replace(line, replacement).to_string()
@@ -102,7 +202,7 @@ fn sed_substitute_preview(content: &str, args: &Value) -> ToolOutput {
         if replaced != line {
             out.push(format!("-{}: {}", line_no, utils::truncate_line(line)));
             out.push(format!("+{}: {}", line_no, utils::truncate_line(&replaced)));
-            if out.len() / 2 >= max_lines(args) {
+            if out.len() / 2 >= max_lines(input) {
                 break;
             }
         }
@@ -115,32 +215,26 @@ fn sed_substitute_preview(content: &str, args: &Value) -> ToolOutput {
 }
 
 /// Extract selected 1-indexed fields from matching lines, mirroring common `awk` usage.
-fn awk_fields(content: &str, args: &Value) -> ToolOutput {
-    let fields = args
-        .get("fields")
-        .and_then(|v| v.as_array())
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|v| v.as_u64())
-                .filter(|n| *n > 0)
-                .map(|n| n as usize)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+fn awk_fields(content: &str, input: &SawkInput) -> ToolOutput {
+    let fields = input
+        .fields
+        .iter()
+        .filter(|field| **field > 0)
+        .map(|field| *field as usize)
+        .collect::<Vec<_>>();
     if fields.is_empty() {
         return ToolOutput::failed("sawk", "awk_fields requires a non-empty fields array".to_string());
     }
 
-    let filter = match args.get("pattern").and_then(|v| v.as_str()) {
+    let filter = match input.pattern.as_deref() {
         Some(pattern) if !pattern.is_empty() => match Regex::new(pattern) {
             Ok(regex) => Some(regex),
             Err(e) => return ToolOutput::failed("sawk", format!("invalid regex: {e}")),
         },
         _ => None,
     };
-    let delimiter = args.get("delimiter").and_then(|v| v.as_str());
-    let (start, end) = range(args);
+    let delimiter = input.delimiter.as_deref();
+    let (start, end) = range(input);
     let mut out = Vec::new();
 
     for (i, line) in content.lines().enumerate() {
@@ -158,7 +252,7 @@ fn awk_fields(content: &str, args: &Value) -> ToolOutput {
             .collect::<Vec<_>>()
             .join("\t");
         out.push(format!("{}: {}", line_no, utils::truncate_line(&selected)));
-        if out.len() >= max_lines(args) {
+        if out.len() >= max_lines(input) {
             break;
         }
     }
@@ -176,19 +270,18 @@ fn split_fields<'a>(line: &'a str, delimiter: Option<&str>) -> Vec<&'a str> {
     }
 }
 
-fn range(args: &Value) -> (usize, usize) {
-    let start = args.get("start_line").and_then(|v| v.as_u64()).unwrap_or(1).max(1) as usize;
-    let end = args
-        .get("end_line")
-        .and_then(|v| v.as_u64())
+fn range(input: &SawkInput) -> (usize, usize) {
+    let start = input.start_line.unwrap_or(1).max(1) as usize;
+    let end = input
+        .end_line
         .map(|n| n.max(start as u64) as usize)
         .unwrap_or(usize::MAX);
     (start, end)
 }
 
-fn max_lines(args: &Value) -> usize {
-    args.get("max_lines")
-        .and_then(|v| v.as_u64())
+fn max_lines(input: &SawkInput) -> usize {
+    input
+        .max_lines
         .map(|n| (n as usize).clamp(1, MAX_RESULTS))
         .unwrap_or(MAX_RESULTS)
 }
@@ -196,7 +289,7 @@ fn max_lines(args: &Value) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::ToolStatus;
+    use crate::{app::ToolStatus, tools};
 
     #[test]
     fn sed_print_reads_range() {
@@ -257,5 +350,55 @@ mod tests {
                 .as_ref()
                 .is_some_and(|e| e.contains("escapes workspace root"))
         );
+    }
+
+    #[test]
+    fn parse_arguments_reads_common_and_action_fields() {
+        let input = parse_arguments(
+            r#"{"action":"awk_fields","path":"file.txt","start_line":2,"end_line":5,"max_lines":3,"pattern":"red","replacement":"blue","global":true,"fields":[1,3],"delimiter":","}"#,
+        )
+        .expect("parse");
+
+        assert_eq!(input.action, "awk_fields");
+        assert_eq!(input.path, "file.txt");
+        assert_eq!(input.start_line, Some(2));
+        assert_eq!(input.end_line, Some(5));
+        assert_eq!(input.max_lines, Some(3));
+        assert_eq!(input.pattern.as_deref(), Some("red"));
+        assert_eq!(input.replacement.as_deref(), Some("blue"));
+        assert!(input.global);
+        assert_eq!(input.fields, vec![1, 3]);
+        assert_eq!(input.delimiter.as_deref(), Some(","));
+    }
+
+    #[test]
+    fn parse_arguments_malformed_json_uses_safe_defaults() {
+        let input = parse_arguments("not valid json").expect("parse");
+        assert_eq!(input.action, "");
+        assert_eq!(input.path, "");
+        assert_eq!(input.start_line, None);
+        assert_eq!(input.end_line, None);
+        assert_eq!(input.max_lines, None);
+        assert_eq!(input.pattern, None);
+        assert_eq!(input.replacement, None);
+        assert!(!input.global);
+        assert!(input.fields.is_empty());
+        assert_eq!(input.delimiter, None);
+    }
+
+    #[test]
+    fn registry_execute_prints_range() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        std::fs::write(dir.path().join("file.txt"), "a\nb\nc\n").expect("write");
+        let request = ToolUseRequest::new(
+            NAME.to_string(),
+            serde_json::json!({"action":"sed_print","path":"file.txt","start_line":2,"end_line":3}).to_string(),
+            "call_1".to_string(),
+        );
+
+        let output = tools::registry::execute(&request, tools::registry::ToolContext::new(dir.path())).output;
+
+        assert_eq!(output.status, ToolStatus::Ok);
+        assert_eq!(output.output, vec!["2: b", "3: c"]);
     }
 }

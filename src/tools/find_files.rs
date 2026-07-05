@@ -3,9 +3,23 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
-use super::ToolOutput;
+use super::{MAX_RESULTS, ToolDefinition, ToolOutput, ToolUseRequest};
 use crate::tools::TIMEOUT_SECS;
+use crate::tools::registry::{ToolContext, ToolError, ToolExecution};
 use crate::tools::subproc::CommandResult;
+
+const NAME: &str = "find_files";
+
+/// Parsed provider input for `find_files`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FindFilesInput {
+    pattern: String,
+    glob: Option<String>,
+    extensions: Vec<String>,
+    max_depth: Option<u32>,
+    include_hidden: bool,
+    follow_symlinks: bool,
+}
 
 /// Parameters for `find_files` execution.
 ///
@@ -120,10 +134,96 @@ impl FdFind<'_> {
     }
 }
 
+/// Provider-visible definition for `find_files`.
+pub fn definition() -> ToolDefinition {
+    ToolDefinition {
+        name: NAME,
+        description: r#"find_files
+
+Locate files by name or glob under the workspace root.
+
+Use this when you know (or can guess) a file name and need its path. Prefer this over
+listing all files. Paths are contained to the root; hidden files and symlinks are off
+unless requested. Capped at 100 results; long lines truncate at 512 chars."#,
+        input_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "pattern": { "type": "string", "description": "File name or glob pattern to search for." },
+                "glob": { "type": "string", "description": "Optional additional glob filter." },
+                "extensions": { "type": "array", "items": { "type": "string" } },
+                "max_depth": { "type": "integer" },
+                "include_hidden": { "type": "boolean" },
+                "follow_symlinks": { "type": "boolean" }
+            },
+            "required": ["pattern"]
+        }),
+    }
+}
+
+/// Parse provider JSON arguments for `find_files`.
+pub fn parse_arguments(arguments: &str) -> Result<FindFilesInput, ToolError> {
+    let args = serde_json::from_str::<serde_json::Value>(arguments).unwrap_or(serde_json::Value::Null);
+    Ok(FindFilesInput {
+        pattern: args
+            .get("pattern")
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
+            .to_string(),
+        glob: args.get("glob").and_then(|value| value.as_str()).map(str::to_string),
+        extensions: args
+            .get("extensions")
+            .and_then(|value| value.as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|value| value.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        max_depth: args
+            .get("max_depth")
+            .and_then(|value| value.as_u64())
+            .map(|depth| depth as u32),
+        include_hidden: args
+            .get("include_hidden")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false),
+        follow_symlinks: args
+            .get("follow_symlinks")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false),
+    })
+}
+
+/// Execute a registry request for `find_files`.
+pub fn execute_request(request: &ToolUseRequest, ctx: ToolContext<'_>) -> ToolExecution {
+    match parse_arguments(&request.arguments) {
+        Ok(input) => ToolExecution::output(exec_input(&input, ctx.root)),
+        Err(error) => ToolExecution::output(ToolOutput::failed(NAME, error.to_string())),
+    }
+}
+
+fn exec_input(input: &FindFilesInput, root: &Path) -> ToolOutput {
+    FindFiles {
+        pattern: &input.pattern,
+        root,
+        glob: input.glob.as_deref(),
+        extensions: &input.extensions,
+        max_depth: input.max_depth,
+        max_results: MAX_RESULTS,
+        include_hidden: input.include_hidden,
+        follow_symlinks: input.follow_symlinks,
+    }
+    .run()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{app::ToolStatus, tools::MAX_RESULTS};
+    use crate::{
+        app::ToolStatus,
+        tools::{self, MAX_RESULTS},
+    };
 
     #[test]
     fn find_files_finds_cli_rs() {
@@ -157,5 +257,45 @@ mod tests {
         .run();
         assert_eq!(output.status, ToolStatus::Ok);
         assert!(output.output.is_empty());
+    }
+
+    #[test]
+    fn parse_arguments_reads_all_fields() {
+        let input = parse_arguments(
+            r#"{"pattern":"cli","glob":"*.rs","extensions":["rs"],"max_depth":2,"include_hidden":true,"follow_symlinks":true}"#,
+        )
+        .expect("parse");
+
+        assert_eq!(input.pattern, "cli");
+        assert_eq!(input.glob.as_deref(), Some("*.rs"));
+        assert_eq!(input.extensions, vec!["rs"]);
+        assert_eq!(input.max_depth, Some(2));
+        assert!(input.include_hidden);
+        assert!(input.follow_symlinks);
+    }
+
+    #[test]
+    fn parse_arguments_malformed_json_uses_safe_defaults() {
+        let input = parse_arguments("not valid json").expect("parse");
+        assert_eq!(input.pattern, "");
+        assert_eq!(input.glob, None);
+        assert!(input.extensions.is_empty());
+        assert_eq!(input.max_depth, None);
+        assert!(!input.include_hidden);
+        assert!(!input.follow_symlinks);
+    }
+
+    #[test]
+    fn registry_execute_finds_file() {
+        let request = ToolUseRequest::new(
+            NAME.to_string(),
+            serde_json::json!({"pattern":"Cargo.toml"}).to_string(),
+            "call_1".to_string(),
+        );
+
+        let output = tools::registry::execute(&request, tools::registry::ToolContext::new(Path::new("."))).output;
+
+        assert_eq!(output.status, ToolStatus::Ok);
+        assert!(output.output.iter().any(|path| path.contains("Cargo.toml")));
     }
 }
