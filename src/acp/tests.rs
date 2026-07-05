@@ -1,12 +1,17 @@
 use super::config::parse_model_id;
 use super::events::map_session_update;
-use super::runner::{RunHandle, close_session, list_sessions, load_session, resume_session, spawn_run};
+use super::runner::{
+    RunHandle, close_session, list_sessions, load_session, new_session_request, resume_session, spawn_run,
+};
 use crate::app::{AgentEvent, ToolStatus};
 use crate::config::AcpAgentConfig;
+use crate::mcp::config::{McpConfig, McpServerConfig, McpTransport};
 use agent_client_protocol::schema::v1::{
-    Content, ContentBlock, ContentChunk, Plan, PlanEntry, PlanEntryPriority, PlanEntryStatus, SessionUpdate,
-    TextContent, ToolCall, ToolCallContent, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, UsageUpdate,
+    AgentCapabilities, Content, ContentBlock, ContentChunk, McpServer, Plan, PlanEntry, PlanEntryPriority,
+    PlanEntryStatus, SessionUpdate, TextContent, ToolCall, ToolCallContent, ToolCallStatus, ToolCallUpdate,
+    ToolCallUpdateFields, UsageUpdate,
 };
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::Duration;
@@ -426,6 +431,101 @@ fn acp_runner_handles_fixture_terminal_lifecycle() {
             .iter()
             .any(|event| matches!(event, AgentEvent::AssistantDelta(text) if text.contains("terminal: terminal ok")))
     );
+    assert_eq!(events.last(), Some(&AgentEvent::Finished));
+}
+
+#[test]
+fn acp_session_new_has_no_mcp_servers_without_mcp_config() {
+    let (request, diagnostics) = new_session_request(PathBuf::from("/repo"), None, &AgentCapabilities::default());
+
+    assert!(request.mcp_servers.is_empty());
+    assert!(diagnostics.is_empty());
+}
+
+#[test]
+fn acp_session_new_maps_enabled_stdio_mcp_config() {
+    let mut config = McpConfig::default();
+    let mut env = BTreeMap::new();
+    env.insert("TOKEN".to_string(), "secret".to_string());
+    config.servers.insert(
+        "docs".to_string(),
+        McpServerConfig {
+            command: "docs-mcp".to_string(),
+            args: vec!["--mode".to_string(), "stdio".to_string()],
+            env,
+            ..McpServerConfig::default()
+        },
+    );
+
+    let (request, diagnostics) =
+        new_session_request(PathBuf::from("/repo"), Some(&config), &AgentCapabilities::default());
+
+    assert_eq!(diagnostics, vec!["acp: passing 1 MCP server through session/new"]);
+    let [McpServer::Stdio(server)] = request.mcp_servers.as_slice() else {
+        panic!("expected one stdio MCP server");
+    };
+    assert_eq!(server.name, "docs");
+    assert_eq!(server.command, PathBuf::from("docs-mcp"));
+    assert_eq!(server.args, vec!["--mode", "stdio"]);
+    assert_eq!(server.env[0].name, "TOKEN");
+    assert_eq!(server.env[0].value, "secret");
+}
+
+#[test]
+fn acp_session_new_skips_unsupported_mcp_without_leaking_secrets() {
+    let mut config = McpConfig::default();
+    let mut headers = BTreeMap::new();
+    headers.insert("Authorization".to_string(), "Bearer secret-token".to_string());
+    config.servers.insert(
+        "web".to_string(),
+        McpServerConfig {
+            transport: McpTransport::StreamableHttp,
+            url: Some("https://mcp.example.test".to_string()),
+            headers,
+            ..McpServerConfig::default()
+        },
+    );
+
+    let (request, diagnostics) =
+        new_session_request(PathBuf::from("/repo"), Some(&config), &AgentCapabilities::default());
+
+    assert!(request.mcp_servers.is_empty());
+    assert_eq!(
+        diagnostics,
+        vec!["acp: MCP server `web` not passed because its transport is unsupported by the ACP agent"]
+    );
+    assert!(!diagnostics.join("\n").contains("secret-token"));
+}
+
+#[test]
+fn acp_runner_passes_stdio_mcp_servers_to_session_new() {
+    let temp = tempfile::tempdir().expect("create temp dir");
+    let mut config = McpConfig::default();
+    config.servers.insert(
+        "docs".to_string(),
+        McpServerConfig {
+            command: "docs-mcp".to_string(),
+            args: vec!["--workspace".to_string(), temp.path().display().to_string()],
+            ..McpServerConfig::default()
+        },
+    );
+
+    let events = collect(
+        RunHandle::new(
+            temp.path().to_path_buf(),
+            "fake".to_string(),
+            Some(fake_agent_config("mcp-servers", None)),
+            "mcp".to_string(),
+        )
+        .with_mcp_config(config),
+    );
+
+    assert!(events.iter().any(|event| {
+        matches!(event, AgentEvent::Status(text) if text == "acp: passing 1 MCP server through session/new")
+    }));
+    assert!(events.iter().any(|event| {
+        matches!(event, AgentEvent::AssistantDelta(text) if text.contains("\"name\":\"docs\"") && text.contains("\"command\":\"docs-mcp\""))
+    }));
     assert_eq!(events.last(), Some(&AgentEvent::Finished));
 }
 

@@ -347,17 +347,26 @@ and security review are designed separately.
 - [x] Wait for local MCP support from `007_mcp`.
 - [x] Decide whether ACP sessions receive user MCP servers, project MCP
       servers, or both.
-- [ ] Map the effective user-plus-project MCP config into stable ACP
+- [x] Map the effective user-plus-project MCP config into stable ACP
       `mcpServers` entries.
-- [ ] Pass MCP server config through `session/new` when supported.
-- [ ] Support thndrs-provided MCP self-proxy only after a separate design.
-- [ ] Add tests for no MCP support, stdio MCP config, and redacted diagnostics.
+- [x] Pass MCP server config through `session/new` when supported.
+- [x] Support thndrs-provided MCP self-proxy only after a separate design.
+- [x] Add tests for no MCP support, stdio MCP config, and redacted diagnostics.
 
 Decision: after `007_mcp`, ACP sessions receive the effective MCP config from
 both user and project scopes, using the same merge, enable/disable, redaction,
 and provenance rules as local `thndrs` MCP. Initially pass only MCP server
 entries that fit the stable ACP `mcpServers` shape; a thndrs-provided MCP
 self-proxy remains a separate design.
+
+Result: ACP runs now load the effective user-plus-project MCP config without
+starting local MCP clients, map enabled stdio servers into stable ACP
+`mcpServers`, map Streamable HTTP only when the ACP agent advertises HTTP MCP
+support, and pass the mapped entries through `session/new`. Disabled and
+unsupported MCP servers produce name-only diagnostics, and existing MCP loader
+diagnostics are forwarded with their existing redaction behavior. The
+thndrs-provided MCP self-proxy remains intentionally unimplemented pending a
+separate trust-boundary design.
 
 ## M18: Remote And Custom Transports
 

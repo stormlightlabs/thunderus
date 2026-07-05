@@ -17,6 +17,7 @@ use crate::acp::{config, events, fs, permissions, terminal};
 use crate::agent::CancelToken;
 use crate::app::{AgentEvent, ToolStatus};
 use crate::config::AcpAgentConfig;
+use crate::mcp::config::{McpConfig, McpServerConfig, McpTransport};
 use crate::session::AcpSessionMetadata;
 
 const CANCEL_POLL_INTERVAL: Duration = Duration::from_millis(50);
@@ -33,6 +34,8 @@ pub struct RunHandle {
     pub root: PathBuf,
     pub name: String,
     pub agent: Option<AcpAgentConfig>,
+    pub mcp_config: Option<McpConfig>,
+    pub mcp_diagnostics: Vec<String>,
     pub prompt: String,
     pub cancel: CancelToken,
 }
@@ -40,7 +43,19 @@ pub struct RunHandle {
 impl RunHandle {
     /// Build an ACP run handle for `acp:<name>`.
     pub fn new(root: PathBuf, name: String, agent: Option<AcpAgentConfig>, prompt: String) -> Self {
-        Self { root, name, agent, prompt, cancel: CancelToken::new() }
+        Self { root, name, agent, mcp_config: None, mcp_diagnostics: Vec::new(), prompt, cancel: CancelToken::new() }
+    }
+
+    /// Attach effective MCP config that should be offered to the ACP agent.
+    pub fn with_mcp_config(mut self, mcp_config: McpConfig) -> Self {
+        self.mcp_config = Some(mcp_config);
+        self
+    }
+
+    /// Attach redacted MCP config loader diagnostics.
+    pub fn with_mcp_diagnostics(mut self, diagnostics: Vec<String>) -> Self {
+        self.mcp_diagnostics = diagnostics;
+        self
     }
 }
 
@@ -63,6 +78,8 @@ struct SessionRunContext<'a> {
     name: &'a str,
     command: &'a str,
     root: &'a Path,
+    mcp_config: Option<&'a McpConfig>,
+    mcp_diagnostics: &'a [String],
     prompt: &'a str,
     cancel: &'a CancelToken,
     timeout_secs: u64,
@@ -577,6 +594,8 @@ async fn run_async(handle: RunHandle, agent_config: AcpAgentConfig, tx: Sender<A
                 name: &name,
                 command: &command,
                 root: &root,
+                mcp_config: handle.mcp_config.as_ref(),
+                mcp_diagnostics: &handle.mcp_diagnostics,
                 prompt: &prompt,
                 cancel: &cancel,
                 timeout_secs,
@@ -666,7 +685,8 @@ async fn initialize_for_admin(
 async fn run_session(
     connection: ConnectionTo<Agent>, context: SessionRunContext<'_>,
 ) -> Result<(), agent_client_protocol::Error> {
-    let SessionRunContext { name, command, root, prompt, cancel, timeout_secs, tx } = context;
+    let SessionRunContext { name, command, root, mcp_config, mcp_diagnostics, prompt, cancel, timeout_secs, tx } =
+        context;
     if cancel.is_cancelled() {
         let _ = tx.send(AgentEvent::Cancelled);
         return Ok(());
@@ -708,9 +728,18 @@ async fn run_session(
         let _ = tx.send(AgentEvent::Status(format!("acp: connected to `{name}`")));
     }
 
+    for diagnostic in mcp_diagnostics {
+        let _ = tx.send(AgentEvent::Status(format!("acp: {diagnostic}")));
+    }
+    let (new_session_request, mcp_diagnostics) =
+        new_session_request(root.to_path_buf(), mcp_config, &initialize.agent_capabilities);
+    for diagnostic in mcp_diagnostics {
+        let _ = tx.send(AgentEvent::Status(diagnostic));
+    }
+
     let session = match request_with_timeout(
         &connection,
-        NewSessionRequest::new(root.to_path_buf()),
+        new_session_request,
         timeout,
         name,
         "session creation",
@@ -764,6 +793,68 @@ async fn run_session(
     };
     send_stop_reason(tx, response.stop_reason);
     Ok(())
+}
+
+pub(super) fn new_session_request(
+    root: PathBuf, mcp_config: Option<&McpConfig>, agent_capabilities: &AgentCapabilities,
+) -> (NewSessionRequest, Vec<String>) {
+    let Some(config) = mcp_config else {
+        return (NewSessionRequest::new(root), Vec::new());
+    };
+
+    let mut servers = Vec::new();
+    let mut diagnostics = Vec::new();
+    for (name, server) in &config.servers {
+        if !server.enabled {
+            diagnostics.push(format!("acp: MCP server `{name}` not passed because it is disabled"));
+            continue;
+        }
+        match acp_mcp_server(name, server, agent_capabilities) {
+            Some(server) => servers.push(server),
+            None => diagnostics.push(format!(
+                "acp: MCP server `{name}` not passed because its transport is unsupported by the ACP agent"
+            )),
+        }
+    }
+
+    if !servers.is_empty() {
+        diagnostics.push(format!(
+            "acp: passing {} MCP server{} through session/new",
+            servers.len(),
+            if servers.len() == 1 { "" } else { "s" }
+        ));
+    }
+
+    (NewSessionRequest::new(root).mcp_servers(servers), diagnostics)
+}
+
+fn acp_mcp_server(name: &str, server: &McpServerConfig, agent_capabilities: &AgentCapabilities) -> Option<McpServer> {
+    match server.transport {
+        McpTransport::Stdio => Some(McpServer::Stdio(
+            McpServerStdio::new(name.to_string(), PathBuf::from(&server.command))
+                .args(server.args.clone())
+                .env(
+                    server
+                        .env
+                        .iter()
+                        .map(|(name, value)| EnvVariable::new(name.clone(), value.clone()))
+                        .collect(),
+                ),
+        )),
+        McpTransport::StreamableHttp if agent_capabilities.mcp_capabilities.http => {
+            let url = server.url.as_ref()?;
+            Some(McpServer::Http(
+                McpServerHttp::new(name.to_string(), url.clone()).headers(
+                    server
+                        .headers
+                        .iter()
+                        .map(|(name, value)| HttpHeader::new(name.clone(), value.clone()))
+                        .collect(),
+                ),
+            ))
+        }
+        McpTransport::StreamableHttp => None,
+    }
 }
 
 enum TimedRequestError {

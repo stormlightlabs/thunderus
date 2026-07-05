@@ -366,7 +366,17 @@ fn run_acp_smoke<W: io::Write>(cli: &Cli, name: &str, prompt: &str, writer: &mut
     }
 
     let workspace_root = context::discover_workspace_root(&cli.cwd);
-    let handle = acp::runner::RunHandle::new(workspace_root, name.to_string(), Some(agent), prompt.to_string());
+    let mut handle = acp::runner::RunHandle::new(
+        workspace_root.clone(),
+        name.to_string(),
+        Some(agent),
+        prompt.to_string(),
+    );
+    if let Ok(effective_mcp) = load_effective_mcp_for_workspace(&workspace_root) {
+        handle = handle
+            .with_mcp_config(effective_mcp.config)
+            .with_mcp_diagnostics(effective_mcp.diagnostics);
+    }
     let rx = acp::spawn_run(handle);
     for event in rx {
         match write_acp_event(writer, event)? {
@@ -946,11 +956,7 @@ fn maybe_spawn_agent(app: &App, cli: &Cli, agent: &mut Option<AgentSlot>) {
         .unwrap_or_default();
     let workspace_root = context::discover_workspace_root(&cli.cwd);
     let resolved_websearch = cli.websearch.resolve_for_prompt(&prompt);
-    let mcp_manager = load_mcp_manager_for_workspace(&workspace_root).ok();
     let mut config = AgentRunConfig::new(workspace_root, cli.model.clone(), resolved_websearch);
-    if let Some(manager) = mcp_manager.clone() {
-        config = config.with_mcp_manager(manager);
-    }
     if let Some(acp_name) = acp::config::parse_model_id(&cli.model) {
         tracing::info!(
             cwd = %config.root.display(),
@@ -959,16 +965,25 @@ fn maybe_spawn_agent(app: &App, cli: &Cli, agent: &mut Option<AgentSlot>) {
             "spawning ACP agent run"
         );
         let (steering_tx, _steering_rx) = mpsc::channel();
-        let handle = acp::runner::RunHandle::new(
+        let mut handle = acp::runner::RunHandle::new(
             config.root,
             acp_name.to_string(),
             cli.acp_agents.get(acp_name).cloned(),
             prompt,
         );
+        if let Ok(effective_mcp) = load_effective_mcp_for_workspace(&handle.root) {
+            handle = handle
+                .with_mcp_config(effective_mcp.config)
+                .with_mcp_diagnostics(effective_mcp.diagnostics);
+        }
         let cancel = handle.cancel.clone();
         let receiver = acp::spawn_run(handle);
         *agent = Some(AgentSlot { receiver, cancel, steering: steering_tx });
         return;
+    }
+    let mcp_manager = load_mcp_manager_for_workspace(&config.root).ok();
+    if let Some(manager) = mcp_manager.clone() {
+        config = config.with_mcp_manager(manager);
     }
     tracing::info!(
         cwd = %config.root.display(),

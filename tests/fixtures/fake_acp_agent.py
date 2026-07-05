@@ -7,6 +7,7 @@ import time
 
 SESSION_ID = "fake-session-1"
 AUTHENTICATED = False
+MCP_SERVERS = []
 
 
 def send(message):
@@ -101,12 +102,14 @@ def initialize(request_id, script):
 
 
 def session_new(request_id, message):
+    global MCP_SERVERS
     if script_requires_auth(sys.argv[1] if len(sys.argv) > 1 else "lifecycle"):
         global AUTHENTICATED
         if not AUTHENTICATED:
             error(request_id, "auth_required")
             return "."
     cwd = message.get("params", {}).get("cwd", ".")
+    MCP_SERVERS = message.get("params", {}).get("mcpServers", [])
     response(request_id, {"sessionId": SESSION_ID})
     return cwd
 
@@ -211,6 +214,11 @@ def terminal(request_id, cwd):
     response(request_id, {"stopReason": "end_turn"})
 
 
+def mcp_servers(request_id, _cwd):
+    text_update(json.dumps(MCP_SERVERS, sort_keys=True, separators=(",", ":")))
+    response(request_id, {"stopReason": "end_turn"})
+
+
 def list_sessions(request_id, message, script):
     if script == "sessions-failure":
         error(request_id, "session list failed")
@@ -308,6 +316,7 @@ def main():
                 "auth-success": lifecycle,
                 "auth-failure": lifecycle,
                 "terminal": terminal,
+                "mcp-servers": mcp_servers,
                 "timeout-prompt": timeout_prompt,
             }
             scripts.get(script, lifecycle)(request_id, cwd)
