@@ -41,36 +41,36 @@ Captured: 2026-07-05
 
 ## P2: OpenCode Zen Credential Foundations
 
-- [ ] Add `OPENCODE_ZEN_KEY` to credential constants.
-- [ ] Load `OPENCODE_ZEN_KEY` from environment and managed credential files.
-- [ ] Add `opencode-zen` to `login` and `logout` provider parsing.
-- [ ] Add `opencode-zen` to setup provider choices.
-- [ ] Add `opencode-zen` to doctor credential status.
-- [ ] Validate Zen keys with a lightweight model-list request when network is
+- [x] Add `OPENCODE_ZEN_KEY` to credential constants.
+- [x] Load `OPENCODE_ZEN_KEY` from environment and managed credential files.
+- [x] Add `opencode-zen` to `login` and `logout` provider parsing.
+- [x] Add `opencode-zen` to setup provider choices.
+- [x] Add `opencode-zen` to doctor credential status.
+- [x] Validate Zen keys with a lightweight model-list request when network is
       available.
-- [ ] Store Zen keys only through existing API-key credential storage.
-- [ ] Redact Zen keys from errors, verbose rows, snapshots, and session records.
-- [ ] Keep Zen credential behavior separate from `OPENCODE_GO_KEY`.
+- [x] Store Zen keys only through existing API-key credential storage.
+- [x] Redact Zen keys from errors, verbose rows, snapshots, and session records.
+- [x] Keep Zen credential behavior separate from `OPENCODE_GO_KEY`.
 
 ## P3: OpenCode Zen Provider Foundations
 
-- [ ] Add `src/core/providers/opencode/zen.rs` (move `opencode_go.rs` to `opencode/go.rs`)
-- [ ] Define `BASE_URL`, `CHAT_COMPLETIONS_URL`, `MODELS_URL`, and
+- [x] Add `src/core/providers/opencode/zen.rs` (move `opencode_go.rs` to `opencode/go.rs`)
+- [x] Define `BASE_URL`, `CHAT_COMPLETIONS_URL`, `MODELS_URL`, and
       `MODEL_PREFIX`.
-- [ ] Parse `opencode/<model-id>` and strip the prefix for requests.
-- [ ] Reject raw Zen model ids with a clear provider error.
-- [ ] Define the initial known model list with `opencode/big-pickle`.
-- [ ] Build OpenAI-compatible streaming chat-completions request bodies.
-- [ ] Convert provider-neutral messages into chat `messages`.
-- [ ] Convert local tool schemas into chat `tools`.
-- [ ] Send streaming requests with `http_status_as_error(false)`.
-- [ ] Summarize non-2xx response bodies through the existing provider error
+- [x] Parse `opencode/<model-id>` and strip the prefix for requests.
+- [x] Reject raw Zen model ids with a clear provider error.
+- [x] Define the initial known model list with `opencode/big-pickle`.
+- [x] Build OpenAI-compatible streaming chat-completions request bodies.
+- [x] Convert provider-neutral messages into chat `messages`.
+- [x] Convert local tool schemas into chat `tools`.
+- [x] Send streaming requests with `http_status_as_error(false)`.
+- [x] Summarize non-2xx response bodies through the existing provider error
       path.
-- [ ] Fetch `/zen/v1/models` for optional validation and picker refresh.
-- [ ] Map model discovery ids into `opencode/<id>` picker entries.
-- [ ] Avoid machine-inferred pricing claims from model discovery.
-- [ ] Classify retryable HTTP and transport errors.
-- [ ] Classify terminal balance, unavailable-model, and free-period-ended
+- [x] Fetch `/zen/v1/models` for optional validation and picker refresh.
+- [x] Map model discovery ids into `opencode/<id>` picker entries.
+- [x] Avoid machine-inferred pricing claims from model discovery.
+- [x] Classify retryable HTTP and transport errors.
+- [x] Classify terminal balance, unavailable-model, and free-period-ended
       errors as non-retryable.
 
 ## P4: Stream Parsing

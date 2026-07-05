@@ -39,10 +39,12 @@ fn with_provider_env_removed<T>(f: impl FnOnce() -> T) -> T {
     let _guard = HOME_ENV_LOCK.lock().expect("provider env lock");
     let old_umans = std::env::var_os(auth::UMANS_API_KEY_ENV);
     let old_opencode = std::env::var_os(auth::OPENCODE_GO_KEY_ENV);
+    let old_opencode_zen = std::env::var_os(auth::OPENCODE_ZEN_KEY_ENV);
 
     unsafe {
         std::env::remove_var(auth::UMANS_API_KEY_ENV);
         std::env::remove_var(auth::OPENCODE_GO_KEY_ENV);
+        std::env::remove_var(auth::OPENCODE_ZEN_KEY_ENV);
     }
 
     let result = f();
@@ -57,6 +59,11 @@ fn with_provider_env_removed<T>(f: impl FnOnce() -> T) -> T {
             std::env::set_var(auth::OPENCODE_GO_KEY_ENV, value);
         } else {
             std::env::remove_var(auth::OPENCODE_GO_KEY_ENV);
+        }
+        if let Some(value) = old_opencode_zen {
+            std::env::set_var(auth::OPENCODE_ZEN_KEY_ENV, value);
+        } else {
+            std::env::remove_var(auth::OPENCODE_ZEN_KEY_ENV);
         }
     }
 
@@ -76,6 +83,12 @@ fn fresh_app() -> App {
         "test-umans-key",
     )
     .expect("seed test credential");
+    auth::set_credential(
+        &auth::project_credentials_path(&cwd),
+        auth::OPENCODE_ZEN_KEY_ENV,
+        "test-zen-key",
+    )
+    .expect("seed test Zen credential");
     std::mem::forget(dir);
     let cli = Cli { cwd, ..Cli::default() };
     let mut app = App::from_cli(&cli);
@@ -248,6 +261,12 @@ fn submit_user_turn_records_mcp_config_change_before_user() {
         "test-umans-key",
     )
     .expect("seed test credential");
+    auth::set_credential(
+        &auth::project_credentials_path(dir.path()),
+        auth::OPENCODE_ZEN_KEY_ENV,
+        "test-zen-key",
+    )
+    .expect("seed test Zen credential");
     let mcp_path = dir.path().join(".thndrs").join("mcp.toml");
     std::fs::write(
         &mcp_path,
@@ -699,7 +718,7 @@ fn missing_provider_credential_opens_recovery_and_preserves_prompt() {
         assert!(app.transcript.is_empty());
         let recovery = app.first_run_recovery.as_ref().expect("recovery");
         assert_eq!(recovery.stage, RecoveryStage::MissingCredential);
-        assert_eq!(recovery.provider, Some(ApiKeyProviderArg::Umans));
+        assert_eq!(recovery.provider, Some(ApiKeyProviderArg::OpencodeZen));
         assert!(recovery.pending_provider_prompt);
     });
 }
@@ -1362,7 +1381,7 @@ fn context_sources_are_guidance_not_permission() {
     let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
     let app = App::from_cli(&cli);
 
-    assert_eq!(app.model, "umans-coder");
+    assert_eq!(app.model, "opencode/big-pickle");
     assert!(app.context_sources[0].content.contains("Model: gpt-4"));
 }
 

@@ -127,6 +127,7 @@ fn collect_credential_statuses(workspace: &Path) -> Vec<DoctorCredential> {
     [
         ("umans", auth::UMANS_API_KEY_ENV),
         ("opencode-go", auth::OPENCODE_GO_KEY_ENV),
+        ("opencode-zen", auth::OPENCODE_ZEN_KEY_ENV),
     ]
     .iter()
     .map(|(provider, env_var)| DoctorCredential {
@@ -142,6 +143,7 @@ fn required_credential_env_for_provider(provider: &str) -> Option<&'static str> 
     match provider {
         "umans" => Some(auth::UMANS_API_KEY_ENV),
         "opencode-go" => Some(auth::OPENCODE_GO_KEY_ENV),
+        "opencode-zen" => Some(auth::OPENCODE_ZEN_KEY_ENV),
         _ => None,
     }
 }
@@ -507,6 +509,7 @@ mod tests {
                 ("HOME", Some(workspace_path)),
                 ("UMANS_API_KEY", Some("sk-secret-umans")),
                 ("OPENCODE_GO_KEY", Some("op-secret")),
+                ("OPENCODE_ZEN_KEY", Some("zen-secret")),
             ],
             || run_with_output(&["thndrs", "--cwd", workspace_path, "doctor", "--json"]),
         );
@@ -514,18 +517,19 @@ mod tests {
         assert_eq!(error_kind, None);
         assert!(!output.contains("sk-secret-umans"));
         assert!(!output.contains("op-secret"));
+        assert!(!output.contains("zen-secret"));
         let report: DoctorReport = serde_json::from_str(&output).expect("doctor json");
-        assert!(
-            report
-                .credentials
-                .iter()
-                .all(|cred| cred.source != "environment" || cred.provider == "umans" || cred.provider == "opencode-go")
-        );
+        assert!(report.credentials.iter().all(|cred| cred.source != "environment"
+            || cred.provider == "umans"
+            || cred.provider == "opencode-go"
+            || cred.provider == "opencode-zen"));
         assert!(
             !report
                 .config_diagnostics
                 .iter()
-                .any(|item| item.contains("sk-secret-umans") || item.contains("op-secret"))
+                .any(|item| item.contains("sk-secret-umans")
+                    || item.contains("op-secret")
+                    || item.contains("zen-secret"))
         );
     }
 
@@ -539,6 +543,7 @@ mod tests {
                 ("HOME", Some(workspace_path)),
                 ("UMANS_API_KEY", Some("sk-umans")),
                 ("OPENCODE_GO_KEY", Some("op-secret")),
+                ("OPENCODE_ZEN_KEY", Some("zen-secret")),
             ],
             || {
                 run_with_output(&[

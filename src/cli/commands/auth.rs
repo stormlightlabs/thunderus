@@ -166,7 +166,11 @@ pub fn run_auth(cli: &Cli, command: &AuthCommand) -> io::Result<()> {
 
 /// Write redacted provider credential status.
 pub fn write_auth_status<W: Write>(workspace: &Path, writer: &mut W) -> io::Result<()> {
-    for provider in [ApiKeyProviderArg::Umans, ApiKeyProviderArg::OpencodeGo] {
+    for provider in [
+        ApiKeyProviderArg::Umans,
+        ApiKeyProviderArg::OpencodeGo,
+        ApiKeyProviderArg::OpencodeZen,
+    ] {
         let source = auth::credential_source(provider.env_var(), workspace)
             .map(|source| source.label().to_string())
             .unwrap_or_else(|| String::from("missing"));
@@ -187,7 +191,8 @@ pub fn credential_path(scope: CredentialScope, workspace: &Path) -> io::Result<P
 pub fn validate_provider_key(provider: ApiKeyProviderArg, api_key: &str) -> Result<(), String> {
     match provider {
         ApiKeyProviderArg::Umans => crate::providers::umans::validate_api_key(api_key),
-        ApiKeyProviderArg::OpencodeGo => crate::providers::opencode::validate_api_key(api_key),
+        ApiKeyProviderArg::OpencodeGo => crate::providers::opencode::validate_go_api_key(api_key),
+        ApiKeyProviderArg::OpencodeZen => crate::providers::opencode::validate_zen_api_key(api_key),
     }
 }
 
@@ -282,6 +287,7 @@ mod tests {
 
         assert!(output.contains("umans\tproject credentials"));
         assert!(output.contains("opencode-go\tmissing"));
+        assert!(output.contains("opencode-zen\tmissing"));
         assert!(!output.contains("sk-secret-value"));
     }
 

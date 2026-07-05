@@ -1452,7 +1452,13 @@ fn close_prompt_accessory(app: &mut App) {
 }
 
 fn provider_for_model(model: &str) -> ApiKeyProviderArg {
-    if opencode::is_model_id(model) { ApiKeyProviderArg::OpencodeGo } else { ApiKeyProviderArg::Umans }
+    if opencode::is_zen_model_id(model) {
+        ApiKeyProviderArg::OpencodeZen
+    } else if opencode::is_go_model_id(model) {
+        ApiKeyProviderArg::OpencodeGo
+    } else {
+        ApiKeyProviderArg::Umans
+    }
 }
 
 fn selected_provider_missing(app: &App) -> Option<FirstRunRecovery> {
@@ -2033,7 +2039,7 @@ fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
             }
             None => app
                 .transcript
-                .push(Entry::Error { text: String::from("usage: /login <umans|opencode-go>") }),
+                .push(Entry::Error { text: String::from("usage: /login <umans|opencode-go|opencode-zen>") }),
         }
         return None;
     }
@@ -2045,7 +2051,7 @@ fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
             }
             None => app
                 .transcript
-                .push(Entry::Error { text: String::from("usage: /logout <umans|opencode-go>") }),
+                .push(Entry::Error { text: String::from("usage: /logout <umans|opencode-go|opencode-zen>") }),
         }
         return None;
     }
@@ -2121,13 +2127,13 @@ fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
         }
         "login" => {
             app.transcript
-                .push(Entry::Error { text: String::from("usage: /login <umans|opencode-go>") });
+                .push(Entry::Error { text: String::from("usage: /login <umans|opencode-go|opencode-zen>") });
             app.input.clear();
             None
         }
         "logout" => {
             app.transcript
-                .push(Entry::Error { text: String::from("usage: /logout <umans|opencode-go>") });
+                .push(Entry::Error { text: String::from("usage: /logout <umans|opencode-go|opencode-zen>") });
             app.input.clear();
             None
         }
@@ -2139,6 +2145,7 @@ fn parse_api_key_provider(input: &str) -> Option<ApiKeyProviderArg> {
     match input {
         "umans" => Some(ApiKeyProviderArg::Umans),
         "opencode-go" => Some(ApiKeyProviderArg::OpencodeGo),
+        "opencode-zen" => Some(ApiKeyProviderArg::OpencodeZen),
         _ => None,
     }
 }
@@ -2162,6 +2169,7 @@ fn is_api_key_like(value: &str) -> bool {
         || lower.contains("api_key=")
         || lower.contains("apikey=")
         || lower.contains("opencode_go_key=")
+        || lower.contains("opencode_zen_key=")
         || lower.contains("umans_api_key=")
         || (value.len() >= 32
             && value.chars().any(|ch| ch.is_ascii_digit())

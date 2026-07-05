@@ -31,8 +31,11 @@ pub const UMANS_API_KEY_ENV: &str = "UMANS_API_KEY";
 /// Environment variable name for the OpenCode Go API key.
 pub const OPENCODE_GO_KEY_ENV: &str = "OPENCODE_GO_KEY";
 
+/// Environment variable name for the OpenCode Zen API key.
+pub const OPENCODE_ZEN_KEY_ENV: &str = "OPENCODE_ZEN_KEY";
+
 /// Known provider API key variable names.
-pub const KNOWN_API_KEY_VARS: &[&str] = &[UMANS_API_KEY_ENV, OPENCODE_GO_KEY_ENV];
+pub const KNOWN_API_KEY_VARS: &[&str] = &[UMANS_API_KEY_ENV, OPENCODE_GO_KEY_ENV, OPENCODE_ZEN_KEY_ENV];
 
 /// Describes where a credential value was found, without leaking the value.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -927,6 +930,7 @@ mod tests {
     fn known_api_key_vars_are_complete() {
         assert!(KNOWN_API_KEY_VARS.contains(&UMANS_API_KEY_ENV));
         assert!(KNOWN_API_KEY_VARS.contains(&OPENCODE_GO_KEY_ENV));
+        assert!(KNOWN_API_KEY_VARS.contains(&OPENCODE_ZEN_KEY_ENV));
     }
 
     #[test]

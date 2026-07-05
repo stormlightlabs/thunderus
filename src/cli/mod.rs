@@ -129,7 +129,7 @@ pub struct Cli {
     #[arg(long, default_value = ".")]
     pub cwd: PathBuf,
     /// Model to use for completions.
-    #[arg(long, default_value = "umans-coder")]
+    #[arg(long, default_value = "opencode/big-pickle")]
     pub model: String,
     /// Web search provider policy.
     #[arg(long, value_enum, default_value = "auto")]
@@ -186,7 +186,7 @@ impl Default for Cli {
     fn default() -> Self {
         Cli {
             cwd: PathBuf::from("."),
-            model: String::from("umans-coder"),
+            model: String::from("opencode/big-pickle"),
             websearch: WebSearchMode::Auto,
             tick_rate_ms: 100,
             no_alt_screen: true,
@@ -380,7 +380,7 @@ mod tests {
     fn cli_defaults_match_spec() {
         let cli = Cli::try_parse_from(["thndrs"]).expect("default parse");
         assert_eq!(cli.cwd, PathBuf::from("."));
-        assert_eq!(cli.model, "umans-coder");
+        assert_eq!(cli.model, "opencode/big-pickle");
         assert_eq!(cli.websearch, WebSearchMode::Auto);
         assert_eq!(cli.tick_rate_ms, 100);
         assert!(cli.no_alt_screen);
@@ -585,6 +585,14 @@ mod tests {
             login.command,
             Some(Command::Login(commands::auth::LoginCommand {
                 provider: commands::setup::ApiKeyProviderArg::OpencodeGo,
+            }))
+        );
+
+        let zen_login = Cli::try_parse_from(["thndrs", "login", "opencode-zen"]).expect("parse");
+        assert_eq!(
+            zen_login.command,
+            Some(Command::Login(commands::auth::LoginCommand {
+                provider: commands::setup::ApiKeyProviderArg::OpencodeZen,
             }))
         );
 

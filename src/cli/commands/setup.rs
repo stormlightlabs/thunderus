@@ -20,6 +20,8 @@ pub enum ApiKeyProviderArg {
     Umans,
     /// OpenCode Go provider.
     OpencodeGo,
+    /// OpenCode Zen provider.
+    OpencodeZen,
 }
 
 impl ApiKeyProviderArg {
@@ -28,6 +30,7 @@ impl ApiKeyProviderArg {
         match self {
             ApiKeyProviderArg::Umans => "umans",
             ApiKeyProviderArg::OpencodeGo => "opencode-go",
+            ApiKeyProviderArg::OpencodeZen => "opencode-zen",
         }
     }
 
@@ -36,6 +39,7 @@ impl ApiKeyProviderArg {
         match self {
             ApiKeyProviderArg::Umans => auth::UMANS_API_KEY_ENV,
             ApiKeyProviderArg::OpencodeGo => auth::OPENCODE_GO_KEY_ENV,
+            ApiKeyProviderArg::OpencodeZen => auth::OPENCODE_ZEN_KEY_ENV,
         }
     }
 
@@ -44,6 +48,7 @@ impl ApiKeyProviderArg {
         match self {
             ApiKeyProviderArg::Umans => "umans-coder",
             ApiKeyProviderArg::OpencodeGo => "opencode-go/kimi-k2.7-code",
+            ApiKeyProviderArg::OpencodeZen => "opencode/big-pickle",
         }
     }
 }
@@ -138,7 +143,9 @@ pub fn run(cli: &Cli, command: &SetupCommand) -> io::Result<()> {
 }
 
 fn provider_for_model(model: &str) -> ApiKeyProviderArg {
-    if crate::providers::opencode::is_model_id(model) {
+    if crate::providers::opencode::is_zen_model_id(model) {
+        ApiKeyProviderArg::OpencodeZen
+    } else if crate::providers::opencode::is_go_model_id(model) {
         ApiKeyProviderArg::OpencodeGo
     } else {
         ApiKeyProviderArg::Umans
@@ -192,6 +199,10 @@ mod tests {
     #[test]
     fn provider_defaults_from_model() {
         assert_eq!(provider_for_model("umans-coder"), ApiKeyProviderArg::Umans);
+        assert_eq!(
+            provider_for_model("opencode/big-pickle"),
+            ApiKeyProviderArg::OpencodeZen
+        );
         assert_eq!(
             provider_for_model("opencode-go/kimi-k2.7-code"),
             ApiKeyProviderArg::OpencodeGo

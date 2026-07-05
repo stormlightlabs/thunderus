@@ -51,14 +51,18 @@ pub enum ProviderKind {
     Umans,
     /// OpenCode Go provider.
     OpenCodeGo,
+    /// OpenCode Zen provider.
+    OpenCodeZen,
 }
 
 impl ProviderKind {
     pub fn for_model(model: &str) -> Self {
         if model.starts_with("fake-agent") {
             ProviderKind::Fake
-        } else if opencode::is_model_id(model) {
+        } else if opencode::is_go_model_id(model) {
             ProviderKind::OpenCodeGo
+        } else if opencode::is_zen_model_id(model) {
+            ProviderKind::OpenCodeZen
         } else {
             ProviderKind::Umans
         }
@@ -69,6 +73,7 @@ impl ProviderKind {
             ProviderKind::Fake => "fake",
             ProviderKind::Umans => "umans",
             ProviderKind::OpenCodeGo => "opencode-go",
+            ProviderKind::OpenCodeZen => "opencode-zen",
         }
     }
 }
@@ -424,6 +429,7 @@ fn run_agent(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) 
         ProviderKind::Fake => run_fake(handle, tx, cancel),
         ProviderKind::Umans => run_provider::<umans::UmansClient>(handle, tx, cancel),
         ProviderKind::OpenCodeGo => run_provider::<opencode::OpenCodeGoClient>(handle, tx, cancel),
+        ProviderKind::OpenCodeZen => run_provider::<opencode::zen::OpenCodeZenClient>(handle, tx, cancel),
     }
 }
 
@@ -1960,6 +1966,19 @@ mod tests {
     fn prompt_expects_workspace_write_ignores_plain_file_questions() {
         assert!(!prompt_expects_workspace_write("what does TODO.md contain?"));
         assert!(!prompt_expects_workspace_write("summarize the project architecture"));
+    }
+
+    #[test]
+    fn provider_kind_routes_open_code_prefixes_separately() {
+        assert_eq!(
+            ProviderKind::for_model("opencode/big-pickle"),
+            ProviderKind::OpenCodeZen
+        );
+        assert_eq!(
+            ProviderKind::for_model("opencode-go/kimi-k2.7-code"),
+            ProviderKind::OpenCodeGo
+        );
+        assert_eq!(ProviderKind::for_model("big-pickle"), ProviderKind::Umans);
     }
 
     #[test]
