@@ -340,6 +340,19 @@ pub fn error_message(err: &ProviderError) -> String {
     err.failure_message("rate limit or usage limit exceeded")
 }
 
+/// Try to validate an OpenCode Go API key with a lightweight model-list request.
+///
+/// This is an optional hook for `login` and `setup` commands. A network failure
+/// or validation error returns an explanation. The credential should still be
+/// stored and reported as unverified when the network is unavailable.
+pub fn validate_api_key(api_key: &str) -> std::result::Result<(), String> {
+    let client = OpenCodeGoClient::new(BASE_URL, api_key);
+    match client.fetch_models() {
+        Ok(_) => Ok(()),
+        Err(e) => Err(format!("validation failed: {e}")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;

@@ -2,6 +2,7 @@
 
 pub mod acp;
 pub mod agent;
+pub mod auth;
 pub mod config;
 pub mod context;
 pub mod fuzzy;

@@ -29,39 +29,44 @@ Captured: 2026-07-05
 
 ## P1: Credential Store
 
-- [ ] Add `src/core/auth.rs` with module docs.
-- [ ] Define supported API-key providers and their env var names.
-- [ ] Add global credential path `~/.thndrs/credentials.env`.
-- [ ] Add project credential path `.thndrs/credentials.env`.
-- [ ] Parse simple env assignment lines compatible with current `.env` support.
-- [ ] Write credential files atomically.
-- [ ] Set Unix file mode `0600` where supported.
-- [ ] Preserve unrelated credential entries when adding or removing one key.
-- [ ] Redact credential values in all display/debug paths.
-- [ ] Add `.thndrs/credentials.env` to `.git/info/exclude` when a git repo is
+- [x] Add `src/core/auth.rs` with module docs.
+- [x] Define supported API-key providers and their env var names.
+- [x] Add global credential path `~/.thndrs/credentials.env`.
+- [x] Add project credential path `.thndrs/credentials.env`.
+- [x] Parse simple env assignment lines compatible with current `.env` support.
+- [x] Write credential files atomically.
+- [x] Set Unix file mode `0600` where supported.
+- [x] Preserve unrelated credential entries when adding or removing one key.
+- [x] Redact credential values in all display/debug paths.
+- [x] Add `.thndrs/credentials.env` to `.git/info/exclude` when a git repo is
       present.
-- [ ] Tolerate missing home directory with a clear error.
-- [ ] Test read/write round trips.
-- [ ] Test removing one credential preserves others.
-- [ ] Test malformed credential files fail clearly without printing values.
-- [ ] Test Unix mode behavior where supported.
-- [ ] Test git exclude update is idempotent.
+- [x] Tolerate missing home directory with a clear error.
+- [x] Test read/write round trips.
+- [x] Test removing one credential preserves others.
+- [x] Test malformed credential files fail clearly without printing values.
+- [x] Test Unix mode behavior where supported.
+- [x] Test git exclude update is idempotent.
 
 ## P2: Provider Credential Resolution
 
-- [ ] Extend provider key lookup to check process env first.
-- [ ] Check global and project credential stores after process env.
-- [ ] Preserve existing workspace `.env` fallback for compatibility.
-- [ ] Return credential source metadata without values.
-- [ ] Add provider auth status helpers for Umans and OpenCode Go.
-- [ ] Add optional cheap validation hooks for Umans.
-- [ ] Add optional cheap validation hooks for OpenCode Go.
-- [ ] If validation is unavailable or network fails, report stored/unverified.
-- [ ] Keep provider request logs free of credential values.
-- [ ] Test source precedence: env, project credentials, global credentials,
-      workspace `.env`, missing.
-- [ ] Test missing-key errors include the variable name and setup hint.
-- [ ] Test provider validation does not persist provider payloads.
+- [x] Extend `auth::resolve_credential` to check process env, global store,
+      project store, and workspace `.env` in precedence order.
+- [x] Add `CredentialSource` enum with `Environment`, `GlobalStore`,
+      `ProjectStore`, and `DotEnvLegacy` variants.
+- [x] Add `credential_source()` returning source without the credential value.
+- [x] Add `CredentialSource::label()` for human-readable source descriptions.
+- [x] Add `umans::validate_api_key()` using lightweight `GET /v1/models/info`.
+- [x] Add `opencode::validate_api_key()` using lightweight `GET /models`.
+- [x] Keep `from_env_or_dotenv` unchanged for now (wired in P3).
+- [x] Test source precedence: env > global store > project store > .env > none.
+- [x] Test `resolve_credential` returns `None` for unknown keys.
+- [x] Test empty env var is treated as missing.
+- [x] Test credential source label and Debug do not leak values.
+- [x] Test `KNOWN_API_KEY_VARS` is complete.
+- [ ] Wire `resolve_credential` into provider `from_env_or_dotenv`.
+- [ ] Add missing-key error with setup hint.
+- [ ] Test provider validation does not persist provider payloads (requires
+      network mocking).
 
 ## P3: CLI Setup And Auth Commands
 

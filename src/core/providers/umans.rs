@@ -361,6 +361,19 @@ fn compact_token_count(tokens: u64) -> String {
     }
 }
 
+/// Try to validate an Umans API key with a lightweight model-info request.
+///
+/// This is an optional hook for `login` and `setup` commands. A network failure
+/// or validation error returns an explanation. The credential should still be
+/// stored and reported as unverified when the network is unavailable.
+pub fn validate_api_key(api_key: &str) -> std::result::Result<(), String> {
+    let client = UmansClient::new(BASE_URL, api_key);
+    match client.fetch_models_info() {
+        Ok(_) => Ok(()),
+        Err(e) => Err(format!("validation failed: {e}")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
