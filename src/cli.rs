@@ -105,6 +105,12 @@ pub enum AcpCommand {
         /// Opaque external ACP session id.
         session_id: String,
     },
+    /// List available agents from the read-only ACP Registry.
+    Registry {
+        /// Read registry JSON from a local file instead of the official CDN.
+        #[arg(long)]
+        file: Option<PathBuf>,
+    },
 }
 
 /// MCP inspection and tool-call commands.
@@ -671,6 +677,15 @@ mod tests {
             Some(Command::Acp {
                 command: AcpCommand::CloseSession { name: "local".to_string(), session_id: "external-1".to_string() }
             })
+        );
+    }
+
+    #[test]
+    fn acp_registry_command_parses() {
+        let cli = Cli::try_parse_from(["thndrs", "acp", "registry", "--file", "registry.json"]).expect("parse");
+        assert_eq!(
+            cli.command,
+            Some(Command::Acp { command: AcpCommand::Registry { file: Some(PathBuf::from("registry.json")) } })
         );
     }
 

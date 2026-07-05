@@ -26,6 +26,7 @@ configured under `[acp_agents.<name>]`. For more information see [ACP](/usage/ac
 - `thndrs acp load-session <name> <session-id>`: load an external ACP session and print replayed `session/update` events.
 - `thndrs acp resume-session <name> <session-id>`: resume an external ACP session without replaying history.
 - `thndrs acp close-session <name> <session-id>`: close an external ACP session when the agent advertises `session/close`.
+- `thndrs acp registry [--file <path>]`: list agents from the read-only official ACP Registry metadata without installing them.
 
 ## MCP Commands
 

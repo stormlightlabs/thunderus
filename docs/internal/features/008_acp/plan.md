@@ -373,6 +373,72 @@ Install/update support requires a later security review covering command
 provenance, package-manager behavior, source/version metadata, cache policy,
 and failure modes.
 
+#### Registry Install/Update Review Checkpoints
+
+Command provenance:
+
+- Only the official registry CDN URL and user-provided local files are accepted
+  registry sources.
+- Registry entries identify candidate packages and archives; they do not grant
+  permission to execute commands.
+- Future install support may derive an argv list only from a known distribution
+  adapter (`npx`, `uvx`, or `binary`) implemented in `thndrs`, not from an
+  arbitrary registry shell string.
+- Registry `args` may be displayed for review and later copied into config, but
+  must not be executed until the user has explicitly selected the agent,
+  distribution, and resolved version.
+- Registry `env` keys may be displayed as names only. Registry env values are
+  never trusted, persisted, printed, or passed through.
+- Unknown distribution kinds, unknown fields that affect execution, or multiple
+  conflicting install candidates must fail closed for install/update while
+  remaining displayable in read-only discovery.
+
+Package-manager behavior:
+
+- Package-manager installs must be deterministic enough to audit: pin the
+  registry-provided package/version, do not use floating `latest`, and do not
+  let the package manager rewrite the selected version during install.
+- Run package managers with argv-only process creation, no shell interpolation,
+  workspace-contained working directories, bounded output, timeout/cancel
+  handling, and redacted diagnostics.
+- Do not run agent login, initialization, smoke tests, post-install prompts, or
+  generated config automatically after package installation.
+- Disable known package-manager auto-update behavior where the registry
+  provides a safe env key for that purpose; otherwise show a warning and require
+  explicit user confirmation before using that distribution.
+- Use a `thndrs`-owned cache/install directory, not the workspace tree, unless
+  the user explicitly chooses a destination.
+- Updates must present the old source/version and new source/version before any
+  package-manager or archive action runs.
+
+Security review:
+
+- Binary archives require archive URL allow-listing from the official registry,
+  HTTPS-only downloads, bounded size, safe extraction that rejects traversal and
+  symlink escapes, and checksum/signature verification before they can be
+  enabled.
+- No registry-provided credential, token, cookie, auth header, or secret-shaped
+  env key may enter config, session metadata, logs, or child-process env.
+- Every install/update must require an interactive confirmation that shows
+  registry id, name, version, distribution type, package or archive source,
+  resolved command preview, install directory, and env key names.
+- Failed installs leave either no installed record or a record explicitly marked
+  failed/incomplete; partial files must not be silently used.
+- Install/update logs must keep stdout protocol-clean for any ACP process and
+  use the same redaction rules as shell and ACP terminal callbacks.
+
+Installed metadata contract:
+
+- Persist the registry source URL or local-file label, registry document
+  version, agent id, agent name, agent version, distribution kind, resolved
+  package/archive, selected platform for binaries, installed command preview,
+  install directory, timestamp, and install/update status.
+- Store local `thndrs` install metadata separately from ACP session metadata.
+  ACP session records may reference an installed agent id/version, but they must
+  not duplicate credentials or raw registry payloads.
+- Future uninstall/update commands must use this metadata as the source of truth
+  rather than re-discovering files heuristically.
+
 ### MCP-Over-ACP Policy
 
 MCP-over-ACP waits for local MCP support from `007_mcp`. Once local MCP config

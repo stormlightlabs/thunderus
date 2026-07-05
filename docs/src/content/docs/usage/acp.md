@@ -163,6 +163,31 @@ capability.
 `updated-at` fields. `load-session` prints replayed updates, then
 `loaded: <agent> <session-id>` and the `acp_session` metadata line.
 
+List available agents from the read-only ACP Registry:
+
+```sh
+thndrs acp registry
+```
+
+This fetches the official registry metadata from
+`https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json`, prints
+available agents, and does not install or update anything. For offline
+inspection or tests, pass a local registry JSON file:
+
+```sh
+thndrs acp registry --file registry.json
+```
+
+Install/update support is intentionally unavailable until command provenance,
+package-manager behavior, and security review are complete.
+
+The registry command treats registry entries as discovery metadata only.
+Package names, archive URLs, args, and env keys are not executed. Env values
+from registry metadata are ignored and never printed. Future install/update
+support must add an explicit confirmation flow, pinned source/version metadata,
+safe archive verification, and separate installed-agent records before it can be
+enabled.
+
 ## Troubleshooting
 
 `ACP agent '<name>' is not configured`: add `[acp_agents.<name>]` to the

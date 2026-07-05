@@ -326,19 +326,47 @@ session ids in the existing `acp_session` record.
 ## M16: ACP Registry
 
 - [x] Decide whether registry discovery belongs in core `thndrs` or docs only.
-- [ ] Fetch or read registry metadata from a stable source.
-- [ ] Show available agents without installing them automatically.
-- [ ] Design command provenance, package-manager behavior, and security review
+- [x] Fetch or read registry metadata from a stable source.
+- [x] Show available agents without installing them automatically.
+- [x] Design command provenance, package-manager behavior, and security review
       before registry install/update support.
 - [ ] Add install/update only after command provenance and security review.
 - [ ] Record installed agent source/version metadata.
-- [ ] Add tests for registry parse, display, redaction, and failure behavior.
+- [x] Add tests for registry parse, display, redaction, and failure behavior.
 
 Decision: read-only registry discovery belongs in core `thndrs` after the local
 config/docs path is stable. Docs alone will stale quickly, but core support must
 only fetch/read official registry metadata and display available agents. It must
 not install or update agents until command provenance, package-manager behavior,
 and security review are designed separately.
+
+Review gate completed for design only:
+
+- Command provenance: registry entries are candidate metadata, not execution
+  permission. Future install/update may only build argv through known
+  `thndrs` distribution adapters, must reject unknown executable distribution
+  shapes for install/update, and must never trust registry env values.
+- Package-manager behavior: future installs must pin resolved versions, use
+  argv-only process creation, avoid shell interpolation, use a `thndrs`-owned
+  cache/install directory by default, disable auto-update behavior when safely
+  available, and require explicit confirmation before any package-manager or
+  archive action.
+- Security review: future binary installs require HTTPS-only official registry
+  sources, bounded downloads, safe extraction, checksum/signature verification,
+  secret redaction, no credential persistence, explicit user consent, and
+  failed-install cleanup semantics before they can ship.
+- Installed metadata: future installs must persist registry source, registry
+  document version, agent id/name/version, distribution kind, resolved
+  package/archive, selected platform, command preview, install directory,
+  timestamp, and install/update status separately from ACP session records.
+
+Result: `src/acp/registry.rs` parses the official read-only registry JSON from
+`https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json` or a
+local JSON file. `thndrs acp registry` lists available agents with display-safe
+id, name, version, distribution labels, and homepage metadata, omits registry
+env values and install commands, and prints the install/update review gate.
+Install/update and installed source/version recording remain unchecked because
+they are separate implementation work after these checkpoint decisions.
 
 ## M17: MCP-Over-ACP
 

@@ -307,6 +307,11 @@ fn run_acp_command(cli: &Cli, command: &AcpCommand) -> io::Result<()> {
             let mut lock = stdout.lock();
             run_acp_close_session(cli, name, session_id, &mut lock)
         }
+        AcpCommand::Registry { file } => {
+            let stdout = io::stdout();
+            let mut lock = stdout.lock();
+            run_acp_registry(file.as_deref(), &mut lock)
+        }
     }
 }
 
@@ -480,6 +485,15 @@ fn run_acp_close_session<W: io::Write>(cli: &Cli, name: &str, session_id: &str, 
         writeln!(writer, "{line}")?;
     }
     Ok(())
+}
+
+fn run_acp_registry<W: io::Write>(file: Option<&Path>, writer: &mut W) -> io::Result<()> {
+    let registry = match file {
+        Some(path) => acp::registry::read_file(path),
+        None => acp::registry::fetch_official(),
+    }
+    .map_err(io::Error::other)?;
+    write!(writer, "{registry}")
 }
 
 fn write_acp_event<W: io::Write>(writer: &mut W, event: app::AgentEvent) -> io::Result<AcpEventWrite> {
@@ -1337,6 +1351,42 @@ mod tests {
         assert!(resume_output.contains("acp_session: local external-session-1"));
         assert!(resume_output.contains("resumed: local external-session-1"));
         assert!(close_output.contains("acp: closed `local` session external-session-1"));
+    }
+
+    #[test]
+    fn acp_registry_reads_file_and_prints_review_gate() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let registry_path = temp.path().join("registry.json");
+        std::fs::write(
+            &registry_path,
+            r#"{
+                "version": "1.0.0",
+                "agents": [{
+                    "id": "codex-acp",
+                    "name": "Codex",
+                    "version": "1.1.0",
+                    "description": "ACP adapter for OpenAI's coding assistant",
+                    "repository": "https://github.com/agentclientprotocol/codex-acp",
+                    "distribution": {
+                        "npx": {
+                            "package": "@agentclientprotocol/codex-acp@1.1.0",
+                            "env": {"OPENAI_API_KEY": "sk-secret"}
+                        }
+                    }
+                }]
+            }"#,
+        )
+        .expect("write registry");
+        let mut output = Vec::new();
+
+        run_acp_registry(Some(&registry_path), &mut output).expect("registry");
+        let output = String::from_utf8(output).expect("utf8");
+
+        assert!(output.contains("ACP registry v1.0.0"));
+        assert!(output.contains("codex-acp\tCodex\t1.1.0\tnpx:@agentclientprotocol/codex-acp@1.1.0"));
+        assert!(output.contains("install/update: unavailable pending command provenance"));
+        assert!(!output.contains("OPENAI_API_KEY"));
+        assert!(!output.contains("sk-secret"));
     }
 
     #[test]
