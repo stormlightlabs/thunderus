@@ -1,7 +1,0 @@
----
-source: src/renderer/transcript/tests.rs
-expression: contents
----
-│                                                                                   # [bg=#171928]=                                                                                
-│   ⚠ Error                                                                         # [bg=#171928]=   [fg=#f16c75 bg=#171928 b]=⚠ Error [bg=#171928]=                                                                      [bg=#171928]=  
-│   Provider request failed: connection refused                                     # [bg=#171928]=   [fg=#ebfafa bg=#171928]=Provider request failed: connection refused [bg=#171928]=                                  [bg=#171928]=

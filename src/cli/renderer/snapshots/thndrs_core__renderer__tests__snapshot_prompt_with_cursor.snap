@@ -1,0 +1,6 @@
+---
+source: src/cli/renderer/mod.rs
+assertion_line: 177
+expression: frame.render_styled()
+---
+│   ›  hello                      # [-]=   [fg=yellow]=›  hello [-]=                   [-]=

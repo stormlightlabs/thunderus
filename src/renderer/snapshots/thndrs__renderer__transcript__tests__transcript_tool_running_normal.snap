@@ -1,9 +1,0 @@
----
-source: src/renderer/transcript/tests.rs
-expression: contents
----
-│                                                                                   # [bg=#171928]=                                                                                
-│   · run_shell [running]  program: cargo test                                      # [bg=#171928]=   [fg=#e0e0e0 bg=#171928]=·  [fg=#ebfafa bg=#171928 b]=run_shell [fg=#e0e0e0 bg=#171928]= [running] [bg=#171928]=   [fg=#abb4da bg=#171928]=program: cargo test [bg=#171928]=                                   [bg=#171928]=  
-│      │ running 3 tests                                                            # [bg=#171928]=   [fg=#3b4261 bg=#171928]=   │  [fg=#8fa1b3 bg=#171928]=running [fg=#c0c5ce bg=#171928]= 3 tests [bg=#171928]=                                                         [bg=#171928]=  
-│      │ test tests::foo ... ok                                                     # [bg=#171928]=   [fg=#3b4261 bg=#171928]=   │  [fg=#8fa1b3 bg=#171928]=test [fg=#c0c5ce bg=#171928]= tests::foo ... ok [bg=#171928]=                                                  [bg=#171928]=  
-│      │ test tests::bar ... ok                                                     # [bg=#171928]=   [fg=#3b4261 bg=#171928]=   │  [fg=#8fa1b3 bg=#171928]=test [fg=#c0c5ce bg=#171928]= tests::bar ... ok [bg=#171928]=                                                  [bg=#171928]=

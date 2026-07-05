@@ -1,0 +1,7 @@
+---
+source: src/cli/renderer/mod.rs
+assertion_line: 142
+expression: frame.render_styled()
+---
+│   Assistant           # [fg=blue bg=#1e2132]=   [fg=blue bg=#1e2132 b]=Assistant [fg=blue bg=#1e2132]=        [fg=blue bg=#1e2132]=  
+│   hello world         # [fg=blue bg=#1e2132]=   [bg=#1e2132]=hello world [fg=blue bg=#1e2132]=      [fg=blue bg=#1e2132]=

@@ -1,8 +1,0 @@
----
-source: src/renderer/live.rs
-expression: combined
----
-width=80:
-│    model: test-model   search: native   tok: ↑0 ↓0   git: main clean              # [bg=#212337]=   [bg=#212337]=  [fg=#abb4da bg=#212337]=model: test-model [bg=#212337]=    [fg=#abb4da bg=#212337]=search: native [bg=#212337]=    [fg=#e0e0e0 bg=#212337]=tok: ↑0 ↓0 [bg=#212337]=    [fg=#37f499 bg=#212337]=git: main clean [bg=#212337]=           [bg=#212337]=  
-width=40:
-│    model: test-model                      # [bg=#212337]=   [bg=#212337]=  [fg=#abb4da bg=#212337]=model: test-model [bg=#212337]=                   [bg=#212337]=

@@ -1,5 +1,0 @@
----
-source: src/renderer/mod.rs
-expression: frame.render_styled()
----
-│   ›  hello                      # [-]=   [fg=yellow]=›  hello [-]=                   [-]=

@@ -3,6 +3,18 @@ name = "thndrs"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "thndrs_core"
+path = "src/core/lib.rs"
+
+[[bin]]
+name = "thndrs"
+path = "src/bin/thndrs.rs"
+
+[[bin]]
+name = "thndrs-acp-server"
+path = "src/bin/thndrs-acp-server.rs"
+
 [dependencies]
 agent-client-protocol = "1.0.1"
 clap = { version = "4.6.1", features = ["derive"] }

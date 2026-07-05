@@ -1,0 +1,7 @@
+---
+source: src/cli/renderer/mod.rs
+assertion_line: 210
+expression: frame.render_styled()
+---
+│   Err       # [bg=#1e2132]=   [fg=red bg=#1e2132 b]=Err [bg=#1e2132]=    [bg=#1e2132]=  
+│   bad input value here  # [bg=#1e2132]=   [bg=#1e2132]=bad input value here

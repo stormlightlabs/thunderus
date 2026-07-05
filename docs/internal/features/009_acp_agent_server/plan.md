@@ -37,7 +37,7 @@ The desired shape is:
 
 ```text
 VS Code / Neovim / Zed / other ACP client
-  -> thndrs-acp-agent
+  -> thndrs-acp-server
   -> thndrs prompt assembly, providers, tools, sessions, context, skills
 ```
 
@@ -47,7 +47,7 @@ plugins.
 
 ## Users And Use Cases
 
-- A VS Code, Neovim, or Zed user can configure `thndrs-acp-agent` as an ACP
+- A VS Code, Neovim, or Zed user can configure `thndrs-acp-server` as an ACP
   agent and use the editor's ACP UI to prompt the `thndrs` harness.
 - A contributor can test the harness through ACP fixtures without opening the
   TUI.
@@ -58,13 +58,13 @@ plugins.
 
 ## Current State
 
-- `thndrs` has one main binary in `src/main.rs` that starts the TUI.
-- `src/app.rs` owns TEA app state, transcript entries, cancellation, queued
+- `thndrs` has one main binary in `src/bin/thndrs.rs` that starts the TUI.
+- `src/cli/app.rs` owns TEA app state, transcript entries, cancellation, queued
   input, and key/mouse handling.
-- `src/agent.rs` owns the provider-backed run loop and emits `AgentEvent`s over
+- `src/core/agent.rs` owns the provider-backed run loop and emits `AgentEvent`s over
   `std::sync::mpsc`.
-- `src/session/mod.rs` owns append-only JSONL session persistence.
-- `src/tools.rs` owns built-in tool definitions, workspace containment, output
+- `src/core/session/mod.rs` owns append-only JSONL session persistence.
+- `src/core/tools.rs` owns built-in tool definitions, workspace containment, output
   caps, file-write audit, and shell execution audit.
 - The provider/tool harness is tightly coupled to `AgentEvent`, but not
   inherently tied to terminal rendering.
@@ -73,7 +73,7 @@ plugins.
 
 ## Feature Outcome
 
-An ACP client can launch `thndrs-acp-agent` over stdio, initialize the
+An ACP client can launch `thndrs-acp-server` over stdio, initialize the
 connection, create a session, send a text prompt, receive streamed ACP
 `session/update` notifications for assistant text, reasoning, tool calls,
 usage, failures, and cancellation, and receive a final `session/prompt`
@@ -89,7 +89,7 @@ before execution.
 Use a separate binary target in the same crate:
 
 ```text
-src/bin/thndrs-acp-agent.rs
+src/bin/thndrs-acp-server.rs
 ```
 
 Do not split a separate crate at first. Server mode needs shared access to
@@ -110,7 +110,7 @@ The binary must be protocol-clean:
 Add:
 
 ```text
-thndrs-acp-agent
+thndrs-acp-server
 ```
 
 The binary starts an ACP agent over stdio and exits when stdin closes, the ACP
@@ -119,7 +119,7 @@ connection fails, or the process receives a termination signal.
 It accepts ordinary config-affecting flags that are safe in a stdio agent:
 
 ```text
-thndrs-acp-agent [--cwd <path>] [--model <model>] [--websearch <mode>] [--session-dir <path>] [--config <path>]
+thndrs-acp-server [--cwd <path>] [--model <model>] [--websearch <mode>] [--session-dir <path>] [--config <path>]
 ```
 
 The exact flag set should reuse existing config resolution where possible.
@@ -178,7 +178,7 @@ policy changes require approval.
 
 ### Permission Flow
 
-Before a sensitive operation, `thndrs-acp-agent` calls
+Before a sensitive operation, `thndrs-acp-server` calls
 `session/request_permission` on the client with the corresponding tool-call id
 and options such as allow once or reject once.
 
@@ -191,7 +191,7 @@ permission policy should be planned after real editor behavior is observed.
 
 ### Sessions
 
-`thndrs-acp-agent` creates local `thndrs` session JSONL files for ACP-driven
+`thndrs-acp-server` creates local `thndrs` session JSONL files for ACP-driven
 sessions. The local session id and ACP session id are distinct and both are
 recorded.
 
@@ -221,18 +221,26 @@ that direction.
 
 Add:
 
-- `src/bin/thndrs-acp-agent.rs`: stdio entrypoint.
-- `src/acp_server/mod.rs`: module docs and public server entrypoint.
-- `src/acp_server/handlers.rs`: ACP request handlers.
-- `src/acp_server/session.rs`: ACP session state and id mapping.
-- `src/acp_server/events.rs`: `AgentEvent` to ACP update conversion.
-- `src/acp_server/permissions.rs`: permission request bridge.
-- `src/acp_server/config_options.rs`: model/search config options.
-- `src/acp_server/tests.rs`: protocol and conversion tests.
+- `src/bin/thndrs-acp-server.rs`: stdio entrypoint.
+- `src/server/mod.rs`: module docs and public server entrypoint.
+- `src/server/handlers.rs`: ACP request handlers.
+- `src/server/session.rs`: ACP session state and id mapping.
+- `src/server/events.rs`: `AgentEvent` to ACP update conversion.
+- `src/server/permissions.rs`: permission request bridge.
+- `src/server/config_options.rs`: model/search config options.
+- `src/server/tests.rs`: protocol and conversion tests.
+
+Keep implementation files grouped by runtime ownership:
+
+- `src/cli/`: TUI, CLI parsing, input, and rendering.
+- `src/core/`: shared headless harness, tools, providers, prompt, sessions, and
+  crate root.
+- `src/server/`: ACP server protocol handling.
+- `src/bin/`: the two executable entrypoints.
 
 Shared harness extraction should prefer:
 
-- `src/harness/mod.rs` or a similarly small module;
+- `src/core/harness/mod.rs` or a similarly small module;
 - no renderer dependency;
 - one function that starts a turn and emits `AgentEvent`s;
 - one explicit cancellation handle;
@@ -315,12 +323,12 @@ but each depends on the baseline server being stable:
 - `cargo fmt`
 - `cargo clippy --fix --allow-dirty --allow-staged`
 - `cargo clippy`
-- `cargo test acp_server`
+- `cargo test server`
 - `cargo test agent`
 - `cargo test session`
 - `cargo test tools`
 - `cargo test`
-- `cargo run --bin thndrs-acp-agent` with a fake ACP client fixture.
+- `cargo run --bin thndrs-acp-server` with a fake ACP client fixture.
 - Manual smoke with at least one editor/client path once a baseline exists.
 
 ## Risks And Open Questions

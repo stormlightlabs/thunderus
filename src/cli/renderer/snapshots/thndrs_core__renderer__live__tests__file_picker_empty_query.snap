@@ -1,0 +1,10 @@
+---
+source: src/cli/renderer/live.rs
+assertion_line: 903
+expression: frame.render_styled()
+---
+│   files  type to filter                                                           # [bg=#212337]=   [fg=#37f499 bg=#212337 b]=files [bg=#212337]=   [fg=#3b4261 bg=#212337]=type to filter [bg=#212337]=                                                        [bg=#212337]=  
+│   ›  src/main.rs                                                                  # [bg=#292e42]=   [fg=#e0e0e0 bg=#292e42 b]=› [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=src/main.rs [bg=#292e42]=                                                               [bg=#292e42]=  
+│      src/lib.rs                                                                   # [bg=#212337]=   [bg=#212337]=  [bg=#212337]=   [fg=#ebfafa bg=#212337]=src/lib.rs [bg=#212337]=                                                                [bg=#212337]=  
+│      Cargo.toml                                                                   # [bg=#212337]=   [bg=#212337]=  [bg=#212337]=   [fg=#ebfafa bg=#212337]=Cargo.toml [bg=#212337]=                                                                [bg=#212337]=  
+│   Enter select   Esc close                                                        # [bg=#212337]=   [fg=#37f499 bg=#212337 b]=Enter [fg=#3b4261 bg=#212337]= select    [fg=#37f499 bg=#212337 b]=Esc [fg=#3b4261 bg=#212337]= close [bg=#212337]=                                                     [bg=#212337]=

@@ -5,83 +5,83 @@ Captured: 2026-07-04
 
 ## M0: Confirm The Contract
 
-- [ ] Confirm `thndrs-acp-agent` is editor-driven harness mode.
-- [ ] Confirm implementation lives in the main crate first, not a separate
+- [x] Confirm `thndrs-acp-server` is editor-driven harness mode.
+- [x] Confirm implementation lives in the main crate first, not a separate
       crate.
-- [ ] Confirm `thndrs-acp-agent` is a separate binary from the TUI.
-- [ ] Confirm stdio is the first transport.
-- [ ] Confirm ACP v1 baseline methods: `initialize`, `session/new`,
+- [x] Confirm `thndrs-acp-server` is a separate binary from the TUI.
+- [x] Confirm stdio is the first transport.
+- [x] Confirm ACP v1 baseline methods: `initialize`, `session/new`,
       `session/prompt`, `session/cancel`, and `session/update`.
-- [ ] Confirm file writes and shell commands require client permission.
-- [ ] Confirm local `thndrs` session ids remain distinct from ACP session ids.
-- [ ] Confirm Tokio is allowed inside the ACP server binary/runtime boundary.
-- [ ] Confirm TUI code does not become async as part of this feature.
+- [x] Confirm file writes and shell commands require client permission.
+- [x] Confirm local `thndrs` session ids remain distinct from ACP session ids.
+- [x] Confirm Tokio is allowed inside the ACP server binary/runtime boundary.
+- [x] Confirm TUI code does not become async as part of this feature.
 
 ## M1: SDK Spike
 
-- [ ] Add a temporary minimal `Agent.builder()` stdio server.
-- [ ] Handle `InitializeRequest`.
-- [ ] Handle `NewSessionRequest`.
-- [ ] Handle `PromptRequest`.
-- [ ] Send one `SessionNotification` during a prompt.
-- [ ] Return `PromptResponse` with a stop reason.
-- [ ] Run the spike under a Tokio runtime.
+- [x] Add a temporary minimal `Agent.builder()` stdio server.
+- [x] Handle `InitializeRequest`.
+- [x] Handle `NewSessionRequest`.
+- [x] Handle `PromptRequest`.
+- [x] Send one `SessionNotification` during a prompt.
+- [x] Return `PromptResponse` with a stop reason.
+- [x] Run the spike under a Tokio runtime.
 - [ ] Drive the spike with a fake ACP client fixture.
-- [ ] Verify stdout contains only ACP JSON-RPC messages.
-- [ ] Verify diagnostics go to stderr.
+- [x] Verify stdout contains only ACP JSON-RPC messages.
+- [x] Verify diagnostics go to stderr.
 
 ## M2: Harness Boundary
 
-- [ ] Identify current dependencies between `src/app.rs` and `src/agent.rs`.
-- [ ] Extract a UI-independent harness turn type.
-- [ ] Extract a UI-independent harness handle with events and cancellation.
-- [ ] Keep `AgentEvent` as the first shared semantic event stream.
-- [ ] Preserve existing TUI behavior through the new harness boundary.
-- [ ] Keep renderer dependencies out of the harness module.
-- [ ] Keep config/session/tool dependencies explicit.
+- [x] Identify current dependencies between `src/cli/app.rs` and `src/core/agent.rs`.
+- [x] Extract a UI-independent harness turn type.
+- [x] Extract a UI-independent harness handle with events and cancellation.
+- [x] Keep `AgentEvent` as the first shared semantic event stream.
+- [x] Preserve existing TUI behavior through the new harness boundary.
+- [x] Keep renderer dependencies out of the harness module.
+- [x] Keep config/session/tool dependencies explicit.
 - [ ] Add tests proving the TUI can still run a fake provider turn.
-- [ ] Add tests proving the harness can run without constructing `App`.
+- [x] Add tests proving the harness can run without constructing `App`.
 
 ## M3: Binary
 
-- [ ] Add `src/bin/thndrs-acp-agent.rs`.
-- [ ] Parse safe harness/config flags.
+- [x] Add `src/bin/thndrs-acp-server.rs`.
+- [x] Parse safe harness/config flags.
 - [ ] Reuse existing effective config loading where possible.
-- [ ] Exclude TUI-only flags.
+- [x] Exclude TUI-only flags.
 - [ ] Initialize tracing without writing to stdout.
-- [ ] Start `Agent.builder().connect_to(Stdio::new())`.
-- [ ] Exit cleanly when stdin closes.
+- [x] Start `Agent.builder().connect_to(...)` with a stdio transport.
+- [x] Exit cleanly when stdin closes.
 - [ ] Add a smoke test that launches the binary as a subprocess.
 
 ## M4: Initialization
 
-- [ ] Register `InitializeRequest` handler.
-- [ ] Negotiate ACP protocol version 1.
-- [ ] Return `agentInfo` for `thndrs`.
+- [x] Register `InitializeRequest` handler.
+- [x] Negotiate ACP protocol version 1.
+- [x] Return `agentInfo` for `thndrs`.
 - [ ] Return accurate `agentCapabilities`.
 - [ ] Advertise text prompt support.
-- [ ] Do not advertise rich content until M18.
-- [ ] Do not advertise terminal capability until M16.
-- [ ] Do not advertise session load/resume/list until M14.
+- [x] Do not advertise rich content until M18.
+- [x] Do not advertise terminal capability until M16.
+- [x] Do not advertise session load/resume/list until M14.
 - [ ] Add fixture tests for supported and unsupported protocol versions.
 
 ## M5: Sessions
 
-- [ ] Register `NewSessionRequest` handler.
-- [ ] Validate and normalize `cwd`.
-- [ ] Create an opaque ACP session id.
+- [x] Register `NewSessionRequest` handler.
+- [x] Validate and normalize `cwd`.
+- [x] Create an opaque ACP session id.
 - [ ] Create or attach a local `thndrs` session writer.
 - [ ] Record ACP session metadata in local session JSONL.
-- [ ] Store session state in a server session map.
-- [ ] Reject duplicate or invalid session operations clearly.
-- [ ] Add tests for session creation and id mapping.
+- [x] Store session state in a server session map.
+- [x] Reject duplicate or invalid session operations clearly.
+- [x] Add tests for session creation and id mapping.
 
 ## M6: Prompt Turns
 
-- [ ] Register `PromptRequest` handler.
-- [ ] Validate session id.
-- [ ] Convert text `ContentBlock`s into a user prompt.
-- [ ] Reject unsupported content blocks with a stable protocol error.
+- [x] Register `PromptRequest` handler.
+- [x] Validate session id.
+- [x] Convert text `ContentBlock`s into a user prompt.
+- [x] Reject unsupported content blocks with a stable protocol error.
 - [ ] Start a harness turn for the session.
 - [ ] Stream events while the prompt request is pending.
 - [ ] Return `PromptResponse` when the harness finishes.
@@ -91,13 +91,13 @@ Captured: 2026-07-04
 
 ## M7: Session Updates
 
-- [ ] Map `AgentEvent::AssistantDelta` to agent message chunks.
-- [ ] Map `AgentEvent::ReasoningDelta` to plan/reasoning/status updates.
+- [x] Map `AgentEvent::AssistantDelta` to agent message chunks.
+- [x] Map `AgentEvent::ReasoningDelta` to plan/reasoning/status updates.
 - [ ] Map `AgentEvent::Usage` to ACP usage updates when supported by the schema.
-- [ ] Map `AgentEvent::Status` to useful ACP status/plan updates.
+- [x] Map `AgentEvent::Status` to useful ACP status/plan updates.
 - [ ] Map `AgentEvent::Failed` to failed prompt outcome and error updates.
 - [ ] Map `AgentEvent::Cancelled` to cancelled prompt outcome.
-- [ ] Add pure conversion tests for each event variant.
+- [x] Add pure conversion tests for each event variant.
 - [ ] Add fixture tests for notification ordering.
 
 ## M8: Tool Calls And Permissions
@@ -116,7 +116,7 @@ Captured: 2026-07-04
 
 ## M9: Cancellation
 
-- [ ] Register `session/cancel` handling.
+- [x] Register `session/cancel` handling.
 - [ ] Cancel the active harness turn for the ACP session.
 - [ ] Cancel pending permission requests.
 - [ ] Return a cancelled prompt response or protocol cancellation error
@@ -128,7 +128,7 @@ Captured: 2026-07-04
 
 ## M10: Config Options
 
-- [ ] Decide the initial ACP config option ids.
+- [x] Decide the initial ACP config option ids.
 - [ ] Expose model selection when values are discoverable.
 - [ ] Expose web search mode.
 - [ ] Expose reasoning/effort options only when supported by providers.
@@ -151,7 +151,7 @@ Captured: 2026-07-04
 ## M12: Editor Smoke Tests
 
 - [ ] Add a fake ACP client integration fixture.
-- [ ] Smoke `thndrs-acp-agent` initialize/session/prompt with the fake client.
+- [ ] Smoke `thndrs-acp-server` initialize/session/prompt with the fake client.
 - [ ] Smoke permission approval with the fake client.
 - [ ] Smoke cancellation with the fake client.
 - [ ] Smoke malformed request handling.
@@ -160,7 +160,7 @@ Captured: 2026-07-04
 
 ## M13: Docs
 
-- [ ] Document `thndrs-acp-agent`.
+- [ ] Document `thndrs-acp-server`.
 - [ ] Document stdio setup.
 - [ ] Document editor configuration examples.
 - [ ] Document supported ACP capabilities.
@@ -225,15 +225,15 @@ Captured: 2026-07-04
 
 ## Validation Commands
 
-- [ ] `cargo fmt`
-- [ ] `cargo clippy --fix --allow-dirty --allow-staged`
-- [ ] `cargo clippy`
-- [ ] `cargo test acp_server`
-- [ ] `cargo test agent`
-- [ ] `cargo test session`
-- [ ] `cargo test tools`
-- [ ] `cargo test`
-- [ ] `cargo run --bin thndrs-acp-agent`
+- [x] `cargo fmt`
+- [x] `cargo clippy --fix --allow-dirty --allow-staged`
+- [x] `cargo clippy`
+- [x] `cargo test server`
+- [x] `cargo test agent`
+- [x] `cargo test session`
+- [x] `cargo test tools`
+- [x] `cargo test`
+- [x] `cargo run --bin thndrs-acp-server`
 
 ## Review Checkpoints
 
