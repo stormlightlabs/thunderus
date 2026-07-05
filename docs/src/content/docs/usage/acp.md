@@ -30,14 +30,18 @@ Supported keys:
 
 - `command`: executable to launch. Required.
 - `args`: argv entries passed after `command`; defaults to `[]`.
-- `env`: environment variables passed to the child process; defaults to `{}`.
+- `env`: non-secret environment variables passed to the child process; defaults
+  to `{}`.
 - `enabled`: whether the agent can be selected; defaults to `true`.
 - `timeout_secs`: initialize, authentication, session, prompt, and admin
   command timeout; defaults to `60`.
 
 Project config overrides global config by agent name. Unknown keys are errors.
-Secret-shaped TOML keys are rejected. Values in `env` are allowed but are
-redacted in diagnostics and session metadata.
+Use `env` for non-secret child process settings only. Values in `env` are
+redacted in diagnostics and session metadata, but secret-shaped keys are still
+rejected anywhere in TOML, including under `acp_agents.<name>.env`. Put agent
+credentials in the parent process environment, the agent's own login/auth flow,
+or an explicit wrapper command outside `thndrs` TOML.
 
 ACP currently supports stdio agents only. The configured command is launched as
 a local child process and must speak ACP JSON-RPC over stdin/stdout. Use stderr
@@ -85,6 +89,9 @@ Credentials and raw protocol stdio lines are not stored.
 - Local cancellation through `session/cancel`.
 - Terminal callbacks with workspace-contained cwd handling, output caps,
   redaction, visible tool rows, cleanup, and session audit records.
+- Effective user-plus-project MCP server config passed through `session/new`
+  when the agent advertises MCP support and the server fits ACP's stable
+  `mcpServers` shape.
 - Agent-owned session commands when the agent advertises support:
   `session/list`, `session/load`, `session/resume`, and `session/close`.
 - Agent-owned logout when the agent advertises support.
@@ -93,7 +100,9 @@ Unsupported ACP behavior fails closed with a status update, protocol error, or
 command failure:
 
 - Remote, Streamable HTTP, WebSocket, or custom ACP transports.
-- MCP-over-ACP server injection.
+- A `thndrs`-provided MCP self-proxy.
+- ACP agents choosing arbitrary MCP servers outside the effective `thndrs` MCP
+  config.
 - ACP registry install or update.
 - `thndrs` acting as an ACP agent server.
 - Client-owned ACP credential storage.
@@ -119,8 +128,8 @@ Inspect one agent:
 thndrs acp inspect codex
 ```
 
-This prints enabled status, redacted command details, environment variable
-names, timeout, and config source.
+This prints enabled status, the redacted command display, argv entries,
+environment variable names without values, timeout, and config source.
 
 Smoke test one agent without opening the TUI:
 
@@ -132,6 +141,10 @@ The smoke command initializes the agent, creates a temporary external ACP
 session for the selected workspace, sends one prompt, prints streamed events,
 and exits. If an agent requests permission during a smoke run, the request is
 printed and cancelled.
+
+Typical smoke output includes startup status rows, any stderr diagnostics,
+agent info, the external ACP session id, streamed assistant text, and
+`finished` on success.
 
 Agent-owned auth and sessions are available through:
 
@@ -146,6 +159,10 @@ thndrs acp close-session codex <session-id>
 These commands fail when the agent does not advertise the corresponding ACP
 capability.
 
+`list-sessions` prints tab-separated `session-id`, `cwd`, `title`, and
+`updated-at` fields. `load-session` prints replayed updates, then
+`loaded: <agent> <session-id>` and the `acp_session` metadata line.
+
 ## Troubleshooting
 
 `ACP agent '<name>' is not configured`: add `[acp_agents.<name>]` to the
@@ -156,6 +173,10 @@ entry.
 
 `command is required`: set `command` in the agent table. `args` cannot replace
 `command`.
+
+`secret-shaped key 'acp_agents.<name>.env.<KEY>' is not allowed`: remove the
+credential from TOML. Use the parent process environment, the agent's own auth
+flow, or a wrapper command.
 
 Spawn or command-not-found errors: use an absolute executable path or ensure the
 command is on the `PATH` used to launch `thndrs`.

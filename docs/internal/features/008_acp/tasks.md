@@ -326,8 +326,6 @@ session ids in the existing `acp_session` record.
 ## M16: ACP Registry
 
 - [x] Decide whether registry discovery belongs in core `thndrs` or docs only.
-- [ ] Confirm local ACP config/docs path is stable before enabling core
-      registry discovery.
 - [ ] Fetch or read registry metadata from a stable source.
 - [ ] Show available agents without installing them automatically.
 - [ ] Design command provenance, package-manager behavior, and security review

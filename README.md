@@ -57,9 +57,11 @@ Precedence is CLI flags over `THNDRS_` environment variables over project config
 over global config over built-in defaults.
 
 Supported config keys are `model`, `websearch`, `tick_rate_ms`, `theme`,
-`mouse`, `verbose`, `skill_dirs`, `session_dir`, and `default_workspace`.
-Provider secrets stay out of TOML; set `UMANS_API_KEY` or `OPENCODE_GO_KEY` in
-the environment or workspace `.env` file.
+`mouse`, `verbose`, `skill_dirs`, `session_dir`, `default_workspace`, and
+`acp_agents`. Provider secrets stay out of TOML; set `UMANS_API_KEY` or
+`OPENCODE_GO_KEY` in the environment or workspace `.env` file. External ACP
+agents are configured under `[acp_agents.<name>]`; see the ACP usage docs for
+agent-specific auth and environment policy.
 
 Example:
 

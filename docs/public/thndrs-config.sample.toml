@@ -14,9 +14,13 @@ session_dir = ".thndrs/sessions"
 default_workspace = "."
 
 # External ACP agents are selected with --model acp:<name>.
+# Keep credentials out of TOML. Use agent-owned auth, parent process
+# environment, or a wrapper command for secrets.
 # [acp_agents.codex]
 # command = "npx"
 # args = ["-y", "@zed-industries/codex-acp@latest"]
+# env is for non-secret child process settings; values are redacted in
+# diagnostics and session metadata.
 # env = {}
 # enabled = true
 # timeout_secs = 60

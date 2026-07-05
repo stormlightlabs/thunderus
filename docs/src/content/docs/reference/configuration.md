@@ -13,8 +13,8 @@ Precedence, from highest to lowest:
 4. Global config.
 5. Built-in defaults.
 
-Secrets are provider-owned environment variables. Do not put API keys, tokens,
-passwords, or secret values in TOML config.
+Secrets are provider- or agent-owned environment variables. Do not put API
+keys, tokens, passwords, or secret values in TOML config.
 
 ## Config Files
 
@@ -193,8 +193,12 @@ to `{}`, `enabled` defaults to `true`, and `timeout_secs` defaults to `60`.
 ACP currently supports stdio agents only. The command is launched as a local
 child process and must speak ACP JSON-RPC over stdin/stdout.
 
-Environment values in `env` are passed to the child process and redacted in
-diagnostics and session metadata.
+Use ACP `env` for non-secret child process settings. Values in `env` are passed
+to the child process and redacted in diagnostics and session metadata, but
+secret-shaped keys are still rejected anywhere in TOML, including under
+`acp_agents.<name>.env`. Put agent credentials in the parent process
+environment, the agent's own login/auth flow, or an explicit wrapper command
+outside `thndrs` TOML.
 
 Select a configured agent with `--model acp:<name>`. See [ACP](/usage/acp/) for
 permission prompts, supported capabilities, troubleshooting, and ACP commands.
