@@ -71,8 +71,6 @@ pub struct McpServerInfo {
 pub struct McpToolDefinition {
     /// Provider-visible namespaced tool definition.
     pub definition: ToolDefinition,
-    /// Configured MCP server name.
-    pub server_name: String,
     /// Original MCP tool name reported by the server.
     pub original_tool_name: String,
 }
@@ -236,11 +234,6 @@ impl McpSdkClient {
         Ok(sdk_call_result_to_output(namespaced_tool_name, &result))
     }
 
-    /// Close the SDK service and child process.
-    pub fn close(mut self) -> Result<(), McpSdkError> {
-        self.close_inner()
-    }
-
     fn close_inner(&mut self) -> Result<(), McpSdkError> {
         if let Some(client) = self.client.take() {
             self.runtime
@@ -347,7 +340,6 @@ pub fn sdk_tool_to_definition(server_name: &str, tool: &Tool) -> McpToolDefiniti
 
     McpToolDefinition {
         definition: ToolDefinition::new(namespaced_name, description, input_schema),
-        server_name: server_name.to_string(),
         original_tool_name,
     }
 }
@@ -454,7 +446,6 @@ mod tests {
         assert_eq!(converted.definition.name, "mcp__docs__echo");
         assert_eq!(converted.definition.description, "Echo input");
         assert_eq!(converted.definition.input_schema["type"], "object");
-        assert_eq!(converted.server_name, "docs");
         assert_eq!(converted.original_tool_name, "echo");
     }
 
@@ -521,7 +512,6 @@ mod tests {
             .call_tool("mcp__docs__echo", "echo", json!({ "text": "ok" }))
             .expect("call echo");
         assert_eq!(output, ToolOutput::ok("mcp__docs__echo", vec!["ok".to_string()]));
-        client.close().expect("close client");
     }
 
     #[test]

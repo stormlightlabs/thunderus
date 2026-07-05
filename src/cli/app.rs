@@ -8,7 +8,7 @@
 #[path = "app/tests.rs"]
 mod tests;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use serde::{Deserialize, Serialize};
@@ -440,6 +440,10 @@ pub struct App {
     /// Non-fatal config diagnostics from effective config loading. Surfaced in
     /// verbose startup rows and prompt inspection.
     pub config_diagnostics: Vec<String>,
+    /// MCP config files captured when the session audit metadata was written.
+    pub mcp_config_files: Vec<session::SessionConfigFile>,
+    /// Non-fatal MCP config diagnostics from the latest MCP config audit load.
+    pub mcp_config_diagnostics: Vec<String>,
     /// When true the loop should stop and the app exit.
     pub quit: bool,
 }
@@ -459,6 +463,7 @@ impl From<&Cli> for App {
             .clone()
             .unwrap_or_else(|| session::sessions_dir(&workspace_root));
         let session_id = session::generate_session_id();
+        let (mcp_config_files, mcp_config_diagnostics) = load_mcp_config_audit(&workspace_root);
 
         let config_meta = {
             let files: Vec<session::SessionConfigFile> = value
@@ -480,7 +485,14 @@ impl From<&Cli> for App {
                 .collect();
             let diagnostics = value.config_diagnostics.clone();
             let session_dir = Some(sessions_dir.display().to_string());
-            Some(session::SessionConfigMeta { session_dir, files, origins, diagnostics })
+            Some(session::SessionConfigMeta {
+                session_dir,
+                files,
+                origins,
+                diagnostics,
+                mcp_files: mcp_config_files.clone(),
+                mcp_diagnostics: mcp_config_diagnostics.clone(),
+            })
         };
 
         let mut session_writer = session::SessionWriter::create(
@@ -539,6 +551,8 @@ impl From<&Cli> for App {
             detail_pane: DetailPane::default(),
             pending_permission: None,
             config_diagnostics: value.config_diagnostics.clone(),
+            mcp_config_files,
+            mcp_config_diagnostics,
             quit: false,
         }
     }
@@ -578,6 +592,7 @@ impl App {
             .map(skills::SkillDiagnostic::summary)
             .collect();
         diagnostics.extend(self.config_diagnostics.iter().cloned());
+        diagnostics.extend(self.mcp_config_diagnostics.iter().cloned());
         internals::SelfKnowledgeSnapshot::new(
             internals::AppIdentitySnapshot::default(),
             runtime,
@@ -1624,15 +1639,17 @@ fn queue_running_input(app: &mut App, text: &str) {
 
 fn submit_user_turn(app: &mut App, text: String) -> Option<Msg> {
     remember_input(app, &text);
-    app.transcript.push(Entry::User { text: text.clone() });
+    let user_entry = Entry::User { text: text.clone() };
+    app.transcript.push(user_entry.clone());
     app.input.clear();
     app.history_cursor = None;
     app.history_draft.clear();
     app.last_input = Some(text);
     app.turn_count += 1;
     let turn_id = format!("turn_{}", app.turn_count);
+    refresh_mcp_config_audit(app, &turn_id);
     if let Some(ref mut writer) = app.session_writer {
-        let _ = writer.append_entry(app.transcript.last().unwrap(), &turn_id);
+        let _ = writer.append_entry(&user_entry, &turn_id);
     }
     Some(Msg::Agent(AgentEvent::Started))
 }
@@ -2170,6 +2187,63 @@ fn discard_retry_output(app: &mut App) {
     ) {
         app.transcript.pop();
     }
+}
+
+fn load_mcp_config_audit(workspace: &Path) -> (Vec<session::SessionConfigFile>, Vec<String>) {
+    let env_vars: Vec<(String, String)> = std::env::vars().collect();
+    match crate::mcp::config::load_effective_mcp(workspace, &env_vars) {
+        Ok(effective) => {
+            let files = effective
+                .layers
+                .iter()
+                .filter_map(|layer| {
+                    let path = layer.display_path.as_ref()?;
+                    Some(session::SessionConfigFile {
+                        path: path.clone(),
+                        source: layer.source.as_str().to_string(),
+                        sha256: layer.hash.clone().unwrap_or_default(),
+                    })
+                })
+                .collect();
+            (files, effective.diagnostics)
+        }
+        Err(err) => (Vec::new(), vec![format!("failed to load MCP config: {err}")]),
+    }
+}
+
+fn refresh_mcp_config_audit(app: &mut App, turn_id: &str) {
+    let (current_files, current_diagnostics) = load_mcp_config_audit(&app.cwd);
+    if app.mcp_config_files == current_files && app.mcp_config_diagnostics == current_diagnostics {
+        return;
+    }
+
+    let previous_files = std::mem::replace(&mut app.mcp_config_files, current_files.clone());
+    app.mcp_config_diagnostics = current_diagnostics.clone();
+    app.transcript
+        .push(Entry::Status { text: mcp_config_changed_status(&previous_files, &current_files) });
+    if let Some(ref mut writer) = app.session_writer {
+        let _ = writer.append_mcp_config_changed(turn_id, previous_files, current_files, current_diagnostics);
+    }
+}
+
+fn mcp_config_changed_status(
+    previous_files: &[session::SessionConfigFile], current_files: &[session::SessionConfigFile],
+) -> String {
+    let previous = config_file_hash_summary(previous_files);
+    let current = config_file_hash_summary(current_files);
+    format!("MCP config changed: {previous} -> {current}")
+}
+
+fn config_file_hash_summary(files: &[session::SessionConfigFile]) -> String {
+    if files.is_empty() {
+        return "none".to_string();
+    }
+
+    files
+        .iter()
+        .map(|file| format!("{}:{}:{}", file.source, file.path, file.sha256))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn default_user_label() -> String {

@@ -48,11 +48,6 @@ impl McpClient {
         Ok(Self { name, sdk, tools, tool_routes })
     }
 
-    /// Configured server name.
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
     /// Cached tool definitions for this server.
     pub fn tool_definitions(&self) -> Vec<ToolDefinition> {
         self.tools.iter().map(|tool| tool.definition.clone()).collect()

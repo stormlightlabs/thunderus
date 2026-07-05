@@ -307,6 +307,7 @@ fn session_record_session_meta_persists_effective_config_metadata() {
             }],
             origins,
             diagnostics: Vec::new(),
+            ..SessionConfigMeta::default()
         }),
     };
 
@@ -320,6 +321,69 @@ fn session_record_session_meta_persists_effective_config_metadata() {
     assert!(json.contains("\"session_dir\":\"/repo/custom-sessions\""));
     assert!(json.contains("\"path\":\".thndrs/config.toml\""));
     assert!(json.contains("\"model\":\"env:THNDRS_MODEL\""));
+}
+
+#[test]
+fn session_record_session_meta_persists_mcp_config_metadata() {
+    let record = SessionRecord::SessionMeta {
+        schema_version: 1,
+        seq: 0,
+        time: "2026-06-29T12:00:00Z".to_string(),
+        session_id: "test-1".to_string(),
+        cwd: "/repo".to_string(),
+        title: "scratch".to_string(),
+        provider: "umans".to_string(),
+        model: "umans-coder".to_string(),
+        websearch: "native".to_string(),
+        app_version: "0.1.0".to_string(),
+        config: Some(SessionConfigMeta {
+            mcp_files: vec![SessionConfigFile {
+                path: ".thndrs/mcp.toml".to_string(),
+                source: "project".to_string(),
+                sha256: "mcpabc123".to_string(),
+            }],
+            mcp_diagnostics: vec!["mcp server `docs` skipped: unresolved environment variable DOCS_TOKEN".to_string()],
+            ..SessionConfigMeta::default()
+        }),
+    };
+
+    let json = record.to_json().expect("serialize");
+    let restored = SessionRecord::from_json(&json).expect("deserialize");
+
+    assert_eq!(record, restored);
+    assert!(json.contains("\"mcp_files\""));
+    assert!(json.contains("\"path\":\".thndrs/mcp.toml\""));
+    assert!(json.contains("\"sha256\":\"mcpabc123\""));
+    assert!(json.contains("\"mcp_diagnostics\""));
+}
+
+#[test]
+fn session_record_json_round_trip_mcp_config_changed() {
+    let record = SessionRecord::McpConfigChanged {
+        schema_version: 1,
+        seq: 1,
+        time: "2026-06-29T12:00:00Z".to_string(),
+        turn_id: "turn_1".to_string(),
+        previous_files: vec![SessionConfigFile {
+            path: ".thndrs/mcp.toml".to_string(),
+            source: "project".to_string(),
+            sha256: "old".to_string(),
+        }],
+        current_files: vec![SessionConfigFile {
+            path: ".thndrs/mcp.toml".to_string(),
+            source: "project".to_string(),
+            sha256: "new".to_string(),
+        }],
+        diagnostics: Vec::new(),
+    };
+
+    let json = record.to_json().expect("serialize");
+    let restored = SessionRecord::from_json(&json).expect("deserialize");
+
+    assert_eq!(record, restored);
+    assert!(json.contains("\"type\":\"mcp_config_changed\""));
+    assert!(json.contains("\"previous_files\""));
+    assert!(json.contains("\"current_files\""));
 }
 
 #[test]

@@ -7,7 +7,32 @@ use crate::skills::{SkillMetadata, SkillSource};
 use crate::tools::AgentRunConfig;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::io::Write;
+use std::path::Path;
+use std::sync::Mutex;
 use std::sync::mpsc;
+
+static HOME_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+fn with_home<T>(home: &Path, f: impl FnOnce() -> T) -> T {
+    let _guard = HOME_ENV_LOCK.lock().expect("home env lock");
+    let old_home = std::env::var_os("HOME");
+
+    unsafe {
+        std::env::set_var("HOME", home);
+    }
+
+    let result = f();
+
+    unsafe {
+        if let Some(old_home) = old_home {
+            std::env::set_var("HOME", old_home);
+        } else {
+            std::env::remove_var("HOME");
+        }
+    }
+
+    result
+}
 
 fn key(code: KeyCode, modifiers: KeyModifiers) -> Msg {
     Msg::Key(KeyEvent::new(code, modifiers))
@@ -143,6 +168,105 @@ fn from_cli_writes_effective_config_metadata_to_session_meta() {
         config.origins.get("model").map(String::as_str),
         Some("env:THNDRS_MODEL")
     );
+}
+
+#[test]
+fn from_cli_writes_mcp_config_metadata_to_session_meta() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(&home).expect("create home");
+    std::fs::create_dir_all(dir.path().join(".thndrs")).expect("create thndrs dir");
+    std::fs::write(
+        dir.path().join(".thndrs").join("mcp.toml"),
+        r#"
+        [servers.docs]
+        command = "docs-mcp"
+        "#,
+    )
+    .expect("write mcp config");
+
+    let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
+    let app = with_home(&home, || App::from_cli(&cli));
+    let path = app
+        .session_writer
+        .as_ref()
+        .expect("session writer")
+        .path()
+        .to_path_buf();
+    let records = session::SessionReader::read_records(&path);
+
+    let session::SessionRecord::SessionMeta { config, .. } = &records[0] else {
+        panic!("expected first record to be session_meta");
+    };
+    let config = config.as_ref().expect("config metadata");
+    assert_eq!(config.mcp_files.len(), 1);
+    assert_eq!(config.mcp_files[0].path, ".thndrs/mcp.toml");
+    assert_eq!(config.mcp_files[0].source, "project");
+    assert!(!config.mcp_files[0].sha256.is_empty());
+}
+
+#[test]
+fn submit_user_turn_records_mcp_config_change_before_user() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(&home).expect("create home");
+    std::fs::create_dir_all(dir.path().join(".thndrs")).expect("create thndrs dir");
+    let mcp_path = dir.path().join(".thndrs").join("mcp.toml");
+    std::fs::write(
+        &mcp_path,
+        r#"
+        [servers.docs]
+        command = "docs-mcp"
+        "#,
+    )
+    .expect("write mcp config");
+
+    let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
+    let mut app = with_home(&home, || App::from_cli(&cli));
+    let previous_hash = app.mcp_config_files[0].sha256.clone();
+    std::fs::write(
+        &mcp_path,
+        r#"
+        [servers.docs]
+        command = "docs-mcp-v2"
+        "#,
+    )
+    .expect("update mcp config");
+
+    with_home(&home, || {
+        submit_user_turn(&mut app, "hello".to_string()).expect("agent start message");
+    });
+
+    assert!(
+        app.transcript
+            .iter()
+            .any(|entry| matches!(entry, Entry::Status { text } if text.starts_with("MCP config changed:")))
+    );
+
+    let path = app
+        .session_writer
+        .as_ref()
+        .expect("session writer")
+        .path()
+        .to_path_buf();
+    let records = session::SessionReader::read_records(&path);
+
+    assert!(
+        records
+            .iter()
+            .any(|record| matches!(record, session::SessionRecord::User { text, .. } if text == "hello"))
+    );
+    let change = records
+        .iter()
+        .find_map(|record| match record {
+            session::SessionRecord::McpConfigChanged { previous_files, current_files, .. } => {
+                Some((previous_files, current_files))
+            }
+            _ => None,
+        })
+        .expect("mcp config change record");
+    assert_eq!(change.0[0].sha256, previous_hash);
+    assert_ne!(change.1[0].sha256, previous_hash);
 }
 
 #[test]

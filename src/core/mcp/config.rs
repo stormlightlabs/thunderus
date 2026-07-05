@@ -66,13 +66,6 @@ impl Default for McpServerConfig {
     }
 }
 
-impl McpServerConfig {
-    /// Return a copy with secret-bearing values redacted for diagnostics.
-    pub fn redacted(&self) -> Self {
-        Self { env: redact_map_values(&self.env), headers: redact_map_values(&self.headers), ..self.clone() }
-    }
-}
-
 /// MCP server map keyed by configured server name.
 pub type McpServersConfig = BTreeMap<String, McpServerConfig>;
 
@@ -89,17 +82,6 @@ impl McpConfig {
     pub fn merge(mut self, other: McpConfig) -> Self {
         self.servers.extend(other.servers);
         self
-    }
-
-    /// Return a copy with server env/header values redacted.
-    pub fn redacted(&self) -> Self {
-        Self {
-            servers: self
-                .servers
-                .iter()
-                .map(|(name, server)| (name.clone(), server.redacted()))
-                .collect(),
-        }
     }
 }
 
@@ -118,8 +100,6 @@ pub struct EffectiveMcpConfig {
 #[derive(Clone, Debug)]
 pub struct LoadedMcpConfigLayer {
     pub source: ConfigSource,
-    pub config: McpConfig,
-    pub path: Option<PathBuf>,
     /// Redacted path label safe for diagnostics and metadata.
     pub display_path: Option<String>,
     /// Lowercase hex SHA-256 of file bytes.
@@ -153,8 +133,6 @@ pub fn load_effective_mcp(workspace: &Path, env_vars: &[(String, String)]) -> Re
         let display_path = mcp_global_path_display(&global_path);
         layers.push(LoadedMcpConfigLayer {
             source: ConfigSource::GlobalFile,
-            config: global_config.redacted(),
-            path: Some(global_path),
             display_path: Some(display_path),
             hash: Some(hash),
         });
@@ -167,8 +145,6 @@ pub fn load_effective_mcp(workspace: &Path, env_vars: &[(String, String)]) -> Re
         let display_path = mcp_project_path_display(&project_path, workspace);
         layers.push(LoadedMcpConfigLayer {
             source: ConfigSource::ProjectFile,
-            config: project_config.redacted(),
-            path: Some(project_path),
             display_path: Some(display_path),
             hash: Some(hash),
         });
@@ -311,13 +287,6 @@ fn expand_value(value: &str, env: &BTreeMap<String, String>, missing: &mut BTree
 
     expanded.push_str(rest);
     expanded
-}
-
-fn redact_map_values(values: &BTreeMap<String, String>) -> BTreeMap<String, String> {
-    values
-        .keys()
-        .map(|key| (key.clone(), "[redacted]".to_string()))
-        .collect()
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -559,7 +528,7 @@ mod tests {
     }
 
     #[test]
-    fn redacts_env_and_headers_in_loaded_layers() {
+    fn loaded_layers_record_only_safe_file_metadata() {
         let tmp = tempfile::tempdir().unwrap();
         let home = tmp.path().join("home");
         fs::create_dir_all(home.join(".thndrs")).unwrap();
@@ -578,15 +547,15 @@ mod tests {
         .unwrap();
 
         let effective = with_home(&home, || load_effective_mcp(&workspace, &[]).unwrap());
-        let redacted = &effective.layers[0].config.servers["web"];
 
         assert_eq!(effective.config.servers["web"].env["TOKEN"], "env-secret");
         assert_eq!(
             effective.config.servers["web"].headers["Authorization"],
             "Bearer header-secret"
         );
-        assert_eq!(redacted.env["TOKEN"], "[redacted]");
-        assert_eq!(redacted.headers["Authorization"], "[redacted]");
+        assert_eq!(effective.layers[0].source, ConfigSource::ProjectFile);
+        assert_eq!(effective.layers[0].display_path.as_deref(), Some(".thndrs/mcp.toml"));
+        assert!(effective.layers[0].hash.is_some());
     }
 
     #[test]

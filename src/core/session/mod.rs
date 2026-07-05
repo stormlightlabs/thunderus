@@ -22,6 +22,7 @@
 //! - `usage`: provider token usage increments.
 //! - `tool_started`: tool call id, name, input, optional MCP metadata.
 //! - `tool_finished`: tool call id, status, output, optional MCP metadata.
+//! - `mcp_config_changed`: MCP config file hashes changed during a session.
 //! - `file_write`: file write audit (op, path, before/after hash+bytes, status).
 //! - `cancelled`: turn id and reason.
 //! - `failed`: turn id and error message.
@@ -73,6 +74,12 @@ pub struct SessionConfigMeta {
     /// Non-fatal config diagnostics.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub diagnostics: Vec<String>,
+    /// Loaded MCP config files with source, display path, and SHA-256 hash.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mcp_files: Vec<SessionConfigFile>,
+    /// Non-fatal MCP config diagnostics.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mcp_diagnostics: Vec<String>,
 }
 
 /// A loaded config file recorded in session metadata.
@@ -262,6 +269,21 @@ pub enum SessionRecord {
         after_bytes: usize,
         status: ToolStatus,
     },
+    /// MCP configuration changed after the session was created.
+    ///
+    /// Records only file paths, sources, hashes, and loader diagnostics; raw
+    /// MCP server command, env, and header values are not persisted here.
+    #[serde(rename = "mcp_config_changed")]
+    McpConfigChanged {
+        schema_version: u32,
+        seq: u64,
+        time: String,
+        turn_id: String,
+        previous_files: Vec<SessionConfigFile>,
+        current_files: Vec<SessionConfigFile>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        diagnostics: Vec<String>,
+    },
     /// A shell command execution completed.
     ///
     /// Records the command argv, working directory, lifecycle status, exit
@@ -357,6 +379,7 @@ impl SessionRecord {
             | SessionRecord::AcpSession { seq, .. }
             | SessionRecord::SessionRenamed { seq, .. }
             | SessionRecord::FileWrite { seq, .. }
+            | SessionRecord::McpConfigChanged { seq, .. }
             | SessionRecord::ShellExec { seq, .. }
             | SessionRecord::SkillActivated { seq, .. }
             | SessionRecord::QueuedInput { seq, .. }
@@ -454,6 +477,7 @@ impl SessionRecord {
             SessionRecord::FileWrite { op, path, status, .. } => {
                 Some(Entry::Status { text: format!("{} {}: {path}", status.icon(), op.label()) })
             }
+            SessionRecord::McpConfigChanged { .. } => None,
             SessionRecord::ShellExec { command, process_status, elapsed_ms, .. } => {
                 Some(Entry::Status { text: format!("shell {process_status}: {command} ({elapsed_ms}ms)") })
             }
@@ -837,6 +861,28 @@ impl SessionWriter {
         Ok(())
     }
 
+    /// Append an audit record when MCP config file hashes change mid-session.
+    pub fn append_mcp_config_changed(
+        &mut self, turn_id: &str, previous_files: Vec<SessionConfigFile>, current_files: Vec<SessionConfigFile>,
+        diagnostics: Vec<String>,
+    ) -> std::io::Result<()> {
+        let record = SessionRecord::McpConfigChanged {
+            schema_version: SCHEMA_VERSION,
+            seq: self.seq,
+            time: datetime::now_iso8601(),
+            turn_id: turn_id.to_string(),
+            previous_files,
+            current_files,
+            diagnostics,
+        };
+        self.seq += 1;
+        let line = record.to_json().map_err(io_err)?;
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new().append(true).open(&self.path)?;
+        writeln!(file, "{line}")?;
+        Ok(())
+    }
+
     /// Append a shell-execution audit record.
     ///
     /// Records the command argv, working directory, lifecycle status, exit
@@ -1203,6 +1249,7 @@ fn set_seq(record: &mut SessionRecord, seq: u64) {
         | SessionRecord::AcpSession { seq: s, .. }
         | SessionRecord::SessionRenamed { seq: s, .. }
         | SessionRecord::FileWrite { seq: s, .. }
+        | SessionRecord::McpConfigChanged { seq: s, .. }
         | SessionRecord::ShellExec { seq: s, .. }
         | SessionRecord::SkillActivated { seq: s, .. }
         | SessionRecord::QueuedInput { seq: s, .. }
