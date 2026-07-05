@@ -1238,6 +1238,36 @@ fn append_file_write_persists_metadata() {
 }
 
 #[test]
+fn registry_write_side_effect_persists_to_session_record() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let workspace = dir.path().join("workspace");
+    std::fs::create_dir(&workspace).expect("create workspace");
+    let sessions = dir.path().join("sessions");
+    std::fs::create_dir(&sessions).expect("create sessions");
+
+    let request = tools::ToolUseRequest::new(
+        "write_patch".to_string(),
+        r#"{"op":"create","path":"audit.txt","content":"hello\n"}"#.to_string(),
+        "call_1".to_string(),
+    );
+    let (output, write_result, shell_result) = tools::dispatch_full(&request, &workspace);
+    let write_result = write_result.expect("registry write should return audit metadata");
+    assert_eq!(output.status, ToolStatus::Ok);
+    assert!(shell_result.is_none());
+
+    let mut writer = test_writer(&sessions, "registry-fw-session");
+    writer
+        .append_file_write("turn_1", &write_result, output.status)
+        .expect("append file write");
+
+    let content = std::fs::read_to_string(writer.path()).expect("read session");
+    assert!(content.contains("\"type\":\"file_write\""));
+    assert!(content.contains("\"create\""));
+    assert!(content.contains("audit.txt"));
+    assert!(content.contains("\"Ok\""));
+}
+
+#[test]
 fn append_file_write_persists_before_and_after_for_edit() {
     let dir = tempfile::tempdir().expect("temp dir");
     let mut writer = test_writer(dir.path(), "fw-edit-session");

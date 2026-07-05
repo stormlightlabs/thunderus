@@ -21,11 +21,13 @@ mod find_files;
 mod list_searchable_files;
 mod path;
 mod read_file_range;
+mod read_url;
 mod registry;
 mod replace_range;
 mod sawk;
 mod search_text;
 mod subproc;
+mod web_search;
 mod write_patch;
 
 use std::path::{Path, PathBuf};

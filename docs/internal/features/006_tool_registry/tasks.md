@@ -42,22 +42,22 @@ Captured: 2026-07-04
 
 ## P3: Move Search And URL Tools
 
-- [ ] Move `web_search` schema into the search tool boundary.
-- [ ] Move `read_url` schema into the URL-read tool boundary.
-- [ ] Preserve network/public URL safety checks.
-- [ ] Preserve output caps and truncation metadata.
-- [ ] Add registry execution tests for success and safety failures.
+- [x] Move `web_search` schema into the search tool boundary.
+- [x] Move `read_url` schema into the URL-read tool boundary.
+- [x] Preserve network/public URL safety checks.
+- [x] Preserve output caps and truncation metadata.
+- [x] Add registry execution tests for success and safety failures.
 
 ## P4: Move Write Tools
 
-- [ ] Move `create_file` schema into its module.
-- [ ] Move `replace_range` schema into its module.
-- [ ] Move `write_patch` schema into its module.
-- [ ] Preserve hash guards and atomic failure behavior.
-- [ ] Preserve `WriteResult` side effect metadata.
-- [ ] Add registry execution tests for successful writes.
-- [ ] Add registry execution tests for stale hashes and path escapes.
-- [ ] Add session tests proving write side effects are recorded.
+- [x] Move `create_file` schema into its module.
+- [x] Move `replace_range` schema into its module.
+- [x] Move `write_patch` schema into its module.
+- [x] Preserve hash guards and atomic failure behavior.
+- [x] Preserve `WriteResult` side effect metadata.
+- [x] Add registry execution tests for successful writes.
+- [x] Add registry execution tests for stale hashes and path escapes.
+- [x] Add session tests proving write side effects are recorded.
 
 ## P5: Move Shell Tool
 

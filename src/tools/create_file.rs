@@ -5,7 +5,17 @@
 
 use std::path::Path;
 
-use super::{ToolOutput, WriteOp, WriteResult, hash_content, path};
+use super::{ToolDefinition, ToolOutput, ToolUseRequest, WriteOp, WriteResult, hash_content, path};
+use crate::tools::registry::{ToolContext, ToolError, ToolExecution};
+
+const NAME: &str = "create_file";
+
+/// Parsed provider input for `create_file`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CreateFileInput {
+    path: String,
+    content: String,
+}
 
 /// Create a new file at `path` (relative to `root`) with the given `content`.
 ///
@@ -57,6 +67,56 @@ pub fn exec(path_str: &str, root: &Path, content: &str) -> (ToolOutput, Option<W
     };
 
     (ToolOutput::ok("create_file", vec![result.summary()]), Some(result))
+}
+
+/// Provider-visible definition for `create_file`.
+pub fn definition() -> ToolDefinition {
+    ToolDefinition {
+        name: NAME,
+        description: r#"create_file
+
+Create a new file with the given content.
+
+Use this for direct new-file writes. Prefer write_patch op=create when doing a
+mixed edit. Fails if the file exists. Paths are contained to the workspace root;
+escapes are rejected. Parent directories are created if needed."#,
+        input_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string", "description": "Path relative to the workspace root." },
+                "content": { "type": "string", "description": "The full file content to write." }
+            },
+            "required": ["path", "content"]
+        }),
+    }
+}
+
+/// Parse provider JSON arguments for `create_file`.
+pub fn parse_arguments(arguments: &str) -> Result<CreateFileInput, ToolError> {
+    let args = serde_json::from_str::<serde_json::Value>(arguments).unwrap_or(serde_json::Value::Null);
+    Ok(CreateFileInput {
+        path: args
+            .get("path")
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
+            .to_string(),
+        content: args
+            .get("content")
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
+            .to_string(),
+    })
+}
+
+/// Execute a registry request for `create_file`.
+pub fn execute_request(request: &ToolUseRequest, ctx: ToolContext<'_>) -> ToolExecution {
+    match parse_arguments(&request.arguments) {
+        Ok(input) => {
+            let (output, write_result) = exec(&input.path, ctx.root, &input.content);
+            ToolExecution::full(output, write_result, None)
+        }
+        Err(error) => ToolExecution::output(ToolOutput::failed(NAME, error.to_string())),
+    }
 }
 
 #[cfg(test)]
@@ -147,5 +207,53 @@ mod tests {
 
         let written = std::fs::read_to_string(root.join("empty.txt")).expect("read file");
         assert!(written.is_empty());
+    }
+
+    #[test]
+    fn parse_arguments_reads_path_and_content() {
+        let input = parse_arguments(r#"{"path":"a.txt","content":"hello"}"#).expect("parse");
+        assert_eq!(
+            input,
+            CreateFileInput { path: "a.txt".to_string(), content: "hello".to_string() }
+        );
+    }
+
+    #[test]
+    fn registry_execute_creates_file_with_write_result() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let request = crate::tools::ToolUseRequest::new(
+            "create_file".to_string(),
+            r#"{"path":"created.txt","content":"hello\n"}"#.to_string(),
+            "call_1".to_string(),
+        );
+
+        let execution = crate::tools::registry::execute(&request, crate::tools::registry::ToolContext::new(dir.path()));
+
+        assert_eq!(execution.output.status, ToolStatus::Ok);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("created.txt")).expect("read"),
+            "hello\n"
+        );
+        assert_eq!(
+            execution.write_result.as_ref().map(|result| result.op),
+            Some(WriteOp::Create)
+        );
+    }
+
+    #[test]
+    fn registry_execute_rejects_path_escape() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let outside = dir.path().parent().unwrap().join("escape.txt");
+        let request = crate::tools::ToolUseRequest::new(
+            "create_file".to_string(),
+            format!(r#"{{"path":"{}","content":"nope"}}"#, outside.display()),
+            "call_1".to_string(),
+        );
+
+        let execution = crate::tools::registry::execute(&request, crate::tools::registry::ToolContext::new(dir.path()));
+
+        assert_eq!(execution.output.status, ToolStatus::Failed);
+        assert!(execution.write_result.is_none());
+        assert!(!outside.exists());
     }
 }

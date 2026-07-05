@@ -13,7 +13,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use super::{ToolOutput, WriteOp, WriteResult, hash_content, path};
+use super::{ToolDefinition, ToolOutput, ToolUseRequest, WriteOp, WriteResult, hash_content, path};
+use crate::tools::registry::{ToolContext, ToolError, ToolExecution};
 use crate::utils;
 
 static FILE_LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
@@ -21,6 +22,7 @@ static FILE_LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock:
 const DIFF_CONTEXT_LINES: usize = 3;
 const MAX_DIFF_LINES: usize = 120;
 const NO_MATCH_PREVIEW_LINES: usize = 20;
+const NAME: &str = "replace_range";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum LineEnding {
@@ -41,6 +43,15 @@ pub struct Replacement {
     pub old_string: String,
     /// Replacement text to write at the matched location.
     pub new_string: String,
+}
+
+/// Parsed provider input for `replace_range`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReplaceRangeInput {
+    path: String,
+    old_string: String,
+    new_string: String,
+    expected_before_hash: Option<u64>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -94,6 +105,65 @@ pub fn exec_many(
     with_file_lock(&resolved, || {
         exec_many_locked(path_str, &resolved, replacements, expected_before_hash)
     })
+}
+
+/// Provider-visible definition for `replace_range`.
+pub fn definition() -> ToolDefinition {
+    ToolDefinition {
+        name: NAME,
+        description: r#"replace_range
+
+Replace a unique exact string occurrence in an existing file.
+
+Use this for direct small edits. Prefer write_patch op=edit when doing a mixed
+edit. old_string must match exactly and once; include surrounding context for
+uniqueness. Paths are contained to the root; failed edits leave files unchanged."#,
+        input_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string", "description": "Path relative to the workspace root." },
+                "old_string": { "type": "string", "description": "The exact string to find. Must appear exactly once." },
+                "new_string": { "type": "string", "description": "The replacement string." },
+                "expected_before_hash": { "type": "integer", "description": "Optional current-content hash guard." }
+            },
+            "required": ["path", "old_string", "new_string"]
+        }),
+    }
+}
+
+/// Parse provider JSON arguments for `replace_range`.
+pub fn parse_arguments(arguments: &str) -> Result<ReplaceRangeInput, ToolError> {
+    let args = serde_json::from_str::<serde_json::Value>(arguments).unwrap_or(serde_json::Value::Null);
+    Ok(ReplaceRangeInput {
+        path: args
+            .get("path")
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
+            .to_string(),
+        old_string: args
+            .get("old_string")
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
+            .to_string(),
+        new_string: args
+            .get("new_string")
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
+            .to_string(),
+        expected_before_hash: args.get("expected_before_hash").and_then(|value| value.as_u64()),
+    })
+}
+
+/// Execute a registry request for `replace_range`.
+pub fn execute_request(request: &ToolUseRequest, ctx: ToolContext<'_>) -> ToolExecution {
+    match parse_arguments(&request.arguments) {
+        Ok(input) => {
+            let replacements = [Replacement { old_string: input.old_string, new_string: input.new_string }];
+            let (output, write_result) = exec_many(&input.path, ctx.root, &replacements, input.expected_before_hash);
+            ToolExecution::full(output, write_result, None)
+        }
+        Err(error) => ToolExecution::output(ToolOutput::failed(NAME, error.to_string())),
+    }
 }
 
 fn exec_many_locked(
@@ -559,6 +629,65 @@ mod tests {
         assert!(result.is_none());
         assert!(output.error.as_ref().is_some_and(|e| e.contains("stale file")));
         assert_eq!(std::fs::read_to_string(&file).expect("read"), "hello\n");
+    }
+
+    #[test]
+    fn parse_arguments_reads_hash_guard() {
+        let input =
+            parse_arguments(r#"{"path":"file.txt","old_string":"hello","new_string":"hi","expected_before_hash":7}"#)
+                .expect("parse");
+        assert_eq!(
+            input,
+            ReplaceRangeInput {
+                path: "file.txt".to_string(),
+                old_string: "hello".to_string(),
+                new_string: "hi".to_string(),
+                expected_before_hash: Some(7),
+            }
+        );
+    }
+
+    #[test]
+    fn registry_execute_replaces_text_with_write_result() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        std::fs::write(dir.path().join("file.txt"), "hello\n").expect("write");
+        let request = crate::tools::ToolUseRequest::new(
+            "replace_range".to_string(),
+            r#"{"path":"file.txt","old_string":"hello","new_string":"hi"}"#.to_string(),
+            "call_1".to_string(),
+        );
+
+        let execution = crate::tools::registry::execute(&request, crate::tools::registry::ToolContext::new(dir.path()));
+
+        assert_eq!(execution.output.status, ToolStatus::Ok);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("file.txt")).expect("read"),
+            "hi\n"
+        );
+        assert_eq!(
+            execution.write_result.as_ref().map(|result| result.op),
+            Some(WriteOp::Edit)
+        );
+    }
+
+    #[test]
+    fn registry_execute_rejects_stale_hash() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        std::fs::write(dir.path().join("file.txt"), "hello\n").expect("write");
+        let request = crate::tools::ToolUseRequest::new(
+            "replace_range".to_string(),
+            r#"{"path":"file.txt","old_string":"hello","new_string":"hi","expected_before_hash":7}"#.to_string(),
+            "call_1".to_string(),
+        );
+
+        let execution = crate::tools::registry::execute(&request, crate::tools::registry::ToolContext::new(dir.path()));
+
+        assert_eq!(execution.output.status, ToolStatus::Failed);
+        assert!(execution.write_result.is_none());
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("file.txt")).expect("read"),
+            "hello\n"
+        );
     }
 
     #[test]

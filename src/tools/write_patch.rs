@@ -10,8 +10,11 @@
 
 use std::path::Path;
 
-use super::{ToolOutput, WriteOp, WriteResult, create_file, path, replace_range};
+use super::{ToolDefinition, ToolOutput, ToolUseRequest, WriteOp, WriteResult, create_file, path, replace_range};
+use crate::tools::registry::{ToolContext, ToolExecution};
 use replace_range::Replacement;
+
+const NAME: &str = "write_patch";
 
 /// A structured patch describing a single file write operation.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -95,6 +98,55 @@ pub fn exec(patch: &Patch, root: &Path) -> (ToolOutput, Option<WriteResult>) {
         Patch::Edit { path, edits, expected_before_hash } => {
             replace_range::exec_many(path, root, edits, *expected_before_hash)
         }
+    }
+}
+
+/// Provider-visible definition for `write_patch`.
+pub fn definition() -> ToolDefinition {
+    ToolDefinition {
+        name: NAME,
+        description: r#"write_patch
+
+Apply a structured patch to create, replace, or edit a file.
+
+Use this as the preferred file-write tool. Set op=create for new files, op=edit
+for exact replacements, or op=replace only for intentional whole-file rewrites.
+Supports multi-edit arrays and stale hash guards. Paths are contained; failures leave files unchanged."#,
+        input_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "op": { "type": "string", "enum": ["create", "replace", "edit"], "description": "The patch operation." },
+                "path": { "type": "string", "description": "Path relative to the workspace root." },
+                "content": { "type": "string", "description": "Full file content for create/replace ops." },
+                "old_string": { "type": "string", "description": "The exact string to find for legacy single edit ops." },
+                "new_string": { "type": "string", "description": "The replacement string for legacy single edit ops." },
+                "edits": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "old_string": { "type": "string" },
+                            "new_string": { "type": "string" }
+                        },
+                        "required": ["old_string", "new_string"]
+                    },
+                    "description": "Multiple disjoint replacements for edit ops; all match the original file."
+                },
+                "expected_before_hash": { "type": "integer", "description": "Optional current-content hash guard for edit/replace ops." }
+            },
+            "required": ["op", "path"]
+        }),
+    }
+}
+
+/// Execute a registry request for `write_patch`.
+pub fn execute_request(request: &ToolUseRequest, ctx: ToolContext<'_>) -> ToolExecution {
+    match Patch::from_json(&request.arguments) {
+        Ok(patch) => {
+            let (output, write_result) = exec(&patch, ctx.root);
+            ToolExecution::full(output, write_result, None)
+        }
+        Err(error) => ToolExecution::output(ToolOutput::failed(NAME, error)),
     }
 }
 
@@ -412,5 +464,64 @@ mod tests {
                 .as_ref()
                 .is_some_and(|e| e.contains("escapes workspace root"))
         );
+    }
+
+    #[test]
+    fn registry_execute_create_returns_write_result() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let request = crate::tools::ToolUseRequest::new(
+            "write_patch".to_string(),
+            r#"{"op":"create","path":"file.txt","content":"hello\n"}"#.to_string(),
+            "call_1".to_string(),
+        );
+
+        let execution = crate::tools::registry::execute(&request, crate::tools::registry::ToolContext::new(dir.path()));
+
+        assert_eq!(execution.output.status, ToolStatus::Ok);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("file.txt")).expect("read"),
+            "hello\n"
+        );
+        assert_eq!(
+            execution.write_result.as_ref().map(|result| result.op),
+            Some(WriteOp::Create)
+        );
+    }
+
+    #[test]
+    fn registry_execute_replace_rejects_stale_hash() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        std::fs::write(dir.path().join("file.txt"), "old\n").expect("write");
+        let request = crate::tools::ToolUseRequest::new(
+            "write_patch".to_string(),
+            r#"{"op":"replace","path":"file.txt","content":"new\n","expected_before_hash":7}"#.to_string(),
+            "call_1".to_string(),
+        );
+
+        let execution = crate::tools::registry::execute(&request, crate::tools::registry::ToolContext::new(dir.path()));
+
+        assert_eq!(execution.output.status, ToolStatus::Failed);
+        assert!(execution.write_result.is_none());
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("file.txt")).expect("read"),
+            "old\n"
+        );
+    }
+
+    #[test]
+    fn registry_execute_rejects_path_escape() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let outside = dir.path().parent().unwrap().join("escape.txt");
+        let request = crate::tools::ToolUseRequest::new(
+            "write_patch".to_string(),
+            format!(r#"{{"op":"replace","path":"{}","content":"nope"}}"#, outside.display()),
+            "call_1".to_string(),
+        );
+
+        let execution = crate::tools::registry::execute(&request, crate::tools::registry::ToolContext::new(dir.path()));
+
+        assert_eq!(execution.output.status, ToolStatus::Failed);
+        assert!(execution.write_result.is_none());
+        assert!(!outside.exists());
     }
 }
