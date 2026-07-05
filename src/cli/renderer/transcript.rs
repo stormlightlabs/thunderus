@@ -6,8 +6,8 @@
 
 use std::path::Path;
 
-use crate::app::{Entry, ToolStatus};
-use crate::internals::StartupSection;
+use crate::app::{App, Entry, ToolStatus};
+use crate::internals::{self, StartupSection};
 use crate::renderer::row::Row;
 use crate::renderer::style::{CellStyle, Color, Span};
 use crate::{renderer, utils};
@@ -126,8 +126,8 @@ pub fn banner_rows(app: &crate::app::App, width: usize) -> Vec<Row> {
 }
 
 fn push_startup_workbench(
-    rows: &mut Vec<Row>, snapshot: &crate::internals::SelfKnowledgeSnapshot, sections: &[StartupSection],
-    app: &crate::app::App, theme: StartupBannerTheme,
+    rows: &mut Vec<Row>, snapshot: &internals::SelfKnowledgeSnapshot, sections: &[StartupSection], app: &App,
+    theme: StartupBannerTheme,
 ) {
     push_rail_marker_row(rows, "workbench", theme);
     let body_width = theme.body_width();
@@ -139,8 +139,8 @@ fn push_startup_workbench(
 }
 
 fn push_wide_startup_workbench(
-    rows: &mut Vec<Row>, snapshot: &crate::internals::SelfKnowledgeSnapshot, sections: &[StartupSection],
-    app: &crate::app::App, theme: StartupBannerTheme,
+    rows: &mut Vec<Row>, snapshot: &internals::SelfKnowledgeSnapshot, sections: &[StartupSection], app: &App,
+    theme: StartupBannerTheme,
 ) {
     let body_width = theme.body_width();
     let gap_width = 3usize;
@@ -176,8 +176,8 @@ fn push_wide_startup_workbench(
 }
 
 fn push_narrow_startup_workbench(
-    rows: &mut Vec<Row>, snapshot: &crate::internals::SelfKnowledgeSnapshot, sections: &[StartupSection],
-    app: &crate::app::App, theme: StartupBannerTheme,
+    rows: &mut Vec<Row>, snapshot: &internals::SelfKnowledgeSnapshot, sections: &[StartupSection], app: &App,
+    theme: StartupBannerTheme,
 ) {
     push_rail_text_row(rows, "  system", theme, theme.heading_style);
     push_rail_text_row(

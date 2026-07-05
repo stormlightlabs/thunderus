@@ -3,8 +3,8 @@
 use std::path::PathBuf;
 
 use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, parser::ValueSource};
-use thndrs_core::cli::WebSearchMode;
-use thndrs_core::{
+use thndrs_lib::cli::WebSearchMode;
+use thndrs_lib::{
     config,
     server::{self, ServerConfig},
 };

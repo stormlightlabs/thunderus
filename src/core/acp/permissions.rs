@@ -24,7 +24,7 @@ pub struct PendingPermission {
     pub options: Vec<PermissionOptionView>,
     /// Currently selected option index.
     pub selected: usize,
-    pub(crate) responder: Sender<PermissionDecision>,
+    pub responder: Sender<PermissionDecision>,
 }
 
 impl PendingPermission {

@@ -1,8 +1,9 @@
 use std::path::{Path, PathBuf};
 
-use crate::app::{Entry, ToolStatus};
+use crate::app::{App, Entry, ToolStatus};
+use crate::context::ContextSource;
 use crate::renderer::{self, row};
-use crate::skills;
+use crate::skills::{self, SkillDiagnostic};
 
 use super::{TranscriptRowContext, banner_rows, entry_rows, startup_loaded_skill_lines};
 
@@ -16,7 +17,7 @@ fn render_entry_styled(entry: &Entry, width: usize) -> String {
     frame.render_styled()
 }
 
-fn render_banner_styled(app: &crate::app::App, width: usize) -> String {
+fn render_banner_styled(app: &App, width: usize) -> String {
     let rows = banner_rows(app, width);
     let frame = row::Frame { rows, width, cursor: None, cursor_visible: true };
     frame.render_styled()
@@ -28,10 +29,10 @@ fn assert_snapshot(name: &str, contents: &str) {
     });
 }
 
-fn test_app() -> crate::app::App {
+fn test_app() -> App {
     use crate::cli::{Cli, Theme, WebSearchMode};
 
-    let mut app = crate::app::App::from_cli(&Cli {
+    let mut app = App::from_cli(&Cli {
         cwd: PathBuf::from("."),
         model: "test-model".to_string(),
         websearch: WebSearchMode::Native,
@@ -356,7 +357,7 @@ fn snapshot_startup_banner_narrow() {
 #[test]
 fn snapshot_startup_banner_with_context_and_diagnostics() {
     let mut app = test_app();
-    app.context_sources = vec![crate::context::ContextSource {
+    app.context_sources = vec![ContextSource {
         path: app.cwd.join("AGENTS.md"),
         scope: ".".to_string(),
         content: "# Project".to_string(),
@@ -364,7 +365,7 @@ fn snapshot_startup_banner_with_context_and_diagnostics() {
         truncated: false,
         byte_count: 9,
     }];
-    app.skill_diagnostics = vec![crate::skills::SkillDiagnostic {
+    app.skill_diagnostics = vec![SkillDiagnostic {
         path: std::path::PathBuf::from("/Users/test/.thndrs/skills/bad/SKILL.md"),
         message: "invalid YAML frontmatter".to_string(),
     }];
@@ -377,7 +378,7 @@ fn snapshot_startup_banner_with_context_and_diagnostics() {
 #[test]
 fn banner_context_section_shows_agents_md_not_full_path() {
     let mut app = test_app();
-    app.context_sources = vec![crate::context::ContextSource {
+    app.context_sources = vec![ContextSource {
         path: app.cwd.join("AGENTS.md"),
         scope: ".".to_string(),
         content: "# Project".to_string(),
@@ -397,7 +398,7 @@ fn banner_context_section_shows_agents_md_not_full_path() {
 #[test]
 fn banner_context_section_shows_truncation() {
     let mut app = test_app();
-    app.context_sources = vec![crate::context::ContextSource {
+    app.context_sources = vec![ContextSource {
         path: app.cwd.join("AGENTS.md"),
         scope: ".".to_string(),
         content: "# Project".to_string(),
@@ -456,7 +457,7 @@ fn banner_diagnostics_section_shortens_home_paths() {
 #[test]
 fn banner_no_duplicate_context_loaded_status_entry() {
     let mut app = test_app();
-    app.context_sources = vec![crate::context::ContextSource {
+    app.context_sources = vec![ContextSource {
         path: app.cwd.join("AGENTS.md"),
         scope: ".".to_string(),
         content: "# Project".to_string(),

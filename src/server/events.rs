@@ -193,12 +193,12 @@ pub fn map_agent_event(event: &AgentEvent) -> Vec<SessionUpdateIntent> {
 fn infer_tool_kind_from_result(
     write_result: Option<&WriteResult>, shell_result: Option<&ProcessResult>,
 ) -> ToolCallKind {
-    if write_result.is_some() {
-        ToolCallKind::Edit
-    } else if shell_result.is_some() {
-        ToolCallKind::Execute
-    } else {
-        ToolCallKind::Other
+    match write_result {
+        Some(_) => ToolCallKind::Edit,
+        None => match shell_result {
+            Some(_) => ToolCallKind::Execute,
+            None => ToolCallKind::Other,
+        },
     }
 }
 
@@ -368,7 +368,7 @@ fn tool_call_location((path, line): (String, Option<u32>)) -> Option<ToolCallLoc
     Some(ToolCallLocation::new(trimmed).line(line))
 }
 
-pub(crate) fn sanitize_tool_payload(payload: &str) -> String {
+pub fn sanitize_tool_payload(payload: &str) -> String {
     sanitize_tool_text(payload)
 }
 

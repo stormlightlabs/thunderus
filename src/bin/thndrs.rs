@@ -1,4 +1,4 @@
-use thndrs_core::cli::Cli;
+use thndrs_lib::cli::Cli;
 
 fn main() {
     let cli = match Cli::parse_configured() {
@@ -8,7 +8,7 @@ fn main() {
             std::process::exit(2);
         }
     };
-    if let Err(err) = thndrs_core::run(&cli) {
+    if let Err(err) = thndrs_lib::run(&cli) {
         eprintln!("thndrs: {err}");
         std::process::exit(1);
     }

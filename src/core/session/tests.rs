@@ -120,8 +120,8 @@ fn from_bundle_empty_user_turn_records_false() {
 fn json_round_trip_preserves_all_fields() {
     let bundle = bundle_with_context();
     let meta = PromptMetadata::from_bundle(&bundle);
-    let json = meta.to_json().expect("serialize");
-    let restored = PromptMetadata::from_json(&json).expect("deserialize");
+    let json = serde_json::to_string(&meta).expect("serialize");
+    let restored: PromptMetadata = serde_json::from_str(&json).expect("deserialize");
     assert_eq!(meta, restored);
 }
 
@@ -132,8 +132,8 @@ fn json_round_trip_with_history_reuse() {
     bundle.prev_context_hash = Some(77777);
 
     let meta = PromptMetadata::from_bundle(&bundle);
-    let json = meta.to_json().expect("serialize");
-    let restored = PromptMetadata::from_json(&json).expect("deserialize");
+    let json = serde_json::to_string(&meta).expect("serialize");
+    let restored: PromptMetadata = serde_json::from_str(&json).expect("deserialize");
     assert_eq!(meta, restored);
     assert!(restored.history_reuse);
     assert_eq!(restored.prev_context_hash, Some(77777));
@@ -158,8 +158,8 @@ fn json_round_trip_truncated_context() {
         "explain",
     );
     let meta = PromptMetadata::from_bundle(&bundle);
-    let json = meta.to_json().expect("serialize");
-    let restored = PromptMetadata::from_json(&json).expect("deserialize");
+    let json = serde_json::to_string(&meta).expect("serialize");
+    let restored: PromptMetadata = serde_json::from_str(&json).expect("deserialize");
     assert_eq!(meta, restored);
     assert!(restored.context_sources[0].truncated);
     assert_eq!(restored.context_sources[0].byte_count, 40_000);
@@ -167,7 +167,7 @@ fn json_round_trip_truncated_context() {
 
 #[test]
 fn from_json_rejects_malformed_input() {
-    let result = PromptMetadata::from_json("not valid json");
+    let result = serde_json::from_str::<PromptMetadata>("not valid json");
     assert!(result.is_err());
 }
 
@@ -175,7 +175,7 @@ fn from_json_rejects_malformed_input() {
 fn metadata_does_not_contain_prompt_text() {
     let bundle = bundle_with_context();
     let meta = PromptMetadata::from_bundle(&bundle);
-    let json = meta.to_json().expect("serialize");
+    let json = serde_json::to_string(&meta).expect("serialize");
     assert!(
         !json.contains("explain this repo"),
         "metadata must not contain user prompt text"
@@ -444,6 +444,25 @@ fn session_record_json_round_trip_tool_finished() {
     let restored = SessionRecord::from_json(&json).expect("deserialize");
     assert_eq!(record, restored);
     assert!(json.contains("\"type\":\"tool_finished\""));
+}
+
+#[test]
+fn writer_appends_prompt_metadata() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut writer = test_writer(dir.path(), "prompt-meta-session");
+    let bundle = bundle_with_context();
+    let metadata = PromptMetadata::from_bundle(&bundle);
+
+    writer
+        .append_prompt_metadata("turn_1", &metadata)
+        .expect("append prompt metadata");
+    let records = SessionReader::read_records(writer.path());
+
+    assert!(matches!(
+        records.get(1),
+        Some(SessionRecord::PromptMetadata { turn_id, metadata: stored, .. })
+            if turn_id == "turn_1" && stored == &metadata
+    ));
 }
 
 #[test]

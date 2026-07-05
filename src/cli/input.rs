@@ -11,7 +11,6 @@
 //! character, even when that character is composed of multiple Rust `char`s.
 
 #[cfg(test)]
-#[path = "input/tests.rs"]
 mod tests;
 
 use std::convert::Infallible;

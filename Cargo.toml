@@ -4,8 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [lib]
-name = "thndrs_core"
-path = "src/core/lib.rs"
+name = "thndrs_lib"
 
 [[bin]]
 name = "thndrs"

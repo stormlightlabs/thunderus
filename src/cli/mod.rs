@@ -3,6 +3,10 @@
 //! The entrypoint parses raw flags with [`clap`] directly into the flat [`Cli`]
 //! runtime config.
 
+pub mod app;
+pub mod input;
+pub mod renderer;
+
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -53,6 +57,11 @@ pub enum Command {
     Mcp {
         #[command(subcommand)]
         command: McpCommand,
+    },
+    /// Inspect local append-only session history.
+    Session {
+        #[command(subcommand)]
+        command: SessionCommand,
     },
 }
 
@@ -162,6 +171,22 @@ pub enum McpCommand {
         /// JSON object arguments.
         #[arg(long = "json")]
         json: String,
+    },
+}
+
+/// Local session history commands.
+#[derive(Clone, Debug, Eq, PartialEq, Subcommand)]
+pub enum SessionCommand {
+    /// List local sessions newest-first.
+    List,
+    /// Print the newest local session.
+    Latest,
+    /// List local session titles newest-first.
+    Titles,
+    /// Print replayable transcript entries for one local session id.
+    Show {
+        /// Session id without the `.jsonl` suffix.
+        session_id: String,
     },
 }
 
@@ -853,6 +878,30 @@ mod tests {
                     json: r#"{"text":"ok"}"#.to_string()
                 }
             })
+        );
+    }
+
+    #[test]
+    fn session_commands_parse() {
+        let list = Cli::try_parse_from(["thndrs", "session", "list"]).expect("parse");
+        assert_eq!(list.command, Some(Command::Session { command: SessionCommand::List }));
+
+        let latest = Cli::try_parse_from(["thndrs", "session", "latest"]).expect("parse");
+        assert_eq!(
+            latest.command,
+            Some(Command::Session { command: SessionCommand::Latest })
+        );
+
+        let titles = Cli::try_parse_from(["thndrs", "session", "titles"]).expect("parse");
+        assert_eq!(
+            titles.command,
+            Some(Command::Session { command: SessionCommand::Titles })
+        );
+
+        let show = Cli::try_parse_from(["thndrs", "session", "show", "session-1"]).expect("parse");
+        assert_eq!(
+            show.command,
+            Some(Command::Session { command: SessionCommand::Show { session_id: "session-1".to_string() } })
         );
     }
 }

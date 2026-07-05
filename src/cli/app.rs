@@ -5,7 +5,6 @@
 //! `update(&mut App, Msg) -> Option<Msg>` is the only mutation path.
 
 #[cfg(test)]
-#[path = "app/tests.rs"]
 mod tests;
 
 use std::path::{Path, PathBuf};
@@ -13,15 +12,15 @@ use std::path::{Path, PathBuf};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use serde::{Deserialize, Serialize};
 
-use super::{context, fuzzy, internals, prompt, session, skills, tools};
 use crate::acp::config::provider_label;
 use crate::acp::permissions::{PendingPermission, PermissionDecision};
 use crate::cli::{Cli, Theme, WebSearchMode};
 use crate::input::PromptInput;
 use crate::providers::{opencode, umans};
-use crate::renderer;
 use crate::renderer::git::GitStatusSummary;
 use crate::tools::shell::ProcessRegistry;
+use crate::{context, fuzzy, internals, prompt, session, skills, tools};
+use crate::{mcp, renderer};
 
 /// Number of UI ticks the user has to press Ctrl+D a second time before the
 /// quit confirmation expires and a fresh double-press is needed.
@@ -1742,7 +1741,7 @@ fn list_background_processes(app: &mut App) {
 
 fn list_mcp_servers(app: &mut App) {
     let env_vars: Vec<(String, String)> = std::env::vars().collect();
-    match crate::mcp::config::load_effective_mcp(&app.cwd, &env_vars) {
+    match mcp::config::load_effective_mcp(&app.cwd, &env_vars) {
         Ok(effective) if effective.config.servers.is_empty() => {
             app.transcript
                 .push(Entry::Status { text: String::from("no MCP servers configured") });
@@ -1776,7 +1775,7 @@ fn list_mcp_tools(app: &mut App, name: &str) {
     }
 
     let env_vars: Vec<(String, String)> = std::env::vars().collect();
-    let effective = match crate::mcp::config::load_effective_mcp(&app.cwd, &env_vars) {
+    let effective = match mcp::config::load_effective_mcp(&app.cwd, &env_vars) {
         Ok(effective) => effective,
         Err(err) => {
             app.transcript
@@ -1795,7 +1794,7 @@ fn list_mcp_tools(app: &mut App, name: &str) {
         return;
     }
 
-    match crate::mcp::manager::McpClient::connect(name.to_string(), server) {
+    match mcp::manager::McpClient::connect(name.to_string(), server) {
         Ok(client) => {
             let lines: Vec<String> = client
                 .tool_definitions()
@@ -2191,7 +2190,7 @@ fn discard_retry_output(app: &mut App) {
 
 fn load_mcp_config_audit(workspace: &Path) -> (Vec<session::SessionConfigFile>, Vec<String>) {
     let env_vars: Vec<(String, String)> = std::env::vars().collect();
-    match crate::mcp::config::load_effective_mcp(workspace, &env_vars) {
+    match mcp::config::load_effective_mcp(workspace, &env_vars) {
         Ok(effective) => {
             let files = effective
                 .layers

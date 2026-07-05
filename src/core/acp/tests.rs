@@ -1,8 +1,6 @@
 use super::config::parse_model_id;
 use super::events::map_session_update;
-use super::runner::{
-    RunHandle, close_session, list_sessions, load_session, new_session_request, resume_session, spawn_run,
-};
+use super::runner::{RunHandle, close_session, list_sessions, load_session, new_session_request, resume_session};
 use crate::app::{AgentEvent, ToolStatus};
 use crate::config::AcpAgentConfig;
 use crate::mcp::config::{McpConfig, McpServerConfig, McpTransport};
@@ -17,7 +15,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 fn collect(handle: RunHandle) -> Vec<AgentEvent> {
-    spawn_run(handle).iter().collect()
+    handle.spawn().iter().collect()
 }
 
 #[test]
@@ -178,7 +176,7 @@ fn acp_runner_sends_session_cancel_on_local_cancel() {
         "wait".to_string(),
     );
     let cancel = handle.cancel.clone();
-    let rx = spawn_run(handle);
+    let rx = handle.spawn();
     let mut events = Vec::new();
 
     loop {
@@ -214,7 +212,7 @@ fn acp_runner_cancels_pending_permission_on_local_cancel() {
         "permit".to_string(),
     );
     let cancel = handle.cancel.clone();
-    let rx = spawn_run(handle);
+    let rx = handle.spawn();
     let mut events = Vec::new();
 
     loop {
@@ -241,12 +239,13 @@ fn acp_runner_times_out_prompt_and_cleans_up() {
     let temp = tempfile::tempdir().expect("create temp dir");
     let agent = fake_agent_config("timeout-prompt", Some(1));
 
-    let rx = spawn_run(RunHandle::new(
+    let rx = RunHandle::new(
         temp.path().to_path_buf(),
         "fake".to_string(),
         Some(agent),
         "timeout".to_string(),
-    ));
+    )
+    .spawn();
     let events = collect_until_terminal(&rx, Duration::from_secs(4));
 
     assert!(
@@ -264,12 +263,13 @@ fn acp_runner_times_out_initialize() {
     let temp = tempfile::tempdir().expect("create temp dir");
     let agent = fake_agent_config("timeout-initialize", Some(1));
 
-    let rx = spawn_run(RunHandle::new(
+    let rx = RunHandle::new(
         temp.path().to_path_buf(),
         "fake".to_string(),
         Some(agent),
         "timeout".to_string(),
-    ));
+    )
+    .spawn();
     let events = collect_until_terminal(&rx, Duration::from_secs(4));
 
     assert!(events.iter().any(|event| {
@@ -282,12 +282,13 @@ fn acp_runner_times_out_session_creation() {
     let temp = tempfile::tempdir().expect("create temp dir");
     let agent = fake_agent_config("timeout-session", Some(1));
 
-    let rx = spawn_run(RunHandle::new(
+    let rx = RunHandle::new(
         temp.path().to_path_buf(),
         "fake".to_string(),
         Some(agent),
         "timeout".to_string(),
-    ));
+    )
+    .spawn();
     let events = collect_until_terminal(&rx, Duration::from_secs(4));
 
     assert!(events.iter().any(|event| {
@@ -390,12 +391,13 @@ fn acp_runner_authenticates_with_agent_owned_method() {
 #[test]
 fn acp_runner_reports_authentication_failure() {
     let temp = tempfile::tempdir().expect("create temp dir");
-    let rx = spawn_run(RunHandle::new(
+    let rx = RunHandle::new(
         temp.path().to_path_buf(),
         "fake".to_string(),
         Some(fake_agent_config("auth-failure", None)),
         "auth".to_string(),
-    ));
+    )
+    .spawn();
     let events = collect_until_terminal(&rx, Duration::from_secs(3));
 
     assert!(

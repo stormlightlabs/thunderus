@@ -8,7 +8,5 @@ pub mod registry;
 pub mod runner;
 pub mod terminal;
 
-pub use runner::spawn_run;
-
 #[cfg(test)]
 mod tests;

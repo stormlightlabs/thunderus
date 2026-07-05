@@ -17,6 +17,7 @@
 //! - `session_meta`: id, cwd, title, provider, model, websearch, app version.
 //! - `context`: loaded AGENTS.md source metadata (path, scope, hash, truncation).
 //! - `user`: prompt text and turn id.
+//! - `prompt_metadata`: prompt assembly provenance for one turn.
 //! - `assistant_finished`: final replayable assistant text.
 //! - `reasoning_finished`: final replayable reasoning text.
 //! - `usage`: provider token usage increments.
@@ -139,6 +140,15 @@ pub enum SessionRecord {
         time: String,
         turn_id: String,
         text: String,
+    },
+    /// Prompt assembly metadata for one user turn.
+    #[serde(rename = "prompt_metadata")]
+    PromptMetadata {
+        schema_version: u32,
+        seq: u64,
+        time: String,
+        turn_id: String,
+        metadata: PromptMetadata,
     },
     /// Final replayable assistant text.
     #[serde(rename = "assistant_finished")]
@@ -369,6 +379,7 @@ impl SessionRecord {
             SessionRecord::SessionMeta { seq, .. }
             | SessionRecord::Context { seq, .. }
             | SessionRecord::User { seq, .. }
+            | SessionRecord::PromptMetadata { seq, .. }
             | SessionRecord::AssistantFinished { seq, .. }
             | SessionRecord::ReasoningFinished { seq, .. }
             | SessionRecord::Usage { seq, .. }
@@ -452,6 +463,7 @@ impl SessionRecord {
     pub fn to_entry(&self) -> Option<Entry> {
         match self {
             SessionRecord::User { text, .. } => Some(Entry::User { text: text.clone() }),
+            SessionRecord::PromptMetadata { .. } => None,
             SessionRecord::AssistantFinished { text, .. } => {
                 Some(Entry::Agent { text: text.clone(), streaming: false })
             }
@@ -626,16 +638,6 @@ impl PromptMetadata {
             has_user_turn: !bundle.user_turn.is_empty(),
         }
     }
-
-    /// Serialize to a JSON string for JSONL append.
-    pub fn to_json(&self) -> Result<String, serde_json::Error> {
-        serde_json::to_string(self)
-    }
-
-    /// Deserialize from a JSON string (for resume/replay).
-    pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
-        serde_json::from_str(json)
-    }
 }
 
 /// Metadata for a loaded context source, without the content itself.
@@ -802,6 +804,23 @@ impl SessionWriter {
             seq: self.seq,
             time: datetime::now_iso8601(),
             sources: metas,
+        };
+        self.seq += 1;
+        let line = record.to_json().map_err(io_err)?;
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new().append(true).open(&self.path)?;
+        writeln!(file, "{line}")?;
+        Ok(())
+    }
+
+    /// Append prompt assembly provenance for a user turn.
+    pub fn append_prompt_metadata(&mut self, turn_id: &str, metadata: &PromptMetadata) -> std::io::Result<()> {
+        let record = SessionRecord::PromptMetadata {
+            schema_version: SCHEMA_VERSION,
+            seq: self.seq,
+            time: datetime::now_iso8601(),
+            turn_id: turn_id.to_string(),
+            metadata: metadata.clone(),
         };
         self.seq += 1;
         let line = record.to_json().map_err(io_err)?;
@@ -1239,6 +1258,7 @@ fn set_seq(record: &mut SessionRecord, seq: u64) {
         SessionRecord::SessionMeta { seq: s, .. }
         | SessionRecord::Context { seq: s, .. }
         | SessionRecord::User { seq: s, .. }
+        | SessionRecord::PromptMetadata { seq: s, .. }
         | SessionRecord::AssistantFinished { seq: s, .. }
         | SessionRecord::ReasoningFinished { seq: s, .. }
         | SessionRecord::Usage { seq: s, .. }

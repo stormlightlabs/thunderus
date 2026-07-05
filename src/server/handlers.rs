@@ -342,7 +342,7 @@ pub async fn run_stdio(config: ServerConfig) -> Result<()> {
     }
 }
 
-pub(crate) fn initialize(state: &ServerState, request: &InitializeRequest) -> InitializeResponse {
+pub fn initialize(state: &ServerState, request: &InitializeRequest) -> InitializeResponse {
     state.record_client_info(request);
     InitializeResponse::new(negotiate_protocol_version(request.protocol_version))
         .agent_info(Some(
@@ -361,7 +361,7 @@ fn new_session(state: &ServerState, request: &NewSessionRequest) -> Result<NewSe
     Ok(NewSessionResponse::new(session_id).config_options(config_options))
 }
 
-pub(crate) fn set_config_option(
+pub fn set_config_option(
     state: &ServerState, request: &SetSessionConfigOptionRequest,
 ) -> Result<SetSessionConfigOptionResponse, String> {
     let session_id = request.session_id.0.as_ref();
@@ -555,7 +555,7 @@ fn permission_option_kind_label(kind: &PermissionOptionKind) -> &'static str {
     }
 }
 
-pub(crate) fn execute_prompt(
+pub fn execute_prompt(
     state: &ServerState, request: &PromptRequest, mut on_update: impl FnMut(SessionUpdateIntent) -> Result<(), String>,
     run_harness: impl FnOnce(AgentRunConfig, Vec<crate::providers::ProviderMessage>, bool, String) -> HarnessHandle,
 ) -> Result<PromptResponse, String> {

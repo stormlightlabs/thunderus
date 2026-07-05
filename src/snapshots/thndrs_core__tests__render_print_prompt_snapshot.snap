@@ -1,6 +1,6 @@
 ---
-source: src/core/lib.rs
-assertion_line: 1162
+source: src/lib.rs
+assertion_line: 1362
 expression: output
 ---
 === System Prompt ===

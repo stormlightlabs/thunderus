@@ -7,6 +7,7 @@ use crate::app::{
 use crate::cli::{Cli, Theme, WebSearchMode};
 use crate::context;
 use crate::renderer::{self, row, transcript};
+use crate::skills::SkillDiagnostic;
 
 fn vt100_contents(bytes: &[u8], width: u16, height: u16) -> String {
     let mut parser = vt100::Parser::new(height, width, 200);
@@ -104,7 +105,7 @@ fn build_frame_short_startup_prioritizes_identity_context_and_help() {
         truncated: false,
         byte_count: 9,
     }];
-    app.skill_diagnostics = vec![crate::skills::SkillDiagnostic {
+    app.skill_diagnostics = vec![SkillDiagnostic {
         path: PathBuf::from("/Users/test/.thndrs/skills/bad/SKILL.md"),
         message: "invalid YAML frontmatter".to_string(),
     }];
@@ -820,7 +821,7 @@ fn snapshot_short_startup_diagnostics_prompt_spacing() {
         truncated: false,
         byte_count: 9,
     }];
-    app.skill_diagnostics = vec![crate::skills::SkillDiagnostic {
+    app.skill_diagnostics = vec![SkillDiagnostic {
         path: PathBuf::from("/Users/test/.thndrs/skills/bad/SKILL.md"),
         message: "invalid YAML frontmatter".to_string(),
     }];

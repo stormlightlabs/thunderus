@@ -667,7 +667,9 @@ mod tests {
     use crate::acp::permissions::{PendingPermission, PermissionKindView, PermissionOptionView};
     use crate::app::{App, FilePickerSource, Mode, PickerItem, PickerState, RunState};
     use crate::cli::{Cli, Theme, WebSearchMode};
+    use crate::renderer::git::GitStatusSummary;
     use crate::renderer::layout::truncate_spans;
+    use crate::renderer::row::Frame;
     use std::path::PathBuf;
     use std::sync::mpsc;
 
@@ -691,12 +693,7 @@ mod tests {
             acp_agents: std::collections::BTreeMap::new(),
             command: None,
         });
-        app.git_status = Some(crate::renderer::git::GitStatusSummary {
-            branch: Some("main".to_string()),
-            added: 0,
-            modified: 0,
-            deleted: 0,
-        });
+        app.git_status = Some(GitStatusSummary { branch: Some("main".to_string()), added: 0, modified: 0, deleted: 0 });
         app
     }
 
@@ -899,7 +896,7 @@ mod tests {
             "Cargo.toml".to_string(),
         ]);
         let rows = accessory_rows(&app, 80, 12);
-        let frame = crate::renderer::row::Frame { rows, width: 80, cursor: None, cursor_visible: true };
+        let frame = Frame { rows, width: 80, cursor: None, cursor_visible: true };
         insta::assert_snapshot!("file_picker_empty_query", frame.render_styled());
     }
 
@@ -927,7 +924,7 @@ mod tests {
         });
 
         let rows = accessory_rows(&app, 80, 12);
-        let frame = crate::renderer::row::Frame { rows, width: 80, cursor: None, cursor_visible: true };
+        let frame = Frame { rows, width: 80, cursor: None, cursor_visible: true };
         insta::assert_snapshot!("permission_prompt", frame.render_styled());
     }
 
@@ -944,7 +941,7 @@ mod tests {
             picker.match_indices = vec![vec![4, 5, 6, 7]];
         }
         let rows = accessory_rows(&app, 80, 12);
-        let frame = crate::renderer::row::Frame { rows, width: 80, cursor: None, cursor_visible: true };
+        let frame = Frame { rows, width: 80, cursor: None, cursor_visible: true };
         insta::assert_snapshot!("file_picker_filtered", frame.render_styled());
     }
 
@@ -957,7 +954,7 @@ mod tests {
             picker.match_indices = Vec::new();
         }
         let rows = accessory_rows(&app, 80, 12);
-        let frame = crate::renderer::row::Frame { rows, width: 80, cursor: None, cursor_visible: true };
+        let frame = Frame { rows, width: 80, cursor: None, cursor_visible: true };
         insta::assert_snapshot!("file_picker_no_matches", frame.render_styled());
     }
 
@@ -965,7 +962,7 @@ mod tests {
     fn snapshot_file_picker_long_path_clipping() {
         let app = picker_app(&["src/very/deeply/nested/path/to/some/module/file.rs".to_string()]);
         let rows = accessory_rows(&app, 30, 12);
-        let frame = crate::renderer::row::Frame { rows, width: 30, cursor: None, cursor_visible: true };
+        let frame = Frame { rows, width: 30, cursor: None, cursor_visible: true };
         insta::assert_snapshot!("file_picker_long_path", frame.render_styled());
     }
 
@@ -978,7 +975,7 @@ mod tests {
             picker.scroll = 3;
         }
         let rows = accessory_rows(&app, 80, 12);
-        let frame = crate::renderer::row::Frame { rows, width: 80, cursor: None, cursor_visible: true };
+        let frame = Frame { rows, width: 80, cursor: None, cursor_visible: true };
         insta::assert_snapshot!("file_picker_scrolled", frame.render_styled());
     }
 
@@ -997,7 +994,7 @@ mod tests {
         }
         app.prompt_accessory = PromptAccessory::Models;
         let rows = accessory_rows(&app, 80, 12);
-        let frame = crate::renderer::row::Frame { rows, width: 80, cursor: None, cursor_visible: true };
+        let frame = Frame { rows, width: 80, cursor: None, cursor_visible: true };
         insta::assert_snapshot!("model_picker", frame.render_styled());
     }
 
@@ -1006,7 +1003,7 @@ mod tests {
         let mut app = test_app();
         app.input.set_text("check @src/main.rs for details");
         let (rows, _) = prompt_rows_for(&app, 80);
-        let frame = crate::renderer::row::Frame { rows, width: 80, cursor: None, cursor_visible: true };
+        let frame = Frame { rows, width: 80, cursor: None, cursor_visible: true };
         insta::assert_snapshot!("mention_styling", frame.render_styled());
     }
 
@@ -1015,7 +1012,7 @@ mod tests {
         let mut app = test_app();
         app.prompt_accessory = PromptAccessory::Help;
         let rows = accessory_rows(&app, 80, 16);
-        let frame = crate::renderer::row::Frame { rows, width: 80, cursor: None, cursor_visible: true };
+        let frame = Frame { rows, width: 80, cursor: None, cursor_visible: true };
         insta::assert_snapshot!("help_rows", frame.render_styled());
     }
 
@@ -1040,7 +1037,7 @@ mod tests {
         app.mode = Mode::Command;
         app.prompt_accessory = PromptAccessory::Commands { selected: 0 };
         let rows = accessory_rows(&app, 80, 8);
-        let frame = crate::renderer::row::Frame { rows, width: 80, cursor: None, cursor_visible: true };
+        let frame = Frame { rows, width: 80, cursor: None, cursor_visible: true };
         insta::assert_snapshot!("command_suggestions", frame.render_styled());
     }
 
@@ -1050,7 +1047,7 @@ mod tests {
             let mut app = test_app();
             app.input.set_text(text);
             let (rows, _) = prompt_rows_for(&app, width);
-            let frame = crate::renderer::row::Frame { rows, width, cursor: None, cursor_visible: true };
+            let frame = Frame { rows, width, cursor: None, cursor_visible: true };
             combined.push_str(&format!("width={width}:\n"));
             combined.push_str(&frame.render_styled());
             combined.push('\n');
@@ -1107,7 +1104,7 @@ mod tests {
         let mut combined = String::new();
         for width in [80, 40] {
             let rows = accessory_rows(&app, width, 12);
-            let frame = crate::renderer::row::Frame { rows, width, cursor: None, cursor_visible: true };
+            let frame = Frame { rows, width, cursor: None, cursor_visible: true };
             combined.push_str(&format!("width={width}:\n"));
             combined.push_str(&frame.render_styled());
             combined.push('\n');
@@ -1123,7 +1120,7 @@ mod tests {
         let mut combined = String::new();
         for width in [80, 40] {
             let row = static_status_row(&app, width);
-            let frame = crate::renderer::row::Frame { rows: vec![row], width, cursor: None, cursor_visible: true };
+            let frame = Frame { rows: vec![row], width, cursor: None, cursor_visible: true };
             combined.push_str(&format!("width={width}:\n"));
             combined.push_str(&frame.render_styled());
             combined.push('\n');

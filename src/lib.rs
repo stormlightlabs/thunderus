@@ -3,34 +3,19 @@
 //!
 //! The `thndrs` bin just calls [`run`].
 
-#[path = "../cli/mod.rs"]
 pub mod cli;
-#[path = "api.rs"]
-pub mod core;
-#[path = "../server/mod.rs"]
 pub mod server;
 
-mod acp;
-mod agent;
-#[path = "../cli/app.rs"]
-mod app;
-pub mod config;
-mod context;
-mod fuzzy;
-mod harness;
-#[path = "../cli/input.rs"]
-mod input;
-mod internals;
-mod mcp;
-mod prompt;
-mod providers;
-#[path = "../cli/renderer/mod.rs"]
-mod renderer;
-mod search;
-mod session;
-mod skills;
-mod tools;
-mod utils;
+#[path = "core/mod.rs"]
+mod thndrs_core;
+
+pub use cli::{app, input, renderer};
+
+pub use prelude::*;
+pub use thndrs_core::{
+    acp, agent, config, context, fuzzy, harness, internals, mcp, prelude, prompt, providers, search, session, skills,
+    tools, utils,
+};
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -41,18 +26,15 @@ use std::time::{Duration, Instant};
 
 use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEvent};
 
+use acp::config::provider_label;
+use app::PromptAccessory;
 use app::{App, Msg, RunState, update};
-use cli::{AcpCommand, Cli, Command, McpCommand};
-use harness::HarnessTurn;
+use cli::{AcpCommand, Cli, Command, McpCommand, SessionCommand};
+use mcp::manager::McpManager;
 use prompt::PromptBundle;
 use renderer::backend::TerminalBackend;
-use tools::AgentRunConfig;
-
-use crate::acp::config::provider_label;
-use crate::app::PromptAccessory;
-use crate::mcp::manager::McpManager;
-use crate::renderer::region::LiveRegion;
-use crate::utils::datetime;
+use renderer::region::LiveRegion;
+use utils::datetime;
 
 enum AcpEventWrite {
     Continue,
@@ -170,6 +152,7 @@ fn run_command(cli: &Cli, command: &Command) -> io::Result<()> {
     match command {
         Command::Acp { command } => run_acp_command(cli, command),
         Command::Mcp { command } => run_mcp_command(cli, command),
+        Command::Session { command } => run_session_command(cli, command),
     }
 }
 
@@ -195,6 +178,106 @@ fn run_mcp_command(cli: &Cli, command: &McpCommand) -> io::Result<()> {
         McpCommand::Tools { name } => run_mcp_tools(cli, name, &mut lock),
         McpCommand::Call { server, tool, json } => run_mcp_call(cli, server, tool, json, &mut lock),
     }
+}
+
+fn run_session_command(cli: &Cli, command: &SessionCommand) -> io::Result<()> {
+    let workspace = context::discover_workspace_root(&cli.cwd);
+    let dir = cli
+        .session_dir
+        .clone()
+        .unwrap_or_else(|| session::sessions_dir(&workspace));
+    let stdout = io::stdout();
+    let mut lock = stdout.lock();
+    match command {
+        SessionCommand::List => run_session_list(&dir, &mut lock),
+        SessionCommand::Latest => run_session_latest(&dir, &mut lock),
+        SessionCommand::Titles => run_session_titles(&dir, &mut lock),
+        SessionCommand::Show { session_id } => run_session_show(&dir, session_id, &mut lock),
+    }
+}
+
+fn run_session_list<W: io::Write>(dir: &Path, writer: &mut W) -> io::Result<()> {
+    let files = session::list_session_files(dir);
+    if files.is_empty() {
+        writeln!(writer, "no sessions found")?;
+        return Ok(());
+    }
+    let summaries = session::list_session_summaries(dir);
+
+    for (file, summary) in files.into_iter().zip(summaries) {
+        let id = file.file_stem().and_then(|stem| stem.to_str()).unwrap_or("session");
+        writeln!(
+            writer,
+            "{id}\t{}\t{}\t{}",
+            summary.title,
+            summary.model,
+            summary.sidebar_label().replace('\n', " ")
+        )?;
+    }
+    Ok(())
+}
+
+fn run_session_latest<W: io::Write>(dir: &Path, writer: &mut W) -> io::Result<()> {
+    let Some(file) = session::latest_session_file(dir) else {
+        writeln!(writer, "no sessions found")?;
+        return Ok(());
+    };
+    let summary = session::SessionReader::read_summary(&file);
+    let id = file.file_stem().and_then(|stem| stem.to_str()).unwrap_or("session");
+    writeln!(writer, "id: {id}")?;
+    writeln!(writer, "path: {}", file.display())?;
+    writeln!(writer, "title: {}", summary.title)?;
+    writeln!(writer, "model: {}", summary.model)?;
+    writeln!(
+        writer,
+        "tokens: in {} out {}",
+        summary.input_tokens, summary.output_tokens
+    )?;
+    Ok(())
+}
+
+fn run_session_titles<W: io::Write>(dir: &Path, writer: &mut W) -> io::Result<()> {
+    let titles = session::list_session_titles(dir);
+    if titles.is_empty() {
+        writeln!(writer, "no sessions found")?;
+        return Ok(());
+    }
+
+    for title in titles {
+        writeln!(writer, "{title}")?;
+    }
+    Ok(())
+}
+
+fn run_session_show<W: io::Write>(dir: &Path, session_id: &str, writer: &mut W) -> io::Result<()> {
+    let path = dir.join(format!("{session_id}.jsonl"));
+    if !path.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("session `{session_id}` is not found"),
+        ));
+    }
+
+    let _reader = session::SessionReader;
+    let transcript = session::SessionReader::read_transcript(&path);
+    if transcript.is_empty() {
+        writeln!(writer, "session `{session_id}` has no replayable transcript")?;
+        return Ok(());
+    }
+
+    for entry in transcript {
+        match entry {
+            app::Entry::User { text } => writeln!(writer, "user: {text}")?,
+            app::Entry::Agent { text, .. } => writeln!(writer, "assistant: {text}")?,
+            app::Entry::Reasoning { text, .. } => writeln!(writer, "reasoning: {text}")?,
+            app::Entry::Tool { name, status, output, .. } => {
+                writeln!(writer, "tool {name} {:?}: {}", status, output.join("\n"))?;
+            }
+            app::Entry::Status { text } => writeln!(writer, "status: {text}")?,
+            app::Entry::Error { text } => writeln!(writer, "error: {text}")?,
+        }
+    }
+    Ok(())
 }
 
 fn run_mcp_list<W: io::Write>(cli: &Cli, writer: &mut W) -> io::Result<()> {
@@ -248,18 +331,19 @@ fn run_mcp_call<W: io::Write>(
     let namespaced = mcp::adapter::namespaced_tool_name(server_name, tool_name);
     let request = tools::ToolUseRequest::new(namespaced, json.to_string(), "cli".to_string());
     let output = client.call_tool(&request);
-    if output.status == app::ToolStatus::Failed {
-        writeln!(
+    match output.status {
+        app::ToolStatus::Failed => writeln!(
             writer,
             "failed: {}",
             output.error.unwrap_or_else(|| "MCP tool failed".to_string())
-        )?;
-        return Ok(());
+        ),
+        _ => {
+            for line in output.output {
+                writeln!(writer, "{line}")?;
+            }
+            Ok(())
+        }
     }
-    for line in output.output {
-        writeln!(writer, "{line}")?;
-    }
-    Ok(())
 }
 
 fn configured_mcp_server(config: &mcp::config::McpConfig, name: &str) -> io::Result<mcp::config::McpServerConfig> {
@@ -403,7 +487,7 @@ fn run_acp_smoke<W: io::Write>(cli: &Cli, name: &str, prompt: &str, writer: &mut
             .with_mcp_config(effective_mcp.config)
             .with_mcp_diagnostics(effective_mcp.diagnostics);
     }
-    let rx = acp::spawn_run(handle);
+    let rx = handle.spawn();
     for event in rx {
         match write_acp_event(writer, event)? {
             AcpEventWrite::Continue => {}
@@ -760,6 +844,7 @@ fn redact_secret(text: &str) -> String {
 /// terminal area and is rebuilt for the current terminal size each tick.
 fn run_inline(tick: Duration, cli: &Cli) -> io::Result<()> {
     renderer::enter_raw_mode()?;
+
     let mouse_enabled = cli.mouse && !cli.no_mouse;
     let stdout = io::stdout();
     let mut backend = TerminalBackend::new(stdout, renderer::terminal_size().0, renderer::terminal_size().1);
@@ -827,7 +912,7 @@ fn direct_loop<W: io::Write>(
             drain_direct_agent_events(&mut app, &mut agent, backend, live, &observability)?;
             drain_git_status_watcher(&mut app, &git_watcher, backend, live)?;
             manage_agent_lifecycle(&app, &mut agent);
-            maybe_spawn_agent(&app, cli, &mut agent);
+            maybe_spawn_agent(&mut app, cli, &mut agent);
             flush_steering(&mut app, &agent);
             sync_mouse_capture(&app, &mut mouse_captured, mouse_enabled);
             let (w, h) = backend_size(backend);
@@ -864,7 +949,7 @@ fn direct_loop<W: io::Write>(
                 _ => {}
             }
 
-            maybe_spawn_agent(&app, cli, &mut agent);
+            maybe_spawn_agent(&mut app, cli, &mut agent);
             flush_steering(&mut app, &agent);
             sync_mouse_capture(&app, &mut mouse_captured, mouse_enabled);
 
@@ -1020,7 +1105,7 @@ fn drain_git_status_watcher<W: io::Write>(
 /// The run chooses a provider from the selected model id. The
 /// [`agent::CancelToken`] is retained so `Escape` can signal cooperative
 /// cancellation.
-fn maybe_spawn_agent(app: &App, cli: &Cli, agent: &mut Option<AgentSlot>) {
+fn maybe_spawn_agent(app: &mut App, cli: &Cli, agent: &mut Option<AgentSlot>) {
     if app.run_state != RunState::Working {
         return;
     }
@@ -1039,7 +1124,7 @@ fn maybe_spawn_agent(app: &App, cli: &Cli, agent: &mut Option<AgentSlot>) {
         .unwrap_or_default();
     let workspace_root = context::discover_workspace_root(&cli.cwd);
     let resolved_websearch = cli.websearch.resolve_for_prompt(&prompt);
-    let mut config = AgentRunConfig::new(workspace_root, cli.model.clone(), resolved_websearch);
+    let mut config = tools::AgentRunConfig::new(workspace_root, cli.model.clone(), resolved_websearch);
     if let Some(acp_name) = acp::config::parse_model_id(&cli.model) {
         tracing::info!(
             cwd = %config.root.display(),
@@ -1060,7 +1145,7 @@ fn maybe_spawn_agent(app: &App, cli: &Cli, agent: &mut Option<AgentSlot>) {
                 .with_mcp_diagnostics(effective_mcp.diagnostics);
         }
         let cancel = handle.cancel.clone();
-        let receiver = acp::spawn_run(handle);
+        let receiver = handle.spawn();
         *agent = Some(AgentSlot { receiver, cancel, steering: steering_tx });
         return;
     }
@@ -1087,10 +1172,15 @@ fn maybe_spawn_agent(app: &App, cli: &Cli, agent: &mut Option<AgentSlot>) {
         &prompt,
     )
     .with_tool_catalog(tool_catalog);
+    if let Some(ref mut writer) = app.session_writer {
+        let turn_id = format!("turn_{}", app.turn_count);
+        let metadata = session::PromptMetadata::from_bundle(&bundle);
+        let _ = writer.append_prompt_metadata(&turn_id, &metadata);
+    }
     let messages = prompt::lower_to_umans_messages(&bundle);
     let expects_write = agent::prompt_expects_workspace_write(&prompt);
     let (steering_tx, steering_rx) = mpsc::channel();
-    let turn = HarnessTurn::provider_with_steering(config, messages, expects_write, steering_rx).start();
+    let turn = harness::HarnessTurn::provider_with_steering(config, messages, expects_write, steering_rx).start();
     *agent = Some(AgentSlot { receiver: turn.events, cancel: turn.cancel, steering: steering_tx });
 }
 
@@ -1126,8 +1216,6 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::process::Command;
 
-    /// Build a deterministic bundle for snapshot testing — no workspace
-    /// discovery, no live date, fixed context.
     fn snapshot_bundle() -> PromptBundle {
         let source = ContextSource {
             path: PathBuf::from("/repo/AGENTS.md"),
@@ -1153,6 +1241,113 @@ mod tests {
             history_reuse: prompt::HistoryReuse::Unavailable,
             prev_context_hash: None,
         }
+    }
+
+    fn git(cwd: &Path, args: &[&str]) {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(cwd)
+            .output()
+            .unwrap_or_else(|err| panic!("git {args:?} failed to start: {err}"));
+        assert!(
+            output.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    // FIXME: should be a include_str!
+    fn fake_agent_fixture() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join("fake_acp_agent.py")
+    }
+
+    fn acp_fixture_cli(cwd: &Path, script: &str) -> Cli {
+        let mut agents = config::AcpAgentsConfig::new();
+        agents.insert(
+            "local".to_string(),
+            config::AcpAgentConfig {
+                command: "python3".to_string(),
+                args: vec![fake_agent_fixture().display().to_string(), script.to_string()],
+                timeout_secs: 2,
+                ..config::AcpAgentConfig::default()
+            },
+        );
+        Cli { cwd: cwd.to_path_buf(), acp_agents: agents, ..Cli::default() }
+    }
+
+    fn write_registry_fixture(path: &Path, version: &str) {
+        std::fs::write(
+            path,
+            format!(
+                r#"{{
+                    "version": "1.0.0",
+                    "agents": [{{
+                        "id": "codex-acp",
+                        "name": "Codex",
+                        "version": "{version}",
+                        "description": "ACP adapter",
+                        "distribution": {{
+                            "npx": {{
+                                "package": "@agentclientprotocol/codex-acp@{version}",
+                                "args": ["--acp"]
+                            }}
+                        }}
+                    }}]
+                }}"#
+            ),
+        )
+        .expect("write registry");
+    }
+
+    fn write_fake_mcp_server(dir: &Path) -> PathBuf {
+        let path = dir.join("fake_mcp_cli.py");
+        std::fs::write(
+            &path,
+            r#"#!/usr/bin/env python3
+import json
+import sys
+
+for line in sys.stdin:
+    msg = json.loads(line)
+    method = msg.get("method")
+    if method == "initialize":
+        print(json.dumps({
+            "jsonrpc": "2.0",
+            "id": msg["id"],
+            "result": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "fake", "version": "0.1.0"}
+            }
+        }), flush=True)
+    elif method == "notifications/initialized":
+        continue
+    elif method == "tools/list":
+        print(json.dumps({
+            "jsonrpc": "2.0",
+            "id": msg["id"],
+            "result": {
+                "tools": [{
+                    "name": "echo",
+                    "description": "Echo text",
+                    "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}}
+                }]
+            }
+        }), flush=True)
+    elif method == "tools/call":
+        args = msg.get("params", {}).get("arguments", {})
+        print(json.dumps({
+            "jsonrpc": "2.0",
+            "id": msg["id"],
+            "result": {"content": [{"type": "text", "text": args.get("text", "")}], "isError": False}
+        }), flush=True)
+"#,
+        )
+        .expect("write fake mcp server");
+        path
     }
 
     #[test]
@@ -1384,7 +1579,6 @@ mod tests {
 
         run_acp_list_sessions(&cli, "local", &mut output).expect("list sessions");
         let output = String::from_utf8(output).expect("utf8");
-
         assert!(output.contains("external-session-1"));
         assert!(output.contains("Fixture Session"));
         assert!(output.contains("2026-07-04T00:00:00Z"));
@@ -1398,7 +1592,6 @@ mod tests {
 
         run_acp_load_session(&cli, "local", "external-session-1", &mut output).expect("load session");
         let output = String::from_utf8(output).expect("utf8");
-
         assert!(output.contains("replayed external-session-1"));
         assert!(output.contains("loaded: local external-session-1"));
     }
@@ -1414,10 +1607,116 @@ mod tests {
         run_acp_close_session(&cli, "local", "external-session-1", &mut close_output).expect("close session");
         let resume_output = String::from_utf8(resume_output).expect("utf8");
         let close_output = String::from_utf8(close_output).expect("utf8");
-
         assert!(resume_output.contains("acp_session: local external-session-1"));
         assert!(resume_output.contains("resumed: local external-session-1"));
         assert!(close_output.contains("acp: closed `local` session external-session-1"));
+    }
+
+    #[test]
+    fn session_list_and_latest_print_local_session_summaries() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let session_dir = temp.path().join("sessions");
+        let mut writer = session::SessionWriter::create(
+            &session_dir,
+            "session-new",
+            "/repo",
+            "Latest Work",
+            "umans",
+            "umans-coder",
+            "none",
+            "0.1.0",
+            None,
+        )
+        .expect("create session");
+        writer.append_usage(7, 11).expect("append usage");
+
+        let mut list_output = Vec::new();
+        let mut latest_output = Vec::new();
+
+        run_session_list(&session_dir, &mut list_output).expect("list sessions");
+        run_session_latest(&session_dir, &mut latest_output).expect("latest session");
+        let list_output = String::from_utf8(list_output).expect("utf8");
+        let latest_output = String::from_utf8(latest_output).expect("utf8");
+
+        assert!(list_output.contains("session-new"));
+        assert!(list_output.contains("Latest Work"));
+        assert!(list_output.contains("umans-coder"));
+        assert!(list_output.contains("in 7 out 11"));
+        assert!(latest_output.contains("id: session-new"));
+        assert!(latest_output.contains("title: Latest Work"));
+        assert!(latest_output.contains("tokens: in 7 out 11"));
+    }
+
+    #[test]
+    fn session_titles_prints_titles_newest_first() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let session_dir = temp.path().join("sessions");
+        session::SessionWriter::create(
+            &session_dir,
+            "session-old",
+            "/repo",
+            "Old",
+            "umans",
+            "umans-coder",
+            "none",
+            "0.1.0",
+            None,
+        )
+        .expect("create old session");
+        std::thread::sleep(Duration::from_millis(5));
+        session::SessionWriter::create(
+            &session_dir,
+            "session-new",
+            "/repo",
+            "New",
+            "umans",
+            "umans-coder",
+            "none",
+            "0.1.0",
+            None,
+        )
+        .expect("create new session");
+
+        let mut output = Vec::new();
+
+        run_session_titles(&session_dir, &mut output).expect("titles");
+        let output = String::from_utf8(output).expect("utf8");
+
+        assert_eq!(output.lines().collect::<Vec<_>>(), vec!["New", "Old"]);
+    }
+
+    #[test]
+    fn session_show_prints_replayable_transcript() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let session_dir = temp.path().join("sessions");
+        let mut writer = session::SessionWriter::create(
+            &session_dir,
+            "session-show",
+            "/repo",
+            "Show",
+            "umans",
+            "umans-coder",
+            "none",
+            "0.1.0",
+            None,
+        )
+        .expect("create session");
+        writer
+            .append_entry(&app::Entry::User { text: "hello".to_string() }, "turn_1")
+            .expect("append user");
+        writer
+            .append_entry(
+                &app::Entry::Agent { text: "hi".to_string(), streaming: false },
+                "turn_1",
+            )
+            .expect("append assistant");
+        let mut output = Vec::new();
+
+        run_session_show(&session_dir, "session-show", &mut output).expect("show session");
+        let output = String::from_utf8(output).expect("utf8");
+
+        assert!(output.contains("user: hello"));
+        assert!(output.contains("assistant: hi"));
     }
 
     #[test]
@@ -1616,111 +1915,5 @@ mod tests {
             "dirty summary should show one modified file: {}",
             status.display()
         );
-    }
-
-    fn git(cwd: &Path, args: &[&str]) {
-        let output = Command::new("git")
-            .args(args)
-            .current_dir(cwd)
-            .output()
-            .unwrap_or_else(|err| panic!("git {args:?} failed to start: {err}"));
-        assert!(
-            output.status.success(),
-            "git {args:?} failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-
-    fn fake_agent_fixture() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests")
-            .join("fixtures")
-            .join("fake_acp_agent.py")
-    }
-
-    fn acp_fixture_cli(cwd: &Path, script: &str) -> Cli {
-        let mut agents = config::AcpAgentsConfig::new();
-        agents.insert(
-            "local".to_string(),
-            config::AcpAgentConfig {
-                command: "python3".to_string(),
-                args: vec![fake_agent_fixture().display().to_string(), script.to_string()],
-                timeout_secs: 2,
-                ..config::AcpAgentConfig::default()
-            },
-        );
-        Cli { cwd: cwd.to_path_buf(), acp_agents: agents, ..Cli::default() }
-    }
-
-    fn write_registry_fixture(path: &Path, version: &str) {
-        std::fs::write(
-            path,
-            format!(
-                r#"{{
-                    "version": "1.0.0",
-                    "agents": [{{
-                        "id": "codex-acp",
-                        "name": "Codex",
-                        "version": "{version}",
-                        "description": "ACP adapter",
-                        "distribution": {{
-                            "npx": {{
-                                "package": "@agentclientprotocol/codex-acp@{version}",
-                                "args": ["--acp"]
-                            }}
-                        }}
-                    }}]
-                }}"#
-            ),
-        )
-        .expect("write registry");
-    }
-
-    fn write_fake_mcp_server(dir: &Path) -> PathBuf {
-        let path = dir.join("fake_mcp_cli.py");
-        std::fs::write(
-            &path,
-            r#"#!/usr/bin/env python3
-import json
-import sys
-
-for line in sys.stdin:
-    msg = json.loads(line)
-    method = msg.get("method")
-    if method == "initialize":
-        print(json.dumps({
-            "jsonrpc": "2.0",
-            "id": msg["id"],
-            "result": {
-                "protocolVersion": "2025-06-18",
-                "capabilities": {"tools": {}},
-                "serverInfo": {"name": "fake", "version": "0.1.0"}
-            }
-        }), flush=True)
-    elif method == "notifications/initialized":
-        continue
-    elif method == "tools/list":
-        print(json.dumps({
-            "jsonrpc": "2.0",
-            "id": msg["id"],
-            "result": {
-                "tools": [{
-                    "name": "echo",
-                    "description": "Echo text",
-                    "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}}
-                }]
-            }
-        }), flush=True)
-    elif method == "tools/call":
-        args = msg.get("params", {}).get("arguments", {})
-        print(json.dumps({
-            "jsonrpc": "2.0",
-            "id": msg["id"],
-            "result": {"content": [{"type": "text", "text": args.get("text", "")}], "isError": False}
-        }), flush=True)
-"#,
-        )
-        .expect("write fake mcp server");
-        path
     }
 }

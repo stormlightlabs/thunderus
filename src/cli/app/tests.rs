@@ -1,5 +1,6 @@
 use super::*;
 use crate::acp::permissions::{PendingPermission, PermissionDecision, PermissionKindView, PermissionOptionView};
+use crate::config::{Config, ConfigOrigin, ConfigSource, LoadedConfigLayer};
 use crate::harness::HarnessTurn;
 use crate::input::PromptInput;
 use crate::renderer;
@@ -112,17 +113,11 @@ fn from_cli_writes_effective_config_metadata_to_session_meta() {
     let mut origins = std::collections::BTreeMap::new();
     origins.insert(
         "model".to_string(),
-        crate::config::ConfigOrigin {
-            source: crate::config::ConfigSource::Environment,
-            detail: "THNDRS_MODEL".to_string(),
-        },
+        ConfigOrigin { source: ConfigSource::Environment, detail: "THNDRS_MODEL".to_string() },
     );
     origins.insert(
         "websearch".to_string(),
-        crate::config::ConfigOrigin {
-            source: crate::config::ConfigSource::ProjectFile,
-            detail: ".thndrs/config.toml".to_string(),
-        },
+        ConfigOrigin { source: ConfigSource::ProjectFile, detail: ".thndrs/config.toml".to_string() },
     );
 
     let cli = Cli {
@@ -130,9 +125,9 @@ fn from_cli_writes_effective_config_metadata_to_session_meta() {
         model: "env-model".to_string(),
         websearch: crate::cli::WebSearchMode::Native,
         session_dir: Some(session_dir.clone()),
-        config_layers: vec![crate::config::LoadedConfigLayer {
-            source: crate::config::ConfigSource::ProjectFile,
-            config: crate::config::Config::default(),
+        config_layers: vec![LoadedConfigLayer {
+            source: ConfigSource::ProjectFile,
+            config: Config::default(),
             path: None,
             display_path: Some(".thndrs/config.toml".to_string()),
             hash: Some("abc123".to_string()),
