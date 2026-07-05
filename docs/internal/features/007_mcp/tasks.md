@@ -5,6 +5,10 @@ Captured: 2026-07-04
 
 ## P0: Define The Contract
 
+- [ ] Confirm `rmcp` dependency features for stdio client support.
+- [ ] Spike `rmcp` against a fake stdio server from a background thread.
+- [ ] Decide whether `rmcp` can remain behind the existing synchronous
+      thread/channel boundary.
 - [ ] Define supported MCP protocol version behavior.
 - [ ] Define stdio server config schema.
 - [ ] Define Streamable HTTP server config schema.
@@ -14,7 +18,7 @@ Captured: 2026-07-04
 - [ ] Define startup diagnostics for disabled, skipped, failed, and ready
       servers.
 - [ ] Define session metadata for MCP tool calls.
-- [x] MCP starts after `007_tool_registry`.
+- [x] MCP starts after `006_tool_registry`.
 - [x] Stdio is the first implemented transport.
 - [x] Streamable HTTP is part of the config contract and follows stdio.
 - [x] MCP tools use the same caps, redaction, timeout, and audit path as
@@ -35,20 +39,22 @@ Captured: 2026-07-04
 - [ ] Add config tests for merge, disabled servers, unresolved env vars, and
       redaction.
 
-## P2: Protocol Types
+## P2: SDK Adapter
 
-- [ ] Add JSON-RPC request, response, error, and notification types.
-- [ ] Add MCP initialize request/response types.
-- [ ] Add MCP tool-list response types.
-- [ ] Add MCP tool-call request/response types.
-- [ ] Add serde tests for protocol fixtures.
-- [ ] Add error tests for invalid protocol messages.
+- [ ] Add the minimal `rmcp` dependency features needed for stdio clients.
+- [ ] Wrap `rmcp` client initialization behind a small `thndrs` adapter.
+- [ ] Convert `rmcp` initialize/server-info results to startup diagnostics.
+- [ ] Convert `rmcp` tool definitions to registry tool definitions.
+- [ ] Convert `rmcp` call results and errors to unified tool execution output.
+- [ ] Add adapter tests for successful initialize, tools/list, and tools/call.
+- [ ] Add adapter tests for malformed server messages and SDK/protocol errors.
+- [ ] Avoid local JSON-RPC protocol structs unless `rmcp` lacks a required
+      model or stable conversion point.
 
 ## P3: Stdio Transport
 
-- [ ] Spawn stdio server processes with argv arrays.
-- [ ] Write JSON-RPC requests to stdin.
-- [ ] Read JSON-RPC responses from stdout.
+- [ ] Spawn stdio server processes with argv arrays through `rmcp`.
+- [ ] Drive initialize, tools/list, and tools/call through `rmcp`.
 - [ ] Capture bounded stderr diagnostics.
 - [ ] Enforce startup timeout.
 - [ ] Enforce per-call timeout.
@@ -62,10 +68,10 @@ Captured: 2026-07-04
 - [ ] Add `McpManager` for configured servers.
 - [ ] Initialize enabled servers lazily or with bounded startup.
 - [ ] Cache tool lists per server for prompt assembly.
-- [ ] Convert MCP input schemas to tool registry definitions.
+- [ ] Convert SDK tool input schemas to tool registry definitions.
 - [ ] Namespace tool names as `mcp__{server}__{tool}`.
 - [ ] Route namespaced calls to the correct client.
-- [ ] Convert MCP call results to unified tool execution output.
+- [ ] Convert SDK call results to unified tool execution output.
 - [ ] Add manager tests for namespace routing and duplicate tool names.
 
 ## P5: Runtime And Sessions
@@ -91,8 +97,9 @@ Captured: 2026-07-04
 ## P7: HTTP Transport Follow-Up
 
 - [ ] Add HTTP transport only after stdio is stable.
-- [ ] Implement JSON POST request/response.
-- [ ] Implement SSE response handling only if required by target servers.
+- [ ] Add `rmcp` Streamable HTTP client features.
+- [ ] Map URL and header config into the SDK HTTP transport.
+- [ ] Verify JSON POST and optional SSE behavior through SDK-backed fixtures.
 - [ ] Apply header redaction.
 - [ ] Apply response-size caps.
 - [ ] Add HTTP fixture tests.
@@ -100,6 +107,8 @@ Captured: 2026-07-04
 ## P8: Docs
 
 - [ ] Document MCP config files and examples.
+- [ ] Document that `thndrs` uses the official Rust MCP SDK for protocol and
+      transport behavior while keeping local safety/audit policy.
 - [ ] Document stdio server setup.
 - [ ] Document tool namespacing.
 - [ ] Document failure diagnostics.

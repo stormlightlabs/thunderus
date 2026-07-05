@@ -8,9 +8,8 @@
 //! 1. [`spawn_run`] starts a thread with a [`RunHandle`] (config + cancel flag).
 //! 2. The run emits `Started`, then streams reasoning/assistant deltas and
 //!    tool-use requests.
-//! 3. Each tool-use request is dispatched via [`tools::dispatch_tool`]
-//!    and the result is emitted as a `ToolFinished` event appended to the
-//!    transcript.
+//! 3. Each tool-use request is dispatched via [`tools::dispatch_full`] and the
+//!    result is emitted as a `ToolFinished` event appended to the transcript.
 //! 4. For the Umans provider, tool results are fed back into the next turn:
 //!    after each dispatched tool batch, the assistant message (with `tool_use`
 //!    blocks) and the user message (with `tool_result` blocks) are appended to
@@ -1265,7 +1264,7 @@ fn run_fake(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
         }
         step();
 
-        let search_output = tools::dispatch_tool(&search_req, &handle.config.root);
+        let (search_output, _, _) = tools::dispatch_full(&search_req, &handle.config.root);
         let search_status = search_output.status;
         match send(
             tx,
@@ -1307,7 +1306,7 @@ fn run_fake(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
     }
     step();
 
-    let output = tools::dispatch_tool(&tool_req, &handle.config.root);
+    let (output, _, _) = tools::dispatch_full(&tool_req, &handle.config.root);
     let status = output.status;
     if send(
         tx,
@@ -1344,11 +1343,15 @@ mod tests {
     use crate::app::ToolStatus;
     use crate::cli::WebSearchMode;
     use crate::providers;
-    use crate::tools::{self, AgentRunConfig, MAX_TOOL_ITERATIONS, dispatch_tool};
+    use crate::tools::{self, AgentRunConfig, MAX_TOOL_ITERATIONS};
     use std::path::{Path, PathBuf};
 
     fn config() -> AgentRunConfig {
         AgentRunConfig::new(PathBuf::from("."), String::from("fake-agent"), WebSearchMode::Native)
+    }
+
+    fn dispatch_output(req: &ToolUseRequest, root: &Path) -> tools::ToolOutput {
+        tools::dispatch_full(req, root).0
     }
 
     #[test]
@@ -1487,7 +1490,7 @@ mod tests {
             serde_json::json!({ "pattern": "cli" }).to_string(),
             String::from("toolu_test"),
         );
-        let output = dispatch_tool(&req, Path::new("src"));
+        let output = dispatch_output(&req, Path::new("src"));
         assert_eq!(output.status, ToolStatus::Ok);
         assert!(output.output.iter().any(|p| p.contains("cli.rs")));
     }
@@ -1504,7 +1507,7 @@ mod tests {
             .to_string(),
             String::from("toolu_test"),
         );
-        let output = dispatch_tool(&req, Path::new("."));
+        let output = dispatch_output(&req, Path::new("."));
         assert_eq!(output.status, ToolStatus::Ok);
         assert_eq!(output.output.len(), 3);
     }
@@ -1516,7 +1519,7 @@ mod tests {
             String::from("{}"),
             String::from("toolu_test"),
         );
-        let output = dispatch_tool(&req, Path::new("."));
+        let output = dispatch_output(&req, Path::new("."));
         assert_eq!(output.status, ToolStatus::Failed);
         assert!(output.error.as_ref().is_some_and(|e| e.contains("unknown tool")));
     }
@@ -1528,7 +1531,7 @@ mod tests {
             String::from("not valid json"),
             String::from("toolu_test"),
         );
-        let output = dispatch_tool(&req, Path::new("src"));
+        let output = dispatch_output(&req, Path::new("src"));
         assert_eq!(output.status, ToolStatus::Ok);
     }
 
@@ -1709,7 +1712,7 @@ mod tests {
             serde_json::json!({ "url": "http://127.0.0.1/secret" }).to_string(),
             String::from("toolu_test"),
         );
-        let output = dispatch_tool(&req, Path::new("."));
+        let output = dispatch_output(&req, Path::new("."));
         assert_eq!(output.status, ToolStatus::Failed);
         assert!(output.error.as_ref().is_some_and(|e| e.contains("private network")));
     }
@@ -1721,7 +1724,7 @@ mod tests {
             serde_json::json!({ "url": "file:///etc/passwd" }).to_string(),
             String::from("toolu_test"),
         );
-        let output = dispatch_tool(&req, Path::new("."));
+        let output = dispatch_output(&req, Path::new("."));
         assert_eq!(output.status, ToolStatus::Failed);
         assert!(output.error.as_ref().is_some_and(|e| e.contains("unsupported")));
     }
@@ -1742,7 +1745,7 @@ mod tests {
             serde_json::json!({ "program": "echo", "args": ["hello"] }).to_string(),
             String::from("toolu_test"),
         );
-        let output = dispatch_tool(&req, Path::new("."));
+        let output = dispatch_output(&req, Path::new("."));
         assert_eq!(output.status, ToolStatus::Ok);
         assert_eq!(output.name, "run_shell");
         assert!(output.output.iter().any(|l| l.contains("hello")));
@@ -1755,7 +1758,7 @@ mod tests {
             arguments: serde_json::json!({ "program": "sh", "args": ["-c", "exit 1"] }).to_string(),
             tool_use_id: String::from("toolu_test"),
         };
-        let output = dispatch_tool(&req, Path::new("."));
+        let output = dispatch_output(&req, Path::new("."));
         assert_eq!(output.status, ToolStatus::Failed);
         assert!(output.error.as_ref().is_some_and(|e| e.contains("exit 1")));
     }
@@ -1767,7 +1770,7 @@ mod tests {
             serde_json::json!({ "args": ["test"] }).to_string(),
             String::from("toolu_test"),
         );
-        let output = dispatch_tool(&req, Path::new("."));
+        let output = dispatch_output(&req, Path::new("."));
         assert_eq!(output.status, ToolStatus::Failed);
         assert!(output.error.as_ref().is_some_and(|e| e.contains("missing")));
     }

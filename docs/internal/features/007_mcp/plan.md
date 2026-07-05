@@ -12,7 +12,7 @@ debug commands.
 
 That direction is worth keeping, but only after the built-in tool registry is
 clean. MCP multiplies the number of available tools and failure modes, so adding
-it before `007_tool_registry` would make the current central dispatch problem
+it before `006_tool_registry` would make the current central dispatch problem
 worse.
 
 ## Problem
@@ -36,7 +36,9 @@ startup unless the user explicitly tests that server.
 
 ## Goals
 
-1. Implement a minimal MCP client for stdio servers first.
+1. Use the official Rust MCP SDK (`rmcp`) for protocol types, lifecycle, and
+   transports unless a spike proves it cannot fit the synchronous `thndrs`
+   runtime boundary.
 2. Represent MCP tools as registry entries using the same execution result
    shape as built-in tools.
 3. Namespace tool names as `mcp__{server}__{tool}`.
@@ -47,9 +49,38 @@ startup unless the user explicitly tests that server.
 
 ## Transport Stages
 
+### SDK Boundary
+
+`modelcontextprotocol/rust-sdk` is the preferred implementation dependency.
+Its `rmcp` crate is the official Rust SDK, exposes client support, includes
+client-side stdio child-process transport, and also has Streamable HTTP client
+features for the later HTTP stage.
+
+Use the SDK for:
+
+- MCP protocol models and serde behavior;
+- initialize lifecycle and capability negotiation;
+- `tools/list` and `tools/call` request/response plumbing;
+- stdio child-process transport;
+- Streamable HTTP transport when Stage 2 begins.
+
+Keep these parts in `thndrs`:
+
+- config file shape, merge rules, environment expansion, and redaction;
+- server naming and `mcp__{server}__{tool}` namespacing;
+- registry entries and provider tool catalog integration;
+- tool approval policy, output caps, timeout policy, and session audit records;
+- user-facing diagnostics and inspect/export formatting.
+
+The first implementation task is a tiny spike that starts a fake stdio server,
+initializes it with `rmcp`, lists tools, and calls one tool from a background
+thread. If this requires turning the TUI or provider loop async, stop and
+reconsider; MCP must stay behind the same thread/channel boundary used by other
+long-running work.
+
 ### Stage 1: Stdio
 
-Support:
+Support through `rmcp`'s client-side child-process transport:
 
 - spawn configured command;
 - initialize handshake;
@@ -60,7 +91,9 @@ Support:
 
 ### Stage 2: HTTP
 
-Add HTTP transport only after stdio behavior is tested:
+Add HTTP transport only after stdio behavior is tested. Prefer `rmcp`'s
+Streamable HTTP client transport instead of adding a parallel HTTP/JSON-RPC
+implementation:
 
 - JSON POST;
 - SSE responses if required;
@@ -106,8 +139,15 @@ TUI:
 
 ## Decisions
 
-- MCP implementation starts after `007_tool_registry` creates the shared tool
+- MCP implementation starts after `006_tool_registry` creates the shared tool
   execution and audit path.
+- The official Rust SDK (`rmcp`) is the default implementation path for MCP
+  protocol and transports. Local hand-written JSON-RPC types are added only for
+  gaps that cannot be covered by the SDK without making the rest of `thndrs`
+  more complex.
+- MCP tools enter through the external-tool path instead of the built-in static
+  registry. They are discovered at runtime, namespaced by server, and cannot
+  rewrite built-in schemas, prompt identity, or local safety rules.
 - Stdio is the first transport. Streamable HTTP is specified in the config
   schema now and implemented after stdio with the same lifecycle and audit
   rules.
@@ -135,13 +175,19 @@ TUI:
 
 ## Dependencies
 
-- `007_tool_registry` for registry-backed external tool entries.
+- `006_tool_registry` for registry-backed external tool entries.
 - `003_configuration` for config-source diagnostics if shared helpers exist.
 - `005_sessions` for inspect/export metadata.
+- `rmcp` for MCP client protocol and transports. Start with the narrow client
+  and child-process transport features needed for stdio; add Streamable HTTP
+  features only in Stage 2.
 
 ## Verification
 
-- Protocol fixture tests for initialize, tools/list, and tools/call.
+- SDK spike proving initialize, tools/list, and tools/call work against a fake
+  stdio server from a background thread.
+- Adapter tests that convert SDK initialize, tools/list, and tools/call results
+  into `thndrs` diagnostics, registry definitions, and tool outputs.
 - Stdio fake-server tests.
 - Config merge and environment-expansion tests.
 - Timeout and process-exit tests.

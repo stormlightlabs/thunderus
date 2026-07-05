@@ -6,6 +6,10 @@ The tool catalog is sent to the provider as structured tool schemas. Tool names
 and input fields are part of the user-visible contract, but output may be capped
 or summarized for the transcript.
 
+The public catalog is derived from the built-in tool registry in `src/tools/`.
+Schema descriptions and examples below should match the tool modules that parse
+and execute them.
+
 ## `find_files`
 
 Locate files by name or glob under the workspace root.
@@ -137,3 +141,12 @@ Inputs:
 
 Commands run as the local `thndrs` process, not in a sandbox. Output is capped,
 truncated, and redacted where deterministic redaction is possible.
+
+## Side-Effect Records
+
+Every tool call has a `tool_started` and `tool_finished` session record. Write
+tools also append `file_write` audit metadata with operation, path, hashes, byte
+counts, and status. `run_shell` also appends `shell_exec` metadata with command,
+working directory, process kind, exit status, elapsed time, and cancellation or
+background state. Full file contents and uncapped stdout/stderr are not stored
+in those side-effect records.

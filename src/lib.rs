@@ -14,6 +14,7 @@ mod config;
 mod context;
 mod fuzzy;
 mod internals;
+mod mcp;
 mod prompt;
 mod providers;
 mod renderer;

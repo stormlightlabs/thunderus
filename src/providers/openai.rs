@@ -200,3 +200,29 @@ fn openai_tools(tools: &serde_json::Value) -> serde_json::Value {
             .collect(),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{providers::ProviderMessage, tools};
+
+    #[test]
+    fn build_chat_request_body_converts_registry_tool_catalog() {
+        let messages = vec![ProviderMessage::user("inspect the project")];
+        let defs = tools::tool_definitions();
+        let catalog = tools::tool_catalog_schemas(&defs);
+        let body = build_chat_request_body("test-model", &messages, 4096, true, Some(&catalog));
+
+        let request_names: Vec<&str> = body["tools"]
+            .as_array()
+            .expect("tools should be present")
+            .iter()
+            .map(|tool| tool["function"]["name"].as_str().expect("tool name"))
+            .collect();
+        let definition_names: Vec<&str> = defs.iter().map(|definition| definition.name).collect();
+
+        assert_eq!(request_names, definition_names);
+        assert_eq!(body["tools"][0]["type"], "function");
+        assert_eq!(body["tools"][0]["function"]["parameters"], defs[0].input_schema);
+    }
+}

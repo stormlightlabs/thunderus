@@ -368,24 +368,22 @@ mod tests {
     #[test]
     fn build_chat_request_body_converts_tools() {
         let messages = vec![ProviderMessage::user("find files")];
-        let tools = serde_json::json!([{
-            "name": "find_files",
-            "description": "locate files",
-            "input_schema": {"type": "object", "properties": {"pattern": {"type": "string"}}}
-        }]);
+        let defs = crate::tools::tool_definitions();
+        let catalog = crate::tools::tool_catalog_schemas(&defs);
         let body = OpenCodeGoClient::build_chat_request_body(
             "opencode-go/kimi-k2.7-code",
             &messages,
             4096,
             true,
-            Some(&tools),
+            Some(&catalog),
         )
         .expect("body");
 
         assert_eq!(body["model"], "kimi-k2.7-code");
         assert_eq!(body["messages"][0]["role"], "user");
         assert_eq!(body["tools"][0]["type"], "function");
-        assert_eq!(body["tools"][0]["function"]["name"], "find_files");
+        assert_eq!(body["tools"][0]["function"]["name"], defs[0].name);
+        assert_eq!(body["tools"][0]["function"]["parameters"], defs[0].input_schema);
         assert_eq!(body["stream"], true);
     }
 
@@ -415,12 +413,21 @@ mod tests {
     #[test]
     fn build_messages_request_body_uses_anthropic_shape() {
         let messages = vec![ProviderMessage::user("hello")];
-        let body = OpenCodeGoClient::build_messages_request_body("opencode-go/minimax-m3", &messages, 1024, true, None)
-            .expect("body");
+        let defs = crate::tools::tool_definitions();
+        let catalog = crate::tools::tool_catalog_schemas(&defs);
+        let body = OpenCodeGoClient::build_messages_request_body(
+            "opencode-go/minimax-m3",
+            &messages,
+            1024,
+            true,
+            Some(&catalog),
+        )
+        .expect("body");
 
         assert_eq!(body["model"], "minimax-m3");
         assert_eq!(body["messages"][0]["content"], "hello");
         assert_eq!(body["max_tokens"], 1024);
+        assert_eq!(body["tools"][0]["name"], defs[0].name);
     }
 
     #[test]

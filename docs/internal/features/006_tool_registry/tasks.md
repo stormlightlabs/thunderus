@@ -73,28 +73,28 @@ Captured: 2026-07-04
 
 ## P6: Delete Central Dispatch
 
-- [ ] Replace the central match with registry lookup.
-- [ ] Remove duplicate schema literals from `src/tools.rs`.
-- [ ] Remove stale helper code that only supported the central match.
-- [ ] Ensure provider prompt assembly uses the derived catalog.
-- [ ] Ensure fake, Umans, Anthropic, OpenAI-compatible, and OpenCode provider
+- [x] Replace the central match with registry lookup.
+- [x] Remove duplicate schema literals from `src/tools.rs`.
+- [x] Remove stale helper code that only supported the central match.
+- [x] Ensure provider prompt assembly uses the derived catalog.
+- [x] Ensure fake, Umans, Anthropic, OpenAI-compatible, and OpenCode provider
       paths see identical tool definitions.
-- [ ] Update prompt snapshots.
+- [x] Update prompt snapshots.
 
 ## P7: Docs
 
-- [ ] Update internal tool-boundary docs.
-- [ ] Update public tool reference if schema descriptions or examples change.
-- [ ] Document how to add a built-in tool.
-- [ ] Document side-effect audit behavior for write and shell tools.
-- [ ] Document why MCP enters through the external-tool path in `008_mcp`.
+- [x] Update internal tool-boundary docs.
+- [x] Update public tool reference if schema descriptions or examples change.
+- [x] Document how to add a built-in tool.
+- [x] Document side-effect audit behavior for write and shell tools.
+- [x] Document why MCP enters through the external-tool path in `008_mcp`.
 
 ## Validation Commands
 
-- [ ] `cargo fmt`
-- [ ] `cargo clippy --fix --allow-dirty --allow-staged`
-- [ ] `cargo clippy`
-- [ ] `cargo test tools`
-- [ ] `cargo test prompt`
-- [ ] `cargo test session`
-- [ ] `cargo test`
+- [x] `cargo fmt`
+- [x] `cargo clippy --fix --allow-dirty --allow-staged`
+- [x] `cargo clippy`
+- [x] `cargo test tools`
+- [x] `cargo test prompt`
+- [x] `cargo test session`
+- [x] `cargo test`

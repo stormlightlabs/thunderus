@@ -5,6 +5,10 @@ title: "Tools"
 `thndrs` exposes typed, bounded tools to the model. The model does not receive
 raw shell-string access.
 
+The visible tool list comes from the built-in registry. Each registered tool has
+one stable name, one provider schema, one executor, and one example input used
+by tests.
+
 ## File Discovery
 
 `find_files` discovers paths inside the selected workspace. It is backed by
@@ -36,6 +40,12 @@ files, symlink following, and unrestricted searches are not default behavior.
 
 Tool calls render as structured transcript entries with the tool name, status,
 arguments summary, output summary, and truncation state.
+
+Session logs also keep side-effect audit records for tools that modify or run
+local state. File writes record operation, path, before/after hashes, byte
+counts, and status. Shell runs record command, working directory, process kind,
+status, exit code, elapsed time, and background/cancellation state. The audit
+records avoid storing full file contents or uncapped process output.
 
 ## File Writes
 

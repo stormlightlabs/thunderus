@@ -391,16 +391,19 @@ mod tests {
     #[test]
     fn build_messages_request_body_includes_tools() {
         let messages = vec![ProviderMessage::user("find files")];
-        let tools = serde_json::json!([{
-            "name": "find_files",
-            "description": "locate files",
-            "input_schema": {"type": "object"}
-        }]);
-        let body = UmansClient::build_messages_request_body("umans-coder", &messages, 4096, true, Some(&tools));
-        assert_eq!(
-            body["tools"][0]["name"], "find_files",
-            "tools should be included when provided"
-        );
+        let defs = crate::tools::tool_definitions();
+        let catalog = crate::tools::tool_catalog_schemas(&defs);
+        let body = UmansClient::build_messages_request_body("umans-coder", &messages, 4096, true, Some(&catalog));
+
+        let request_names: Vec<&str> = body["tools"]
+            .as_array()
+            .expect("tools should be present")
+            .iter()
+            .map(|tool| tool["name"].as_str().expect("tool name"))
+            .collect();
+        let definition_names: Vec<&str> = defs.iter().map(|definition| definition.name).collect();
+
+        assert_eq!(request_names, definition_names);
     }
 
     #[test]

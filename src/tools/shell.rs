@@ -506,7 +506,7 @@ pub fn run_command(args: &ShellArgs, root: &Path, cancel: &CancelFlag) -> Result
 /// Execute a one-shot shell command and return a [`ToolOutput`] suitable for
 /// the transcript and tool-result channel.
 ///
-/// This is the entry point wired into [`crate::tools::dispatch_tool`]. It runs
+/// This is the entry point wired into [`crate::tools::dispatch_full`]. It runs
 /// `run_command` on the calling thread (the agent loop already runs on a
 /// background thread), then converts the result into a [`ToolOutput`].
 #[cfg(test)]

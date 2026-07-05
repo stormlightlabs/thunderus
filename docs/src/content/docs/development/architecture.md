@@ -6,14 +6,15 @@ title: "Architecture"
 
 ```sh
 src
-├── agent.rs        # Fake and Umans agent event loop
+├── agent.rs        # Fake, Umans, and OpenCode Go agent event loop
 ├── app.rs          # App state, messages, update logic, state tests
 ├── cli.rs          # CLI args, value enums, parse tests
 ├── lib.rs          # Terminal setup and app run loop
 ├── main.rs         # Binary entrypoint
 ├── providers       # Concrete provider clients
 ├── renderer        # Row model, live region, backend, highlighting, snapshots
-├── tools.rs        # Read-only repository tools
+├── tools.rs        # Built-in tool types, registry facade, and shared limits
+├── tools/          # Per-tool schemas, parsers, executors, and tests
 └── session.rs      # Append-only session persistence
 ```
 
@@ -48,10 +49,33 @@ without terminal I/O.
 
 ## Provider Client
 
-Umans is implemented as a concrete provider client. A generic provider trait is
-deferred until there is a second provider.
+Umans and OpenCode Go are concrete provider clients behind a small streaming
+provider trait. The agent loop derives one tool catalog from the registry and
+passes it to each provider request. Anthropic-compatible routes receive
+`name`/`description`/`input_schema` entries; OpenAI-compatible routes convert
+the same catalog to function tools at the provider boundary.
 
-## Tool Dispatch
+## Tool Registry
 
-Tool dispatch exposes typed, bounded read-only repository tools instead of raw
-shell command strings.
+Tool dispatch exposes typed, bounded tools instead of raw shell command
+strings. Built-in tools live in `src/tools/<tool>.rs` and are registered in
+`src/tools/registry.rs`. Each registry entry has a stable name, provider-visible
+definition, executor, and valid example input.
+
+To add a built-in tool:
+
+1. Add a `src/tools/<name>.rs` module with module docs, a `definition()`, input
+   parsing, `execute_request()`, and focused unit tests.
+2. Register it in `src/tools/registry.rs` with its name, definition function,
+   executor, and example input.
+3. Add schema, parsing, execution, and failure tests. If it writes files or
+   launches processes, return structured side-effect metadata and add session
+   tests for the audit records.
+4. Update the public tool reference when the model-visible name, fields,
+   behavior, or examples change.
+5. Run format, clippy, prompt/tool snapshot tests, relevant session tests, and
+   the full test suite.
+
+MCP tools are intentionally not added as built-ins. They enter through the
+external-tool path with namespaced names and separate discovery/configuration,
+while sharing the registry execution result shape and audit behavior.

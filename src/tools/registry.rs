@@ -17,44 +17,73 @@ use thiserror::Error;
 
 use super::{ToolDefinition, ToolOutput, ToolUseRequest, WriteResult, shell};
 
-const TOOL_NAMES: &[&str] = &[
-    "find_files",
-    "list_searchable_files",
-    "search_text",
-    "read_file_range",
-    "sawk",
-    "web_search",
-    "read_url",
-    "create_file",
-    "replace_range",
-    "write_patch",
-    "run_shell",
-];
-
-const TOOL_EXAMPLES: &[(&str, &str)] = &[
-    ("find_files", r#"{"pattern":"Cargo.toml"}"#),
-    ("list_searchable_files", r#"{"glob":"src/**/*.rs"}"#),
-    ("search_text", r#"{"pattern":"fn main","glob":"src/**/*.rs"}"#),
-    (
-        "read_file_range",
-        r#"{"path":"Cargo.toml","start_line":1,"end_line":3}"#,
-    ),
-    (
-        "sawk",
-        r#"{"action":"sed_print","path":"Cargo.toml","start_line":1,"end_line":3}"#,
-    ),
-    ("web_search", r#"{"query":"Rust serde documentation","max_results":3}"#),
-    ("read_url", r#"{"url":"https://example.com"}"#),
-    ("create_file", r#"{"path":"notes.txt","content":"hello\n"}"#),
-    (
-        "replace_range",
-        r#"{"path":"notes.txt","old_string":"hello","new_string":"hi"}"#,
-    ),
-    (
-        "write_patch",
-        r#"{"op":"edit","path":"notes.txt","old_string":"hello","new_string":"hi"}"#,
-    ),
-    ("run_shell", r#"{"program":"cargo","args":["test","tools"]}"#),
+const BUILTIN_TOOLS: &[ToolEntry] = &[
+    ToolEntry {
+        name: "find_files",
+        definition: super::find_files::definition,
+        execute: super::find_files::execute_request,
+        example_input: r#"{"pattern":"Cargo.toml"}"#,
+    },
+    ToolEntry {
+        name: "list_searchable_files",
+        definition: super::list_searchable_files::definition,
+        execute: super::list_searchable_files::execute_request,
+        example_input: r#"{"glob":"src/**/*.rs"}"#,
+    },
+    ToolEntry {
+        name: "search_text",
+        definition: super::search_text::definition,
+        execute: super::search_text::execute_request,
+        example_input: r#"{"pattern":"fn main","glob":"src/**/*.rs"}"#,
+    },
+    ToolEntry {
+        name: "read_file_range",
+        definition: super::read_file_range::definition,
+        execute: super::read_file_range::execute_request,
+        example_input: r#"{"path":"Cargo.toml","start_line":1,"end_line":3}"#,
+    },
+    ToolEntry {
+        name: "sawk",
+        definition: super::sawk::definition,
+        execute: super::sawk::execute_request,
+        example_input: r#"{"action":"sed_print","path":"Cargo.toml","start_line":1,"end_line":3}"#,
+    },
+    ToolEntry {
+        name: "web_search",
+        definition: super::web_search::definition,
+        execute: super::web_search::execute_request,
+        example_input: r#"{"query":"Rust serde documentation","max_results":3}"#,
+    },
+    ToolEntry {
+        name: "read_url",
+        definition: super::read_url::definition,
+        execute: super::read_url::execute_request,
+        example_input: r#"{"url":"https://example.com"}"#,
+    },
+    ToolEntry {
+        name: "create_file",
+        definition: super::create_file::definition,
+        execute: super::create_file::execute_request,
+        example_input: r#"{"path":"notes.txt","content":"hello\n"}"#,
+    },
+    ToolEntry {
+        name: "replace_range",
+        definition: super::replace_range::definition,
+        execute: super::replace_range::execute_request,
+        example_input: r#"{"path":"notes.txt","old_string":"hello","new_string":"hi"}"#,
+    },
+    ToolEntry {
+        name: "write_patch",
+        definition: super::write_patch::definition,
+        execute: super::write_patch::execute_request,
+        example_input: r#"{"op":"edit","path":"notes.txt","old_string":"hello","new_string":"hi"}"#,
+    },
+    ToolEntry {
+        name: "run_shell",
+        definition: super::shell::definition,
+        execute: super::shell::execute_request,
+        example_input: r#"{"program":"cargo","args":["test","tools"]}"#,
+    },
 ];
 
 /// Provider-specific schema shape for model-visible tool definitions.
@@ -135,8 +164,7 @@ pub struct ToolEntry {
 
 /// Return the static built-in tool registry.
 pub fn builtins() -> &'static [ToolEntry] {
-    static ENTRIES: std::sync::OnceLock<Vec<ToolEntry>> = std::sync::OnceLock::new();
-    ENTRIES.get_or_init(|| TOOL_NAMES.iter().map(|name| entry(name)).collect())
+    BUILTIN_TOOLS
 }
 
 /// Look up a built-in tool by stable name.
@@ -230,54 +258,4 @@ pub fn provider_tool_catalog_schemas(defs: &[ToolDefinition], format: ProviderSc
                 .collect(),
         ),
     }
-}
-
-fn entry(name: &'static str) -> ToolEntry {
-    ToolEntry {
-        name,
-        definition: definition_for_name(name),
-        execute: execute_for_name(name),
-        example_input: example_for_name(name),
-    }
-}
-
-fn definition_for_name(name: &'static str) -> fn() -> ToolDefinition {
-    match name {
-        "find_files" => super::find_files::definition,
-        "list_searchable_files" => super::list_searchable_files::definition,
-        "search_text" => super::search_text::definition,
-        "read_file_range" => super::read_file_range::definition,
-        "sawk" => super::sawk::definition,
-        "web_search" => super::web_search::definition,
-        "read_url" => super::read_url::definition,
-        "create_file" => super::create_file::definition,
-        "replace_range" => super::replace_range::definition,
-        "write_patch" => super::write_patch::definition,
-        "run_shell" => super::shell::definition,
-        other => panic!("missing registry definition for {other}"),
-    }
-}
-
-fn execute_for_name(name: &'static str) -> fn(&ToolUseRequest, ToolContext<'_>) -> ToolExecution {
-    match name {
-        "find_files" => super::find_files::execute_request,
-        "list_searchable_files" => super::list_searchable_files::execute_request,
-        "search_text" => super::search_text::execute_request,
-        "read_file_range" => super::read_file_range::execute_request,
-        "sawk" => super::sawk::execute_request,
-        "web_search" => super::web_search::execute_request,
-        "read_url" => super::read_url::execute_request,
-        "create_file" => super::create_file::execute_request,
-        "replace_range" => super::replace_range::execute_request,
-        "write_patch" => super::write_patch::execute_request,
-        "run_shell" => super::shell::execute_request,
-        other => panic!("missing registry executor for {other}"),
-    }
-}
-
-fn example_for_name(name: &str) -> &'static str {
-    TOOL_EXAMPLES
-        .iter()
-        .find_map(|(example_name, input)| (*example_name == name).then_some(*input))
-        .expect("registered tool should have an example input")
 }

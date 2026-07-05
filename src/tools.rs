@@ -334,28 +334,6 @@ pub fn sorted_json_value(value: &serde_json::Value) -> serde_json::Value {
     }
 }
 
-/// Dispatch a provider tool-use request to the matching registered tool
-/// and execute it against `root`.
-///
-/// Unknown tool names produce a failed [`ToolOutput`]. Argument parsing is
-/// best-effort: missing fields fall back to safe defaults rather than failing
-/// the whole turn.
-#[allow(dead_code)]
-pub fn dispatch_tool(request: &ToolUseRequest, root: &Path) -> ToolOutput {
-    registry::execute(request, registry::ToolContext::new(root)).output
-}
-
-/// Dispatch a tool-use request that may produce a file write.
-///
-/// Write-capable tools return both a [`ToolOutput`] for the transcript and an
-/// optional [`WriteResult`] for session audit persistence. Non-write tools
-/// delegate to [`dispatch_tool`] and return `None` for the write result.
-#[allow(dead_code)]
-pub fn dispatch_write(request: &ToolUseRequest, root: &Path) -> (ToolOutput, Option<WriteResult>) {
-    let execution = registry::execute(request, registry::ToolContext::new(root));
-    (execution.output, execution.write_result)
-}
-
 /// Dispatch a provider tool-use request, returning the tool output, an optional
 /// file-write result, and an optional shell-execution result.
 ///
