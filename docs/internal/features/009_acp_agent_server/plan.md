@@ -21,12 +21,10 @@ ACP [transports](https://agentclientprotocol.com/protocol/v1/transports), the
 official [Rust library](https://agentclientprotocol.com/libraries/rust), and
 the [`agent-client-protocol 1.0.1` docs.rs API](https://docs.rs/agent-client-protocol/1.0.1/agent_client_protocol/).
 
-Local implementation context comes from the ACP client
-[`008_acp`](../008_acp/plan.md), sessions
-[`005_sessions`](../005_sessions/plan.md), tool registry
-[`006_tool_registry`](../006_tool_registry/plan.md), configuration
-[`003_configuration`](../003_configuration/plan.md), and MCP
-[`007_mcp`](../007_mcp/plan.md) feature plans.
+Local implementation context comes from the archived configuration, tool
+registry, MCP, and ACP client work in
+[`v0.1`](../../archive/v0.1.md), plus the active sessions
+[`005_sessions`](../005_sessions/plan.md) feature plan.
 
 ## Objective
 
@@ -68,8 +66,8 @@ plugins.
   caps, file-write audit, and shell execution audit.
 - The provider/tool harness is tightly coupled to `AgentEvent`, but not
   inherently tied to terminal rendering.
-- `008_acp` plans `thndrs` as an ACP client for external agents. This feature
-  plans the inverse direction: external ACP clients drive `thndrs`.
+- The archived ACP client work lets `thndrs` drive external ACP agents. This
+  feature covers the inverse direction: external ACP clients drive `thndrs`.
 
 ## Feature Outcome
 
@@ -317,6 +315,30 @@ but each depends on the baseline server being stable:
 - MCP server config depends on local MCP support;
 - rich content depends on provider and prompt assembly support;
 - registry packaging depends on a stable command and capability contract.
+- remote/custom transports depend on a concrete editor, hosted, bridge, or
+  daemon deployment need.
+
+## Transport Policy
+
+Stdio remains the only supported ACP server transport until a concrete target
+requires more. Current mainstream ACP setups still do not force `thndrs` past
+stdio: Codex ACP, Claude Agent ACP, Gemini/Qwen-style Zed setups, and
+gateway-style agents can be configured as local commands.
+
+Transport pressure comes from daemon and bridge deployments rather than
+ordinary local agent selection. Qwen Code's `qwen serve` exposes a northbound
+HTTP/SSE daemon and is tracking official Streamable HTTP. ACP Remote exposes
+ACP over WebSocket but also offers a local stdio facade. Aptove Bridge and
+AgentRQ bridge remote/mobile surfaces to stdio ACP agents. OpenClaw targets
+remote gateways through `openclaw acp --url ...` while still presenting stdio
+to the ACP client.
+
+Keep remote/custom transport work closed until a user explicitly wants direct
+Qwen daemon/Streamable HTTP without `qwen --acp`, direct ACP Remote WebSocket
+without a local facade, or a similar hosted deployment where a local stdio
+bridge is unacceptable. Any new transport must preserve the same JSON-RPC
+lifecycle, capability checks, timeouts, redaction, process/session cleanup, and
+fixture coverage as stdio before it becomes configurable.
 
 ## Verification
 
@@ -343,6 +365,6 @@ but each depends on the baseline server being stable:
   only when the lifecycle is correct.
 - The server binary needs config behavior that feels familiar but excludes
   TUI-only flags.
-- `008_acp` and this feature both use ACP types. Shared conversion helpers may
-  become useful, but do not create a shared abstraction until duplication is
-  concrete.
+- The archived ACP client work and this feature both use ACP types. Shared
+  conversion helpers may become useful, but do not create a shared abstraction
+  until duplication is concrete.

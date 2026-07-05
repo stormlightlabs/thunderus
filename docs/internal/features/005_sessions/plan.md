@@ -134,8 +134,8 @@ Inspect/export output includes:
 - token usage totals;
 - loaded `AGENTS.md` metadata;
 - activated skill metadata;
-- config metadata as `null` until `003_configuration` exposes an effective
-  config projection, then as the redacted effective config object.
+- redacted effective config metadata from the archived configuration work when
+  present, otherwise `null`.
 
 Inspect/export output must not include provider secrets, raw `.env` contents, or
 uncapped raw provider payloads.
@@ -317,8 +317,8 @@ Runtime logs stay text files under `.thndrs/logs`. Debug readers should:
   rebuilt.
 - Inspect/export uses renderer-independent session records, not terminal row
   formatting.
-- Inspect emits `"config": null` until `003_configuration` provides the
-  effective-config projection. Export does not synthesize config records.
+- Inspect emits the redacted effective-config projection when present. Export
+  does not synthesize config records.
 - P6 documentation updates happen after the commands exist, but their content
   is already defined by this plan: commands, prefix lookup, inspect/export
   contents and omissions, log readers, and resume behavior.
@@ -334,8 +334,8 @@ None for P0 through P6.
 
 - Existing `src/session/mod.rs` JSONL reader/writer.
 - Existing runtime tracing paths in `src/lib.rs`.
-- Effective config metadata from `003_configuration`; absent metadata is
-  represented as `null`.
+- Effective config metadata from the archived configuration work; absent
+  metadata is represented as `null`.
 - UI command-surface polish from `004_ui` is not required for this feature.
   Command handlers and suggestions are implemented directly here.
 

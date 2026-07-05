@@ -204,7 +204,7 @@ M12 implementation.
 
 ## M17: MCP Server Config
 
-- [x] Wait for local MCP support from `007_mcp`.
+- [x] Wait for local MCP support from the archived MCP feature.
 - [x] Accept MCP servers in `session/new`.
 - [x] Pass compatible MCP server config into the tool registry/runtime.
 - [x] Redact MCP env values in diagnostics and sessions.
@@ -226,6 +226,24 @@ M12 implementation.
 - [ ] Document supported capabilities.
 - [ ] Add version reporting that matches release metadata.
 - [ ] Add smoke checks before publishing registry metadata.
+
+## M20: Remote And Custom Transports
+
+- [ ] Keep stdio as the only supported ACP server transport until a concrete
+      editor, hosted, bridge, or daemon deployment requires more.
+- [ ] Add Streamable HTTP only after the spec is no longer draft or a target
+      client requires it.
+- [ ] Add WebSocket/custom bridge support only for a concrete target client or
+      deployment.
+- [ ] Preserve the same JSON-RPC lifecycle, capability, timeout, redaction,
+      cleanup, and session-audit behavior as stdio.
+- [ ] Add transport fixture tests before enabling user config.
+
+Decision carried from the archived ACP client feature: stdio remains enough for
+current mainstream ACP use. Codex ACP, Claude Agent ACP, Gemini/Qwen-style Zed
+setups, and gateway-style agents can be configured as local commands. Revisit
+direct Streamable HTTP, WebSocket, or custom bridge support only when a local
+stdio facade is not acceptable for a real target deployment.
 
 ## Validation Commands
 

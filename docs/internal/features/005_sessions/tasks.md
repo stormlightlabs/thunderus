@@ -78,8 +78,8 @@ Captured: 2026-07-04
 - [ ] Include token usage totals.
 - [ ] Include loaded context metadata.
 - [ ] Include activated skill metadata.
-- [ ] Include effective config metadata as `null` until `003_configuration`
-      provides it.
+- [ ] Include redacted effective config metadata when present, otherwise
+      `null`.
 - [ ] Ensure inspect/export skips or redacts secret-looking values.
 - [ ] Add JSON fixture tests.
 - [ ] Add tests proving raw provider payloads are not exported.
