@@ -26,6 +26,21 @@ process and is not sandboxed by approval prompts or in-process policy.
 If a task needs real isolation, run `thndrs` inside a container, VM, or
 OS-level sandbox with the filesystem and credentials you are willing to expose.
 
+## MCP Servers
+
+[MCP](/usage/mcp) servers are external tools configured by the user. Stdio servers
+run as local child processes with the same user permissions as `thndrs`.
+
+Streamable HTTP servers receive requests at the configured URL with the configured
+headers.
+
+`thndrs` does not infer or enforce a server-specific permission model.
+
+MCP tools cannot replace built-in tool names or change prompt identity. They
+are namespaced as `mcp__{server}__{tool}` and use the shared timeout, output
+cap, redaction, and session audit path. Those limits bound what `thndrs`
+records and shows but do not sandbox what the MCP server itself can do.
+
 ## Writes
 
 Write-capable tools are workspace-contained and transcripted. Failed writes
@@ -35,6 +50,9 @@ they do not store full file contents.
 
 ## Secrets
 
-Command output redaction is best effort. `thndrs` redacts common token patterns
-in displayed and recorded shell output, but it cannot guarantee every secret is
-detected. Avoid running commands that print credentials.
+Command output redaction is best effort.
+
+`thndrs` redacts common token patterns in displayed and recorded shell output,
+but it cannot guarantee every secret is detected.
+
+Avoid running commands that print credentials.

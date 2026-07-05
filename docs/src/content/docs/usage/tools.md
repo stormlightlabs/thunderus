@@ -7,7 +7,8 @@ raw shell-string access.
 
 The visible tool list comes from the built-in registry. Each registered tool has
 one stable name, one provider schema, one executor, and one example input used
-by tests.
+by tests. Configured MCP tools are appended at runtime after server discovery
+and appear with `mcp__{server}__{tool}` names.
 
 ## File Discovery
 
@@ -35,6 +36,10 @@ failure.
 Tool wrappers enforce workspace containment, timeouts, output caps, max result
 counts, max line lengths, and transcript truncation. Hidden files, ignored
 files, symlink following, and unrestricted searches are not default behavior.
+
+MCP tool calls share the same transcript and output limits, but the MCP server
+itself is external. Stdio servers run as local child processes and Streamable
+HTTP servers run wherever their configured endpoint points.
 
 ## Transcript Rendering
 

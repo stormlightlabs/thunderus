@@ -188,15 +188,15 @@ Notes, 2026-07-05:
 
 ## P8: Docs
 
-- [ ] Document MCP config files and examples.
-- [ ] Document that `thndrs` uses the official Rust MCP SDK for protocol and
+- [x] Document MCP config files and examples.
+- [x] Document that `thndrs` uses the official Rust MCP SDK for protocol and
       transport behavior while keeping local safety/audit policy.
-- [ ] Document stdio server setup.
-- [ ] Document tool namespacing.
-- [ ] Document failure diagnostics.
-- [ ] Document security limits and what MCP tools can access.
-- [ ] Update CLI reference with `mcp` commands.
-- [ ] Update tool docs with external tool behavior.
+- [x] Document stdio server setup.
+- [x] Document tool namespacing.
+- [x] Document failure diagnostics.
+- [x] Document security limits and what MCP tools can access.
+- [x] Update CLI reference with `mcp` commands.
+- [x] Update tool docs with external tool behavior.
 
 ## Validation Commands
 
@@ -208,3 +208,4 @@ Notes, 2026-07-05:
 - [x] `cargo test session` (passed 2026-07-05)
 - [x] `cargo test cli` (passed 2026-07-05)
 - [x] `cargo test` (passed 2026-07-05: 1158 passed, 0 failed, 4 ignored)
+- [x] `pnpm --dir docs build` (passed 2026-07-05)

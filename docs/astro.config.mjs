@@ -58,6 +58,7 @@ export default defineConfig({
             { label: "Project Context", slug: "usage/project-context" },
             { label: "Skills", slug: "usage/skills" },
             { label: "Tools", slug: "usage/tools" },
+            { label: "MCP", slug: "usage/mcp" },
             { label: "Web Search", slug: "usage/web-search" },
             { label: "Models", slug: "usage/models" },
             { label: "Sessions", slug: "usage/sessions" },

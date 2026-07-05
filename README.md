@@ -1,4 +1,4 @@
-# Thunderus (`thndrs`) Harness
+# thndrs ("Thunderus")
 
 A minimal AI pair programmer.
 
@@ -32,9 +32,11 @@ A minimal AI pair programmer.
 
 ### Themes
 
-**todo**
-
 <!-- good screenshot: side-by-side terminal captures of eldritch-minimal, iceberg-dark, and catppuccin-mocha themes -->
+
+| Eldritch | Iceberg  | Mocha    |
+| -------- | -------- | -------- |
+| **todo** | **todo** | **todo** |
 
 ## Quickstart
 
@@ -76,8 +78,11 @@ default_workspace = "."
 
 ## Documentation
 
-**todo**
+Public documentation is in Astro/Starlight [docs](/docs) project and is published
+at https://thndrs.stormlightlabs.org.
 
 ## License
 
-**todo**
+`thndrs` is licensed under the Apache License, Version 2.0.
+
+See [`LICENSE`](./LICENSE) for the full license text.

@@ -15,6 +15,12 @@ are always namespaced as `mcp__{server}__{tool}` so external tools cannot
 replace built-in tool names. Session records keep both the configured server
 name and the original MCP tool name for inspection.
 
+MCP definitions come from server `tools/list` responses. Their JSON input
+schemas are passed through to the provider under the namespaced tool name, and
+tool-call results are converted back into the local `ToolOutput` shape. Text
+content is emitted as output lines; structured content is rendered as a bounded
+line in the transcript.
+
 ## `find_files`
 
 Locate files by name or glob under the workspace root.

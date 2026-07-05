@@ -13,20 +13,19 @@ inspecting a repository.
   scrollback, search, and text selection.
 - `AGENTS.md` support
 - `SKILL.md` support
-- Umans.ai & OpenCode Go support
-- Choose automatic web search, provider-native search, Exa-backed search, or no
-  provider-side web search.
+- [Umans.ai](https://app.umans.ai/offers/code/docs) & [OpenCode Go](https://opencode.ai/docs/go/)
+  support
+- Choose automatic web search, provider-native search, Exa-backed search, or
+  [no provider-side](https://lectito.stormlightlabs.org/docs/) web search.
 - Session history
 - Internal inspection for the agent
 
 ## Coming Soon
 
-- Headless inspect and export commands for reviewing sessions
+- Better session observability
 - Read-only code-intelligence (LSP-based) tools such as document symbols,
-  workspace symbols, go to definition, references, hover, and implementations
-  when a language server is available.
-- Granular context control
-- File (markdown) backed memory
+  workspace symbols, go to definition, references, hover, and implementations.
+- Granular context control & file (markdown) backed memory
 - ChatGPT Codex provider support through `chatgpt-codex/` models and ChatGPT
   subscription auth.
 - Better config/session controls

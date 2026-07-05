@@ -156,6 +156,9 @@ variable is missing, that server is skipped and a diagnostic is recorded. Secret
 values in `env` and `headers` are redacted in loaded config metadata and
 diagnostics.
 
+See [MCP](/usage/mcp/) for stdio setup, Streamable HTTP examples, tool
+namespacing, diagnostics, and security limits.
+
 ## Diagnostics
 
 Startup fails for these configuration errors:

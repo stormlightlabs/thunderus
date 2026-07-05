@@ -26,7 +26,14 @@ title: "CLI Reference"
 
 ## MCP Commands
 
-- `thndrs mcp list`: list configured MCP servers and their enabled/disabled status.
-- `thndrs mcp test <name>`: initialize one server and print readiness plus tool count.
-- `thndrs mcp tools <name>`: list provider-visible namespaced tools from one server.
-- `thndrs mcp call <server> <tool> --json <args>`: call one original MCP tool name with JSON object arguments.
+- `thndrs mcp list`: list configured MCP servers as
+  `<server>\t<enabled|disabled>\t<transport>` and print config diagnostics.
+- `thndrs mcp test <name>`: initialize one server and print
+  `<server>\tready\t<N> tools`, followed by startup diagnostics.
+- `thndrs mcp tools <name>`: list provider-visible namespaced tools from one
+  server as `<mcp__server__tool>\t<description>`.
+- `thndrs mcp call <server> <tool> --json <args>`: call one original MCP tool
+  name with JSON object arguments and print capped tool output lines.
+
+The `<tool>` argument for `mcp call` is the original MCP tool name reported by
+the server. Provider-facing names are namespaced as `mcp__{server}__{tool}`.
