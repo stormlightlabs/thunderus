@@ -1,0 +1,14 @@
+---
+source: src/cli/renderer/region/tests.rs
+assertion_line: 31
+expression: contents
+---
+│                                                                                   # [bg=#171928]=                                                                                
+│   ✓ run_shell [ok]  program: ls                                                   # [bg=#171928]=   [fg=#37f499 bg=#171928]=✓  [fg=#ebfafa bg=#171928 b]=run_shell [fg=#37f499 bg=#171928]= [ok] [bg=#171928]=   [fg=#abb4da bg=#171928]=program: ls [bg=#171928]=                                                [bg=#171928]=  
+│      │ file_0.rs                                                                  # [bg=#171928]=   [fg=#3b4261 bg=#171928]=   │  [fg=#8fa1b3 bg=#171928]=file_0.rs [bg=#171928]=                                                               [bg=#171928]=  
+│      │ file_1.rs                                                                  # [bg=#171928]=   [fg=#3b4261 bg=#171928]=   │  [fg=#8fa1b3 bg=#171928]=file_1.rs [bg=#171928]=                                                               [bg=#171928]=  
+│      │ file_2.rs                                                                  # [bg=#171928]=   [fg=#3b4261 bg=#171928]=   │  [fg=#8fa1b3 bg=#171928]=file_2.rs [bg=#171928]=                                                               [bg=#171928]=  
+│      │ file_3.rs                                                                  # [bg=#171928]=   [fg=#3b4261 bg=#171928]=   │  [fg=#8fa1b3 bg=#171928]=file_3.rs [bg=#171928]=                                                               [bg=#171928]=  
+│      │ file_4.rs                                                                  # [bg=#171928]=   [fg=#3b4261 bg=#171928]=   │  [fg=#8fa1b3 bg=#171928]=file_4.rs [bg=#171928]=                                                               [bg=#171928]=  
+│      │ file_5.rs                                                                  # [bg=#171928]=   [fg=#3b4261 bg=#171928]=   │  [fg=#8fa1b3 bg=#171928]=file_5.rs [bg=#171928]=                                                               [bg=#171928]=  
+│      │ … (20 lines stored, 6 shown here)                                          # [bg=#171928]=   [fg=#abb4da bg=#171928]=   │ … (20 lines stored, 6 shown here) [bg=#171928]=                                       [bg=#171928]=

@@ -1,0 +1,8 @@
+---
+source: src/cli/renderer/live.rs
+assertion_line: 928
+expression: frame.render_styled()
+---
+│    permission  Write src/main.rs                                                  # [bg=#212337]=   [bg=#212337]=  [fg=#e0e0e0 bg=#212337 b]=permission [fg=#abb4da bg=#212337]=  Write src/main.rs [bg=#212337]=                                               [bg=#212337]=  
+│      Allow once  allow once                                                       # [bg=#212337]=   [bg=#212337]=  [fg=#abb4da bg=#212337]=  [bg=#212337]=  [fg=#ebfafa bg=#212337]=Allow once [fg=#abb4da bg=#212337]=  allow once [bg=#212337]=                                                    [bg=#212337]=  
+│    › Reject  reject once                                                          # [bg=#212337]=   [bg=#212337]=  [fg=#ebfafa bg=#212337 b]=› [bg=#212337]=  [fg=#ebfafa bg=#212337 b]=Reject [fg=#abb4da bg=#212337]=  reject once [bg=#212337]=                                                       [bg=#212337]=

@@ -1,0 +1,8 @@
+---
+source: src/cli/renderer/region/tests.rs
+assertion_line: 31
+expression: contents
+---
+│                                                                                   # [bg=#171928]=                                                                                
+│   Agent                                                                           # [bg=#171928]=   [fg=#37f499 bg=#171928 b]=Agent [bg=#171928]=                                                                        [bg=#171928]=  
+│   Sure! I can help with that. Let me take a look.                                 # [bg=#171928]=   [fg=#ebfafa bg=#171928]=Sure! I can help with that. Let me take a look. [bg=#171928]=                              [bg=#171928]=

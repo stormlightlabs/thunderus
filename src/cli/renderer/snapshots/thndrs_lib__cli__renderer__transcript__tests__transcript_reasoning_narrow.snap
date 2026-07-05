@@ -1,0 +1,9 @@
+---
+source: src/cli/renderer/transcript/tests.rs
+assertion_line: 28
+expression: contents
+---
+│                                           # [bg=#171928]=                                        
+│   Thinking ✓                              # [bg=#171928]=   [fg=#a48cf2 bg=#171928 b]=Thinking ✓ [bg=#171928]=                           [bg=#171928]=  
+│   I need to check the file structure      # [bg=#171928]=   [fg=#abb4da bg=#171928 i]=I need to check the file structure [bg=#171928]=   [bg=#171928]=  
+│   first.                                  # [bg=#171928]=   [fg=#abb4da bg=#171928 i]=first. [bg=#171928]=                               [bg=#171928]=

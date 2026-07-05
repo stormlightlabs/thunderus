@@ -1,0 +1,12 @@
+---
+source: src/cli/renderer/transcript/tests.rs
+assertion_line: 28
+expression: contents
+---
+│                                                                                   # [bg=#171928]=                                                                                
+│   Agent                                                                           # [bg=#171928]=   [fg=#37f499 bg=#171928 b]=Agent [bg=#171928]=                                                                        [bg=#171928]=  
+│   Here is the code:                                                               # [bg=#171928]=   [fg=#ebfafa bg=#171928]=Here is the code: [bg=#171928]=                                                            [bg=#171928]=  
+│                                                                                   # [bg=#171928]=                                                                                
+│      │ fn main() {                                                                # [bg=#171928]=   [fg=#3b4261 bg=#171928]=   │  [fg=#b48ead bg=#171928]=fn [fg=#c0c5ce bg=#171928]=  [fg=#8fa1b3 bg=#171928]=main [fg=#c0c5ce bg=#171928]=( [fg=#c0c5ce bg=#171928]=) [fg=#c0c5ce bg=#171928]=  [fg=#c0c5ce bg=#171928]={ [bg=#171928]=                                                             [bg=#171928]=  
+│      │     println!("hello");                                                     # [bg=#171928]=   [fg=#3b4261 bg=#171928]=   │  [fg=#c0c5ce bg=#171928]=     [fg=#c0c5ce bg=#171928]=println! [fg=#c0c5ce bg=#171928]=( [fg=#c0c5ce bg=#171928]=" [fg=#a3be8c bg=#171928]=hello [fg=#c0c5ce bg=#171928]=" [fg=#c0c5ce bg=#171928]=) [fg=#c0c5ce bg=#171928]=; [bg=#171928]=                                                  [bg=#171928]=  
+│      │ }                                                                          # [bg=#171928]=   [fg=#3b4261 bg=#171928]=   │  [fg=#c0c5ce bg=#171928]=} [bg=#171928]=                                                                       [bg=#171928]=

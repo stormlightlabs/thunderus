@@ -903,7 +903,7 @@ fn cancelled_prompt_preserves_updates_sent_before_cancellation() {
         std::thread::sleep(Duration::from_millis(5));
     }
     assert!(token.is_cancelled());
-    event_tx.send(AgentEvent::Finished).expect("finish turn");
+    let _ = event_tx.send(AgentEvent::Finished);
 
     let response = turn_thread.join().expect("turn thread").expect("turn response");
     assert_eq!(response.stop_reason, StopReason::Cancelled);

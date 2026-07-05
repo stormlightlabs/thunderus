@@ -1,0 +1,35 @@
+---
+source: src/cli/renderer/region/tests.rs
+assertion_line: 31
+expression: contents
+---
+│                                           # [bg=#171928]=                                        
+│    | THNDRS                               # [bg=#171928]=   [fg=#3b4261 bg=#171928]= |  [fg=#37f499 bg=#171928 b]=THNDRS [bg=#171928]=                            [bg=#171928]=  
+│    | cwd ~/Pr/St/O/thndrs                 # [bg=#171928]=   [fg=#3b4261 bg=#171928]= |  [fg=#abb4da bg=#171928]=cwd ~/Pr/St/O/thndrs [bg=#171928]=              [bg=#171928]=  
+│    |                                      # [bg=#171928]=   [fg=#3b4261 bg=#171928]= | [bg=#171928]=                                   [bg=#171928]=  
+│    + workbench                            # [bg=#171928]=   [fg=#37f499 bg=#171928 b]= +  [fg=#ebfafa bg=#171928 b]=workbench [bg=#171928]=                         [bg=#171928]=  
+│    |   system                             # [bg=#171928]=   [fg=#3b4261 bg=#171928]= |  [fg=#ebfafa bg=#171928 b]=  system [bg=#171928]=                          [bg=#171928]=  
+│    |      provider  umans                 # [bg=#171928]=   [fg=#3b4261 bg=#171928]= |  [fg=#abb4da bg=#171928]=     provider  umans [bg=#171928]=              [bg=#171928]=  
+│    |      model     test-model            # [bg=#171928]=   [fg=#3b4261 bg=#171928]= |  [fg=#abb4da bg=#171928]=     model     test-model [bg=#171928]=         [bg=#171928]=  
+│    |      search    native                # [bg=#171928]=   [fg=#3b4261 bg=#171928]= |  [fg=#abb4da bg=#171928]=     search    native [bg=#171928]=             [bg=#171928]=  
+│    |                                      # [bg=#171928]=   [fg=#3b4261 bg=#171928]= | [bg=#171928]=                                   [bg=#171928]=  
+│    |   project                            # [bg=#171928]=   [fg=#3b4261 bg=#171928]= |  [fg=#ebfafa bg=#171928 b]=  project [bg=#171928]=                         [bg=#171928]=  
+│    |      context (none)                  # [bg=#171928]=   [fg=#3b4261 bg=#171928]= |  [fg=#abb4da bg=#171928]=     context (none) [bg=#171928]=               [bg=#171928]=  
+│    |                                      # [bg=#171928]=   [fg=#3b4261 bg=#171928]= | [bg=#171928]=                                   [bg=#171928]=  
+│    |   attention                          # [bg=#171928]=   [fg=#3b4261 bg=#171928]= |  [fg=#ebfafa bg=#171928 b]=  attention [bg=#171928]=                       [bg=#171928]=  
+│    |      (none)                          # [bg=#171928]=   [fg=#3b4261 bg=#171928]= |  [fg=#abb4da bg=#171928]=     (none) [bg=#171928]=                       [bg=#171928]=  
+│    + search                               # [bg=#171928]=   [fg=#37f499 bg=#171928 b]= +  [fg=#ebfafa bg=#171928 b]=search [bg=#171928]=                            [bg=#171928]=  
+│    |    native: Umans server-side         # [bg=#171928]=   [fg=#3b4261 bg=#171928]= |  [fg=#abb4da bg=#171928]=   native: Umans server-side [bg=#171928]=      [bg=#171928]=  
+│    |    search; DuckDuckGo HTML           # [bg=#171928]=   [fg=#3b4261 bg=#171928]= |  [fg=#abb4da bg=#171928]=   search; DuckDuckGo HTML [bg=#171928]=        [bg=#171928]=  
+│    |    fallback via web_search tool;     # [bg=#171928]=   [fg=#3b4261 bg=#171928]= |  [fg=#abb4da bg=#171928]=   fallback via web_search tool; [bg=#171928]=  [bg=#171928]=  
+│    |    read_url fetches public           # [bg=#171928]=   [fg=#3b4261 bg=#171928]= |  [fg=#abb4da bg=#171928]=   read_url fetches public [bg=#171928]=        [bg=#171928]=  
+│    |    HTTP(S) and extracts HTML with    # [bg=#171928]=   [fg=#3b4261 bg=#171928]= |  [fg=#abb4da bg=#171928]=   HTTP(S) and extracts HTML with [bg=#171928]=  
+│    |    Lectito                           # [bg=#171928]=   [fg=#3b4261 bg=#171928]= |  [fg=#abb4da bg=#171928]=   Lectito [bg=#171928]=                        [bg=#171928]=  
+│    |                                      # [bg=#171928]=   [fg=#3b4261 bg=#171928]= | [bg=#171928]=                                   [bg=#171928]=  
+│    + ready                                # [bg=#171928]=   [fg=#37f499 bg=#171928 b]= +  [fg=#ebfafa bg=#171928 b]=ready [bg=#171928]=                             [bg=#171928]=  
+│    |   >      Ask for a change, run a     # [bg=#171928]=   [fg=#3b4261 bg=#171928]= |  [fg=#37f499 bg=#171928 b]=  >       [fg=#abb4da bg=#171928]=Ask for a change, run a [bg=#171928]=  [bg=#171928]=  
+│    |          command, or inspect this    # [bg=#171928]=   [fg=#3b4261 bg=#171928]= |  [fg=#abb4da bg=#171928]=         command, or inspect this [bg=#171928]=  
+│    |          repo.                       # [bg=#171928]=   [fg=#3b4261 bg=#171928]= |  [fg=#abb4da bg=#171928]=         repo. [bg=#171928]=                    [bg=#171928]=  
+│    |   ?      help                        # [bg=#171928]=   [fg=#3b4261 bg=#171928]= |  [fg=#37f499 bg=#171928 b]=  ?       [fg=#abb4da bg=#171928]=help [bg=#171928]=                     [bg=#171928]=  
+│    |   /model switch models               # [bg=#171928]=   [fg=#3b4261 bg=#171928]= |  [fg=#37f499 bg=#171928 b]=  /model  [fg=#abb4da bg=#171928]=switch models [bg=#171928]=            [bg=#171928]=  
+│                                           # [bg=#171928]=

@@ -171,22 +171,22 @@ Captured: 2026-07-04
 
 ## M14: Agent-Owned Resume
 
-- [ ] Implement `session/list`.
-- [ ] Implement `session/load` with replay from local session JSONL.
-- [ ] Implement `session/resume` without replay when safe.
-- [ ] Implement `session/close`.
-- [ ] Implement `session/delete` after deletion policy is decided.
-- [ ] Add replay ordering tests.
-- [ ] Add compatibility tests for clients that do not call resume methods.
+- [x] Implement `session/list`.
+- [x] Implement `session/load` with replay from local session JSONL.
+- [x] Implement `session/resume` without replay when safe.
+- [x] Implement `session/close`.
+- [x] Implement `session/delete` after deletion policy is decided.
+- [x] Add replay ordering tests.
+- [x] Add compatibility tests for clients that do not call resume methods.
 
 ## M15: Client Filesystem Integration
 
-- [ ] Detect client `fs/read_text_file` capability.
-- [ ] Use client reads for editor-visible file state when appropriate.
-- [ ] Decide how local writes and client writes interact.
-- [ ] Detect client `fs/write_text_file` capability.
-- [ ] Preserve local session write audit.
-- [ ] Add tests for client fs unavailable, read success, read failure, write
+- [x] Detect client `fs/read_text_file` capability.
+- [x] Use client reads for editor-visible file state when appropriate.
+- [x] Decide how local writes and client writes interact.
+- [x] Detect client `fs/write_text_file` capability.
+- [x] Preserve local session write audit.
+- [x] Add tests for client fs unavailable, read success, read failure, write
       success, and write denial.
 
 ## M16: Client Terminal Integration

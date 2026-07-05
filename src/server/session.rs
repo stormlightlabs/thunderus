@@ -131,6 +131,38 @@ impl AcpSessionStore {
         Ok(acp_session_id)
     }
 
+    /// Attach an existing local session to a caller-supplied ACP session id.
+    ///
+    /// Used by `session/load` and `session/resume`, where the client names a
+    /// persisted session returned from `session/list`.
+    pub fn attach_existing_session(
+        &mut self, acp_session_id: impl Into<String>, local_session_id: impl Into<String>, cwd: &Path,
+        session_writer: Option<SessionWriter>,
+    ) -> Result<String, AcpSessionError> {
+        let acp_session_id = acp_session_id.into();
+        let local_session_id = local_session_id.into();
+        let cwd = validate_and_normalize_cwd(cwd, None)?;
+
+        if self.sessions.contains_key(&acp_session_id) {
+            return Err(AcpSessionError::DuplicateLocalSession { local_session_id });
+        }
+        if self.local_to_acp.contains_key(&local_session_id) {
+            return Err(AcpSessionError::DuplicateLocalSession { local_session_id });
+        }
+
+        let session = AcpServerSession {
+            acp_session_id: acp_session_id.clone(),
+            metadata: LocalSessionMetadata { local_session_id: local_session_id.clone(), model: None, websearch: None },
+            cwd,
+            turn_in_progress: false,
+            session_writer,
+        };
+
+        self.sessions.insert(acp_session_id.clone(), session);
+        self.local_to_acp.insert(local_session_id, acp_session_id.clone());
+        Ok(acp_session_id)
+    }
+
     /// Return the opaque ACP session id for a local session id.
     pub fn acp_session_id_for_local(&self, local_session_id: &str) -> Option<&str> {
         self.local_to_acp.get(local_session_id).map(String::as_str)
@@ -146,6 +178,13 @@ impl AcpSessionStore {
     /// Return a snapshot of one ACP session.
     pub fn session(&self, acp_session_id: &str) -> Option<&AcpServerSession> {
         self.sessions.get(acp_session_id)
+    }
+
+    /// Return snapshots of all active ACP sessions sorted by ACP id.
+    pub fn sessions(&self) -> Vec<&AcpServerSession> {
+        let mut sessions = self.sessions.values().collect::<Vec<_>>();
+        sessions.sort_by(|left, right| left.acp_session_id.cmp(&right.acp_session_id));
+        sessions
     }
 
     /// Mark a turn as active for this ACP session.

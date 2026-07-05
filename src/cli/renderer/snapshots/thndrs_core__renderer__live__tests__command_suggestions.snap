@@ -1,6 +1,0 @@
----
-source: src/cli/renderer/live.rs
-assertion_line: 1044
-expression: frame.render_styled()
----
-│   no matching commands                                                            # [bg=#212337]=   [fg=#3b4261 bg=#212337]=no matching commands [bg=#212337]=                                                         [bg=#212337]=

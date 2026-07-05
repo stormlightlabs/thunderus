@@ -1,19 +1,12 @@
 //! ACP server request and notification handlers.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 
 use agent_client_protocol::schema::ProtocolVersion;
-use agent_client_protocol::schema::v1::{
-    AgentCapabilities, CancelNotification, Content, ContentBlock, ContentChunk, Implementation, InitializeRequest,
-    InitializeResponse, McpCapabilities, NewSessionRequest, NewSessionResponse, PermissionOption, PermissionOptionKind,
-    PromptCapabilities, PromptRequest, PromptResponse, RequestPermissionOutcome, RequestPermissionRequest,
-    SessionCapabilities, SessionConfigOption, SessionNotification, SessionUpdate, SetSessionConfigOptionRequest,
-    SetSessionConfigOptionResponse, StopReason, TextContent, ToolCall, ToolCallContent, ToolCallStatus, ToolCallUpdate,
-    ToolCallUpdateFields, UsageUpdate,
-};
+use agent_client_protocol::schema::v1::*;
 use agent_client_protocol::{Agent, Client, ConnectionTo, Dispatch, Error, Lines, Result};
 use futures::channel::oneshot;
 use futures::future::{Either, select};
@@ -30,7 +23,9 @@ use crate::server::ServerConfig;
 use crate::server::config_options::{ConfigOptionValue, acp_config_options, validate_config_option};
 use crate::server::events::{SessionUpdateIntent, classify_tool, map_agent_event, sanitize_tool_payload};
 use crate::server::session::{AcpServerSession, AcpSessionStore, validate_and_normalize_cwd};
-use crate::session::{AcpPermissionOptionRecord, AcpSessionMetadata, SCHEMA_VERSION, SessionRecord, SessionWriter};
+use crate::session::{
+    AcpPermissionOptionRecord, AcpSessionMetadata, SCHEMA_VERSION, SessionReader, SessionRecord, SessionWriter,
+};
 use crate::tools::AgentRunConfig;
 use crate::tools::ToolUseRequest;
 
@@ -50,6 +45,7 @@ struct ServerStateInner {
     cancelled: BTreeSet<String>,
     active_turn_cancels: BTreeMap<String, CancelToken>,
     client_info: Option<Implementation>,
+    client_capabilities: ClientCapabilities,
 }
 
 impl ServerState {
@@ -130,7 +126,25 @@ impl ServerState {
     fn record_client_info(&self, request: &InitializeRequest) {
         if let Ok(mut inner) = self.inner.lock() {
             inner.client_info = request.client_info.clone();
+            inner.client_capabilities = request.client_capabilities.clone();
         }
+    }
+
+    fn client_fs_capabilities(&self) -> FileSystemCapabilities {
+        self.inner
+            .lock()
+            .map(|inner| inner.client_capabilities.fs.clone())
+            .unwrap_or_default()
+    }
+
+    /// Return whether the initialized ACP client can serve editor-visible reads.
+    pub fn client_can_read_text_files(&self) -> bool {
+        self.client_fs_capabilities().read_text_file
+    }
+
+    /// Return whether the initialized ACP client can perform editor-visible writes.
+    pub fn client_can_write_text_files(&self) -> bool {
+        self.client_fs_capabilities().write_text_file
     }
 
     fn config_options_for_session(&self, session_id: &str) -> Result<Vec<SessionConfigOption>, String> {
@@ -187,6 +201,125 @@ impl ServerState {
             .session(session_id)
             .cloned()
             .ok_or_else(|| format!("unknown ACP session id `{session_id}`"))
+    }
+
+    fn list_sessions(&self, cwd: Option<&Path>) -> Result<Vec<SessionInfo>, String> {
+        let mut sessions = BTreeMap::new();
+        if let Some(session_dir) = &self.config.session_dir {
+            for path in crate::session::list_session_files(session_dir) {
+                if let Some(info) = session_info_from_file(&path, cwd) {
+                    sessions.insert(info.session_id.0.to_string(), info);
+                }
+            }
+        }
+
+        let inner = self
+            .inner
+            .lock()
+            .map_err(|_| String::from("ACP server state lock poisoned"))?;
+        for session in inner.sessions.sessions() {
+            if cwd.is_some_and(|expected| expected != session.cwd) {
+                continue;
+            }
+            sessions.insert(
+                session.acp_session_id.clone(),
+                SessionInfo::new(session.acp_session_id.clone(), session.cwd.clone())
+                    .title(Some(session.metadata.local_session_id.clone())),
+            );
+        }
+
+        Ok(sessions.into_values().collect())
+    }
+
+    fn load_session(&self, session_id: &str, cwd: &Path) -> Result<Vec<SessionRecord>, String> {
+        let session_path = self.persisted_session_path(session_id)?;
+        let records = SessionReader::read_records(&session_path);
+        let stored_cwd = session_cwd(&records).unwrap_or_else(|| cwd.to_path_buf());
+        if stored_cwd != validate_and_normalize_cwd(cwd, None).map_err(|error| error.to_string())? {
+            return Err(format!(
+                "session `{session_id}` belongs to cwd `{}`",
+                stored_cwd.display()
+            ));
+        }
+        let writer = SessionWriter::resume(&session_path, session_id).map_err(|error| error.to_string())?;
+        self.attach_loaded_session(session_id, &stored_cwd, Some(writer))?;
+        Ok(records)
+    }
+
+    fn resume_session(&self, session_id: &str, cwd: &Path) -> Result<(), String> {
+        let session_path = self.persisted_session_path(session_id)?;
+        let records = SessionReader::read_records(&session_path);
+        let stored_cwd = session_cwd(&records).unwrap_or_else(|| cwd.to_path_buf());
+        if stored_cwd != validate_and_normalize_cwd(cwd, None).map_err(|error| error.to_string())? {
+            return Err(format!(
+                "session `{session_id}` belongs to cwd `{}`",
+                stored_cwd.display()
+            ));
+        }
+        let writer = SessionWriter::resume(&session_path, session_id).map_err(|error| error.to_string())?;
+        self.attach_loaded_session(session_id, &stored_cwd, Some(writer))?;
+        Ok(())
+    }
+
+    fn attach_loaded_session(&self, session_id: &str, cwd: &Path, writer: Option<SessionWriter>) -> Result<(), String> {
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|_| String::from("ACP server state lock poisoned"))?;
+        if inner.sessions.session(session_id).is_some() {
+            return Ok(());
+        }
+        inner
+            .sessions
+            .attach_existing_session(session_id, session_id, cwd, writer)
+            .map_err(|error| error.to_string())?;
+        inner
+            .sessions
+            .update_session_metadata(
+                session_id,
+                Some(self.config.model.clone()),
+                websearch_mode(&self.config.websearch),
+            )
+            .map_err(|error| error.to_string())?;
+        Ok(())
+    }
+
+    fn persisted_session_path(&self, session_id: &str) -> Result<PathBuf, String> {
+        let Some(session_dir) = &self.config.session_dir else {
+            return Err(String::from("session persistence is not configured"));
+        };
+        let path = session_dir.join(format!("{session_id}.jsonl"));
+        if path.exists() { Ok(path) } else { Err(format!("unknown persisted session `{session_id}`")) }
+    }
+
+    fn close_session(&self, session_id: &str) -> Result<(), String> {
+        self.cancel_session(session_id);
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|_| String::from("ACP server state lock poisoned"))?;
+        inner
+            .sessions
+            .remove_session(session_id)
+            .map(|_| ())
+            .ok_or_else(|| format!("missing session: {session_id}"))
+    }
+
+    fn delete_session(&self, session_id: &str) -> Result<(), String> {
+        self.cancel_session(session_id);
+        if let Ok(mut inner) = self.inner.lock() {
+            inner.sessions.remove_session(session_id);
+        }
+
+        if let Some(session_dir) = &self.config.session_dir {
+            let path = session_dir.join(format!("{session_id}.jsonl"));
+            if path.exists() {
+                return Err(String::from(
+                    "session/delete is non-destructive until the persisted deletion policy is decided",
+                ));
+            }
+        }
+        Ok(())
     }
 
     fn begin_turn(&self, session_id: &str) -> Result<PromptTurnGuard, String> {
@@ -271,6 +404,11 @@ pub async fn run_stdio(config: ServerConfig) -> Result<()> {
     let state = ServerState::new(config);
     let initialize_state = state.clone();
     let new_session_state = state.clone();
+    let list_session_state = state.clone();
+    let load_session_state = state.clone();
+    let resume_session_state = state.clone();
+    let close_session_state = state.clone();
+    let delete_session_state = state.clone();
     let prompt_state = state.clone();
     let config_option_state = state.clone();
     let cancel_state = state;
@@ -293,6 +431,57 @@ pub async fn run_stdio(config: ServerConfig) -> Result<()> {
         .on_receive_request(
             async move |request: NewSessionRequest, responder, _connection| match new_session(
                 &new_session_state,
+                &request,
+            ) {
+                Ok(response) => responder.respond(response),
+                Err(error) => responder.respond_with_error(Error::invalid_params().data(error)),
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |request: ListSessionsRequest, responder, _connection| match list_sessions(
+                &list_session_state,
+                &request,
+            ) {
+                Ok(response) => responder.respond(response),
+                Err(error) => responder.respond_with_error(Error::invalid_params().data(error)),
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |request: LoadSessionRequest, responder, connection: ConnectionTo<Client>| match load_session(
+                &load_session_state,
+                &request,
+                &connection,
+            ) {
+                Ok(response) => responder.respond(response),
+                Err(error) => responder.respond_with_error(Error::invalid_params().data(error)),
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |request: ResumeSessionRequest, responder, _connection| match resume_session(
+                &resume_session_state,
+                &request,
+            ) {
+                Ok(response) => responder.respond(response),
+                Err(error) => responder.respond_with_error(Error::invalid_params().data(error)),
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |request: CloseSessionRequest, responder, _connection| match close_session(
+                &close_session_state,
+                &request,
+            ) {
+                Ok(response) => responder.respond(response),
+                Err(error) => responder.respond_with_error(Error::invalid_params().data(error)),
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |request: DeleteSessionRequest, responder, _connection| match delete_session(
+                &delete_session_state,
                 &request,
             ) {
                 Ok(response) => responder.respond(response),
@@ -359,6 +548,59 @@ fn new_session(state: &ServerState, request: &NewSessionRequest) -> Result<NewSe
     let session_id = state.create_session(&cwd)?;
     let config_options = state.config_options_for_session(&session_id)?;
     Ok(NewSessionResponse::new(session_id).config_options(config_options))
+}
+
+fn list_sessions(state: &ServerState, request: &ListSessionsRequest) -> Result<ListSessionsResponse, String> {
+    if request.cursor.is_some() {
+        return Ok(ListSessionsResponse::new(Vec::new()));
+    }
+    if let Some(cwd) = &request.cwd
+        && !cwd.is_absolute()
+    {
+        return Err(format!("ACP session list cwd must be absolute: {}", cwd.display()));
+    }
+    Ok(ListSessionsResponse::new(state.list_sessions(request.cwd.as_deref())?))
+}
+
+fn load_session(
+    state: &ServerState, request: &LoadSessionRequest, connection: &ConnectionTo<Client>,
+) -> Result<LoadSessionResponse, String> {
+    if !request.cwd.is_absolute() {
+        return Err(format!(
+            "ACP session load cwd must be absolute: {}",
+            request.cwd.display()
+        ));
+    }
+    let session_id = request.session_id.0.as_ref();
+    let records = state.load_session(session_id, &request.cwd)?;
+    for record in records {
+        if let Some(update) = replay_record_update(&record) {
+            send_update(connection, request.session_id.clone(), update)?;
+        }
+    }
+    Ok(LoadSessionResponse::new().config_options(state.config_options_for_session(session_id)?))
+}
+
+fn resume_session(state: &ServerState, request: &ResumeSessionRequest) -> Result<ResumeSessionResponse, String> {
+    if !request.cwd.is_absolute() {
+        return Err(format!(
+            "ACP session resume cwd must be absolute: {}",
+            request.cwd.display()
+        ));
+    }
+    let session_id = request.session_id.0.as_ref();
+    state.resume_session(session_id, &request.cwd)?;
+    Ok(ResumeSessionResponse::new().config_options(state.config_options_for_session(session_id)?))
+}
+
+fn close_session(state: &ServerState, request: &CloseSessionRequest) -> Result<CloseSessionResponse, String> {
+    state.close_session(request.session_id.0.as_ref())?;
+    Ok(CloseSessionResponse::new())
+}
+
+fn delete_session(state: &ServerState, request: &DeleteSessionRequest) -> Result<DeleteSessionResponse, String> {
+    state.delete_session(request.session_id.0.as_ref())?;
+    Ok(DeleteSessionResponse::new())
 }
 
 pub fn set_config_option(
@@ -832,10 +1074,16 @@ impl Drop for PromptTurnGuard {
 
 fn capabilities(_state: &ServerState) -> AgentCapabilities {
     AgentCapabilities::new()
-        .load_session(false)
+        .load_session(true)
         .prompt_capabilities(PromptCapabilities::new())
         .mcp_capabilities(McpCapabilities::new())
-        .session_capabilities(SessionCapabilities::new())
+        .session_capabilities(
+            SessionCapabilities::new()
+                .list(SessionListCapabilities::new())
+                .resume(SessionResumeCapabilities::new())
+                .close(SessionCloseCapabilities::new())
+                .delete(SessionDeleteCapabilities::new()),
+        )
 }
 
 fn negotiate_protocol_version(requested: ProtocolVersion) -> ProtocolVersion {
@@ -911,6 +1159,123 @@ fn lower_update_intent(intent: SessionUpdateIntent) -> Option<SessionUpdate> {
         ))),
         SessionUpdateIntent::Finished => None,
     }
+}
+
+fn replay_record_update(record: &SessionRecord) -> Option<SessionUpdateIntent> {
+    match record {
+        SessionRecord::User { text, .. } => Some(SessionUpdateIntent::Status(format!("user: {text}"))),
+        SessionRecord::AssistantFinished { text, .. } => Some(SessionUpdateIntent::AssistantDelta(text.clone())),
+        SessionRecord::ReasoningFinished { text, .. } => Some(SessionUpdateIntent::ReasoningDelta(text.clone())),
+        SessionRecord::Usage { input_tokens, output_tokens, .. } => {
+            Some(SessionUpdateIntent::Usage { input_tokens: *input_tokens, output_tokens: *output_tokens })
+        }
+        SessionRecord::ToolStarted { call_id, name, arguments, .. } => Some(SessionUpdateIntent::ToolStarted {
+            id: call_id.clone(),
+            name: name.clone(),
+            arguments: sanitize_tool_payload(arguments),
+            kind: classify_tool(name),
+            locations: vec![],
+        }),
+        SessionRecord::ToolFinished { call_id, status, output, .. } => Some(SessionUpdateIntent::ToolFinished {
+            id: call_id.clone(),
+            status: (*status).into(),
+            output: output.clone(),
+            kind: crate::server::events::ToolCallKind::Other,
+            locations: vec![],
+        }),
+        SessionRecord::Cancelled { .. } => Some(SessionUpdateIntent::Cancelled),
+        SessionRecord::Failed { error, .. } => Some(SessionUpdateIntent::Failed(error.clone())),
+        _ => None,
+    }
+}
+
+fn session_info_from_file(path: &Path, cwd_filter: Option<&Path>) -> Option<SessionInfo> {
+    let records = SessionReader::read_records(path);
+    let session_id = session_id_from_records(&records)
+        .or_else(|| path.file_stem().and_then(|stem| stem.to_str()).map(str::to_string))?;
+    let cwd = session_cwd(&records)?;
+    if cwd_filter.is_some_and(|expected| expected != cwd) {
+        return None;
+    }
+    let title = SessionReader::read_title(path);
+    let updated_at = records.iter().rev().find_map(record_time);
+    Some(
+        SessionInfo::new(session_id, cwd)
+            .title(Some(title))
+            .updated_at(updated_at),
+    )
+}
+
+fn session_id_from_records(records: &[SessionRecord]) -> Option<String> {
+    records.iter().find_map(|record| match record {
+        SessionRecord::SessionMeta { session_id, .. } => Some(session_id.clone()),
+        _ => None,
+    })
+}
+
+fn session_cwd(records: &[SessionRecord]) -> Option<PathBuf> {
+    records.iter().find_map(|record| match record {
+        SessionRecord::SessionMeta { cwd, .. } => Some(PathBuf::from(cwd)),
+        _ => None,
+    })
+}
+
+fn record_time(record: &SessionRecord) -> Option<String> {
+    match record {
+        SessionRecord::SessionMeta { time, .. }
+        | SessionRecord::Context { time, .. }
+        | SessionRecord::User { time, .. }
+        | SessionRecord::PromptMetadata { time, .. }
+        | SessionRecord::AssistantFinished { time, .. }
+        | SessionRecord::ReasoningFinished { time, .. }
+        | SessionRecord::Usage { time, .. }
+        | SessionRecord::ToolStarted { time, .. }
+        | SessionRecord::ToolFinished { time, .. }
+        | SessionRecord::Cancelled { time, .. }
+        | SessionRecord::Failed { time, .. }
+        | SessionRecord::AcpSession { time, .. }
+        | SessionRecord::SessionRenamed { time, .. }
+        | SessionRecord::FileWrite { time, .. }
+        | SessionRecord::McpConfigChanged { time, .. }
+        | SessionRecord::ShellExec { time, .. }
+        | SessionRecord::SkillActivated { time, .. }
+        | SessionRecord::QueuedInput { time, .. }
+        | SessionRecord::AcpPermissionRequest { time, .. }
+        | SessionRecord::AcpPermissionOutcome { time, .. } => Some(time.clone()),
+    }
+}
+
+/// Read editor-visible text from an ACP client when it advertised support.
+pub async fn client_read_text_file(
+    state: &ServerState, connection: &ConnectionTo<Client>, session_id: agent_client_protocol::schema::v1::SessionId,
+    path: PathBuf, line: Option<u32>, limit: Option<u32>,
+) -> Result<Option<String>, String> {
+    if !state.client_can_read_text_files() {
+        return Ok(None);
+    }
+    let request = ReadTextFileRequest::new(session_id, path).line(line).limit(limit);
+    connection
+        .send_request(request)
+        .block_task()
+        .await
+        .map(|response| Some(response.content))
+        .map_err(|error| format!("client fs/read_text_file failed: {error}"))
+}
+
+/// Write editor-visible text through an ACP client when it advertised support.
+pub async fn client_write_text_file(
+    state: &ServerState, connection: &ConnectionTo<Client>, session_id: agent_client_protocol::schema::v1::SessionId,
+    path: PathBuf, content: String,
+) -> Result<bool, String> {
+    if !state.client_can_write_text_files() {
+        return Ok(false);
+    }
+    connection
+        .send_request(WriteTextFileRequest::new(session_id, path, content))
+        .block_task()
+        .await
+        .map(|_| true)
+        .map_err(|error| format!("client fs/write_text_file failed: {error}"))
 }
 
 fn tool_call_status(intent: crate::server::events::ToolStatusIntent) -> ToolCallStatus {
@@ -1038,10 +1403,16 @@ mod tests {
             Some(Implementation::new("thndrs", env!("CARGO_PKG_VERSION")).title(Some("thndrs".to_string())))
         );
         let expected = AgentCapabilities::new()
-            .load_session(false)
+            .load_session(true)
             .prompt_capabilities(PromptCapabilities::new())
             .mcp_capabilities(McpCapabilities::new())
-            .session_capabilities(SessionCapabilities::new());
+            .session_capabilities(
+                SessionCapabilities::new()
+                    .list(SessionListCapabilities::new())
+                    .resume(SessionResumeCapabilities::new())
+                    .close(SessionCloseCapabilities::new())
+                    .delete(SessionDeleteCapabilities::new()),
+            );
         assert_eq!(response.agent_capabilities, expected);
     }
 
@@ -1052,6 +1423,131 @@ mod tests {
 
         assert_eq!(response.protocol_version, ProtocolVersion::V1);
         assert!(response.agent_capabilities.prompt_capabilities == PromptCapabilities::new());
+    }
+
+    #[test]
+    fn records_client_filesystem_capabilities() {
+        let state = state();
+        let request = InitializeRequest::new(ProtocolVersion::V1).client_capabilities(
+            ClientCapabilities::new().fs(FileSystemCapabilities::new().read_text_file(true).write_text_file(true)),
+        );
+
+        let _response = initialize(&state, &request);
+
+        assert!(state.client_can_read_text_files());
+        assert!(state.client_can_write_text_files());
+    }
+
+    #[test]
+    fn list_sessions_reads_persisted_jsonl() {
+        let workspace = tempfile::tempdir().expect("temp workspace");
+        let workspace_path = workspace.path().canonicalize().expect("canonical workspace");
+        let session_dir = tempfile::tempdir().expect("temp sessions");
+        let mut writer = SessionWriter::create(
+            session_dir.path(),
+            "persisted-1",
+            &workspace_path.display().to_string(),
+            "Saved Session",
+            "thndrs",
+            "umans-coder",
+            "auto",
+            env!("CARGO_PKG_VERSION"),
+            None,
+        )
+        .expect("create persisted session");
+        writer
+            .append(SessionRecord::AssistantFinished {
+                schema_version: SCHEMA_VERSION,
+                seq: 0,
+                time: crate::utils::datetime::now_iso8601(),
+                turn_id: "turn-1".to_string(),
+                text: "saved answer".to_string(),
+            })
+            .expect("append assistant");
+        let state = ServerState::new(ServerConfig::new(
+            workspace_path.clone(),
+            "umans-coder".to_string(),
+            "auto".to_string(),
+            Some(session_dir.path().to_path_buf()),
+        ));
+
+        let response =
+            list_sessions(&state, &ListSessionsRequest::new().cwd(Some(workspace_path))).expect("list sessions");
+
+        assert_eq!(response.sessions.len(), 1);
+        assert_eq!(response.sessions[0].session_id.0.as_ref(), "persisted-1");
+        assert_eq!(response.sessions[0].title.as_deref(), Some("Saved Session"));
+    }
+
+    #[test]
+    fn load_session_replays_records_in_file_order() {
+        let records = [
+            SessionRecord::User {
+                schema_version: SCHEMA_VERSION,
+                seq: 1,
+                time: "2026-07-05T00:00:00Z".to_string(),
+                turn_id: "turn-1".to_string(),
+                text: "question".to_string(),
+            },
+            SessionRecord::ReasoningFinished {
+                schema_version: SCHEMA_VERSION,
+                seq: 2,
+                time: "2026-07-05T00:00:01Z".to_string(),
+                turn_id: "turn-1".to_string(),
+                text: "thought".to_string(),
+            },
+            SessionRecord::AssistantFinished {
+                schema_version: SCHEMA_VERSION,
+                seq: 3,
+                time: "2026-07-05T00:00:02Z".to_string(),
+                turn_id: "turn-1".to_string(),
+                text: "answer".to_string(),
+            },
+        ];
+
+        let kinds = records
+            .iter()
+            .filter_map(replay_record_update)
+            .map(|intent| match intent {
+                SessionUpdateIntent::Status(_) => "status",
+                SessionUpdateIntent::ReasoningDelta(_) => "reasoning",
+                SessionUpdateIntent::AssistantDelta(_) => "assistant",
+                _ => "other",
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(kinds, vec!["status", "reasoning", "assistant"]);
+    }
+
+    #[test]
+    fn resume_session_attaches_without_replay_requirement() {
+        let workspace = tempfile::tempdir().expect("temp workspace");
+        let workspace_path = workspace.path().canonicalize().expect("canonical workspace");
+        let session_dir = tempfile::tempdir().expect("temp sessions");
+        let _writer = SessionWriter::create(
+            session_dir.path(),
+            "persisted-resume",
+            &workspace_path.display().to_string(),
+            "Resume Session",
+            "thndrs",
+            "umans-coder",
+            "auto",
+            env!("CARGO_PKG_VERSION"),
+            None,
+        )
+        .expect("create persisted session");
+        let state = ServerState::new(ServerConfig::new(
+            workspace_path.clone(),
+            "umans-coder".to_string(),
+            "auto".to_string(),
+            Some(session_dir.path().to_path_buf()),
+        ));
+
+        let response = resume_session(&state, &ResumeSessionRequest::new("persisted-resume", workspace_path))
+            .expect("resume session");
+
+        assert!(response.config_options.is_some());
+        assert!(state.has_session("persisted-resume"));
     }
 
     #[test]

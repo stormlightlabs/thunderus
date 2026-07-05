@@ -742,6 +742,24 @@ impl SessionWriter {
         Ok(SessionWriter { path, seq: 1, session_id: session_id.to_string() })
     }
 
+    /// Reopen an existing session file for append-only continuation.
+    ///
+    /// The next sequence number is derived from the highest readable record
+    /// sequence. Corrupt trailing lines are ignored consistently with
+    /// [`SessionReader`].
+    pub fn resume(path: &Path, session_id: &str) -> std::io::Result<Self> {
+        let records = SessionReader::read_records(path);
+        let seq = records
+            .iter()
+            .map(SessionRecord::seq)
+            .max()
+            .map_or(0, |max_seq| max_seq.saturating_add(1));
+
+        let _file = std::fs::OpenOptions::new().append(true).open(path)?;
+
+        Ok(SessionWriter { path: path.to_path_buf(), seq, session_id: session_id.to_string() })
+    }
+
     /// Append a record to the session file.
     pub fn append(&mut self, mut record: SessionRecord) -> std::io::Result<()> {
         let seq = self.seq;

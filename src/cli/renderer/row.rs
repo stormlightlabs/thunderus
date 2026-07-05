@@ -106,6 +106,11 @@ impl Frame {
         self.rows.len()
     }
 
+    /// Whether the frame has no rows.
+    pub fn is_empty(&self) -> bool {
+        self.rows.is_empty()
+    }
+
     /// Plain-text rendering, one line per row.
     #[cfg(test)]
     pub fn render_text(&self) -> String {
