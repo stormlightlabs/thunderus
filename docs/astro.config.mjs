@@ -15,14 +15,10 @@ export default defineConfig({
       description:
         "thndrs is a Rust coding harness with a terminal-first workflow, visible context, and bounded repository tools.",
       social: [
-        { icon: "github", label: "GitHub", href: "https://github.com/stormlightlabs/thndrs" },
+        { icon: "github", label: "GitHub", href: "https://github.com/stormlightlabs/thunderus" },
         { icon: "blueSky", label: "BlueSky", href: "https://bsky.app/profile/stormlightlabs.org" },
       ],
-      customCss: [
-        "@fontsource-variable/ibm-plex-sans",
-        "@fontsource-variable/literata",
-        "./src/styles/theme.css",
-      ],
+      customCss: ["@fontsource-variable/ibm-plex-sans", "@fontsource-variable/literata", "./src/styles/theme.css"],
       head: [
         {
           tag: "meta",
@@ -161,10 +157,7 @@ export default defineConfig({
               label: "Tools and Providers",
               collapsed: true,
               items: [
-                {
-                  label: "Filesystem Traversal",
-                  slug: "notebook/fs-traversal",
-                },
+                { label: "Filesystem Traversal", slug: "notebook/fs-traversal" },
                 { label: "Shell Execution", slug: "notebook/shellexec" },
                 { label: "Protocols", slug: "notebook/providers/protocols" },
                 { label: "Umans.ai", slug: "notebook/providers/umans" },
@@ -178,10 +171,7 @@ export default defineConfig({
                 { label: "Ratatui Patterns", slug: "notebook/ratatui" },
                 { label: "insta Snapshot Testing", slug: "notebook/ratatui-testing" },
                 { label: "Text Input Libs", slug: "notebook/text-input-libraries" },
-                {
-                  label: "Prompt Libs",
-                  slug: "notebook/prompt-renderer-research",
-                },
+                { label: "Prompt Libs", slug: "notebook/prompt-renderer-research" },
                 { label: "Terminal Agent UI", slug: "notebook/ui" },
                 { label: "Yoga Layout Engine", slug: "notebook/yoga" },
                 { label: "Yoga for Gridland", slug: "notebook/yoga-gridland" },
@@ -196,10 +186,7 @@ export default defineConfig({
                 { label: "New Codebases", slug: "notebook/new-codebase" },
                 { label: "Docs", slug: "notebook/docs" },
                 { label: "Sessions", slug: "notebook/sessions" },
-                {
-                  label: "Releasing",
-                  slug: "notebook/release",
-                },
+                { label: "Releasing", slug: "notebook/release" },
                 { label: "Memory (Letta)", slug: "notebook/letta" },
                 { label: "Memory Retrieval", slug: "notebook/memory-retrieval" },
               ],

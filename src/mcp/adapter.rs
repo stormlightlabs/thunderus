@@ -9,14 +9,45 @@ use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock, Tool};
 use rmcp::service::{RoleClient, RunningService, ServiceExt};
 use rmcp::transport::TokioChildProcess;
 use std::process::Stdio;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use thiserror::Error;
+use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use tokio::runtime::{Builder, Runtime};
 
 use super::config::{McpServerConfig, McpTransport};
 use crate::tools::{ToolDefinition, ToolOutput};
 
+const MAX_STDERR_BYTES: usize = 8 * 1024;
 const SUPPORTED_PROTOCOL_VERSION: &str = "2025-06-18";
+
+/// Errors surfaced by the MCP SDK adapter.
+#[derive(Debug, Error)]
+pub enum McpSdkError {
+    #[error("unsupported MCP transport for SDK adapter: {0:?}")]
+    UnsupportedTransport(McpTransport),
+    #[error("failed to build MCP runtime: {0}")]
+    RuntimeBuild(std::io::Error),
+    #[error("failed to create MCP stdio transport: {0}")]
+    TransportCreate(String),
+    #[error("failed to initialize MCP server: {0}")]
+    Initialize(String),
+    #[error("failed to list MCP tools: {0}")]
+    ListTools(String),
+    #[error("failed to call MCP tool `{tool}`: {message}")]
+    CallTool { tool: String, message: String },
+    #[error("MCP {operation} timed out after {timeout_secs}s{stderr}")]
+    Timeout {
+        operation: &'static str,
+        timeout_secs: u64,
+        stderr: String,
+    },
+    #[error("MCP tool arguments must be a JSON object")]
+    ArgumentsNotObject,
+    #[error("MCP client is closed")]
+    Closed,
+}
 
 /// Metadata from a successful MCP server initialize handshake.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -44,25 +75,10 @@ pub struct McpToolDefinition {
     pub original_tool_name: String,
 }
 
-/// Errors surfaced by the MCP SDK adapter.
-#[derive(Debug, Error)]
-pub enum McpSdkError {
-    #[error("unsupported MCP transport for SDK adapter: {0:?}")]
-    UnsupportedTransport(McpTransport),
-    #[error("failed to build MCP runtime: {0}")]
-    RuntimeBuild(std::io::Error),
-    #[error("failed to create MCP stdio transport: {0}")]
-    TransportCreate(String),
-    #[error("failed to initialize MCP server: {0}")]
-    Initialize(String),
-    #[error("failed to list MCP tools: {0}")]
-    ListTools(String),
-    #[error("failed to call MCP tool `{tool}`: {message}")]
-    CallTool { tool: String, message: String },
-    #[error("MCP tool arguments must be a JSON object")]
-    ArgumentsNotObject,
-    #[error("MCP client is closed")]
-    Closed,
+#[derive(Debug, Default)]
+struct BoundedStderr {
+    bytes: Vec<u8>,
+    truncated: bool,
 }
 
 /// Connected SDK client for one stdio MCP server.
@@ -70,6 +86,8 @@ pub struct McpSdkClient {
     client: Option<RunningService<RoleClient, ()>>,
     runtime: Runtime,
     server_info: McpServerInfo,
+    stderr: Arc<Mutex<BoundedStderr>>,
+    timeout_secs: u64,
 }
 
 impl McpSdkClient {
@@ -83,7 +101,23 @@ impl McpSdkClient {
             .enable_all()
             .build()
             .map_err(McpSdkError::RuntimeBuild)?;
-        let client = runtime.block_on(connect_stdio_async(server))?;
+        let stderr = Arc::new(Mutex::new(BoundedStderr::default()));
+        let client = match runtime.block_on(async {
+            tokio::time::timeout(
+                Duration::from_secs(server.timeout_secs),
+                connect_stdio_async(server, Arc::clone(&stderr)),
+            )
+            .await
+        }) {
+            Ok(result) => result?,
+            Err(_) => {
+                return Err(McpSdkError::Timeout {
+                    operation: "initialize",
+                    timeout_secs: server.timeout_secs,
+                    stderr: stderr_error_suffix(&stderr),
+                });
+            }
+        };
         let server_info = client
             .peer_info()
             .as_deref()
@@ -96,7 +130,7 @@ impl McpSdkClient {
                 diagnostics: vec!["mcp initialize completed without server info".to_string()],
             });
 
-        Ok(Self { client: Some(client), runtime, server_info })
+        Ok(Self { client: Some(client), runtime, server_info, stderr, timeout_secs: server.timeout_secs })
     }
 
     /// Server information captured during initialize.
@@ -104,13 +138,26 @@ impl McpSdkClient {
         &self.server_info
     }
 
+    /// Current bounded stderr text captured from the child process.
+    pub fn stderr_diagnostics(&self) -> Option<String> {
+        stderr_text(&self.stderr)
+    }
+
     /// List tools and convert them to local registry definitions.
     pub fn list_tool_definitions(&self, server_name: &str) -> Result<Vec<McpToolDefinition>, McpSdkError> {
         let client = self.client.as_ref().ok_or(McpSdkError::Closed)?;
-        let tools = self
-            .runtime
-            .block_on(client.list_all_tools())
-            .map_err(|err| McpSdkError::ListTools(err.to_string()))?;
+        let tools = match self.runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(self.timeout_secs), client.list_all_tools()).await
+        }) {
+            Ok(result) => result.map_err(|err| McpSdkError::ListTools(err.to_string()))?,
+            Err(_) => {
+                return Err(McpSdkError::Timeout {
+                    operation: "tools/list",
+                    timeout_secs: self.timeout_secs,
+                    stderr: stderr_error_suffix(&self.stderr),
+                });
+            }
+        };
         Ok(tools
             .iter()
             .map(|tool| sdk_tool_to_definition(server_name, tool))
@@ -123,12 +170,25 @@ impl McpSdkClient {
     ) -> Result<ToolOutput, McpSdkError> {
         let client = self.client.as_ref().ok_or(McpSdkError::Closed)?;
         let arguments = json_object_arguments(arguments)?;
-        let result = self
-            .runtime
-            .block_on(
+        let result = match self.runtime.block_on(async {
+            tokio::time::timeout(
+                Duration::from_secs(self.timeout_secs),
                 client.call_tool(CallToolRequestParams::new(original_tool_name.to_string()).with_arguments(arguments)),
             )
-            .map_err(|err| McpSdkError::CallTool { tool: original_tool_name.to_string(), message: err.to_string() })?;
+            .await
+        }) {
+            Ok(result) => result.map_err(|err| McpSdkError::CallTool {
+                tool: original_tool_name.to_string(),
+                message: err.to_string(),
+            })?,
+            Err(_) => {
+                return Err(McpSdkError::Timeout {
+                    operation: "tools/call",
+                    timeout_secs: self.timeout_secs,
+                    stderr: stderr_error_suffix(&self.stderr),
+                });
+            }
+        };
         Ok(sdk_call_result_to_output(namespaced_tool_name, &result))
     }
 
@@ -153,15 +213,22 @@ impl Drop for McpSdkClient {
     }
 }
 
-async fn connect_stdio_async(server: &McpServerConfig) -> Result<RunningService<RoleClient, ()>, McpSdkError> {
+async fn connect_stdio_async(
+    server: &McpServerConfig, stderr_capture: Arc<Mutex<BoundedStderr>>,
+) -> Result<RunningService<RoleClient, ()>, McpSdkError> {
     let mut command = Command::new(&server.command);
     command.args(&server.args);
     command.envs(&server.env);
-    command.stdin(Stdio::piped());
-    command.stdout(Stdio::piped());
-    command.stderr(Stdio::piped());
 
-    let transport = TokioChildProcess::new(command).map_err(|err| McpSdkError::TransportCreate(err.to_string()))?;
+    let (transport, stderr) = TokioChildProcess::builder(command)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|err| McpSdkError::TransportCreate(err.to_string()))?;
+    if let Some(stderr) = stderr {
+        tokio::spawn(capture_stderr(stderr, stderr_capture));
+    }
     ().serve(transport)
         .await
         .map_err(|err| McpSdkError::Initialize(err.to_string()))
@@ -248,6 +315,44 @@ fn json_object_arguments(arguments: serde_json::Value) -> Result<rmcp::model::Js
     }
 }
 
+async fn capture_stderr(mut stderr: tokio::process::ChildStderr, capture: Arc<Mutex<BoundedStderr>>) {
+    let mut chunk = [0_u8; 1024];
+    loop {
+        match stderr.read(&mut chunk).await {
+            Ok(0) | Err(_) => break,
+            Ok(n) => append_stderr(&capture, &chunk[..n]),
+        }
+    }
+}
+
+fn append_stderr(capture: &Arc<Mutex<BoundedStderr>>, chunk: &[u8]) {
+    let mut capture = capture.lock().expect("stderr capture lock poisoned");
+    capture.bytes.extend_from_slice(chunk);
+    if capture.bytes.len() > MAX_STDERR_BYTES {
+        let overflow = capture.bytes.len() - MAX_STDERR_BYTES;
+        capture.bytes.drain(0..overflow);
+        capture.truncated = true;
+    }
+}
+
+fn stderr_text(capture: &Arc<Mutex<BoundedStderr>>) -> Option<String> {
+    let capture = capture.lock().expect("stderr capture lock poisoned");
+    let text = String::from_utf8_lossy(&capture.bytes).trim().to_string();
+    if text.is_empty() {
+        None
+    } else if capture.truncated {
+        Some(format!("[stderr truncated]\n{text}"))
+    } else {
+        Some(text)
+    }
+}
+
+fn stderr_error_suffix(capture: &Arc<Mutex<BoundedStderr>>) -> String {
+    stderr_text(capture)
+        .map(|text| format!("; stderr: {text}"))
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -318,7 +423,7 @@ mod tests {
     #[test]
     fn stdio_client_initializes_lists_and_calls_fake_server() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let script = write_fake_server(temp.path(), false);
+        let script = write_fake_server(temp.path(), FakeServerMode::Normal);
         let server = McpServerConfig {
             command: "python3".to_string(),
             args: vec![script.display().to_string()],
@@ -344,7 +449,7 @@ mod tests {
     #[test]
     fn malformed_server_message_becomes_initialize_error() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let script = write_fake_server(temp.path(), true);
+        let script = write_fake_server(temp.path(), FakeServerMode::MalformedInitialize);
         let server = McpServerConfig {
             command: "python3".to_string(),
             args: vec![script.display().to_string()],
@@ -359,17 +464,104 @@ mod tests {
         assert!(matches!(err, McpSdkError::Initialize(_)));
     }
 
-    fn write_fake_server(dir: &Path, malformed_initialize: bool) -> std::path::PathBuf {
+    #[test]
+    fn startup_timeout_includes_stderr_diagnostics() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let script = write_fake_server(temp.path(), FakeServerMode::SlowInitialize);
+        let server = McpServerConfig {
+            command: "python3".to_string(),
+            args: vec![script.display().to_string()],
+            timeout_secs: 1,
+            ..McpServerConfig::default()
+        };
+
+        let err = match McpSdkClient::connect_stdio(&server) {
+            Ok(_) => panic!("slow server should time out"),
+            Err(err) => err,
+        };
+
+        assert!(matches!(
+            err,
+            McpSdkError::Timeout { operation: "initialize", timeout_secs: 1, .. }
+        ));
+        assert!(err.to_string().contains("starting slowly"));
+    }
+
+    #[test]
+    fn per_call_timeout_returns_stable_error() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let script = write_fake_server(temp.path(), FakeServerMode::SlowCall);
+        let server = McpServerConfig {
+            command: "python3".to_string(),
+            args: vec![script.display().to_string()],
+            timeout_secs: 1,
+            ..McpServerConfig::default()
+        };
+        let client = McpSdkClient::connect_stdio(&server).expect("connect fake MCP server");
+
+        let err = client
+            .call_tool("mcp__docs__echo", "echo", json!({ "text": "ok" }))
+            .expect_err("slow call should time out");
+
+        assert!(matches!(
+            err,
+            McpSdkError::Timeout { operation: "tools/call", timeout_secs: 1, .. }
+        ));
+        assert!(err.to_string().contains("call is slow"));
+    }
+
+    #[test]
+    fn server_process_exit_becomes_list_error() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let script = write_fake_server(temp.path(), FakeServerMode::ExitAfterInitialize);
+        let server = McpServerConfig {
+            command: "python3".to_string(),
+            args: vec![script.display().to_string()],
+            timeout_secs: 1,
+            ..McpServerConfig::default()
+        };
+        let err = match McpSdkClient::connect_stdio(&server) {
+            Ok(client) => client
+                .list_tool_definitions("docs")
+                .expect_err("exited server should not list tools"),
+            Err(err) => err,
+        };
+
+        assert!(matches!(
+            err,
+            McpSdkError::Initialize(_)
+                | McpSdkError::ListTools(_)
+                | McpSdkError::Timeout { operation: "tools/list", .. }
+        ));
+    }
+
+    #[derive(Clone, Copy)]
+    enum FakeServerMode {
+        Normal,
+        MalformedInitialize,
+        SlowInitialize,
+        SlowCall,
+        ExitAfterInitialize,
+    }
+
+    fn write_fake_server(dir: &Path, mode: FakeServerMode) -> std::path::PathBuf {
         let path = dir.join("fake_mcp.py");
-        let malformed = if malformed_initialize { "True" } else { "False" };
+        let malformed = python_bool(matches!(mode, FakeServerMode::MalformedInitialize));
+        let slow_initialize = python_bool(matches!(mode, FakeServerMode::SlowInitialize));
+        let slow_call = python_bool(matches!(mode, FakeServerMode::SlowCall));
+        let exit_after_initialize = python_bool(matches!(mode, FakeServerMode::ExitAfterInitialize));
         fs::write(
             &path,
             format!(
                 r#"#!/usr/bin/env python3
 import json
 import sys
+import time
 
 malformed_initialize = {malformed}
+slow_initialize = {slow_initialize}
+slow_call = {slow_call}
+exit_after_initialize = {exit_after_initialize}
 
 for line in sys.stdin:
     msg = json.loads(line)
@@ -378,6 +570,9 @@ for line in sys.stdin:
         if malformed_initialize:
             print("not-json", flush=True)
             sys.exit(0)
+        if slow_initialize:
+            print("starting slowly", file=sys.stderr, flush=True)
+            time.sleep(2)
         print(json.dumps({{
             "jsonrpc": "2.0",
             "id": msg["id"],
@@ -387,6 +582,8 @@ for line in sys.stdin:
                 "serverInfo": {{"name": "fake", "version": "0.1.0"}}
             }}
         }}), flush=True)
+        if exit_after_initialize:
+            sys.exit(0)
     elif method == "notifications/initialized":
         continue
     elif method == "tools/list":
@@ -403,6 +600,9 @@ for line in sys.stdin:
         }}), flush=True)
     elif method == "tools/call":
         args = msg.get("params", {{}}).get("arguments", {{}})
+        if slow_call:
+            print("call is slow", file=sys.stderr, flush=True)
+            time.sleep(2)
         print(json.dumps({{
             "jsonrpc": "2.0",
             "id": msg["id"],
@@ -413,5 +613,9 @@ for line in sys.stdin:
         )
         .expect("write fake server");
         path
+    }
+
+    fn python_bool(value: bool) -> &'static str {
+        if value { "True" } else { "False" }
     }
 }

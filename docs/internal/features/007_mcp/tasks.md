@@ -53,26 +53,26 @@ Captured: 2026-07-04
 
 ## P3: Stdio Transport
 
-- [ ] Spawn stdio server processes with argv arrays through `rmcp`.
-- [ ] Drive initialize, tools/list, and tools/call through `rmcp`.
-- [ ] Capture bounded stderr diagnostics.
-- [ ] Enforce startup timeout.
-- [ ] Enforce per-call timeout.
-- [ ] Shut down child processes on client drop.
-- [ ] Add fake-server tests for initialize, tools/list, tools/call, timeout,
+- [x] Spawn stdio server processes with argv arrays through `rmcp`.
+- [x] Drive initialize, tools/list, and tools/call through `rmcp`.
+- [x] Capture bounded stderr diagnostics.
+- [x] Enforce startup timeout.
+- [x] Enforce per-call timeout.
+- [x] Shut down child processes on client drop.
+- [x] Add fake-server tests for initialize, tools/list, tools/call, timeout,
       stderr, and process exit.
 
 ## P4: MCP Manager
 
-- [ ] Add `McpClient` for one server.
-- [ ] Add `McpManager` for configured servers.
-- [ ] Initialize enabled servers lazily or with bounded startup.
-- [ ] Cache tool lists per server for prompt assembly.
-- [ ] Convert SDK tool input schemas to tool registry definitions.
-- [ ] Namespace tool names as `mcp__{server}__{tool}`.
-- [ ] Route namespaced calls to the correct client.
-- [ ] Convert SDK call results to unified tool execution output.
-- [ ] Add manager tests for namespace routing and duplicate tool names.
+- [x] Add `McpClient` for one server.
+- [x] Add `McpManager` for configured servers.
+- [x] Initialize enabled servers lazily or with bounded startup.
+- [x] Cache tool lists per server for prompt assembly.
+- [x] Convert SDK tool input schemas to tool registry definitions.
+- [x] Namespace tool names as `mcp__{server}__{tool}`.
+- [x] Route namespaced calls to the correct client.
+- [x] Convert SDK call results to unified tool execution output.
+- [x] Add manager tests for namespace routing and duplicate tool names.
 
 ## P5: Runtime And Sessions
 
