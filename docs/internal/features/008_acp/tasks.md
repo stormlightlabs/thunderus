@@ -330,8 +330,8 @@ session ids in the existing `acp_session` record.
 - [x] Show available agents without installing them automatically.
 - [x] Design command provenance, package-manager behavior, and security review
       before registry install/update support.
-- [ ] Add install/update only after command provenance and security review.
-- [ ] Record installed agent source/version metadata.
+- [x] Add install/update only after command provenance and security review.
+- [x] Record installed agent source/version metadata.
 - [x] Add tests for registry parse, display, redaction, and failure behavior.
 
 Decision: read-only registry discovery belongs in core `thndrs` after the local
@@ -360,13 +360,16 @@ Review gate completed for design only:
   package/archive, selected platform, command preview, install directory,
   timestamp, and install/update status separately from ACP session records.
 
-Result: `src/acp/registry.rs` parses the official read-only registry JSON from
+Result: `src/acp/registry.rs` parses the official registry JSON from
 `https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json` or a
 local JSON file. `thndrs acp registry` lists available agents with display-safe
 id, name, version, distribution labels, and homepage metadata, omits registry
-env values and install commands, and prints the install/update review gate.
-Install/update and installed source/version recording remain unchecked because
-they are separate implementation work after these checkpoint decisions.
+env values, caps registry input size, and normalizes display fields. `thndrs acp
+install <registry-id> --yes` and `thndrs acp update <name> --yes` write a
+managed workspace `.thndrs/config.toml` block plus `.thndrs/acp-installed.toml`
+metadata for supported `npx` and `uvx` distributions. Install/update do not
+execute package managers, run login/smoke flows, or install binary archives;
+binary-only registry entries fail closed until archive verification is designed.
 
 ## M17: MCP-Over-ACP
 

@@ -27,6 +27,8 @@ configured under `[acp_agents.<name>]`. For more information see [ACP](/usage/ac
 - `thndrs acp resume-session <name> <session-id>`: resume an external ACP session without replaying history.
 - `thndrs acp close-session <name> <session-id>`: close an external ACP session when the agent advertises `session/close`.
 - `thndrs acp registry [--file <path>]`: list agents from the read-only official ACP Registry metadata without installing them.
+- `thndrs acp install <registry-id> [--name <name>] [--file <path>] --yes`: add a supported registry agent to workspace ACP config and installed-agent metadata.
+- `thndrs acp update <name> [--file <path>] --yes`: update a registry-managed ACP agent in workspace ACP config and installed-agent metadata.
 
 ## MCP Commands
 

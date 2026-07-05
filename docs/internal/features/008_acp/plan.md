@@ -369,9 +369,10 @@ metadata from a stable source, parse it, and display agent names, descriptions,
 versions, and distribution hints with redaction where needed. It must not
 install, update, or execute registry-provided commands automatically.
 
-Install/update support requires a later security review covering command
-provenance, package-manager behavior, source/version metadata, cache policy,
-and failure modes.
+Install/update support starts as a configuration install only: it may write a
+managed `[acp_agents.<name>]` block and installed-agent metadata for supported
+package distributions, but it must not execute package managers, run
+post-install commands, launch agents, or install binary archives.
 
 #### Registry Install/Update Review Checkpoints
 
@@ -381,9 +382,10 @@ Command provenance:
   registry sources.
 - Registry entries identify candidate packages and archives; they do not grant
   permission to execute commands.
-- Future install support may derive an argv list only from a known distribution
-  adapter (`npx`, `uvx`, or `binary`) implemented in `thndrs`, not from an
-  arbitrary registry shell string.
+- Install support may derive an argv list only from a known distribution adapter
+  (`npx` or `uvx`) implemented in `thndrs`, not from an arbitrary registry shell
+  string. Binary archive installs remain unsupported until archive verification
+  is implemented.
 - Registry `args` may be displayed for review and later copied into config, but
   must not be executed until the user has explicitly selected the agent,
   distribution, and resolved version.
@@ -395,14 +397,13 @@ Command provenance:
 
 Package-manager behavior:
 
-- Package-manager installs must be deterministic enough to audit: pin the
+- Package-manager config installs must be deterministic enough to audit: pin the
   registry-provided package/version, do not use floating `latest`, and do not
-  let the package manager rewrite the selected version during install.
-- Run package managers with argv-only process creation, no shell interpolation,
-  workspace-contained working directories, bounded output, timeout/cancel
-  handling, and redacted diagnostics.
+  let package metadata rewrite the selected version during install.
+- Do not execute package managers during registry install/update. Package
+  managers run only later when the configured ACP agent is selected normally.
 - Do not run agent login, initialization, smoke tests, post-install prompts, or
-  generated config automatically after package installation.
+  generated config automatically after registry install/update.
 - Disable known package-manager auto-update behavior where the registry
   provides a safe env key for that purpose; otherwise show a warning and require
   explicit user confirmation before using that distribution.

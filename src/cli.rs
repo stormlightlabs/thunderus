@@ -111,6 +111,31 @@ pub enum AcpCommand {
         #[arg(long)]
         file: Option<PathBuf>,
     },
+    /// Install one registry agent into workspace ACP config metadata.
+    Install {
+        /// Registry agent id.
+        agent_id: String,
+        /// Local ACP agent name. Defaults to the registry id without a trailing `-acp`.
+        #[arg(long)]
+        name: Option<String>,
+        /// Read registry JSON from a local file instead of the official CDN.
+        #[arg(long)]
+        file: Option<PathBuf>,
+        /// Confirm writing workspace config and install metadata.
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Update one registry-managed ACP agent in workspace config metadata.
+    Update {
+        /// Local ACP agent name.
+        name: String,
+        /// Read registry JSON from a local file instead of the official CDN.
+        #[arg(long)]
+        file: Option<PathBuf>,
+        /// Confirm writing workspace config and install metadata.
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 /// MCP inspection and tool-call commands.
@@ -686,6 +711,46 @@ mod tests {
         assert_eq!(
             cli.command,
             Some(Command::Acp { command: AcpCommand::Registry { file: Some(PathBuf::from("registry.json")) } })
+        );
+    }
+
+    #[test]
+    fn acp_install_and_update_commands_parse() {
+        let install = Cli::try_parse_from([
+            "thndrs",
+            "acp",
+            "install",
+            "codex-acp",
+            "--name",
+            "codex",
+            "--file",
+            "registry.json",
+            "--yes",
+        ])
+        .expect("parse install");
+        assert_eq!(
+            install.command,
+            Some(Command::Acp {
+                command: AcpCommand::Install {
+                    agent_id: "codex-acp".to_string(),
+                    name: Some("codex".to_string()),
+                    file: Some(PathBuf::from("registry.json")),
+                    yes: true,
+                }
+            })
+        );
+
+        let update = Cli::try_parse_from(["thndrs", "acp", "update", "codex", "--file", "registry.json", "--yes"])
+            .expect("parse update");
+        assert_eq!(
+            update.command,
+            Some(Command::Acp {
+                command: AcpCommand::Update {
+                    name: "codex".to_string(),
+                    file: Some(PathBuf::from("registry.json")),
+                    yes: true,
+                }
+            })
         );
     }
 

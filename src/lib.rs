@@ -41,6 +41,7 @@ use tools::AgentRunConfig;
 use crate::acp::config::provider_label;
 use crate::app::PromptAccessory;
 use crate::mcp::manager::McpManager;
+use crate::renderer::region::LiveRegion;
 use crate::utils::datetime;
 
 enum AcpEventWrite {
@@ -312,6 +313,16 @@ fn run_acp_command(cli: &Cli, command: &AcpCommand) -> io::Result<()> {
             let mut lock = stdout.lock();
             run_acp_registry(file.as_deref(), &mut lock)
         }
+        AcpCommand::Install { agent_id, name, file, yes } => {
+            let stdout = io::stdout();
+            let mut lock = stdout.lock();
+            run_acp_install(cli, agent_id, name.clone(), file.as_deref(), *yes, &mut lock)
+        }
+        AcpCommand::Update { name, file, yes } => {
+            let stdout = io::stdout();
+            let mut lock = stdout.lock();
+            run_acp_update(cli, name, file.as_deref(), *yes, &mut lock)
+        }
     }
 }
 
@@ -494,6 +505,56 @@ fn run_acp_registry<W: io::Write>(file: Option<&Path>, writer: &mut W) -> io::Re
     }
     .map_err(io::Error::other)?;
     write!(writer, "{registry}")
+}
+
+fn run_acp_install<W: io::Write>(
+    cli: &Cli, agent_id: &str, name: Option<String>, file: Option<&Path>, yes: bool, writer: &mut W,
+) -> io::Result<()> {
+    let workspace = context::discover_workspace_root(&cli.cwd);
+    let request = acp::registry::InstallRequest {
+        agent_id: agent_id.to_string(),
+        name,
+        source: registry_source(file),
+        confirmed: yes,
+        timestamp: datetime::now_iso8601(),
+    };
+    let outcome = acp::registry::install(&workspace, &request).map_err(io::Error::other)?;
+    writeln!(
+        writer,
+        "installed: {} {} {}",
+        outcome.name, outcome.agent_id, outcome.agent_version
+    )?;
+    writeln!(writer, "model: {}", outcome.model)?;
+    writeln!(writer, "config: {}", outcome.config_path.display())?;
+    writeln!(writer, "metadata: {}", outcome.metadata_path.display())
+}
+
+fn run_acp_update<W: io::Write>(
+    cli: &Cli, name: &str, file: Option<&Path>, yes: bool, writer: &mut W,
+) -> io::Result<()> {
+    let workspace = context::discover_workspace_root(&cli.cwd);
+    let request = acp::registry::UpdateRequest {
+        name: name.to_string(),
+        source: registry_source(file),
+        confirmed: yes,
+        timestamp: datetime::now_iso8601(),
+    };
+    let outcome = acp::registry::update(&workspace, &request).map_err(io::Error::other)?;
+    writeln!(
+        writer,
+        "updated: {} {} {}",
+        outcome.name, outcome.agent_id, outcome.agent_version
+    )?;
+    writeln!(writer, "model: {}", outcome.model)?;
+    writeln!(writer, "config: {}", outcome.config_path.display())?;
+    writeln!(writer, "metadata: {}", outcome.metadata_path.display())
+}
+
+fn registry_source(file: Option<&Path>) -> acp::registry::RegistrySource {
+    match file {
+        Some(path) => acp::registry::RegistrySource::File(path.to_path_buf()),
+        None => acp::registry::RegistrySource::Official,
+    }
 }
 
 fn write_acp_event<W: io::Write>(writer: &mut W, event: app::AgentEvent) -> io::Result<AcpEventWrite> {
@@ -850,8 +911,7 @@ fn backend_size<W: io::Write>(backend: &TerminalBackend<W>) -> (usize, usize) {
 /// terminal scrollback and rendering only the live chrome (prompt, status,
 /// streaming content) via diff-based rendering.
 fn direct_render<W: io::Write>(
-    backend: &mut TerminalBackend<W>, live: &mut renderer::region::LiveRegion, app: &mut App, width: usize,
-    height: usize,
+    backend: &mut TerminalBackend<W>, live: &mut LiveRegion, app: &mut App, width: usize, height: usize,
 ) -> io::Result<()> {
     renderer::style::set_theme(app.theme);
     live.render_frame(app, backend, width, height)?;
@@ -861,7 +921,7 @@ fn direct_render<W: io::Write>(
 /// Process a key in the direct renderer path.
 fn handle_direct_key<W: io::Write>(
     app: &mut App, key: KeyEvent, agent: &mut Option<AgentSlot>, backend: &mut TerminalBackend<W>,
-    live: &mut renderer::region::LiveRegion,
+    live: &mut LiveRegion,
 ) -> io::Result<()> {
     if key.code == crossterm::event::KeyCode::Esc
         && app.run_state == RunState::Working
@@ -874,7 +934,7 @@ fn handle_direct_key<W: io::Write>(
 
 /// Process a message and chain follow-ups, then render.
 fn handle_direct_msg<W: io::Write>(
-    app: &mut App, msg: Msg, backend: &mut TerminalBackend<W>, live: &mut renderer::region::LiveRegion,
+    app: &mut App, msg: Msg, backend: &mut TerminalBackend<W>, live: &mut LiveRegion,
 ) -> io::Result<()> {
     let mut next = Some(msg);
     while let Some(m) = next {
@@ -893,8 +953,8 @@ fn handle_direct_msg<W: io::Write>(
 
 /// Drain agent events in the direct renderer path.
 fn drain_direct_agent_events<W: io::Write>(
-    app: &mut App, agent: &mut Option<AgentSlot>, backend: &mut TerminalBackend<W>,
-    live: &mut renderer::region::LiveRegion, observability: &Option<Observability>,
+    app: &mut App, agent: &mut Option<AgentSlot>, backend: &mut TerminalBackend<W>, live: &mut LiveRegion,
+    observability: &Option<Observability>,
 ) -> io::Result<()> {
     let Some(slot) = agent else {
         return Ok(());
@@ -936,8 +996,7 @@ fn drain_direct_agent_events<W: io::Write>(
 }
 
 fn drain_git_status_watcher<W: io::Write>(
-    app: &mut App, watcher: &GitStatusWatcher, backend: &mut TerminalBackend<W>,
-    live: &mut renderer::region::LiveRegion,
+    app: &mut App, watcher: &GitStatusWatcher, backend: &mut TerminalBackend<W>, live: &mut LiveRegion,
 ) -> io::Result<()> {
     while let Ok(status) = watcher.receiver.try_recv() {
         handle_direct_msg(app, Msg::GitStatusChanged(status), backend, live)?;
@@ -1384,9 +1443,41 @@ mod tests {
 
         assert!(output.contains("ACP registry v1.0.0"));
         assert!(output.contains("codex-acp\tCodex\t1.1.0\tnpx:@agentclientprotocol/codex-acp@1.1.0"));
-        assert!(output.contains("install/update: unavailable pending command provenance"));
+        assert!(output.contains("install/update: use `thndrs acp install"));
         assert!(!output.contains("OPENAI_API_KEY"));
         assert!(!output.contains("sk-secret"));
+    }
+
+    #[test]
+    fn acp_install_and_update_registry_agent() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let registry_path = temp.path().join("registry.json");
+        write_registry_fixture(&registry_path, "1.1.0");
+        let cli = Cli { cwd: temp.path().to_path_buf(), ..Cli::default() };
+        let mut install_output = Vec::new();
+
+        run_acp_install(
+            &cli,
+            "codex-acp",
+            Some("codex".to_string()),
+            Some(&registry_path),
+            true,
+            &mut install_output,
+        )
+        .expect("install");
+        let install_output = String::from_utf8(install_output).expect("utf8");
+
+        assert!(install_output.contains("installed: codex codex-acp 1.1.0"));
+        assert!(install_output.contains("model: acp:codex"));
+
+        write_registry_fixture(&registry_path, "1.2.0");
+        let mut update_output = Vec::new();
+        run_acp_update(&cli, "codex", Some(&registry_path), true, &mut update_output).expect("update");
+        let update_output = String::from_utf8(update_output).expect("utf8");
+
+        assert!(update_output.contains("updated: codex codex-acp 1.2.0"));
+        let config = std::fs::read_to_string(temp.path().join(".thndrs/config.toml")).expect("config");
+        assert!(config.contains("@agentclientprotocol/codex-acp@1.2.0"));
     }
 
     #[test]
@@ -1551,6 +1642,30 @@ mod tests {
             },
         );
         Cli { cwd: cwd.to_path_buf(), acp_agents: agents, ..Cli::default() }
+    }
+
+    fn write_registry_fixture(path: &Path, version: &str) {
+        std::fs::write(
+            path,
+            format!(
+                r#"{{
+                    "version": "1.0.0",
+                    "agents": [{{
+                        "id": "codex-acp",
+                        "name": "Codex",
+                        "version": "{version}",
+                        "description": "ACP adapter",
+                        "distribution": {{
+                            "npx": {{
+                                "package": "@agentclientprotocol/codex-acp@{version}",
+                                "args": ["--acp"]
+                            }}
+                        }}
+                    }}]
+                }}"#
+            ),
+        )
+        .expect("write registry");
     }
 
     fn write_fake_mcp_server(dir: &Path) -> PathBuf {

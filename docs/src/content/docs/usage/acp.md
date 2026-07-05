@@ -163,7 +163,7 @@ capability.
 `updated-at` fields. `load-session` prints replayed updates, then
 `loaded: <agent> <session-id>` and the `acp_session` metadata line.
 
-List available agents from the read-only ACP Registry:
+List available agents from the ACP Registry:
 
 ```sh
 thndrs acp registry
@@ -178,15 +178,31 @@ inspection or tests, pass a local registry JSON file:
 thndrs acp registry --file registry.json
 ```
 
-Install/update support is intentionally unavailable until command provenance,
-package-manager behavior, and security review are complete.
-
 The registry command treats registry entries as discovery metadata only.
-Package names, archive URLs, args, and env keys are not executed. Env values
-from registry metadata are ignored and never printed. Future install/update
-support must add an explicit confirmation flow, pinned source/version metadata,
-safe archive verification, and separate installed-agent records before it can be
-enabled.
+Package names, archive URLs, args, and env keys are not executed by
+`acp registry`. Env values from registry metadata are ignored and never printed.
+
+Install a supported `npx` or `uvx` registry agent into the current workspace:
+
+```sh
+thndrs acp install codex-acp --name codex --yes
+```
+
+This writes a managed `[acp_agents.<name>]` block to `.thndrs/config.toml` and
+records source/version metadata in `.thndrs/acp-installed.toml`. Install does
+not run the package manager, launch the agent, log in, smoke test, or install
+binary archives. Binary-only registry entries fail closed until archive
+verification is supported.
+
+Update a registry-managed agent from the latest registry metadata:
+
+```sh
+thndrs acp update codex --yes
+```
+
+Use `--file registry.json` with either command to install or update from a
+local registry file. Existing manually configured ACP agents are not overwritten;
+only blocks previously created by `thndrs acp install` are updated.
 
 ## Troubleshooting
 
