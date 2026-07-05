@@ -1,6 +1,7 @@
 //! ACP session config option primitives.
 
 use crate::cli::WebSearchMode;
+use agent_client_protocol::schema::v1::{SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectOption};
 
 /// ACP config option id for model selection.
 pub const MODEL_CONFIG_OPTION_ID: &str = "model";
@@ -26,6 +27,16 @@ pub enum ConfigOptionValue {
     Model(String),
     /// ACP `websearch` value.
     WebSearch(WebSearchMode),
+}
+
+impl ConfigOptionValue {
+    /// Return the persisted string representation for session metadata.
+    pub fn as_persisted_value(&self) -> String {
+        match self {
+            Self::Model(model) => model.clone(),
+            Self::WebSearch(mode) => mode.label().to_string(),
+        }
+    }
 }
 
 /// Errors produced by config-option validation.
@@ -66,6 +77,11 @@ pub fn initial_config_options() -> &'static [ConfigOptionSpec] {
     &OPTIONS
 }
 
+/// Return ACP session config options for the current session state.
+pub fn acp_config_options(model: &str, websearch: WebSearchMode) -> Vec<SessionConfigOption> {
+    vec![model_config_option(model), websearch_config_option(websearch)]
+}
+
 /// Validate one config option id/value pair.
 pub fn validate_config_option(option_id: &str, value: &str) -> Result<ConfigOptionValue, ConfigOptionError> {
     match option_id {
@@ -102,4 +118,32 @@ fn validate_websearch(value: &str) -> Result<ConfigOptionValue, ConfigOptionErro
         }
     };
     Ok(ConfigOptionValue::WebSearch(mode))
+}
+
+fn model_config_option(model: &str) -> SessionConfigOption {
+    SessionConfigOption::select(
+        MODEL_CONFIG_OPTION_ID,
+        "Model",
+        model.to_string(),
+        vec![SessionConfigSelectOption::new(model.to_string(), model.to_string())],
+    )
+    .description("Provider model for future prompt turns")
+    .category(SessionConfigOptionCategory::Model)
+}
+
+fn websearch_config_option(websearch: WebSearchMode) -> SessionConfigOption {
+    let current = websearch.label();
+    SessionConfigOption::select(
+        WEBSEARCH_CONFIG_OPTION_ID,
+        "Web Search",
+        current,
+        vec![
+            SessionConfigSelectOption::new("auto", "Auto"),
+            SessionConfigSelectOption::new("native", "Native"),
+            SessionConfigSelectOption::new("exa", "Exa"),
+            SessionConfigSelectOption::new("none", "None"),
+        ],
+    )
+    .description("Web search mode for future prompt turns")
+    .category(SessionConfigOptionCategory::ModelConfig)
 }

@@ -267,6 +267,8 @@ fn session_record_json_round_trip_acp_session() {
         protocol_version: "V1".to_string(),
         agent_info_name: Some("fake-agent".to_string()),
         agent_info_version: Some("0.0.0".to_string()),
+        client_info_name: Some("fake-client".to_string()),
+        client_info_version: Some("1.0.0".to_string()),
     };
 
     let json = record.to_json().expect("serialize");
@@ -276,6 +278,7 @@ fn session_record_json_round_trip_acp_session() {
     assert!(json.contains("\"type\":\"acp_session\""));
     assert!(json.contains("\"local_session_id\":\"session-local\""));
     assert!(json.contains("\"acp_session_id\":\"external-session\""));
+    assert!(json.contains("\"client_info_name\":\"fake-client\""));
 }
 
 #[test]
@@ -604,6 +607,8 @@ fn writer_appends_acp_session_metadata() {
             protocol_version: "V1".to_string(),
             agent_info_name: Some("fake-agent".to_string()),
             agent_info_version: Some("0.0.0".to_string()),
+            client_info_name: None,
+            client_info_version: None,
         })
         .expect("append acp session");
 
@@ -622,6 +627,32 @@ fn writer_appends_acp_session_metadata() {
             && acp_session_id == "external-session"
             && command == "agent --acp"
     ));
+}
+
+#[test]
+fn reader_transcript_shows_acp_client_metadata_when_present() {
+    let dir = tempfile::tempdir().expect("session dir");
+    let mut writer = test_writer(dir.path(), "acp-client-session");
+    writer
+        .append_acp_session(&AcpSessionMetadata {
+            agent_name: "thndrs-acp-server".to_string(),
+            acp_session_id: "acp-session-00000001".to_string(),
+            command: "thndrs-acp-server".to_string(),
+            protocol_version: "V1".to_string(),
+            agent_info_name: None,
+            agent_info_version: None,
+            client_info_name: Some("zed".to_string()),
+            client_info_version: Some("1.0.0".to_string()),
+        })
+        .expect("append acp session");
+
+    let transcript = SessionReader::read_transcript(writer.path());
+
+    assert!(
+        transcript
+            .iter()
+            .any(|entry| matches!(entry, Entry::Status { text } if text.contains("client zed")))
+    );
 }
 
 #[test]

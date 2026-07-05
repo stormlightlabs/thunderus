@@ -10,8 +10,9 @@ use agent_client_protocol::schema::v1::{
     AgentCapabilities, CancelNotification, Content, ContentBlock, ContentChunk, Implementation, InitializeRequest,
     InitializeResponse, McpCapabilities, NewSessionRequest, NewSessionResponse, PermissionOption, PermissionOptionKind,
     PromptCapabilities, PromptRequest, PromptResponse, RequestPermissionOutcome, RequestPermissionRequest,
-    SessionCapabilities, SessionNotification, SessionUpdate, StopReason, TextContent, ToolCall, ToolCallContent,
-    ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, UsageUpdate,
+    SessionCapabilities, SessionConfigOption, SessionNotification, SessionUpdate, SetSessionConfigOptionRequest,
+    SetSessionConfigOptionResponse, StopReason, TextContent, ToolCall, ToolCallContent, ToolCallStatus, ToolCallUpdate,
+    ToolCallUpdateFields, UsageUpdate,
 };
 use agent_client_protocol::{Agent, Client, ConnectionTo, Dispatch, Error, Lines, Result};
 use futures::channel::oneshot;
@@ -26,9 +27,10 @@ use crate::cli::WebSearchMode;
 use crate::harness::HarnessHandle;
 use crate::prompt;
 use crate::server::ServerConfig;
+use crate::server::config_options::{ConfigOptionValue, acp_config_options, validate_config_option};
 use crate::server::events::{SessionUpdateIntent, classify_tool, map_agent_event, sanitize_tool_payload};
 use crate::server::session::{AcpServerSession, AcpSessionStore, validate_and_normalize_cwd};
-use crate::session::{AcpSessionMetadata, SCHEMA_VERSION, SessionRecord, SessionWriter};
+use crate::session::{AcpPermissionOptionRecord, AcpSessionMetadata, SCHEMA_VERSION, SessionRecord, SessionWriter};
 use crate::tools::AgentRunConfig;
 use crate::tools::ToolUseRequest;
 
@@ -47,6 +49,7 @@ struct ServerStateInner {
     sessions: AcpSessionStore,
     cancelled: BTreeSet<String>,
     active_turn_cancels: BTreeMap<String, CancelToken>,
+    client_info: Option<Implementation>,
 }
 
 impl ServerState {
@@ -105,6 +108,8 @@ impl ServerState {
                     protocol_version: format!("{:?}", ProtocolVersion::V1),
                     agent_info_name: None,
                     agent_info_version: None,
+                    client_info_name: inner.client_info.as_ref().map(|info| info.name.clone()),
+                    client_info_version: inner.client_info.as_ref().map(|info| info.version.clone()),
                 })
                 .map_err(|error| {
                     inner.sessions.remove_session(&session_id);
@@ -120,6 +125,56 @@ impl ServerState {
                 })?;
         }
         Ok(session_id)
+    }
+
+    fn record_client_info(&self, request: &InitializeRequest) {
+        if let Ok(mut inner) = self.inner.lock() {
+            inner.client_info = request.client_info.clone();
+        }
+    }
+
+    fn config_options_for_session(&self, session_id: &str) -> Result<Vec<SessionConfigOption>, String> {
+        let session = self.session(session_id)?;
+        let model = session.metadata.model.unwrap_or_else(|| self.config.model.clone());
+        let websearch = session
+            .metadata
+            .websearch
+            .or_else(|| websearch_mode(&self.config.websearch))
+            .unwrap_or(WebSearchMode::Auto);
+        Ok(acp_config_options(&model, websearch))
+    }
+
+    fn set_config_option(&self, session_id: &str, option: &ConfigOptionValue) -> Result<(), String> {
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|_| String::from("ACP server state lock poisoned"))?;
+        let session = inner
+            .sessions
+            .session(session_id)
+            .cloned()
+            .ok_or_else(|| format!("missing session: {session_id}"))?;
+        let model = match option {
+            ConfigOptionValue::Model(model) => Some(model.clone()),
+            ConfigOptionValue::WebSearch(_) => session.metadata.model,
+        };
+        let websearch = match option {
+            ConfigOptionValue::Model(_) => session.metadata.websearch,
+            ConfigOptionValue::WebSearch(mode) => Some(*mode),
+        };
+        inner
+            .sessions
+            .update_session_metadata(session_id, model, websearch)
+            .map_err(|error| error.to_string())?;
+        Ok(())
+    }
+
+    fn append_record(&self, session_id: &str, record: SessionRecord) {
+        if let Ok(mut inner) = self.inner.lock()
+            && let Some(writer) = inner.sessions.session_writer_mut(session_id)
+        {
+            let _ = writer.append(record);
+        }
     }
 
     fn session(&self, session_id: &str) -> Result<AcpServerSession, String> {
@@ -217,6 +272,7 @@ pub async fn run_stdio(config: ServerConfig) -> Result<()> {
     let initialize_state = state.clone();
     let new_session_state = state.clone();
     let prompt_state = state.clone();
+    let config_option_state = state.clone();
     let cancel_state = state;
     let (eof_tx, eof_rx) = oneshot::channel();
     let transport = Lines::new(
@@ -237,6 +293,16 @@ pub async fn run_stdio(config: ServerConfig) -> Result<()> {
         .on_receive_request(
             async move |request: NewSessionRequest, responder, _connection| match new_session(
                 &new_session_state,
+                &request,
+            ) {
+                Ok(response) => responder.respond(response),
+                Err(error) => responder.respond_with_error(Error::invalid_params().data(error)),
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |request: SetSessionConfigOptionRequest, responder, _connection| match set_config_option(
+                &config_option_state,
                 &request,
             ) {
                 Ok(response) => responder.respond(response),
@@ -276,7 +342,8 @@ pub async fn run_stdio(config: ServerConfig) -> Result<()> {
     }
 }
 
-fn initialize(state: &ServerState, request: &InitializeRequest) -> InitializeResponse {
+pub(crate) fn initialize(state: &ServerState, request: &InitializeRequest) -> InitializeResponse {
+    state.record_client_info(request);
     InitializeResponse::new(negotiate_protocol_version(request.protocol_version))
         .agent_info(Some(
             Implementation::new("thndrs", env!("CARGO_PKG_VERSION")).title(Some(String::from("thndrs"))),
@@ -290,7 +357,21 @@ fn new_session(state: &ServerState, request: &NewSessionRequest) -> Result<NewSe
     }
     let cwd = validate_and_normalize_cwd(&request.cwd, None).map_err(|err| err.to_string())?;
     let session_id = state.create_session(&cwd)?;
-    Ok(NewSessionResponse::new(session_id))
+    let config_options = state.config_options_for_session(&session_id)?;
+    Ok(NewSessionResponse::new(session_id).config_options(config_options))
+}
+
+pub(crate) fn set_config_option(
+    state: &ServerState, request: &SetSessionConfigOptionRequest,
+) -> Result<SetSessionConfigOptionResponse, String> {
+    let session_id = request.session_id.0.as_ref();
+    let option_id = request.config_id.0.as_ref();
+    let value = request.value.to_string();
+    let option = validate_config_option(option_id, &value).map_err(|error| error.to_string())?;
+    state.set_config_option(session_id, &option)?;
+    Ok(SetSessionConfigOptionResponse::new(
+        state.config_options_for_session(session_id)?,
+    ))
 }
 
 fn prompt(
@@ -304,7 +385,12 @@ fn prompt(
         {
             let connection = connection.clone();
             move |config, messages, expects_write, _prompt_text| {
-                let permission_hook = server_permission_hook(connection.clone(), request.session_id.clone());
+                let permission_hook = server_permission_hook(
+                    state.clone(),
+                    request.session_id.clone(),
+                    turn_id(request.session_id.0.as_ref()),
+                    connection.clone(),
+                );
                 let (_steering_tx, steering_rx) = mpsc::channel();
                 drop(_steering_tx);
                 crate::harness::HarnessTurn::provider_with_steering_and_permissions(
@@ -321,35 +407,59 @@ fn prompt(
 }
 
 fn server_permission_hook(
-    connection: ConnectionTo<Client>, session_id: agent_client_protocol::schema::v1::SessionId,
+    state: ServerState, session_id: agent_client_protocol::schema::v1::SessionId, turn_id: String,
+    connection: ConnectionTo<Client>,
 ) -> ToolPermissionHook {
     ToolPermissionHook::new(move |request, _config, cancel| {
-        request_client_permission(&connection, session_id.clone(), request, cancel)
+        request_client_permission(&state, &connection, session_id.clone(), &turn_id, request, cancel)
     })
 }
 
 fn request_client_permission(
-    connection: &ConnectionTo<Client>, session_id: agent_client_protocol::schema::v1::SessionId,
-    request: &ToolUseRequest, cancel: &CancelToken,
+    state: &ServerState, connection: &ConnectionTo<Client>, session_id: agent_client_protocol::schema::v1::SessionId,
+    turn_id: &str, request: &ToolUseRequest, cancel: &CancelToken,
 ) -> ToolPermissionDecision {
     if cancel.is_cancelled() {
         return ToolPermissionDecision::Cancelled;
     }
+
+    let options = vec![
+        PermissionOption::new("allow_once", "Allow once", PermissionOptionKind::AllowOnce),
+        PermissionOption::new("reject_once", "Reject once", PermissionOptionKind::RejectOnce),
+    ];
+    let title = permission_title(request);
+    let session_id_text = session_id.0.to_string();
+    state.append_record(
+        &session_id_text,
+        SessionRecord::AcpPermissionRequest {
+            schema_version: SCHEMA_VERSION,
+            seq: 0,
+            time: crate::utils::datetime::now_iso8601(),
+            turn_id: turn_id.to_string(),
+            tool_call_id: request.tool_use_id.clone(),
+            title: title.clone(),
+            options: options
+                .iter()
+                .map(|option| AcpPermissionOptionRecord {
+                    id: option.option_id.0.to_string(),
+                    name: option.name.clone(),
+                    kind: permission_option_kind_label(&option.kind).to_string(),
+                })
+                .collect(),
+        },
+    );
 
     let permission = RequestPermissionRequest::new(
         session_id,
         ToolCallUpdate::new(
             request.tool_use_id.clone(),
             ToolCallUpdateFields::new()
-                .title(permission_title(request))
+                .title(title)
                 .kind(classify_tool(&request.name).to_acp_kind())
                 .status(ToolCallStatus::InProgress)
                 .raw_input(json_text_or_value(sanitize_tool_payload(&request.arguments))),
         ),
-        vec![
-            PermissionOption::new("allow_once", "Allow once", PermissionOptionKind::AllowOnce),
-            PermissionOption::new("reject_once", "Reject once", PermissionOptionKind::RejectOnce),
-        ],
+        options,
     );
     let (tx, rx) = mpsc::channel();
     let sent = connection.send_request(permission);
@@ -368,8 +478,35 @@ fn request_client_permission(
             return ToolPermissionDecision::Cancelled;
         }
         match rx.recv_timeout(PERMISSION_POLL_INTERVAL) {
-            Ok(Ok(response)) => return permission_response_decision(response.outcome),
-            Ok(Err(_)) | Err(mpsc::RecvTimeoutError::Disconnected) => return ToolPermissionDecision::Reject,
+            Ok(Ok(response)) => {
+                let decision = permission_response_decision(response.outcome);
+                state.append_record(
+                    &session_id_text,
+                    SessionRecord::AcpPermissionOutcome {
+                        schema_version: SCHEMA_VERSION,
+                        seq: 0,
+                        time: crate::utils::datetime::now_iso8601(),
+                        turn_id: turn_id.to_string(),
+                        tool_call_id: request.tool_use_id.clone(),
+                        outcome: permission_decision_label(&decision).to_string(),
+                    },
+                );
+                return decision;
+            }
+            Ok(Err(_)) | Err(mpsc::RecvTimeoutError::Disconnected) => {
+                state.append_record(
+                    &session_id_text,
+                    SessionRecord::AcpPermissionOutcome {
+                        schema_version: SCHEMA_VERSION,
+                        seq: 0,
+                        time: crate::utils::datetime::now_iso8601(),
+                        turn_id: turn_id.to_string(),
+                        tool_call_id: request.tool_use_id.clone(),
+                        outcome: "rejected".to_string(),
+                    },
+                );
+                return ToolPermissionDecision::Reject;
+            }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
         }
     }
@@ -400,6 +537,24 @@ fn permission_title(request: &ToolUseRequest) -> String {
     }
 }
 
+fn permission_decision_label(decision: &ToolPermissionDecision) -> &'static str {
+    match decision {
+        ToolPermissionDecision::Allow => "allowed",
+        ToolPermissionDecision::Reject => "rejected",
+        ToolPermissionDecision::Cancelled => "cancelled",
+    }
+}
+
+fn permission_option_kind_label(kind: &PermissionOptionKind) -> &'static str {
+    match kind {
+        PermissionOptionKind::AllowOnce => "allow_once",
+        PermissionOptionKind::AllowAlways => "allow_always",
+        PermissionOptionKind::RejectOnce => "reject_once",
+        PermissionOptionKind::RejectAlways => "reject_always",
+        _ => "other",
+    }
+}
+
 pub(crate) fn execute_prompt(
     state: &ServerState, request: &PromptRequest, mut on_update: impl FnMut(SessionUpdateIntent) -> Result<(), String>,
     run_harness: impl FnOnce(AgentRunConfig, Vec<crate::providers::ProviderMessage>, bool, String) -> HarnessHandle,
@@ -412,6 +567,7 @@ pub(crate) fn execute_prompt(
     }
 
     let turn_guard = state.begin_turn(&session_id)?;
+    persist_user_prompt(state, &session_id, &prompt);
     let response = run_prompt_turn(&prompt, state, &session_id, &mut on_update, run_harness)?;
 
     drop(turn_guard);
@@ -443,39 +599,223 @@ fn run_prompt_turn(
         handle.cancel.cancel();
     }
 
-    let response = run_prompt_handle(&handle, on_update)?;
+    let response = run_prompt_handle(state, session_id, &handle, on_update)?;
     state.clear_turn_cancel_token(session_id);
     Ok(response)
 }
 
 fn run_prompt_handle(
-    handle: &HarnessHandle, on_update: &mut impl FnMut(SessionUpdateIntent) -> Result<(), String>,
+    state: &ServerState, session_id: &str, handle: &HarnessHandle,
+    on_update: &mut impl FnMut(SessionUpdateIntent) -> Result<(), String>,
 ) -> Result<PromptResponse, String> {
+    let mut persisted = PersistedTurn::new(turn_id(session_id));
     loop {
         match handle.events.recv() {
             Ok(event) => {
+                persisted.record_event(state, session_id, &event);
                 for intent in map_agent_event(&event) {
                     on_update(intent)?;
                 }
                 if handle.cancel.is_cancelled() {
+                    persisted.finish(state, session_id);
                     return Ok(PromptResponse::new(StopReason::Cancelled));
                 }
 
                 match event {
                     AgentEvent::Finished => {
+                        persisted.finish(state, session_id);
                         return Ok(PromptResponse::new(StopReason::EndTurn));
                     }
                     AgentEvent::Cancelled => {
+                        persisted.finish(state, session_id);
                         return Ok(PromptResponse::new(StopReason::Cancelled));
                     }
-                    AgentEvent::Failed(_) => return Ok(PromptResponse::new(StopReason::Refusal)),
+                    AgentEvent::Failed(_) => {
+                        persisted.finish(state, session_id);
+                        return Ok(PromptResponse::new(StopReason::Refusal));
+                    }
                     _ => (),
                 }
             }
-            Err(_) if handle.cancel.is_cancelled() => return Ok(PromptResponse::new(StopReason::Cancelled)),
+            Err(_) if handle.cancel.is_cancelled() => {
+                persisted.finish(state, session_id);
+                return Ok(PromptResponse::new(StopReason::Cancelled));
+            }
             Err(_) => return Err(String::from("prompt turn ended without a terminal event")),
         }
     }
+}
+
+#[derive(Debug)]
+struct PersistedTurn {
+    turn_id: String,
+    assistant: String,
+    reasoning: String,
+    finished: bool,
+}
+
+impl PersistedTurn {
+    fn new(turn_id: String) -> Self {
+        Self { turn_id, assistant: String::new(), reasoning: String::new(), finished: false }
+    }
+
+    fn record_event(&mut self, state: &ServerState, session_id: &str, event: &AgentEvent) {
+        match event {
+            AgentEvent::AssistantDelta(text) => self.assistant.push_str(text),
+            AgentEvent::ReasoningDelta(text) => self.reasoning.push_str(text),
+            AgentEvent::Usage { input_tokens, output_tokens } => {
+                state.append_record(
+                    session_id,
+                    SessionRecord::Usage {
+                        schema_version: SCHEMA_VERSION,
+                        seq: 0,
+                        time: crate::utils::datetime::now_iso8601(),
+                        input_tokens: *input_tokens,
+                        output_tokens: *output_tokens,
+                    },
+                );
+            }
+            AgentEvent::ToolStarted { id, name, arguments } => {
+                state.append_record(
+                    session_id,
+                    SessionRecord::ToolStarted {
+                        schema_version: SCHEMA_VERSION,
+                        seq: 0,
+                        time: crate::utils::datetime::now_iso8601(),
+                        turn_id: self.turn_id.clone(),
+                        call_id: id.clone(),
+                        name: name.clone(),
+                        arguments: sanitize_tool_payload(arguments),
+                        mcp: None,
+                    },
+                );
+            }
+            AgentEvent::ToolFinished { id, output, status, write_result, shell_result } => {
+                state.append_record(
+                    session_id,
+                    SessionRecord::ToolFinished {
+                        schema_version: SCHEMA_VERSION,
+                        seq: 0,
+                        time: crate::utils::datetime::now_iso8601(),
+                        turn_id: self.turn_id.clone(),
+                        call_id: id.clone(),
+                        status: *status,
+                        output: output.clone(),
+                        mcp: None,
+                    },
+                );
+                if let Some(result) = write_result {
+                    state.append_record(
+                        session_id,
+                        SessionRecord::FileWrite {
+                            schema_version: SCHEMA_VERSION,
+                            seq: 0,
+                            time: crate::utils::datetime::now_iso8601(),
+                            turn_id: self.turn_id.clone(),
+                            op: result.op,
+                            path: result.path.display().to_string(),
+                            before_hash: result.before_hash,
+                            before_bytes: result.before_bytes,
+                            after_hash: result.after_hash,
+                            after_bytes: result.after_bytes,
+                            status: *status,
+                        },
+                    );
+                }
+                if let Some(result) = shell_result {
+                    state.append_record(
+                        session_id,
+                        SessionRecord::ShellExec {
+                            schema_version: SCHEMA_VERSION,
+                            seq: 0,
+                            time: crate::utils::datetime::now_iso8601(),
+                            turn_id: self.turn_id.clone(),
+                            command: crate::tools::shell::redact_secrets(&result.command.join(" ")),
+                            cwd: result.cwd.display().to_string(),
+                            process_status: result.status.label().to_string(),
+                            exit_code: result.exit_code,
+                            elapsed_ms: result.elapsed.as_millis() as u64,
+                            kind: result.kind.label().to_string(),
+                        },
+                    );
+                }
+            }
+            AgentEvent::Cancelled => {
+                state.append_record(
+                    session_id,
+                    SessionRecord::Cancelled {
+                        schema_version: SCHEMA_VERSION,
+                        seq: 0,
+                        time: crate::utils::datetime::now_iso8601(),
+                        turn_id: self.turn_id.clone(),
+                        reason: String::from("cancelled by ACP client"),
+                    },
+                );
+            }
+            AgentEvent::Failed(error) => {
+                state.append_record(
+                    session_id,
+                    SessionRecord::Failed {
+                        schema_version: SCHEMA_VERSION,
+                        seq: 0,
+                        time: crate::utils::datetime::now_iso8601(),
+                        turn_id: self.turn_id.clone(),
+                        error: error.clone(),
+                    },
+                );
+            }
+            _ => {}
+        }
+    }
+
+    fn finish(&mut self, state: &ServerState, session_id: &str) {
+        if self.finished {
+            return;
+        }
+        self.finished = true;
+
+        if !self.reasoning.is_empty() {
+            state.append_record(
+                session_id,
+                SessionRecord::ReasoningFinished {
+                    schema_version: SCHEMA_VERSION,
+                    seq: 0,
+                    time: crate::utils::datetime::now_iso8601(),
+                    turn_id: self.turn_id.clone(),
+                    text: self.reasoning.clone(),
+                },
+            );
+        }
+        if !self.assistant.is_empty() {
+            state.append_record(
+                session_id,
+                SessionRecord::AssistantFinished {
+                    schema_version: SCHEMA_VERSION,
+                    seq: 0,
+                    time: crate::utils::datetime::now_iso8601(),
+                    turn_id: self.turn_id.clone(),
+                    text: self.assistant.clone(),
+                },
+            );
+        }
+    }
+}
+
+fn persist_user_prompt(state: &ServerState, session_id: &str, prompt: &str) {
+    state.append_record(
+        session_id,
+        SessionRecord::User {
+            schema_version: SCHEMA_VERSION,
+            seq: 0,
+            time: crate::utils::datetime::now_iso8601(),
+            turn_id: turn_id(session_id),
+            text: prompt.to_string(),
+        },
+    );
+}
+
+fn turn_id(session_id: &str) -> String {
+    format!("{session_id}-turn")
 }
 
 struct PromptTurnGuard {

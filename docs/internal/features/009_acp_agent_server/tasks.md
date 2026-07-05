@@ -129,24 +129,24 @@ Captured: 2026-07-04
 ## M10: Config Options
 
 - [x] Decide the initial ACP config option ids.
-- [ ] Expose model selection when values are discoverable.
-- [ ] Expose web search mode.
-- [ ] Expose reasoning/effort options only when supported by providers.
-- [ ] Handle `session/set_config_option`.
-- [ ] Persist selected config in local session metadata.
-- [ ] Add tests for valid option changes, invalid option ids, and dependent
+- [x] Expose model selection when values are discoverable.
+- [x] Expose web search mode.
+- [x] Expose reasoning/effort options only when supported by providers.
+- [x] Handle `session/set_config_option`.
+- [x] Persist selected config in local session metadata.
+- [x] Add tests for valid option changes, invalid option ids, and dependent
       option refreshes.
 
 ## M11: Session Persistence
 
-- [ ] Add ACP server session metadata records if needed.
-- [ ] Record client info from initialization.
-- [ ] Record ACP session id.
-- [ ] Record permission request/outcome metadata.
-- [ ] Ensure existing user/assistant/reasoning/tool/usage records still write.
-- [ ] Extend inspect/export to show ACP server metadata.
-- [ ] Add serialization/deserialization tests.
-- [ ] Add inspect/export tests.
+- [x] Add ACP server session metadata records if needed.
+- [x] Record client info from initialization.
+- [x] Record ACP session id.
+- [x] Record permission request/outcome metadata.
+- [x] Ensure existing user/assistant/reasoning/tool/usage records still write.
+- [x] Extend inspect/export to show ACP server metadata.
+- [x] Add serialization/deserialization tests.
+- [x] Add inspect/export tests.
 
 ## M12: Editor Smoke Tests
 

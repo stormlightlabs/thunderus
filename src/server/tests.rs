@@ -9,7 +9,11 @@ use std::time::Duration;
 
 use crate::cli::WebSearchMode;
 use crate::harness::{HarnessHandle, HarnessTurn};
-use agent_client_protocol::schema::v1::{ContentBlock, PromptRequest, ResourceLink, StopReason, TextContent};
+use agent_client_protocol::schema::ProtocolVersion;
+use agent_client_protocol::schema::v1::{
+    ContentBlock, Implementation, InitializeRequest, PromptRequest, ResourceLink, SetSessionConfigOptionRequest,
+    StopReason, TextContent,
+};
 use tempfile::tempdir;
 
 use super::config_options::{
@@ -17,13 +21,14 @@ use super::config_options::{
     initial_config_options, validate_config_option,
 };
 use super::events::{SessionUpdateIntent, ToolCallKind, ToolStatusIntent, classify_tool, map_agent_event};
-use super::handlers::{ServerState, execute_prompt};
+use super::handlers::{ServerState, execute_prompt, initialize, set_config_option};
 use super::session::{
     AcpSessionError, AcpSessionStore, LocalSessionMetadata, generate_session_id, validate_and_normalize_cwd,
 };
 use crate::agent::CancelToken;
 use crate::app::{AgentEvent, ToolStatus};
 use crate::server::ServerConfig;
+use crate::session::{SessionReader, SessionRecord};
 use serde_json::Value;
 
 #[test]
@@ -449,6 +454,84 @@ fn session_metadata_placeholder_is_set_and_updatable() {
     assert_eq!(session.metadata.websearch, Some(WebSearchMode::Exa));
 }
 
+#[test]
+fn set_config_option_updates_model_and_refreshes_options() {
+    let workspace = tempdir().expect("temp workspace");
+    let state = state_for_tests(workspace.path().to_path_buf(), None);
+    let session_id = state.create_session(workspace.path()).expect("session created");
+
+    let response = set_config_option(
+        &state,
+        &SetSessionConfigOptionRequest::new(session_id.clone(), MODEL_CONFIG_OPTION_ID, "custom-model"),
+    )
+    .expect("set model");
+    let json = serde_json::to_value(&response).expect("serialize response");
+
+    assert!(json.to_string().contains("\"currentValue\":\"custom-model\""));
+    assert!(json.to_string().contains("\"configOptions\""));
+
+    let response = set_config_option(
+        &state,
+        &SetSessionConfigOptionRequest::new(session_id.clone(), WEBSEARCH_CONFIG_OPTION_ID, "none"),
+    )
+    .expect("set websearch");
+    let json = serde_json::to_value(&response).expect("serialize response");
+    let text = json.to_string();
+
+    assert!(text.contains("\"currentValue\":\"custom-model\""));
+    assert!(text.contains("\"currentValue\":\"none\""));
+}
+
+#[test]
+fn set_config_option_rejects_invalid_ids_and_values() {
+    let workspace = tempdir().expect("temp workspace");
+    let state = state_for_tests(workspace.path().to_path_buf(), None);
+    let session_id = state.create_session(workspace.path()).expect("session created");
+
+    let missing = set_config_option(
+        &state,
+        &SetSessionConfigOptionRequest::new(session_id.clone(), "missing", "x"),
+    );
+    assert!(matches!(missing, Err(error) if error.contains("unknown config option")));
+
+    let invalid = set_config_option(
+        &state,
+        &SetSessionConfigOptionRequest::new(session_id, WEBSEARCH_CONFIG_OPTION_ID, "invalid"),
+    );
+    assert!(matches!(invalid, Err(error) if error.contains("must be one of")));
+}
+
+#[test]
+fn execute_prompt_uses_selected_config_options() {
+    let workspace = tempdir().expect("temp workspace");
+    let state = state_for_tests(workspace.path().to_path_buf(), None);
+    let session_id = state.create_session(workspace.path()).expect("session created");
+    set_config_option(
+        &state,
+        &SetSessionConfigOptionRequest::new(session_id.clone(), MODEL_CONFIG_OPTION_ID, "selected-model"),
+    )
+    .expect("set model");
+    set_config_option(
+        &state,
+        &SetSessionConfigOptionRequest::new(session_id.clone(), WEBSEARCH_CONFIG_OPTION_ID, "none"),
+    )
+    .expect("set websearch");
+
+    let response = execute_prompt(
+        &state,
+        &PromptRequest::new(session_id, vec![ContentBlock::Text(TextContent::new("check config"))]),
+        |_intent| Ok(()),
+        |config, _messages, _expects_write, _prompt| {
+            assert_eq!(config.model, "selected-model");
+            assert_eq!(config.search_mode, WebSearchMode::None);
+            HarnessTurn::fake(config, String::new()).start()
+        },
+    )
+    .expect("prompt succeeds");
+
+    assert_eq!(response.stop_reason, StopReason::EndTurn);
+}
+
 fn state_for_tests(cwd: PathBuf, session_dir: Option<PathBuf>) -> ServerState {
     ServerState::new(ServerConfig::new(
         cwd,
@@ -456,6 +539,28 @@ fn state_for_tests(cwd: PathBuf, session_dir: Option<PathBuf>) -> ServerState {
         String::from("auto"),
         session_dir,
     ))
+}
+
+#[test]
+fn initialize_client_info_is_persisted_to_acp_session_metadata() {
+    let workspace = tempdir().expect("temp workspace");
+    let session_dir = tempdir().expect("temp session dir");
+    let state = state_for_tests(workspace.path().to_path_buf(), Some(session_dir.path().to_path_buf()));
+    let request = InitializeRequest::new(ProtocolVersion::V1).client_info(Implementation::new("fake-client", "1.2.3"));
+
+    let _response = initialize(&state, &request);
+    let session_id = state.create_session(workspace.path()).expect("session created");
+    let payload = std::fs::read_dir(session_dir.path())
+        .expect("read session dir")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .find(|path| path.extension().is_some_and(|ext| ext == "jsonl"))
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .expect("session jsonl payload");
+
+    assert!(payload.contains(&format!("\"acp_session_id\":\"{session_id}\"")));
+    assert!(payload.contains("\"client_info_name\":\"fake-client\""));
+    assert!(payload.contains("\"client_info_version\":\"1.2.3\""));
 }
 
 #[test]
@@ -479,6 +584,95 @@ fn attachs_local_session_writer_and_records_acp_session_metadata() {
     assert!(payload.contains("thndrs-acp-server"));
     assert!(payload.contains("\"local_session_id\":\"local-acp-session-1\""));
     let _ = session_id;
+}
+
+#[test]
+fn execute_prompt_persists_acp_server_turn_records() {
+    let workspace = tempdir().expect("temp workspace");
+    let session_dir = tempdir().expect("temp session dir");
+    let state = state_for_tests(workspace.path().to_path_buf(), Some(session_dir.path().to_path_buf()));
+    let session_id = state.create_session(workspace.path()).expect("session created");
+
+    let response = execute_prompt(
+        &state,
+        &PromptRequest::new(
+            session_id,
+            vec![ContentBlock::Text(TextContent::new("persist this turn"))],
+        ),
+        |_intent| Ok(()),
+        |_config, _messages, _expects_write, _prompt| {
+            let (event_tx, event_rx) = mpsc::channel();
+            event_tx
+                .send(AgentEvent::Usage { input_tokens: 3, output_tokens: 5 })
+                .expect("send usage");
+            event_tx
+                .send(AgentEvent::ToolStarted {
+                    id: "tool-persist".to_string(),
+                    name: "read_file_range".to_string(),
+                    arguments: "{\"path\":\"README.md\"}".to_string(),
+                })
+                .expect("send tool started");
+            event_tx
+                .send(AgentEvent::ToolFinished {
+                    id: "tool-persist".to_string(),
+                    output: vec!["ok".to_string()],
+                    status: ToolStatus::Ok,
+                    write_result: None,
+                    shell_result: None,
+                })
+                .expect("send tool finished");
+            event_tx
+                .send(AgentEvent::ReasoningDelta("thinking".to_string()))
+                .expect("send reasoning");
+            event_tx
+                .send(AgentEvent::AssistantDelta("answer".to_string()))
+                .expect("send assistant");
+            event_tx.send(AgentEvent::Finished).expect("send finished");
+            drop(event_tx);
+            HarnessHandle { events: event_rx, cancel: CancelToken::new() }
+        },
+    )
+    .expect("prompt succeeds");
+
+    assert_eq!(response.stop_reason, StopReason::EndTurn);
+    let session_path = std::fs::read_dir(session_dir.path())
+        .expect("read session dir")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .find(|path| path.extension().is_some_and(|ext| ext == "jsonl"))
+        .expect("session path");
+    let records = SessionReader::read_records(&session_path);
+
+    assert!(
+        records
+            .iter()
+            .any(|record| matches!(record, SessionRecord::User { text, .. } if text == "persist this turn"))
+    );
+    assert!(
+        records
+            .iter()
+            .any(|record| matches!(record, SessionRecord::Usage { input_tokens: 3, output_tokens: 5, .. }))
+    );
+    assert!(
+        records
+            .iter()
+            .any(|record| matches!(record, SessionRecord::ToolStarted { call_id, .. } if call_id == "tool-persist"))
+    );
+    assert!(
+        records
+            .iter()
+            .any(|record| matches!(record, SessionRecord::ToolFinished { call_id, .. } if call_id == "tool-persist"))
+    );
+    assert!(
+        records
+            .iter()
+            .any(|record| matches!(record, SessionRecord::ReasoningFinished { text, .. } if text == "thinking"))
+    );
+    assert!(
+        records
+            .iter()
+            .any(|record| matches!(record, SessionRecord::AssistantFinished { text, .. } if text == "answer"))
+    );
 }
 
 #[test]
@@ -698,7 +892,16 @@ fn cancelled_prompt_preserves_updates_sent_before_cancellation() {
     event_tx
         .send(AgentEvent::AssistantDelta(String::from("partial answer")))
         .expect("send partial answer");
-    state.cancel_session(&session_id);
+    let deadline = std::time::Instant::now()
+        .checked_add(Duration::from_secs(1))
+        .unwrap_or_else(std::time::Instant::now);
+    while !token.is_cancelled() {
+        if std::time::Instant::now() > deadline {
+            break;
+        }
+        state.cancel_session(&session_id);
+        std::thread::sleep(Duration::from_millis(5));
+    }
     assert!(token.is_cancelled());
     event_tx.send(AgentEvent::Finished).expect("finish turn");
 

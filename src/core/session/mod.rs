@@ -206,7 +206,7 @@ pub enum SessionRecord {
         turn_id: String,
         error: String,
     },
-    /// External ACP session metadata.
+    /// ACP session metadata.
     #[serde(rename = "acp_session")]
     AcpSession {
         schema_version: u32,
@@ -228,6 +228,12 @@ pub enum SessionRecord {
         /// Optional ACP agent info version.
         #[serde(skip_serializing_if = "Option::is_none")]
         agent_info_version: Option<String>,
+        /// Optional ACP client info name.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        client_info_name: Option<String>,
+        /// Optional ACP client info version.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        client_info_version: Option<String>,
     },
     /// Session title was renamed (latest wins).
     #[serde(rename = "session_renamed")]
@@ -438,8 +444,12 @@ impl SessionRecord {
             }),
             SessionRecord::Cancelled { reason, .. } => Some(Entry::Status { text: reason.clone() }),
             SessionRecord::Failed { error, .. } => Some(Entry::Error { text: error.clone() }),
-            SessionRecord::AcpSession { agent_name, acp_session_id, .. } => {
-                Some(Entry::Status { text: format!("acp session {agent_name}: {acp_session_id}") })
+            SessionRecord::AcpSession { agent_name, acp_session_id, client_info_name, .. } => {
+                let client = client_info_name
+                    .as_ref()
+                    .map(|name| format!(" client {name}"))
+                    .unwrap_or_default();
+                Some(Entry::Status { text: format!("acp session {agent_name}: {acp_session_id}{client}") })
             }
             SessionRecord::FileWrite { op, path, status, .. } => {
                 Some(Entry::Status { text: format!("{} {}: {path}", status.icon(), op.label()) })
@@ -472,7 +482,7 @@ pub struct AcpPermissionOptionRecord {
     pub kind: String,
 }
 
-/// External ACP session metadata persisted once per ACP run.
+/// ACP session metadata persisted once per ACP run.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AcpSessionMetadata {
     /// Configured ACP agent name.
@@ -487,6 +497,10 @@ pub struct AcpSessionMetadata {
     pub agent_info_name: Option<String>,
     /// Optional ACP agent info version.
     pub agent_info_version: Option<String>,
+    /// Optional ACP client info name.
+    pub client_info_name: Option<String>,
+    /// Optional ACP client info version.
+    pub client_info_version: Option<String>,
 }
 
 /// Metadata for a single prompt turn, suitable for append-only JSONL storage.
@@ -920,7 +934,7 @@ impl SessionWriter {
         Ok(())
     }
 
-    /// Append external ACP session metadata.
+    /// Append ACP session metadata.
     pub fn append_acp_session(&mut self, metadata: &AcpSessionMetadata) -> std::io::Result<()> {
         let record = SessionRecord::AcpSession {
             schema_version: SCHEMA_VERSION,
@@ -933,6 +947,8 @@ impl SessionWriter {
             protocol_version: metadata.protocol_version.clone(),
             agent_info_name: metadata.agent_info_name.clone(),
             agent_info_version: metadata.agent_info_version.clone(),
+            client_info_name: metadata.client_info_name.clone(),
+            client_info_version: metadata.client_info_version.clone(),
         };
         self.seq += 1;
         let line = record.to_json().map_err(io_err)?;

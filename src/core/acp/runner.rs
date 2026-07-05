@@ -288,6 +288,8 @@ async fn resume_session_async(
                 protocol_version: format!("{:?}", initialize.protocol_version),
                 agent_info_name: initialize.agent_info.as_ref().map(|info| info.name.clone()),
                 agent_info_version: initialize.agent_info.as_ref().map(|info| info.version.clone()),
+                client_info_name: None,
+                client_info_version: None,
             })
         })
         .await
@@ -763,6 +765,8 @@ async fn run_session(
         protocol_version,
         agent_info_name: agent_info.as_ref().map(|info| info.name.clone()),
         agent_info_version: agent_info.as_ref().map(|info| info.version.clone()),
+        client_info_name: None,
+        client_info_version: None,
     }));
 
     if cancel.is_cancelled() {
