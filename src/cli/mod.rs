@@ -129,7 +129,7 @@ pub struct Cli {
     #[arg(long, default_value = ".")]
     pub cwd: PathBuf,
     /// Model to use for completions.
-    #[arg(long, default_value = "opencode/big-pickle")]
+    #[arg(long, default_value = config::DEFAULT_MODEL)]
     pub model: String,
     /// Web search provider policy.
     #[arg(long, value_enum, default_value = "auto")]
@@ -186,7 +186,7 @@ impl Default for Cli {
     fn default() -> Self {
         Cli {
             cwd: PathBuf::from("."),
-            model: String::from("opencode/big-pickle"),
+            model: String::from(config::DEFAULT_MODEL),
             websearch: WebSearchMode::Auto,
             tick_rate_ms: 100,
             no_alt_screen: true,

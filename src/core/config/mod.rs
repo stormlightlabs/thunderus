@@ -30,6 +30,9 @@ static CONFIG_KEYS: [&str; 10] = [
     "acp_agents",
 ];
 
+/// Built-in completion model used when config and CLI flags do not override it.
+pub const DEFAULT_MODEL: &str = "opencode/big-pickle";
+
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
     #[error("failed to read config {path}: {source}")]
@@ -588,7 +591,7 @@ fn has_any_value(config: &Config) -> bool {
 
 fn default_config(workspace: &Path, cwd: &Path) -> Config {
     Config {
-        model: Some("umans-coder".to_string()),
+        model: Some(DEFAULT_MODEL.to_string()),
         websearch: Some(WebSearchMode::Auto),
         tick_rate_ms: Some(100),
         mouse: Some(false),

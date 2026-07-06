@@ -27,6 +27,16 @@ streaming, reasoning, tool, error, banner, and narrow-layout states.
 Provider tests use no-network fixtures for request construction, metadata
 parsing, and stream parsing.
 
+## Ignored Live Tests
+
+Provider live smoke tests are ignored by default. OpenCode Zen live tests
+require network access and a real `OPENCODE_ZEN_KEY`; their names and failure
+messages call out the Big Pickle limited-free and privacy prerequisites.
+
+ChatGPT Codex live tests require network access plus real ChatGPT subscription
+credentials. They cover login, streaming, tool calls, and refresh behavior only
+when explicitly enabled.
+
 ### Search
 
 Search and extraction tests use local fixtures before any live web behavior.

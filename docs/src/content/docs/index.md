@@ -13,8 +13,8 @@ inspecting a repository.
   scrollback, search, and text selection.
 - `AGENTS.md` support
 - `SKILL.md` support
-- [Umans.ai](https://app.umans.ai/offers/code/docs) & [OpenCode Go](https://opencode.ai/docs/go/)
-  support
+- Provider expansion across Umans.ai, OpenCode Go, OpenCode Zen Big Pickle, and
+  experimental ChatGPT-backed Codex models.
 - Choose automatic web search, provider-native search, Exa-backed search, or
   [no provider-side](https://lectito.stormlightlabs.org/docs/) web search.
 - Agent Client Protocol support: use external ACP agents from the TUI, or run
@@ -29,7 +29,5 @@ inspecting a repository.
 
 - Read-only code-intelligence (LSP-based) tools such as document symbols,
   workspace symbols, go to definition, references, hover, and implementations.
-- ChatGPT Codex provider support through `chatgpt-codex/` models and ChatGPT
-  subscription auth.
 - Granular context control & file (markdown) backed memory
 - Better session observability & config/session controls

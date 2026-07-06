@@ -2,7 +2,7 @@
 # Copy values into ~/.thndrs/config.toml or .thndrs/config.toml.
 # Do not put provider API keys, tokens, passwords, or other secrets here.
 
-model = "umans-coder"
+model = "opencode/big-pickle"
 websearch = "auto"
 tick_rate_ms = 100
 theme = "eldritch-minimal"

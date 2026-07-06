@@ -4,11 +4,10 @@ title: "Umans Provider"
 
 ## Models
 
-`thndrs` uses Umans Code as its first provider. The default model is
-`umans-coder`; `umans-glm-5.2` is available as an alternate model.
+`thndrs` supports Umans Code through `umans-coder` and `umans-glm-5.2`.
 
-`umans-coder` is the default coding model. `umans-glm-5.2` is useful when you
-want the GLM model path or its larger context behavior.
+`umans-coder` is the main Umans coding model. `umans-glm-5.2` is useful when
+you want the GLM model path or its larger context behavior.
 
 ## Authentication
 

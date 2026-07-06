@@ -69,6 +69,30 @@ API key used by the OpenCode Go provider.
 export OPENCODE_GO_KEY=sk-...
 ```
 
+### `OPENCODE_ZEN_KEY`
+
+API key used by the OpenCode Zen provider for `opencode/<model-id>` models such
+as `opencode/big-pickle`.
+
+```sh
+export OPENCODE_ZEN_KEY=sk-...
+```
+
+`OPENCODE_ZEN_KEY` is separate from `OPENCODE_GO_KEY`; the two OpenCode provider
+families use different model prefixes and credential slots.
+
+### `CHATGPT_CODEX_ACCESS_TOKEN`
+
+Ephemeral access-token override for `chatgpt-codex/<model-id>` models.
+
+```sh
+export CHATGPT_CODEX_ACCESS_TOKEN=...
+```
+
+This value is used only for the current process and is not written to
+`~/.thndrs/auth.json`. ChatGPT Codex login/logout manage refreshable local
+credentials separately from environment variables.
+
 Do not use TOML keys such as `umans_api_key`, `auth_token`, `secret`, or
 `password`. Secret-shaped TOML keys are rejected; provider code owns provider
 secret loading and redaction.

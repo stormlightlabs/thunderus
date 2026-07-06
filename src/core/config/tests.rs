@@ -433,7 +433,7 @@ fn effective_config_defaults_when_no_files() {
     let effective = load_effective(tmp.path(), &[]).unwrap();
 
     assert!(effective.layers.is_empty(), "no config files should produce no layers");
-    assert_eq!(effective.config.model.as_deref(), Some("umans-coder"));
+    assert_eq!(effective.config.model.as_deref(), Some(DEFAULT_MODEL));
     assert_eq!(effective.config.websearch, Some(WebSearchMode::Auto));
     assert_eq!(effective.config.tick_rate_ms, Some(100));
     assert_eq!(effective.config.mouse, Some(false));
@@ -648,7 +648,7 @@ fn old_and_typo_project_config_paths_are_ignored() {
     let effective = load_effective(workspace, &[]).unwrap();
 
     assert!(effective.layers.is_empty());
-    assert_eq!(effective.config.model.as_deref(), Some("umans-coder"));
+    assert_eq!(effective.config.model.as_deref(), Some(DEFAULT_MODEL));
 }
 
 #[test]
@@ -663,7 +663,7 @@ fn old_global_config_paths_are_ignored() {
     let effective = with_home(&home, || load_effective(tmp.path(), &[]).unwrap());
 
     assert!(effective.layers.is_empty());
-    assert_eq!(effective.config.model.as_deref(), Some("umans-coder"));
+    assert_eq!(effective.config.model.as_deref(), Some(DEFAULT_MODEL));
 }
 
 #[test]

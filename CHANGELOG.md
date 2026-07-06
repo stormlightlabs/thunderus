@@ -24,6 +24,22 @@ and this project follows semantic versioning after the first stable release.
   - ACP permission prompts, filesystem callbacks, terminal callbacks,
     auth/logout handling, agent-owned session commands, registry discovery, and
     MCP-over-ACP config passing.
+- OpenCode Zen provider support through `opencode/<model-id>` models.
+  - `opencode/big-pickle` is available as the built-in default model.
+  - `OPENCODE_ZEN_KEY` is handled separately from `OPENCODE_GO_KEY`.
+  - OpenCode Zen model discovery feeds validation and picker refresh without
+    inferring pricing from provider metadata.
+- ChatGPT-backed Codex provider support through `chatgpt-codex/<model-id>`
+  models.
+  - Device-code login, browser PKCE fallback login, refreshable
+    `~/.thndrs/auth.json` credentials, logout, and
+    `CHATGPT_CODEX_ACCESS_TOKEN` process override.
+  - Known model picker entries for `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, and
+    `gpt-5.3-codex-spark`.
+- TTFT statusline display for client-observed time from local submit to first
+  semantic model output.
+- Ignored live provider smoke tests for OpenCode Zen and ChatGPT Codex
+  credentials, streaming, tool calls, and refresh prerequisites.
 
 ### Changed
 
@@ -44,3 +60,12 @@ and this project follows semantic versioning after the first stable release.
 - Kept ACP credentials agent-owned and out of config, logs, sessions, and
   inspect/export output.
 - Moved ACP remote/custom transport planning into the ACP agent server feature.
+- Changed the built-in default model from `umans-coder` to
+  `opencode/big-pickle`, with setup and docs preserving OpenCode's
+  limited-free and free-period privacy caveats.
+- Kept `opencode/` and `opencode-go/` as distinct OpenCode provider families
+  with separate credentials, routing, and docs.
+- Labeled ChatGPT Codex as ChatGPT-backed and experimental instead of treating
+  it as OpenAI Platform API-key access.
+- Kept provider secrets, raw provider payloads, ChatGPT access tokens, refresh
+  tokens, and TTFT content out of session records and prompt inspection.

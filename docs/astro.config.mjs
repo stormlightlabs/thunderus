@@ -91,6 +91,8 @@ export default defineConfig({
           items: [
             { label: "Umans", slug: "providers/umans" },
             { label: "OpenCode Go", slug: "providers/opencode-go" },
+            { label: "OpenCode Zen", slug: "providers/opencode-zen" },
+            { label: "ChatGPT Codex", slug: "providers/chatgpt" },
           ],
         },
         /* Reference: exact contracts, schemas, commands, and configuration surfaces. */
@@ -165,6 +167,7 @@ export default defineConfig({
                 { label: "Umans.ai", slug: "notebook/providers/umans" },
                 { label: "OpenCode Go", slug: "notebook/providers/opencode-go" },
                 { label: "OpenCode Zen", slug: "notebook/providers/opencode-zen" },
+                { label: "ChatGPT Codex", slug: "notebook/providers/chatgpt" },
               ],
             },
             {

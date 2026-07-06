@@ -24,6 +24,8 @@ const DOCUMENTATION_MAP: &[DocumentationEntry] = &[
     DocumentationEntry { topic: "skills", path: "docs/src/content/docs/usage/skills.md" },
     DocumentationEntry { topic: "Umans provider", path: "docs/src/content/docs/providers/umans.md" },
     DocumentationEntry { topic: "OpenCode Go provider", path: "docs/src/content/docs/providers/opencode-go.md" },
+    DocumentationEntry { topic: "OpenCode Zen provider", path: "docs/src/content/docs/providers/opencode-zen.md" },
+    DocumentationEntry { topic: "ChatGPT Codex provider", path: "docs/src/content/docs/providers/chatgpt.md" },
     DocumentationEntry { topic: "renderer", path: "docs/src/content/docs/usage/tui.md" },
     DocumentationEntry { topic: "development workflow", path: "docs/src/content/docs/development/workflow.md" },
 ];

@@ -51,9 +51,17 @@ accessory first.
 
 ## Status Line
 
-The footer shows static model, search mode, token counts, and current working
-directory. Lower-priority fields hide on narrow terminals before the line wraps.
-Long working directories are truncated from the left when needed.
+The footer shows static model, search mode, token counts, TTFT when available,
+and current working directory. Lower-priority fields hide on narrow terminals
+before the line wraps. Long working directories are truncated from the left when
+needed.
+
+TTFT is client-observed time to first token: the elapsed time from submitting a
+local turn to the first semantic model output. While a run is waiting for that
+first assistant text, visible reasoning, or tool-call delta, the status line can
+show `ttft: pending`. After the first output arrives, it shows a compact value
+such as `ttft: 842ms` or `ttft: 1.4s`, and the last completed turn's value stays
+visible until the next turn when width allows.
 
 ## Resize
 

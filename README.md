@@ -48,29 +48,7 @@ A minimal AI pair programmer.
 
 ## Configuration
 
-`thndrs` reads an optional TOML config from exactly two paths:
-
-- Global: `~/.thndrs/config.toml`
-- Project: `.thndrs/config.toml`
-
-Precedence is CLI flags over `THNDRS_` environment variables over project config
-over global config over built-in defaults.
-
-Supported config keys are `model`, `websearch`, `tick_rate_ms`, `theme`,
-`mouse`, `verbose`, `skill_dirs`, `session_dir`, `default_workspace`, and
-`acp_agents`. Provider secrets stay out of TOML; set `UMANS_API_KEY` or
-`OPENCODE_GO_KEY` in the environment or workspace `.env` file. External ACP
-agents are configured under `[acp_agents.<name>]`; see the ACP usage docs for
-agent-specific auth and environment policy.
-
-Example:
-
-```toml
-model = "umans-coder"
-websearch = "auto"
-session_dir = ".thndrs/sessions"
-default_workspace = "."
-```
+See the doc site for the up to date [configuration reference](https://thndrs.stormlightlabs.org/reference/configuration/)
 
 ## Usage
 
@@ -80,8 +58,8 @@ default_workspace = "."
 
 ## Documentation
 
-Public documentation is in Astro/Starlight [docs](/docs) project and is published
-at https://thndrs.stormlightlabs.org.
+Public documentation is in an Astro/Starlight [project](/docs) and is published at
+https://thndrs.stormlightlabs.org.
 
 ## License
 

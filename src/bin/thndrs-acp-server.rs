@@ -17,7 +17,7 @@ struct AcpServerCli {
     #[arg(long, default_value = ".")]
     cwd: PathBuf,
     /// Model to use for completions.
-    #[arg(long, default_value = "umans-coder")]
+    #[arg(long, default_value = config::DEFAULT_MODEL)]
     model: String,
     /// Web search provider policy.
     #[arg(long, value_enum, default_value = "auto")]
@@ -68,7 +68,10 @@ fn resolve_server_config() -> Result<ServerConfig, String> {
     let effective = load_effective_config(&cli, &env_vars)?;
 
     let mut cwd = effective.config.default_workspace.unwrap_or_else(|| PathBuf::from("."));
-    let mut model = effective.config.model.unwrap_or_else(|| String::from("umans-coder"));
+    let mut model = effective
+        .config
+        .model
+        .unwrap_or_else(|| String::from(config::DEFAULT_MODEL));
     let mut websearch = effective.config.websearch.unwrap_or(WebSearchMode::Auto);
     let mut session_dir = effective.config.session_dir;
 

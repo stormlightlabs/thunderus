@@ -21,20 +21,23 @@ cargo run -- --cwd /path/to/repo
 
 ## Model Selection
 
-The default model is `umans-coder`.
+The default model is `opencode/big-pickle`.
 
 ```sh
-cargo run -- --model umans-glm-5.2
+cargo run -- --model umans-coder
 ```
 
-Supported model names are currently:
+Built-in provider model prefixes include:
 
+- `opencode/<model-id>`, including `opencode/big-pickle`
+- `opencode-go/<model-id>`, for OpenCode Go
+- `chatgpt-codex/<model-id>`, for experimental ChatGPT-backed Codex
 - `umans-coder`
 - `umans-glm-5.2`
 
 ## Web Searching
 
-Use `--websearch` to choose the Umans web-search backend.
+Use `--websearch` to choose the web-search policy.
 
 ```sh
 cargo run -- --websearch native
@@ -42,7 +45,7 @@ cargo run -- --websearch exa
 cargo run -- --websearch none
 ```
 
-`native` is the default. `none` disables Umans server-side search.
+`auto` is the default. `none` disables provider-side web search.
 
 ## Prompt Inspection
 

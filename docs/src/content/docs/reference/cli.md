@@ -13,6 +13,14 @@ title: "CLI Reference"
 - `--no-alt-screen`: compatibility no-op; the TUI always renders inline without using the alternate screen.
 - `--print-prompt`: print the assembled prompt bundle and exit without calling the provider.
 
+## Auth Commands
+
+- `thndrs setup [--provider <umans|opencode-go|opencode-zen|chatgpt-codex>]`: run guided setup for the selected provider.
+- `thndrs login opencode-zen`: store an OpenCode Zen API key for `opencode/` models.
+- `thndrs logout opencode-zen`: remove the stored OpenCode Zen API key.
+- `thndrs login chatgpt-codex`: start the ChatGPT Codex device-code login flow, with browser PKCE fallback.
+- `thndrs logout chatgpt-codex`: remove the stored ChatGPT Codex credential entry.
+
 ## ACP Commands
 
 ACP agents are selected in the TUI with `--model acp:<name>`. They are

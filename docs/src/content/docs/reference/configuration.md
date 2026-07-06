@@ -35,7 +35,7 @@ errors.
 
 | Key                 | Type               | Default                             | Description                                    |
 | ------------------- | ------------------ | ----------------------------------- | ---------------------------------------------- |
-| `model`             | string             | `umans-coder`                       | Default completion model.                      |
+| `model`             | string             | `opencode/big-pickle`               | Default completion model.                      |
 | `websearch`         | `auto`             | `auto`                              | Web-search mode.                               |
 |                     | `native`           |                                     |                                                |
 |                     | `exa`,             |                                     |                                                |
@@ -61,7 +61,7 @@ entries, then CLI `--skill-dir` entries.
 ## Example
 
 ```toml
-model = "umans-coder"
+model = "opencode/big-pickle"
 websearch = "auto"
 tick_rate_ms = 100
 theme = "eldritch-minimal"
@@ -111,6 +111,11 @@ Set `session_dir` to use another directory. Session metadata records safe
 configuration metadata such as loaded config file paths, SHA-256 hashes, key
 origins, effective model, web-search mode, workspace, and session directory.
 It does not persist provider API keys or raw provider-private state.
+
+The built-in model default is `opencode/big-pickle`. OpenCode describes Big
+Pickle as free for a limited time and documents a free-period privacy exception
+where collected data may be used to improve the model. Select another `model`
+when that provider behavior is not acceptable.
 
 ## Web Search
 

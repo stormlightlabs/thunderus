@@ -1,6 +1,5 @@
 ---
 source: src/lib.rs
-assertion_line: 1357
 expression: output
 ---
 === System Prompt ===
@@ -246,6 +245,14 @@ expression: output
     <doc>
       <topic>OpenCode Go provider</topic>
       <path>docs/src/content/docs/providers/opencode-go.md</path>
+    </doc>
+    <doc>
+      <topic>OpenCode Zen provider</topic>
+      <path>docs/src/content/docs/providers/opencode-zen.md</path>
+    </doc>
+    <doc>
+      <topic>ChatGPT Codex provider</topic>
+      <path>docs/src/content/docs/providers/chatgpt.md</path>
     </doc>
     <doc>
       <topic>renderer</topic>

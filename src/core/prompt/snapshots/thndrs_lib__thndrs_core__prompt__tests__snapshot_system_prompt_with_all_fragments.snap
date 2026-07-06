@@ -1,6 +1,5 @@
 ---
 source: src/core/prompt/tests.rs
-assertion_line: 783
 expression: prompt
 ---
 <identity>
@@ -245,6 +244,14 @@ expression: prompt
     <doc>
       <topic>OpenCode Go provider</topic>
       <path>docs/src/content/docs/providers/opencode-go.md</path>
+    </doc>
+    <doc>
+      <topic>OpenCode Zen provider</topic>
+      <path>docs/src/content/docs/providers/opencode-zen.md</path>
+    </doc>
+    <doc>
+      <topic>ChatGPT Codex provider</topic>
+      <path>docs/src/content/docs/providers/chatgpt.md</path>
     </doc>
     <doc>
       <topic>renderer</topic>
