@@ -75,18 +75,18 @@ Captured: 2026-07-05
 
 ## P4: Stream Parsing
 
-- [ ] Parse OpenAI-compatible SSE `data:` payloads from the Zen chat route.
-- [ ] Map assistant text deltas into assistant transcript events.
-- [ ] Map compatible reasoning deltas when present.
-- [ ] Collect tool-call argument deltas until the call is complete.
-- [ ] Convert completed function calls into `ToolUseRequest`.
-- [ ] Parse usage events into token usage events.
-- [ ] Detect completed, failed, cancelled, queued, and in-progress response
+- [x] Parse OpenAI-compatible SSE `data:` payloads from the Zen chat route.
+- [x] Map assistant text deltas into assistant transcript events.
+- [x] Map compatible reasoning deltas when present.
+- [x] Collect tool-call argument deltas until the call is complete.
+- [x] Convert completed function calls into `ToolUseRequest`.
+- [x] Parse usage events into token usage events.
+- [x] Detect completed, failed, cancelled, queued, and in-progress response
       states when present.
-- [ ] Convert backend error events into provider failures.
-- [ ] Treat malformed protocol events after connection as non-retryable
+- [x] Convert backend error events into provider failures.
+- [x] Treat malformed protocol events after connection as non-retryable
       provider failures.
-- [ ] Preserve the existing `ProviderTurn` contract for the agent loop.
+- [x] Preserve the existing `ProviderTurn` contract for the agent loop.
 
 ## P5: Agent And Setup Integration
 

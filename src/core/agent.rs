@@ -1053,19 +1053,19 @@ fn stream_openai_chat_response(
     let mut event_count = 0usize;
     let mut saw_response = false;
     let mut stop_reason = None;
-    tracing::info!("reading OpenCode Go chat-completions SSE stream");
+    tracing::info!("reading OpenAI-compatible chat-completions SSE stream");
 
     for line_result in reader.lines() {
         if cancel.is_cancelled() {
-            tracing::warn!("cancelled while reading OpenCode Go SSE stream");
+            tracing::warn!("cancelled while reading OpenAI-compatible SSE stream");
             return Err("cancelled".to_string());
         }
 
         let line = line_result.map_err(|e| {
-            tracing::error!(error = %e, "failed reading OpenCode Go SSE stream");
+            tracing::error!(error = %e, "failed reading OpenAI-compatible SSE stream");
             format!("stream read error: {e}")
         })?;
-        if !line.starts_with("data: ") {
+        if !line.starts_with("data:") {
             continue;
         }
 
@@ -1080,7 +1080,7 @@ fn stream_openai_chat_response(
             event_count += 1;
             let events = openai::parse_chat_sse_event(&data);
             for event in events {
-                collect_opencode_chat_event(
+                collect_openai_chat_event(
                     event,
                     &mut tool_blocks,
                     &mut tool_requests,
@@ -1102,7 +1102,7 @@ fn stream_openai_chat_response(
     if assistant_text.is_empty() && tool_requests.is_empty() {
         tracing::error!(
             event_count,
-            "OpenCode Go stream ended without assistant text or tool calls"
+            "OpenAI-compatible stream ended without assistant text or tool calls"
         );
         if stop_reason.as_deref() == Some("length") {
             return Err(format!(
@@ -1118,7 +1118,7 @@ fn stream_openai_chat_response(
         event_count,
         text_chars = assistant_text.chars().count(),
         tool_calls = tool_requests.len(),
-        "finished reading OpenCode Go SSE stream"
+        "finished reading OpenAI-compatible SSE stream"
     );
     let _ = send(
         tx,
@@ -1133,7 +1133,7 @@ fn stream_openai_chat_response(
     Ok(ProviderTurn { tool_requests, assistant_text, stop_reason })
 }
 
-fn collect_opencode_chat_event(
+fn collect_openai_chat_event(
     event: openai::ChatSseEvent, tool_blocks: &mut HashMap<usize, ChatToolCallBuilder>,
     tool_requests: &mut Vec<ToolUseRequest>, assistant_text: &mut String, stop_reason: &mut Option<String>,
     tx: &Sender<AgentEvent>, cancel: &CancelToken,
@@ -1172,10 +1172,25 @@ fn collect_opencode_chat_event(
                 }
             }
         }
+        openai::ChatSseEvent::ResponseStatus(status) => {
+            if matches!(status.as_str(), "failed" | "cancelled" | "canceled") {
+                return Err(format!("provider stream status: {status}"));
+            }
+            if send(tx, AgentEvent::Status(format!("provider: status {status}")), cancel).is_none() {
+                return Err("cancelled".to_string());
+            }
+        }
+        openai::ChatSseEvent::Error(message) => {
+            tracing::error!(error = %message, "provider emitted SSE error");
+            return Err(format!("provider error: {message}"));
+        }
         openai::ChatSseEvent::Usage { input_tokens, output_tokens } => {
             if send(tx, AgentEvent::Usage { input_tokens, output_tokens }, cancel).is_none() {
                 return Err("cancelled".to_string());
             }
+        }
+        openai::ChatSseEvent::Malformed(payload) => {
+            return Err(format!("malformed provider stream payload: {payload}"));
         }
         openai::ChatSseEvent::Done | openai::ChatSseEvent::Other => {}
     }
@@ -1876,6 +1891,162 @@ mod tests {
         );
         assert!(state.assistant_text.is_empty());
         assert!(state.tool_requests.is_empty());
+    }
+
+    #[test]
+    fn collect_openai_chat_event_maps_text_reasoning_and_usage() {
+        let (tx, rx) = mpsc::channel();
+        let cancel = CancelToken::new();
+        let mut tool_blocks = HashMap::new();
+        let mut tool_requests = Vec::new();
+        let mut assistant_text = String::new();
+        let mut stop_reason = None;
+
+        collect_openai_chat_event(
+            openai::ChatSseEvent::TextDelta("hello".to_string()),
+            &mut tool_blocks,
+            &mut tool_requests,
+            &mut assistant_text,
+            &mut stop_reason,
+            &tx,
+            &cancel,
+        )
+        .expect("text delta");
+        collect_openai_chat_event(
+            openai::ChatSseEvent::ReasoningDelta("thinking".to_string()),
+            &mut tool_blocks,
+            &mut tool_requests,
+            &mut assistant_text,
+            &mut stop_reason,
+            &tx,
+            &cancel,
+        )
+        .expect("reasoning delta");
+        collect_openai_chat_event(
+            openai::ChatSseEvent::Usage { input_tokens: 2, output_tokens: 3 },
+            &mut tool_blocks,
+            &mut tool_requests,
+            &mut assistant_text,
+            &mut stop_reason,
+            &tx,
+            &cancel,
+        )
+        .expect("usage");
+
+        assert_eq!(assistant_text, "hello");
+        let events: Vec<AgentEvent> = rx.try_iter().collect();
+        assert!(events.contains(&AgentEvent::AssistantDelta("hello".to_string())));
+        assert!(events.contains(&AgentEvent::ReasoningDelta("thinking".to_string())));
+        assert!(events.contains(&AgentEvent::Usage { input_tokens: 2, output_tokens: 3 }));
+    }
+
+    #[test]
+    fn collect_openai_chat_event_finishes_tool_calls_on_finish_reason() {
+        let (tx, _rx) = mpsc::channel();
+        let cancel = CancelToken::new();
+        let mut tool_blocks = HashMap::new();
+        let mut tool_requests = Vec::new();
+        let mut assistant_text = String::new();
+        let mut stop_reason = None;
+
+        collect_openai_chat_event(
+            openai::ChatSseEvent::ToolCallStart { index: 0, id: "call_1".to_string(), name: "find_files".to_string() },
+            &mut tool_blocks,
+            &mut tool_requests,
+            &mut assistant_text,
+            &mut stop_reason,
+            &tx,
+            &cancel,
+        )
+        .expect("tool start");
+        collect_openai_chat_event(
+            openai::ChatSseEvent::ToolCallArgumentsDelta { index: 0, arguments: r#"{"pattern":"Cargo"}"#.to_string() },
+            &mut tool_blocks,
+            &mut tool_requests,
+            &mut assistant_text,
+            &mut stop_reason,
+            &tx,
+            &cancel,
+        )
+        .expect("tool args");
+        collect_openai_chat_event(
+            openai::ChatSseEvent::FinishReason("tool_calls".to_string()),
+            &mut tool_blocks,
+            &mut tool_requests,
+            &mut assistant_text,
+            &mut stop_reason,
+            &tx,
+            &cancel,
+        )
+        .expect("finish");
+
+        assert_eq!(stop_reason.as_deref(), Some("tool_calls"));
+        assert_eq!(tool_requests.len(), 1);
+        assert_eq!(tool_requests[0].name, "find_files");
+        assert_eq!(tool_requests[0].tool_use_id, "call_1");
+        assert_eq!(tool_requests[0].arguments, r#"{"pattern":"Cargo"}"#);
+    }
+
+    #[test]
+    fn collect_openai_chat_event_handles_status_and_failures() {
+        let (tx, rx) = mpsc::channel();
+        let cancel = CancelToken::new();
+        let mut tool_blocks = HashMap::new();
+        let mut tool_requests = Vec::new();
+        let mut assistant_text = String::new();
+        let mut stop_reason = None;
+
+        collect_openai_chat_event(
+            openai::ChatSseEvent::ResponseStatus("queued".to_string()),
+            &mut tool_blocks,
+            &mut tool_requests,
+            &mut assistant_text,
+            &mut stop_reason,
+            &tx,
+            &cancel,
+        )
+        .expect("queued status");
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(AgentEvent::Status(status)) if status == "provider: status queued"
+        ));
+
+        let failed = collect_openai_chat_event(
+            openai::ChatSseEvent::ResponseStatus("failed".to_string()),
+            &mut tool_blocks,
+            &mut tool_requests,
+            &mut assistant_text,
+            &mut stop_reason,
+            &tx,
+            &cancel,
+        )
+        .expect_err("failed status should fail");
+        assert!(failed.contains("provider stream status: failed"));
+
+        let backend = collect_openai_chat_event(
+            openai::ChatSseEvent::Error("backend failed".to_string()),
+            &mut tool_blocks,
+            &mut tool_requests,
+            &mut assistant_text,
+            &mut stop_reason,
+            &tx,
+            &cancel,
+        )
+        .expect_err("backend error should fail");
+        assert!(backend.contains("provider error: backend failed"));
+
+        let malformed = collect_openai_chat_event(
+            openai::ChatSseEvent::Malformed("{bad".to_string()),
+            &mut tool_blocks,
+            &mut tool_requests,
+            &mut assistant_text,
+            &mut stop_reason,
+            &tx,
+            &cancel,
+        )
+        .expect_err("malformed payload should fail");
+        assert!(malformed.contains("malformed provider stream payload"));
+        assert!(!ProviderAttemptError::Stream(malformed).is_retryable::<umans::UmansClient>());
     }
 
     #[test]

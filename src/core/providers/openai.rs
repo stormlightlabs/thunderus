@@ -10,8 +10,11 @@ pub enum ChatSseEvent {
     ToolCallStart { index: usize, id: String, name: String },
     ToolCallArgumentsDelta { index: usize, arguments: String },
     FinishReason(String),
+    ResponseStatus(String),
+    Error(String),
     Usage { input_tokens: u64, output_tokens: u64 },
     Done,
+    Malformed(String),
     Other,
 }
 
@@ -37,7 +40,7 @@ pub fn build_chat_request_body(
 pub fn parse_chat_sse_chunk(chunk: &str) -> Vec<String> {
     chunk
         .lines()
-        .filter_map(|line| line.strip_prefix("data: ").map(str::to_string))
+        .filter_map(|line| line.strip_prefix("data:").map(|data| data.trim_start().to_string()))
         .collect()
 }
 
@@ -48,10 +51,16 @@ pub fn parse_chat_sse_event(data: &str) -> Vec<ChatSseEvent> {
     }
 
     let Ok(value) = serde_json::from_str::<serde_json::Value>(data) else {
-        return vec![ChatSseEvent::Other];
+        return vec![ChatSseEvent::Malformed(data.chars().take(120).collect())];
     };
 
     let mut events = Vec::new();
+    if let Some(error) = extract_chat_error(&value) {
+        events.push(ChatSseEvent::Error(error));
+    }
+    if let Some(status) = extract_chat_status(&value) {
+        events.push(ChatSseEvent::ResponseStatus(status));
+    }
     if let Some((input_tokens, output_tokens)) = extract_chat_usage(&value) {
         events.push(ChatSseEvent::Usage { input_tokens, output_tokens });
     }
@@ -106,6 +115,44 @@ pub fn parse_chat_sse_event(data: &str) -> Vec<ChatSseEvent> {
     }
 
     if events.is_empty() { vec![ChatSseEvent::Other] } else { events }
+}
+
+fn extract_chat_error(value: &serde_json::Value) -> Option<String> {
+    value
+        .get("error")
+        .and_then(|error| match error {
+            serde_json::Value::String(message) => Some(message.clone()),
+            serde_json::Value::Object(_) => error
+                .get("message")
+                .and_then(|message| message.as_str())
+                .map(str::to_string)
+                .or_else(|| error.get("code").and_then(|code| code.as_str()).map(str::to_string)),
+            _ => None,
+        })
+        .or_else(|| {
+            if value.get("type").and_then(|event_type| event_type.as_str()) == Some("error") {
+                value
+                    .get("message")
+                    .and_then(|message| message.as_str())
+                    .map(str::to_string)
+            } else {
+                None
+            }
+        })
+}
+
+fn extract_chat_status(value: &serde_json::Value) -> Option<String> {
+    value
+        .get("status")
+        .or_else(|| value.get("response").and_then(|response| response.get("status")))
+        .and_then(|status| status.as_str())
+        .filter(|status| {
+            matches!(
+                *status,
+                "completed" | "failed" | "cancelled" | "canceled" | "queued" | "in_progress"
+            )
+        })
+        .map(str::to_string)
 }
 
 fn extract_chat_usage(value: &serde_json::Value) -> Option<(u64, u64)> {
@@ -254,5 +301,43 @@ mod tests {
         assert_eq!(request_names, definition_names);
         assert_eq!(body["tools"][0]["type"], "function");
         assert_eq!(body["tools"][0]["function"]["parameters"], defs[0].input_schema);
+    }
+
+    #[test]
+    fn parse_chat_sse_chunk_accepts_optional_space_after_data_colon() {
+        assert_eq!(
+            parse_chat_sse_chunk("data:{\"a\":1}\ndata: {\"b\":2}\n"),
+            vec![r#"{"a":1}"#.to_string(), r#"{"b":2}"#.to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_chat_sse_event_reports_malformed_payloads() {
+        assert_eq!(
+            parse_chat_sse_event("{not json"),
+            vec![ChatSseEvent::Malformed("{not json".to_string())]
+        );
+    }
+
+    #[test]
+    fn parse_chat_sse_event_extracts_backend_errors() {
+        assert_eq!(
+            parse_chat_sse_event(r#"{"error":{"message":"quota exceeded"}}"#),
+            vec![ChatSseEvent::Error("quota exceeded".to_string())]
+        );
+        assert_eq!(
+            parse_chat_sse_event(r#"{"type":"error","message":"backend failed"}"#),
+            vec![ChatSseEvent::Error("backend failed".to_string())]
+        );
+    }
+
+    #[test]
+    fn parse_chat_sse_event_extracts_response_statuses() {
+        for status in ["completed", "failed", "cancelled", "queued", "in_progress"] {
+            assert_eq!(
+                parse_chat_sse_event(&format!(r#"{{"status":"{status}"}}"#)),
+                vec![ChatSseEvent::ResponseStatus(status.to_string())]
+            );
+        }
     }
 }
