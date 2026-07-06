@@ -293,6 +293,7 @@ mod tests {
     use std::thread;
 
     use super::*;
+    use crate::providers::openai::{ChatSseEvent, parse_chat_sse_event};
 
     fn mock_models_server(body: &'static str) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock server");
@@ -337,6 +338,28 @@ mod tests {
     }
 
     #[test]
+    fn build_chat_request_body_uses_raw_model_for_text_only_turns() {
+        let messages = vec![
+            ProviderMessage {
+                role: "system".to_string(),
+                content: providers::ProviderMessageContent::Text("be concise".to_string()),
+            },
+            ProviderMessage::user("Say ok."),
+        ];
+        let body = OpenCodeZenClient::build_chat_request_body("opencode/big-pickle", &messages, 128, true, None)
+            .expect("body");
+
+        assert_eq!(body["model"], "big-pickle");
+        assert_eq!(body["messages"][0]["role"], "system");
+        assert_eq!(body["messages"][0]["content"], "be concise");
+        assert_eq!(body["messages"][1]["role"], "user");
+        assert_eq!(body["messages"][1]["content"], "Say ok.");
+        assert_eq!(body["max_tokens"], 128);
+        assert_eq!(body["stream"], true);
+        assert!(body.get("tools").is_none());
+    }
+
+    #[test]
     fn build_headers_include_expected_auth_without_redaction_helpers() {
         let client = OpenCodeZenClient::new(BASE_URL, "zen-test-key");
         let headers: HashMap<String, String> = client.build_chat_headers().into_iter().collect();
@@ -351,6 +374,17 @@ mod tests {
         }
         let dir = tempfile::tempdir().unwrap();
         let result = OpenCodeZenClient::from_env_or_dotenv(dir.path());
+        assert!(matches!(result, Err(ProviderError::MissingApiKey { env }) if env == API_KEY_ENV));
+    }
+
+    #[test]
+    fn missing_credentials_fail_before_network_access() {
+        unsafe {
+            env::remove_var(API_KEY_ENV);
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let result = OpenCodeZenClient::from_env_or_dotenv(dir.path());
+
         assert!(matches!(result, Err(ProviderError::MissingApiKey { env }) if env == API_KEY_ENV));
     }
 
@@ -414,16 +448,42 @@ mod tests {
     }
 
     #[test]
+    fn known_models_include_big_pickle_for_offline_picker() {
+        let models = known_models();
+        assert!(models.iter().any(|model| model.id == "opencode/big-pickle"));
+    }
+
+    #[test]
+    fn model_status_maps_discovered_raw_ids() {
+        let models = vec![ModelInfo {
+            id: "big-pickle".to_string(),
+            object: "model".to_string(),
+            created: 1,
+            owned_by: "opencode".to_string(),
+        }];
+
+        assert_eq!(
+            model_status("opencode/big-pickle", &models).as_deref(),
+            Some("model: opencode/big-pickle  OpenCode Zen")
+        );
+        assert_eq!(model_status("big-pickle", &models), None);
+    }
+
+    #[test]
     fn retryable_error_classification_matches_policy() {
         assert!(!is_retryable_error(&ProviderError::missing_api_key(API_KEY_ENV)));
         assert!(is_retryable_error(&ProviderError::Status {
             code: 429,
             body: "limit".into()
         }));
-        assert!(is_retryable_error(&ProviderError::Status {
-            code: 503,
-            body: "unavailable".into()
-        }));
+        for code in [500, 502, 503, 504] {
+            assert!(is_retryable_error(&ProviderError::Status {
+                code,
+                body: "temporary server error".into()
+            }));
+        }
+        assert!(is_retryable_error(&ProviderError::Http("request timed out".into())));
+        assert!(is_retryable_error(&ProviderError::Http("connection reset".into())));
         assert!(!is_retryable_error(&ProviderError::Status {
             code: 402,
             body: "insufficient balance".into()
@@ -436,5 +496,73 @@ mod tests {
             code: 400,
             body: "free period ended".into()
         }));
+    }
+
+    #[test]
+    fn parse_chat_sse_events_cover_zen_stream_shapes() {
+        assert_eq!(
+            parse_chat_sse_event(r#"{"choices":[{"delta":{"content":"hi"}}]}"#),
+            vec![ChatSseEvent::TextDelta("hi".to_string())]
+        );
+        assert_eq!(
+            parse_chat_sse_event(
+                r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"find_files","arguments":"{\"pattern\":\"Cargo\"}"}}]}}]}"#
+            ),
+            vec![
+                ChatSseEvent::ToolCallStart { index: 0, id: "call_1".to_string(), name: "find_files".to_string() },
+                ChatSseEvent::ToolCallArgumentsDelta { index: 0, arguments: r#"{"pattern":"Cargo"}"#.to_string() },
+            ]
+        );
+        assert_eq!(
+            parse_chat_sse_event(r#"{"usage":{"prompt_tokens":2,"completion_tokens":3}}"#),
+            vec![ChatSseEvent::Usage { input_tokens: 2, output_tokens: 3 }]
+        );
+        assert_eq!(
+            parse_chat_sse_event(r#"{"error":{"message":"backend failed"}}"#),
+            vec![ChatSseEvent::Error("backend failed".to_string())]
+        );
+        assert_eq!(
+            parse_chat_sse_event("{not json"),
+            vec![ChatSseEvent::Malformed("{not json".to_string())]
+        );
+    }
+
+    #[test]
+    #[ignore = "requires OPENCODE_ZEN_KEY, network access, and acceptance of Big Pickle limited-free pricing/privacy caveats"]
+    fn live_models_requires_opencode_zen_key() {
+        let workspace_root = env::current_dir().expect("current dir");
+        let client = OpenCodeZenClient::from_env_or_dotenv(&workspace_root).expect("OPENCODE_ZEN_KEY must be set");
+        let models = client.fetch_models().expect("fetch Zen models with OPENCODE_ZEN_KEY");
+        assert!(models.iter().any(|model| model.id == "big-pickle"));
+    }
+
+    #[test]
+    #[ignore = "requires OPENCODE_ZEN_KEY, network access, and acceptance of Big Pickle limited-free pricing/privacy caveats"]
+    fn live_big_pickle_text_stream_requires_opencode_zen_key() {
+        let workspace_root = env::current_dir().expect("current dir");
+        let client = OpenCodeZenClient::from_env_or_dotenv(&workspace_root).expect("OPENCODE_ZEN_KEY must be set");
+        let messages = vec![ProviderMessage::user("Reply with exactly: ok")];
+        let mut response = client
+            .send_streaming_request("opencode/big-pickle", &messages, 32, None)
+            .expect("streaming Big Pickle request with OPENCODE_ZEN_KEY");
+        let body = response.body_mut().read_to_string().expect("read body");
+        assert!(body.contains("data:"));
+    }
+
+    #[test]
+    #[ignore = "requires OPENCODE_ZEN_KEY, network access, Big Pickle tool-call support, and acceptance of limited-free pricing/privacy caveats"]
+    fn live_big_pickle_tool_call_requires_opencode_zen_key() {
+        let workspace_root = env::current_dir().expect("current dir");
+        let client = OpenCodeZenClient::from_env_or_dotenv(&workspace_root).expect("OPENCODE_ZEN_KEY must be set");
+        let messages = vec![ProviderMessage::user(
+            "Use the find_files tool to look for Cargo.toml, then stop.",
+        )];
+        let defs = crate::tools::tool_definitions();
+        let catalog = crate::tools::tool_catalog_schemas(&defs);
+        let mut response = client
+            .send_streaming_request("opencode/big-pickle", &messages, 128, Some(&catalog))
+            .expect("streaming Big Pickle tool request with OPENCODE_ZEN_KEY");
+        let body = response.body_mut().read_to_string().expect("read body");
+        assert!(body.contains("tool_calls") || body.contains("find_files"));
     }
 }

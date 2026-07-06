@@ -206,75 +206,75 @@ Captured: 2026-07-05
 
 ## P12: Unit Tests
 
-- [ ] Test `opencode/big-pickle` prefix parsing.
-- [ ] Test raw `big-pickle` rejection.
-- [ ] Test provider routing for `opencode/`.
-- [ ] Test missing Zen credentials before network access.
-- [ ] Test Zen credential redaction.
-- [ ] Test Big Pickle request body construction for text-only turns.
-- [ ] Test Big Pickle request body construction with tool schemas.
-- [ ] Test model discovery mapping.
-- [ ] Test model picker includes Big Pickle.
-- [ ] Test compiled default model is `opencode/big-pickle`.
-- [ ] Test setup default provider is OpenCode Zen.
-- [ ] Test retry classifier for 429 throttling.
-- [ ] Test retry classifier for 500, 502, 503, 504, timeout, and connection
+- [x] Test `opencode/big-pickle` prefix parsing.
+- [x] Test raw `big-pickle` rejection.
+- [x] Test provider routing for `opencode/`.
+- [x] Test missing Zen credentials before network access.
+- [x] Test Zen credential redaction.
+- [x] Test Big Pickle request body construction for text-only turns.
+- [x] Test Big Pickle request body construction with tool schemas.
+- [x] Test model discovery mapping.
+- [x] Test model picker includes Big Pickle.
+- [x] Test compiled default model is `opencode/big-pickle`.
+- [x] Test setup default provider is OpenCode Zen.
+- [x] Test retry classifier for 429 throttling.
+- [x] Test retry classifier for 500, 502, 503, 504, timeout, and connection
       reset cases.
-- [ ] Test retry classifier for terminal balance, unavailable-model, and
+- [x] Test retry classifier for terminal balance, unavailable-model, and
       free-period-ended errors.
-- [ ] Test SSE text deltas.
-- [ ] Test SSE tool-call deltas.
-- [ ] Test SSE usage events.
-- [ ] Test SSE backend error events.
-- [ ] Test malformed SSE payload handling.
-- [ ] Test ChatGPT Codex model prefix parsing and raw model rejection.
-- [ ] Test ChatGPT Codex known model picker entries.
-- [ ] Test ChatGPT Codex missing credentials before network access.
-- [ ] Test ChatGPT Codex JWT account-id extraction success.
-- [ ] Test ChatGPT Codex JWT account-id extraction failure.
-- [ ] Test ChatGPT Codex credential storage JSON shape.
-- [ ] Test ChatGPT Codex Unix `0600` credential file mode where supported.
-- [ ] Test ChatGPT Codex credential redaction in debug/status output.
-- [ ] Test ChatGPT Codex expired credential refresh under the mutex.
-- [ ] Test ChatGPT Codex env token override does not write credential storage.
-- [ ] Test ChatGPT Codex logout removes only the ChatGPT Codex credential
+- [x] Test SSE text deltas.
+- [x] Test SSE tool-call deltas.
+- [x] Test SSE usage events.
+- [x] Test SSE backend error events.
+- [x] Test malformed SSE payload handling.
+- [x] Test ChatGPT Codex model prefix parsing and raw model rejection.
+- [x] Test ChatGPT Codex known model picker entries.
+- [x] Test ChatGPT Codex missing credentials before network access.
+- [x] Test ChatGPT Codex JWT account-id extraction success.
+- [x] Test ChatGPT Codex JWT account-id extraction failure.
+- [x] Test ChatGPT Codex credential storage JSON shape.
+- [x] Test ChatGPT Codex Unix `0600` credential file mode where supported.
+- [x] Test ChatGPT Codex credential redaction in debug/status output.
+- [x] Test ChatGPT Codex expired credential refresh under the mutex.
+- [x] Test ChatGPT Codex env token override does not write credential storage.
+- [x] Test ChatGPT Codex logout removes only the ChatGPT Codex credential
       entry.
-- [ ] Test ChatGPT Codex header construction with redacted assertions.
-- [ ] Test ChatGPT Codex request body construction for text-only turns.
-- [ ] Test ChatGPT Codex request body construction with tool schemas.
-- [ ] Test ChatGPT Codex Responses input conversion for tool-result history.
+- [x] Test ChatGPT Codex header construction with redacted assertions.
+- [x] Test ChatGPT Codex request body construction for text-only turns.
+- [x] Test ChatGPT Codex request body construction with tool schemas.
+- [x] Test ChatGPT Codex Responses input conversion for tool-result history.
 - [x] Test ChatGPT Codex SSE text deltas.
 - [x] Test ChatGPT Codex SSE visible reasoning deltas.
 - [x] Test ChatGPT Codex SSE tool-call deltas.
 - [x] Test ChatGPT Codex SSE usage events.
 - [x] Test ChatGPT Codex SSE backend error events.
 - [x] Test ChatGPT Codex malformed SSE payload handling.
-- [ ] Test ChatGPT Codex retry classifier for terminal subscription-limit
+- [x] Test ChatGPT Codex retry classifier for terminal subscription-limit
       strings.
-- [ ] Test TTFT starts on submit.
-- [ ] Test TTFT stops on first semantic output.
-- [ ] Test TTFT ignores status and usage-only events.
-- [ ] Test TTFT is retained after run completion.
-- [ ] Test TTFT reset on the next turn.
+- [x] Test TTFT starts on submit.
+- [x] Test TTFT stops on first semantic output.
+- [x] Test TTFT ignores status and usage-only events.
+- [x] Test TTFT is retained after run completion.
+- [x] Test TTFT reset on the next turn.
 
 ## P13: Ignored Live Tests
 
-- [ ] Add ignored Zen model-list smoke test.
-- [ ] Add ignored Big Pickle text-only streaming smoke test.
-- [ ] Add ignored Big Pickle local tool-call round-trip smoke test if supported.
-- [ ] Add ignored ChatGPT Codex device-code login smoke test.
-- [ ] Add ignored ChatGPT Codex browser fallback login smoke test.
-- [ ] Add ignored ChatGPT Codex text-only streaming smoke test.
-- [ ] Add ignored ChatGPT Codex local tool-call round-trip smoke test.
-- [ ] Add ignored ChatGPT Codex expired-token refresh smoke test.
-- [ ] Require `OPENCODE_ZEN_KEY` in every live test name or failure message.
-- [ ] Require network access and real Zen credentials for every live test.
-- [ ] Require explicit ChatGPT subscription prerequisites in every ChatGPT Codex
+- [x] Add ignored Zen model-list smoke test.
+- [x] Add ignored Big Pickle text-only streaming smoke test.
+- [x] Add ignored Big Pickle local tool-call round-trip smoke test if supported.
+- [x] Add ignored ChatGPT Codex device-code login smoke test.
+- [x] Add ignored ChatGPT Codex browser fallback login smoke test.
+- [x] Add ignored ChatGPT Codex text-only streaming smoke test.
+- [x] Add ignored ChatGPT Codex local tool-call round-trip smoke test.
+- [x] Add ignored ChatGPT Codex expired-token refresh smoke test.
+- [x] Require `OPENCODE_ZEN_KEY` in every live test name or failure message.
+- [x] Require network access and real Zen credentials for every live test.
+- [x] Require explicit ChatGPT subscription prerequisites in every ChatGPT Codex
       live test name or failure message.
-- [ ] Require network access and real ChatGPT credentials for every ChatGPT
+- [x] Require network access and real ChatGPT credentials for every ChatGPT
       Codex live test.
-- [ ] Mention limited-free pricing and privacy caveats in live test docs.
-- [ ] Keep every live test skipped by default.
+- [x] Mention limited-free pricing and privacy caveats in live test docs.
+- [x] Keep every live test skipped by default.
 
 ## P14: Public Docs
 
@@ -297,11 +297,11 @@ Captured: 2026-07-05
 
 ## Validation Commands
 
-- [ ] `cargo fmt`
-- [ ] `cargo clippy --fix --all-targets --allow-dirty`
-- [ ] `cargo clippy --all-targets`
-- [ ] `cargo test opencode_zen`
-- [ ] `cargo test chatgpt_codex`
-- [ ] `cargo test provider`
-- [ ] `cargo test cli`
-- [ ] `cargo test`
+- [x] `cargo fmt`
+- [x] `cargo clippy --fix --all-targets --allow-dirty`
+- [x] `cargo clippy --all-targets`
+- [x] `cargo test opencode_zen`
+- [x] `cargo test chatgpt_codex`
+- [x] `cargo test provider`
+- [x] `cargo test cli`
+- [x] `cargo test`

@@ -221,6 +221,12 @@ mod tests {
     }
 
     #[test]
+    fn opencode_zen_is_the_setup_default_model_for_big_pickle() {
+        assert_eq!(ApiKeyProviderArg::OpencodeZen.default_model(), "opencode/big-pickle");
+        assert_eq!(ApiKeyProviderArg::OpencodeZen.env_var(), auth::OPENCODE_ZEN_KEY_ENV);
+    }
+
+    #[test]
     fn setup_scope_uses_flags() {
         assert_eq!(
             command_scope(&SetupCommand { provider: None, global: true, project: false }),

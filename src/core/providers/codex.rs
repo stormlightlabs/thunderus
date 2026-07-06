@@ -498,6 +498,7 @@ fn terminal_status_error(code: u16, body: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::env;
 
     use super::*;
 
@@ -512,6 +513,42 @@ mod tests {
             raw_model_id("gpt-5.5"),
             Err(ProviderError::InvalidModelId { .. })
         ));
+    }
+
+    #[test]
+    fn known_models_include_chatgpt_codex_picker_entries() {
+        let ids: Vec<&str> = known_models().iter().map(|model| model.id).collect();
+        assert!(ids.contains(&"chatgpt-codex/gpt-5.5"));
+        assert!(ids.contains(&"chatgpt-codex/gpt-5.4"));
+        assert!(ids.contains(&"chatgpt-codex/gpt-5.4-mini"));
+        assert!(ids.contains(&"chatgpt-codex/gpt-5.3-codex-spark"));
+    }
+
+    #[test]
+    fn missing_credentials_fail_before_network_access() {
+        unsafe {
+            env::remove_var(auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV);
+        }
+        let dir = tempfile::tempdir().expect("tempdir");
+        let home = dir.path().join("home");
+        std::fs::create_dir_all(&home).expect("home");
+        let old_home = env::var_os("HOME");
+        unsafe {
+            env::set_var("HOME", &home);
+        }
+
+        let result = ChatGptCodexClient::from_env_or_dotenv(dir.path());
+
+        unsafe {
+            if let Some(home) = old_home {
+                env::set_var("HOME", home);
+            } else {
+                env::remove_var("HOME");
+            }
+        }
+        assert!(
+            matches!(result, Err(ProviderError::Auth(message)) if message.contains("run `thndrs login chatgpt-codex`"))
+        );
     }
 
     #[test]
@@ -550,6 +587,60 @@ mod tests {
         assert_eq!(body["text"]["verbosity"], "low");
         assert_eq!(body["tools"][0]["type"], "function");
         assert_eq!(body["tools"][0]["name"], defs[0].name.as_ref());
+    }
+
+    #[test]
+    fn build_responses_body_uses_raw_model_for_text_only_turns() {
+        let messages = vec![
+            ProviderMessage {
+                role: "system".to_string(),
+                content: ProviderMessageContent::Text("be brief".to_string()),
+            },
+            ProviderMessage::user("hello"),
+        ];
+        let body =
+            ChatGptCodexClient::build_responses_request_body("chatgpt-codex/gpt-5.5", &messages, None).expect("body");
+
+        assert_eq!(body["model"], "gpt-5.5");
+        assert_eq!(body["instructions"], "be brief");
+        assert_eq!(body["input"][0]["role"], "user");
+        assert_eq!(body["input"][0]["content"], "hello");
+        assert_eq!(body["store"], false);
+        assert_eq!(body["stream"], true);
+        assert!(body.get("tools").is_none());
+    }
+
+    #[test]
+    fn build_responses_body_converts_tool_result_history() {
+        let messages = vec![
+            ProviderMessage {
+                role: "assistant".to_string(),
+                content: ProviderMessageContent::Blocks(vec![ProviderContentBlock::ToolUse {
+                    id: "call_1".to_string(),
+                    name: "find_files".to_string(),
+                    input: serde_json::json!({ "pattern": "Cargo" }),
+                }]),
+            },
+            ProviderMessage {
+                role: "user".to_string(),
+                content: ProviderMessageContent::Blocks(vec![ProviderContentBlock::ToolResult {
+                    tool_use_id: "call_1".to_string(),
+                    content: "Cargo.toml".to_string(),
+                    is_error: Some(false),
+                }]),
+            },
+        ];
+        let body =
+            ChatGptCodexClient::build_responses_request_body("chatgpt-codex/gpt-5.5", &messages, None).expect("body");
+
+        assert_eq!(body["input"][0]["type"], "function_call");
+        assert_eq!(body["input"][0]["call_id"], "call_1");
+        assert_eq!(body["input"][0]["name"], "find_files");
+        assert_eq!(body["input"][0]["arguments"], r#"{"pattern":"Cargo"}"#);
+        assert_eq!(body["input"][1]["type"], "function_call_output");
+        assert_eq!(body["input"][1]["call_id"], "call_1");
+        assert_eq!(body["input"][1]["output"], "Cargo.toml");
+        assert_eq!(body["input"][1]["is_error"], false);
     }
 
     #[test]
@@ -647,10 +738,12 @@ mod tests {
             code: 429,
             body: "rate limit".into()
         }));
-        assert!(is_retryable_error(&ProviderError::Status {
-            code: 503,
-            body: "unavailable".into()
-        }));
+        for code in [500, 502, 503, 504] {
+            assert!(is_retryable_error(&ProviderError::Status {
+                code,
+                body: "temporary server error".into()
+            }));
+        }
         assert!(!is_retryable_error(&ProviderError::Status {
             code: 402,
             body: "monthly usage limit".into()
@@ -659,6 +752,72 @@ mod tests {
             code: 403,
             body: "subscription required".into()
         }));
+        assert!(!is_retryable_error(&ProviderError::Status {
+            code: 429,
+            body: "ChatGPT subscription quota exhausted".into()
+        }));
         assert!(!is_retryable_error(&ProviderError::Auth("missing".into())));
+    }
+
+    #[test]
+    #[ignore = "requires real ChatGPT subscription credentials, CHATGPT_CODEX_ACCESS_TOKEN or ~/.thndrs/auth.json, and network access"]
+    fn live_device_code_login_requires_chatgpt_subscription() {
+        let code = auth::request_chatgpt_codex_device_code()
+            .expect("real ChatGPT subscription prerequisites and network access are required");
+        assert!(!code.device_code.is_empty());
+        assert!(!code.user_code.is_empty());
+    }
+
+    #[test]
+    #[ignore = "requires real ChatGPT subscription credentials, browser login, localhost:1455 availability, and network access"]
+    fn live_browser_pkce_login_requires_chatgpt_subscription() {
+        let credentials = auth::login_chatgpt_codex_with_browser_pkce()
+            .expect("real ChatGPT subscription browser login and network access are required");
+        assert!(!credentials.access_token.is_empty());
+        assert!(!credentials.account_id.is_empty());
+    }
+
+    #[test]
+    #[ignore = "requires real ChatGPT subscription credentials in CHATGPT_CODEX_ACCESS_TOKEN or ~/.thndrs/auth.json and network access"]
+    fn live_text_stream_requires_chatgpt_subscription() {
+        let workspace_root = env::current_dir().expect("current dir");
+        let client = ChatGptCodexClient::from_env_or_dotenv(&workspace_root)
+            .expect("real ChatGPT subscription credentials and network access are required");
+        let messages = vec![ProviderMessage::user("Reply with exactly: ok")];
+        let mut response = client
+            .send_streaming_request("chatgpt-codex/gpt-5.5", &messages, None)
+            .expect("ChatGPT Codex text-only stream requires subscription credentials");
+        let body = response.body_mut().read_to_string().expect("read body");
+        assert!(body.contains("data:"));
+    }
+
+    #[test]
+    #[ignore = "requires real ChatGPT subscription credentials, local tool-call support, and network access"]
+    fn live_tool_call_requires_chatgpt_subscription() {
+        let workspace_root = env::current_dir().expect("current dir");
+        let client = ChatGptCodexClient::from_env_or_dotenv(&workspace_root)
+            .expect("real ChatGPT subscription credentials and network access are required");
+        let messages = vec![ProviderMessage::user(
+            "Use the find_files tool to look for Cargo.toml, then stop.",
+        )];
+        let defs = crate::tools::tool_definitions();
+        let catalog = crate::tools::tool_catalog_schemas(&defs);
+        let mut response = client
+            .send_streaming_request("chatgpt-codex/gpt-5.5", &messages, Some(&catalog))
+            .expect("ChatGPT Codex tool-call stream requires subscription credentials");
+        let body = response.body_mut().read_to_string().expect("read body");
+        assert!(body.contains("function_call") || body.contains("find_files"));
+    }
+
+    #[test]
+    #[ignore = "requires expired real ChatGPT subscription credentials in ~/.thndrs/auth.json and network access"]
+    fn live_expired_token_refresh_requires_chatgpt_subscription() {
+        unsafe {
+            env::remove_var(auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV);
+        }
+        let auth = auth::resolve_chatgpt_codex_auth()
+            .expect("expired real ChatGPT subscription credentials and network access are required");
+        assert!(!auth.access_token.is_empty());
+        assert!(!auth.account_id.is_empty());
     }
 }

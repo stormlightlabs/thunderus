@@ -991,7 +991,7 @@ mod tests {
 
     #[test]
     #[ignore = "requires UMANS_API_KEY and network access"]
-    fn live_smoke_test_models_info() {
+    fn live_models_info() {
         let workspace_root = env::current_dir().expect("current dir");
         let client = UmansClient::from_env_or_dotenv(&workspace_root).expect("UMANS_API_KEY must be set");
         let models = client.fetch_models_info().expect("fetch models info");

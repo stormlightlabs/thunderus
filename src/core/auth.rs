@@ -116,7 +116,7 @@ pub enum AuthError {
 }
 
 /// File-backed ChatGPT Codex credential entry.
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize, Eq, PartialEq)]
+#[derive(Clone, serde::Deserialize, serde::Serialize, Eq, PartialEq)]
 pub struct ChatGptCodexCredentials {
     /// ChatGPT backend access token.
     pub access_token: String,
@@ -129,7 +129,7 @@ pub struct ChatGptCodexCredentials {
 }
 
 /// Auth material used by the ChatGPT Codex provider.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct ChatGptCodexAuth {
     /// ChatGPT backend access token.
     pub access_token: String,
@@ -153,13 +153,46 @@ pub struct ChatGptCodexDeviceCode {
 }
 
 /// Token response from ChatGPT Codex OAuth endpoints.
-#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq)]
+#[derive(Clone, serde::Deserialize, Eq, PartialEq)]
 pub struct ChatGptCodexTokenResponse {
     pub access_token: String,
     #[serde(default)]
     pub refresh_token: Option<String>,
     #[serde(default)]
     pub expires_in: Option<u64>,
+}
+
+impl std::fmt::Debug for ChatGptCodexCredentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChatGptCodexCredentials")
+            .field("access_token", &redact_value(&self.access_token))
+            .field("refresh_token", &redact_value(&self.refresh_token))
+            .field("expires_at_ms", &self.expires_at_ms)
+            .field("account_id", &self.account_id)
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for ChatGptCodexAuth {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChatGptCodexAuth")
+            .field("access_token", &redact_value(&self.access_token))
+            .field("account_id", &self.account_id)
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for ChatGptCodexTokenResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChatGptCodexTokenResponse")
+            .field("access_token", &redact_value(&self.access_token))
+            .field(
+                "refresh_token",
+                &self.refresh_token.as_ref().map(|token| redact_value(token)),
+            )
+            .field("expires_in", &self.expires_in)
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize, Default)]
@@ -194,16 +227,22 @@ pub fn resolve_chatgpt_codex_auth() -> Result<ChatGptCodexAuth, AuthError> {
         return Ok(ChatGptCodexAuth { access_token: token, account_id });
     }
 
+    let path = chatgpt_codex_auth_path()?;
+    resolve_chatgpt_codex_file_auth_at(&path, refresh_chatgpt_codex_credentials)
+}
+
+fn resolve_chatgpt_codex_file_auth_at(
+    path: &Path, refresh: impl FnOnce(ChatGptCodexCredentials) -> Result<ChatGptCodexCredentials, AuthError>,
+) -> Result<ChatGptCodexAuth, AuthError> {
     let _guard = CHATGPT_CODEX_REFRESH_LOCK
         .get_or_init(|| Mutex::new(()))
         .lock()
         .map_err(|_| AuthError::ChatGptCodex("refresh lock poisoned".to_string()))?;
-    let path = chatgpt_codex_auth_path()?;
-    let mut credentials = read_chatgpt_codex_credentials_at(&path)?
+    let mut credentials = read_chatgpt_codex_credentials_at(path)?
         .ok_or_else(|| AuthError::ChatGptCodex("run `thndrs login chatgpt-codex`".to_string()))?;
     if credentials.is_expired(now_ms()) {
-        credentials = refresh_chatgpt_codex_credentials(credentials)?;
-        write_chatgpt_codex_credentials_at(&path, &credentials)?;
+        credentials = refresh(credentials)?;
+        write_chatgpt_codex_credentials_at(path, &credentials)?;
     }
     Ok(ChatGptCodexAuth { access_token: credentials.access_token, account_id: credentials.account_id })
 }
@@ -221,9 +260,13 @@ pub fn write_chatgpt_codex_credentials(credentials: &ChatGptCodexCredentials) ->
 /// Delete only the ChatGPT Codex credential entry from `~/.thndrs/auth.json`.
 pub fn remove_chatgpt_codex_credentials() -> Result<(), AuthError> {
     let path = chatgpt_codex_auth_path()?;
-    let mut store = read_auth_json_at(&path)?;
+    remove_chatgpt_codex_credentials_at(&path)
+}
+
+fn remove_chatgpt_codex_credentials_at(path: &Path) -> Result<(), AuthError> {
+    let mut store = read_auth_json_at(path)?;
     store.chatgpt_codex = None;
-    write_auth_json_atomic(&path, &store)
+    write_auth_json_atomic(path, &store)
 }
 
 /// Decode a JWT payload and extract the ChatGPT account id claim.
@@ -787,6 +830,55 @@ mod tests {
     }
 
     #[test]
+    fn chatgpt_codex_account_id_rejects_missing_or_malformed_claims() {
+        let missing_claim = format!(
+            "header.{}.sig",
+            base64_url_encode(br#"{"https://api.openai.com/auth":{}}"#)
+        );
+        let malformed_claim = format!(
+            "header.{}.sig",
+            base64_url_encode(br#"{"https://api.openai.com/auth":{"chatgpt_account_id":42}}"#)
+        );
+
+        assert!(matches!(
+            chatgpt_account_id_from_jwt(&missing_claim),
+            Err(AuthError::ChatGptCodex(message)) if message.contains("missing chatgpt_account_id")
+        ));
+        assert!(matches!(
+            chatgpt_account_id_from_jwt(&malformed_claim),
+            Err(AuthError::ChatGptCodex(message)) if message.contains("missing chatgpt_account_id")
+        ));
+        assert!(matches!(
+            chatgpt_account_id_from_jwt("not-a-jwt"),
+            Err(AuthError::ChatGptCodex(message)) if message.contains("not a JWT")
+        ));
+    }
+
+    #[test]
+    fn chatgpt_codex_debug_output_redacts_tokens() {
+        let credentials = ChatGptCodexCredentials {
+            access_token: "access-secret-token".to_string(),
+            refresh_token: "refresh-secret-token".to_string(),
+            expires_at_ms: 123,
+            account_id: "acct_file".to_string(),
+        };
+        let auth =
+            ChatGptCodexAuth { access_token: "auth-secret-token".to_string(), account_id: "acct_file".to_string() };
+        let token = ChatGptCodexTokenResponse {
+            access_token: "response-access-secret".to_string(),
+            refresh_token: Some("response-refresh-secret".to_string()),
+            expires_in: Some(3600),
+        };
+
+        for debug in [format!("{credentials:?}"), format!("{auth:?}"), format!("{token:?}")] {
+            assert!(debug.contains("[redacted]"));
+            assert!(!debug.contains("secret-token"));
+            assert!(!debug.contains("response-access-secret"));
+            assert!(!debug.contains("response-refresh-secret"));
+        }
+    }
+
+    #[test]
     fn chatgpt_codex_auth_json_preserves_unrelated_entries_and_removes_only_entry() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("auth.json");
@@ -801,15 +893,86 @@ mod tests {
         write_chatgpt_codex_credentials_at(&path, &credentials).expect("write");
         assert_eq!(read_chatgpt_codex_credentials_at(&path).unwrap(), Some(credentials));
         let written: serde_json::Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(written["chatgpt_codex"]["access_token"], jwt_with_account("acct_file"));
+        assert_eq!(written["chatgpt_codex"]["refresh_token"], "refresh-secret");
+        assert_eq!(written["chatgpt_codex"]["expires_at_ms"], 123);
+        assert_eq!(written["chatgpt_codex"]["account_id"], "acct_file");
         assert_eq!(written["other"]["keep"], true);
 
-        let mut store = read_auth_json_at(&path).unwrap();
-        store.chatgpt_codex = None;
-        write_auth_json_atomic(&path, &store).expect("remove");
+        remove_chatgpt_codex_credentials_at(&path).expect("remove");
         assert_eq!(read_chatgpt_codex_credentials_at(&path).unwrap(), None);
         let removed: serde_json::Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(removed["other"]["keep"], true);
         assert!(removed.get(CHATGPT_CODEX_AUTH_KEY).is_none());
+    }
+
+    #[test]
+    fn chatgpt_codex_env_token_override_does_not_write_auth_json() {
+        let _guard = env_test_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("home");
+        fs::create_dir_all(&home).unwrap();
+        let old_home = std::env::var_os("HOME");
+        let old_token = std::env::var_os(CHATGPT_CODEX_ACCESS_TOKEN_ENV);
+        let token = jwt_with_account("acct_env");
+
+        unsafe {
+            std::env::set_var("HOME", &home);
+            std::env::set_var(CHATGPT_CODEX_ACCESS_TOKEN_ENV, &token);
+        }
+
+        let auth = resolve_chatgpt_codex_auth().expect("resolve env auth");
+        let auth_path = home.join(".thndrs").join("auth.json");
+
+        unsafe {
+            if let Some(home) = old_home {
+                std::env::set_var("HOME", home);
+            } else {
+                std::env::remove_var("HOME");
+            }
+            if let Some(token) = old_token {
+                std::env::set_var(CHATGPT_CODEX_ACCESS_TOKEN_ENV, token);
+            } else {
+                std::env::remove_var(CHATGPT_CODEX_ACCESS_TOKEN_ENV);
+            }
+        }
+
+        assert_eq!(auth.access_token, token);
+        assert_eq!(auth.account_id, "acct_env");
+        assert!(!auth_path.exists());
+    }
+
+    #[test]
+    fn chatgpt_codex_expired_credentials_refresh_under_locked_resolver() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("auth.json");
+        let old_credentials = ChatGptCodexCredentials {
+            access_token: jwt_with_account("acct_old"),
+            refresh_token: "refresh-old".to_string(),
+            expires_at_ms: 1,
+            account_id: "acct_old".to_string(),
+        };
+        write_chatgpt_codex_credentials_at(&path, &old_credentials).expect("write old credentials");
+
+        let refreshed_token = jwt_with_account("acct_new");
+        let auth = resolve_chatgpt_codex_file_auth_at(&path, |current| {
+            assert_eq!(current.refresh_token, "refresh-old");
+            Ok(ChatGptCodexCredentials {
+                access_token: refreshed_token.clone(),
+                refresh_token: "refresh-new".to_string(),
+                expires_at_ms: now_ms() + 3_600_000,
+                account_id: "acct_new".to_string(),
+            })
+        })
+        .expect("refresh");
+
+        assert_eq!(auth.access_token, refreshed_token);
+        assert_eq!(auth.account_id, "acct_new");
+        let stored = read_chatgpt_codex_credentials_at(&path)
+            .expect("read refreshed credentials")
+            .expect("stored credentials");
+        assert_eq!(stored.refresh_token, "refresh-new");
+        assert_eq!(stored.account_id, "acct_new");
     }
 
     #[cfg(unix)]
@@ -1038,7 +1201,7 @@ mod tests {
         write_cred_file(&path, "UMANS_API_KEY=sk-umans\nOPENCODE_GO_KEY=sk-opencode\n");
         remove_credential(&path, "UMANS_API_KEY").unwrap();
         let creds = read_credentials(&path).unwrap();
-        assert!(creds.get("UMANS_API_KEY").is_none());
+        assert!(!creds.contains_key("UMANS_API_KEY"));
         assert_eq!(creds.get("OPENCODE_GO_KEY").unwrap(), "sk-opencode");
     }
 

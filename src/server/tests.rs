@@ -475,7 +475,7 @@ fn set_config_option_updates_model_and_refreshes_options() {
 
     let response = set_config_option(
         &state,
-        &SetSessionConfigOptionRequest::new(session_id.clone(), WEBSEARCH_CONFIG_OPTION_ID, "none"),
+        &SetSessionConfigOptionRequest::new(session_id, WEBSEARCH_CONFIG_OPTION_ID, "none"),
     )
     .expect("set websearch");
     let json = serde_json::to_value(&response).expect("serialize response");
@@ -773,7 +773,6 @@ fn execute_prompt_preserves_update_order() {
 
     let prompt_handle = {
         let state = state;
-        let session_id = session_id;
         let capture = capture;
         let event_rx = event_rx;
         let started_tx = started_tx;
@@ -975,7 +974,7 @@ fn cancel_session_records_local_session_jsonl_when_enabled() {
     let (event_tx, event_rx) = mpsc::channel();
     let event_rx = Arc::new(Mutex::new(Some(event_rx)));
     let (started_tx, started_rx) = mpsc::channel();
-    let token_for_turn = token.clone();
+    let token_for_turn = token;
     let state_for_turn = state.clone();
     let session_for_turn = session_id.clone();
     let turn_thread = thread::spawn(move || {

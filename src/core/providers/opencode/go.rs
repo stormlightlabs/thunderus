@@ -208,6 +208,11 @@ impl StreamingProvider for OpenCodeGoClient {
             .into_iter()
             .map(|model| (model.id.to_string(), model.description.to_string()))
             .collect();
+        items.extend(
+            providers::opencode::zen::known_models()
+                .into_iter()
+                .map(|model| (model.id.to_string(), model.description.to_string())),
+        );
         items.extend(model_picker_items(metadata));
         items.extend(
             providers::chatgpt_codex::known_models()
@@ -653,6 +658,23 @@ mod tests {
     }
 
     #[test]
+    fn metadata_loaded_event_keeps_opencode_zen_known_models() {
+        let client = OpenCodeGoClient::new(BASE_URL, "go-test-key");
+        let metadata = vec![ModelInfo {
+            id: "kimi-k2.7-code".to_string(),
+            object: "model".to_string(),
+            created: 1,
+            owned_by: "opencode".to_string(),
+        }];
+        let Some(AgentEvent::ModelMetadataLoaded(items)) = client.metadata_loaded_event(&metadata) else {
+            panic!("expected model metadata event");
+        };
+
+        assert!(items.iter().any(|(id, _)| id == "opencode/big-pickle"));
+        assert!(items.iter().any(|(id, _)| id == "opencode-go/kimi-k2.7-code"));
+    }
+
+    #[test]
     fn parse_chat_sse_text_reasoning_usage_and_done() {
         let data = r#"{"choices":[{"finish_reason":null,"delta":{"content":"ok","reasoning_content":"think"}}],"usage":{"prompt_tokens":2,"completion_tokens":3}}"#;
         let events = parse_chat_sse_event(data);
@@ -695,7 +717,7 @@ mod tests {
 
     #[test]
     #[ignore = "requires OPENCODE_GO_KEY and network access"]
-    fn live_smoke_test_models() {
+    fn live_models() {
         let workspace_root = env::current_dir().expect("current dir");
         let client = OpenCodeGoClient::from_env_or_dotenv(&workspace_root).expect("OPENCODE_GO_KEY must be set");
         let models = client.fetch_models().expect("fetch models");
@@ -704,7 +726,7 @@ mod tests {
 
     #[test]
     #[ignore = "requires OPENCODE_GO_KEY and network access"]
-    fn live_smoke_test_chat_stream() {
+    fn live_chat_stream() {
         let workspace_root = env::current_dir().expect("current dir");
         let client = OpenCodeGoClient::from_env_or_dotenv(&workspace_root).expect("OPENCODE_GO_KEY must be set");
         let messages = vec![ProviderMessage::user("Reply with exactly: ok")];
@@ -718,7 +740,7 @@ mod tests {
 
     #[test]
     #[ignore = "requires OPENCODE_GO_KEY and network access"]
-    fn live_smoke_test_messages_stream() {
+    fn live_messages_stream() {
         let workspace_root = env::current_dir().expect("current dir");
         let client = OpenCodeGoClient::from_env_or_dotenv(&workspace_root).expect("OPENCODE_GO_KEY must be set");
         let messages = vec![ProviderMessage::user("Reply with exactly: ok")];

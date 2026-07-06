@@ -90,7 +90,7 @@ fn fresh_app() -> App {
         "test-zen-key",
     )
     .expect("seed test Zen credential");
-    std::mem::forget(dir);
+    let _kept = dir.keep();
     let cli = Cli { cwd, ..Cli::default() };
     let mut app = App::from_cli(&cli);
     app.session_writer = None;

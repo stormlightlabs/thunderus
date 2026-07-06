@@ -307,9 +307,9 @@ mod tests {
     use super::*;
     use crate::cli::commands::config::{ConfigCommand, ConfigShowCommand};
     use std::io::Cursor;
-    fn run_config_output(cli: &Cli, command: ConfigCommand) -> io::Result<String> {
+    fn run_config_output(cli: &Cli, command: &ConfigCommand) -> io::Result<String> {
         let mut output = Cursor::new(Vec::new());
-        run_with_writer(cli, &command, &mut output)?;
+        run_with_writer(cli, command, &mut output)?;
         String::from_utf8(output.into_inner())
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "output is not valid UTF-8"))
     }
@@ -328,7 +328,7 @@ mod tests {
             "path",
         ])
         .expect("parse config path");
-        let output = run_config_output(&cli, ConfigCommand::Path).expect("run path");
+        let output = run_config_output(&cli, &ConfigCommand::Path).expect("run path");
 
         assert!(output.contains("global: "));
         assert!(output.contains("project: .thndrs/config.toml"));
@@ -372,7 +372,7 @@ mod tests {
         ])
         .expect("parse show");
         let output =
-            run_config_output(&cli, ConfigCommand::Show(ConfigShowCommand { redacted: true })).expect("run show");
+            run_config_output(&cli, &ConfigCommand::Show(ConfigShowCommand { redacted: true })).expect("run show");
 
         assert!(output.contains("effective_config:"));
         assert!(output.contains("[redacted]"));
