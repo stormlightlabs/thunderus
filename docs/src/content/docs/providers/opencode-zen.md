@@ -53,9 +53,3 @@ provider behavior is acceptable for your use case.
 maps discovered ids back into `opencode/<model-id>` picker entries. Discovery is
 not treated as pricing metadata; pricing and privacy caveats come from OpenCode
 documentation.
-
-## Smoke Tests
-
-Ignored live tests cover model discovery, text streaming, and tool-call
-round-trips. They require network access and a real `OPENCODE_ZEN_KEY`, and they
-stay skipped by default.

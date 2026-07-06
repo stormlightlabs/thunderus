@@ -60,11 +60,4 @@ Known model picker entries include:
 - `chatgpt-codex/gpt-5.3-codex-spark`
 
 The provider labels these entries as ChatGPT-backed and experimental in status
-copy so users can distinguish them from OpenAI Platform API-key routes.
-
-## Smoke Tests
-
-Ignored live tests cover device-code login, browser fallback login, text
-streaming, tool-call round trips, and expired-token refresh. They require
-network access plus real ChatGPT Codex subscription credentials, and they stay
-skipped by default.
+copy to help distinguish them from OpenAI Platform API-key (coming soon) routes.
