@@ -889,15 +889,15 @@ pub fn command_suggestions_for_app(app: &App) -> Vec<(&'static str, &'static str
         ("exit", "exit app"),
         ("help", "show help"),
         ("bg", "list background processes"),
-        ("model", "switch Umans model"),
+        ("model", "switch model"),
         ("skills", "browse loaded skills"),
         ("doctor", "show redacted diagnostics"),
         ("auth status", "show credential sources"),
         ("config path", "show config paths"),
         ("config show", "show redacted config"),
         ("setup", "open setup"),
-        ("login", "enter provider key"),
-        ("logout", "remove provider key"),
+        ("login", "provider login"),
+        ("logout", "remove provider credential"),
     ];
     commands
         .into_iter()
@@ -1729,7 +1729,7 @@ fn accept_recovery_action(app: &mut App) -> Option<Msg> {
                     if recovery.pending_provider_prompt {
                         app.transcript.push(Entry::Status {
                             text: String::from(
-                                "setup required before submitting this ChatGPT Codex prompt; run `thndrs login chatgpt-codex` or switch model",
+                                "setup required before submitting this ChatGPT Codex prompt; start ChatGPT OAuth login or switch model",
                             ),
                         });
                     } else {
@@ -2547,6 +2547,9 @@ fn is_api_key_like(value: &str) -> bool {
         || lower.contains("opencode_go_key=")
         || lower.contains("opencode_zen_key=")
         || lower.contains("umans_api_key=")
+        || lower.contains("access_token=")
+        || lower.contains("refresh_token=")
+        || lower.contains("device_code=")
         || (value.len() >= 32
             && value.chars().any(|ch| ch.is_ascii_digit())
             && value.chars().any(|ch| ch.is_ascii_alphabetic()))

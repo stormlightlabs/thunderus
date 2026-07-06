@@ -544,6 +544,7 @@ mod tests {
 
     #[test]
     fn from_env_or_dotenv_missing_key_returns_error() {
+        let _guard = crate::test_env::lock();
         unsafe {
             env::remove_var(API_KEY_ENV);
         }
@@ -554,6 +555,7 @@ mod tests {
 
     #[test]
     fn from_env_or_dotenv_reads_workspace_env_file() {
+        let _guard = crate::test_env::lock();
         unsafe {
             env::remove_var(API_KEY_ENV);
         }
@@ -568,6 +570,7 @@ mod tests {
 
     #[test]
     fn from_env_or_dotenv_reads_exported_quoted_env_file_value() {
+        let _guard = crate::test_env::lock();
         unsafe {
             env::remove_var(API_KEY_ENV);
         }
@@ -586,6 +589,7 @@ mod tests {
 
     #[test]
     fn from_env_or_dotenv_reads_global_credential_store() {
+        let _guard = crate::test_env::lock();
         unsafe {
             env::remove_var(API_KEY_ENV);
         }
@@ -617,6 +621,7 @@ mod tests {
 
     #[test]
     fn from_env_or_dotenv_reads_project_credential_store() {
+        let _guard = crate::test_env::lock();
         unsafe {
             env::remove_var(API_KEY_ENV);
         }
@@ -648,6 +653,7 @@ mod tests {
 
     #[test]
     fn missing_key_error_includes_setup_hint() {
+        let _guard = crate::test_env::lock();
         unsafe {
             env::remove_var(API_KEY_ENV);
         }
@@ -664,6 +670,7 @@ mod tests {
 
     #[test]
     fn validation_does_not_persist_provider_payloads() {
+        let _guard = crate::test_env::lock();
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().join("home");
         let workspace = dir.path().join("workspace");

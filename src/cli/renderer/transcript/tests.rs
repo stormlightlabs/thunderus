@@ -344,18 +344,21 @@ fn snapshot_error_message_narrow() {
 
 #[test]
 fn snapshot_startup_banner_normal() {
+    let _guard = crate::test_env::lock();
     let app = test_app();
     assert_snapshot("transcript_startup_banner_normal", &render_banner_styled(&app, 80));
 }
 
 #[test]
 fn snapshot_startup_banner_narrow() {
+    let _guard = crate::test_env::lock();
     let app = test_app();
     assert_snapshot("transcript_startup_banner_narrow", &render_banner_styled(&app, 40));
 }
 
 #[test]
 fn snapshot_startup_banner_with_context_and_diagnostics() {
+    let _guard = crate::test_env::lock();
     let mut app = test_app();
     app.context_sources = vec![ContextSource {
         path: app.cwd.join("AGENTS.md"),
@@ -377,6 +380,7 @@ fn snapshot_startup_banner_with_context_and_diagnostics() {
 
 #[test]
 fn banner_context_section_shows_agents_md_not_full_path() {
+    let _guard = crate::test_env::lock();
     let mut app = test_app();
     app.context_sources = vec![ContextSource {
         path: app.cwd.join("AGENTS.md"),
@@ -397,6 +401,7 @@ fn banner_context_section_shows_agents_md_not_full_path() {
 
 #[test]
 fn banner_context_section_shows_truncation() {
+    let _guard = crate::test_env::lock();
     let mut app = test_app();
     app.context_sources = vec![ContextSource {
         path: app.cwd.join("AGENTS.md"),
@@ -417,6 +422,7 @@ fn banner_context_section_shows_truncation() {
 
 #[test]
 fn banner_cwd_uses_statusline_truncation_without_wrapping() {
+    let _guard = crate::test_env::lock();
     let app = test_app();
     let rendered = render_banner_styled(&app, 40);
 
@@ -432,6 +438,7 @@ fn banner_cwd_uses_statusline_truncation_without_wrapping() {
 
 #[test]
 fn banner_diagnostics_section_shortens_home_paths() {
+    let _guard = crate::test_env::lock();
     let mut app = test_app();
     let home = std::env::var_os("HOME")
         .map(std::path::PathBuf::from)

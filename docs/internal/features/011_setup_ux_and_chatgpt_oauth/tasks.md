@@ -71,7 +71,7 @@ Captured: 2026-07-06
 - [x] Preserve existing refresh-token storage format.
 - [x] Add test seams for OAuth request/poll/write behavior without requiring
       real network access.
-- [ ] Add tests proving OAuth output does not print access tokens or refresh
+- [x] Add tests proving OAuth output does not print access tokens or refresh
       tokens.
 - [x] Add tests proving existing unrelated `~/.thndrs/auth.json` entries are
       preserved.
@@ -113,15 +113,15 @@ Captured: 2026-07-06
 
 ## P6: Slash Commands
 
-- [ ] Keep `/setup` opening provider-aware setup recovery.
-- [ ] Keep `/login chatgpt-codex` OAuth-oriented, not API-key-oriented.
-- [ ] Decide whether `/login chatgpt-codex` starts TUI OAuth directly or shows
+- [x] Keep `/setup` opening provider-aware setup recovery.
+- [x] Keep `/login chatgpt-codex` OAuth-oriented, not API-key-oriented.
+- [x] Decide whether `/login chatgpt-codex` starts TUI OAuth directly or shows
       the same ChatGPT OAuth recovery surface.
-- [ ] Keep `/logout chatgpt-codex` CLI-only unless auth-json mutation from the
+- [x] Keep `/logout chatgpt-codex` CLI-only unless auth-json mutation from the
       TUI gets a separate confirmation design.
-- [ ] Reject slash-command arguments that look like secrets.
-- [ ] Update command suggestions if labels change.
-- [ ] Add slash-command tests for ChatGPT setup/login behavior.
+- [x] Reject slash-command arguments that look like secrets.
+- [x] Update command suggestions if labels change.
+- [x] Add slash-command tests for ChatGPT setup/login behavior.
 
 ## P7: Docs And Internal QA
 
@@ -141,15 +141,15 @@ Captured: 2026-07-06
 
 ## P8: Verification
 
-- [ ] `cargo fmt`
-- [ ] `cargo clippy --fix --all-targets --allow-dirty`
-- [ ] `cargo clippy --all-targets`
-- [ ] `cargo test auth`
-- [ ] `cargo test cli`
-- [ ] `cargo test app`
-- [ ] `cargo test renderer`
-- [ ] `cargo test providers`
-- [ ] `cargo test`
+- [x] `cargo fmt`
+- [x] `cargo clippy --fix --all-targets --allow-dirty`
+- [x] `cargo clippy --all-targets`
+- [x] `cargo test auth`
+- [x] `cargo test cli`
+- [x] `cargo test app`
+- [x] `cargo test renderer`
+- [x] `cargo test providers`
+- [x] `cargo test`
 
 ## Manual Smoke
 

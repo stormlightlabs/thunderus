@@ -823,14 +823,12 @@ fn set_unix_permissions(_path: &Path) {}
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Mutex, MutexGuard};
+    use std::sync::MutexGuard;
 
     use super::*;
 
-    static ENV_TEST_LOCK: Mutex<()> = Mutex::new(());
-
     fn env_test_lock() -> MutexGuard<'static, ()> {
-        ENV_TEST_LOCK.lock().expect("env test lock")
+        crate::test_env::lock()
     }
 
     fn temp_cred_path() -> (tempfile::TempDir, PathBuf) {
@@ -1593,6 +1591,7 @@ mod tests {
 
     #[test]
     fn credential_source_returns_label_without_value() {
+        let _guard = env_test_lock();
         let key = "RESOLVE_SRC_LABEL";
         unsafe { std::env::set_var(key, "some-value") };
         let dir = tempfile::tempdir().unwrap();

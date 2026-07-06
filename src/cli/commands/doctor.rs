@@ -352,12 +352,9 @@ mod tests {
     use crate::config;
     use std::ffi::OsString;
     use std::io::Cursor;
-    use std::sync::Mutex;
-
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn with_env_vars<R>(vars: &[(&str, Option<&str>)], action: impl FnOnce() -> R) -> R {
-        let _guard = ENV_LOCK.lock().expect("env lock");
+        let _guard = crate::test_env::lock();
 
         let previous: Vec<(String, Option<OsString>)> = vars
             .iter()

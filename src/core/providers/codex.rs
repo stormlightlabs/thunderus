@@ -526,6 +526,7 @@ mod tests {
 
     #[test]
     fn missing_credentials_fail_before_network_access() {
+        let _guard = crate::test_env::lock();
         unsafe {
             env::remove_var(auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV);
         }

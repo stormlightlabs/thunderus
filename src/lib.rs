@@ -17,6 +17,17 @@ pub use thndrs_core::{
     skills, tools, utils,
 };
 
+#[cfg(test)]
+pub(crate) mod test_env {
+    use std::sync::{Mutex, MutexGuard};
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    pub(crate) fn lock() -> MutexGuard<'static, ()> {
+        ENV_LOCK.lock().expect("test environment lock")
+    }
+}
+
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

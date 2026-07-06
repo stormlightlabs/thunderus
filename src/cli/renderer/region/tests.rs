@@ -96,6 +96,7 @@ fn build_frame_contains_live_prompt_and_status() {
 
 #[test]
 fn build_frame_short_startup_prioritizes_identity_context_and_help() {
+    let _guard = crate::test_env::lock();
     let mut app = test_app();
     app.context_sources = vec![context::ContextSource {
         path: app.cwd.join("AGENTS.md"),
@@ -773,6 +774,7 @@ fn resize_reflows_viewport() {
 
 #[test]
 fn snapshot_empty_live_frame() {
+    let _guard = crate::test_env::lock();
     let app = test_app();
     let lr = LiveRegion::new();
     let frame = lr.build_frame(&app, 80, 24);
@@ -792,6 +794,7 @@ fn snapshot_streaming_live_frame() {
 
 #[test]
 fn snapshot_narrow_live_frame() {
+    let _guard = crate::test_env::lock();
     let mut app = test_app();
     app.input.set_text("a longer prompt that should wrap at narrow width");
     let lr = LiveRegion::new();
@@ -812,6 +815,7 @@ fn snapshot_short_error_prompt_spacing() {
 
 #[test]
 fn snapshot_short_startup_diagnostics_prompt_spacing() {
+    let _guard = crate::test_env::lock();
     let mut app = test_app();
     app.context_sources = vec![context::ContextSource {
         path: app.cwd.join("AGENTS.md"),
@@ -832,6 +836,7 @@ fn snapshot_short_startup_diagnostics_prompt_spacing() {
 
 #[test]
 fn snapshot_short_startup_prompt_spacing() {
+    let _guard = crate::test_env::lock();
     let app = test_app();
     let lr = LiveRegion::new();
     let frame = lr.build_frame(&app, 80, 8);
@@ -840,6 +845,7 @@ fn snapshot_short_startup_prompt_spacing() {
 
 #[test]
 fn snapshot_startup_banner() {
+    let _guard = crate::test_env::lock();
     let app = test_app();
     let rows = transcript::banner_rows(&app, 80);
     let frame = row::Frame { rows, width: 80, cursor: None, cursor_visible: true };
@@ -848,6 +854,7 @@ fn snapshot_startup_banner() {
 
 #[test]
 fn snapshot_narrow_startup_banner() {
+    let _guard = crate::test_env::lock();
     let app = test_app();
     let rows = transcript::banner_rows(&app, 40);
     let frame = row::Frame { rows, width: 40, cursor: None, cursor_visible: true };

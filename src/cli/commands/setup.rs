@@ -402,12 +402,9 @@ fn maybe_write_model_config<W: Write>(
 mod tests {
     use super::*;
     use std::path::Path;
-    use std::sync::Mutex;
-
-    static HOME_ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn with_home<T>(home: &Path, f: impl FnOnce() -> T) -> T {
-        let _guard = HOME_ENV_LOCK.lock().expect("home env lock");
+        let _guard = crate::test_env::lock();
         let old_home = std::env::var_os("HOME");
         unsafe {
             std::env::set_var("HOME", home);

@@ -15,14 +15,14 @@ use crate::thndrs_core::auth;
 /// Store one provider credential.
 #[derive(Clone, Debug, Eq, PartialEq, Args)]
 pub struct LoginCommand {
-    /// Provider whose API key should be stored.
+    /// Provider whose credential should be stored.
     pub provider: SetupProviderArg,
 }
 
 /// Remove one stored provider credential.
 #[derive(Clone, Debug, Eq, PartialEq, Args)]
 pub struct LogoutCommand {
-    /// Provider whose stored API key should be removed.
+    /// Provider whose stored credential should be removed.
     pub provider: SetupProviderArg,
 }
 
@@ -300,11 +300,31 @@ fn read_hidden_line() -> io::Result<String> {
 
 /// Run the shared ChatGPT Codex OAuth login flow.
 pub fn run_chatgpt_codex_login<W: Write>(writer: &mut W) -> io::Result<()> {
+    run_chatgpt_codex_login_with(
+        writer,
+        auth::request_chatgpt_codex_device_code,
+        auth::poll_chatgpt_codex_device_code,
+        auth::login_chatgpt_codex_with_browser_pkce,
+        auth::write_chatgpt_codex_credentials,
+    )
+}
+
+fn run_chatgpt_codex_login_with<W, Request, Poll, Browser, Store>(
+    writer: &mut W, request_device_code: Request, poll_device_code: Poll, browser_pkce: Browser,
+    store_credentials: Store,
+) -> io::Result<()>
+where
+    W: Write,
+    Request: FnOnce() -> Result<auth::ChatGptCodexDeviceCode, auth::AuthError>,
+    Poll: FnOnce(&auth::ChatGptCodexDeviceCode) -> Result<auth::ChatGptCodexCredentials, auth::AuthError>,
+    Browser: FnOnce() -> Result<auth::ChatGptCodexCredentials, auth::AuthError>,
+    Store: FnOnce(&auth::ChatGptCodexCredentials) -> Result<(), auth::AuthError>,
+{
     writeln!(
         writer,
         "ChatGPT Codex login uses ChatGPT OAuth and stores credentials in ~/.thndrs/auth.json"
     )?;
-    let credentials = match auth::request_chatgpt_codex_device_code() {
+    let credentials = match request_device_code() {
         Ok(code) => {
             writeln!(
                 writer,
@@ -315,17 +335,17 @@ pub fn run_chatgpt_codex_login<W: Write>(writer: &mut W) -> io::Result<()> {
                 code.user_code
             )?;
             writer.flush()?;
-            auth::poll_chatgpt_codex_device_code(&code).map_err(io::Error::other)?
+            poll_device_code(&code).map_err(io::Error::other)?
         }
         Err(err) => {
             writeln!(
                 writer,
                 "device-code login unavailable ({err}); falling back to browser PKCE"
             )?;
-            auth::login_chatgpt_codex_with_browser_pkce().map_err(io::Error::other)?
+            browser_pkce().map_err(io::Error::other)?
         }
     };
-    auth::write_chatgpt_codex_credentials(&credentials).map_err(io::Error::other)?;
+    store_credentials(&credentials).map_err(io::Error::other)?;
     writeln!(writer, "chatgpt-codex credential stored in global auth store")?;
     Ok(())
 }
@@ -370,5 +390,39 @@ mod tests {
     fn credential_scope_labels_are_stable() {
         assert_eq!(CredentialScope::Global.label(), "global");
         assert_eq!(CredentialScope::Project.label(), "project");
+    }
+
+    #[test]
+    fn chatgpt_oauth_login_output_does_not_print_tokens() {
+        let code = auth::ChatGptCodexDeviceCode {
+            device_code: "device-token-secret-from-test".to_string(),
+            user_code: "USER-CODE".to_string(),
+            verification_uri: Some("https://auth.example.test/device".to_string()),
+            verification_uri_complete: None,
+            expires_in: Some(900),
+            interval: Some(1),
+        };
+        let credentials = auth::ChatGptCodexCredentials {
+            access_token: "access-token-secret-from-test".to_string(),
+            refresh_token: "refresh-token-secret-from-test".to_string(),
+            expires_at_ms: 123,
+            account_id: "acct_test".to_string(),
+        };
+        let mut output = Vec::new();
+
+        run_chatgpt_codex_login_with(
+            &mut output,
+            || Ok(code),
+            |_| Ok(credentials),
+            || panic!("device code should be used first"),
+            |_| Ok(()),
+        )
+        .expect("login");
+
+        let output = String::from_utf8(output).expect("utf8");
+        assert!(output.contains("USER-CODE"));
+        assert!(!output.contains("device-token-secret-from-test"));
+        assert!(!output.contains("access-token-secret-from-test"));
+        assert!(!output.contains("refresh-token-secret-from-test"));
     }
 }

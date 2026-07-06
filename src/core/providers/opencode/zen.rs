@@ -369,6 +369,7 @@ mod tests {
 
     #[test]
     fn from_env_or_dotenv_missing_key_returns_error() {
+        let _guard = crate::test_env::lock();
         unsafe {
             env::remove_var(API_KEY_ENV);
         }
@@ -379,6 +380,7 @@ mod tests {
 
     #[test]
     fn missing_credentials_fail_before_network_access() {
+        let _guard = crate::test_env::lock();
         unsafe {
             env::remove_var(API_KEY_ENV);
         }
@@ -390,6 +392,7 @@ mod tests {
 
     #[test]
     fn from_env_or_dotenv_reads_workspace_env_file_separately_from_go_key() {
+        let _guard = crate::test_env::lock();
         unsafe {
             env::remove_var(API_KEY_ENV);
             env::remove_var(auth::OPENCODE_GO_KEY_ENV);
@@ -409,6 +412,7 @@ mod tests {
 
     #[test]
     fn validation_does_not_persist_provider_payloads() {
+        let _guard = crate::test_env::lock();
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().join("home");
         let workspace = dir.path().join("workspace");
