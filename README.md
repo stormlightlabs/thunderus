@@ -40,11 +40,23 @@ A minimal AI pair programmer.
 
 ## Quickstart
 
-**todo**
+```sh
+cargo install --locked thndrs
+thndrs setup
+thndrs
+```
 
 ## Installation
 
-**todo**
+Install from crates.io:
+
+```sh
+cargo install --locked thndrs
+```
+
+Then run `thndrs setup` from the repository you want to work in. Setup checks
+local config, stores provider credentials outside TOML, and prints the next
+command to run.
 
 ## Configuration
 

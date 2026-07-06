@@ -50,8 +50,20 @@ On Windows, path lists use `;`.
 ## Provider Secrets
 
 Provider secrets are not ordinary config keys. They may be read from the process
-environment or from a workspace `.env` file, but they are not serialized into
-effective config, prompt inspection, sessions, snapshots, or export metadata.
+environment, managed credential stores, or a workspace `.env` file, but they are
+not serialized into effective config, prompt inspection, sessions, snapshots, or
+export metadata.
+
+Credential lookup precedence is:
+
+1. Process environment.
+2. Global credential store: `~/.thndrs/credentials.env`.
+3. Project credential store: `.thndrs/credentials.env`.
+4. Workspace `.env` file for compatibility.
+
+Use `thndrs login <provider>`, `thndrs logout <provider>`, and
+`thndrs auth status` to manage stored provider credentials. Project credential
+stores are added to `.git/info/exclude` when possible.
 
 ### `UMANS_API_KEY`
 

@@ -13,8 +13,8 @@ Precedence, from highest to lowest:
 4. Global config.
 5. Built-in defaults.
 
-Secrets are provider- or agent-owned environment variables. Do not put API
-keys, tokens, passwords, or secret values in TOML config.
+Secrets are provider- or agent-owned values. Do not put API keys, tokens,
+passwords, or secret values in TOML config.
 
 ## Config Files
 
@@ -30,6 +30,23 @@ No alternate spellings are supported. Files such as `.thndrs.toml`,
 
 Project config overrides global config. Unknown keys and malformed TOML are
 errors.
+
+## Provider Credentials
+
+TOML config is for ordinary runtime settings. Provider credentials live in the
+process environment, managed credential stores, provider-owned auth files, or an
+agent's own auth flow.
+
+API-key providers can use:
+
+- Global credential store: `~/.thndrs/credentials.env`
+- Project credential store: `.thndrs/credentials.env`
+- Process environment variables such as `OPENCODE_ZEN_KEY`
+
+Use `thndrs setup`, `thndrs login <provider>`, `thndrs logout <provider>`, and
+`thndrs auth status` for local credential management. See
+[Environment Variables](/reference/environment-variables/) for precedence and
+provider-specific names.
 
 ## Keys
 

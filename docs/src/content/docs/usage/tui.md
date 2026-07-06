@@ -49,6 +49,22 @@ Slash-command suggestions, help, and file/model/skill pickers render as rows in
 the live shell instead of floating over the transcript. `Esc` closes the active
 accessory first.
 
+## Setup Slash Commands
+
+The CLI commands are canonical, but the TUI exposes safe setup shortcuts:
+
+- `/doctor`: show redacted setup diagnostics.
+- `/auth status`: show provider credential source/status without values.
+- `/config path`: show global and project config paths.
+- `/config show`: show redacted effective config and diagnostics.
+- `/setup`: open the focused setup surface.
+- `/login <provider>`: open hidden credential entry for that provider.
+- `/logout <provider>`: open a confirmation surface before removing a stored
+  credential.
+
+Slash commands never accept API keys as arguments. `/config edit` is CLI-only;
+from inside the TUI it prints the command to run outside the app.
+
 ## Status Line
 
 The footer shows static model, search mode, token counts, TTFT when available,

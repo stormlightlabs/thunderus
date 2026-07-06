@@ -171,16 +171,16 @@ Captured: 2026-07-05
 
 ## P7: Docs And README
 
-- [ ] Update README quickstart with `cargo install --locked thndrs`,
+- [x] Update README quickstart with `cargo install --locked thndrs`,
       `thndrs setup`, and `thndrs`.
-- [ ] Replace README setup/installation/usage TODOs relevant to this feature.
-- [ ] Update installation docs with setup-first flow.
-- [ ] Update CLI reference with setup/login/logout/auth/doctor/config commands.
-- [ ] Update TUI usage docs with safe setup/auth/doctor/config slash commands.
-- [ ] Update environment-variable docs with credential store precedence.
-- [ ] Update configuration docs to explain why secrets stay out of TOML.
-- [ ] Add troubleshooting section for missing API keys and invalid credentials.
-- [ ] Mention `thndrs doctor --json` for bug reports.
+- [x] Replace README setup/installation/usage TODOs relevant to this feature.
+- [x] Update installation docs with setup-first flow.
+- [x] Update CLI reference with setup/login/logout/auth/doctor/config commands.
+- [x] Update TUI usage docs with safe setup/auth/doctor/config slash commands.
+- [x] Update environment-variable docs with credential store precedence.
+- [x] Update configuration docs to explain why secrets stay out of TOML.
+- [x] Add troubleshooting section for missing API keys and invalid credentials.
+- [x] Mention `thndrs doctor --json` for bug reports.
 
 ## P8: Release Gate Review
 
