@@ -39,6 +39,7 @@ pub const VISIBLE_ROWS: usize = 8;
 /// stays responsive while still surfacing enough nearby files or skills.
 const LARGE_PICKER_LIMIT: usize = 200;
 const MODEL_PICKER_LIMIT: usize = 50;
+const PROJECT_INPUT_HISTORY_LIMIT: usize = 200;
 
 /// Top-level interaction mode.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
@@ -644,6 +645,7 @@ impl From<&Cli> for App {
             .session_dir
             .clone()
             .unwrap_or_else(|| session::sessions_dir(&workspace_root));
+        let input_history = load_project_input_history(&sessions_dir);
         let session_id = session::generate_session_id();
         let (mcp_config_files, mcp_config_diagnostics) = load_mcp_config_audit(&workspace_root);
 
@@ -702,7 +704,7 @@ impl From<&Cli> for App {
             mode: Mode::default(),
             run_state: RunState::default(),
             input: PromptInput::new(),
-            input_history: Vec::new(),
+            input_history,
             history_cursor: None,
             history_draft: String::new(),
             transcript,
@@ -1547,6 +1549,30 @@ fn offline_model_picker_items() -> Vec<PickerItem> {
                 .map(|model| PickerItem::new(model.id, model.description)),
         )
         .collect()
+}
+
+fn load_project_input_history(sessions_dir: &Path) -> Vec<String> {
+    let mut newest_first = Vec::new();
+
+    for path in session::list_session_files(sessions_dir) {
+        for record in session::SessionReader::read_records(&path).into_iter().rev() {
+            let session::SessionRecord::User { text, .. } = record else {
+                continue;
+            };
+            let text = text.trim();
+            if text.is_empty() || newest_first.last().is_some_and(|last| last == text) {
+                continue;
+            }
+            newest_first.push(text.to_string());
+            if newest_first.len() >= PROJECT_INPUT_HISTORY_LIMIT {
+                newest_first.reverse();
+                return newest_first;
+            }
+        }
+    }
+
+    newest_first.reverse();
+    newest_first
 }
 
 fn close_prompt_accessory(app: &mut App) {

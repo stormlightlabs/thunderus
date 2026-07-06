@@ -179,7 +179,7 @@ impl StreamingProvider for ChatGptCodexClient {
     fn metadata_status(&self, model: &str, _metadata: &Self::Metadata) -> Option<String> {
         raw_model_id(model)
             .ok()
-            .map(|raw| format!("model: chatgpt-codex/{raw}  ChatGPT-backed experimental Codex"))
+            .map(|raw| format!("model: chatgpt-codex/{raw}  ChatGPT/Codex"))
     }
 
     fn token_budget(&self, _model: &str, _metadata: Option<&Self::Metadata>) -> u32 {
@@ -444,11 +444,10 @@ fn responses_items_for_message(message: &ProviderMessage) -> Vec<serde_json::Val
             .iter()
             .filter_map(|block| match block {
                 ProviderContentBlock::Text { text } => Some(serde_json::json!({"role": message.role, "content": text})),
-                ProviderContentBlock::ToolResult { tool_use_id, content, is_error } => Some(serde_json::json!({
+                ProviderContentBlock::ToolResult { tool_use_id, content, .. } => Some(serde_json::json!({
                     "type": "function_call_output",
                     "call_id": tool_use_id,
                     "output": content,
-                    "is_error": is_error.unwrap_or(false),
                 })),
                 ProviderContentBlock::ToolUse { id, name, input } => Some(serde_json::json!({
                     "type": "function_call",
@@ -641,7 +640,7 @@ mod tests {
         assert_eq!(body["input"][1]["type"], "function_call_output");
         assert_eq!(body["input"][1]["call_id"], "call_1");
         assert_eq!(body["input"][1]["output"], "Cargo.toml");
-        assert_eq!(body["input"][1]["is_error"], false);
+        assert!(body["input"][1].get("is_error").is_none());
     }
 
     #[test]

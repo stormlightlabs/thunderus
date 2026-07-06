@@ -54,6 +54,41 @@ fn from_cli_starts_with_fresh_transcript_not_latest_session() {
 }
 
 #[test]
+fn from_cli_seeds_up_arrow_history_from_project_sessions() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let sessions_dir = session::sessions_dir(dir.path());
+    let mut writer = session::SessionWriter::create(
+        &sessions_dir,
+        "session-old",
+        "/repo",
+        "old",
+        "umans",
+        "umans-coder",
+        "none",
+        "0.1.0",
+        None,
+    )
+    .expect("create old session");
+    writer
+        .append_entry(&Entry::User { text: String::from("first project prompt") }, "turn_1")
+        .expect("append first entry");
+    writer
+        .append_entry(&Entry::User { text: String::from("second project prompt") }, "turn_2")
+        .expect("append second entry");
+
+    let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
+    let mut app = App::from_cli(&cli);
+
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)));
+
+    assert_eq!(app.input.as_str(), "second project prompt");
+    assert!(
+        app.transcript.is_empty(),
+        "project history should seed recall without replaying old transcript"
+    );
+}
+
+#[test]
 fn from_cli_writes_effective_config_metadata_to_session_meta() {
     let dir = tempfile::tempdir().expect("create temp dir");
     let session_dir = dir.path().join("custom-sessions");
