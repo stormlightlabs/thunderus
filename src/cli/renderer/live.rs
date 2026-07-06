@@ -1476,7 +1476,7 @@ mod tests {
             secret_input: String::new(),
             chatgpt_oauth: Some(crate::app::ChatGptOAuthRecovery {
                 code: crate::thndrs_core::auth::ChatGptCodexDeviceCode {
-                    device_code: "device-token-secret-from-renderer-test".to_string(),
+                    device_auth_id: "device-auth-secret-from-renderer-test".to_string(),
                     user_code: "ABCD-EFGH".to_string(),
                     verification_uri: Some("https://auth.example.test/device".to_string()),
                     verification_uri_complete: None,

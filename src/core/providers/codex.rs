@@ -765,7 +765,7 @@ mod tests {
     fn live_device_code_login_requires_chatgpt_subscription() {
         let code = auth::request_chatgpt_codex_device_code()
             .expect("real ChatGPT subscription prerequisites and network access are required");
-        assert!(!code.device_code.is_empty());
+        assert!(!code.device_auth_id.is_empty());
         assert!(!code.user_code.is_empty());
     }
 

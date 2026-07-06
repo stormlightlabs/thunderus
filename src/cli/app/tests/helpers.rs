@@ -121,7 +121,7 @@ pub fn test_skill(path: std::path::PathBuf, markdown: &str) -> SkillMetadata {
 
 pub fn test_chatgpt_device_code() -> auth::ChatGptCodexDeviceCode {
     auth::ChatGptCodexDeviceCode {
-        device_code: "device-token-secret-from-test".to_string(),
+        device_auth_id: "device-auth-secret-from-test".to_string(),
         user_code: "USER-CODE".to_string(),
         verification_uri: Some("https://auth.example.test/device".to_string()),
         verification_uri_complete: None,
@@ -145,7 +145,7 @@ pub fn oauth_request_ok() -> Result<auth::ChatGptCodexDeviceCode, auth::AuthErro
 
 pub fn oauth_request_fail() -> Result<auth::ChatGptCodexDeviceCode, auth::AuthError> {
     Err(auth::AuthError::ChatGptCodex(
-        "device_code device-token-secret-from-test unavailable".to_string(),
+        "device_auth_id device-auth-secret-from-test unavailable".to_string(),
     ))
 }
 

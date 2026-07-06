@@ -26,6 +26,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use serde::Deserialize;
 use sha2::Digest;
 
 use crate::utils;
@@ -42,13 +43,21 @@ pub const OPENCODE_ZEN_KEY_ENV: &str = "OPENCODE_ZEN_KEY";
 /// Environment variable name for a process-local ChatGPT Codex access token.
 pub const CHATGPT_CODEX_ACCESS_TOKEN_ENV: &str = "CHATGPT_CODEX_ACCESS_TOKEN";
 
+/// source: codex-rs/login/src/auth/manager.rs
+const CHATGPT_CODEX_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
+
 const CHATGPT_CODEX_AUTH_KEY: &str = "chatgpt_codex";
 const DEVICE_USER_CODE_URL: &str = "https://auth.openai.com/api/accounts/deviceauth/usercode";
 const DEVICE_TOKEN_URL: &str = "https://auth.openai.com/api/accounts/deviceauth/token";
 const DEVICE_VERIFICATION_URL: &str = "https://auth.openai.com/codex/device";
+const DEVICE_REDIRECT_URI: &str = "https://auth.openai.com/deviceauth/callback";
+const DEVICE_CODE_TIMEOUT_SECONDS: u64 = 15 * 60;
 const PKCE_CALLBACK_ADDR: &str = "127.0.0.1:1455";
 const PKCE_CALLBACK_URL: &str = "http://localhost:1455/auth/callback";
 const PKCE_AUTHORIZE_URL: &str = "https://auth.openai.com/oauth/authorize";
+const OAUTH_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
+const OAUTH_SCOPE: &str = "openid profile email offline_access";
+const OAUTH_ORIGINATOR: &str = "thndrs";
 
 /// Known provider API key variable names.
 pub const KNOWN_API_KEY_VARS: &[&str] = &[UMANS_API_KEY_ENV, OPENCODE_GO_KEY_ENV, OPENCODE_ZEN_KEY_ENV];
@@ -140,21 +149,22 @@ pub struct ChatGptCodexAuth {
 /// Response from the ChatGPT Codex device-code user-code endpoint.
 #[derive(Clone, serde::Deserialize, Eq, PartialEq)]
 pub struct ChatGptCodexDeviceCode {
-    /// Secret device code sent only to the OAuth token endpoint.
-    pub device_code: String,
+    /// Opaque device-auth id sent only to the device-auth token endpoint.
+    pub device_auth_id: String,
     /// User-facing short code entered on the verification page.
+    #[serde(alias = "usercode")]
     pub user_code: String,
     /// User-facing verification page.
-    #[serde(default)]
+    #[serde(default = "default_device_verification_url")]
     pub verification_uri: Option<String>,
     /// Optional complete verification link.
     #[serde(default)]
     pub verification_uri_complete: Option<String>,
-    /// Device-code lifetime in seconds.
-    #[serde(default)]
+    /// Device-auth lifetime in seconds.
+    #[serde(default = "default_device_code_expires_in")]
     pub expires_in: Option<u64>,
     /// Recommended polling interval in seconds.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_u64_from_string_or_number")]
     pub interval: Option<u64>,
 }
 
@@ -202,7 +212,7 @@ impl std::fmt::Debug for ChatGptCodexAuth {
 impl std::fmt::Debug for ChatGptCodexDeviceCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ChatGptCodexDeviceCode")
-            .field("device_code", &redact_value(&self.device_code))
+            .field("device_auth_id", &redact_value(&self.device_auth_id))
             .field("user_code", &self.user_code)
             .field("verification_uri", &self.verification_uri)
             .field("verification_uri_complete", &self.verification_uri_complete)
@@ -231,6 +241,12 @@ struct AuthJson {
     chatgpt_codex: Option<ChatGptCodexCredentials>,
     #[serde(flatten)]
     other: BTreeMap<String, serde_json::Value>,
+}
+
+#[derive(serde::Deserialize)]
+struct ChatGptCodexDeviceAuthResponse {
+    authorization_code: String,
+    code_verifier: String,
 }
 
 static CHATGPT_CODEX_REFRESH_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -321,48 +337,78 @@ pub fn request_chatgpt_codex_device_code() -> Result<ChatGptCodexDeviceCode, Aut
     let mut response = ureq::Agent::new_with_defaults()
         .post(DEVICE_USER_CODE_URL)
         .header("content-type", "application/json")
-        .send_json(serde_json::json!({ "verification_url": DEVICE_VERIFICATION_URL }))
+        .config()
+        .http_status_as_error(false)
+        .build()
+        .send_json(serde_json::json!({ "client_id": CHATGPT_CODEX_CLIENT_ID }))
         .map_err(|e| AuthError::ChatGptCodex(format!("device-code request failed: {e}")))?;
     read_json_response(&mut response, "device-code request")
 }
 
 /// Poll the device-code token endpoint until authorization succeeds.
 pub fn poll_chatgpt_codex_device_code(code: &ChatGptCodexDeviceCode) -> Result<ChatGptCodexCredentials, AuthError> {
-    let interval = Duration::from_secs(code.interval.unwrap_or(5).max(1));
-    let deadline = SystemTime::now() + Duration::from_secs(code.expires_in.unwrap_or(900));
+    let mut interval_seconds = code.interval.unwrap_or(5).max(1);
+    let deadline = SystemTime::now() + Duration::from_secs(code.expires_in.unwrap_or(DEVICE_CODE_TIMEOUT_SECONDS));
     loop {
-        let body = serde_json::json!({
-            "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
-            "device_code": code.device_code,
-        });
-        match exchange_chatgpt_codex_token(body) {
-            Ok(token) => return credentials_from_token_response(token, None),
-            Err(AuthError::ChatGptCodex(message))
-                if message.contains("authorization_pending") || message.contains("slow_down") =>
-            {
+        match poll_chatgpt_codex_device_code_once(code)? {
+            ChatGptCodexDevicePoll::Authorized(credentials) => return Ok(credentials),
+            ChatGptCodexDevicePoll::Pending => {
                 if SystemTime::now() >= deadline {
                     return Err(AuthError::ChatGptCodex("device-code login expired".to_string()));
                 }
-                std::thread::sleep(interval);
+                std::thread::sleep(Duration::from_secs(interval_seconds));
             }
-            Err(err) => return Err(err),
+            ChatGptCodexDevicePoll::SlowDown => {
+                interval_seconds = interval_seconds.saturating_add(5);
+                if SystemTime::now() >= deadline {
+                    return Err(AuthError::ChatGptCodex("device-code login expired".to_string()));
+                }
+                std::thread::sleep(Duration::from_secs(interval_seconds));
+            }
         }
     }
 }
 
 /// Poll the device-code token endpoint once without sleeping.
 pub fn poll_chatgpt_codex_device_code_once(code: &ChatGptCodexDeviceCode) -> Result<ChatGptCodexDevicePoll, AuthError> {
-    let body = serde_json::json!({
-        "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
-        "device_code": code.device_code,
-    });
-    match exchange_chatgpt_codex_token(body) {
-        Ok(token) => credentials_from_token_response(token, None).map(ChatGptCodexDevicePoll::Authorized),
-        Err(AuthError::ChatGptCodex(message)) if message.contains("authorization_pending") => {
-            Ok(ChatGptCodexDevicePoll::Pending)
+    let mut response = ureq::Agent::new_with_defaults()
+        .post(DEVICE_TOKEN_URL)
+        .header("content-type", "application/json")
+        .config()
+        .http_status_as_error(false)
+        .build()
+        .send_json(serde_json::json!({
+            "device_auth_id": code.device_auth_id,
+            "user_code": code.user_code,
+        }))
+        .map_err(|e| AuthError::ChatGptCodex(format!("device-code poll failed: {e}")))?;
+    let status = response.status().as_u16();
+    let body = response
+        .body_mut()
+        .read_to_string()
+        .map_err(|e| AuthError::ChatGptCodex(format!("device-code poll body read failed: {e}")))?;
+
+    if (200..=299).contains(&status) {
+        let auth_response: ChatGptCodexDeviceAuthResponse = serde_json::from_str(&body)
+            .map_err(|e| AuthError::ChatGptCodex(format!("device-code poll JSON parse failed: {e}")))?;
+        let token = exchange_chatgpt_codex_authorization_code(
+            &auth_response.authorization_code,
+            &auth_response.code_verifier,
+            DEVICE_REDIRECT_URI,
+        )?;
+        return credentials_from_token_response(token, None).map(ChatGptCodexDevicePoll::Authorized);
+    }
+
+    match chatgpt_codex_error_code(&body).as_deref() {
+        Some("deviceauth_authorization_pending" | "authorization_pending") => Ok(ChatGptCodexDevicePoll::Pending),
+        Some("slow_down") => Ok(ChatGptCodexDevicePoll::SlowDown),
+        _ if status == 403 || status == 404 => Ok(ChatGptCodexDevicePoll::Pending),
+        _ => {
+            let message = chatgpt_codex_error_message(&body).unwrap_or_else(|| body.chars().take(240).collect());
+            Err(AuthError::ChatGptCodex(format!(
+                "device-code poll failed with status {status}: {message}"
+            )))
         }
-        Err(AuthError::ChatGptCodex(message)) if message.contains("slow_down") => Ok(ChatGptCodexDevicePoll::SlowDown),
-        Err(err) => Err(err),
     }
 }
 
@@ -370,18 +416,11 @@ pub fn poll_chatgpt_codex_device_code_once(code: &ChatGptCodexDeviceCode) -> Res
 pub fn login_chatgpt_codex_with_browser_pkce() -> Result<ChatGptCodexCredentials, AuthError> {
     let verifier = random_pkce_verifier()?;
     let challenge = base64_url_encode(&sha2::Sha256::digest(verifier.as_bytes()));
-    let auth_url = format!(
-        "{PKCE_AUTHORIZE_URL}?response_type=code&client_id=codex-cli&redirect_uri={}&scope=openid%20profile%20email%20offline_access&code_challenge={challenge}&code_challenge_method=S256",
-        url::form_urlencoded::byte_serialize(PKCE_CALLBACK_URL.as_bytes()).collect::<String>()
-    );
+    let state = random_pkce_verifier()?;
+    let auth_url = chatgpt_codex_pkce_authorize_url(&challenge, &state);
     eprintln!("Open this URL to continue ChatGPT Codex login:\n{auth_url}");
-    let code = wait_for_pkce_callback_code()?;
-    let token = exchange_chatgpt_codex_token(serde_json::json!({
-        "grant_type": "authorization_code",
-        "code": code,
-        "redirect_uri": PKCE_CALLBACK_URL,
-        "code_verifier": verifier,
-    }))?;
+    let code = wait_for_pkce_callback_code(&state)?;
+    let token = exchange_chatgpt_codex_authorization_code(&code, &verifier, PKCE_CALLBACK_URL)?;
     credentials_from_token_response(token, None)
 }
 
@@ -591,20 +630,45 @@ fn write_auth_json_atomic(path: &Path, store: &AuthJson) -> Result<(), AuthError
 }
 
 fn refresh_chatgpt_codex_credentials(current: ChatGptCodexCredentials) -> Result<ChatGptCodexCredentials, AuthError> {
-    let token = exchange_chatgpt_codex_token(serde_json::json!({
-        "grant_type": "refresh_token",
-        "refresh_token": current.refresh_token,
-    }))?;
+    let token = exchange_chatgpt_codex_token_form(&[
+        ("grant_type", "refresh_token"),
+        ("refresh_token", &current.refresh_token),
+        ("client_id", CHATGPT_CODEX_CLIENT_ID),
+    ])?;
     credentials_from_token_response(token, Some(current.refresh_token))
 }
 
-fn exchange_chatgpt_codex_token(body: serde_json::Value) -> Result<ChatGptCodexTokenResponse, AuthError> {
+fn exchange_chatgpt_codex_authorization_code(
+    code: &str, verifier: &str, redirect_uri: &str,
+) -> Result<ChatGptCodexTokenResponse, AuthError> {
+    exchange_chatgpt_codex_token_form(&[
+        ("grant_type", "authorization_code"),
+        ("client_id", CHATGPT_CODEX_CLIENT_ID),
+        ("code", code),
+        ("code_verifier", verifier),
+        ("redirect_uri", redirect_uri),
+    ])
+}
+
+fn exchange_chatgpt_codex_token_form(params: &[(&str, &str)]) -> Result<ChatGptCodexTokenResponse, AuthError> {
+    let body = form_urlencoded(params);
     let mut response = ureq::Agent::new_with_defaults()
-        .post(DEVICE_TOKEN_URL)
-        .header("content-type", "application/json")
-        .send_json(body)
+        .post(OAUTH_TOKEN_URL)
+        .header("content-type", "application/x-www-form-urlencoded")
+        .config()
+        .http_status_as_error(false)
+        .build()
+        .send(&body)
         .map_err(|e| AuthError::ChatGptCodex(format!("token request failed: {e}")))?;
     read_json_response(&mut response, "token request")
+}
+
+fn form_urlencoded(params: &[(&str, &str)]) -> String {
+    let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+    for (key, value) in params {
+        serializer.append_pair(key, value);
+    }
+    serializer.finish()
 }
 
 fn read_json_response<T>(response: &mut ureq::http::Response<ureq::Body>, context: &str) -> Result<T, AuthError>
@@ -617,23 +681,49 @@ where
         .read_to_string()
         .map_err(|e| AuthError::ChatGptCodex(format!("{context} body read failed: {e}")))?;
     if !(200..=299).contains(&status) {
-        let message = serde_json::from_str::<serde_json::Value>(&body)
-            .ok()
-            .and_then(|value| {
-                value
-                    .pointer("/error/message")
-                    .or_else(|| value.get("error_description"))
-                    .or_else(|| value.get("error"))
-                    .and_then(|v| v.as_str())
-                    .map(str::to_string)
-            })
-            .unwrap_or_else(|| body.chars().take(240).collect());
+        let message = chatgpt_codex_error_message(&body).unwrap_or_else(|| body.chars().take(240).collect());
         return Err(AuthError::ChatGptCodex(message));
     }
     serde_json::from_str(&body).map_err(|e| AuthError::ChatGptCodex(format!("{context} JSON parse failed: {e}")))
 }
 
-fn wait_for_pkce_callback_code() -> Result<String, AuthError> {
+fn chatgpt_codex_error_code(body: &str) -> Option<String> {
+    let value = serde_json::from_str::<serde_json::Value>(body).ok()?;
+    let error = value.get("error")?;
+    if let Some(code) = error.as_str() {
+        return Some(code.to_string());
+    }
+    error.get("code").and_then(|v| v.as_str()).map(str::to_string)
+}
+
+fn chatgpt_codex_error_message(body: &str) -> Option<String> {
+    let value = serde_json::from_str::<serde_json::Value>(body).ok()?;
+    value
+        .pointer("/error/message")
+        .or_else(|| value.get("error_description"))
+        .or_else(|| value.get("error").and_then(|error| error.get("message")))
+        .or_else(|| value.get("error"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+}
+
+fn chatgpt_codex_pkce_authorize_url(challenge: &str, state: &str) -> String {
+    let mut url = url::Url::parse(PKCE_AUTHORIZE_URL).expect("valid ChatGPT Codex authorize URL");
+    url.query_pairs_mut()
+        .append_pair("response_type", "code")
+        .append_pair("client_id", CHATGPT_CODEX_CLIENT_ID)
+        .append_pair("redirect_uri", PKCE_CALLBACK_URL)
+        .append_pair("scope", OAUTH_SCOPE)
+        .append_pair("code_challenge", challenge)
+        .append_pair("code_challenge_method", "S256")
+        .append_pair("state", state)
+        .append_pair("id_token_add_organizations", "true")
+        .append_pair("codex_cli_simplified_flow", "true")
+        .append_pair("originator", OAUTH_ORIGINATOR);
+    url.to_string()
+}
+
+fn wait_for_pkce_callback_code(expected_state: &str) -> Result<String, AuthError> {
     let listener = TcpListener::bind(PKCE_CALLBACK_ADDR)
         .map_err(|e| AuthError::ChatGptCodex(format!("failed to bind localhost:1455 callback: {e}")))?;
     let (mut stream, _) = listener
@@ -658,10 +748,45 @@ fn wait_for_pkce_callback_code() -> Result<String, AuthError> {
         .query_pairs()
         .find_map(|(key, value)| if key == "code" { Some(value.into_owned()) } else { None })
         .ok_or_else(|| AuthError::ChatGptCodex("browser callback did not include code".to_string()))?;
+    let state = url
+        .query_pairs()
+        .find_map(|(key, value)| if key == "state" { Some(value.into_owned()) } else { None })
+        .ok_or_else(|| AuthError::ChatGptCodex("browser callback did not include state".to_string()))?;
+    if state != expected_state {
+        return Err(AuthError::ChatGptCodex(
+            "browser callback state did not match".to_string(),
+        ));
+    }
     let response =
         "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 31\r\n\r\nChatGPT Codex login complete.\n";
     let _ = stream.write_all(response.as_bytes());
     Ok(code)
+}
+
+fn default_device_verification_url() -> Option<String> {
+    Some(DEVICE_VERIFICATION_URL.to_string())
+}
+
+fn default_device_code_expires_in() -> Option<u64> {
+    Some(DEVICE_CODE_TIMEOUT_SECONDS)
+}
+
+fn deserialize_optional_u64_from_string_or_number<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    match value {
+        serde_json::Value::Number(number) => number
+            .as_u64()
+            .ok_or_else(|| serde::de::Error::custom("expected non-negative integer"))
+            .map(Some),
+        serde_json::Value::String(value) => value.trim().parse::<u64>().map(Some).map_err(serde::de::Error::custom),
+        _ => Err(serde::de::Error::custom("expected integer or string integer")),
+    }
 }
 
 fn random_pkce_verifier() -> Result<String, AuthError> {
@@ -920,6 +1045,62 @@ mod tests {
             assert!(!debug.contains("response-access-secret"));
             assert!(!debug.contains("response-refresh-secret"));
         }
+    }
+
+    #[test]
+    fn chatgpt_codex_device_code_accepts_string_interval() {
+        let code: ChatGptCodexDeviceCode =
+            serde_json::from_str(r#"{"device_auth_id":"device-auth-secret","user_code":"USER-CODE","interval":"5"}"#)
+                .expect("parse device-auth response");
+
+        assert_eq!(code.device_auth_id, "device-auth-secret");
+        assert_eq!(code.user_code, "USER-CODE");
+        assert_eq!(code.interval, Some(5));
+        assert_eq!(code.expires_in, Some(DEVICE_CODE_TIMEOUT_SECONDS));
+        assert_eq!(code.verification_uri.as_deref(), Some(DEVICE_VERIFICATION_URL));
+    }
+
+    #[test]
+    fn chatgpt_codex_device_code_debug_redacts_device_auth_id() {
+        let code = ChatGptCodexDeviceCode {
+            device_auth_id: "device-auth-secret-from-test".to_string(),
+            user_code: "USER-CODE".to_string(),
+            verification_uri: Some(DEVICE_VERIFICATION_URL.to_string()),
+            verification_uri_complete: None,
+            expires_in: Some(DEVICE_CODE_TIMEOUT_SECONDS),
+            interval: Some(5),
+        };
+
+        let debug = format!("{code:?}");
+        assert!(debug.contains("[redacted]"));
+        assert!(!debug.contains("device-auth-secret-from-test"));
+        assert!(debug.contains("USER-CODE"));
+    }
+
+    #[test]
+    fn chatgpt_codex_pkce_authorize_url_uses_codex_app_client() {
+        let url = url::Url::parse(&chatgpt_codex_pkce_authorize_url("challenge-test", "state-test")).unwrap();
+        let params: BTreeMap<_, _> = url.query_pairs().into_owned().collect();
+
+        assert_eq!(url.as_str().split('?').next(), Some(PKCE_AUTHORIZE_URL));
+        assert_eq!(
+            params.get("client_id").map(String::as_str),
+            Some(CHATGPT_CODEX_CLIENT_ID)
+        );
+        assert_eq!(params.get("redirect_uri").map(String::as_str), Some(PKCE_CALLBACK_URL));
+        assert_eq!(params.get("scope").map(String::as_str), Some(OAUTH_SCOPE));
+        assert_eq!(params.get("code_challenge").map(String::as_str), Some("challenge-test"));
+        assert_eq!(params.get("code_challenge_method").map(String::as_str), Some("S256"));
+        assert_eq!(params.get("state").map(String::as_str), Some("state-test"));
+        assert_eq!(
+            params.get("id_token_add_organizations").map(String::as_str),
+            Some("true")
+        );
+        assert_eq!(
+            params.get("codex_cli_simplified_flow").map(String::as_str),
+            Some("true")
+        );
+        assert_eq!(params.get("originator").map(String::as_str), Some(OAUTH_ORIGINATOR));
     }
 
     #[test]

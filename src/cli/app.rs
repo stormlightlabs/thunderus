@@ -1970,6 +1970,7 @@ fn redact_auth_error(message: &str) -> String {
         if part.len() >= 24
             || part.contains("access_token")
             || part.contains("refresh_token")
+            || part.contains("device_auth_id")
             || part.contains("device_code")
         {
             redacted.push("[redacted]");
@@ -2559,6 +2560,7 @@ fn is_api_key_like(value: &str) -> bool {
         || lower.contains("umans_api_key=")
         || lower.contains("access_token=")
         || lower.contains("refresh_token=")
+        || lower.contains("device_auth_id=")
         || lower.contains("device_code=")
         || (value.len() >= 32
             && value.chars().any(|ch| ch.is_ascii_digit())

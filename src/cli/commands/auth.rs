@@ -395,7 +395,7 @@ mod tests {
     #[test]
     fn chatgpt_oauth_login_output_does_not_print_tokens() {
         let code = auth::ChatGptCodexDeviceCode {
-            device_code: "device-token-secret-from-test".to_string(),
+            device_auth_id: "device-auth-secret-from-test".to_string(),
             user_code: "USER-CODE".to_string(),
             verification_uri: Some("https://auth.example.test/device".to_string()),
             verification_uri_complete: None,

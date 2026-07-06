@@ -891,7 +891,7 @@ fn run_inline(tick: Duration, cli: &Cli) -> io::Result<()> {
     let mouse_enabled = cli.mouse && !cli.no_mouse;
     let stdout = io::stdout();
     let mut backend = TerminalBackend::new(stdout, renderer::terminal_size().0, renderer::terminal_size().1);
-    let mut live = renderer::region::LiveRegion::new();
+    let mut live = LiveRegion::new();
     let result = direct_loop(&mut backend, &mut live, tick, cli, mouse_enabled);
 
     let _ = backend.show_cursor();
@@ -912,8 +912,7 @@ fn run_inline(tick: Duration, cli: &Cli) -> io::Result<()> {
 /// resize and wrapping behavior is owned by the renderer instead of native
 /// terminal scrollback side effects.
 fn direct_loop<W: io::Write>(
-    backend: &mut TerminalBackend<W>, live: &mut renderer::region::LiveRegion, tick: Duration, cli: &Cli,
-    mouse_enabled: bool,
+    backend: &mut TerminalBackend<W>, live: &mut LiveRegion, tick: Duration, cli: &Cli, mouse_enabled: bool,
 ) -> io::Result<()> {
     let mut app = App::from_cli(cli);
     let workspace_root = context::discover_workspace_root(&cli.cwd);
@@ -955,7 +954,7 @@ fn direct_loop<W: io::Write>(
             drain_direct_agent_events(&mut app, &mut agent, backend, live, &observability)?;
             drain_git_status_watcher(&mut app, &git_watcher, backend, live)?;
             manage_agent_lifecycle(&app, &mut agent);
-            maybe_spawn_agent(&mut app, cli, &mut agent);
+            maybe_spawn_agent(&mut app, &mut agent);
             flush_steering(&mut app, &agent);
             sync_mouse_capture(&app, &mut mouse_captured, mouse_enabled);
             let (w, h) = backend_size(backend);
@@ -992,7 +991,7 @@ fn direct_loop<W: io::Write>(
                 _ => {}
             }
 
-            maybe_spawn_agent(&mut app, cli, &mut agent);
+            maybe_spawn_agent(&mut app, &mut agent);
             flush_steering(&mut app, &agent);
             sync_mouse_capture(&app, &mut mouse_captured, mouse_enabled);
 
@@ -1148,7 +1147,7 @@ fn drain_git_status_watcher<W: io::Write>(
 /// The run chooses a provider from the selected model id. The
 /// [`agent::CancelToken`] is retained so `Escape` can signal cooperative
 /// cancellation.
-fn maybe_spawn_agent(app: &mut App, cli: &Cli, agent: &mut Option<AgentSlot>) {
+fn maybe_spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>) {
     if app.run_state != RunState::Working {
         return;
     }
@@ -1165,6 +1164,7 @@ fn maybe_spawn_agent(app: &mut App, cli: &Cli, agent: &mut Option<AgentSlot>) {
             _ => None,
         })
         .unwrap_or_default();
+    let cli = app.cli.clone();
     let workspace_root = context::discover_workspace_root(&cli.cwd);
     let resolved_websearch = cli.websearch.resolve_for_prompt(&prompt);
     let mut config = tools::AgentRunConfig::new(workspace_root, cli.model.clone(), resolved_websearch);
@@ -1908,6 +1908,38 @@ for line in sys.stdin:
         assert_eq!(
             steering_rx.try_recv().expect("active run should receive steering"),
             "use the failing test first"
+        );
+    }
+
+    #[test]
+    fn maybe_spawn_agent_uses_current_app_model_after_picker_switch() {
+        let cli = Cli::default();
+        let mut app = App::from_cli(&cli);
+        app.session_writer = None;
+        app.model = "fake-agent".to_string();
+        app.cli.model = app.model.clone();
+        app.run_state = RunState::Working;
+        app.transcript
+            .push(app::Entry::User { text: "hello with switched model".to_string() });
+
+        let mut agent = None;
+        maybe_spawn_agent(&mut app, &mut agent);
+        let slot = agent.as_ref().expect("agent spawned");
+
+        let first_model_event = loop {
+            let event = slot
+                .receiver
+                .recv_timeout(std::time::Duration::from_secs(2))
+                .expect("agent event");
+            if !matches!(event, app::AgentEvent::Started) {
+                break event;
+            }
+        };
+        slot.cancel.cancel();
+
+        assert!(
+            matches!(first_model_event, app::AgentEvent::ReasoningDelta(_)),
+            "switched fake model should run fake provider, got {first_model_event:?}"
         );
     }
 

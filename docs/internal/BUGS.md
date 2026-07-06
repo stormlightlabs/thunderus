@@ -1,3 +1,3 @@
 # Bugs
 
-- ChatGPT/Codex needs loopback
+- Set reasoning level for models
