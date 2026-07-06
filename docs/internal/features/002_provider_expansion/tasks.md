@@ -108,45 +108,45 @@ Captured: 2026-07-05
 
 ## P6: ChatGPT Codex Auth Foundations
 
-- [ ] Add a ChatGPT Codex auth module with `ChatGptCodexAuth`.
-- [ ] Load `CHATGPT_CODEX_ACCESS_TOKEN` as a non-persisted process override.
-- [ ] Decode JWT payloads without logging token contents.
-- [ ] Extract `payload["https://api.openai.com/auth"].chatgpt_account_id`.
-- [ ] Fail closed when the account id claim is missing or malformed.
-- [ ] Add `~/.thndrs/auth.json` read/write helpers.
-- [ ] Write file-backed credentials with Unix mode `0600`.
-- [ ] Redact access tokens and refresh tokens from debug/status output.
-- [ ] Store `access_token`, `refresh_token`, `expires_at_ms`, and `account_id`.
-- [ ] Refresh expired credentials before provider requests.
-- [ ] Serialize refreshes behind a process-local mutex.
-- [ ] Add `chatgpt-codex login` CLI support.
-- [ ] Implement device-code user-code request.
-- [ ] Implement device-code polling and authorization-code exchange.
-- [ ] Implement browser PKCE fallback login.
-- [ ] Bind the browser callback listener to `localhost:1455/auth/callback`.
-- [ ] Add `chatgpt-codex logout` CLI support.
-- [ ] Delete only the `chatgpt_codex` credential entry on logout.
+- [x] Add a ChatGPT Codex auth module with `ChatGptCodexAuth`.
+- [x] Load `CHATGPT_CODEX_ACCESS_TOKEN` as a non-persisted process override.
+- [x] Decode JWT payloads without logging token contents.
+- [x] Extract `payload["https://api.openai.com/auth"].chatgpt_account_id`.
+- [x] Fail closed when the account id claim is missing or malformed.
+- [x] Add `~/.thndrs/auth.json` read/write helpers.
+- [x] Write file-backed credentials with Unix mode `0600`.
+- [x] Redact access tokens and refresh tokens from debug/status output.
+- [x] Store `access_token`, `refresh_token`, `expires_at_ms`, and `account_id`.
+- [x] Refresh expired credentials before provider requests.
+- [x] Serialize refreshes behind a process-local mutex.
+- [x] Add `chatgpt-codex login` CLI support.
+- [x] Implement device-code user-code request.
+- [x] Implement device-code polling and authorization-code exchange.
+- [x] Implement browser PKCE fallback login.
+- [x] Bind the browser callback listener to `localhost:1455/auth/callback`.
+- [x] Add `chatgpt-codex logout` CLI support.
+- [x] Delete only the `chatgpt_codex` credential entry on logout.
 
 ## P7: ChatGPT Codex Provider Foundations
 
-- [ ] Add `src/core/providers/codex.rs`.
-- [ ] Define `BASE_URL`, `MODEL_PREFIX`, known model ids, and status labels.
-- [ ] Parse `chatgpt-codex/<model-id>` and strip the prefix for requests.
-- [ ] Reject raw ChatGPT Codex model ids with a clear provider error.
-- [ ] Build SSE headers with bearer auth, account id, originator,
+- [x] Add `src/core/providers/codex.rs`.
+- [x] Define `BASE_URL`, `MODEL_PREFIX`, known model ids, and status labels.
+- [x] Parse `chatgpt-codex/<model-id>` and strip the prefix for requests.
+- [x] Reject raw ChatGPT Codex model ids with a clear provider error.
+- [x] Build SSE headers with bearer auth, account id, originator,
       `OpenAI-Beta`, `accept`, and `content-type`.
-- [ ] Keep header tests from snapshotting token values.
-- [ ] Build a Responses-like streaming request body.
-- [ ] Convert provider-neutral messages into Responses `input`.
-- [ ] Convert local tool schemas into Responses `tools`.
-- [ ] Include `store: false`, `stream: true`, `tool_choice: "auto"`,
+- [x] Keep header tests from snapshotting token values.
+- [x] Build a Responses-like streaming request body.
+- [x] Convert provider-neutral messages into Responses `input`.
+- [x] Convert local tool schemas into Responses `tools`.
+- [x] Include `store: false`, `stream: true`, `tool_choice: "auto"`,
       `parallel_tool_calls: true`, and low verbosity.
-- [ ] Ignore encrypted reasoning payloads during persistence.
-- [ ] Send streaming requests with `http_status_as_error(false)`.
-- [ ] Summarize non-2xx response bodies through the existing provider error
+- [x] Ignore encrypted reasoning payloads during persistence.
+- [x] Send streaming requests with `http_status_as_error(false)`.
+- [x] Summarize non-2xx response bodies through the existing provider error
       path.
-- [ ] Classify retryable HTTP and transport errors.
-- [ ] Classify terminal subscription, balance, quota, and monthly usage errors
+- [x] Classify retryable HTTP and transport errors.
+- [x] Classify terminal subscription, balance, quota, and monthly usage errors
       as non-retryable.
 
 ## P8: ChatGPT Codex Stream Parsing

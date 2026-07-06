@@ -8,6 +8,7 @@ use crate::app::AgentEvent;
 use crate::tools::ToolUseRequest;
 
 pub mod anthropic;
+pub mod codex;
 pub mod openai;
 pub mod opencode;
 pub mod umans;
@@ -63,6 +64,9 @@ pub enum ProviderError {
     /// HTTP status error (non-2xx response).
     #[error("HTTP {code}: {body}")]
     Status { code: u16, body: String },
+    /// Authentication error before a provider request can be sent.
+    #[error("authentication failed: {0}")]
+    Auth(String),
     /// JSON serialization/deserialization error.
     #[error("json error: {0}")]
     Json(String),
@@ -79,9 +83,10 @@ impl ProviderError {
 
     pub fn is_retryable(&self) -> bool {
         match self {
-            ProviderError::MissingApiKey { .. } | ProviderError::InvalidModelId { .. } | ProviderError::Json(_) => {
-                false
-            }
+            ProviderError::MissingApiKey { .. }
+            | ProviderError::InvalidModelId { .. }
+            | ProviderError::Auth(_)
+            | ProviderError::Json(_) => false,
             ProviderError::Status { code, .. } => *code == 429 || (500..=599).contains(code),
             ProviderError::Http(message) => {
                 let lower = message.to_ascii_lowercase();
@@ -99,6 +104,7 @@ impl ProviderError {
                 500..=599 => format!("server error (HTTP {code}): {body}"),
                 _ => format!("HTTP {code}: {body}"),
             },
+            ProviderError::Auth(message) => format!("authentication failed: {message}"),
             ProviderError::Http(e) => format!("network error: {e}"),
             ProviderError::Json(e) => format!("response parse error: {e}"),
         }

@@ -22,6 +22,8 @@ pub enum ApiKeyProviderArg {
     OpencodeGo,
     /// OpenCode Zen provider.
     OpencodeZen,
+    /// ChatGPT subscription-backed Codex provider.
+    ChatgptCodex,
 }
 
 impl ApiKeyProviderArg {
@@ -31,6 +33,7 @@ impl ApiKeyProviderArg {
             ApiKeyProviderArg::Umans => "umans",
             ApiKeyProviderArg::OpencodeGo => "opencode-go",
             ApiKeyProviderArg::OpencodeZen => "opencode-zen",
+            ApiKeyProviderArg::ChatgptCodex => "chatgpt-codex",
         }
     }
 
@@ -40,6 +43,7 @@ impl ApiKeyProviderArg {
             ApiKeyProviderArg::Umans => auth::UMANS_API_KEY_ENV,
             ApiKeyProviderArg::OpencodeGo => auth::OPENCODE_GO_KEY_ENV,
             ApiKeyProviderArg::OpencodeZen => auth::OPENCODE_ZEN_KEY_ENV,
+            ApiKeyProviderArg::ChatgptCodex => auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV,
         }
     }
 
@@ -49,6 +53,7 @@ impl ApiKeyProviderArg {
             ApiKeyProviderArg::Umans => "umans-coder",
             ApiKeyProviderArg::OpencodeGo => "opencode-go/kimi-k2.7-code",
             ApiKeyProviderArg::OpencodeZen => "opencode/big-pickle",
+            ApiKeyProviderArg::ChatgptCodex => "chatgpt-codex/gpt-5.5",
         }
     }
 }

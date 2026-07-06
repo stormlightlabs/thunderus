@@ -58,6 +58,10 @@ pub fn run_login(cli: &Cli, command: &LoginCommand) -> io::Result<()> {
     let mut writer = stdout.lock();
     require_interactive("login")?;
 
+    if command.provider == ApiKeyProviderArg::ChatgptCodex {
+        return run_chatgpt_codex_login(&mut writer);
+    }
+
     let workspace = context::discover_workspace_root(&cli.cwd);
     if matches!(
         auth::credential_source(command.provider.env_var(), &workspace),
@@ -116,6 +120,26 @@ pub fn run_logout(cli: &Cli, command: &LogoutCommand) -> io::Result<()> {
     let mut writer = stdout.lock();
     require_interactive("logout")?;
 
+    if command.provider == ApiKeyProviderArg::ChatgptCodex {
+        if !confirm(
+            &mut writer,
+            "Remove ChatGPT Codex credentials from ~/.thndrs/auth.json?",
+        )? {
+            writeln!(writer, "logout cancelled")?;
+            return Ok(());
+        }
+        auth::remove_chatgpt_codex_credentials().map_err(io::Error::other)?;
+        writeln!(writer, "chatgpt-codex credential removed")?;
+        if std::env::var(auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV).is_ok_and(|value| !value.is_empty()) {
+            writeln!(
+                writer,
+                "{} is still set in the environment, so chatgpt-codex remains authenticated through the environment.",
+                auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV
+            )?;
+        }
+        return Ok(());
+    }
+
     let workspace = context::discover_workspace_root(&cli.cwd);
     let scope = prompt_scope(&mut writer)?;
     if !confirm(
@@ -170,10 +194,15 @@ pub fn write_auth_status<W: Write>(workspace: &Path, writer: &mut W) -> io::Resu
         ApiKeyProviderArg::Umans,
         ApiKeyProviderArg::OpencodeGo,
         ApiKeyProviderArg::OpencodeZen,
+        ApiKeyProviderArg::ChatgptCodex,
     ] {
-        let source = auth::credential_source(provider.env_var(), workspace)
-            .map(|source| source.label().to_string())
-            .unwrap_or_else(|| String::from("missing"));
+        let source = if provider == ApiKeyProviderArg::ChatgptCodex {
+            chatgpt_codex_status()
+        } else {
+            auth::credential_source(provider.env_var(), workspace)
+                .map(|source| source.label().to_string())
+                .unwrap_or_else(|| String::from("missing"))
+        };
         writeln!(writer, "{}\t{}", provider.label(), source)?;
     }
     Ok(())
@@ -193,6 +222,7 @@ pub fn validate_provider_key(provider: ApiKeyProviderArg, api_key: &str) -> Resu
         ApiKeyProviderArg::Umans => crate::providers::umans::validate_api_key(api_key),
         ApiKeyProviderArg::OpencodeGo => crate::providers::opencode::validate_go_api_key(api_key),
         ApiKeyProviderArg::OpencodeZen => crate::providers::opencode::validate_zen_api_key(api_key),
+        ApiKeyProviderArg::ChatgptCodex => Err("ChatGPT Codex uses OAuth login, not API-key validation".to_string()),
     }
 }
 
@@ -263,6 +293,48 @@ fn read_hidden_line() -> io::Result<String> {
             },
             _ => {}
         }
+    }
+}
+
+fn run_chatgpt_codex_login<W: Write>(writer: &mut W) -> io::Result<()> {
+    writeln!(
+        writer,
+        "ChatGPT Codex login uses ChatGPT OAuth and stores credentials in ~/.thndrs/auth.json"
+    )?;
+    let credentials = match auth::request_chatgpt_codex_device_code() {
+        Ok(code) => {
+            writeln!(
+                writer,
+                "Open {} and enter code {}",
+                code.verification_uri
+                    .as_deref()
+                    .unwrap_or("https://auth.openai.com/codex/device"),
+                code.user_code
+            )?;
+            writer.flush()?;
+            auth::poll_chatgpt_codex_device_code(&code).map_err(io::Error::other)?
+        }
+        Err(err) => {
+            writeln!(
+                writer,
+                "device-code login unavailable ({err}); falling back to browser PKCE"
+            )?;
+            auth::login_chatgpt_codex_with_browser_pkce().map_err(io::Error::other)?
+        }
+    };
+    auth::write_chatgpt_codex_credentials(&credentials).map_err(io::Error::other)?;
+    writeln!(writer, "chatgpt-codex credential stored in global auth store")?;
+    Ok(())
+}
+
+fn chatgpt_codex_status() -> String {
+    if std::env::var(auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV).is_ok_and(|value| !value.is_empty()) {
+        return "environment".to_string();
+    }
+    match auth::read_chatgpt_codex_credentials() {
+        Ok(Some(_)) => "global auth".to_string(),
+        Ok(None) => "missing".to_string(),
+        Err(_) => "invalid auth store".to_string(),
     }
 }
 

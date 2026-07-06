@@ -21,7 +21,12 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{BufRead, Write};
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use sha2::Digest;
 
 use crate::utils;
 
@@ -33,6 +38,17 @@ pub const OPENCODE_GO_KEY_ENV: &str = "OPENCODE_GO_KEY";
 
 /// Environment variable name for the OpenCode Zen API key.
 pub const OPENCODE_ZEN_KEY_ENV: &str = "OPENCODE_ZEN_KEY";
+
+/// Environment variable name for a process-local ChatGPT Codex access token.
+pub const CHATGPT_CODEX_ACCESS_TOKEN_ENV: &str = "CHATGPT_CODEX_ACCESS_TOKEN";
+
+const CHATGPT_CODEX_AUTH_KEY: &str = "chatgpt_codex";
+const DEVICE_USER_CODE_URL: &str = "https://auth.openai.com/api/accounts/deviceauth/usercode";
+const DEVICE_TOKEN_URL: &str = "https://auth.openai.com/api/accounts/deviceauth/token";
+const DEVICE_VERIFICATION_URL: &str = "https://auth.openai.com/codex/device";
+const PKCE_CALLBACK_ADDR: &str = "127.0.0.1:1455";
+const PKCE_CALLBACK_URL: &str = "http://localhost:1455/auth/callback";
+const PKCE_AUTHORIZE_URL: &str = "https://auth.openai.com/oauth/authorize";
 
 /// Known provider API key variable names.
 pub const KNOWN_API_KEY_VARS: &[&str] = &[UMANS_API_KEY_ENV, OPENCODE_GO_KEY_ENV, OPENCODE_ZEN_KEY_ENV];
@@ -62,6 +78,12 @@ impl CredentialSource {
     }
 }
 
+impl ChatGptCodexCredentials {
+    fn is_expired(&self, now_ms: u64) -> bool {
+        self.expires_at_ms <= now_ms.saturating_add(60_000)
+    }
+}
+
 /// Errors produced by credential store operations.
 #[derive(Debug, thiserror::Error)]
 pub enum AuthError {
@@ -88,12 +110,207 @@ pub enum AuthError {
     /// Failed to update `.git/info/exclude`.
     #[error("git exclude failed: {0}")]
     GitExclude(String),
+    /// ChatGPT Codex credential data is missing or malformed.
+    #[error("chatgpt-codex auth failed: {0}")]
+    ChatGptCodex(String),
 }
+
+/// File-backed ChatGPT Codex credential entry.
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize, Eq, PartialEq)]
+pub struct ChatGptCodexCredentials {
+    /// ChatGPT backend access token.
+    pub access_token: String,
+    /// Refresh token used to obtain a new access token.
+    pub refresh_token: String,
+    /// Access-token expiry as Unix epoch milliseconds.
+    pub expires_at_ms: u64,
+    /// ChatGPT account id required by the Codex backend.
+    pub account_id: String,
+}
+
+/// Auth material used by the ChatGPT Codex provider.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ChatGptCodexAuth {
+    /// ChatGPT backend access token.
+    pub access_token: String,
+    /// ChatGPT account id required by the Codex backend.
+    pub account_id: String,
+}
+
+/// Response from the ChatGPT Codex device-code user-code endpoint.
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq)]
+pub struct ChatGptCodexDeviceCode {
+    pub device_code: String,
+    pub user_code: String,
+    #[serde(default)]
+    pub verification_uri: Option<String>,
+    #[serde(default)]
+    pub verification_uri_complete: Option<String>,
+    #[serde(default)]
+    pub expires_in: Option<u64>,
+    #[serde(default)]
+    pub interval: Option<u64>,
+}
+
+/// Token response from ChatGPT Codex OAuth endpoints.
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq)]
+pub struct ChatGptCodexTokenResponse {
+    pub access_token: String,
+    #[serde(default)]
+    pub refresh_token: Option<String>,
+    #[serde(default)]
+    pub expires_in: Option<u64>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize, Default)]
+struct AuthJson {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    chatgpt_codex: Option<ChatGptCodexCredentials>,
+    #[serde(flatten)]
+    other: BTreeMap<String, serde_json::Value>,
+}
+
+static CHATGPT_CODEX_REFRESH_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 /// Global credential store path: `~/.thndrs/credentials.env`.
 pub fn global_credentials_path() -> Result<PathBuf, AuthError> {
     let home = utils::home_dir().ok_or(AuthError::NoHomeDirectory)?;
     Ok(home.join(".thndrs").join("credentials.env"))
+}
+
+/// ChatGPT Codex auth store path: `~/.thndrs/auth.json`.
+pub fn chatgpt_codex_auth_path() -> Result<PathBuf, AuthError> {
+    let home = utils::home_dir().ok_or(AuthError::NoHomeDirectory)?;
+    Ok(home.join(".thndrs").join("auth.json"))
+}
+
+/// Resolve ChatGPT Codex auth, honoring `CHATGPT_CODEX_ACCESS_TOKEN` as a
+/// non-persisted process override before reading `~/.thndrs/auth.json`.
+pub fn resolve_chatgpt_codex_auth() -> Result<ChatGptCodexAuth, AuthError> {
+    if let Ok(token) = std::env::var(CHATGPT_CODEX_ACCESS_TOKEN_ENV)
+        && !token.trim().is_empty()
+    {
+        let account_id = chatgpt_account_id_from_jwt(&token)?;
+        return Ok(ChatGptCodexAuth { access_token: token, account_id });
+    }
+
+    let _guard = CHATGPT_CODEX_REFRESH_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .map_err(|_| AuthError::ChatGptCodex("refresh lock poisoned".to_string()))?;
+    let path = chatgpt_codex_auth_path()?;
+    let mut credentials = read_chatgpt_codex_credentials_at(&path)?
+        .ok_or_else(|| AuthError::ChatGptCodex("run `thndrs login chatgpt-codex`".to_string()))?;
+    if credentials.is_expired(now_ms()) {
+        credentials = refresh_chatgpt_codex_credentials(credentials)?;
+        write_chatgpt_codex_credentials_at(&path, &credentials)?;
+    }
+    Ok(ChatGptCodexAuth { access_token: credentials.access_token, account_id: credentials.account_id })
+}
+
+/// Read the ChatGPT Codex credential entry from `~/.thndrs/auth.json`.
+pub fn read_chatgpt_codex_credentials() -> Result<Option<ChatGptCodexCredentials>, AuthError> {
+    read_chatgpt_codex_credentials_at(&chatgpt_codex_auth_path()?)
+}
+
+/// Write the ChatGPT Codex credential entry to `~/.thndrs/auth.json`.
+pub fn write_chatgpt_codex_credentials(credentials: &ChatGptCodexCredentials) -> Result<(), AuthError> {
+    write_chatgpt_codex_credentials_at(&chatgpt_codex_auth_path()?, credentials)
+}
+
+/// Delete only the ChatGPT Codex credential entry from `~/.thndrs/auth.json`.
+pub fn remove_chatgpt_codex_credentials() -> Result<(), AuthError> {
+    let path = chatgpt_codex_auth_path()?;
+    let mut store = read_auth_json_at(&path)?;
+    store.chatgpt_codex = None;
+    write_auth_json_atomic(&path, &store)
+}
+
+/// Decode a JWT payload and extract the ChatGPT account id claim.
+pub fn chatgpt_account_id_from_jwt(jwt: &str) -> Result<String, AuthError> {
+    let payload = jwt
+        .split('.')
+        .nth(1)
+        .ok_or_else(|| AuthError::ChatGptCodex("access token is not a JWT".to_string()))?;
+    let decoded = base64_url_decode(payload)?;
+    let value: serde_json::Value = serde_json::from_slice(&decoded)
+        .map_err(|_| AuthError::ChatGptCodex("access token payload is not valid JSON".to_string()))?;
+    value
+        .pointer("/https:~1~1api.openai.com~1auth/chatgpt_account_id")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| AuthError::ChatGptCodex("access token is missing chatgpt_account_id".to_string()))
+}
+
+/// Request a ChatGPT Codex device code.
+pub fn request_chatgpt_codex_device_code() -> Result<ChatGptCodexDeviceCode, AuthError> {
+    let mut response = ureq::Agent::new_with_defaults()
+        .post(DEVICE_USER_CODE_URL)
+        .header("content-type", "application/json")
+        .send_json(serde_json::json!({ "verification_url": DEVICE_VERIFICATION_URL }))
+        .map_err(|e| AuthError::ChatGptCodex(format!("device-code request failed: {e}")))?;
+    read_json_response(&mut response, "device-code request")
+}
+
+/// Poll the device-code token endpoint until authorization succeeds.
+pub fn poll_chatgpt_codex_device_code(code: &ChatGptCodexDeviceCode) -> Result<ChatGptCodexCredentials, AuthError> {
+    let interval = Duration::from_secs(code.interval.unwrap_or(5).max(1));
+    let deadline = SystemTime::now() + Duration::from_secs(code.expires_in.unwrap_or(900));
+    loop {
+        let body = serde_json::json!({
+            "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+            "device_code": code.device_code,
+        });
+        match exchange_chatgpt_codex_token(body) {
+            Ok(token) => return credentials_from_token_response(token, None),
+            Err(AuthError::ChatGptCodex(message))
+                if message.contains("authorization_pending") || message.contains("slow_down") =>
+            {
+                if SystemTime::now() >= deadline {
+                    return Err(AuthError::ChatGptCodex("device-code login expired".to_string()));
+                }
+                std::thread::sleep(interval);
+            }
+            Err(err) => return Err(err),
+        }
+    }
+}
+
+/// Browser PKCE fallback for ChatGPT Codex login.
+pub fn login_chatgpt_codex_with_browser_pkce() -> Result<ChatGptCodexCredentials, AuthError> {
+    let verifier = random_pkce_verifier()?;
+    let challenge = base64_url_encode(&sha2::Sha256::digest(verifier.as_bytes()));
+    let auth_url = format!(
+        "{PKCE_AUTHORIZE_URL}?response_type=code&client_id=codex-cli&redirect_uri={}&scope=openid%20profile%20email%20offline_access&code_challenge={challenge}&code_challenge_method=S256",
+        url::form_urlencoded::byte_serialize(PKCE_CALLBACK_URL.as_bytes()).collect::<String>()
+    );
+    eprintln!("Open this URL to continue ChatGPT Codex login:\n{auth_url}");
+    let code = wait_for_pkce_callback_code()?;
+    let token = exchange_chatgpt_codex_token(serde_json::json!({
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": PKCE_CALLBACK_URL,
+        "code_verifier": verifier,
+    }))?;
+    credentials_from_token_response(token, None)
+}
+
+/// Convert a token response into persistable ChatGPT Codex credentials.
+pub fn credentials_from_token_response(
+    response: ChatGptCodexTokenResponse, previous_refresh_token: Option<String>,
+) -> Result<ChatGptCodexCredentials, AuthError> {
+    let account_id = chatgpt_account_id_from_jwt(&response.access_token)?;
+    let refresh_token = response
+        .refresh_token
+        .or(previous_refresh_token)
+        .ok_or_else(|| AuthError::ChatGptCodex("token response is missing refresh_token".to_string()))?;
+    Ok(ChatGptCodexCredentials {
+        access_token: response.access_token,
+        refresh_token,
+        expires_at_ms: now_ms() + response.expires_in.unwrap_or(3600).saturating_mul(1000),
+        account_id,
+    })
 }
 
 /// Project credential store path: `<workspace>/.thndrs/credentials.env`.
@@ -250,6 +467,177 @@ fn write_lines_atomic(path: &Path, lines: &[String]) -> Result<(), AuthError> {
         .map_err(|e| AuthError::Write { path: path.to_path_buf(), source: e.error })
 }
 
+fn read_chatgpt_codex_credentials_at(path: &Path) -> Result<Option<ChatGptCodexCredentials>, AuthError> {
+    Ok(read_auth_json_at(path)?.chatgpt_codex)
+}
+
+fn write_chatgpt_codex_credentials_at(path: &Path, credentials: &ChatGptCodexCredentials) -> Result<(), AuthError> {
+    let mut store = read_auth_json_at(path)?;
+    store.chatgpt_codex = Some(credentials.clone());
+    write_auth_json_atomic(path, &store)
+}
+
+fn read_auth_json_at(path: &Path) -> Result<AuthJson, AuthError> {
+    if !path.is_file() {
+        return Ok(AuthJson::default());
+    }
+    let content = fs::read_to_string(path).map_err(|source| AuthError::Read { path: path.to_path_buf(), source })?;
+    serde_json::from_str(&content).map_err(|e| AuthError::ChatGptCodex(format!("malformed {}: {e}", path.display())))
+}
+
+fn write_auth_json_atomic(path: &Path, store: &AuthJson) -> Result<(), AuthError> {
+    let dir = path.parent().unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(dir).map_err(|source| AuthError::Write { path: path.to_path_buf(), source })?;
+    let mut tmp =
+        tempfile::NamedTempFile::new_in(dir).map_err(|source| AuthError::Write { path: path.to_path_buf(), source })?;
+    serde_json::to_writer_pretty(&mut tmp, store)
+        .map_err(|e| AuthError::ChatGptCodex(format!("serialize auth store: {e}")))?;
+    writeln!(tmp).map_err(|source| AuthError::Write { path: path.to_path_buf(), source })?;
+    tmp.flush()
+        .map_err(|source| AuthError::Write { path: path.to_path_buf(), source })?;
+    set_unix_permissions(tmp.path());
+    tmp.persist(path)
+        .map(|_| ())
+        .map_err(|e| AuthError::Write { path: path.to_path_buf(), source: e.error })
+}
+
+fn refresh_chatgpt_codex_credentials(current: ChatGptCodexCredentials) -> Result<ChatGptCodexCredentials, AuthError> {
+    let token = exchange_chatgpt_codex_token(serde_json::json!({
+        "grant_type": "refresh_token",
+        "refresh_token": current.refresh_token,
+    }))?;
+    credentials_from_token_response(token, Some(current.refresh_token))
+}
+
+fn exchange_chatgpt_codex_token(body: serde_json::Value) -> Result<ChatGptCodexTokenResponse, AuthError> {
+    let mut response = ureq::Agent::new_with_defaults()
+        .post(DEVICE_TOKEN_URL)
+        .header("content-type", "application/json")
+        .send_json(body)
+        .map_err(|e| AuthError::ChatGptCodex(format!("token request failed: {e}")))?;
+    read_json_response(&mut response, "token request")
+}
+
+fn read_json_response<T>(response: &mut ureq::http::Response<ureq::Body>, context: &str) -> Result<T, AuthError>
+where
+    T: serde::de::DeserializeOwned,
+{
+    let status = response.status().as_u16();
+    let body = response
+        .body_mut()
+        .read_to_string()
+        .map_err(|e| AuthError::ChatGptCodex(format!("{context} body read failed: {e}")))?;
+    if !(200..=299).contains(&status) {
+        let message = serde_json::from_str::<serde_json::Value>(&body)
+            .ok()
+            .and_then(|value| {
+                value
+                    .pointer("/error/message")
+                    .or_else(|| value.get("error_description"))
+                    .or_else(|| value.get("error"))
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+            })
+            .unwrap_or_else(|| body.chars().take(240).collect());
+        return Err(AuthError::ChatGptCodex(message));
+    }
+    serde_json::from_str(&body).map_err(|e| AuthError::ChatGptCodex(format!("{context} JSON parse failed: {e}")))
+}
+
+fn wait_for_pkce_callback_code() -> Result<String, AuthError> {
+    let listener = TcpListener::bind(PKCE_CALLBACK_ADDR)
+        .map_err(|e| AuthError::ChatGptCodex(format!("failed to bind localhost:1455 callback: {e}")))?;
+    let (mut stream, _) = listener
+        .accept()
+        .map_err(|e| AuthError::ChatGptCodex(format!("failed to accept browser callback: {e}")))?;
+    let mut reader = std::io::BufReader::new(
+        stream
+            .try_clone()
+            .map_err(|e| AuthError::ChatGptCodex(format!("failed to read browser callback: {e}")))?,
+    );
+    let mut request_line = String::new();
+    reader
+        .read_line(&mut request_line)
+        .map_err(|e| AuthError::ChatGptCodex(format!("failed to read browser callback: {e}")))?;
+    let path = request_line
+        .split_whitespace()
+        .nth(1)
+        .ok_or_else(|| AuthError::ChatGptCodex("browser callback was malformed".to_string()))?;
+    let url = url::Url::parse(&format!("http://localhost{path}"))
+        .map_err(|e| AuthError::ChatGptCodex(format!("browser callback URL was malformed: {e}")))?;
+    let code = url
+        .query_pairs()
+        .find_map(|(key, value)| if key == "code" { Some(value.into_owned()) } else { None })
+        .ok_or_else(|| AuthError::ChatGptCodex("browser callback did not include code".to_string()))?;
+    let response =
+        "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 31\r\n\r\nChatGPT Codex login complete.\n";
+    let _ = stream.write_all(response.as_bytes());
+    Ok(code)
+}
+
+fn random_pkce_verifier() -> Result<String, AuthError> {
+    let mut bytes = [0_u8; 32];
+    fs::File::open("/dev/urandom")
+        .and_then(|mut file| std::io::Read::read_exact(&mut file, &mut bytes))
+        .map_err(|e| AuthError::ChatGptCodex(format!("failed to generate PKCE verifier: {e}")))?;
+    Ok(base64_url_encode(&bytes))
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+fn base64_url_decode(input: &str) -> Result<Vec<u8>, AuthError> {
+    let mut out = Vec::new();
+    let mut buffer = 0_u32;
+    let mut bits = 0_u8;
+    for ch in input.chars().filter(|ch| *ch != '=') {
+        let value = match ch {
+            'A'..='Z' => ch as u32 - 'A' as u32,
+            'a'..='z' => ch as u32 - 'a' as u32 + 26,
+            '0'..='9' => ch as u32 - '0' as u32 + 52,
+            '-' => 62,
+            '_' => 63,
+            _ => {
+                return Err(AuthError::ChatGptCodex(
+                    "access token payload is not base64url".to_string(),
+                ));
+            }
+        };
+        buffer = (buffer << 6) | value;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push(((buffer >> bits) & 0xff) as u8);
+        }
+    }
+    Ok(out)
+}
+
+fn base64_url_encode(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let mut out = String::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        let b0 = bytes[i];
+        let b1 = bytes.get(i + 1).copied().unwrap_or(0);
+        let b2 = bytes.get(i + 2).copied().unwrap_or(0);
+        out.push(ALPHABET[(b0 >> 2) as usize] as char);
+        out.push(ALPHABET[(((b0 & 0b11) << 4) | (b1 >> 4)) as usize] as char);
+        if i + 1 < bytes.len() {
+            out.push(ALPHABET[(((b1 & 0b1111) << 2) | (b2 >> 6)) as usize] as char);
+        }
+        if i + 2 < bytes.len() {
+            out.push(ALPHABET[(b2 & 0b11_1111) as usize] as char);
+        }
+        i += 3;
+    }
+    out
+}
+
 /// Redact a credential value for display/debug output.
 ///
 /// This returns a fixed sentinel string so callers cannot accidentally leak
@@ -346,7 +734,15 @@ fn set_unix_permissions(_path: &Path) {}
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Mutex, MutexGuard};
+
     use super::*;
+
+    static ENV_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn env_test_lock() -> MutexGuard<'static, ()> {
+        ENV_TEST_LOCK.lock().expect("env test lock")
+    }
 
     fn temp_cred_path() -> (tempfile::TempDir, PathBuf) {
         let dir = tempfile::tempdir().expect("create temp dir");
@@ -360,12 +756,79 @@ mod tests {
         fs::write(path, content).unwrap();
     }
 
+    fn jwt_with_account(account_id: &str) -> String {
+        let payload = serde_json::json!({
+            "https://api.openai.com/auth": {
+                "chatgpt_account_id": account_id,
+            }
+        });
+        format!(
+            "header.{}.sig",
+            base64_url_encode(serde_json::to_string(&payload).unwrap().as_bytes())
+        )
+    }
+
     #[test]
     fn parses_simple_assignment() {
         assert_eq!(
             parse_credential_line("UMANS_API_KEY=sk-abc123"),
             Some(("UMANS_API_KEY".to_string(), "sk-abc123".to_string()))
         );
+    }
+
+    #[test]
+    fn chatgpt_codex_account_id_decodes_from_jwt_without_logging_token() {
+        let token = jwt_with_account("acct_test");
+        assert_eq!(chatgpt_account_id_from_jwt(&token).unwrap(), "acct_test");
+        assert!(matches!(
+            chatgpt_account_id_from_jwt("header.e30.sig"),
+            Err(AuthError::ChatGptCodex(_))
+        ));
+    }
+
+    #[test]
+    fn chatgpt_codex_auth_json_preserves_unrelated_entries_and_removes_only_entry() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("auth.json");
+        fs::write(&path, r#"{"other":{"keep":true}}"#).unwrap();
+        let credentials = ChatGptCodexCredentials {
+            access_token: jwt_with_account("acct_file"),
+            refresh_token: "refresh-secret".to_string(),
+            expires_at_ms: 123,
+            account_id: "acct_file".to_string(),
+        };
+
+        write_chatgpt_codex_credentials_at(&path, &credentials).expect("write");
+        assert_eq!(read_chatgpt_codex_credentials_at(&path).unwrap(), Some(credentials));
+        let written: serde_json::Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(written["other"]["keep"], true);
+
+        let mut store = read_auth_json_at(&path).unwrap();
+        store.chatgpt_codex = None;
+        write_auth_json_atomic(&path, &store).expect("remove");
+        assert_eq!(read_chatgpt_codex_credentials_at(&path).unwrap(), None);
+        let removed: serde_json::Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(removed["other"]["keep"], true);
+        assert!(removed.get(CHATGPT_CODEX_AUTH_KEY).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn chatgpt_codex_auth_json_is_0600() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("auth.json");
+        let credentials = ChatGptCodexCredentials {
+            access_token: jwt_with_account("acct_file"),
+            refresh_token: "refresh-secret".to_string(),
+            expires_at_ms: 123,
+            account_id: "acct_file".to_string(),
+        };
+        write_chatgpt_codex_credentials_at(&path, &credentials).expect("write");
+
+        let mode = fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
     }
 
     #[test]
@@ -617,6 +1080,7 @@ mod tests {
 
     #[test]
     fn global_path_uses_home_thndrs() {
+        let _guard = env_test_lock();
         let tmp = tempfile::tempdir().unwrap();
         let home = tmp.path().join("home");
         let old_home = std::env::var_os("HOME");
@@ -634,6 +1098,7 @@ mod tests {
 
     #[test]
     fn global_path_fails_without_home() {
+        let _guard = env_test_lock();
         let old_home = std::env::var_os("HOME");
         unsafe { std::env::remove_var("HOME") };
         let old_profile = std::env::var_os("USERPROFILE");
@@ -742,6 +1207,7 @@ mod tests {
 
     #[test]
     fn resolve_picks_env_var_first() {
+        let _guard = env_test_lock();
         let key = "RESOLVE_TEST_ENV_FIRST";
         unsafe { std::env::set_var(key, "from-env") };
         let dir = tempfile::tempdir().unwrap();
@@ -753,6 +1219,7 @@ mod tests {
 
     #[test]
     fn resolve_falls_through_to_global_store() {
+        let _guard = env_test_lock();
         let key = "RESOLVE_TEST_GLOBAL";
         let tmp = tempfile::tempdir().unwrap();
         let home = tmp.path().join("home");
@@ -782,6 +1249,7 @@ mod tests {
 
     #[test]
     fn resolve_falls_through_to_project_store() {
+        let _guard = env_test_lock();
         let key = "RESOLVE_TEST_PROJECT";
         let tmp = tempfile::tempdir().unwrap();
         let workspace = tmp.path().join("workspace");
@@ -811,6 +1279,7 @@ mod tests {
 
     #[test]
     fn resolve_falls_through_to_dotenv_legacy() {
+        let _guard = env_test_lock();
         let key = "RESOLVE_TEST_DOTENV";
         let tmp = tempfile::tempdir().unwrap();
         let workspace = tmp.path().join("workspace");
@@ -838,6 +1307,7 @@ mod tests {
 
     #[test]
     fn resolve_returns_none_for_missing_key() {
+        let _guard = env_test_lock();
         let key = "RESOLVE_TEST_NONEXISTENT";
         let tmp = tempfile::tempdir().unwrap();
         let workspace = tmp.path().join("workspace");
@@ -861,6 +1331,7 @@ mod tests {
 
     #[test]
     fn resolve_precedence_env_overrides_all() {
+        let _guard = env_test_lock();
         let key = "RESOLVE_TEST_PRECEDENCE";
         let tmp = tempfile::tempdir().unwrap();
         let workspace = tmp.path().join("workspace");
@@ -903,6 +1374,7 @@ mod tests {
 
     #[test]
     fn resolve_empty_env_var_is_skipped() {
+        let _guard = env_test_lock();
         let key = "RESOLVE_TEST_EMPTY_ENV";
         unsafe { std::env::set_var(key, "") };
         let dir = tempfile::tempdir().unwrap();

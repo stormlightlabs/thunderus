@@ -596,6 +596,14 @@ mod tests {
             }))
         );
 
+        let codex_login = Cli::try_parse_from(["thndrs", "login", "chatgpt-codex"]).expect("parse");
+        assert_eq!(
+            codex_login.command,
+            Some(Command::Login(commands::auth::LoginCommand {
+                provider: commands::setup::ApiKeyProviderArg::ChatgptCodex,
+            }))
+        );
+
         let logout = Cli::try_parse_from(["thndrs", "logout", "umans"]).expect("parse");
         assert_eq!(
             logout.command,
