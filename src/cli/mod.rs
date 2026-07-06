@@ -571,7 +571,7 @@ mod tests {
         assert_eq!(
             cli.command,
             Some(Command::Setup(commands::setup::SetupCommand {
-                provider: Some(commands::setup::ApiKeyProviderArg::Umans),
+                provider: Some(commands::setup::SetupProviderArg::Umans),
                 global: false,
                 project: true,
             }))
@@ -584,7 +584,7 @@ mod tests {
         assert_eq!(
             login.command,
             Some(Command::Login(commands::auth::LoginCommand {
-                provider: commands::setup::ApiKeyProviderArg::OpencodeGo,
+                provider: commands::setup::SetupProviderArg::OpencodeGo,
             }))
         );
 
@@ -592,7 +592,7 @@ mod tests {
         assert_eq!(
             zen_login.command,
             Some(Command::Login(commands::auth::LoginCommand {
-                provider: commands::setup::ApiKeyProviderArg::OpencodeZen,
+                provider: commands::setup::SetupProviderArg::OpencodeZen,
             }))
         );
 
@@ -600,7 +600,7 @@ mod tests {
         assert_eq!(
             codex_login.command,
             Some(Command::Login(commands::auth::LoginCommand {
-                provider: commands::setup::ApiKeyProviderArg::ChatgptCodex,
+                provider: commands::setup::SetupProviderArg::ChatgptCodex,
             }))
         );
 
@@ -608,7 +608,7 @@ mod tests {
         assert_eq!(
             logout.command,
             Some(Command::Logout(commands::auth::LogoutCommand {
-                provider: commands::setup::ApiKeyProviderArg::Umans,
+                provider: commands::setup::SetupProviderArg::Umans,
             }))
         );
 

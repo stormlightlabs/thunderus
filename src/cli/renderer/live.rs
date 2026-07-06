@@ -165,10 +165,16 @@ fn first_run_recovery_rows(app: &App, width: usize, max_height: usize) -> Vec<Ro
     let selected_style = CellStyle::new().fg(p.text).bg(bg).bold();
 
     let provider = recovery.provider.map(|provider| provider.label()).unwrap_or("acp");
-    let env_var = recovery
+    let missing = recovery
         .provider
-        .map(|provider| provider.env_var())
-        .unwrap_or("ACP agent config");
+        .and_then(|provider| provider.api_key_env_var())
+        .unwrap_or_else(|| {
+            if recovery.provider == Some(crate::cli::commands::setup::SetupProviderArg::ChatgptCodex) {
+                "ChatGPT OAuth credential"
+            } else {
+                "ACP agent config"
+            }
+        });
 
     let mut rows = Vec::new();
     rows.push(Row::padded(
@@ -176,7 +182,7 @@ fn first_run_recovery_rows(app: &App, width: usize, max_height: usize) -> Vec<Ro
             Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(bg)),
             Span::styled("setup", title_style),
             Span::styled(
-                format!("  provider={provider} model={} missing={env_var}", app.model),
+                format!("  provider={provider} model={} missing={missing}", app.model),
                 muted_style,
             ),
         ],
@@ -192,7 +198,7 @@ fn first_run_recovery_rows(app: &App, width: usize, max_height: usize) -> Vec<Ro
                 text_style,
                 "Missing credential. Choose an action before submitting this prompt.",
             ));
-            let actions = if recovery.provider == Some(crate::cli::commands::setup::ApiKeyProviderArg::ChatgptCodex) {
+            let actions = if recovery.provider == Some(crate::cli::commands::setup::SetupProviderArg::ChatgptCodex) {
                 &[
                     "switch model/provider",
                     "show setup instructions",
@@ -894,7 +900,7 @@ mod tests {
     use super::*;
     use crate::acp::permissions::{PendingPermission, PermissionKindView, PermissionOptionView};
     use crate::app::{App, FilePickerSource, FirstRunRecovery, Mode, PickerItem, PickerState, RecoveryStage, RunState};
-    use crate::cli::commands::setup::ApiKeyProviderArg;
+    use crate::cli::commands::setup::SetupProviderArg;
     use crate::cli::{Cli, Theme, WebSearchMode};
     use crate::renderer::git::GitStatusSummary;
     use crate::renderer::layout::truncate_spans;
@@ -1309,7 +1315,7 @@ mod tests {
         let mut app = test_app();
         app.model = "umans-coder".to_string();
         app.first_run_recovery = Some(FirstRunRecovery {
-            provider: Some(ApiKeyProviderArg::Umans),
+            provider: Some(SetupProviderArg::Umans),
             stage: RecoveryStage::MissingCredential,
             pending_provider_prompt: true,
             selected: 0,
@@ -1325,7 +1331,7 @@ mod tests {
         let mut app = test_app();
         app.model = "opencode-go/kimi-k2.7-code".to_string();
         app.first_run_recovery = Some(FirstRunRecovery {
-            provider: Some(ApiKeyProviderArg::OpencodeGo),
+            provider: Some(SetupProviderArg::OpencodeGo),
             stage: RecoveryStage::MissingCredential,
             pending_provider_prompt: true,
             selected: 0,
@@ -1341,7 +1347,7 @@ mod tests {
         let mut app = test_app();
         app.model = "umans-coder".to_string();
         app.first_run_recovery = Some(FirstRunRecovery {
-            provider: Some(ApiKeyProviderArg::Umans),
+            provider: Some(SetupProviderArg::Umans),
             stage: RecoveryStage::ConfirmStore,
             pending_provider_prompt: true,
             selected: 1,

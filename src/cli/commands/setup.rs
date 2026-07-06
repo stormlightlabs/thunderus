@@ -12,10 +12,10 @@ use crate::cli::Cli;
 use crate::thndrs_core::auth;
 use crate::{config, context};
 
-/// API-key providers supported by first-run setup.
+/// Providers supported by first-run setup and login commands.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 #[value(rename_all = "kebab-case")]
-pub enum ApiKeyProviderArg {
+pub enum SetupProviderArg {
     /// Umans Code provider.
     Umans,
     /// OpenCode Go provider.
@@ -26,35 +26,78 @@ pub enum ApiKeyProviderArg {
     ChatgptCodex,
 }
 
-impl ApiKeyProviderArg {
-    /// Provider display label.
-    pub fn label(self) -> &'static str {
+/// Authentication mechanism used by a setup provider.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProviderAuthKind {
+    /// Provider uses a single API key stored in a credential env file.
+    ApiKey { env_var: &'static str },
+    /// Provider uses ChatGPT OAuth credentials stored in `~/.thndrs/auth.json`.
+    ChatGptOAuth { env_override: &'static str },
+}
+
+/// Static metadata used by setup, login, and auth status commands.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ProviderMetadata {
+    /// Public provider argument value.
+    pub label: &'static str,
+    /// Default model written by setup when requested.
+    pub default_model: &'static str,
+    /// Provider auth storage behavior.
+    pub auth_kind: ProviderAuthKind,
+    /// Short setup summary copy.
+    pub setup_summary: &'static str,
+}
+
+impl SetupProviderArg {
+    /// All built-in setup providers in default prompt order.
+    pub const ALL: [Self; 4] = [Self::OpencodeZen, Self::ChatgptCodex, Self::Umans, Self::OpencodeGo];
+
+    /// Provider metadata.
+    pub const fn metadata(self) -> ProviderMetadata {
         match self {
-            ApiKeyProviderArg::Umans => "umans",
-            ApiKeyProviderArg::OpencodeGo => "opencode-go",
-            ApiKeyProviderArg::OpencodeZen => "opencode-zen",
-            ApiKeyProviderArg::ChatgptCodex => "chatgpt-codex",
+            Self::Umans => ProviderMetadata {
+                label: "umans",
+                default_model: "umans-coder",
+                auth_kind: ProviderAuthKind::ApiKey { env_var: auth::UMANS_API_KEY_ENV },
+                setup_summary: "Umans Code uses an API key stored in a thndrs credential store.",
+            },
+            Self::OpencodeGo => ProviderMetadata {
+                label: "opencode-go",
+                default_model: "opencode-go/kimi-k2.7-code",
+                auth_kind: ProviderAuthKind::ApiKey { env_var: auth::OPENCODE_GO_KEY_ENV },
+                setup_summary: "OpenCode Go uses OPENCODE_GO_KEY stored in a thndrs credential store.",
+            },
+            Self::OpencodeZen => ProviderMetadata {
+                label: "opencode-zen",
+                default_model: "opencode/big-pickle",
+                auth_kind: ProviderAuthKind::ApiKey { env_var: auth::OPENCODE_ZEN_KEY_ENV },
+                setup_summary: "OpenCode Zen Big Pickle is the default model; it requires OPENCODE_ZEN_KEY and is free for a limited time.",
+            },
+            Self::ChatgptCodex => ProviderMetadata {
+                label: "chatgpt-codex",
+                default_model: "chatgpt-codex/gpt-5.5",
+                auth_kind: ProviderAuthKind::ChatGptOAuth { env_override: auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV },
+                setup_summary: "ChatGPT Codex uses ChatGPT OAuth stored in ~/.thndrs/auth.json.",
+            },
         }
     }
 
-    /// Required API-key environment variable for this provider.
-    pub fn env_var(self) -> &'static str {
-        match self {
-            ApiKeyProviderArg::Umans => auth::UMANS_API_KEY_ENV,
-            ApiKeyProviderArg::OpencodeGo => auth::OPENCODE_GO_KEY_ENV,
-            ApiKeyProviderArg::OpencodeZen => auth::OPENCODE_ZEN_KEY_ENV,
-            ApiKeyProviderArg::ChatgptCodex => auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV,
+    /// Provider display label.
+    pub fn label(self) -> &'static str {
+        self.metadata().label
+    }
+
+    /// Required API-key environment variable for API-key providers.
+    pub fn api_key_env_var(self) -> Option<&'static str> {
+        match self.metadata().auth_kind {
+            ProviderAuthKind::ApiKey { env_var } => Some(env_var),
+            ProviderAuthKind::ChatGptOAuth { .. } => None,
         }
     }
 
     /// Default model used when setup writes a new config model key.
     pub fn default_model(self) -> &'static str {
-        match self {
-            ApiKeyProviderArg::Umans => "umans-coder",
-            ApiKeyProviderArg::OpencodeGo => "opencode-go/kimi-k2.7-code",
-            ApiKeyProviderArg::OpencodeZen => "opencode/big-pickle",
-            ApiKeyProviderArg::ChatgptCodex => "chatgpt-codex/gpt-5.5",
-        }
+        self.metadata().default_model
     }
 }
 
@@ -63,7 +106,7 @@ impl ApiKeyProviderArg {
 pub struct SetupCommand {
     /// Provider to configure.
     #[arg(long, value_enum)]
-    pub provider: Option<ApiKeyProviderArg>,
+    pub provider: Option<SetupProviderArg>,
     /// Write global setup files under the user's home directory.
     #[arg(long, conflicts_with = "project")]
     pub global: bool,
@@ -78,26 +121,29 @@ pub fn run(cli: &Cli, command: &SetupCommand) -> io::Result<()> {
     let mut writer = stdout.lock();
     let workspace = context::discover_workspace_root(&cli.cwd);
     let provider = command.provider.unwrap_or_else(|| provider_for_model(&cli.model));
-    let credential_source = auth::credential_source(provider.env_var(), &workspace);
+    let auth_status = auth_status(provider, &workspace);
     let scope = command_scope(command);
 
     writeln!(writer, "workspace: {}", workspace.display())?;
+    writeln!(writer, "model: {}", provider.default_model())?;
     writeln!(writer, "provider: {}", provider.label())?;
-    writeln!(
-        writer,
-        "credential: {}",
-        credential_source
-            .map(|source| source.label().to_string())
-            .unwrap_or_else(|| String::from("missing"))
-    )?;
+    writeln!(writer, "auth: {auth_status}")?;
+    writeln!(writer, "setup: {}", provider.metadata().setup_summary)?;
 
+    if let ProviderAuthKind::ChatGptOAuth { .. } = provider.metadata().auth_kind {
+        return run_chatgpt_setup(provider, auth_status.as_str(), &mut writer);
+    }
+
+    let env_var = provider
+        .api_key_env_var()
+        .expect("API-key setup branch only handles API-key providers");
+    let credential_source = auth::credential_source(env_var, &workspace);
     if scope.is_none() && credential_source.is_none() && !io::stdin().is_terminal() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "setup needs an interactive terminal to choose a credential store and read a hidden API key; pass provider env vars for non-interactive use",
         ));
     }
-
     let scope = match scope {
         Some(scope) => scope,
         None if io::stdin().is_terminal() => prompt_scope(&mut writer)?,
@@ -112,7 +158,7 @@ pub fn run(cli: &Cli, command: &SetupCommand) -> io::Result<()> {
                 io::ErrorKind::InvalidInput,
                 format!(
                     "{} is missing; run `thndrs login {}` interactively",
-                    provider.env_var(),
+                    env_var,
                     provider.label()
                 ),
             ));
@@ -128,7 +174,7 @@ pub fn run(cli: &Cli, command: &SetupCommand) -> io::Result<()> {
                 &format!("Store {} credential in {} store?", provider.label(), scope.label()),
             )? {
                 let path = credential_path(scope, &workspace)?;
-                auth::set_credential(&path, provider.env_var(), api_key).map_err(io::Error::other)?;
+                auth::set_credential(&path, env_var, api_key).map_err(io::Error::other)?;
                 if scope == CredentialScope::Project {
                     auth::ensure_git_exclude(&workspace).map_err(io::Error::other)?;
                 }
@@ -147,15 +193,53 @@ pub fn run(cli: &Cli, command: &SetupCommand) -> io::Result<()> {
     Ok(())
 }
 
-fn provider_for_model(model: &str) -> ApiKeyProviderArg {
+fn auth_status(provider: SetupProviderArg, workspace: &std::path::Path) -> String {
+    match provider.metadata().auth_kind {
+        ProviderAuthKind::ApiKey { env_var } => auth::credential_source(env_var, workspace)
+            .map(|source| source.label().to_string())
+            .unwrap_or_else(|| "missing".to_string()),
+        ProviderAuthKind::ChatGptOAuth { env_override } => {
+            if std::env::var(env_override).is_ok_and(|value| !value.trim().is_empty()) {
+                "environment override".to_string()
+            } else {
+                match auth::read_chatgpt_codex_credentials() {
+                    Ok(Some(_)) => "~/.thndrs/auth.json".to_string(),
+                    Ok(None) => "missing OAuth credential".to_string(),
+                    Err(_) => "invalid auth store".to_string(),
+                }
+            }
+        }
+    }
+}
+
+fn run_chatgpt_setup<W: Write>(provider: SetupProviderArg, auth_status: &str, writer: &mut W) -> io::Result<()> {
+    if auth_status == "environment override" {
+        writeln!(
+            writer,
+            "next: run `thndrs login {}` interactively to create or update stored OAuth credentials",
+            provider.label()
+        )?;
+        return Ok(());
+    }
+    Err(io::Error::new(
+        io::ErrorKind::InvalidInput,
+        format!(
+            "{} setup uses ChatGPT OAuth, not an API key; run `thndrs login {}` interactively",
+            provider.label(),
+            provider.label()
+        ),
+    ))
+}
+
+fn provider_for_model(model: &str) -> SetupProviderArg {
     if crate::providers::opencode::is_zen_model_id(model) {
-        ApiKeyProviderArg::OpencodeZen
+        SetupProviderArg::OpencodeZen
     } else if crate::providers::opencode::is_go_model_id(model) {
-        ApiKeyProviderArg::OpencodeGo
+        SetupProviderArg::OpencodeGo
     } else if crate::providers::chatgpt_codex::is_model_id(model) {
-        ApiKeyProviderArg::ChatgptCodex
+        SetupProviderArg::ChatgptCodex
     } else {
-        ApiKeyProviderArg::Umans
+        SetupProviderArg::Umans
     }
 }
 
@@ -170,7 +254,7 @@ fn command_scope(command: &SetupCommand) -> Option<CredentialScope> {
 }
 
 fn maybe_write_model_config<W: Write>(
-    workspace: &std::path::Path, provider: ApiKeyProviderArg, scope: CredentialScope, writer: &mut W,
+    workspace: &std::path::Path, provider: SetupProviderArg, scope: CredentialScope, writer: &mut W,
 ) -> io::Result<()> {
     let path = match scope {
         CredentialScope::Global => config::global_config_path()
@@ -205,25 +289,39 @@ mod tests {
 
     #[test]
     fn provider_defaults_from_model() {
-        assert_eq!(provider_for_model("umans-coder"), ApiKeyProviderArg::Umans);
-        assert_eq!(
-            provider_for_model("opencode/big-pickle"),
-            ApiKeyProviderArg::OpencodeZen
-        );
+        assert_eq!(provider_for_model("umans-coder"), SetupProviderArg::Umans);
+        assert_eq!(provider_for_model("opencode/big-pickle"), SetupProviderArg::OpencodeZen);
         assert_eq!(
             provider_for_model("opencode-go/kimi-k2.7-code"),
-            ApiKeyProviderArg::OpencodeGo
+            SetupProviderArg::OpencodeGo
         );
         assert_eq!(
             provider_for_model("chatgpt-codex/gpt-5.5"),
-            ApiKeyProviderArg::ChatgptCodex
+            SetupProviderArg::ChatgptCodex
         );
     }
 
     #[test]
     fn opencode_zen_is_the_setup_default_model_for_big_pickle() {
-        assert_eq!(ApiKeyProviderArg::OpencodeZen.default_model(), "opencode/big-pickle");
-        assert_eq!(ApiKeyProviderArg::OpencodeZen.env_var(), auth::OPENCODE_ZEN_KEY_ENV);
+        assert_eq!(SetupProviderArg::OpencodeZen.default_model(), "opencode/big-pickle");
+        assert_eq!(
+            SetupProviderArg::OpencodeZen.api_key_env_var(),
+            Some(auth::OPENCODE_ZEN_KEY_ENV)
+        );
+    }
+
+    #[test]
+    fn provider_metadata_models_auth_kinds() {
+        assert_eq!(SetupProviderArg::ALL[0], SetupProviderArg::OpencodeZen);
+        assert_eq!(
+            SetupProviderArg::Umans.metadata().auth_kind,
+            ProviderAuthKind::ApiKey { env_var: auth::UMANS_API_KEY_ENV }
+        );
+        assert_eq!(
+            SetupProviderArg::ChatgptCodex.metadata().auth_kind,
+            ProviderAuthKind::ChatGptOAuth { env_override: auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV }
+        );
+        assert_eq!(SetupProviderArg::ChatgptCodex.api_key_env_var(), None);
     }
 
     #[test]

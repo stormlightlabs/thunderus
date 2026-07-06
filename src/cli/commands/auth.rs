@@ -7,7 +7,7 @@ use clap::{Args, Subcommand};
 use crossterm::event::{Event, KeyCode, KeyEventKind, read};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 
-use super::setup::ApiKeyProviderArg;
+use super::setup::{ProviderAuthKind, SetupProviderArg};
 use crate::cli::Cli;
 use crate::context;
 use crate::thndrs_core::auth;
@@ -16,14 +16,14 @@ use crate::thndrs_core::auth;
 #[derive(Clone, Debug, Eq, PartialEq, Args)]
 pub struct LoginCommand {
     /// Provider whose API key should be stored.
-    pub provider: ApiKeyProviderArg,
+    pub provider: SetupProviderArg,
 }
 
 /// Remove one stored provider credential.
 #[derive(Clone, Debug, Eq, PartialEq, Args)]
 pub struct LogoutCommand {
     /// Provider whose stored API key should be removed.
-    pub provider: ApiKeyProviderArg,
+    pub provider: SetupProviderArg,
 }
 
 /// Authentication inspection commands.
@@ -58,19 +58,23 @@ pub fn run_login(cli: &Cli, command: &LoginCommand) -> io::Result<()> {
     let mut writer = stdout.lock();
     require_interactive("login")?;
 
-    if command.provider == ApiKeyProviderArg::ChatgptCodex {
+    if command.provider == SetupProviderArg::ChatgptCodex {
         return run_chatgpt_codex_login(&mut writer);
     }
 
     let workspace = context::discover_workspace_root(&cli.cwd);
+    let env_var = command
+        .provider
+        .api_key_env_var()
+        .expect("non-ChatGPT login providers use API keys");
     if matches!(
-        auth::credential_source(command.provider.env_var(), &workspace),
+        auth::credential_source(env_var, &workspace),
         Some(auth::CredentialSource::Environment)
     ) {
         writeln!(
             writer,
             "{} is set in the environment and takes precedence over stored credentials.",
-            command.provider.env_var()
+            env_var
         )?;
         if !confirm(&mut writer, "Store a credential anyway?")? {
             writeln!(writer, "login cancelled")?;
@@ -97,7 +101,7 @@ pub fn run_login(cli: &Cli, command: &LoginCommand) -> io::Result<()> {
     }
 
     let path = credential_path(scope, &workspace)?;
-    auth::set_credential(&path, command.provider.env_var(), api_key).map_err(io::Error::other)?;
+    auth::set_credential(&path, env_var, api_key).map_err(io::Error::other)?;
     if scope == CredentialScope::Project {
         auth::ensure_git_exclude(&workspace).map_err(io::Error::other)?;
     }
@@ -120,7 +124,7 @@ pub fn run_logout(cli: &Cli, command: &LogoutCommand) -> io::Result<()> {
     let mut writer = stdout.lock();
     require_interactive("logout")?;
 
-    if command.provider == ApiKeyProviderArg::ChatgptCodex {
+    if command.provider == SetupProviderArg::ChatgptCodex {
         if !confirm(
             &mut writer,
             "Remove ChatGPT Codex credentials from ~/.thndrs/auth.json?",
@@ -155,7 +159,11 @@ pub fn run_logout(cli: &Cli, command: &LogoutCommand) -> io::Result<()> {
     }
 
     let path = credential_path(scope, &workspace)?;
-    auth::remove_credential(&path, command.provider.env_var()).map_err(io::Error::other)?;
+    let env_var = command
+        .provider
+        .api_key_env_var()
+        .expect("non-ChatGPT logout providers use API keys");
+    auth::remove_credential(&path, env_var).map_err(io::Error::other)?;
     writeln!(
         writer,
         "{} credential removed from {}",
@@ -163,13 +171,13 @@ pub fn run_logout(cli: &Cli, command: &LogoutCommand) -> io::Result<()> {
         scope.label()
     )?;
     if matches!(
-        auth::credential_source(command.provider.env_var(), &workspace),
+        auth::credential_source(env_var, &workspace),
         Some(auth::CredentialSource::Environment)
     ) {
         writeln!(
             writer,
             "{} is still set in the environment, so {} remains authenticated through the environment.",
-            command.provider.env_var(),
+            env_var,
             command.provider.label()
         )?;
     }
@@ -190,18 +198,12 @@ pub fn run_auth(cli: &Cli, command: &AuthCommand) -> io::Result<()> {
 
 /// Write redacted provider credential status.
 pub fn write_auth_status<W: Write>(workspace: &Path, writer: &mut W) -> io::Result<()> {
-    for provider in [
-        ApiKeyProviderArg::Umans,
-        ApiKeyProviderArg::OpencodeGo,
-        ApiKeyProviderArg::OpencodeZen,
-        ApiKeyProviderArg::ChatgptCodex,
-    ] {
-        let source = if provider == ApiKeyProviderArg::ChatgptCodex {
-            chatgpt_codex_status()
-        } else {
-            auth::credential_source(provider.env_var(), workspace)
+    for provider in SetupProviderArg::ALL {
+        let source = match provider.metadata().auth_kind {
+            ProviderAuthKind::ApiKey { env_var } => auth::credential_source(env_var, workspace)
                 .map(|source| source.label().to_string())
-                .unwrap_or_else(|| String::from("missing"))
+                .unwrap_or_else(|| String::from("missing")),
+            ProviderAuthKind::ChatGptOAuth { .. } => chatgpt_codex_status(),
         };
         writeln!(writer, "{}\t{}", provider.label(), source)?;
     }
@@ -217,12 +219,12 @@ pub fn credential_path(scope: CredentialScope, workspace: &Path) -> io::Result<P
 }
 
 /// Validate a provider key without persisting provider payloads.
-pub fn validate_provider_key(provider: ApiKeyProviderArg, api_key: &str) -> Result<(), String> {
+pub fn validate_provider_key(provider: SetupProviderArg, api_key: &str) -> Result<(), String> {
     match provider {
-        ApiKeyProviderArg::Umans => crate::providers::umans::validate_api_key(api_key),
-        ApiKeyProviderArg::OpencodeGo => crate::providers::opencode::validate_go_api_key(api_key),
-        ApiKeyProviderArg::OpencodeZen => crate::providers::opencode::validate_zen_api_key(api_key),
-        ApiKeyProviderArg::ChatgptCodex => Err("ChatGPT Codex uses OAuth login, not API-key validation".to_string()),
+        SetupProviderArg::Umans => crate::providers::umans::validate_api_key(api_key),
+        SetupProviderArg::OpencodeGo => crate::providers::opencode::validate_go_api_key(api_key),
+        SetupProviderArg::OpencodeZen => crate::providers::opencode::validate_zen_api_key(api_key),
+        SetupProviderArg::ChatgptCodex => Err("ChatGPT Codex uses OAuth login, not API-key validation".to_string()),
     }
 }
 
@@ -257,7 +259,7 @@ pub fn prompt_scope<W: Write>(writer: &mut W) -> io::Result<CredentialScope> {
 }
 
 /// Read an API key from the terminal without echoing typed characters.
-pub fn read_hidden_api_key<W: Write>(writer: &mut W, provider: ApiKeyProviderArg) -> io::Result<String> {
+pub fn read_hidden_api_key<W: Write>(writer: &mut W, provider: SetupProviderArg) -> io::Result<String> {
     write!(writer, "Enter {} API key (input hidden): ", provider.label())?;
     writer.flush()?;
     enable_raw_mode()?;

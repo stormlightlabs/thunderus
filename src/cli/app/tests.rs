@@ -801,7 +801,7 @@ fn missing_provider_credential_opens_recovery_and_preserves_prompt() {
         assert!(app.transcript.is_empty());
         let recovery = app.first_run_recovery.as_ref().expect("recovery");
         assert_eq!(recovery.stage, RecoveryStage::MissingCredential);
-        assert_eq!(recovery.provider, Some(ApiKeyProviderArg::OpencodeZen));
+        assert_eq!(recovery.provider, Some(SetupProviderArg::OpencodeZen));
         assert!(recovery.pending_provider_prompt);
     });
 }
@@ -830,7 +830,7 @@ fn recovery_enter_key_stores_project_credential_without_transcript_secret() {
         let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
         let mut app = App::from_cli(&cli);
         app.session_writer = None;
-        app.first_run_recovery = Some(FirstRunRecovery::login(ApiKeyProviderArg::Umans));
+        app.first_run_recovery = Some(FirstRunRecovery::login(SetupProviderArg::Umans));
 
         for ch in "sk-secret-from-test".chars() {
             update(&mut app, &key(KeyCode::Char(ch), KeyModifiers::NONE));
@@ -852,7 +852,7 @@ fn recovery_enter_key_stores_project_credential_without_transcript_secret() {
 #[test]
 fn recovery_actions_handle_switch_instructions_continue_and_quit() {
     let mut app = fresh_app();
-    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(ApiKeyProviderArg::Umans, true));
+    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::Umans, true));
 
     update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
@@ -861,7 +861,7 @@ fn recovery_actions_handle_switch_instructions_continue_and_quit() {
 
     app.prompt_accessory = PromptAccessory::None;
     app.picker = None;
-    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(ApiKeyProviderArg::Umans, true));
+    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::Umans, true));
     update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
     update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
@@ -870,7 +870,7 @@ fn recovery_actions_handle_switch_instructions_continue_and_quit() {
         Some(RecoveryStage::Instructions)
     );
 
-    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(ApiKeyProviderArg::Umans, true));
+    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::Umans, true));
     for _ in 0..3 {
         update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
     }
@@ -884,7 +884,7 @@ fn recovery_actions_handle_switch_instructions_continue_and_quit() {
         Entry::Status { text } if text.contains("setup required before submitting")
     )));
 
-    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(ApiKeyProviderArg::Umans, false));
+    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::Umans, false));
     for _ in 0..3 {
         update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
     }
@@ -894,7 +894,7 @@ fn recovery_actions_handle_switch_instructions_continue_and_quit() {
         "manual setup can be skipped without submitting a prompt"
     );
 
-    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(ApiKeyProviderArg::Umans, false));
+    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::Umans, false));
     for _ in 0..4 {
         update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
     }
@@ -918,7 +918,7 @@ fn slash_setup_and_login_open_recovery_surfaces() {
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     let recovery = app.first_run_recovery.as_ref().expect("login recovery");
     assert_eq!(recovery.stage, RecoveryStage::EnterKey);
-    assert_eq!(recovery.provider, Some(ApiKeyProviderArg::OpencodeGo));
+    assert_eq!(recovery.provider, Some(SetupProviderArg::OpencodeGo));
 }
 
 #[test]
@@ -929,7 +929,7 @@ fn slash_chatgpt_codex_login_shows_cli_instructions() {
 
     let recovery = app.first_run_recovery.as_ref().expect("login recovery");
     assert_eq!(recovery.stage, RecoveryStage::Instructions);
-    assert_eq!(recovery.provider, Some(ApiKeyProviderArg::ChatgptCodex));
+    assert_eq!(recovery.provider, Some(SetupProviderArg::ChatgptCodex));
 }
 
 #[test]
@@ -940,7 +940,7 @@ fn slash_logout_requires_confirmation_surface() {
 
     let recovery = app.first_run_recovery.as_ref().expect("logout recovery");
     assert_eq!(recovery.stage, RecoveryStage::LogoutConfirm);
-    assert_eq!(recovery.provider, Some(ApiKeyProviderArg::Umans));
+    assert_eq!(recovery.provider, Some(SetupProviderArg::Umans));
 }
 
 #[test]

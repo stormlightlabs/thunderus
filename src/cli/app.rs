@@ -17,7 +17,7 @@ use crate::acp::config::provider_label;
 use crate::acp::permissions::{PendingPermission, PermissionDecision};
 use crate::cancel::CancelToken;
 use crate::cli::commands::auth::CredentialScope;
-use crate::cli::commands::setup::ApiKeyProviderArg;
+use crate::cli::commands::setup::SetupProviderArg;
 use crate::cli::{Cli, Theme, WebSearchMode};
 use crate::input::PromptInput;
 use crate::providers::{codex, opencode, umans};
@@ -67,7 +67,7 @@ pub enum PromptAccessory {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FirstRunRecovery {
     /// Provider being configured or diagnosed.
-    pub provider: Option<ApiKeyProviderArg>,
+    pub provider: Option<SetupProviderArg>,
     /// Current recovery step.
     pub stage: RecoveryStage,
     /// Whether a prompt submit is waiting on this recovery.
@@ -79,7 +79,7 @@ pub struct FirstRunRecovery {
 }
 
 impl FirstRunRecovery {
-    fn missing_provider(provider: ApiKeyProviderArg, pending_provider_prompt: bool) -> Self {
+    fn missing_provider(provider: SetupProviderArg, pending_provider_prompt: bool) -> Self {
         Self {
             provider: Some(provider),
             stage: RecoveryStage::MissingCredential,
@@ -99,10 +99,10 @@ impl FirstRunRecovery {
         }
     }
 
-    fn login(provider: ApiKeyProviderArg) -> Self {
+    fn login(provider: SetupProviderArg) -> Self {
         Self {
             provider: Some(provider),
-            stage: if provider == ApiKeyProviderArg::ChatgptCodex {
+            stage: if provider == SetupProviderArg::ChatgptCodex {
                 RecoveryStage::Instructions
             } else {
                 RecoveryStage::EnterKey
@@ -113,7 +113,7 @@ impl FirstRunRecovery {
         }
     }
 
-    fn logout(provider: ApiKeyProviderArg) -> Self {
+    fn logout(provider: SetupProviderArg) -> Self {
         Self {
             provider: Some(provider),
             stage: RecoveryStage::LogoutConfirm,
@@ -1512,23 +1512,26 @@ fn close_prompt_accessory(app: &mut App) {
     app.prompt_accessory = PromptAccessory::None;
 }
 
-fn provider_for_model(model: &str) -> ApiKeyProviderArg {
+fn provider_for_model(model: &str) -> SetupProviderArg {
     if opencode::is_zen_model_id(model) {
-        ApiKeyProviderArg::OpencodeZen
+        SetupProviderArg::OpencodeZen
     } else if opencode::is_go_model_id(model) {
-        ApiKeyProviderArg::OpencodeGo
+        SetupProviderArg::OpencodeGo
     } else if codex::is_model_id(model) {
-        ApiKeyProviderArg::ChatgptCodex
+        SetupProviderArg::ChatgptCodex
     } else {
-        ApiKeyProviderArg::Umans
+        SetupProviderArg::Umans
     }
 }
 
-fn provider_authenticated(provider: ApiKeyProviderArg, cwd: &std::path::Path) -> bool {
-    if provider == ApiKeyProviderArg::ChatgptCodex {
+fn provider_authenticated(provider: SetupProviderArg, cwd: &std::path::Path) -> bool {
+    if provider == SetupProviderArg::ChatgptCodex {
         return auth::resolve_chatgpt_codex_auth().is_ok();
     }
-    auth::credential_source(provider.env_var(), cwd).is_some()
+    let Some(env_var) = provider.api_key_env_var() else {
+        return false;
+    };
+    auth::credential_source(env_var, cwd).is_some()
 }
 
 fn selected_provider_missing(app: &App) -> Option<FirstRunRecovery> {
@@ -1549,7 +1552,7 @@ fn selected_provider_missing(app: &App) -> Option<FirstRunRecovery> {
 
 fn recovery_action_count(recovery: &FirstRunRecovery) -> usize {
     match recovery.stage {
-        RecoveryStage::MissingCredential if recovery.provider == Some(ApiKeyProviderArg::ChatgptCodex) => 4,
+        RecoveryStage::MissingCredential if recovery.provider == Some(SetupProviderArg::ChatgptCodex) => 4,
         RecoveryStage::MissingCredential => 5,
         RecoveryStage::EnterKey => 1,
         RecoveryStage::ConfirmStore | RecoveryStage::LogoutConfirm => 3,
@@ -1611,7 +1614,7 @@ fn accept_recovery_action(app: &mut App) -> Option<Msg> {
     match recovery.stage {
         RecoveryStage::MissingCredential => match recovery.selected {
             0 => {
-                if recovery.provider == Some(ApiKeyProviderArg::ChatgptCodex) {
+                if recovery.provider == Some(SetupProviderArg::ChatgptCodex) {
                     app.first_run_recovery = None;
                     open_model_picker(app);
                     return None;
@@ -1623,7 +1626,7 @@ fn accept_recovery_action(app: &mut App) -> Option<Msg> {
                 }
             }
             1 => {
-                if recovery.provider == Some(ApiKeyProviderArg::ChatgptCodex) {
+                if recovery.provider == Some(SetupProviderArg::ChatgptCodex) {
                     if let Some(active) = app.first_run_recovery.as_mut() {
                         active.stage = RecoveryStage::Instructions;
                         active.selected = 0;
@@ -1634,7 +1637,7 @@ fn accept_recovery_action(app: &mut App) -> Option<Msg> {
                 open_model_picker(app);
             }
             2 => {
-                if recovery.provider == Some(ApiKeyProviderArg::ChatgptCodex) {
+                if recovery.provider == Some(SetupProviderArg::ChatgptCodex) {
                     if recovery.pending_provider_prompt {
                         app.transcript.push(Entry::Status {
                             text: String::from(
@@ -1654,7 +1657,7 @@ fn accept_recovery_action(app: &mut App) -> Option<Msg> {
                 }
             }
             3 => {
-                if recovery.provider == Some(ApiKeyProviderArg::ChatgptCodex) {
+                if recovery.provider == Some(SetupProviderArg::ChatgptCodex) {
                     app.quit = true;
                     return Some(Msg::Quit);
                 }
@@ -1752,7 +1755,16 @@ fn store_recovery_credential(app: &mut App, recovery: &FirstRunRecovery) {
         }
     };
 
-    match auth::set_credential(&path, provider.env_var(), key) {
+    let Some(env_var) = provider.api_key_env_var() else {
+        app.first_run_recovery = Some(FirstRunRecovery::missing_provider(
+            provider,
+            recovery.pending_provider_prompt,
+        ));
+        app.transcript
+            .push(Entry::Error { text: String::from("ChatGPT Codex uses OAuth login, not API-key storage") });
+        return;
+    };
+    match auth::set_credential(&path, env_var, key) {
         Ok(()) => {
             if scope == CredentialScope::Project {
                 if let Err(err) = auth::ensure_git_exclude(&app.cwd) {
@@ -1789,7 +1801,13 @@ fn remove_recovery_credential(app: &mut App, recovery: &FirstRunRecovery) {
             return;
         }
     };
-    match auth::remove_credential(&path, provider.env_var()) {
+    let Some(env_var) = provider.api_key_env_var() else {
+        app.first_run_recovery = None;
+        app.transcript
+            .push(Entry::Error { text: String::from("ChatGPT Codex credentials are stored in ~/.thndrs/auth.json") });
+        return;
+    };
+    match auth::remove_credential(&path, env_var) {
         Ok(()) => {
             app.first_run_recovery = None;
             app.transcript.push(Entry::Status {
@@ -2148,7 +2166,7 @@ fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
     if let Some(rest) = command.strip_prefix("logout ") {
         app.input.clear();
         match parse_api_key_provider(rest.trim()) {
-            Some(ApiKeyProviderArg::ChatgptCodex) => {
+            Some(SetupProviderArg::ChatgptCodex) => {
                 app.transcript.push(Entry::Status {
                     text: String::from(
                         "ChatGPT Codex logout is CLI-only; run `thndrs logout chatgpt-codex` outside the TUI",
@@ -2252,12 +2270,12 @@ fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
     }
 }
 
-fn parse_api_key_provider(input: &str) -> Option<ApiKeyProviderArg> {
+fn parse_api_key_provider(input: &str) -> Option<SetupProviderArg> {
     match input {
-        "umans" => Some(ApiKeyProviderArg::Umans),
-        "opencode-go" => Some(ApiKeyProviderArg::OpencodeGo),
-        "opencode-zen" => Some(ApiKeyProviderArg::OpencodeZen),
-        "chatgpt-codex" => Some(ApiKeyProviderArg::ChatgptCodex),
+        "umans" => Some(SetupProviderArg::Umans),
+        "opencode-go" => Some(SetupProviderArg::OpencodeGo),
+        "opencode-zen" => Some(SetupProviderArg::OpencodeZen),
+        "chatgpt-codex" => Some(SetupProviderArg::ChatgptCodex),
         _ => None,
     }
 }

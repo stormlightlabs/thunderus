@@ -430,7 +430,11 @@ fn provider_secret_env_vars_do_not_enter_config_or_origins() {
 #[test]
 fn effective_config_defaults_when_no_files() {
     let tmp = tempfile::tempdir().unwrap();
-    let effective = load_effective(tmp.path(), &[]).unwrap();
+    let home = tmp.path().join("home");
+    let workspace = tmp.path().join("workspace");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&workspace).unwrap();
+    let effective = with_home(&home, || load_effective(&workspace, &[]).unwrap());
 
     assert!(effective.layers.is_empty(), "no config files should produce no layers");
     assert_eq!(effective.config.model.as_deref(), Some(DEFAULT_MODEL));
@@ -441,7 +445,7 @@ fn effective_config_defaults_when_no_files() {
     assert_eq!(effective.config.theme, Some(Theme::EldritchMinimal));
     assert_eq!(
         effective.config.session_dir,
-        Some(tmp.path().join(".thndrs").join("sessions"))
+        Some(workspace.join(".thndrs").join("sessions"))
     );
     assert!(
         effective
@@ -623,7 +627,10 @@ fn effective_config_env_overrides_config_files() {
 #[test]
 fn old_and_typo_project_config_paths_are_ignored() {
     let tmp = tempfile::tempdir().unwrap();
-    let workspace = tmp.path();
+    let home = tmp.path().join("home");
+    let workspace = tmp.path().join("workspace");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&workspace).unwrap();
     fs::create_dir_all(workspace.join(".thndrs")).unwrap();
     fs::create_dir_all(workspace.join(".thdrs")).unwrap();
     fs::write(workspace.join(".thndrs.toml"), "model = \"old-root\"\n").unwrap();
@@ -645,7 +652,7 @@ fn old_and_typo_project_config_paths_are_ignored() {
     .unwrap();
     fs::write(workspace.join(".thdrs").join("thndrs.toml"), "model = \"typo-name\"\n").unwrap();
 
-    let effective = load_effective(workspace, &[]).unwrap();
+    let effective = with_home(&home, || load_effective(&workspace, &[]).unwrap());
 
     assert!(effective.layers.is_empty());
     assert_eq!(effective.config.model.as_deref(), Some(DEFAULT_MODEL));
