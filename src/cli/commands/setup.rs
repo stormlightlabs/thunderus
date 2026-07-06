@@ -6,7 +6,8 @@ use std::io::{self, IsTerminal, Write};
 use clap::{Args, ValueEnum};
 
 use super::auth::{
-    CredentialScope, confirm, credential_path, prompt_scope, read_hidden_api_key, validate_provider_key,
+    CredentialScope, confirm, credential_path, prompt_scope, read_hidden_api_key, run_chatgpt_codex_login,
+    validate_provider_key,
 };
 use crate::cli::Cli;
 use crate::thndrs_core::auth;
@@ -71,7 +72,7 @@ impl SetupProviderArg {
                 label: "opencode-zen",
                 default_model: "opencode/big-pickle",
                 auth_kind: ProviderAuthKind::ApiKey { env_var: auth::OPENCODE_ZEN_KEY_ENV },
-                setup_summary: "OpenCode Zen Big Pickle is the default model; it requires OPENCODE_ZEN_KEY and is free for a limited time.",
+                setup_summary: "OpenCode Zen Big Pickle is the default model. It requires OPENCODE_ZEN_KEY; OpenCode describes Big Pickle as free for a limited time, and prompts are sent to OpenCode Zen.",
             },
             Self::ChatgptCodex => ProviderMetadata {
                 label: "chatgpt-codex",
@@ -119,8 +120,29 @@ pub struct SetupCommand {
 pub fn run(cli: &Cli, command: &SetupCommand) -> io::Result<()> {
     let stdout = io::stdout();
     let mut writer = stdout.lock();
+    run_with_writer(
+        cli,
+        command,
+        io::stdin().is_terminal(),
+        &mut writer,
+        run_chatgpt_codex_login,
+    )
+}
+
+fn run_with_writer<W, F>(
+    cli: &Cli, command: &SetupCommand, interactive: bool, writer: &mut W, chatgpt_login: F,
+) -> io::Result<()>
+where
+    W: Write,
+    F: FnOnce(&mut W) -> io::Result<()>,
+{
     let workspace = context::discover_workspace_root(&cli.cwd);
-    let provider = command.provider.unwrap_or_else(|| provider_for_model(&cli.model));
+    let inferred_provider = provider_for_model(&cli.model);
+    let provider = match command.provider {
+        Some(provider) => provider,
+        None if interactive => prompt_provider(writer, inferred_provider)?,
+        None => inferred_provider,
+    };
     let auth_status = auth_status(provider, &workspace);
     let scope = command_scope(command);
 
@@ -131,14 +153,15 @@ pub fn run(cli: &Cli, command: &SetupCommand) -> io::Result<()> {
     writeln!(writer, "setup: {}", provider.metadata().setup_summary)?;
 
     if let ProviderAuthKind::ChatGptOAuth { .. } = provider.metadata().auth_kind {
-        return run_chatgpt_setup(provider, auth_status.as_str(), &mut writer);
+        maybe_write_oauth_model_config(&workspace, provider, scope, interactive, writer)?;
+        return run_chatgpt_setup(provider, auth_status.as_str(), interactive, writer, chatgpt_login);
     }
 
     let env_var = provider
         .api_key_env_var()
         .expect("API-key setup branch only handles API-key providers");
     let credential_source = auth::credential_source(env_var, &workspace);
-    if scope.is_none() && credential_source.is_none() && !io::stdin().is_terminal() {
+    if scope.is_none() && credential_source.is_none() && !interactive {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "setup needs an interactive terminal to choose a credential store and read a hidden API key; pass provider env vars for non-interactive use",
@@ -146,14 +169,14 @@ pub fn run(cli: &Cli, command: &SetupCommand) -> io::Result<()> {
     }
     let scope = match scope {
         Some(scope) => scope,
-        None if io::stdin().is_terminal() => prompt_scope(&mut writer)?,
+        None if interactive => prompt_scope(writer)?,
         None => CredentialScope::Project,
     };
 
-    maybe_write_model_config(&workspace, provider, scope, &mut writer)?;
+    maybe_write_model_config(&workspace, provider, scope, interactive, true, writer)?;
 
     if credential_source.is_none() {
-        if !io::stdin().is_terminal() {
+        if !interactive {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 format!(
@@ -163,14 +186,14 @@ pub fn run(cli: &Cli, command: &SetupCommand) -> io::Result<()> {
                 ),
             ));
         }
-        if confirm(&mut writer, &format!("Enter {} API key now?", provider.label()))? {
-            let api_key = read_hidden_api_key(&mut writer, provider)?;
+        if confirm(writer, &format!("Enter {} API key now?", provider.label()))? {
+            let api_key = read_hidden_api_key(writer, provider)?;
             let api_key = api_key.trim();
             if api_key.is_empty() {
                 return Err(io::Error::new(io::ErrorKind::InvalidInput, "API key cannot be empty"));
             }
             if confirm(
-                &mut writer,
+                writer,
                 &format!("Store {} credential in {} store?", provider.label(), scope.label()),
             )? {
                 let path = credential_path(scope, &workspace)?;
@@ -193,6 +216,44 @@ pub fn run(cli: &Cli, command: &SetupCommand) -> io::Result<()> {
     Ok(())
 }
 
+fn prompt_provider<W: Write>(writer: &mut W, default_provider: SetupProviderArg) -> io::Result<SetupProviderArg> {
+    write_provider_choices(writer, default_provider)?;
+    let mut answer = String::new();
+    io::stdin().read_line(&mut answer)?;
+    let answer = answer.trim();
+    if answer.is_empty() {
+        return Ok(default_provider);
+    }
+    match answer {
+        "1" | "opencode-zen" => Ok(SetupProviderArg::OpencodeZen),
+        "2" | "chatgpt-codex" => Ok(SetupProviderArg::ChatgptCodex),
+        "3" | "umans" => Ok(SetupProviderArg::Umans),
+        "4" | "opencode-go" => Ok(SetupProviderArg::OpencodeGo),
+        _ => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "expected provider number or provider name",
+        )),
+    }
+}
+
+fn write_provider_choices<W: Write>(writer: &mut W, default_provider: SetupProviderArg) -> io::Result<()> {
+    writeln!(writer, "Choose provider:")?;
+    for (index, provider) in SetupProviderArg::ALL.iter().enumerate() {
+        let default = if *provider == default_provider { " (default)" } else { "" };
+        writeln!(
+            writer,
+            "  {}) {}{} [{}] - {}",
+            index + 1,
+            provider.label(),
+            default,
+            provider.default_model(),
+            provider.metadata().setup_summary
+        )?;
+    }
+    write!(writer, "Provider [{}]: ", default_provider.label())?;
+    writer.flush()
+}
+
 fn auth_status(provider: SetupProviderArg, workspace: &std::path::Path) -> String {
     match provider.metadata().auth_kind {
         ProviderAuthKind::ApiKey { env_var } => auth::credential_source(env_var, workspace)
@@ -212,8 +273,51 @@ fn auth_status(provider: SetupProviderArg, workspace: &std::path::Path) -> Strin
     }
 }
 
-fn run_chatgpt_setup<W: Write>(provider: SetupProviderArg, auth_status: &str, writer: &mut W) -> io::Result<()> {
+fn maybe_write_oauth_model_config<W: Write>(
+    workspace: &std::path::Path, provider: SetupProviderArg, scope: Option<CredentialScope>, interactive: bool,
+    writer: &mut W,
+) -> io::Result<()> {
+    if let Some(scope) = scope {
+        maybe_write_model_config(workspace, provider, scope, interactive, true, writer)?;
+    } else if interactive && confirm(writer, "Write default model to a config file?")? {
+        let scope = prompt_config_scope(writer)?;
+        maybe_write_model_config(workspace, provider, scope, interactive, false, writer)?;
+    }
+    Ok(())
+}
+
+fn prompt_config_scope<W: Write>(writer: &mut W) -> io::Result<CredentialScope> {
+    writeln!(writer, "Choose config scope:")?;
+    writeln!(writer, "  1) global (~/.thndrs/config.toml)")?;
+    writeln!(writer, "  2) project (.thndrs/config.toml)")?;
+    write!(writer, "Config [global/project]: ")?;
+    writer.flush()?;
+
+    let mut answer = String::new();
+    io::stdin().read_line(&mut answer)?;
+    match answer.trim().to_ascii_lowercase().as_str() {
+        "" | "g" | "global" | "1" => Ok(CredentialScope::Global),
+        "p" | "project" | "2" => Ok(CredentialScope::Project),
+        _ => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "expected `global` or `project`",
+        )),
+    }
+}
+
+fn run_chatgpt_setup<W, F>(
+    provider: SetupProviderArg, auth_status: &str, interactive: bool, writer: &mut W, chatgpt_login: F,
+) -> io::Result<()>
+where
+    W: Write,
+    F: FnOnce(&mut W) -> io::Result<()>,
+{
     if auth_status == "environment override" {
+        if interactive && confirm(writer, "Create or update stored ChatGPT OAuth credentials now?")? {
+            chatgpt_login(writer)?;
+            writeln!(writer, "next: thndrs")?;
+            return Ok(());
+        }
         writeln!(
             writer,
             "next: run `thndrs login {}` interactively to create or update stored OAuth credentials",
@@ -221,14 +325,24 @@ fn run_chatgpt_setup<W: Write>(provider: SetupProviderArg, auth_status: &str, wr
         )?;
         return Ok(());
     }
-    Err(io::Error::new(
-        io::ErrorKind::InvalidInput,
-        format!(
-            "{} setup uses ChatGPT OAuth, not an API key; run `thndrs login {}` interactively",
-            provider.label(),
-            provider.label()
-        ),
-    ))
+    if auth_status == "~/.thndrs/auth.json" {
+        writeln!(writer, "next: thndrs")?;
+        return Ok(());
+    }
+    if !interactive {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "{} setup uses interactive ChatGPT OAuth, not an API key; run `thndrs setup --provider {}` or `thndrs login {}` in a terminal",
+                provider.label(),
+                provider.label(),
+                provider.label()
+            ),
+        ));
+    }
+    chatgpt_login(writer)?;
+    writeln!(writer, "next: thndrs")?;
+    Ok(())
 }
 
 fn provider_for_model(model: &str) -> SetupProviderArg {
@@ -254,7 +368,8 @@ fn command_scope(command: &SetupCommand) -> Option<CredentialScope> {
 }
 
 fn maybe_write_model_config<W: Write>(
-    workspace: &std::path::Path, provider: SetupProviderArg, scope: CredentialScope, writer: &mut W,
+    workspace: &std::path::Path, provider: SetupProviderArg, scope: CredentialScope, interactive: bool, ask: bool,
+    writer: &mut W,
 ) -> io::Result<()> {
     let path = match scope {
         CredentialScope::Global => config::global_config_path()
@@ -266,10 +381,10 @@ fn maybe_write_model_config<W: Write>(
     if existing.lines().any(|line| line.trim_start().starts_with("model")) {
         return Ok(());
     }
-    if !io::stdin().is_terminal() {
+    if !interactive {
         return Ok(());
     }
-    if !confirm(writer, &format!("Write default model to {} config?", scope.label()))? {
+    if ask && !confirm(writer, &format!("Write default model to {} config?", scope.label()))? {
         return Ok(());
     }
     if let Some(parent) = path.parent() {
@@ -286,6 +401,27 @@ fn maybe_write_model_config<W: Write>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
+    use std::sync::Mutex;
+
+    static HOME_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn with_home<T>(home: &Path, f: impl FnOnce() -> T) -> T {
+        let _guard = HOME_ENV_LOCK.lock().expect("home env lock");
+        let old_home = std::env::var_os("HOME");
+        unsafe {
+            std::env::set_var("HOME", home);
+        }
+        let result = f();
+        unsafe {
+            if let Some(old_home) = old_home {
+                std::env::set_var("HOME", old_home);
+            } else {
+                std::env::remove_var("HOME");
+            }
+        }
+        result
+    }
 
     #[test]
     fn provider_defaults_from_model() {
@@ -322,6 +458,103 @@ mod tests {
             ProviderAuthKind::ChatGptOAuth { env_override: auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV }
         );
         assert_eq!(SetupProviderArg::ChatgptCodex.api_key_env_var(), None);
+    }
+
+    #[test]
+    fn provider_choice_copy_marks_opencode_zen_default_and_caveats() {
+        let mut output = Vec::new();
+        write_provider_choices(&mut output, SetupProviderArg::OpencodeZen).expect("choices");
+        let output = String::from_utf8(output).expect("utf8");
+
+        assert!(output.contains("opencode-zen (default)"));
+        assert!(output.contains("opencode/big-pickle"));
+        assert!(output.contains(auth::OPENCODE_ZEN_KEY_ENV));
+        assert!(output.contains("free for a limited time"));
+        assert!(output.contains("prompts are sent to OpenCode Zen"));
+    }
+
+    #[test]
+    fn opencode_zen_noninteractive_summary_uses_provider_copy() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let workspace = tmp.path().join("workspace");
+        let home = tmp.path().join("home");
+        fs::create_dir_all(&workspace).expect("workspace");
+        fs::create_dir_all(&home).expect("home");
+        auth::set_credential(
+            &auth::project_credentials_path(&workspace),
+            auth::OPENCODE_ZEN_KEY_ENV,
+            "secret",
+        )
+        .expect("credential");
+        let cli = Cli { cwd: workspace, ..Cli::default() };
+        let command = SetupCommand { provider: Some(SetupProviderArg::OpencodeZen), global: false, project: false };
+        let mut output = Vec::new();
+
+        with_home(&home, || {
+            run_with_writer(&cli, &command, false, &mut output, |_| Ok(())).expect("setup");
+        });
+        let output = String::from_utf8(output).expect("utf8");
+
+        assert!(output.contains("provider: opencode-zen"));
+        assert!(output.contains("model: opencode/big-pickle"));
+        assert!(output.contains("auth: project credentials"));
+        assert!(output.contains("OpenCode Zen Big Pickle is the default model"));
+    }
+
+    #[test]
+    fn chatgpt_setup_noninteractive_fails_without_api_key_prompt() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let workspace = tmp.path().join("workspace");
+        let home = tmp.path().join("home");
+        fs::create_dir_all(&workspace).expect("workspace");
+        fs::create_dir_all(&home).expect("home");
+        let cli = Cli { cwd: workspace, ..Cli::default() };
+        let command = SetupCommand { provider: Some(SetupProviderArg::ChatgptCodex), global: false, project: false };
+        let mut output = Vec::new();
+
+        let err = with_home(&home, || {
+            run_with_writer(&cli, &command, false, &mut output, |_| Ok(())).expect_err("missing auth")
+        });
+        let output = String::from_utf8(output).expect("utf8");
+        let err = err.to_string();
+
+        assert!(output.contains("provider: chatgpt-codex"));
+        assert!(output.contains("auth: missing OAuth credential"));
+        assert!(err.contains("interactive ChatGPT OAuth"));
+        assert!(!output.contains("Enter chatgpt-codex API key"));
+        assert!(!err.contains("CHATGPT_CODEX_ACCESS_TOKEN is missing"));
+    }
+
+    #[test]
+    fn chatgpt_setup_interactive_uses_oauth_runner_not_api_key_input() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let workspace = tmp.path().join("workspace");
+        let home = tmp.path().join("home");
+        fs::create_dir_all(workspace.join(".thndrs")).expect("workspace config dir");
+        fs::create_dir_all(&home).expect("home");
+        fs::write(
+            config::project_config_path(&workspace),
+            "model = \"chatgpt-codex/gpt-5.5\"\n",
+        )
+        .expect("project config");
+        let cli = Cli { cwd: workspace, ..Cli::default() };
+        let command = SetupCommand { provider: Some(SetupProviderArg::ChatgptCodex), global: false, project: true };
+        let mut output = Vec::new();
+        let mut called = false;
+
+        with_home(&home, || {
+            run_with_writer(&cli, &command, true, &mut output, |writer| {
+                called = true;
+                writeln!(writer, "fake ChatGPT OAuth login")
+            })
+            .expect("setup");
+        });
+        let output = String::from_utf8(output).expect("utf8");
+
+        assert!(called);
+        assert!(output.contains("fake ChatGPT OAuth login"));
+        assert!(!output.contains("Enter chatgpt-codex API key"));
+        assert!(!output.contains("Choose credential store"));
     }
 
     #[test]

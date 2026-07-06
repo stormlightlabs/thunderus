@@ -298,7 +298,8 @@ fn read_hidden_line() -> io::Result<String> {
     }
 }
 
-fn run_chatgpt_codex_login<W: Write>(writer: &mut W) -> io::Result<()> {
+/// Run the shared ChatGPT Codex OAuth login flow.
+pub fn run_chatgpt_codex_login<W: Write>(writer: &mut W) -> io::Result<()> {
     writeln!(
         writer,
         "ChatGPT Codex login uses ChatGPT OAuth and stores credentials in ~/.thndrs/auth.json"

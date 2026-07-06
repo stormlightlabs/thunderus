@@ -35,45 +35,45 @@ Captured: 2026-07-06
 
 ## P2: CLI Setup Flow
 
-- [ ] Rewrite setup output to start with a concise summary:
+- [x] Rewrite setup output to start with a concise summary:
       workspace, selected model, provider, and auth status.
-- [ ] Add an explicit provider selection prompt when `--provider` is omitted
+- [x] Add an explicit provider selection prompt when `--provider` is omitted
       and stdin is interactive.
-- [ ] Mark OpenCode Zen Big Pickle as the default provider choice.
-- [ ] Include short OpenCode Zen setup copy covering required key,
+- [x] Mark OpenCode Zen Big Pickle as the default provider choice.
+- [x] Include short OpenCode Zen setup copy covering required key,
       limited-free caveat, and privacy caveat.
-- [ ] Preserve `--provider`, `--global`, and `--project` behavior.
-- [ ] For API-key providers, keep hidden input and credential-store selection.
-- [ ] For API-key providers, keep validation and "stored but unverified"
+- [x] Preserve `--provider`, `--global`, and `--project` behavior.
+- [x] For API-key providers, keep hidden input and credential-store selection.
+- [x] For API-key providers, keep validation and "stored but unverified"
       behavior.
-- [ ] For API-key providers, keep model config writes idempotent.
-- [ ] For ChatGPT Codex, branch to shared OAuth login instead of API-key input.
-- [ ] For ChatGPT Codex, skip global/project credential-store selection for
+- [x] For API-key providers, keep model config writes idempotent.
+- [x] For ChatGPT Codex, branch to shared OAuth login instead of API-key input.
+- [x] For ChatGPT Codex, skip global/project credential-store selection for
       auth storage.
-- [ ] For ChatGPT Codex, still allow global/project model config writes when
+- [x] For ChatGPT Codex, still allow global/project model config writes when
       the user chooses to write a default model.
-- [ ] If `CHATGPT_CODEX_ACCESS_TOKEN` is set, report environment auth and ask
+- [x] If `CHATGPT_CODEX_ACCESS_TOKEN` is set, report environment auth and ask
       whether to create/update stored OAuth credentials.
-- [ ] Make non-interactive ChatGPT setup fail with OAuth-specific instructions
+- [x] Make non-interactive ChatGPT setup fail with OAuth-specific instructions
       unless auth is already available.
-- [ ] Add command-output tests for OpenCode Zen default setup copy.
-- [ ] Add command-output tests proving ChatGPT setup never asks for an API key.
-- [ ] Add tests for non-interactive ChatGPT setup failure.
+- [x] Add command-output tests for OpenCode Zen default setup copy.
+- [x] Add command-output tests proving ChatGPT setup never asks for an API key.
+- [x] Add tests for non-interactive ChatGPT setup failure.
 
 ## P3: Shared ChatGPT OAuth Helper
 
-- [ ] Expose `run_chatgpt_codex_login()` or extract a reusable helper that can
+- [x] Expose `run_chatgpt_codex_login()` or extract a reusable helper that can
       be called by both `login` and `setup`.
-- [ ] Keep device-code login first.
-- [ ] Keep browser PKCE fallback when device-code login is unavailable.
-- [ ] Keep writing credentials only through `write_chatgpt_codex_credentials`.
-- [ ] Keep Unix `0600` auth-file behavior.
-- [ ] Preserve existing refresh-token storage format.
-- [ ] Add test seams for OAuth request/poll/write behavior without requiring
+- [x] Keep device-code login first.
+- [x] Keep browser PKCE fallback when device-code login is unavailable.
+- [x] Keep writing credentials only through `write_chatgpt_codex_credentials`.
+- [x] Keep Unix `0600` auth-file behavior.
+- [x] Preserve existing refresh-token storage format.
+- [x] Add test seams for OAuth request/poll/write behavior without requiring
       real network access.
 - [ ] Add tests proving OAuth output does not print access tokens or refresh
       tokens.
-- [ ] Add tests proving existing unrelated `~/.thndrs/auth.json` entries are
+- [x] Add tests proving existing unrelated `~/.thndrs/auth.json` entries are
       preserved.
 
 ## P4: TUI Recovery Copy And Actions
