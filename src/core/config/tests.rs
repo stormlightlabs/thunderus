@@ -297,6 +297,45 @@ fn write_model_config_reports_existing_read_errors() {
 }
 
 #[test]
+fn write_model_config_if_missing_does_not_replace_existing_top_level_model() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let path = tmp.path().join("config.toml");
+    fs::write(&path, "model = \"opencode/big-pickle\"\n").expect("seed config");
+
+    let wrote = write_model_config_if_missing(&path, "chatgpt-codex/gpt-5.5").expect("write missing model");
+
+    assert!(!wrote);
+    assert_eq!(
+        fs::read_to_string(path).expect("read config"),
+        "model = \"opencode/big-pickle\"\n"
+    );
+}
+
+#[test]
+fn write_model_config_if_missing_ignores_nested_model_keys() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let path = tmp.path().join("config.toml");
+    fs::write(
+        &path,
+        r#"[acp_agents.local]
+model = "nested-model"
+"#,
+    )
+    .expect("seed config");
+
+    let wrote = write_model_config_if_missing(&path, "chatgpt-codex/gpt-5.5").expect("write missing model");
+
+    assert!(wrote);
+    assert_eq!(
+        fs::read_to_string(path).expect("read config"),
+        r#"model = "chatgpt-codex/gpt-5.5"
+[acp_agents.local]
+model = "nested-model"
+"#
+    );
+}
+
+#[test]
 fn env_loads_model() {
     let mut origins = BTreeMap::new();
     let mut diagnostics = Vec::new();

@@ -1,6 +1,56 @@
 use super::*;
 use crate::input::PromptInput;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use std::path::Path;
+
+fn with_isolated_setup_env<T>(home: &Path, f: impl FnOnce() -> T) -> T {
+    let _guard = crate::test_env::lock();
+    let old_home = std::env::var_os("HOME");
+    let old_umans = std::env::var_os(crate::thndrs_core::auth::UMANS_API_KEY_ENV);
+    let old_opencode = std::env::var_os(crate::thndrs_core::auth::OPENCODE_GO_KEY_ENV);
+    let old_opencode_zen = std::env::var_os(crate::thndrs_core::auth::OPENCODE_ZEN_KEY_ENV);
+    let old_chatgpt = std::env::var_os(crate::thndrs_core::auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV);
+
+    unsafe {
+        std::env::set_var("HOME", home);
+        std::env::remove_var(crate::thndrs_core::auth::UMANS_API_KEY_ENV);
+        std::env::remove_var(crate::thndrs_core::auth::OPENCODE_GO_KEY_ENV);
+        std::env::remove_var(crate::thndrs_core::auth::OPENCODE_ZEN_KEY_ENV);
+        std::env::remove_var(crate::thndrs_core::auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV);
+    }
+
+    let result = f();
+
+    unsafe {
+        if let Some(value) = old_home {
+            std::env::set_var("HOME", value);
+        } else {
+            std::env::remove_var("HOME");
+        }
+        if let Some(value) = old_umans {
+            std::env::set_var(crate::thndrs_core::auth::UMANS_API_KEY_ENV, value);
+        } else {
+            std::env::remove_var(crate::thndrs_core::auth::UMANS_API_KEY_ENV);
+        }
+        if let Some(value) = old_opencode {
+            std::env::set_var(crate::thndrs_core::auth::OPENCODE_GO_KEY_ENV, value);
+        } else {
+            std::env::remove_var(crate::thndrs_core::auth::OPENCODE_GO_KEY_ENV);
+        }
+        if let Some(value) = old_opencode_zen {
+            std::env::set_var(crate::thndrs_core::auth::OPENCODE_ZEN_KEY_ENV, value);
+        } else {
+            std::env::remove_var(crate::thndrs_core::auth::OPENCODE_ZEN_KEY_ENV);
+        }
+        if let Some(value) = old_chatgpt {
+            std::env::set_var(crate::thndrs_core::auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV, value);
+        } else {
+            std::env::remove_var(crate::thndrs_core::auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV);
+        }
+    }
+
+    result
+}
 
 #[test]
 fn slash_clear_while_working_is_rejected() {
@@ -215,7 +265,7 @@ fn slash_setup_and_login_open_recovery_surfaces() {
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     assert!(matches!(
         app.first_run_recovery.as_ref().map(|recovery| recovery.stage),
-        Some(RecoveryStage::MissingCredential)
+        Some(RecoveryStage::ChooseProvider)
     ));
 
     app.first_run_recovery = None;
@@ -236,8 +286,63 @@ fn slash_setup_uses_chatgpt_provider_aware_recovery_for_chatgpt_model() {
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
     let recovery = app.first_run_recovery.as_ref().expect("setup recovery");
-    assert_eq!(recovery.stage, RecoveryStage::MissingCredential);
+    assert_eq!(recovery.stage, RecoveryStage::ChooseProvider);
     assert_eq!(recovery.provider, Some(SetupProviderArg::ChatgptCodex));
+}
+
+#[test]
+fn slash_setup_writes_project_model_and_prompts_for_api_key() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(&home).expect("create home");
+    with_isolated_setup_env(&home, || {
+        let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
+        let mut app = App::from_cli(&cli);
+        app.session_writer = None;
+        app.input = PromptInput::from("/setup");
+
+        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert_eq!(app.model, "opencode/big-pickle");
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join(".thndrs").join("config.toml")).expect("read config"),
+            "model = \"opencode/big-pickle\"\n"
+        );
+        let recovery = app.first_run_recovery.as_ref().expect("credential entry");
+        assert_eq!(recovery.stage, RecoveryStage::EnterKey);
+        assert_eq!(recovery.provider, Some(SetupProviderArg::OpencodeZen));
+    });
+}
+
+#[test]
+fn slash_setup_can_choose_chatgpt_and_write_project_model() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let home = dir.path().join("home");
+    let workspace = dir.path().join("workspace");
+    std::fs::create_dir_all(&home).expect("create home");
+    std::fs::create_dir_all(&workspace).expect("create workspace");
+    with_isolated_setup_env(&home, || {
+        let cli = Cli { cwd: workspace.clone(), ..Cli::default() };
+        let mut app = App::from_cli(&cli);
+        app.session_writer = None;
+        app.input = PromptInput::from("/setup");
+
+        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+        update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
+        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert_eq!(app.model, "chatgpt-codex/gpt-5.5");
+        assert_eq!(
+            std::fs::read_to_string(workspace.join(".thndrs").join("config.toml")).expect("read config"),
+            "model = \"chatgpt-codex/gpt-5.5\"\n"
+        );
+        let recovery = app.first_run_recovery.as_ref().expect("chatgpt recovery");
+        assert_eq!(recovery.stage, RecoveryStage::MissingCredential);
+        assert_eq!(recovery.provider, Some(SetupProviderArg::ChatgptCodex));
+    });
 }
 
 #[test]

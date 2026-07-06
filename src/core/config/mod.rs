@@ -234,6 +234,35 @@ pub fn write_model_config(path: &Path, model: &str) -> std::io::Result<()> {
     fs::write(path, next)
 }
 
+/// Write the selected model into a TOML config file only when no top-level
+/// `model` key exists. Returns whether a key was written.
+pub fn write_model_config_if_missing(path: &Path, model: &str) -> std::io::Result<bool> {
+    let existing = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(err) => return Err(err),
+    };
+    if has_top_level_toml_key(&existing, "model") {
+        return Ok(false);
+    }
+    let next = upsert_top_level_toml_string(&existing, "model", model);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(path, next)?;
+    Ok(true)
+}
+
+/// Return whether a TOML config file contains a top-level `model` key.
+pub fn model_config_has_model(path: &Path) -> std::io::Result<bool> {
+    let existing = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(err) => return Err(err),
+    };
+    Ok(has_top_level_toml_key(&existing, "model"))
+}
+
 /// Write the selected model into the project config and return the path used.
 pub fn write_project_model(workspace: &Path, model: &str) -> std::io::Result<PathBuf> {
     let path = project_config_path(workspace);
@@ -269,6 +298,19 @@ fn upsert_top_level_toml_string(content: &str, key: &str, value: &str) -> String
     }
 
     output
+}
+
+fn has_top_level_toml_key(content: &str, key: &str) -> bool {
+    for line in content.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with('[') {
+            return false;
+        }
+        if is_toml_key_assignment(trimmed, key) {
+            return true;
+        }
+    }
+    false
 }
 
 fn is_toml_key_assignment(line: &str, key: &str) -> bool {

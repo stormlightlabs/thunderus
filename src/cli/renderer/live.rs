@@ -164,7 +164,11 @@ fn first_run_recovery_rows(app: &App, width: usize, max_height: usize) -> Vec<Ro
     let text_style = CellStyle::new().fg(p.text).bg(bg);
     let selected_style = CellStyle::new().fg(p.text).bg(bg).bold();
 
-    let provider = recovery.provider.map(|provider| provider.label()).unwrap_or("acp");
+    let provider = if recovery.stage == RecoveryStage::ChooseProvider {
+        "choose"
+    } else {
+        recovery.provider.map(|provider| provider.label()).unwrap_or("acp")
+    };
     let missing = recovery_missing_label(recovery);
 
     let mut rows = Vec::new();
@@ -182,6 +186,44 @@ fn first_run_recovery_rows(app: &App, width: usize, max_height: usize) -> Vec<Ro
     ));
 
     match recovery.stage {
+        RecoveryStage::ChooseProvider => {
+            rows.push(recovery_body_row(
+                width,
+                bg,
+                text_style,
+                "Choose the provider to configure.",
+            ));
+            push_recovery_actions(
+                &mut rows,
+                width,
+                max_height,
+                recovery.selected,
+                &["opencode-zen", "chatgpt-codex", "umans", "opencode-go"],
+                selected_style,
+                muted_style,
+                text_style,
+                bg,
+            );
+        }
+        RecoveryStage::ModelConfigScope => {
+            rows.push(recovery_body_row(
+                width,
+                bg,
+                text_style,
+                "Save this provider's default model to config?",
+            ));
+            push_recovery_actions(
+                &mut rows,
+                width,
+                max_height,
+                recovery.selected,
+                &["project config", "global config", "skip model config", "cancel setup"],
+                selected_style,
+                muted_style,
+                text_style,
+                bg,
+            );
+        }
         RecoveryStage::MissingCredential => {
             let body = if recovery.provider == Some(crate::cli::commands::setup::SetupProviderArg::ChatgptCodex) {
                 "Missing ChatGPT OAuth credential. Choose an action before submitting this prompt."
@@ -376,6 +418,9 @@ fn first_run_recovery_rows(app: &App, width: usize, max_height: usize) -> Vec<Ro
 }
 
 fn recovery_missing_label(recovery: &crate::app::FirstRunRecovery) -> &'static str {
+    if recovery.stage == RecoveryStage::ChooseProvider || recovery.stage == RecoveryStage::ModelConfigScope {
+        return "none";
+    }
     match recovery.provider {
         Some(crate::cli::commands::setup::SetupProviderArg::ChatgptCodex) => "ChatGPT OAuth credential",
         Some(provider) => provider.api_key_env_var().unwrap_or("credential"),

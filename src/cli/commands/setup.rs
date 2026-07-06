@@ -1,6 +1,5 @@
 //! `thndrs setup` command definitions.
 
-use std::fs;
 use std::io::{self, IsTerminal, Write};
 
 use clap::{Args, ValueEnum};
@@ -377,8 +376,7 @@ fn maybe_write_model_config<W: Write>(
         CredentialScope::Project => config::project_config_path(workspace),
     };
 
-    let existing = fs::read_to_string(&path).unwrap_or_default();
-    if existing.lines().any(|line| line.trim_start().starts_with("model")) {
+    if config::model_config_has_model(&path)? {
         return Ok(());
     }
     if !interactive {
@@ -387,20 +385,14 @@ fn maybe_write_model_config<W: Write>(
     if ask && !confirm(writer, &format!("Write default model to {} config?", scope.label()))? {
         return Ok(());
     }
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let mut next = existing;
-    if !next.is_empty() && !next.ends_with('\n') {
-        next.push('\n');
-    }
-    next.push_str(&format!("model = \"{}\"\n", provider.default_model()));
-    fs::write(path, next)
+    config::write_model_config_if_missing(&path, provider.default_model())?;
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use std::path::Path;
 
     fn with_home<T>(home: &Path, f: impl FnOnce() -> T) -> T {
