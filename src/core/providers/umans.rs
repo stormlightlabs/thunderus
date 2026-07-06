@@ -211,6 +211,11 @@ impl StreamingProvider for UmansClient {
                 .into_iter()
                 .map(|model| (model.id.to_string(), model.description.to_string())),
         );
+        items.extend(
+            providers::chatgpt_codex::known_models()
+                .into_iter()
+                .map(|model| (model.id.to_string(), model.description.to_string())),
+        );
         Some(AgentEvent::ModelMetadataLoaded(items))
     }
 
@@ -344,9 +349,9 @@ fn compact_token_count(tokens: u64) -> String {
     const K: u64 = 1024;
     const M: u64 = K * K;
 
-    if tokens >= M && tokens.is_multiple_of(M) {
+    if tokens >= M && tokens % M == 0 {
         format!("{}M", tokens / M)
-    } else if tokens >= K && tokens.is_multiple_of(K) {
+    } else if tokens >= K && tokens % K == 0 {
         format!("{}k", tokens / K)
     } else {
         tokens.to_string()

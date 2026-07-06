@@ -19,7 +19,7 @@ use crate::cli::commands::auth::CredentialScope;
 use crate::cli::commands::setup::ApiKeyProviderArg;
 use crate::cli::{Cli, Theme, WebSearchMode};
 use crate::input::PromptInput;
-use crate::providers::{opencode, umans};
+use crate::providers::{codex, opencode, umans};
 use crate::renderer::git::GitStatusSummary;
 use crate::thndrs_core::auth;
 use crate::tools::shell::ProcessRegistry;
@@ -101,7 +101,11 @@ impl FirstRunRecovery {
     fn login(provider: ApiKeyProviderArg) -> Self {
         Self {
             provider: Some(provider),
-            stage: RecoveryStage::EnterKey,
+            stage: if provider == ApiKeyProviderArg::ChatgptCodex {
+                RecoveryStage::Instructions
+            } else {
+                RecoveryStage::EnterKey
+            },
             pending_provider_prompt: false,
             selected: 0,
             secret_input: String::new(),
@@ -1439,6 +1443,11 @@ fn offline_model_picker_items() -> Vec<PickerItem> {
                 .into_iter()
                 .map(|model| PickerItem::new(model.id, model.description)),
         )
+        .chain(
+            codex::known_models()
+                .into_iter()
+                .map(|model| PickerItem::new(model.id, model.description)),
+        )
         .collect()
 }
 
@@ -1457,9 +1466,18 @@ fn provider_for_model(model: &str) -> ApiKeyProviderArg {
         ApiKeyProviderArg::OpencodeZen
     } else if opencode::is_go_model_id(model) {
         ApiKeyProviderArg::OpencodeGo
+    } else if codex::is_model_id(model) {
+        ApiKeyProviderArg::ChatgptCodex
     } else {
         ApiKeyProviderArg::Umans
     }
+}
+
+fn provider_authenticated(provider: ApiKeyProviderArg, cwd: &std::path::Path) -> bool {
+    if provider == ApiKeyProviderArg::ChatgptCodex {
+        return auth::resolve_chatgpt_codex_auth().is_ok();
+    }
+    auth::credential_source(provider.env_var(), cwd).is_some()
 }
 
 fn selected_provider_missing(app: &App) -> Option<FirstRunRecovery> {
@@ -1471,7 +1489,7 @@ fn selected_provider_missing(app: &App) -> Option<FirstRunRecovery> {
     }
 
     let provider = provider_for_model(&app.model);
-    if auth::credential_source(provider.env_var(), &app.cwd).is_none() {
+    if !provider_authenticated(provider, &app.cwd) {
         Some(FirstRunRecovery::missing_provider(provider, true))
     } else {
         None
@@ -1480,6 +1498,7 @@ fn selected_provider_missing(app: &App) -> Option<FirstRunRecovery> {
 
 fn recovery_action_count(recovery: &FirstRunRecovery) -> usize {
     match recovery.stage {
+        RecoveryStage::MissingCredential if recovery.provider == Some(ApiKeyProviderArg::ChatgptCodex) => 4,
         RecoveryStage::MissingCredential => 5,
         RecoveryStage::EnterKey => 1,
         RecoveryStage::ConfirmStore | RecoveryStage::LogoutConfirm => 3,
@@ -1541,6 +1560,11 @@ fn accept_recovery_action(app: &mut App) -> Option<Msg> {
     match recovery.stage {
         RecoveryStage::MissingCredential => match recovery.selected {
             0 => {
+                if recovery.provider == Some(ApiKeyProviderArg::ChatgptCodex) {
+                    app.first_run_recovery = None;
+                    open_model_picker(app);
+                    return None;
+                }
                 if let Some(active) = app.first_run_recovery.as_mut() {
                     active.stage = RecoveryStage::EnterKey;
                     active.selected = 0;
@@ -1548,16 +1572,41 @@ fn accept_recovery_action(app: &mut App) -> Option<Msg> {
                 }
             }
             1 => {
+                if recovery.provider == Some(ApiKeyProviderArg::ChatgptCodex) {
+                    if let Some(active) = app.first_run_recovery.as_mut() {
+                        active.stage = RecoveryStage::Instructions;
+                        active.selected = 0;
+                    }
+                    return None;
+                }
                 app.first_run_recovery = None;
                 open_model_picker(app);
             }
             2 => {
+                if recovery.provider == Some(ApiKeyProviderArg::ChatgptCodex) {
+                    if recovery.pending_provider_prompt {
+                        app.transcript.push(Entry::Status {
+                            text: String::from(
+                                "setup required before submitting this ChatGPT Codex prompt; run `thndrs login chatgpt-codex` or switch model",
+                            ),
+                        });
+                    } else {
+                        app.first_run_recovery = None;
+                        app.transcript
+                            .push(Entry::Status { text: String::from("setup skipped") });
+                    }
+                    return None;
+                }
                 if let Some(active) = app.first_run_recovery.as_mut() {
                     active.stage = RecoveryStage::Instructions;
                     active.selected = 0;
                 }
             }
             3 => {
+                if recovery.provider == Some(ApiKeyProviderArg::ChatgptCodex) {
+                    app.quit = true;
+                    return Some(Msg::Quit);
+                }
                 if recovery.pending_provider_prompt {
                     app.transcript.push(Entry::Status {
                         text: String::from(
@@ -2038,21 +2087,28 @@ fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
             Some(provider) => {
                 app.first_run_recovery = Some(FirstRunRecovery::login(provider));
             }
-            None => app
-                .transcript
-                .push(Entry::Error { text: String::from("usage: /login <umans|opencode-go|opencode-zen>") }),
+            None => app.transcript.push(Entry::Error {
+                text: String::from("usage: /login <umans|opencode-go|opencode-zen|chatgpt-codex>"),
+            }),
         }
         return None;
     }
     if let Some(rest) = command.strip_prefix("logout ") {
         app.input.clear();
         match parse_api_key_provider(rest.trim()) {
+            Some(ApiKeyProviderArg::ChatgptCodex) => {
+                app.transcript.push(Entry::Status {
+                    text: String::from(
+                        "ChatGPT Codex logout is CLI-only; run `thndrs logout chatgpt-codex` outside the TUI",
+                    ),
+                });
+            }
             Some(provider) => {
                 app.first_run_recovery = Some(FirstRunRecovery::logout(provider));
             }
-            None => app
-                .transcript
-                .push(Entry::Error { text: String::from("usage: /logout <umans|opencode-go|opencode-zen>") }),
+            None => app.transcript.push(Entry::Error {
+                text: String::from("usage: /logout <umans|opencode-go|opencode-zen|chatgpt-codex>"),
+            }),
         }
         return None;
     }
@@ -2127,14 +2183,16 @@ fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
             None
         }
         "login" => {
-            app.transcript
-                .push(Entry::Error { text: String::from("usage: /login <umans|opencode-go|opencode-zen>") });
+            app.transcript.push(Entry::Error {
+                text: String::from("usage: /login <umans|opencode-go|opencode-zen|chatgpt-codex>"),
+            });
             app.input.clear();
             None
         }
         "logout" => {
-            app.transcript
-                .push(Entry::Error { text: String::from("usage: /logout <umans|opencode-go|opencode-zen>") });
+            app.transcript.push(Entry::Error {
+                text: String::from("usage: /logout <umans|opencode-go|opencode-zen|chatgpt-codex>"),
+            });
             app.input.clear();
             None
         }
@@ -2147,6 +2205,7 @@ fn parse_api_key_provider(input: &str) -> Option<ApiKeyProviderArg> {
         "umans" => Some(ApiKeyProviderArg::Umans),
         "opencode-go" => Some(ApiKeyProviderArg::OpencodeGo),
         "opencode-zen" => Some(ApiKeyProviderArg::OpencodeZen),
+        "chatgpt-codex" => Some(ApiKeyProviderArg::ChatgptCodex),
         _ => None,
     }
 }

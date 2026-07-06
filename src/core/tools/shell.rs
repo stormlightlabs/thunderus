@@ -288,9 +288,7 @@ impl ProcessRegistry {
     }
 
     /// Register a new process and return its id.
-    pub fn register(
-        &mut self, command: Vec<String>, cwd: PathBuf, kind: ProcessKind, cancel: CancelToken,
-    ) -> u64 {
+    pub fn register(&mut self, command: Vec<String>, cwd: PathBuf, kind: ProcessKind, cancel: CancelToken) -> u64 {
         let id = self.next_id;
         self.next_id += 1;
         self.active.insert(
@@ -551,9 +549,7 @@ pub fn redact_secrets(line: &str) -> String {
 
 /// Wait for a child to exit, killing it if the timeout elapses or cancellation
 /// is signalled.
-fn wait_with_timeout(
-    child: &mut Child, timeout: &Duration, cancel: &CancelToken, start: &Instant,
-) -> WaitOutcome {
+fn wait_with_timeout(child: &mut Child, timeout: &Duration, cancel: &CancelToken, start: &Instant) -> WaitOutcome {
     loop {
         match child.try_wait() {
             Ok(Some(status)) => return WaitOutcome::Exited(status.code().unwrap_or(-1)),

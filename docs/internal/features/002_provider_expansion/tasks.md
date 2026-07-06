@@ -90,20 +90,20 @@ Captured: 2026-07-05
 
 ## P5: Agent And Setup Integration
 
-- [ ] Export `opencode_zen` from `src/core/providers/mod.rs`.
-- [ ] Add `ProviderKind::OpenCodeZen`.
-- [ ] Route `opencode/` model ids to `ProviderKind::OpenCodeZen`.
-- [ ] Run OpenCode Zen through the existing `run_provider` loop.
-- [ ] Add `opencode/big-pickle` to the offline model picker.
-- [ ] Show Big Pickle picker text with concise free/caveat wording.
-- [ ] Add OpenCode Zen to first-run recovery surfaces.
-- [ ] Make Big Pickle the compiled default model.
-- [ ] Make OpenCode Zen the default setup provider.
-- [ ] Recover missing Zen credentials without silently changing away from the
+- [x] Export `opencode_zen` from `src/core/providers/mod.rs`.
+- [x] Add `ProviderKind::OpenCodeZen`.
+- [x] Route `opencode/` model ids to `ProviderKind::OpenCodeZen`.
+- [x] Run OpenCode Zen through the existing `run_provider` loop.
+- [x] Add `opencode/big-pickle` to the offline model picker.
+- [x] Show Big Pickle picker text with concise free/caveat wording.
+- [x] Add OpenCode Zen to first-run recovery surfaces.
+- [x] Make Big Pickle the compiled default model.
+- [x] Make OpenCode Zen the default setup provider.
+- [x] Recover missing Zen credentials without silently changing away from the
       default model.
-- [ ] Surface explicit recovery when Big Pickle is unavailable or removed from
+- [x] Surface explicit recovery when Big Pickle is unavailable or removed from
       discovery.
-- [ ] Keep `OPENAI_API_KEY`, `OPENCODE_GO_KEY`, and `OPENCODE_ZEN_KEY`
+- [x] Keep `OPENAI_API_KEY`, `OPENCODE_GO_KEY`, and `OPENCODE_ZEN_KEY`
       separate.
 
 ## P6: ChatGPT Codex Auth Foundations
@@ -166,15 +166,15 @@ Captured: 2026-07-05
 
 ## P9: ChatGPT Codex Agent Integration
 
-- [ ] Export `chatgpt_codex` from `src/core/providers/mod.rs`.
-- [ ] Add `ProviderKind::ChatGptCodex`.
-- [ ] Route `chatgpt-codex/` model ids to `ProviderKind::ChatGptCodex`.
-- [ ] Run ChatGPT Codex through the existing `run_provider` loop.
-- [ ] Add ChatGPT Codex known models to the offline model picker.
-- [ ] Show ChatGPT Codex provider status as ChatGPT-backed and experimental.
-- [ ] Keep `OPENAI_API_KEY` separate from ChatGPT Codex credentials.
-- [ ] Keep missing/expired credential failures prompt-restoring.
-- [ ] Keep session metadata free of raw provider payloads and secrets.
+- [x] Export `chatgpt_codex` from `src/core/providers/mod.rs`.
+- [x] Add `ProviderKind::ChatGptCodex`.
+- [x] Route `chatgpt-codex/` model ids to `ProviderKind::ChatGptCodex`.
+- [x] Run ChatGPT Codex through the existing `run_provider` loop.
+- [x] Add ChatGPT Codex known models to the offline model picker.
+- [x] Show ChatGPT Codex provider status as ChatGPT-backed and experimental.
+- [x] Keep `OPENAI_API_KEY` separate from ChatGPT Codex credentials.
+- [x] Keep missing/expired credential failures prompt-restoring.
+- [x] Keep session metadata free of raw provider payloads and secrets.
 
 ## P10: TTFT State
 

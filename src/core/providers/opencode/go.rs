@@ -209,6 +209,11 @@ impl StreamingProvider for OpenCodeGoClient {
             .map(|model| (model.id.to_string(), model.description.to_string()))
             .collect();
         items.extend(model_picker_items(metadata));
+        items.extend(
+            providers::chatgpt_codex::known_models()
+                .into_iter()
+                .map(|model| (model.id.to_string(), model.description.to_string())),
+        );
         Some(AgentEvent::ModelMetadataLoaded(items))
     }
 

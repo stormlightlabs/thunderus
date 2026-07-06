@@ -168,6 +168,11 @@ impl StreamingProvider for OpenCodeZenClient {
                 .into_iter()
                 .map(|model| (model.id.to_string(), model.description.to_string())),
         );
+        items.extend(
+            providers::chatgpt_codex::known_models()
+                .into_iter()
+                .map(|model| (model.id.to_string(), model.description.to_string())),
+        );
         items.extend(model_picker_items(metadata));
         Some(AgentEvent::ModelMetadataLoaded(items))
     }

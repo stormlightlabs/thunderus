@@ -54,6 +54,8 @@ pub enum ProviderKind {
     OpenCodeGo,
     /// OpenCode Zen provider.
     OpenCodeZen,
+    /// ChatGPT subscription-backed Codex provider.
+    ChatGptCodex,
 }
 
 impl ProviderKind {
@@ -64,6 +66,8 @@ impl ProviderKind {
             ProviderKind::OpenCodeGo
         } else if opencode::is_zen_model_id(model) {
             ProviderKind::OpenCodeZen
+        } else if codex::is_model_id(model) {
+            ProviderKind::ChatGptCodex
         } else {
             ProviderKind::Umans
         }
@@ -75,6 +79,7 @@ impl ProviderKind {
             ProviderKind::Umans => "umans",
             ProviderKind::OpenCodeGo => "opencode-go",
             ProviderKind::OpenCodeZen => "opencode-zen",
+            ProviderKind::ChatGptCodex => "chatgpt-codex",
         }
     }
 }
@@ -355,6 +360,7 @@ impl RunHandle {
             ProviderKind::Umans => self.run_provider::<umans::UmansClient>(tx, cancel),
             ProviderKind::OpenCodeGo => self.run_provider::<opencode::OpenCodeGoClient>(tx, cancel),
             ProviderKind::OpenCodeZen => self.run_provider::<opencode::zen::OpenCodeZenClient>(tx, cancel),
+            ProviderKind::ChatGptCodex => self.run_provider::<codex::ChatGptCodexClient>(tx, cancel),
         }
     }
 
@@ -2471,6 +2477,10 @@ mod tests {
         assert_eq!(
             ProviderKind::for_model("opencode-go/kimi-k2.7-code"),
             ProviderKind::OpenCodeGo
+        );
+        assert_eq!(
+            ProviderKind::for_model("chatgpt-codex/gpt-5.5"),
+            ProviderKind::ChatGptCodex
         );
         assert_eq!(ProviderKind::for_model("big-pickle"), ProviderKind::Umans);
     }

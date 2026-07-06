@@ -152,6 +152,8 @@ fn provider_for_model(model: &str) -> ApiKeyProviderArg {
         ApiKeyProviderArg::OpencodeZen
     } else if crate::providers::opencode::is_go_model_id(model) {
         ApiKeyProviderArg::OpencodeGo
+    } else if crate::providers::chatgpt_codex::is_model_id(model) {
+        ApiKeyProviderArg::ChatgptCodex
     } else {
         ApiKeyProviderArg::Umans
     }
@@ -211,6 +213,10 @@ mod tests {
         assert_eq!(
             provider_for_model("opencode-go/kimi-k2.7-code"),
             ApiKeyProviderArg::OpencodeGo
+        );
+        assert_eq!(
+            provider_for_model("chatgpt-codex/gpt-5.5"),
+            ApiKeyProviderArg::ChatgptCodex
         );
     }
 

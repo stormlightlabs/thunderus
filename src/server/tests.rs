@@ -1133,10 +1133,7 @@ fn execute_prompt_rejects_concurrent_prompts_for_same_session() {
             move |_config, _messages, _expects_write, _prompt| {
                 started_tx.send(()).expect("first harness started");
                 let mut guard = event_rx.lock().expect("acquire harness event channel");
-                HarnessHandle {
-                    events: guard.take().expect("event receiver available"),
-                    cancel: CancelToken::new(),
-                }
+                HarnessHandle { events: guard.take().expect("event receiver available"), cancel: CancelToken::new() }
             },
         )
     });

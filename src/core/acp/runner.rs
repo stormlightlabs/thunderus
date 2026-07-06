@@ -61,15 +61,7 @@ pub struct RunHandle {
 impl RunHandle {
     /// Build an ACP run handle for `acp:<name>`.
     pub fn new(root: PathBuf, name: String, agent: Option<AcpAgentConfig>, prompt: String) -> Self {
-        Self {
-            root,
-            name,
-            agent,
-            mcp_config: None,
-            mcp_diagnostics: Vec::new(),
-            prompt,
-            cancel: CancelToken::new(),
-        }
+        Self { root, name, agent, mcp_config: None, mcp_diagnostics: Vec::new(), prompt, cancel: CancelToken::new() }
     }
 
     /// Attach effective MCP config that should be offered to the ACP agent.
@@ -689,8 +681,8 @@ fn permission_outcome_label(outcome: &RequestPermissionOutcome) -> &'static str 
 }
 
 async fn authenticate_if_advertised(
-    connection: &ConnectionTo<Agent>, name: &str, timeout: Duration, cancel: &CancelToken,
-    tx: &Sender<AgentEvent>, methods: &[AuthMethod],
+    connection: &ConnectionTo<Agent>, name: &str, timeout: Duration, cancel: &CancelToken, tx: &Sender<AgentEvent>,
+    methods: &[AuthMethod],
 ) -> Result<(), agent_client_protocol::Error> {
     let Some(method) = methods.first() else {
         return Ok(());

@@ -192,18 +192,28 @@ fn first_run_recovery_rows(app: &App, width: usize, max_height: usize) -> Vec<Ro
                 text_style,
                 "Missing credential. Choose an action before submitting this prompt.",
             ));
-            push_recovery_actions(
-                &mut rows,
-                width,
-                max_height,
-                recovery.selected,
+            let actions = if recovery.provider == Some(crate::cli::commands::setup::ApiKeyProviderArg::ChatgptCodex) {
+                &[
+                    "switch model/provider",
+                    "show setup instructions",
+                    "continue without setup",
+                    "quit",
+                ][..]
+            } else {
                 &[
                     "enter API key",
                     "switch model/provider",
                     "show setup instructions",
                     "continue without setup",
                     "quit",
-                ],
+                ][..]
+            };
+            push_recovery_actions(
+                &mut rows,
+                width,
+                max_height,
+                recovery.selected,
+                actions,
                 selected_style,
                 muted_style,
                 text_style,

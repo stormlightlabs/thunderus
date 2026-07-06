@@ -840,6 +840,17 @@ fn slash_setup_and_login_open_recovery_surfaces() {
 }
 
 #[test]
+fn slash_chatgpt_codex_login_shows_cli_instructions() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from("/login chatgpt-codex");
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    let recovery = app.first_run_recovery.as_ref().expect("login recovery");
+    assert_eq!(recovery.stage, RecoveryStage::Instructions);
+    assert_eq!(recovery.provider, Some(ApiKeyProviderArg::ChatgptCodex));
+}
+
+#[test]
 fn slash_logout_requires_confirmation_surface() {
     let mut app = fresh_app();
     app.input = PromptInput::from("/logout umans");
@@ -848,6 +859,14 @@ fn slash_logout_requires_confirmation_surface() {
     let recovery = app.first_run_recovery.as_ref().expect("logout recovery");
     assert_eq!(recovery.stage, RecoveryStage::LogoutConfirm);
     assert_eq!(recovery.provider, Some(ApiKeyProviderArg::Umans));
+}
+
+#[test]
+fn offline_model_picker_includes_provider_expansion_models() {
+    let items = offline_model_picker_items();
+
+    assert!(items.iter().any(|item| item.label == "opencode/big-pickle"));
+    assert!(items.iter().any(|item| item.label == "chatgpt-codex/gpt-5.5"));
 }
 
 #[test]
