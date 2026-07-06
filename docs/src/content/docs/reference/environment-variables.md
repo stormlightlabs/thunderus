@@ -54,7 +54,7 @@ environment, managed credential stores, or a workspace `.env` file, but they are
 not serialized into effective config, prompt inspection, sessions, snapshots, or
 export metadata.
 
-Credential lookup precedence is:
+API-key provider credential lookup precedence is:
 
 1. Process environment.
 2. Global credential store: `~/.thndrs/credentials.env`.
@@ -64,6 +64,11 @@ Credential lookup precedence is:
 Use `thndrs login <provider>`, `thndrs logout <provider>`, and
 `thndrs auth status` to manage stored provider credentials. Project credential
 stores are added to `.git/info/exclude` when possible.
+
+ChatGPT Codex is different: normal setup and login use ChatGPT OAuth and store
+refreshable credentials in `~/.thndrs/auth.json`. The
+`CHATGPT_CODEX_ACCESS_TOKEN` environment variable is only a process-local
+override for automation and debugging.
 
 ### `UMANS_API_KEY`
 
@@ -102,8 +107,9 @@ export CHATGPT_CODEX_ACCESS_TOKEN=...
 ```
 
 This value is used only for the current process and is not written to
-`~/.thndrs/auth.json`. ChatGPT Codex login/logout manage refreshable local
-credentials separately from environment variables.
+`~/.thndrs/auth.json`. It is not the normal setup path. Use
+`thndrs setup --provider chatgpt-codex` or `thndrs login chatgpt-codex` to
+create or refresh local ChatGPT OAuth credentials.
 
 Do not use TOML keys such as `umans_api_key`, `auth_token`, `secret`, or
 `password`. Secret-shaped TOML keys are rejected; provider code owns provider

@@ -21,11 +21,20 @@ only where explicitly called out, and do not paste secrets into notes.
 - [ ] Run `thndrs setup` in a temp HOME and temp workspace.
 - [ ] Confirm setup prints workspace, provider, credential status, and next
   command.
+- [ ] Confirm setup presents OpenCode Zen Big Pickle as the default provider
+  choice before credential entry.
+- [ ] Confirm OpenCode Zen setup copy mentions the required
+  `OPENCODE_ZEN_KEY`, limited-free caveat, and free-period privacy caveat.
+- [ ] Confirm setup can switch from OpenCode Zen to another provider before
+  credential entry.
 - [ ] Confirm setup does not duplicate existing config keys when run twice.
 - [ ] Run setup in a git repo and confirm `.git/info/exclude` includes
   `.thndrs/credentials.env`.
 - [ ] Run setup with non-interactive stdin and confirm it fails with useful
   instructions.
+- [ ] Run non-interactive `thndrs setup --provider chatgpt-codex` and confirm
+  it fails with OAuth-specific instructions unless ChatGPT auth is already
+  available.
 
 ## Config And Credentials
 
@@ -40,6 +49,12 @@ only where explicitly called out, and do not paste secrets into notes.
 - [ ] `thndrs logout opencode-go` removes only `OPENCODE_GO_KEY`.
 - [ ] `thndrs login opencode-zen` stores only `OPENCODE_ZEN_KEY`.
 - [ ] `thndrs logout opencode-zen` removes only `OPENCODE_ZEN_KEY`.
+- [ ] `thndrs setup --provider chatgpt-codex` starts ChatGPT OAuth and never
+  asks for an API key or credential-store scope.
+- [ ] `thndrs setup --provider chatgpt-codex` may still write the selected
+  default model when the user explicitly confirms it.
+- [ ] ChatGPT setup, login, and TUI recovery do not create or modify
+  `.thndrs/credentials.env` with ChatGPT token material.
 - [ ] `thndrs auth status` shows sources and never values.
 - [ ] Credential files are mode `0600` on Unix.
 - [ ] Project credentials are ignored by git.
@@ -65,6 +80,15 @@ only where explicitly called out, and do not paste secrets into notes.
 - [ ] Enter an API key through the recovery surface and confirm hidden input.
 - [ ] Store a key globally and confirm it works on restart.
 - [ ] Store a key for the project and confirm it works on restart.
+- [ ] Launch TUI with missing ChatGPT Codex auth and confirm recovery says
+  ChatGPT OAuth credential, not API key.
+- [ ] Start ChatGPT OAuth from TUI recovery and confirm the verification URL and
+  user code render in the focused recovery surface.
+- [ ] Cancel ChatGPT OAuth polling with Esc and confirm no credentials are
+  written and the prompt draft is preserved.
+- [ ] Complete ChatGPT OAuth from TUI recovery with a real account and confirm
+  recovery clears, prompt draft is preserved, and credentials are stored in
+  `~/.thndrs/auth.json`.
 - [ ] Confirm API-key-looking slash-command arguments are rejected.
 - [ ] Confirm ACP models show ACP recovery, not provider API-key setup.
 
@@ -76,6 +100,8 @@ only where explicitly called out, and do not paste secrets into notes.
 - [ ] `/config show` appends redacted effective config.
 - [ ] `/setup` opens the setup surface.
 - [ ] `/login opencode-zen` opens hidden credential entry.
+- [ ] `/login chatgpt-codex` opens the ChatGPT OAuth recovery surface, not
+  hidden API-key entry.
 - [ ] `/logout opencode-zen` opens a confirmation surface.
 - [ ] `/config edit` tells the user to run the CLI command outside the TUI.
 
@@ -87,7 +113,11 @@ only where explicitly called out, and do not paste secrets into notes.
 - [ ] OpenCode Go still uses `opencode-go/` and `OPENCODE_GO_KEY`.
 - [ ] Umans still uses `umans-coder` and `UMANS_API_KEY`.
 - [ ] ChatGPT Codex missing credentials fail before network access.
+- [ ] ChatGPT Codex recovery actions are ordered as OAuth login, switch
+  model/provider, setup instructions, optional continue, then quit.
 - [ ] `thndrs login chatgpt-codex` device-code flow works with a real account.
+- [ ] `thndrs setup --provider chatgpt-codex` uses the same device-code flow as
+  `thndrs login chatgpt-codex`.
 - [ ] ChatGPT Codex browser PKCE fallback works when tested manually.
 - [ ] `CHATGPT_CODEX_ACCESS_TOKEN` works for one process and does not write
   `~/.thndrs/auth.json`.

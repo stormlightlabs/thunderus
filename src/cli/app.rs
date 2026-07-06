@@ -1573,12 +1573,22 @@ fn provider_for_model(model: &str) -> SetupProviderArg {
 
 fn provider_authenticated(provider: SetupProviderArg, cwd: &std::path::Path) -> bool {
     if provider == SetupProviderArg::ChatgptCodex {
-        return auth::resolve_chatgpt_codex_auth().is_ok();
+        return chatgpt_codex_auth_available_locally();
     }
     let Some(env_var) = provider.api_key_env_var() else {
         return false;
     };
     auth::credential_source(env_var, cwd).is_some()
+}
+
+fn chatgpt_codex_auth_available_locally() -> bool {
+    if let Ok(token) = std::env::var(auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV)
+        && !token.trim().is_empty()
+    {
+        return auth::chatgpt_account_id_from_jwt(&token).is_ok();
+    }
+
+    matches!(auth::read_chatgpt_codex_credentials(), Ok(Some(_)))
 }
 
 fn selected_provider_missing(app: &App) -> Option<FirstRunRecovery> {

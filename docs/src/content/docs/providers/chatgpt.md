@@ -14,19 +14,22 @@ endpoint.
 
 ## Authentication
 
-Use the dedicated ChatGPT Codex login flow:
+Use the dedicated ChatGPT Codex OAuth flow:
 
 ```sh
+thndrs setup --provider chatgpt-codex
 thndrs login chatgpt-codex
 thndrs logout chatgpt-codex
 ```
 
-Login uses device-code authentication first and falls back to a browser PKCE
-flow with a localhost callback when needed. Stored credentials are refreshed
-before provider requests when possible.
+Setup and login share the same authentication path. They use device-code
+authentication first and fall back to a browser PKCE flow with a localhost
+callback when needed. Stored credentials are refreshed before provider requests
+when possible.
 
 ChatGPT Codex credentials do not use `OPENAI_API_KEY`. They are ChatGPT
 subscription credentials with a bearer access token and ChatGPT account id.
+Normal setup does not ask for a ChatGPT API key or access token.
 
 ## Credential Storage
 

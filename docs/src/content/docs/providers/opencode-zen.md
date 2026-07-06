@@ -25,8 +25,13 @@ thndrs logout opencode-zen
 You can also run setup and choose OpenCode Zen:
 
 ```sh
+thndrs setup
 thndrs setup --provider opencode-zen
 ```
+
+OpenCode Zen Big Pickle is the built-in default provider choice in guided
+setup. The setup flow shows the required `OPENCODE_ZEN_KEY`, limited-free
+caveat, and free-period privacy caveat before credential entry.
 
 Provider keys are not accepted through CLI flags or TOML config. Stored API keys
 live in the same managed credential files used by setup and login, and are

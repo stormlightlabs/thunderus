@@ -15,10 +15,10 @@ title: "CLI Reference"
 
 ## Auth Commands
 
-- `thndrs setup [--provider <umans|opencode-go|opencode-zen|chatgpt-codex>]`: run guided setup for the selected provider.
+- `thndrs setup [--provider <umans|opencode-go|opencode-zen|chatgpt-codex>]`: run guided setup for the selected provider. API-key providers use hidden key entry; `chatgpt-codex` uses ChatGPT OAuth.
 - `thndrs setup --global`: prefer the user config and credential store.
 - `thndrs setup --project`: prefer the workspace config and credential store.
-- `thndrs login <provider>`: store a provider credential after hidden input and explicit confirmation.
+- `thndrs login <provider>`: store an API-key provider credential after hidden input and explicit confirmation.
 - `thndrs logout <provider>`: remove the selected provider's stored credential.
 - `thndrs auth status`: show provider credential sources without values.
 - `thndrs doctor`: print redacted human-readable setup diagnostics.
@@ -30,8 +30,10 @@ title: "CLI Reference"
 - `thndrs login chatgpt-codex`: start the ChatGPT Codex device-code login flow, with browser PKCE fallback.
 - `thndrs logout chatgpt-codex`: remove the stored ChatGPT Codex credential entry.
 
-Supported API-key login providers include `umans`, `opencode-go`, and
-`opencode-zen`. ChatGPT Codex uses its own ChatGPT-backed login flow.
+Supported API-key setup and login providers include `umans`, `opencode-go`, and
+`opencode-zen`. ChatGPT Codex setup and login share the ChatGPT-backed OAuth
+flow and store refreshable credentials in `~/.thndrs/auth.json`, not in
+`.thndrs/credentials.env`.
 
 ## ACP Commands
 

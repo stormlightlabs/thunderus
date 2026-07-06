@@ -470,6 +470,50 @@ fn missing_provider_credential_opens_recovery_and_preserves_prompt() {
 }
 
 #[test]
+fn chatgpt_submit_uses_stored_auth_without_recovery_refresh() {
+    with_provider_env_removed(|| {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let home = dir.path().join("home");
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&home).expect("create home");
+        std::fs::create_dir_all(&workspace).expect("create workspace");
+        let old_home = std::env::var_os("HOME");
+        unsafe {
+            std::env::set_var("HOME", &home);
+        }
+
+        auth::write_chatgpt_codex_credentials(&auth::ChatGptCodexCredentials {
+            access_token: "expired-access-token".to_string(),
+            refresh_token: "refresh-token".to_string(),
+            expires_at_ms: 0,
+            account_id: "acct_test".to_string(),
+        })
+        .expect("write stored ChatGPT credentials");
+
+        let cli = Cli { cwd: workspace, model: "chatgpt-codex/gpt-5.5".to_string(), ..Cli::default() };
+        let mut app = App::from_cli(&cli);
+        app.session_writer = None;
+        app.input = PromptInput::from("hello");
+
+        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert!(
+            app.first_run_recovery.is_none(),
+            "stored ChatGPT credentials should pass the local setup gate"
+        );
+        assert_eq!(app.transcript, vec![Entry::User { text: "hello".to_string() }]);
+
+        unsafe {
+            if let Some(old_home) = old_home {
+                std::env::set_var("HOME", old_home);
+            } else {
+                std::env::remove_var("HOME");
+            }
+        }
+    });
+}
+
+#[test]
 fn acp_missing_config_uses_acp_recovery_not_provider_key_setup() {
     with_provider_env_removed(|| {
         let dir = tempfile::tempdir().expect("create temp dir");

@@ -72,7 +72,7 @@ impl SetupProviderArg {
                 label: "opencode-zen",
                 default_model: "opencode/big-pickle",
                 auth_kind: ProviderAuthKind::ApiKey { env_var: auth::OPENCODE_ZEN_KEY_ENV },
-                setup_summary: "OpenCode Zen Big Pickle is the default model. It requires OPENCODE_ZEN_KEY; OpenCode describes Big Pickle as free for a limited time, and prompts are sent to OpenCode Zen.",
+                setup_summary: "OpenCode Zen Big Pickle is the default model. It requires OPENCODE_ZEN_KEY; OpenCode describes Big Pickle as free for a limited time, and free-period prompts may be used to improve the model.",
             },
             Self::ChatgptCodex => ProviderMetadata {
                 label: "chatgpt-codex",
@@ -467,7 +467,7 @@ mod tests {
         assert!(output.contains("opencode/big-pickle"));
         assert!(output.contains(auth::OPENCODE_ZEN_KEY_ENV));
         assert!(output.contains("free for a limited time"));
-        assert!(output.contains("prompts are sent to OpenCode Zen"));
+        assert!(output.contains("prompts may be used to improve the model"));
     }
 
     #[test]

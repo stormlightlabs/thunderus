@@ -34,6 +34,9 @@ and this project follows semantic versioning after the first stable release.
   - Device-code login, browser PKCE fallback login, refreshable
     `~/.thndrs/auth.json` credentials, logout, and
     `CHATGPT_CODEX_ACCESS_TOKEN` process override.
+  - TUI recovery can start ChatGPT OAuth, show the device-code verification
+    URL and user code, poll without blocking prompt rendering, and cancel
+    without writing credentials.
   - Known model picker entries for `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, and
     `gpt-5.3-codex-spark`.
 - TTFT statusline display for client-observed time from local submit to first
@@ -63,9 +66,15 @@ and this project follows semantic versioning after the first stable release.
 - Changed the built-in default model from `umans-coder` to
   `opencode/big-pickle`, with setup and docs preserving OpenCode's
   limited-free and free-period privacy caveats.
+- Reworked `thndrs setup` into a provider-aware flow with an explicit provider
+  picker, OpenCode Zen Big Pickle as the default choice, hidden API-key entry
+  for API-key providers, and ChatGPT OAuth for `chatgpt-codex`.
 - Kept `opencode/` and `opencode-go/` as distinct OpenCode provider families
   with separate credentials, routing, and docs.
 - Labeled ChatGPT Codex as ChatGPT-backed and experimental instead of treating
   it as OpenAI Platform API-key access.
+- Kept ChatGPT Codex setup and login on the same OAuth path; normal setup does
+  not ask for ChatGPT API keys and does not store ChatGPT credentials in
+  `.thndrs/credentials.env`.
 - Kept provider secrets, raw provider payloads, ChatGPT access tokens, refresh
   tokens, and TTFT content out of session records and prompt inspection.
