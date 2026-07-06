@@ -36,20 +36,20 @@ fn process_kind_labels() {
 
 #[test]
 fn cancel_flag_starts_false() {
-    let flag = CancelFlag::new();
+    let flag = CancelToken::new();
     assert!(!flag.is_cancelled());
 }
 
 #[test]
 fn cancel_flag_sets_true() {
-    let flag = CancelFlag::new();
+    let flag = CancelToken::new();
     flag.cancel();
     assert!(flag.is_cancelled());
 }
 
 #[test]
 fn cancel_flag_is_shared() {
-    let flag = CancelFlag::new();
+    let flag = CancelToken::new();
     let clone = flag.clone();
     flag.cancel();
     assert!(clone.is_cancelled());
@@ -59,7 +59,7 @@ fn cancel_flag_is_shared() {
 fn run_command_success() {
     let dir = tempfile::tempdir().expect("temp dir");
     let root = dir.path();
-    let cancel = CancelFlag::new();
+    let cancel = CancelToken::new();
     let args = echo(&["hello", "world"]);
     let result = run_command(&args, root, &cancel).expect("run");
 
@@ -78,7 +78,7 @@ fn run_command_success() {
 fn run_command_captures_stdout() {
     let dir = tempfile::tempdir().expect("temp dir");
     let root = dir.path();
-    let cancel = CancelFlag::new();
+    let cancel = CancelToken::new();
     let args = sh("printf 'line1\\nline2\\nline3\\n'");
     let result = run_command(&args, root, &cancel).expect("run");
     assert_eq!(result.status, ProcessStatus::Ok);
@@ -89,7 +89,7 @@ fn run_command_captures_stdout() {
 fn run_command_captures_stderr() {
     let dir = tempfile::tempdir().expect("temp dir");
     let root = dir.path();
-    let cancel = CancelFlag::new();
+    let cancel = CancelToken::new();
     let args = sh("echo 'to stderr' >&2");
     let result = run_command(&args, root, &cancel).expect("run");
     assert_eq!(result.status, ProcessStatus::Ok);
@@ -101,7 +101,7 @@ fn run_command_captures_stderr() {
 fn run_command_failure_nonzero_exit() {
     let dir = tempfile::tempdir().expect("temp dir");
     let root = dir.path();
-    let cancel = CancelFlag::new();
+    let cancel = CancelToken::new();
     let args = sh("exit 3");
     let result = run_command(&args, root, &cancel).expect("run");
     assert_eq!(result.status, ProcessStatus::Failed);
@@ -112,7 +112,7 @@ fn run_command_failure_nonzero_exit() {
 fn run_command_nonexistent_program_fails() {
     let dir = tempfile::tempdir().expect("temp dir");
     let root = dir.path();
-    let cancel = CancelFlag::new();
+    let cancel = CancelToken::new();
     let args = one_shot("definitely_not_a_real_program_xyz", vec![]);
     let result = run_command(&args, root, &cancel);
     assert!(result.is_err());
@@ -123,7 +123,7 @@ fn run_command_nonexistent_program_fails() {
 fn run_command_timeout_kills_process() {
     let dir = tempfile::tempdir().expect("temp dir");
     let root = dir.path();
-    let cancel = CancelFlag::new();
+    let cancel = CancelToken::new();
     let args = ShellArgs {
         program: "sh".to_string(),
         args: vec!["-c".to_string(), "sleep 30".to_string()],
@@ -142,7 +142,7 @@ fn run_command_timeout_kills_process() {
 fn run_command_cancellation_kills_process() {
     let dir = tempfile::tempdir().expect("temp dir");
     let root = dir.path();
-    let cancel = CancelFlag::new();
+    let cancel = CancelToken::new();
     let args = ShellArgs {
         program: "sh".to_string(),
         args: vec!["-c".to_string(), "sleep 30".to_string()],
@@ -172,7 +172,7 @@ fn run_command_runs_in_workspace_root_by_default() {
 
     std::fs::write(root.join("marker.txt"), "found").expect("write");
 
-    let cancel = CancelFlag::new();
+    let cancel = CancelToken::new();
     let args = sh("cat marker.txt");
     let result = run_command(&args, root, &cancel).expect("run");
     assert_eq!(result.status, ProcessStatus::Ok);
@@ -186,7 +186,7 @@ fn run_command_runs_in_specified_cwd() {
     let root = dir.path();
     std::fs::create_dir_all(root.join("subdir")).expect("mkdir");
     std::fs::write(root.join("subdir/nested.txt"), "nested").expect("write");
-    let cancel = CancelFlag::new();
+    let cancel = CancelToken::new();
     let args = ShellArgs {
         program: "cat".to_string(),
         args: vec!["nested.txt".to_string()],
@@ -207,7 +207,7 @@ fn run_command_rejects_cwd_outside_root() {
     let root = dir.path();
     let parent = root.parent().unwrap();
     let escape = parent.to_string_lossy().to_string();
-    let cancel = CancelFlag::new();
+    let cancel = CancelToken::new();
     let args = ShellArgs {
         program: "echo".to_string(),
         args: vec![],
@@ -224,7 +224,7 @@ fn run_command_rejects_cwd_outside_root() {
 fn run_command_rejects_nonexistent_cwd() {
     let dir = tempfile::tempdir().expect("temp dir");
     let root = dir.path();
-    let cancel = CancelFlag::new();
+    let cancel = CancelToken::new();
     let args = ShellArgs {
         program: "echo".to_string(),
         args: vec![],
@@ -241,7 +241,7 @@ fn run_command_rejects_nonexistent_cwd() {
 fn run_command_caps_output_lines() {
     let dir = tempfile::tempdir().expect("temp dir");
     let root = dir.path();
-    let cancel = CancelFlag::new();
+    let cancel = CancelToken::new();
     let script = format!("for i in $(seq 1 {}); do echo line$i; done", MAX_OUTPUT_LINES + 50);
     let args = sh(&script);
     let result = run_command(&args, root, &cancel).expect("run");
@@ -254,7 +254,7 @@ fn run_command_caps_output_lines() {
 fn run_command_truncates_long_lines() {
     let dir = tempfile::tempdir().expect("temp dir");
     let root = dir.path();
-    let cancel = CancelFlag::new();
+    let cancel = CancelToken::new();
     let max_len: usize = MAX_LINE_LEN;
     let long_line = "x".repeat(max_len + 100);
     let script = format!("printf '{}\\n'", long_line);
@@ -270,7 +270,7 @@ fn run_command_truncates_long_lines() {
 fn run_command_captures_elapsed_time() {
     let dir = tempfile::tempdir().expect("temp dir");
     let root = dir.path();
-    let cancel = CancelFlag::new();
+    let cancel = CancelToken::new();
     let args = sh("sleep 0.2");
     let result = run_command(&args, root, &cancel).expect("run");
     assert_eq!(result.status, ProcessStatus::Ok);
@@ -400,13 +400,13 @@ fn registry_register_assigns_incrementing_ids() {
         vec!["echo".to_string()],
         PathBuf::from("/repo"),
         ProcessKind::OneShot,
-        CancelFlag::new(),
+        CancelToken::new(),
     );
     let id2 = reg.register(
         vec!["ls".to_string()],
         PathBuf::from("/repo"),
         ProcessKind::Background,
-        CancelFlag::new(),
+        CancelToken::new(),
     );
     assert_eq!(id1, 0);
     assert_eq!(id2, 1);
@@ -420,7 +420,7 @@ fn registry_get_returns_active_process() {
         vec!["cargo".to_string(), "test".to_string()],
         PathBuf::from("/repo"),
         ProcessKind::OneShot,
-        CancelFlag::new(),
+        CancelToken::new(),
     );
     let p = reg.get(id).expect("should exist");
     assert_eq!(p.command, vec!["cargo".to_string(), "test".to_string()]);
@@ -440,7 +440,7 @@ fn registry_remove_removes_process() {
         vec!["echo".to_string()],
         PathBuf::from("/repo"),
         ProcessKind::OneShot,
-        CancelFlag::new(),
+        CancelToken::new(),
     );
     assert!(reg.remove(id).is_some());
     assert!(reg.is_empty());
@@ -460,19 +460,19 @@ fn registry_counts_by_kind() {
         vec!["a".to_string()],
         PathBuf::from("/repo"),
         ProcessKind::OneShot,
-        CancelFlag::new(),
+        CancelToken::new(),
     );
     reg.register(
         vec!["b".to_string()],
         PathBuf::from("/repo"),
         ProcessKind::Background,
-        CancelFlag::new(),
+        CancelToken::new(),
     );
     reg.register(
         vec!["c".to_string()],
         PathBuf::from("/repo"),
         ProcessKind::Background,
-        CancelFlag::new(),
+        CancelToken::new(),
     );
 
     assert_eq!(reg.len(), 3);
@@ -483,7 +483,7 @@ fn registry_counts_by_kind() {
 #[test]
 fn registry_cancel_signals_flag() {
     let mut reg = ProcessRegistry::new();
-    let cancel = CancelFlag::new();
+    let cancel = CancelToken::new();
     let id = reg.register(
         vec!["sleep".to_string(), "30".to_string()],
         PathBuf::from("/repo"),
@@ -503,8 +503,8 @@ fn registry_cancel_missing_returns_false() {
 #[test]
 fn registry_cancel_all_signals_all_flags() {
     let mut reg = ProcessRegistry::new();
-    let c1 = CancelFlag::new();
-    let c2 = CancelFlag::new();
+    let c1 = CancelToken::new();
+    let c2 = CancelToken::new();
     reg.register(
         vec!["a".to_string()],
         PathBuf::from("/repo"),
@@ -530,13 +530,13 @@ fn registry_ids_iterates_all() {
         vec!["a".to_string()],
         PathBuf::from("/repo"),
         ProcessKind::OneShot,
-        CancelFlag::new(),
+        CancelToken::new(),
     );
     reg.register(
         vec!["b".to_string()],
         PathBuf::from("/repo"),
         ProcessKind::Background,
-        CancelFlag::new(),
+        CancelToken::new(),
     );
 
     let mut ids: Vec<u64> = reg.ids().collect();
@@ -551,19 +551,19 @@ fn registry_background_ids_filters() {
         vec!["a".to_string()],
         PathBuf::from("/repo"),
         ProcessKind::OneShot,
-        CancelFlag::new(),
+        CancelToken::new(),
     );
     reg.register(
         vec!["b".to_string()],
         PathBuf::from("/repo"),
         ProcessKind::Background,
-        CancelFlag::new(),
+        CancelToken::new(),
     );
     reg.register(
         vec!["c".to_string()],
         PathBuf::from("/repo"),
         ProcessKind::Background,
-        CancelFlag::new(),
+        CancelToken::new(),
     );
 
     let mut bg_ids: Vec<u64> = reg.background_ids().collect();
@@ -578,7 +578,7 @@ fn registry_active_process_elapsed_tracks_time() {
         vec!["sleep".to_string()],
         PathBuf::from("/repo"),
         ProcessKind::Background,
-        CancelFlag::new(),
+        CancelToken::new(),
     );
     std::thread::sleep(Duration::from_millis(50));
     let p = reg.get(id).expect("exists");
@@ -850,7 +850,7 @@ fn redact_secrets_is_case_insensitive_for_keywords() {
 fn redact_secrets_redacts_in_command_output() {
     let dir = tempfile::tempdir().expect("temp dir");
     let root = dir.path();
-    let cancel = CancelFlag::new();
+    let cancel = CancelToken::new();
     let args = sh("echo 'token=sk-abcdefgh1234567890'");
     let result = run_command(&args, root, &cancel).expect("run");
     assert_eq!(result.status, ProcessStatus::Ok);
@@ -872,7 +872,7 @@ fn redact_secrets_redacts_in_command_output() {
 fn shell_output_persisted_in_tool_finished_is_redacted() {
     let dir = tempfile::tempdir().expect("temp dir");
     let root = dir.path();
-    let cancel = CancelFlag::new();
+    let cancel = CancelToken::new();
     let args = sh("echo 'api_key=sk-secretvalue12345'");
     let result = run_command(&args, root, &cancel).expect("run");
 
@@ -918,7 +918,7 @@ fn shell_output_persisted_in_tool_finished_is_redacted() {
 fn shell_exec_persists_full_lifecycle_for_success() {
     let dir = tempfile::tempdir().expect("temp dir");
     let root = dir.path();
-    let cancel = CancelFlag::new();
+    let cancel = CancelToken::new();
     let args = echo(&["hello"]);
     let result = run_command(&args, root, &cancel).expect("run");
 

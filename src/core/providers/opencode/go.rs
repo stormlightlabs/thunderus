@@ -7,8 +7,6 @@
 
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
-
 use crate::{
     app::AgentEvent,
     providers::{
@@ -48,21 +46,10 @@ impl EndpointFamily {
 }
 
 /// OpenAI-compatible model list response from `GET /models`.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct ModelsResponse {
-    pub object: String,
-    #[serde(default)]
-    pub data: Vec<ModelInfo>,
-}
+pub type ModelsResponse = super::ModelsResponse;
 
 /// Model metadata currently returned by OpenCode Go.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct ModelInfo {
-    pub id: String,
-    pub object: String,
-    pub created: u64,
-    pub owned_by: String,
-}
+pub type ModelInfo = super::ModelInfo;
 
 /// Concrete OpenCode Go API client.
 pub struct OpenCodeGoClient {

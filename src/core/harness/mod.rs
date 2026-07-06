@@ -6,8 +6,9 @@
 
 use std::sync::mpsc::Receiver;
 
-use crate::agent::{self, CancelToken, RunHandle, ToolExecutionHook, ToolPermissionHook};
+use crate::agent::{RunHandle, ToolExecutionHook, ToolPermissionHook};
 use crate::app::AgentEvent;
+use crate::cancel::CancelToken;
 use crate::providers::ProviderMessage;
 use crate::tools::AgentRunConfig;
 
@@ -70,7 +71,7 @@ impl HarnessTurn {
     /// Create and start the turn, returning the event stream and cancel handle.
     pub fn start(self) -> HarnessHandle {
         let cancel = self.handle.cancel.clone();
-        let events = agent::spawn_run(self.handle);
+        let events = self.handle.spawn();
         HarnessHandle { events, cancel }
     }
 

@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::Duration;
 
+use crate::cancel::CancelToken;
 use crate::cli::WebSearchMode;
 use crate::harness::{HarnessHandle, HarnessTurn};
 use agent_client_protocol::schema::ProtocolVersion;
@@ -26,7 +27,7 @@ use super::handlers::{ServerState, acp_mcp_config, execute_prompt, initialize, s
 use super::session::{
     AcpSessionError, AcpSessionStore, LocalSessionMetadata, generate_session_id, validate_and_normalize_cwd,
 };
-use crate::agent::CancelToken;
+
 use crate::app::{AgentEvent, ToolStatus};
 use crate::providers::{ProviderContentBlock, ProviderMessageContent};
 use crate::server::ServerConfig;
@@ -1132,7 +1133,10 @@ fn execute_prompt_rejects_concurrent_prompts_for_same_session() {
             move |_config, _messages, _expects_write, _prompt| {
                 started_tx.send(()).expect("first harness started");
                 let mut guard = event_rx.lock().expect("acquire harness event channel");
-                HarnessHandle { events: guard.take().expect("event receiver available"), cancel: CancelToken::new() }
+                HarnessHandle {
+                    events: guard.take().expect("event receiver available"),
+                    cancel: CancelToken::new(),
+                }
             },
         )
     });

@@ -1,5 +1,6 @@
 use super::*;
 use crate::acp::permissions::{PendingPermission, PermissionDecision, PermissionKindView, PermissionOptionView};
+use crate::cancel::CancelToken;
 use crate::config::{Config, ConfigOrigin, ConfigSource, LoadedConfigLayer};
 use crate::harness::HarnessTurn;
 use crate::input::PromptInput;
@@ -1808,7 +1809,7 @@ fn background_shell_result_registers_in_process_registry() {
 #[test]
 fn bg_command_lists_registered_background_processes() {
     let mut app = fresh_app();
-    let cancel = tools::shell::CancelFlag::new();
+    let cancel = CancelToken::new();
     let id = app.process_registry.register(
         vec!["cargo".to_string(), "build".to_string()],
         std::path::PathBuf::from("."),
@@ -1837,7 +1838,7 @@ fn bg_command_lists_registered_background_processes() {
 #[test]
 fn quit_cancels_all_background_processes() {
     let mut app = fresh_app();
-    let cancel = tools::shell::CancelFlag::new();
+    let cancel = CancelToken::new();
     app.process_registry.register(
         vec!["sleep".to_string(), "30".to_string()],
         std::path::PathBuf::from("."),

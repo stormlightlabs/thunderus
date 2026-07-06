@@ -13,8 +13,8 @@ pub use cli::{app, input, renderer};
 
 pub use prelude::*;
 pub use thndrs_core::{
-    acp, agent, config, context, fuzzy, harness, internals, mcp, prelude, prompt, providers, search, session, skills,
-    tools, utils,
+    acp, agent, cancel, config, context, fuzzy, harness, internals, mcp, prelude, prompt, providers, search, session,
+    skills, tools, utils,
 };
 
 use std::io;
@@ -36,6 +36,8 @@ use renderer::backend::TerminalBackend;
 use renderer::region::LiveRegion;
 use utils::datetime;
 
+use crate::thndrs_core::cancel::CancelToken;
+
 enum AcpEventWrite {
     Continue,
     Finished,
@@ -46,7 +48,7 @@ enum AcpEventWrite {
 /// State carried by the main loop for a single agent run.
 struct AgentSlot {
     receiver: mpsc::Receiver<app::AgentEvent>,
-    cancel: agent::CancelToken,
+    cancel: CancelToken,
     steering: mpsc::Sender<String>,
 }
 
@@ -1884,7 +1886,7 @@ for line in sys.stdin:
         let (event_tx, event_rx) = mpsc::channel();
         drop(event_tx);
         let (steering_tx, steering_rx) = mpsc::channel();
-        let slot = AgentSlot { receiver: event_rx, cancel: agent::CancelToken::new(), steering: steering_tx };
+        let slot = AgentSlot { receiver: event_rx, cancel: CancelToken::new(), steering: steering_tx };
 
         flush_steering(&mut app, &Some(slot));
 

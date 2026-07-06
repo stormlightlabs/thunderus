@@ -7,6 +7,23 @@ pub use go::OpenCodeGoClient;
 
 use crate::providers::KnownModel;
 
+/// OpenAI-compatible model list response shared by OpenCode providers.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct ModelsResponse {
+    pub object: String,
+    #[serde(default)]
+    pub data: Vec<ModelInfo>,
+}
+
+/// OpenAI-compatible model metadata shared by OpenCode providers.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct ModelInfo {
+    pub id: String,
+    pub object: String,
+    pub created: u64,
+    pub owned_by: String,
+}
+
 /// Whether `model` is an OpenCode Go model id.
 pub fn is_go_model_id(model: &str) -> bool {
     go::is_model_id(model)

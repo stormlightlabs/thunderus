@@ -28,6 +28,37 @@ pub const MODEL_PREFIX: &str = "chatgpt-codex/";
 /// Recommended request budget for known ChatGPT Codex models.
 pub const DEFAULT_RECOMMENDED_MAX_TOKENS: u32 = 32_768;
 
+/// Parsed ChatGPT Codex Responses stream event.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ResponsesSseEvent {
+    TextDelta(String),
+    ReasoningDelta(String),
+    ToolCallStart {
+        id: String,
+        call_id: String,
+        name: String,
+    },
+    ToolCallArgumentsDelta {
+        id: String,
+        arguments: String,
+    },
+    ToolCallDone {
+        id: String,
+        call_id: Option<String>,
+        name: String,
+        arguments: String,
+    },
+    ResponseStatus(String),
+    Error(String),
+    Usage {
+        input_tokens: u64,
+        output_tokens: u64,
+    },
+    Done,
+    Malformed(String),
+    Other,
+}
+
 /// Concrete ChatGPT Codex API client.
 pub struct ChatGptCodexClient {
     base_url: String,
@@ -164,7 +195,7 @@ impl StreamingProvider for ChatGptCodexClient {
 
     fn stream_format(&self, model: &str) -> Result<StreamFormat> {
         raw_model_id(model)?;
-        Ok(StreamFormat::OpenAiChat)
+        Ok(StreamFormat::ChatGptCodexResponses)
     }
 
     fn request_error_message(error: &ProviderError) -> String {
@@ -209,6 +240,183 @@ pub fn is_retryable_error(err: &ProviderError) -> bool {
         ProviderError::Status { code, body } if terminal_status_error(*code, body) => false,
         _ => err.is_retryable(),
     }
+}
+
+/// Parse raw ChatGPT Codex Responses SSE data lines.
+pub fn parse_responses_sse_chunk(chunk: &str) -> Vec<String> {
+    chunk
+        .lines()
+        .filter_map(|line| line.strip_prefix("data:").map(|data| data.trim_start().to_string()))
+        .collect()
+}
+
+/// Parse one ChatGPT Codex Responses SSE `data:` payload.
+pub fn parse_responses_sse_event(data: &str) -> Vec<ResponsesSseEvent> {
+    if data.trim() == "[DONE]" {
+        return vec![ResponsesSseEvent::Done];
+    }
+
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(data) else {
+        return vec![ResponsesSseEvent::Malformed(data.chars().take(120).collect())];
+    };
+
+    let mut events = Vec::new();
+    let event_type = value.get("type").and_then(|v| v.as_str()).unwrap_or_default();
+    if let Some(error) = extract_responses_error(&value, event_type) {
+        events.push(ResponsesSseEvent::Error(error));
+    }
+    if let Some(status) = extract_responses_status(&value, event_type) {
+        events.push(ResponsesSseEvent::ResponseStatus(status));
+    }
+    if let Some((input_tokens, output_tokens)) = extract_responses_usage(&value) {
+        events.push(ResponsesSseEvent::Usage { input_tokens, output_tokens });
+    }
+    if let Some(text) = extract_responses_text_delta(&value, event_type) {
+        events.push(ResponsesSseEvent::TextDelta(text));
+    }
+    if let Some(reasoning) = extract_responses_reasoning_delta(&value, event_type) {
+        events.push(ResponsesSseEvent::ReasoningDelta(reasoning));
+    }
+    if let Some(tool_event) = extract_responses_tool_event(&value, event_type) {
+        events.push(tool_event);
+    }
+
+    if events.is_empty() { vec![ResponsesSseEvent::Other] } else { events }
+}
+
+fn extract_responses_text_delta(value: &serde_json::Value, event_type: &str) -> Option<String> {
+    if !event_type.contains("output_text") && !event_type.contains("message") {
+        return None;
+    }
+    string_field(value, &["delta", "text"])
+}
+
+fn extract_responses_reasoning_delta(value: &serde_json::Value, event_type: &str) -> Option<String> {
+    if !event_type.contains("reasoning") {
+        return None;
+    }
+    string_field(value, &["delta", "text", "summary_text"])
+}
+
+fn extract_responses_tool_event(value: &serde_json::Value, event_type: &str) -> Option<ResponsesSseEvent> {
+    if event_type == "response.output_item.added" {
+        let item = value.get("item")?;
+        if item.get("type").and_then(|v| v.as_str()) != Some("function_call") {
+            return None;
+        }
+        let id = function_item_id(item)?;
+        let call_id = function_call_id(item).unwrap_or_else(|| id.clone());
+        let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        return Some(ResponsesSseEvent::ToolCallStart { id, call_id, name });
+    }
+
+    if event_type.contains("function_call_arguments.delta") {
+        let id = event_item_id(value)?;
+        let arguments = value.get("delta").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        if arguments.is_empty() {
+            return None;
+        }
+        return Some(ResponsesSseEvent::ToolCallArgumentsDelta { id, arguments });
+    }
+
+    if event_type.contains("function_call_arguments.done") || event_type == "response.output_item.done" {
+        let item = value.get("item").unwrap_or(value);
+        if item
+            .get("type")
+            .and_then(|v| v.as_str())
+            .is_some_and(|kind| kind != "function_call")
+        {
+            return None;
+        }
+        let id = function_item_id(item).or_else(|| event_item_id(value))?;
+        let call_id = function_call_id(item);
+        let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let arguments = item
+            .get("arguments")
+            .or_else(|| value.get("arguments"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        return Some(ResponsesSseEvent::ToolCallDone { id, call_id, name, arguments });
+    }
+
+    None
+}
+
+fn extract_responses_error(value: &serde_json::Value, event_type: &str) -> Option<String> {
+    value
+        .get("error")
+        .and_then(|error| match error {
+            serde_json::Value::String(message) => Some(message.clone()),
+            serde_json::Value::Object(_) => error
+                .get("message")
+                .or_else(|| error.get("code"))
+                .and_then(|message| message.as_str())
+                .map(str::to_string),
+            _ => None,
+        })
+        .or_else(|| {
+            if event_type == "error" || event_type.ends_with(".error") {
+                string_field(value, &["message", "code"])
+            } else {
+                None
+            }
+        })
+}
+
+fn extract_responses_status(value: &serde_json::Value, event_type: &str) -> Option<String> {
+    let status = value
+        .get("status")
+        .or_else(|| value.get("response").and_then(|response| response.get("status")))
+        .and_then(|status| status.as_str())
+        .or_else(|| event_type.strip_prefix("response."))
+        .filter(|status| {
+            matches!(
+                *status,
+                "completed" | "failed" | "incomplete" | "cancelled" | "canceled" | "queued" | "in_progress"
+            )
+        })?;
+    Some(status.to_string())
+}
+
+fn extract_responses_usage(value: &serde_json::Value) -> Option<(u64, u64)> {
+    let usage = value
+        .get("usage")
+        .or_else(|| value.get("response").and_then(|response| response.get("usage")))
+        .filter(|usage| !usage.is_null())?;
+    let input_tokens = usage
+        .get("input_tokens")
+        .or_else(|| usage.get("prompt_tokens"))
+        .or_else(|| usage.get("inputTokens"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let output_tokens = usage
+        .get("output_tokens")
+        .or_else(|| usage.get("completion_tokens"))
+        .or_else(|| usage.get("outputTokens"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    if input_tokens == 0 && output_tokens == 0 { None } else { Some((input_tokens, output_tokens)) }
+}
+
+fn event_item_id(value: &serde_json::Value) -> Option<String> {
+    string_field(value, &["item_id", "output_item_id", "call_id"])
+}
+
+fn function_call_id(value: &serde_json::Value) -> Option<String> {
+    string_field(value, &["call_id"])
+}
+
+fn function_item_id(value: &serde_json::Value) -> Option<String> {
+    string_field(value, &["id", "item_id", "call_id"])
+}
+
+fn string_field(value: &serde_json::Value, fields: &[&str]) -> Option<String> {
+    fields
+        .iter()
+        .find_map(|field| value.get(*field).and_then(|v| v.as_str()))
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
 }
 
 fn responses_input(messages: &[ProviderMessage]) -> (String, serde_json::Value) {
@@ -342,6 +550,95 @@ mod tests {
         assert_eq!(body["text"]["verbosity"], "low");
         assert_eq!(body["tools"][0]["type"], "function");
         assert_eq!(body["tools"][0]["name"], defs[0].name.as_ref());
+    }
+
+    #[test]
+    fn parse_responses_sse_chunk_accepts_optional_space_after_data_colon() {
+        assert_eq!(
+            parse_responses_sse_chunk("data:{\"a\":1}\ndata: {\"b\":2}\n"),
+            vec!["{\"a\":1}".to_string(), "{\"b\":2}".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_responses_sse_text_reasoning_usage_and_statuses() {
+        assert_eq!(
+            parse_responses_sse_event(r#"{"type":"response.output_text.delta","delta":"hi"}"#),
+            vec![ResponsesSseEvent::TextDelta("hi".to_string())]
+        );
+        assert_eq!(
+            parse_responses_sse_event(r#"{"type":"response.reasoning_text.delta","delta":"thinking"}"#),
+            vec![ResponsesSseEvent::ReasoningDelta("thinking".to_string())]
+        );
+        assert_eq!(
+            parse_responses_sse_event(
+                r#"{"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":5,"output_tokens":8}}}"#
+            ),
+            vec![
+                ResponsesSseEvent::ResponseStatus("completed".to_string()),
+                ResponsesSseEvent::Usage { input_tokens: 5, output_tokens: 8 },
+            ]
+        );
+        assert_eq!(
+            parse_responses_sse_event(r#"{"type":"response.in_progress"}"#),
+            vec![ResponsesSseEvent::ResponseStatus("in_progress".to_string())]
+        );
+        assert_eq!(parse_responses_sse_event("[DONE]"), vec![ResponsesSseEvent::Done]);
+    }
+
+    #[test]
+    fn parse_responses_sse_tool_call_deltas_and_done() {
+        assert_eq!(
+            parse_responses_sse_event(
+                r#"{"type":"response.output_item.added","item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"find_files"}}"#
+            ),
+            vec![ResponsesSseEvent::ToolCallStart {
+                id: "fc_1".to_string(),
+                call_id: "call_1".to_string(),
+                name: "find_files".to_string(),
+            }]
+        );
+        assert_eq!(
+            parse_responses_sse_event(
+                r#"{"type":"response.function_call_arguments.delta","item_id":"fc_1","delta":"{\"pattern\":\"Cargo\""}"#
+            ),
+            vec![ResponsesSseEvent::ToolCallArgumentsDelta {
+                id: "fc_1".to_string(),
+                arguments: r#"{"pattern":"Cargo""#.to_string(),
+            }]
+        );
+        assert_eq!(
+            parse_responses_sse_event(
+                r#"{"type":"response.output_item.done","item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"find_files","arguments":"{\"pattern\":\"Cargo\"}"}}"#
+            ),
+            vec![ResponsesSseEvent::ToolCallDone {
+                id: "fc_1".to_string(),
+                call_id: Some("call_1".to_string()),
+                name: "find_files".to_string(),
+                arguments: r#"{"pattern":"Cargo"}"#.to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn parse_responses_sse_backend_errors_and_malformed_payloads() {
+        assert_eq!(
+            parse_responses_sse_event(r#"{"type":"error","message":"backend failed"}"#),
+            vec![ResponsesSseEvent::Error("backend failed".to_string())]
+        );
+        assert_eq!(
+            parse_responses_sse_event(
+                r#"{"type":"response.failed","response":{"status":"failed"},"error":{"message":"bad auth"}}"#
+            ),
+            vec![
+                ResponsesSseEvent::Error("bad auth".to_string()),
+                ResponsesSseEvent::ResponseStatus("failed".to_string()),
+            ]
+        );
+        assert_eq!(
+            parse_responses_sse_event("{not json"),
+            vec![ResponsesSseEvent::Malformed("{not json".to_string())]
+        );
     }
 
     #[test]

@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::acp::config::provider_label;
 use crate::acp::permissions::{PendingPermission, PermissionDecision};
+use crate::cancel::CancelToken;
 use crate::cli::commands::auth::CredentialScope;
 use crate::cli::commands::setup::ApiKeyProviderArg;
 use crate::cli::{Cli, Theme, WebSearchMode};
@@ -2393,7 +2394,7 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
 
             if let Some(result) = shell_result {
                 if result.kind == tools::shell::ProcessKind::Background {
-                    let cancel = tools::shell::CancelFlag::new();
+                    let cancel = CancelToken::new();
                     let id =
                         app.process_registry
                             .register(result.command.clone(), result.cwd.clone(), result.kind, cancel);

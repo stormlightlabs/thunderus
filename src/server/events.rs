@@ -77,6 +77,13 @@ pub enum ToolStatusIntent {
 
 impl From<ToolStatus> for ToolStatusIntent {
     fn from(status: ToolStatus) -> Self {
+        Self::from_tool_status(status)
+    }
+}
+
+impl ToolStatusIntent {
+    /// Convert the app transcript status into the ACP-facing status.
+    pub const fn from_tool_status(status: ToolStatus) -> Self {
         match status {
             ToolStatus::Ok => Self::Completed,
             ToolStatus::Failed => Self::Failed,

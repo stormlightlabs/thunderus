@@ -14,8 +14,9 @@ use futures::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, FutureExt, 
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
 use crate::agent::prompt_expects_workspace_write;
-use crate::agent::{CancelToken, ToolExecutionHook, ToolPermissionDecision, ToolPermissionHook};
+use crate::agent::{ToolExecutionHook, ToolPermissionDecision, ToolPermissionHook};
 use crate::app::AgentEvent;
+use crate::cancel::CancelToken;
 use crate::cli::WebSearchMode;
 use crate::harness::HarnessHandle;
 use crate::mcp::config::{McpConfig, McpServerConfig, McpTransport};
@@ -1062,12 +1063,7 @@ fn request_client_permission(
                         time: crate::utils::datetime::now_iso8601(),
                         turn_id: turn_id.to_string(),
                         tool_call_id: request.tool_use_id.clone(),
-                        outcome: match &decision {
-                            ToolPermissionDecision::Allow => "allowed",
-                            ToolPermissionDecision::Reject => "rejected",
-                            ToolPermissionDecision::Cancelled => "cancelled",
-                        }
-                        .to_string(),
+                        outcome: decision.outcome_label().to_string(),
                     },
                 );
                 return decision;
@@ -1169,14 +1165,7 @@ fn execute_shell_in_client_terminal(
     let _ = block_client_request(connection, ReleaseTerminalRequest::new(session_id, terminal_id));
 
     let result = process_result_from_terminal(&args, cwd, start.elapsed(), &final_output, &wait, cancel);
-    let output = match result.status {
-        ProcessStatus::Ok => ToolOutput::ok("run_shell", result.to_output_lines()),
-        _ => {
-            let mut output = result.to_failed_output();
-            output.output = result.to_output_lines();
-            output
-        }
-    };
+    let output = result.to_tool_output();
     (output, None, Some(result))
 }
 
@@ -1244,11 +1233,7 @@ fn permission_response_decision(outcome: RequestPermissionOutcome) -> ToolPermis
         RequestPermissionOutcome::Cancelled => ToolPermissionDecision::Cancelled,
         RequestPermissionOutcome::Selected(selected) => {
             let option_id = selected.option_id.0.as_ref();
-            if option_id.starts_with("allow") {
-                ToolPermissionDecision::Allow
-            } else {
-                ToolPermissionDecision::Reject
-            }
+            ToolPermissionDecision::from_acp_option_id(option_id)
         }
         _ => ToolPermissionDecision::Reject,
     }

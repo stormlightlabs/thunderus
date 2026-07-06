@@ -6,8 +6,6 @@
 
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
-
 use crate::{
     app::AgentEvent,
     providers::{
@@ -34,21 +32,10 @@ pub const MODEL_PREFIX: &str = "opencode/";
 pub const DEFAULT_RECOMMENDED_MAX_TOKENS: u32 = 32_768;
 
 /// OpenAI-compatible model list response from `GET /models`.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct ModelsResponse {
-    pub object: String,
-    #[serde(default)]
-    pub data: Vec<ModelInfo>,
-}
+pub type ModelsResponse = super::ModelsResponse;
 
 /// Model metadata currently returned by OpenCode Zen.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct ModelInfo {
-    pub id: String,
-    pub object: String,
-    pub created: u64,
-    pub owned_by: String,
-}
+pub type ModelInfo = super::ModelInfo;
 
 /// Concrete OpenCode Zen API client.
 pub struct OpenCodeZenClient {

@@ -151,18 +151,18 @@ Captured: 2026-07-05
 
 ## P8: ChatGPT Codex Stream Parsing
 
-- [ ] Parse SSE `data:` payloads from the ChatGPT Codex endpoint.
-- [ ] Map assistant text deltas into assistant transcript events.
-- [ ] Map visible reasoning deltas into reasoning transcript events.
-- [ ] Collect tool-call argument deltas until the call is complete.
-- [ ] Convert completed function calls into `ToolUseRequest`.
-- [ ] Parse usage increments into token usage events.
-- [ ] Detect completed, failed, incomplete, cancelled, queued, and in-progress
+- [x] Parse SSE `data:` payloads from the ChatGPT Codex endpoint.
+- [x] Map assistant text deltas into assistant transcript events.
+- [x] Map visible reasoning deltas into reasoning transcript events.
+- [x] Collect tool-call argument deltas until the call is complete.
+- [x] Convert completed function calls into `ToolUseRequest`.
+- [x] Parse usage increments into token usage events.
+- [x] Detect completed, failed, incomplete, cancelled, queued, and in-progress
       response statuses.
-- [ ] Convert backend error events into provider failures.
-- [ ] Treat malformed protocol events after connection as non-retryable
+- [x] Convert backend error events into provider failures.
+- [x] Treat malformed protocol events after connection as non-retryable
       provider failures.
-- [ ] Preserve the existing `ProviderTurn` contract for the agent loop.
+- [x] Preserve the existing `ProviderTurn` contract for the agent loop.
 
 ## P9: ChatGPT Codex Agent Integration
 
@@ -243,12 +243,12 @@ Captured: 2026-07-05
 - [ ] Test ChatGPT Codex request body construction for text-only turns.
 - [ ] Test ChatGPT Codex request body construction with tool schemas.
 - [ ] Test ChatGPT Codex Responses input conversion for tool-result history.
-- [ ] Test ChatGPT Codex SSE text deltas.
-- [ ] Test ChatGPT Codex SSE visible reasoning deltas.
-- [ ] Test ChatGPT Codex SSE tool-call deltas.
-- [ ] Test ChatGPT Codex SSE usage events.
-- [ ] Test ChatGPT Codex SSE backend error events.
-- [ ] Test ChatGPT Codex malformed SSE payload handling.
+- [x] Test ChatGPT Codex SSE text deltas.
+- [x] Test ChatGPT Codex SSE visible reasoning deltas.
+- [x] Test ChatGPT Codex SSE tool-call deltas.
+- [x] Test ChatGPT Codex SSE usage events.
+- [x] Test ChatGPT Codex SSE backend error events.
+- [x] Test ChatGPT Codex malformed SSE payload handling.
 - [ ] Test ChatGPT Codex retry classifier for terminal subscription-limit
       strings.
 - [ ] Test TTFT starts on submit.

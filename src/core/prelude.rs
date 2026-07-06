@@ -4,7 +4,6 @@
 //! server binary should depend on this surface instead of depending on each
 //! other.
 
-pub use crate::agent::CancelToken;
 pub use crate::app::{AgentEvent, ToolStatus};
 pub use crate::cli::WebSearchMode;
 pub use crate::harness::{HarnessHandle, HarnessTurn};

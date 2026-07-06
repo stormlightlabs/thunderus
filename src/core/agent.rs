@@ -16,25 +16,26 @@
 //!    the message history, and the provider is re-requested.
 //! 5. The loop enforces bounded tool-budget continuations to prevent recursive
 //!    or unbounded tool-call loops while still allowing longer useful runs.
-//! 6. Cancellation is cooperative: the loop checks the shared [`CancelToken`]
+//! 6. Cancellation is cooperative: the loop checks the shared [`CancellationToken`]
 //!    between events, lines, and tool executions. When cancelled, it emits
 //!    [`AgentEvent::Cancelled`] and stops.
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::Duration;
 
 use ureq::http::Response;
 
+use crate::WebSearchMode;
 use crate::app::{AgentEvent, ToolStatus};
+use crate::cancel::CancelToken;
 use crate::providers::{
     ProviderContentBlock, ProviderError, ProviderMessage, ProviderTurn, StreamFormat, StreamingProvider,
 };
-use crate::providers::{anthropic, openai, opencode, umans};
+use crate::providers::{anthropic, codex, openai, opencode, umans};
 use crate::tools::{self, AgentRunConfig, ToolOutput, ToolUseRequest, WriteResult, shell::ProcessResult};
 
 const PROVIDER_RETRY_POLICY: RetryPolicy = RetryPolicy::new(4, Duration::from_millis(2500));
@@ -113,30 +114,6 @@ enum MetadataLoaded<T> {
     Unavailable,
 }
 
-/// Shared cancellation flag. Checked cooperatively by the agent loop.
-#[derive(Clone, Debug, Default)]
-pub struct CancelToken(Arc<AtomicBool>);
-
-impl CancelToken {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Signal cancellation. The agent loop observes this on its next check.
-    pub fn cancel(&self) {
-        self.inner().store(true, Ordering::SeqCst);
-    }
-
-    /// Whether cancellation has been requested.
-    pub fn is_cancelled(&self) -> bool {
-        self.inner().load(Ordering::SeqCst)
-    }
-
-    pub fn inner(&self) -> &Arc<AtomicBool> {
-        &self.0
-    }
-}
-
 /// Decision returned by a tool permission hook.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ToolPermissionDecision {
@@ -146,6 +123,22 @@ pub enum ToolPermissionDecision {
     Reject,
     /// The prompt turn was cancelled while waiting for permission.
     Cancelled,
+}
+
+impl ToolPermissionDecision {
+    /// Convert an ACP permission option id into an execution decision.
+    pub fn from_acp_option_id(option_id: &str) -> Self {
+        if option_id.starts_with("allow") { Self::Allow } else { Self::Reject }
+    }
+
+    /// Stable label used in session records.
+    pub const fn outcome_label(self) -> &'static str {
+        match self {
+            Self::Allow => "allowed",
+            Self::Reject => "rejected",
+            Self::Cancelled => "cancelled",
+        }
+    }
 }
 
 type ToolPermissionCallback =
@@ -287,6 +280,22 @@ pub struct RunHandle {
 }
 
 impl RunHandle {
+    /// Spawn the unified agent loop on a background thread and return the receiver.
+    ///
+    /// The thread closes its sender when done, so the receiver's `try_recv` will
+    /// return `Err(Disconnected)` once the run completes.
+    ///
+    /// If the receiver is dropped early (e.g. the user cancels), the thread exits
+    /// on the next failed send. The [`CancellationToken`] inside `handle` can also be
+    /// signalled for cooperative cancellation.
+    pub fn spawn(self) -> Receiver<AgentEvent> {
+        let (tx, rx) = mpsc::channel::<AgentEvent>();
+        let cancel = self.cancel.clone();
+        tracing::info!(provider = ?self.provider, "starting agent thread");
+        thread::spawn(move || self.run_agent(&tx, &cancel));
+        rx
+    }
+
     /// Create a fake-provider run handle.
     pub fn fake(config: AgentRunConfig, prompt: String) -> Self {
         RunHandle {
@@ -330,6 +339,429 @@ impl RunHandle {
     pub fn with_execution_hook(mut self, hook: ToolExecutionHook) -> Self {
         self.execution_hook = Some(hook);
         self
+    }
+
+    /// The unified agent loop. Dispatches to the fake or Umans provider, handles
+    /// tool-use requests, enforces the per-turn cap, and checks cancellation
+    /// cooperatively.
+    fn run_agent(&self, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
+        if send(tx, AgentEvent::Started, cancel).is_none() {
+            return;
+        }
+        step();
+
+        match self.provider {
+            ProviderKind::Fake => self.run_fake(tx, cancel),
+            ProviderKind::Umans => self.run_provider::<umans::UmansClient>(tx, cancel),
+            ProviderKind::OpenCodeGo => self.run_provider::<opencode::OpenCodeGoClient>(tx, cancel),
+            ProviderKind::OpenCodeZen => self.run_provider::<opencode::zen::OpenCodeZenClient>(tx, cancel),
+        }
+    }
+
+    /// A streaming provider sends the prompt to its API, streams the response,
+    /// dispatches any tool-use requests, feeds the tool results back as
+    /// provider-native tool result messages, and repeats until the model stops
+    /// requesting tools or the per-turn cap is hit.
+    fn run_provider<P>(&self, tx: &Sender<AgentEvent>, cancel: &CancelToken)
+    where
+        P: StreamingProvider,
+    {
+        let provider = match P::from_env_or_dotenv(&self.config.root) {
+            Ok(provider) => provider,
+            Err(e) => {
+                let message = P::request_error_message(&e);
+                tracing::error!(error = %message, "failed to load provider client");
+                let _ = send(tx, AgentEvent::Failed(message), cancel);
+                return;
+            }
+        };
+
+        tracing::info!(
+            provider = provider.name(),
+            model = %self.config.model,
+            cwd = %self.config.root.display(),
+            messages = self.messages.len(),
+            max_tool_iterations = self.config.max_tool_iterations,
+            "starting provider agent run"
+        );
+        if send(tx, AgentEvent::Status(provider.load_status()), cancel).is_none() {
+            return;
+        }
+
+        let model_metadata = match load_provider_metadata(&provider, &self.config.model, tx, cancel) {
+            MetadataLoaded::Abort => return,
+            MetadataLoaded::Loaded(metadata) => Some(metadata),
+            MetadataLoaded::Unavailable => None,
+        };
+
+        let tool_defs = tools::runtime_tool_definitions(self.config.mcp_manager.as_deref());
+        let tool_schemas = tools::tool_catalog_schemas(&tool_defs);
+        let mut messages = if self.messages.is_empty() {
+            vec![ProviderMessage::user(&self.prompt)]
+        } else {
+            self.messages.clone()
+        };
+        let mut tool_budget =
+            tools::ToolIterationBudget::new(self.config.max_tool_iterations, tools::MAX_TOOL_CONTINUATIONS);
+        let mut wrote_file = false;
+
+        loop {
+            if cancel.is_cancelled() {
+                tracing::warn!(
+                    provider = provider.name(),
+                    "provider run cancelled before provider request"
+                );
+                let _ = send(tx, AgentEvent::Cancelled, cancel);
+                return;
+            }
+
+            match tool_budget.before_provider_request() {
+                tools::ToolBudgetDecision::Continue => {}
+                tools::ToolBudgetDecision::ContinueAfterBudgetMessage => {
+                    let text = format!(
+                        "[tool-budget]\nTool batch segment limit reached after {} total batches. Continue from the current state, avoid repeating completed work, and stop requesting tools once you can answer.",
+                        tool_budget.total_batches()
+                    );
+                    tracing::warn!(
+                        total_batches = tool_budget.total_batches(),
+                        continuations_used = tool_budget.continuations_used(),
+                        "continuing after tool-budget segment cap"
+                    );
+                    messages.push(ProviderMessage::user(&text));
+                    if send(
+                        tx,
+                        AgentEvent::Status(format!(
+                            "tool budget: auto-continue {}/{} after {} batches",
+                            tool_budget.continuations_used(),
+                            tools::MAX_TOOL_CONTINUATIONS,
+                            tool_budget.total_batches()
+                        )),
+                        cancel,
+                    )
+                    .is_none()
+                    {
+                        return;
+                    }
+                }
+                tools::ToolBudgetDecision::Exhausted { segment_iterations, total_batches, continuations_used } => {
+                    tracing::error!(
+                        segment_iterations,
+                        total_batches,
+                        continuations_used,
+                        "tool-call budget exhausted"
+                    );
+                    let _ = send(
+                        tx,
+                        AgentEvent::Failed(format!(
+                            "tool-call budget exhausted ({total_batches} tool batches, {continuations_used} auto-continuations, {segment_iterations} in current segment)"
+                        )),
+                        cancel,
+                    );
+                    return;
+                }
+            }
+
+            if send(
+                tx,
+                AgentEvent::Status(provider.request_status(&self.config.model, self.config.search_mode)),
+                cancel,
+            )
+            .is_none()
+            {
+                return;
+            }
+
+            let max_tokens = provider.token_budget(&self.config.model, model_metadata.as_ref());
+            let request = ProviderTurnRequest {
+                provider: &provider,
+                model: &self.config.model,
+                messages: &messages,
+                max_tokens,
+                search_mode: self.config.search_mode,
+                tool_schemas: &tool_schemas,
+            };
+            let Some(turn) = request_provider_turn_with_retries(&request, tool_budget.total_batches(), tx, cancel)
+            else {
+                return;
+            };
+            tracing::info!(
+                text_chars = turn.assistant_text.chars().count(),
+                tool_calls = turn.tool_requests.len(),
+                "provider turn completed"
+            );
+
+            if turn.tool_requests.is_empty() {
+                if turn.assistant_text.is_empty() && turn.stop_reason.as_deref() == Some("max_tokens") {
+                    let _ = send(
+                        tx,
+                        AgentEvent::Failed(format!(
+                            "provider stopped at max_tokens ({}) before producing assistant text",
+                            max_tokens
+                        )),
+                        cancel,
+                    );
+                    return;
+                }
+                if self.expects_write && !wrote_file {
+                    let _ = send(
+                        tx,
+                        AgentEvent::Failed(String::from(
+                            "model stopped without writing a file for an edit-like request",
+                        )),
+                        cancel,
+                    );
+                    return;
+                }
+                if append_steering_messages(&mut messages, self) {
+                    tracing::info!(
+                        provider = provider.name(),
+                        "continuing provider run with queued steering messages"
+                    );
+                    continue;
+                }
+                let _ = send(tx, AgentEvent::Finished, cancel);
+                return;
+            }
+
+            tool_budget.record_tool_batch();
+
+            let mut assistant_blocks = Vec::new();
+            if !turn.assistant_text.is_empty() {
+                assistant_blocks.push(ProviderContentBlock::Text { text: turn.assistant_text });
+            }
+
+            let mut tool_results: Vec<ProviderMessage> = Vec::new();
+            for req in &turn.tool_requests {
+                if cancel.is_cancelled() {
+                    tracing::warn!(provider = provider.name(), tool = %req.name, tool_id = %req.tool_use_id, "provider run cancelled before tool dispatch");
+                    let _ = send(tx, AgentEvent::Cancelled, cancel);
+                    return;
+                }
+
+                let tool_id = req.tool_use_id.clone();
+                tracing::info!(tool = %req.name, tool_id = %tool_id, "dispatching tool request");
+                if send(
+                    tx,
+                    AgentEvent::ToolStarted {
+                        id: tool_id.clone(),
+                        name: req.name.clone(),
+                        arguments: req.arguments.clone(),
+                    },
+                    cancel,
+                )
+                .is_none()
+                {
+                    return;
+                }
+
+                let (output, write_result, shell_result) = match approve_tool_request(req, self, cancel) {
+                    ToolPermissionDecision::Allow => dispatch_tool_request(req, self, cancel),
+                    ToolPermissionDecision::Reject => (
+                        ToolOutput::failed(&req.name, String::from("tool call rejected by ACP client")),
+                        None,
+                        None,
+                    ),
+                    ToolPermissionDecision::Cancelled => {
+                        let _ = send(tx, AgentEvent::Cancelled, cancel);
+                        return;
+                    }
+                };
+                let status = output.status;
+                if write_result.is_some() && status == ToolStatus::Ok {
+                    wrote_file = true;
+                }
+                tracing::info!(tool = %req.name, tool_id = %tool_id, status = ?status, "tool request finished");
+                if send(
+                    tx,
+                    AgentEvent::ToolFinished {
+                        id: tool_id.clone(),
+                        output: output.output.clone(),
+                        status,
+                        write_result,
+                        shell_result: shell_result.map(Box::new),
+                    },
+                    cancel,
+                )
+                .is_none()
+                {
+                    return;
+                }
+
+                let input: serde_json::Value = serde_json::from_str(&req.arguments).unwrap_or(serde_json::Value::Null);
+                assistant_blocks.push(ProviderContentBlock::ToolUse {
+                    id: tool_id.clone(),
+                    name: req.name.clone(),
+                    input,
+                });
+
+                let result_content = if output.output.is_empty() {
+                    output.error.unwrap_or_else(|| "(no output)".to_string())
+                } else {
+                    output.output.join("\n")
+                };
+                let is_error = status == ToolStatus::Failed;
+                tool_results.push(ProviderMessage::tool_result(&tool_id, &result_content, is_error));
+            }
+
+            messages.push(ProviderMessage::assistant_blocks(assistant_blocks));
+            messages.extend(tool_results);
+            append_steering_messages(&mut messages, self);
+        }
+    }
+
+    /// Deterministic fake provider: emits reasoning, a tool-use request, assistant
+    /// text, and finishes. Demonstrates the tool dispatch path end-to-end.
+    fn run_fake(&self, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
+        use AgentEvent::*;
+        match send(tx, ReasoningDelta(String::from("Let me think about this... ")), cancel) {
+            None => return,
+            Some(_) => step(),
+        }
+
+        match send(
+            tx,
+            ReasoningDelta(String::from("The repo is a Rust terminal coding harness.")),
+            cancel,
+        ) {
+            None => return,
+            Some(_) => step(),
+        }
+
+        if self.config.model == "fake-agent-slow" {
+            for _ in 0..200 {
+                if cancel.is_cancelled() {
+                    let _ = send(tx, Cancelled, cancel);
+                    return;
+                }
+                step();
+            }
+        }
+
+        if self.config.search_mode != WebSearchMode::None {
+            let search_req = ToolUseRequest::new(
+                String::from("web_search"),
+                serde_json::json!({ "query": "rust terminal coding harness" }).to_string(),
+                String::from("search-0"),
+            );
+            let search_id = String::from("search-0");
+            match send(
+                tx,
+                ToolStarted {
+                    id: search_id.clone(),
+                    name: search_req.name.clone(),
+                    arguments: search_req.arguments.clone(),
+                },
+                cancel,
+            ) {
+                None => return,
+                Some(_) => step(),
+            }
+
+            let (search_output, _, _) = tools::dispatch_full(&search_req, &self.config.root);
+            let search_status = search_output.status;
+            match send(
+                tx,
+                ToolFinished {
+                    id: search_id,
+                    output: search_output.output,
+                    status: search_status,
+                    write_result: None,
+                    shell_result: None,
+                },
+                cancel,
+            ) {
+                None => return,
+                Some(_) => {
+                    step();
+                }
+            }
+        }
+
+        let tool_req = ToolUseRequest::new(
+            String::from("read_file_range"),
+            serde_json::json!({ "path": "Cargo.toml", "start_line": 1, "end_line": 5 }).to_string(),
+            String::from("0"),
+        );
+
+        let tool_id = String::from("0");
+        match send(
+            tx,
+            ToolStarted { id: tool_id.clone(), name: tool_req.name.clone(), arguments: tool_req.arguments.clone() },
+            cancel,
+        ) {
+            None => return,
+            Some(_) => step(),
+        }
+
+        let (output, _, _) = tools::dispatch_full(&tool_req, &self.config.root);
+        let status = output.status;
+        match send(
+            tx,
+            ToolFinished { id: tool_id, output: output.output, status, write_result: None, shell_result: None },
+            cancel,
+        ) {
+            None => return,
+            Some(_) => step(),
+        }
+
+        if self.config.model == "fake-agent-shell" {
+            let shell_req = ToolUseRequest::new(
+                String::from("run_shell"),
+                serde_json::json!({ "program": "printf", "args": ["acp-permission-smoke\n"] }).to_string(),
+                String::from("shell-0"),
+            );
+            let shell_id = String::from("shell-0");
+            match send(
+                tx,
+                ToolStarted {
+                    id: shell_id.clone(),
+                    name: shell_req.name.clone(),
+                    arguments: shell_req.arguments.clone(),
+                },
+                cancel,
+            ) {
+                None => return,
+                Some(_) => step(),
+            }
+
+            let (shell_output, write_result, shell_result) = match approve_tool_request(&shell_req, self, cancel) {
+                ToolPermissionDecision::Allow => dispatch_tool_request(&shell_req, self, cancel),
+                ToolPermissionDecision::Reject => (
+                    ToolOutput::failed(&shell_req.name, String::from("tool call rejected by ACP client")),
+                    None,
+                    None,
+                ),
+                ToolPermissionDecision::Cancelled => {
+                    let _ = send(tx, AgentEvent::Cancelled, cancel);
+                    return;
+                }
+            };
+            let shell_status = shell_output.status;
+            match send(
+                tx,
+                ToolFinished {
+                    id: shell_id,
+                    output: shell_output.output,
+                    status: shell_status,
+                    write_result,
+                    shell_result: shell_result.map(Box::new),
+                },
+                cancel,
+            ) {
+                None => return,
+                Some(_) => step(),
+            }
+        }
+        match send(tx, AssistantDelta(String::from("This is a ")), cancel) {
+            None => return,
+            Some(_) => step(),
+        }
+
+        match send(tx, AssistantDelta(String::from("fake streaming response.")), cancel) {
+            None => return,
+            Some(_) => step(),
+        }
+        let _ = tx.send(Finished);
     }
 }
 
@@ -400,39 +832,6 @@ pub fn prompt_expects_workspace_write(prompt: &str) -> bool {
     fileish && action
 }
 
-/// Spawn the unified agent loop on a background thread and return the receiver.
-///
-/// The thread closes its sender when done, so the receiver's `try_recv` will
-/// return `Err(Disconnected)` once the run completes.
-///
-/// If the receiver is dropped early (e.g. the user cancels), the thread exits
-/// on the next failed send. The [`CancelToken`] inside `handle` can also be
-/// signalled for cooperative cancellation.
-pub fn spawn_run(handle: RunHandle) -> Receiver<AgentEvent> {
-    let (tx, rx) = mpsc::channel::<AgentEvent>();
-    let cancel = handle.cancel.clone();
-    tracing::info!(provider = ?handle.provider, "starting agent thread");
-    thread::spawn(move || run_agent(&handle, &tx, &cancel));
-    rx
-}
-
-/// The unified agent loop. Dispatches to the fake or Umans provider, handles
-/// tool-use requests, enforces the per-turn cap, and checks cancellation
-/// cooperatively.
-fn run_agent(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
-    if send(tx, AgentEvent::Started, cancel).is_none() {
-        return;
-    }
-    step();
-
-    match handle.provider {
-        ProviderKind::Fake => run_fake(handle, tx, cancel),
-        ProviderKind::Umans => run_provider::<umans::UmansClient>(handle, tx, cancel),
-        ProviderKind::OpenCodeGo => run_provider::<opencode::OpenCodeGoClient>(handle, tx, cancel),
-        ProviderKind::OpenCodeZen => run_provider::<opencode::zen::OpenCodeZenClient>(handle, tx, cancel),
-    }
-}
-
 fn is_retryable_stream_error(message: &str) -> bool {
     let lower = message.to_ascii_lowercase();
     if lower.contains("cancel")
@@ -481,252 +880,6 @@ fn sleep_with_cancel(delay: Duration, tx: &Sender<AgentEvent>, cancel: &CancelTo
     true
 }
 
-/// A streaming provider sends the prompt to its API, streams the response,
-/// dispatches any tool-use requests, feeds the tool results back as
-/// provider-native tool result messages, and repeats until the model stops
-/// requesting tools or the per-turn cap is hit.
-fn run_provider<P>(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken)
-where
-    P: StreamingProvider,
-{
-    let provider = match P::from_env_or_dotenv(&handle.config.root) {
-        Ok(provider) => provider,
-        Err(e) => {
-            let message = P::request_error_message(&e);
-            tracing::error!(error = %message, "failed to load provider client");
-            let _ = send(tx, AgentEvent::Failed(message), cancel);
-            return;
-        }
-    };
-
-    tracing::info!(
-        provider = provider.name(),
-        model = %handle.config.model,
-        cwd = %handle.config.root.display(),
-        messages = handle.messages.len(),
-        max_tool_iterations = handle.config.max_tool_iterations,
-        "starting provider agent run"
-    );
-    if send(tx, AgentEvent::Status(provider.load_status()), cancel).is_none() {
-        return;
-    }
-
-    let model_metadata = match load_provider_metadata(&provider, &handle.config.model, tx, cancel) {
-        MetadataLoaded::Abort => return,
-        MetadataLoaded::Loaded(metadata) => Some(metadata),
-        MetadataLoaded::Unavailable => None,
-    };
-
-    let tool_defs = tools::runtime_tool_definitions(handle.config.mcp_manager.as_deref());
-    let tool_schemas = tools::tool_catalog_schemas(&tool_defs);
-    let mut messages = if handle.messages.is_empty() {
-        vec![ProviderMessage::user(&handle.prompt)]
-    } else {
-        handle.messages.clone()
-    };
-    let mut tool_budget =
-        tools::ToolIterationBudget::new(handle.config.max_tool_iterations, tools::MAX_TOOL_CONTINUATIONS);
-    let mut wrote_file = false;
-
-    loop {
-        if cancel.is_cancelled() {
-            tracing::warn!(
-                provider = provider.name(),
-                "provider run cancelled before provider request"
-            );
-            let _ = send(tx, AgentEvent::Cancelled, cancel);
-            return;
-        }
-
-        match tool_budget.before_provider_request() {
-            tools::ToolBudgetDecision::Continue => {}
-            tools::ToolBudgetDecision::ContinueAfterBudgetMessage => {
-                let text = format!(
-                    "[tool-budget]\nTool batch segment limit reached after {} total batches. Continue from the current state, avoid repeating completed work, and stop requesting tools once you can answer.",
-                    tool_budget.total_batches()
-                );
-                tracing::warn!(
-                    total_batches = tool_budget.total_batches(),
-                    continuations_used = tool_budget.continuations_used(),
-                    "continuing after tool-budget segment cap"
-                );
-                messages.push(ProviderMessage::user(&text));
-                if send(
-                    tx,
-                    AgentEvent::Status(format!(
-                        "tool budget: auto-continue {}/{} after {} batches",
-                        tool_budget.continuations_used(),
-                        tools::MAX_TOOL_CONTINUATIONS,
-                        tool_budget.total_batches()
-                    )),
-                    cancel,
-                )
-                .is_none()
-                {
-                    return;
-                }
-            }
-            tools::ToolBudgetDecision::Exhausted { segment_iterations, total_batches, continuations_used } => {
-                tracing::error!(
-                    segment_iterations,
-                    total_batches,
-                    continuations_used,
-                    "tool-call budget exhausted"
-                );
-                let _ = send(
-                    tx,
-                    AgentEvent::Failed(format!(
-                        "tool-call budget exhausted ({total_batches} tool batches, {continuations_used} auto-continuations, {segment_iterations} in current segment)"
-                    )),
-                    cancel,
-                );
-                return;
-            }
-        }
-
-        if send(
-            tx,
-            AgentEvent::Status(provider.request_status(&handle.config.model, handle.config.search_mode)),
-            cancel,
-        )
-        .is_none()
-        {
-            return;
-        }
-
-        let max_tokens = provider.token_budget(&handle.config.model, model_metadata.as_ref());
-        let request = ProviderTurnRequest {
-            provider: &provider,
-            model: &handle.config.model,
-            messages: &messages,
-            max_tokens,
-            search_mode: handle.config.search_mode,
-            tool_schemas: &tool_schemas,
-        };
-        let Some(turn) = request_provider_turn_with_retries(&request, tool_budget.total_batches(), tx, cancel) else {
-            return;
-        };
-        tracing::info!(
-            text_chars = turn.assistant_text.chars().count(),
-            tool_calls = turn.tool_requests.len(),
-            "provider turn completed"
-        );
-
-        if turn.tool_requests.is_empty() {
-            if turn.assistant_text.is_empty() && turn.stop_reason.as_deref() == Some("max_tokens") {
-                let _ = send(
-                    tx,
-                    AgentEvent::Failed(format!(
-                        "provider stopped at max_tokens ({}) before producing assistant text",
-                        max_tokens
-                    )),
-                    cancel,
-                );
-                return;
-            }
-            if handle.expects_write && !wrote_file {
-                let _ = send(
-                    tx,
-                    AgentEvent::Failed(String::from(
-                        "model stopped without writing a file for an edit-like request",
-                    )),
-                    cancel,
-                );
-                return;
-            }
-            if append_steering_messages(&mut messages, handle) {
-                tracing::info!(
-                    provider = provider.name(),
-                    "continuing provider run with queued steering messages"
-                );
-                continue;
-            }
-            let _ = send(tx, AgentEvent::Finished, cancel);
-            return;
-        }
-
-        tool_budget.record_tool_batch();
-
-        let mut assistant_blocks = Vec::new();
-        if !turn.assistant_text.is_empty() {
-            assistant_blocks.push(ProviderContentBlock::Text { text: turn.assistant_text });
-        }
-
-        let mut tool_results: Vec<ProviderMessage> = Vec::new();
-        for req in &turn.tool_requests {
-            if cancel.is_cancelled() {
-                tracing::warn!(provider = provider.name(), tool = %req.name, tool_id = %req.tool_use_id, "provider run cancelled before tool dispatch");
-                let _ = send(tx, AgentEvent::Cancelled, cancel);
-                return;
-            }
-
-            let tool_id = req.tool_use_id.clone();
-            tracing::info!(tool = %req.name, tool_id = %tool_id, "dispatching tool request");
-            if send(
-                tx,
-                AgentEvent::ToolStarted {
-                    id: tool_id.clone(),
-                    name: req.name.clone(),
-                    arguments: req.arguments.clone(),
-                },
-                cancel,
-            )
-            .is_none()
-            {
-                return;
-            }
-
-            let (output, write_result, shell_result) = match approve_tool_request(req, handle, cancel) {
-                ToolPermissionDecision::Allow => dispatch_tool_request(req, handle, cancel),
-                ToolPermissionDecision::Reject => (
-                    ToolOutput::failed(&req.name, String::from("tool call rejected by ACP client")),
-                    None,
-                    None,
-                ),
-                ToolPermissionDecision::Cancelled => {
-                    let _ = send(tx, AgentEvent::Cancelled, cancel);
-                    return;
-                }
-            };
-            let status = output.status;
-            if write_result.is_some() && status == ToolStatus::Ok {
-                wrote_file = true;
-            }
-            tracing::info!(tool = %req.name, tool_id = %tool_id, status = ?status, "tool request finished");
-            if send(
-                tx,
-                AgentEvent::ToolFinished {
-                    id: tool_id.clone(),
-                    output: output.output.clone(),
-                    status,
-                    write_result,
-                    shell_result: shell_result.map(Box::new),
-                },
-                cancel,
-            )
-            .is_none()
-            {
-                return;
-            }
-
-            let input: serde_json::Value = serde_json::from_str(&req.arguments).unwrap_or(serde_json::Value::Null);
-            assistant_blocks.push(ProviderContentBlock::ToolUse { id: tool_id.clone(), name: req.name.clone(), input });
-
-            let result_content = if output.output.is_empty() {
-                output.error.unwrap_or_else(|| "(no output)".to_string())
-            } else {
-                output.output.join("\n")
-            };
-            let is_error = status == ToolStatus::Failed;
-            tool_results.push(ProviderMessage::tool_result(&tool_id, &result_content, is_error));
-        }
-
-        messages.push(ProviderMessage::assistant_blocks(assistant_blocks));
-        messages.extend(tool_results);
-        append_steering_messages(&mut messages, handle);
-    }
-}
-
 fn dispatch_tool_request(
     request: &ToolUseRequest, handle: &RunHandle, cancel: &CancelToken,
 ) -> (ToolOutput, Option<WriteResult>, Option<ProcessResult>) {
@@ -742,10 +895,10 @@ fn approve_tool_request(request: &ToolUseRequest, handle: &RunHandle, cancel: &C
     if !requires_runtime_permission(&request.name) {
         return ToolPermissionDecision::Allow;
     }
-    let Some(hook) = &handle.permission_hook else {
-        return ToolPermissionDecision::Allow;
-    };
-    hook.decide(request, &handle.config, cancel)
+    match &handle.permission_hook {
+        Some(hook) => hook.decide(request, &handle.config, cancel),
+        None => ToolPermissionDecision::Allow,
+    }
 }
 
 fn requires_runtime_permission(tool_name: &str) -> bool {
@@ -776,18 +929,16 @@ where
         Err(e) => {
             let message = P::request_error_message(&e);
             tracing::warn!(error = %message, "failed to load provider model metadata; using fallback token budget");
-            if send(
+            match send(
                 tx,
                 AgentEvent::Status(String::from(
                     "provider: model metadata unavailable; using fallback token budget",
                 )),
                 cancel,
-            )
-            .is_none()
-            {
-                return MetadataLoaded::Abort;
+            ) {
+                None => MetadataLoaded::Abort,
+                Some(_) => MetadataLoaded::Unavailable,
             }
-            MetadataLoaded::Unavailable
         }
     }
 }
@@ -840,24 +991,22 @@ where
         request.tool_schemas,
     ) {
         Ok(response) => {
-            if send(
+            match send(
                 tx,
                 AgentEvent::Status(format!("provider: connected HTTP {}", response.status().as_u16())),
                 cancel,
-            )
-            .is_none()
-            {
-                return Err(ProviderAttemptError::Stream("cancelled".to_string()));
+            ) {
+                None => Err(ProviderAttemptError::Stream("cancelled".to_string())),
+                Some(_) => stream_provider_response(
+                    request.provider,
+                    request.model,
+                    response,
+                    tx,
+                    cancel,
+                    request.max_tokens,
+                )
+                .map_err(ProviderAttemptError::Stream),
             }
-            stream_provider_response(
-                request.provider,
-                request.model,
-                response,
-                tx,
-                cancel,
-                request.max_tokens,
-            )
-            .map_err(ProviderAttemptError::Stream)
         }
         Err(e) => Err(ProviderAttemptError::Request(e)),
     }
@@ -878,7 +1027,7 @@ where
         error = %message,
         "retrying provider attempt"
     );
-    if send(
+    match send(
         tx,
         AgentEvent::Retrying {
             attempt: retry_attempt,
@@ -887,32 +1036,31 @@ where
             error: message,
         },
         cancel,
-    )
-    .is_none()
-    {
-        return false;
+    ) {
+        None => false,
+        Some(_) => sleep_with_cancel(delay, tx, cancel),
     }
-    sleep_with_cancel(delay, tx, cancel)
 }
 
 fn append_steering_messages(messages: &mut Vec<ProviderMessage>, handle: &RunHandle) -> bool {
-    let Some(rx) = handle.steering.as_ref() else {
-        return false;
-    };
-
-    let mut appended = false;
-    while let Ok(text) = rx.try_recv() {
-        let trimmed = text.trim();
-        if trimmed.is_empty() {
-            continue;
+    match handle.steering.as_ref() {
+        Some(rx) => {
+            let mut appended = false;
+            while let Ok(text) = rx.try_recv() {
+                let trimmed = text.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                messages.push(ProviderMessage::user(&format!("[steering]\n{trimmed}")));
+                appended = true;
+            }
+            if appended {
+                tracing::debug!(messages = messages.len(), "appended steering messages");
+            }
+            appended
         }
-        messages.push(ProviderMessage::user(&format!("[steering]\n{trimmed}")));
-        appended = true;
+        None => false,
     }
-    if appended {
-        tracing::debug!(messages = messages.len(), "appended steering messages");
-    }
-    appended
 }
 
 /// Read an Anthropic-compatible SSE streaming response, converting events to [`AgentEvent`]
@@ -1040,6 +1188,7 @@ fn stream_provider_response<P: StreamingProvider>(
     {
         StreamFormat::OpenAiChat => stream_openai_chat_response(resp, tx, cancel, max_tokens),
         StreamFormat::AnthropicMessages => stream_anthropic_response(resp, tx, cancel, max_tokens),
+        StreamFormat::ChatGptCodexResponses => stream_chatgpt_codex_response(resp, tx, cancel, max_tokens),
     }
 }
 
@@ -1104,14 +1253,14 @@ fn stream_openai_chat_response(
             event_count,
             "OpenAI-compatible stream ended without assistant text or tool calls"
         );
-        if stop_reason.as_deref() == Some("length") {
-            return Err(format!(
+        return match stop_reason.as_deref() {
+            Some("length") => Err(format!(
                 "provider stopped at max_tokens ({max_tokens}) before producing assistant text"
-            ));
-        }
-        return Err(format!(
-            "provider stream ended without assistant text or tool calls ({event_count} SSE events)"
-        ));
+            )),
+            _ => Err(format!(
+                "provider stream ended without assistant text or tool calls ({event_count} SSE events)"
+            )),
+        };
     }
 
     tracing::info!(
@@ -1193,6 +1342,184 @@ fn collect_openai_chat_event(
             return Err(format!("malformed provider stream payload: {payload}"));
         }
         openai::ChatSseEvent::Done | openai::ChatSseEvent::Other => {}
+    }
+
+    Ok(())
+}
+
+fn stream_chatgpt_codex_response(
+    resp: Response<ureq::Body>, tx: &Sender<AgentEvent>, cancel: &CancelToken, max_tokens: u32,
+) -> Result<ProviderTurn, String> {
+    let reader = BufReader::new(resp.into_body().into_reader());
+    let mut assistant_text = String::new();
+    let mut tool_blocks: HashMap<String, ChatToolCallBuilder> = HashMap::new();
+    let mut tool_requests = Vec::new();
+    let mut event_count = 0usize;
+    let mut saw_response = false;
+    let mut stop_reason = None;
+    tracing::info!("reading ChatGPT Codex Responses SSE stream");
+
+    for line_result in reader.lines() {
+        if cancel.is_cancelled() {
+            tracing::warn!("cancelled while reading ChatGPT Codex SSE stream");
+            return Err("cancelled".to_string());
+        }
+
+        let line = line_result.map_err(|e| {
+            tracing::error!(error = %e, "failed reading ChatGPT Codex SSE stream");
+            format!("stream read error: {e}")
+        })?;
+        if !line.starts_with("data:") {
+            continue;
+        }
+
+        if !saw_response {
+            saw_response = true;
+            if send(
+                tx,
+                AgentEvent::Status(String::from("provider: receiving ChatGPT Codex SSE")),
+                cancel,
+            )
+            .is_none()
+            {
+                return Err("cancelled".to_string());
+            }
+        }
+
+        for data in codex::parse_responses_sse_chunk(&(line + "\n")) {
+            event_count += 1;
+            for event in codex::parse_responses_sse_event(&data) {
+                collect_chatgpt_codex_event(
+                    event,
+                    &mut tool_blocks,
+                    &mut tool_requests,
+                    &mut assistant_text,
+                    &mut stop_reason,
+                    tx,
+                    cancel,
+                )?;
+            }
+        }
+    }
+
+    for (_, block) in tool_blocks {
+        if let Some(req) = block.finish() {
+            tool_requests.push(req);
+        }
+    }
+
+    if assistant_text.is_empty() && tool_requests.is_empty() {
+        tracing::error!(
+            event_count,
+            "ChatGPT Codex stream ended without assistant text or tool calls"
+        );
+        return match stop_reason.as_deref() {
+            Some("incomplete" | "length") => Err(format!(
+                "provider stopped at max_tokens ({max_tokens}) before producing assistant text"
+            )),
+            _ => Err(format!(
+                "provider stream ended without assistant text or tool calls ({event_count} SSE events)"
+            )),
+        };
+    }
+
+    tracing::info!(
+        event_count,
+        text_chars = assistant_text.chars().count(),
+        tool_calls = tool_requests.len(),
+        "finished reading ChatGPT Codex SSE stream"
+    );
+    let _ = send(
+        tx,
+        AgentEvent::Status(format!(
+            "provider: stream ended ({event_count} SSE events, {} text chars, {} tool calls)",
+            assistant_text.chars().count(),
+            tool_requests.len()
+        )),
+        cancel,
+    );
+
+    Ok(ProviderTurn { tool_requests, assistant_text, stop_reason })
+}
+
+fn collect_chatgpt_codex_event(
+    event: codex::ResponsesSseEvent, tool_blocks: &mut HashMap<String, ChatToolCallBuilder>,
+    tool_requests: &mut Vec<ToolUseRequest>, assistant_text: &mut String, stop_reason: &mut Option<String>,
+    tx: &Sender<AgentEvent>, cancel: &CancelToken,
+) -> Result<(), String> {
+    match event {
+        codex::ResponsesSseEvent::TextDelta(text) => {
+            assistant_text.push_str(&text);
+            if send(tx, AgentEvent::AssistantDelta(text), cancel).is_none() {
+                return Err("cancelled".to_string());
+            }
+        }
+        codex::ResponsesSseEvent::ReasoningDelta(text) => {
+            if send(tx, AgentEvent::ReasoningDelta(text), cancel).is_none() {
+                return Err("cancelled".to_string());
+            }
+        }
+        codex::ResponsesSseEvent::ToolCallStart { id, call_id, name } => {
+            tool_blocks.insert(
+                id,
+                ChatToolCallBuilder { id: call_id, name, arguments_json: String::new() },
+            );
+        }
+        codex::ResponsesSseEvent::ToolCallArgumentsDelta { id, arguments } => {
+            let block = tool_blocks.entry(id.clone()).or_insert_with(|| ChatToolCallBuilder {
+                id,
+                name: String::new(),
+                arguments_json: String::new(),
+            });
+            block.arguments_json.push_str(&arguments);
+        }
+        codex::ResponsesSseEvent::ToolCallDone { id, call_id, name, arguments } => {
+            let remove_id = id.clone();
+            let block = tool_blocks.entry(id.clone()).or_insert_with(|| ChatToolCallBuilder {
+                id: id.clone(),
+                name: String::new(),
+                arguments_json: String::new(),
+            });
+            if let Some(call_id) = call_id {
+                block.id = call_id;
+            }
+            if !name.is_empty() {
+                block.name = name;
+            }
+            if !arguments.is_empty() {
+                block.arguments_json = arguments;
+            }
+            if let Some(block) = tool_blocks.remove(&remove_id)
+                && let Some(req) = block.finish()
+            {
+                tool_requests.push(req);
+            }
+        }
+        codex::ResponsesSseEvent::ResponseStatus(status) => {
+            match status.as_str() {
+                "completed" => *stop_reason = Some(status.clone()),
+                "failed" | "incomplete" | "cancelled" | "canceled" => {
+                    return Err(format!("provider stream status: {status}"));
+                }
+                _ => {}
+            }
+            if send(tx, AgentEvent::Status(format!("provider: status {status}")), cancel).is_none() {
+                return Err("cancelled".to_string());
+            }
+        }
+        codex::ResponsesSseEvent::Error(message) => {
+            tracing::error!(error = %message, "ChatGPT Codex emitted SSE error");
+            return Err(format!("provider error: {message}"));
+        }
+        codex::ResponsesSseEvent::Usage { input_tokens, output_tokens } => {
+            if send(tx, AgentEvent::Usage { input_tokens, output_tokens }, cancel).is_none() {
+                return Err("cancelled".to_string());
+            }
+        }
+        codex::ResponsesSseEvent::Malformed(payload) => {
+            return Err(format!("malformed provider stream payload: {payload}"));
+        }
+        codex::ResponsesSseEvent::Done | codex::ResponsesSseEvent::Other => {}
     }
 
     Ok(())
@@ -1373,188 +1700,6 @@ fn step() {
     thread::sleep(Duration::from_millis(40));
 }
 
-/// Deterministic fake provider: emits reasoning, a tool-use request, assistant
-/// text, and finishes. Demonstrates the tool dispatch path end-to-end.
-fn run_fake(handle: &RunHandle, tx: &Sender<AgentEvent>, cancel: &CancelToken) {
-    if send(
-        tx,
-        AgentEvent::ReasoningDelta(String::from("Let me think about this... ")),
-        cancel,
-    )
-    .is_none()
-    {
-        return;
-    }
-    step();
-    if send(
-        tx,
-        AgentEvent::ReasoningDelta(String::from("The repo is a Rust terminal coding harness.")),
-        cancel,
-    )
-    .is_none()
-    {
-        return;
-    }
-    step();
-
-    if handle.config.model == "fake-agent-slow" {
-        for _ in 0..200 {
-            if cancel.is_cancelled() {
-                let _ = send(tx, AgentEvent::Cancelled, cancel);
-                return;
-            }
-            step();
-        }
-    }
-
-    if handle.config.search_mode != crate::cli::WebSearchMode::None {
-        let search_req = ToolUseRequest::new(
-            String::from("web_search"),
-            serde_json::json!({ "query": "rust terminal coding harness" }).to_string(),
-            String::from("search-0"),
-        );
-        let search_id = String::from("search-0");
-        if send(
-            tx,
-            AgentEvent::ToolStarted {
-                id: search_id.clone(),
-                name: search_req.name.clone(),
-                arguments: search_req.arguments.clone(),
-            },
-            cancel,
-        )
-        .is_none()
-        {
-            return;
-        }
-        step();
-
-        let (search_output, _, _) = tools::dispatch_full(&search_req, &handle.config.root);
-        let search_status = search_output.status;
-        match send(
-            tx,
-            AgentEvent::ToolFinished {
-                id: search_id,
-                output: search_output.output,
-                status: search_status,
-                write_result: None,
-                shell_result: None,
-            },
-            cancel,
-        ) {
-            None => return,
-            Some(_) => {
-                step();
-            }
-        }
-    }
-
-    let tool_req = ToolUseRequest::new(
-        String::from("read_file_range"),
-        serde_json::json!({ "path": "Cargo.toml", "start_line": 1, "end_line": 5 }).to_string(),
-        String::from("0"),
-    );
-
-    let tool_id = String::from("0");
-    if send(
-        tx,
-        AgentEvent::ToolStarted {
-            id: tool_id.clone(),
-            name: tool_req.name.clone(),
-            arguments: tool_req.arguments.clone(),
-        },
-        cancel,
-    )
-    .is_none()
-    {
-        return;
-    }
-    step();
-
-    let (output, _, _) = tools::dispatch_full(&tool_req, &handle.config.root);
-    let status = output.status;
-    if send(
-        tx,
-        AgentEvent::ToolFinished { id: tool_id, output: output.output, status, write_result: None, shell_result: None },
-        cancel,
-    )
-    .is_none()
-    {
-        return;
-    }
-    step();
-
-    if handle.config.model == "fake-agent-shell" {
-        let shell_req = ToolUseRequest::new(
-            String::from("run_shell"),
-            serde_json::json!({ "program": "printf", "args": ["acp-permission-smoke\n"] }).to_string(),
-            String::from("shell-0"),
-        );
-        let shell_id = String::from("shell-0");
-        if send(
-            tx,
-            AgentEvent::ToolStarted {
-                id: shell_id.clone(),
-                name: shell_req.name.clone(),
-                arguments: shell_req.arguments.clone(),
-            },
-            cancel,
-        )
-        .is_none()
-        {
-            return;
-        }
-        step();
-
-        let (shell_output, write_result, shell_result) = match approve_tool_request(&shell_req, handle, cancel) {
-            ToolPermissionDecision::Allow => dispatch_tool_request(&shell_req, handle, cancel),
-            ToolPermissionDecision::Reject => (
-                ToolOutput::failed(&shell_req.name, String::from("tool call rejected by ACP client")),
-                None,
-                None,
-            ),
-            ToolPermissionDecision::Cancelled => {
-                let _ = send(tx, AgentEvent::Cancelled, cancel);
-                return;
-            }
-        };
-        let shell_status = shell_output.status;
-        if send(
-            tx,
-            AgentEvent::ToolFinished {
-                id: shell_id,
-                output: shell_output.output,
-                status: shell_status,
-                write_result,
-                shell_result: shell_result.map(Box::new),
-            },
-            cancel,
-        )
-        .is_none()
-        {
-            return;
-        }
-        step();
-    }
-
-    if send(tx, AgentEvent::AssistantDelta(String::from("This is a ")), cancel).is_none() {
-        return;
-    }
-    step();
-    if send(
-        tx,
-        AgentEvent::AssistantDelta(String::from("fake streaming response.")),
-        cancel,
-    )
-    .is_none()
-    {
-        return;
-    }
-    step();
-
-    let _ = tx.send(AgentEvent::Finished);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1610,7 +1755,7 @@ mod tests {
     #[test]
     fn fake_stream_emits_expected_sequence() {
         let handle = RunHandle::fake(config(), String::new());
-        let rx = spawn_run(handle);
+        let rx = handle.spawn();
 
         let mut events = Vec::new();
         while let Ok(event) = rx.recv() {
@@ -1630,7 +1775,7 @@ mod tests {
         let mut cfg = config();
         cfg.search_mode = WebSearchMode::Native;
         let handle = RunHandle::fake(cfg, String::new());
-        let rx = spawn_run(handle);
+        let rx = handle.spawn();
 
         let mut events = Vec::new();
         while let Ok(event) = rx.recv() {
@@ -1648,7 +1793,7 @@ mod tests {
         let mut cfg = config();
         cfg.search_mode = WebSearchMode::None;
         let handle = RunHandle::fake(cfg, String::new());
-        let rx = spawn_run(handle);
+        let rx = handle.spawn();
 
         let mut events = Vec::new();
         while let Ok(event) = rx.recv() {
@@ -1671,7 +1816,7 @@ mod tests {
     #[test]
     fn fake_stream_drops_cleanly_when_receiver_dropped() {
         let handle = RunHandle::fake(config(), String::new());
-        let rx = spawn_run(handle);
+        let rx = handle.spawn();
         drop(rx);
     }
 
@@ -1689,7 +1834,7 @@ mod tests {
         let handle = RunHandle::fake(config(), String::new());
         handle.cancel.cancel();
 
-        let rx = spawn_run(handle);
+        let rx = handle.spawn();
         let mut events = Vec::new();
         while let Ok(event) = rx.recv() {
             events.push(event);
@@ -2037,6 +2182,184 @@ mod tests {
 
         let malformed = collect_openai_chat_event(
             openai::ChatSseEvent::Malformed("{bad".to_string()),
+            &mut tool_blocks,
+            &mut tool_requests,
+            &mut assistant_text,
+            &mut stop_reason,
+            &tx,
+            &cancel,
+        )
+        .expect_err("malformed payload should fail");
+        assert!(malformed.contains("malformed provider stream payload"));
+        assert!(!ProviderAttemptError::Stream(malformed).is_retryable::<umans::UmansClient>());
+    }
+
+    #[test]
+    fn collect_chatgpt_codex_event_maps_text_reasoning_and_usage() {
+        let (tx, rx) = mpsc::channel();
+        let cancel = CancelToken::new();
+        let mut tool_blocks = HashMap::new();
+        let mut tool_requests = Vec::new();
+        let mut assistant_text = String::new();
+        let mut stop_reason = None;
+
+        collect_chatgpt_codex_event(
+            codex::ResponsesSseEvent::TextDelta("hello".to_string()),
+            &mut tool_blocks,
+            &mut tool_requests,
+            &mut assistant_text,
+            &mut stop_reason,
+            &tx,
+            &cancel,
+        )
+        .expect("text delta");
+        collect_chatgpt_codex_event(
+            codex::ResponsesSseEvent::ReasoningDelta("thinking".to_string()),
+            &mut tool_blocks,
+            &mut tool_requests,
+            &mut assistant_text,
+            &mut stop_reason,
+            &tx,
+            &cancel,
+        )
+        .expect("reasoning delta");
+        collect_chatgpt_codex_event(
+            codex::ResponsesSseEvent::Usage { input_tokens: 3, output_tokens: 5 },
+            &mut tool_blocks,
+            &mut tool_requests,
+            &mut assistant_text,
+            &mut stop_reason,
+            &tx,
+            &cancel,
+        )
+        .expect("usage");
+
+        assert_eq!(assistant_text, "hello");
+        let events: Vec<AgentEvent> = rx.try_iter().collect();
+        assert!(events.contains(&AgentEvent::AssistantDelta("hello".to_string())));
+        assert!(events.contains(&AgentEvent::ReasoningDelta("thinking".to_string())));
+        assert!(events.contains(&AgentEvent::Usage { input_tokens: 3, output_tokens: 5 }));
+    }
+
+    #[test]
+    fn collect_chatgpt_codex_event_finishes_tool_calls_on_done() {
+        let (tx, _rx) = mpsc::channel();
+        let cancel = CancelToken::new();
+        let mut tool_blocks = HashMap::new();
+        let mut tool_requests = Vec::new();
+        let mut assistant_text = String::new();
+        let mut stop_reason = None;
+
+        collect_chatgpt_codex_event(
+            codex::ResponsesSseEvent::ToolCallStart {
+                id: "fc_1".to_string(),
+                call_id: "call_1".to_string(),
+                name: "find_files".to_string(),
+            },
+            &mut tool_blocks,
+            &mut tool_requests,
+            &mut assistant_text,
+            &mut stop_reason,
+            &tx,
+            &cancel,
+        )
+        .expect("tool start");
+        collect_chatgpt_codex_event(
+            codex::ResponsesSseEvent::ToolCallArgumentsDelta {
+                id: "fc_1".to_string(),
+                arguments: r#"{"pattern":"Car"#.to_string(),
+            },
+            &mut tool_blocks,
+            &mut tool_requests,
+            &mut assistant_text,
+            &mut stop_reason,
+            &tx,
+            &cancel,
+        )
+        .expect("tool args");
+        collect_chatgpt_codex_event(
+            codex::ResponsesSseEvent::ToolCallDone {
+                id: "fc_1".to_string(),
+                call_id: Some("call_1".to_string()),
+                name: "find_files".to_string(),
+                arguments: r#"{"pattern":"Cargo"}"#.to_string(),
+            },
+            &mut tool_blocks,
+            &mut tool_requests,
+            &mut assistant_text,
+            &mut stop_reason,
+            &tx,
+            &cancel,
+        )
+        .expect("tool done");
+
+        assert!(tool_blocks.is_empty());
+        assert_eq!(tool_requests.len(), 1);
+        assert_eq!(tool_requests[0].name, "find_files");
+        assert_eq!(tool_requests[0].tool_use_id, "call_1");
+        assert_eq!(tool_requests[0].arguments, r#"{"pattern":"Cargo"}"#);
+    }
+
+    #[test]
+    fn collect_chatgpt_codex_event_handles_statuses_and_failures() {
+        let (tx, rx) = mpsc::channel();
+        let cancel = CancelToken::new();
+        let mut tool_blocks = HashMap::new();
+        let mut tool_requests = Vec::new();
+        let mut assistant_text = String::new();
+        let mut stop_reason = None;
+
+        collect_chatgpt_codex_event(
+            codex::ResponsesSseEvent::ResponseStatus("queued".to_string()),
+            &mut tool_blocks,
+            &mut tool_requests,
+            &mut assistant_text,
+            &mut stop_reason,
+            &tx,
+            &cancel,
+        )
+        .expect("queued status");
+        collect_chatgpt_codex_event(
+            codex::ResponsesSseEvent::ResponseStatus("completed".to_string()),
+            &mut tool_blocks,
+            &mut tool_requests,
+            &mut assistant_text,
+            &mut stop_reason,
+            &tx,
+            &cancel,
+        )
+        .expect("completed status");
+        assert_eq!(stop_reason.as_deref(), Some("completed"));
+        let events: Vec<AgentEvent> = rx.try_iter().collect();
+        assert!(events.contains(&AgentEvent::Status("provider: status queued".to_string())));
+        assert!(events.contains(&AgentEvent::Status("provider: status completed".to_string())));
+
+        let failed = collect_chatgpt_codex_event(
+            codex::ResponsesSseEvent::ResponseStatus("incomplete".to_string()),
+            &mut tool_blocks,
+            &mut tool_requests,
+            &mut assistant_text,
+            &mut stop_reason,
+            &tx,
+            &cancel,
+        )
+        .expect_err("incomplete status should fail");
+        assert!(failed.contains("provider stream status: incomplete"));
+
+        let backend = collect_chatgpt_codex_event(
+            codex::ResponsesSseEvent::Error("backend failed".to_string()),
+            &mut tool_blocks,
+            &mut tool_requests,
+            &mut assistant_text,
+            &mut stop_reason,
+            &tx,
+            &cancel,
+        )
+        .expect_err("backend error should fail");
+        assert!(backend.contains("provider error: backend failed"));
+
+        let malformed = collect_chatgpt_codex_event(
+            codex::ResponsesSseEvent::Malformed("{bad".to_string()),
             &mut tool_blocks,
             &mut tool_requests,
             &mut assistant_text,

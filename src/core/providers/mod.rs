@@ -116,6 +116,7 @@ impl ProviderError {
 pub enum StreamFormat {
     AnthropicMessages,
     OpenAiChat,
+    ChatGptCodexResponses,
 }
 
 /// A structured content block in the provider-neutral Anthropic-style message

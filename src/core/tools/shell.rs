@@ -36,11 +36,11 @@ use std::fmt;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use super::{MAX_OUTPUT_BYTES, TIMEOUT_SECS, ToolDefinition, ToolOutput, ToolUseRequest, path};
+use crate::app::ToolStatus;
+use crate::cancel::CancelToken;
 use crate::tools::registry::{ToolContext, ToolError, ToolExecution};
 use crate::utils;
 
@@ -87,6 +87,22 @@ impl ProcessStatus {
             ProcessStatus::Cancelled => "cancelled",
         }
     }
+
+    /// Convert to the transcript-level tool status.
+    pub const fn to_tool_status(self) -> ToolStatus {
+        match self {
+            ProcessStatus::Running => ToolStatus::Running,
+            ProcessStatus::Ok => ToolStatus::Ok,
+            ProcessStatus::Failed | ProcessStatus::Timeout => ToolStatus::Failed,
+            ProcessStatus::Cancelled => ToolStatus::Cancelled,
+        }
+    }
+}
+
+impl From<ProcessStatus> for ToolStatus {
+    fn from(status: ProcessStatus) -> Self {
+        status.to_tool_status()
+    }
 }
 
 /// Whether a command is a one-shot (waited for completion) or a long-lived
@@ -112,28 +128,6 @@ impl ProcessKind {
 impl fmt::Display for ProcessKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.label())
-    }
-}
-
-/// Shared cancellation flag for a single process. Checked cooperatively by
-/// the worker thread between reads; when set, the process is killed.
-#[derive(Clone, Debug, Default)]
-pub struct CancelFlag(Arc<AtomicBool>);
-
-impl CancelFlag {
-    /// Create a new uncancelled flag.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Signal cancellation.
-    pub fn cancel(&self) {
-        self.0.store(true, Ordering::SeqCst);
-    }
-
-    /// Whether cancellation has been requested.
-    pub fn is_cancelled(&self) -> bool {
-        self.0.load(Ordering::SeqCst)
     }
 }
 
@@ -204,6 +198,18 @@ impl ProcessResult {
         };
         ToolOutput::failed("run_shell", err)
     }
+
+    /// Build the [`ToolOutput`] corresponding to this process result.
+    pub fn to_tool_output(&self) -> ToolOutput {
+        match ToolStatus::from(self.status) {
+            ToolStatus::Ok => ToolOutput::ok(NAME, self.to_output_lines()),
+            _ => {
+                let mut output = self.to_failed_output();
+                output.output = self.to_output_lines();
+                output
+            }
+        }
+    }
 }
 
 /// A running process tracked by the registry.
@@ -218,7 +224,7 @@ pub struct ActiveProcess {
     /// One-shot or background.
     pub kind: ProcessKind,
     /// Cancellation flag shared with the worker thread.
-    pub cancel: CancelFlag,
+    pub cancel: CancelToken,
     /// When the process started.
     pub started: Instant,
 }
@@ -282,7 +288,9 @@ impl ProcessRegistry {
     }
 
     /// Register a new process and return its id.
-    pub fn register(&mut self, command: Vec<String>, cwd: PathBuf, kind: ProcessKind, cancel: CancelFlag) -> u64 {
+    pub fn register(
+        &mut self, command: Vec<String>, cwd: PathBuf, kind: ProcessKind, cancel: CancelToken,
+    ) -> u64 {
         let id = self.next_id;
         self.next_id += 1;
         self.active.insert(
@@ -449,7 +457,7 @@ pub fn execute_request(request: &ToolUseRequest, ctx: ToolContext<'_>) -> ToolEx
 /// captured output is capped at [`MAX_OUTPUT_BYTES`] bytes and
 /// [`MAX_OUTPUT_LINES`] lines. Lines longer than `MAX_LINE_LEN` chars are
 /// truncated with `...`.
-pub fn run_command(args: &ShellArgs, root: &Path, cancel: &CancelFlag) -> Result<ProcessResult, String> {
+pub fn run_command(args: &ShellArgs, root: &Path, cancel: &CancelToken) -> Result<ProcessResult, String> {
     let cwd = resolve_cwd(root, &args.cwd)?;
     let argv = args.argv();
 
@@ -511,7 +519,7 @@ pub fn run_command(args: &ShellArgs, root: &Path, cancel: &CancelFlag) -> Result
 /// background thread), then converts the result into a [`ToolOutput`].
 #[cfg(test)]
 pub fn exec(args: &ShellArgs, root: &Path) -> ToolOutput {
-    let cancel = CancelFlag::new();
+    let cancel = CancelToken::new();
     match run_command(args, root, &cancel) {
         Ok(result) => output_from_result(&result),
         Err(e) => ToolOutput::failed(NAME, e),
@@ -543,7 +551,9 @@ pub fn redact_secrets(line: &str) -> String {
 
 /// Wait for a child to exit, killing it if the timeout elapses or cancellation
 /// is signalled.
-fn wait_with_timeout(child: &mut Child, timeout: &Duration, cancel: &CancelFlag, start: &Instant) -> WaitOutcome {
+fn wait_with_timeout(
+    child: &mut Child, timeout: &Duration, cancel: &CancelToken, start: &Instant,
+) -> WaitOutcome {
     loop {
         match child.try_wait() {
             Ok(Some(status)) => return WaitOutcome::Exited(status.code().unwrap_or(-1)),
@@ -635,7 +645,7 @@ fn execute_args(args: &ShellArgs, root: &Path) -> ToolExecution {
         return ToolExecution::output(ToolOutput::failed(NAME, "missing or empty 'program' field".to_string()));
     }
 
-    let cancel = CancelFlag::new();
+    let cancel = CancelToken::new();
     match run_command(args, root, &cancel) {
         Ok(result) => ToolExecution::full(output_from_result(&result), None, Some(result)),
         Err(error) => ToolExecution::output(ToolOutput::failed(NAME, error)),
@@ -643,12 +653,5 @@ fn execute_args(args: &ShellArgs, root: &Path) -> ToolExecution {
 }
 
 fn output_from_result(result: &ProcessResult) -> ToolOutput {
-    match result.status {
-        ProcessStatus::Ok => ToolOutput::ok(NAME, result.to_output_lines()),
-        _ => {
-            let mut output = result.to_failed_output();
-            output.output = result.to_output_lines();
-            output
-        }
-    }
+    result.to_tool_output()
 }
