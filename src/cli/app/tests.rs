@@ -342,6 +342,88 @@ fn usage_event_accumulates_session_tokens() {
 }
 
 #[test]
+fn ttft_starts_on_submit_and_ignores_status_and_usage() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from("hello world");
+
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+    assert!(app.ttft.is_pending(), "submit should start pending TTFT");
+
+    update(&mut app, &Msg::Agent(AgentEvent::Started));
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::Status(String::from("provider: queued"))),
+    );
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::Usage { input_tokens: 1, output_tokens: 0 }),
+    );
+
+    assert!(app.ttft.is_pending(), "status and usage events should not stop TTFT");
+    assert!(app.ttft.last_completed().is_none());
+}
+
+#[test]
+fn ttft_stops_on_first_semantic_output_and_is_retained_after_finish() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from("hello world");
+
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+    update(&mut app, &Msg::Agent(AgentEvent::Started));
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::ReasoningDelta(String::from("thinking"))),
+    );
+
+    assert!(!app.ttft.is_pending(), "semantic output should stop TTFT");
+    let measured = app.ttft.last_completed().expect("measured TTFT");
+
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::AssistantDelta(String::from("answer"))),
+    );
+    update(&mut app, &Msg::Agent(AgentEvent::Finished));
+
+    assert_eq!(app.ttft.last_completed(), Some(measured));
+}
+
+#[test]
+fn ttft_is_preserved_across_retries_and_reset_on_next_turn() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from("first turn");
+
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+    update(&mut app, &Msg::Agent(AgentEvent::Started));
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::Retrying {
+            attempt: 1,
+            max_attempts: 2,
+            delay_ms: 10,
+            error: String::from("server error"),
+        }),
+    );
+    assert!(app.ttft.is_pending(), "retry should keep the original TTFT pending");
+
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::ToolStarted {
+            id: String::from("tool-1"),
+            name: String::from("read_file"),
+            arguments: String::from("{}"),
+        }),
+    );
+    assert!(!app.ttft.is_pending());
+    assert!(app.ttft.last_completed().is_some());
+
+    update(&mut app, &Msg::Agent(AgentEvent::Finished));
+    app.input = PromptInput::from("second turn");
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+
+    assert!(app.ttft.is_pending(), "next turn should start a fresh pending TTFT");
+}
+
+#[test]
 fn finished_persists_final_assistant_even_after_status_row() {
     let dir = tempfile::tempdir().expect("create temp dir");
     let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };

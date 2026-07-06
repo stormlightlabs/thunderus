@@ -509,22 +509,26 @@ pub fn static_status_row(app: &App, width: usize) -> Row {
     let search_label = app.websearch.label();
     let search_text = format!("search: {search_label}");
     let token_text = format!("tok: ↑{} ↓{}", app.session_tokens_in, app.session_tokens_out);
+    let ttft_text = ttft_status_text(app);
     let git_text = app.git_status.as_ref().map(|summary| summary.display());
     let token_style = CellStyle::new().fg(p.peach).bg(bg);
+    let ttft_style = CellStyle::new().fg(p.teal).bg(bg);
     let git_style = CellStyle::new().fg(p.green).bg(bg);
 
-    let (show_model, show_search, show_tokens, show_git, show_cwd) = match width {
-        w if w < 24 => (false, false, false, false, false),
-        w if w < 42 => (true, false, false, false, false),
-        w if w < 56 => (true, true, false, false, false),
-        w if w < 72 => (true, true, true, false, false),
-        w if w < 96 => (true, true, true, true, false),
-        _ => (true, true, true, true, true),
+    let (show_model, show_search, show_tokens, show_ttft, show_git, show_cwd) = match width {
+        w if w < 24 => (false, false, false, false, false, false),
+        w if w < 42 => (true, false, false, false, false, false),
+        w if w < 56 => (true, true, false, false, false, false),
+        w if w < 72 => (true, true, true, false, false, false),
+        w if w < 88 => (true, true, true, false, true, false),
+        w if w < 96 => (true, true, true, true, true, false),
+        _ => (true, true, true, true, true, true),
     };
 
     let model_len = utils::text_width(&model_label);
     let search_len = utils::text_width(&search_text);
     let token_len = utils::text_width(&token_text);
+    let ttft_len = ttft_text.as_ref().map_or(0, |text| utils::text_width(text));
     let git_len = git_text.as_ref().map_or(0, |text| utils::text_width(text));
 
     let mut spans: Vec<Span> = Vec::new();
@@ -540,6 +544,10 @@ pub fn static_status_row(app: &App, width: usize) -> Row {
         spans.push(Span::styled("   ", CellStyle::new().bg(bg)));
         spans.push(Span::styled(token_text, token_style));
     }
+    if show_ttft && let Some(ttft_text) = ttft_text {
+        spans.push(Span::styled("   ", CellStyle::new().bg(bg)));
+        spans.push(Span::styled(ttft_text, ttft_style));
+    }
     if show_git && let Some(git_text) = git_text {
         spans.push(Span::styled("   ", CellStyle::new().bg(bg)));
         spans.push(Span::styled(git_text, git_style));
@@ -550,6 +558,7 @@ pub fn static_status_row(app: &App, width: usize) -> Row {
             + LIVE_INSET
             + if show_search { search_len + 3 } else { 0 }
             + if show_tokens { token_len + 3 } else { 0 }
+            + if show_ttft && ttft_len > 0 { ttft_len + 3 } else { 0 }
             + if show_git && git_len > 0 { git_len + 3 } else { 0 }
             + 6;
         let cwd_display = super::path_display::footer_segment(&app.cwd, width, used);
@@ -557,6 +566,21 @@ pub fn static_status_row(app: &App, width: usize) -> Row {
     }
 
     Row::padded(spans, width, bg_style(bg))
+}
+
+fn ttft_status_text(app: &App) -> Option<String> {
+    if app.ttft.is_pending() {
+        return Some(String::from("ttft: pending"));
+    }
+
+    app.ttft.last_completed().map(|duration| {
+        let millis = duration.as_millis();
+        if millis < 1_000 {
+            format!("ttft: {millis}ms")
+        } else {
+            format!("ttft: {:.1}s", millis as f64 / 1_000.0)
+        }
+    })
 }
 
 /// Build a [`CellStyle`] with only a background color (for padding/fill).
@@ -1013,19 +1037,21 @@ mod tests {
     fn static_status_row_width_thresholds_control_segments() {
         let app = test_app();
         let cases = [
-            (23, false, false, false, false, false),
-            (24, true, false, false, false, false),
-            (41, true, false, false, false, false),
-            (42, true, true, false, false, false),
-            (55, true, true, false, false, false),
-            (56, true, true, true, false, false),
-            (71, true, true, true, false, false),
-            (72, true, true, true, true, false),
-            (95, true, true, true, true, false),
-            (96, true, true, true, true, true),
+            (23, false, false, false, false, false, false),
+            (24, true, false, false, false, false, false),
+            (41, true, false, false, false, false, false),
+            (42, true, true, false, false, false, false),
+            (55, true, true, false, false, false, false),
+            (56, true, true, true, false, false, false),
+            (71, true, true, true, false, false, false),
+            (72, true, true, true, false, true, false),
+            (87, true, true, true, false, true, false),
+            (88, true, true, true, false, true, false),
+            (95, true, true, true, false, true, false),
+            (96, true, true, true, false, true, true),
         ];
 
-        for (width, model, search, tokens, git, cwd) in cases {
+        for (width, model, search, tokens, ttft, git, cwd) in cases {
             let text = static_status_row(&app, width).text();
             assert_eq!(
                 text.contains("model:"),
@@ -1042,15 +1068,47 @@ mod tests {
                 tokens,
                 "token visibility at width {width}: {text}"
             );
+            assert_eq!(text.contains("ttft:"), ttft, "TTFT visibility at width {width}: {text}");
             assert_eq!(text.contains("git:"), git, "git visibility at width {width}: {text}");
             assert_eq!(text.contains("cwd:"), cwd, "cwd visibility at width {width}: {text}");
         }
     }
 
     #[test]
+    fn static_status_row_shows_pending_ttft_when_width_allows() {
+        let mut app = test_app();
+        app.ttft.set_pending_for_test();
+        let text = static_status_row(&app, 90).text();
+
+        assert!(text.contains("ttft: pending"));
+    }
+
+    #[test]
+    fn static_status_row_formats_measured_ttft() {
+        let mut app = test_app();
+        app.ttft
+            .set_last_completed_for_test(std::time::Duration::from_millis(987));
+        assert!(static_status_row(&app, 90).text().contains("ttft: 987ms"));
+
+        app.ttft
+            .set_last_completed_for_test(std::time::Duration::from_millis(1_234));
+        assert!(static_status_row(&app, 90).text().contains("ttft: 1.2s"));
+    }
+
+    #[test]
+    fn static_status_row_hides_ttft_at_narrow_width() {
+        let mut app = test_app();
+        app.ttft.set_pending_for_test();
+        let text = static_status_row(&app, 80).text();
+
+        assert!(text.contains("tok:"), "core token status should remain visible");
+        assert!(!text.contains("ttft:"), "TTFT should hide before core status");
+    }
+
+    #[test]
     fn static_status_row_shows_all_at_wide_width() {
         let app = test_app();
-        let row = static_status_row(&app, 120);
+        let row = static_status_row(&app, 128);
         let text = row.text();
         assert!(text.contains("model:"));
         assert!(text.contains("search:"));
@@ -1381,5 +1439,51 @@ mod tests {
             combined.push('\n');
         }
         insta::assert_snapshot!("footer_cjk", combined);
+    }
+
+    #[test]
+    fn snapshot_ttft_statusline() {
+        let mut combined = String::new();
+
+        let mut pending = test_app();
+        pending.ttft.set_pending_for_test();
+        combined.push_str("pending:\n");
+        combined.push_str(
+            &Frame { rows: vec![static_status_row(&pending, 96)], width: 96, cursor: None, cursor_visible: true }
+                .render_styled(),
+        );
+        combined.push('\n');
+
+        let mut measured = test_app();
+        measured
+            .ttft
+            .set_last_completed_for_test(std::time::Duration::from_millis(842));
+        combined.push_str("measured:\n");
+        combined.push_str(
+            &Frame { rows: vec![static_status_row(&measured, 96)], width: 96, cursor: None, cursor_visible: true }
+                .render_styled(),
+        );
+        combined.push('\n');
+
+        let mut retained = test_app();
+        retained
+            .ttft
+            .set_last_completed_for_test(std::time::Duration::from_millis(1_340));
+        combined.push_str("retained:\n");
+        combined.push_str(
+            &Frame { rows: vec![static_status_row(&retained, 96)], width: 96, cursor: None, cursor_visible: true }
+                .render_styled(),
+        );
+        combined.push('\n');
+
+        let mut narrow = test_app();
+        narrow.ttft.set_pending_for_test();
+        combined.push_str("narrow:\n");
+        combined.push_str(
+            &Frame { rows: vec![static_status_row(&narrow, 80)], width: 80, cursor: None, cursor_visible: true }
+                .render_styled(),
+        );
+
+        insta::assert_snapshot!("ttft_statusline", combined);
     }
 }

@@ -178,31 +178,31 @@ Captured: 2026-07-05
 
 ## P10: TTFT State
 
-- [ ] Add per-turn timing state to `App`.
-- [ ] Start TTFT timing when a user turn is submitted locally.
-- [ ] Reset pending TTFT state when a new turn starts.
-- [ ] Stop TTFT on the first assistant text delta.
-- [ ] Stop TTFT on the first visible reasoning delta.
-- [ ] Stop TTFT on the first tool-call delta or completed tool call.
-- [ ] Do not stop TTFT on provider status messages.
-- [ ] Do not stop TTFT on usage-only events.
-- [ ] Preserve one user-observed TTFT across retries.
-- [ ] Retain the last completed turn TTFT after the run finishes.
-- [ ] Avoid writing TTFT to session files until session observability explicitly
+- [x] Add per-turn timing state to `App`.
+- [x] Start TTFT timing when a user turn is submitted locally.
+- [x] Reset pending TTFT state when a new turn starts.
+- [x] Stop TTFT on the first assistant text delta.
+- [x] Stop TTFT on the first visible reasoning delta.
+- [x] Stop TTFT on the first tool-call delta or completed tool call.
+- [x] Do not stop TTFT on provider status messages.
+- [x] Do not stop TTFT on usage-only events.
+- [x] Preserve one user-observed TTFT across retries.
+- [x] Retain the last completed turn TTFT after the run finishes.
+- [x] Avoid writing TTFT to session files until session observability explicitly
       needs it.
 
 ## P11: TTFT Statusline Rendering
 
-- [ ] Render `ttft: pending` while a run is waiting for semantic output.
-- [ ] Render compact millisecond values below one second.
-- [ ] Render compact second values at and above one second.
-- [ ] Keep the last measured TTFT visible after a run completes when width
+- [x] Render `ttft: pending` while a run is waiting for semantic output.
+- [x] Render compact millisecond values below one second.
+- [x] Render compact second values at and above one second.
+- [x] Keep the last measured TTFT visible after a run completes when width
       allows.
-- [ ] Hide TTFT before core prompt/status affordances on narrow screens.
-- [ ] Add renderer snapshots for pending TTFT.
-- [ ] Add renderer snapshots for measured TTFT.
-- [ ] Add renderer snapshots for retained TTFT after completion.
-- [ ] Add renderer snapshots for narrow widths where TTFT is hidden.
+- [x] Hide TTFT before core prompt/status affordances on narrow screens.
+- [x] Add renderer snapshots for pending TTFT.
+- [x] Add renderer snapshots for measured TTFT.
+- [x] Add renderer snapshots for retained TTFT after completion.
+- [x] Add renderer snapshots for narrow widths where TTFT is hidden.
 
 ## P12: Unit Tests
 

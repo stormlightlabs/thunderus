@@ -8,6 +8,7 @@
 mod tests;
 
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use serde::{Deserialize, Serialize};
@@ -179,6 +180,53 @@ pub enum PromptState {
     Stopped,
     /// Run failed with an error; prompt is editable again.
     Errored,
+}
+
+/// Client-observed time-to-first-token state for the active and last turn.
+#[derive(Clone, Debug, Default)]
+pub struct TurnTtftState {
+    pending_since: Option<Instant>,
+    last_completed: Option<Duration>,
+}
+
+impl TurnTtftState {
+    /// Start timing a newly submitted local user turn.
+    pub fn start_turn(&mut self) {
+        self.pending_since = Some(Instant::now());
+    }
+
+    /// Stop timing on the first semantic provider output.
+    pub fn stop_on_semantic_output(&mut self) {
+        if let Some(started_at) = self.pending_since.take() {
+            self.last_completed = Some(started_at.elapsed());
+        }
+    }
+
+    /// Clear an unfinished pending measurement without replacing the last one.
+    pub fn clear_pending(&mut self) {
+        self.pending_since = None;
+    }
+
+    /// Whether the current turn is still waiting for semantic output.
+    pub fn is_pending(&self) -> bool {
+        self.pending_since.is_some()
+    }
+
+    /// Last successfully measured TTFT.
+    pub fn last_completed(&self) -> Option<Duration> {
+        self.last_completed
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_pending_for_test(&mut self) {
+        self.pending_since = Some(Instant::now());
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_last_completed_for_test(&mut self, duration: Duration) {
+        self.pending_since = None;
+        self.last_completed = Some(duration);
+    }
 }
 
 /// Where input submitted during an active run should be queued.
@@ -481,6 +529,8 @@ pub struct App {
     /// Provider token usage accumulated for this session.
     pub session_tokens_in: u64,
     pub session_tokens_out: u64,
+    /// In-memory client-observed TTFT for the active and last completed turn.
+    pub ttft: TurnTtftState,
     /// Loaded context sources (e.g. AGENTS.md).
     pub context_sources: Vec<context::ContextSource>,
     /// Discovered Agent Skills metadata.
@@ -621,6 +671,7 @@ impl From<&Cli> for App {
             verbose: value.verbose,
             session_tokens_in: 0,
             session_tokens_out: 0,
+            ttft: TurnTtftState::default(),
             context_sources,
             skills: skill_inventory.skills,
             skill_diagnostics: skill_inventory.diagnostics,
@@ -2050,6 +2101,7 @@ fn submit_user_turn(app: &mut App, text: String) -> Option<Msg> {
     app.history_cursor = None;
     app.history_draft.clear();
     app.last_input = Some(text);
+    app.ttft.start_turn();
     app.turn_count += 1;
     let turn_id = format!("turn_{}", app.turn_count);
     refresh_mcp_config_audit(app, &turn_id);
@@ -2400,6 +2452,7 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             None
         }
         AgentEvent::AssistantDelta(delta) => {
+            app.ttft.stop_on_semantic_output();
             finalize_reasoning(app);
             if let Some(Entry::Agent { text, streaming: true }) = app.transcript.last_mut() {
                 text.push_str(&delta);
@@ -2409,6 +2462,7 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             None
         }
         AgentEvent::ReasoningDelta(delta) => {
+            app.ttft.stop_on_semantic_output();
             if let Some(Entry::Reasoning { text, streaming: true }) = app.transcript.last_mut() {
                 text.push_str(&delta);
             } else {
@@ -2417,6 +2471,7 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             None
         }
         AgentEvent::ToolStarted { id, name, arguments } => {
+            app.ttft.stop_on_semantic_output();
             finalize_streaming(app);
             app.transcript.push(Entry::Tool {
                 name: format!("{name}#{id}"),
@@ -2431,6 +2486,7 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             None
         }
         AgentEvent::ToolFinished { id, output, status, write_result, shell_result } => {
+            app.ttft.stop_on_semantic_output();
             finalize_streaming(app);
             for entry in app.transcript.iter_mut().rev() {
                 if let Entry::Tool { name, output: out, status: s, .. } = entry
@@ -2518,6 +2574,7 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             None
         }
         AgentEvent::Finished => {
+            app.ttft.clear_pending();
             finalize_streaming(app);
             cancel_pending_permission(app);
             app.run_state = RunState::Idle;
@@ -2532,6 +2589,7 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             }
         }
         AgentEvent::Failed(msg) => {
+            app.ttft.clear_pending();
             finalize_streaming(app);
             cancel_pending_permission(app);
             app.transcript.push(Entry::Error { text: msg.clone() });
@@ -2544,6 +2602,7 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             None
         }
         AgentEvent::Cancelled => {
+            app.ttft.clear_pending();
             finalize_streaming(app);
             cancel_pending_permission(app);
             cancel_running_tools(app);
