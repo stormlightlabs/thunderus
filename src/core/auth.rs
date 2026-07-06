@@ -138,18 +138,35 @@ pub struct ChatGptCodexAuth {
 }
 
 /// Response from the ChatGPT Codex device-code user-code endpoint.
-#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq)]
+#[derive(Clone, serde::Deserialize, Eq, PartialEq)]
 pub struct ChatGptCodexDeviceCode {
+    /// Secret device code sent only to the OAuth token endpoint.
     pub device_code: String,
+    /// User-facing short code entered on the verification page.
     pub user_code: String,
+    /// User-facing verification page.
     #[serde(default)]
     pub verification_uri: Option<String>,
+    /// Optional complete verification link.
     #[serde(default)]
     pub verification_uri_complete: Option<String>,
+    /// Device-code lifetime in seconds.
     #[serde(default)]
     pub expires_in: Option<u64>,
+    /// Recommended polling interval in seconds.
     #[serde(default)]
     pub interval: Option<u64>,
+}
+
+/// Result of one ChatGPT Codex device-code token poll.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ChatGptCodexDevicePoll {
+    /// Authorization is not complete yet.
+    Pending,
+    /// Authorization is pending and the client should slow down polling.
+    SlowDown,
+    /// Authorization completed and credentials can be stored.
+    Authorized(ChatGptCodexCredentials),
 }
 
 /// Token response from ChatGPT Codex OAuth endpoints.
@@ -178,6 +195,19 @@ impl std::fmt::Debug for ChatGptCodexAuth {
         f.debug_struct("ChatGptCodexAuth")
             .field("access_token", &redact_value(&self.access_token))
             .field("account_id", &self.account_id)
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for ChatGptCodexDeviceCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChatGptCodexDeviceCode")
+            .field("device_code", &redact_value(&self.device_code))
+            .field("user_code", &self.user_code)
+            .field("verification_uri", &self.verification_uri)
+            .field("verification_uri_complete", &self.verification_uri_complete)
+            .field("expires_in", &self.expires_in)
+            .field("interval", &self.interval)
             .finish()
     }
 }
@@ -317,6 +347,22 @@ pub fn poll_chatgpt_codex_device_code(code: &ChatGptCodexDeviceCode) -> Result<C
             }
             Err(err) => return Err(err),
         }
+    }
+}
+
+/// Poll the device-code token endpoint once without sleeping.
+pub fn poll_chatgpt_codex_device_code_once(code: &ChatGptCodexDeviceCode) -> Result<ChatGptCodexDevicePoll, AuthError> {
+    let body = serde_json::json!({
+        "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+        "device_code": code.device_code,
+    });
+    match exchange_chatgpt_codex_token(body) {
+        Ok(token) => credentials_from_token_response(token, None).map(ChatGptCodexDevicePoll::Authorized),
+        Err(AuthError::ChatGptCodex(message)) if message.contains("authorization_pending") => {
+            Ok(ChatGptCodexDevicePoll::Pending)
+        }
+        Err(AuthError::ChatGptCodex(message)) if message.contains("slow_down") => Ok(ChatGptCodexDevicePoll::SlowDown),
+        Err(err) => Err(err),
     }
 }
 

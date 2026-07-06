@@ -76,6 +76,8 @@ pub struct FirstRunRecovery {
     pub selected: usize,
     /// Hidden API-key buffer. This is never rendered or written to transcripts.
     pub secret_input: String,
+    /// ChatGPT OAuth device-code state. Token material is never rendered.
+    pub chatgpt_oauth: Option<ChatGptOAuthRecovery>,
 }
 
 impl FirstRunRecovery {
@@ -86,6 +88,7 @@ impl FirstRunRecovery {
             pending_provider_prompt,
             selected: 0,
             secret_input: String::new(),
+            chatgpt_oauth: None,
         }
     }
 
@@ -96,6 +99,7 @@ impl FirstRunRecovery {
             pending_provider_prompt,
             selected: 0,
             secret_input: String::new(),
+            chatgpt_oauth: None,
         }
     }
 
@@ -103,13 +107,14 @@ impl FirstRunRecovery {
         Self {
             provider: Some(provider),
             stage: if provider == SetupProviderArg::ChatgptCodex {
-                RecoveryStage::Instructions
+                RecoveryStage::MissingCredential
             } else {
                 RecoveryStage::EnterKey
             },
             pending_provider_prompt: false,
             selected: 0,
             secret_input: String::new(),
+            chatgpt_oauth: None,
         }
     }
 
@@ -120,8 +125,22 @@ impl FirstRunRecovery {
             pending_provider_prompt: false,
             selected: 0,
             secret_input: String::new(),
+            chatgpt_oauth: None,
         }
     }
+}
+
+/// ChatGPT OAuth state shown in the focused recovery surface.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ChatGptOAuthRecovery {
+    /// Device-code response used for polling. Its debug output redacts the device token.
+    pub code: auth::ChatGptCodexDeviceCode,
+    /// UI tick when the next single poll is allowed.
+    pub next_poll_tick: u64,
+    /// OAuth expiry tick derived from the device-code lifetime.
+    pub expires_at_tick: u64,
+    /// Redacted status text for the recovery surface.
+    pub status: String,
 }
 
 /// Step within the first-run recovery surface.
@@ -135,10 +154,34 @@ pub enum RecoveryStage {
     ConfirmStore,
     /// Show setup instructions in a focused surface.
     Instructions,
+    /// Requesting a ChatGPT OAuth device code.
+    ChatGptOAuthRequesting,
+    /// Waiting for ChatGPT OAuth browser authorization and polling on ticks.
+    ChatGptOAuthPolling,
+    /// ChatGPT OAuth failed with a redacted, user-readable error.
+    ChatGptOAuthFailed,
     /// Confirm logout and storage scope.
     LogoutConfirm,
     /// ACP model recovery, separate from provider API-key setup.
     AcpMissing,
+}
+
+/// Small seam for testing TUI OAuth without real network calls.
+#[derive(Clone, Copy, Debug)]
+pub struct ChatGptOAuthDriver {
+    request_device_code: fn() -> Result<auth::ChatGptCodexDeviceCode, auth::AuthError>,
+    poll_device_code_once: fn(&auth::ChatGptCodexDeviceCode) -> Result<auth::ChatGptCodexDevicePoll, auth::AuthError>,
+    write_credentials: fn(&auth::ChatGptCodexCredentials) -> Result<(), auth::AuthError>,
+}
+
+impl Default for ChatGptOAuthDriver {
+    fn default() -> Self {
+        Self {
+            request_device_code: auth::request_chatgpt_codex_device_code,
+            poll_device_code_once: auth::poll_chatgpt_codex_device_code_once,
+            write_credentials: auth::write_chatgpt_codex_credentials,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -562,6 +605,8 @@ pub struct App {
     pub prompt_accessory: PromptAccessory,
     /// Focused first-run or credential recovery surface.
     pub first_run_recovery: Option<FirstRunRecovery>,
+    /// ChatGPT OAuth functions used by focused recovery.
+    pub chatgpt_oauth_driver: ChatGptOAuthDriver,
     /// Steering messages waiting to be sent to the active agent thread.
     pub queued_steering: Vec<String>,
     /// Follow-up prompts to submit as new turns after the active run completes.
@@ -685,6 +730,7 @@ impl From<&Cli> for App {
             picker: None,
             prompt_accessory: PromptAccessory::None,
             first_run_recovery: None,
+            chatgpt_oauth_driver: ChatGptOAuthDriver::default(),
             queued_steering: Vec::new(),
             queued_followups: Vec::new(),
             kill_ring: Vec::new(),
@@ -819,6 +865,7 @@ pub fn update(app: &mut App, msg: &Msg) -> Option<Msg> {
             {
                 app.ctrl_d_pending = None;
             }
+            poll_chatgpt_oauth_on_tick(app);
             None
         }
         Msg::Clear => {
@@ -1552,11 +1599,12 @@ fn selected_provider_missing(app: &App) -> Option<FirstRunRecovery> {
 
 fn recovery_action_count(recovery: &FirstRunRecovery) -> usize {
     match recovery.stage {
-        RecoveryStage::MissingCredential if recovery.provider == Some(SetupProviderArg::ChatgptCodex) => 4,
         RecoveryStage::MissingCredential => 5,
         RecoveryStage::EnterKey => 1,
         RecoveryStage::ConfirmStore | RecoveryStage::LogoutConfirm => 3,
         RecoveryStage::Instructions => 2,
+        RecoveryStage::ChatGptOAuthRequesting | RecoveryStage::ChatGptOAuthPolling => 1,
+        RecoveryStage::ChatGptOAuthFailed => 2,
         RecoveryStage::AcpMissing => 4,
     }
 }
@@ -1589,6 +1637,17 @@ fn handle_first_run_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
         return None;
     }
 
+    if matches!(
+        recovery.stage,
+        RecoveryStage::ChatGptOAuthRequesting | RecoveryStage::ChatGptOAuthPolling
+    ) && key.code == KeyCode::Esc
+    {
+        recovery.stage = RecoveryStage::MissingCredential;
+        recovery.selected = 0;
+        recovery.chatgpt_oauth = None;
+        return None;
+    }
+
     match key.code {
         KeyCode::Esc => {
             app.first_run_recovery = None;
@@ -1612,13 +1671,42 @@ fn accept_recovery_action(app: &mut App) -> Option<Msg> {
     let recovery = app.first_run_recovery.clone()?;
 
     match recovery.stage {
-        RecoveryStage::MissingCredential => match recovery.selected {
-            0 => {
-                if recovery.provider == Some(SetupProviderArg::ChatgptCodex) {
+        RecoveryStage::MissingCredential if recovery.provider == Some(SetupProviderArg::ChatgptCodex) => {
+            match recovery.selected {
+                0 => start_chatgpt_oauth_recovery(app),
+                1 => {
                     app.first_run_recovery = None;
                     open_model_picker(app);
-                    return None;
                 }
+                2 => {
+                    if let Some(active) = app.first_run_recovery.as_mut() {
+                        active.stage = RecoveryStage::Instructions;
+                        active.selected = 0;
+                        active.chatgpt_oauth = None;
+                    }
+                }
+                3 => {
+                    if recovery.pending_provider_prompt {
+                        app.transcript.push(Entry::Status {
+                            text: String::from(
+                                "setup required before submitting this ChatGPT Codex prompt; start OAuth login or switch model",
+                            ),
+                        });
+                    } else {
+                        app.first_run_recovery = None;
+                        app.transcript
+                            .push(Entry::Status { text: String::from("setup skipped") });
+                    }
+                }
+                4 => {
+                    app.quit = true;
+                    return Some(Msg::Quit);
+                }
+                _ => {}
+            }
+        }
+        RecoveryStage::MissingCredential => match recovery.selected {
+            0 => {
                 if let Some(active) = app.first_run_recovery.as_mut() {
                     active.stage = RecoveryStage::EnterKey;
                     active.selected = 0;
@@ -1690,6 +1778,25 @@ fn accept_recovery_action(app: &mut App) -> Option<Msg> {
             1 => app.first_run_recovery = None,
             _ => {}
         },
+        RecoveryStage::ChatGptOAuthRequesting => {}
+        RecoveryStage::ChatGptOAuthPolling => {
+            if let Some(active) = app.first_run_recovery.as_mut() {
+                active.stage = RecoveryStage::MissingCredential;
+                active.selected = 0;
+                active.chatgpt_oauth = None;
+            }
+        }
+        RecoveryStage::ChatGptOAuthFailed => match recovery.selected {
+            0 => start_chatgpt_oauth_recovery(app),
+            1 => {
+                if let Some(active) = app.first_run_recovery.as_mut() {
+                    active.stage = RecoveryStage::MissingCredential;
+                    active.selected = 0;
+                    active.chatgpt_oauth = None;
+                }
+            }
+            _ => {}
+        },
         RecoveryStage::LogoutConfirm => remove_recovery_credential(app, &recovery),
         RecoveryStage::AcpMissing => match recovery.selected {
             0 => {
@@ -1722,6 +1829,145 @@ fn accept_recovery_action(app: &mut App) -> Option<Msg> {
     }
 
     None
+}
+
+fn start_chatgpt_oauth_recovery(app: &mut App) {
+    let pending_provider_prompt = app
+        .first_run_recovery
+        .as_ref()
+        .is_some_and(|recovery| recovery.pending_provider_prompt);
+    if let Some(active) = app.first_run_recovery.as_mut() {
+        active.stage = RecoveryStage::ChatGptOAuthRequesting;
+        active.selected = 0;
+        active.chatgpt_oauth = None;
+    }
+
+    match (app.chatgpt_oauth_driver.request_device_code)() {
+        Ok(code) => {
+            let next_poll_tick = app
+                .ui_tick
+                .wrapping_add(seconds_to_ticks(app, code.interval.unwrap_or(5).max(1)));
+            let expires_at_tick = app
+                .ui_tick
+                .wrapping_add(seconds_to_ticks(app, code.expires_in.unwrap_or(900).max(1)));
+            app.first_run_recovery = Some(FirstRunRecovery {
+                provider: Some(SetupProviderArg::ChatgptCodex),
+                stage: RecoveryStage::ChatGptOAuthPolling,
+                pending_provider_prompt,
+                selected: 0,
+                secret_input: String::new(),
+                chatgpt_oauth: Some(ChatGptOAuthRecovery {
+                    code,
+                    next_poll_tick,
+                    expires_at_tick,
+                    status: String::from("Waiting for ChatGPT authorization."),
+                }),
+            });
+        }
+        Err(err) => {
+            app.first_run_recovery = Some(FirstRunRecovery {
+                provider: Some(SetupProviderArg::ChatgptCodex),
+                stage: RecoveryStage::ChatGptOAuthFailed,
+                pending_provider_prompt,
+                selected: 0,
+                secret_input: String::new(),
+                chatgpt_oauth: None,
+            });
+            app.transcript.push(Entry::Error {
+                text: format!(
+                    "ChatGPT OAuth device-code request failed: {}",
+                    redact_auth_error(&err.to_string())
+                ),
+            });
+        }
+    }
+}
+
+fn poll_chatgpt_oauth_on_tick(app: &mut App) {
+    let tick_ms = app.cli.tick_rate_ms.max(1);
+    let Some(recovery) = app.first_run_recovery.as_mut() else {
+        return;
+    };
+    if recovery.stage != RecoveryStage::ChatGptOAuthPolling {
+        return;
+    }
+    let Some(oauth) = recovery.chatgpt_oauth.as_mut() else {
+        recovery.stage = RecoveryStage::ChatGptOAuthFailed;
+        return;
+    };
+    if now_or_after_deadline(app.ui_tick, oauth.expires_at_tick) {
+        oauth.status = String::from("ChatGPT OAuth device code expired.");
+        recovery.stage = RecoveryStage::ChatGptOAuthFailed;
+        recovery.selected = 0;
+        return;
+    }
+    if !now_or_after_deadline(app.ui_tick, oauth.next_poll_tick) {
+        return;
+    }
+
+    match (app.chatgpt_oauth_driver.poll_device_code_once)(&oauth.code) {
+        Ok(auth::ChatGptCodexDevicePoll::Pending) => {
+            oauth.status = String::from("Waiting for ChatGPT authorization.");
+            oauth.next_poll_tick = app.ui_tick.wrapping_add(seconds_to_ticks_for_ms(
+                tick_ms,
+                oauth.code.interval.unwrap_or(5).max(1),
+            ));
+        }
+        Ok(auth::ChatGptCodexDevicePoll::SlowDown) => {
+            oauth.status = String::from("Waiting for ChatGPT authorization.");
+            oauth.next_poll_tick = app.ui_tick.wrapping_add(seconds_to_ticks_for_ms(
+                tick_ms,
+                oauth.code.interval.unwrap_or(5).max(1).saturating_add(5),
+            ));
+        }
+        Ok(auth::ChatGptCodexDevicePoll::Authorized(credentials)) => {
+            match (app.chatgpt_oauth_driver.write_credentials)(&credentials) {
+                Ok(()) => {
+                    app.first_run_recovery = None;
+                    app.transcript.push(Entry::Status {
+                        text: String::from("chatgpt-codex credential stored in global auth store"),
+                    });
+                }
+                Err(err) => {
+                    oauth.status = format!(
+                        "ChatGPT OAuth credential write failed: {}",
+                        redact_auth_error(&err.to_string())
+                    );
+                    recovery.stage = RecoveryStage::ChatGptOAuthFailed;
+                    recovery.selected = 0;
+                }
+            }
+        }
+        Err(err) => {
+            oauth.status = format!("ChatGPT OAuth polling failed: {}", redact_auth_error(&err.to_string()));
+            recovery.stage = RecoveryStage::ChatGptOAuthFailed;
+            recovery.selected = 0;
+        }
+    }
+}
+
+fn seconds_to_ticks(app: &App, seconds: u64) -> u64 {
+    seconds_to_ticks_for_ms(app.cli.tick_rate_ms.max(1), seconds)
+}
+
+fn seconds_to_ticks_for_ms(tick_ms: u64, seconds: u64) -> u64 {
+    seconds.saturating_mul(1000).div_ceil(tick_ms).max(1)
+}
+
+fn redact_auth_error(message: &str) -> String {
+    let mut redacted = Vec::new();
+    for part in message.split_whitespace() {
+        if part.len() >= 24
+            || part.contains("access_token")
+            || part.contains("refresh_token")
+            || part.contains("device_code")
+        {
+            redacted.push("[redacted]");
+        } else {
+            redacted.push(part);
+        }
+    }
+    redacted.join(" ")
 }
 
 fn selected_scope(selected: usize) -> Option<CredentialScope> {

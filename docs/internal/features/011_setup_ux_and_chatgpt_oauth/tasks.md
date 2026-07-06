@@ -78,37 +78,37 @@ Captured: 2026-07-06
 
 ## P4: TUI Recovery Copy And Actions
 
-- [ ] Split recovery rendering copy by auth kind: API key, ChatGPT OAuth, ACP.
-- [ ] For API-key providers, keep actions:
+- [x] Split recovery rendering copy by auth kind: API key, ChatGPT OAuth, ACP.
+- [x] For API-key providers, keep actions:
       enter API key, switch model/provider, show setup instructions,
       continue without setup when allowed, quit.
-- [ ] For ChatGPT Codex, replace API-key-oriented actions with:
+- [x] For ChatGPT Codex, replace API-key-oriented actions with:
       start ChatGPT OAuth login, switch model/provider, show setup instructions,
       continue without setup when allowed, quit.
-- [ ] Update ChatGPT missing-auth status text to say OAuth credential, not API
+- [x] Update ChatGPT missing-auth status text to say OAuth credential, not API
       key.
-- [ ] Keep ACP missing setup text separate and unchanged except for polish.
-- [ ] Preserve prompt draft across every recovery action.
-- [ ] Add app update tests for ChatGPT recovery action ordering.
-- [ ] Add renderer snapshots for ChatGPT recovery at normal, narrow, and tiny
+- [x] Keep ACP missing setup text separate and unchanged except for polish.
+- [x] Preserve prompt draft across every recovery action.
+- [x] Add app update tests for ChatGPT recovery action ordering.
+- [x] Add renderer snapshots for ChatGPT recovery at normal, narrow, and tiny
       widths.
-- [ ] Add regression tests proving ChatGPT recovery cannot enter API-key input.
+- [x] Add regression tests proving ChatGPT recovery cannot enter API-key input.
 
 ## P5: TUI OAuth Implementation
 
-- [ ] Add a ChatGPT OAuth recovery stage for device-code request/polling.
-- [ ] Request a device code when the user selects "start ChatGPT OAuth login".
-- [ ] Render verification URL and user code in the focused recovery surface.
-- [ ] Poll on ticks without blocking input rendering.
-- [ ] Allow Esc to cancel polling without writing credentials.
-- [ ] Store returned credentials in `~/.thndrs/auth.json`.
-- [ ] On success, clear recovery and leave the prompt draft intact.
-- [ ] On failure, show a redacted error and keep a path back to recovery.
-- [ ] If browser PKCE fallback is needed from the TUI, decide whether to show a
+- [x] Add a ChatGPT OAuth recovery stage for device-code request/polling.
+- [x] Request a device code when the user selects "start ChatGPT OAuth login".
+- [x] Render verification URL and user code in the focused recovery surface.
+- [x] Poll on ticks without blocking input rendering.
+- [x] Allow Esc to cancel polling without writing credentials.
+- [x] Store returned credentials in `~/.thndrs/auth.json`.
+- [x] On success, clear recovery and leave the prompt draft intact.
+- [x] On failure, show a redacted error and keep a path back to recovery.
+- [x] If browser PKCE fallback is needed from the TUI, decide whether to show a
       CLI instruction or implement callback handling in-app.
-- [ ] Add app tests for request success, pending polling, poll success, poll
+- [x] Add app tests for request success, pending polling, poll success, poll
       failure, and cancellation.
-- [ ] Add tests proving no device token, access token, or refresh token reaches
+- [x] Add tests proving no device token, access token, or refresh token reaches
       transcript entries or snapshots.
 
 ## P6: Slash Commands

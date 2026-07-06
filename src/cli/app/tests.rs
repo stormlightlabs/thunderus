@@ -41,11 +41,13 @@ fn with_provider_env_removed<T>(f: impl FnOnce() -> T) -> T {
     let old_umans = std::env::var_os(auth::UMANS_API_KEY_ENV);
     let old_opencode = std::env::var_os(auth::OPENCODE_GO_KEY_ENV);
     let old_opencode_zen = std::env::var_os(auth::OPENCODE_ZEN_KEY_ENV);
+    let old_chatgpt = std::env::var_os(auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV);
 
     unsafe {
         std::env::remove_var(auth::UMANS_API_KEY_ENV);
         std::env::remove_var(auth::OPENCODE_GO_KEY_ENV);
         std::env::remove_var(auth::OPENCODE_ZEN_KEY_ENV);
+        std::env::remove_var(auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV);
     }
 
     let result = f();
@@ -65,6 +67,11 @@ fn with_provider_env_removed<T>(f: impl FnOnce() -> T) -> T {
             std::env::set_var(auth::OPENCODE_ZEN_KEY_ENV, value);
         } else {
             std::env::remove_var(auth::OPENCODE_ZEN_KEY_ENV);
+        }
+        if let Some(value) = old_chatgpt {
+            std::env::set_var(auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV, value);
+        } else {
+            std::env::remove_var(auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV);
         }
     }
 
@@ -121,6 +128,54 @@ fn test_skill(path: std::path::PathBuf, markdown: &str) -> SkillMetadata {
         metadata: None,
         references: Vec::new(),
     }
+}
+
+fn test_chatgpt_device_code() -> auth::ChatGptCodexDeviceCode {
+    auth::ChatGptCodexDeviceCode {
+        device_code: "device-token-secret-from-test".to_string(),
+        user_code: "USER-CODE".to_string(),
+        verification_uri: Some("https://auth.example.test/device".to_string()),
+        verification_uri_complete: None,
+        expires_in: Some(900),
+        interval: Some(1),
+    }
+}
+
+fn test_chatgpt_credentials() -> auth::ChatGptCodexCredentials {
+    auth::ChatGptCodexCredentials {
+        access_token: "access-token-secret-from-test".to_string(),
+        refresh_token: "refresh-token-secret-from-test".to_string(),
+        expires_at_ms: 999_999,
+        account_id: "acct_test".to_string(),
+    }
+}
+
+fn oauth_request_ok() -> Result<auth::ChatGptCodexDeviceCode, auth::AuthError> {
+    Ok(test_chatgpt_device_code())
+}
+
+fn oauth_request_fail() -> Result<auth::ChatGptCodexDeviceCode, auth::AuthError> {
+    Err(auth::AuthError::ChatGptCodex(
+        "device_code device-token-secret-from-test unavailable".to_string(),
+    ))
+}
+
+fn oauth_poll_pending(_: &auth::ChatGptCodexDeviceCode) -> Result<auth::ChatGptCodexDevicePoll, auth::AuthError> {
+    Ok(auth::ChatGptCodexDevicePoll::Pending)
+}
+
+fn oauth_poll_authorized(_: &auth::ChatGptCodexDeviceCode) -> Result<auth::ChatGptCodexDevicePoll, auth::AuthError> {
+    Ok(auth::ChatGptCodexDevicePoll::Authorized(test_chatgpt_credentials()))
+}
+
+fn oauth_poll_fail(_: &auth::ChatGptCodexDeviceCode) -> Result<auth::ChatGptCodexDevicePoll, auth::AuthError> {
+    Err(auth::AuthError::ChatGptCodex(
+        "access_token access-token-secret-from-test rejected".to_string(),
+    ))
+}
+
+fn oauth_write_ok(_: &auth::ChatGptCodexCredentials) -> Result<(), auth::AuthError> {
+    Ok(())
 }
 
 #[test]
@@ -928,8 +983,171 @@ fn slash_chatgpt_codex_login_shows_cli_instructions() {
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
     let recovery = app.first_run_recovery.as_ref().expect("login recovery");
-    assert_eq!(recovery.stage, RecoveryStage::Instructions);
+    assert_eq!(recovery.stage, RecoveryStage::MissingCredential);
     assert_eq!(recovery.provider, Some(SetupProviderArg::ChatgptCodex));
+}
+
+#[test]
+fn chatgpt_recovery_action_order_starts_oauth_before_switching_model() {
+    let mut app = fresh_app();
+    app.chatgpt_oauth_driver = ChatGptOAuthDriver {
+        request_device_code: oauth_request_ok,
+        poll_device_code_once: oauth_poll_pending,
+        write_credentials: oauth_write_ok,
+    };
+    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    let recovery = app.first_run_recovery.as_ref().expect("oauth recovery");
+    assert_eq!(recovery.stage, RecoveryStage::ChatGptOAuthPolling);
+    assert!(recovery.chatgpt_oauth.is_some());
+
+    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
+    update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(app.first_run_recovery.is_none());
+    assert_eq!(app.prompt_accessory, PromptAccessory::Models);
+}
+
+#[test]
+fn chatgpt_recovery_cannot_enter_api_key_input() {
+    let mut app = fresh_app();
+    app.chatgpt_oauth_driver = ChatGptOAuthDriver {
+        request_device_code: oauth_request_ok,
+        poll_device_code_once: oauth_poll_pending,
+        write_credentials: oauth_write_ok,
+    };
+    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
+
+    for _ in 0..5 {
+        update(&mut app, &key(KeyCode::Char('s'), KeyModifiers::NONE));
+        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+        assert_ne!(
+            app.first_run_recovery.as_ref().map(|recovery| recovery.stage),
+            Some(RecoveryStage::EnterKey)
+        );
+        if app.first_run_recovery.is_none() {
+            app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
+        }
+        update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
+    }
+}
+
+#[test]
+fn chatgpt_oauth_poll_pending_preserves_prompt_without_transcript_tokens() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from("draft prompt");
+    app.chatgpt_oauth_driver = ChatGptOAuthDriver {
+        request_device_code: oauth_request_ok,
+        poll_device_code_once: oauth_poll_pending,
+        write_credentials: oauth_write_ok,
+    };
+    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    app.first_run_recovery
+        .as_mut()
+        .and_then(|recovery| recovery.chatgpt_oauth.as_mut())
+        .expect("oauth state")
+        .next_poll_tick = app.ui_tick;
+    update(&mut app, &Msg::Tick);
+
+    assert_eq!(app.input.as_str(), "draft prompt");
+    assert_eq!(
+        app.first_run_recovery.as_ref().map(|recovery| recovery.stage),
+        Some(RecoveryStage::ChatGptOAuthPolling)
+    );
+    let transcript = format!("{:?}", app.transcript);
+    assert!(!transcript.contains("device-token-secret-from-test"));
+    assert!(!transcript.contains("access-token-secret-from-test"));
+    assert!(!transcript.contains("refresh-token-secret-from-test"));
+}
+
+#[test]
+fn chatgpt_oauth_poll_success_stores_credentials_and_preserves_prompt() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from("draft prompt");
+    app.chatgpt_oauth_driver = ChatGptOAuthDriver {
+        request_device_code: oauth_request_ok,
+        poll_device_code_once: oauth_poll_authorized,
+        write_credentials: oauth_write_ok,
+    };
+    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    app.first_run_recovery
+        .as_mut()
+        .and_then(|recovery| recovery.chatgpt_oauth.as_mut())
+        .expect("oauth state")
+        .next_poll_tick = app.ui_tick;
+    update(&mut app, &Msg::Tick);
+
+    assert!(app.first_run_recovery.is_none());
+    assert_eq!(app.input.as_str(), "draft prompt");
+    let transcript = format!("{:?}", app.transcript);
+    assert!(transcript.contains("credential stored"));
+    assert!(!transcript.contains("access-token-secret-from-test"));
+    assert!(!transcript.contains("refresh-token-secret-from-test"));
+}
+
+#[test]
+fn chatgpt_oauth_failures_are_redacted_and_keep_recovery_path() {
+    let mut app = fresh_app();
+    app.chatgpt_oauth_driver = ChatGptOAuthDriver {
+        request_device_code: oauth_request_fail,
+        poll_device_code_once: oauth_poll_pending,
+        write_credentials: oauth_write_ok,
+    };
+    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(
+        app.first_run_recovery.as_ref().map(|recovery| recovery.stage),
+        Some(RecoveryStage::ChatGptOAuthFailed)
+    );
+    let transcript = format!("{:?}", app.transcript);
+    assert!(transcript.contains("[redacted]"));
+    assert!(!transcript.contains("device-token-secret-from-test"));
+
+    app.chatgpt_oauth_driver = ChatGptOAuthDriver {
+        request_device_code: oauth_request_ok,
+        poll_device_code_once: oauth_poll_fail,
+        write_credentials: oauth_write_ok,
+    };
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    app.first_run_recovery
+        .as_mut()
+        .and_then(|recovery| recovery.chatgpt_oauth.as_mut())
+        .expect("oauth state")
+        .next_poll_tick = app.ui_tick;
+    update(&mut app, &Msg::Tick);
+    let recovery = app.first_run_recovery.as_ref().expect("failed recovery");
+    assert_eq!(recovery.stage, RecoveryStage::ChatGptOAuthFailed);
+    let recovery_debug = format!("{recovery:?}");
+    assert!(!recovery_debug.contains("access-token-secret-from-test"));
+}
+
+#[test]
+fn chatgpt_oauth_escape_cancels_without_writing_credentials() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from("draft prompt");
+    app.chatgpt_oauth_driver = ChatGptOAuthDriver {
+        request_device_code: oauth_request_ok,
+        poll_device_code_once: oauth_poll_authorized,
+        write_credentials: oauth_write_ok,
+    };
+    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::ChatgptCodex, true));
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    update(&mut app, &key(KeyCode::Esc, KeyModifiers::NONE));
+    update(&mut app, &Msg::Tick);
+
+    let recovery = app.first_run_recovery.as_ref().expect("recovery remains");
+    assert_eq!(recovery.stage, RecoveryStage::MissingCredential);
+    assert!(recovery.chatgpt_oauth.is_none());
+    assert_eq!(app.input.as_str(), "draft prompt");
+    assert!(app.transcript.is_empty());
 }
 
 #[test]

@@ -165,16 +165,7 @@ fn first_run_recovery_rows(app: &App, width: usize, max_height: usize) -> Vec<Ro
     let selected_style = CellStyle::new().fg(p.text).bg(bg).bold();
 
     let provider = recovery.provider.map(|provider| provider.label()).unwrap_or("acp");
-    let missing = recovery
-        .provider
-        .and_then(|provider| provider.api_key_env_var())
-        .unwrap_or_else(|| {
-            if recovery.provider == Some(crate::cli::commands::setup::SetupProviderArg::ChatgptCodex) {
-                "ChatGPT OAuth credential"
-            } else {
-                "ACP agent config"
-            }
-        });
+    let missing = recovery_missing_label(recovery);
 
     let mut rows = Vec::new();
     rows.push(Row::padded(
@@ -192,14 +183,15 @@ fn first_run_recovery_rows(app: &App, width: usize, max_height: usize) -> Vec<Ro
 
     match recovery.stage {
         RecoveryStage::MissingCredential => {
-            rows.push(recovery_body_row(
-                width,
-                bg,
-                text_style,
-                "Missing credential. Choose an action before submitting this prompt.",
-            ));
+            let body = if recovery.provider == Some(crate::cli::commands::setup::SetupProviderArg::ChatgptCodex) {
+                "Missing ChatGPT OAuth credential. Choose an action before submitting this prompt."
+            } else {
+                "Missing credential. Choose an action before submitting this prompt."
+            };
+            rows.push(recovery_body_row(width, bg, text_style, body));
             let actions = if recovery.provider == Some(crate::cli::commands::setup::SetupProviderArg::ChatgptCodex) {
                 &[
+                    "start ChatGPT OAuth login",
                     "switch model/provider",
                     "show setup instructions",
                     "continue without setup",
@@ -249,18 +241,85 @@ fn first_run_recovery_rows(app: &App, width: usize, max_height: usize) -> Vec<Ro
             );
         }
         RecoveryStage::Instructions => {
-            rows.push(recovery_body_row(
-                width,
-                bg,
-                text_style,
-                "Run `thndrs setup` or `thndrs login <provider>` outside the TUI.",
-            ));
+            let text = if recovery.provider == Some(crate::cli::commands::setup::SetupProviderArg::ChatgptCodex) {
+                "Run `thndrs setup --provider chatgpt-codex` or `thndrs login chatgpt-codex` outside the TUI."
+            } else {
+                "Run `thndrs setup` or `thndrs login <provider>` outside the TUI."
+            };
+            rows.push(recovery_body_row(width, bg, text_style, text));
             push_recovery_actions(
                 &mut rows,
                 width,
                 max_height,
                 recovery.selected,
                 &["back", "close"],
+                selected_style,
+                muted_style,
+                text_style,
+                bg,
+            );
+        }
+        RecoveryStage::ChatGptOAuthRequesting => {
+            rows.push(recovery_body_row(
+                width,
+                bg,
+                text_style,
+                "Requesting a ChatGPT OAuth device code.",
+            ));
+            push_recovery_actions(
+                &mut rows,
+                width,
+                max_height,
+                recovery.selected,
+                &["cancel"],
+                selected_style,
+                muted_style,
+                text_style,
+                bg,
+            );
+        }
+        RecoveryStage::ChatGptOAuthPolling => {
+            if let Some(oauth) = recovery.chatgpt_oauth.as_ref() {
+                let verification_uri = oauth
+                    .code
+                    .verification_uri
+                    .as_deref()
+                    .unwrap_or("https://auth.openai.com/codex/device");
+                rows.push(recovery_body_row(
+                    width,
+                    bg,
+                    text_style,
+                    &format!("Open {verification_uri} and enter code {}", oauth.code.user_code),
+                ));
+                rows.push(recovery_body_row(width, bg, muted_style, &oauth.status));
+            } else {
+                rows.push(recovery_body_row(width, bg, text_style, "Waiting for ChatGPT OAuth."));
+            }
+            push_recovery_actions(
+                &mut rows,
+                width,
+                max_height,
+                recovery.selected,
+                &["cancel"],
+                selected_style,
+                muted_style,
+                text_style,
+                bg,
+            );
+        }
+        RecoveryStage::ChatGptOAuthFailed => {
+            let text = recovery
+                .chatgpt_oauth
+                .as_ref()
+                .map(|oauth| oauth.status.as_str())
+                .unwrap_or("ChatGPT OAuth failed. Run `thndrs login chatgpt-codex` for browser fallback.");
+            rows.push(recovery_body_row(width, bg, text_style, text));
+            push_recovery_actions(
+                &mut rows,
+                width,
+                max_height,
+                recovery.selected,
+                &["retry ChatGPT OAuth login", "back"],
                 selected_style,
                 muted_style,
                 text_style,
@@ -314,6 +373,14 @@ fn first_run_recovery_rows(app: &App, width: usize, max_height: usize) -> Vec<Ro
 
     rows.truncate(max_height);
     rows
+}
+
+fn recovery_missing_label(recovery: &crate::app::FirstRunRecovery) -> &'static str {
+    match recovery.provider {
+        Some(crate::cli::commands::setup::SetupProviderArg::ChatgptCodex) => "ChatGPT OAuth credential",
+        Some(provider) => provider.api_key_env_var().unwrap_or("credential"),
+        None => "ACP agent config",
+    }
 }
 
 fn recovery_body_row(width: usize, bg: Color, style: CellStyle, text: &str) -> Row {
@@ -1320,6 +1387,7 @@ mod tests {
             pending_provider_prompt: true,
             selected: 0,
             secret_input: String::new(),
+            chatgpt_oauth: None,
         });
         let rows = accessory_rows(&app, 80, 8);
         let frame = Frame { rows, width: 80, cursor: None, cursor_visible: true };
@@ -1336,6 +1404,7 @@ mod tests {
             pending_provider_prompt: true,
             selected: 0,
             secret_input: String::new(),
+            chatgpt_oauth: None,
         });
         let rows = accessory_rows(&app, 40, 8);
         let frame = Frame { rows, width: 40, cursor: None, cursor_visible: true };
@@ -1352,12 +1421,78 @@ mod tests {
             pending_provider_prompt: true,
             selected: 1,
             secret_input: "sk-hidden".to_string(),
+            chatgpt_oauth: None,
         });
         let rows = accessory_rows(&app, 24, 3);
         let frame = Frame { rows, width: 24, cursor: None, cursor_visible: true };
         let rendered = frame.render_styled();
         assert!(!rendered.contains("sk-hidden"));
         insta::assert_snapshot!("first_run_recovery_tiny", rendered);
+    }
+
+    #[test]
+    fn snapshot_chatgpt_recovery_normal() {
+        let mut app = test_app();
+        app.model = "chatgpt-codex/gpt-5.5".to_string();
+        app.first_run_recovery = Some(FirstRunRecovery {
+            provider: Some(SetupProviderArg::ChatgptCodex),
+            stage: RecoveryStage::MissingCredential,
+            pending_provider_prompt: true,
+            selected: 0,
+            secret_input: String::new(),
+            chatgpt_oauth: None,
+        });
+        let rows = accessory_rows(&app, 80, 8);
+        let frame = Frame { rows, width: 80, cursor: None, cursor_visible: true };
+        insta::assert_snapshot!("chatgpt_recovery_normal", frame.render_styled());
+    }
+
+    #[test]
+    fn snapshot_chatgpt_recovery_narrow() {
+        let mut app = test_app();
+        app.model = "chatgpt-codex/gpt-5.5".to_string();
+        app.first_run_recovery = Some(FirstRunRecovery {
+            provider: Some(SetupProviderArg::ChatgptCodex),
+            stage: RecoveryStage::MissingCredential,
+            pending_provider_prompt: true,
+            selected: 0,
+            secret_input: String::new(),
+            chatgpt_oauth: None,
+        });
+        let rows = accessory_rows(&app, 40, 8);
+        let frame = Frame { rows, width: 40, cursor: None, cursor_visible: true };
+        insta::assert_snapshot!("chatgpt_recovery_narrow", frame.render_styled());
+    }
+
+    #[test]
+    fn snapshot_chatgpt_recovery_tiny() {
+        let mut app = test_app();
+        app.model = "chatgpt-codex/gpt-5.5".to_string();
+        app.first_run_recovery = Some(FirstRunRecovery {
+            provider: Some(SetupProviderArg::ChatgptCodex),
+            stage: RecoveryStage::ChatGptOAuthPolling,
+            pending_provider_prompt: true,
+            selected: 0,
+            secret_input: String::new(),
+            chatgpt_oauth: Some(crate::app::ChatGptOAuthRecovery {
+                code: crate::thndrs_core::auth::ChatGptCodexDeviceCode {
+                    device_code: "device-token-secret-from-renderer-test".to_string(),
+                    user_code: "ABCD-EFGH".to_string(),
+                    verification_uri: Some("https://auth.example.test/device".to_string()),
+                    verification_uri_complete: None,
+                    expires_in: Some(900),
+                    interval: Some(5),
+                },
+                next_poll_tick: 10,
+                expires_at_tick: 9000,
+                status: "Waiting for ChatGPT authorization.".to_string(),
+            }),
+        });
+        let rows = accessory_rows(&app, 24, 3);
+        let frame = Frame { rows, width: 24, cursor: None, cursor_visible: true };
+        let rendered = frame.render_styled();
+        assert!(!rendered.contains("device-token-secret-from-renderer-test"));
+        insta::assert_snapshot!("chatgpt_recovery_tiny", rendered);
     }
 
     fn snapshot_prompt_at_widths(name: &str, text: &str) {
