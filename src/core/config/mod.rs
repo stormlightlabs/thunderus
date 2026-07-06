@@ -217,6 +217,86 @@ pub fn project_config_path(workspace: &Path) -> PathBuf {
     workspace.join(".thndrs").join("config.toml")
 }
 
+/// Write the selected model into a TOML config file.
+///
+/// Preserves existing config content and only replaces or inserts the top-level
+/// `model` key. Nested table keys named `model` are left untouched.
+pub fn write_model_config(path: &Path, model: &str) -> std::io::Result<()> {
+    let existing = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(err) => return Err(err),
+    };
+    let next = upsert_top_level_toml_string(&existing, "model", model);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(path, next)
+}
+
+/// Write the selected model into the project config and return the path used.
+pub fn write_project_model(workspace: &Path, model: &str) -> std::io::Result<PathBuf> {
+    let path = project_config_path(workspace);
+    write_model_config(&path, model)?;
+    Ok(path)
+}
+
+fn upsert_top_level_toml_string(content: &str, key: &str, value: &str) -> String {
+    let assignment = format!("{key} = {}\n", toml_basic_string(value));
+    let mut output = String::new();
+    let mut wrote = false;
+
+    for line in content.lines() {
+        let trimmed = line.trim_start();
+        if !wrote && is_toml_key_assignment(trimmed, key) {
+            output.push_str(&assignment);
+            wrote = true;
+            continue;
+        }
+        if !wrote && trimmed.starts_with('[') {
+            output.push_str(&assignment);
+            wrote = true;
+        }
+        output.push_str(line);
+        output.push('\n');
+    }
+
+    if !wrote {
+        if !output.is_empty() && !output.ends_with('\n') {
+            output.push('\n');
+        }
+        output.push_str(&assignment);
+    }
+
+    output
+}
+
+fn is_toml_key_assignment(line: &str, key: &str) -> bool {
+    let Some(rest) = line.strip_prefix(key) else {
+        return false;
+    };
+    rest.trim_start().starts_with('=')
+}
+
+fn toml_basic_string(value: &str) -> String {
+    let mut out = String::from("\"");
+    for ch in value.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{08}' => out.push_str("\\b"),
+            '\u{0C}' => out.push_str("\\f"),
+            ch if ch.is_control() => out.push_str(&format!("\\u{:04X}", ch as u32)),
+            ch => out.push(ch),
+        }
+    }
+    out.push('"');
+    out
+}
+
 /// Keys that look like secrets and must not appear in TOML config.
 fn is_secret_shaped_key(key: &str) -> bool {
     let lower = key.to_lowercase();

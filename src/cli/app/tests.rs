@@ -817,6 +817,33 @@ fn offline_model_picker_includes_provider_expansion_models() {
 }
 
 #[test]
+fn accepting_model_picker_selection_saves_project_config() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
+    let mut app = App::from_cli(&cli);
+    app.session_writer = None;
+    app.picker = Some(PickerState::new(
+        vec![PickerItem::new("chatgpt-codex/gpt-5.5", "ChatGPT-backed Codex")],
+        MODEL_PICKER_LIMIT,
+    ));
+    app.prompt_accessory = PromptAccessory::Models;
+
+    accept_model_suggestion(&mut app);
+
+    assert_eq!(app.model, "chatgpt-codex/gpt-5.5");
+    assert_eq!(app.cli.model, "chatgpt-codex/gpt-5.5");
+    assert_eq!(app.prompt_accessory, PromptAccessory::None);
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join(".thndrs").join("config.toml")).expect("read project config"),
+        "model = \"chatgpt-codex/gpt-5.5\"\n"
+    );
+    assert_eq!(
+        app.transcript.last(),
+        Some(&Entry::Status { text: "model: chatgpt-codex/gpt-5.5 (saved to .thndrs/config.toml)".to_string() })
+    );
+}
+
+#[test]
 fn msg_clear_clears_transcript() {
     let mut app = fresh_app();
     app.transcript.push(Entry::User { text: String::from("a") });

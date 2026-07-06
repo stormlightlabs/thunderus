@@ -220,6 +220,83 @@ fn allows_normal_keys_without_secret_check() {
 }
 
 #[test]
+fn write_project_model_creates_project_config() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+
+    let path = write_project_model(tmp.path(), "chatgpt-codex/gpt-5.5").expect("write project model");
+
+    assert_eq!(path, tmp.path().join(".thndrs").join("config.toml"));
+    assert_eq!(
+        fs::read_to_string(path).expect("read project config"),
+        "model = \"chatgpt-codex/gpt-5.5\"\n"
+    );
+}
+
+#[test]
+fn write_model_config_replaces_top_level_model_only() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let path = tmp.path().join("config.toml");
+    fs::write(
+        &path,
+        r#"model = "opencode/big-pickle"
+
+[acp_agents.local]
+command = "agent"
+model = "nested-model"
+"#,
+    )
+    .expect("seed config");
+
+    write_model_config(&path, "chatgpt-codex/gpt-5.5").expect("write model config");
+
+    assert_eq!(
+        fs::read_to_string(path).expect("read config"),
+        r#"model = "chatgpt-codex/gpt-5.5"
+
+[acp_agents.local]
+command = "agent"
+model = "nested-model"
+"#
+    );
+}
+
+#[test]
+fn write_model_config_inserts_before_first_table() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let path = tmp.path().join("config.toml");
+    fs::write(
+        &path,
+        r#"# Project config
+
+[acp_agents.local]
+command = "agent"
+"#,
+    )
+    .expect("seed config");
+
+    write_model_config(&path, "chatgpt-codex/gpt-5.5").expect("write model config");
+
+    assert_eq!(
+        fs::read_to_string(path).expect("read config"),
+        r#"# Project config
+
+model = "chatgpt-codex/gpt-5.5"
+[acp_agents.local]
+command = "agent"
+"#
+    );
+}
+
+#[test]
+fn write_model_config_reports_existing_read_errors() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+
+    let err = write_model_config(tmp.path(), "chatgpt-codex/gpt-5.5").expect_err("directory read should fail");
+
+    assert_ne!(err.kind(), std::io::ErrorKind::NotFound);
+}
+
+#[test]
 fn env_loads_model() {
     let mut origins = BTreeMap::new();
     let mut diagnostics = Vec::new();

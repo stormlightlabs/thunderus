@@ -24,7 +24,7 @@ use crate::providers::{codex, opencode, umans};
 use crate::renderer::git::GitStatusSummary;
 use crate::thndrs_core::auth;
 use crate::tools::shell::ProcessRegistry;
-use crate::{context, fuzzy, internals, prompt, session, skills, tools};
+use crate::{config, context, fuzzy, internals, prompt, session, skills, tools};
 use crate::{mcp, renderer};
 
 /// Number of UI ticks the user has to press Ctrl+D a second time before the
@@ -2228,7 +2228,18 @@ fn accept_model_suggestion(app: &mut App) {
 
     app.model = model.clone();
     app.cli.model = model.clone();
-    app.transcript.push(Entry::Status { text: format!("model: {model}") });
+    match config::write_project_model(&app.cwd, &model) {
+        Ok(path) => {
+            let display = config::project_config_path_display(&path, &app.cwd);
+            app.transcript
+                .push(Entry::Status { text: format!("model: {model} (saved to {display})") });
+        }
+        Err(err) => {
+            app.transcript.push(Entry::Status { text: format!("model: {model}") });
+            app.transcript
+                .push(Entry::Error { text: format!("failed to save selected model to project config: {err}") });
+        }
+    }
     close_prompt_accessory(app);
 }
 
