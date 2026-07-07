@@ -160,7 +160,7 @@ impl LiveRegion {
     /// it is kept as long as the prompt is visible.
     ///
     /// Vertical order (top to bottom):
-    ///   live_tail → blank → dynamic_status → queued → accessory → prompt → footer
+    ///   live_tail → spacer → dynamic_status → queued → accessory → prompt → footer
     fn build_live_frame(&self, view: &RendererView) -> Frame {
         let width = view.width;
         let height = view.height;
@@ -169,7 +169,7 @@ impl LiveRegion {
         let surface_bg = bg_style(p.surface0);
 
         let min_prompt_chrome = live.prompt_rows.len() + 2;
-        let keep_prompt_gutters = height >= min_prompt_chrome + 2;
+        let keep_prompt_gutters = height >= min_prompt_chrome + 3;
 
         let mut footer = vec![live.static_status.clone()];
         if keep_prompt_gutters {
@@ -179,6 +179,7 @@ impl LiveRegion {
 
         let mut status_chrome = Vec::new();
         if keep_prompt_gutters {
+            status_chrome.push(Row::blank(width, bg_style(p.surface_dim)));
             status_chrome.push(Row::blank(width, surface_bg));
         }
         status_chrome.push(live.dynamic_status.clone());
@@ -312,7 +313,6 @@ impl LiveRegion {
     }
 }
 
-/// Clip the mutable transcript tail to a reasonable share of the viewport.
 /// Build a [`CellStyle`] with only a background color.
 fn bg_style(color: Color) -> CellStyle {
     CellStyle::new().bg(color)
@@ -381,29 +381,21 @@ fn startup_row_priority(rows: &[Row], index: usize) -> usize {
     if key.contains("THNDRS") || key.contains("thndrs") {
         return 0;
     }
-    if key.starts_with("cwd ") {
+    if key.starts_with("model ") || key.starts_with("cwd ") || key.starts_with("search ") {
         return 1;
     }
-    if startup_row_is_in_rail_section(rows, index, "workbench")
-        && (key.starts_with("project")
-            || key.starts_with("context")
-            || key.starts_with("attention")
-            || key.starts_with("skill diagnostic")
-            || key.contains("AGENTS.md")
-            || key.contains("SKILL.md")
-            || key.contains("invalid YAML")
-            || key.contains("frontmatter"))
+    if key == "CONTEXT"
+        || key.starts_with("skill diagnostic")
+        || key.contains("AGENTS.md")
+        || key.contains("SKILL.md")
+        || key.contains("invalid YAML")
     {
         return 2;
     }
-    if startup_row_is_in_rail_section(rows, index, "ready")
-        || key.starts_with('>')
-        || key.starts_with('?')
-        || key.starts_with("/model")
-    {
+    if key.starts_with("Ask for") || key.starts_with("? help") {
         return 3;
     }
-    if startup_row_is_rail_marker(trimmed) {
+    if key == "SKILLS" || key == "SEARCH" || key == "ATTENTION" || key.chars().all(|ch| ch == '─') {
         return 4;
     }
     if trimmed.is_empty() {
@@ -414,27 +406,6 @@ fn startup_row_priority(rows: &[Row], index: usize) -> usize {
 
 fn startup_row_key(trimmed: &str) -> &str {
     trimmed.strip_prefix('|').map(str::trim).unwrap_or(trimmed)
-}
-
-fn startup_row_is_in_rail_section(rows: &[Row], index: usize, section: &str) -> bool {
-    for row in rows[..=index].iter().rev() {
-        let text = row.text_for_policy();
-        let trimmed = text.trim();
-        let key = startup_row_key(trimmed);
-        if key.is_empty() {
-            return false;
-        }
-        if let Some(marker) = trimmed.strip_prefix('+') {
-            return marker.trim() == section;
-        }
-    }
-    false
-}
-
-fn startup_row_is_rail_marker(trimmed: &str) -> bool {
-    trimmed
-        .strip_prefix('+')
-        .is_some_and(|marker| matches!(marker.trim(), "workbench" | "search" | "ready"))
 }
 
 fn hidden_startup_row(width: usize, hidden: usize) -> Row {

@@ -1,13 +1,12 @@
 ---
 source: src/cli/renderer/transcript/tests.rs
-assertion_line: 28
 expression: contents
 ---
 │                                           # [bg=#171928]=                                        
-│   ✕ run_shell [failed]                    # [bg=#171928]=   [fg=#f16c75 bg=#171928]=✕  [fg=#ebfafa bg=#171928 b]=run_shell [fg=#f16c75 bg=#171928]= [failed] [bg=#171928]=                 [bg=#171928]=  
-│     program: cargo build                  # [bg=#171928]=   [bg=#171928]=   [fg=#abb4da bg=#171928]=program: cargo build [bg=#171928]=               [bg=#171928]=  
-│      │ error[E0308]: mismatched types     # [bg=#171928]=   [fg=#3b4261 bg=#171928]=   │  [fg=#8fa1b3 bg=#171928]=error[E0308]: [fg=#c0c5ce bg=#171928]= mismatched types [bg=#171928]=  [bg=#171928]=  
-│      │   --> src/main.rs:5:14             # [bg=#171928]=   [fg=#3b4261 bg=#171928]=   │  [fg=#c0c5ce bg=#171928]=   [fg=#8fa1b3 bg=#171928]=-- [fg=#c0c5ce bg=#171928]=> [fg=#c0c5ce bg=#171928]= src/main.rs:5:14 [bg=#171928]=          [bg=#171928]=  
-│      │    |                               # [bg=#171928]=   [fg=#3b4261 bg=#171928]=   │  [fg=#c0c5ce bg=#171928]=    [fg=#c0c5ce bg=#171928]=| [bg=#171928]=                            [bg=#171928]=  
-│      │ 5 |     let x: i32 = "hello";      # [bg=#171928]=   [fg=#3b4261 bg=#171928]=   │  [fg=#8fa1b3 bg=#171928]=5 [fg=#c0c5ce bg=#171928]=  [fg=#c0c5ce bg=#171928]=| [fg=#c0c5ce bg=#171928]=      [fg=#96b5b4 bg=#171928]=let [fg=#c0c5ce bg=#171928]= x [fg=#c0c5ce bg=#171928]=: [fg=#c0c5ce bg=#171928]= i32  [fg=#c0c5ce bg=#171928]== [fg=#c0c5ce bg=#171928]=  [fg=#c0c5ce bg=#171928]=" [fg=#a3be8c bg=#171928]=hello [fg=#c0c5ce bg=#171928]=" [fg=#c0c5ce bg=#171928]=; [bg=#171928]=   [bg=#171928]=  
-│      │    |               ^^^^^^^^        # [bg=#171928]=   [fg=#3b4261 bg=#171928]=   │  [fg=#c0c5ce bg=#171928]=    [fg=#c0c5ce bg=#171928]=| [fg=#c0c5ce bg=#171928]=                [fg=#8fa1b3 bg=#171928]=^^^^^^^^ [bg=#171928]=     [bg=#171928]=
+│   │ ✕ run_shell [failed]                  # [bg=#171928]=   [fg=#f16c75 bg=#171928]=│  [fg=#f16c75 bg=#171928]=✕  [fg=#ebfafa bg=#171928 b]=run_shell [fg=#f16c75 bg=#171928]= [failed] [bg=#171928]=               [bg=#171928]=  
+│   │   program: cargo build                # [bg=#171928]=   [fg=#f16c75 bg=#171928]=│  [bg=#171928]=   [fg=#abb4da bg=#171928]=program: cargo build [bg=#171928]=             [bg=#171928]=  
+│   │    │ error[E0308]: mismatched typ…    # [bg=#171928]=   [fg=#f16c75 bg=#171928]=│  [fg=#3b4261 bg=#171928]=   │  [fg=#8fa1b3 bg=#171928]=error[E0308]: [fg=#c0c5ce bg=#171928]= mismatched typ [fg=#abb4da bg=#171928]=… [bg=#171928]=  
+│   │    │   --> src/main.rs:5:14           # [bg=#171928]=   [fg=#f16c75 bg=#171928]=│  [fg=#3b4261 bg=#171928]=   │  [fg=#c0c5ce bg=#171928]=   [fg=#8fa1b3 bg=#171928]=-- [fg=#c0c5ce bg=#171928]=> [fg=#c0c5ce bg=#171928]= src/main.rs:5:14 [bg=#171928]=        [bg=#171928]=  
+│   │    │    |                             # [bg=#171928]=   [fg=#f16c75 bg=#171928]=│  [fg=#3b4261 bg=#171928]=   │  [fg=#c0c5ce bg=#171928]=    [fg=#c0c5ce bg=#171928]=| [bg=#171928]=                          [bg=#171928]=  
+│   │    │ 5 |     let x: i32 = "hello";    # [bg=#171928]=   [fg=#f16c75 bg=#171928]=│  [fg=#3b4261 bg=#171928]=   │  [fg=#8fa1b3 bg=#171928]=5 [fg=#c0c5ce bg=#171928]=  [fg=#c0c5ce bg=#171928]=| [fg=#c0c5ce bg=#171928]=      [fg=#96b5b4 bg=#171928]=let [fg=#c0c5ce bg=#171928]= x [fg=#c0c5ce bg=#171928]=: [fg=#c0c5ce bg=#171928]= i32  [fg=#c0c5ce bg=#171928]== [fg=#c0c5ce bg=#171928]=  [fg=#c0c5ce bg=#171928]=" [fg=#a3be8c bg=#171928]=hello [fg=#c0c5ce bg=#171928]=" [fg=#c0c5ce bg=#171928]=; [bg=#171928]=  
+│   │    │    |               ^^^^^^^^      # [bg=#171928]=   [fg=#f16c75 bg=#171928]=│  [fg=#3b4261 bg=#171928]=   │  [fg=#c0c5ce bg=#171928]=    [fg=#c0c5ce bg=#171928]=| [fg=#c0c5ce bg=#171928]=                [fg=#8fa1b3 bg=#171928]=^^^^^^^^ [bg=#171928]=   [bg=#171928]=

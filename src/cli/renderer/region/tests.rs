@@ -116,7 +116,7 @@ fn build_frame_short_startup_prioritizes_identity_context_and_help() {
 
     assert_eq!(frame.len(), 16);
     assert!(
-        combined.contains("THNDRS"),
+        combined.contains("thndrs"),
         "startup identity should survive short-height clipping:\n{combined}"
     );
     assert!(
@@ -124,7 +124,7 @@ fn build_frame_short_startup_prioritizes_identity_context_and_help() {
         "context state should survive short-height clipping:\n{combined}"
     );
     assert!(
-        combined.contains("invalid YAML") && combined.contains("frontmatter"),
+        combined.contains("invalid YAML"),
         "critical diagnostics should survive short-height clipping:\n{combined}"
     );
     assert!(
@@ -145,7 +145,7 @@ fn build_frame_very_short_startup_marks_hidden_banner_rows() {
 
     assert_eq!(frame.len(), 8);
     assert!(
-        combined.contains("THNDRS"),
+        combined.contains("thndrs"),
         "startup identity should be prioritized over bottom banner rows:\n{combined}"
     );
     assert!(
@@ -185,10 +185,16 @@ fn build_frame_keeps_live_rows_at_bottom() {
     assert!(frame.rows[frame.len() - 3].text().contains("hello"));
     assert!(frame.rows[frame.len() - 4].text().contains("test-session"));
     assert!(frame.rows[frame.len() - 5].text().trim().is_empty());
+    assert!(frame.rows[frame.len() - 6].text().trim().is_empty());
     assert_eq!(
         frame.rows[frame.len() - 5].spans[0].style.bg,
         renderer::style::palette().surface0,
-        "spacer above live status should be part of the input surface"
+        "spacer above live status should be input surface padding"
+    );
+    assert_eq!(
+        frame.rows[frame.len() - 6].spans[0].style.bg,
+        renderer::style::palette().surface_dim,
+        "spacer above input surface should keep transcript background"
     );
 }
 
@@ -210,7 +216,7 @@ fn build_frame_keeps_live_rows_at_bottom_with_status_notice() {
     assert!(frame.rows[frame.len() - 5].text().trim().is_empty());
     assert_eq!(
         frame.cursor,
-        Some(renderer::row::CursorCoord::new(frame.len() - 3, 6)),
+        Some(renderer::row::CursorCoord::new(frame.len() - 3, 7)),
         "cursor should be on the bottom-pinned prompt row"
     );
 }
@@ -240,30 +246,43 @@ fn build_frame_keeps_prompt_gutters_as_pair_when_height_allows_them() {
     let frame = LiveRegion::new().build_frame(&app, 80, 5);
 
     assert_eq!(frame.len(), 5);
-    assert!(frame.rows[0].text().trim().is_empty());
-    assert!(frame.rows[4].text().trim().is_empty());
+    assert!(
+        frame.rows[frame.len() - 3..]
+            .iter()
+            .all(|row| !row.text().trim().is_empty()),
+        "height 5 should drop optional prompt gutters as a pair:\n{}",
+        frame.render_text()
+    );
     assert!(frame.render_text().contains("hello"));
 }
 
 #[test]
-fn build_frame_uses_matching_surface_gutters_around_prompt_chrome() {
+fn build_frame_uses_dim_spacer_then_input_surface_padding_around_prompt_chrome() {
     let mut app = test_app();
     app.input.set_text("hello");
 
     let frame = LiveRegion::new().build_frame(&app, 80, 12);
+    let dim_spacer = &frame.rows[frame.len() - 6];
     let top_gutter = &frame.rows[frame.len() - 5];
     let bottom_gutter = &frame.rows[frame.len() - 1];
 
+    assert!(dim_spacer.text().trim().is_empty());
     assert!(top_gutter.text().trim().is_empty());
     assert!(bottom_gutter.text().trim().is_empty());
     assert_eq!(
-        top_gutter.spans[0].style.bg, bottom_gutter.spans[0].style.bg,
-        "blank row above session should match the blank row below the footer"
+        dim_spacer.spans[0].style.bg,
+        renderer::style::palette().surface_dim,
+        "spacer above prompt surface should use transcript background"
     );
     assert_eq!(
         top_gutter.spans[0].style.bg,
         renderer::style::palette().surface0,
-        "prompt gutters should be painted as input surface padding"
+        "spacer above session should match input surface padding"
+    );
+    assert_eq!(
+        bottom_gutter.spans[0].style.bg,
+        renderer::style::palette().surface0,
+        "footer gutter should remain input surface padding"
     );
 }
 
@@ -700,8 +719,8 @@ fn vt100_resize_replays_startup_banner_with_committed_scrollback() {
 
     let contents = vt100_contents(backend.writer(), 80, 23);
     assert!(
-        contents.contains("+ search"),
-        "startup banner rail markers should be replayed with committed scrollback after resize:\n{contents}"
+        contents.contains("SEARCH"),
+        "startup banner sections should be replayed with committed scrollback after resize:\n{contents}"
     );
     assert!(
         contents.contains("trigger scrollback replay"),

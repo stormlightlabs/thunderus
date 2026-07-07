@@ -16,7 +16,7 @@ pub const MAX_PROMPT_ROWS: usize = 8;
 /// Maximum accessory rows (help/commands/files) shown in the live region.
 pub const MAX_ACCESSORY_ROWS: usize = 8;
 
-const LIVE_INSET: usize = 1;
+const LIVE_INSET: usize = 2;
 
 /// Build the dynamic status row: session id + status icon + queue info.
 ///
@@ -658,7 +658,7 @@ pub fn static_status_row(app: &App, width: usize) -> Row {
         w if w < 56 => (true, true, false, false, false, false, false),
         w if w < 72 => (true, true, true, false, false, false, false),
         w if w < 88 => (true, true, true, false, true, false, false),
-        w if w < 96 => (true, true, true, true, true, false, false),
+        w if w < 97 => (true, true, true, true, true, false, false),
         w if w < 160 => (true, true, true, true, true, true, false),
         _ => (true, true, true, true, true, true, true),
     };
@@ -1129,7 +1129,7 @@ mod tests {
     #[test]
     fn prompt_rows_wrap_at_visible_content_width() {
         let mut app = test_app();
-        app.input.set_text(&"x".repeat(12));
+        app.input.set_text(&"x".repeat(11));
         let (rows, cursor) = prompt_rows_for(&app, 20);
 
         assert_eq!(rows.len(), 1);
@@ -1139,7 +1139,7 @@ mod tests {
         let (rows, cursor) = prompt_rows_for(&app, 20);
 
         assert_eq!(rows.len(), 2);
-        assert_eq!(cursor, Some(CursorCoord::new(1, 7)));
+        assert_eq!(cursor, Some(CursorCoord::new(1, 8)));
     }
 
     #[test]
@@ -1192,7 +1192,8 @@ mod tests {
             (87, true, true, true, false, true, false, false),
             (88, true, true, true, false, true, false, false),
             (95, true, true, true, false, true, false, false),
-            (96, true, true, true, false, true, true, false),
+            (96, true, true, true, false, true, false, false),
+            (97, true, true, true, false, true, true, false),
             (159, true, true, true, false, true, true, false),
             (160, true, true, true, false, true, true, true),
         ];

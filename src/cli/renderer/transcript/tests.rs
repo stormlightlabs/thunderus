@@ -469,7 +469,7 @@ fn banner_cwd_uses_statusline_truncation_without_wrapping() {
     let rendered = render_banner_styled(&app, 40);
 
     assert!(
-        rendered.contains("cwd ~/Pr/St/O/thndrs"),
+        rendered.contains("~/Pr/St/O/thndrs"),
         "cwd row should use statusline-style path truncation:\n{rendered}"
     );
     assert!(
@@ -522,8 +522,8 @@ fn banner_no_duplicate_context_loaded_status_entry() {
 
     let rendered = render_banner_styled(&app, 80);
     assert!(
-        rendered.contains("project"),
-        "banner should have a project workbench section:\n{rendered}"
+        rendered.contains("CONTEXT"),
+        "banner should have a context section:\n{rendered}"
     );
     assert!(
         rendered.contains("AGENTS.md"),
@@ -553,7 +553,7 @@ fn startup_loaded_skills_wrap_at_hyphens_and_hide_extra_rows() {
     .collect();
 
     let snapshot = app.self_knowledge_snapshot();
-    let lines = startup_loaded_skill_lines(&snapshot, 31);
+    let lines = startup_loaded_skill_lines(&snapshot, 24);
     let rendered = lines.join("\n");
 
     assert!(
@@ -561,7 +561,7 @@ fn startup_loaded_skills_wrap_at_hyphens_and_hide_extra_rows() {
         "loaded skills should be capped at four rows:\n{rendered}"
     );
     assert!(
-        rendered.contains("make-interfaces-feel-\n     better,"),
+        rendered.contains("make-interfaces-feel-\nbetter,"),
         "long hyphenated skill names should wrap at a hyphen:\n{rendered}"
     );
     assert!(
@@ -774,7 +774,7 @@ fn banner_normal_viewport_shows_all_sections() {
     let app = test_app();
     let rendered = render_banner_styled(&app, 80);
 
-    for section in ["THNDRS", "workbench", "system", "project", "search", "attention"] {
+    for section in ["thndrs", "model", "cwd", "CONTEXT", "SKILLS", "SEARCH"] {
         assert!(
             rendered.contains(section),
             "normal viewport should show {section}:\n{rendered}"
@@ -790,12 +790,9 @@ fn banner_narrow_viewport_preserves_sections() {
     let app = test_app();
     let rendered = render_banner_styled(&app, 40);
 
+    assert!(rendered.contains("model"), "narrow viewport should show model row");
     assert!(
-        rendered.contains("system"),
-        "narrow viewport should show system section"
-    );
-    assert!(
-        rendered.contains("project"),
-        "narrow viewport should show project section"
+        rendered.contains("CONTEXT"),
+        "narrow viewport should show context section"
     );
 }

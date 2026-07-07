@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-use crate::app::{App, Entry, ToolStatus};
+use crate::app::{Entry, ToolStatus};
 use crate::internals::{self, StartupSection};
 use crate::renderer::row::Row;
 use crate::renderer::style::{CellStyle, Color, Span};
@@ -18,14 +18,14 @@ const MAX_TOOL_OUTPUT_LINES: usize = 6;
 /// Minimum content width where markdown tables remain legible.
 const MIN_TABLE_RENDER_WIDTH: usize = 24;
 
-/// Content width where the startup workbench can use two columns.
-const WIDE_STARTUP_WORKBENCH_WIDTH: usize = 72;
-
 /// Maximum skill-list rows shown under the startup workbench loaded heading.
 const MAX_STARTUP_LOADED_SKILL_ROWS: usize = 4;
 
 /// Gutter prefix for tool output lines.
 pub const GUTTER: &str = "   │ ";
+
+/// Role rail shown on transcript entry rows.
+const ENTRY_RAIL: &str = "│ ";
 
 /// Context needed to render a single transcript entry into rows.
 #[derive(Clone)]
@@ -43,10 +43,24 @@ pub struct TranscriptRowContext<'a> {
 struct StartupBannerTheme {
     width: usize,
     bg: Color,
-    rail_style: CellStyle,
-    marker_style: CellStyle,
+    brand_style: CellStyle,
+    version_style: CellStyle,
+    key_style: CellStyle,
+    value_style: CellStyle,
     heading_style: CellStyle,
     muted_style: CellStyle,
+    hint_style: CellStyle,
+    separator_style: CellStyle,
+}
+
+#[derive(Clone, Copy)]
+struct LabeledBlockTheme {
+    rail_style: CellStyle,
+    label_style: CellStyle,
+    text_style: CellStyle,
+    bg: Color,
+    width: usize,
+    body_width: usize,
 }
 
 impl StartupBannerTheme {
@@ -87,132 +101,84 @@ pub fn banner_rows(app: &crate::app::App, width: usize) -> Vec<Row> {
     let theme = StartupBannerTheme {
         width,
         bg,
-        rail_style: CellStyle::new().fg(p.overlay0).bg(bg),
-        marker_style: CellStyle::new().fg(p.accent).bg(bg).bold(),
-        heading_style: CellStyle::new().fg(p.text).bg(bg).bold(),
+        brand_style: CellStyle::new().fg(p.accent).bg(bg).bold(),
+        version_style: CellStyle::new().fg(p.overlay0).bg(bg),
+        key_style: CellStyle::new().fg(p.overlay1).bg(bg),
+        value_style: CellStyle::new().fg(p.text).bg(bg),
+        heading_style: CellStyle::new().fg(p.teal).bg(bg).bold(),
         muted_style: CellStyle::new().fg(p.subtext0).bg(bg),
+        hint_style: CellStyle::new().fg(p.teal).bg(bg),
+        separator_style: CellStyle::new().fg(p.overlay0).bg(bg),
     };
     let snapshot = app.self_knowledge_snapshot();
     let sections = snapshot.startup_sections();
 
     let mut rows = Vec::new();
     rows.push(Row::blank(width, bg_style(bg)));
-
-    push_rail_text_row(&mut rows, "THNDRS", theme, theme.marker_style);
+    push_banner_brand_row(&mut rows, &snapshot, theme);
+    push_banner_separator(&mut rows, theme);
+    push_banner_key_value_row(
+        &mut rows,
+        "model",
+        &format!(
+            "{} · {}",
+            snapshot.runtime.provider.model, snapshot.runtime.provider.provider
+        ),
+        theme,
+    );
     if !app.cwd.as_os_str().is_empty() {
         let cwd_line = super::path_display::cwd_segment(&app.cwd, theme.body_width());
         let cwd_line = cwd_line.strip_prefix("cwd: ").unwrap_or(&cwd_line);
-        push_rail_text_row(&mut rows, &format!("cwd {cwd_line}"), theme, theme.muted_style);
+        push_banner_key_value_row(&mut rows, "cwd", cwd_line, theme);
     }
-    push_rail_empty_row(&mut rows, theme);
+    push_banner_key_value_row(&mut rows, "search", &snapshot.runtime.provider.search.mode, theme);
 
-    push_startup_workbench(&mut rows, &snapshot, &sections, app, theme);
-
-    push_rail_marker_row(&mut rows, "search", theme);
-    for line in startup_section_lines(&sections, "Search", app) {
-        push_wrapped_rail_text(&mut rows, &line, 3, 3, theme, theme.muted_style);
+    push_banner_separator(&mut rows, theme);
+    push_banner_heading(&mut rows, "context", theme);
+    for line in startup_section_lines(&sections, "Context", app) {
+        push_wrapped_banner_text(&mut rows, &line, 2, 2, theme, theme.value_style);
     }
 
-    push_rail_empty_row(&mut rows, theme);
-    push_rail_marker_row(&mut rows, "ready", theme);
-    push_rail_command_row(
+    push_banner_separator(&mut rows, theme);
+    push_banner_heading(&mut rows, "skills", theme);
+    for line in startup_loaded_skill_lines(&snapshot, theme.body_width().saturating_sub(2)) {
+        push_wrapped_banner_text(&mut rows, &line, 2, 2, theme, theme.muted_style);
+    }
+
+    push_banner_separator(&mut rows, theme);
+    push_banner_heading(&mut rows, "search", theme);
+    push_wrapped_banner_text(
         &mut rows,
-        ">",
-        "Ask for a change, run a command, or inspect this repo.",
+        &startup_search_line(&snapshot),
+        2,
+        2,
         theme,
+        theme.muted_style,
     );
-    push_rail_command_row(&mut rows, "?", "help", theme);
-    push_rail_command_row(&mut rows, "/model", "switch models", theme);
+
+    let diagnostics = startup_section_lines(&sections, "Diagnostics", app);
+    if diagnostics.iter().any(|line| line != "(none)") {
+        push_banner_separator(&mut rows, theme);
+        push_banner_heading(&mut rows, "attention", theme);
+        for line in diagnostics {
+            push_wrapped_banner_text(&mut rows, &line, 2, 2, theme, theme.muted_style);
+        }
+    }
+
+    push_banner_separator(&mut rows, theme);
+    push_wrapped_banner_text(
+        &mut rows,
+        "Ask for a change, run a command, or inspect this repo.",
+        0,
+        0,
+        theme,
+        theme.muted_style,
+    );
+    rows.push(Row::blank(width, bg_style(bg)));
+    push_wrapped_banner_text(&mut rows, "? help /model /search", 0, 0, theme, theme.hint_style);
 
     rows.push(Row::blank(width, bg_style(bg)));
     rows
-}
-
-fn push_startup_workbench(
-    rows: &mut Vec<Row>, snapshot: &internals::SelfKnowledgeSnapshot, sections: &[StartupSection], app: &App,
-    theme: StartupBannerTheme,
-) {
-    push_rail_marker_row(rows, "workbench", theme);
-    let body_width = theme.body_width();
-    if body_width >= WIDE_STARTUP_WORKBENCH_WIDTH {
-        push_wide_startup_workbench(rows, snapshot, sections, app, theme);
-    } else {
-        push_narrow_startup_workbench(rows, snapshot, sections, app, theme);
-    }
-}
-
-fn push_wide_startup_workbench(
-    rows: &mut Vec<Row>, snapshot: &internals::SelfKnowledgeSnapshot, sections: &[StartupSection], app: &App,
-    theme: StartupBannerTheme,
-) {
-    let body_width = theme.body_width();
-    let gap_width = 3usize;
-    let left_width = 31usize.min(body_width.saturating_sub(gap_width));
-    let right_width = body_width.saturating_sub(left_width + gap_width);
-
-    let mut left = vec![
-        "  system".to_string(),
-        format!("     provider  {}", snapshot.runtime.provider.provider),
-        format!("     model     {}", snapshot.runtime.provider.model),
-        format!("     search    {}", snapshot.runtime.provider.search.mode),
-        String::new(),
-        "  loaded".to_string(),
-    ];
-    left.extend(startup_loaded_skill_lines(snapshot, left_width));
-
-    let mut right = vec!["project".to_string()];
-    for line in startup_section_lines(sections, "Context", app) {
-        right.extend(wrap_labeled_value("context", &line, 3, 9, right_width));
-    }
-    right.push(String::new());
-    right.push("attention".to_string());
-    for line in startup_section_lines(sections, "Diagnostics", app) {
-        right.extend(wrap_with_indent(&line, 3, 3, right_width));
-    }
-
-    let count = left.len().max(right.len());
-    for index in 0..count {
-        let left_line = left.get(index).map_or("", String::as_str);
-        let right_line = right.get(index).map_or("", String::as_str);
-        push_wide_workbench_row(rows, left_line, left_width, gap_width, right_line, theme);
-    }
-}
-
-fn push_narrow_startup_workbench(
-    rows: &mut Vec<Row>, snapshot: &internals::SelfKnowledgeSnapshot, sections: &[StartupSection], app: &App,
-    theme: StartupBannerTheme,
-) {
-    push_rail_text_row(rows, "  system", theme, theme.heading_style);
-    push_rail_text_row(
-        rows,
-        &format!("     provider  {}", snapshot.runtime.provider.provider),
-        theme,
-        theme.muted_style,
-    );
-    push_rail_text_row(
-        rows,
-        &format!("     model     {}", snapshot.runtime.provider.model),
-        theme,
-        theme.muted_style,
-    );
-    push_rail_text_row(
-        rows,
-        &format!("     search    {}", snapshot.runtime.provider.search.mode),
-        theme,
-        theme.muted_style,
-    );
-
-    push_rail_empty_row(rows, theme);
-    push_rail_text_row(rows, "  project", theme, theme.heading_style);
-    for line in startup_section_lines(sections, "Context", app) {
-        push_wrapped_rail_text(rows, &format!("context   {line}"), 5, 5, theme, theme.muted_style);
-    }
-
-    push_rail_empty_row(rows, theme);
-    push_rail_text_row(rows, "  attention", theme, theme.heading_style);
-    for line in startup_section_lines(sections, "Diagnostics", app) {
-        push_wrapped_rail_text(rows, &line, 5, 5, theme, theme.muted_style);
-    }
 }
 
 fn startup_section_lines(sections: &[StartupSection], heading: &str, app: &crate::app::App) -> Vec<String> {
@@ -241,11 +207,10 @@ fn startup_loaded_skill_lines(snapshot: &crate::internals::SelfKnowledgeSnapshot
         .map(|skill| skill.name.as_str())
         .collect::<Vec<_>>();
     if skill_names.is_empty() {
-        return vec!["     (none)".to_string()];
+        return vec!["(none)".to_string()];
     }
 
-    let indent = "     ";
-    let content_width = width.saturating_sub(indent.len()).max(1);
+    let content_width = width.max(1);
     let mut shown = 0usize;
     let mut rows = Vec::new();
     for count in 1..=skill_names.len() {
@@ -268,7 +233,14 @@ fn startup_loaded_skill_lines(snapshot: &crate::internals::SelfKnowledgeSnapshot
         rows.push(format!("...{hidden} skills hidden"));
     }
 
-    rows.into_iter().map(|line| format!("{indent}{line}")).collect()
+    rows
+}
+
+fn startup_search_line(snapshot: &crate::internals::SelfKnowledgeSnapshot) -> String {
+    format!(
+        "{}; {}",
+        snapshot.runtime.provider.search.provider_native_search, snapshot.runtime.provider.search.local_search
+    )
 }
 
 fn loaded_skill_rows(skill_names: &[&str], has_hidden: bool, width: usize) -> Vec<String> {
@@ -328,29 +300,6 @@ fn hyphen_split_index(text: &str, width: usize) -> usize {
         .unwrap_or_else(|| fallback.max(1))
 }
 
-fn startup_workbench_heading(line: &str) -> bool {
-    matches!(line.trim(), "system" | "loaded" | "project" | "attention")
-}
-
-fn wrap_labeled_value(label: &str, value: &str, first_indent: usize, value_indent: usize, width: usize) -> Vec<String> {
-    let first_prefix = format!("{}{}  ", " ".repeat(first_indent), label);
-    let continuation_prefix = " ".repeat(value_indent);
-    let first_width = width.saturating_sub(utils::text_width(&first_prefix));
-    let continuation_width = width.saturating_sub(value_indent);
-    let wrapped = super::layout::wrap_text(value, first_width.max(1));
-    let mut out = Vec::with_capacity(wrapped.len());
-    for (index, line) in wrapped.into_iter().enumerate() {
-        if index == 0 {
-            out.push(format!("{first_prefix}{line}"));
-        } else {
-            for continued in super::layout::wrap_text(&line, continuation_width.max(1)) {
-                out.push(format!("{continuation_prefix}{continued}"));
-            }
-        }
-    }
-    out
-}
-
 fn wrap_with_indent(text: &str, first_indent: usize, continuation_indent: usize, width: usize) -> Vec<String> {
     let first_width = width.saturating_sub(first_indent).max(1);
     let continuation_width = width.saturating_sub(continuation_indent).max(1);
@@ -367,106 +316,67 @@ fn wrap_with_indent(text: &str, first_indent: usize, continuation_indent: usize,
     out
 }
 
-fn pad_display_width(text: &str, width: usize) -> String {
-    let used = utils::text_width(text);
-    if used >= width {
-        return text.to_string();
+fn push_banner_brand_row(rows: &mut Vec<Row>, snapshot: &internals::SelfKnowledgeSnapshot, theme: StartupBannerTheme) {
+    rows.push(Row::padded(
+        vec![
+            Span::styled(snapshot.identity.app_name.to_string(), theme.brand_style),
+            Span::styled(format!("  v{}", snapshot.identity.app_version), theme.version_style),
+        ],
+        theme.width,
+        bg_style(theme.bg),
+    ));
+}
+
+fn push_banner_separator(rows: &mut Vec<Row>, theme: StartupBannerTheme) {
+    let width = theme.body_width().max(1);
+    rows.push(Row::padded(
+        vec![Span::styled("─".repeat(width), theme.separator_style)],
+        theme.width,
+        bg_style(theme.bg),
+    ));
+}
+
+fn push_banner_key_value_row(rows: &mut Vec<Row>, key: &str, value: &str, theme: StartupBannerTheme) {
+    let key_width = 7usize.min(theme.body_width());
+    let prefix = format!("{key:<key_width$}");
+    let value_width = theme
+        .body_width()
+        .saturating_sub(utils::text_width(&prefix))
+        .saturating_sub(1)
+        .max(1);
+    for (index, line) in super::layout::wrap_text(value, value_width).into_iter().enumerate() {
+        let key_text = if index == 0 { prefix.clone() } else { " ".repeat(key_width) };
+        rows.push(Row::padded(
+            vec![
+                Span::styled(key_text, theme.key_style),
+                Span::styled(" ".to_string(), theme.muted_style),
+                Span::styled(line, theme.value_style),
+            ],
+            theme.width,
+            bg_style(theme.bg),
+        ));
     }
-    format!("{text}{}", " ".repeat(width - used))
 }
 
-fn push_wide_workbench_row(
-    rows: &mut Vec<Row>, left: &str, left_width: usize, gap_width: usize, right: &str, theme: StartupBannerTheme,
-) {
-    let left_style = if startup_workbench_heading(left) { theme.heading_style } else { theme.muted_style };
-    let right_style = if startup_workbench_heading(right) { theme.heading_style } else { theme.muted_style };
-
+fn push_banner_heading(rows: &mut Vec<Row>, label: &str, theme: StartupBannerTheme) {
     rows.push(Row::padded(
-        vec![
-            Span::styled(" | ", theme.rail_style),
-            Span::styled(pad_display_width(left, left_width), left_style),
-            Span::styled(" ".repeat(gap_width), theme.muted_style),
-            Span::styled(right.to_string(), right_style),
-        ],
+        vec![Span::styled(label.to_ascii_uppercase(), theme.heading_style)],
         theme.width,
         bg_style(theme.bg),
     ));
 }
 
-fn push_rail_marker_row(rows: &mut Vec<Row>, label: &str, theme: StartupBannerTheme) {
-    rows.push(Row::padded(
-        vec![
-            Span::styled(" + ", theme.marker_style),
-            Span::styled(label.to_string(), theme.heading_style),
-        ],
-        theme.width,
-        bg_style(theme.bg),
-    ));
-}
-
-fn push_rail_empty_row(rows: &mut Vec<Row>, theme: StartupBannerTheme) {
-    rows.push(Row::padded(
-        vec![Span::styled(" |", theme.rail_style)],
-        theme.width,
-        bg_style(theme.bg),
-    ));
-}
-
-fn push_rail_text_row(rows: &mut Vec<Row>, text: &str, theme: StartupBannerTheme, text_style: CellStyle) {
-    rows.push(Row::padded(
-        vec![
-            Span::styled(" | ", theme.rail_style),
-            Span::styled(text.to_string(), text_style),
-        ],
-        theme.width,
-        bg_style(theme.bg),
-    ));
-}
-
-fn push_wrapped_rail_text(
+fn push_wrapped_banner_text(
     rows: &mut Vec<Row>, text: &str, first_indent: usize, continuation_indent: usize, theme: StartupBannerTheme,
     text_style: CellStyle,
 ) {
     let wrapped = wrap_with_indent(text, first_indent, continuation_indent, theme.body_width());
     for line in wrapped {
-        push_rail_text_row(rows, &line, theme, text_style);
-    }
-}
-
-fn push_rail_command_row(rows: &mut Vec<Row>, command: &str, description: &str, theme: StartupBannerTheme) {
-    let body_width = theme.body_width();
-    let command_width = 7usize.min(body_width);
-    let first_prefix = format!("  {command:<command_width$}");
-    let continuation_prefix = " ".repeat(2 + command_width);
-    let first_width = body_width.saturating_sub(utils::text_width(&first_prefix)).max(1);
-    let continuation_width = body_width
-        .saturating_sub(utils::text_width(&continuation_prefix))
-        .max(1);
-
-    for (index, line) in super::layout::wrap_text(description, first_width)
-        .into_iter()
-        .enumerate()
-    {
-        if index == 0 {
-            rows.push(Row::padded(
-                vec![
-                    Span::styled(" | ", theme.rail_style),
-                    Span::styled(first_prefix.clone(), theme.marker_style),
-                    Span::styled(line, theme.muted_style),
-                ],
-                theme.width,
-                bg_style(theme.bg),
-            ));
-        } else {
-            for continued in super::layout::wrap_text(&line, continuation_width) {
-                push_rail_text_row(
-                    rows,
-                    &format!("{continuation_prefix}{continued}"),
-                    theme,
-                    theme.muted_style,
-                );
-            }
-        }
+        rows.push(Row::padded(
+            vec![Span::styled(line, text_style)],
+            theme.width,
+            bg_style(theme.bg),
+        ));
     }
 }
 
@@ -503,7 +413,9 @@ impl ToolBlockView<'_> {
         let status_style = CellStyle::new().fg(status_color).bg(bg);
         let muted_style = CellStyle::new().fg(p.subtext0).bg(bg);
         let gutter_style = CellStyle::new().fg(p.overlay0).bg(bg);
-        let tool_content_width = body_width.saturating_sub(utils::text_width(GUTTER));
+        let rail_style = CellStyle::new().fg(status_color).bg(bg);
+        let content_width = body_width.saturating_sub(utils::text_width(ENTRY_RAIL));
+        let tool_content_width = content_width.saturating_sub(utils::text_width(GUTTER));
 
         let args_summary = summarize_tool_args(args, cwd);
         let base_name = name.split('#').next().unwrap_or(name);
@@ -512,6 +424,7 @@ impl ToolBlockView<'_> {
         let mut rows = vec![Row::blank(width, bg_style(bg))];
 
         let mut header_spans = vec![
+            Span::styled(ENTRY_RAIL, rail_style),
             Span::styled(format!("{icon} "), status_style),
             Span::styled(name.to_string(), header_style),
             Span::styled(format!(" [{status_label}]"), status_style),
@@ -522,24 +435,34 @@ impl ToolBlockView<'_> {
             if header_width + 2 + utils::text_width(&args_summary) <= body_width {
                 header_spans.push(Span::styled("  ", CellStyle::new().bg(bg)));
                 header_spans.push(Span::styled(args_summary, muted_style));
-                rows.push(Row::padded(header_spans, width, bg_style(bg)));
             } else {
                 rows.push(Row::padded(header_spans, width, bg_style(bg)));
-                for wrapped in super::layout::wrap_text(&args_summary, body_width.saturating_sub(2)) {
+                for wrapped in super::layout::wrap_text(&args_summary, content_width.saturating_sub(2)) {
                     let spans = vec![
+                        Span::styled(ENTRY_RAIL, rail_style),
                         Span::styled("  ", CellStyle::new().bg(bg)),
                         Span::styled(wrapped, muted_style),
                     ];
                     rows.push(Row::padded(spans, width, bg_style(bg)));
                 }
+                header_spans = Vec::new();
             }
-        } else {
+        }
+        if self.width >= 90 && !output.is_empty() && !header_spans.is_empty() {
+            let metadata = format!("  lines: {}", output.len());
+            let header_width: usize = header_spans.iter().map(|s| utils::text_width(&s.text)).sum();
+            if header_width + utils::text_width(&metadata) <= body_width {
+                header_spans.push(Span::styled(metadata, CellStyle::new().fg(p.overlay0).bg(bg)));
+            }
+        }
+        if !header_spans.is_empty() {
             rows.push(Row::padded(header_spans, width, bg_style(bg)));
         }
 
         if let Some(summary) = edit_summary_line(name, output, status, cwd) {
             rows.push(Row::padded(
                 vec![
+                    Span::styled(ENTRY_RAIL, rail_style),
                     Span::styled("   edit  ", CellStyle::new().fg(p.overlay0).bg(bg).bold()),
                     Span::styled(summary, muted_style),
                 ],
@@ -551,6 +474,7 @@ impl ToolBlockView<'_> {
         if let Some(summary) = diff_summary_line(output) {
             rows.push(Row::padded(
                 vec![
+                    Span::styled(ENTRY_RAIL, rail_style),
                     Span::styled("   diff  ", CellStyle::new().fg(p.overlay0).bg(bg).bold()),
                     Span::styled(summary, muted_style),
                 ],
@@ -571,7 +495,7 @@ impl ToolBlockView<'_> {
                     .collect();
                 let highlighted = super::highlight::highlight_lines(&joined, Some(lang_str));
                 for hl_row in highlighted {
-                    let mut spans = vec![Span::styled(GUTTER, gutter_style)];
+                    let mut spans = vec![Span::styled(ENTRY_RAIL, rail_style), Span::styled(GUTTER, gutter_style)];
                     let content_spans: Vec<_> = hl_row
                         .into_iter()
                         .map(|s| Span { text: s.text, style: s.style.bg(bg) })
@@ -593,7 +517,11 @@ impl ToolBlockView<'_> {
                         CellStyle::new().fg(p.subtext0).bg(bg)
                     };
                     for wrapped in super::layout::wrap_text_preserving_whitespace(&line, tool_content_width) {
-                        let spans = vec![Span::styled(GUTTER, gutter_style), Span::styled(wrapped, content_style)];
+                        let spans = vec![
+                            Span::styled(ENTRY_RAIL, rail_style),
+                            Span::styled(GUTTER, gutter_style),
+                            Span::styled(wrapped, content_style),
+                        ];
                         rows.push(Row::padded(spans, width, bg_style(bg)));
                     }
                 }
@@ -602,14 +530,17 @@ impl ToolBlockView<'_> {
 
         if output.len() > MAX_TOOL_OUTPUT_LINES {
             rows.push(Row::padded(
-                vec![Span::styled(
-                    format!(
-                        "   │ … ({} lines stored, {} shown here)",
-                        output.len(),
-                        MAX_TOOL_OUTPUT_LINES
+                vec![
+                    Span::styled(ENTRY_RAIL, rail_style),
+                    Span::styled(
+                        format!(
+                            "   │ … ({} lines stored, {} shown here)",
+                            output.len(),
+                            MAX_TOOL_OUTPUT_LINES
+                        ),
+                        muted_style,
                     ),
-                    muted_style,
-                )],
+                ],
                 width,
                 bg_style(bg),
             ));
@@ -686,70 +617,102 @@ fn entry_to_rows(entry: &Entry, user_label: &str, width: usize, cwd: &Path) -> V
     let p = super::style::palette();
     let bg = p.surface_dim;
     let body_width = super::layout::content_width(width);
+    let railed_body_width = body_width.saturating_sub(utils::text_width(ENTRY_RAIL));
 
     match entry {
         Entry::User { text } => {
             let surface1 = p.surface1;
+            let rail_style = CellStyle::new().fg(p.blue).bg(surface1).bold();
             let label_style = CellStyle::new().fg(p.blue).bg(surface1).bold();
             let text_style = CellStyle::new().fg(p.text).bg(surface1);
-            let mut rows = build_labeled_block(user_label, label_style, text_style, text, width, body_width, surface1);
+            let mut rows = build_labeled_block(
+                LabeledBlockTheme {
+                    rail_style,
+                    label_style,
+                    text_style,
+                    bg: surface1,
+                    width,
+                    body_width: railed_body_width,
+                },
+                user_label,
+                text,
+            );
             rows.push(Row::blank(width, bg_style(surface1)));
             rows
         }
         Entry::Agent { text, .. } => {
+            let rail_style = CellStyle::new().fg(p.green).bg(bg).bold();
             let label_style = CellStyle::new().fg(p.green).bg(bg).bold();
-            assistant_block_rows(text, label_style, bg, width, body_width)
+            assistant_block_rows(text, rail_style, label_style, bg, width, railed_body_width)
         }
         Entry::Reasoning { text, streaming } => {
+            let rail_style = CellStyle::new().fg(p.mauve).bg(bg).bold();
             let label_style = CellStyle::new().fg(p.mauve).bg(bg).bold();
             let text_style = CellStyle::new().fg(p.subtext0).bg(bg).italic();
             let label = if *streaming { "Thinking ·" } else { "Thinking ✓" };
-            build_labeled_block(label, label_style, text_style, text, width, body_width, bg)
+            build_labeled_block(
+                LabeledBlockTheme { rail_style, label_style, text_style, bg, width, body_width: railed_body_width },
+                label,
+                text,
+            )
         }
         Entry::Tool { name, arguments, status, output } => {
             ToolBlockView { name, args: arguments, status: *status, output, width, body_width, bg, cwd }.rows()
         }
         Entry::Status { text } => {
+            let rail_style = CellStyle::new().fg(p.overlay1).bg(bg);
             let label_style = CellStyle::new().fg(p.overlay1).bg(bg).bold();
             let text_style = CellStyle::new().fg(p.text).bg(bg);
             build_labeled_block(
+                LabeledBlockTheme { rail_style, label_style, text_style, bg, width, body_width: railed_body_width },
                 status_label_for(text),
-                label_style,
-                text_style,
                 text,
-                width,
-                body_width,
-                bg,
             )
         }
         Entry::Error { text } => {
+            let rail_style = CellStyle::new().fg(p.red).bg(bg).bold();
             let label_style = CellStyle::new().fg(p.red).bg(bg).bold();
             let text_style = CellStyle::new().fg(p.text).bg(bg);
-            build_labeled_block("⚠ Error", label_style, text_style, text, width, body_width, bg)
+            build_labeled_block(
+                LabeledBlockTheme { rail_style, label_style, text_style, bg, width, body_width: railed_body_width },
+                "⚠ Error",
+                text,
+            )
         }
     }
 }
 
 /// Build an assistant message block, detecting markdown code fences for
 /// syntax highlighting.
-fn assistant_block_rows(text: &str, label_style: CellStyle, bg: Color, width: usize, body_width: usize) -> Vec<Row> {
+fn assistant_block_rows(
+    text: &str, rail_style: CellStyle, label_style: CellStyle, bg: Color, width: usize, body_width: usize,
+) -> Vec<Row> {
     let p = super::style::palette();
     let text_style = CellStyle::new().fg(p.text).bg(bg);
     let mut rows = vec![Row::blank(width, bg_style(bg))];
     rows.push(Row::padded(
-        vec![Span::styled("Agent".to_string(), label_style)],
+        vec![
+            Span::styled(ENTRY_RAIL, rail_style),
+            Span::styled("Agent".to_string(), label_style),
+        ],
         width,
         bg_style(bg),
     ));
 
     if let Some(markdown) = assistant_markdown_body(text) {
-        rows.extend(render_markdown_body(markdown, text_style, bg, width, body_width));
+        rows.extend(render_markdown_body(
+            markdown, rail_style, text_style, bg, width, body_width,
+        ));
     } else {
         for line in super::layout::wrap_text(text, body_width) {
             if line.is_empty() {
                 rows.push(Row::blank(width, bg_style(bg)));
             } else {
-                rows.push(Row::padded(vec![Span::styled(line, text_style)], width, bg_style(bg)));
+                rows.push(Row::padded(
+                    vec![Span::styled(ENTRY_RAIL, rail_style), Span::styled(line, text_style)],
+                    width,
+                    bg_style(bg),
+                ));
             }
         }
     }
@@ -769,8 +732,12 @@ fn assistant_markdown_body(text: &str) -> Option<&str> {
 }
 
 /// Render markdown body with code fence detection and syntax highlighting.
-fn render_markdown_body(markdown: &str, text_style: CellStyle, bg: Color, width: usize, body_width: usize) -> Vec<Row> {
+fn render_markdown_body(
+    markdown: &str, rail_style: CellStyle, text_style: CellStyle, bg: Color, width: usize, body_width: usize,
+) -> Vec<Row> {
     let p = super::style::palette();
+    let gutter_style = CellStyle::new().fg(p.overlay0).bg(bg);
+    let code_width = body_width.saturating_sub(utils::text_width(GUTTER));
     let mut rows = Vec::new();
     let mut in_code_fence = false;
     let mut code_lang: Option<String> = None;
@@ -780,7 +747,15 @@ fn render_markdown_body(markdown: &str, text_style: CellStyle, bg: Color, width:
 
     while let Some(line) = lines.next() {
         if line.starts_with("```") {
-            flush_plain_markdown_lines(&mut rows, &mut pending_plain, text_style, bg, width, body_width);
+            flush_plain_markdown_lines(
+                &mut rows,
+                &mut pending_plain,
+                rail_style,
+                text_style,
+                bg,
+                width,
+                body_width,
+            );
             if !in_code_fence {
                 in_code_fence = true;
                 let lang_str = line.trim_start_matches('`').trim();
@@ -790,8 +765,12 @@ fn render_markdown_body(markdown: &str, text_style: CellStyle, bg: Color, width:
                 let lang = code_lang.as_deref();
                 let highlighted = super::highlight::highlight_lines(&code_buf, lang);
                 for hl_row in highlighted {
-                    let mut spans = vec![Span::styled(GUTTER, CellStyle::new().fg(p.overlay0).bg(bg))];
-                    spans.extend(hl_row.into_iter().map(|s| Span { text: s.text, style: s.style.bg(bg) }));
+                    let mut spans = vec![Span::styled(ENTRY_RAIL, rail_style), Span::styled(GUTTER, gutter_style)];
+                    let content_spans = hl_row
+                        .into_iter()
+                        .map(|s| Span { text: s.text, style: s.style.bg(bg) })
+                        .collect::<Vec<_>>();
+                    spans.extend(super::layout::truncate_spans(&content_spans, code_width, text_style));
                     rows.push(Row::padded(spans, width, bg_style(bg)));
                 }
                 in_code_fence = false;
@@ -822,7 +801,7 @@ fn render_markdown_body(markdown: &str, text_style: CellStyle, bg: Color, width:
                 table.push_row(row_line);
             }
             if table.is_valid() {
-                rows.extend(render_markdown_table(&table, bg, width, body_width));
+                rows.extend(render_markdown_table(&table, rail_style, bg, width, body_width));
                 continue;
             }
             pending_plain.push(header);
@@ -832,14 +811,26 @@ fn render_markdown_body(markdown: &str, text_style: CellStyle, bg: Color, width:
         }
     }
 
-    flush_plain_markdown_lines(&mut rows, &mut pending_plain, text_style, bg, width, body_width);
+    flush_plain_markdown_lines(
+        &mut rows,
+        &mut pending_plain,
+        rail_style,
+        text_style,
+        bg,
+        width,
+        body_width,
+    );
 
     if in_code_fence && !code_buf.is_empty() {
         let lang = code_lang.as_deref();
         let highlighted = super::highlight::highlight_lines(&code_buf, lang);
         for hl_row in highlighted {
-            let mut spans = vec![Span::styled(GUTTER, CellStyle::new().fg(p.overlay0).bg(bg))];
-            spans.extend(hl_row.into_iter().map(|s| Span { text: s.text, style: s.style.bg(bg) }));
+            let mut spans = vec![Span::styled(ENTRY_RAIL, rail_style), Span::styled(GUTTER, gutter_style)];
+            let content_spans = hl_row
+                .into_iter()
+                .map(|s| Span { text: s.text, style: s.style.bg(bg) })
+                .collect::<Vec<_>>();
+            spans.extend(super::layout::truncate_spans(&content_spans, code_width, text_style));
             rows.push(Row::padded(spans, width, bg_style(bg)));
         }
     }
@@ -852,7 +843,8 @@ fn render_markdown_body(markdown: &str, text_style: CellStyle, bg: Color, width:
 }
 
 fn flush_plain_markdown_lines(
-    rows: &mut Vec<Row>, pending: &mut Vec<String>, text_style: CellStyle, bg: Color, width: usize, body_width: usize,
+    rows: &mut Vec<Row>, pending: &mut Vec<String>, rail_style: CellStyle, text_style: CellStyle, bg: Color,
+    width: usize, body_width: usize,
 ) {
     for line in pending.drain(..) {
         if line.is_empty() {
@@ -860,7 +852,7 @@ fn flush_plain_markdown_lines(
         } else {
             for wrapped in super::layout::wrap_text(&line, body_width) {
                 rows.push(Row::padded(
-                    vec![Span::styled(wrapped, text_style)],
+                    vec![Span::styled(ENTRY_RAIL, rail_style), Span::styled(wrapped, text_style)],
                     width,
                     bg_style(bg),
                 ));
@@ -874,6 +866,15 @@ enum TableAlign {
     Left,
     Right,
     Center,
+}
+
+#[derive(Clone, Copy)]
+struct MarkdownTableTheme {
+    cell_style: CellStyle,
+    separator_style: CellStyle,
+    rail_style: CellStyle,
+    bg: Color,
+    width: usize,
 }
 
 struct MarkdownTable {
@@ -899,20 +900,24 @@ impl MarkdownTable {
     }
 }
 
-fn render_markdown_table(table: &MarkdownTable, bg: Color, width: usize, body_width: usize) -> Vec<Row> {
+fn render_markdown_table(
+    table: &MarkdownTable, rail_style: CellStyle, bg: Color, width: usize, body_width: usize,
+) -> Vec<Row> {
     let p = super::style::palette();
     let text_style = CellStyle::new().fg(p.text).bg(bg);
     let header_style = CellStyle::new().fg(p.text).bg(bg).bold().underlined();
     let separator_style = CellStyle::new().fg(p.overlay0).bg(bg);
     let muted_style = CellStyle::new().fg(p.subtext0).bg(bg);
+    let header_theme = MarkdownTableTheme { cell_style: header_style, separator_style, rail_style, bg, width };
+    let body_theme = MarkdownTableTheme { cell_style: text_style, separator_style, rail_style, bg, width };
 
     if body_width <= MIN_TABLE_RENDER_WIDTH {
-        return render_table_narrow_fallback(table, text_style, bg, width, body_width);
+        return render_table_narrow_fallback(table, rail_style, text_style, bg, width, body_width);
     }
 
     let column_widths = table_column_widths(table, body_width);
     if column_widths.contains(&0) {
-        return render_table_narrow_fallback(table, text_style, bg, width, body_width);
+        return render_table_narrow_fallback(table, rail_style, text_style, bg, width, body_width);
     }
 
     let mut rows = Vec::new();
@@ -920,30 +925,25 @@ fn render_markdown_table(table: &MarkdownTable, bg: Color, width: usize, body_wi
         &table.headers,
         &table.alignments,
         &column_widths,
-        header_style,
-        separator_style,
-        bg,
-        width,
+        header_theme,
     ));
     rows.push(Row::padded(
-        vec![Span::styled(table_separator(&column_widths), separator_style)],
+        vec![
+            Span::styled(ENTRY_RAIL, rail_style),
+            Span::styled(table_separator(&column_widths), separator_style),
+        ],
         width,
         bg_style(bg),
     ));
     for cells in &table.rows {
-        rows.push(table_row(
-            cells,
-            &table.alignments,
-            &column_widths,
-            text_style,
-            separator_style,
-            bg,
-            width,
-        ));
+        rows.push(table_row(cells, &table.alignments, &column_widths, body_theme));
     }
     if table.rows.is_empty() {
         rows.push(Row::padded(
-            vec![Span::styled("(no rows)", muted_style)],
+            vec![
+                Span::styled(ENTRY_RAIL, rail_style),
+                Span::styled("(no rows)", muted_style),
+            ],
             width,
             bg_style(bg),
         ));
@@ -952,13 +952,13 @@ fn render_markdown_table(table: &MarkdownTable, bg: Color, width: usize, body_wi
 }
 
 fn render_table_narrow_fallback(
-    table: &MarkdownTable, text_style: CellStyle, bg: Color, width: usize, body_width: usize,
+    table: &MarkdownTable, rail_style: CellStyle, text_style: CellStyle, bg: Color, width: usize, body_width: usize,
 ) -> Vec<Row> {
     let mut rows = Vec::new();
     let header = table.headers.join(" / ");
     for wrapped in super::layout::wrap_text(&header, body_width) {
         rows.push(Row::padded(
-            vec![Span::styled(wrapped, text_style)],
+            vec![Span::styled(ENTRY_RAIL, rail_style), Span::styled(wrapped, text_style)],
             width,
             bg_style(bg),
         ));
@@ -973,7 +973,7 @@ fn render_table_narrow_fallback(
             .join("; ");
         for wrapped in super::layout::wrap_text(&line, body_width) {
             rows.push(Row::padded(
-                vec![Span::styled(wrapped, text_style)],
+                vec![Span::styled(ENTRY_RAIL, rail_style), Span::styled(wrapped, text_style)],
                 width,
                 bg_style(bg),
             ));
@@ -982,23 +982,20 @@ fn render_table_narrow_fallback(
     rows
 }
 
-fn table_row(
-    cells: &[String], alignments: &[TableAlign], widths: &[usize], cell_style: CellStyle, separator_style: CellStyle,
-    bg: Color, width: usize,
-) -> Row {
-    let mut spans = Vec::new();
+fn table_row(cells: &[String], alignments: &[TableAlign], widths: &[usize], theme: MarkdownTableTheme) -> Row {
+    let mut spans = vec![Span::styled(ENTRY_RAIL, theme.rail_style)];
     for (index, cell) in cells.iter().enumerate() {
         if index > 0 {
-            spans.push(Span::styled("  ", separator_style));
+            spans.push(Span::styled("  ", theme.separator_style));
         }
         let text = align_table_cell(
             &utils::truncate_ellipsis(cell, widths[index]),
             widths[index],
             alignments[index],
         );
-        spans.push(Span::styled(text, cell_style));
+        spans.push(Span::styled(text, theme.cell_style));
     }
-    Row::padded(spans, width, bg_style(bg))
+    Row::padded(spans, theme.width, bg_style(theme.bg))
 }
 
 fn table_separator(widths: &[usize]) -> String {
@@ -1119,21 +1116,29 @@ fn is_markdown_table_separator(line: &str) -> bool {
 }
 
 /// Build a labeled text block with a single leading spacer row.
-fn build_labeled_block(
-    label: &str, label_style: CellStyle, text_style: CellStyle, text: &str, width: usize, body_width: usize, bg: Color,
-) -> Vec<Row> {
-    let mut rows = vec![Row::blank(width, bg_style(bg))];
+fn build_labeled_block(theme: LabeledBlockTheme, label: &str, text: &str) -> Vec<Row> {
+    let mut rows = vec![Row::blank(theme.width, bg_style(theme.bg))];
     rows.push(Row::padded(
-        vec![Span::styled(label.to_string(), label_style)],
-        width,
-        bg_style(bg),
+        vec![
+            Span::styled(ENTRY_RAIL, theme.rail_style),
+            Span::styled(label.to_string(), theme.label_style),
+        ],
+        theme.width,
+        bg_style(theme.bg),
     ));
 
-    for line in super::layout::wrap_text(text, body_width) {
+    for line in super::layout::wrap_text(text, theme.body_width) {
         if line.is_empty() {
-            rows.push(Row::blank(width, bg_style(bg)));
+            rows.push(Row::blank(theme.width, bg_style(theme.bg)));
         } else {
-            rows.push(Row::padded(vec![Span::styled(line, text_style)], width, bg_style(bg)));
+            rows.push(Row::padded(
+                vec![
+                    Span::styled(ENTRY_RAIL, theme.rail_style),
+                    Span::styled(line, theme.text_style),
+                ],
+                theme.width,
+                bg_style(theme.bg),
+            ));
         }
     }
     rows

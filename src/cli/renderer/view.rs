@@ -330,6 +330,12 @@ pub struct SurfaceThemeView {
     pub diff_removed: ThemeRole,
 }
 
+impl Default for SurfaceThemeView {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SurfaceThemeView {
     pub fn new() -> Self {
         SurfaceThemeView {
