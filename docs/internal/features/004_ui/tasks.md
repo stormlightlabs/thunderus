@@ -94,47 +94,47 @@ Updated: 2026-07-07
 
 ## P4: Build Focused Surfaces
 
-- [ ] Implement a command picker with keyboard navigation and stable
+- [x] Implement a command picker with keyboard navigation and stable
       descriptions.
-- [ ] Implement a file picker with path truncation and fuzzy-match display.
-- [ ] Implement help as a bounded focused surface, not a permanent panel.
-- [ ] Implement `Ctrl+O` detail priority: failed tool output, truncated tool
+- [x] Implement a file picker with path truncation and fuzzy-match display.
+- [x] Implement help as a bounded focused surface, not a permanent panel.
+- [x] Implement `Ctrl+O` detail priority: failed tool output, truncated tool
       output, latest edit diff, then latest warning/error detail.
-- [ ] Implement tool output detail for failed or truncated output.
-- [ ] Implement diff detail as unified diff with a per-file summary header.
-- [ ] Make focused surfaces capture scroll/navigation while focused.
-- [ ] Make `Esc` close focused surfaces and return focus to the prompt.
-- [ ] Add tiny-height behavior for each focused surface.
-- [ ] Implement setup/recovery forms using the `form.rs` pattern: reusable
+- [x] Implement tool output detail for failed or truncated output.
+- [x] Implement diff detail as unified diff with a per-file summary header.
+- [x] Make focused surfaces capture scroll/navigation while focused.
+- [x] Make `Esc` close focused surfaces and return focus to the prompt.
+- [x] Add tiny-height behavior for each focused surface.
+- [x] Implement setup/recovery forms using the `form.rs` pattern: reusable
       fields, Tab/BackTab focus cycling, validation rows, hidden secret fields,
       multiline support where needed, submit, and cancel.
-- [ ] Implement structured table surfaces using the `table.rs` pattern for
+- [x] Implement structured table surfaces using the `table.rs` pattern for
       command help, model/provider lists, tool inventories, diagnostics, and
       markdown tables.
-- [ ] Implement a `Canvas`-to-`Row` conversion path that
+- [x] Implement a `Canvas`-to-`Row` conversion path that
       preserves text, background, foreground, weight, underline, dim, selected,
       muted, warning, error, and diff semantics.
-- [ ] Use `element!`/`component` only behind the focused surface adapter; do not
+- [x] Use `element!`/`component` only behind the focused surface adapter; do not
       call `render_loop` or `fullscreen` from the `thndrs` TUI.
 
 ## P5: Interaction And Runtime Wiring
 
-- [ ] Wire keyboard events through one update path.
-- [ ] Make `Enter` submit or accept the focused selection based on focus state.
-- [ ] Make stop/cancel settle into stable transcript rows.
-- [ ] Make queued input visible while a turn is running.
-- [ ] Make queued follow-up input run after the current turn.
-- [ ] Make `Ctrl+T` toggle the running input target between steering and
+- [x] Wire keyboard events through one update path.
+- [x] Make `Enter` submit or accept the focused selection based on focus state.
+- [x] Make stop/cancel settle into stable transcript rows.
+- [x] Make queued input visible while a turn is running.
+- [x] Make queued follow-up input run after the current turn.
+- [x] Make `Ctrl+T` toggle the running input target between steering and
       follow-up.
-- [ ] Make command/file suggestions disappear predictably after submit, escape,
+- [x] Make command/file suggestions disappear predictably after submit, escape,
       or invalid draft state.
-- [ ] Ensure mouse/wheel input affects only focused bounded surfaces.
-- [ ] Ensure resize rebuilds rows from semantic view state.
-- [ ] Route transcript lens scroll keys and wheel events only while the lens is
+- [x] Ensure mouse/wheel input affects only focused bounded surfaces.
+- [x] Ensure resize rebuilds rows from semantic view state.
+- [x] Route transcript lens scroll keys and wheel events only while the lens is
       focused.
-- [ ] Route setup form field changes through app messages so form state remains
+- [x] Route setup form field changes through app messages so form state remains
       inspectable and testable.
-- [ ] Route table/list selection events through the same focus model as command
+- [x] Route table/list selection events through the same focus model as command
       and file pickers.
 
 ## P6: Tests
