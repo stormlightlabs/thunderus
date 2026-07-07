@@ -3,6 +3,7 @@
 Status: Draft
 Owner: thndrs maintainers
 Captured: 2026-07-03
+Updated: 2026-07-07
 
 ## Background
 
@@ -27,6 +28,12 @@ Reference review points to a more specific direction:
   would be premature as first-screen UI.
 - Aider contributes practical coding flow: repo orientation, command help,
   diffs, lint/test feedback, and undo/review loops.
+- iocraft contributes a declarative component model, `element!` and
+  `component` macros, built-in `View`, `Text`, `MixedText`, `TextInput`,
+  `ScrollView`, hooks, Taffy-backed flexbox layout, `Canvas` rendering, and
+  mock-terminal testing. Its ideas are especially relevant to bounded prompt
+  accessories, setup flows, structured transcript content, and focused
+  surfaces, where the current row builder code can become noisy.
 
 The conclusion is not "add everything." The UI should stay small, but it needs
 to make the agent easier to operate, inspect, interrupt, and trust.
@@ -47,6 +54,9 @@ as `thndrs` handles real coding work:
   tone;
 - richer surfaces must coexist with native scrollback and the row-first
   renderer from the rendering-engine milestone.
+- direct adoption of iocraft's fullscreen/render-loop model could conflict
+  with `thndrs`' native scrollback and live-region architecture if it replaces
+  the renderer wholesale too early.
 
 ## Milestone Outcome
 
@@ -110,6 +120,13 @@ navigation.
 Stop, retry, queue, approve, and inspect controls should only appear when the
 runtime can honor them. If execution is local-user execution, the UI should say
 that plainly instead of implying a stronger sandbox.
+
+### Declarative Where It Clarifies
+
+Use iocraft-style composition where the UI is a bounded control surface with
+local focus, layout, and scroll behavior. Keep committed transcript rows as
+explicit semantic rows. A declarative surface is a tool for reducing layout
+noise, not permission to hide terminal edge cases behind a framework.
 
 ## Screen Model
 
@@ -188,6 +205,200 @@ Focused surfaces are bounded and temporary:
 They may capture wheel/scroll keys while focused. They should always show a
 clear escape path and return focus to the prompt.
 
+## iocraft Incorporation
+
+The feature incorporates `docs/src/content/docs/notebook/iocraft.md` as an
+approved implementation source for richer bounded UI surfaces. The decision is
+made: use iocraft directly for focused surfaces, setup/recovery forms,
+structured table rendering, and a scrollable transcript/detail lens behind a
+small renderer adapter. Keep the committed transcript renderer row-owned until
+iocraft can meet the scrollback contract without weakening snapshots or row
+grouping.
+
+### Current Research Facts
+
+- iocraft 0.8.3 uses crossterm 0.29, matching `thndrs`' current terminal
+  backend dependency.
+- iocraft also brings Taffy 0.5, futures, generational-box, regex,
+  iocraft-macros, and its own color/component/canvas abstractions.
+- Its `ElementExt::render` can render an element to a `Canvas`; `Canvas` can be
+  inspected, converted to plain text, or written with ANSI output.
+- `ElementExt::mock_terminal_render_loop` plus `MockTerminalConfig` can drive
+  terminal events into a component and return a stream of canvases for tests.
+- `ScrollView` already models bounded scrolling with keyboard and mouse
+  support, which maps well to tool detail, diff detail, and help.
+- The `examples/scrolling.rs` pattern combines a column `View`, centered
+  instructions, a fixed-height bordered `ScrollView`, keyboard navigation, and
+  opt-in mouse capture. This is directly relevant to transcript browsing and
+  long-output detail, but it should be bounded and focus-owned rather than
+  silently replacing native terminal scrollback.
+- The `examples/form.rs` pattern uses reusable focused fields, `TextInput`,
+  multiline input, Tab/BackTab focus cycling, focused borders, submit handling,
+  and mutable output props. This maps well to setup commands, provider login
+  flows, first-run recovery, and multi-step configuration prompts.
+- The `examples/table.rs` pattern uses flex percentages, per-column alignment,
+  a header separator, alternating row backgrounds, bold/underlined headings,
+  and data passed by reference. This is useful for richer markdown tables,
+  model/provider lists, tool inventories, command help, search results, and
+  structured diagnostics.
+- `TextInput` is promising for simple forms and command fields, but the main
+  `thndrs` prompt has custom needs: multi-line editing, history, queued
+  follow-ups, hidden credential input, mentions, suggestions, streaming state,
+  and exact cursor placement.
+
+### Adoption Strategy
+
+Use a three-layer implementation path:
+
+1. **Semantic view records first.** Add renderer-owned transcript, prompt,
+   orientation, focused-surface, setup-form, and table records. These records
+   remain the app/renderer boundary and are independent of iocraft.
+2. **iocraft adapter second.** Add iocraft as the bounded-surface renderer.
+   Render iocraft elements to an inspectable `Canvas`, then convert that canvas
+   into existing `Row`/`Span` output. The adapter keeps `LiveRegion`, native
+   scrollback, `Frame`, `RowGroupId`, and backend escape handling intact.
+3. **Surface migration third.** Move help, pickers, setup/recovery forms,
+   tool/diff details, transcript lens, markdown tables, diagnostics, and small
+   prompt accessories onto the iocraft adapter where it makes the code clearer.
+   The main committed transcript stays direct-row until it can preserve the
+   current scrollback and snapshot guarantees.
+
+Do not replace the committed transcript renderer with iocraft as the first
+move. Transcript rows need stable row grouping, native scrollback, append-only
+history behavior, and exact snapshot control. A richer iocraft-backed
+transcript lens is acceptable if it is explicitly opened, bounded, and shares
+the same semantic `TranscriptView` data as the committed rows.
+
+### Surface Ownership
+
+Use this ownership split:
+
+- **Direct row renderer:** committed transcript rows, live streaming previews,
+  final prompt frame assembly, backend cursor movement, terminal resizing, and
+  any row that must become native scrollback.
+- **iocraft-backed surfaces:** help, command picker, file picker, model picker,
+  skill picker, permission prompt, first-run setup choices, setup command
+  forms, tool detail, diff detail, transcript lens, markdown tables,
+  structured diagnostics, and small inline prompt accessories where the adapter
+  keeps state and cursor behavior simple.
+- **Main prompt editor boundary:** do not migrate the main prompt editor to
+  iocraft `TextInput` in this feature. `TextInput` is approved for setup forms,
+  but the main prompt keeps the direct renderer until it can match existing
+  cursor, Unicode, hidden-input, history, and suggestion tests.
+
+### Example-Driven Applications
+
+#### Scrollable Transcript And Detail
+
+Use the `scrolling.rs` example as a model for bounded, focus-owned scroll:
+
+- `Ctrl+O` can open a scrollable transcript/detail lens when the latest
+  expandable item is long output, a diff, a failed tool, or a transcript group.
+- The lens should show a compact title/instruction row, content in a fixed
+  height, and a visible clipped-content indicator.
+- Arrow/Page/Home/End keys scroll only while the lens is focused.
+- Mouse wheel support is optional and must follow the existing
+  `--mouse`/`--no-mouse` rules: capture only while a surface needs it.
+- The default transcript still commits plain rows to terminal history.
+
+This can improve transcript polish without forcing every transcript interaction
+into an internal scroll pane.
+
+#### Setup And Recovery Forms
+
+Use the `form.rs` example as a model for setup commands:
+
+- reusable field rows with label, value, focus state, validation state, and
+  hidden/secret mode;
+- Tab/BackTab field cycling;
+- multiline field support where needed for pasted config or instructions;
+- focused border or prefix treatment that does not depend on color alone;
+- submit/cancel actions as explicit focused controls;
+- output written back through app messages, not directly from an iocraft render
+  loop.
+
+This should replace ad hoc first-run/setup prompt rows only after it handles
+secret input, cancellation, validation errors, and tiny-height terminals.
+
+#### Structured Markdown And Tables
+
+Use the `table.rs` example as a model for rich structured output:
+
+- parse markdown tables into semantic table blocks instead of preserving them
+  only as wrapped plain text;
+- allocate columns with fixed, percent, and flexible width rules;
+- align numeric/status columns right and text columns left;
+- use a header separator and subtle alternating row treatment where the active
+  theme has enough contrast;
+- fall back to plain wrapped text when a table is too narrow to remain legible.
+
+The table renderer should also be reused for command help, model/provider
+lists, tool inventories, and diagnostics so table layout work pays for more
+than markdown alone.
+
+### Theme Integration
+
+The existing `Theme` CLI/config value remains the only source of theme
+selection. `src/cli/renderer/style.rs` should grow semantic tokens above the
+current raw `Palette`, then both direct rows and any iocraft surfaces should
+consume those tokens.
+
+Required shape:
+
+```rust
+pub struct UiTheme {
+    pub palette: Palette,
+    pub rows: RowTheme,
+    pub prompt: PromptTheme,
+    pub surfaces: SurfaceTheme,
+    pub status: StatusTheme,
+    pub diff: DiffTheme,
+}
+```
+
+The exact names can differ, but the boundary should not: role-level theme
+tokens are produced once from `Theme`, then adapted outward.
+
+Direct rows consume `CellStyle`. iocraft surfaces use an adapter that maps the
+same role tokens into iocraft colors, text weights, border styles, padding, and
+selected-row styles. iocraft components should receive theme data through
+explicit props or context; they should not call global palette functions
+directly. This keeps theme snapshots deterministic and makes it possible to
+test every built-in theme against both render paths.
+
+### Layout Integration
+
+Use flexbox/Taffy ideas for bounded surface allocation, not for transcript
+wrapping:
+
+- transcript wrapping stays in `src/cli/renderer/layout.rs` so row grouping,
+  Unicode width handling, and scrollback snapshots stay deterministic;
+- focused surfaces may use fixed height, max height, gap, padding, and
+  grow/shrink rules modeled after iocraft `View`/Taffy layout;
+- tiny-height behavior must be explicit: title row, one body row if available,
+  escape hint, and clipped content indicator;
+- `ScrollView`-like behavior should apply only while a focused surface owns
+  focus or while mouse capture is temporarily enabled;
+- table layout should use explicit column specs and truncation rules rather
+  than unconstrained wrapping inside every cell;
+- form layout should degrade from label/value rows to stacked labels on narrow
+  terminals before clipping input values.
+
+### Testing Integration
+
+Keep the existing `Frame::render_styled()` snapshots as the contract for the
+direct renderer. Add iocraft canvas/mock-terminal tests for surfaces rendered
+through the adapter.
+
+The integration proof must demonstrate:
+
+- themed surface output can be converted into `Row`/`Span` without losing
+  selected-row, muted, error, diff, or border semantics;
+- keyboard and mouse events can be represented in existing app update messages;
+- mock terminal or canvas snapshots cover normal, narrow, tiny, and Unicode
+  cases;
+- no iocraft render loop writes directly to stdout/stderr in the `thndrs` TUI.
+
 ## Interaction Model
 
 ### Keyboard
@@ -251,6 +462,15 @@ When the agent edits files:
   `local user · workspace-contained tools · no TUI sandbox`. This matches the
   current security docs: file tools are workspace-contained, shell commands run
   as the `thndrs` process user, and the TUI is not a security boundary.
+- **iocraft adoption:** Use iocraft directly for bounded UI surfaces through a
+  renderer adapter. The initial iocraft-backed surfaces are transcript/detail
+  lens, setup/recovery forms, structured tables, help, pickers, tool detail,
+  and diff detail. Do not use iocraft's fullscreen/render-loop path inside the
+  `thndrs` TUI.
+- **Transcript ownership:** Preserve the direct row renderer for committed
+  transcript history in this feature. iocraft can improve transcript browsing
+  through an explicit focused lens, but the default transcript remains
+  native-scrollback-friendly.
 
 ## Visual Direction
 
@@ -311,6 +531,24 @@ The exact Rust names can differ, but the boundary should stay: app state is
 projected into simple renderer-owned view data, then rows are built from that
 view.
 
+For iocraft-backed focused surfaces, the adapter boundary is:
+
+```rust
+pub struct SurfaceRenderInput<'a> {
+    pub theme: &'a UiTheme,
+    pub width: usize,
+    pub height: usize,
+    pub focus: FocusedSurface,
+}
+
+pub trait SurfaceRenderer {
+    fn render_surface(&mut self, input: SurfaceRenderInput<'_>) -> Vec<Row>;
+}
+```
+
+The actual names can differ. The important rule is that iocraft stays behind a
+renderer adapter and never becomes a second app state owner.
+
 ### Rendering
 
 - Keep transcript formatting separate from viewport commit logic.
@@ -318,6 +556,12 @@ view.
 - Keep focused-surface rendering bounded by terminal height.
 - Treat terminal width changes as row-rebuild events.
 - Keep backend escape handling mechanical.
+- Do not use iocraft's fullscreen/render-loop path inside the `thndrs` TUI.
+  Render elements to an inspectable canvas or equivalent surface, then convert
+  to the existing row/frame contract.
+- Keep iocraft usage narrow: text, mixed text, vertical stack, horizontal row,
+  bordered surface, selectable list, scroll window, form field, and table are
+  enough for this feature.
 
 ### Testing
 
@@ -332,7 +576,9 @@ Use snapshot-heavy testing for:
 - tiny heights;
 - Unicode and long paths;
 - queued follow-ups while streaming;
-- cancellation and retry states.
+- cancellation and retry states;
+- every built-in theme at least once for direct rows and once for an
+  iocraft-backed focused surface.
 
 ## Validation
 
@@ -343,4 +589,6 @@ Before implementation is considered done:
   supported by the rendering-engine milestone;
 - docs explain the visible controls without describing unsupported behavior;
 - no new UI state is added without a test that shows how it renders while idle,
-  running, failed, and narrow.
+  running, failed, and narrow;
+- the iocraft adoption decision remains documented with evidence and clear
+  renderer boundaries.

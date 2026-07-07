@@ -195,19 +195,6 @@ Captured: 2026-07-05
       prompt submission.
 - [ ] Review whether provider validation is cheap enough for setup/login.
 
-## Validation Commands
-
-- [x] `cargo fmt`
-- [x] `cargo clippy --fix --allow-dirty --allow-staged`
-- [x] `cargo clippy`
-- [x] `cargo test auth`
-- [x] `cargo test config`
-- [x] `cargo test cli`
-- [x] `cargo test app`
-- [x] `cargo test renderer`
-- [x] `cargo test providers`
-- [x] `cargo test`
-
 ## Review Checkpoints
 
 - [ ] After P1, review credential file format and precedence before wiring

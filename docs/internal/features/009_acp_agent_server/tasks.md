@@ -245,18 +245,6 @@ setups, and gateway-style agents can be configured as local commands. Revisit
 direct Streamable HTTP, WebSocket, or custom bridge support only when a local
 stdio facade is not acceptable for a real target deployment.
 
-## Validation Commands
-
-- [x] `cargo fmt`
-- [x] `cargo clippy --fix --allow-dirty --allow-staged`
-- [x] `cargo clippy`
-- [x] `cargo test server`
-- [x] `cargo test agent`
-- [x] `cargo test session`
-- [x] `cargo test tools`
-- [x] `cargo test`
-- [x] `cargo run --bin thndrs-acp-server`
-
 ## Review Checkpoints
 
 - [ ] After M1, review SDK ergonomics and runtime assumptions.
