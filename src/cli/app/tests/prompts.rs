@@ -49,9 +49,56 @@ fn prompt_state_errored_after_failure() {
 }
 
 #[test]
-fn tab_is_ignored_in_prompt_mode() {
+fn tab_accepts_prompt_mode_command_suggestion() {
     let mut app = fresh_app();
+    app.input = PromptInput::from("/cl");
+    app.prompt_accessory = PromptAccessory::Commands { selected: 0 };
+
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
+
     assert_eq!(app.mode, Mode::Prompt);
-    assert!(app.input.is_empty());
+    assert_eq!(app.input.as_str(), "/clear ");
+    assert_eq!(app.prompt_accessory, PromptAccessory::None);
+}
+
+#[test]
+fn tab_accepts_command_mode_command_suggestion() {
+    let mut app = fresh_app();
+    app.mode = Mode::Command;
+    app.input = PromptInput::from("cl");
+    app.prompt_accessory = PromptAccessory::Commands { selected: 0 };
+
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
+
+    assert_eq!(app.mode, Mode::Command);
+    assert_eq!(app.input.as_str(), "clear ");
+    assert_eq!(app.prompt_accessory, PromptAccessory::None);
+}
+
+#[test]
+fn tab_accepts_file_mention_completion() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from("edit @ma");
+    app.prompt_accessory = PromptAccessory::Files(FilePickerSource::Mention { token_start: 5 });
+    app.picker = Some(PickerState::new(
+        vec![PickerItem::new("main.rs".to_string(), String::new())],
+        10,
+    ));
+
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
+
+    assert_eq!(app.input.as_str(), "edit @main.rs ");
+    assert_eq!(app.prompt_accessory, PromptAccessory::None);
+    assert!(app.picker.is_none());
+}
+
+#[test]
+fn tab_is_noop_without_active_suggestion() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from("hello");
+
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
+
+    assert_eq!(app.mode, Mode::Prompt);
+    assert_eq!(app.input.as_str(), "hello");
 }

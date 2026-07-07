@@ -14,9 +14,10 @@ These shortcuts work from any mode unless otherwise noted.
 
 | Key                | Description                                                |
 | ------------------ | ---------------------------------------------------------- |
-| `Ctrl+C`           | Quit immediately                                           |
+| `Ctrl+C`           | Cancel a running stream; quit when idle                    |
 | `Ctrl+D`, `Ctrl+D` | Show quit confirmation; press again to quit                |
 | `Ctrl+T`           | Toggle the running input target (`steering` / `follow-up`) |
+| `Ctrl+O`           | Open the focused detail surface (tool output, failed/truncated previews) |
 | `?`                | Open help overlay (only when the prompt is empty)          |
 | `:`                | Enter command mode (only when idle or after an error)      |
 
@@ -32,6 +33,7 @@ Cursor movement and text editing while in the prompt.
 | `Alt+Right`, `Ctrl+Right`, or `Alt+F` | Move cursor to the end of the next word                |
 | `Home` or `Ctrl+A`                    | Move cursor to the start of the line                   |
 | `End` or `Ctrl+E`                     | Move cursor to the end of the line                     |
+| `Tab`                                 | Accept the active suggestion (`:` command or `@` path)  |
 | `Shift+Enter` or `Ctrl+J`             | Insert a newline in a multi-line prompt                |
 | `Enter`                               | Submit the current prompt                              |
 | `Backspace`                           | Delete the character before the cursor                 |
@@ -71,6 +73,7 @@ Commands currently include `clear`, `quit`, `exit`, `help`, `bg`, and `model`.
 | `Esc`                   | Cancel command and return to prompt               |
 | `Backspace`             | Delete last character, or cancel command if empty |
 | `Enter`                 | Execute the typed command                         |
+| `Tab`                   | Accept completion for the active command suggestion |
 | Any printable character | Append to the command buffer                      |
 
 ## File Picker

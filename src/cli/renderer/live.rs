@@ -622,6 +622,7 @@ pub fn static_status_row(app: &App, width: usize) -> Row {
     let p = super::style::palette();
     let bg = p.surface0;
     let subtext = CellStyle::new().fg(p.subtext0).bg(bg);
+    let trust_text = "local user · workspace-contained tools · no TUI sandbox";
     let muted = CellStyle::new().fg(p.overlay0).bg(bg);
     let model_label = format!("model: {}", app.model);
     let search_label = app.websearch.label();
@@ -633,54 +634,61 @@ pub fn static_status_row(app: &App, width: usize) -> Row {
     let ttft_style = CellStyle::new().fg(p.teal).bg(bg);
     let git_style = CellStyle::new().fg(p.green).bg(bg);
 
-    let (show_model, show_search, show_tokens, show_ttft, show_git, show_cwd) = match width {
-        w if w < 24 => (false, false, false, false, false, false),
-        w if w < 42 => (true, false, false, false, false, false),
-        w if w < 56 => (true, true, false, false, false, false),
-        w if w < 72 => (true, true, true, false, false, false),
-        w if w < 88 => (true, true, true, false, true, false),
-        w if w < 96 => (true, true, true, true, true, false),
-        _ => (true, true, true, true, true, true),
+    let (show_model, show_search, show_tokens, show_ttft, show_git, show_cwd, show_trust) = match width {
+        w if w < 24 => (false, false, false, false, false, false, false),
+        w if w < 42 => (true, false, false, false, false, false, false),
+        w if w < 56 => (true, true, false, false, false, false, false),
+        w if w < 72 => (true, true, true, false, false, false, false),
+        w if w < 88 => (true, true, true, false, true, false, false),
+        w if w < 96 => (true, true, true, true, true, false, false),
+        w if w < 160 => (true, true, true, true, true, true, false),
+        _ => (true, true, true, true, true, true, true),
     };
 
-    let model_len = utils::text_width(&model_label);
-    let search_len = utils::text_width(&search_text);
-    let token_len = utils::text_width(&token_text);
-    let ttft_len = ttft_text.as_ref().map_or(0, |text| utils::text_width(text));
-    let git_len = git_text.as_ref().map_or(0, |text| utils::text_width(text));
-
     let mut spans: Vec<Span> = Vec::new();
+    let mut used = LIVE_INSET;
     spans.push(Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(bg)));
+
+    let mut push_segment = |text: &str, style: CellStyle, used: &mut usize| {
+        let segment_len = utils::text_width(text);
+        if *used == LIVE_INSET {
+            *used = used.saturating_add(segment_len);
+            spans.push(Span::styled(text.to_string(), style));
+            return;
+        }
+
+        let separator_len = 3;
+        if *used + separator_len + segment_len > width {
+            return;
+        }
+
+        spans.push(Span::styled("   ", CellStyle::new().bg(bg)));
+        spans.push(Span::styled(text.to_string(), style));
+        *used = used.saturating_add(separator_len + segment_len);
+    };
+
     if show_model {
-        spans.push(Span::styled(model_label, subtext));
+        push_segment(&model_label, subtext, &mut used);
     }
     if show_search {
-        spans.push(Span::styled("   ", CellStyle::new().bg(bg)));
-        spans.push(Span::styled(search_text, subtext));
+        push_segment(&search_text, subtext, &mut used);
     }
     if show_tokens {
-        spans.push(Span::styled("   ", CellStyle::new().bg(bg)));
-        spans.push(Span::styled(token_text, token_style));
+        push_segment(&token_text, token_style, &mut used);
     }
     if show_ttft && let Some(ttft_text) = ttft_text {
-        spans.push(Span::styled("   ", CellStyle::new().bg(bg)));
-        spans.push(Span::styled(ttft_text, ttft_style));
+        push_segment(&ttft_text, ttft_style, &mut used);
     }
     if show_git && let Some(git_text) = git_text {
-        spans.push(Span::styled("   ", CellStyle::new().bg(bg)));
-        spans.push(Span::styled(git_text, git_style));
+        push_segment(&git_text, git_style, &mut used);
+    }
+    if show_trust {
+        push_segment(trust_text, subtext, &mut used);
     }
     if show_cwd {
-        spans.push(Span::styled("   ", CellStyle::new().bg(bg)));
-        let used = model_len
-            + LIVE_INSET
-            + if show_search { search_len + 3 } else { 0 }
-            + if show_tokens { token_len + 3 } else { 0 }
-            + if show_ttft && ttft_len > 0 { ttft_len + 3 } else { 0 }
-            + if show_git && git_len > 0 { git_len + 3 } else { 0 }
-            + 6;
+        let mut used = used + 6;
         let cwd_display = super::path_display::footer_segment(&app.cwd, width, used);
-        spans.push(Span::styled(cwd_display, muted));
+        push_segment(&cwd_display, muted, &mut used);
     }
 
     Row::padded(spans, width, bg_style(bg))
@@ -1155,21 +1163,23 @@ mod tests {
     fn static_status_row_width_thresholds_control_segments() {
         let app = test_app();
         let cases = [
-            (23, false, false, false, false, false, false),
-            (24, true, false, false, false, false, false),
-            (41, true, false, false, false, false, false),
-            (42, true, true, false, false, false, false),
-            (55, true, true, false, false, false, false),
-            (56, true, true, true, false, false, false),
-            (71, true, true, true, false, false, false),
-            (72, true, true, true, false, true, false),
-            (87, true, true, true, false, true, false),
-            (88, true, true, true, false, true, false),
-            (95, true, true, true, false, true, false),
-            (96, true, true, true, false, true, true),
+            (23, false, false, false, false, false, false, false),
+            (24, true, false, false, false, false, false, false),
+            (41, true, false, false, false, false, false, false),
+            (42, true, true, false, false, false, false, false),
+            (55, true, true, false, false, false, false, false),
+            (56, true, true, true, false, false, false, false),
+            (71, true, true, true, false, false, false, false),
+            (72, true, true, true, false, true, false, false),
+            (87, true, true, true, false, true, false, false),
+            (88, true, true, true, false, true, false, false),
+            (95, true, true, true, false, true, false, false),
+            (96, true, true, true, false, true, true, false),
+            (159, true, true, true, false, true, true, false),
+            (160, true, true, true, false, true, true, true),
         ];
 
-        for (width, model, search, tokens, ttft, git, cwd) in cases {
+        for (width, model, search, tokens, ttft, git, cwd, trust) in cases {
             let text = static_status_row(&app, width).text();
             assert_eq!(
                 text.contains("model:"),
@@ -1189,7 +1199,23 @@ mod tests {
             assert_eq!(text.contains("ttft:"), ttft, "TTFT visibility at width {width}: {text}");
             assert_eq!(text.contains("git:"), git, "git visibility at width {width}: {text}");
             assert_eq!(text.contains("cwd:"), cwd, "cwd visibility at width {width}: {text}");
+            assert_eq!(
+                text.contains("local user"),
+                trust,
+                "trust visibility at width {width}: {text}"
+            );
         }
+    }
+
+    #[test]
+    fn static_status_row_shows_trust_at_very_wide_width() {
+        let app = test_app();
+        let text = static_status_row(&app, 220).text();
+
+        assert!(
+            text.contains("local user · workspace-contained tools · no TUI sandbox"),
+            "trust label should be visible on very wide terminals"
+        );
     }
 
     #[test]

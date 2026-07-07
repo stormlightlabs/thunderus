@@ -312,6 +312,25 @@ fn ctrl_c_sets_quit_flag() {
 }
 
 #[test]
+fn ctrl_c_cancels_running_stream() {
+    let mut app = fresh_app();
+    app.run_state = RunState::Working;
+
+    update(
+        &mut app,
+        &Msg::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
+    );
+
+    assert!(!app.quit, "Ctrl+C while running should not quit immediately");
+    assert_eq!(app.run_state, RunState::Stopping);
+    assert!(
+        app.transcript
+            .iter()
+            .any(|entry| matches!(entry, Entry::Status { text } if text == "cancelled"))
+    );
+}
+
+#[test]
 fn ctrl_d_first_press_shows_confirmation() {
     let mut app = fresh_app();
     update(

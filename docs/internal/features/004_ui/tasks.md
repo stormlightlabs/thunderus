@@ -24,34 +24,32 @@ Updated: 2026-07-07
       table surface.
 - [x] Decide and document the iocraft integration mode: direct iocraft-backed
       bounded surfaces through a renderer adapter.
-- [ ] Implement queued follow-ups as summary-only after submission.
-- [ ] Preserve existing keybindings from `usage/keybinds.md` and implement only
+- [x] Implement queued follow-ups as summary-only after submission.
+- [x] Preserve existing keybindings from `usage/keybinds.md` and implement only
       the UI-feature deltas from the [plan](./plan.md): running-turn `Ctrl+C`, `Ctrl+O`,
       suggestion `Tab`, and inline `@` file mentions.
-- [ ] Render the trust label as
-      `local user · workspace-contained tools · no TUI sandbox`.
 
 ## P1: Implement View State
 
-- [ ] Add renderer-owned view records for transcript rows, prompt surface,
+- [x] Add renderer-owned view records for transcript rows, prompt surface,
       orientation band, and focused surfaces.
-- [ ] Keep view records free of terminal backend and crossterm types.
-- [ ] Map app/runtime events into stable row kinds before formatting rows.
-- [ ] Represent running, succeeded, failed, and cancelled tool states in view
+- [x] Keep view records free of terminal backend and crossterm types.
+- [x] Map app/runtime events into stable row kinds before formatting rows.
+- [x] Represent running, succeeded, failed, and cancelled tool states in view
       data.
-- [ ] Represent edit and diff summary states in view data.
-- [ ] Represent queued follow-up state in view data.
-- [ ] Represent prompt suggestions for `:` command mode and `@` file mentions.
-- [ ] Add narrow-width truncation metadata for status/orientation fields.
-- [ ] Add view records for setup/recovery forms: fields, focus index,
+- [x] Represent edit and diff summary states in view data.
+- [x] Represent queued follow-up state in view data.
+- [x] Represent prompt suggestions for `:` command mode and `@` file mentions.
+- [x] Add narrow-width truncation metadata for status/orientation fields.
+- [x] Add view records for setup/recovery forms: fields, focus index,
       validation errors, hidden/secret values, submit/cancel actions, and
       completion state.
-- [ ] Add view records for semantic tables: header, rows, column alignment,
+- [x] Add view records for semantic tables: header, rows, column alignment,
       width policy, selected row when applicable, and narrow fallback text.
-- [ ] Add a renderer adapter boundary for iocraft surfaces that accepts
+- [x] Add a renderer adapter boundary for iocraft surfaces that accepts
       semantic view data plus theme/width/height and returns existing `Row`
       values.
-- [ ] Ensure iocraft never owns app state or writes directly to stdout/stderr
+- [x] Ensure iocraft never owns app state or writes directly to stdout/stderr
       inside the TUI.
 
 ## P2: Build Transcript And Tool Rows

@@ -926,7 +926,7 @@ pub fn command_suggestions_for_app(app: &App) -> Vec<(&'static str, &'static str
         .collect()
 }
 
-/// - Ctrl+C always quits immediately, even mid-input.
+/// - Ctrl+C cancels a running agent stream, otherwise quits.
 /// - Ctrl+D requires a double-press: the first press shows a confirmation
 ///   message; the second press within [`QUIT_CONFIRM_TIMEOUT_TICKS`] ticks
 ///   quits. Any other key (or timeout) cancels the pending state.
@@ -938,8 +938,17 @@ pub fn command_suggestions_for_app(app: &App) -> Vec<(&'static str, &'static str
 /// - Up/Down recall prompt history.
 fn handle_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+        if app.run_state == RunState::Working {
+            cancel_stream(app);
+            return None;
+        }
         app.quit = true;
         return Some(Msg::Quit);
+    }
+
+    if key.code == KeyCode::Char('o') && key.modifiers.contains(KeyModifiers::CONTROL) {
+        open_detail_surface(app);
+        return None;
     }
 
     if key.code == KeyCode::Char('d')
@@ -1220,6 +1229,10 @@ fn handle_command_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
             }
             None
         }
+        KeyCode::Tab => {
+            accept_prompt_suggestion(app);
+            None
+        }
         KeyCode::Enter => {
             let text = app.input.as_str().trim().to_string();
             app.input.clear();
@@ -1467,10 +1480,7 @@ fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
             None
         }
         KeyCode::Enter => handle_submit(app),
-        KeyCode::Tab => {
-            toggle_detail_pane(app);
-            None
-        }
+        KeyCode::Tab => accept_prompt_suggestion(app),
         KeyCode::Esc if app.run_state == RunState::Working => {
             cancel_stream(app);
             None
@@ -1506,6 +1516,28 @@ fn accept_command_suggestion(app: &mut App) -> Option<Msg> {
     app.input.set_text(&replacement);
     app.prompt_accessory = PromptAccessory::None;
     None
+}
+
+/// Accept the active prompt suggestion based on current accessory focus.
+///
+/// The prompt can surface command suggestions (`:` / slash-mode) and file
+/// mention suggestions (`@path`). This helper keeps the selection model
+/// centralized and safely no-ops when no suggestion is available.
+fn accept_prompt_suggestion(app: &mut App) -> Option<Msg> {
+    match app.prompt_accessory {
+        PromptAccessory::Commands { selected: _ } => accept_command_suggestion(app),
+        PromptAccessory::Files(_) => {
+            accept_file_suggestion(app);
+            None
+        }
+        PromptAccessory::None | PromptAccessory::Help | PromptAccessory::Models | PromptAccessory::Skills => {
+            if app.mode == Mode::Command || app.input.as_str().starts_with('/') {
+                accept_command_suggestion(app)
+            } else {
+                None
+            }
+        }
+    }
 }
 
 fn open_file_picker(app: &mut App, source: FilePickerSource) {
@@ -2217,26 +2249,42 @@ fn remove_recovery_credential(app: &mut App, recovery: &FirstRunRecovery) {
     }
 }
 
-/// Find the index of the most recent `Entry::Tool` in the transcript.
-fn last_tool_entry_index(app: &App) -> Option<usize> {
-    app.transcript
-        .iter()
-        .rposition(|entry| matches!(entry, Entry::Tool { .. }))
-}
-
-/// Toggle the detail pane on the most recent tool entry.
+/// Open the highest-priority detail surface target.
 ///
-/// When opening, the pane targets the last `Entry::Tool` in the transcript
-/// and resets the scroll offset. When closing, it clears the open flag.
-fn toggle_detail_pane(app: &mut App) {
-    let Some(index) = last_tool_entry_index(app) else {
+/// Priority:
+/// 1. Failed tool output.
+/// 2. Tool output that is likely truncated in the live transcript preview.
+/// 3. Latest available tool output.
+fn open_detail_surface(app: &mut App) {
+    let Some(index) = next_detail_target(app) else {
         return;
     };
-    if app.detail_pane.open && app.detail_pane.entry_index == index {
-        app.detail_pane.open = false;
-    } else {
-        app.detail_pane = DetailPane { entry_index: index, scroll: 0, open: true };
+    app.detail_pane = DetailPane { entry_index: index, scroll: 0, open: true };
+}
+
+fn next_detail_target(app: &App) -> Option<usize> {
+    const TOOL_PREVIEW_LINES: usize = 6;
+
+    let mut fallback = None;
+    let mut truncated = None;
+
+    for (index, entry) in app.transcript.iter().enumerate().rev() {
+        let Entry::Tool { status, output, .. } = entry else {
+            continue;
+        };
+
+        fallback.get_or_insert(index);
+
+        if matches!(status, ToolStatus::Failed) {
+            return Some(index);
+        }
+
+        if output.len() > TOOL_PREVIEW_LINES && truncated.is_none() {
+            truncated = Some(index);
+        }
     }
+
+    truncated.or(fallback)
 }
 
 /// Handle keys while the detail pane is open.

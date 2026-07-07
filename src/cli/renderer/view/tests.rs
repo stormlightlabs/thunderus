@@ -3,7 +3,10 @@ use crate::app::{
 };
 use crate::cli::{Cli, Theme, WebSearchMode};
 use crate::renderer;
-use crate::renderer::view::build_view;
+use crate::renderer::view::{
+    FocusedSurfaceView, PromptStatusView, PromptSuggestionKind, ToolRunState, TranscriptRowKind, TruncationPolicy,
+    build_view,
+};
 use std::path::PathBuf;
 
 fn test_app() -> App {
@@ -580,4 +583,163 @@ fn build_view_view_dimensions_match_input() {
 
     assert_eq!(view.width, 72);
     assert_eq!(view.height, 30);
+}
+
+#[test]
+fn semantic_view_maps_transcript_row_kinds_and_tool_states() {
+    let mut app = test_app();
+    app.transcript.push(Entry::User { text: "hello".to_string() });
+    app.transcript
+        .push(Entry::Agent { text: "answer".to_string(), streaming: false });
+    app.transcript
+        .push(Entry::Reasoning { text: "thinking".to_string(), streaming: true });
+    app.transcript.push(Entry::Tool {
+        name: "run_shell".to_string(),
+        arguments: r#"{"program":"cargo test"}"#.to_string(),
+        status: ToolStatus::Failed,
+        output: vec!["failure".to_string()],
+    });
+    app.transcript.push(Entry::Status { text: "cancelled".to_string() });
+
+    let view = build_view(&app, 80, 24);
+    let rows = &view.semantic.transcript.rows;
+
+    assert_eq!(rows[0].kind, TranscriptRowKind::User);
+    assert_eq!(rows[1].kind, TranscriptRowKind::Assistant);
+    assert_eq!(rows[2].kind, TranscriptRowKind::Reasoning);
+    assert!(!rows[2].stable, "streaming reasoning should be semantic-live");
+    assert_eq!(rows[3].kind, TranscriptRowKind::Tool);
+    assert_eq!(
+        rows[3].tool.as_ref().map(|tool| tool.status),
+        Some(ToolRunState::Failed)
+    );
+    assert_eq!(rows[4].kind, TranscriptRowKind::Cancelled);
+}
+
+#[test]
+fn semantic_view_represents_edit_and_diff_summaries() {
+    let mut app = test_app();
+    app.transcript.push(Entry::Tool {
+        name: "replace_range#tool1".to_string(),
+        arguments: r#"{"path":"src/lib.rs"}"#.to_string(),
+        status: ToolStatus::Ok,
+        output: vec![
+            "wrote update: src/lib.rs".to_string(),
+            "--- a/src/lib.rs".to_string(),
+            "+++ b/src/lib.rs".to_string(),
+            "-old".to_string(),
+            "+new".to_string(),
+        ],
+    });
+
+    let view = build_view(&app, 80, 24);
+    let row = &view.semantic.transcript.rows[0];
+
+    assert_eq!(row.kind, TranscriptRowKind::Diff);
+    assert_eq!(
+        row.edit.as_ref().and_then(|edit| edit.path.as_deref()),
+        Some("src/lib.rs")
+    );
+    let diff = row.diff.as_ref().expect("diff summary");
+    assert_eq!(diff.files, vec!["src/lib.rs"]);
+    assert_eq!(diff.added, 1);
+    assert_eq!(diff.removed, 1);
+}
+
+#[test]
+fn semantic_prompt_has_queued_summary_without_queued_text() {
+    let mut app = test_app();
+    app.run_state = RunState::Working;
+    app.queued_followups.push("do the private next thing".to_string());
+    app.queued_steering.push("steer quietly".to_string());
+
+    let view = build_view(&app, 80, 24);
+    let prompt = &view.semantic.prompt;
+    let queued = prompt.queued.as_ref().expect("queued summary");
+
+    assert_eq!(prompt.status, PromptStatusView::Queued);
+    assert_eq!(queued.steering_count, 1);
+    assert_eq!(queued.followup_count, 1);
+    assert_eq!(queued.target, "follow-up");
+    assert!(
+        !format!("{prompt:?}").contains("do the private next thing"),
+        "semantic queued state should be summary-only"
+    );
+}
+
+#[test]
+fn semantic_prompt_represents_command_suggestions() {
+    let mut app = test_app();
+    app.mode = crate::app::Mode::Command;
+    app.input.set_text("he");
+    app.prompt_accessory = PromptAccessory::Commands { selected: 0 };
+
+    let view = build_view(&app, 80, 24);
+    let suggestions = &view.semantic.prompt.suggestions;
+
+    assert_eq!(view.semantic.prompt.status, PromptStatusView::Suggesting);
+    assert!(
+        suggestions
+            .iter()
+            .any(|suggestion| suggestion.kind == PromptSuggestionKind::Command && suggestion.label == "help")
+    );
+}
+
+#[test]
+fn semantic_prompt_represents_file_mention_suggestions() {
+    let mut app = test_app();
+    app.input.set_text("read @src");
+    app.prompt_accessory = PromptAccessory::Files(FilePickerSource::Mention { token_start: 5 });
+    app.picker = Some(PickerState::new(vec![PickerItem::new("src/lib.rs", "library")], 50));
+
+    let view = build_view(&app, 80, 24);
+    let suggestions = &view.semantic.prompt.suggestions;
+
+    assert_eq!(view.semantic.prompt.status, PromptStatusView::Suggesting);
+    assert_eq!(suggestions[0].kind, PromptSuggestionKind::FileMention);
+    assert_eq!(suggestions[0].label, "src/lib.rs");
+}
+
+#[test]
+fn semantic_orientation_has_truncation_metadata() {
+    let app = test_app();
+    let view = build_view(&app, 80, 24);
+    let orientation = &view.semantic.orientation;
+
+    assert!(
+        orientation
+            .fields
+            .iter()
+            .any(|field| field.label == "workspace" && field.truncate == TruncationPolicy::EllipsizeMiddle)
+    );
+    assert!(
+        orientation
+            .fields
+            .iter()
+            .any(|field| field.label == "trust" && field.truncate == TruncationPolicy::Hide)
+    );
+}
+
+#[test]
+fn semantic_focused_surface_represents_tool_detail() {
+    let mut app = test_app();
+    app.transcript.push(Entry::Tool {
+        name: "run_shell".to_string(),
+        arguments: "{}".to_string(),
+        status: ToolStatus::Ok,
+        output: vec!["one".to_string(), "two".to_string()],
+    });
+    app.detail_pane = DetailPane { entry_index: 0, scroll: 1, open: true };
+
+    let view = build_view(&app, 80, 24);
+
+    match &view.semantic.focused_surface {
+        FocusedSurfaceView::ToolDetail(detail) => {
+            assert_eq!(detail.entry_index, 0);
+            assert_eq!(detail.status, ToolRunState::Succeeded);
+            assert_eq!(detail.scroll, 1);
+            assert_eq!(detail.output, vec!["one".to_string(), "two".to_string()]);
+        }
+        other => panic!("expected tool detail surface, got {other:?}"),
+    }
 }
