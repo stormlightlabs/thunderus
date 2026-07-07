@@ -15,6 +15,9 @@ use crate::{renderer, utils};
 /// Maximum tool output lines rendered before a truncation marker is shown.
 const MAX_TOOL_OUTPUT_LINES: usize = 6;
 
+/// Minimum content width where markdown tables remain legible.
+const MIN_TABLE_RENDER_WIDTH: usize = 24;
+
 /// Content width where the startup workbench can use two columns.
 const WIDE_STARTUP_WORKBENCH_WIDTH: usize = 72;
 
@@ -534,6 +537,28 @@ impl ToolBlockView<'_> {
             rows.push(Row::padded(header_spans, width, bg_style(bg)));
         }
 
+        if let Some(summary) = edit_summary_line(name, output, status, cwd) {
+            rows.push(Row::padded(
+                vec![
+                    Span::styled("   edit  ", CellStyle::new().fg(p.overlay0).bg(bg).bold()),
+                    Span::styled(summary, muted_style),
+                ],
+                width,
+                bg_style(bg),
+            ));
+        }
+
+        if let Some(summary) = diff_summary_line(output) {
+            rows.push(Row::padded(
+                vec![
+                    Span::styled("   diff  ", CellStyle::new().fg(p.overlay0).bg(bg).bold()),
+                    Span::styled(summary, muted_style),
+                ],
+                width,
+                bg_style(bg),
+            ));
+        }
+
         match lang {
             Some(lang_str) => {
                 let joined: String = output
@@ -591,6 +616,68 @@ impl ToolBlockView<'_> {
         }
 
         rows
+    }
+}
+
+fn edit_summary_line(name: &str, output: &[String], status: ToolStatus, cwd: &Path) -> Option<String> {
+    let operation = name.split('#').next().unwrap_or(name);
+    let is_edit_tool = matches!(operation, "create_file" | "replace_range" | "write_patch");
+    if !is_edit_tool
+        && !output
+            .iter()
+            .any(|line| line.contains("wrote") || line.contains("replaced"))
+    {
+        return None;
+    }
+    let path = output
+        .iter()
+        .find_map(|line| path_like_suffix(line))
+        .map(|path| super::path_display::transcript_line(&path, cwd))
+        .unwrap_or_else(|| "(path unavailable)".to_string());
+    Some(format!("{operation} {path} [{}]", tool_status_label(status)))
+}
+
+fn diff_summary_line(output: &[String]) -> Option<String> {
+    let mut added = 0usize;
+    let mut removed = 0usize;
+    let mut files = Vec::new();
+    for line in output {
+        if let Some(path) = line.strip_prefix("+++ ") {
+            files.push(path.trim_start_matches("b/").to_string());
+        } else if line.starts_with('+') && !line.starts_with("+++") {
+            added += 1;
+        } else if line.starts_with('-') && !line.starts_with("---") {
+            removed += 1;
+        }
+    }
+    if added == 0 && removed == 0 && files.is_empty() {
+        return None;
+    }
+    files.sort();
+    files.dedup();
+    let file_label = match files.as_slice() {
+        [] => "unknown file".to_string(),
+        [file] => file.clone(),
+        _ => format!("{} files", files.len()),
+    };
+    Some(format!("{file_label} +{added} -{removed}"))
+}
+
+fn path_like_suffix(line: &str) -> Option<String> {
+    line.rsplit_once(": ").map(|(_, path)| path.to_string()).or_else(|| {
+        line.split_whitespace()
+            .last()
+            .filter(|part| part.contains('/'))
+            .map(str::to_string)
+    })
+}
+
+fn tool_status_label(status: ToolStatus) -> &'static str {
+    match status {
+        ToolStatus::Running => "running",
+        ToolStatus::Ok => "ok",
+        ToolStatus::Failed => "failed",
+        ToolStatus::Cancelled => "cancelled",
     }
 }
 
@@ -688,9 +775,12 @@ fn render_markdown_body(markdown: &str, text_style: CellStyle, bg: Color, width:
     let mut in_code_fence = false;
     let mut code_lang: Option<String> = None;
     let mut code_buf = String::new();
+    let mut pending_plain = Vec::new();
+    let mut lines = markdown.lines().peekable();
 
-    for line in markdown.lines() {
+    while let Some(line) = lines.next() {
         if line.starts_with("```") {
+            flush_plain_markdown_lines(&mut rows, &mut pending_plain, text_style, bg, width, body_width);
             if !in_code_fence {
                 in_code_fence = true;
                 let lang_str = line.trim_start_matches('`').trim();
@@ -717,18 +807,32 @@ fn render_markdown_body(markdown: &str, text_style: CellStyle, bg: Color, width:
             continue;
         }
 
-        if line.is_empty() {
-            rows.push(Row::blank(width, bg_style(bg)));
-        } else {
-            for wrapped in super::layout::wrap_text(line, body_width) {
-                rows.push(Row::padded(
-                    vec![Span::styled(wrapped, text_style)],
-                    width,
-                    bg_style(bg),
-                ));
+        if is_markdown_table_separator(line)
+            && !pending_plain.is_empty()
+            && let Some(header) = pending_plain.pop()
+        {
+            let mut table = MarkdownTable::new(&header, line);
+            while let Some(peeked) = lines.peek() {
+                if !is_markdown_table_row(peeked) {
+                    break;
+                }
+                let Some(row_line) = lines.next() else {
+                    break;
+                };
+                table.push_row(row_line);
             }
+            if table.is_valid() {
+                rows.extend(render_markdown_table(&table, bg, width, body_width));
+                continue;
+            }
+            pending_plain.push(header);
+            pending_plain.push(line.to_string());
+        } else {
+            pending_plain.push(line.to_string());
         }
     }
+
+    flush_plain_markdown_lines(&mut rows, &mut pending_plain, text_style, bg, width, body_width);
 
     if in_code_fence && !code_buf.is_empty() {
         let lang = code_lang.as_deref();
@@ -745,6 +849,273 @@ fn render_markdown_body(markdown: &str, text_style: CellStyle, bg: Color, width:
     }
 
     rows
+}
+
+fn flush_plain_markdown_lines(
+    rows: &mut Vec<Row>, pending: &mut Vec<String>, text_style: CellStyle, bg: Color, width: usize, body_width: usize,
+) {
+    for line in pending.drain(..) {
+        if line.is_empty() {
+            rows.push(Row::blank(width, bg_style(bg)));
+        } else {
+            for wrapped in super::layout::wrap_text(&line, body_width) {
+                rows.push(Row::padded(
+                    vec![Span::styled(wrapped, text_style)],
+                    width,
+                    bg_style(bg),
+                ));
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum TableAlign {
+    Left,
+    Right,
+    Center,
+}
+
+struct MarkdownTable {
+    headers: Vec<String>,
+    alignments: Vec<TableAlign>,
+    rows: Vec<Vec<String>>,
+}
+
+impl MarkdownTable {
+    fn new(header: &str, separator: &str) -> Self {
+        Self { headers: parse_table_cells(header), alignments: parse_table_alignments(separator), rows: Vec::new() }
+    }
+
+    fn is_valid(&self) -> bool {
+        self.headers.len() >= 2 && self.headers.len() == self.alignments.len()
+    }
+
+    fn push_row(&mut self, row: &str) {
+        let mut cells = parse_table_cells(row);
+        cells.resize(self.headers.len(), String::new());
+        cells.truncate(self.headers.len());
+        self.rows.push(cells);
+    }
+}
+
+fn render_markdown_table(table: &MarkdownTable, bg: Color, width: usize, body_width: usize) -> Vec<Row> {
+    let p = super::style::palette();
+    let text_style = CellStyle::new().fg(p.text).bg(bg);
+    let header_style = CellStyle::new().fg(p.text).bg(bg).bold().underlined();
+    let separator_style = CellStyle::new().fg(p.overlay0).bg(bg);
+    let muted_style = CellStyle::new().fg(p.subtext0).bg(bg);
+
+    if body_width <= MIN_TABLE_RENDER_WIDTH {
+        return render_table_narrow_fallback(table, text_style, bg, width, body_width);
+    }
+
+    let column_widths = table_column_widths(table, body_width);
+    if column_widths.contains(&0) {
+        return render_table_narrow_fallback(table, text_style, bg, width, body_width);
+    }
+
+    let mut rows = Vec::new();
+    rows.push(table_row(
+        &table.headers,
+        &table.alignments,
+        &column_widths,
+        header_style,
+        separator_style,
+        bg,
+        width,
+    ));
+    rows.push(Row::padded(
+        vec![Span::styled(table_separator(&column_widths), separator_style)],
+        width,
+        bg_style(bg),
+    ));
+    for cells in &table.rows {
+        rows.push(table_row(
+            cells,
+            &table.alignments,
+            &column_widths,
+            text_style,
+            separator_style,
+            bg,
+            width,
+        ));
+    }
+    if table.rows.is_empty() {
+        rows.push(Row::padded(
+            vec![Span::styled("(no rows)", muted_style)],
+            width,
+            bg_style(bg),
+        ));
+    }
+    rows
+}
+
+fn render_table_narrow_fallback(
+    table: &MarkdownTable, text_style: CellStyle, bg: Color, width: usize, body_width: usize,
+) -> Vec<Row> {
+    let mut rows = Vec::new();
+    let header = table.headers.join(" / ");
+    for wrapped in super::layout::wrap_text(&header, body_width) {
+        rows.push(Row::padded(
+            vec![Span::styled(wrapped, text_style)],
+            width,
+            bg_style(bg),
+        ));
+    }
+    for cells in &table.rows {
+        let line = table
+            .headers
+            .iter()
+            .zip(cells.iter())
+            .map(|(header, cell)| format!("{header}: {cell}"))
+            .collect::<Vec<_>>()
+            .join("; ");
+        for wrapped in super::layout::wrap_text(&line, body_width) {
+            rows.push(Row::padded(
+                vec![Span::styled(wrapped, text_style)],
+                width,
+                bg_style(bg),
+            ));
+        }
+    }
+    rows
+}
+
+fn table_row(
+    cells: &[String], alignments: &[TableAlign], widths: &[usize], cell_style: CellStyle, separator_style: CellStyle,
+    bg: Color, width: usize,
+) -> Row {
+    let mut spans = Vec::new();
+    for (index, cell) in cells.iter().enumerate() {
+        if index > 0 {
+            spans.push(Span::styled("  ", separator_style));
+        }
+        let text = align_table_cell(
+            &utils::truncate_ellipsis(cell, widths[index]),
+            widths[index],
+            alignments[index],
+        );
+        spans.push(Span::styled(text, cell_style));
+    }
+    Row::padded(spans, width, bg_style(bg))
+}
+
+fn table_separator(widths: &[usize]) -> String {
+    widths
+        .iter()
+        .map(|width| "─".repeat((*width).max(1)))
+        .collect::<Vec<_>>()
+        .join("  ")
+}
+
+fn table_column_widths(table: &MarkdownTable, body_width: usize) -> Vec<usize> {
+    let columns = table.headers.len();
+    let separators = columns.saturating_sub(1) * 2;
+    let available = body_width.saturating_sub(separators);
+    if available < columns {
+        return vec![0; columns];
+    }
+
+    let mut desired = table
+        .headers
+        .iter()
+        .enumerate()
+        .map(|(index, header)| {
+            std::iter::once(header)
+                .chain(table.rows.iter().filter_map(|row| row.get(index)))
+                .map(|cell| utils::text_width(cell))
+                .max()
+                .unwrap_or(1)
+                .max(3)
+        })
+        .collect::<Vec<_>>();
+    let desired_total: usize = desired.iter().sum();
+    if desired_total <= available {
+        return desired;
+    }
+
+    let mut widths = desired
+        .iter()
+        .map(|desired_width| ((*desired_width * available) / desired_total).max(3))
+        .collect::<Vec<_>>();
+    while widths.iter().sum::<usize>() > available {
+        if let Some((index, _)) = widths
+            .iter()
+            .enumerate()
+            .filter(|(_, width)| **width > 3)
+            .max_by_key(|(_, width)| **width)
+        {
+            widths[index] -= 1;
+        } else {
+            break;
+        }
+    }
+    while widths.iter().sum::<usize>() < available {
+        if let Some((index, _)) = desired
+            .iter_mut()
+            .enumerate()
+            .max_by_key(|(index, desired_width)| desired_width.saturating_sub(widths[*index]))
+        {
+            widths[index] += 1;
+        } else {
+            break;
+        }
+    }
+    widths
+}
+
+fn align_table_cell(text: &str, width: usize, align: TableAlign) -> String {
+    let used = utils::text_width(text);
+    if used >= width {
+        return text.to_string();
+    }
+    let pad = width - used;
+    match align {
+        TableAlign::Left => format!("{text}{}", " ".repeat(pad)),
+        TableAlign::Right => format!("{}{text}", " ".repeat(pad)),
+        TableAlign::Center => {
+            let left = pad / 2;
+            let right = pad - left;
+            format!("{}{text}{}", " ".repeat(left), " ".repeat(right))
+        }
+    }
+}
+
+fn parse_table_cells(line: &str) -> Vec<String> {
+    line.trim()
+        .trim_matches('|')
+        .split('|')
+        .map(|cell| cell.trim().to_string())
+        .collect()
+}
+
+fn parse_table_alignments(line: &str) -> Vec<TableAlign> {
+    parse_table_cells(line)
+        .into_iter()
+        .map(|cell| {
+            let left = cell.starts_with(':');
+            let right = cell.ends_with(':');
+            match (left, right) {
+                (true, true) => TableAlign::Center,
+                (false, true) => TableAlign::Right,
+                _ => TableAlign::Left,
+            }
+        })
+        .collect()
+}
+
+fn is_markdown_table_row(line: &str) -> bool {
+    line.trim().matches('|').count() >= 2
+}
+
+fn is_markdown_table_separator(line: &str) -> bool {
+    let cells = parse_table_cells(line);
+    cells.len() >= 2
+        && cells.iter().all(|cell| {
+            let inner = cell.trim().trim_matches(':');
+            inner.len() >= 3 && inner.chars().all(|ch| ch == '-')
+        })
 }
 
 /// Build a labeled text block with a single leading spacer row.

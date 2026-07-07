@@ -38,6 +38,7 @@ agent-client-protocol = "1.0.1"
 clap = { version = "4.6.1", features = ["derive"] }
 crossterm = "0.29.0"
 futures = "0.3"
+iocraft = "0.8.3"
 lectito = "0.2"
 markdown = "1.0.0"
 regex-lite = "0.1"

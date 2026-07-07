@@ -6,6 +6,7 @@
 //! unit-tested. The [`backend`] module is the only place that translates rows
 //! into ANSI escape sequences.
 
+pub mod adapter;
 pub mod backend;
 pub mod cursor;
 pub mod git;

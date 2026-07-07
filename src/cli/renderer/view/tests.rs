@@ -446,6 +446,32 @@ fn build_view_detail_pane_scrolls_wrapped_rows() {
 }
 
 #[test]
+fn build_view_detail_pane_reports_clipped_content() {
+    let mut app = test_app();
+    app.transcript.push(Entry::Tool {
+        name: "run_shell".to_string(),
+        arguments: r#"{"program": "seq 20"}"#.to_string(),
+        status: ToolStatus::Ok,
+        output: (0..20).map(|index| format!("line {index}")).collect(),
+    });
+    app.detail_pane = DetailPane { entry_index: 0, scroll: 3, open: true };
+
+    let view = build_view(&app, 80, 24);
+    let body = view
+        .live
+        .detail_pane
+        .iter()
+        .map(|row| row.text())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(
+        body.contains("rows above") && body.contains("below"),
+        "detail pane should report clipped content like a bounded scroll surface:\n{body}"
+    );
+}
+
+#[test]
 fn build_view_handles_large_transcript_with_running_tool_and_detail_pane() {
     let mut app = test_app();
     app.run_state = RunState::Working;

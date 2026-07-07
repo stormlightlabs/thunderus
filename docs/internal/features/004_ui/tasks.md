@@ -54,39 +54,39 @@ Updated: 2026-07-07
 
 ## P2: Build Transcript And Tool Rows
 
-- [ ] Render user and assistant rows with stable prefixes and wrapping.
-- [ ] Render reasoning rows as distinct live/summarized transcript entries.
-- [ ] Render tool start rows with operation, target, and elapsed/status fields.
-- [ ] Render live tool output previews with bounded height.
-- [ ] Render tool settlement rows for success, failure, and cancellation.
-- [ ] Render truncation indicators that distinguish previewed output from stored
+- [x] Render user and assistant rows with stable prefixes and wrapping.
+- [x] Render reasoning rows as distinct live/summarized transcript entries.
+- [x] Render tool start rows with operation, target, and elapsed/status fields.
+- [x] Render live tool output previews with bounded height.
+- [x] Render tool settlement rows for success, failure, and cancellation.
+- [x] Render truncation indicators that distinguish previewed output from stored
       full output.
-- [ ] Render file edit summaries with path and operation status.
-- [ ] Render diff summaries with changed file and added/removed counts when
+- [x] Render file edit summaries with path and operation status.
+- [x] Render diff summaries with changed file and added/removed counts when
       available.
-- [ ] Render warning/error rows with enough detail to act on the problem.
-- [ ] Keep transcript row construction separate from viewport commit logic.
-- [ ] Implement an iocraft-backed transcript lens based on `scrolling.rs`:
+- [x] Render warning/error rows with enough detail to act on the problem.
+- [x] Keep transcript row construction separate from viewport commit logic.
+- [x] Implement an iocraft-backed transcript lens based on `scrolling.rs`:
       fixed-height content, keyboard scroll, clipped-content indicator, and
       optional mouse capture only while focused.
-- [ ] Keep committed transcript rows native-scrollback-friendly even if the
+- [x] Keep committed transcript rows native-scrollback-friendly even if the
       transcript lens is implemented with iocraft.
-- [ ] Add table-aware rendering for markdown tables and structured tool output,
+- [x] Add table-aware rendering for markdown tables and structured tool output,
       using `table.rs`-style column widths, alignment, header separators, and
       narrow fallback behavior.
 
 ## P3: Build The Prompt Surface
 
-- [ ] Render the editable prompt with stable cursor placement.
-- [ ] Add submit/stop state to the prompt surface.
-- [ ] Add queued follow-up summary above or within the prompt surface.
-- [ ] Add command suggestions for `:` commands.
-- [ ] Keep `Ctrl+P` as the primary file picker entry point.
-- [ ] Add inline `@` file mention suggestions for workspace paths.
-- [ ] Add draft history navigation that does not conflict with picker focus.
-- [ ] Preserve prompt text after failed submit.
-- [ ] Add retry affordance for retryable failures.
-- [ ] Keep prompt, footer, and orientation visible under streaming pressure.
+- [x] Render the editable prompt with stable cursor placement.
+- [x] Add submit/stop state to the prompt surface.
+- [x] Add queued follow-up summary above or within the prompt surface.
+- [x] Add command suggestions for `:` commands.
+- [x] Keep `Ctrl+P` as the primary file picker entry point.
+- [x] Add inline `@` file mention suggestions for workspace paths.
+- [x] Add draft history navigation that does not conflict with picker focus.
+- [x] Preserve prompt text after failed submit.
+- [x] Add retry affordance for retryable failures.
+- [x] Keep prompt, footer, and orientation visible under streaming pressure.
 - [x] Decide not to replace the main prompt editor with iocraft `TextInput`
       in this feature; setup forms may use `TextInput`, but the main prompt
       must keep existing cursor, Unicode, history, hidden-input, mention, and

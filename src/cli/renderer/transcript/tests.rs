@@ -142,6 +142,48 @@ fn snapshot_assistant_code_fence_narrow() {
 }
 
 #[test]
+fn assistant_markdown_table_renders_as_structured_rows() {
+    let entry = Entry::Agent {
+        text: "````md\n| File | Added | Removed |\n| :--- | ---: | ---: |\n| src/lib.rs | 10 | 2 |\n| README.md | 1 | 0 |\n````"
+            .to_string(),
+        streaming: false,
+    };
+    let rendered = render_entry_styled(&entry, 80);
+
+    assert!(rendered.contains("File"), "table header should render:\n{rendered}");
+    assert!(
+        rendered.contains("src/lib.rs") && rendered.contains("README.md"),
+        "table rows should render:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("u]="),
+        "header cells should use underline styling like the iocraft table example:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("─"),
+        "table should include a header separator:\n{rendered}"
+    );
+}
+
+#[test]
+fn assistant_markdown_table_has_narrow_fallback() {
+    let entry = Entry::Agent {
+        text: "````md\n| File | Added | Removed |\n| :--- | ---: | ---: |\n| src/lib.rs | 10 | 2 |\n````".to_string(),
+        streaming: false,
+    };
+    let rendered = render_entry_styled(&entry, 28);
+
+    assert!(
+        rendered.contains("File: src/lib.rs"),
+        "narrow table fallback should render label/value rows:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("Added:") && rendered.contains("10; Removed: 2"),
+        "narrow table fallback should preserve numeric values:\n{rendered}"
+    );
+}
+
+#[test]
 fn snapshot_reasoning_normal() {
     let entry = Entry::Reasoning { text: "I need to check the file structure first.".to_string(), streaming: false };
     assert_snapshot("transcript_reasoning_normal", &render_entry_styled(&entry, 80));
@@ -616,6 +658,44 @@ fn snapshot_tool_search_results_narrow() {
     assert_snapshot(
         "transcript_tool_search_results_narrow",
         &render_entry_styled(&entry, 40),
+    );
+}
+
+#[test]
+fn edit_tool_rows_include_visible_edit_summary() {
+    let entry = Entry::Tool {
+        name: "replace_range#abc".to_string(),
+        arguments: r#"{"path":"src/lib.rs"}"#.to_string(),
+        status: ToolStatus::Ok,
+        output: vec!["wrote update: src/lib.rs".to_string()],
+    };
+    let rendered = render_entry_styled(&entry, 80);
+
+    assert!(
+        rendered.contains("edit") && rendered.contains("replace_range src/lib.rs [ok]"),
+        "edit tools should include a compact edit summary:\n{rendered}"
+    );
+}
+
+#[test]
+fn diff_tool_rows_include_visible_diff_summary() {
+    let entry = Entry::Tool {
+        name: "write_patch".to_string(),
+        arguments: r#"{"path":"src/lib.rs"}"#.to_string(),
+        status: ToolStatus::Ok,
+        output: vec![
+            "--- a/src/lib.rs".to_string(),
+            "+++ b/src/lib.rs".to_string(),
+            "-old".to_string(),
+            "+new".to_string(),
+            "+newer".to_string(),
+        ],
+    };
+    let rendered = render_entry_styled(&entry, 80);
+
+    assert!(
+        rendered.contains("diff") && rendered.contains("src/lib.rs +2 -1"),
+        "diff output should include a changed-file summary:\n{rendered}"
     );
 }
 

@@ -608,11 +608,29 @@ pub fn detail_pane_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> 
 
     let mut rows = Vec::with_capacity(max_height);
     let scroll = app.detail_pane.scroll.min(body_rows.len().saturating_sub(1));
+    let body_budget = max_height.saturating_sub(1);
+    let hidden_above = scroll;
+    let hidden_below = body_rows.len().saturating_sub(scroll + body_budget);
 
     rows.push(Row::padded(title_spans, width, bg_style(bg)));
-    rows.extend(body_rows.into_iter().skip(scroll));
-    rows.truncate(max_height);
+    rows.extend(body_rows.into_iter().skip(scroll).take(body_budget));
+    if (hidden_above > 0 || hidden_below > 0)
+        && let Some(row) = rows.last_mut()
+    {
+        *row = clipped_detail_indicator_row(width, bg, muted_style, hidden_above, hidden_below);
+    }
     rows
+}
+
+fn clipped_detail_indicator_row(
+    width: usize, bg: Color, style: CellStyle, hidden_above: usize, hidden_below: usize,
+) -> Row {
+    let text = match (hidden_above, hidden_below) {
+        (0, below) => format!("   │ … {below} rows below"),
+        (above, 0) => format!("   │ … {above} rows above"),
+        (above, below) => format!("   │ … {above} rows above, {below} below"),
+    };
+    Row::padded(vec![Span::styled(text, style)], width, bg_style(bg))
 }
 
 /// Build the static status row (model/search/tokens/cwd) below the prompt.
