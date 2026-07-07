@@ -336,7 +336,8 @@ None for P0 through P6.
 - Existing runtime tracing paths in `src/lib.rs`.
 - Effective config metadata from the archived configuration work; absent
   metadata is represented as `null`.
-- UI command-surface polish from `004_ui` is not required for this feature.
+- UI command-surface polish from the v0.1 UI archive is not required for this
+  feature.
   Command handlers and suggestions are implemented directly here.
 
 ## Verification

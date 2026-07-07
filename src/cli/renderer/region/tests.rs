@@ -1497,7 +1497,7 @@ fn build_frame_priority_model_orders_surfaces_correctly() {
         .expect("queued summary should be visible");
     let accessory_pos = lines
         .iter()
-        .position(|l| l.contains("Navigation"))
+        .position(|l| l.contains("Ctrl+O") && l.contains("detail"))
         .expect("help accessory should be visible");
     let prompt_pos = lines
         .iter()

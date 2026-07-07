@@ -12,14 +12,14 @@ Many editing shortcuts follow common [readline](https://man7.org/linux/man-pages
 
 These shortcuts work from any mode unless otherwise noted.
 
-| Key                | Description                                                |
-| ------------------ | ---------------------------------------------------------- |
-| `Ctrl+C`           | Cancel a running stream; quit when idle                    |
-| `Ctrl+D`, `Ctrl+D` | Show quit confirmation; press again to quit                |
-| `Ctrl+T`           | Toggle the running input target (`steering` / `follow-up`) |
-| `Ctrl+O`           | Open the focused detail surface (tool output, failed/truncated previews) |
-| `?`                | Open help overlay (only when the prompt is empty)          |
-| `:`                | Enter command mode (only when idle or after an error)      |
+| Key                | Description                                                                      |
+| ------------------ | -------------------------------------------------------------------------------- |
+| `Ctrl+C`           | Cancel a running stream; quit when idle                                          |
+| `Ctrl+D`, `Ctrl+D` | Show quit confirmation; press again to quit                                      |
+| `Ctrl+T`           | Toggle the running input target (`steering` / `follow-up`)                       |
+| `Ctrl+O`           | Open focused detail for failed/truncated tool output, diffs, warnings, or errors |
+| `?`                | Open help overlay (only when the prompt is empty)                                |
+| `:`                | Enter command mode (only when idle or after an error)                            |
 
 ## Prompt Input
 
@@ -33,7 +33,7 @@ Cursor movement and text editing while in the prompt.
 | `Alt+Right`, `Ctrl+Right`, or `Alt+F` | Move cursor to the end of the next word                |
 | `Home` or `Ctrl+A`                    | Move cursor to the start of the line                   |
 | `End` or `Ctrl+E`                     | Move cursor to the end of the line                     |
-| `Tab`                                 | Accept the active suggestion (`:` command or `@` path)  |
+| `Tab`                                 | Accept the active suggestion (`:` command or `@` path) |
 | `Shift+Enter` or `Ctrl+J`             | Insert a newline in a multi-line prompt                |
 | `Enter`                               | Submit the current prompt                              |
 | `Backspace`                           | Delete the character before the cursor                 |
@@ -66,15 +66,17 @@ Available while the help overlay is open.
 
 Available while typing a `:` command.
 
-Commands currently include `clear`, `quit`, `exit`, `help`, `bg`, and `model`.
+Commands currently include `clear`, `quit`, `exit`, `help`, `bg`, `model`,
+`skills`, `doctor`, `auth status`, `config path`, `config show`, `setup`,
+`login`, and `logout`.
 
-| Key                     | Description                                       |
-| ----------------------- | ------------------------------------------------- |
-| `Esc`                   | Cancel command and return to prompt               |
-| `Backspace`             | Delete last character, or cancel command if empty |
-| `Enter`                 | Execute the typed command                         |
+| Key                     | Description                                         |
+| ----------------------- | --------------------------------------------------- |
+| `Esc`                   | Cancel command and return to prompt                 |
+| `Backspace`             | Delete last character, or cancel command if empty   |
+| `Enter`                 | Execute the typed command                           |
 | `Tab`                   | Accept completion for the active command suggestion |
-| Any printable character | Append to the command buffer                      |
+| Any printable character | Append to the command buffer                        |
 
 ## File Picker
 

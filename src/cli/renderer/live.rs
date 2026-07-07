@@ -1458,7 +1458,7 @@ mod tests {
     #[test]
     fn snapshot_command_suggestions() {
         let mut app = test_app();
-        app.input.set_text("/c");
+        app.input.set_text("c");
         app.mode = Mode::Command;
         app.prompt_accessory = PromptAccessory::Commands { selected: 0 };
         let rows = accessory_rows(&app, 80, 8);

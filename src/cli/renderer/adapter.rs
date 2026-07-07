@@ -8,10 +8,11 @@
 use iocraft::prelude::*;
 
 use crate::renderer::row::Row;
-use crate::renderer::style::{CellStyle, Color as RendererColor, Span};
+use crate::renderer::style::{self, CellStyle, Color as RendererColor, Span};
 use crate::renderer::view::{
     ColumnAlignment, ColumnWidthPolicy, DiffDetailView, FocusedSurfaceView, PickerSurfaceView, SetupFormView,
-    SurfaceRenderInput, SurfaceRenderer, TableCellView, TableView, ThemeRole, ToolDetailView, ToolRunState,
+    SurfaceRenderInput, SurfaceRenderer, SurfaceThemeView, TableCellView, TableView, ThemeRole, ToolDetailView,
+    ToolRunState,
 };
 use crate::utils;
 
@@ -43,11 +44,11 @@ pub fn render_surface(input: &SurfaceRenderInput<'_>) -> Vec<Row> {
 
     match input.surface {
         FocusedSurfaceView::None => Vec::new(),
-        FocusedSurfaceView::CommandPicker(picker) => picker_rows(picker, input.width, input.height),
-        FocusedSurfaceView::FilePicker(picker) => picker_rows(picker, input.width, input.height),
-        FocusedSurfaceView::Help => help_rows(input.width, input.height),
-        FocusedSurfaceView::ToolDetail(detail) => tool_detail_rows(detail, input.width, input.height),
-        FocusedSurfaceView::DiffDetail(detail) => diff_detail_rows(detail, input.width, input.height),
+        FocusedSurfaceView::CommandPicker(picker) => picker_rows(picker, input.width, input.height, input.theme),
+        FocusedSurfaceView::FilePicker(picker) => picker_rows(picker, input.width, input.height, input.theme),
+        FocusedSurfaceView::Help => help_rows(input.width, input.height, input.theme),
+        FocusedSurfaceView::ToolDetail(detail) => tool_detail_rows(detail, input.width, input.height, input.theme),
+        FocusedSurfaceView::DiffDetail(detail) => diff_detail_rows(detail, input.width, input.height, input.theme),
         FocusedSurfaceView::TranscriptLens { selected_entry, scroll } => {
             let body = vec![
                 format!(
@@ -58,8 +59,8 @@ pub fn render_surface(input: &SurfaceRenderInput<'_>) -> Vec<Row> {
             ];
             transcript_lens_rows("transcript", &body, input.width, input.height)
         }
-        FocusedSurfaceView::SetupForm(form) => setup_form_rows(form, input.width, input.height),
-        FocusedSurfaceView::StructuredTable(table) => table_rows(table, input.width, input.height),
+        FocusedSurfaceView::SetupForm(form) => setup_form_rows(form, input.width, input.height, input.theme),
+        FocusedSurfaceView::StructuredTable(table) => table_rows(table, input.width, input.height, input.theme),
     }
 }
 
@@ -94,16 +95,20 @@ pub fn transcript_lens_rows(title: &str, body: &[String], width: usize, height: 
     canvas_to_rows(&canvas, width, CellStyle::default())
 }
 
-fn picker_rows(picker: &PickerSurfaceView, width: usize, height: usize) -> Vec<Row> {
+fn picker_rows(picker: &PickerSurfaceView, width: usize, height: usize, theme: &SurfaceThemeView) -> Vec<Row> {
     let lines = if picker.items.is_empty() {
         vec![
-            format!("{}  {}", picker.title, query_label(&picker.query)),
-            "no matches".to_string(),
+            SurfaceLine::title(format!("{}  {}", picker.title, query_label(&picker.query))),
+            SurfaceLine::muted("no matches"),
         ]
     } else {
         let visible = height.saturating_sub(2);
         let start = picker.selected.saturating_add(1).saturating_sub(visible.max(1));
-        let mut lines = vec![format!("{}  {}", picker.title, query_label(&picker.query))];
+        let mut lines = vec![SurfaceLine::title(format!(
+            "{}  {}",
+            picker.title,
+            query_label(&picker.query)
+        ))];
         lines.extend(
             picker
                 .items
@@ -112,7 +117,8 @@ fn picker_rows(picker: &PickerSurfaceView, width: usize, height: usize) -> Vec<R
                 .skip(start)
                 .take(visible)
                 .map(|(index, item)| {
-                    let marker = if index == picker.selected { ">" } else { " " };
+                    let selected = index == picker.selected;
+                    let marker = if selected { "›" } else { " " };
                     let detail_budget = width.saturating_sub(32).min(28);
                     let detail = if item.detail.is_empty() {
                         String::new()
@@ -120,104 +126,204 @@ fn picker_rows(picker: &PickerSurfaceView, width: usize, height: usize) -> Vec<R
                         format!("  {}", utils::truncate_ellipsis(&item.detail, detail_budget))
                     };
                     let label_budget = width.saturating_sub(4 + utils::text_width(&detail)).max(1);
-                    format!(
+                    let text = format!(
                         "{marker} {}{detail}",
                         utils::truncate_ellipsis_start(&item.label, label_budget)
-                    )
+                    );
+                    if selected { SurfaceLine::selected(text) } else { SurfaceLine::text(text) }
                 }),
         );
-        lines.push("Enter select   Esc close".to_string());
+        lines.push(SurfaceLine::muted("Enter select   Esc close"));
         lines
     };
-    render_lines(&lines, width, height)
+    render_lines(&lines, width, height, theme)
 }
 
-fn help_rows(width: usize, height: usize) -> Vec<Row> {
-    let mut lines = vec!["help".to_string()];
+fn help_rows(width: usize, height: usize, theme: &SurfaceThemeView) -> Vec<Row> {
+    let mut lines = vec![SurfaceLine::title("help")];
     lines.extend(
         HELP_ROWS
             .iter()
-            .map(|(key, description)| format!("{key:<8} {description}")),
+            .map(|(key, description)| SurfaceLine::text(format!("{key:<8} {description}"))),
     );
-    render_lines(&lines, width, height)
+    render_lines(&lines, width, height, theme)
 }
 
-fn tool_detail_rows(detail: &ToolDetailView, width: usize, height: usize) -> Vec<Row> {
-    let mut lines = vec![format!("{} [{}]", detail.title, tool_status_label(detail.status))];
+fn tool_detail_rows(detail: &ToolDetailView, width: usize, height: usize, theme: &SurfaceThemeView) -> Vec<Row> {
+    let status_role = match detail.status {
+        ToolRunState::Failed => theme.error,
+        ToolRunState::Cancelled => theme.warning,
+        _ => theme.selected,
+    };
+    let mut lines = vec![SurfaceLine::new(
+        format!("{} [{}]", detail.title, tool_status_label(detail.status)),
+        status_role,
+    )];
     let body_budget = height.saturating_sub(1);
-    lines.extend(detail.output.iter().skip(detail.scroll).take(body_budget).cloned());
-    render_lines(&lines, width, height)
+    lines.extend(
+        detail
+            .output
+            .iter()
+            .skip(detail.scroll)
+            .take(body_budget)
+            .cloned()
+            .map(SurfaceLine::text),
+    );
+    render_lines(&lines, width, height, theme)
 }
 
-fn diff_detail_rows(detail: &DiffDetailView, width: usize, height: usize) -> Vec<Row> {
+fn diff_detail_rows(detail: &DiffDetailView, width: usize, height: usize, theme: &SurfaceThemeView) -> Vec<Row> {
     let files = if detail.summary.files.is_empty() { "diff".to_string() } else { detail.summary.files.join(", ") };
-    let mut lines = vec![format!("{files} +{} -{}", detail.summary.added, detail.summary.removed)];
-    lines.extend(detail.lines.iter().take(height.saturating_sub(1)).cloned());
-    render_lines(&lines, width, height)
+    let mut lines = vec![SurfaceLine::title(format!(
+        "{files} +{} -{}",
+        detail.summary.added, detail.summary.removed
+    ))];
+    lines.extend(detail.lines.iter().take(height.saturating_sub(1)).map(|line| {
+        if line.starts_with('+') && !line.starts_with("+++") {
+            SurfaceLine::new(line.clone(), theme.diff_added)
+        } else if line.starts_with('-') && !line.starts_with("---") {
+            SurfaceLine::new(line.clone(), theme.diff_removed)
+        } else {
+            SurfaceLine::text(line.clone())
+        }
+    }));
+    render_lines(&lines, width, height, theme)
 }
 
-fn setup_form_rows(form: &SetupFormView, width: usize, height: usize) -> Vec<Row> {
-    let mut lines = vec!["setup".to_string()];
-    lines.extend(form.validation_errors.iter().map(|error| format!("! {error}")));
+fn setup_form_rows(form: &SetupFormView, width: usize, height: usize, theme: &SurfaceThemeView) -> Vec<Row> {
+    let mut lines = vec![SurfaceLine::title("setup")];
+    lines.extend(
+        form.validation_errors
+            .iter()
+            .map(|error| SurfaceLine::new(format!("! {error}"), theme.error)),
+    );
     lines.extend(form.fields.iter().enumerate().map(|(index, field)| {
-        let marker = if index == form.focus_index || field.focused { ">" } else { " " };
+        let focused = index == form.focus_index || field.focused;
+        let marker = if focused { "›" } else { " " };
         let value = if field.secret && !field.value.is_empty() { "[hidden]".to_string() } else { field.value.clone() };
         let multiline = if field.multiline { " multiline" } else { "" };
         let error = field
             .error
             .as_ref()
             .map_or(String::new(), |error| format!("  ! {error}"));
-        format!("{marker} {}: {value}{multiline}{error}", field.label)
+        let text = format!("{marker} {}: {value}{multiline}{error}", field.label);
+        if focused { SurfaceLine::selected(text) } else { SurfaceLine::text(text) }
     }));
-    lines.push(format!("{}   {}", form.submit_label, form.cancel_label));
-    render_lines(&lines, width, height)
+    lines.push(SurfaceLine::muted(format!(
+        "{}   {}",
+        form.submit_label, form.cancel_label
+    )));
+    render_lines(&lines, width, height, theme)
 }
 
-fn table_rows(table: &TableView, width: usize, height: usize) -> Vec<Row> {
+fn table_rows(table: &TableView, width: usize, height: usize, theme: &SurfaceThemeView) -> Vec<Row> {
     if width < 24 && !table.narrow_fallback.is_empty() {
-        return render_lines(&table.narrow_fallback, width, height);
+        let lines = table
+            .narrow_fallback
+            .iter()
+            .cloned()
+            .map(SurfaceLine::text)
+            .collect::<Vec<_>>();
+        return render_lines(&lines, width, height, theme);
     }
 
     let widths = table_column_widths(table, width);
-    let mut lines = vec![table_line(&table.header, &widths)];
-    lines.push(
+    let mut lines = vec![SurfaceLine::title(table_line(&table.header, &widths))];
+    lines.push(SurfaceLine::muted(
         widths
             .iter()
             .map(|width| "-".repeat(*width))
             .collect::<Vec<_>>()
             .join(" "),
-    );
+    ));
     lines.extend(table.rows.iter().enumerate().map(|(index, row)| {
-        let marker = if table.selected_row == Some(index) { ">" } else { " " };
-        format!("{marker} {}", table_line(row, &widths))
+        let selected = table.selected_row == Some(index);
+        let marker = if selected { "›" } else { " " };
+        let text = format!("{marker} {}", table_line(row, &widths));
+        if selected { SurfaceLine::selected(text) } else { SurfaceLine::text(text) }
     }));
-    render_lines(&lines, width, height)
+    render_lines(&lines, width, height, theme)
 }
 
-fn render_lines(lines: &[String], width: usize, height: usize) -> Vec<Row> {
+#[derive(Clone)]
+struct SurfaceLine {
+    text: String,
+    role: ThemeRole,
+}
+
+impl SurfaceLine {
+    fn new(text: impl Into<String>, role: ThemeRole) -> Self {
+        Self { text: text.into(), role }
+    }
+
+    fn text(text: impl Into<String>) -> Self {
+        Self::new(text, ThemeRole::Text)
+    }
+
+    fn muted(text: impl Into<String>) -> Self {
+        Self::new(text, ThemeRole::Muted)
+    }
+
+    fn selected(text: impl Into<String>) -> Self {
+        Self::new(text, ThemeRole::Selected)
+    }
+
+    fn title(text: impl Into<String>) -> Self {
+        Self::new(text, ThemeRole::Selected)
+    }
+}
+
+fn render_lines(lines: &[SurfaceLine], width: usize, height: usize, theme: &SurfaceThemeView) -> Vec<Row> {
     if width == 0 || height == 0 {
         return Vec::new();
     }
 
+    let p = style::palette();
+    let bg = p.surface0;
     let view_width = width.min(u32::MAX as usize) as u32;
     let view_height = height.min(u32::MAX as usize) as u32;
-    let content = lines.join("\n");
+    let content = lines
+        .iter()
+        .map(|line| utils::truncate_ellipsis(&line.text, width))
+        .collect::<Vec<_>>()
+        .join("\n");
     let mut element = element! {
         View(
+            background_color: Some(bg),
             flex_direction: FlexDirection::Column,
             width: view_width,
             height: view_height,
         ) {
-            Text(content: content)
+            Text(color: Some(p.text), content: content, wrap: TextWrap::NoWrap)
         }
     };
     let canvas = element.render(Some(width));
-    let mut rows = canvas_to_rows(&canvas, width, CellStyle::default());
-    rows.truncate(height);
+    let pad_style = CellStyle::default().bg(bg);
+    let mut rows = canvas_to_rows(&canvas, width, pad_style);
+    rows.truncate(height.min(lines.len()));
     while rows.len() < height.min(lines.len()) {
-        rows.push(Row::blank(width, CellStyle::default()));
+        rows.push(Row::blank(width, pad_style));
+    }
+    for (row, line) in rows.iter_mut().zip(lines.iter()) {
+        restyle_row(row, line.role, theme);
     }
     rows
+}
+
+fn restyle_row(row: &mut Row, role: ThemeRole, theme: &SurfaceThemeView) {
+    let p = style::palette();
+    let bg = if role == theme.selected { p.surface1 } else { p.surface0 };
+    let style = theme_role_style(role).bg(bg);
+    let text = row_text(row);
+    *row = Row::padded(vec![Span::styled(text, style)], row.width, CellStyle::default().bg(bg));
+}
+
+fn row_text(row: &Row) -> String {
+    let mut out = String::new();
+    for span in &row.spans {
+        out.push_str(&span.text);
+    }
+    out
 }
 
 fn canvas_to_rows(canvas: &Canvas, width: usize, pad_style: CellStyle) -> Vec<Row> {
@@ -346,22 +452,26 @@ fn tool_status_label(status: ToolRunState) -> &'static str {
     }
 }
 
-fn _theme_role_style(role: ThemeRole) -> CellStyle {
+fn theme_role_style(role: ThemeRole) -> CellStyle {
+    let p = style::palette();
     match role {
-        ThemeRole::Text => CellStyle::new(),
-        ThemeRole::Muted => CellStyle::new().fg(RendererColor::DarkGrey),
-        ThemeRole::Selected => CellStyle::new().bold(),
-        ThemeRole::Warning => CellStyle::new().fg(RendererColor::Yellow),
-        ThemeRole::Error => CellStyle::new().fg(RendererColor::Red),
-        ThemeRole::DiffAdded => CellStyle::new().fg(RendererColor::Green),
-        ThemeRole::DiffRemoved => CellStyle::new().fg(RendererColor::Red),
+        ThemeRole::Text => CellStyle::new().fg(p.text),
+        ThemeRole::Muted => CellStyle::new().fg(p.overlay0),
+        ThemeRole::Selected => CellStyle::new().fg(p.text).bold(),
+        ThemeRole::Warning => CellStyle::new().fg(p.peach),
+        ThemeRole::Error => CellStyle::new().fg(p.red),
+        ThemeRole::DiffAdded => CellStyle::new().fg(p.green),
+        ThemeRole::DiffRemoved => CellStyle::new().fg(p.red),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::renderer::view::{PickerItemView, SurfaceThemeView, TableCellView, ThemeRole};
+    use crate::renderer::row::Frame;
+    use crate::renderer::view::{
+        DiffSummaryView, PickerItemView, SetupFieldView, SurfaceThemeView, TableCellView, ThemeRole,
+    };
 
     #[test]
     fn transcript_lens_uses_iocraft_canvas_without_render_loop() {
@@ -408,7 +518,7 @@ mod tests {
         let text = rows.iter().map(Row::text).collect::<Vec<_>>().join("\n");
 
         assert!(text.contains("commands"));
-        assert!(text.contains("> health"));
+        assert!(text.contains("› health"));
         assert!(rows.iter().all(|row| row.width == 32));
     }
 
@@ -474,6 +584,159 @@ mod tests {
         let text = rows.iter().map(Row::text).collect::<Vec<_>>().join("\n");
 
         assert!(text.contains("compile 42"));
+    }
+
+    #[test]
+    fn iocraft_picker_returns_only_content_rows() {
+        let surface = FocusedSurfaceView::FilePicker(PickerSurfaceView {
+            title: "files".to_string(),
+            query: "missing".to_string(),
+            selected: 0,
+            items: Vec::new(),
+        });
+
+        let rows =
+            render_surface(&SurfaceRenderInput { surface: &surface, theme: &test_theme(), width: 40, height: 8 });
+
+        assert_eq!(rows.len(), 2);
+        assert!(rows[0].text().contains("files"));
+        assert!(rows[1].text().contains("no matches"));
+    }
+
+    #[test]
+    fn snapshot_iocraft_focused_surfaces() {
+        let cases = vec![
+            (
+                "command picker",
+                FocusedSurfaceView::CommandPicker(PickerSurfaceView {
+                    title: "commands".to_string(),
+                    query: "c".to_string(),
+                    selected: 0,
+                    items: vec![
+                        PickerItemView { label: "clear".to_string(), detail: "clear transcript".to_string() },
+                        PickerItemView { label: "config show".to_string(), detail: "redacted config".to_string() },
+                    ],
+                }),
+            ),
+            (
+                "file picker",
+                FocusedSurfaceView::FilePicker(PickerSurfaceView {
+                    title: "files".to_string(),
+                    query: "src".to_string(),
+                    selected: 1,
+                    items: vec![
+                        PickerItemView { label: "src/main.rs".to_string(), detail: "binary".to_string() },
+                        PickerItemView {
+                            label: "src/cli/renderer/adapter.rs".to_string(),
+                            detail: "focused UI".to_string(),
+                        },
+                    ],
+                }),
+            ),
+            ("help", FocusedSurfaceView::Help),
+            (
+                "tool detail",
+                FocusedSurfaceView::ToolDetail(ToolDetailView {
+                    entry_index: 2,
+                    title: "run_shell".to_string(),
+                    status: ToolRunState::Failed,
+                    scroll: 1,
+                    output: vec![
+                        "line 0".to_string(),
+                        "error: missing semicolon".to_string(),
+                        "line 2".to_string(),
+                    ],
+                }),
+            ),
+            (
+                "diff detail",
+                FocusedSurfaceView::DiffDetail(DiffDetailView {
+                    summary: DiffSummaryView { files: vec!["src/lib.rs".to_string()], added: 1, removed: 1 },
+                    lines: vec![
+                        "--- a/src/lib.rs".to_string(),
+                        "+++ b/src/lib.rs".to_string(),
+                        "-old".to_string(),
+                        "+new".to_string(),
+                    ],
+                }),
+            ),
+            (
+                "setup form",
+                FocusedSurfaceView::SetupForm(SetupFormView {
+                    fields: vec![SetupFieldView {
+                        label: "credential".to_string(),
+                        value: "sk-hidden".to_string(),
+                        focused: true,
+                        secret: true,
+                        multiline: false,
+                        error: None,
+                    }],
+                    focus_index: 0,
+                    validation_errors: vec!["credential is required".to_string()],
+                    submit_label: "submit".to_string(),
+                    cancel_label: "cancel".to_string(),
+                    complete: false,
+                }),
+            ),
+            (
+                "table",
+                FocusedSurfaceView::StructuredTable(TableView {
+                    header: vec![
+                        TableCellView {
+                            text: "command".to_string(),
+                            alignment: ColumnAlignment::Left,
+                            width: ColumnWidthPolicy::Percent(55),
+                        },
+                        TableCellView {
+                            text: "status".to_string(),
+                            alignment: ColumnAlignment::Center,
+                            width: ColumnWidthPolicy::Flexible,
+                        },
+                    ],
+                    rows: vec![
+                        vec![
+                            TableCellView {
+                                text: "cargo test".to_string(),
+                                alignment: ColumnAlignment::Left,
+                                width: ColumnWidthPolicy::Percent(55),
+                            },
+                            TableCellView {
+                                text: "ok".to_string(),
+                                alignment: ColumnAlignment::Center,
+                                width: ColumnWidthPolicy::Flexible,
+                            },
+                        ],
+                        vec![
+                            TableCellView {
+                                text: "cargo clippy".to_string(),
+                                alignment: ColumnAlignment::Left,
+                                width: ColumnWidthPolicy::Percent(55),
+                            },
+                            TableCellView {
+                                text: "fix".to_string(),
+                                alignment: ColumnAlignment::Center,
+                                width: ColumnWidthPolicy::Flexible,
+                            },
+                        ],
+                    ],
+                    selected_row: Some(1),
+                    narrow_fallback: vec!["cargo test ok".to_string(), "cargo clippy fix".to_string()],
+                }),
+            ),
+        ];
+
+        let mut rendered = String::new();
+        for (label, surface) in cases {
+            let rows =
+                render_surface(&SurfaceRenderInput { surface: &surface, theme: &test_theme(), width: 48, height: 5 });
+            rendered.push_str(label);
+            rendered.push_str(":\n");
+            rendered.push_str(&Frame { rows, width: 48, cursor: None, cursor_visible: true }.render_styled());
+            rendered.push('\n');
+        }
+
+        assert!(!rendered.contains("sk-hidden"));
+        insta::assert_snapshot!("iocraft_focused_surfaces", rendered);
     }
 
     fn test_theme() -> SurfaceThemeView {

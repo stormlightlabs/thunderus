@@ -1,0 +1,40 @@
+---
+source: src/cli/renderer/adapter.rs
+expression: rendered
+---
+command picker:
+│     commands  c                                       # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  commands  c                                     
+│     › clear  clear transcript                         # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  › clear  clear transcript                       
+│       config show  redacted config                    # [bg=#212337]=   [fg=#ebfafa bg=#212337]=    config show  redacted config                  
+│     Enter select   Esc close                          # [bg=#212337]=   [fg=#3b4261 bg=#212337]=  Enter select   Esc close                        
+file picker:
+│     files  src                                        # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  files  src                                      
+│       src/main.rs  binary                             # [bg=#212337]=   [fg=#ebfafa bg=#212337]=    src/main.rs  binary                           
+│     › src/cli/renderer/adapter.rs  focused UI         # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  › src/cli/renderer/adapter.rs  focused UI       
+│     Enter select   Esc close                          # [bg=#212337]=   [fg=#3b4261 bg=#212337]=  Enter select   Esc close                        
+help:
+│     help                                              # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  help                                            
+│     Enter    submit prompt or accept focused select…  # [bg=#212337]=   [fg=#ebfafa bg=#212337]=  Enter    submit prompt or accept focused select…
+│     Esc      close focused surface and return to pr…  # [bg=#212337]=   [fg=#ebfafa bg=#212337]=  Esc      close focused surface and return to pr…
+│     Ctrl+C   stop a running turn                      # [bg=#212337]=   [fg=#ebfafa bg=#212337]=  Ctrl+C   stop a running turn                    
+│     Ctrl+O   open output, diff, warning, or error d…  # [bg=#212337]=   [fg=#ebfafa bg=#212337]=  Ctrl+O   open output, diff, warning, or error d…
+tool detail:
+│     run_shell [failed]                                # [bg=#212337]=   [fg=#f16c75 bg=#212337]=  run_shell [failed]                              
+│     error: missing semicolon                          # [bg=#212337]=   [fg=#ebfafa bg=#212337]=  error: missing semicolon                        
+│     line 2                                            # [bg=#212337]=   [fg=#ebfafa bg=#212337]=  line 2                                          
+diff detail:
+│     src/lib.rs +1 -1                                  # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  src/lib.rs +1 -1                                
+│     --- a/src/lib.rs                                  # [bg=#212337]=   [fg=#ebfafa bg=#212337]=  --- a/src/lib.rs                                
+│     +++ b/src/lib.rs                                  # [bg=#212337]=   [fg=#ebfafa bg=#212337]=  +++ b/src/lib.rs                                
+│     -old                                              # [bg=#212337]=   [fg=#f16c75 bg=#212337]=  -old                                            
+│     +new                                              # [bg=#212337]=   [fg=#37f499 bg=#212337]=  +new                                            
+setup form:
+│     setup                                             # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  setup                                           
+│     ! credential is required                          # [bg=#212337]=   [fg=#f16c75 bg=#212337]=  ! credential is required                        
+│     › credential: [hidden]                            # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  › credential: [hidden]                          
+│     submit   cancel                                   # [bg=#212337]=   [fg=#3b4261 bg=#212337]=  submit   cancel                                 
+table:
+│     command                         status            # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  command                         status          
+│     ------------------------ ---------------------    # [bg=#212337]=   [fg=#3b4261 bg=#212337]=  ------------------------ ---------------------  
+│       cargo test                        ok            # [bg=#212337]=   [fg=#ebfafa bg=#212337]=    cargo test                        ok          
+│     › cargo clippy                      fix           # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  › cargo clippy                      fix

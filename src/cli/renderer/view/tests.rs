@@ -1,3 +1,4 @@
+use crate::acp::permissions::{PendingPermission, PermissionKindView, PermissionOptionView};
 use crate::app::{
     App, DetailPane, Entry, FilePickerSource, PickerItem, PickerState, PromptAccessory, RunState, ToolStatus,
 };
@@ -8,6 +9,7 @@ use crate::renderer::view::{
     build_view,
 };
 use std::path::PathBuf;
+use std::sync::mpsc;
 
 fn test_app() -> App {
     let mut app = App::from_cli(&Cli {
@@ -381,6 +383,53 @@ fn build_view_queued_summary_absent_when_nothing_queued() {
     assert!(
         view.live.queued_summary.is_none(),
         "no queued summary when nothing queued"
+    );
+}
+
+#[test]
+fn build_view_pending_permission_takes_priority_over_focused_surface() {
+    let mut app = test_app();
+    let (tx, _rx) = mpsc::channel();
+    app.pending_permission = Some(PendingPermission {
+        tool_call_id: "call_1".to_string(),
+        title: "Write src/main.rs".to_string(),
+        options: vec![
+            PermissionOptionView {
+                id: "allow".to_string(),
+                name: "Allow once".to_string(),
+                kind: PermissionKindView::AllowOnce,
+            },
+            PermissionOptionView {
+                id: "reject".to_string(),
+                name: "Reject".to_string(),
+                kind: PermissionKindView::RejectOnce,
+            },
+        ],
+        selected: 0,
+        responder: tx,
+    });
+    app.prompt_accessory = PromptAccessory::Help;
+
+    let view = build_view(&app, 80, 24);
+    let text = view
+        .live
+        .accessory_rows
+        .iter()
+        .map(|row| row.text())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(
+        text.contains("permission"),
+        "permission prompt should be visible:\n{text}"
+    );
+    assert!(
+        text.contains("Write src/main.rs"),
+        "permission title should be visible:\n{text}"
+    );
+    assert!(
+        !text.contains("Ctrl+O"),
+        "help rows must not mask a pending permission:\n{text}"
     );
 }
 

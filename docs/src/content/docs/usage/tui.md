@@ -45,8 +45,10 @@ navigation that preserves the current draft when appropriate. Cursor placement
 and deletion are Unicode-aware for grapheme clusters, wide characters, CJK text,
 emoji sequences, and zero-width marks.
 
-Slash-command suggestions, help, and file/model/skill pickers render as rows in
-the live shell instead of floating over the transcript. `Esc` closes the active
+Command suggestions, help, and file/model/skill pickers render as bounded rows
+in the live shell instead of floating over the transcript. The command and file
+surfaces are rendered through the iocraft adapter, then converted back into the
+same row model as the rest of the direct renderer. `Esc` closes the active
 accessory first.
 
 ## Setup Slash Commands
@@ -72,6 +74,11 @@ and current working directory. Lower-priority fields hide on narrow terminals
 before the line wraps. Long working directories are truncated from the left when
 needed.
 
+When the terminal is very wide, the footer can also show the trust boundary:
+`local user · workspace-contained tools · no TUI sandbox`. This means tools run
+with the local user's authority and thndrs only constrains workspace-scoped tool
+paths at the tool layer; it does not claim an OS sandbox.
+
 TTFT is client-observed time to first token: the elapsed time from submitting a
 local turn to the first semantic model output. While a run is waiting for that
 first assistant text, visible reasoning, or tool-call delta, the status line can
@@ -83,6 +90,26 @@ visible until the next turn when width allows.
 
 Terminal resize reflows prompt and accessory rows and recomputes cursor
 placement. Transcript history stays in native scrollback.
+
+## Detail Surfaces
+
+`Ctrl+O` opens a focused detail surface when there is something actionable to
+inspect. The priority is failed tool output, truncated tool output, latest
+edit/diff detail, then latest warning or error. Compact transcript rows remain
+in native scrollback; detail surfaces are temporary bounded views for reading
+more context without permanently expanding the transcript.
+
+Tool transcript rows show a preview. If output is truncated in the transcript,
+the full stored output remains available through the detail surface and session
+data.
+
+## Tables
+
+Markdown tables and structured command output render as aligned terminal rows
+when the terminal is wide enough. Columns use fixed, percentage, or flexible
+widths depending on the source data, with right/center alignment where useful
+for counts and statuses. On narrow terminals, tables fall back to compact text
+rows instead of forcing unreadable wrapped columns.
 
 ## Banner
 

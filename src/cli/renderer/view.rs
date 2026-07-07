@@ -44,6 +44,17 @@ pub struct SemanticUiView {
     pub focused_surface: FocusedSurfaceView,
 }
 
+impl SemanticUiView {
+    pub fn new(app: &App) -> Self {
+        SemanticUiView {
+            transcript: SemanticTranscriptView { rows: app.transcript.iter().map(semantic_transcript_row).collect() },
+            prompt: prompt_surface_view(app),
+            orientation: orientation_band_view(app),
+            focused_surface: focused_surface_view(app),
+        }
+    }
+}
+
 /// Semantic transcript records before terminal wrapping and styling.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SemanticTranscriptView {
@@ -301,6 +312,12 @@ pub struct SurfaceRenderInput<'a> {
     pub height: usize,
 }
 
+impl<'a> SurfaceRenderInput<'a> {
+    pub fn new(surface: &'a FocusedSurfaceView, theme: &'a SurfaceThemeView, width: usize, height: usize) -> Self {
+        Self { surface, theme, width, height }
+    }
+}
+
 /// Semantic theme roles available to bounded surface adapters.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SurfaceThemeView {
@@ -311,6 +328,20 @@ pub struct SurfaceThemeView {
     pub error: ThemeRole,
     pub diff_added: ThemeRole,
     pub diff_removed: ThemeRole,
+}
+
+impl SurfaceThemeView {
+    pub fn new() -> Self {
+        SurfaceThemeView {
+            text: ThemeRole::Text,
+            muted: ThemeRole::Muted,
+            selected: ThemeRole::Selected,
+            warning: ThemeRole::Warning,
+            error: ThemeRole::Error,
+            diff_added: ThemeRole::DiffAdded,
+            diff_removed: ThemeRole::DiffRemoved,
+        }
+    }
 }
 
 /// A backend-neutral theme role.
@@ -355,20 +386,10 @@ pub struct LiveView {
 /// No crossterm types or terminal writes appear here. The returned view is the
 /// input to [`super::region::LiveRegion::build_frame`].
 pub fn build_view(app: &App, width: usize, height: usize) -> RendererView {
-    let semantic = build_semantic_view(app);
+    let semantic = SemanticUiView::new(app);
     let transcript = build_transcript_view(app, width);
-    let live = build_live_view(app, width, height, &transcript);
-
+    let live = build_live_view(app, width, height, &transcript, &semantic);
     RendererView { semantic, transcript, live, width, height }
-}
-
-fn build_semantic_view(app: &App) -> SemanticUiView {
-    SemanticUiView {
-        transcript: SemanticTranscriptView { rows: app.transcript.iter().map(semantic_transcript_row).collect() },
-        prompt: prompt_surface_view(app),
-        orientation: orientation_band_view(app),
-        focused_surface: focused_surface_view(app),
-    }
 }
 
 fn semantic_transcript_row(entry: &Entry) -> TranscriptRowView {
@@ -698,14 +719,37 @@ fn build_transcript_view(app: &App, width: usize) -> TranscriptView {
     TranscriptView { banner_rows: Vec::new(), stable_rows, live_rows }
 }
 
-fn build_live_view(app: &App, width: usize, _height: usize, transcript: &TranscriptView) -> LiveView {
+fn build_live_view(
+    app: &App, width: usize, _height: usize, transcript: &TranscriptView, semantic: &SemanticUiView,
+) -> LiveView {
     let live_tail = transcript.live_rows.clone();
     let dynamic_status = super::live::dynamic_status_row(app, width);
     let (prompt_rows, prompt_cursor) = super::live::prompt_rows_for(app, width);
     let (prompt_rows, prompt_cursor) =
         clip_prompt_rows_around_cursor(prompt_rows, prompt_cursor, super::live::MAX_PROMPT_ROWS);
 
-    let accessory_rows = super::live::accessory_rows(app, width, super::live::MAX_ACCESSORY_ROWS);
+    let accessory_rows = if app.pending_permission.is_some() || app.first_run_recovery.is_some() {
+        super::live::accessory_rows(app, width, super::live::MAX_ACCESSORY_ROWS)
+    } else {
+        match &semantic.focused_surface {
+            FocusedSurfaceView::CommandPicker(_) | FocusedSurfaceView::FilePicker(_) | FocusedSurfaceView::Help => {
+                super::adapter::render_surface(&SurfaceRenderInput::new(
+                    &semantic.focused_surface,
+                    &SurfaceThemeView::new(),
+                    width,
+                    super::live::MAX_ACCESSORY_ROWS,
+                ))
+            }
+            FocusedSurfaceView::None
+            | FocusedSurfaceView::ToolDetail(_)
+            | FocusedSurfaceView::DiffDetail(_)
+            | FocusedSurfaceView::TranscriptLens { .. }
+            | FocusedSurfaceView::SetupForm(_)
+            | FocusedSurfaceView::StructuredTable(_) => {
+                super::live::accessory_rows(app, width, super::live::MAX_ACCESSORY_ROWS)
+            }
+        }
+    };
     let queued_summary = super::live::queued_summary_row(app, width);
     let detail_pane = if app.detail_pane.open {
         super::live::detail_pane_rows(app, width, super::live::MAX_ACCESSORY_ROWS)
@@ -732,7 +776,6 @@ fn build_live_view(app: &App, width: usize, _height: usize, transcript: &Transcr
 /// until they finish. All other entries are fully stable.
 fn entry_stable_and_live_rows(entry: &Entry, ctx: &super::transcript::TranscriptRowContext) -> (Vec<Row>, Vec<Row>) {
     let rows = super::transcript::entry_rows(entry, ctx);
-
     match entry {
         Entry::Agent { streaming: true, .. }
         | Entry::Reasoning { streaming: true, .. }

@@ -41,6 +41,16 @@ and this project follows semantic versioning after the first stable release.
     `gpt-5.3-codex-spark`.
 - TTFT statusline display for client-observed time from local submit to first
   semantic model output.
+- Semantic TUI view records for transcript rows, prompt state, orientation
+  fields, focused surfaces, setup forms, structured tables, tool details, and
+  diff summaries.
+- Prompt interaction surfaces for command suggestions, inline `@` file
+  mentions, `Ctrl+P` workspace file picking, `Ctrl+O` detail inspection, and
+  queued steering/follow-up summaries while a turn is running.
+- iocraft-backed bounded rendering for focused command picker, file picker, and
+  help surfaces through the existing row/frame renderer contract.
+- Structured markdown/table rendering with column width policies, alignment,
+  header separators, selected-row styling, and narrow fallbacks.
 - Ignored live provider smoke tests for OpenCode Zen and ChatGPT Codex
   credentials, streaming, tool calls, and refresh prerequisites.
 
@@ -78,3 +88,10 @@ and this project follows semantic versioning after the first stable release.
   `.thndrs/credentials.env`.
 - Kept provider secrets, raw provider payloads, ChatGPT access tokens, refresh
   tokens, and TTFT content out of session records and prompt inspection.
+- Kept the committed transcript, main prompt editor, permission prompts,
+  first-run recovery, and tool detail rendering on the direct row path where
+  it preserves native scrollback, priority rules, cursor behavior, and richer
+  detail semantics.
+- Documented the TUI trust wording as
+  `local user · workspace-contained tools · no TUI sandbox` without implying a
+  stronger sandbox than the runtime enforces.
