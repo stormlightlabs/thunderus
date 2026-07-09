@@ -1,57 +1,32 @@
-# Context Control And Memory Tasks
-
-Status: Draft
+---
+title: Context Control And Memory Tasks
+Status: Ready
 Captured: 2026-07-03
-
-## P0: Lock The Contract
-
-- [x] Context control includes file-backed memory in this feature.
-- [x] Memory writes are explicit-only for the first implementation.
-- [x] Autonomous memory suggestions may write durable files only after the user
-      explicitly confirms the suggested diff/write.
-- [x] V1 retrieval uses rebuildable SQLite metadata, FTS5/BM25, and sqlite-vec
-      indexes over Markdown memory files.
-- [x] SQLite indexes are derived caches under `~/.thndrs/cache/memory/`, not
-      project-tracked source files.
-- [x] Embeddings are part of v1 retrieval as a derived sqlite-vec index over
-      Markdown memory files, not the memory source of truth.
-- [x] Lexical FTS5/BM25 recall remains available when embeddings are missing,
-      stale, or disabled.
-- [x] A single memory index rejects mixed embedding models unless the user
-      explicitly rebuilds or migrates the index.
-- [x] The durable source is append-only session JSONL plus memory Markdown
-      files.
-- [x] Memory storage roots are `~/.thndrs/memory/` and `.thndrs/memory/`.
-- [x] The first memory file format is a Markdown body with YAML frontmatter.
-- [x] Initial context item kinds are `Harness`, `ProjectInstruction`,
-      `UserMemory`, `ProjectMemory`, `PinnedFile`, `Skill`, `Transcript`,
-      `Summary`, and `ToolArchive`.
-- [x] Memory item kinds are `fact`, `preference`, `procedure`, and `context`.
-- [x] Initial context visibility states are `Visible`, `Pinned`,
-      `SummaryOnly`, `Archived`, `Candidate`, `Dropped`, and `Blocked`.
-- [x] Read-only commands allowed while a turn is running: `/context`,
-      `/context all`, `/memory`, and `/doctor`.
-- [x] Mutating or prompt-affecting commands require idle state:
-      `/pin`, `/drop`, `/recover`, `/remember`, `/memory open`,
-      `/memory forget`, `/compact`, and `/clear-context`.
-- [x] `/remember` requires an explicit scope:
-      `/remember user <text>`, `/remember project <text>`,
-      `/remember path <path> <text>`, or `/remember session <text>`.
-- [x] `/memory forget` deletes the memory file after confirmation and appends a
-      content-free `memory_delete` audit record; it does not write a tombstone
-      file containing forgotten content.
-- [x] Project memory docs explain that shared team memory may be committed,
-      while personal project memory belongs in Git's local exclude path or user
-      memory.
-- [x] Token estimates use `ceil(utf8_bytes / 3) + 16` per item as a
-      conservative approximate budget guard until provider-specific tokenizers
-      are available.
+---
 
 ## P1: Ledger Foundation
 
 - [ ] Add a context-control module with `ContextItemKind`.
 - [ ] Add `ContextVisibility`.
 - [ ] Add `ContextItem`.
+- [ ] Add `ModelContextLimits` with provider, model id, context window, max
+      completion tokens, recommended completion tokens, source, and confidence.
+- [ ] Add provider-neutral model capability projection from live provider
+      metadata when available.
+- [ ] Add advanced config overrides under
+      `[model_limits."provider/model-id"]` with `context_window`,
+      `max_completion_tokens`, and `recommended_completion_tokens`.
+- [ ] Apply model limit precedence: user override, then live metadata, then
+      static provider metadata, then conservative fallback.
+- [ ] Add conservative static model capability fallbacks for providers without
+      live context-window metadata.
+- [ ] Validate model limit overrides as positive integers.
+- [ ] Reject or diagnose model limit overrides where recommended completion
+      tokens exceed max completion tokens or context window.
+- [ ] Derive available input budget from context window minus reserved
+      completion budget and provider overhead.
+- [ ] Add context budget ratios: target selection at 80% and auto-compaction
+      trigger at 92%.
 - [ ] Add `ContextBudget`.
 - [ ] Add `ContextLedger`.
 - [ ] Add `ContextDiagnostic`.
@@ -65,10 +40,18 @@ Captured: 2026-07-03
 - [ ] Test context item id stability for paths.
 - [ ] Test context item id stability for session ranges.
 - [ ] Test token-estimation behavior on ASCII, Unicode, and code blocks.
+- [ ] Test live model metadata context windows feed context budgets.
+- [ ] Test user model limit overrides take precedence over live metadata.
+- [ ] Test invalid model limit overrides produce diagnostics.
+- [ ] Test missing model metadata falls back to conservative limits with a
+      diagnostic.
+- [ ] Test target and auto-compaction ratios are calculated from available
+      input budget, not raw context window.
 
-## P2: Scoped Project Instructions
+## P2: Scoped Project Instructions Extension
 
-- [ ] Discover root `AGENTS.md` as the default project instruction source.
+- [ ] Reuse existing root `AGENTS.md` loading as the default project
+      instruction source.
 - [ ] Discover nested `AGENTS.md` files below the workspace root.
 - [ ] Assign every nested `AGENTS.md` a subtree scope.
 - [ ] Load nested instruction content only when applicable or explicitly pinned.
@@ -100,7 +83,18 @@ Captured: 2026-07-03
 - [ ] Keep memory body loading size-capped.
 - [ ] Add explicit scoped memory write helper for `/remember`.
 - [ ] Add memory deletion helper for `/memory forget`.
+- [ ] Require confirmation before `/memory forget` deletes a memory file.
+- [ ] Make `/memory forget` append a content-free `memory_delete` audit record
+      with memory id, path, scope, timestamp, and content hash when available.
+- [ ] Ensure `/memory forget` never writes a tombstone file containing
+      forgotten content.
+- [ ] Ensure `/memory forget` does not delete unrelated memory, project files,
+      or session history.
 - [ ] Add path-scoped memory selection for project notes.
+- [ ] Persist session-scoped memory in the session log so it survives session
+      resume.
+- [ ] Keep session-scoped memory active after `/compact`, `/clear`, and
+      `/clear-context`.
 - [ ] Add secret-shaped content warning before memory writes.
 - [ ] Keep memory files ordinary inspectable Markdown.
 - [ ] Test memory discovery in user root.
@@ -108,7 +102,12 @@ Captured: 2026-07-03
 - [ ] Test malformed memory diagnostics.
 - [ ] Test explicit scoped `/remember` writes valid Markdown/frontmatter.
 - [ ] Test `/remember` without a scope is rejected.
+- [ ] Test session-scoped memory survives compaction and resume.
+- [ ] Test `/clear` and `/clear-context` do not remove session-scoped memory.
 - [ ] Test `/memory forget` deletes the memory file after confirmation.
+- [ ] Test `/memory forget` appends only content-free delete audit metadata.
+- [ ] Test `/memory forget` fails safely when the target memory cannot be
+      identified.
 
 ## P4: SQLite Metadata And FTS Index
 
@@ -131,45 +130,35 @@ Captured: 2026-07-03
 - [ ] Test metadata-filtered FTS search by scope, tag, and path.
 - [ ] Test FTS retrieval result snippets and recovery handles.
 
-## P5: sqlite-vec Embedding Index
+## P5: Deferred Embedding Extension Contract
 
-- [ ] Add sqlite-vec as the vector index for memory embeddings.
-- [ ] Add an embeddings table with memory id, vector blob, model, dimensions,
-      content hash, and updated time.
-- [ ] Add a vec table keyed by memory id for approximate semantic recall.
-- [ ] Define the initial embedding model and dimensions.
-- [ ] Add embedding config validation.
-- [ ] Reject mixed embedding models in one derived index unless an explicit
-      rebuild is requested.
-- [ ] Normalize vectors before storage.
-- [ ] Store packed little-endian `f32` vectors in the embeddings table.
-- [ ] Keep sqlite-vec rows derived from the embeddings table.
-- [ ] Add fallback behavior when sqlite-vec is unavailable.
-- [ ] Add fallback behavior when the embedding provider is unavailable.
-- [ ] Surface semantic-recall degradation diagnostics in `/memory stats` and
-      `/doctor`.
-- [ ] Test sqlite-vec table creation.
-- [ ] Test embedding vector byte round trips.
-- [ ] Test normalized vector cosine similarity behavior.
-- [ ] Test semantic recall finds related memory text.
-- [ ] Test semantic recall degrades to FTS5 when embeddings are unavailable.
-- [ ] Test mixed embedding model rejection.
-- [ ] Test explicit vector-index rebuild.
+- [ ] Keep v1 memory retrieval code structured so an embedding provider can be
+      added without changing memory Markdown files.
+- [ ] Document the candidate embedding providers: local in-process
+      `fastembed`, local-service Ollama, and remote/API OpenAI embeddings.
+- [ ] Document sqlite-vec as the likely first local vector index candidate.
+- [ ] Define the future cached vector metadata fields: memory id, provider,
+      model, dimensions, content hash, vector hash, and updated time.
+- [ ] Define the future mixed-model rule: one vector index rejects mixed
+      provider/model/dimension rows unless an explicit rebuild or migration is
+      requested.
+- [ ] Define the future degradation rule: semantic recall is optional and must
+      fall back to metadata plus FTS5/BM25 with visible diagnostics.
+- [ ] Do not add sqlite-vec, embedding API calls, model downloads, or vector
+      tables in v1.
 
-## P6: Hybrid Memory Recall
+## P6: Lexical Memory Recall
 
-- [ ] Add metadata-filtered sqlite-vec search over memory notes.
-- [ ] Combine lexical and semantic recall results with stable scoring and
-      tie-breaking.
+- [ ] Add `/memory recall <query>` over metadata and FTS5/BM25 results.
 - [ ] Return memory retrieval results with match reason, snippet, score, source,
       scope, and recovery handle.
-- [ ] Include whether a result came from metadata, FTS5, sqlite-vec, or a
-      blended score.
+- [ ] Include whether a result came from metadata or FTS5/BM25.
 - [ ] Include core memory before archival memory in recall projections.
 - [ ] Add recall result caps by count and total bytes.
-- [ ] Test blended lexical and semantic recall ordering.
+- [ ] Test lexical recall ordering and stable tie-breaking.
+- [ ] Test metadata-only matches.
 - [ ] Test recall caps.
-- [ ] Test recall degrades to lexical results with visible diagnostics.
+- [ ] Test recall returns empty results with a useful diagnostic.
 
 ## P7: Context Selection Policy
 
@@ -185,6 +174,7 @@ Captured: 2026-07-03
 - [ ] Include active pins before ordinary recent transcript items.
 - [ ] Include applicable closest `AGENTS.md` before broader guidance.
 - [ ] Include the latest compaction summary when older turns are omitted.
+- [ ] Keep session-scoped memory eligible after compaction and resume.
 - [ ] Omit UI-only and live-only transcript entries.
 - [ ] Mark oversized items as blocked or summary-only instead of truncating
       silently.
@@ -193,6 +183,10 @@ Captured: 2026-07-03
 - [ ] Test short, normal, and overloaded context budgets.
 - [ ] Test pins survive across turns.
 - [ ] Test drops remove pins from future turns.
+- [ ] Test explicit dropped-item rules persist until source change or
+      `/drop --reset`.
+- [ ] Test `/clear-context` clears pins, recovered/opened items, and transient
+      transcript carryover without deleting memory or compaction summaries.
 - [ ] Test recover reopens archived/omitted context by id.
 - [ ] Test compaction summary replaces older transcript entries in prompt
       projection.
@@ -229,16 +223,74 @@ Captured: 2026-07-03
 - [ ] Add `compaction` session record.
 - [ ] Include context item metadata without full file contents.
 - [ ] Include memory ids and paths without duplicating full memory bodies.
-- [ ] Include compaction summary text and covered sequence range.
+- [ ] Include compaction summary text, covered sequence range, trigger reason,
+      risk classification, review outcome, and recovery handles.
 - [ ] Include hashes for summarized source ranges where practical.
 - [ ] Add JSON round-trip tests for every new record.
-- [ ] Add replay/projection tests with context and compaction records.
 - [ ] Add corruption-tolerant reader tests for malformed optional records.
 - [ ] Test `memory_delete` records omit forgotten content.
 - [ ] Test session JSONL records for context, memory, and compaction.
+- [ ] Test compaction records distinguish manual and auto trigger reasons.
 - [ ] Test secrets are not serialized into session records.
 
-## P10: Read-Only Commands
+## P10: Compaction Policy
+
+- [ ] Add `context.compaction.mode = "off" | "manual" | "auto"` config.
+- [ ] Add `context.compaction.review = "always" | "auto" | "never"` config.
+- [ ] Default compaction mode to `"manual"`.
+- [ ] Default compaction review to `"auto"`.
+- [ ] Implement explicit `/compact` as a manual compaction request.
+- [ ] Implement auto-compaction trigger under context pressure only when
+      `mode = "auto"`.
+- [ ] Trigger auto-compaction only after normal eviction and summary candidates
+      still exceed 92% of available input budget.
+- [ ] Run auto-compaction as a preflight step before the main provider request.
+- [ ] Stop the submitted turn before sending the main provider request when
+      auto-compaction is required.
+- [ ] Generate every compaction summary through the configured model.
+- [ ] Rebuild the context ledger after successful compaction.
+- [ ] Restart the same user turn after successful auto-compaction.
+- [ ] Apply steering queued before the restarted provider request to the
+      restarted turn.
+- [ ] Keep queued follow-up prompts queued until after the restarted turn
+      completes.
+- [ ] Leave active context unchanged when the compaction model call fails.
+- [ ] Keep the submitted user turn recoverable when compaction fails or waits
+      for review.
+- [ ] Do not interrupt in-flight provider requests for compaction in v1.
+- [ ] Do not send a main provider request that the context policy already knows
+      is oversized.
+- [ ] Do not add a deterministic or local-only summarizer fallback in v1.
+- [ ] Classify high-risk compaction ranges that include tool outputs, file
+      diffs, error logs, permission prompts, user corrections, failed commands,
+      or unresolved action items.
+- [ ] Require approval for all auto-compactions when `review = "always"`.
+- [ ] Require approval for high-risk auto-compactions when `review = "auto"`.
+- [ ] Apply low-risk auto-compactions without approval when `review = "auto"`,
+      with a visible status row.
+- [ ] Apply auto-compactions without approval when `review = "never"`, with a
+      visible status row.
+- [ ] Preserve original session records for every compaction path.
+- [ ] Record compaction model id and token usage when available.
+- [ ] Provide recovery handles for compacted ranges.
+- [ ] Test defaults keep auto-compaction disabled.
+- [ ] Test auto-compaction does not trigger below 92% of available input
+      budget.
+- [ ] Test auto-compaction can trigger above 92% of available input budget.
+- [ ] Test manual compaction uses the configured model.
+- [ ] Test auto-compaction uses the configured model.
+- [ ] Test auto-compaction stops before the main provider request.
+- [ ] Test successful auto-compaction restarts the same user turn.
+- [ ] Test pre-restart steering is applied to the restarted turn.
+- [ ] Test queued follow-ups are held until after the restarted turn completes.
+- [ ] Test failed compaction model calls leave active context unchanged.
+- [ ] Test failed compaction keeps the submitted user turn recoverable.
+- [ ] Test high-risk auto-compaction requires review under `review = "auto"`.
+- [ ] Test low-risk auto-compaction applies under `review = "auto"`.
+- [ ] Test `review = "always"` always requires approval.
+- [ ] Test `review = "never"` still writes audit and recovery metadata.
+
+## P11: Read-Only Commands
 
 - [ ] Add `/context`.
 - [ ] Add `/context all`.
@@ -252,10 +304,11 @@ Captured: 2026-07-03
 - [ ] Preserve prompt text after failed read-only context or memory commands.
 - [ ] Test app command routing for read-only commands.
 
-## P11: Mutating Commands
+## P12: Mutating Commands
 
 - [ ] Add `/pin <id-or-path>`.
 - [ ] Add `/drop <id>`.
+- [ ] Add `/drop --reset`.
 - [ ] Add `/recover <id>`.
 - [ ] Add `/remember user <text>`.
 - [ ] Add `/remember project <text>`.
@@ -272,14 +325,19 @@ Captured: 2026-07-03
 - [ ] Wire context actions into the session writer.
 - [ ] Wire memory actions into the session writer.
 - [ ] Preserve prompt text after failed mutating context or memory commands.
+- [ ] Test `/drop --reset` clears explicit dropped-item rules.
+- [ ] Test `/clear-context` does not delete session-scoped memory or
+      compaction summaries.
 - [ ] Test app command routing for mutating commands.
 
-## P12: UI And Renderer
+## P13: UI And Renderer
 
 - [ ] Add transcript rows for context summary actions.
 - [ ] Add transcript rows for memory writes.
 - [ ] Add transcript rows for memory deletion.
 - [ ] Add transcript rows for compaction.
+- [ ] Add transcript rows for auto-compaction applied without review.
+- [ ] Add transcript rows for auto-compaction waiting for review.
 - [ ] Add transcript rows for context warnings.
 - [ ] Add a focused context ledger view.
 - [ ] Add a focused memory picker/list view.
@@ -293,7 +351,7 @@ Captured: 2026-07-03
 - [ ] Ensure native scrollback remains the transcript history path.
 - [ ] Test renderer snapshots for context and memory surfaces.
 
-## P13: Context Doctor
+## P14: Context Doctor
 
 - [ ] Detect oversized core memory.
 - [ ] Detect oversized `AGENTS.md`.
@@ -301,31 +359,46 @@ Captured: 2026-07-03
 - [ ] Detect memory files with malformed frontmatter.
 - [ ] Detect duplicate memory ids.
 - [ ] Detect stale or missing memory indexes.
-- [ ] Detect sqlite-vec unavailable or unhealthy.
-- [ ] Detect mixed embedding model metadata.
+- [ ] Detect stale or unhealthy FTS5 indexes.
+- [ ] Report that semantic recall is not enabled in v1 without treating it as
+      an error.
 - [ ] Detect memory items that look secret-shaped.
 - [ ] Detect conflicting memory items with the same title/path scope where
       simple string rules can catch them.
 - [ ] Detect pins that point to missing files.
 - [ ] Detect pins that dominate the available context budget.
+- [ ] Detect unknown or fallback model context limits.
+- [ ] Detect user-overridden model context limits.
+- [ ] Detect invalid or internally inconsistent model limit overrides.
+- [ ] Detect selected context above the 80% target budget.
+- [ ] Detect auto-compaction disabled while context pressure is high.
+- [ ] Detect pending high-risk compaction reviews.
 - [ ] Show actionable remediation text without rewriting files automatically.
 
-## P14: Public Docs And Notebook Links
+## P15: Public Docs And Notebook Links
 
 - [ ] Add public context-control usage docs.
 - [ ] Add public memory usage docs.
 - [ ] Document context dashboard fields.
+- [ ] Document model context limit sources and fallback behavior.
+- [ ] Document advanced model context limit overrides.
+- [ ] Document context budget ratios for selection and auto-compaction.
 - [ ] Document user memory and project memory paths.
 - [ ] Document memory file frontmatter.
 - [ ] Document memory kinds.
-- [ ] Document metadata, FTS5, and sqlite-vec as rebuildable derived indexes.
-- [ ] Document semantic recall degradation behavior.
+- [ ] Document metadata and FTS5/BM25 as rebuildable derived indexes.
+- [ ] Document embeddings and sqlite-vec as deferred semantic-recall research,
+      not v1 behavior.
 - [ ] Document memory precedence below user/system/harness instructions.
 - [ ] Document that memory cannot grant permissions or enable tools.
 - [ ] Document how to inspect and delete memory files manually.
-- [ ] Document `/remember`, `/memory`, `/pin`, `/drop`, `/recover`,
-      `/compact`, `/clear-context`, and `/doctor`.
+- [ ] Document `/remember`, `/memory`, `/pin`, `/drop`, `/drop --reset`,
+      `/recover`, `/compact`, `/clear-context`, and `/doctor`.
 - [ ] Document compaction versus deletion.
+- [ ] Document compaction mode and review settings.
+- [ ] Document high-risk compaction review behavior.
+- [ ] Document session-scoped memory lifetime.
+- [ ] Document `/clear-context` behavior.
 - [ ] Document that summaries do not remove session history.
 - [ ] Update session-format docs with new records.
 - [ ] Cross-link notebook research:
@@ -333,7 +406,7 @@ Captured: 2026-07-03
       `agents-md.md`, `sessions.md`, `skills.md`, and
       `local-memory-retrieval.md`.
 
-## P15: Validation Commands
+## P16: Validation Commands
 
 - [ ] `cargo fmt`
 - [ ] `cargo clippy --fix --all-targets --allow-dirty`

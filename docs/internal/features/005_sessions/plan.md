@@ -1,7 +1,8 @@
-# Sessions
-
+---
+title: Sessions
 Status: Draft
 Captured: 2026-07-04
+---
 
 ## Problem
 
@@ -133,6 +134,8 @@ Inspect/export output includes:
 - provider/model/web-search metadata;
 - token usage totals;
 - loaded `AGENTS.md` metadata;
+- context-control records when present: context ledgers, pins, drops,
+  recoveries, memory writes, memory deletes, and compactions;
 - activated skill metadata;
 - redacted effective config metadata from the archived configuration work when
   present, otherwise `null`.
@@ -147,7 +150,11 @@ uncapped raw provider payloads.
   "schema_version": 1,
   "session": {
     "id": "session-YYYYMMDD-HHMMSS",
-    "file": { "raw": "/abs/.thndrs/sessions/session-YYYYMMDD-HHMMSS.jsonl", "display": ".thndrs/sessions/session-YYYYMMDD-HHMMSS.jsonl", "kind": "workspace_relative" },
+    "file": {
+      "raw": "/abs/.thndrs/sessions/session-YYYYMMDD-HHMMSS.jsonl",
+      "display": ".thndrs/sessions/session-YYYYMMDD-HHMMSS.jsonl",
+      "kind": "workspace_relative"
+    },
     "title": "latest title",
     "cwd": { "raw": "/abs/workspace", "display": ".", "kind": "workspace_relative" },
     "started_at": "ISO-8601",
@@ -174,7 +181,8 @@ uncapped raw provider payloads.
   "tools": [],
   "file_writes": [],
   "shell_execs": [],
-  "context": { "sources": [] },
+  "context": { "sources": [], "ledgers": [], "pins": [], "drops": [], "recoveries": [], "compactions": [] },
+  "memory": { "writes": [], "deletes": [] },
   "skills": [],
   "config": null,
   "warnings": []
@@ -199,7 +207,14 @@ with `started_at` or `finished_at` set to `null` and a warning is added.
 sorted by `seq` ascending:
 
 ```json
-{"schema_version":1,"session_id":"session-YYYYMMDD-HHMMSS","seq":0,"time":"ISO-8601","record_type":"session_meta","record":{}}
+{
+  "schema_version": 1,
+  "session_id": "session-YYYYMMDD-HHMMSS",
+  "seq": 0,
+  "time": "ISO-8601",
+  "record_type": "session_meta",
+  "record": {}
+}
 ```
 
 Every exported line has exactly these top-level fields:
@@ -215,9 +230,12 @@ Every exported line has exactly these top-level fields:
 `session_meta`, `context`, `user`, `assistant_finished`,
 `reasoning_finished`, `usage`, `tool_started`, `tool_finished`,
 `cancelled`, `failed`, `session_renamed`, `file_write`, `shell_exec`,
-`skill_activated`, and `queued_input`. Corrupt lines are skipped and reported
-only through `inspect.counts.corrupt_lines` or a CLI warning on stderr; they are
-not exported as synthetic records.
+`skill_activated`, `queued_input`, and context-control record types when
+present: `context_ledger`, `context_pin`, `context_drop`,
+`context_recovery`, `memory_write`, `memory_delete`, and `compaction`.
+Corrupt lines are skipped and reported only through
+`inspect.counts.corrupt_lines` or a CLI warning on stderr; they are not exported
+as synthetic records.
 
 ### Path Display Policy
 
@@ -264,7 +282,7 @@ through the renderer-independent projection.
 Prior unfinished records are displayed as settled informational rows:
 
 - `tool_started` without a matching `tool_finished`: `tool interrupted:
-  <name> (#<call_id>)`.
+<name> (#<call_id>)`.
 - `tool_finished` without a matching `tool_started`: display the finished tool
   with `#<call_id>` as the name and empty arguments.
 - `queued_input`: `queued <kind> input was not replayed`.
@@ -292,6 +310,14 @@ where needed. Replay must tolerate corrupt or partial lines the same way
 
 Resume must not replay unfinished live state as running. Running tool records
 from a prior process settle as informational status rows.
+
+Replay of context-control records is renderer-independent and informational.
+Context ledger, pin/drop/recovery, memory write/delete, and compaction records
+must be projected into settled transcript/status rows or inspect/export
+metadata; they must not re-run memory deletion, rewrite memory files, recompact
+history, or mutate the active context merely because an old session is being
+inspected or resumed. Fresh context selection after resume is owned by
+`001_context_control` policy and uses the durable records as evidence.
 
 ### Logs
 
@@ -322,7 +348,8 @@ Runtime logs stay text files under `.thndrs/logs`. Debug readers should:
 - P6 documentation updates happen after the commands exist, but their content
   is already defined by this plan: commands, prefix lookup, inspect/export
   contents and omissions, log readers, and resume behavior.
-- Context and memory operations live in `001_context_control`.
+- Context and memory operation behavior lives in `001_context_control`.
+  Session replay, inspect, and export projection for those records lives here.
 - The old workspace split and GUI are outside the implementation path for this
   repository.
 
