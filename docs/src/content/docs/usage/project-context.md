@@ -18,16 +18,48 @@ On startup, `thndrs` discovers the workspace root from `--cwd`. When the
 directory is inside a git repository, the git top level is used. Otherwise the
 canonicalized `--cwd` path is used.
 
-The current implementation loads the root `AGENTS.md` from that workspace root
-when it exists:
+`thndrs` loads the root `AGENTS.md` from that workspace root when it exists:
 
 ```text
 <workspace-root>/AGENTS.md
 ```
 
-Nested `AGENTS.md` scoping is not active yet. Until it is implemented, put
-workspace-wide guidance in the root file and keep path-specific details short
-enough that they do not become stale.
+It also discovers nested `AGENTS.md` files below the workspace root.
+
+Each nested file is assigned a subtree scope with the relative directory path from
+the workspace root.
+
+For example, `<workspace-root>/src/AGENTS.md` has scope `src`, and
+`<workspace-root>/src/core/AGENTS.md` has scope `src/core`.
+
+Discovery skips hidden directories (leading `.`), VCS metadata, and common
+build output directories (`node_modules`, `target`, `dist`, `build`, `out`) so
+it stays fast and avoids noise.
+
+### Nested Selection
+
+Nested `AGENTS.md` files are not all loaded into every prompt. A nested file is
+applicable for a turn when the current user turn mentions a path under its
+scope, or when a pinned file falls under its scope. The closest applicable
+guidance wins: a nested source overrides the root for paths under its scope,
+but the root remains visible as broader guidance.
+
+Non-applicable nested sources stay in the context ledger as candidates so you
+can inspect them, but their content is not sent to the model for that turn.
+
+### Reload And Change Detection
+
+At turn boundaries, `thndrs` snapshots the content hash of every loaded
+instruction file. When a file's hash changes between turns, a diagnostic
+is recorded so stale guidance does not silently shape the run.
+
+Added and removed files are also reported.
+
+### Oversized And Unreadable Files
+
+`AGENTS.md` content is capped before it enters the prompt. Oversized files are
+truncated and flagged, whether root or nested. Unreadable nested files (for
+example, invalid UTF-8) are skipped with a warning rather than aborting the run.
 
 ## Precedence
 
@@ -36,13 +68,16 @@ Instructions are interpreted in this order:
 1. Harness safety policy.
 2. Current user prompt.
 3. CLI and config choices owned by the user.
-4. Applicable `AGENTS.md` guidance.
-5. Built-in defaults.
+4. Closest applicable `AGENTS.md` guidance.
+5. Broader ancestor `AGENTS.md` guidance.
+6. Built-in defaults.
 
 That means `AGENTS.md` can influence how work is done, but it is below the
 current request and below the harness boundary. For example, a project file can
 recommend `cargo test`, but it cannot require ignoring failed tests or authorize
-destructive commands.
+destructive commands. When both a root and a nested `AGENTS.md` apply, the
+nested (closest) guidance takes precedence for paths under its scope, while the
+root remains visible as broader guidance.
 
 ## Prompt Behavior
 
@@ -143,12 +178,15 @@ assistant to read it explicitly.
 If `AGENTS.md` is missing, `thndrs` runs with built-in defaults and records no
 project-context source.
 
-If `AGENTS.md` is unreadable, future diagnostics should make that visible to the
-user. The current root loader skips missing files and only loads successfully
-read text.
+If a nested `AGENTS.md` is unreadable (for example, invalid UTF-8), `thndrs`
+skips it and records a warning diagnostic so the user can see which file was
+ignored and why.
 
 If `AGENTS.md` is oversized, `thndrs` uses the capped content and marks the
-source as truncated.
+source as truncated. This applies to both root and nested files.
+
+If an instruction file changes between turns, `thndrs` records a change
+diagnostic so stale guidance does not silently shape the run.
 
 ## Related Docs
 

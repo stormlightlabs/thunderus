@@ -3,6 +3,8 @@
 //!
 //! - [`control`] holds the typed context ledger, model context limits, token
 //!   budgets, and diagnostics (P1 ledger foundation).
+//! - [`instructions`] discovers nested `AGENTS.md` files, selects the closest
+//!   applicable guidance for a turn, and detects changes between turns.
 //! - This module loads root `AGENTS.md` and discovers the workspace root.
 //!
 //! AGENTS.md is treated as read-only repository guidance, never as executable
@@ -25,6 +27,7 @@
 //! 6. Built-in defaults.
 
 pub mod control;
+pub mod instructions;
 
 pub use control::{
     ContextBudget, ContextCounts, ContextDiagnostic, ContextItem, ContextItemKind, ContextLedger, ContextVisibility,
@@ -35,6 +38,12 @@ pub use control::{
 pub use control::{
     estimate_tokens, item_id_for_path, item_id_for_session_range, render_ledger_summary, render_model_dashboard,
 };
+
+pub use instructions::{
+    InstructionDiagnostic, InstructionInventory, InstructionSelection, InstructionSeverity, InstructionSnapshot,
+};
+
+pub use instructions::{discover_instructions, select_instructions};
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -129,7 +138,7 @@ pub fn load_agents_md(workspace_root: &Path) -> Option<ContextSource> {
 }
 
 /// Trim a string to at most `max_bytes` bytes, ensuring we end on a UTF-8 char boundary.
-fn trim_to_char_boundary(s: &str, max_bytes: usize) -> String {
+pub fn trim_to_char_boundary(s: &str, max_bytes: usize) -> String {
     if s.len() <= max_bytes {
         return s.to_string();
     }

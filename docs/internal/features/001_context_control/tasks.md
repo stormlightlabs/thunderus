@@ -6,68 +6,68 @@ Captured: 2026-07-03
 
 ## P1: Ledger Foundation
 
-- [ ] Add a context-control module with `ContextItemKind`.
-- [ ] Add `ContextVisibility`.
-- [ ] Add `ContextItem`.
-- [ ] Add `ModelContextLimits` with provider, model id, context window, max
+- [x] Add a context-control module with `ContextItemKind`.
+- [x] Add `ContextVisibility`.
+- [x] Add `ContextItem`.
+- [x] Add `ModelContextLimits` with provider, model id, context window, max
       completion tokens, recommended completion tokens, source, and confidence.
-- [ ] Add provider-neutral model capability projection from live provider
+- [x] Add provider-neutral model capability projection from live provider
       metadata when available.
-- [ ] Add advanced config overrides under
+- [x] Add advanced config overrides under
       `[model_limits."provider/model-id"]` with `context_window`,
       `max_completion_tokens`, and `recommended_completion_tokens`.
-- [ ] Apply model limit precedence: user override, then live metadata, then
+- [x] Apply model limit precedence: user override, then live metadata, then
       static provider metadata, then conservative fallback.
-- [ ] Add conservative static model capability fallbacks for providers without
+- [x] Add conservative static model capability fallbacks for providers without
       live context-window metadata.
-- [ ] Validate model limit overrides as positive integers.
-- [ ] Reject or diagnose model limit overrides where recommended completion
+- [x] Validate model limit overrides as positive integers.
+- [x] Reject or diagnose model limit overrides where recommended completion
       tokens exceed max completion tokens or context window.
-- [ ] Derive available input budget from context window minus reserved
+- [x] Derive available input budget from context window minus reserved
       completion budget and provider overhead.
-- [ ] Add context budget ratios: target selection at 80% and auto-compaction
+- [x] Add context budget ratios: target selection at 80% and auto-compaction
       trigger at 92%.
-- [ ] Add `ContextBudget`.
-- [ ] Add `ContextLedger`.
-- [ ] Add `ContextDiagnostic`.
-- [ ] Add stable context item id generation for file-backed sources.
-- [ ] Add stable context item id generation for transcript/session sources.
-- [ ] Add a conservative token estimator.
-- [ ] Add formatting helpers for user-visible ledger summaries.
-- [ ] Add model-visible dashboard rendering that excludes full content.
-- [ ] Keep ledger types free of crossterm, renderer, and provider-specific
+- [x] Add `ContextBudget`.
+- [x] Add `ContextLedger`.
+- [x] Add `ContextDiagnostic`.
+- [x] Add stable context item id generation for file-backed sources.
+- [x] Add stable context item id generation for transcript/session sources.
+- [x] Add a conservative token estimator.
+- [x] Add formatting helpers for user-visible ledger summaries.
+- [x] Add model-visible dashboard rendering that excludes full content.
+- [x] Keep ledger types free of crossterm, renderer, and provider-specific
       types.
-- [ ] Test context item id stability for paths.
-- [ ] Test context item id stability for session ranges.
-- [ ] Test token-estimation behavior on ASCII, Unicode, and code blocks.
-- [ ] Test live model metadata context windows feed context budgets.
-- [ ] Test user model limit overrides take precedence over live metadata.
-- [ ] Test invalid model limit overrides produce diagnostics.
-- [ ] Test missing model metadata falls back to conservative limits with a
+- [x] Test context item id stability for paths.
+- [x] Test context item id stability for session ranges.
+- [x] Test token-estimation behavior on ASCII, Unicode, and code blocks.
+- [x] Test live model metadata context windows feed context budgets.
+- [x] Test user model limit overrides take precedence over live metadata.
+- [x] Test invalid model limit overrides produce diagnostics.
+- [x] Test missing model metadata falls back to conservative limits with a
       diagnostic.
-- [ ] Test target and auto-compaction ratios are calculated from available
+- [x] Test target and auto-compaction ratios are calculated from available
       input budget, not raw context window.
 
 ## P2: Scoped Project Instructions Extension
 
-- [ ] Reuse existing root `AGENTS.md` loading as the default project
+- [x] Reuse existing root `AGENTS.md` loading as the default project
       instruction source.
-- [ ] Discover nested `AGENTS.md` files below the workspace root.
-- [ ] Assign every nested `AGENTS.md` a subtree scope.
-- [ ] Load nested instruction content only when applicable or explicitly pinned.
-- [ ] Select closest applicable instruction sources for mentioned or pinned
+- [x] Discover nested `AGENTS.md` files below the workspace root.
+- [x] Assign every nested `AGENTS.md` a subtree scope.
+- [x] Load nested instruction content only when applicable or explicitly pinned.
+- [x] Select closest applicable instruction sources for mentioned or pinned
       paths.
-- [ ] Keep broader instruction sources visible as metadata when overridden.
-- [ ] Reload instruction metadata at turn boundaries.
-- [ ] Detect changed instruction file hashes between turns.
-- [ ] Add diagnostics for unreadable instruction files.
-- [ ] Add diagnostics for oversized or truncated instruction files.
-- [ ] Preserve existing root-only behavior when no nested files exist.
-- [ ] Test root `AGENTS.md` selection.
-- [ ] Test nested `AGENTS.md` selection by mentioned path.
-- [ ] Test closest instruction precedence.
-- [ ] Test changed instruction hash diagnostics.
-- [ ] Update project-context docs with scoped `AGENTS.md` behavior.
+- [x] Keep broader instruction sources visible as metadata when overridden.
+- [x] Reload instruction metadata at turn boundaries.
+- [x] Detect changed instruction file hashes between turns.
+- [x] Add diagnostics for unreadable instruction files.
+- [x] Add diagnostics for oversized or truncated instruction files.
+- [x] Preserve existing root-only behavior when no nested files exist.
+- [x] Test root `AGENTS.md` selection.
+- [x] Test nested `AGENTS.md` selection by mentioned path.
+- [x] Test closest instruction precedence.
+- [x] Test changed instruction hash diagnostics.
+- [x] Update project-context docs with scoped `AGENTS.md` behavior.
 
 ## P3: Memory Source Files
 
