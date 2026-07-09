@@ -1,166 +1,338 @@
-# iocraft Surface Expansion
+# iocraft Surface Hardening And Expansion
 
 Status: Draft
-Captured: 2026-07-07
+Captured: 2026-07-08
 
 ## Objective
 
-Use iocraft where it reduces focused-surface layout complexity while preserving
-the existing `thndrs` renderer contract: semantic app state becomes bounded
-surface rows, committed transcript history stays native-scrollback-friendly,
-and iocraft never owns app state or terminal output.
+Harden the existing iocraft focused-surface adapter before expanding it to more
+TUI surfaces.
 
-This feature is a refinement of the v0.1 UI work archived in
-`docs/internal/archive/v0.1.md`. It should move only the surfaces where
-iocraft is a clear simplification, not replace the renderer wholesale.
+iocraft should remain a bounded layout/rendering helper behind the existing
+direct renderer. It must never own app state, terminal I/O, native scrollback,
+cursor placement, prompt editing, or committed transcript rendering.
+
+## Source Review
+
+Reviewed source material:
+
+- `docs/src/content/docs/notebook/iocraft.md`
+- `docs/src/content/docs/notebook/ui.md`
+- `docs/src/content/docs/notebook/ui-patterns.md`
+- `docs/src/content/docs/notebook/ratatui-testing.md`
+- `docs/src/content/docs/notebook/text-input-libraries.md`
+- `docs/src/content/docs/notebook/yoga.md`
+- `docs/src/content/docs/notebook/yoga-gridland.md`
+- `src/cli/renderer/adapter.rs`
+- `src/cli/renderer/view.rs`
+- `src/cli/renderer/live.rs`
+- `src/cli/renderer/region.rs`
+- `src/cli/renderer/row.rs`
+- `src/cli/renderer/style.rs`
+
+Notebook conclusions promoted into this plan:
+
+- terminal-agent transcripts should keep native scrollback;
+- focused bounded surfaces are useful for command/file selection, help, diff
+  detail, long tool output, and setup forms;
+- iocraft's useful role is layout/canvas/testing, not whole-app ownership;
+- visual terminal output needs deterministic fixed-size snapshots;
+- Unicode boundaries, display width, wrapping, and cursor placement remain
+  renderer-owned concerns.
 
 ## Current State
 
-- `src/cli/renderer/view.rs` projects app state into semantic view records and
-  routes command picker, file picker, and help focused surfaces through
-  `src/cli/renderer/adapter.rs`.
-- `src/cli/renderer/adapter.rs` renders iocraft elements to `Canvas`, converts
-  them into existing `Row`/`Span` values, applies renderer palette styling, and
-  snapshots focused surfaces.
-- Permission prompts, first-run recovery, tool detail, diff detail,
-  transcript rows, and the main prompt editor still use direct row builders.
-- `src/cli/renderer/live.rs`, `region.rs`, `row.rs`, `style.rs`, and
-  `layout.rs` remain the source of truth for viewport policy, cursor behavior,
-  scrollback commits, row padding, truncation, and Unicode wrapping.
-- Public docs already describe focused surfaces, command/file interaction,
-  detail panes, tables, and trust wording.
+The existing code already uses an iocraft adapter more broadly than the older
+plan assumed:
+
+- `src/cli/renderer/adapter.rs` is the only module that calls iocraft;
+- the adapter renders into an iocraft `Canvas` and converts back into existing
+  `Row`/`Span` values;
+- command picker, file picker, help, tool detail, diff detail, transcript lens,
+  setup form, and structured table variants are already routed through the
+  adapter;
+- semantic surface data lives in `src/cli/renderer/view.rs`;
+- live region, scrollback commits, row widths, cursor placement, prompt rows,
+  and transcript row rendering remain direct-renderer responsibilities.
+
+The main risk is no longer whether iocraft can render focused surfaces. The
+main risk is losing renderer invariants at the adapter boundary:
+
+- row counts must stay within content and viewport budgets;
+- clipped output needs visible indicators;
+- theme roles should be explicit and testable;
+- selected, muted, warning, error, diff, and table semantics must survive
+  canvas conversion;
+- Unicode and narrow terminal behavior must remain deterministic;
+- optional focused surfaces must not mask permissions, setup recovery, or other
+  blocking states.
+
+## Implementation Decisions
+
+- Harden first, then expand.
+- Keep iocraft behind `src/cli/renderer/adapter.rs`.
+- Keep adapter output as `Vec<Row>`.
+- Keep `SurfaceRenderInput` renderer-owned and small.
+- Keep committed transcript rows and the main prompt editor direct-rendered.
+- Keep permission/setup recovery priority in app/view/live composition, not in
+  iocraft components.
+- Do not add new dependencies beyond iocraft for this feature without approval.
+- Expand to new surfaces only after hardening tickets pass.
 
 ## Success Criteria
 
-- More bounded surfaces use the iocraft adapter only when the rendered output
-  matches or improves current behavior.
-- Permission/recovery priority is preserved: blocking prompts cannot be masked
-  by help, pickers, or optional detail surfaces.
-- Adapter theme input is explicit enough that tests do not rely on mutating
-  global theme state.
-- iocraft output keeps selected, muted, warning, error, diff, clipped-content,
-  and table semantics through conversion to `Row`/`Span`.
-- Tests cover normal, narrow, tiny-height, Unicode, scroll/clipping, and
-  priority behavior for every migrated surface.
-- Public and internal docs describe the final boundary without overstating what
-  iocraft owns.
+- Adapter output never exceeds the intended row budget.
+- Clipped-above and clipped-below states are visible for scrollable surfaces.
+- Theme input is explicit enough that tests do not mutate global theme state.
+- Canvas conversion preserves meaningful styles and selected row treatment.
+- Normal, narrow, tiny-height, Unicode, and long-line snapshots cover every
+  iocraft-rendered focused surface.
+- Permission and setup/recovery surfaces cannot be hidden behind optional help,
+  picker, table, or detail surfaces.
+- The renderer still owns terminal writes, native scrollback, prompt cursor
+  placement, resize replay, and transcript commits.
+- Expansion tickets have a clear readiness gate instead of migrating surfaces
+  because iocraft exists.
 
-## Technical Plan
+## Adapter Contract
 
-### Adapter Boundary
+The adapter input remains a semantic view record plus explicit render context:
 
-Keep the adapter boundary small:
-
-```rust
-pub struct SurfaceRenderInput<'a> {
-    pub surface: &'a FocusedSurfaceView,
-    pub theme: &'a SurfaceThemeView,
-    pub width: usize,
-    pub height: usize,
-}
+```text
+surface
+theme
+width
+height
 ```
 
-The adapter may add helper types for layouts, line roles, scroll metadata, and
-theme resolution, but it should still return `Vec<Row>` and avoid terminal
-writes. If a surface needs state changes, route events through app messages and
-semantic view updates rather than storing state inside iocraft components.
+The adapter may add helper structs for line roles, scroll metadata, table
+layout, clipping state, and theme resolution. It should still:
 
-### Surface Migration Decisions
+- return only `Vec<Row>`;
+- avoid crossterm terminal types;
+- avoid terminal writes;
+- avoid app-state mutation;
+- avoid iocraft fullscreen/render-loop APIs;
+- avoid storing focus, scroll, selection, or form state inside iocraft
+  components.
 
-1. **Model and skill pickers.** They already resemble command/file pickers and
-   are the next adapter expansion.
-2. **Structured table surfaces.** Consolidate table output for markdown tables,
-   command help, model lists, tool inventories, and diagnostics where semantic
-   table data already exists.
-3. **Diff detail.** Move through iocraft with a fixed title, scrollable body,
-   diff-aware line roles, clipping indicators, and tiny-height behavior.
-4. **Tool detail.** Move through iocraft with wrapped-row scrolling,
-   clipped-above/below indicators, status styling, and output truncation.
-5. **Setup/recovery forms.** Enrich `SetupFormView` first, then move recovery
-   through iocraft with provider, stage copy, actions, selected action,
-   validation, OAuth status, and hidden secret behavior represented
-   semantically.
+### Rust Design Constraints
 
-### Theme Plan
+Keep the renderer boundary typed and side-effect free:
 
-Move adapter styling toward explicit role data:
+- represent clipping as an enum or small struct, not as sentinel strings;
+- represent line roles, table width policy, alignment, and surface state as
+  typed values in `view.rs`;
+- keep row-budget calculation pure and directly unit-testable;
+- keep palette lookup and terminal-specific styling at a narrow renderer
+  boundary;
+- avoid global mutable theme state in tests;
+- prefer concrete helper functions over traits unless there are multiple real
+  renderer implementations;
+- do not introduce new dependencies for wrapping, measurement, or layout until
+  fixtures prove the current local helper is insufficient;
+- avoid `unwrap`, `expect`, `panic!`, `todo!`, and `unimplemented!` in runtime
+  rendering paths unless they guard a documented invariant;
+- keep prompt cursor placement, Unicode width calculation, and native scrollback
+  outside iocraft components.
 
-- derive surface colors from `SurfaceThemeView` or a richer `UiTheme` argument;
-- keep `style::palette()` use at the caller/theme construction boundary, not
-  deep inside generic adapter helpers;
-- avoid tests that mutate the global current theme in parallel;
-- preserve styled snapshots for selected rows, muted hints, diff lines, errors,
-  and warnings.
+## Hardening Areas
 
-### Layout Plan
+### Row Budget And Clipping
 
-Use iocraft for bounded flex/layout problems:
+Scrollable focused surfaces should distinguish:
 
-- fixed title + scrollable body + footer hint;
-- selectable lists with selected row background;
-- tables with fixed/percent/flexible columns and fallback text;
-- forms with label/value/action rows.
+- no clipping;
+- clipped above;
+- clipped below;
+- clipped above and below.
 
-Keep direct renderer ownership for:
+The indicator must fit within the surface row budget and must not replace the
+surface title in tiny-height cases unless there is no room for both.
 
-- committed transcript rows;
-- main prompt editor;
-- cursor placement;
-- terminal resize and scrollback replay;
-- Unicode wrapping/truncation primitives.
+Apply this first to:
+
+- tool detail;
+- diff detail;
+- transcript lens;
+- setup/recovery forms where validation or actions overflow.
+
+### Theme Boundary
+
+Theme roles should be renderer-owned semantic inputs:
+
+- text;
+- muted;
+- selected;
+- warning;
+- error;
+- diff added;
+- diff removed;
+- table header or title if it proves useful.
+
+Palette lookup should happen at a clear boundary. Tests should be able to
+exercise adapter behavior with explicit role data rather than relying on global
+theme mutation.
+
+### Surface Semantics
+
+Every focused surface should preserve the semantic meaning needed by tests and
+users:
+
+- selected row;
+- disabled or muted hints;
+- warning and error rows;
+- validation errors;
+- hidden secret fields;
+- diff added/removed lines;
+- table alignment and fallback rows;
+- long output truncation and scroll state.
+
+The adapter can change layout, but it must not erase these distinctions.
+
+### Priority And Interaction
+
+Focused surfaces are optional unless they represent blocking work. The app/view
+composition must prove:
+
+- pending permission prompts outrank help, pickers, and detail surfaces;
+- setup/recovery outranks optional surfaces;
+- `Esc` closes optional focused surfaces;
+- selection and scroll keys mutate app state, not adapter state;
+- prompt draft preservation remains unaffected by focused surface rendering.
+
+### Unicode, Width, And Resize
+
+The direct renderer continues to own cell width, wrapping, prompt cursor
+coordinates, and resize replay. Adapter tests should still cover:
+
+- CJK;
+- emoji;
+- combining marks;
+- long unbroken paths;
+- markdown tables with wide cells;
+- tiny and narrow terminals.
+
+## Expansion Gate
+
+Do not add new iocraft-rendered surface families until hardening is complete.
+
+Expansion is allowed when:
+
+- row-budget tests are present for every existing adapter surface;
+- clipping indicators exist for scrollable surfaces;
+- priority tests prove optional surfaces do not mask blocking states;
+- snapshot coverage exists for normal, narrow, tiny-height, Unicode, and
+  long-line cases;
+- a reviewer can explain what complexity iocraft removed for the next surface.
+
+Potential expansion candidates after the gate:
+
+- model picker and skill picker if they still have direct surface paths;
+- richer setup/recovery stages after setup semantics are stable;
+- additional structured diagnostic tables;
+- future session picker after session navigation is a product feature.
+
+## Testing Plan
+
+Unit and snapshot tests:
+
+- adapter row counts for every surface;
+- clipped-above/below indicators;
+- clipping state projection from typed data;
+- theme role mapping;
+- selected-row styling;
+- diff added/removed styling;
+- table fixed/percent/flexible width behavior;
+- setup form hidden secret rendering;
+- Unicode and long-line rendering;
+- normal, narrow, and tiny-height snapshots.
+
+App/view/region tests:
+
+- permission priority;
+- setup/recovery priority;
+- optional detail replacement behavior;
+- `Esc` closes optional surfaces;
+- selection and scroll update app state;
+- resize tests for migrated surfaces;
+- cursor visibility near prompt chrome.
+
+Manual review:
+
+- inspect snapshots for clarity and row-budget behavior;
+- verify no iocraft fullscreen/render-loop APIs are called from the TUI;
+- compare detail surfaces against full stored output to ensure no output is
+  silently lost.
+
+## Commands
+
+For Rust changes:
+
+```text
+cargo fmt
+cargo clippy --fix --allow-dirty --allow-staged
+cargo clippy
+cargo test
+```
+
+For public docs changes:
+
+```text
+pnpm --dir docs build
+```
+
+This planning rewrite changes only internal docs, so no docs build is required
+for the planning artifact itself.
 
 ## Boundaries
 
 Always:
 
-- Preserve existing keybindings and app update paths.
-- Keep iocraft behind `src/cli/renderer/adapter.rs`.
-- Add or update focused snapshot tests before replacing a direct surface.
-- Keep permission and recovery prompts higher priority than optional surfaces.
-- Run the Rust verification checklist after code changes.
+- keep iocraft behind the adapter;
+- keep renderer output as `Row`/`Span`;
+- keep adapter helpers pure where possible;
+- use typed surface state instead of display-string control flow;
+- keep terminal I/O in the direct renderer/backend;
+- add or update focused snapshots before changing visible layout;
+- preserve permission and setup/recovery priority;
+- keep prompt editor and committed transcript rendering direct-rendered.
 
-Approval required:
+Ask first:
 
-- Adding new dependencies beyond iocraft.
-- Changing the public keybinding model.
-- Changing permission or recovery semantics.
+- adding dependencies;
+- adopting additional iocraft runtime APIs;
+- changing keybindings;
+- changing permission or setup/recovery semantics;
+- moving prompt editing, cursor placement, or native scrollback into iocraft.
 
 Never:
 
-- Call iocraft fullscreen/render-loop APIs from the `thndrs` TUI.
-- Let iocraft own `App` state or write directly to stdout/stderr.
-- Hide provider secrets, permission decisions, or recovery choices behind a
-  surface migration.
-- Drop native scrollback grouping or resize replay guarantees.
+- call iocraft fullscreen/render-loop APIs from the `thndrs` TUI;
+- let iocraft own `App` state;
+- write to stdout/stderr from the adapter;
+- hide provider secrets, permission decisions, or setup recovery choices behind
+  layout migration;
+- parse renderer behavior from styled display text in app logic;
+- add dependencies for wrapping/layout without fixture-backed evidence;
+- drop native scrollback grouping or resize replay guarantees.
 
-## Decisions
+## Deferred Milestones
 
-- Keep the main prompt editor on the direct renderer for this feature.
-- Keep committed transcript rows on the direct renderer for this feature.
-- Move model picker, skill picker, structured tables, diff detail, tool detail,
-  and setup/recovery forms through iocraft in that order.
-- Keep permission and recovery priority rules in `view.rs`/live composition,
-  not inside iocraft components.
-- Use mouse interaction only for focused bounded surfaces and only when it
-  respects the existing mouse CLI/config settings.
+- New surface migrations after the hardening gate.
+- Rich setup/recovery forms after setup and reasoning validation semantics are
+  stable.
+- A future session picker after session navigation is a product feature.
+- Plain-text wrapping library evaluation, if renderer fixtures prove current
+  wrapping is insufficient.
 
-## Verification
+## Risks And Open Questions
 
-- `cargo fmt`
-- `cargo clippy --fix --allow-dirty --allow-staged`
-- `cargo clippy`
-- `cargo test`
-- Focused snapshot tests for every migrated surface.
-- Public docs build with `pnpm --dir docs build` if public docs change.
-- Manual review of snapshots for clarity, priority, tiny height, and narrow
-  width behavior.
-
-## Risks
-
-- iocraft can simplify surface layout while making row-budget behavior less
-  obvious; every migration needs explicit height tests.
-- Theme role plumbing could become more complex than direct row styles if it is
-  over-generalized too early.
-- Setup/recovery must carry provider-specific semantics before migration.
-- Tool detail correctness depends on wrapped-row scrolling and clipped-content
-  indicators, not just visible text.
+- iocraft can make layout more declarative while hiding row-budget decisions;
+  tests must pin the row contract.
+- Theme role abstraction can become more complex than direct row styling if it
+  grows before real duplication appears.
+- Setup/recovery surfaces carry security-sensitive semantics, especially hidden
+  secrets and credential-write confirmation.
+- Long tool output correctness depends on scroll/clipping metadata, not just
+  visible text.

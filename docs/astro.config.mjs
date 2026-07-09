@@ -127,6 +127,7 @@ export default defineConfig({
               items: [
                 { label: "Harness Engineering", slug: "notebook/harness-engineering" },
                 { label: "Pi", slug: "notebook/pi" },
+                { label: "Tau", slug: "notebook/tau" },
                 { label: "Herdr (multiplexer)", slug: "notebook/herdr" },
               ],
             },

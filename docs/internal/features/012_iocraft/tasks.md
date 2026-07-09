@@ -1,139 +1,280 @@
-# iocraft Surface Expansion Tasks
+# Tickets: iocraft Surface Hardening And Expansion
 
-Status: Draft
-Captured: 2026-07-07
+These tickets implement the harden-first plan in
+`docs/internal/features/012_iocraft/plan.md`. Work the frontier: any ticket
+whose blockers are complete.
 
-## P0: Record Scope And Baseline
+Completed baseline:
 
-- [ ] Record that this feature expands bounded iocraft surfaces.
-- [ ] Record that committed transcript rows stay direct-rendered.
-- [ ] Record that the main prompt editor stays direct-rendered.
-- [ ] Record that permission prompts and first-run recovery keep priority over
-      optional focused surfaces.
-- [ ] Review `docs/internal/archive/v0.1.md` Terminal UI decisions.
-- [ ] Review `docs/src/content/docs/notebook/iocraft.md`.
-- [ ] Review `src/cli/renderer/adapter.rs`.
-- [ ] Review `src/cli/renderer/view.rs`.
-- [ ] Review direct rows for model picker, skill picker, diff detail, tool
-      detail, and recovery.
+- Source inspection confirms iocraft calls are isolated to
+  `src/cli/renderer/adapter.rs`.
+- The adapter boundary returns `Vec<Row>` through `SurfaceRenderer`.
+- The adapter does not call iocraft fullscreen/render-loop APIs.
+- The adapter does not write to stdout or stderr.
+- Focus, selection, scroll, form state, and app state are projected in
+  `src/cli/renderer/view.rs` before rendering.
+- Current adapter-rendered surfaces include command picker, file picker, help,
+  tool detail, diff detail, transcript lens, setup form, and structured table.
 
-## P1: Adapter Cleanup
+## Ticket 1: Add Row-Budget Tests For Every Adapter Surface
 
-- [ ] Add module docs or comments for any new adapter helper types.
-- [ ] Move palette lookup toward a caller-owned theme construction boundary.
-- [ ] Keep `SurfaceRenderInput` small and renderer-owned.
-- [ ] Preserve `Vec<Row>` as the only adapter output.
-- [ ] Add helpers for title/body/footer surfaces if they remove real
-      duplication.
-- [ ] Add explicit clipped-content metadata support for scrollable surfaces.
-- [ ] Add tests proving adapter row counts never exceed real content plus
-      intentional reserved rows.
-- [ ] Add tests for selected, muted, warning, error, diff added, and diff
-      removed roles.
+**What to build:** Prove every existing iocraft-rendered focused surface stays
+within its intended row budget.
 
-## P2: Model And Skill Pickers
+**Blocked by:** None - can start immediately
 
-- [ ] Extend semantic focused surface mapping for model picker.
-- [ ] Extend semantic focused surface mapping for skill picker.
-- [ ] Route model picker through the iocraft adapter.
-- [ ] Route skill picker through the iocraft adapter.
-- [ ] Preserve selection markers and selected-row background.
-- [ ] Preserve long label/detail truncation behavior.
-- [ ] Preserve empty-state behavior.
-- [ ] Preserve tiny-height behavior.
-- [ ] Add normal-width snapshots.
-- [ ] Add narrow-width snapshots.
-- [ ] Add no-match snapshots.
-- [ ] Add region tests proving detail panes still replace optional pickers.
+**Acceptance criteria:**
 
-## P3: Structured Tables
+- [ ] Command picker row counts are bounded.
+- [ ] File picker row counts are bounded.
+- [ ] Help row counts are bounded.
+- [ ] Tool detail row counts are bounded.
+- [ ] Diff detail row counts are bounded.
+- [ ] Transcript lens row counts are bounded.
+- [ ] Setup form row counts are bounded.
+- [ ] Structured table row counts are bounded.
+- [ ] Tiny-height cases do not panic.
+- [ ] Row-budget helpers are pure functions or otherwise directly unit-testable.
 
-- [ ] Inventory existing table-producing paths.
-- [ ] List which paths already have `TableView` data.
-- [ ] Route eligible semantic tables through the adapter.
-- [ ] Preserve fixed, percent, and flexible width policies.
-- [ ] Preserve left, center, and right alignment.
-- [ ] Preserve selected-row styling.
-- [ ] Preserve narrow fallback behavior.
-- [ ] Add Unicode table cell coverage.
-- [ ] Add long-cell truncation coverage.
-- [ ] Add snapshots for normal, narrow, and tiny widths.
+**Verification:**
 
-## P4: Diff Detail
+- `cargo test renderer::adapter`
 
-- [ ] Compare direct diff detail rows against adapter diff rows.
-- [ ] Preserve unified diff header behavior.
-- [ ] Preserve added and removed line styling.
-- [ ] Add clipped-above and clipped-below indicators.
-- [ ] Preserve tiny-height behavior.
-- [ ] Add parity tests, then route diff detail through the adapter.
-- [ ] Add snapshots for multi-file diffs.
-- [ ] Add snapshots for narrow diffs.
-- [ ] Add snapshots for empty or summary-only diffs.
+## Ticket 2: Add Clipping Metadata And Indicators
 
-## P5: Tool Detail
+**What to build:** Make scrollable focused surfaces visibly communicate clipped
+content while preserving row budgets.
 
-- [ ] Document current direct tool detail behavior before changing it.
-- [ ] Preserve title/status row styling.
-- [ ] Preserve wrapped output row scrolling.
-- [ ] Preserve clipped-above and clipped-below indicators.
-- [ ] Preserve failed, cancelled, running, and succeeded status treatment.
-- [ ] Preserve full stored output access versus transcript preview.
-- [ ] Add parity tests, then route tool detail through the adapter.
-- [ ] Add snapshots for failed compiler/test output.
-- [ ] Add snapshots for long unbroken lines.
-- [ ] Add snapshots for scrolled output.
+**Blocked by:** Ticket 1: Add Row-Budget Tests For Every Adapter Surface
 
-## P6: Setup And Recovery Forms
+**Acceptance criteria:**
 
-- [ ] Expand `SetupFormView` with provider and stage copy.
-- [ ] Represent recovery action rows semantically.
-- [ ] Represent selected recovery action semantically.
-- [ ] Represent ChatGPT OAuth URL, user code, and polling status
-      semantically.
-- [ ] Preserve hidden secret input rendering.
-- [ ] Preserve validation and cancellation behavior.
-- [ ] Preserve project/global credential action labels.
-- [ ] Add semantic parity coverage, then route one recovery stage through the
-      adapter.
-- [ ] Add snapshots for API-key recovery.
-- [ ] Add snapshots for ChatGPT OAuth polling.
-- [ ] Add snapshots for tiny-height recovery.
+- [ ] Tool detail shows clipped-above and clipped-below indicators.
+- [ ] Diff detail shows clipped-above and clipped-below indicators.
+- [ ] Transcript lens shows clipped-above and clipped-below indicators.
+- [ ] Clipping is represented with typed state, not sentinel display strings.
+- [ ] Setup/recovery overflow shows clear clipping without hiding validation
+      errors.
+- [ ] Indicators fit normal, narrow, and tiny-height cases.
+- [ ] Full stored output remains accessible even when previews are clipped.
 
-## P7: Interaction And Priority
+**Verification:**
 
-- [ ] Prove pending permissions beat help, pickers, and detail surfaces.
-- [ ] Prove first-run recovery beats help, pickers, and detail surfaces.
-- [ ] Prove detail pane replacement behavior remains intact.
-- [ ] Prove `Esc` still closes focused optional surfaces.
-- [ ] Prove selection keys still update app state, not adapter state.
-- [ ] Add resize tests for every migrated surface.
-- [ ] Add cursor visibility tests where prompt chrome is nearby.
+- `cargo test renderer::adapter`
+- focused snapshots for above-only, below-only, both, and no-clipping cases.
 
-## P8: Documentation
+## Ticket 3: Make Theme Role Input Explicit
 
-- [ ] Update public TUI docs if visible behavior changes.
-- [ ] Update keybinding docs if any labels or detail behavior changes.
-- [ ] Update internal archive at feature completion.
-- [ ] Update `CHANGELOG.md` with release-facing bullets.
-- [ ] Run `pnpm --dir docs build` if public docs change.
+**What to build:** Keep palette lookup and theme role resolution at a clear
+renderer boundary so adapter tests do not rely on global theme mutation.
 
-## P9: Verification
+**Blocked by:** None - can start immediately
 
-- [ ] Run `cargo fmt`.
-- [ ] Run `cargo clippy --fix --allow-dirty --allow-staged`.
-- [ ] Run `cargo clippy`.
-- [ ] Run `cargo test`.
-- [ ] Run focused adapter snapshots.
-- [ ] Run focused live/region tests for priority and clipping.
-- [ ] Manually review snapshots for clarity and overall feel.
-- [ ] Verify no iocraft fullscreen/render-loop APIs are called from the TUI.
+**Acceptance criteria:**
 
-## Review Checkpoints
+- [ ] Adapter helpers consume explicit semantic theme roles.
+- [ ] Tests can pass deterministic role data.
+- [ ] Selected, muted, warning, error, diff added, and diff removed styles are
+      covered.
+- [ ] Palette lookup remains at a narrow renderer boundary.
+- [ ] Existing theme behavior is preserved for the live TUI.
+- [ ] No unrelated global theme mutation is needed for adapter tests.
 
-- [ ] After P1, review adapter complexity before migrating more surfaces.
-- [ ] After P2, review picker snapshots for clarity and row-budget behavior.
-- [ ] After P4/P5, review detail snapshots for lost output or clipping cues.
-- [ ] After P6, review recovery snapshots with provider-specific expectations.
-- [ ] Before completion, verify the feature improved clarity rather than only
-      increasing abstraction.
+**Verification:**
+
+- `cargo test renderer::adapter`
+- snapshot diff review for selected, warning, error, and diff styles.
+
+## Ticket 4: Add Unicode And Long-Line Surface Coverage
+
+**What to build:** Cover the adapter with realistic terminal text cases that
+commonly break row layout.
+
+**Blocked by:** Ticket 1: Add Row-Budget Tests For Every Adapter Surface
+
+**Acceptance criteria:**
+
+- [ ] CJK text appears in picker, table, and detail snapshots.
+- [ ] Emoji and combining marks appear in focused surface snapshots.
+- [ ] Long unbroken paths truncate deterministically.
+- [ ] Long command output lines do not resize or shift the surface.
+- [ ] Narrow and tiny-width fallbacks remain readable.
+- [ ] The direct renderer still owns prompt cursor and wrapping behavior.
+- [ ] No new wrapping/layout dependency is added without fixture-backed
+      evidence that local helpers are insufficient.
+
+**Verification:**
+
+- `cargo test renderer::adapter`
+- `cargo test renderer::region`
+
+## Ticket 5: Prove Blocking Surface Priority
+
+**What to build:** Add app/view/region coverage that optional focused surfaces
+cannot hide permission or setup/recovery states.
+
+**Blocked by:** None - can start immediately
+
+**Acceptance criteria:**
+
+- [ ] Pending permission prompts outrank help.
+- [ ] Pending permission prompts outrank pickers.
+- [ ] Pending permission prompts outrank tool/diff detail surfaces.
+- [ ] Setup/recovery outranks help, pickers, and optional details.
+- [ ] Detail pane replacement behavior remains intentional.
+- [ ] `Esc` closes optional focused surfaces without cancelling blocking work.
+
+**Verification:**
+
+- `cargo test app`
+- `cargo test renderer::view`
+- `cargo test renderer::region`
+
+## Ticket 6: Harden Setup And Recovery Surface Semantics
+
+**What to build:** Ensure setup/recovery rendering preserves security and
+validation semantics before any richer form expansion.
+
+**Blocked by:** Ticket 2: Add Clipping Metadata And Indicators; Ticket 5: Prove
+Blocking Surface Priority
+
+**Acceptance criteria:**
+
+- [ ] Secret fields render hidden values only.
+- [ ] Validation errors are visible and styled as errors.
+- [ ] Global/project credential choices are represented semantically.
+- [ ] Cancellation and confirmation labels are preserved.
+- [ ] Provider/model/reasoning readiness copy is represented as semantic data,
+      not hardcoded adapter text.
+- [ ] Security-sensitive form state is represented in typed view data before
+      reaching the adapter.
+- [ ] Prompt drafts survive setup/recovery success, cancellation, and failure.
+
+**Verification:**
+
+- `cargo test app`
+- `cargo test renderer::adapter`
+- setup/recovery snapshots for API-key, validation-error, and tiny-height
+  states.
+
+## Ticket 7: Harden Tool And Diff Detail Parity
+
+**What to build:** Prove iocraft-rendered tool and diff details preserve the
+same useful information as the direct renderer path they replaced.
+
+**Blocked by:** Ticket 2: Add Clipping Metadata And Indicators; Ticket 4: Add
+Unicode And Long-Line Surface Coverage
+
+**Acceptance criteria:**
+
+- [ ] Tool detail preserves running, succeeded, failed, and cancelled status.
+- [ ] Tool detail preserves wrapped or truncated output cues.
+- [ ] Diff detail preserves file headers, additions, removals, and summary
+      counts.
+- [ ] Multi-file diffs remain readable.
+- [ ] Long compiler/test output remains inspectable through scroll state.
+- [ ] Empty or summary-only details render clearly.
+
+**Verification:**
+
+- `cargo test renderer::adapter`
+- parity snapshots for failed compiler output, long unbroken lines, scrolled
+  output, multi-file diff, narrow diff, and empty diff.
+
+## Ticket 8: Establish The Expansion Gate
+
+**What to build:** Add a checklist or test grouping that makes future iocraft
+surface migrations conditional on hardening evidence.
+
+**Blocked by:** Tickets 1, 2, 3, 4, 5, 6, and 7
+
+**Acceptance criteria:**
+
+- [ ] The repo has an explicit list of existing adapter surfaces and required
+      hardening checks.
+- [ ] New iocraft surface migrations have a documented review checklist.
+- [ ] The checklist requires row-budget, clipping, priority, Unicode/narrow,
+      and snapshot coverage.
+- [ ] The checklist asks what complexity iocraft removes for the new surface.
+- [ ] The checklist says prompt editor, committed transcript, terminal I/O, and
+      app state remain off limits.
+- [ ] The checklist requires typed state and pure row-budget helpers where
+      practical.
+
+**Verification:**
+
+- human review of the checklist and associated tests.
+
+## Ticket 9: Expand One Surface After The Gate
+
+**What to build:** Migrate or enrich one additional bounded focused surface only
+after the expansion gate is satisfied.
+
+**Blocked by:** Ticket 8: Establish The Expansion Gate
+
+**Acceptance criteria:**
+
+- [ ] The chosen surface has a clear bounded layout problem.
+- [ ] Existing behavior is documented before migration.
+- [ ] App state remains outside iocraft.
+- [ ] The surface passes row-budget, clipping, priority, Unicode/narrow, and
+      snapshot checks.
+- [ ] The migration demonstrably removes duplication or layout complexity.
+
+**Verification:**
+
+- `cargo test renderer::adapter`
+- `cargo test renderer::region`
+- manual snapshot review.
+
+## Ticket 10: Public/Internal Docs Update If Behavior Changes
+
+**What to build:** Update docs only for visible behavior changes or contributor
+invariants that become stable.
+
+**Blocked by:** Ticket 8: Establish The Expansion Gate
+
+**Acceptance criteria:**
+
+- [ ] Public TUI docs change only if user-visible behavior changed.
+- [ ] Development renderer docs explain stable adapter invariants if they are
+      worth promoting.
+- [ ] Notebook research remains research, not the source of truth.
+- [ ] Internal archive is updated when the feature completes.
+
+**Verification:**
+
+- `pnpm --dir docs build` if public docs changed.
+
+## Ticket 11: Final Verification
+
+**What to build:** Run the full verification checklist for the harden-first
+iocraft feature.
+
+**Blocked by:** Tickets 8, 9, and 10
+
+**Acceptance criteria:**
+
+- [ ] Adapter boundary audit passes.
+- [ ] Row-budget tests cover every adapter surface.
+- [ ] Clipping indicators are covered.
+- [ ] Priority tests cover blocking surfaces.
+- [ ] Unicode, narrow, and tiny-height snapshots are reviewed.
+- [ ] No iocraft fullscreen/render-loop APIs are called from the TUI.
+- [ ] Expansion evidence shows iocraft improved clarity rather than only adding
+      abstraction.
+
+**Verification:**
+
+- `cargo fmt`
+- `cargo clippy --fix --allow-dirty --allow-staged`
+- `cargo clippy`
+- `cargo test`
+
+## Frontier
+
+Tickets that can start immediately:
+
+- Ticket 1: Add Row-Budget Tests For Every Adapter Surface
+- Ticket 3: Make Theme Role Input Explicit
+- Ticket 5: Prove Blocking Surface Priority

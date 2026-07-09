@@ -171,8 +171,6 @@ padding, truncation, cursor coordinates, and deterministic snapshots.
 
 - Related ideas: Unicode Standard Annex #29, Unicode line breaking, terminal
   cell measurement, editor buffer design, native scrollback, row snapshots.
-- Related sources: `ROADMAP.md`, `src/input.rs`,
-  `src/renderer/layout.rs`, `src/renderer/cursor.rs`.
 - Contradictions or tensions: A library can improve correctness while still
   making the code harder to reason about. The first adoption target should be a
   small boundary or wrapping helper, not a replacement editor.

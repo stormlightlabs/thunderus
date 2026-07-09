@@ -1125,6 +1125,9 @@ fn drain_direct_agent_events<W: io::Write>(
             Err(mpsc::TryRecvError::Empty) => break,
             Err(mpsc::TryRecvError::Disconnected) => {
                 *agent = None;
+                if app.run_state == RunState::Stopping {
+                    handle_direct_msg(app, Msg::Agent(app::AgentEvent::Cancelled), backend, live)?;
+                }
                 break;
             }
         }
@@ -1240,14 +1243,24 @@ fn flush_steering(app: &mut App, agent: &Option<AgentSlot>) {
     app.queued_steering = unsent;
 }
 
-/// If the app is no longer in `Working` state but an agent slot still exists,
-/// cancel it and drop the slot (user cancelled via Escape or the run finished).
+/// Keep the active agent slot aligned with the app lifecycle.
+///
+/// `Stopping` is a pending terminal state: keep the receiver alive so the app
+/// can observe `Cancelled`/`Finished`/`Failed` and transition back to idle.
 fn manage_agent_lifecycle(app: &App, agent: &mut Option<AgentSlot>) {
-    if app.run_state != RunState::Working
-        && let Some(slot) = agent.take()
-    {
-        tracing::info!("cancelling dropped agent slot");
-        slot.cancel.cancel();
+    match app.run_state {
+        RunState::Working => {}
+        RunState::Stopping => {
+            if let Some(slot) = agent {
+                slot.cancel.cancel();
+            }
+        }
+        RunState::Idle | RunState::Error(_) => {
+            if let Some(slot) = agent.take() {
+                tracing::info!("cancelling dropped agent slot");
+                slot.cancel.cancel();
+            }
+        }
     }
 }
 
@@ -1909,6 +1922,45 @@ for line in sys.stdin:
             steering_rx.try_recv().expect("active run should receive steering"),
             "use the failing test first"
         );
+    }
+
+    #[test]
+    fn manage_agent_lifecycle_keeps_stopping_slot_until_terminal_event() {
+        let cli = Cli::default();
+        let mut app = App::from_cli(&cli);
+        app.session_writer = None;
+        app.run_state = RunState::Stopping;
+        let (_event_tx, event_rx) = mpsc::channel();
+        let (steering_tx, _steering_rx) = mpsc::channel();
+        let cancel = CancelToken::new();
+        let mut agent = Some(AgentSlot { receiver: event_rx, cancel: cancel.clone(), steering: steering_tx });
+
+        manage_agent_lifecycle(&app, &mut agent);
+
+        assert!(agent.is_some(), "stopping should keep the receiver for terminal events");
+        assert!(
+            cancel.is_cancelled(),
+            "stopping should still signal cooperative cancellation"
+        );
+    }
+
+    #[test]
+    fn disconnected_stopping_agent_returns_app_to_idle() {
+        let cli = Cli::default();
+        let mut app = App::from_cli(&cli);
+        app.session_writer = None;
+        app.run_state = RunState::Stopping;
+        let (event_tx, event_rx) = mpsc::channel();
+        drop(event_tx);
+        let (steering_tx, _steering_rx) = mpsc::channel();
+        let mut agent = Some(AgentSlot { receiver: event_rx, cancel: CancelToken::new(), steering: steering_tx });
+        let mut live = renderer::region::LiveRegion::new();
+        let mut backend = TerminalBackend::new(Vec::new(), 80, 24);
+
+        drain_direct_agent_events(&mut app, &mut agent, &mut backend, &mut live, &None).expect("drain events");
+
+        assert!(agent.is_none(), "disconnected slot should be cleared");
+        assert_eq!(app.run_state, RunState::Idle);
     }
 
     #[test]
