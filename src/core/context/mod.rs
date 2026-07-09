@@ -1,4 +1,9 @@
-//! Context loading: workspace root discovery and AGENTS.md handling.
+//! Context loading by workspace root discovery, `AGENTS.md` handling, and
+//! the context control ledger.
+//!
+//! - [`control`] holds the typed context ledger, model context limits, token
+//!   budgets, and diagnostics (P1 ledger foundation).
+//! - This module loads root `AGENTS.md` and discovers the workspace root.
 //!
 //! AGENTS.md is treated as read-only repository guidance, never as executable
 //! configuration or permission.
@@ -18,15 +23,18 @@
 //! 4. Closest applicable `AGENTS.md`.
 //! 5. Broader ancestor `AGENTS.md`.
 //! 6. Built-in defaults.
-//!
-//! Repository instructions (4–5) can affect style, workflow, commands to
-//! consider, and project-specific caveats. They cannot:
-//!
-//! - Grant permissions or enable tools.
-//! - Require destructive commands.
-//! - Suppress test failures or tool errors.
-//! - Change provider, model, or search mode.
-//! - Reveal secrets or override user/system instructions.
+
+pub mod control;
+
+pub use control::{
+    ContextBudget, ContextCounts, ContextDiagnostic, ContextItem, ContextItemKind, ContextLedger, ContextVisibility,
+    DiagnosticSeverity, LiveModelMetadata, ModelContextLimits, ModelLimitConfidence, ModelLimitOverride,
+    ModelLimitSource,
+};
+
+pub use control::{
+    estimate_tokens, item_id_for_path, item_id_for_session_range, render_ledger_summary, render_model_dashboard,
+};
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -120,8 +128,7 @@ pub fn load_agents_md(workspace_root: &Path) -> Option<ContextSource> {
     Some(ContextSource { path, scope: String::from("."), content, content_hash, truncated, byte_count })
 }
 
-/// Trim a string to at most `max_bytes` bytes, ensuring we end on a UTF-8 char
-/// boundary.
+/// Trim a string to at most `max_bytes` bytes, ensuring we end on a UTF-8 char boundary.
 fn trim_to_char_boundary(s: &str, max_bytes: usize) -> String {
     if s.len() <= max_bytes {
         return s.to_string();
