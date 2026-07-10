@@ -46,8 +46,6 @@
 //! writes a tombstone containing forgotten content, rewrites unrelated session
 //! records, deletes unrelated project files, or removes session history.
 
-#![allow(dead_code, unused_imports)]
-
 pub mod index;
 pub mod recall;
 
@@ -207,6 +205,16 @@ pub struct MemoryDiagnostic {
 }
 
 impl MemoryDiagnostic {
+    /// A memory directory or file could not be written.
+    pub fn write_failed(path: &Path, detail: &str) -> Self {
+        Self {
+            path: Some(path.to_path_buf()),
+            severity: MemorySeverity::Error,
+            code: "write_failed".to_string(),
+            message: format!("failed to write memory file: {detail}"),
+        }
+    }
+
     /// A memory file could not be read.
     pub fn unreadable(path: &Path, detail: &str) -> Self {
         Self {
@@ -780,7 +788,7 @@ fn validate_frontmatter(path: &Path, fm: &MemoryFrontmatter) -> Result<(), Memor
             Some(_) => Ok(()),
             None => Err(MemoryDiagnostic::missing_scope(path)),
         },
-        None => Err(MemoryDiagnostic::missing_scope(path)),
+        None => Err(MemoryDiagnostic::missing_kind(path)),
     }
 }
 
@@ -857,7 +865,9 @@ fn trim_to_char_boundary(s: &str, max_bytes: usize) -> String {
 /// `scope` must be explicit: `User`, `Project`, `Path`, or `Session`. A
 /// session-scoped write returns an item with no on-disk path and does not
 /// write a file; the caller persists it through the session log.
-pub fn write_memory(roots: &MemoryRoots, scope: MemoryScope, title: &str, body: &str, paths: &[String]) -> MemoryWrite {
+pub fn write_memory(
+    roots: &MemoryRoots, scope: MemoryScope, title: &str, body: &str, paths: &[String],
+) -> Result<MemoryWrite, MemoryDiagnostic> {
     let timestamp = utils::datetime::now_iso8601();
     let id = memory_id(scope, title, body);
 
@@ -873,7 +883,7 @@ pub fn write_memory(roots: &MemoryRoots, scope: MemoryScope, title: &str, body: 
     let source = default_source(scope);
 
     match scope {
-        MemoryScope::Session => MemoryWrite {
+        MemoryScope::Session => Ok(MemoryWrite {
             item: MemoryItem {
                 id,
                 title: title.to_string(),
@@ -892,7 +902,7 @@ pub fn write_memory(roots: &MemoryRoots, scope: MemoryScope, title: &str, body: 
                 body: body.to_string(),
             },
             secret_warning,
-        },
+        }),
         MemoryScope::User | MemoryScope::Project | MemoryScope::Path => {
             let (root_kind, dir) = write_destination(roots, scope, paths);
             let filename = format!("{id}.{}", MEMORY_EXT);
@@ -909,11 +919,11 @@ pub fn write_memory(roots: &MemoryRoots, scope: MemoryScope, title: &str, body: 
                 source: Some(source),
             };
             let content = render_memory_file(&frontmatter, body);
-            fs::create_dir_all(&dir).ok();
-            fs::write(&path, &content).ok();
+            fs::create_dir_all(&dir).map_err(|error| MemoryDiagnostic::write_failed(&dir, &error.to_string()))?;
+            fs::write(&path, &content).map_err(|error| MemoryDiagnostic::write_failed(&path, &error.to_string()))?;
 
             let (capped_body, truncated) = cap_body(body.to_string());
-            MemoryWrite {
+            Ok(MemoryWrite {
                 item: MemoryItem {
                     id,
                     title: title.to_string(),
@@ -932,7 +942,7 @@ pub fn write_memory(roots: &MemoryRoots, scope: MemoryScope, title: &str, body: 
                     body: capped_body,
                 },
                 secret_warning,
-            }
+            })
         }
     }
 }
@@ -1216,6 +1226,21 @@ mod tests {
     }
 
     #[test]
+    fn missing_kind_produces_the_matching_diagnostic() {
+        let dir = temp_dir();
+        let roots = roots_for(dir.path());
+        write_file(
+            &roots.project,
+            "notes/no-kind.md",
+            "---\nid: mem_no_kind\ntitle: No kind\nscope: project\n---\n\nbody\n",
+        );
+
+        let inventory = discover_memory(&roots);
+        assert!(inventory.notes.is_empty());
+        assert_eq!(inventory.diagnostics[0].code, "missing_kind");
+    }
+
+    #[test]
     fn unreadable_file_diagnostic() {
         let dir = temp_dir();
         let roots = roots_for(dir.path());
@@ -1275,7 +1300,8 @@ mod tests {
         let dir = temp_dir();
         let roots = roots_for(dir.path());
 
-        let write = write_memory(&roots, MemoryScope::User, "Preferred test command", "cargo test", &[]);
+        let write =
+            write_memory(&roots, MemoryScope::User, "Preferred test command", "cargo test", &[]).expect("write memory");
         assert!(write.item.id.starts_with("mem_"));
         assert_eq!(write.item.scope, MemoryScope::User);
         assert!(write.item.path.is_file());
@@ -1291,7 +1317,8 @@ mod tests {
         let dir = temp_dir();
         let roots = roots_for(dir.path());
 
-        let write = write_memory(&roots, MemoryScope::Project, "Build with cargo", "cargo build", &[]);
+        let write =
+            write_memory(&roots, MemoryScope::Project, "Build with cargo", "cargo build", &[]).expect("write memory");
         assert_eq!(write.item.scope, MemoryScope::Project);
         assert!(write.item.path.starts_with(&roots.project));
 
@@ -1310,7 +1337,8 @@ mod tests {
             "src convention",
             "use modules",
             &["src".to_string()],
-        );
+        )
+        .expect("write memory");
         assert_eq!(write.item.scope, MemoryScope::Path);
         assert_eq!(write.item.paths, vec!["src".to_string()]);
 
@@ -1325,11 +1353,23 @@ mod tests {
         let dir = temp_dir();
         let roots = roots_for(dir.path());
 
-        let write = write_memory(&roots, MemoryScope::Session, "temp note", "remember this", &[]);
+        let write =
+            write_memory(&roots, MemoryScope::Session, "temp note", "remember this", &[]).expect("write memory");
         assert_eq!(write.item.scope, MemoryScope::Session);
         assert!(write.item.path.as_os_str().is_empty());
         assert!(!write.item.path.is_file());
         assert_eq!(write.item.source, MemorySource::ExplicitUserSession);
+    }
+
+    #[test]
+    fn write_memory_reports_filesystem_failures() {
+        let dir = temp_dir();
+        let roots = roots_for(dir.path());
+        write_file(dir.path(), ".thndrs/memory", "not a directory");
+
+        let error = write_memory(&roots, MemoryScope::Project, "Blocked", "body", &[]).unwrap_err();
+        assert_eq!(error.code, "write_failed");
+        assert_eq!(error.severity, MemorySeverity::Error);
     }
 
     #[test]
@@ -1351,7 +1391,7 @@ mod tests {
     fn delete_memory_removes_file() {
         let dir = temp_dir();
         let roots = roots_for(dir.path());
-        let write = write_memory(&roots, MemoryScope::Project, "To delete", "bye", &[]);
+        let write = write_memory(&roots, MemoryScope::Project, "To delete", "bye", &[]).expect("write memory");
 
         let target = resolve_for_forget(&roots, &write.item.id).expect("resolve");
         assert_eq!(target.id, write.item.id);
@@ -1365,7 +1405,8 @@ mod tests {
     fn delete_audit_record_is_content_free() {
         let dir = temp_dir();
         let roots = roots_for(dir.path());
-        let write = write_memory(&roots, MemoryScope::Project, "To delete", "secret-ish body", &[]);
+        let write =
+            write_memory(&roots, MemoryScope::Project, "To delete", "secret-ish body", &[]).expect("write memory");
 
         let target = resolve_for_forget(&roots, &write.item.id).expect("resolve");
         delete_memory(&target).expect("delete");
@@ -1384,7 +1425,7 @@ mod tests {
     fn delete_memory_fails_safely_when_missing() {
         let dir = temp_dir();
         let roots = roots_for(dir.path());
-        let write = write_memory(&roots, MemoryScope::Project, "Gone", "body", &[]);
+        let write = write_memory(&roots, MemoryScope::Project, "Gone", "body", &[]).expect("write memory");
         fs::remove_file(&write.item.path).expect("remove first");
 
         let target = resolve_for_forget(&roots, &write.item.id);
@@ -1395,7 +1436,7 @@ mod tests {
     fn delete_memory_appends_audit_only_when_identifiable_but_missing() {
         let dir = temp_dir();
         let roots = roots_for(dir.path());
-        let write = write_memory(&roots, MemoryScope::Project, "Gone", "body", &[]);
+        let write = write_memory(&roots, MemoryScope::Project, "Gone", "body", &[]).expect("write memory");
         let target = MemoryDeletion {
             id: write.item.id.clone(),
             title: write.item.title.clone(),
@@ -1418,7 +1459,7 @@ mod tests {
     fn delete_memory_never_writes_tombstone() {
         let dir = temp_dir();
         let roots = roots_for(dir.path());
-        let write = write_memory(&roots, MemoryScope::Project, "Tomb", "body", &[]);
+        let write = write_memory(&roots, MemoryScope::Project, "Tomb", "body", &[]).expect("write memory");
         let target = resolve_for_forget(&roots, &write.item.id).expect("resolve");
         delete_memory(&target).expect("delete");
 
@@ -1429,8 +1470,8 @@ mod tests {
     fn delete_memory_does_not_delete_unrelated_files() {
         let dir = temp_dir();
         let roots = roots_for(dir.path());
-        let keep = write_memory(&roots, MemoryScope::Project, "Keep", "body", &[]);
-        let drop = write_memory(&roots, MemoryScope::Project, "Drop", "body", &[]);
+        let keep = write_memory(&roots, MemoryScope::Project, "Keep", "body", &[]).expect("write memory");
+        let drop = write_memory(&roots, MemoryScope::Project, "Drop", "body", &[]).expect("write memory");
 
         let target = resolve_for_forget(&roots, &drop.item.id).expect("resolve");
         delete_memory(&target).expect("delete");
@@ -1497,7 +1538,7 @@ mod tests {
     fn secret_shaped_warning_before_write() {
         let dir = temp_dir();
         let roots = roots_for(dir.path());
-        let write = write_memory(&roots, MemoryScope::User, "creds", "api_key=abc123", &[]);
+        let write = write_memory(&roots, MemoryScope::User, "creds", "api_key=abc123", &[]).expect("write memory");
         assert!(write.secret_warning.is_some());
         assert_eq!(write.secret_warning.unwrap().code, "secret_shaped");
     }
@@ -1522,7 +1563,7 @@ mod tests {
     fn memory_files_are_ordinary_markdown() {
         let dir = temp_dir();
         let roots = roots_for(dir.path());
-        let write = write_memory(&roots, MemoryScope::User, "Ordinary", "Just text", &[]);
+        let write = write_memory(&roots, MemoryScope::User, "Ordinary", "Just text", &[]).expect("write memory");
 
         let raw = fs::read_to_string(&write.item.path).expect("read back");
         assert!(raw.starts_with("---\n"));

@@ -1264,7 +1264,8 @@ mod tests {
             "Cargo build command",
             "use cargo build --release",
             &[],
-        );
+        )
+        .expect("write memory");
 
         let items = discover(workspace);
         let path = workspace.join("user.db3");

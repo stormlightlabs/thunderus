@@ -517,7 +517,8 @@ mod tests {
             "Cargo workflow",
             "use cargo build --release",
             &[],
-        );
+        )
+        .expect("write memory");
 
         let outcome = recall(
             &roots,
