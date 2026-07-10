@@ -17,13 +17,14 @@ use sha2::{Digest, Sha256};
 use crate::cli::{Theme, WebSearchMode};
 use crate::utils;
 
-static CONFIG_KEYS: [&str; 11] = [
+static CONFIG_KEYS: [&str; 12] = [
     "model",
     "websearch",
     "tick_rate_ms",
     "theme",
     "mouse",
     "verbose",
+    "memory",
     "skill_dirs",
     "session_dir",
     "default_workspace",
@@ -110,6 +111,7 @@ pub struct Config {
     pub tick_rate_ms: Option<u64>,
     pub mouse: Option<bool>,
     pub verbose: Option<bool>,
+    pub memory: Option<bool>,
     pub theme: Option<Theme>,
     pub skill_dirs: Vec<PathBuf>,
     pub session_dir: Option<PathBuf>,
@@ -126,6 +128,7 @@ impl Config {
         self.tick_rate_ms = other.tick_rate_ms.or(self.tick_rate_ms);
         self.mouse = other.mouse.or(self.mouse);
         self.verbose = other.verbose.or(self.verbose);
+        self.memory = other.memory.or(self.memory);
         self.theme = other.theme.or(self.theme);
         self.session_dir = other.session_dir.or(self.session_dir);
         self.default_workspace = other.default_workspace.or(self.default_workspace);
@@ -479,6 +482,10 @@ pub fn load_env(
                 config.verbose = Some(parse_bool_env(key, value)?);
                 origins.insert("verbose".to_string(), env_origin(key));
             }
+            "memory" => {
+                config.memory = Some(parse_bool_env(key, value)?);
+                origins.insert("memory".to_string(), env_origin(key));
+            }
             "skill_dirs" => {
                 config.skill_dirs = parse_path_list_env(value);
                 origins.insert("skill_dirs".to_string(), env_origin(key));
@@ -671,6 +678,12 @@ fn record_origins(config: &Config, source: ConfigSource, detail: &str, origins: 
             ConfigOrigin { source, detail: detail.to_string() },
         );
     }
+    if config.memory.is_some() {
+        origins.insert(
+            "memory".to_string(),
+            ConfigOrigin { source, detail: detail.to_string() },
+        );
+    }
     if !config.skill_dirs.is_empty() {
         origins.insert(
             "skill_dirs".to_string(),
@@ -710,6 +723,7 @@ fn has_any_value(config: &Config) -> bool {
         || config.theme.is_some()
         || config.mouse.is_some()
         || config.verbose.is_some()
+        || config.memory.is_some()
         || !config.skill_dirs.is_empty()
         || config.session_dir.is_some()
         || config.default_workspace.is_some()
@@ -723,6 +737,7 @@ fn default_config(workspace: &Path, cwd: &Path) -> Config {
         tick_rate_ms: Some(100),
         mouse: Some(false),
         verbose: Some(false),
+        memory: Some(false),
         theme: Some(Theme::default()),
         skill_dirs: Vec::new(),
         session_dir: Some(resolve_path(&workspace.join(".thndrs").join("sessions"), cwd)),

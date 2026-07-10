@@ -38,7 +38,12 @@ fn run_memory_recall(app: &mut App, query: &str) {
         return;
     }
 
-    let roots = &app.memory_roots;
+    let Some(roots) = app.memory_roots.as_ref() else {
+        app.transcript.push(Entry::Status {
+            text: String::from("memory recall  disabled; enable it with --memory or memory = true in configuration"),
+        });
+        return;
+    };
     let cache_dir = roots
         .user
         .as_ref()
@@ -64,4 +69,23 @@ fn run_memory_recall(app: &mut App, query: &str) {
     };
 
     app.transcript.push(Entry::Status { text });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cli::Cli;
+
+    #[test]
+    fn recall_does_not_touch_memory_when_disabled() {
+        let mut app = App::from(&Cli::default());
+
+        run_memory_command(&mut app, "memory recall cargo");
+
+        assert!(app.memory_roots.is_none());
+        assert!(matches!(
+            app.transcript.last(),
+            Some(Entry::Status { text }) if text.contains("disabled")
+        ));
+    }
 }

@@ -31,7 +31,7 @@ fn slash_memory_recall_renders_matches() {
         "run cargo test for unit tests",
     );
 
-    let cli = Cli { cwd: workspace, ..Cli::default() };
+    let cli = Cli { cwd: workspace, memory: true, ..Cli::default() };
     let mut app = with_home(&home, || App::from_cli(&cli));
     app.session_writer = None;
     app.input = PromptInput::from("/memory recall cargo test");
@@ -56,7 +56,7 @@ fn slash_memory_recall_no_match_shows_diagnostic() {
     std::fs::create_dir_all(&workspace).expect("create workspace");
     write_project_note(&workspace, "a.md", "mem_a", "A", "nothing relevant here");
 
-    let cli = Cli { cwd: workspace, ..Cli::default() };
+    let cli = Cli { cwd: workspace, memory: true, ..Cli::default() };
     let mut app = with_home(&home, || App::from_cli(&cli));
     app.session_writer = None;
     app.input = PromptInput::from("/memory recall zzznomatch");
@@ -97,7 +97,7 @@ fn slash_memory_recall_is_allowed_while_working() {
     std::fs::create_dir_all(&workspace).expect("create workspace");
     write_project_note(&workspace, "build.md", "mem_build", "Build", "run cargo test");
 
-    let cli = Cli { cwd: workspace, ..Cli::default() };
+    let cli = Cli { cwd: workspace, memory: true, ..Cli::default() };
     let mut app = with_home(&home, || App::from_cli(&cli));
     app.session_writer = None;
     app.run_state = RunState::Working;

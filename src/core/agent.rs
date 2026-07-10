@@ -119,32 +119,7 @@ enum MetadataLoaded<T> {
     Unavailable,
 }
 
-/// Decision returned by a tool permission hook.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ToolPermissionDecision {
-    /// The tool call may execute.
-    Allow,
-    /// The tool call must be rejected before execution.
-    Reject,
-    /// The prompt turn was cancelled while waiting for permission.
-    Cancelled,
-}
-
-impl ToolPermissionDecision {
-    /// Convert an ACP permission option id into an execution decision.
-    pub fn from_acp_option_id(option_id: &str) -> Self {
-        if option_id.starts_with("allow") { Self::Allow } else { Self::Reject }
-    }
-
-    /// Stable label used in session records.
-    pub const fn outcome_label(self) -> &'static str {
-        match self {
-            Self::Allow => "allowed",
-            Self::Reject => "rejected",
-            Self::Cancelled => "cancelled",
-        }
-    }
-}
+pub use thndrs_agent::{RetryPolicy, ToolPermissionDecision};
 
 type ToolPermissionCallback =
     dyn Fn(&ToolUseRequest, &AgentRunConfig, &CancelToken) -> ToolPermissionDecision + Send + Sync;
@@ -210,22 +185,6 @@ impl ToolExecutionHook {
 impl std::fmt::Debug for ToolExecutionHook {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("ToolExecutionHook(..)")
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct RetryPolicy {
-    pub max_retries: u32,
-    pub base_delay: Duration,
-}
-
-impl RetryPolicy {
-    pub const fn new(max_retries: u32, base_delay: Duration) -> Self {
-        RetryPolicy { max_retries, base_delay }
-    }
-
-    fn delay_for_attempt(self, attempt: u32) -> Duration {
-        self.base_delay * 2u32.saturating_pow(attempt.saturating_sub(1))
     }
 }
 

@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::utils::ratio_of;
+use crate::support::ratio_of;
 
 /// Conservative bytes-per-token divisor used until provider tokenizers exist.
 ///

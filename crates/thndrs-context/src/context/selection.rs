@@ -31,8 +31,7 @@ use crate::context::{
     DiagnosticSeverity, ModelContextLimits, estimate_tokens, item_id_for_path, item_id_for_session_range,
 };
 use crate::memory::MemoryItem;
-use crate::skills::SkillMetadata;
-use crate::utils::{ratio_of, scope_depth};
+use crate::support::{ratio_of, scope_depth};
 
 /// A transcript entry considered for selection.
 ///
@@ -166,26 +165,14 @@ pub struct SkillCandidate {
 }
 
 impl SkillCandidate {
-    /// Build a discovered-only skill candidate from metadata.
-    pub fn metadata(skill: &SkillMetadata) -> Self {
-        SkillCandidate {
-            name: skill.name.clone(),
-            path: skill.path.clone(),
-            content_hash: skill.content_hash,
-            bytes: skill.byte_count,
-            loaded: false,
-        }
+    /// Build a discovered-only skill candidate from its stable metadata.
+    pub fn discovered(name: impl Into<String>, path: PathBuf, content_hash: u64, bytes: usize) -> Self {
+        SkillCandidate { name: name.into(), path, content_hash, bytes, loaded: false }
     }
 
     /// Build a fully-loaded skill candidate.
-    pub fn loaded(skill: &SkillMetadata, rendered_bytes: usize, rendered_hash: u64) -> Self {
-        SkillCandidate {
-            name: skill.name.clone(),
-            path: skill.path.clone(),
-            content_hash: rendered_hash,
-            bytes: rendered_bytes,
-            loaded: true,
-        }
+    pub fn loaded(name: impl Into<String>, path: PathBuf, rendered_bytes: usize, rendered_hash: u64) -> Self {
+        SkillCandidate { name: name.into(), path, content_hash: rendered_hash, bytes: rendered_bytes, loaded: true }
     }
 }
 
@@ -1297,24 +1284,15 @@ mod tests {
     /// A discovered skill (metadata only) is a candidate; a loaded skill is visible.
     #[test]
     fn skill_metadata_candidate_loaded_visible() {
-        let skill = SkillMetadata {
-            name: "test-skill".to_string(),
-            description: "a skill".to_string(),
-            path: PathBuf::from("/repo/.thndrs/skills/test/SKILL.md"),
-            root: PathBuf::from("/repo/.thndrs/skills/test"),
-            content_hash: 1,
-            byte_count: 100,
-            source: crate::skills::SkillSource::Project,
-            allowed_tools: Vec::new(),
-            license: None,
-            compatibility: None,
-            metadata: None,
-            references: Vec::new(),
-        };
+        let skill_name = "test-skill";
+        let skill_path = PathBuf::from("/repo/.thndrs/skills/test/SKILL.md");
         let input = SelectionInput {
             harness: vec![HarnessCandidate::new("base", 100)],
             user_turn: Some(UserTurnCandidate::new("sess_1", 0, 50)),
-            skills: vec![SkillCandidate::metadata(&skill), SkillCandidate::loaded(&skill, 200, 2)],
+            skills: vec![
+                SkillCandidate::discovered(skill_name, skill_path.clone(), 1, 100),
+                SkillCandidate::loaded(skill_name, skill_path, 200, 2),
+            ],
             ..Default::default()
         };
 

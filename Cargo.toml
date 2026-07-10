@@ -1,3 +1,81 @@
+[workspace]
+members = ["crates/thndrs-agent", "crates/thndrs-context"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.85"
+version = "0.1.0"
+license = "Apache-2.0"
+repository = "https://github.com/stormlightlabs/thunderus"
+
+[workspace.dependencies]
+agent-client-protocol = "1.0.1"
+clap = { version = "4.6.1", features = ["derive"] }
+crossterm = "0.29.0"
+futures = "0.3"
+http = "1"
+insta = "1.48.0"
+iocraft = "0.8.3"
+lectito = "0.2"
+markdown = "1.0.0"
+regex-lite = "0.1"
+rmcp = { version = "2.1.0", default-features = false, features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
+scraper = "0.27"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml_ng = "0.10.0"
+sha2 = "0.11"
+syntect = { version = "5", default-features = false, features = ["default-fancy"] }
+tempfile = "3"
+thiserror = "2"
+tokio = { version = "1", features = ["io-std", "macros", "process", "rt-multi-thread", "time"] }
+tokio-util = { version = "0.7", features = ["compat"] }
+toml = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt"] }
+unicode-segmentation = "1"
+unicode-width = "0.2"
+ureq = { version = "3.3", features = ["json"] }
+url = "2"
+vt100 = "0.16.2"
+
+[workspace.lints.clippy]
+bool_comparison = "deny"
+duplicate_mod = "deny"
+inconsistent_struct_constructor = "deny"
+invalid_regex = "deny"
+mem_forget = "deny"
+mixed_case_hex_literals = "deny"
+suspicious_arithmetic_impl = "deny"
+uninit_assumed_init = "deny"
+suspicious_else_formatting = "deny"
+suspicious_op_assign_impl = "deny"
+suspicious_to_owned = "deny"
+cmp_owned = "deny"
+cmp_null = "deny"
+manual_map = "deny"
+
+too_many_arguments = "warn"
+cognitive_complexity = "warn"
+large_enum_variant = "warn"
+needless_borrow = "warn"
+needless_pass_by_value = "warn"
+redundant_clone = "warn"
+unnecessary_cast = "warn"
+inefficient_to_string = "warn"
+or_fun_call = "warn"
+unnecessary_to_owned = "warn"
+map_clone = "warn"
+flat_map_identity = "warn"
+needless_collect = "warn"
+vec_init_then_push = "warn"
+
+len_zero = "allow"
+range_plus_one = "allow"
+manual_range_contains = "allow"
+
 [package]
 name = "thndrs"
 version = "0.1.0"
@@ -34,71 +112,41 @@ name = "thndrs-acp-server"
 path = "src/bin/thndrs-acp-server.rs"
 
 [dependencies]
-agent-client-protocol = "1.0.1"
-clap = { version = "4.6.1", features = ["derive"] }
-crossterm = "0.29.0"
-futures = "0.3"
-iocraft = "0.8.3"
-lectito = "0.2"
-markdown = "1.0.0"
-regex-lite = "0.1"
-http = "1"
-rmcp = { version = "2.1.0", default-features = false, features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest"] }
-scraper = "0.27"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-serde_yaml_ng = "0.10.0"
-sha2 = "0.11"
-rusqlite = { version = "0.40", features = ["bundled"] }
-syntect = { version = "5", default-features = false, features = ["default-fancy"] }
-tempfile = "3"
-thiserror = "2"
-tokio = { version = "1", features = ["io-std", "macros", "process", "rt-multi-thread", "time"] }
-tokio-util = { version = "0.7", features = ["compat"] }
-toml = "1"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["fmt"] }
-unicode-segmentation = "1"
-unicode-width = "0.2"
-ureq = { version = "3.3", features = ["json"] }
-url = "2"
+agent-client-protocol.workspace = true
+clap.workspace = true
+crossterm.workspace = true
+futures.workspace = true
+http.workspace = true
+iocraft.workspace = true
+lectito.workspace = true
+markdown.workspace = true
+regex-lite.workspace = true
+rmcp.workspace = true
+rusqlite.workspace = true
+scraper.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml_ng.workspace = true
+sha2.workspace = true
+syntect.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+thndrs-agent = { path = "crates/thndrs-agent" }
+thndrs-context = { path = "crates/thndrs-context", features = ["memory"] }
+tokio.workspace = true
+tokio-util.workspace = true
+toml.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+unicode-segmentation.workspace = true
+unicode-width.workspace = true
+ureq.workspace = true
+url.workspace = true
 
-[lints.clippy]
-bool_comparison = "deny"
-duplicate_mod = "deny"
-inconsistent_struct_constructor = "deny"
-invalid_regex = "deny"
-mem_forget = "deny"
-mixed_case_hex_literals = "deny"
-suspicious_arithmetic_impl = "deny"
-uninit_assumed_init = "deny"
-suspicious_else_formatting = "deny"
-suspicious_op_assign_impl = "deny"
-suspicious_to_owned = "deny"
-cmp_owned = "deny"
-cmp_null = "deny"
-manual_map = "deny"
-
-too_many_arguments = "warn"
-cognitive_complexity = "warn"
-large_enum_variant = "warn"
-needless_borrow = "warn"
-needless_pass_by_value = "warn"
-redundant_clone = "warn"
-unnecessary_cast = "warn"
-inefficient_to_string = "warn"
-or_fun_call = "warn"
-unnecessary_to_owned = "warn"
-map_clone = "warn"
-flat_map_identity = "warn"
-needless_collect = "warn"
-vec_init_then_push = "warn"
-
-len_zero = "allow"
-range_plus_one = "allow"
-manual_range_contains = "allow"
+[lints]
+workspace = true
 
 [dev-dependencies]
-insta = "1.48.0"
-tempfile = "3"
-vt100 = "0.16.2"
+insta.workspace = true
+tempfile.workspace = true
+vt100.workspace = true

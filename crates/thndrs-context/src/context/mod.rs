@@ -62,7 +62,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::tools;
+use crate::support::hash_content;
 
 /// Maximum bytes read from an AGENTS.md file.
 ///
@@ -134,7 +134,7 @@ pub fn load_agents_md(workspace_root: &Path) -> Option<ContextSource> {
     let metadata = fs::metadata(&path).ok()?;
     let byte_count = metadata.len() as usize;
     let content = fs::read_to_string(&path).ok()?;
-    let content_hash = tools::hash_content(&content);
+    let content_hash = hash_content(&content);
 
     let (content, truncated) = if byte_count > AGENTS_MD_SIZE_CAP {
         let mut capped = content.into_bytes();
@@ -207,7 +207,7 @@ mod tests {
         assert!(source.truncated);
         assert_eq!(source.byte_count, AGENTS_MD_SIZE_CAP + 1000);
         assert!(source.content.len() <= AGENTS_MD_SIZE_CAP);
-        assert_ne!(source.content_hash, tools::hash_content(&source.content));
+        assert_ne!(source.content_hash, hash_content(&source.content));
     }
 
     #[test]
@@ -235,8 +235,8 @@ mod tests {
     #[test]
     fn content_hash_is_stable() {
         let content = "hello world";
-        assert_eq!(tools::hash_content(content), tools::hash_content(content));
-        assert_ne!(tools::hash_content("hello world"), tools::hash_content("hello earth"));
+        assert_eq!(hash_content(content), hash_content(content));
+        assert_ne!(hash_content("hello world"), hash_content("hello earth"));
     }
 
     #[test]

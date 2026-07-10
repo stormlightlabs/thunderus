@@ -46,14 +46,18 @@
 //! writes a tombstone containing forgotten content, rewrites unrelated session
 //! records, deletes unrelated project files, or removes session history.
 
+#[cfg(feature = "memory")]
 pub mod index;
+#[cfg(feature = "memory")]
 pub mod recall;
 
+#[cfg(feature = "memory")]
 pub use index::{
     INDEX_SCHEMA_VERSION, MemoryIndex, MemoryIndexError, MemoryMatchField, MemorySearchFilter, MemorySearchResult,
     cache_dir, sanitize_fts_query, workspace_hash,
 };
 
+#[cfg(feature = "memory")]
 pub use recall::{
     DEFAULT_RECALL_MAX_BYTES, DEFAULT_RECALL_MAX_COUNT, RecallOutcome, RecallRequest, RecallResult, recall,
 };
@@ -61,14 +65,17 @@ pub use recall::{
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+#[cfg(feature = "memory")]
 use std::{fs, io};
 
+#[cfg(feature = "memory")]
 use markdown::{Constructs, ParseOptions, mdast::Node};
 use serde::{Deserialize, Serialize};
 
 use crate::context::ContextItemKind;
-use crate::tools;
-use crate::utils;
+use crate::support::home_dir;
+#[cfg(feature = "memory")]
+use crate::support::{hash_content, now_iso8601};
 
 /// Maximum bytes read from a memory body.
 ///
@@ -363,7 +370,7 @@ impl MemoryRoots {
     /// Roots are not required to exist on disk; discovery handles missing
     /// directories gracefully.
     pub fn resolve(workspace_root: &Path) -> Self {
-        let user = utils::home_dir().map(|home| home.join(".thndrs").join("memory"));
+        let user = home_dir().map(|home| home.join(".thndrs").join("memory"));
         let project = workspace_root.join(".thndrs").join("memory");
         MemoryRoots { user, project }
     }
@@ -651,6 +658,7 @@ impl SessionMemoryStore {
 }
 
 /// Track an item, recording duplicate-id and oversized diagnostics when needed.
+#[cfg(feature = "memory")]
 fn track(item: MemoryItem, inventory: &mut MemoryInventory, seen_ids: &mut Vec<String>) {
     if item.truncated {
         inventory
@@ -672,6 +680,7 @@ fn track(item: MemoryItem, inventory: &mut MemoryInventory, seen_ids: &mut Vec<S
 }
 
 /// Discover archival notes under a `notes/` directory.
+#[cfg(feature = "memory")]
 fn discover_notes(notes_dir: &Path, kind: MemoryRootKind, inventory: &mut MemoryInventory, seen_ids: &mut Vec<String>) {
     let Ok(entries) = fs::read_dir(notes_dir) else {
         return;
@@ -705,6 +714,7 @@ fn discover_notes(notes_dir: &Path, kind: MemoryRootKind, inventory: &mut Memory
 ///
 /// Duplicate ids produce a [`MemoryDiagnostic::duplicate_id`] warning.
 /// The later item is kept.
+#[cfg(feature = "memory")]
 pub fn discover_memory(roots: &MemoryRoots) -> MemoryInventory {
     let mut inventory = MemoryInventory::default();
     let mut seen_ids: Vec<String> = Vec::new();
@@ -733,10 +743,11 @@ pub fn discover_memory(roots: &MemoryRoots) -> MemoryInventory {
 ///
 /// Reads the file, parses frontmatter, validates required fields, and applies
 /// the body size cap. Returns a diagnostic on failure rather than panicking.
+#[cfg(feature = "memory")]
 pub fn load_memory_file(path: &Path, root: MemoryRootKind) -> Result<MemoryItem, MemoryDiagnostic> {
     let raw = fs::read_to_string(path).map_err(|e| MemoryDiagnostic::unreadable(path, &e.to_string()))?;
     let byte_count = raw.len();
-    let content_hash = tools::hash_content(&raw);
+    let content_hash = hash_content(&raw);
 
     let frontmatter = parse_frontmatter(path, &raw)?;
     let body = extract_body(&raw);
@@ -767,6 +778,7 @@ pub fn load_memory_file(path: &Path, root: MemoryRootKind) -> Result<MemoryItem,
 }
 
 /// Default source for a scope when frontmatter omits it.
+#[cfg(feature = "memory")]
 fn default_source(scope: MemoryScope) -> MemorySource {
     match scope {
         MemoryScope::Path => MemorySource::ExplicitUserPath,
@@ -776,6 +788,7 @@ fn default_source(scope: MemoryScope) -> MemorySource {
 }
 
 /// Validate required frontmatter fields, returning the first error.
+#[cfg(feature = "memory")]
 fn validate_frontmatter(path: &Path, fm: &MemoryFrontmatter) -> Result<(), MemoryDiagnostic> {
     if fm.id.trim().is_empty() {
         return Err(MemoryDiagnostic::missing_id(path));
@@ -793,6 +806,7 @@ fn validate_frontmatter(path: &Path, fm: &MemoryFrontmatter) -> Result<(), Memor
 }
 
 /// Apply the body size cap, marking truncation.
+#[cfg(feature = "memory")]
 fn cap_body(body: String) -> (String, bool) {
     if body.len() <= MEMORY_BODY_SIZE_CAP {
         (body, false)
@@ -807,6 +821,7 @@ fn cap_body(body: String) -> (String, bool) {
 }
 
 /// Parse memory YAML frontmatter using the same Markdown AST approach as skills.
+#[cfg(feature = "memory")]
 fn parse_frontmatter(path: &Path, raw: &str) -> Result<MemoryFrontmatter, MemoryDiagnostic> {
     let yaml = match markdown::to_mdast(raw, &frontmatter_parse_options()) {
         Ok(Node::Root(root)) => root.children.into_iter().find_map(|node| match node {
@@ -826,11 +841,13 @@ fn parse_frontmatter(path: &Path, raw: &str) -> Result<MemoryFrontmatter, Memory
     }
 }
 
+#[cfg(feature = "memory")]
 fn frontmatter_parse_options() -> ParseOptions {
     ParseOptions { constructs: Constructs { frontmatter: true, ..Constructs::default() }, ..ParseOptions::default() }
 }
 
 /// Extract the Markdown body (everything after the YAML frontmatter block).
+#[cfg(feature = "memory")]
 fn extract_body(raw: &str) -> String {
     let trimmed_start = raw.strip_prefix("---\n").or_else(|| raw.strip_prefix("---\r\n"));
     match trimmed_start {
@@ -845,6 +862,7 @@ fn extract_body(raw: &str) -> String {
 }
 
 /// Trim a string to at most `max_bytes` bytes on a UTF-8 char boundary.
+#[cfg(feature = "memory")]
 fn trim_to_char_boundary(s: &str, max_bytes: usize) -> String {
     if s.len() <= max_bytes {
         return s.to_string();
@@ -865,10 +883,11 @@ fn trim_to_char_boundary(s: &str, max_bytes: usize) -> String {
 /// `scope` must be explicit: `User`, `Project`, `Path`, or `Session`. A
 /// session-scoped write returns an item with no on-disk path and does not
 /// write a file; the caller persists it through the session log.
+#[cfg(feature = "memory")]
 pub fn write_memory(
     roots: &MemoryRoots, scope: MemoryScope, title: &str, body: &str, paths: &[String],
 ) -> Result<MemoryWrite, MemoryDiagnostic> {
-    let timestamp = utils::datetime::now_iso8601();
+    let timestamp = now_iso8601();
     let id = memory_id(scope, title, body);
 
     let secret_warning = if looks_secret_shaped(body) {
@@ -896,7 +915,7 @@ pub fn write_memory(
                 source,
                 root: MemoryRootKind::User,
                 path: PathBuf::new(),
-                content_hash: tools::hash_content(body),
+                content_hash: hash_content(body),
                 byte_count: body.len(),
                 truncated: false,
                 body: body.to_string(),
@@ -936,7 +955,7 @@ pub fn write_memory(
                     source,
                     root: root_kind,
                     path,
-                    content_hash: tools::hash_content(&content),
+                    content_hash: hash_content(&content),
                     byte_count: content.len(),
                     truncated,
                     body: capped_body,
@@ -948,11 +967,12 @@ pub fn write_memory(
 }
 
 /// Resolve the destination root kind and directory for a scoped write.
+#[cfg(feature = "memory")]
 fn write_destination(roots: &MemoryRoots, scope: MemoryScope, _: &[String]) -> (MemoryRootKind, PathBuf) {
     match scope {
         MemoryScope::User => {
             let dir = roots.user.clone().unwrap_or_else(|| {
-                utils::home_dir()
+                home_dir()
                     .map(|h| h.join(".thndrs").join("memory"))
                     .unwrap_or_else(|| PathBuf::from(".thndrs").join("memory"))
             });
@@ -965,6 +985,7 @@ fn write_destination(roots: &MemoryRoots, scope: MemoryScope, _: &[String]) -> (
 }
 
 /// Render a memory file (frontmatter + body) as Markdown.
+#[cfg(feature = "memory")]
 pub fn render_memory_file(frontmatter: &MemoryFrontmatter, body: &str) -> String {
     let yaml = serde_yaml_ng::to_string(frontmatter).unwrap_or_default();
     let mut out = String::new();
@@ -982,6 +1003,7 @@ pub fn render_memory_file(frontmatter: &MemoryFrontmatter, body: &str) -> String
 ///
 /// Returns `None` when the id cannot be identified from any discovered item.
 /// The caller confirms with the user, then calls [`delete_memory`].
+#[cfg(feature = "memory")]
 pub fn resolve_for_forget(roots: &MemoryRoots, id: &str) -> Option<MemoryDeletion> {
     let inventory = discover_memory(roots);
     let item = inventory.find(id)?;
@@ -1004,6 +1026,7 @@ pub fn resolve_for_forget(roots: &MemoryRoots, id: &str) -> Option<MemoryDeletio
 /// Returns an error diagnostic when the target path is empty (e.g. a
 /// session-scoped item, which is deleted through the session store instead) or
 /// when the file is already missing but the id could not be identified.
+#[cfg(feature = "memory")]
 pub fn delete_memory(target: &MemoryDeletion) -> Result<MemoryDeletion, MemoryDiagnostic> {
     if target.path.as_os_str().is_empty() {
         return Err(MemoryDiagnostic {
@@ -1031,6 +1054,7 @@ pub fn delete_memory(target: &MemoryDeletion) -> Result<MemoryDeletion, MemoryDi
 /// Generate a stable memory id: `mem_<16-hex>` derived from scope, title, and body.
 ///
 /// Stable across calls for the same content so re-writing does not fork ids.
+#[cfg(feature = "memory")]
 pub fn memory_id(scope: MemoryScope, title: &str, body: &str) -> String {
     let mut hasher = DefaultHasher::new();
     scope.label().hash(&mut hasher);
@@ -1043,6 +1067,7 @@ pub fn memory_id(scope: MemoryScope, title: &str, body: &str) -> String {
 ///
 /// Matches common secret indicators: long base64/hex runs, `api_key`/`token`/
 /// `secret`/`password` labels with assignment, and `-----BEGIN ... PRIVATE KEY-----`.
+#[cfg(feature = "memory")]
 pub fn looks_secret_shaped(content: &str) -> bool {
     let lower = content.to_lowercase();
     if lower.contains("-----begin") && lower.contains("private key-----") {
@@ -1095,7 +1120,7 @@ fn paths_cover(paths: &[String], target: &Path) -> bool {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "memory"))]
 mod tests {
     use super::*;
     use std::io::Write;

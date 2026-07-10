@@ -2963,6 +2963,8 @@ dependencies = [
  "syntect",
  "tempfile",
  "thiserror",
+ "thndrs-agent",
+ "thndrs-context",
  "tokio",
  "tokio-util",
  "toml 1.1.2+spec-1.1.0",
@@ -2973,6 +2975,28 @@ dependencies = [
  "ureq",
  "url",
  "vt100",
+]
+
+[[package]]
+name = "thndrs-agent"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "thndrs-context"
+version = "0.1.0"
+dependencies = [
+ "markdown",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "serde_yaml_ng",
+ "sha2",
+ "tempfile",
+ "thiserror",
+ "toml 1.1.2+spec-1.1.0",
 ]
 
 [[package]]

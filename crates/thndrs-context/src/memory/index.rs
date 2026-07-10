@@ -34,7 +34,7 @@ use rusqlite::Connection;
 use sha2::{Digest, Sha256};
 
 use super::{MemoryItem, MemoryKind, MemoryRootKind, MemoryScope};
-use crate::utils;
+use crate::support::home_dir;
 
 /// Current SQLite index schema version.
 ///
@@ -614,7 +614,7 @@ impl MemoryIndex {
 
 /// Resolve the derived memory cache directory: `~/.thndrs/cache/memory/`.
 pub fn cache_dir() -> Option<PathBuf> {
-    utils::home_dir().map(|home| home.join(".thndrs").join("cache").join(CACHE_DIR_NAME))
+    home_dir().map(|home| home.join(".thndrs").join("cache").join(CACHE_DIR_NAME))
 }
 
 /// Compute a short hex hash of the workspace root path for project index names.

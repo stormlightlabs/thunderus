@@ -15,12 +15,12 @@ minimalism or scope boundaries.
 
 **Acceptance criteria:**
 
-- [ ] `AGENTS.md` states the minimal-agent principles, package dependency rule,
+- [x] `AGENTS.md` states the minimal-agent principles, package dependency rule,
       one-ticket autonomy rule, approval boundaries, verification sequence, and
       human-only publishing rule.
-- [ ] `AGENTS.md` points to `000_baseline` for foundation work without copying
+- [x] `AGENTS.md` points to `000_baseline` for foundation work without copying
       later feature requirements.
-- [ ] `.gitignore` explicitly includes `!AGENTS.md`.
+- [x] `.gitignore` explicitly includes `!AGENTS.md`.
 
 **Verification:**
 
@@ -36,12 +36,12 @@ the existing `thndrs` package metadata and executable behavior.
 
 **Acceptance criteria:**
 
-- [ ] The workspace has exactly the root `thndrs` package plus
+- [x] The workspace has exactly the root `thndrs` package plus
       `thndrs-agent` and `thndrs-context` library members.
-- [ ] The libraries declare stable package identities, Apache-2.0 licensing,
+- [x] The libraries declare stable package identities, Apache-2.0 licensing,
       repository metadata, and pre-1.0 versions.
-- [ ] The root `thndrs` package metadata and executable name are unchanged.
-- [ ] No empty `thndrs-acp` placeholder package or new dependency is created.
+- [x] The root `thndrs` package metadata and executable name are unchanged.
+- [x] No empty `thndrs-acp` placeholder package or new dependency is created.
 
 **Verification:**
 
@@ -237,6 +237,5 @@ feature.
 
 ## Frontier
 
-Ticket 1: Establish The Operating Contract can start immediately. Work one
-ticket per fresh agent context; a human selects the next ticket after each
-verified handoff.
+Tickets 3 and 4 can start now. Work one ticket per fresh agent context; a
+human selects the next ticket after each verified handoff.

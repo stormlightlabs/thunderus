@@ -41,6 +41,9 @@ pub struct SessionConfigMeta {
     /// Effective session directory used for append-only JSONL files.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_dir: Option<String>,
+    /// Whether optional memory/retrieval was active for the session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_enabled: Option<bool>,
     /// Loaded config files with source, display path, and SHA-256 hash.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<SessionConfigFile>,

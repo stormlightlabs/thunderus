@@ -5,8 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::context::{AGENTS_MD_SIZE_CAP, ContextSource};
-use crate::tools;
-use crate::utils::scope_depth;
+use crate::support::{hash_content, scope_depth};
 
 /// Maximum directory depth for nested `AGENTS.md` discovery below the workspace root.
 pub const MAX_DISCOVERY_DEPTH: usize = 8;
@@ -235,7 +234,7 @@ fn load_nested(path: &Path, workspace_root: &Path) -> Result<ContextSource, Stri
     let metadata = fs::metadata(path).map_err(|e| e.to_string())?;
     let byte_count = metadata.len() as usize;
     let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
-    let content_hash = tools::hash_content(&content);
+    let content_hash = hash_content(&content);
 
     let scope = path
         .parent()

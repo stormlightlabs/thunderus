@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use serde::{Deserialize, Serialize};
+pub use thndrs_agent::ToolStatus;
 
 use crate::acp::config::provider_label;
 use crate::acp::permissions::{PendingPermission, PermissionDecision};
@@ -320,32 +321,6 @@ impl QueueTarget {
     }
 }
 
-/// Status of a tool entry in the transcript.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Default, Serialize, Deserialize)]
-pub enum ToolStatus {
-    /// Tool started, not yet finished.
-    #[default]
-    Running,
-    /// Tool finished successfully.
-    Ok,
-    /// Tool failed.
-    Failed,
-    /// Tool was cancelled while running (e.g. the user interrupted the run).
-    Cancelled,
-}
-
-impl ToolStatus {
-    /// Unicode icon & label used in session-record transcript entries for file writes.
-    pub fn icon(&self) -> &'static str {
-        match self {
-            ToolStatus::Ok => "✓ wrote",
-            ToolStatus::Failed => "✕ write failed",
-            ToolStatus::Running => "⠋ writing",
-            ToolStatus::Cancelled => "✕ write cancelled",
-        }
-    }
-}
-
 /// Lines to render when a tool detail pane is open.
 ///
 /// The detail pane expands a transcript [`Entry::Tool`] into a scrollable
@@ -581,9 +556,10 @@ pub struct App {
     pub history_draft: String,
     pub transcript: Vec<Entry>,
     pub cwd: PathBuf,
-    /// Memory roots resolved when the app starts, so later command handling
-    /// does not depend on mutable process environment state.
-    pub(crate) memory_roots: crate::memory::MemoryRoots,
+    /// Whether optional memory and retrieval are active for this run.
+    pub memory_enabled: bool,
+    /// Memory roots are resolved only after memory is deliberately enabled.
+    pub(crate) memory_roots: Option<crate::memory::MemoryRoots>,
     /// Current git working tree summary for the status line.
     pub git_status: Option<GitStatusSummary>,
     pub model: String,
@@ -667,7 +643,9 @@ impl From<&Cli> for App {
             None => Vec::new(),
         };
         let skill_inventory = skills::discover(&workspace_root, &value.skill_dirs);
-        let memory_roots = crate::memory::MemoryRoots::resolve(&workspace_root);
+        let memory_roots = value
+            .memory
+            .then(|| crate::memory::MemoryRoots::resolve(&workspace_root));
 
         let transcript = Vec::new();
         let sessions_dir = value
@@ -700,6 +678,7 @@ impl From<&Cli> for App {
             let session_dir = Some(sessions_dir.display().to_string());
             Some(session::SessionConfigMeta {
                 session_dir,
+                memory_enabled: Some(value.memory),
                 files,
                 origins,
                 diagnostics,
@@ -740,6 +719,7 @@ impl From<&Cli> for App {
             git_status: renderer::git::collect(&workspace_root),
             cwd: workspace_root,
             memory_roots,
+            memory_enabled: value.memory,
             model: value.model.clone(),
             model_picker_items: offline_model_picker_items(),
             user_label: default_user_label(),
