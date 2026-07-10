@@ -123,6 +123,10 @@ pub struct CompactionSummaryCandidate {
     pub end_seq: u64,
     /// Short label (e.g. `"summary 12..47"`).
     pub label: String,
+    /// Renderable summary text, used for prompt projection when the summary is
+    /// selected as normal context content. `None` when only metadata is
+    /// needed.
+    pub content: Option<String>,
     /// Estimated UTF-8 byte size of the summary text.
     pub bytes: usize,
     /// Whether this summary is the latest compaction.
@@ -138,6 +142,7 @@ impl CompactionSummaryCandidate {
             start_seq,
             end_seq,
             label: format!("summary {start_seq}..{end_seq}"),
+            content: None,
             bytes,
             latest,
         }
@@ -199,6 +204,10 @@ pub struct InstructionCandidate {
     pub content_hash: u64,
     /// Original byte count (before any truncation at load time).
     pub byte_count: usize,
+    /// Renderable instruction text (size-capped), used for prompt projection
+    /// when the source is selected as normal context content. `None` when only
+    /// metadata is needed.
+    pub content: Option<String>,
     /// Whether the source was truncated when loaded.
     pub truncated: bool,
     /// Whether the source is applicable this turn (closest-first ordering is
@@ -302,6 +311,7 @@ pub fn select_context(input: &SelectionInput, limits: ModelContextLimits) -> Con
             scope: ".".to_string(),
             content_hash: None,
             byte_count: harness.bytes,
+            content: None,
             token_estimate: estimate_tokens(harness.bytes),
             visibility: ContextVisibility::Visible,
             reason: "always-loaded harness context".to_string(),
@@ -317,6 +327,7 @@ pub fn select_context(input: &SelectionInput, limits: ModelContextLimits) -> Con
             scope: ".".to_string(),
             content_hash: None,
             byte_count: turn.bytes,
+            content: None,
             token_estimate: estimate_tokens(turn.bytes),
             visibility: ContextVisibility::Visible,
             reason: "current user turn, outside ordinary budget eviction".to_string(),
@@ -341,6 +352,7 @@ pub fn select_context(input: &SelectionInput, limits: ModelContextLimits) -> Con
             scope: pin.scope.clone(),
             content_hash: pin.content_hash,
             byte_count: pin.bytes,
+            content: None,
             token_estimate: estimate_tokens(pin.bytes),
             visibility,
             reason,
@@ -371,6 +383,7 @@ pub fn select_context(input: &SelectionInput, limits: ModelContextLimits) -> Con
             scope: instruction.scope.clone(),
             content_hash: Some(instruction.content_hash),
             byte_count: instruction.byte_count,
+            content: if visibility.is_rendered() { instruction.content.clone() } else { None },
             token_estimate: estimate_tokens(instruction.byte_count),
             visibility,
             reason,
@@ -424,6 +437,7 @@ pub fn select_context(input: &SelectionInput, limits: ModelContextLimits) -> Con
             scope: ".".to_string(),
             content_hash: Some(skill.content_hash),
             byte_count: skill.bytes,
+            content: None,
             token_estimate: estimate_tokens(skill.bytes),
             visibility,
             reason,
@@ -455,6 +469,7 @@ pub fn select_context(input: &SelectionInput, limits: ModelContextLimits) -> Con
             scope: ".".to_string(),
             content_hash: None,
             byte_count: summary.bytes,
+            content: if visibility.is_rendered() { summary.content.clone() } else { None },
             token_estimate: estimate_tokens(summary.bytes),
             visibility,
             reason,
@@ -492,6 +507,7 @@ fn push_memory_items(
             scope: item.scope_label(),
             content_hash: Some(item.content_hash),
             byte_count: item.byte_count,
+            content: if visibility.is_rendered() { Some(item.body.clone()) } else { None },
             token_estimate: estimate_tokens(item.byte_count),
             visibility,
             reason,
@@ -526,6 +542,7 @@ fn push_session_memory(
             scope: "session".to_string(),
             content_hash: Some(item.content_hash),
             byte_count: item.byte_count,
+            content: if visibility.is_rendered() { Some(item.body.clone()) } else { None },
             token_estimate: estimate_tokens(item.byte_count),
             visibility,
             reason,
@@ -587,6 +604,7 @@ fn push_transcript(items: &mut Vec<ContextItem>, input: &SelectionInput, availab
             scope: ".".to_string(),
             content_hash: None,
             byte_count: candidate.bytes,
+            content: None,
             token_estimate: estimate_tokens(candidate.bytes),
             visibility,
             reason: reason.to_string(),
@@ -682,6 +700,7 @@ mod tests {
             scope: scope.to_string(),
             content_hash: 1,
             byte_count: bytes,
+            content: None,
             truncated: false,
             applicable,
         }

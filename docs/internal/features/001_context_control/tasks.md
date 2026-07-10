@@ -194,23 +194,23 @@ Captured: 2026-07-03
 
 ## P8: Prompt And Self-Knowledge
 
-- [ ] Change `PromptBundle` to accept a selected context projection.
-- [ ] Preserve existing prompt fragment ordering.
-- [ ] Render selected project instructions from ledger items.
-- [ ] Render selected memory items with source/scope labels.
-- [ ] Render selected compaction summaries with covered sequence metadata.
-- [ ] Render pinned file excerpts or handles without bypassing file-tool
+- [x] Change `PromptBundle` to accept a selected context projection.
+- [x] Preserve existing prompt fragment ordering.
+- [x] Render selected project instructions from ledger items.
+- [x] Render selected memory items with source/scope labels.
+- [x] Render selected compaction summaries with covered sequence metadata.
+- [x] Render pinned file excerpts or handles without bypassing file-tool
       containment.
-- [ ] Replace fixed transcript tail projection with ledger-selected transcript
+- [x] Replace fixed transcript tail projection with ledger-selected transcript
       context.
-- [ ] Add context dashboard metadata to `<thndrs_self_knowledge>`.
-- [ ] Keep dashboard metadata compact enough for every turn.
-- [ ] Keep full memory and file contents out of the dashboard unless selected as
+- [x] Add context dashboard metadata to `<thndrs_self_knowledge>`.
+- [x] Keep dashboard metadata compact enough for every turn.
+- [x] Keep full memory and file contents out of the dashboard unless selected as
       normal context content.
-- [ ] Update `--print-prompt` snapshots.
-- [ ] Add prompt snapshots for no memory, core memory, archival memory, pins,
+- [x] Update `--print-prompt` snapshots.
+- [x] Add prompt snapshots for no memory, core memory, archival memory, pins,
       compaction, nested instructions, and overloaded budget.
-- [ ] Test prompt rendering for context dashboards.
+- [x] Test prompt rendering for context dashboards.
 
 ## P9: Session Records
 

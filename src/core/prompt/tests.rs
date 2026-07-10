@@ -1,5 +1,11 @@
 use super::*;
 use crate::app::ToolStatus;
+use crate::context::select_context;
+use crate::context::{
+    CompactionSummaryCandidate, HarnessCandidate, InstructionCandidate, ModelContextLimits, ModelLimitConfidence,
+    ModelLimitSource, PinnedCandidate, SelectionInput, TranscriptCandidate, UserTurnCandidate,
+};
+use crate::memory::{MemoryItem, MemoryKind, MemoryRootKind, MemorySource};
 use std::path::PathBuf;
 
 fn test_bundle() -> PromptBundle {
@@ -18,7 +24,58 @@ fn test_bundle() -> PromptBundle {
         user_turn: "explain this repo".to_string(),
         history_reuse: HistoryReuse::default(),
         prev_context_hash: None,
+        context_ledger: None,
     }
+}
+
+fn ledger_limits() -> ModelContextLimits {
+    ModelContextLimits {
+        provider: "umans".to_string(),
+        model: "umans-coder".to_string(),
+        context_window: 200_000,
+        max_completion_tokens: 8_192,
+        recommended_completion_tokens: 4_096,
+        source: ModelLimitSource::LiveMetadata,
+        confidence: ModelLimitConfidence::Exact,
+    }
+}
+
+fn memory_item(id: &str, title: &str, root: MemoryRootKind, body: &str) -> MemoryItem {
+    MemoryItem {
+        id: id.to_string(),
+        title: title.to_string(),
+        kind: MemoryKind::Fact,
+        scope: root.default_scope(),
+        paths: Vec::new(),
+        tags: Vec::new(),
+        created: "2026-07-03T00:00:00Z".to_string(),
+        updated: "2026-07-03T00:00:00Z".to_string(),
+        source: MemorySource::ExplicitUser,
+        root,
+        path: PathBuf::from(format!("/repo/.thndrs/memory/notes/{id}.md")),
+        content_hash: 1,
+        byte_count: body.len(),
+        truncated: false,
+        body: body.to_string(),
+    }
+}
+
+fn instruction_with_content(scope: &str, applicable: bool, content: &str) -> InstructionCandidate {
+    InstructionCandidate {
+        path: PathBuf::from(format!("/repo/{scope}/AGENTS.md")),
+        scope: scope.to_string(),
+        content_hash: 1,
+        byte_count: content.len(),
+        content: Some(content.to_string()),
+        truncated: false,
+        applicable,
+    }
+}
+
+fn bundle_with_ledger(ledger: crate::context::ContextLedger) -> PromptBundle {
+    let mut bundle = test_bundle();
+    bundle.context_ledger = Some(ledger);
+    bundle
 }
 
 #[test]
@@ -836,4 +893,354 @@ fn default_fragments_are_non_empty() {
             f.name
         );
     }
+}
+
+#[test]
+fn context_projection_renders_no_memory() {
+    let input = SelectionInput {
+        harness: vec![HarnessCandidate::new("base_identity", 100)],
+        user_turn: Some(UserTurnCandidate::new("sess_1", 0, 50)),
+        ..Default::default()
+    };
+    let ledger = select_context(&input, ledger_limits());
+    let prompt = render_system_prompt(&bundle_with_ledger(ledger));
+
+    assert!(prompt.contains("<context_dashboard>"), "dashboard must be present");
+    assert!(!prompt.contains("<memory>"), "no memory block when no memory selected");
+    assert!(
+        !prompt.contains("<selected_context>"),
+        "no projection block when nothing to render"
+    );
+}
+
+#[test]
+fn context_projection_renders_core_memory() {
+    let input = SelectionInput {
+        harness: vec![HarnessCandidate::new("base_identity", 100)],
+        user_turn: Some(UserTurnCandidate::new("sess_1", 0, 50)),
+        core_memory: vec![memory_item(
+            "mem_core",
+            "Core facts",
+            MemoryRootKind::User,
+            "prefer cargo test",
+        )],
+        ..Default::default()
+    };
+    let ledger = select_context(&input, ledger_limits());
+    let prompt = render_system_prompt(&bundle_with_ledger(ledger));
+
+    assert!(prompt.contains("<memory>"));
+    assert!(prompt.contains("mem_core"));
+    assert!(prompt.contains("prefer cargo test"));
+    assert!(prompt.contains("<scope>user</scope>"));
+}
+
+#[test]
+fn context_projection_renders_archival_memory() {
+    let input = SelectionInput {
+        harness: vec![HarnessCandidate::new("base_identity", 100)],
+        user_turn: Some(UserTurnCandidate::new("sess_1", 0, 50)),
+        archival_memory: vec![memory_item(
+            "mem_arch",
+            "Build steps",
+            MemoryRootKind::Project,
+            "run cargo build",
+        )],
+        ..Default::default()
+    };
+    let ledger = select_context(&input, ledger_limits());
+    let prompt = render_system_prompt(&bundle_with_ledger(ledger));
+
+    assert!(prompt.contains("<memory>"));
+    assert!(prompt.contains("mem_arch"));
+    assert!(prompt.contains("run cargo build"));
+    assert!(prompt.contains("<scope>project</scope>"));
+}
+
+#[test]
+fn context_projection_renders_pins_as_handles_without_content() {
+    let pin = PinnedCandidate::file(
+        crate::context::ContextItemKind::PinnedFile,
+        PathBuf::from("/repo/src/lib.rs"),
+        "src",
+        300,
+    );
+    let input = SelectionInput {
+        harness: vec![HarnessCandidate::new("base_identity", 100)],
+        user_turn: Some(UserTurnCandidate::new("sess_1", 0, 50)),
+        pins: vec![pin],
+        ..Default::default()
+    };
+    let ledger = select_context(&input, ledger_limits());
+    let prompt = render_system_prompt(&bundle_with_ledger(ledger));
+
+    assert!(prompt.contains("<pinned_handle>"));
+    assert!(prompt.contains("/repo/src/lib.rs"));
+    assert!(!prompt.contains("<content>"));
+}
+
+#[test]
+fn context_projection_renders_compaction_summary_with_range() {
+    let mut summary = CompactionSummaryCandidate::new("sess_1", 12, 47, 200, true);
+    summary.content = Some("Summarized earlier discussion about module layout.".to_string());
+    let input = SelectionInput {
+        harness: vec![HarnessCandidate::new("base_identity", 100)],
+        user_turn: Some(UserTurnCandidate::new("sess_1", 0, 50)),
+        compaction_summaries: vec![summary],
+        transcript: vec![
+            TranscriptCandidate::new("sess_1", 1, "user", 5_000),
+            TranscriptCandidate::new("sess_1", 2, "assistant", 5_000),
+        ],
+        ..Default::default()
+    };
+
+    let mut limits = ledger_limits();
+    limits.context_window = 4_000;
+    limits.max_completion_tokens = 1_024;
+    limits.recommended_completion_tokens = 512;
+    let ledger = select_context(&input, limits);
+    let prompt = render_system_prompt(&bundle_with_ledger(ledger));
+
+    assert!(prompt.contains("<compaction_summary>"));
+    assert!(prompt.contains("summary 12..47"));
+    assert!(prompt.contains("Summarized earlier discussion about module layout."));
+}
+
+#[test]
+fn context_projection_renders_nested_instructions_closest_first() {
+    let input = SelectionInput {
+        harness: vec![HarnessCandidate::new("base_identity", 100)],
+        user_turn: Some(UserTurnCandidate::new("sess_1", 0, 50)),
+        instructions: vec![
+            instruction_with_content(".", true, "# Root guidance\n"),
+            instruction_with_content("src", true, "# Src guidance\n"),
+            instruction_with_content("src/core", true, "# Core guidance\n"),
+        ],
+        ..Default::default()
+    };
+    let ledger = select_context(&input, ledger_limits());
+    let prompt = render_system_prompt(&bundle_with_ledger(ledger));
+
+    assert!(prompt.contains("<instruction>"));
+    assert!(prompt.contains("Root guidance"));
+    assert!(prompt.contains("Src guidance"));
+    assert!(prompt.contains("Core guidance"));
+
+    let core_pos = prompt.find("Core guidance").unwrap();
+    let root_pos = prompt.find("Root guidance").unwrap();
+    assert!(
+        core_pos < root_pos,
+        "closest AGENTS.md must render before broader guidance"
+    );
+}
+
+#[test]
+fn context_projection_dashboard_excludes_full_content() {
+    let secret = "api_key=supersecretvalue";
+    let input = SelectionInput {
+        harness: vec![HarnessCandidate::new("base_identity", 100)],
+        user_turn: Some(UserTurnCandidate::new("sess_1", 0, 50)),
+        core_memory: vec![memory_item("mem_secret", "creds", MemoryRootKind::User, secret)],
+        ..Default::default()
+    };
+
+    let ledger = select_context(&input, ledger_limits());
+    let prompt = render_system_prompt(&bundle_with_ledger(ledger));
+    let dashboard_start = prompt.find("<context_dashboard>").unwrap();
+    let dashboard_end = prompt.find("</context_dashboard>").unwrap();
+    let dashboard = &prompt[dashboard_start..dashboard_end];
+    assert!(!dashboard.contains(secret), "dashboard must not include full content");
+    assert!(!dashboard.contains("supersecretvalue"));
+}
+
+#[test]
+fn context_projection_overloaded_budget_blocks_items() {
+    let huge = 1_000_000;
+    let input = SelectionInput {
+        harness: vec![HarnessCandidate::new("base_identity", 100)],
+        user_turn: Some(UserTurnCandidate::new("sess_1", 0, 50)),
+        pins: vec![PinnedCandidate::file(
+            crate::context::ContextItemKind::PinnedFile,
+            PathBuf::from("/repo/huge.rs"),
+            "src",
+            huge,
+        )],
+        ..Default::default()
+    };
+    let ledger = select_context(&input, ledger_limits());
+    let prompt = render_system_prompt(&bundle_with_ledger(ledger));
+    assert!(prompt.contains("blocked_oversized") || prompt.contains("blocked"));
+    assert!(
+        !prompt.contains("<pinned_handle>"),
+        "blocked pin must not render as a handle"
+    );
+}
+
+#[test]
+fn context_dashboard_is_compact_for_every_turn() {
+    let input = SelectionInput {
+        harness: vec![HarnessCandidate::new("base_identity", 100)],
+        user_turn: Some(UserTurnCandidate::new("sess_1", 0, 50)),
+        instructions: vec![instruction_with_content(".", true, "# Root\n")],
+        core_memory: vec![memory_item("mem_core", "Core", MemoryRootKind::User, "facts")],
+        archival_memory: vec![memory_item("mem_arch", "Arch", MemoryRootKind::Project, "notes")],
+        transcript: vec![TranscriptCandidate::new("sess_1", 1, "user", 100)],
+        ..Default::default()
+    };
+    let ledger = select_context(&input, ledger_limits());
+    let prompt = render_system_prompt(&bundle_with_ledger(ledger));
+
+    let dashboard_start = prompt.find("<context_dashboard>").unwrap();
+    let dashboard_end = prompt.find("</context_dashboard>").unwrap();
+    let dashboard = &prompt[dashboard_start..=dashboard_end];
+    assert!(
+        dashboard.len() < 4_096,
+        "dashboard too large: {} bytes",
+        dashboard.len()
+    );
+    assert!(dashboard.contains("<budget>"));
+    assert!(dashboard.contains("<items>"));
+}
+
+#[test]
+fn context_ledger_none_preserves_legacy_project_context() {
+    let mut bundle = test_bundle();
+    bundle.project_context = vec![ContextSource {
+        path: PathBuf::from("/repo/AGENTS.md"),
+        scope: ".".to_string(),
+        content: "# Legacy\n".to_string(),
+        content_hash: 1,
+        truncated: false,
+        byte_count: 9,
+    }];
+    let prompt = render_system_prompt(&bundle);
+    assert!(prompt.contains("<project_context>"));
+    assert!(prompt.contains("# Legacy"));
+    assert!(!prompt.contains("<selected_context>"));
+    assert!(!prompt.contains("<context_dashboard>"));
+}
+
+#[test]
+fn snapshot_context_projection_no_memory() {
+    let input = SelectionInput {
+        harness: vec![HarnessCandidate::new("base_identity", 100)],
+        user_turn: Some(UserTurnCandidate::new("sess_1", 0, 50)),
+        ..Default::default()
+    };
+    let ledger = select_context(&input, ledger_limits());
+    let prompt = render_system_prompt(&bundle_with_ledger(ledger));
+    insta::assert_snapshot!(prompt);
+}
+
+#[test]
+fn snapshot_context_projection_core_memory() {
+    let input = SelectionInput {
+        harness: vec![HarnessCandidate::new("base_identity", 100)],
+        user_turn: Some(UserTurnCandidate::new("sess_1", 0, 50)),
+        core_memory: vec![memory_item(
+            "mem_core",
+            "Core facts",
+            MemoryRootKind::User,
+            "prefer cargo test",
+        )],
+        ..Default::default()
+    };
+    let ledger = select_context(&input, ledger_limits());
+    let prompt = render_system_prompt(&bundle_with_ledger(ledger));
+    insta::assert_snapshot!(prompt);
+}
+
+#[test]
+fn snapshot_context_projection_archival_memory() {
+    let input = SelectionInput {
+        harness: vec![HarnessCandidate::new("base_identity", 100)],
+        user_turn: Some(UserTurnCandidate::new("sess_1", 0, 50)),
+        archival_memory: vec![memory_item(
+            "mem_arch",
+            "Build steps",
+            MemoryRootKind::Project,
+            "run cargo build",
+        )],
+        ..Default::default()
+    };
+    let ledger = select_context(&input, ledger_limits());
+    let prompt = render_system_prompt(&bundle_with_ledger(ledger));
+    insta::assert_snapshot!(prompt);
+}
+
+#[test]
+fn snapshot_context_projection_pins() {
+    let input = SelectionInput {
+        harness: vec![HarnessCandidate::new("base_identity", 100)],
+        user_turn: Some(UserTurnCandidate::new("sess_1", 0, 50)),
+        pins: vec![PinnedCandidate::file(
+            crate::context::ContextItemKind::PinnedFile,
+            PathBuf::from("/repo/src/lib.rs"),
+            "src",
+            300,
+        )],
+        ..Default::default()
+    };
+    let ledger = select_context(&input, ledger_limits());
+    let prompt = render_system_prompt(&bundle_with_ledger(ledger));
+    insta::assert_snapshot!(prompt);
+}
+
+#[test]
+fn snapshot_context_projection_compaction() {
+    let mut summary = CompactionSummaryCandidate::new("sess_1", 12, 47, 200, true);
+    summary.content = Some("Summarized earlier discussion about module layout.".to_string());
+    let input = SelectionInput {
+        harness: vec![HarnessCandidate::new("base_identity", 100)],
+        user_turn: Some(UserTurnCandidate::new("sess_1", 0, 50)),
+        compaction_summaries: vec![summary],
+        transcript: vec![
+            TranscriptCandidate::new("sess_1", 1, "user", 5_000),
+            TranscriptCandidate::new("sess_1", 2, "assistant", 5_000),
+        ],
+        ..Default::default()
+    };
+    let mut limits = ledger_limits();
+    limits.context_window = 4_000;
+    limits.max_completion_tokens = 1_024;
+    limits.recommended_completion_tokens = 512;
+    let ledger = select_context(&input, limits);
+    let prompt = render_system_prompt(&bundle_with_ledger(ledger));
+    insta::assert_snapshot!(prompt);
+}
+
+#[test]
+fn snapshot_context_projection_nested_instructions() {
+    let input = SelectionInput {
+        harness: vec![HarnessCandidate::new("base_identity", 100)],
+        user_turn: Some(UserTurnCandidate::new("sess_1", 0, 50)),
+        instructions: vec![
+            instruction_with_content(".", true, "# Root guidance\n"),
+            instruction_with_content("src", true, "# Src guidance\n"),
+            instruction_with_content("src/core", true, "# Core guidance\n"),
+        ],
+        ..Default::default()
+    };
+    let ledger = select_context(&input, ledger_limits());
+    let prompt = render_system_prompt(&bundle_with_ledger(ledger));
+    insta::assert_snapshot!(prompt);
+}
+
+#[test]
+fn snapshot_context_projection_overloaded_budget() {
+    let huge = 1_000_000;
+    let input = SelectionInput {
+        harness: vec![HarnessCandidate::new("base_identity", 100)],
+        user_turn: Some(UserTurnCandidate::new("sess_1", 0, 50)),
+        pins: vec![PinnedCandidate::file(
+            crate::context::ContextItemKind::PinnedFile,
+            PathBuf::from("/repo/huge.rs"),
+            "src",
+            huge,
+        )],
+        ..Default::default()
+    };
+    let ledger = select_context(&input, ledger_limits());
+    let prompt = render_system_prompt(&bundle_with_ledger(ledger));
+    insta::assert_snapshot!(prompt);
 }

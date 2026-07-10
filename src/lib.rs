@@ -1296,6 +1296,7 @@ mod tests {
             user_turn: "explain this repo".to_string(),
             history_reuse: prompt::HistoryReuse::Unavailable,
             prev_context_hash: None,
+            context_ledger: None,
         }
     }
 

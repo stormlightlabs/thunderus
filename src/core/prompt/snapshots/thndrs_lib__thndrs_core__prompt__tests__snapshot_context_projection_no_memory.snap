@@ -301,30 +301,38 @@ expression: prompt
       <fragment>web_source_guidance</fragment>
     </prompt_fragments>
     <project_context>
-      <source>
-        <path>/repo/AGENTS.md</path>
-        <scope>.</scope>
-        <hash>4242</hash>
-        <truncated>false</truncated>
-        <byte_count>50</byte_count>
-      </source>
     </project_context>
     <skills>
     </skills>
+    <context_dashboard>
+  <budget>
+    <available_input>190784</available_input>
+    <target>152627</target>
+    <auto_compaction_threshold>175521</auto_compaction_threshold>
+    <used>83</used>
+    <exceeds_target>false</exceeds_target>
+    <exceeds_auto_compaction>false</exceeds_auto_compaction>
+    <limit_source>live-metadata</limit_source>
+    <limit_confidence>exact</limit_confidence>
+  </budget>
+  <items>
+    <item>
+      <id>ctx_harness_base_identity</id>
+      <kind>harness</kind>
+      <visibility>visible</visibility>
+      <tokens>50</tokens>
+      <label>base_identity</label>
+    </item>
+    <item>
+      <id>ctx_transcript_2f2b5c002b0c9f1d</id>
+      <kind>transcript</kind>
+      <visibility>visible</visibility>
+      <tokens>33</tokens>
+      <label>current user turn</label>
+    </item>
+  </items>
+</context_dashboard>
     <diagnostics>
     </diagnostics>
   </runtime_state>
 </thndrs_self_knowledge>
-
-<project_context>
-  <source>
-    <path><![CDATA[/repo/AGENTS.md]]></path>
-    <scope><![CDATA[.]]></scope>
-    <hash>4242</hash>
-    <truncated>false</truncated>
-    <content><![CDATA[# Project
-
-Build with cargo. Run tests with cargo test.
-]]></content>
-  </source>
-</project_context>

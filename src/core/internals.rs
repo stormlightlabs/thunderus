@@ -195,6 +195,9 @@ pub struct SelfKnowledgeSnapshot {
     pub runtime: RuntimeSnapshot,
     pub inventory: KnowledgeInventorySnapshot,
     pub diagnostics: Vec<String>,
+    /// Compact context dashboard from the context selection ledger,
+    /// when a projection is attached to the prompt bundle.
+    pub context_dashboard: Option<String>,
 }
 
 impl From<&PromptBundle> for SelfKnowledgeSnapshot {
@@ -220,7 +223,16 @@ impl From<&PromptBundle> for SelfKnowledgeSnapshot {
             &bundle.project_context,
         );
         let inventory = KnowledgeInventorySnapshot::new(references, prompt_context);
-        SelfKnowledgeSnapshot::new(AppIdentitySnapshot::default(), runtime, inventory, Vec::new())
+        let context_dashboard = bundle
+            .context_ledger
+            .as_ref()
+            .map(crate::context::render_model_dashboard);
+        let snapshot = SelfKnowledgeSnapshot::new(AppIdentitySnapshot::default(), runtime, inventory, Vec::new());
+        if let Some(dashboard) = context_dashboard {
+            snapshot.with_context_dashboard(dashboard)
+        } else {
+            snapshot
+        }
     }
 }
 
@@ -229,7 +241,13 @@ impl SelfKnowledgeSnapshot {
         identity: AppIdentitySnapshot, runtime: RuntimeSnapshot, inventory: KnowledgeInventorySnapshot,
         diagnostics: Vec<String>,
     ) -> Self {
-        Self { identity, runtime, inventory, diagnostics }
+        Self { identity, runtime, inventory, diagnostics, context_dashboard: None }
+    }
+
+    /// Attach a compact context dashboard string rendered from the context selection ledger.
+    pub fn with_context_dashboard(mut self, dashboard: impl Into<String>) -> Self {
+        self.context_dashboard = Some(dashboard.into());
+        self
     }
 
     pub fn render_model_visible(&self) -> String {
@@ -312,6 +330,12 @@ impl SelfKnowledgeSnapshot {
             out.push_str("      </skill>\n");
         }
         out.push_str("    </skills>\n");
+
+        if let Some(dashboard) = &self.context_dashboard {
+            out.push_str("    ");
+            out.push_str(dashboard);
+            out.push('\n');
+        }
 
         out.push_str("    <diagnostics>\n");
         for diagnostic in &self.diagnostics {

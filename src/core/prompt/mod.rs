@@ -16,10 +16,16 @@
 //! 6. **self_knowledge** — how to answer questions about `thndrs`.
 //! 7. **web_source_guidance** — when and how to use web tools.
 //! 8. Environment metadata — cwd, model, search mode, rounded date.
-//! 9. Self-knowledge snapshot — docs map and compact runtime state.
-//! 10. Project context — loaded `AGENTS.md` text (below policy and user instructions).
+//! 9. Self-knowledge snapshot — docs map and compact runtime state, plus a
+//!    compact context dashboard when a context ledger is attached.
+//! 10. Project context — loaded `AGENTS.md` text (below policy and user
+//!     instructions), **or** the selected context projection
+//!     (`<selected_context>`) from the attached [`ContextLedger`] when one is
+//!     present. The ledger path renders selected instructions, memory,
+//!     compaction summaries, and pinned handles.
 //! 11. Tool catalog — provider-native schemas for local tools.
-//! 12. Transcript tail — projected model-visible entries.
+//! 12. Transcript tail — projected model-visible entries (selected by the
+//!     context policy when a ledger is attached).
 //! 13. User turn — current prompt text.
 
 #[cfg(test)]
@@ -30,6 +36,7 @@ use std::path::Path;
 use crate::app::Entry;
 use crate::app::ToolStatus;
 use crate::cli::WebSearchMode;
+use crate::context::ContextLedger;
 use crate::context::ContextSource;
 use crate::internals;
 use crate::providers::ProviderMessage;
@@ -37,6 +44,7 @@ use crate::skills;
 use crate::skills::SkillMetadata;
 use crate::tools;
 use crate::tools::ToolDefinition;
+use crate::utils;
 use crate::utils::datetime;
 
 /// Whether the provider supports reusable history / prompt caching for
@@ -108,6 +116,16 @@ pub struct PromptBundle {
     /// Used with [`HistoryReuse::Available`] to skip re-sending unchanged
     /// AGENTS.md text. `None` on the first turn or when no context is loaded.
     pub prev_context_hash: Option<u64>,
+    /// Selected context projection from the context selection policy (P7/P8).
+    ///
+    /// When `Some`, the system prompt renders selected project instructions,
+    /// memory, compaction summaries, and pinned handles from the ledger items,
+    /// the transcript tail is taken from ledger-selected transcript context,
+    /// and a compact context dashboard is added to `<thndrs_self_knowledge>`.
+    ///
+    /// When `None`, the legacy rendering path is used (`project_context` plus
+    /// the fixed transcript tail projection), preserving existing behavior.
+    pub context_ledger: Option<ContextLedger>,
 }
 
 impl PromptBundle {
@@ -136,12 +154,22 @@ impl PromptBundle {
             user_turn: user_turn.to_string(),
             history_reuse: HistoryReuse::default(),
             prev_context_hash: None,
+            context_ledger: None,
         }
     }
 
     /// Replace the bundle's tool catalog with a runtime-specific catalog.
     pub fn with_tool_catalog(mut self, tool_catalog: Vec<ToolDefinition>) -> Self {
         self.tool_catalog = tool_catalog;
+        self
+    }
+
+    /// Attach a selected context projection (P7 ledger) so the system prompt
+    /// renders selected instructions, memory, summaries, pins, and transcript
+    /// context from the ledger, and adds a context dashboard to
+    /// `<thndrs_self_knowledge>`.
+    pub fn with_context_ledger(mut self, ledger: ContextLedger) -> Self {
+        self.context_ledger = Some(ledger);
         self
     }
 }
@@ -238,30 +266,13 @@ pub fn render_system_prompt(bundle: &PromptBundle) -> String {
     let snapshot: internals::SelfKnowledgeSnapshot = bundle.into();
     parts.push(snapshot.render_model_visible());
 
-    if !bundle.project_context.is_empty() {
-        let mut context_lines = vec!["<project_context>".to_string()];
-        for source in &bundle.project_context {
-            let text_unchanged = bundle.history_reuse == HistoryReuse::Available
-                && bundle.prev_context_hash == Some(source.content_hash);
-
-            context_lines.push("  <source>".to_string());
-            context_lines.push(format!(
-                "    <path><![CDATA[{}]]></path>",
-                cdata(&source.path.display().to_string())
-            ));
-            context_lines.push(format!("    <scope><![CDATA[{}]]></scope>", cdata(&source.scope)));
-            context_lines.push(format!("    <hash>{}</hash>", source.content_hash));
-            context_lines.push(format!("    <truncated>{}</truncated>", source.truncated));
-
-            if text_unchanged {
-                context_lines.push("    <status>unchanged, text omitted</status>".to_string());
-            } else {
-                context_lines.push(format!("    <content><![CDATA[{}]]></content>", cdata(&source.content)));
-            }
-            context_lines.push("  </source>".to_string());
+    if let Some(ledger) = &bundle.context_ledger {
+        let projection = render_context_projection(ledger);
+        if !projection.is_empty() {
+            parts.push(projection);
         }
-        context_lines.push("</project_context>".to_string());
-        parts.push(context_lines.join("\n"));
+    } else if !bundle.project_context.is_empty() {
+        parts.push(render_legacy_project_context(bundle));
     }
 
     let available_skills = skills::format_available_skills(&bundle.available_skills);
@@ -270,6 +281,122 @@ pub fn render_system_prompt(bundle: &PromptBundle) -> String {
     }
 
     parts.join("\n\n")
+}
+
+/// Render the legacy `<project_context>` block from `bundle.project_context`.
+///
+/// Used when no context ledger is attached. Preserves the existing AGENTS.md
+/// rendering including history-reuse text omission.
+fn render_legacy_project_context(bundle: &PromptBundle) -> String {
+    let mut context_lines = vec!["<project_context>".to_string()];
+    for source in &bundle.project_context {
+        let text_unchanged =
+            bundle.history_reuse == HistoryReuse::Available && bundle.prev_context_hash == Some(source.content_hash);
+
+        context_lines.push("  <source>".to_string());
+        context_lines.push(format!(
+            "    <path><![CDATA[{}]]></path>",
+            cdata(&source.path.display().to_string())
+        ));
+        context_lines.push(format!("    <scope><![CDATA[{}]]></scope>", cdata(&source.scope)));
+        context_lines.push(format!("    <hash>{}</hash>", source.content_hash));
+        context_lines.push(format!("    <truncated>{}</truncated>", source.truncated));
+
+        if text_unchanged {
+            context_lines.push("    <status>unchanged, text omitted</status>".to_string());
+        } else {
+            context_lines.push(format!("    <content><![CDATA[{}]]></content>", cdata(&source.content)));
+        }
+        context_lines.push("  </source>".to_string());
+    }
+    context_lines.push("</project_context>".to_string());
+    context_lines.join("\n")
+}
+
+/// Render the selected context projection from a [`ContextLedger`] into a
+/// single `<selected_context>` block.
+fn render_context_projection(ledger: &ContextLedger) -> String {
+    use crate::context::ContextItemKind as Kind;
+
+    let rendered: Vec<&crate::context::ContextItem> = ledger
+        .items
+        .iter()
+        .filter(|item| {
+            item.visibility.is_rendered()
+                && matches!(
+                    item.kind,
+                    Kind::ProjectInstruction
+                        | Kind::UserMemory
+                        | Kind::ProjectMemory
+                        | Kind::Summary
+                        | Kind::PinnedFile
+                        | Kind::Skill
+                )
+        })
+        .collect();
+    if rendered.is_empty() {
+        return String::new();
+    }
+
+    let mut out = String::from("<selected_context>\n");
+
+    for item in &rendered {
+        match item.kind {
+            Kind::ProjectInstruction => {
+                out.push_str("  <instruction>\n");
+                push_item_meta(&mut out, 4, item);
+                if let Some(content) = item.content.as_deref() {
+                    out.push_str(&format!("    <content><![CDATA[{}]]></content>\n", cdata(content)));
+                }
+                out.push_str("  </instruction>\n");
+            }
+            Kind::UserMemory | Kind::ProjectMemory => {
+                out.push_str("  <memory>\n");
+                push_item_meta(&mut out, 4, item);
+                if let Some(content) = item.content.as_deref() {
+                    out.push_str(&format!("    <content><![CDATA[{}]]></content>\n", cdata(content)));
+                }
+                out.push_str("  </memory>\n");
+            }
+            Kind::Summary => {
+                out.push_str("  <compaction_summary>\n");
+                push_item_meta(&mut out, 4, item);
+                if let Some(content) = item.content.as_deref() {
+                    out.push_str(&format!("    <content><![CDATA[{}]]></content>\n", cdata(content)));
+                }
+                out.push_str("  </compaction_summary>\n");
+            }
+            Kind::PinnedFile => {
+                out.push_str("  <pinned_handle>\n");
+                push_item_meta(&mut out, 4, item);
+                out.push_str("  </pinned_handle>\n");
+            }
+            Kind::Skill => {
+                out.push_str("  <skill>\n");
+                push_item_meta(&mut out, 4, item);
+                out.push_str("  </skill>\n");
+            }
+            _ => {}
+        }
+    }
+
+    out.push_str("</selected_context>");
+    out
+}
+
+/// Append metadata (id, scope, path, hash) for a rendered context item.
+fn push_item_meta(out: &mut String, indent: usize, item: &crate::context::ContextItem) {
+    let pad = " ".repeat(indent);
+    out.push_str(&format!("{pad}<id>{}</id>\n", utils::escape_xml(&item.id)));
+    out.push_str(&format!("{pad}<label>{}</label>\n", utils::escape_xml(&item.label)));
+    out.push_str(&format!("{pad}<scope>{}</scope>\n", utils::escape_xml(&item.scope)));
+    if let Some(path) = item.source_path.as_ref() {
+        let path_str = path.display().to_string();
+        out.push_str(&format!("{pad}<path>{}</path>\n", utils::escape_xml(&path_str)));
+    }
+    if let Some(hash) = item.content_hash {
+        out.push_str(&format!("{pad}<hash>{}</hash>\n", hash));
+    }
 }
 
 /// Lower a [`PromptBundle`] into Umans Anthropic-compatible messages.
@@ -316,11 +443,6 @@ pub fn render_tool_catalog(bundle: &PromptBundle) -> serde_json::Value {
 }
 
 /// Project the model-visible transcript tail from the full UI transcript.
-///
-/// Excludes UI-only entries (`Status`, `Error`) and live-only stream artifacts:
-/// assistant/reasoning entries still flagged as `streaming` (partial text the
-/// model has not finalized) and tool entries that are still `Running` (no
-/// output yet).
 ///
 /// Only finalized `User`, `Assistant`, `Reasoning`, and `Tool` entries reach the model.
 fn project_transcript_tail(transcript: &[Entry]) -> Vec<Entry> {

@@ -440,6 +440,14 @@ pub struct ContextItem {
     pub content_hash: Option<u64>,
     /// Original byte count of the source content.
     pub byte_count: usize,
+    /// Renderable content for the prompt projection, when this item is
+    /// selected as normal context content. `None` for metadata-only items
+    /// (pins rendered as handles, candidates, dropped items) and for items
+    /// whose content is projected through other bundle fields (transcript
+    /// entries are lowered as messages, not inlined here).
+    ///
+    /// The model-visible dashboard deliberately omits this field.
+    pub content: Option<String>,
     /// Conservative estimated token cost (`ceil(utf8_bytes / 3) + 16`).
     pub token_estimate: usize,
     /// Inclusion status this turn.
@@ -767,6 +775,7 @@ mod tests {
             scope: ".".to_string(),
             content_hash: None,
             byte_count: 10,
+            content: None,
             token_estimate: 20,
             visibility,
             reason: "test".to_string(),
@@ -1035,6 +1044,7 @@ mod tests {
                 scope: ".".to_string(),
                 content_hash: None,
                 byte_count: 100,
+                content: None,
                 token_estimate: 50,
                 visibility: ContextVisibility::Visible,
                 reason: "always loaded".to_string(),
@@ -1047,6 +1057,7 @@ mod tests {
                 scope: "src".to_string(),
                 content_hash: Some(42),
                 byte_count: 200,
+                content: None,
                 token_estimate: 80,
                 visibility: ContextVisibility::Pinned,
                 reason: "user pinned".to_string(),
@@ -1059,6 +1070,7 @@ mod tests {
                 scope: ".".to_string(),
                 content_hash: None,
                 byte_count: 300,
+                content: None,
                 token_estimate: 120,
                 visibility: ContextVisibility::Archived,
                 reason: "compacted".to_string(),
@@ -1090,6 +1102,7 @@ mod tests {
             scope: ".".to_string(),
             content_hash: None,
             byte_count: 0,
+            content: None,
             token_estimate: 7_000,
             visibility: ContextVisibility::Pinned,
             reason: "user pinned".to_string(),
@@ -1166,6 +1179,7 @@ mod tests {
             scope: ".".to_string(),
             content_hash: Some(99),
             byte_count: 500,
+            content: None,
             token_estimate: 200,
             visibility: ContextVisibility::Visible,
             reason: "loaded".to_string(),
@@ -1205,6 +1219,7 @@ mod tests {
             scope: "src".to_string(),
             content_hash: Some(42),
             byte_count: 200,
+            content: None,
             token_estimate: 80,
             visibility: ContextVisibility::Pinned,
             reason: "user pinned".to_string(),

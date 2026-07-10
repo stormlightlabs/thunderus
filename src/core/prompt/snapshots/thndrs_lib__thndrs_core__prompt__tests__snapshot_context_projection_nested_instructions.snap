@@ -301,30 +301,89 @@ expression: prompt
       <fragment>web_source_guidance</fragment>
     </prompt_fragments>
     <project_context>
-      <source>
-        <path>/repo/AGENTS.md</path>
-        <scope>.</scope>
-        <hash>4242</hash>
-        <truncated>false</truncated>
-        <byte_count>50</byte_count>
-      </source>
     </project_context>
     <skills>
     </skills>
+    <context_dashboard>
+  <budget>
+    <available_input>190784</available_input>
+    <target>152627</target>
+    <auto_compaction_threshold>175521</auto_compaction_threshold>
+    <used>148</used>
+    <exceeds_target>false</exceeds_target>
+    <exceeds_auto_compaction>false</exceeds_auto_compaction>
+    <limit_source>live-metadata</limit_source>
+    <limit_confidence>exact</limit_confidence>
+  </budget>
+  <items>
+    <item>
+      <id>ctx_harness_base_identity</id>
+      <kind>harness</kind>
+      <visibility>visible</visibility>
+      <tokens>50</tokens>
+      <label>base_identity</label>
+    </item>
+    <item>
+      <id>ctx_transcript_2f2b5c002b0c9f1d</id>
+      <kind>transcript</kind>
+      <visibility>visible</visibility>
+      <tokens>33</tokens>
+      <label>current user turn</label>
+    </item>
+    <item>
+      <id>ctx_project_instruction_bca0f511c610e60c</id>
+      <kind>project_instruction</kind>
+      <visibility>visible</visibility>
+      <tokens>22</tokens>
+      <label>/repo/src/core/AGENTS.md</label>
+    </item>
+    <item>
+      <id>ctx_project_instruction_c8fb83f4d72558a5</id>
+      <kind>project_instruction</kind>
+      <visibility>visible</visibility>
+      <tokens>21</tokens>
+      <label>/repo/src/AGENTS.md</label>
+    </item>
+    <item>
+      <id>ctx_project_instruction_af58be555764fa90</id>
+      <kind>project_instruction</kind>
+      <visibility>visible</visibility>
+      <tokens>22</tokens>
+      <label>/repo/./AGENTS.md</label>
+    </item>
+  </items>
+</context_dashboard>
     <diagnostics>
     </diagnostics>
   </runtime_state>
 </thndrs_self_knowledge>
 
-<project_context>
-  <source>
-    <path><![CDATA[/repo/AGENTS.md]]></path>
-    <scope><![CDATA[.]]></scope>
-    <hash>4242</hash>
-    <truncated>false</truncated>
-    <content><![CDATA[# Project
-
-Build with cargo. Run tests with cargo test.
+<selected_context>
+  <instruction>
+    <id>ctx_project_instruction_bca0f511c610e60c</id>
+    <label>/repo/src/core/AGENTS.md</label>
+    <scope>src/core</scope>
+    <path>/repo/src/core/AGENTS.md</path>
+    <hash>1</hash>
+    <content><![CDATA[# Core guidance
 ]]></content>
-  </source>
-</project_context>
+  </instruction>
+  <instruction>
+    <id>ctx_project_instruction_c8fb83f4d72558a5</id>
+    <label>/repo/src/AGENTS.md</label>
+    <scope>src</scope>
+    <path>/repo/src/AGENTS.md</path>
+    <hash>1</hash>
+    <content><![CDATA[# Src guidance
+]]></content>
+  </instruction>
+  <instruction>
+    <id>ctx_project_instruction_af58be555764fa90</id>
+    <label>/repo/./AGENTS.md</label>
+    <scope>.</scope>
+    <path>/repo/./AGENTS.md</path>
+    <hash>1</hash>
+    <content><![CDATA[# Root guidance
+]]></content>
+  </instruction>
+</selected_context>
