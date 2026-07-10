@@ -11,6 +11,7 @@ pub mod fuzzy;
 pub mod harness;
 pub mod internals;
 pub mod mcp;
+pub mod memory;
 pub mod prelude;
 pub mod prompt;
 pub mod providers;
