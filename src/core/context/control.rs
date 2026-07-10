@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::utils::ratio_of;
+
 /// Conservative bytes-per-token divisor used until provider tokenizers exist.
 ///
 /// `ceil(utf8_bytes / 3)` approximates tokens for mixed English/code content.
@@ -132,6 +134,19 @@ impl ContextVisibility {
             ContextVisibility::Candidate => "candidate",
             ContextVisibility::Dropped => "dropped",
             ContextVisibility::Blocked => "blocked",
+        }
+    }
+
+    /// Human-readable reason for a visibility state.
+    pub fn reason(&self, base: &str) -> String {
+        match self {
+            ContextVisibility::Visible => base.to_string(),
+            ContextVisibility::Pinned => format!("{base}: pinned"),
+            ContextVisibility::SummaryOnly => format!("{base}: summary-only"),
+            ContextVisibility::Archived => format!("{base}: archived"),
+            ContextVisibility::Candidate => format!("{base}: candidate (not selected)"),
+            ContextVisibility::Dropped => format!("{base}: dropped"),
+            ContextVisibility::Blocked => format!("{base}: blocked (oversized)"),
         }
     }
 }
@@ -718,15 +733,6 @@ fn static_provider_limits(provider: &str, model: &str) -> Option<ModelContextLim
         source: ModelLimitSource::Static,
         confidence: ModelLimitConfidence::ProviderReported,
     })
-}
-
-/// Compute `floor(value * ratio)` without floating-point drift on whole tokens.
-fn ratio_of(value: u64, ratio: f64) -> u64 {
-    if value == 0 {
-        return 0;
-    }
-    let scaled = (value as f64) * ratio;
-    scaled.floor() as u64
 }
 
 /// Compact token count for display (e.g. `18k`, `1M`, `1234`).

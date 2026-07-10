@@ -7,6 +7,23 @@ use std::path::PathBuf;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
+/// Compute `floor(value * ratio)` without floating-point drift on whole tokens.
+pub fn ratio_of(value: u64, ratio: f64) -> u64 {
+    if value == 0 {
+        return 0;
+    }
+    let scaled = (value as f64) * ratio;
+    scaled.floor() as u64
+}
+
+/// Depth of a scope: `.` = 0, `src` = 1, `src/core` = 2.
+pub fn scope_depth(scope: &str) -> usize {
+    if scope == "." || scope.is_empty() {
+        return 0;
+    }
+    scope.matches('/').count() + 1
+}
+
 /// Return the current user's home directory from common platform env vars.
 pub fn home_dir() -> Option<PathBuf> {
     std::env::var_os("HOME")
@@ -173,5 +190,13 @@ mod tests {
     #[test]
     fn truncate_ellipsis_start_short_unchanged() {
         assert_eq!(truncate_ellipsis_start("short", 10), "short");
+    }
+
+    #[test]
+    fn scope_depth_counts_segments() {
+        assert_eq!(scope_depth("."), 0);
+        assert_eq!(scope_depth("src"), 1);
+        assert_eq!(scope_depth("src/core"), 2);
+        assert_eq!(scope_depth("src/core/context"), 3);
     }
 }

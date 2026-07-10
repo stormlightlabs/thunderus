@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use crate::context::{AGENTS_MD_SIZE_CAP, ContextSource};
 use crate::tools;
+use crate::utils::scope_depth;
 
 /// Maximum directory depth for nested `AGENTS.md` discovery below the workspace root.
 pub const MAX_DISCOVERY_DEPTH: usize = 8;
@@ -297,14 +298,6 @@ fn path_under_scope(path: &Path, scope: &str) -> bool {
     components[..scope_components.len()] == scope_components[..]
 }
 
-/// Depth of a scope: `.` = 0, `src` = 1, `src/core` = 2.
-fn scope_depth(scope: &str) -> usize {
-    if scope == "." || scope.is_empty() {
-        return 0;
-    }
-    scope.matches('/').count() + 1
-}
-
 /// Whether a directory entry should be skipped during nested discovery.
 ///
 /// Skips hidden directories (leading `.`), VCS metadata, and common build
@@ -587,14 +580,6 @@ mod tests {
         assert!(path_under_scope(Path::new("src/core/context.rs"), "src"));
         assert!(!path_under_scope(Path::new("docs/readme.md"), "src"));
         assert!(path_under_scope(Path::new("anything"), "."));
-    }
-
-    #[test]
-    fn scope_depth_counts_segments() {
-        assert_eq!(scope_depth("."), 0);
-        assert_eq!(scope_depth("src"), 1);
-        assert_eq!(scope_depth("src/core"), 2);
-        assert_eq!(scope_depth("src/core/context"), 3);
     }
 
     #[test]

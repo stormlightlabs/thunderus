@@ -68,6 +68,7 @@ use std::{fs, io};
 use markdown::{Constructs, ParseOptions, mdast::Node};
 use serde::{Deserialize, Serialize};
 
+use crate::context::ContextItemKind;
 use crate::tools;
 use crate::utils;
 
@@ -451,6 +452,39 @@ impl MemoryItem {
             self.title,
             self.path.display()
         )
+    }
+
+    /// Map a memory item to its context item kind.
+    pub fn item_kind(&self) -> ContextItemKind {
+        match self.root {
+            MemoryRootKind::User => ContextItemKind::UserMemory,
+            MemoryRootKind::Project => ContextItemKind::ProjectMemory,
+        }
+    }
+
+    /// Stable context item id for a memory item.
+    pub fn memory_item_id(&self) -> String {
+        let kind = self.item_kind();
+        let mut hasher = DefaultHasher::new();
+        kind.label().hash(&mut hasher);
+        self.id.hash(&mut hasher);
+        format!("ctx_{}_{:016x}", kind.label(), hasher.finish())
+    }
+
+    /// Scope label for a memory item.
+    pub fn scope_label(&self) -> String {
+        match self.scope {
+            MemoryScope::User => "user".to_string(),
+            MemoryScope::Project => "project".to_string(),
+            MemoryScope::Path => {
+                if self.paths.is_empty() {
+                    "path".to_string()
+                } else {
+                    format!("path:{}", self.paths.join(","))
+                }
+            }
+            MemoryScope::Session => "session".to_string(),
+        }
     }
 }
 

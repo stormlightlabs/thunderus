@@ -162,35 +162,35 @@ Captured: 2026-07-03
 
 ## P7: Context Selection Policy
 
-- [ ] Build candidate ledger items from harness context.
-- [ ] Build candidate ledger items from project instructions.
-- [ ] Build candidate ledger items from user memory.
-- [ ] Build candidate ledger items from project memory.
-- [ ] Build candidate ledger items from active pins.
-- [ ] Build candidate ledger items from compaction summaries.
-- [ ] Build candidate ledger items from recent transcript entries.
-- [ ] Build candidate ledger items from skill metadata and loaded skills.
-- [ ] Include current user turn outside ordinary budget eviction.
-- [ ] Include active pins before ordinary recent transcript items.
-- [ ] Include applicable closest `AGENTS.md` before broader guidance.
-- [ ] Include the latest compaction summary when older turns are omitted.
-- [ ] Keep session-scoped memory eligible after compaction and resume.
-- [ ] Omit UI-only and live-only transcript entries.
-- [ ] Mark oversized items as blocked or summary-only instead of truncating
+- [x] Build candidate ledger items from harness context.
+- [x] Build candidate ledger items from project instructions.
+- [x] Build candidate ledger items from user memory.
+- [x] Build candidate ledger items from project memory.
+- [x] Build candidate ledger items from active pins.
+- [x] Build candidate ledger items from compaction summaries.
+- [x] Build candidate ledger items from recent transcript entries.
+- [x] Build candidate ledger items from skill metadata and loaded skills.
+- [x] Include current user turn outside ordinary budget eviction.
+- [x] Include active pins before ordinary recent transcript items.
+- [x] Include applicable closest `AGENTS.md` before broader guidance.
+- [x] Include the latest compaction summary when older turns are omitted.
+- [x] Keep session-scoped memory eligible after compaction and resume.
+- [x] Omit UI-only and live-only transcript entries.
+- [x] Mark oversized items as blocked or summary-only instead of truncating
       silently.
-- [ ] Record a reason for every visible, omitted, archived, dropped, blocked,
+- [x] Record a reason for every visible, omitted, archived, dropped, blocked,
       or summary-only item.
-- [ ] Test short, normal, and overloaded context budgets.
-- [ ] Test pins survive across turns.
-- [ ] Test drops remove pins from future turns.
-- [ ] Test explicit dropped-item rules persist until source change or
+- [x] Test short, normal, and overloaded context budgets.
+- [x] Test pins survive across turns.
+- [x] Test drops remove pins from future turns.
+- [x] Test explicit dropped-item rules persist until source change or
       `/drop --reset`.
-- [ ] Test `/clear-context` clears pins, recovered/opened items, and transient
+- [x] Test `/clear-context` clears pins, recovered/opened items, and transient
       transcript carryover without deleting memory or compaction summaries.
-- [ ] Test recover reopens archived/omitted context by id.
-- [ ] Test compaction summary replaces older transcript entries in prompt
+- [x] Test recover reopens archived/omitted context by id.
+- [x] Test compaction summary replaces older transcript entries in prompt
       projection.
-- [ ] Test secrets are not serialized into context metadata.
+- [x] Test secrets are not serialized into context metadata.
 
 ## P8: Prompt And Self-Knowledge
 

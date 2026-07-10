@@ -28,6 +28,7 @@
 
 pub mod control;
 pub mod instructions;
+pub mod selection;
 
 pub use control::{
     ContextBudget, ContextCounts, ContextDiagnostic, ContextItem, ContextItemKind, ContextLedger, ContextVisibility,
@@ -37,6 +38,11 @@ pub use control::{
 
 pub use control::{
     estimate_tokens, item_id_for_path, item_id_for_session_range, render_ledger_summary, render_model_dashboard,
+};
+
+pub use selection::{
+    CompactionSummaryCandidate, HarnessCandidate, InstructionCandidate, PinnedCandidate, SelectionInput,
+    SkillCandidate, TranscriptCandidate, UserTurnCandidate, select_context,
 };
 
 pub use instructions::{
