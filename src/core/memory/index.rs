@@ -198,7 +198,15 @@ impl MemoryIndex {
     /// `project-<workspace_hash>.db3` derived from the canonical workspace
     /// root so different workspaces get separate indexes.
     pub fn index_path(kind: MemoryRootKind, workspace_root: Option<&Path>) -> Option<PathBuf> {
-        let cache_dir = cache_dir()?;
+        let cache = cache_dir()?;
+        Self::index_path_in(&cache, kind, workspace_root)
+    }
+
+    /// Resolve the index path within an explicit cache directory.
+    ///
+    /// Use this in tests to isolate index files from the real
+    /// `~/.thndrs/cache/memory/`. Production code uses [`index_path`](Self::index_path).
+    pub fn index_path_in(cache_dir: &Path, kind: MemoryRootKind, workspace_root: Option<&Path>) -> Option<PathBuf> {
         let filename = match kind {
             MemoryRootKind::User => USER_INDEX_FILE.to_string(),
             MemoryRootKind::Project => {
@@ -279,7 +287,6 @@ impl MemoryIndex {
         conn.close()
             .map_err(|(_conn, e)| MemoryIndexError::close(&tmp_path, e))?;
 
-        // Atomic replace so readers never see a partial index.
         fs::rename(&tmp_path, db_path).map_err(|e| MemoryIndexError::io(db_path, e))?;
         Ok(())
     }
@@ -313,8 +320,6 @@ impl MemoryIndex {
              WHERE memory_fts MATCH ?",
         );
 
-        // Owned param values outlive the query. The FTS query is first; filter
-        // values follow in order.
         let mut values: Vec<String> = vec![fts_query];
         Self::append_filter(&mut sql, &mut values, filter);
         sql.push_str(" ORDER BY rank LIMIT 50");
@@ -327,8 +332,6 @@ impl MemoryIndex {
         let rows = stmt
             .query_map(rusqlite::params_from_iter(params), |row| {
                 let rank: f64 = row.get(7)?;
-                // SQLite BM25 returns negative values (more negative = better).
-                // Negate and round so "higher = better".
                 let score = (-rank).round() as i64;
                 let title: String = row.get(1)?;
                 let root_label: String = row.get(2)?;
@@ -369,8 +372,8 @@ impl MemoryIndex {
 
     /// Return all indexed memory metadata matching `filter`, without FTS.
     ///
-    /// Used when the query is empty or purely metadata-driven. Results are
-    /// ordered by `updated` descending.
+    /// Used when the query is empty or purely metadata-driven.
+    /// Results are ordered by `updated` descending.
     fn metadata_only_search(
         conn: &Connection, filter: &MemorySearchFilter,
     ) -> Result<Vec<MemorySearchResult>, MemoryIndexError> {
@@ -427,8 +430,8 @@ impl MemoryIndex {
 
     /// Append a metadata filter clause to `sql`, pushing owned bound values.
     ///
-    /// Values are owned `String`s so they outlive the query; the caller builds
-    /// `&dyn ToSql` references from `values`.
+    /// Values are owned `String`s so they outlive the query.
+    /// The caller builds `&dyn ToSql` references from `values`.
     fn append_filter(sql: &mut String, values: &mut Vec<String>, filter: &MemorySearchFilter) {
         if let Some(scope) = filter.scope {
             sql.push_str(" AND m.scope = ?");
@@ -563,8 +566,6 @@ impl MemoryIndex {
         let tags = item.tags.join(",");
         let paths = item.paths.join(",");
 
-        // Replace any existing row so re-indexing an edited memory does not
-        // accumulate stale FTS rows.
         tx.execute("DELETE FROM memory_meta WHERE id = ?1", rusqlite::params![item.id])
             .map_err(|e| MemoryIndexError::query(&item.path, e))?;
 
@@ -592,8 +593,6 @@ impl MemoryIndex {
         )
         .map_err(|e| MemoryIndexError::query(&item.path, e))?;
 
-        // The integer rowid assigned to the new memory_meta row is reused as
-        // the FTS rowid so the two stay joined on a stable integer key.
         let rowid: i64 = tx
             .query_row(
                 "SELECT rowid FROM memory_meta WHERE id = ?1",
@@ -690,8 +689,9 @@ fn first_snippet_line(body: &str) -> String {
 /// Pick which FTS column matched and a snippet for it.
 ///
 /// FTS5 `highlight` returns empty for columns that did not contribute to the
-/// match. The first non-empty highlight wins, with a preference order of
-/// title, heading, tag, path, body.
+/// match.
+///
+/// The first non-empty highlight wins, with a preference order of title, heading, tag, path, body.
 fn pick_match(
     h_title: &str, h_heading: &str, h_tag: &str, h_path: &str, h_body: &str, snippet_body: &str,
 ) -> (MemoryMatchField, String) {
@@ -716,9 +716,10 @@ fn pick_match(
 /// Sanitize a free-text query into an FTS5 query string.
 ///
 /// Treats each whitespace-separated token as a prefix term (`token*`) and
-/// ANDs them, which is the most forgiving behavior for recall. Quotes tokens
-/// containing FTS5-special characters so a query like `error:E0425` does not
-/// break the MATCH.
+/// ANDs them, which is the most forgiving behavior for recall.
+///
+/// Quotes tokens containing FTS5-special characters so a query like `error:E0425`
+/// does not break the MATCH.
 pub fn sanitize_fts_query(query: &str) -> String {
     let trimmed = query.trim();
     if trimmed.is_empty() {
@@ -1052,8 +1053,6 @@ mod tests {
 
     #[test]
     fn empty_query_with_metadata_filter_applies() {
-        // Regression: metadata-only search must alias memory_meta so that
-        // metadata filter clauses (m.scope = ?) resolve.
         let dir = temp_dir();
         let workspace = dir.path();
         write_file(
@@ -1061,7 +1060,6 @@ mod tests {
             "notes/a.md",
             &frontmatter("mem_a", "A", "fact", "user", "first note"),
         );
-        // A second item with a different kind so the kind filter excludes it.
         write_file(
             &workspace.join("user-memory"),
             "notes/b.md",
@@ -1094,13 +1092,12 @@ mod tests {
         assert_eq!(before.len(), 1);
         drop(conn);
 
-        // Edit the file (changes content hash and mtime).
         write_file(
             &workspace.join("user-memory"),
             "notes/v1.md",
             &frontmatter("mem_v1", "V1", "fact", "user", "completely rewritten kafka content"),
         );
-        // Sleep briefly so mtime is distinct on filesystems with coarse resolution.
+
         std::thread::sleep(std::time::Duration::from_millis(20));
 
         let items2 = discover(workspace);
@@ -1130,10 +1127,8 @@ mod tests {
         assert!(MemoryIndex::search(&conn, "cargo", &MemorySearchFilter::default()).is_ok());
         drop(conn);
 
-        // Corrupt the index by overwriting it with garbage.
         fs::write(&path, b"not a sqlite database").expect("corrupt");
 
-        // Rebuilding from the same items must succeed and recover searchability.
         let conn = MemoryIndex::ensure_indexed(&path, &items).expect("rebuild after corrupt");
         let results = MemoryIndex::search(&conn, "cargo", &MemorySearchFilter::default()).expect("search");
         assert_eq!(results.len(), 1);
@@ -1173,7 +1168,6 @@ mod tests {
         let items = discover(workspace);
         let path = workspace.join("user.db3");
 
-        // Build, then bump the recorded schema version down to force a mismatch.
         let conn = MemoryIndex::ensure_indexed(&path, &items).expect("index");
         conn.execute("UPDATE schema_meta SET value='999' WHERE key='schema_version'", [])
             .expect("bump version");
@@ -1227,10 +1221,11 @@ mod tests {
     fn sanitize_fts_query_handles_special_chars() {
         assert_eq!(sanitize_fts_query(""), "");
         assert_eq!(sanitize_fts_query("   "), "");
+
         let q = sanitize_fts_query("cargo test");
         assert!(q.contains("cargo*"));
         assert!(q.contains("test*"));
-        // Special-char tokens are quoted and prefix-matched.
+
         let q = sanitize_fts_query("error:E0425");
         assert!(q.contains("\""));
     }
@@ -1270,8 +1265,8 @@ mod tests {
             "use cargo build --release",
             &[],
         );
-        let items = discover(workspace);
 
+        let items = discover(workspace);
         let path = workspace.join("user.db3");
         let conn = MemoryIndex::ensure_indexed(&path, &items).expect("index");
 

@@ -2,6 +2,7 @@ mod commands;
 mod helpers;
 mod input;
 mod labels;
+mod memory;
 mod movement;
 mod prompts;
 mod slash;

@@ -7,6 +7,8 @@
 #[cfg(test)]
 mod tests;
 
+mod memory;
+
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -913,6 +915,7 @@ pub fn command_suggestions_for_app(app: &App) -> Vec<(&'static str, &'static str
         ("model", "switch model"),
         ("skills", "browse loaded skills"),
         ("doctor", "show redacted diagnostics"),
+        ("memory recall", "search memory (metadata + FTS5)"),
         ("auth status", "show credential sources"),
         ("config path", "show config paths"),
         ("config show", "show redacted config"),
@@ -2595,6 +2598,17 @@ fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
         return None;
     }
 
+    if command.starts_with("memory ") {
+        if memory::run_memory_command(app, command).is_some() {
+            app.input.clear();
+        } else {
+            app.transcript
+                .push(Entry::Error { text: String::from("usage: /memory recall <query>") });
+            app.input.clear();
+        }
+        return None;
+    }
+
     if command == "mcp" {
         list_mcp_servers(app);
         return None;
@@ -2802,8 +2816,10 @@ fn push_command_output(app: &mut App, label: &str, output: &[u8], result: std::i
 /// that mutate idle-only UI state are rejected instead of being queued as text.
 /// Prefix with `//` to queue a literal slash-prefixed follow-up.
 fn handle_running_command(app: &mut App, command: &str) -> Option<Msg> {
-    let is_safe = matches!(command, "quit" | "exit" | "help" | "bg");
-    if is_safe {
+    let is_read_only = matches!(command, "quit" | "exit" | "help" | "bg")
+        || command == "memory recall"
+        || command.starts_with("memory recall ");
+    if is_read_only {
         return handle_command(app, command);
     }
     app.transcript.push(Entry::Status {

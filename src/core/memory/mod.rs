@@ -46,14 +46,18 @@
 //! writes a tombstone containing forgotten content, rewrites unrelated session
 //! records, deletes unrelated project files, or removes session history.
 
-#![allow(dead_code)]
+#![allow(dead_code, unused_imports)]
 
 pub mod index;
+pub mod recall;
 
-#[allow(unused_imports)]
 pub use index::{
     INDEX_SCHEMA_VERSION, MemoryIndex, MemoryIndexError, MemoryMatchField, MemorySearchFilter, MemorySearchResult,
     cache_dir, sanitize_fts_query, workspace_hash,
+};
+
+pub use recall::{
+    DEFAULT_RECALL_MAX_BYTES, DEFAULT_RECALL_MAX_COUNT, RecallOutcome, RecallRequest, RecallResult, recall,
 };
 
 use std::collections::hash_map::DefaultHasher;

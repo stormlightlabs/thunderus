@@ -149,16 +149,16 @@ Captured: 2026-07-03
 
 ## P6: Lexical Memory Recall
 
-- [ ] Add `/memory recall <query>` over metadata and FTS5/BM25 results.
-- [ ] Return memory retrieval results with match reason, snippet, score, source,
+- [x] Add `/memory recall <query>` over metadata and FTS5/BM25 results.
+- [x] Return memory retrieval results with match reason, snippet, score, source,
       scope, and recovery handle.
-- [ ] Include whether a result came from metadata or FTS5/BM25.
-- [ ] Include core memory before archival memory in recall projections.
-- [ ] Add recall result caps by count and total bytes.
-- [ ] Test lexical recall ordering and stable tie-breaking.
-- [ ] Test metadata-only matches.
-- [ ] Test recall caps.
-- [ ] Test recall returns empty results with a useful diagnostic.
+- [x] Include whether a result came from metadata or FTS5/BM25.
+- [x] Include core memory before archival memory in recall projections.
+- [x] Add recall result caps by count and total bytes.
+- [x] Test lexical recall ordering and stable tie-breaking.
+- [x] Test metadata-only matches.
+- [x] Test recall caps.
+- [x] Test recall returns empty results with a useful diagnostic.
 
 ## P7: Context Selection Policy
 
