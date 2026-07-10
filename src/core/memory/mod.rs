@@ -48,6 +48,14 @@
 
 #![allow(dead_code)]
 
+pub mod index;
+
+#[allow(unused_imports)]
+pub use index::{
+    INDEX_SCHEMA_VERSION, MemoryIndex, MemoryIndexError, MemoryMatchField, MemorySearchFilter, MemorySearchResult,
+    cache_dir, sanitize_fts_query, workspace_hash,
+};
+
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -315,6 +323,12 @@ impl MemoryRootKind {
             MemoryRootKind::User => MemoryScope::User,
             MemoryRootKind::Project => MemoryScope::Project,
         }
+    }
+}
+
+impl std::fmt::Display for MemoryRootKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
     }
 }
 

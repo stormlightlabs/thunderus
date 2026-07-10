@@ -71,64 +71,64 @@ Captured: 2026-07-03
 
 ## P3: Memory Source Files
 
-- [ ] Add `src/memory.rs`.
-- [ ] Implement the user and project memory roots selected in P0.
-- [ ] Implement memory item metadata with id, title, kind, scope, paths, tags,
+- [x] Add `src/memory.rs`.
+- [x] Implement the user and project memory roots selected in P0.
+- [x] Implement memory item metadata with id, title, kind, scope, paths, tags,
       created, updated, and source.
-- [ ] Read `core.md` from user memory.
-- [ ] Read `core.md` from project memory.
-- [ ] Discover archival notes under `notes/*.md`.
-- [ ] Validate memory frontmatter.
-- [ ] Surface diagnostics for malformed memory files.
-- [ ] Keep memory body loading size-capped.
-- [ ] Add explicit scoped memory write helper for `/remember`.
-- [ ] Add memory deletion helper for `/memory forget`.
-- [ ] Require confirmation before `/memory forget` deletes a memory file.
-- [ ] Make `/memory forget` append a content-free `memory_delete` audit record
+- [x] Read `core.md` from user memory.
+- [x] Read `core.md` from project memory.
+- [x] Discover archival notes under `notes/*.md`.
+- [x] Validate memory frontmatter.
+- [x] Surface diagnostics for malformed memory files.
+- [x] Keep memory body loading size-capped.
+- [x] Add explicit scoped memory write helper for `/remember`.
+- [x] Add memory deletion helper for `/memory forget`.
+- [x] Require confirmation before `/memory forget` deletes a memory file.
+- [x] Make `/memory forget` append a content-free `memory_delete` audit record
       with memory id, path, scope, timestamp, and content hash when available.
-- [ ] Ensure `/memory forget` never writes a tombstone file containing
+- [x] Ensure `/memory forget` never writes a tombstone file containing
       forgotten content.
-- [ ] Ensure `/memory forget` does not delete unrelated memory, project files,
+- [x] Ensure `/memory forget` does not delete unrelated memory, project files,
       or session history.
-- [ ] Add path-scoped memory selection for project notes.
-- [ ] Persist session-scoped memory in the session log so it survives session
+- [x] Add path-scoped memory selection for project notes.
+- [x] Persist session-scoped memory in the session log so it survives session
       resume.
-- [ ] Keep session-scoped memory active after `/compact`, `/clear`, and
+- [x] Keep session-scoped memory active after `/compact`, `/clear`, and
       `/clear-context`.
-- [ ] Add secret-shaped content warning before memory writes.
-- [ ] Keep memory files ordinary inspectable Markdown.
-- [ ] Test memory discovery in user root.
-- [ ] Test memory discovery in project root.
-- [ ] Test malformed memory diagnostics.
-- [ ] Test explicit scoped `/remember` writes valid Markdown/frontmatter.
-- [ ] Test `/remember` without a scope is rejected.
-- [ ] Test session-scoped memory survives compaction and resume.
-- [ ] Test `/clear` and `/clear-context` do not remove session-scoped memory.
-- [ ] Test `/memory forget` deletes the memory file after confirmation.
-- [ ] Test `/memory forget` appends only content-free delete audit metadata.
-- [ ] Test `/memory forget` fails safely when the target memory cannot be
+- [x] Add secret-shaped content warning before memory writes.
+- [x] Keep memory files ordinary inspectable Markdown.
+- [x] Test memory discovery in user root.
+- [x] Test memory discovery in project root.
+- [x] Test malformed memory diagnostics.
+- [x] Test explicit scoped `/remember` writes valid Markdown/frontmatter.
+- [x] Test `/remember` without a scope is rejected.
+- [x] Test session-scoped memory survives compaction and resume.
+- [x] Test `/clear` and `/clear-context` do not remove session-scoped memory.
+- [x] Test `/memory forget` deletes the memory file after confirmation.
+- [x] Test `/memory forget` appends only content-free delete audit metadata.
+- [x] Test `/memory forget` fails safely when the target memory cannot be
       identified.
 
 ## P4: SQLite Metadata And FTS Index
 
-- [ ] Add SQLite memory index schema versioning.
-- [ ] Add a memory metadata table keyed by memory id and file path.
-- [ ] Add an FTS5 table for title, headings, tags, paths, and body text.
-- [ ] Use BM25 ranking for lexical memory retrieval.
-- [ ] Store content hash, mtime, and byte size for stale-index detection.
-- [ ] Store derived SQLite indexes under `~/.thndrs/cache/memory/`.
-- [ ] Use a workspace-root hash for project memory index cache names.
-- [ ] Rebuild the SQLite index from Markdown when the cache is missing, stale,
+- [x] Add SQLite memory index schema versioning.
+- [x] Add a memory metadata table keyed by memory id and file path.
+- [x] Add an FTS5 table for title, headings, tags, paths, and body text.
+- [x] Use BM25 ranking for lexical memory retrieval.
+- [x] Store content hash, mtime, and byte size for stale-index detection.
+- [x] Store derived SQLite indexes under `~/.thndrs/cache/memory/`.
+- [x] Use a workspace-root hash for project memory index cache names.
+- [x] Rebuild the SQLite index from Markdown when the cache is missing, stale,
       or corrupt.
-- [ ] Add metadata-filtered FTS5 search over memory notes.
-- [ ] Return FTS results with match reason, snippet, score, source, scope, and
+- [x] Add metadata-filtered FTS5 search over memory notes.
+- [x] Return FTS results with match reason, snippet, score, source, scope, and
       recovery handle.
-- [ ] Test SQLite index creation and schema versioning.
-- [ ] Test stale SQLite index rebuild after memory file edits.
-- [ ] Test corrupt SQLite index rebuild.
-- [ ] Test FTS5/BM25 search finds exact command, path, package, and error text.
-- [ ] Test metadata-filtered FTS search by scope, tag, and path.
-- [ ] Test FTS retrieval result snippets and recovery handles.
+- [x] Test SQLite index creation and schema versioning.
+- [x] Test stale SQLite index rebuild after memory file edits.
+- [x] Test corrupt SQLite index rebuild.
+- [x] Test FTS5/BM25 search finds exact command, path, package, and error text.
+- [x] Test metadata-filtered FTS search by scope, tag, and path.
+- [x] Test FTS retrieval result snippets and recovery handles.
 
 ## P5: Deferred Embedding Extension Contract
 
