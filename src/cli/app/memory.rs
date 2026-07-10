@@ -2,7 +2,7 @@
 //!
 //! `/memory recall` is read-only and allowed while the agent is working.
 
-use crate::memory::{MemoryRoots, RecallRequest, recall};
+use crate::memory::{RecallRequest, recall};
 
 use super::{App, Entry};
 
@@ -38,10 +38,14 @@ fn run_memory_recall(app: &mut App, query: &str) {
         return;
     }
 
-    let roots = MemoryRoots::resolve(&app.cwd);
-    let cache_dir = crate::memory::cache_dir();
+    let roots = &app.memory_roots;
+    let cache_dir = roots
+        .user
+        .as_ref()
+        .and_then(|root| root.parent())
+        .map(|thndrs_dir| thndrs_dir.join("cache").join("memory"));
     let request = RecallRequest::new(query);
-    let outcome = recall(&roots, Some(&app.cwd), cache_dir.as_deref(), &request);
+    let outcome = recall(roots, Some(&app.cwd), cache_dir.as_deref(), &request);
     let text = match &outcome.diagnostic {
         Some(diagnostic) => format!("memory recall  {diagnostic}"),
         None => {
@@ -51,6 +55,9 @@ fn run_memory_recall(app: &mut App, query: &str) {
             )];
             for result in &outcome.results {
                 lines.push(format!("  {}", result.summary()));
+            }
+            for warning in &outcome.warnings {
+                lines.push(format!("  warning: {warning}"));
             }
             lines.join("\n")
         }

@@ -212,201 +212,400 @@ Captured: 2026-07-03
       compaction, nested instructions, and overloaded budget.
 - [x] Test prompt rendering for context dashboards.
 
-## P9: Session Records
+## Remaining Tickets
 
-- [ ] Add `context_ledger` session record.
-- [ ] Add `context_pin` session record.
-- [ ] Add `context_drop` session record.
-- [ ] Add `context_recovery` session record.
-- [ ] Add `memory_write` session record.
-- [ ] Add `memory_delete` session record.
-- [ ] Add `compaction` session record.
-- [ ] Include context item metadata without full file contents.
-- [ ] Include memory ids and paths without duplicating full memory bodies.
-- [ ] Include compaction summary text, covered sequence range, trigger reason,
-      risk classification, review outcome, and recovery handles.
-- [ ] Include hashes for summarized source ranges where practical.
-- [ ] Add JSON round-trip tests for every new record.
-- [ ] Add corruption-tolerant reader tests for malformed optional records.
-- [ ] Test `memory_delete` records omit forgotten content.
-- [ ] Test session JSONL records for context, memory, and compaction.
-- [ ] Test compaction records distinguish manual and auto trigger reasons.
-- [ ] Test secrets are not serialized into session records.
+Work the frontier: tickets with no blockers can begin immediately. Keep one
+ticket in one fresh agent context unless its acceptance criteria are already
+complete.
 
-## P10: Compaction Policy
+### T9.1: Record Context Actions
 
-- [ ] Add `context.compaction.mode = "off" | "manual" | "auto"` config.
-- [ ] Add `context.compaction.review = "always" | "auto" | "never"` config.
-- [ ] Default compaction mode to `"manual"`.
-- [ ] Default compaction review to `"auto"`.
-- [ ] Implement explicit `/compact` as a manual compaction request.
-- [ ] Implement auto-compaction trigger under context pressure only when
-      `mode = "auto"`.
-- [ ] Trigger auto-compaction only after normal eviction and summary candidates
-      still exceed 92% of available input budget.
-- [ ] Run auto-compaction as a preflight step before the main provider request.
-- [ ] Stop the submitted turn before sending the main provider request when
-      auto-compaction is required.
-- [ ] Generate every compaction summary through the configured model.
-- [ ] Rebuild the context ledger after successful compaction.
-- [ ] Restart the same user turn after successful auto-compaction.
-- [ ] Apply steering queued before the restarted provider request to the
-      restarted turn.
-- [ ] Keep queued follow-up prompts queued until after the restarted turn
-      completes.
-- [ ] Leave active context unchanged when the compaction model call fails.
-- [ ] Keep the submitted user turn recoverable when compaction fails or waits
-      for review.
-- [ ] Do not interrupt in-flight provider requests for compaction in v1.
-- [ ] Do not send a main provider request that the context policy already knows
-      is oversized.
-- [ ] Do not add a deterministic or local-only summarizer fallback in v1.
-- [ ] Classify high-risk compaction ranges that include tool outputs, file
-      diffs, error logs, permission prompts, user corrections, failed commands,
-      or unresolved action items.
-- [ ] Require approval for all auto-compactions when `review = "always"`.
-- [ ] Require approval for high-risk auto-compactions when `review = "auto"`.
-- [ ] Apply low-risk auto-compactions without approval when `review = "auto"`,
-      with a visible status row.
-- [ ] Apply auto-compactions without approval when `review = "never"`, with a
-      visible status row.
-- [ ] Preserve original session records for every compaction path.
-- [ ] Record compaction model id and token usage when available.
-- [ ] Provide recovery handles for compacted ranges.
-- [ ] Test defaults keep auto-compaction disabled.
-- [ ] Test auto-compaction does not trigger below 92% of available input
-      budget.
-- [ ] Test auto-compaction can trigger above 92% of available input budget.
-- [ ] Test manual compaction uses the configured model.
-- [ ] Test auto-compaction uses the configured model.
-- [ ] Test auto-compaction stops before the main provider request.
-- [ ] Test successful auto-compaction restarts the same user turn.
-- [ ] Test pre-restart steering is applied to the restarted turn.
-- [ ] Test queued follow-ups are held until after the restarted turn completes.
-- [ ] Test failed compaction model calls leave active context unchanged.
-- [ ] Test failed compaction keeps the submitted user turn recoverable.
-- [ ] Test high-risk auto-compaction requires review under `review = "auto"`.
-- [ ] Test low-risk auto-compaction applies under `review = "auto"`.
-- [ ] Test `review = "always"` always requires approval.
-- [ ] Test `review = "never"` still writes audit and recovery metadata.
+**What to build:** Persist ledger snapshots and user pin, drop, and recovery
+actions in append-only session JSONL so a resumed session can explain why an
+item was or was not visible.
 
-## P11: Read-Only Commands
+**Blocked by:** None - can start immediately
 
-- [ ] Add `/context`.
-- [ ] Add `/context all`.
-- [ ] Add `/memory`.
-- [ ] Add `/memory recall <query>`.
-- [ ] Add `/memory stats`.
-- [ ] Add `/doctor`.
-- [ ] Add command suggestions for read-only context and memory commands.
-- [ ] Allow only `/context`, `/context all`, `/memory`, and `/doctor` while
-      the agent is working.
-- [ ] Preserve prompt text after failed read-only context or memory commands.
-- [ ] Test app command routing for read-only commands.
+**Acceptance criteria:**
 
-## P12: Mutating Commands
+- [ ] `context_ledger`, `context_pin`, `context_drop`, and `context_recovery`
+      records contain metadata and reasons, never full file content.
+- [ ] Each record round-trips through JSON and malformed optional fields do not
+      prevent a reader from loading the rest of a session.
+- [ ] Context metadata serialization excludes secret-shaped content.
 
-- [ ] Add `/pin <id-or-path>`.
-- [ ] Add `/drop <id>`.
-- [ ] Add `/drop --reset`.
-- [ ] Add `/recover <id>`.
-- [ ] Add `/remember user <text>`.
-- [ ] Add `/remember project <text>`.
-- [ ] Add `/remember path <path> <text>`.
-- [ ] Add `/remember session <text>`.
-- [ ] Add `/memory open <id>`.
-- [ ] Add `/memory index rebuild`.
-- [ ] Add `/memory forget <id>`.
-- [ ] Add `/compact`.
-- [ ] Add `/clear-context`.
-- [ ] Add command suggestions for mutating context and memory commands.
-- [ ] Reject unsafe memory/context writes while running with clear status rows.
-- [ ] Keep unknown slash commands from being queued as ordinary text.
-- [ ] Wire context actions into the session writer.
-- [ ] Wire memory actions into the session writer.
-- [ ] Preserve prompt text after failed mutating context or memory commands.
-- [ ] Test `/drop --reset` clears explicit dropped-item rules.
-- [ ] Test `/clear-context` does not delete session-scoped memory or
-      compaction summaries.
-- [ ] Test app command routing for mutating commands.
+**Verification:**
 
-## P13: UI And Renderer
+- `cargo test session context`
 
-- [ ] Add transcript rows for context summary actions.
-- [ ] Add transcript rows for memory writes.
-- [ ] Add transcript rows for memory deletion.
-- [ ] Add transcript rows for compaction.
-- [ ] Add transcript rows for auto-compaction applied without review.
-- [ ] Add transcript rows for auto-compaction waiting for review.
-- [ ] Add transcript rows for context warnings.
-- [ ] Add a focused context ledger view.
-- [ ] Add a focused memory picker/list view.
-- [ ] Add a focused memory detail view.
-- [ ] Add a focused doctor/audit view.
-- [ ] Show context counts and estimated tokens in compact rows.
-- [ ] Show user memory versus project memory distinctly without relying only on
-      color.
-- [ ] Add narrow-width snapshots for context and memory rows.
-- [ ] Add tiny-height snapshots for context and memory focused surfaces.
-- [ ] Ensure native scrollback remains the transcript history path.
-- [ ] Test renderer snapshots for context and memory surfaces.
+### T9.2: Record Memory Mutations
 
-## P14: Context Doctor
+**What to build:** Persist explicit memory writes and deletes without copying
+the memory body into session history.
 
-- [ ] Detect oversized core memory.
-- [ ] Detect oversized `AGENTS.md`.
-- [ ] Detect stale instruction hashes since the previous turn.
-- [ ] Detect memory files with malformed frontmatter.
-- [ ] Detect duplicate memory ids.
-- [ ] Detect stale or missing memory indexes.
-- [ ] Detect stale or unhealthy FTS5 indexes.
-- [ ] Report that semantic recall is not enabled in v1 without treating it as
-      an error.
-- [ ] Detect memory items that look secret-shaped.
-- [ ] Detect conflicting memory items with the same title/path scope where
-      simple string rules can catch them.
-- [ ] Detect pins that point to missing files.
-- [ ] Detect pins that dominate the available context budget.
-- [ ] Detect unknown or fallback model context limits.
-- [ ] Detect user-overridden model context limits.
-- [ ] Detect invalid or internally inconsistent model limit overrides.
-- [ ] Detect selected context above the 80% target budget.
-- [ ] Detect auto-compaction disabled while context pressure is high.
-- [ ] Detect pending high-risk compaction reviews.
-- [ ] Show actionable remediation text without rewriting files automatically.
+**Blocked by:** None - can start immediately
 
-## P15: Public Docs And Notebook Links
+**Acceptance criteria:**
 
-- [ ] Add public context-control usage docs.
-- [ ] Add public memory usage docs.
-- [ ] Document context dashboard fields.
-- [ ] Document model context limit sources and fallback behavior.
-- [ ] Document advanced model context limit overrides.
-- [ ] Document context budget ratios for selection and auto-compaction.
-- [ ] Document user memory and project memory paths.
-- [ ] Document memory file frontmatter.
-- [ ] Document memory kinds.
-- [ ] Document metadata and FTS5/BM25 as rebuildable derived indexes.
-- [ ] Document embeddings and sqlite-vec as deferred semantic-recall research,
-      not v1 behavior.
-- [ ] Document memory precedence below user/system/harness instructions.
-- [ ] Document that memory cannot grant permissions or enable tools.
-- [ ] Document how to inspect and delete memory files manually.
-- [ ] Document `/remember`, `/memory`, `/pin`, `/drop`, `/drop --reset`,
-      `/recover`, `/compact`, `/clear-context`, and `/doctor`.
-- [ ] Document compaction versus deletion.
-- [ ] Document compaction mode and review settings.
-- [ ] Document high-risk compaction review behavior.
-- [ ] Document session-scoped memory lifetime.
-- [ ] Document `/clear-context` behavior.
-- [ ] Document that summaries do not remove session history.
-- [ ] Update session-format docs with new records.
-- [ ] Cross-link notebook research:
-      `context-control.md`, `letta.md`, `pi.md`, `polytoken.md`,
-      `agents-md.md`, `sessions.md`, `skills.md`, and
-      `local-memory-retrieval.md`.
+- [ ] `memory_write` and `memory_delete` records contain memory id, path,
+      scope, and audit metadata only.
+- [ ] A delete record cannot serialize forgotten content.
+- [ ] Records round-trip through JSON and preserve existing session readers.
 
-## P16: Validation Commands
+**Verification:**
+
+- `cargo test session memory`
+
+### T9.3: Record Compaction Audits
+
+**What to build:** Persist the information needed to audit and recover a
+manual or automatic compaction.
+
+**Blocked by:** T9.1: Record Context Actions
+
+**Acceptance criteria:**
+
+- [ ] `compaction` records include summary text, covered range, source hashes
+      where available, trigger, risk, review result, recovery handles, model,
+      and token usage when available.
+- [ ] Manual and automatic compactions serialize as distinct triggers.
+- [ ] Corrupt optional compaction fields do not break session reading.
+
+**Verification:**
+
+- `cargo test session compaction`
+
+### T10.1: Decide Compaction Policy
+
+**What to build:** Resolve compaction mode, review policy, pressure trigger,
+and risk classification as pure config and policy decisions.
+
+**Blocked by:** None - can start immediately
+
+**Acceptance criteria:**
+
+- [ ] `context.compaction.mode` supports `off`, `manual`, and `auto`, defaulting
+      to `manual`.
+- [ ] `context.compaction.review` supports `always`, `auto`, and `never`,
+      defaulting to `auto`.
+- [ ] Auto-compaction is considered only after normal selection remains above
+      92% of available input budget.
+- [ ] Risk classification identifies tool output, diffs, errors, permission
+      prompts, corrections, failed commands, and unresolved work.
+- [ ] Policy tests cover all modes, review choices, and the 92% boundary.
+
+**Verification:**
+
+- `cargo test context compaction`
+
+### T10.2: Compact a Turn Manually
+
+**What to build:** Let an idle user request `/compact`, summarize through the
+configured model, update the ledger, and write a recoverable audit record.
+
+**Blocked by:** T9.3: Record Compaction Audits; T10.1: Decide Compaction Policy
+
+**Acceptance criteria:**
+
+- [ ] The configured model, never a local fallback, generates the summary.
+- [ ] The original session history remains intact and a recovery handle is
+      available after success.
+- [ ] A model failure leaves active context unchanged and the user turn
+      recoverable.
+
+**Verification:**
+
+- `cargo test app compaction session`
+
+### T10.3: Compact Before an Oversized Turn
+
+**What to build:** When auto mode requires compaction, stop before the main
+provider request, compact, rebuild context, and restart the same user turn.
+
+**Blocked by:** T10.1: Decide Compaction Policy; T10.2: Compact a Turn Manually
+
+**Acceptance criteria:**
+
+- [ ] The known-oversized request is never sent to the main provider.
+- [ ] Pre-restart steering applies to the restarted turn; follow-ups wait until
+      it completes.
+- [ ] In-flight provider requests are never interrupted for compaction in v1.
+- [ ] Failure and review-pending paths preserve the submitted turn.
+
+**Verification:**
+
+- `cargo test app compaction`
+
+### T10.4: Review High-Risk Compactions
+
+**What to build:** Apply the configured review policy to manual and automatic
+compactions, including visible no-review status and pending approval state.
+
+**Blocked by:** T10.3: Compact Before an Oversized Turn
+
+**Acceptance criteria:**
+
+- [ ] `always` requests approval for every automatic compaction.
+- [ ] `auto` requests approval only for high-risk ranges.
+- [ ] `never` and low-risk `auto` paths visibly apply and retain audit metadata.
+
+**Verification:**
+
+- `cargo test app compaction renderer`
+
+### T11.1: Inspect the Current Context
+
+**What to build:** Add `/context` and `/context all` so a user can inspect the
+working set and every ledger decision without exposing unselected content.
+
+**Blocked by:** None - can start immediately
+
+**Acceptance criteria:**
+
+- [ ] `/context` shows selected counts, estimated tokens, and concise reasons.
+- [ ] `/context all` includes omitted, archived, dropped, blocked, and
+      candidate metadata.
+- [ ] Both commands are available while the agent is working and preserve input
+      after invalid use.
+
+**Verification:**
+
+- `cargo test app context`
+
+### T11.2: Inspect Memory and Recall Results
+
+**What to build:** Complete `/memory`, `/memory stats`, and `/memory recall`
+as read-only views of file-backed memory and its rebuildable index.
+
+**Blocked by:** None - can start immediately
+
+**Acceptance criteria:**
+
+- [ ] The list and stats distinguish user and project memory without relying
+      only on color.
+- [ ] Recall reports index failures distinctly from no matching memory.
+- [ ] Commands are available while working and preserve input after invalid use.
+
+**Verification:**
+
+- `cargo test app memory`
+
+### T12.1: Manage the Context Working Set
+
+**What to build:** Add `/pin`, `/drop`, `/drop --reset`, `/recover`, and
+`/clear-context` with durable action records.
+
+**Blocked by:** T9.1: Record Context Actions; T11.1: Inspect the Current Context
+
+**Acceptance criteria:**
+
+- [ ] Pins, drops, and recovery affect the next selection deterministically.
+- [ ] Reset removes only explicit drop rules.
+- [ ] Clear-context keeps memory and compaction summaries.
+- [ ] Invalid and unsafe requests preserve prompt text and show a clear status.
+
+**Verification:**
+
+- `cargo test app context session`
+
+### T12.2: Manage Durable and Session Memory
+
+**What to build:** Add `/remember`, `/memory open`, and `/memory forget` for
+user, project, path, and session memory.
+
+**Blocked by:** T9.2: Record Memory Mutations; T11.2: Inspect Memory and Recall Results
+
+**Acceptance criteria:**
+
+- [ ] Writes surface filesystem errors and secret-shaped warnings.
+- [ ] Open and forget operate only on the requested item; forget writes a
+      content-free audit record.
+- [ ] Session memory survives context clearing and compaction.
+- [ ] Unsafe mutations while working are rejected without queuing ordinary text.
+
+**Verification:**
+
+- `cargo test app memory session`
+
+### T12.3: Rebuild the Memory Index Explicitly
+
+**What to build:** Add `/memory index rebuild` to discard and recreate derived
+SQLite/FTS metadata without changing Markdown memory source files.
+
+**Blocked by:** T11.2: Inspect Memory and Recall Results
+
+**Acceptance criteria:**
+
+- [ ] Rebuild reports success or a useful cache error.
+- [ ] Source Markdown is unchanged after rebuild.
+- [ ] The command is rejected safely while an incompatible mutation is active.
+
+**Verification:**
+
+- `cargo test app memory`
+
+### T13.1: Render Context and Memory Actions
+
+**What to build:** Give context, memory, and warning actions compact transcript
+rows that remain legible at narrow widths.
+
+**Blocked by:** T12.1: Manage the Context Working Set; T12.2: Manage Durable and Session Memory
+
+**Acceptance criteria:**
+
+- [ ] Context actions, writes, deletes, warnings, and no-review compaction
+      outcomes have distinct transcript rows.
+- [ ] User and project memory are distinguishable without color alone.
+- [ ] Narrow-width snapshots cover every new row type.
+
+**Verification:**
+
+- `cargo test renderer`
+
+### T13.2: Render Focused Inspection Surfaces
+
+**What to build:** Add focused ledger, memory list/detail, and doctor surfaces
+without replacing native transcript scrollback.
+
+**Blocked by:** T11.1: Inspect the Current Context; T11.2: Inspect Memory and Recall Results; T14.4: Run Context Doctor
+
+**Acceptance criteria:**
+
+- [ ] Each surface exposes its matching read-only command data.
+- [ ] Small-height and narrow-width snapshots remain useful.
+- [ ] Transcript history continues to use native scrollback.
+
+**Verification:**
+
+- `cargo test renderer app`
+
+### T13.3: Render Compaction Review State
+
+**What to build:** Show an auto-compaction applied status or a review-pending
+surface with the decision and recovery handle.
+
+**Blocked by:** T10.4: Review High-Risk Compactions
+
+**Acceptance criteria:**
+
+- [ ] Applied and pending-review states are visually distinct.
+- [ ] Snapshot coverage includes narrow and tiny-height displays.
+
+**Verification:**
+
+- `cargo test renderer compaction`
+
+### T14.1: Diagnose Source Memory Health
+
+**What to build:** Detect unhealthy instruction and memory source material and
+provide remediation without rewriting user files.
+
+**Blocked by:** None - can start immediately
+
+**Acceptance criteria:**
+
+- [ ] Reports oversized or stale `AGENTS.md`, oversized core memory, malformed
+      frontmatter, duplicate ids, secret-shaped items, and simple conflicts.
+- [ ] Every finding includes actionable remediation text.
+
+**Verification:**
+
+- `cargo test context memory`
+
+### T14.2: Diagnose Index and Pin Health
+
+**What to build:** Detect missing, stale, corrupt, or unhealthy FTS indexes and
+pins that are missing or consume too much of the context budget.
+
+**Blocked by:** T12.3: Rebuild the Memory Index Explicitly
+
+**Acceptance criteria:**
+
+- [ ] Reports index health without treating deferred semantic recall as an
+      error.
+- [ ] Reports missing pins and budget-dominating pins with remedies.
+
+**Verification:**
+
+- `cargo test context memory`
+
+### T14.3: Diagnose Context Pressure and Compaction
+
+**What to build:** Explain model-limit provenance, budget pressure, disabled
+auto-compaction, and pending high-risk compaction review.
+
+**Blocked by:** T10.4: Review High-Risk Compactions
+
+**Acceptance criteria:**
+
+- [ ] Reports fallback and overridden limits plus invalid overrides.
+- [ ] Reports selection above the 80% target and high pressure with auto mode
+      disabled.
+- [ ] Reports pending review with a next action.
+
+**Verification:**
+
+- `cargo test context compaction`
+
+### T14.4: Run Context Doctor
+
+**What to build:** Add `/doctor` as the read-only command that combines source,
+index, pin, budget, and compaction health findings.
+
+**Blocked by:** T14.1: Diagnose Source Memory Health; T14.2: Diagnose Index and Pin Health; T14.3: Diagnose Context Pressure and Compaction
+
+**Acceptance criteria:**
+
+- [ ] `/doctor` is available while the agent is working.
+- [ ] Its output is redacted, actionable, and leaves prompt text intact after
+      invalid use.
+
+**Verification:**
+
+- `cargo test app doctor`
+
+### T15.1: Document Everyday Context and Memory Use
+
+**What to build:** Publish usage documentation for dashboard fields, memory
+locations/frontmatter/kinds, precedence, safety boundaries, and everyday
+commands.
+
+**Blocked by:** T12.2: Manage Durable and Session Memory; T14.4: Run Context Doctor
+
+**Acceptance criteria:**
+
+- [ ] Documents inspection, remember, forget, pin, drop, recover, clear, and
+      doctor workflows.
+- [ ] Explains that memory cannot grant permissions or override higher-priority
+      instructions.
+
+**Verification:**
+
+- `pnpm --dir docs build`
+
+### T15.2: Document Limits, Compaction, and Session Recovery
+
+**What to build:** Publish model-limit, budget, compaction, and session-record
+documentation, including v1's deferred semantic recall.
+
+**Blocked by:** T9.3: Record Compaction Audits; T10.4: Review High-Risk Compactions
+
+**Acceptance criteria:**
+
+- [ ] Documents limit sources, overrides, ratios, review policy, and compaction
+      versus deletion.
+- [ ] Documents session-scoped memory and recovery without implying summaries
+      erase history.
+- [ ] Links the context-control research notebooks.
+
+**Verification:**
+
+- `pnpm --dir docs build`
+
+## P16: Release Verification
+
+**Exit criterion:** Context control, memory, sessions, commands, renderer, and
+public documentation pass their relevant checks together.
 
 - [ ] `cargo fmt`
 - [ ] `cargo clippy --fix --all-targets --allow-dirty`

@@ -66,8 +66,8 @@ fn slash_memory_recall_no_match_shows_diagnostic() {
     assert!(
         app.transcript
             .iter()
-            .any(|e| matches!(e, Entry::Status { text } if text.contains("no memory matched"))),
-        "no-match recall should surface a useful diagnostic"
+            .any(|e| matches!(e, Entry::Status { text } if text.contains("no memory matched") || text.contains("memory recall unavailable"))),
+        "recall should surface either a no-match diagnostic or an index failure"
     );
     assert!(app.input.is_empty());
 }

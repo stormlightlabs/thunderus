@@ -581,6 +581,9 @@ pub struct App {
     pub history_draft: String,
     pub transcript: Vec<Entry>,
     pub cwd: PathBuf,
+    /// Memory roots resolved when the app starts, so later command handling
+    /// does not depend on mutable process environment state.
+    pub(crate) memory_roots: crate::memory::MemoryRoots,
     /// Current git working tree summary for the status line.
     pub git_status: Option<GitStatusSummary>,
     pub model: String,
@@ -660,6 +663,7 @@ impl From<&Cli> for App {
             None => Vec::new(),
         };
         let skill_inventory = skills::discover(&workspace_root, &value.skill_dirs);
+        let memory_roots = crate::memory::MemoryRoots::resolve(&workspace_root);
 
         let transcript = Vec::new();
         let sessions_dir = value
@@ -731,6 +735,7 @@ impl From<&Cli> for App {
             transcript,
             git_status: renderer::git::collect(&workspace_root),
             cwd: workspace_root,
+            memory_roots,
             model: value.model.clone(),
             model_picker_items: offline_model_picker_items(),
             user_label: default_user_label(),

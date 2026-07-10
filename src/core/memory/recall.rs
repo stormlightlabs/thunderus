@@ -3,7 +3,7 @@
 //! Recall is a read-only retrieval policy layered over [`MemoryIndex`]. It
 //! searches both memory roots, orders results with core memory before
 //! archival memory, applies count and byte caps, and returns a useful
-//! diagnostic when nothing matches.
+//! diagnostic when nothing matches or an index cannot be searched.
 //!
 //! Semantic vector recall is deferred (P5); the API here is shaped so an
 //! embedding provider can be added without changing the recall contract.
@@ -11,8 +11,7 @@
 use std::path::Path;
 
 use crate::memory::{
-    MemoryIndex, MemoryIndexError, MemoryRootKind, MemoryRoots, MemoryScope, MemorySearchFilter, MemorySearchResult,
-    discover_memory,
+    MemoryIndex, MemoryRootKind, MemoryRoots, MemoryScope, MemorySearchFilter, MemorySearchResult, discover_memory,
 };
 
 /// Default maximum number of recall results.
@@ -52,15 +51,18 @@ impl RecallRequest {
     }
 }
 
-/// The outcome of a recall: ordered results plus an optional diagnostic.
+/// The outcome of a recall: ordered results, an optional terminal diagnostic,
+/// and warnings from roots that could not be searched.
 ///
-/// `diagnostic` is `Some` when no results matched, carrying a useful message
-/// for the caller to surface. When results are present, `diagnostic` is
-/// `None`.
+/// `diagnostic` is `Some` when no results matched or none of the available
+/// roots could be searched. When a root fails but another yields results, the
+/// failure is kept in `warnings` so callers can show both the matches and the
+/// degraded-recall state.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RecallOutcome {
     pub results: Vec<RecallResult>,
     pub diagnostic: Option<String>,
+    pub warnings: Vec<String>,
 }
 
 /// A recall result: the underlying search result plus whether it is core
@@ -93,9 +95,8 @@ impl RecallResult {
 /// Applies [`RecallRequest::max_count`] and [`RecallRequest::max_bytes`] caps
 /// by total snippet bytes.
 ///
-/// Returns a [`RecallOutcome`] whose `diagnostic` is `Some` when no results
-/// matched, so the caller can surface a useful message instead of an empty
-/// list.
+/// Returns a [`RecallOutcome`] that distinguishes no matches from index
+/// failures. A failed root never becomes a false "no memory matched" result.
 pub fn recall(
     roots: &MemoryRoots, workspace_root: Option<&Path>, cache_dir: Option<&Path>, request: &RecallRequest,
 ) -> RecallOutcome {
@@ -104,12 +105,18 @@ pub fn recall(
     let project_items = items_for_root(&inventory, MemoryRootKind::Project);
 
     let mut results = Vec::new();
+    let mut warnings = Vec::new();
 
-    if let Some(conn) = open_index(MemoryRootKind::User, workspace_root, cache_dir, &user_items) {
-        results.extend(search_root(&conn, &request.query, &request.filter));
-    }
-    if let Some(conn) = open_index(MemoryRootKind::Project, workspace_root, cache_dir, &project_items) {
-        results.extend(search_root(&conn, &request.query, &request.filter));
+    for (kind, items) in [
+        (MemoryRootKind::User, &user_items),
+        (MemoryRootKind::Project, &project_items),
+    ] {
+        match open_index(kind, workspace_root, cache_dir, items)
+            .and_then(|conn| search_root(&conn, &request.query, &request.filter))
+        {
+            Ok(root_results) => results.extend(root_results),
+            Err(error) => warnings.push(format!("could not search {} memory: {error}", kind.label())),
+        }
     }
 
     for result in &mut results {
@@ -120,6 +127,13 @@ pub fn recall(
     let capped = apply_caps(results, request.max_count, request.max_bytes);
 
     if capped.is_empty() {
+        if !warnings.is_empty() {
+            return RecallOutcome {
+                results: Vec::new(),
+                diagnostic: Some(format!("memory recall unavailable: {}", warnings.join("; "))),
+                warnings: Vec::new(),
+            };
+        }
         let scope_hint = request
             .filter
             .scope
@@ -131,10 +145,11 @@ pub fn recall(
                 "no memory matched {:?}{}; memory is written via /remember and indexed into a rebuildable SQLite cache",
                 request.query, scope_hint
             )),
+            warnings: Vec::new(),
         };
     }
 
-    RecallOutcome { results: capped, diagnostic: None }
+    RecallOutcome { results: capped, diagnostic: None, warnings }
 }
 
 /// The items belonging to a single root kind, for indexing that root.
@@ -147,31 +162,30 @@ fn items_for_root(inventory: &crate::memory::MemoryInventory, kind: MemoryRootKi
         .collect()
 }
 
-/// Open a root's index within `cache_dir`, returning `None` when the cache
-/// dir is unavailable or the index cannot be opened.
+/// Open a root's index within `cache_dir`.
 ///
-/// Errors are swallowed here so one corrupt or missing root does not hide
-/// matches in the other; the caller still gets whatever the other root found.
+/// Errors are returned so the caller can retain matches from another root
+/// while accurately reporting degraded recall.
 fn open_index(
     kind: MemoryRootKind, workspace_root: Option<&Path>, cache_dir: Option<&Path>, items: &[crate::memory::MemoryItem],
-) -> Option<rusqlite::Connection> {
-    let cache_dir = cache_dir?;
-    let db_path = MemoryIndex::index_path_in(cache_dir, kind, workspace_root)?;
-    MemoryIndex::ensure_indexed(&db_path, items).ok()
+) -> Result<rusqlite::Connection, String> {
+    let cache_dir = cache_dir.ok_or_else(|| "memory cache directory is unavailable".to_string())?;
+    let db_path = MemoryIndex::index_path_in(cache_dir, kind, workspace_root)
+        .ok_or_else(|| "memory index requires a workspace root".to_string())?;
+    MemoryIndex::ensure_indexed(&db_path, items).map_err(|error| error.to_string())
 }
 
-/// Search one index connection, converting errors into an empty result list
-/// rather than aborting the whole recall (one corrupt root should not hide
-/// matches in the other).
-fn search_root(conn: &rusqlite::Connection, query: &str, filter: &MemorySearchFilter) -> Vec<RecallResult> {
-    match MemoryIndex::search(conn, query, filter) {
-        Ok(rows) => rows
-            .into_iter()
-            .map(|search| RecallResult { search, is_core: false })
-            .collect(),
-        Err(MemoryIndexError::Query { .. }) => Vec::new(),
-        Err(_) => Vec::new(),
-    }
+/// Search one root, preserving index errors for the caller to report.
+fn search_root(
+    conn: &rusqlite::Connection, query: &str, filter: &MemorySearchFilter,
+) -> Result<Vec<RecallResult>, String> {
+    MemoryIndex::search(conn, query, filter)
+        .map(|rows| {
+            rows.into_iter()
+                .map(|search| RecallResult { search, is_core: false })
+                .collect()
+        })
+        .map_err(|error| error.to_string())
 }
 
 /// Whether a memory source path is a `core.md` file.
@@ -504,6 +518,27 @@ mod tests {
         );
         assert!(outcome.results.is_empty());
         assert!(outcome.diagnostic.is_some());
+    }
+
+    #[test]
+    fn recall_reports_index_failures_without_claiming_no_match() {
+        let dir = temp_dir();
+        let workspace = dir.path();
+        let roots = roots_for(workspace);
+        write_file(workspace, "cache", "not a directory");
+
+        let outcome = recall(
+            &roots,
+            Some(workspace),
+            Some(&cache_for(workspace)),
+            &RecallRequest::new("anything"),
+        );
+
+        assert!(outcome.results.is_empty());
+        let diagnostic = outcome.diagnostic.expect("index failure diagnostic");
+        assert!(diagnostic.contains("memory recall unavailable"));
+        assert!(diagnostic.contains("could not search user memory"));
+        assert!(!diagnostic.contains("no memory matched"));
     }
 
     #[test]
