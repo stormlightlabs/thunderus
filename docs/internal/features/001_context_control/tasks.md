@@ -284,15 +284,15 @@ and risk classification as pure config and policy decisions.
 
 **Acceptance criteria:**
 
-- [ ] `context.compaction.mode` supports `off`, `manual`, and `auto`, defaulting
+- [x] `context.compaction.mode` supports `off`, `manual`, and `auto`, defaulting
       to `manual`.
-- [ ] `context.compaction.review` supports `always`, `auto`, and `never`,
+- [x] `context.compaction.review` supports `always`, `auto`, and `never`,
       defaulting to `auto`.
-- [ ] Auto-compaction is considered only after normal selection remains above
+- [x] Auto-compaction is considered only after normal selection remains above
       92% of available input budget.
-- [ ] Risk classification identifies tool output, diffs, errors, permission
+- [x] Risk classification identifies tool output, diffs, errors, permission
       prompts, corrections, failed commands, and unresolved work.
-- [ ] Policy tests cover all modes, review choices, and the 92% boundary.
+- [x] Policy tests cover all modes, review choices, and the 92% boundary.
 
 **Verification:**
 
@@ -307,10 +307,10 @@ configured model, update the ledger, and write a recoverable audit record.
 
 **Acceptance criteria:**
 
-- [ ] The configured model, never a local fallback, generates the summary.
-- [ ] The original session history remains intact and a recovery handle is
+- [x] The configured model, never a local fallback, generates the summary.
+- [x] The original session history remains intact and a recovery handle is
       available after success.
-- [ ] A model failure leaves active context unchanged and the user turn
+- [x] A model failure leaves active context unchanged and the user turn
       recoverable.
 
 **Verification:**

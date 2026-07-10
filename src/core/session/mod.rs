@@ -1035,6 +1035,11 @@ impl SessionWriter {
         Ok(SessionWriter { path, seq: 1, session_id: session_id.to_string() })
     }
 
+    /// Sequence number that will be assigned to the next appended record.
+    pub fn next_sequence(&self) -> u64 {
+        self.seq
+    }
+
     /// Reopen an existing session file for append-only continuation.
     ///
     /// The next sequence number is derived from the highest readable record

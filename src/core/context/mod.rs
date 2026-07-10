@@ -26,6 +26,7 @@
 //! 5. Broader ancestor `AGENTS.md`.
 //! 6. Built-in defaults.
 
+pub mod compaction;
 pub mod control;
 pub mod instructions;
 pub mod selection;
@@ -34,6 +35,11 @@ pub use control::{
     ContextBudget, ContextCounts, ContextDiagnostic, ContextItem, ContextItemKind, ContextLedger, ContextVisibility,
     DiagnosticSeverity, LiveModelMetadata, ModelContextLimits, ModelLimitConfidence, ModelLimitOverride,
     ModelLimitSource,
+};
+
+pub use compaction::{
+    CompactionConfig, CompactionMode, CompactionPolicy, CompactionReview, CompactionRisk, CompactionRiskSignals,
+    ContextConfig, ManualCompactionRequest, prepare_manual_compaction,
 };
 
 pub use control::{

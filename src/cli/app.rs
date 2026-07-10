@@ -622,6 +622,9 @@ pub struct App {
     /// The last submitted prompt text, retained so it can be restored on
     /// provider failure. Cleared on successful completion.
     pub last_input: Option<String>,
+    /// In-flight manual compaction. The original active context is retained
+    /// until the configured provider summary and audit record both succeed.
+    pending_manual_compaction: Option<PendingManualCompaction>,
     /// Current target for input submitted while the agent is running.
     pub queue_target: QueueTarget,
     /// Active fuzzy picker state, used by file and model pickers.
@@ -754,6 +757,7 @@ impl From<&Cli> for App {
             turn_count: 0,
             process_registry: ProcessRegistry::new(),
             last_input: None,
+            pending_manual_compaction: None,
             queue_target: QueueTarget::default(),
             picker: None,
             prompt_accessory: PromptAccessory::None,
@@ -770,6 +774,16 @@ impl From<&Cli> for App {
             quit: false,
         }
     }
+}
+
+/// Pending `/compact` request with enough information to atomically replace
+/// active context after a successful configured-model response.
+#[derive(Clone, Debug)]
+struct PendingManualCompaction {
+    original_transcript: Vec<Entry>,
+    covered_start_seq: u64,
+    covered_end_seq: u64,
+    recovery_handle: String,
 }
 
 impl App {
@@ -2659,6 +2673,7 @@ fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
     }
 
     match command {
+        "compact" => start_manual_compaction(app),
         "clear" => {
             app.transcript.clear();
             app.input.clear();
@@ -2743,6 +2758,63 @@ fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
         }
         _ => None,
     }
+}
+
+/// Start an idle `/compact` request through the selected provider model.
+fn start_manual_compaction(app: &mut App) -> Option<Msg> {
+    let original_transcript = app.transcript.clone();
+    let source = render_compaction_source(&original_transcript);
+    let policy = effective_compaction_policy(app);
+    let covered_start_seq = 1;
+    let covered_end_seq = app
+        .session_writer
+        .as_ref()
+        .map_or(0, |writer| writer.next_sequence().saturating_sub(1));
+    let recovery_handle = format!("session:{}:{covered_start_seq}..{covered_end_seq}", app.session_id);
+    let request = match context::prepare_manual_compaction(policy, &app.model, &source, &recovery_handle) {
+        Ok(request) => request,
+        Err(message) => {
+            app.transcript.push(Entry::Error { text: message });
+            return None;
+        }
+    };
+
+    let started = submit_user_turn(app, request.prompt)?;
+    app.pending_manual_compaction =
+        Some(PendingManualCompaction { original_transcript, covered_start_seq, covered_end_seq, recovery_handle });
+    Some(started)
+}
+
+/// Resolve the configured compaction policy from loaded config layers.
+fn effective_compaction_policy(app: &App) -> context::CompactionPolicy {
+    let config = app
+        .cli
+        .config_layers
+        .iter()
+        .map(|layer| &layer.config.context.compaction)
+        .rev()
+        .find(|config| **config != context::CompactionConfig::default())
+        .cloned()
+        .unwrap_or_default();
+    context::CompactionPolicy::from_config(&config)
+}
+
+/// Render active transcript material for the configured compaction model.
+fn render_compaction_source(entries: &[Entry]) -> String {
+    entries
+        .iter()
+        .map(|entry| match entry {
+            Entry::User { text } => format!("user: {text}"),
+            Entry::Agent { text, .. } => format!("assistant: {text}"),
+            Entry::Reasoning { text, .. } => format!("reasoning: {text}"),
+            Entry::Tool { name, arguments, output, .. } => {
+                format!("tool {name} {arguments}: {}", output.join("\n"))
+            }
+            Entry::Status { text } => format!("status: {text}"),
+            Entry::Error { text } => format!("error: {text}"),
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 fn parse_api_key_provider(input: &str) -> Option<SetupProviderArg> {
@@ -3079,7 +3151,9 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             app.run_state = RunState::Idle;
             app.last_input = None;
             refresh_git_status(app);
-            persist_final_response(app);
+            if !finish_manual_compaction(app) {
+                persist_final_response(app);
+            }
             if app.queued_followups.is_empty() {
                 None
             } else {
@@ -3088,12 +3162,13 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             }
         }
         AgentEvent::Failed(msg) => {
+            let manual_compaction = restore_failed_manual_compaction(app);
             app.ttft.clear_pending();
             finalize_streaming(app);
             cancel_pending_permission(app);
             app.transcript.push(Entry::Error { text: msg.clone() });
             app.run_state = RunState::Error(msg);
-            if let Some(input) = app.last_input.take() {
+            if !manual_compaction && let Some(input) = app.last_input.take() {
                 app.input.set_text(&input);
             }
             persist_last_entry(app);
@@ -3101,6 +3176,7 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             None
         }
         AgentEvent::Cancelled => {
+            restore_failed_manual_compaction(app);
             app.ttft.clear_pending();
             finalize_streaming(app);
             cancel_pending_permission(app);
@@ -3115,6 +3191,82 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             refresh_git_status(app);
             None
         }
+    }
+}
+
+/// Apply a completed manual compaction only after its audit record is durable.
+/// Returns whether the finished event belonged to a manual compaction.
+fn finish_manual_compaction(app: &mut App) -> bool {
+    let Some(pending) = app.pending_manual_compaction.take() else {
+        return false;
+    };
+    let summary = app.transcript.iter().rev().find_map(|entry| match entry {
+        Entry::Agent { text, .. } if !text.trim().is_empty() => Some(text.clone()),
+        _ => None,
+    });
+    let Some(summary) = summary else {
+        app.transcript = pending.original_transcript;
+        app.transcript
+            .push(Entry::Error { text: "compaction model returned no summary".to_string() });
+        return true;
+    };
+
+    let risk = classify_compaction_risk(&pending.original_transcript);
+    let audit = session::CompactionAudit {
+        summary: summary.clone(),
+        covered_start_seq: pending.covered_start_seq,
+        covered_end_seq: pending.covered_end_seq,
+        source_hashes: Vec::new(),
+        trigger: session::CompactionTrigger::Manual,
+        risk,
+        review: Some(session::CompactionReviewResult::NotRequired),
+        recovery_handles: vec![pending.recovery_handle.clone()],
+        model: app.model.clone(),
+        usage: None,
+    };
+    if let Some(writer) = app.session_writer.as_mut()
+        && let Err(error) = writer.append_compaction(&audit)
+    {
+        app.transcript = pending.original_transcript;
+        app.transcript
+            .push(Entry::Error { text: format!("failed to record compaction audit: {error}") });
+        return true;
+    }
+
+    app.transcript = pending.original_transcript;
+    app.transcript
+        .push(Entry::Status { text: format!("compacted  {}", pending.recovery_handle) });
+    let summary_entry = Entry::Agent { text: summary, streaming: false };
+    app.transcript.push(summary_entry.clone());
+    if let Some(writer) = app.session_writer.as_mut() {
+        let turn_id = format!("turn_{}", app.turn_count);
+        let _ = writer.append_entry(&summary_entry, &turn_id);
+    }
+    true
+}
+
+/// Restore active context when the configured compaction request fails.
+fn restore_failed_manual_compaction(app: &mut App) -> bool {
+    if let Some(pending) = app.pending_manual_compaction.take() {
+        app.transcript = pending.original_transcript;
+        true
+    } else {
+        false
+    }
+}
+
+/// Map transcript signals to the durable compaction-risk classification.
+fn classify_compaction_risk(entries: &[Entry]) -> session::CompactionRisk {
+    let signals = context::CompactionRiskSignals {
+        has_tool_output_or_diff: entries.iter().any(|entry| matches!(entry, Entry::Tool { .. })),
+        has_failure_or_permission: entries.iter().any(|entry| matches!(entry, Entry::Error { .. })),
+        has_correction_or_unresolved_work: entries.iter().any(
+            |entry| matches!(entry, Entry::Status { text } if text.contains("permission") || text.contains("failed")),
+        ),
+    };
+    match signals.classify() {
+        context::CompactionRisk::Low => session::CompactionRisk::Low,
+        context::CompactionRisk::High => session::CompactionRisk::High,
     }
 }
 

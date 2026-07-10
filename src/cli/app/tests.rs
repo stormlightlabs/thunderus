@@ -303,6 +303,108 @@ fn finished_persists_final_assistant_even_after_status_row() {
 }
 
 #[test]
+fn compact_uses_provider_summary_and_replaces_active_context_only_after_success() {
+    let mut app = fresh_app();
+    app.transcript = vec![
+        Entry::User { text: "inspect the parser".to_string() },
+        Entry::Agent { text: "the parser rejects empty input".to_string(), streaming: false },
+    ];
+
+    assert_eq!(
+        handle_command(&mut app, "compact"),
+        Some(Msg::Agent(AgentEvent::Started))
+    );
+    assert!(app.pending_manual_compaction.is_some());
+    assert!(matches!(app.transcript.last(), Some(Entry::User { text }) if text.contains("Summarize")));
+
+    update(&mut app, &Msg::Agent(AgentEvent::Started));
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::AssistantDelta(
+            "parser: empty input is rejected".to_string(),
+        )),
+    );
+    update(&mut app, &Msg::Agent(AgentEvent::Finished));
+
+    assert!(app.pending_manual_compaction.is_none());
+    assert!(matches!(app.transcript.first(), Some(Entry::User { text }) if text == "inspect the parser"));
+    assert!(
+        app.transcript
+            .iter()
+            .all(|entry| !matches!(entry, Entry::User { text } if text.contains("Summarize")))
+    );
+    assert!(
+        matches!(app.transcript.last(), Some(Entry::Agent { text, .. }) if text == "parser: empty input is rejected")
+    );
+}
+
+#[test]
+fn failed_compaction_restores_active_context_without_restoring_internal_prompt() {
+    let mut app = fresh_app();
+    let original = vec![Entry::User { text: "inspect the parser".to_string() }];
+    app.transcript = original.clone();
+
+    assert_eq!(
+        handle_command(&mut app, "compact"),
+        Some(Msg::Agent(AgentEvent::Started))
+    );
+    update(&mut app, &Msg::Agent(AgentEvent::Started));
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::Failed("provider unavailable".to_string())),
+    );
+
+    assert!(matches!(app.transcript.first(), Some(Entry::User { text }) if text == "inspect the parser"));
+    assert!(
+        app.transcript
+            .iter()
+            .all(|entry| !matches!(entry, Entry::User { text } if text.contains("Summarize")))
+    );
+    assert!(app.input.is_empty());
+}
+
+#[test]
+fn compact_writes_a_recoverable_manual_audit_record() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    auth::set_credential(
+        &auth::project_credentials_path(dir.path()),
+        auth::OPENCODE_ZEN_KEY_ENV,
+        "test-zen-key",
+    )
+    .expect("seed credential");
+    let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
+    let mut app = App::from_cli(&cli);
+    let path = app
+        .session_writer
+        .as_ref()
+        .expect("session writer")
+        .path()
+        .to_path_buf();
+    app.transcript = vec![Entry::User { text: "inspect the parser".to_string() }];
+
+    assert_eq!(
+        handle_command(&mut app, "compact"),
+        Some(Msg::Agent(AgentEvent::Started))
+    );
+    update(&mut app, &Msg::Agent(AgentEvent::Started));
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::AssistantDelta("parser summary".to_string())),
+    );
+    update(&mut app, &Msg::Agent(AgentEvent::Finished));
+
+    let records = session::SessionReader::read_records(&path);
+    assert!(records.iter().any(|record| matches!(
+        record,
+        session::SessionRecord::Compaction { audit, .. }
+            if audit.trigger == session::CompactionTrigger::Manual
+                && audit.summary == "parser summary"
+                && audit.model == cli.model
+                && audit.recovery_handles.len() == 1
+    )));
+}
+
+#[test]
 fn ctrl_c_sets_quit_flag() {
     let mut app = fresh_app();
     update(

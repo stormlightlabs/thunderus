@@ -17,7 +17,7 @@ use sha2::{Digest, Sha256};
 use crate::cli::{Theme, WebSearchMode};
 use crate::utils;
 
-static CONFIG_KEYS: [&str; 10] = [
+static CONFIG_KEYS: [&str; 11] = [
     "model",
     "websearch",
     "tick_rate_ms",
@@ -28,6 +28,7 @@ static CONFIG_KEYS: [&str; 10] = [
     "session_dir",
     "default_workspace",
     "acp_agents",
+    "context",
 ];
 
 /// Built-in completion model used when config and CLI flags do not override it.
@@ -114,6 +115,7 @@ pub struct Config {
     pub session_dir: Option<PathBuf>,
     pub default_workspace: Option<PathBuf>,
     pub acp_agents: AcpAgentsConfig,
+    pub context: crate::context::ContextConfig,
 }
 
 impl Config {
@@ -129,6 +131,9 @@ impl Config {
         self.default_workspace = other.default_workspace.or(self.default_workspace);
         self.skill_dirs.extend(other.skill_dirs);
         self.acp_agents.extend(other.acp_agents);
+        if other.context != crate::context::ContextConfig::default() {
+            self.context = other.context;
+        }
         self
     }
 
@@ -723,6 +728,7 @@ fn default_config(workspace: &Path, cwd: &Path) -> Config {
         session_dir: Some(resolve_path(&workspace.join(".thndrs").join("sessions"), cwd)),
         default_workspace: Some(cwd.to_path_buf()),
         acp_agents: BTreeMap::new(),
+        context: crate::context::ContextConfig::default(),
     }
 }
 
