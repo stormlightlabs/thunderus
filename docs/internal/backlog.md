@@ -5,34 +5,11 @@ tracks the work, keep the detail there instead of duplicating it here.
 
 ## Architecture Refactors
 
-### Provider Normalization
+### Baseline-Owned Agent Boundary
 
-- Normalize provider wire streams before they enter app state.
-- Keep Anthropic/OpenAI/Umans/OpenCode protocol quirks inside provider modules.
-- Emit a small provider-neutral stream or turn shape.
-- Keep retry, cancellation, tool orchestration, and turn budgeting in the agent
-  loop.
-- Add focused provider stream normalization tests using existing SSE fixtures.
-
-### Tool Registry
-
-- Turn tools into executable registry entries.
-- Each tool module should own model-visible definition, typed input parsing,
-  execution, output mapping, side-effect classification, and structured errors.
-- Derive the model-visible tool catalog from the registry.
-- Replace large dispatch matches with registry lookup and executor calls.
-- Test that every registered tool has a stable schema and dispatch path.
-
-### TUI Runtime And Agent Lifecycle
-
-- Introduce a small runtime/run controller between terminal I/O and app state.
-- Own active agent slot, steering sender, cancellation, run spawning, event
-  draining, and lifecycle logging in that controller.
-- Keep `App` focused on state and message updates.
-- Move TUI runtime setup/draw loop/event polling/lifecycle glue out of
-  `src/lib.rs` into a focused CLI runtime module.
-- Add a terminal session guard that restores raw mode, cursor state, and mouse
-  capture on every exit path.
+The provider-neutral agent event boundary and application composition seam are
+tracked in [`000_baseline`](features/000_baseline/plan.md). The tool-registry
+migration itself is complete and archived in `archive/v0.1.md`.
 
 ### App State Boundaries
 
