@@ -1,39 +1,11 @@
 //! Append-only JSONL session persistence.
 //!
-//! Records prompt metadata and transcript entries for audit and resume without
-//! storing full raw provider payloads by default. Raw payloads can contain
-//! prompt text, repository content, and secrets — only structured metadata is
-//! persisted.
+//! Records session metadata, transcript events, tool audits, and context
+//! control actions for audit and resume without storing full raw provider
+//! payloads.
 //!
-//! ## Record format
-//!
-//! Each session is a single append-only JSONL file. Every line is a
-//! [`SessionRecord`] tagged with `schema_version`, `seq`, `time`, and `type`.
-//! The `seq` field is a monotonic sequence number within the session. Records
-//! are never rewritten so appends are the only mutation.
-//!
-//! ## Record types
-//!
-//! - `session_meta`: id, cwd, title, provider, model, websearch, app version.
-//! - `context`: loaded AGENTS.md source metadata (path, scope, hash, truncation).
-//! - `context_ledger`: content-free working-set snapshot for one prompt turn.
-//! - `context_pin`, `context_drop`, `context_recovery`: explicit context actions.
-//! - `user`: prompt text and turn id.
-//! - `prompt_metadata`: prompt assembly provenance for one turn.
-//! - `assistant_finished`: final replayable assistant text.
-//! - `reasoning_finished`: final replayable reasoning text.
-//! - `usage`: provider token usage increments.
-//! - `tool_started`: tool call id, name, input, optional MCP metadata.
-//! - `tool_finished`: tool call id, status, output, optional MCP metadata.
-//! - `mcp_config_changed`: MCP config file hashes changed during a session.
-//! - `file_write`: file write audit (op, path, before/after hash+bytes, status).
-//! - `cancelled`: turn id and reason.
-//! - `failed`: turn id and error message.
-//! - `acp_session`: external ACP session metadata.
-//! - `acp_permission_request`: ACP permission prompt metadata.
-//! - `acp_permission_outcome`: ACP permission selected/cancelled outcome.
-//! - `session_renamed`: new title (latest wins).
-//! - `skill_activated`: activated skill file and rendered activation metadata.
+//! Each [`SessionRecord`] is one append-only JSONL line tagged with
+//! `schema_version`, a monotonic `seq`, `time`, and `type`.
 
 #[cfg(test)]
 mod tests;
@@ -46,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use crate::acp::permissions::PendingPermission;
 use crate::app::{Entry, ToolStatus};
 use crate::context::{ContextItem, ContextItemKind, ContextLedger, ContextSource, ContextVisibility};
+use crate::memory::{MemoryDeleteRecord, MemoryDeletion, MemoryRootKind, MemoryScope, MemorySource, MemoryWrite};
 use crate::prompt::{EnvironmentMetadata, HistoryReuse, PromptBundle};
 use crate::skills::{SkillActivation, SkillReferenceMeta};
 use crate::tools::{WriteOp, shell};
@@ -169,6 +142,30 @@ pub enum SessionRecord {
         time: String,
         item: ContextItemMeta,
         reason: String,
+    },
+    /// An explicit memory write, without the memory body or title.
+    #[serde(rename = "memory_write")]
+    MemoryWrite {
+        schema_version: u32,
+        seq: u64,
+        time: String,
+        memory: MemoryMutationMeta,
+    },
+    /// A completed memory deletion audit, without forgotten content.
+    #[serde(rename = "memory_delete")]
+    MemoryDelete {
+        schema_version: u32,
+        seq: u64,
+        time: String,
+        deletion: MemoryDeleteRecord,
+    },
+    /// A manual or automatic compaction audit record.
+    #[serde(rename = "compaction")]
+    Compaction {
+        schema_version: u32,
+        seq: u64,
+        time: String,
+        audit: CompactionAudit,
     },
     /// A user-submitted prompt.
     #[serde(rename = "user")]
@@ -420,6 +417,9 @@ impl SessionRecord {
             | SessionRecord::ContextPin { seq, .. }
             | SessionRecord::ContextDrop { seq, .. }
             | SessionRecord::ContextRecovery { seq, .. }
+            | SessionRecord::MemoryWrite { seq, .. }
+            | SessionRecord::MemoryDelete { seq, .. }
+            | SessionRecord::Compaction { seq, .. }
             | SessionRecord::User { seq, .. }
             | SessionRecord::PromptMetadata { seq, .. }
             | SessionRecord::AssistantFinished { seq, .. }
@@ -815,6 +815,153 @@ pub struct ContextDiagnosticMeta {
     pub message: String,
 }
 
+/// Content-free audit metadata for an explicit memory write.
+///
+/// This intentionally does not carry a memory title, tags, paths, or body.
+/// Those fields can contain user-supplied text; the id, file location, scope,
+/// source, and content hash are sufficient to audit the mutation.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct MemoryMutationMeta {
+    /// Stable memory id.
+    pub id: String,
+    /// File-backed memory path. `None` for session-scoped memory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// Memory lifetime and ownership scope.
+    pub scope: MemoryScope,
+    /// Root that owns the memory when it is file-backed.
+    pub root: MemoryRootKind,
+    /// Origin of the explicit write.
+    pub source: MemorySource,
+    /// Hash of the written memory content.
+    pub content_hash: u64,
+    /// Byte size of the rendered memory file or session body.
+    pub byte_count: usize,
+    /// Whether the memory body was capped in its returned item projection.
+    pub truncated: bool,
+}
+
+impl From<&MemoryWrite> for MemoryMutationMeta {
+    fn from(write: &MemoryWrite) -> Self {
+        let item = &write.item;
+        MemoryMutationMeta {
+            id: item.id.clone(),
+            path: (!item.path.as_os_str().is_empty()).then(|| item.path.display().to_string()),
+            scope: item.scope,
+            root: item.root,
+            source: item.source,
+            content_hash: item.content_hash,
+            byte_count: item.byte_count,
+            truncated: item.truncated,
+        }
+    }
+}
+
+/// How compaction was initiated.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CompactionTrigger {
+    /// The user explicitly requested compaction.
+    Manual,
+    /// Context pressure triggered compaction before a provider request.
+    Automatic,
+}
+
+/// Risk classification for the compacted range.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CompactionRisk {
+    /// No known high-risk content was included in the covered range.
+    Low,
+    /// The covered range contains details that require explicit review policy.
+    High,
+}
+
+/// Review state recorded for a compaction summary.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CompactionReviewResult {
+    /// Review was not required by the active policy.
+    NotRequired,
+    /// Review is required but not yet resolved.
+    Pending,
+    /// A reviewer accepted the proposed summary.
+    Approved,
+    /// A reviewer rejected the proposed summary.
+    Rejected,
+}
+
+/// Source hash associated with a compacted input item.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CompactionSourceHash {
+    /// Stable source item id or session-range handle.
+    pub id: String,
+    /// Hash of the source content, when one is available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_hash: Option<u64>,
+}
+
+/// Provider token usage for the compaction request, when reported.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CompactionTokenUsage {
+    /// Tokens supplied to the configured model.
+    pub input_tokens: u64,
+    /// Tokens returned in the compaction summary.
+    pub output_tokens: u64,
+}
+
+/// Complete durable audit payload for one compaction.
+///
+/// The summary is intentionally retained because it becomes model-visible
+/// working context. The covered source is represented only by ranges, stable
+/// handles, and hashes; full transcript, file, memory, and provider payload
+/// content never belongs in this record.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CompactionAudit {
+    /// Summary that replaces the covered range in the active working set.
+    pub summary: String,
+    /// Inclusive first session sequence replaced by this summary.
+    pub covered_start_seq: u64,
+    /// Inclusive final session sequence replaced by this summary.
+    pub covered_end_seq: u64,
+    /// Content hashes for covered sources, where known.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub source_hashes: Vec<CompactionSourceHash>,
+    /// Manual or automatic initiation.
+    pub trigger: CompactionTrigger,
+    /// Risk classification evaluated before applying the summary.
+    pub risk: CompactionRisk,
+    /// Review result, when a review policy applied.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review: Option<CompactionReviewResult>,
+    /// Stable handles used to recover covered detail from the original session.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recovery_handles: Vec<String>,
+    /// Configured model that generated the summary.
+    pub model: String,
+    /// Provider-reported compaction token usage, when available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<CompactionTokenUsage>,
+}
+
+impl CompactionAudit {
+    /// Return a copy with known secret-shaped fragments redacted.
+    fn redacted(&self) -> Self {
+        CompactionAudit {
+            summary: tools::shell::redact_secrets(&self.summary),
+            covered_start_seq: self.covered_start_seq,
+            covered_end_seq: self.covered_end_seq,
+            source_hashes: self.source_hashes.clone(),
+            trigger: self.trigger,
+            risk: self.risk,
+            review: self.review,
+            recovery_handles: self.recovery_handles.clone(),
+            model: self.model.clone(),
+            usage: self.usage,
+        }
+    }
+}
+
 /// Persisted metadata for a loaded skill reference.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SkillReferenceRecord {
@@ -1001,6 +1148,37 @@ impl SessionWriter {
     /// Append a content-free user recovery action.
     pub fn append_context_recovery(&mut self, item: &ContextItem, reason: &str) -> std::io::Result<()> {
         self.append_context_action(item, reason, ContextActionKind::Recovery)
+    }
+
+    /// Append a content-free audit record for an explicit memory write.
+    pub fn append_memory_write(&mut self, write: &MemoryWrite) -> std::io::Result<()> {
+        self.append(SessionRecord::MemoryWrite {
+            schema_version: SCHEMA_VERSION,
+            seq: 0,
+            time: datetime::now_iso8601(),
+            memory: MemoryMutationMeta::from(write),
+        })
+    }
+
+    /// Append a content-free audit record for a completed memory deletion.
+    pub fn append_memory_delete(&mut self, deletion: &MemoryDeletion) -> std::io::Result<()> {
+        let time = datetime::now_iso8601();
+        self.append(SessionRecord::MemoryDelete {
+            schema_version: SCHEMA_VERSION,
+            seq: 0,
+            time: time.clone(),
+            deletion: deletion.to_audit_record(&time),
+        })
+    }
+
+    /// Append a compaction audit record without source payloads.
+    pub fn append_compaction(&mut self, audit: &CompactionAudit) -> std::io::Result<()> {
+        self.append(SessionRecord::Compaction {
+            schema_version: SCHEMA_VERSION,
+            seq: 0,
+            time: datetime::now_iso8601(),
+            audit: audit.redacted(),
+        })
     }
 
     /// Append one typed context action without exposing content fields.
@@ -1483,6 +1661,9 @@ fn set_seq(record: &mut SessionRecord, seq: u64) {
         | SessionRecord::ContextPin { seq: s, .. }
         | SessionRecord::ContextDrop { seq: s, .. }
         | SessionRecord::ContextRecovery { seq: s, .. }
+        | SessionRecord::MemoryWrite { seq: s, .. }
+        | SessionRecord::MemoryDelete { seq: s, .. }
+        | SessionRecord::Compaction { seq: s, .. }
         | SessionRecord::User { seq: s, .. }
         | SessionRecord::PromptMetadata { seq: s, .. }
         | SessionRecord::AssistantFinished { seq: s, .. }

@@ -228,11 +228,11 @@ item was or was not visible.
 
 **Acceptance criteria:**
 
-- [ ] `context_ledger`, `context_pin`, `context_drop`, and `context_recovery`
+- [x] `context_ledger`, `context_pin`, `context_drop`, and `context_recovery`
       records contain metadata and reasons, never full file content.
-- [ ] Each record round-trips through JSON and malformed optional fields do not
+- [x] Each record round-trips through JSON and malformed optional fields do not
       prevent a reader from loading the rest of a session.
-- [ ] Context metadata serialization excludes secret-shaped content.
+- [x] Context metadata serialization excludes secret-shaped content.
 
 **Verification:**
 
@@ -247,10 +247,10 @@ the memory body into session history.
 
 **Acceptance criteria:**
 
-- [ ] `memory_write` and `memory_delete` records contain memory id, path,
+- [x] `memory_write` and `memory_delete` records contain memory id, path,
       scope, and audit metadata only.
-- [ ] A delete record cannot serialize forgotten content.
-- [ ] Records round-trip through JSON and preserve existing session readers.
+- [x] A delete record cannot serialize forgotten content.
+- [x] Records round-trip through JSON and preserve existing session readers.
 
 **Verification:**
 
@@ -265,11 +265,11 @@ manual or automatic compaction.
 
 **Acceptance criteria:**
 
-- [ ] `compaction` records include summary text, covered range, source hashes
+- [x] `compaction` records include summary text, covered range, source hashes
       where available, trigger, risk, review result, recovery handles, model,
       and token usage when available.
-- [ ] Manual and automatic compactions serialize as distinct triggers.
-- [ ] Corrupt optional compaction fields do not break session reading.
+- [x] Manual and automatic compactions serialize as distinct triggers.
+- [x] Corrupt optional compaction fields do not break session reading.
 
 **Verification:**
 

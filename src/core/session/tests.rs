@@ -6,6 +6,7 @@ use crate::context::{
     ContextBudget, ContextItem, ContextItemKind, ContextLedger, ContextVisibility, ModelContextLimits,
     ModelLimitConfidence, ModelLimitSource,
 };
+use crate::memory::{MemoryRoots, MemoryScope, delete_memory, resolve_for_forget, write_memory};
 use crate::prompt::PromptBundle;
 use crate::skills::SkillActivation;
 
@@ -56,6 +57,24 @@ fn context_ledger(content: &str) -> ContextLedger {
     };
     let items = vec![context_item(content)];
     ContextLedger { budget: ContextBudget::from_limits(limits, &items), items, diagnostics: Vec::new() }
+}
+
+fn compaction_audit(trigger: CompactionTrigger) -> CompactionAudit {
+    CompactionAudit {
+        summary: "Kept the build failure and the pending test fix.".to_string(),
+        covered_start_seq: 12,
+        covered_end_seq: 47,
+        source_hashes: vec![
+            CompactionSourceHash { id: "ctx_transcript_12".to_string(), content_hash: None },
+            CompactionSourceHash { id: "ctx_tool_archive_47".to_string(), content_hash: Some(42) },
+        ],
+        trigger,
+        risk: CompactionRisk::High,
+        review: Some(CompactionReviewResult::Approved),
+        recovery_handles: vec!["session:12..47".to_string()],
+        model: "umans-coder".to_string(),
+        usage: Some(CompactionTokenUsage { input_tokens: 1_024, output_tokens: 256 }),
+    }
 }
 
 #[test]
@@ -629,6 +648,159 @@ fn reader_skips_malformed_optional_context_metadata_and_keeps_other_records() {
     assert_eq!(records.len(), 2);
     assert!(matches!(&records[0], SessionRecord::Cancelled { reason, .. } if reason == "before malformed metadata"));
     assert!(matches!(&records[1], SessionRecord::Cancelled { reason, .. } if reason == "after malformed metadata"));
+}
+
+#[test]
+fn memory_mutation_records_round_trip_without_memory_body() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let roots = MemoryRoots { user: Some(dir.path().join("user-memory")), project: dir.path().join("project-memory") };
+    let body = "api_key=supersecretvalue";
+    let write = write_memory(&roots, MemoryScope::Project, "Credential guidance", body, &[]).expect("write memory");
+    let deletion = resolve_for_forget(&roots, &write.item.id).expect("resolve deletion");
+    delete_memory(&deletion).expect("delete memory");
+
+    let write_record = SessionRecord::MemoryWrite {
+        schema_version: 1,
+        seq: 3,
+        time: "2026-07-10T12:00:00Z".to_string(),
+        memory: MemoryMutationMeta::from(&write),
+    };
+    let delete_record = SessionRecord::MemoryDelete {
+        schema_version: 1,
+        seq: 4,
+        time: "2026-07-10T12:00:01Z".to_string(),
+        deletion: deletion.to_audit_record("2026-07-10T12:00:01Z"),
+    };
+
+    for (record_type, record) in [("memory_write", write_record), ("memory_delete", delete_record)] {
+        let json = record.to_json().expect("serialize memory mutation");
+        let restored = SessionRecord::from_json(&json).expect("deserialize memory mutation");
+
+        assert_eq!(record, restored);
+        assert!(json.contains(&format!("\"type\":\"{record_type}\"")));
+        assert!(json.contains(&write.item.id));
+        assert!(json.contains("project"));
+        assert!(!json.contains(body));
+        assert!(!json.contains("supersecretvalue"));
+        assert!(!json.contains("Credential guidance"));
+    }
+}
+
+#[test]
+fn writer_appends_memory_mutations_without_affecting_transcript_reader() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let roots = MemoryRoots { user: Some(dir.path().join("user-memory")), project: dir.path().join("project-memory") };
+    let write = write_memory(
+        &roots,
+        MemoryScope::Project,
+        "Build instruction",
+        "run cargo test before merging",
+        &[],
+    )
+    .expect("write memory");
+    let deletion = resolve_for_forget(&roots, &write.item.id).expect("resolve deletion");
+    delete_memory(&deletion).expect("delete memory");
+
+    let mut writer = test_writer(dir.path(), "memory-mutations-session");
+    writer
+        .append_entry(&Entry::User { text: "remember this".to_string() }, "turn_1")
+        .expect("append user");
+    writer.append_memory_write(&write).expect("append memory write");
+    writer.append_memory_delete(&deletion).expect("append memory deletion");
+
+    let records = SessionReader::read_records(writer.path());
+    assert!(matches!(records.get(2), Some(SessionRecord::MemoryWrite { memory, .. }) if memory.id == write.item.id));
+    assert!(
+        matches!(records.get(3), Some(SessionRecord::MemoryDelete { deletion: audit, .. }) if audit.id == write.item.id)
+    );
+
+    let transcript = SessionReader::read_transcript(writer.path());
+    assert_eq!(transcript, vec![Entry::User { text: "remember this".to_string() }]);
+}
+
+#[test]
+fn compaction_records_round_trip_for_manual_and_automatic_triggers() {
+    for (seq, trigger) in [(5, CompactionTrigger::Manual), (6, CompactionTrigger::Automatic)] {
+        let audit = compaction_audit(trigger);
+        let record = SessionRecord::Compaction {
+            schema_version: 1,
+            seq,
+            time: "2026-07-10T12:00:00Z".to_string(),
+            audit: audit.clone(),
+        };
+
+        let json = record.to_json().expect("serialize compaction");
+        let restored = SessionRecord::from_json(&json).expect("deserialize compaction");
+
+        assert_eq!(record, restored);
+        assert!(json.contains("\"type\":\"compaction\""));
+        assert!(json.contains(match trigger {
+            CompactionTrigger::Manual => "\"trigger\":\"manual\"",
+            CompactionTrigger::Automatic => "\"trigger\":\"automatic\"",
+        }));
+        assert!(json.contains("Kept the build failure"));
+        assert!(json.contains("ctx_tool_archive_47"));
+        assert!(json.contains("\"input_tokens\":1024"));
+        assert_eq!(audit.covered_start_seq, 12);
+        assert_eq!(audit.covered_end_seq, 47);
+    }
+}
+
+#[test]
+fn writer_redacts_compaction_summary_and_preserves_transcript_reader() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let mut writer = test_writer(dir.path(), "compaction-session");
+    let mut audit = compaction_audit(CompactionTrigger::Automatic);
+    audit.summary = "api_key=supersecretvalue; preserve the test failure".to_string();
+
+    writer
+        .append_entry(&Entry::User { text: "compact this".to_string() }, "turn_1")
+        .expect("append user");
+    writer.append_compaction(&audit).expect("append compaction");
+
+    let records = SessionReader::read_records(writer.path());
+    assert!(matches!(
+        records.get(2),
+        Some(SessionRecord::Compaction { audit: stored, .. })
+            if stored.summary.contains("api_key=[REDACTED]") && stored.summary.contains("test failure")
+    ));
+    let transcript = SessionReader::read_transcript(writer.path());
+    assert_eq!(transcript, vec![Entry::User { text: "compact this".to_string() }]);
+
+    let content = std::fs::read_to_string(writer.path()).expect("read session");
+    assert!(!content.contains("supersecretvalue"));
+}
+
+#[test]
+fn reader_skips_corrupt_optional_compaction_fields_and_keeps_other_records() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let path = dir.path().join("compaction.jsonl");
+    let first = SessionRecord::Cancelled {
+        schema_version: 1,
+        seq: 0,
+        time: "2026-07-10T12:00:00Z".to_string(),
+        turn_id: "turn_1".to_string(),
+        reason: "before corrupt compaction".to_string(),
+    }
+    .to_json()
+    .expect("serialize first record");
+    let last = SessionRecord::Cancelled {
+        schema_version: 1,
+        seq: 2,
+        time: "2026-07-10T12:00:02Z".to_string(),
+        turn_id: "turn_1".to_string(),
+        reason: "after corrupt compaction".to_string(),
+    }
+    .to_json()
+    .expect("serialize last record");
+    let malformed = r#"{"type":"compaction","schema_version":1,"seq":1,"time":"2026-07-10T12:00:01Z","audit":{"summary":"summary","covered_start_seq":1,"covered_end_seq":3,"trigger":"automatic","risk":"low","model":"umans-coder","usage":"not an object"}}"#;
+
+    std::fs::write(&path, format!("{first}\n{malformed}\n{last}\n")).expect("write session");
+
+    let records = SessionReader::read_records(&path);
+    assert_eq!(records.len(), 2);
+    assert!(matches!(&records[0], SessionRecord::Cancelled { reason, .. } if reason == "before corrupt compaction"));
+    assert!(matches!(&records[1], SessionRecord::Cancelled { reason, .. } if reason == "after corrupt compaction"));
 }
 
 #[test]
