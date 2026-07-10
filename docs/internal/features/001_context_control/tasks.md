@@ -326,11 +326,11 @@ provider request, compact, rebuild context, and restart the same user turn.
 
 **Acceptance criteria:**
 
-- [ ] The known-oversized request is never sent to the main provider.
-- [ ] Pre-restart steering applies to the restarted turn; follow-ups wait until
+- [x] The known-oversized request is never sent to the main provider.
+- [x] Pre-restart steering applies to the restarted turn; follow-ups wait until
       it completes.
-- [ ] In-flight provider requests are never interrupted for compaction in v1.
-- [ ] Failure and review-pending paths preserve the submitted turn.
+- [x] In-flight provider requests are never interrupted for compaction in v1.
+- [x] Failure and review-pending paths preserve the submitted turn.
 
 **Verification:**
 

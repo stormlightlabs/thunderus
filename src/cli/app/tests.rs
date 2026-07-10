@@ -405,6 +405,136 @@ fn compact_writes_a_recoverable_manual_audit_record() {
 }
 
 #[test]
+fn auto_compaction_restarts_the_user_turn_after_success() {
+    let mut app = fresh_app();
+    app.transcript = vec![
+        Entry::User { text: "long conversation".to_string() },
+        Entry::Agent { text: "lots of detail".to_string(), streaming: false },
+    ];
+    let original_turn = "continue the work".to_string();
+
+    assert_eq!(
+        start_auto_compaction(&mut app, original_turn.clone()),
+        Some(Msg::Agent(AgentEvent::Started))
+    );
+    assert!(app.compaction_in_flight());
+    assert!(matches!(app.transcript.last(), Some(Entry::User { text }) if text.contains("Summarize")));
+
+    update(&mut app, &Msg::Agent(AgentEvent::Started));
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::AssistantDelta("compacted summary".to_string())),
+    );
+    let restart = update(&mut app, &Msg::Agent(AgentEvent::Finished));
+
+    assert!(!app.compaction_in_flight());
+    assert!(matches!(app.transcript.last(), Some(Entry::User { text }) if *text == original_turn));
+    assert_eq!(restart, Some(Msg::Agent(AgentEvent::Started)));
+    assert!(
+        app.transcript
+            .iter()
+            .any(|entry| matches!(entry, Entry::Agent { text, .. } if text == "compacted summary"))
+    );
+    assert!(
+        !app.transcript
+            .iter()
+            .any(|entry| matches!(entry, Entry::User { text } if text == "long conversation"))
+    );
+}
+
+#[test]
+fn auto_compaction_restart_waits_for_followups_until_turn_completes() {
+    let mut app = fresh_app();
+    app.transcript = vec![Entry::User { text: "long conversation".to_string() }];
+    app.queued_followups.push("follow-up after restart".to_string());
+    let original_turn = "continue the work".to_string();
+
+    assert_eq!(
+        start_auto_compaction(&mut app, original_turn.clone()),
+        Some(Msg::Agent(AgentEvent::Started))
+    );
+    update(&mut app, &Msg::Agent(AgentEvent::Started));
+    update(&mut app, &Msg::Agent(AgentEvent::AssistantDelta("summary".to_string())));
+
+    let restart = update(&mut app, &Msg::Agent(AgentEvent::Finished));
+    assert_eq!(restart, Some(Msg::Agent(AgentEvent::Started)));
+    assert!(matches!(app.transcript.last(), Some(Entry::User { text }) if *text == original_turn));
+    assert_eq!(
+        app.queued_followups.len(),
+        1,
+        "follow-up must wait until the restarted turn completes"
+    );
+}
+
+#[test]
+fn auto_compaction_failure_preserves_the_submitted_turn() {
+    let mut app = fresh_app();
+    app.transcript = vec![Entry::User { text: "long conversation".to_string() }];
+    let original_turn = "continue the work".to_string();
+
+    assert_eq!(
+        start_auto_compaction(&mut app, original_turn.clone()),
+        Some(Msg::Agent(AgentEvent::Started))
+    );
+    assert!(app.compaction_in_flight());
+
+    update(&mut app, &Msg::Agent(AgentEvent::Started));
+    let result = update(
+        &mut app,
+        &Msg::Agent(AgentEvent::Failed("provider unavailable".to_string())),
+    );
+
+    assert!(!app.compaction_in_flight());
+    assert_eq!(result, None);
+    assert_eq!(app.last_input, Some(original_turn));
+    assert!(matches!(app.transcript.first(), Some(Entry::User { text }) if text == "long conversation"));
+    assert!(
+        !app.transcript
+            .iter()
+            .any(|entry| matches!(entry, Entry::User { text } if text.contains("Summarize")))
+    );
+}
+
+#[test]
+fn auto_compaction_writes_an_automatic_trigger_audit_record() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    auth::set_credential(
+        &auth::project_credentials_path(dir.path()),
+        auth::OPENCODE_ZEN_KEY_ENV,
+        "test-zen-key",
+    )
+    .expect("seed credential");
+    let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
+    let mut app = App::from_cli(&cli);
+    let path = app
+        .session_writer
+        .as_ref()
+        .expect("session writer")
+        .path()
+        .to_path_buf();
+    app.transcript = vec![Entry::User { text: "long conversation".to_string() }];
+
+    assert_eq!(
+        start_auto_compaction(&mut app, "continue".to_string()),
+        Some(Msg::Agent(AgentEvent::Started))
+    );
+    update(&mut app, &Msg::Agent(AgentEvent::Started));
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::AssistantDelta("auto summary".to_string())),
+    );
+    update(&mut app, &Msg::Agent(AgentEvent::Finished));
+
+    let records = session::SessionReader::read_records(&path);
+    assert!(records.iter().any(|record| matches!(
+        record,
+        session::SessionRecord::Compaction { audit, .. }
+            if audit.trigger == session::CompactionTrigger::Automatic
+                && audit.summary == "auto summary"
+    )));
+}
+
+#[test]
 fn ctrl_c_sets_quit_flag() {
     let mut app = fresh_app();
     update(

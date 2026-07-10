@@ -622,8 +622,9 @@ pub struct App {
     /// The last submitted prompt text, retained so it can be restored on
     /// provider failure. Cleared on successful completion.
     pub last_input: Option<String>,
-    /// In-flight manual compaction. The original active context is retained
-    /// until the configured provider summary and audit record both succeed.
+    /// In-flight compaction (manual or automatic). The original active
+    /// context is retained until the configured provider summary and audit
+    /// record both succeed.
     pending_manual_compaction: Option<PendingManualCompaction>,
     /// Current target for input submitted while the agent is running.
     pub queue_target: QueueTarget,
@@ -776,14 +777,24 @@ impl From<&Cli> for App {
     }
 }
 
-/// Pending `/compact` request with enough information to atomically replace
+/// Pending compaction request with enough information to atomically replace
 /// active context after a successful configured-model response.
+///
+/// Carries both the manual (`/compact`) and automatic (preflight pressure)
+/// paths. For automatic compaction, `original_user_turn` holds the user turn
+/// to restart after the summary is applied; for manual compaction it is
+/// `None` because `/compact` is a command, not a submitted turn.
 #[derive(Clone, Debug)]
 struct PendingManualCompaction {
     original_transcript: Vec<Entry>,
     covered_start_seq: u64,
     covered_end_seq: u64,
     recovery_handle: String,
+    /// Manual or automatic initiation, written to the audit record.
+    trigger: session::CompactionTrigger,
+    /// The user turn to restart after a successful automatic compaction.
+    /// `None` for manual compaction.
+    original_user_turn: Option<String>,
 }
 
 impl App {
@@ -793,6 +804,14 @@ impl App {
     /// `AGENTS.md` if present, and records context source metadata in the session.
     pub fn from_cli(cli: &Cli) -> Self {
         cli.into()
+    }
+
+    /// Whether a compaction turn is currently in flight.
+    ///
+    /// Used by the preflight gate to avoid re-triggering auto-compaction while
+    /// the configured-model summary request is the active turn.
+    pub(crate) fn compaction_in_flight(&self) -> bool {
+        self.pending_manual_compaction.is_some()
     }
 
     /// Build the compact self-knowledge snapshot used by the startup display.
@@ -2762,6 +2781,29 @@ fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
 
 /// Start an idle `/compact` request through the selected provider model.
 fn start_manual_compaction(app: &mut App) -> Option<Msg> {
+    start_compaction(app, session::CompactionTrigger::Manual, None)
+}
+
+/// Start an automatic compaction triggered by preflight context pressure.
+///
+/// `original_user_turn` is the user turn that was about to be sent to the
+/// provider; it is restarted after the summary is applied. The user turn is
+/// already in the transcript, so the covered range starts from sequence 1.
+///
+/// Returns `None` (without spawning) when compaction cannot start, leaving
+/// the submitted turn recoverable.
+pub(crate) fn start_auto_compaction(app: &mut App, original_user_turn: String) -> Option<Msg> {
+    start_compaction(app, session::CompactionTrigger::Automatic, Some(original_user_turn))
+}
+
+/// Shared core for manual and automatic compaction.
+///
+/// Saves the active transcript, builds a configured-model summary request,
+/// submits it as the turn to run, and records enough state to atomically
+/// replace active context on success or restore it on failure.
+fn start_compaction(
+    app: &mut App, trigger: session::CompactionTrigger, original_user_turn: Option<String>,
+) -> Option<Msg> {
     let original_transcript = app.transcript.clone();
     let source = render_compaction_source(&original_transcript);
     let policy = effective_compaction_policy(app);
@@ -2775,18 +2817,40 @@ fn start_manual_compaction(app: &mut App) -> Option<Msg> {
         Ok(request) => request,
         Err(message) => {
             app.transcript.push(Entry::Error { text: message });
+            if trigger == session::CompactionTrigger::Automatic
+                && let Some(turn) = original_user_turn
+            {
+                app.last_input = Some(turn);
+            }
             return None;
         }
     };
 
-    let started = submit_user_turn(app, request.prompt)?;
-    app.pending_manual_compaction =
-        Some(PendingManualCompaction { original_transcript, covered_start_seq, covered_end_seq, recovery_handle });
+    let started = match submit_user_turn(app, request.prompt) {
+        Some(msg) => msg,
+        None => {
+            app.transcript = original_transcript;
+            if trigger == session::CompactionTrigger::Automatic
+                && let Some(turn) = original_user_turn
+            {
+                app.last_input = Some(turn);
+            }
+            return None;
+        }
+    };
+    app.pending_manual_compaction = Some(PendingManualCompaction {
+        original_transcript,
+        covered_start_seq,
+        covered_end_seq,
+        recovery_handle,
+        trigger,
+        original_user_turn,
+    });
     Some(started)
 }
 
 /// Resolve the configured compaction policy from loaded config layers.
-fn effective_compaction_policy(app: &App) -> context::CompactionPolicy {
+pub(crate) fn effective_compaction_policy(app: &App) -> context::CompactionPolicy {
     let config = app
         .cli
         .config_layers
@@ -3151,8 +3215,10 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             app.run_state = RunState::Idle;
             app.last_input = None;
             refresh_git_status(app);
-            if !finish_manual_compaction(app) {
-                persist_final_response(app);
+            match finish_manual_compaction(app) {
+                None => persist_final_response(app),
+                Some(None) => {}
+                Some(Some(restart)) => return Some(restart),
             }
             if app.queued_followups.is_empty() {
                 None
@@ -3195,20 +3261,23 @@ fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
 }
 
 /// Apply a completed manual compaction only after its audit record is durable.
-/// Returns whether the finished event belonged to a manual compaction.
-fn finish_manual_compaction(app: &mut App) -> bool {
-    let Some(pending) = app.pending_manual_compaction.take() else {
-        return false;
-    };
+/// Apply a completed compaction only after its audit record is durable.
+///
+/// Returns `None` when the finished event did not belong to a compaction.
+/// Returns `Some(None)` when a manual compaction finished (no restart needed).
+/// Returns `Some(Some(msg))` when an automatic compaction finished and the
+/// original user turn should restart with the compacted working set.
+fn finish_manual_compaction(app: &mut App) -> Option<Option<Msg>> {
+    let pending = app.pending_manual_compaction.take()?;
     let summary = app.transcript.iter().rev().find_map(|entry| match entry {
         Entry::Agent { text, .. } if !text.trim().is_empty() => Some(text.clone()),
         _ => None,
     });
     let Some(summary) = summary else {
-        app.transcript = pending.original_transcript;
+        restore_failed_compaction(app, pending);
         app.transcript
             .push(Entry::Error { text: "compaction model returned no summary".to_string() });
-        return true;
+        return Some(None);
     };
 
     let risk = classify_compaction_risk(&pending.original_transcript);
@@ -3217,7 +3286,7 @@ fn finish_manual_compaction(app: &mut App) -> bool {
         covered_start_seq: pending.covered_start_seq,
         covered_end_seq: pending.covered_end_seq,
         source_hashes: Vec::new(),
-        trigger: session::CompactionTrigger::Manual,
+        trigger: pending.trigger,
         risk,
         review: Some(session::CompactionReviewResult::NotRequired),
         recovery_handles: vec![pending.recovery_handle.clone()],
@@ -3227,31 +3296,59 @@ fn finish_manual_compaction(app: &mut App) -> bool {
     if let Some(writer) = app.session_writer.as_mut()
         && let Err(error) = writer.append_compaction(&audit)
     {
-        app.transcript = pending.original_transcript;
+        restore_failed_compaction(app, pending);
         app.transcript
             .push(Entry::Error { text: format!("failed to record compaction audit: {error}") });
-        return true;
+        return Some(None);
     }
 
-    app.transcript = pending.original_transcript;
-    app.transcript
-        .push(Entry::Status { text: format!("compacted  {}", pending.recovery_handle) });
+    let is_automatic = pending.trigger == session::CompactionTrigger::Automatic;
+    let original_user_turn = pending.original_user_turn.clone();
+    if is_automatic {
+        app.transcript.clear();
+    } else {
+        app.transcript = pending.original_transcript;
+        app.transcript
+            .push(Entry::Status { text: format!("compacted  {}", pending.recovery_handle) });
+    }
     let summary_entry = Entry::Agent { text: summary, streaming: false };
     app.transcript.push(summary_entry.clone());
     if let Some(writer) = app.session_writer.as_mut() {
         let turn_id = format!("turn_{}", app.turn_count);
         let _ = writer.append_entry(&summary_entry, &turn_id);
     }
-    true
+    if is_automatic {
+        app.transcript
+            .push(Entry::Status { text: format!("auto-compacted  {}", pending.recovery_handle) });
+        if let Some(turn) = original_user_turn {
+            return Some(submit_user_turn(app, turn));
+        }
+    }
+    Some(None)
 }
 
-/// Restore active context when the configured compaction request fails.
+/// Restore active context when a compaction request fails or cannot complete.
+///
+/// For automatic compaction, the submitted user turn is preserved by restoring
+/// `last_input` so the user can resubmit or edit it. For manual compaction,
+/// only the transcript is restored.
 fn restore_failed_manual_compaction(app: &mut App) -> bool {
     if let Some(pending) = app.pending_manual_compaction.take() {
-        app.transcript = pending.original_transcript;
+        restore_failed_compaction(app, pending);
         true
     } else {
         false
+    }
+}
+
+/// Restore the saved transcript and, for automatic compaction, the submitted
+/// user turn.
+fn restore_failed_compaction(app: &mut App, pending: PendingManualCompaction) {
+    app.transcript = pending.original_transcript;
+    if pending.trigger == session::CompactionTrigger::Automatic
+        && let Some(turn) = pending.original_user_turn
+    {
+        app.last_input = Some(turn);
     }
 }
 

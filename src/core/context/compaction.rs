@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::context::ContextBudget;
+use crate::context::{ContextBudget, ModelContextLimits};
 
 /// User-selected compaction behavior.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -162,6 +162,42 @@ impl CompactionPolicy {
     }
 }
 
+/// Outcome of the preflight pressure check run before a main provider request.
+///
+/// Auto-compaction is a preflight gate ([plan](crate::context)): when a
+/// submitted turn would exceed the context policy and `mode = "auto"` permits
+/// compaction, the turn stops before the provider request, compacts with the
+/// configured model, rebuilds context, and restarts the same user turn.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AutoCompactionDecision {
+    /// The upcoming request fits the policy; send it to the provider.
+    Send,
+    /// The upcoming request is oversized and auto-compaction may compact first.
+    ///
+    /// The known-oversized request must never be sent to the main provider.
+    Compact,
+}
+
+/// Decide whether an upcoming provider request needs auto-compaction first.
+///
+/// `prompt_token_estimate` is the conservative token estimate of the full
+/// prompt that would be sent (system + context + user turn). The decision is
+/// pure: given the policy, resolved model limits, and the estimate, it
+/// returns [`AutoCompactionDecision::Compact`] only when auto mode is enabled
+/// and the estimate exceeds the auto-compaction threshold.
+///
+/// Uses [`ModelContextLimits::auto_compaction_threshold`] directly so the
+/// 92% boundary stays consistent with budget-based pressure checks.
+pub fn preflight_auto_compaction(
+    policy: CompactionPolicy, limits: &ModelContextLimits, prompt_token_estimate: u64,
+) -> AutoCompactionDecision {
+    if matches!(policy.mode, CompactionMode::Auto) && prompt_token_estimate > limits.auto_compaction_threshold() {
+        AutoCompactionDecision::Compact
+    } else {
+        AutoCompactionDecision::Send
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -267,5 +303,44 @@ mod tests {
         assert!(request.prompt.contains("fixed the parser"));
         assert!(prepare_manual_compaction(policy, "", "fixed the parser", "session:12..47").is_err());
         assert!(prepare_manual_compaction(policy, "provider/model", "", "session:12..47").is_err());
+    }
+
+    fn limits_for(context_window: u64) -> ModelContextLimits {
+        ModelContextLimits {
+            provider: "test".to_string(),
+            model: "test".to_string(),
+            context_window,
+            max_completion_tokens: 1_024,
+            recommended_completion_tokens: 512,
+            source: ModelLimitSource::Fallback,
+            confidence: ModelLimitConfidence::Conservative,
+        }
+    }
+
+    #[test]
+    fn preflight_compacts_only_in_auto_mode_above_threshold() {
+        let auto = CompactionPolicy { mode: CompactionMode::Auto, review: CompactionReview::Auto };
+        let manual = CompactionPolicy { mode: CompactionMode::Manual, review: CompactionReview::Auto };
+        let off = CompactionPolicy { mode: CompactionMode::Off, review: CompactionReview::Auto };
+        let limits = limits_for(101_024);
+        let threshold = limits.auto_compaction_threshold();
+        assert_eq!(
+            preflight_auto_compaction(auto, &limits, threshold),
+            AutoCompactionDecision::Send
+        );
+        assert_eq!(
+            preflight_auto_compaction(auto, &limits, threshold + 1),
+            AutoCompactionDecision::Compact
+        );
+        assert_eq!(
+            preflight_auto_compaction(manual, &limits, threshold + 1),
+            AutoCompactionDecision::Send,
+            "manual mode never auto-compacts"
+        );
+        assert_eq!(
+            preflight_auto_compaction(off, &limits, threshold + 1),
+            AutoCompactionDecision::Send,
+            "off mode never auto-compacts"
+        );
     }
 }

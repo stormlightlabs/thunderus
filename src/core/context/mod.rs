@@ -38,8 +38,9 @@ pub use control::{
 };
 
 pub use compaction::{
-    CompactionConfig, CompactionMode, CompactionPolicy, CompactionReview, CompactionRisk, CompactionRiskSignals,
-    ContextConfig, ManualCompactionRequest, prepare_manual_compaction,
+    AutoCompactionDecision, CompactionConfig, CompactionMode, CompactionPolicy, CompactionReview, CompactionRisk,
+    CompactionRiskSignals, ContextConfig, ManualCompactionRequest, preflight_auto_compaction,
+    prepare_manual_compaction,
 };
 
 pub use control::{
