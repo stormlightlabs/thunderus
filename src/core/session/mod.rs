@@ -10,12 +10,14 @@
 //! Each session is a single append-only JSONL file. Every line is a
 //! [`SessionRecord`] tagged with `schema_version`, `seq`, `time`, and `type`.
 //! The `seq` field is a monotonic sequence number within the session. Records
-//! are never rewritten — appends are the only mutation.
+//! are never rewritten so appends are the only mutation.
 //!
 //! ## Record types
 //!
 //! - `session_meta`: id, cwd, title, provider, model, websearch, app version.
 //! - `context`: loaded AGENTS.md source metadata (path, scope, hash, truncation).
+//! - `context_ledger`: content-free working-set snapshot for one prompt turn.
+//! - `context_pin`, `context_drop`, `context_recovery`: explicit context actions.
 //! - `user`: prompt text and turn id.
 //! - `prompt_metadata`: prompt assembly provenance for one turn.
 //! - `assistant_finished`: final replayable assistant text.
@@ -43,7 +45,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::acp::permissions::PendingPermission;
 use crate::app::{Entry, ToolStatus};
-use crate::context::ContextSource;
+use crate::context::{ContextItem, ContextItemKind, ContextLedger, ContextSource, ContextVisibility};
 use crate::prompt::{EnvironmentMetadata, HistoryReuse, PromptBundle};
 use crate::skills::{SkillActivation, SkillReferenceMeta};
 use crate::tools::{WriteOp, shell};
@@ -131,6 +133,42 @@ pub enum SessionRecord {
         seq: u64,
         time: String,
         sources: Vec<ContextSourceMeta>,
+    },
+    /// Content-free context working-set snapshot for one prompt turn.
+    #[serde(rename = "context_ledger")]
+    ContextLedger {
+        schema_version: u32,
+        seq: u64,
+        time: String,
+        turn_id: String,
+        ledger: ContextLedgerMeta,
+    },
+    /// A user pin action for a context item.
+    #[serde(rename = "context_pin")]
+    ContextPin {
+        schema_version: u32,
+        seq: u64,
+        time: String,
+        item: ContextItemMeta,
+        reason: String,
+    },
+    /// A user drop action for a context item.
+    #[serde(rename = "context_drop")]
+    ContextDrop {
+        schema_version: u32,
+        seq: u64,
+        time: String,
+        item: ContextItemMeta,
+        reason: String,
+    },
+    /// A user recovery action for a context item.
+    #[serde(rename = "context_recovery")]
+    ContextRecovery {
+        schema_version: u32,
+        seq: u64,
+        time: String,
+        item: ContextItemMeta,
+        reason: String,
     },
     /// A user-submitted prompt.
     #[serde(rename = "user")]
@@ -378,6 +416,10 @@ impl SessionRecord {
         match self {
             SessionRecord::SessionMeta { seq, .. }
             | SessionRecord::Context { seq, .. }
+            | SessionRecord::ContextLedger { seq, .. }
+            | SessionRecord::ContextPin { seq, .. }
+            | SessionRecord::ContextDrop { seq, .. }
+            | SessionRecord::ContextRecovery { seq, .. }
             | SessionRecord::User { seq, .. }
             | SessionRecord::PromptMetadata { seq, .. }
             | SessionRecord::AssistantFinished { seq, .. }
@@ -677,6 +719,102 @@ impl ContextSourceMeta {
     }
 }
 
+/// Content-free metadata for one item in a context ledger.
+///
+/// This deliberately omits [`ContextItem::content`]. Paths, hashes, sizes,
+/// visibility, and the selection reason are sufficient to explain why an item
+/// was or was not visible without preserving repository or memory content.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ContextItemMeta {
+    /// Stable context item id.
+    pub id: String,
+    /// Domain kind used by context selection.
+    pub kind: ContextItemKind,
+    /// File-backed source path, when available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_path: Option<String>,
+    /// Context scope, when available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
+    /// Hash of the source content, when available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_hash: Option<u64>,
+    /// Source byte size.
+    pub byte_count: usize,
+    /// Conservative token estimate used by selection.
+    pub token_estimate: usize,
+    /// Inclusion state for this snapshot or action.
+    pub visibility: ContextVisibility,
+    /// Why selection assigned this visibility.
+    pub reason: String,
+}
+
+impl From<&ContextItem> for ContextItemMeta {
+    fn from(item: &ContextItem) -> Self {
+        ContextItemMeta {
+            id: item.id.clone(),
+            kind: item.kind.clone(),
+            source_path: item.source_path.as_ref().map(|path| path.display().to_string()),
+            scope: Some(item.scope.clone()),
+            content_hash: item.content_hash,
+            byte_count: item.byte_count,
+            token_estimate: item.token_estimate,
+            visibility: item.visibility.clone(),
+            reason: tools::shell::redact_secrets(&item.reason),
+        }
+    }
+}
+
+/// Content-free context ledger snapshot persisted for a prompt turn.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ContextLedgerMeta {
+    /// All candidate and selected item metadata for this turn.
+    pub items: Vec<ContextItemMeta>,
+    /// Available input tokens after completion reservation and provider overhead.
+    pub available_input: u64,
+    /// Target token budget used for normal selection.
+    pub target: u64,
+    /// Token threshold that may trigger automatic compaction.
+    pub auto_compaction_threshold: u64,
+    /// Estimated tokens of rendered items.
+    pub used: u64,
+    /// Content-free diagnostic summaries emitted by context selection.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics: Vec<ContextDiagnosticMeta>,
+}
+
+impl From<&ContextLedger> for ContextLedgerMeta {
+    fn from(ledger: &ContextLedger) -> Self {
+        ContextLedgerMeta {
+            items: ledger.items.iter().map(ContextItemMeta::from).collect(),
+            available_input: ledger.budget.available_input,
+            target: ledger.budget.target,
+            auto_compaction_threshold: ledger.budget.auto_compaction_threshold,
+            used: ledger.budget.used,
+            diagnostics: ledger
+                .diagnostics
+                .iter()
+                .map(|diagnostic| ContextDiagnosticMeta {
+                    severity: diagnostic.severity.label().to_string(),
+                    code: diagnostic.code.clone(),
+                    message: tools::shell::redact_secrets(&diagnostic.message),
+                })
+                .collect(),
+        }
+    }
+}
+
+/// Content-free diagnostic emitted while selecting context.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ContextDiagnosticMeta {
+    /// Diagnostic severity label.
+    pub severity: String,
+    /// Stable diagnostic code.
+    pub code: String,
+    /// Human-readable diagnostic message.
+    pub message: String,
+}
+
 /// Persisted metadata for a loaded skill reference.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SkillReferenceRecord {
@@ -695,6 +833,14 @@ impl From<&SkillReferenceMeta> for SkillReferenceRecord {
             truncated: reference.truncated,
         }
     }
+}
+
+/// Action variants supported by [`SessionWriter::append_context_action`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ContextActionKind {
+    Pin,
+    Drop,
+    Recovery,
 }
 
 /// Append-only JSONL session writer.
@@ -829,6 +975,64 @@ impl SessionWriter {
         let mut file = std::fs::OpenOptions::new().append(true).open(&self.path)?;
         writeln!(file, "{line}")?;
         Ok(())
+    }
+
+    /// Append a content-free context ledger snapshot for a prompt turn.
+    pub fn append_context_ledger(&mut self, turn_id: &str, ledger: &ContextLedger) -> std::io::Result<()> {
+        self.append(SessionRecord::ContextLedger {
+            schema_version: SCHEMA_VERSION,
+            seq: 0,
+            time: datetime::now_iso8601(),
+            turn_id: turn_id.to_string(),
+            ledger: ContextLedgerMeta::from(ledger),
+        })
+    }
+
+    /// Append a content-free user pin action.
+    pub fn append_context_pin(&mut self, item: &ContextItem, reason: &str) -> std::io::Result<()> {
+        self.append_context_action(item, reason, ContextActionKind::Pin)
+    }
+
+    /// Append a content-free user drop action.
+    pub fn append_context_drop(&mut self, item: &ContextItem, reason: &str) -> std::io::Result<()> {
+        self.append_context_action(item, reason, ContextActionKind::Drop)
+    }
+
+    /// Append a content-free user recovery action.
+    pub fn append_context_recovery(&mut self, item: &ContextItem, reason: &str) -> std::io::Result<()> {
+        self.append_context_action(item, reason, ContextActionKind::Recovery)
+    }
+
+    /// Append one typed context action without exposing content fields.
+    fn append_context_action(
+        &mut self, item: &ContextItem, reason: &str, action: ContextActionKind,
+    ) -> std::io::Result<()> {
+        let item = ContextItemMeta::from(item);
+        let reason = tools::shell::redact_secrets(reason);
+        let record = match action {
+            ContextActionKind::Pin => SessionRecord::ContextPin {
+                schema_version: SCHEMA_VERSION,
+                seq: 0,
+                time: datetime::now_iso8601(),
+                item,
+                reason,
+            },
+            ContextActionKind::Drop => SessionRecord::ContextDrop {
+                schema_version: SCHEMA_VERSION,
+                seq: 0,
+                time: datetime::now_iso8601(),
+                item,
+                reason,
+            },
+            ContextActionKind::Recovery => SessionRecord::ContextRecovery {
+                schema_version: SCHEMA_VERSION,
+                seq: 0,
+                time: datetime::now_iso8601(),
+                item,
+                reason,
+            },
+        };
+        self.append(record)
     }
 
     /// Append prompt assembly provenance for a user turn.
@@ -1275,6 +1479,10 @@ fn set_seq(record: &mut SessionRecord, seq: u64) {
     match record {
         SessionRecord::SessionMeta { seq: s, .. }
         | SessionRecord::Context { seq: s, .. }
+        | SessionRecord::ContextLedger { seq: s, .. }
+        | SessionRecord::ContextPin { seq: s, .. }
+        | SessionRecord::ContextDrop { seq: s, .. }
+        | SessionRecord::ContextRecovery { seq: s, .. }
         | SessionRecord::User { seq: s, .. }
         | SessionRecord::PromptMetadata { seq: s, .. }
         | SessionRecord::AssistantFinished { seq: s, .. }

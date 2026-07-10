@@ -2,6 +2,10 @@ use std::time::Duration;
 
 use super::*;
 use crate::cli::WebSearchMode;
+use crate::context::{
+    ContextBudget, ContextItem, ContextItemKind, ContextLedger, ContextVisibility, ModelContextLimits,
+    ModelLimitConfidence, ModelLimitSource,
+};
 use crate::prompt::PromptBundle;
 use crate::skills::SkillActivation;
 
@@ -22,6 +26,36 @@ fn bundle_with_context() -> PromptBundle {
         &[],
         "explain this repo",
     )
+}
+
+fn context_item(content: &str) -> ContextItem {
+    ContextItem {
+        id: "ctx_project_memory_1".to_string(),
+        kind: ContextItemKind::ProjectMemory,
+        label: "repository credentials".to_string(),
+        source_path: Some(PathBuf::from("/repo/.thndrs/memory/notes/credentials.md")),
+        scope: ".".to_string(),
+        content_hash: Some(42),
+        byte_count: content.len(),
+        content: Some(content.to_string()),
+        token_estimate: 64,
+        visibility: ContextVisibility::Archived,
+        reason: "archived after budget selection".to_string(),
+    }
+}
+
+fn context_ledger(content: &str) -> ContextLedger {
+    let limits = ModelContextLimits {
+        provider: "umans".to_string(),
+        model: "umans-coder".to_string(),
+        context_window: 200_000,
+        max_completion_tokens: 8_192,
+        recommended_completion_tokens: 4_096,
+        source: ModelLimitSource::LiveMetadata,
+        confidence: ModelLimitConfidence::Exact,
+    };
+    let items = vec![context_item(content)];
+    ContextLedger { budget: ContextBudget::from_limits(limits, &items), items, diagnostics: Vec::new() }
 }
 
 #[test]
@@ -463,6 +497,138 @@ fn writer_appends_prompt_metadata() {
         Some(SessionRecord::PromptMetadata { turn_id, metadata: stored, .. })
             if turn_id == "turn_1" && stored == &metadata
     ));
+}
+
+#[test]
+fn context_ledger_record_round_trips_without_content() {
+    let secret_content = "api_key=supersecretvalue";
+    let record = SessionRecord::ContextLedger {
+        schema_version: 1,
+        seq: 2,
+        time: "2026-07-10T12:00:00Z".to_string(),
+        turn_id: "turn_1".to_string(),
+        ledger: ContextLedgerMeta::from(&context_ledger(secret_content)),
+    };
+
+    let json = record.to_json().expect("serialize ledger");
+    let restored = SessionRecord::from_json(&json).expect("deserialize ledger");
+
+    assert_eq!(record, restored);
+    assert!(json.contains("\"type\":\"context_ledger\""));
+    assert!(json.contains("archived after budget selection"));
+    assert!(!json.contains(secret_content));
+    assert!(!json.contains("supersecretvalue"));
+    assert!(
+        !json.contains("repository credentials"),
+        "labels are not persisted as context metadata"
+    );
+}
+
+#[test]
+fn context_action_records_round_trip_without_content() {
+    let item = context_item("password=supersecretvalue");
+    let actions = [
+        (
+            "context_pin",
+            SessionRecord::ContextPin {
+                schema_version: 1,
+                seq: 3,
+                time: "2026-07-10T12:00:01Z".to_string(),
+                item: ContextItemMeta::from(&item),
+                reason: "user requested pin".to_string(),
+            },
+        ),
+        (
+            "context_drop",
+            SessionRecord::ContextDrop {
+                schema_version: 1,
+                seq: 4,
+                time: "2026-07-10T12:00:02Z".to_string(),
+                item: ContextItemMeta::from(&item),
+                reason: "user requested drop".to_string(),
+            },
+        ),
+        (
+            "context_recovery",
+            SessionRecord::ContextRecovery {
+                schema_version: 1,
+                seq: 5,
+                time: "2026-07-10T12:00:03Z".to_string(),
+                item: ContextItemMeta::from(&item),
+                reason: "user requested recovery".to_string(),
+            },
+        ),
+    ];
+
+    for (record_type, record) in actions {
+        let json = record.to_json().expect("serialize context action");
+        let restored = SessionRecord::from_json(&json).expect("deserialize context action");
+
+        assert_eq!(record, restored);
+        assert!(json.contains(&format!("\"type\":\"{record_type}\"")));
+        assert!(json.contains("user requested"));
+        assert!(!json.contains("supersecretvalue"));
+    }
+}
+
+#[test]
+fn writer_appends_context_ledger_and_actions() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let mut writer = test_writer(dir.path(), "context-actions-session");
+    let ledger = context_ledger("access_token=supersecretvalue");
+    let item = ledger.items.first().expect("ledger item");
+
+    writer
+        .append_context_ledger("turn_1", &ledger)
+        .expect("append context ledger");
+    writer.append_context_pin(item, "user chose pin").expect("append pin");
+    writer
+        .append_context_drop(item, "user chose drop")
+        .expect("append drop");
+    writer
+        .append_context_recovery(item, "user chose recovery")
+        .expect("append recovery");
+
+    let records = SessionReader::read_records(writer.path());
+    assert!(matches!(records.get(1), Some(SessionRecord::ContextLedger { turn_id, .. }) if turn_id == "turn_1"));
+    assert!(matches!(records.get(2), Some(SessionRecord::ContextPin { .. })));
+    assert!(matches!(records.get(3), Some(SessionRecord::ContextDrop { .. })));
+    assert!(matches!(records.get(4), Some(SessionRecord::ContextRecovery { .. })));
+
+    let content = std::fs::read_to_string(writer.path()).expect("read session");
+    assert!(!content.contains("supersecretvalue"));
+}
+
+#[test]
+fn reader_skips_malformed_optional_context_metadata_and_keeps_other_records() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let path = dir.path().join("context-actions.jsonl");
+    let first = SessionRecord::Cancelled {
+        schema_version: 1,
+        seq: 0,
+        time: "2026-07-10T12:00:00Z".to_string(),
+        turn_id: "turn_1".to_string(),
+        reason: "before malformed metadata".to_string(),
+    }
+    .to_json()
+    .expect("serialize first record");
+    let last = SessionRecord::Cancelled {
+        schema_version: 1,
+        seq: 2,
+        time: "2026-07-10T12:00:02Z".to_string(),
+        turn_id: "turn_1".to_string(),
+        reason: "after malformed metadata".to_string(),
+    }
+    .to_json()
+    .expect("serialize last record");
+    let malformed = r#"{"type":"context_pin","schema_version":1,"seq":1,"time":"2026-07-10T12:00:01Z","item":{"id":"ctx_1","kind":"pinned_file","source_path":42,"byte_count":1,"token_estimate":17,"visibility":"pinned","reason":"pin"},"reason":"pin"}"#;
+
+    std::fs::write(&path, format!("{first}\n{malformed}\n{last}\n")).expect("write session");
+
+    let records = SessionReader::read_records(&path);
+    assert_eq!(records.len(), 2);
+    assert!(matches!(&records[0], SessionRecord::Cancelled { reason, .. } if reason == "before malformed metadata"));
+    assert!(matches!(&records[1], SessionRecord::Cancelled { reason, .. } if reason == "after malformed metadata"));
 }
 
 #[test]

@@ -1220,6 +1220,9 @@ fn maybe_spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>) {
     .with_tool_catalog(tool_catalog);
     if let Some(ref mut writer) = app.session_writer {
         let turn_id = format!("turn_{}", app.turn_count);
+        if let Some(ledger) = &bundle.context_ledger {
+            let _ = writer.append_context_ledger(&turn_id, ledger);
+        }
         let metadata = session::PromptMetadata::from_bundle(&bundle);
         let _ = writer.append_prompt_metadata(&turn_id, &metadata);
     }

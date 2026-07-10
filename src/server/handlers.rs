@@ -1547,6 +1547,10 @@ fn record_time(record: &SessionRecord) -> Option<String> {
     match record {
         SessionRecord::SessionMeta { time, .. }
         | SessionRecord::Context { time, .. }
+        | SessionRecord::ContextLedger { time, .. }
+        | SessionRecord::ContextPin { time, .. }
+        | SessionRecord::ContextDrop { time, .. }
+        | SessionRecord::ContextRecovery { time, .. }
         | SessionRecord::User { time, .. }
         | SessionRecord::PromptMetadata { time, .. }
         | SessionRecord::AssistantFinished { time, .. }
