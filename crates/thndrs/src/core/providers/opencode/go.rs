@@ -8,6 +8,7 @@
 use std::path::Path;
 
 use crate::{
+    WebSearchMode,
     app::AgentEvent,
     providers::{
         self, KnownModel, ProviderError, ProviderHttpClient, ProviderMessage, Result, StreamFormat, StreamingProvider,
@@ -187,7 +188,7 @@ impl StreamingProvider for OpenCodeGoClient {
         String::from("provider: loading OPENCODE_GO_KEY")
     }
 
-    fn request_status(&self, model: &str, _search_mode: crate::cli::WebSearchMode) -> String {
+    fn request_status(&self, model: &str, _search_mode: WebSearchMode) -> String {
         let route = raw_model_id(model)
             .map(endpoint_family)
             .map(|family| family.label())

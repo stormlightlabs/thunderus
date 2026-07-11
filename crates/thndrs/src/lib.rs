@@ -22,12 +22,12 @@ pub use thndrs_core::{
 };
 
 #[cfg(test)]
-pub(crate) mod test_env {
+pub mod test_env {
     use std::sync::{Mutex, MutexGuard};
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
-    pub(crate) fn lock() -> MutexGuard<'static, ()> {
+    pub fn lock() -> MutexGuard<'static, ()> {
         ENV_LOCK.lock().expect("test environment lock")
     }
 }
@@ -45,8 +45,7 @@ use acp::config::provider_label;
 use app::PromptAccessory;
 use app::{App, Msg, RunState, start_auto_compaction, update};
 use cli::{
-    Cli, Command,
-    commands::acp::AcpCommand,
+    Cli, Command, commands,
     commands::debug::DebugCommand,
     commands::mcp::McpCommand,
     commands::session::{SessionCommand, SessionDataFormat},
@@ -187,27 +186,27 @@ fn run_command(cli: &Cli, command: &Command) -> io::Result<()> {
     }
 }
 
-fn run_setup_command(_cli: &Cli, _command: &cli::commands::setup::SetupCommand) -> io::Result<()> {
+fn run_setup_command(_cli: &Cli, _command: &commands::setup::SetupCommand) -> io::Result<()> {
     cli::commands::setup::run(_cli, _command)
 }
 
-fn run_login_command(_cli: &Cli, _command: &cli::commands::auth::LoginCommand) -> io::Result<()> {
+fn run_login_command(_cli: &Cli, _command: &commands::auth::LoginCommand) -> io::Result<()> {
     cli::commands::auth::run_login(_cli, _command)
 }
 
-fn run_logout_command(_cli: &Cli, _command: &cli::commands::auth::LogoutCommand) -> io::Result<()> {
+fn run_logout_command(_cli: &Cli, _command: &commands::auth::LogoutCommand) -> io::Result<()> {
     cli::commands::auth::run_logout(_cli, _command)
 }
 
-fn run_auth_command(_cli: &Cli, _command: &cli::commands::auth::AuthCommand) -> io::Result<()> {
+fn run_auth_command(_cli: &Cli, _command: &commands::auth::AuthCommand) -> io::Result<()> {
     cli::commands::auth::run_auth(_cli, _command)
 }
 
-fn run_doctor_command(_cli: &Cli, _command: &cli::commands::doctor::DoctorCommand) -> io::Result<()> {
+fn run_doctor_command(_cli: &Cli, _command: &commands::doctor::DoctorCommand) -> io::Result<()> {
     cli::commands::doctor::run(_cli, _command)
 }
 
-fn run_config_command(_cli: &Cli, _command: &cli::commands::config::ConfigCommand) -> io::Result<()> {
+fn run_config_command(_cli: &Cli, _command: &commands::config::ConfigCommand) -> io::Result<()> {
     cli::commands::config::run(_cli, _command)
 }
 
@@ -535,7 +534,8 @@ fn configured_mcp_server(config: &mcp::config::McpConfig, name: &str) -> io::Res
     Ok(server)
 }
 
-fn run_acp_command(cli: &Cli, command: &AcpCommand) -> io::Result<()> {
+fn run_acp_command(cli: &Cli, command: &commands::acp::AcpCommand) -> io::Result<()> {
+    use commands::acp::AcpCommand;
     match command {
         AcpCommand::Serve => run_acp_server(cli),
         AcpCommand::List => {
@@ -1479,7 +1479,7 @@ mod tests {
             environment: prompt::EnvironmentMetadata {
                 cwd: "/repo".to_string(),
                 model: "umans-coder".to_string(),
-                search_mode: cli::WebSearchMode::Native,
+                search_mode: WebSearchMode::Native,
                 date: "2026-06-29".to_string(),
             },
             project_context: vec![source],
@@ -1647,7 +1647,7 @@ for line in sys.stdin:
         );
         let cli = Cli {
             model: "umans-glm-5.2".to_string(),
-            websearch: cli::WebSearchMode::Exa,
+            websearch: WebSearchMode::Exa,
             session_dir: Some(PathBuf::from("/repo/custom-sessions")),
             config_layers: vec![config::LoadedConfigLayer {
                 source: config::ConfigSource::ProjectFile,

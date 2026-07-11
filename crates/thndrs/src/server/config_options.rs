@@ -152,7 +152,7 @@ fn validate_reasoning_effort(value: &str) -> Result<ConfigOptionValue, ConfigOpt
         .ok_or_else(|| ConfigOptionError::InvalidValue {
             id: REASONING_EFFORT_CONFIG_OPTION_ID.to_string(),
             value: value.to_string(),
-            reason: "must be one of low/medium/high/xhigh".to_string(),
+            reason: "must be one of none/low/medium/high/xhigh/max".to_string(),
         })
 }
 
@@ -200,13 +200,15 @@ fn reasoning_effort_config_option(effort: ReasoningEffort) -> SessionConfigOptio
         "Reasoning Effort",
         effort.label(),
         vec![
+            SessionConfigSelectOption::new("none", "None"),
             SessionConfigSelectOption::new("low", "Low"),
             SessionConfigSelectOption::new("medium", "Medium"),
             SessionConfigSelectOption::new("high", "High"),
             SessionConfigSelectOption::new("xhigh", "Extra High"),
+            SessionConfigSelectOption::new("max", "Max"),
         ],
     )
-    .description("ChatGPT Codex GPT-5.6 Sol reasoning effort for future prompt turns")
+    .description("GPT-5.6 reasoning effort for future prompt turns")
     .category(SessionConfigOptionCategory::ModelConfig)
 }
 

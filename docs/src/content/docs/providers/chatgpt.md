@@ -58,6 +58,8 @@ the provider.
 Known model picker entries include:
 
 - `chatgpt-codex/gpt-5.6-sol`
+- `chatgpt-codex/gpt-5.6-terra`
+- `chatgpt-codex/gpt-5.6-luna`
 - `chatgpt-codex/gpt-5.4`
 - `chatgpt-codex/gpt-5.4-mini`
 - `chatgpt-codex/gpt-5.3-codex-spark`
@@ -65,10 +67,13 @@ Known model picker entries include:
 The provider labels these entries as ChatGPT-backed and experimental in status
 copy to help distinguish them from OpenAI Platform API-key (coming soon) routes.
 
-## GPT-5.6 Sol reasoning
+## GPT-5.6 reasoning
 
-`chatgpt-codex/gpt-5.6-sol` accepts `reasoning_effort = "low"`, `"medium"`,
-`"high"`, or `"xhigh"`. The default is `medium`. Set
+`chatgpt-codex/gpt-5.6-sol`, `chatgpt-codex/gpt-5.6-terra`, and
+`chatgpt-codex/gpt-5.6-luna` accept `reasoning_effort = "none"`, `"low"`,
+`"medium"`, `"high"`, `"xhigh"`, or `"max"`. The default is `medium`.
+Selecting a GPT-5.6 model from `/model` opens the reasoning-effort picker; use
+`/reasoning` to change it later. Set
 `reasoning_summary = "auto"` to render provider-returned reasoning summaries;
 the default `off` preserves opaque reasoning only for the active tool loop.
 

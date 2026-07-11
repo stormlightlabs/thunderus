@@ -57,9 +57,10 @@ provider-specific names.
 |                     | `native`           |                                     |                                                |
 |                     | `exa`,             |                                     |                                                |
 |                     | `none`             |                                     |                                                |
-| `reasoning_effort`  | `low`, `medium`,   | `medium`                            | GPT-5.6 Sol reasoning effort.                  |
-|                     | `high`, `xhigh`    |                                     |                                                |
-| `reasoning_summary` | `off`, `auto`      | `off`                               | Whether GPT-5.6 Sol summaries are shown.       |
+| `reasoning_effort`  | `none`, `low`,     | `medium`                            | GPT-5.6 reasoning effort.                      |
+|                     | `medium`, `high`,  |                                     |                                                |
+|                     | `xhigh`, `max`     |                                     |                                                |
+| `reasoning_summary` | `off`, `auto`      | `off`                               | Whether GPT-5.6 summaries are shown.           |
 | `tick_rate_ms`      | integer            | `100`                               | Event poll interval in milliseconds.           |
 | `theme`             | `eldritch-minimal` | `eldritch-minimal`                  | UI color theme.                                |
 |                     | `iceberg-dark`     |                                     |                                                |

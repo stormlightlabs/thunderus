@@ -5,24 +5,24 @@ use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
 /// Compute a stable hash for context and memory content.
-pub(crate) fn hash_content(content: &str) -> u64 {
+pub fn hash_content(content: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     content.hash(&mut hasher);
     hasher.finish()
 }
 
 /// Compute `floor(value * ratio)` for whole-token budget calculations.
-pub(crate) fn ratio_of(value: u64, ratio: f64) -> u64 {
+pub fn ratio_of(value: u64, ratio: f64) -> u64 {
     if value == 0 { 0 } else { ((value as f64) * ratio).floor() as u64 }
 }
 
 /// Return the number of path segments in a context scope.
-pub(crate) fn scope_depth(scope: &str) -> usize {
+pub fn scope_depth(scope: &str) -> usize {
     if scope == "." || scope.is_empty() { 0 } else { scope.matches('/').count() + 1 }
 }
 
 /// Return the current user's home directory from standard platform variables.
-pub(crate) fn home_dir() -> Option<PathBuf> {
+pub fn home_dir() -> Option<PathBuf> {
     std::env::var_os("HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("USERPROFILE").map(PathBuf::from))
@@ -30,7 +30,7 @@ pub(crate) fn home_dir() -> Option<PathBuf> {
 
 /// Return the current UTC time in ISO-8601 form without an external clock dependency.
 #[cfg(feature = "memory")]
-pub(crate) fn now_iso8601() -> String {
+pub fn now_iso8601() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()

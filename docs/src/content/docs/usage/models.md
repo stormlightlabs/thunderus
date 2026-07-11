@@ -9,7 +9,10 @@ title: "Models"
 - OpenCode Go models use the documented `opencode-go/<model-id>` form, for
   example `opencode-go/kimi-k2.7-code`.
 - ChatGPT Codex models use the `chatgpt-codex/<model-id>` form, for example
-  `chatgpt-codex/gpt-5.6-sol`. This provider is ChatGPT-backed and experimental.
+  `chatgpt-codex/gpt-5.6-sol`, `chatgpt-codex/gpt-5.6-terra`, or
+  `chatgpt-codex/gpt-5.6-luna`. This provider is ChatGPT-backed and
+  experimental. Selecting a GPT-5.6 model from `/model` opens the
+  reasoning-effort picker; `/reasoning` opens it again later.
 - Umans models such as `umans-coder` use the Umans provider.
 - ACP agents use `acp:<name>`, where `<name>` is a configured
   `[acp_agents.<name>]` entry.

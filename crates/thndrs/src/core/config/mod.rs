@@ -285,6 +285,30 @@ pub fn write_project_model(workspace: &Path, model: &str) -> std::io::Result<Pat
     Ok(path)
 }
 
+/// Write the selected reasoning effort into a TOML config file.
+///
+/// Preserves existing config content and only replaces or inserts the top-level
+/// `reasoning_effort` key. Nested table keys with the same name are left untouched.
+pub fn write_reasoning_effort_config(path: &Path, effort: ReasoningEffort) -> std::io::Result<()> {
+    let existing = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(err) => return Err(err),
+    };
+    let next = upsert_top_level_toml_string(&existing, "reasoning_effort", effort.label());
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(path, next)
+}
+
+/// Write the selected reasoning effort into the project config and return the path used.
+pub fn write_project_reasoning_effort(workspace: &Path, effort: ReasoningEffort) -> std::io::Result<PathBuf> {
+    let path = project_config_path(workspace);
+    write_reasoning_effort_config(&path, effort)?;
+    Ok(path)
+}
+
 fn upsert_top_level_toml_string(content: &str, key: &str, value: &str) -> String {
     let assignment = format!("{key} = {}\n", toml_basic_string(value));
     let mut output = String::new();
@@ -560,7 +584,7 @@ fn parse_websearch_env(name: &str, value: &str) -> Result<WebSearchMode, ConfigE
 fn parse_reasoning_effort_env(name: &str, value: &str) -> Result<ReasoningEffort, ConfigError> {
     ReasoningEffort::parse(value).ok_or_else(|| ConfigError::InvalidEnv {
         name: name.to_string(),
-        message: format!("must be one of low, medium, high, xhigh (got '{value}')"),
+        message: format!("must be one of none, low, medium, high, xhigh, max (got '{value}')"),
     })
 }
 

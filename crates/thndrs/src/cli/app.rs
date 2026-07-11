@@ -20,9 +20,10 @@ use thndrs_context::{context, memory as memory_contracts};
 
 use crate::acp::config::provider_label;
 use crate::acp::permissions::{PendingPermission, PermissionDecision};
+use crate::cli::commands;
 use crate::cli::commands::auth::CredentialScope;
 use crate::cli::commands::setup::SetupProviderArg;
-use crate::cli::{Cli, Theme, WebSearchMode};
+use crate::cli::{Cli, ReasoningEffort, Theme, WebSearchMode};
 use crate::input::PromptInput;
 use crate::providers::{codex, opencode, umans};
 use crate::renderer::git::GitStatusSummary;
@@ -65,6 +66,7 @@ pub enum PromptAccessory {
     },
     Files(FilePickerSource),
     Models,
+    ReasoningEffort,
     Skills,
 }
 
@@ -214,6 +216,13 @@ pub enum FilePickerSource {
     Mention { token_start: usize },
 }
 
+/// Setup state held while the reasoning picker is open.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct PendingSetupReasoningEffort {
+    provider: SetupProviderArg,
+    scope: CredentialScope,
+}
+
 /// Semantic run state, used for the status line.
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub enum RunState {
@@ -285,12 +294,12 @@ impl TurnTtftState {
     }
 
     #[cfg(test)]
-    pub(crate) fn set_pending_for_test(&mut self) {
+    pub fn set_pending_for_test(&mut self) {
         self.pending_since = Some(Instant::now());
     }
 
     #[cfg(test)]
-    pub(crate) fn set_last_completed_for_test(&mut self, duration: Duration) {
+    pub fn set_last_completed_for_test(&mut self, duration: Duration) {
         self.pending_since = None;
         self.last_completed = Some(duration);
     }
@@ -560,7 +569,7 @@ pub struct App {
     /// Whether optional memory and retrieval are active for this run.
     pub memory_enabled: bool,
     /// Memory roots are resolved only after memory is deliberately enabled.
-    pub(crate) memory_roots: Option<memory_contracts::MemoryRoots>,
+    pub memory_roots: Option<memory_contracts::MemoryRoots>,
     /// Current git working tree summary for the status line.
     pub git_status: Option<GitStatusSummary>,
     pub model: String,
@@ -605,6 +614,8 @@ pub struct App {
     pending_manual_compaction: Option<PendingManualCompaction>,
     /// Current target for input submitted while the agent is running.
     pub queue_target: QueueTarget,
+    /// Setup state to resume after choosing a GPT-5.6 reasoning effort.
+    pending_setup_reasoning_effort: Option<PendingSetupReasoningEffort>,
     /// Active fuzzy picker state, used by file and model pickers.
     pub picker: Option<PickerState>,
     /// Inline prompt accessory rendered above the input.
@@ -741,6 +752,7 @@ impl From<&Cli> for App {
             last_input: None,
             pending_manual_compaction: None,
             queue_target: QueueTarget::default(),
+            pending_setup_reasoning_effort: None,
             picker: None,
             prompt_accessory: PromptAccessory::None,
             first_run_recovery: None,
@@ -791,7 +803,7 @@ impl App {
     ///
     /// Used by the preflight gate to avoid re-triggering auto-compaction while
     /// the configured-model summary request is the active turn.
-    pub(crate) fn compaction_in_flight(&self) -> bool {
+    pub fn compaction_in_flight(&self) -> bool {
         self.pending_manual_compaction.is_some()
     }
 
@@ -932,6 +944,7 @@ pub fn command_suggestions_for_app(app: &App) -> Vec<(&'static str, &'static str
         ("help", "show help"),
         ("bg", "list background processes"),
         ("model", "switch model"),
+        ("reasoning", "set reasoning effort"),
         ("skills", "browse loaded skills"),
         ("doctor", "show redacted diagnostics"),
         ("history", "list recent sessions"),
@@ -1041,7 +1054,10 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) -> Option<Msg> {
     }
 
     match app.prompt_accessory {
-        PromptAccessory::Files(_) | PromptAccessory::Models | PromptAccessory::Skills => {
+        PromptAccessory::Files(_)
+        | PromptAccessory::Models
+        | PromptAccessory::ReasoningEffort
+        | PromptAccessory::Skills => {
             if let Some(picker) = app.picker.as_mut() {
                 match mouse.kind {
                     MouseEventKind::ScrollUp => picker.move_up(),
@@ -1067,6 +1083,7 @@ fn handle_accessory_key(app: &mut App, key: KeyEvent) -> KeyOutcome {
         PromptAccessory::Commands { .. } => handle_command_accessory_key(app, key),
         PromptAccessory::Files(_) => handle_file_accessory_key(app, key),
         PromptAccessory::Models => handle_model_accessory_key(app, key),
+        PromptAccessory::ReasoningEffort => handle_reasoning_effort_accessory_key(app, key),
         PromptAccessory::Skills => handle_skill_accessory_key(app, key),
         PromptAccessory::None => KeyOutcome::Unhandled,
     }
@@ -1161,6 +1178,49 @@ fn handle_model_accessory_key(app: &mut App, key: KeyEvent) -> KeyOutcome {
         }
         KeyCode::Enter => {
             accept_model_suggestion(app);
+            KeyOutcome::Handled
+        }
+        KeyCode::Up => {
+            picker.move_up();
+            KeyOutcome::Handled
+        }
+        KeyCode::Down => {
+            picker.move_down();
+            KeyOutcome::Handled
+        }
+        KeyCode::PageUp => {
+            picker.page_up();
+            KeyOutcome::Handled
+        }
+        KeyCode::PageDown => {
+            picker.page_down();
+            KeyOutcome::Handled
+        }
+        KeyCode::Backspace => {
+            picker.query.pop();
+            picker.refresh_matches();
+            KeyOutcome::Handled
+        }
+        KeyCode::Char(ch) => {
+            picker.query.push(ch);
+            picker.refresh_matches();
+            KeyOutcome::Handled
+        }
+        _ => KeyOutcome::Unhandled,
+    }
+}
+
+fn handle_reasoning_effort_accessory_key(app: &mut App, key: KeyEvent) -> KeyOutcome {
+    let Some(picker) = app.picker.as_mut() else {
+        return KeyOutcome::Unhandled;
+    };
+    match key.code {
+        KeyCode::Esc => {
+            finish_reasoning_effort_picker(app);
+            KeyOutcome::Handled
+        }
+        KeyCode::Enter => {
+            accept_reasoning_effort_suggestion(app);
             KeyOutcome::Handled
         }
         KeyCode::Up => {
@@ -1557,7 +1617,11 @@ fn accept_prompt_suggestion(app: &mut App) -> Option<Msg> {
             accept_file_suggestion(app);
             None
         }
-        PromptAccessory::None | PromptAccessory::Help | PromptAccessory::Models | PromptAccessory::Skills => {
+        PromptAccessory::None
+        | PromptAccessory::Help
+        | PromptAccessory::Models
+        | PromptAccessory::ReasoningEffort
+        | PromptAccessory::Skills => {
             if app.mode == Mode::Command || app.input.as_str().starts_with('/') {
                 accept_command_suggestion(app)
             } else {
@@ -1590,6 +1654,25 @@ fn open_model_picker(app: &mut App) {
     };
     app.picker = Some(PickerState::new(items, MODEL_PICKER_LIMIT));
     app.prompt_accessory = PromptAccessory::Models;
+}
+
+fn open_reasoning_effort_picker(app: &mut App) {
+    let items = ReasoningEffort::ALL
+        .into_iter()
+        .map(|effort| {
+            PickerItem::new(
+                effort.label(),
+                format!("{} — {}", effort.display_label(), effort.description()),
+            )
+        })
+        .collect();
+    let mut picker = PickerState::new(items, MODEL_PICKER_LIMIT);
+    picker.selected = ReasoningEffort::ALL
+        .iter()
+        .position(|effort| *effort == app.cli.reasoning_effort)
+        .unwrap_or_default();
+    app.picker = Some(picker);
+    app.prompt_accessory = PromptAccessory::ReasoningEffort;
 }
 
 fn open_skill_picker(app: &mut App) {
@@ -1656,7 +1739,10 @@ fn load_project_input_history(sessions_dir: &Path) -> Vec<String> {
 fn close_prompt_accessory(app: &mut App) {
     if matches!(
         app.prompt_accessory,
-        PromptAccessory::Files(_) | PromptAccessory::Models | PromptAccessory::Skills
+        PromptAccessory::Files(_)
+            | PromptAccessory::Models
+            | PromptAccessory::ReasoningEffort
+            | PromptAccessory::Skills
     ) {
         app.picker = None;
     }
@@ -1971,12 +2057,12 @@ fn configure_setup_model_scope(app: &mut App, recovery: &FirstRunRecovery) {
     match recovery.selected {
         0 => {
             if write_setup_model_config(app, provider, CredentialScope::Project).is_ok() {
-                advance_after_setup_model_config(app, provider);
+                after_setup_model_config(app, provider, CredentialScope::Project);
             }
         }
         1 => {
             if write_setup_model_config(app, provider, CredentialScope::Global).is_ok() {
-                advance_after_setup_model_config(app, provider);
+                after_setup_model_config(app, provider, CredentialScope::Global);
             }
         }
         2 => {
@@ -1989,6 +2075,16 @@ fn configure_setup_model_scope(app: &mut App, recovery: &FirstRunRecovery) {
             app.transcript
                 .push(Entry::Status { text: String::from("setup skipped") });
         }
+    }
+}
+
+fn after_setup_model_config(app: &mut App, provider: SetupProviderArg, scope: CredentialScope) {
+    if codex::supports_reasoning_effort(&app.model) {
+        app.first_run_recovery = None;
+        app.pending_setup_reasoning_effort = Some(PendingSetupReasoningEffort { provider, scope });
+        open_reasoning_effort_picker(app);
+    } else {
+        advance_after_setup_model_config(app, provider);
     }
 }
 
@@ -2202,7 +2298,7 @@ fn store_recovery_credential(app: &mut App, recovery: &FirstRunRecovery) {
     };
 
     let key = recovery.secret_input.trim();
-    let path = match crate::cli::commands::auth::credential_path(scope, &app.cwd) {
+    let path = match commands::auth::credential_path(scope, &app.cwd) {
         Ok(path) => path,
         Err(err) => {
             app.transcript
@@ -2249,7 +2345,7 @@ fn remove_recovery_credential(app: &mut App, recovery: &FirstRunRecovery) {
             .push(Entry::Status { text: String::from("logout cancelled") });
         return;
     };
-    let path = match crate::cli::commands::auth::credential_path(scope, &app.cwd) {
+    let path = match commands::auth::credential_path(scope, &app.cwd) {
         Ok(path) => path,
         Err(err) => {
             app.transcript
@@ -2429,7 +2525,65 @@ fn accept_model_suggestion(app: &mut App) {
                 .push(Entry::Error { text: format!("failed to save selected model to project config: {err}") });
         }
     }
+    if codex::supports_reasoning_effort(&model) {
+        open_reasoning_effort_picker(app);
+    } else {
+        close_prompt_accessory(app);
+    }
+}
+
+fn accept_reasoning_effort_suggestion(app: &mut App) {
+    let Some(effort) = app
+        .picker
+        .as_ref()
+        .and_then(|picker| picker.selected())
+        .and_then(|item| ReasoningEffort::parse(&item.label))
+    else {
+        return;
+    };
+
+    app.cli.reasoning_effort = effort;
+    let pending_setup = app.pending_setup_reasoning_effort;
+    match write_reasoning_effort_config(app, effort, pending_setup.map(|pending| pending.scope)) {
+        Ok((_path, display)) => {
+            app.transcript
+                .push(Entry::Status { text: format!("reasoning effort: {} (saved to {display})", effort.label()) });
+        }
+        Err(err) => {
+            app.transcript
+                .push(Entry::Status { text: format!("reasoning effort: {}", effort.label()) });
+            app.transcript
+                .push(Entry::Error { text: format!("failed to save reasoning effort to project config: {err}") });
+        }
+    }
+    finish_reasoning_effort_picker(app);
+}
+
+fn write_reasoning_effort_config(
+    app: &App, effort: ReasoningEffort, scope: Option<CredentialScope>,
+) -> std::io::Result<(PathBuf, String)> {
+    let (path, display) = match scope {
+        Some(CredentialScope::Global) => {
+            let path = config::global_config_path()
+                .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "HOME is not available"))?;
+            let display = config::global_config_path_display(&path);
+            (path, display)
+        }
+        Some(CredentialScope::Project) | None => {
+            let path = config::project_config_path(&app.cwd);
+            let display = config::project_config_path_display(&path, &app.cwd);
+            (path, display)
+        }
+    };
+    config::write_reasoning_effort_config(&path, effort)?;
+    Ok((path, display))
+}
+
+fn finish_reasoning_effort_picker(app: &mut App) {
     close_prompt_accessory(app);
+    if let Some(pending) = app.pending_setup_reasoning_effort.take() {
+        advance_after_setup_model_config(app, pending.provider);
+    }
 }
 
 fn accept_skill_suggestion(app: &mut App) {
@@ -2520,10 +2674,6 @@ fn sync_file_picker_query(app: &mut App) {
     }
 }
 
-/// Handle an `Enter` submit. Slash commands are routed; otherwise the input is
-/// appended as [`Entry::User`] and cleared, and the fake agent stream is started.
-///
-/// Returns an optional follow-up [`Msg`].
 fn handle_submit(app: &mut App) -> Option<Msg> {
     if app.pending_permission.is_some() {
         return None;
@@ -2736,6 +2886,10 @@ fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
             open_model_picker(app);
             None
         }
+        "reasoning" => {
+            open_reasoning_effort_picker(app);
+            None
+        }
         "skills" => {
             open_skill_picker(app);
             None
@@ -2751,16 +2905,14 @@ fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
             None
         }
         "config path" => {
-            run_config_slash(app, &crate::cli::commands::config::ConfigCommand::Path);
+            run_config_slash(app, &commands::config::ConfigCommand::Path);
             app.input.clear();
             None
         }
         "config show" => {
             run_config_slash(
                 app,
-                &crate::cli::commands::config::ConfigCommand::Show(crate::cli::commands::config::ConfigShowCommand {
-                    redacted: true,
-                }),
+                &commands::config::ConfigCommand::Show(commands::config::ConfigShowCommand { redacted: true }),
             );
             app.input.clear();
             None
@@ -2811,7 +2963,7 @@ fn start_manual_compaction(app: &mut App) -> Option<Msg> {
 ///
 /// Returns `None` (without spawning) when compaction cannot start, leaving
 /// the submitted turn recoverable.
-pub(crate) fn start_auto_compaction(app: &mut App, original_user_turn: String) -> Option<Msg> {
+pub fn start_auto_compaction(app: &mut App, original_user_turn: String) -> Option<Msg> {
     start_compaction(app, session::CompactionTrigger::Automatic, Some(original_user_turn))
 }
 
@@ -2869,7 +3021,7 @@ fn start_compaction(
 }
 
 /// Resolve the configured compaction policy from loaded config layers.
-pub(crate) fn effective_compaction_policy(app: &App) -> context::CompactionPolicy {
+pub fn effective_compaction_policy(app: &App) -> context::CompactionPolicy {
     let config = app
         .cli
         .config_layers
@@ -2942,20 +3094,20 @@ fn is_api_key_like(value: &str) -> bool {
 
 fn run_doctor_slash(app: &mut App) {
     let mut output = Vec::new();
-    let command = crate::cli::commands::doctor::DoctorCommand { json: false };
-    let result = crate::cli::commands::doctor::run_with_writer(&app.cli, &command, &mut output);
+    let command = commands::doctor::DoctorCommand { json: false };
+    let result = commands::doctor::run_with_writer(&app.cli, &command, &mut output);
     push_command_output(app, "doctor", &output, result);
 }
 
 fn run_auth_status_slash(app: &mut App) {
     let mut output = Vec::new();
-    let result = crate::cli::commands::auth::write_auth_status(&app.cwd, &mut output);
+    let result = commands::auth::write_auth_status(&app.cwd, &mut output);
     push_command_output(app, "auth status", &output, result);
 }
 
-fn run_config_slash(app: &mut App, command: &crate::cli::commands::config::ConfigCommand) {
+fn run_config_slash(app: &mut App, command: &commands::config::ConfigCommand) {
     let mut output = Vec::new();
-    let result = crate::cli::commands::config::run_with_writer(&app.cli, command, &mut output);
+    let result = commands::config::run_with_writer(&app.cli, command, &mut output);
     push_command_output(app, "config", &output, result);
 }
 

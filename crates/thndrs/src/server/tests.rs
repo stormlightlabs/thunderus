@@ -444,7 +444,11 @@ fn config_options_have_stable_ids_and_validate_values() {
     assert!(validate_config_option(MODEL_CONFIG_OPTION_ID, "").is_err());
     assert!(validate_config_option("missing", "x").is_err());
     assert!(validate_config_option(WEBSEARCH_CONFIG_OPTION_ID, "bad").is_err());
-    assert!(validate_config_option(REASONING_EFFORT_CONFIG_OPTION_ID, "max").is_err());
+    assert!(matches!(
+        validate_config_option(REASONING_EFFORT_CONFIG_OPTION_ID, "max"),
+        Ok(ConfigOptionValue::ReasoningEffort(ReasoningEffort::Max))
+    ));
+    assert!(validate_config_option(REASONING_EFFORT_CONFIG_OPTION_ID, "unbounded").is_err());
 }
 
 #[test]

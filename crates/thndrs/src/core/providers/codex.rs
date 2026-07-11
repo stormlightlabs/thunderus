@@ -115,7 +115,7 @@ impl ChatGptCodexClient {
     ///
     /// TODO: Apply these controls to additional ChatGPT Codex models once
     /// private-backend support has been verified for each model.
-    pub(crate) fn build_responses_request_body_with_reasoning(
+    pub fn build_responses_request_body_with_reasoning(
         model: &str, messages: &[ProviderMessage], tools: Option<&serde_json::Value>, effort: ReasoningEffort,
         summary: ReasoningSummary, continuation: &ProviderContinuation,
     ) -> Result<serde_json::Value> {
@@ -133,7 +133,7 @@ impl ChatGptCodexClient {
             "text": { "verbosity": "low" },
             "include": ["reasoning.encrypted_content"],
         });
-        if raw_model == "gpt-5.6-sol" {
+        if is_gpt_5_6_raw_model(raw_model) {
             let mut reasoning = serde_json::json!({ "effort": effort.label() });
             if summary == ReasoningSummary::Auto {
                 reasoning["summary"] = serde_json::Value::String("auto".to_string());
@@ -150,7 +150,7 @@ impl ChatGptCodexClient {
     }
 
     /// Send a streaming request to `POST /responses`.
-    pub(crate) fn send_streaming_request(
+    pub fn send_streaming_request(
         &self, model: &str, messages: &[ProviderMessage], tools: Option<&serde_json::Value>, effort: ReasoningEffort,
         summary: ReasoningSummary, continuation: &ProviderContinuation,
     ) -> Result<ureq::http::Response<ureq::Body>> {
@@ -258,10 +258,20 @@ pub fn raw_model_id(model: &str) -> Result<&str> {
         .ok_or_else(|| ProviderError::invalid_model_id("ChatGPT Codex", MODEL_PREFIX, model))
 }
 
+/// Whether this ChatGPT Codex model supports GPT-5.6 reasoning controls.
+pub fn supports_reasoning_effort(model: &str) -> bool {
+    raw_model_id(model).is_ok_and(is_gpt_5_6_raw_model)
+}
+
 /// Current ChatGPT Codex models from the provider expansion plan.
 pub fn known_models() -> Vec<KnownModel> {
     vec![
         KnownModel { id: "chatgpt-codex/gpt-5.6-sol", description: "ChatGPT-backed Codex GPT-5.6 Sol, experimental" },
+        KnownModel {
+            id: "chatgpt-codex/gpt-5.6-terra",
+            description: "ChatGPT-backed Codex GPT-5.6 Terra, experimental",
+        },
+        KnownModel { id: "chatgpt-codex/gpt-5.6-luna", description: "ChatGPT-backed Codex GPT-5.6 Luna, experimental" },
         KnownModel { id: "chatgpt-codex/gpt-5.5", description: "ChatGPT-backed Codex, experimental" },
         KnownModel { id: "chatgpt-codex/gpt-5.4", description: "ChatGPT-backed Codex, experimental" },
         KnownModel { id: "chatgpt-codex/gpt-5.4-mini", description: "ChatGPT-backed Codex mini, experimental" },
@@ -269,8 +279,12 @@ pub fn known_models() -> Vec<KnownModel> {
     ]
 }
 
+fn is_gpt_5_6_raw_model(model: &str) -> bool {
+    matches!(model, "gpt-5.6-sol" | "gpt-5.6-terra" | "gpt-5.6-luna")
+}
+
 /// Extend an in-memory Responses history after one streamed response.
-pub(crate) fn record_response_items(
+pub fn record_response_items(
     continuation: &mut ProviderContinuation, messages: &[ProviderMessage], response_items: Vec<serde_json::Value>,
 ) {
     if response_items.is_empty() {
@@ -290,7 +304,7 @@ pub(crate) fn record_response_items(
 }
 
 /// Append a tool result to an in-memory Responses history.
-pub(crate) fn record_tool_output(
+pub fn record_tool_output(
     continuation: &mut ProviderContinuation, call_id: &str, output: &str, consumed_messages: usize,
 ) {
     let Some((items, _)) = continuation.responses_items() else {
@@ -612,6 +626,8 @@ mod tests {
     fn known_models_include_chatgpt_codex_picker_entries() {
         let ids: Vec<&str> = known_models().iter().map(|model| model.id).collect();
         assert!(ids.contains(&"chatgpt-codex/gpt-5.6-sol"));
+        assert!(ids.contains(&"chatgpt-codex/gpt-5.6-terra"));
+        assert!(ids.contains(&"chatgpt-codex/gpt-5.6-luna"));
         assert!(ids.contains(&"chatgpt-codex/gpt-5.5"));
         assert!(ids.contains(&"chatgpt-codex/gpt-5.4"));
         assert!(ids.contains(&"chatgpt-codex/gpt-5.4-mini"));
@@ -685,7 +701,7 @@ mod tests {
     }
 
     #[test]
-    fn sol_request_includes_reasoning_effort_and_optional_summary() {
+    fn gpt_5_6_request_includes_reasoning_effort_and_optional_summary() {
         let messages = vec![ProviderMessage::user("inspect the project")];
         let body = ChatGptCodexClient::build_responses_request_body_with_reasoning(
             "chatgpt-codex/gpt-5.6-sol",
@@ -701,6 +717,34 @@ mod tests {
         assert_eq!(body["reasoning"]["effort"], "xhigh");
         assert_eq!(body["reasoning"]["summary"], "auto");
         assert_eq!(body["include"], serde_json::json!(["reasoning.encrypted_content"]));
+    }
+
+    #[test]
+    fn terra_and_luna_requests_include_reasoning_effort() {
+        for (model, effort) in [
+            ("chatgpt-codex/gpt-5.6-terra", ReasoningEffort::None),
+            ("chatgpt-codex/gpt-5.6-luna", ReasoningEffort::Max),
+        ] {
+            let body = ChatGptCodexClient::build_responses_request_body_with_reasoning(
+                model,
+                &[ProviderMessage::user("hello")],
+                None,
+                effort,
+                ReasoningSummary::Off,
+                &ProviderContinuation::default(),
+            )
+            .expect("body");
+
+            assert_eq!(body["reasoning"]["effort"], effort.label());
+        }
+    }
+
+    #[test]
+    fn reasoning_effort_support_is_limited_to_gpt_5_6_models() {
+        assert!(supports_reasoning_effort("chatgpt-codex/gpt-5.6-sol"));
+        assert!(supports_reasoning_effort("chatgpt-codex/gpt-5.6-terra"));
+        assert!(supports_reasoning_effort("chatgpt-codex/gpt-5.6-luna"));
+        assert!(!supports_reasoning_effort("chatgpt-codex/gpt-5.5"));
     }
 
     #[test]
@@ -996,35 +1040,32 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires real ChatGPT subscription credentials and validates private GPT-5.6 Sol backend support"]
-    fn live_sol_supports_each_reasoning_effort() {
+    #[ignore = "requires real ChatGPT subscription credentials and validates private GPT-5.6 ChatGPT Codex backend support"]
+    fn live_gpt_5_6_models_support_each_reasoning_effort() {
         let workspace_root = env::current_dir().expect("current dir");
         let client = ChatGptCodexClient::from_env_or_dotenv(&workspace_root)
             .expect("real ChatGPT subscription credentials are required");
         let messages = vec![ProviderMessage::user("Reply with exactly: ok")];
 
-        for effort in [
-            ReasoningEffort::Low,
-            ReasoningEffort::Medium,
-            ReasoningEffort::High,
-            ReasoningEffort::Xhigh,
+        for model in [
+            "chatgpt-codex/gpt-5.6-sol",
+            "chatgpt-codex/gpt-5.6-terra",
+            "chatgpt-codex/gpt-5.6-luna",
         ] {
-            let mut response = client
-                .send_streaming_request(
-                    "chatgpt-codex/gpt-5.6-sol",
-                    &messages,
-                    None,
-                    effort,
-                    ReasoningSummary::Off,
-                    &ProviderContinuation::default(),
-                )
-                .unwrap_or_else(|error| panic!("GPT-5.6 Sol rejected {}: {error}", effort.label()));
-            let body = response.body_mut().read_to_string().expect("read body");
-            assert!(
-                body.contains("data:"),
-                "GPT-5.6 Sol {} did not stream SSE",
-                effort.label()
-            );
+            for effort in ReasoningEffort::ALL {
+                let mut response = client
+                    .send_streaming_request(
+                        model,
+                        &messages,
+                        None,
+                        effort,
+                        ReasoningSummary::Off,
+                        &ProviderContinuation::default(),
+                    )
+                    .unwrap_or_else(|error| panic!("{model} rejected {}: {error}", effort.label()));
+                let body = response.body_mut().read_to_string().expect("read body");
+                assert!(body.contains("data:"), "{model} {} did not stream SSE", effort.label());
+            }
         }
     }
 

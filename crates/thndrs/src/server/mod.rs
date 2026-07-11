@@ -28,9 +28,9 @@ pub struct ServerConfig {
     pub model: String,
     /// Web search policy label selected for future harness turns.
     pub websearch: String,
-    /// Default reasoning effort for ChatGPT Codex GPT-5.6 Sol sessions.
+    /// Default reasoning effort for ChatGPT Codex GPT-5.6 sessions.
     pub reasoning_effort: ReasoningEffort,
-    /// Default reasoning-summary policy for ChatGPT Codex GPT-5.6 Sol sessions.
+    /// Default reasoning-summary policy for ChatGPT Codex GPT-5.6 sessions.
     pub reasoning_summary: ReasoningSummary,
     /// Optional append-only session directory.
     pub session_dir: Option<PathBuf>,

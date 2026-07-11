@@ -9,6 +9,7 @@ use serde_json::to_string_pretty;
 use thndrs_context::context;
 
 use crate::acp::config::provider_label;
+use crate::cli::Cli;
 use crate::mcp;
 use crate::renderer::backend::terminal_size;
 use crate::session;
@@ -31,14 +32,14 @@ pub struct DoctorCommand {
 }
 
 /// Run setup diagnostics.
-pub fn run(cli: &crate::cli::Cli, command: &DoctorCommand) -> io::Result<()> {
+pub fn run(cli: &Cli, command: &DoctorCommand) -> io::Result<()> {
     let stdout = io::stdout();
     let mut lock = stdout.lock();
     run_with_writer(cli, command, &mut lock)
 }
 
 /// Run `thndrs doctor` with an injected writer.
-pub fn run_with_writer<W: Write>(cli: &crate::cli::Cli, command: &DoctorCommand, writer: &mut W) -> io::Result<()> {
+pub fn run_with_writer<W: Write>(cli: &Cli, command: &DoctorCommand, writer: &mut W) -> io::Result<()> {
     let report = gather_doctor_report(cli);
     if command.json {
         writeln!(writer, "{}", to_string_pretty(&report).map_err(io::Error::other)?)?;
@@ -66,7 +67,7 @@ pub fn run_with_writer<W: Write>(cli: &crate::cli::Cli, command: &DoctorCommand,
     Ok(())
 }
 
-fn gather_doctor_report(cli: &crate::cli::Cli) -> DoctorReport {
+fn gather_doctor_report(cli: &Cli) -> DoctorReport {
     let workspace = context::discover_workspace_root(&cli.cwd);
     let model = cli.model.clone();
     let provider = provider_label(&model).to_string();

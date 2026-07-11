@@ -280,6 +280,53 @@ fn model_command_opens_picker_and_selects_model() {
 }
 
 #[test]
+fn gpt_5_6_model_selection_prompts_for_and_saves_reasoning_effort() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from("/model");
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    let picker = app.picker.as_mut().expect("model picker");
+    picker.query = "gpt-5.6-terra".to_string();
+    picker.refresh_matches();
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(app.model, "chatgpt-codex/gpt-5.6-terra");
+    assert_eq!(app.prompt_accessory, PromptAccessory::ReasoningEffort);
+    let picker = app.picker.as_mut().expect("reasoning effort picker");
+    picker.query = "max".to_string();
+    picker.refresh_matches();
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(app.cli.reasoning_effort, ReasoningEffort::Max);
+    assert_eq!(app.prompt_accessory, PromptAccessory::None);
+    assert_eq!(
+        std::fs::read_to_string(app.cwd.join(".thndrs").join("config.toml")).expect("read config"),
+        "model = \"chatgpt-codex/gpt-5.6-terra\"\nreasoning_effort = \"max\"\n"
+    );
+}
+
+#[test]
+fn reasoning_command_opens_the_current_effort_picker() {
+    let mut app = fresh_app();
+    app.cli.reasoning_effort = ReasoningEffort::High;
+    app.input = PromptInput::from("/reasoning");
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(app.prompt_accessory, PromptAccessory::ReasoningEffort);
+    assert_eq!(
+        app.picker
+            .as_ref()
+            .expect("reasoning picker")
+            .selected()
+            .expect("selection")
+            .label,
+        "high"
+    );
+}
+
+#[test]
 fn skills_command_opens_picker_and_renders_selected_skill_markdown() {
     let dir = tempfile::tempdir().expect("create temp dir");
     let markdown = "---\nname: example-skill\ndescription: Helps test.\n---\n# Example Skill\n\nUse carefully.\n";

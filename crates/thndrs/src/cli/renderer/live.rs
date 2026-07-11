@@ -4,6 +4,7 @@
 //! [`super::region::LiveRegion`].
 
 use crate::app::{App, Entry, Mode, PromptAccessory, PromptState, RecoveryStage, RunState, ToolStatus};
+use crate::cli::commands;
 use crate::renderer::cursor::{prompt_cursor, prompt_rows};
 use crate::renderer::row::{CursorCoord, Row};
 use crate::renderer::style::{CellStyle, Color, Span};
@@ -149,6 +150,7 @@ pub fn accessory_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
         PromptAccessory::Commands { selected } => command_rows(app, selected, width, max_height),
         PromptAccessory::Files(_) => picker_rows(app, "files", width, max_height),
         PromptAccessory::Models => picker_rows(app, "models", width, max_height),
+        PromptAccessory::ReasoningEffort => picker_rows(app, "reasoning effort", width, max_height),
         PromptAccessory::Skills => picker_rows(app, "skills", width, max_height),
     }
 }
@@ -225,13 +227,13 @@ fn first_run_recovery_rows(app: &App, width: usize, max_height: usize) -> Vec<Ro
             );
         }
         RecoveryStage::MissingCredential => {
-            let body = if recovery.provider == Some(crate::cli::commands::setup::SetupProviderArg::ChatgptCodex) {
+            let body = if recovery.provider == Some(commands::setup::SetupProviderArg::ChatgptCodex) {
                 "Missing ChatGPT OAuth credential. Choose an action before submitting this prompt."
             } else {
                 "Missing credential. Choose an action before submitting this prompt."
             };
             rows.push(recovery_body_row(width, bg, text_style, body));
-            let actions = if recovery.provider == Some(crate::cli::commands::setup::SetupProviderArg::ChatgptCodex) {
+            let actions = if recovery.provider == Some(commands::setup::SetupProviderArg::ChatgptCodex) {
                 &[
                     "start ChatGPT OAuth login",
                     "switch model/provider",
@@ -283,7 +285,7 @@ fn first_run_recovery_rows(app: &App, width: usize, max_height: usize) -> Vec<Ro
             );
         }
         RecoveryStage::Instructions => {
-            let text = if recovery.provider == Some(crate::cli::commands::setup::SetupProviderArg::ChatgptCodex) {
+            let text = if recovery.provider == Some(commands::setup::SetupProviderArg::ChatgptCodex) {
                 "Run `thndrs setup --provider chatgpt-codex` or `thndrs login chatgpt-codex` outside the TUI."
             } else {
                 "Run `thndrs setup` or `thndrs login <provider>` outside the TUI."
@@ -422,7 +424,7 @@ fn recovery_missing_label(recovery: &crate::app::FirstRunRecovery) -> &'static s
         return "none";
     }
     match recovery.provider {
-        Some(crate::cli::commands::setup::SetupProviderArg::ChatgptCodex) => "ChatGPT OAuth credential",
+        Some(commands::setup::SetupProviderArg::ChatgptCodex) => "ChatGPT OAuth credential",
         Some(provider) => provider.api_key_env_var().unwrap_or("credential"),
         None => "ACP agent config",
     }

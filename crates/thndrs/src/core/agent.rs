@@ -32,6 +32,7 @@ use ureq::http::Response;
 
 use crate::WebSearchMode;
 use crate::app::{AgentEvent, ToolStatus};
+use crate::cli::{ReasoningEffort, ReasoningSummary};
 use crate::providers::{
     ProviderContentBlock, ProviderContinuation, ProviderError, ProviderMessage, ProviderTurn, StreamFormat,
     StreamingProvider, StreamingRequest,
@@ -719,9 +720,9 @@ where
     model: &'a str,
     messages: &'a [ProviderMessage],
     max_tokens: u32,
-    search_mode: crate::cli::WebSearchMode,
-    reasoning_effort: crate::cli::ReasoningEffort,
-    reasoning_summary: crate::cli::ReasoningSummary,
+    search_mode: WebSearchMode,
+    reasoning_effort: ReasoningEffort,
+    reasoning_summary: ReasoningSummary,
     tool_schemas: &'a serde_json::Value,
     continuation: &'a ProviderContinuation,
 }

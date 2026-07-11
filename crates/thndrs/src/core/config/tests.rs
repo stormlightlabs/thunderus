@@ -237,6 +237,35 @@ fn write_project_model_creates_project_config() {
 }
 
 #[test]
+fn write_project_reasoning_effort_preserves_model_and_nested_keys() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let path = tmp.path().join(".thndrs").join("config.toml");
+    fs::create_dir_all(path.parent().expect("config parent")).expect("create config parent");
+    fs::write(
+        &path,
+        r#"model = "chatgpt-codex/gpt-5.6-terra"
+
+[acp_agents.local]
+reasoning_effort = "low"
+"#,
+    )
+    .expect("seed config");
+
+    let written = write_project_reasoning_effort(tmp.path(), ReasoningEffort::Max).expect("write effort");
+
+    assert_eq!(written, path);
+    assert_eq!(
+        fs::read_to_string(path).expect("read config"),
+        r#"model = "chatgpt-codex/gpt-5.6-terra"
+
+reasoning_effort = "max"
+[acp_agents.local]
+reasoning_effort = "low"
+"#
+    );
+}
+
+#[test]
 fn write_model_config_replaces_top_level_model_only() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let path = tmp.path().join("config.toml");
@@ -375,11 +404,21 @@ fn env_loads_reasoning_controls_and_rejects_invalid_values() {
     assert_eq!(config.reasoning_summary, Some(ReasoningSummary::Auto));
     assert!(
         load_env(
-            &[("THNDRS_REASONING_EFFORT".to_string(), "max".to_string())],
+            &[("THNDRS_REASONING_EFFORT".to_string(), "unbounded".to_string())],
             &mut BTreeMap::new(),
             &mut Vec::new(),
         )
         .is_err()
+    );
+    assert_eq!(
+        load_env(
+            &[("THNDRS_REASONING_EFFORT".to_string(), "max".to_string())],
+            &mut BTreeMap::new(),
+            &mut Vec::new(),
+        )
+        .expect("max is valid")
+        .reasoning_effort,
+        Some(ReasoningEffort::Max)
     );
 }
 

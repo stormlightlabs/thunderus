@@ -7,6 +7,7 @@
 use std::path::Path;
 
 use crate::{
+    WebSearchMode,
     app::AgentEvent,
     providers::{
         self, KnownModel, ProviderError, ProviderHttpClient, ProviderMessage, Result, StreamFormat, StreamingProvider,
@@ -141,7 +142,7 @@ impl StreamingProvider for OpenCodeZenClient {
         String::from("provider: loading OPENCODE_ZEN_KEY")
     }
 
-    fn request_status(&self, model: &str, _search_mode: crate::cli::WebSearchMode) -> String {
+    fn request_status(&self, model: &str, _search_mode: WebSearchMode) -> String {
         format!("provider: POST /zen/v1/chat/completions model={model}")
     }
 

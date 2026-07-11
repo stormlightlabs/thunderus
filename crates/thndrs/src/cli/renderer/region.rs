@@ -22,7 +22,7 @@ use std::io;
 use crate::app::{App, PromptState};
 use crate::renderer::backend::TerminalBackend;
 use crate::renderer::row::{Frame, Row};
-use crate::renderer::style::{self, CellStyle, Color, Span};
+use crate::renderer::style::{self, CellStyle, Span};
 use crate::renderer::view::{self, RendererView};
 
 trait RowPolicyText {
@@ -116,7 +116,7 @@ impl LiveRegion {
         let live_start = live.rows.len().saturating_sub(live_height);
 
         while frame.rows.len() < height.saturating_sub(live_height) {
-            frame.push(Row::blank(width, bg_style(p.panel_bg)));
+            frame.push(Row::blank(width, CellStyle::new().bg(p.panel_bg)));
         }
 
         let live_offset = frame.rows.len();
@@ -137,7 +137,7 @@ impl LiveRegion {
         frame.cursor_visible = cursor_visible;
 
         while frame.rows.len() < height {
-            frame.push(Row::blank(width, bg_style(p.panel_bg)));
+            frame.push(Row::blank(width, CellStyle::new().bg(p.panel_bg)));
         }
 
         frame
@@ -166,7 +166,7 @@ impl LiveRegion {
         let height = view.height;
         let live = &view.live;
         let p = style::palette();
-        let surface_bg = bg_style(p.surface0);
+        let surface_bg = CellStyle::new().bg(p.surface0);
 
         let min_prompt_chrome = live.prompt_rows.len() + 2;
         let keep_prompt_gutters = height >= min_prompt_chrome + 3;
@@ -179,7 +179,7 @@ impl LiveRegion {
 
         let mut status_chrome = Vec::new();
         if keep_prompt_gutters {
-            status_chrome.push(Row::blank(width, bg_style(p.surface_dim)));
+            status_chrome.push(Row::blank(width, CellStyle::new().bg(p.surface_dim)));
             status_chrome.push(Row::blank(width, surface_bg));
         }
         status_chrome.push(live.dynamic_status.clone());
@@ -240,9 +240,8 @@ impl LiveRegion {
     /// 1. Build the pure view projection from app state.
     /// 2. Append only the stable rows that have not yet been inserted into
     ///    native scrollback.
-    /// 3. Use
-    ///    [`insert_history_lines`](TerminalBackend::insert_history_lines) to
-    ///    push them into native terminal scrollback above the viewport.
+    /// 3. Use [`insert_history_lines`](TerminalBackend::insert_history_lines)
+    ///    to push them into native terminal scrollback above the viewport.
     /// 4. Render the live region (mutable tail, prompt/status/accessories) via
     ///    diff rendering.
     pub fn render_frame<W: io::Write>(
@@ -313,11 +312,6 @@ impl LiveRegion {
     }
 }
 
-/// Build a [`CellStyle`] with only a background color.
-fn bg_style(color: Color) -> CellStyle {
-    CellStyle::new().bg(color)
-}
-
 /// Keep the last `budget` rows, dropping older rows from the top.
 ///
 /// When `budget` exceeds the row count, all rows are returned unchanged.
@@ -335,9 +329,10 @@ fn clip_from_top(mut rows: Vec<Row>, budget: usize) -> Vec<Row> {
 /// Apply startup-specific clipping instead of blindly taking the bottom rows.
 ///
 /// Short terminals should keep the compact identity and the most actionable
-/// context/diagnostic/help rows when possible. If rows are omitted, a visible
-/// marker replaces the silent gap so the user knows the startup shell was
-/// constrained by height.
+/// context/diagnostic/help rows when possible.
+///
+/// If rows are omitted, a visible marker replaces the silent gap so the user knows
+/// the startup shell was constrained by height.
 fn startup_history_rows(rows: Vec<Row>, width: usize, budget: usize) -> Vec<Row> {
     match budget {
         0 => Vec::new(),
@@ -345,7 +340,48 @@ fn startup_history_rows(rows: Vec<Row>, width: usize, budget: usize) -> Vec<Row>
         1 => vec![hidden_startup_row(width, rows.len())],
         _ => {
             let keep_budget = budget - 1;
-            let keep = startup_priority_indexes(&rows, keep_budget);
+            let keep = {
+                let mut ranked: Vec<(usize, usize)> = rows
+                    .iter()
+                    .enumerate()
+                    .map(|(index, _)| {
+                        let text = rows[index].text_for_policy();
+                        let trimmed = text.trim();
+                        let key = trimmed.strip_prefix('|').map(str::trim).unwrap_or(trimmed);
+
+                        if key.contains("THNDRS") || key.contains("thndrs") {
+                            return (0, index);
+                        }
+                        if key.starts_with("model ") || key.starts_with("cwd ") || key.starts_with("search ") {
+                            return (1, index);
+                        }
+                        if key == "CONTEXT"
+                            || key.starts_with("skill diagnostic")
+                            || key.contains("AGENTS.md")
+                            || key.contains("SKILL.md")
+                            || key.contains("invalid YAML")
+                        {
+                            return (2, index);
+                        }
+                        if key.starts_with("Ask for") || key.starts_with("? help") {
+                            return (3, index);
+                        }
+                        if key == "SKILLS" || key == "SEARCH" || key == "ATTENTION" || key.chars().all(|ch| ch == '─')
+                        {
+                            return (4, index);
+                        }
+                        if trimmed.is_empty() {
+                            return (6, index);
+                        }
+                        (5, index)
+                    })
+                    .collect();
+                ranked.sort_by_key(|(priority, index)| (*priority, *index));
+
+                let mut indexes: Vec<usize> = ranked.into_iter().take(keep_budget).map(|(_, index)| index).collect();
+                indexes.sort_unstable();
+                indexes
+            };
             let hidden = rows.len().saturating_sub(keep.len());
             let mut out = Vec::with_capacity(budget);
             for (index, row) in rows.into_iter().enumerate() {
@@ -360,54 +396,6 @@ fn startup_history_rows(rows: Vec<Row>, width: usize, budget: usize) -> Vec<Row>
     }
 }
 
-fn startup_priority_indexes(rows: &[Row], budget: usize) -> Vec<usize> {
-    let mut ranked: Vec<(usize, usize)> = rows
-        .iter()
-        .enumerate()
-        .map(|(index, _)| (startup_row_priority(rows, index), index))
-        .collect();
-    ranked.sort_by_key(|(priority, index)| (*priority, *index));
-
-    let mut indexes: Vec<usize> = ranked.into_iter().take(budget).map(|(_, index)| index).collect();
-    indexes.sort_unstable();
-    indexes
-}
-
-fn startup_row_priority(rows: &[Row], index: usize) -> usize {
-    let text = rows[index].text_for_policy();
-    let trimmed = text.trim();
-    let key = startup_row_key(trimmed);
-
-    if key.contains("THNDRS") || key.contains("thndrs") {
-        return 0;
-    }
-    if key.starts_with("model ") || key.starts_with("cwd ") || key.starts_with("search ") {
-        return 1;
-    }
-    if key == "CONTEXT"
-        || key.starts_with("skill diagnostic")
-        || key.contains("AGENTS.md")
-        || key.contains("SKILL.md")
-        || key.contains("invalid YAML")
-    {
-        return 2;
-    }
-    if key.starts_with("Ask for") || key.starts_with("? help") {
-        return 3;
-    }
-    if key == "SKILLS" || key == "SEARCH" || key == "ATTENTION" || key.chars().all(|ch| ch == '─') {
-        return 4;
-    }
-    if trimmed.is_empty() {
-        return 6;
-    }
-    5
-}
-
-fn startup_row_key(trimmed: &str) -> &str {
-    trimmed.strip_prefix('|').map(str::trim).unwrap_or(trimmed)
-}
-
 fn hidden_startup_row(width: usize, hidden: usize) -> Row {
     let p = style::palette();
     Row::padded(
@@ -416,7 +404,7 @@ fn hidden_startup_row(width: usize, hidden: usize) -> Row {
             CellStyle::new().fg(p.subtext0).bg(p.panel_bg),
         )],
         width,
-        bg_style(p.panel_bg),
+        CellStyle::new().bg(p.panel_bg),
     )
 }
 

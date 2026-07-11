@@ -19,8 +19,8 @@ still override environment variables.
 | -------------------------- | ---------------------------------------------------------- |
 | `THNDRS_MODEL`             | Completion model string.                                   |
 | `THNDRS_WEBSEARCH`         | `auto`, `native`, `exa`, or `none`.                        |
-| `THNDRS_REASONING_EFFORT`  | `low`, `medium`, `high`, or `xhigh` for GPT-5.6 Sol.       |
-| `THNDRS_REASONING_SUMMARY` | `off` or `auto` for GPT-5.6 Sol summaries.                 |
+| `THNDRS_REASONING_EFFORT`  | `none`, `low`, `medium`, `high`, `xhigh`, or `max` for GPT-5.6. |
+| `THNDRS_REASONING_SUMMARY` | `off` or `auto` for GPT-5.6 summaries.                     |
 | `THNDRS_TICK_RATE_MS`      | Positive integer milliseconds.                             |
 | `THNDRS_THEME`             | `eldritch-minimal`, `iceberg-dark`, or `catppuccin-mocha`. |
 | `THNDRS_MOUSE`             | Boolean.                                                   |

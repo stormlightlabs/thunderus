@@ -53,6 +53,8 @@ pub enum WebSearchMode {
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum ReasoningEffort {
+    /// Disable explicit reasoning for latency-sensitive work.
+    None,
     /// Quick, well-scoped work.
     Low,
     /// Balanced reasoning quality and latency.
@@ -62,26 +64,59 @@ pub enum ReasoningEffort {
     High,
     /// The deepest supported effort for this provider route.
     Xhigh,
+    /// Maximum effort for the hardest quality-first work.
+    Max,
 }
 
 impl ReasoningEffort {
+    /// Every effort level supported by GPT-5.6.
+    pub const ALL: [Self; 6] = [Self::None, Self::Low, Self::Medium, Self::High, Self::Xhigh, Self::Max];
+
     /// Stable configuration label.
     pub fn label(self) -> &'static str {
         match self {
+            Self::None => "none",
             Self::Low => "low",
             Self::Medium => "medium",
             Self::High => "high",
             Self::Xhigh => "xhigh",
+            Self::Max => "max",
+        }
+    }
+
+    /// User-facing label for picker controls.
+    pub fn display_label(self) -> &'static str {
+        match self {
+            Self::None => "None",
+            Self::Low => "Low",
+            Self::Medium => "Medium",
+            Self::High => "High",
+            Self::Xhigh => "Extra High",
+            Self::Max => "Max",
+        }
+    }
+
+    /// Short picker description for this reasoning level.
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::None => "Lowest latency; no explicit reasoning",
+            Self::Low => "Quick, well-scoped work",
+            Self::Medium => "Balanced quality and latency",
+            Self::High => "Difficult multi-step work",
+            Self::Xhigh => "Deep reasoning for complex work",
+            Self::Max => "Hardest quality-first work",
         }
     }
 
     /// Parse a configuration or ACP option value.
     pub fn parse(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
+            "none" => Some(Self::None),
             "low" => Some(Self::Low),
             "medium" => Some(Self::Medium),
             "high" => Some(Self::High),
             "xhigh" | "x-high" | "extra-high" => Some(Self::Xhigh),
+            "max" => Some(Self::Max),
             _ => None,
         }
     }

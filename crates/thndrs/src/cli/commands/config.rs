@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use thndrs_context::context;
 
-use crate::cli::Cli;
+use crate::cli::{Cli, WebSearchMode};
 
 /// Config file inspection and editing commands.
 #[derive(Clone, Debug, Eq, PartialEq, Subcommand)]
@@ -252,7 +252,7 @@ fn write_config<W: Write>(config: &config::Config, writer: &mut W) -> io::Result
     writeln!(
         writer,
         "  websearch: {}",
-        config.websearch.unwrap_or(crate::cli::WebSearchMode::Auto).label()
+        config.websearch.unwrap_or(WebSearchMode::Auto).label()
     )?;
     writeln!(
         writer,
@@ -319,6 +319,7 @@ mod tests {
     use super::*;
     use crate::cli::commands::config::{ConfigCommand, ConfigShowCommand};
     use std::io::Cursor;
+
     fn run_config_output(cli: &Cli, command: &ConfigCommand) -> io::Result<String> {
         let mut output = Cursor::new(Vec::new());
         run_with_writer(cli, command, &mut output)?;
