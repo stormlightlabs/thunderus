@@ -58,15 +58,15 @@ leaking back into the library.
 
 **Acceptance criteria:**
 
-- [ ] The library owns provider-neutral turn/message/event, tool definition,
+- [x] The library owns provider-neutral turn/message/event, tool definition,
       cancellation, retry, permission, and harness/run contracts.
-- [ ] Public APIs expose no provider payloads, TUI/app state, direct local
+- [x] Public APIs expose no provider payloads, TUI/app state, direct local
       filesystem policy, terminal UI, or ACP RPC.
-- [ ] Applications supply tool execution and permission policy through typed
+- [x] Applications supply tool execution and permission policy through typed
       adapters.
-- [ ] The fake-provider, provider/tool loop, and ACP event mapping retain
+- [x] The fake-provider, provider/tool loop, and ACP event mapping retain
       their current behavior through focused tests.
-- [ ] `thndrs-agent` does not depend on `thndrs-context`.
+- [x] `thndrs-agent` does not depend on `thndrs-context`.
 
 **Verification:**
 
@@ -85,14 +85,14 @@ projection, session/audit records, and file-backed lexical memory into
 
 **Acceptance criteria:**
 
-- [ ] The library preserves the existing ledger, prompt projection, bounded
+- [x] The library preserves the existing ledger, prompt projection, bounded
       instruction loading, memory source/index, redaction, recovery, and
       append-only session behavior.
-- [ ] It has no provider, terminal, ACP, or `thndrs-agent` dependency.
-- [ ] Default crate features exclude memory; the memory-enabled build is tested.
-- [ ] Fresh `thndrs` does not load, index, retrieve, or write memory until a
+- [x] It has no provider, terminal, ACP, or `thndrs-agent` dependency.
+- [x] Default crate features exclude memory; the memory-enabled build is tested.
+- [x] Fresh `thndrs` does not load, index, retrieve, or write memory until a
       user enables it.
-- [ ] The enable/disable state is visible in diagnostics and safe session
+- [x] The enable/disable state is visible in diagnostics and safe session
       metadata without persisting memory body text.
 
 **Verification:**

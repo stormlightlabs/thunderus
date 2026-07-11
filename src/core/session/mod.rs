@@ -16,15 +16,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::acp::permissions::PendingPermission;
 use crate::app::{Entry, ToolStatus};
-use crate::context::{ContextItem, ContextItemKind, ContextLedger, ContextSource, ContextVisibility};
-use crate::memory::{MemoryDeleteRecord, MemoryDeletion, MemoryRootKind, MemoryScope, MemorySource, MemoryWrite};
+use crate::context::{ContextItem, ContextLedger, ContextSource};
+use crate::memory::{MemoryDeleteRecord, MemoryDeletion, MemoryWrite};
 use crate::prompt::{EnvironmentMetadata, HistoryReuse, PromptBundle};
 use crate::skills::{SkillActivation, SkillReferenceMeta};
 use crate::tools::{WriteOp, shell};
 use crate::{datetime, internals, tools};
 
 pub use thndrs_context::session::{
-    AcpPermissionOptionRecord, AcpSessionMetadata, McpToolSessionMeta, SessionConfigFile, SessionConfigMeta,
+    AcpPermissionOptionRecord, AcpSessionMetadata, ContextDiagnosticMeta, ContextItemMeta, ContextLedgerMeta,
+    ContextSourceMeta, McpToolSessionMeta, MemoryMutationMeta, SessionConfigFile, SessionConfigMeta,
 };
 
 /// Current JSONL schema version.
@@ -603,181 +604,6 @@ impl PromptMetadata {
             prev_context_hash: bundle.prev_context_hash,
             transcript_tail_size: bundle.transcript_tail.len(),
             has_user_turn: !bundle.user_turn.is_empty(),
-        }
-    }
-}
-
-/// Metadata for a loaded context source, without the content itself.
-///
-/// Records the path, scope, content hash, and truncation state so the
-/// session can audit which AGENTS.md was loaded and whether it was capped.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct ContextSourceMeta {
-    /// Absolute path to the source file.
-    pub path: String,
-    /// Scope label — `"."` for root, or a relative subtree path.
-    pub scope: String,
-    /// Stable hash of the full original content (before truncation).
-    pub content_hash: u64,
-    /// Whether the content was truncated to fit the size cap.
-    pub truncated: bool,
-    /// Original byte count of the file (before truncation).
-    pub byte_count: usize,
-}
-
-impl From<&ContextSource> for ContextSourceMeta {
-    fn from(source: &ContextSource) -> Self {
-        ContextSourceMeta {
-            path: source.path.display().to_string(),
-            scope: source.scope.clone(),
-            content_hash: source.content_hash,
-            truncated: source.truncated,
-            byte_count: source.byte_count,
-        }
-    }
-}
-
-impl ContextSourceMeta {
-    /// Extract metadata from a [`ContextSource`], omitting the content.
-    pub fn from_source(source: &ContextSource) -> Self {
-        Self::from(source)
-    }
-}
-
-/// Content-free metadata for one item in a context ledger.
-///
-/// This deliberately omits [`ContextItem::content`]. Paths, hashes, sizes,
-/// visibility, and the selection reason are sufficient to explain why an item
-/// was or was not visible without preserving repository or memory content.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct ContextItemMeta {
-    /// Stable context item id.
-    pub id: String,
-    /// Domain kind used by context selection.
-    pub kind: ContextItemKind,
-    /// File-backed source path, when available.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source_path: Option<String>,
-    /// Context scope, when available.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scope: Option<String>,
-    /// Hash of the source content, when available.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub content_hash: Option<u64>,
-    /// Source byte size.
-    pub byte_count: usize,
-    /// Conservative token estimate used by selection.
-    pub token_estimate: usize,
-    /// Inclusion state for this snapshot or action.
-    pub visibility: ContextVisibility,
-    /// Why selection assigned this visibility.
-    pub reason: String,
-}
-
-impl From<&ContextItem> for ContextItemMeta {
-    fn from(item: &ContextItem) -> Self {
-        ContextItemMeta {
-            id: item.id.clone(),
-            kind: item.kind.clone(),
-            source_path: item.source_path.as_ref().map(|path| path.display().to_string()),
-            scope: Some(item.scope.clone()),
-            content_hash: item.content_hash,
-            byte_count: item.byte_count,
-            token_estimate: item.token_estimate,
-            visibility: item.visibility.clone(),
-            reason: tools::shell::redact_secrets(&item.reason),
-        }
-    }
-}
-
-/// Content-free context ledger snapshot persisted for a prompt turn.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct ContextLedgerMeta {
-    /// All candidate and selected item metadata for this turn.
-    pub items: Vec<ContextItemMeta>,
-    /// Available input tokens after completion reservation and provider overhead.
-    pub available_input: u64,
-    /// Target token budget used for normal selection.
-    pub target: u64,
-    /// Token threshold that may trigger automatic compaction.
-    pub auto_compaction_threshold: u64,
-    /// Estimated tokens of rendered items.
-    pub used: u64,
-    /// Content-free diagnostic summaries emitted by context selection.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub diagnostics: Vec<ContextDiagnosticMeta>,
-}
-
-impl From<&ContextLedger> for ContextLedgerMeta {
-    fn from(ledger: &ContextLedger) -> Self {
-        ContextLedgerMeta {
-            items: ledger.items.iter().map(ContextItemMeta::from).collect(),
-            available_input: ledger.budget.available_input,
-            target: ledger.budget.target,
-            auto_compaction_threshold: ledger.budget.auto_compaction_threshold,
-            used: ledger.budget.used,
-            diagnostics: ledger
-                .diagnostics
-                .iter()
-                .map(|diagnostic| ContextDiagnosticMeta {
-                    severity: diagnostic.severity.label().to_string(),
-                    code: diagnostic.code.clone(),
-                    message: tools::shell::redact_secrets(&diagnostic.message),
-                })
-                .collect(),
-        }
-    }
-}
-
-/// Content-free diagnostic emitted while selecting context.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct ContextDiagnosticMeta {
-    /// Diagnostic severity label.
-    pub severity: String,
-    /// Stable diagnostic code.
-    pub code: String,
-    /// Human-readable diagnostic message.
-    pub message: String,
-}
-
-/// Content-free audit metadata for an explicit memory write.
-///
-/// This intentionally does not carry a memory title, tags, paths, or body.
-/// Those fields can contain user-supplied text; the id, file location, scope,
-/// source, and content hash are sufficient to audit the mutation.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct MemoryMutationMeta {
-    /// Stable memory id.
-    pub id: String,
-    /// File-backed memory path. `None` for session-scoped memory.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub path: Option<String>,
-    /// Memory lifetime and ownership scope.
-    pub scope: MemoryScope,
-    /// Root that owns the memory when it is file-backed.
-    pub root: MemoryRootKind,
-    /// Origin of the explicit write.
-    pub source: MemorySource,
-    /// Hash of the written memory content.
-    pub content_hash: u64,
-    /// Byte size of the rendered memory file or session body.
-    pub byte_count: usize,
-    /// Whether the memory body was capped in its returned item projection.
-    pub truncated: bool,
-}
-
-impl From<&MemoryWrite> for MemoryMutationMeta {
-    fn from(write: &MemoryWrite) -> Self {
-        let item = &write.item;
-        MemoryMutationMeta {
-            id: item.id.clone(),
-            path: (!item.path.as_os_str().is_empty()).then(|| item.path.display().to_string()),
-            scope: item.scope,
-            root: item.root,
-            source: item.source,
-            content_hash: item.content_hash,
-            byte_count: item.byte_count,
-            truncated: item.truncated,
         }
     }
 }

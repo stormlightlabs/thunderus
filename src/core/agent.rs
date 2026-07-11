@@ -22,7 +22,6 @@
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
-use std::sync::Arc;
 #[cfg(test)]
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
@@ -123,72 +122,13 @@ enum MetadataLoaded<T> {
 
 pub use thndrs_agent::{RetryPolicy, ToolPermissionDecision};
 
-type ToolPermissionCallback =
-    dyn Fn(&ToolUseRequest, &AgentRunConfig, &CancelToken) -> ToolPermissionDecision + Send + Sync;
-type ToolExecutionCallback = dyn Fn(
-        &ToolUseRequest,
-        &AgentRunConfig,
-        &CancelToken,
-    ) -> Option<(ToolOutput, Option<WriteResult>, Option<ProcessResult>)>
-    + Send
-    + Sync;
+type ToolExecutionResult = Option<(ToolOutput, Option<WriteResult>, Option<ProcessResult>)>;
 
-/// Hook used by headless front ends to approve sensitive tool calls.
-#[derive(Clone)]
-pub struct ToolPermissionHook(Arc<ToolPermissionCallback>);
+/// Application-local permission policy supplied to the provider-neutral run.
+pub type ToolPermissionHook = thndrs_agent::ToolPermissionHook<AgentRunConfig>;
 
-impl ToolPermissionHook {
-    /// Create a permission hook from a callback.
-    pub fn new(
-        callback: impl Fn(&ToolUseRequest, &AgentRunConfig, &CancelToken) -> ToolPermissionDecision + Send + Sync + 'static,
-    ) -> Self {
-        Self(Arc::new(callback))
-    }
-
-    fn decide(
-        &self, request: &ToolUseRequest, config: &AgentRunConfig, cancel: &CancelToken,
-    ) -> ToolPermissionDecision {
-        (self.0)(request, config, cancel)
-    }
-}
-
-impl std::fmt::Debug for ToolPermissionHook {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("ToolPermissionHook(..)")
-    }
-}
-
-/// Hook used by headless front ends to override selected tool execution.
-#[derive(Clone)]
-pub struct ToolExecutionHook(Arc<ToolExecutionCallback>);
-
-impl ToolExecutionHook {
-    /// Create an execution hook from a callback.
-    pub fn new(
-        callback: impl Fn(
-            &ToolUseRequest,
-            &AgentRunConfig,
-            &CancelToken,
-        ) -> Option<(ToolOutput, Option<WriteResult>, Option<ProcessResult>)>
-        + Send
-        + Sync
-        + 'static,
-    ) -> Self {
-        Self(Arc::new(callback))
-    }
-
-    fn execute(
-        &self, request: &ToolUseRequest, config: &AgentRunConfig, cancel: &CancelToken,
-    ) -> Option<(ToolOutput, Option<WriteResult>, Option<ProcessResult>)> {
-        (self.0)(request, config, cancel)
-    }
-}
-
-impl std::fmt::Debug for ToolExecutionHook {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("ToolExecutionHook(..)")
-    }
-}
+/// Application-local execution override supplied to the provider-neutral run.
+pub type ToolExecutionHook = thndrs_agent::ToolExecutionHook<AgentRunConfig, ToolExecutionResult>;
 
 #[derive(Clone, Debug)]
 struct ToolUseBuilder {
@@ -367,7 +307,7 @@ impl RunHandle {
             self.messages.clone()
         };
         let mut tool_budget =
-            tools::ToolIterationBudget::new(self.config.max_tool_iterations, tools::MAX_TOOL_CONTINUATIONS);
+            thndrs_agent::ToolIterationBudget::new(self.config.max_tool_iterations, tools::MAX_TOOL_CONTINUATIONS);
         let mut wrote_file = false;
 
         loop {
@@ -381,8 +321,8 @@ impl RunHandle {
             }
 
             match tool_budget.before_provider_request() {
-                tools::ToolBudgetDecision::Continue => {}
-                tools::ToolBudgetDecision::ContinueAfterBudgetMessage => {
+                thndrs_agent::ToolBudgetDecision::Continue => {}
+                thndrs_agent::ToolBudgetDecision::ContinueAfterBudgetMessage => {
                     let text = format!(
                         "[tool-budget]\nTool batch segment limit reached after {} total batches. Continue from the current state, avoid repeating completed work, and stop requesting tools once you can answer.",
                         tool_budget.total_batches()
@@ -408,7 +348,11 @@ impl RunHandle {
                         return;
                     }
                 }
-                tools::ToolBudgetDecision::Exhausted { segment_iterations, total_batches, continuations_used } => {
+                thndrs_agent::ToolBudgetDecision::Exhausted {
+                    segment_iterations,
+                    total_batches,
+                    continuations_used,
+                } => {
                     tracing::error!(
                         segment_iterations,
                         total_batches,

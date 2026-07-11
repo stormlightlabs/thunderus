@@ -58,22 +58,6 @@ pub const TIMEOUT_SECS: u64 = 10;
 /// Maximum line length before truncation in tool output.
 pub const MAX_LINE_LEN: usize = 512;
 
-/// Decision returned by [`ToolIterationBudget`] before a provider request.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ToolBudgetDecision {
-    /// The next provider request can proceed normally.
-    Continue,
-    /// The segment cap was reached and a provider-visible continuation
-    /// message should be appended before proceeding.
-    ContinueAfterBudgetMessage,
-    /// The full per-turn tool budget has been exhausted.
-    Exhausted {
-        segment_iterations: usize,
-        total_batches: usize,
-        continuations_used: usize,
-    },
-}
-
 /// The kind of write operation performed on a file.
 ///
 /// Used by [`WriteResult`] and the session record to audit what changed.
@@ -99,60 +83,8 @@ impl WriteOp {
     }
 }
 
-/// Bounded tool-batch budget for one user turn.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ToolIterationBudget {
-    segment_limit: usize,
-    continuation_limit: usize,
-    segment_iterations: usize,
-    total_batches: usize,
-    continuations_used: usize,
-}
-
-impl ToolIterationBudget {
-    pub fn new(segment_limit: usize, continuation_limit: usize) -> Self {
-        ToolIterationBudget {
-            segment_limit,
-            continuation_limit,
-            segment_iterations: 0,
-            total_batches: 0,
-            continuations_used: 0,
-        }
-    }
-
-    pub fn record_tool_batch(&mut self) {
-        self.segment_iterations = self.segment_iterations.saturating_add(1);
-        self.total_batches = self.total_batches.saturating_add(1);
-    }
-
-    pub fn before_provider_request(&mut self) -> ToolBudgetDecision {
-        if self.segment_iterations < self.segment_limit {
-            return ToolBudgetDecision::Continue;
-        }
-
-        if self.continuations_used < self.continuation_limit {
-            self.segment_iterations = 0;
-            self.continuations_used += 1;
-            return ToolBudgetDecision::ContinueAfterBudgetMessage;
-        }
-
-        ToolBudgetDecision::Exhausted {
-            segment_iterations: self.segment_iterations,
-            total_batches: self.total_batches,
-            continuations_used: self.continuations_used,
-        }
-    }
-
-    pub fn total_batches(&self) -> usize {
-        self.total_batches
-    }
-
-    pub fn continuations_used(&self) -> usize {
-        self.continuations_used
-    }
-}
-
 pub use thndrs_agent::ToolDefinition;
+pub use thndrs_agent::{ToolBudgetDecision, ToolIterationBudget};
 
 pub use registry::ProviderSchemaFormat;
 

@@ -94,6 +94,45 @@ impl ToolDefinition {
     }
 }
 
+/// Provider-neutral message supplied to or produced by an agent turn.
+///
+/// Provider adapters lower this representation to their wire payloads inside
+/// the application. The shared contract never exposes those payloads.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AgentMessage {
+    /// System or harness guidance.
+    System(String),
+    /// User input for the current or an earlier turn.
+    User(String),
+    /// Completed assistant text.
+    Assistant(String),
+    /// An assistant tool-use request.
+    ToolUse(ToolUseRequest),
+    /// A completed application-owned tool result.
+    ToolResult { id: String, output: ToolOutput },
+}
+
+/// Provider-neutral input for one agent turn.
+///
+/// Applications assemble messages and tool definitions, then their provider
+/// adapter performs the wire-level request. The turn contract remains useful
+/// to deterministic fakes and future application adapters without bringing
+/// provider protocol types into this crate.
+#[derive(Clone, Debug)]
+pub struct AgentTurn {
+    /// Ordered conversation and tool-result messages.
+    pub messages: Vec<AgentMessage>,
+    /// Tool definitions available for this turn.
+    pub tools: Vec<ToolDefinition>,
+}
+
+impl AgentTurn {
+    /// Create a turn from application-owned messages and tool definitions.
+    pub fn new(messages: Vec<AgentMessage>, tools: Vec<ToolDefinition>) -> Self {
+        Self { messages, tools }
+    }
+}
+
 /// Provider-neutral semantic output from an agent turn.
 ///
 /// Application adapters may attach local-tool audit details, UI state, or ACP
@@ -111,13 +150,26 @@ pub enum AgentEvent {
     /// Incremental reasoning text.
     ReasoningDelta(String),
     /// A tool call was requested.
-    ToolStarted { id: String, name: String, arguments: String },
+    ToolStarted {
+        id: String,
+        name: String,
+        arguments: String,
+    },
     /// A tool call completed.
-    ToolFinished { id: String, output: Vec<String>, status: ToolStatus },
+    ToolFinished {
+        id: String,
+        output: Vec<String>,
+        status: ToolStatus,
+    },
     /// Model metadata available for application model pickers.
     ModelMetadataLoaded(Vec<(String, String)>),
     /// A retry was scheduled after a recoverable provider failure.
-    Retrying { attempt: u32, max_attempts: u32, delay_ms: u64, error: String },
+    Retrying {
+        attempt: u32,
+        max_attempts: u32,
+        delay_ms: u64,
+        error: String,
+    },
     /// The turn completed normally.
     Finished,
     /// The turn failed recoverably.
@@ -209,5 +261,24 @@ mod tests {
     fn tool_output_preserves_success_and_failure_states() {
         assert_eq!(ToolOutput::ok("read", vec!["ok".to_string()]).status, ToolStatus::Ok);
         assert_eq!(ToolOutput::failed("read", "missing").error.as_deref(), Some("missing"));
+    }
+
+    #[test]
+    fn turn_keeps_provider_neutral_messages_and_tools_together() {
+        let request = ToolUseRequest::new("read_file", r#"{"path":"README.md"}"#, "call_1");
+        let turn = AgentTurn::new(
+            vec![
+                AgentMessage::User("inspect the readme".to_string()),
+                AgentMessage::ToolUse(request),
+            ],
+            vec![ToolDefinition::new(
+                "read_file",
+                "Read a file",
+                serde_json::json!({"type": "object"}),
+            )],
+        );
+
+        assert_eq!(turn.messages.len(), 2);
+        assert_eq!(turn.tools[0].name, "read_file");
     }
 }
