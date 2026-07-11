@@ -21,6 +21,17 @@ The prompt marker changes with runtime state:
 If a submit fails before the turn starts, the draft stays in the prompt so it can
 be edited and retried.
 
+## Prompt History
+
+Use `Up` and `Down` to recall submitted prompts. The TUI keeps the newest 200
+entries in memory and persists them in `.thndrs/input-history.jsonl`
+(append-only, capped at 1MiB).
+
+On Unix, thndrs keeps the file readable and writable only by its owner.
+
+When this file is not present, thndrs imports recent user prompts from existing session
+files once.
+
 ## Running Input
 
 While a turn is running, `Enter` does not discard input. It records the draft as

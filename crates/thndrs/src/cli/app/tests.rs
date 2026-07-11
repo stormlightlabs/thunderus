@@ -110,6 +110,42 @@ fn from_cli_seeds_up_arrow_history_from_project_sessions() {
         app.transcript.is_empty(),
         "project history should seed recall without replaying old transcript"
     );
+    assert!(
+        InputHistoryStore::for_workspace(dir.path())
+            .load_recent()
+            .expect("load dedicated history")
+            .is_some(),
+        "legacy session prompts should seed the dedicated history once"
+    );
+}
+
+#[test]
+fn from_cli_prefers_dedicated_input_history_over_session_scan() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let sessions_dir = session::sessions_dir(dir.path());
+    let mut writer = session::SessionWriter::create(
+        &sessions_dir,
+        "session-old",
+        "/repo",
+        "old",
+        "umans",
+        "umans-coder",
+        "none",
+        "0.1.0",
+        None,
+    )
+    .expect("create old session");
+    writer
+        .append_entry(&Entry::User { text: "session-derived prompt".to_string() }, "turn_1")
+        .expect("append old entry");
+    InputHistoryStore::for_workspace(dir.path())
+        .append("history-session", "dedicated prompt")
+        .expect("append dedicated history");
+
+    let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
+    let app = App::from_cli(&cli);
+
+    assert_eq!(app.input_history, vec!["dedicated prompt".to_string()]);
 }
 
 #[test]
@@ -1642,6 +1678,20 @@ fn typing_after_recalled_history_edits_copy() {
     assert_eq!(app.input.as_str(), "previous!");
     assert_eq!(app.input_history, vec![String::from("previous")]);
     assert_eq!(app.history_cursor, None);
+}
+
+#[test]
+fn remembering_input_keeps_bounded_in_memory_history() {
+    let mut app = fresh_app();
+    app.input_history = (0..INPUT_HISTORY_LIMIT)
+        .map(|index| format!("prompt {index}"))
+        .collect();
+
+    remember_input(&mut app, "newest prompt");
+
+    assert_eq!(app.input_history.len(), INPUT_HISTORY_LIMIT);
+    assert_eq!(app.input_history.first().map(String::as_str), Some("prompt 1"));
+    assert_eq!(app.input_history.last().map(String::as_str), Some("newest prompt"));
 }
 
 #[test]

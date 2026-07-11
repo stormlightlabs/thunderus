@@ -1264,7 +1264,7 @@ impl SessionReader {
     /// If the bounded read starts in the middle of a JSONL record, that first
     /// partial record is discarded. This is suitable for bounded input recall,
     /// where recent turns matter more than a full historical reconstruction.
-    pub(crate) fn read_records_from_tail(path: &Path, max_bytes: usize) -> Vec<SessionRecord> {
+    pub fn read_records_from_tail(path: &Path, max_bytes: usize) -> Vec<SessionRecord> {
         use std::io::{Read, Seek};
 
         if max_bytes == 0 {

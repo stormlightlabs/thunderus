@@ -10,6 +10,8 @@
 //! delete, and transpose all operate on what the user sees as a single
 //! character, even when that character is composed of multiple Rust `char`s.
 
+pub mod history;
+
 #[cfg(test)]
 mod tests;
 

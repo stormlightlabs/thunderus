@@ -23,6 +23,7 @@ use crate::acp::permissions::{PendingPermission, PermissionDecision};
 use crate::cli::commands;
 use crate::cli::commands::auth::CredentialScope;
 use crate::cli::commands::setup::SetupProviderArg;
+use crate::cli::input::history::{INPUT_HISTORY_LIMIT, InputHistoryStore};
 use crate::cli::{Cli, ReasoningEffort, Theme, WebSearchMode};
 use crate::input::PromptInput;
 use crate::providers::{codex, opencode, umans};
@@ -44,7 +45,6 @@ pub const VISIBLE_ROWS: usize = 8;
 /// stays responsive while still surfacing enough nearby files or skills.
 const LARGE_PICKER_LIMIT: usize = 200;
 const MODEL_PICKER_LIMIT: usize = 50;
-const PROJECT_INPUT_HISTORY_LIMIT: usize = 200;
 const PROJECT_INPUT_HISTORY_SESSION_LIMIT: usize = 32;
 const PROJECT_INPUT_HISTORY_BYTES_PER_SESSION: usize = 64 * 1024;
 
@@ -562,6 +562,8 @@ pub struct App {
     pub input: PromptInput,
     /// Submitted prompt history for Up/Down recall.
     pub input_history: Vec<String>,
+    /// Dedicated workspace-local persistence for submitted prompt recall.
+    input_history_store: InputHistoryStore,
     /// Current index into `input_history` while navigating history.
     pub history_cursor: Option<usize>,
     /// Draft input captured before history navigation starts.
@@ -666,8 +668,16 @@ impl From<&Cli> for App {
             .session_dir
             .clone()
             .unwrap_or_else(|| session::sessions_dir(&workspace_root));
-        let input_history = load_project_input_history(&sessions_dir);
         let session_id = session::generate_session_id();
+        let input_history_store = InputHistoryStore::for_workspace(&workspace_root);
+        let input_history = match input_history_store.load_recent() {
+            Ok(Some(history)) => history,
+            Ok(None) | Err(_) => {
+                let history = load_legacy_project_input_history(&sessions_dir);
+                let _ = input_history_store.seed_if_missing(&session_id, &history);
+                history
+            }
+        };
         let (mcp_config_files, mcp_config_diagnostics) = load_mcp_config_audit(&workspace_root);
 
         let config_meta = {
@@ -727,6 +737,7 @@ impl From<&Cli> for App {
             run_state: RunState::default(),
             input: PromptInput::new(),
             input_history,
+            input_history_store,
             history_cursor: None,
             history_draft: String::new(),
             transcript,
@@ -1723,7 +1734,7 @@ fn offline_model_picker_items() -> Vec<PickerItem> {
         .collect()
 }
 
-fn load_project_input_history(sessions_dir: &Path) -> Vec<String> {
+fn load_legacy_project_input_history(sessions_dir: &Path) -> Vec<String> {
     let mut newest_first = Vec::new();
 
     for path in session::list_session_files(sessions_dir)
@@ -1742,7 +1753,7 @@ fn load_project_input_history(sessions_dir: &Path) -> Vec<String> {
                 continue;
             }
             newest_first.push(text.to_string());
-            if newest_first.len() >= PROJECT_INPUT_HISTORY_LIMIT {
+            if newest_first.len() >= INPUT_HISTORY_LIMIT {
                 newest_first.reverse();
                 return newest_first;
             }
@@ -3777,7 +3788,16 @@ fn remember_input(app: &mut App, text: &str) {
     if text.is_empty() || app.input_history.last().is_some_and(|last| last == text) {
         return;
     }
+    let overflow = app
+        .input_history
+        .len()
+        .saturating_add(1)
+        .saturating_sub(INPUT_HISTORY_LIMIT);
+    if overflow > 0 {
+        app.input_history.drain(..overflow);
+    }
     app.input_history.push(text.to_string());
+    let _ = app.input_history_store.append(&app.session_id, text);
 }
 
 fn recall_older_input(app: &mut App) {
