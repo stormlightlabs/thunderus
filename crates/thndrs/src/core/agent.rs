@@ -403,7 +403,12 @@ impl RunHandle {
             else {
                 return;
             };
-            if self.provider == ProviderKind::ChatGptCodex {
+            if matches!(self.provider, ProviderKind::ChatGptCodex | ProviderKind::OpenCodeZen)
+                && matches!(
+                    provider.stream_format(&self.config.model),
+                    Ok(StreamFormat::ChatGptCodexResponses)
+                )
+            {
                 codex::record_response_items(&mut continuation, &messages, std::mem::take(&mut turn.response_items));
             }
             tracing::info!(
@@ -529,7 +534,12 @@ impl RunHandle {
 
             messages.push(ProviderMessage::assistant_blocks(assistant_blocks));
             messages.extend(tool_results);
-            if self.provider == ProviderKind::ChatGptCodex {
+            if matches!(self.provider, ProviderKind::ChatGptCodex | ProviderKind::OpenCodeZen)
+                && matches!(
+                    provider.stream_format(&self.config.model),
+                    Ok(StreamFormat::ChatGptCodexResponses)
+                )
+            {
                 for (call_id, output) in response_tool_outputs {
                     codex::record_tool_output(&mut continuation, &call_id, &output, messages.len());
                 }

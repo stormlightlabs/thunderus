@@ -9,7 +9,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::app::AgentEvent;
-use crate::cli::WebSearchMode;
+use crate::cli::{ReasoningEffort, WebSearchMode};
 use crate::providers::{
     self, KnownModel, ProviderError, ProviderHttpClient, ProviderMessage, Result, StreamFormat, StreamingProvider,
 };
@@ -108,6 +108,32 @@ impl UmansClient {
         providers::anthropic::build_messages_request_body(model, messages, max_tokens, stream, tools)
     }
 
+    /// Build a Messages request body with the supported Umans reasoning toggle.
+    pub fn build_messages_request_body_with_reasoning(
+        model: &str, messages: &[ProviderMessage], max_tokens: u32, stream: bool, tools: Option<&serde_json::Value>,
+        effort: ReasoningEffort,
+    ) -> Result<serde_json::Value> {
+        if !reasoning_options(model).contains(&effort) {
+            return Err(ProviderError::Json(format!(
+                "reasoning control `{}` is not supported by {model}",
+                effort.label()
+            )));
+        }
+        let mut body = Self::build_messages_request_body(model, messages, max_tokens, stream, tools);
+        match effort {
+            ReasoningEffort::On => body["thinking"] = serde_json::json!({ "type": "enabled" }),
+            ReasoningEffort::None => body["thinking"] = serde_json::json!({ "type": "disabled" }),
+            ReasoningEffort::Auto => {}
+            other => {
+                return Err(ProviderError::Json(format!(
+                    "reasoning control `{}` cannot be lowered for Umans",
+                    other.label()
+                )));
+            }
+        }
+        Ok(body)
+    }
+
     /// Build the HTTP headers map for a Messages API request.
     pub fn build_headers(&self, search_mode: WebSearchMode) -> Vec<(String, String)> {
         vec![
@@ -133,10 +159,10 @@ impl UmansClient {
     /// [`parse_sse_chunk`] and [`parse_sse_event`].
     pub fn send_streaming_request(
         &self, model: &str, messages: &[ProviderMessage], max_tokens: u32, mode: WebSearchMode,
-        tools: Option<&serde_json::Value>,
+        tools: Option<&serde_json::Value>, effort: ReasoningEffort,
     ) -> Result<ureq::http::Response<ureq::Body>> {
         let url = format!("{}/v1/messages", self.http.base_url());
-        let body = Self::build_messages_request_body(model, messages, max_tokens, true, tools);
+        let body = Self::build_messages_request_body_with_reasoning(model, messages, max_tokens, true, tools, effort)?;
         let tool_count = tools.and_then(|t| t.as_array()).map_or(0, Vec::len);
         tracing::info!(
             model,
@@ -227,8 +253,6 @@ impl StreamingProvider for UmansClient {
         recommended_max_tokens_for_model(model, metadata)
     }
 
-    /// TODO: Map reasoning effort and summaries when the Umans endpoint exposes
-    /// model-specific controls for them.
     fn send_streaming_request(
         &self, model: &str, messages: &[ProviderMessage], request: &crate::providers::StreamingRequest<'_>,
     ) -> Result<ureq::http::Response<ureq::Body>> {
@@ -239,6 +263,7 @@ impl StreamingProvider for UmansClient {
             request.max_tokens,
             request.search_mode,
             Some(request.tools),
+            request.reasoning_effort,
         )
     }
 
@@ -307,6 +332,16 @@ pub fn known_models() -> Vec<KnownModel> {
         KnownModel { id: "umans-glm-5.1", description: "Previous GLM for text-first workflows" },
         KnownModel { id: "umans-flash", description: "Fast light model for context and summaries" },
     ]
+}
+
+/// Return the safe, model-specific reasoning controls for an Umans model.
+pub fn reasoning_options(model: &str) -> Vec<ReasoningEffort> {
+    match model {
+        "umans-glm-5.2" | "umans-glm-5.1" | "umans-flash" | "umans-qwen3.6-35b-a3b" => {
+            vec![ReasoningEffort::Auto, ReasoningEffort::On, ReasoningEffort::None]
+        }
+        _ => vec![ReasoningEffort::Auto],
+    }
 }
 
 pub fn model_picker_items(models: &HashMap<String, ModelInfo>) -> Vec<(String, String)> {
@@ -1126,5 +1161,43 @@ mod tests {
         let json = serde_json::to_string(&original).expect("serialize");
         let parsed: ProviderMessage = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(original, parsed);
+    }
+
+    #[test]
+    fn reasoning_toggle_is_lowered_only_for_models_that_can_disable() {
+        let messages = vec![ProviderMessage::user("hello")];
+        let enabled = UmansClient::build_messages_request_body_with_reasoning(
+            "umans-flash",
+            &messages,
+            128,
+            true,
+            None,
+            ReasoningEffort::On,
+        )
+        .expect("enabled body");
+        assert_eq!(enabled["thinking"]["type"], "enabled");
+
+        let disabled = UmansClient::build_messages_request_body_with_reasoning(
+            "umans-glm-5.2",
+            &messages,
+            128,
+            true,
+            None,
+            ReasoningEffort::None,
+        )
+        .expect("disabled body");
+        assert_eq!(disabled["thinking"]["type"], "disabled");
+
+        assert!(
+            UmansClient::build_messages_request_body_with_reasoning(
+                "umans-coder",
+                &messages,
+                128,
+                true,
+                None,
+                ReasoningEffort::None,
+            )
+            .is_err()
+        );
     }
 }

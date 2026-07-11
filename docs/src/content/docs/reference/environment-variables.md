@@ -15,22 +15,20 @@ than silently running with a lower-precedence value.
 These variables override TOML config files and built-in defaults. CLI flags
 still override environment variables.
 
-| Variable                   | Value                                                      |
-| -------------------------- | ---------------------------------------------------------- |
-| `THNDRS_MODEL`             | Completion model string.                                   |
-| `THNDRS_WEBSEARCH`         | `auto`, `native`, `exa`, or `none`.                        |
-| `THNDRS_REASONING_EFFORT`  | `none`, `low`, `medium`, `high`, `xhigh`, or `max` for GPT-5.6. |
-| `THNDRS_REASONING_SUMMARY` | `off` or `auto` for GPT-5.6 summaries.                     |
-| `THNDRS_TICK_RATE_MS`      | Positive integer milliseconds.                             |
-| `THNDRS_THEME`             | `eldritch-minimal`, `iceberg-dark`, or `catppuccin-mocha`. |
-| `THNDRS_MOUSE`             | Boolean.                                                   |
-| `THNDRS_VERBOSE`           | Boolean.                                                   |
-| `THNDRS_SKILL_DIRS`        | Path list using the platform path separator.               |
-| `THNDRS_SESSION_DIR`       | Session JSONL directory path.                              |
-| `THNDRS_DEFAULT_WORKSPACE` | Workspace path used when `--cwd` is omitted.               |
-
-Boolean values accept `1`, `0`, `true`, `false`, `yes`, `no`, `on`, and `off`,
-case-insensitively.
+| Variable                   | Value                                                                        |
+| -------------------------- | ---------------------------------------------------------------------------- |
+| `THNDRS_MODEL`             | Completion model string.                                                     |
+| `THNDRS_WEBSEARCH`         | `auto`, `native`, `exa`, or `none`.                                          |
+| `THNDRS_REASONING_EFFORT`  | Model-specific reasoning control:                                            |
+|                            | `auto`, `on`, `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`. |
+| `THNDRS_REASONING_SUMMARY` | `off` or `auto` for GPT-5.6 summaries.                                       |
+| `THNDRS_TICK_RATE_MS`      | Positive integer milliseconds.                                               |
+| `THNDRS_THEME`             | `eldritch-minimal`, `iceberg-dark`, or `catppuccin-mocha`.                   |
+| `THNDRS_MOUSE`             | Boolean[^1]                                                                  |
+| `THNDRS_VERBOSE`           | Boolean                                                                      |
+| `THNDRS_SKILL_DIRS`        | Path list using the platform path separator.                                 |
+| `THNDRS_SESSION_DIR`       | Session JSONL directory path.                                                |
+| `THNDRS_DEFAULT_WORKSPACE` | Workspace path used when `--cwd` is omitted.                                 |
 
 Examples:
 
@@ -116,3 +114,5 @@ create or refresh local ChatGPT OAuth credentials.
 Do not use TOML keys such as `umans_api_key`, `auth_token`, `secret`, or
 `password`. Secret-shaped TOML keys are rejected; provider code owns provider
 secret loading and redaction.
+
+[^1]: Boolean values accept `1`, `0`, `true`, `false`, `yes`, `no`, `on`, and `off`, case-insensitively.

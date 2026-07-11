@@ -111,44 +111,66 @@ impl ChatGptCodexClient {
         )
     }
 
-    /// Build a GPT-5.6-aware Responses streaming request body.
-    ///
-    /// TODO: Apply these controls to additional ChatGPT Codex models once
-    /// private-backend support has been verified for each model.
+    /// Build a Responses streaming request body for the ChatGPT Codex route.
     pub fn build_responses_request_body_with_reasoning(
         model: &str, messages: &[ProviderMessage], tools: Option<&serde_json::Value>, effort: ReasoningEffort,
         summary: ReasoningSummary, continuation: &ProviderContinuation,
     ) -> Result<serde_json::Value> {
         let raw_model = raw_model_id(model)?;
-        let (instructions, input) = responses_input(messages);
-        let input = continuation_input(continuation, messages).unwrap_or(input);
-        let mut body = serde_json::json!({
-            "model": raw_model,
-            "store": false,
-            "stream": true,
-            "instructions": instructions,
-            "input": input,
-            "tool_choice": "auto",
-            "parallel_tool_calls": true,
-            "text": { "verbosity": "low" },
-            "include": ["reasoning.encrypted_content"],
-        });
-        if is_gpt_5_6_raw_model(raw_model) {
-            let mut reasoning = serde_json::json!({ "effort": effort.label() });
-            if summary == ReasoningSummary::Auto {
-                reasoning["summary"] = serde_json::Value::String("auto".to_string());
-            }
-            body["reasoning"] = reasoning;
-        }
-        if let Some(tool_schemas) = tools {
-            let converted = responses_tools(tool_schemas);
-            if !converted.as_array().is_some_and(|arr| arr.is_empty()) {
-                body["tools"] = converted;
-            }
-        }
-        Ok(body)
+        let effort = if is_gpt_5_6_raw_model(raw_model) { effort } else { ReasoningEffort::Auto };
+        Ok(build_openai_responses_request_body(
+            raw_model,
+            messages,
+            tools,
+            effort,
+            summary,
+            continuation,
+        ))
     }
 
+    /// Build a standard Responses request for an already-normalized model id.
+    pub fn build_openai_responses_request_body(
+        raw_model: &str, messages: &[ProviderMessage], tools: Option<&serde_json::Value>, effort: ReasoningEffort,
+        summary: ReasoningSummary, continuation: &ProviderContinuation,
+    ) -> serde_json::Value {
+        build_openai_responses_request_body(raw_model, messages, tools, effort, summary, continuation)
+    }
+}
+
+fn build_openai_responses_request_body(
+    raw_model: &str, messages: &[ProviderMessage], tools: Option<&serde_json::Value>, effort: ReasoningEffort,
+    summary: ReasoningSummary, continuation: &ProviderContinuation,
+) -> serde_json::Value {
+    let (instructions, input) = responses_input(messages);
+    let input = continuation_input(continuation, messages).unwrap_or(input);
+    let mut body = serde_json::json!({
+        "model": raw_model,
+        "store": false,
+        "stream": true,
+        "instructions": instructions,
+        "input": input,
+        "tool_choice": "auto",
+        "parallel_tool_calls": true,
+        "text": { "verbosity": "low" },
+        "include": ["reasoning.encrypted_content"],
+    });
+    if effort != ReasoningEffort::Auto {
+        let mut reasoning = serde_json::json!({ "effort": effort.label() });
+        if summary == ReasoningSummary::Auto {
+            reasoning["summary"] = serde_json::Value::String("auto".to_string());
+        }
+        body["reasoning"] = reasoning;
+    }
+    if let Some(tool_schemas) = tools {
+        let converted = responses_tools(tool_schemas);
+        if !converted.as_array().is_some_and(|arr| arr.is_empty()) {
+            body["tools"] = converted;
+        }
+    }
+    body
+}
+
+impl ChatGptCodexClient {
     /// Send a streaming request to `POST /responses`.
     pub fn send_streaming_request(
         &self, model: &str, messages: &[ProviderMessage], tools: Option<&serde_json::Value>, effort: ReasoningEffort,
@@ -261,6 +283,23 @@ pub fn raw_model_id(model: &str) -> Result<&str> {
 /// Whether this ChatGPT Codex model supports GPT-5.6 reasoning controls.
 pub fn supports_reasoning_effort(model: &str) -> bool {
     raw_model_id(model).is_ok_and(is_gpt_5_6_raw_model)
+}
+
+/// Return the currently verified ChatGPT Codex reasoning controls.
+pub fn reasoning_options(model: &str) -> Vec<ReasoningEffort> {
+    if supports_reasoning_effort(model) {
+        vec![
+            ReasoningEffort::Auto,
+            ReasoningEffort::None,
+            ReasoningEffort::Low,
+            ReasoningEffort::Medium,
+            ReasoningEffort::High,
+            ReasoningEffort::Xhigh,
+            ReasoningEffort::Max,
+        ]
+    } else {
+        vec![ReasoningEffort::Auto]
+    }
 }
 
 /// Current ChatGPT Codex models from the provider expansion plan.

@@ -101,7 +101,7 @@ pub fn acp_config_options(
     vec![
         model_config_option(model),
         websearch_config_option(websearch),
-        reasoning_effort_config_option(effort),
+        reasoning_effort_config_option(model, effort),
         reasoning_summary_config_option(summary),
     ]
 }
@@ -152,7 +152,7 @@ fn validate_reasoning_effort(value: &str) -> Result<ConfigOptionValue, ConfigOpt
         .ok_or_else(|| ConfigOptionError::InvalidValue {
             id: REASONING_EFFORT_CONFIG_OPTION_ID.to_string(),
             value: value.to_string(),
-            reason: "must be one of none/low/medium/high/xhigh/max".to_string(),
+            reason: "must be one of auto/on/none/minimal/low/medium/high/xhigh/max".to_string(),
         })
 }
 
@@ -194,21 +194,18 @@ fn websearch_config_option(websearch: WebSearchMode) -> SessionConfigOption {
     .category(SessionConfigOptionCategory::ModelConfig)
 }
 
-fn reasoning_effort_config_option(effort: ReasoningEffort) -> SessionConfigOption {
+fn reasoning_effort_config_option(model: &str, effort: ReasoningEffort) -> SessionConfigOption {
+    let options: Vec<SessionConfigSelectOption> = crate::providers::reasoning_options(model)
+        .into_iter()
+        .map(|option| SessionConfigSelectOption::new(option.label(), option.display_label()))
+        .collect();
     SessionConfigOption::select(
         REASONING_EFFORT_CONFIG_OPTION_ID,
         "Reasoning Effort",
         effort.label(),
-        vec![
-            SessionConfigSelectOption::new("none", "None"),
-            SessionConfigSelectOption::new("low", "Low"),
-            SessionConfigSelectOption::new("medium", "Medium"),
-            SessionConfigSelectOption::new("high", "High"),
-            SessionConfigSelectOption::new("xhigh", "Extra High"),
-            SessionConfigSelectOption::new("max", "Max"),
-        ],
+        options,
     )
-    .description("GPT-5.6 reasoning effort for future prompt turns")
+    .description("Reasoning control supported by the selected model for future prompt turns")
     .category(SessionConfigOptionCategory::ModelConfig)
 }
 

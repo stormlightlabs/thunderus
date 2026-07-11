@@ -199,6 +199,15 @@ impl ServerState {
             .session(session_id)
             .cloned()
             .ok_or_else(|| format!("missing session: {session_id}"))?;
+        if let ConfigOptionValue::ReasoningEffort(effort) = option {
+            let active_model = session.metadata.model.as_deref().unwrap_or(&self.config.model);
+            if !crate::providers::reasoning_option_is_supported(active_model, *effort) {
+                return Err(format!(
+                    "reasoning control `{}` is not supported by {active_model}",
+                    effort.label()
+                ));
+            }
+        }
         let model = match option {
             ConfigOptionValue::Model(model) => Some(model.clone()),
             ConfigOptionValue::WebSearch(_)

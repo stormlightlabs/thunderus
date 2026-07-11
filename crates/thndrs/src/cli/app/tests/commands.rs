@@ -274,9 +274,9 @@ fn model_command_opens_picker_and_selects_model() {
     }
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-    assert_eq!(app.prompt_accessory, PromptAccessory::None);
+    assert_eq!(app.prompt_accessory, PromptAccessory::ReasoningEffort);
     assert_eq!(app.model, "umans-glm-5.2");
-    assert!(app.picker.is_none());
+    assert!(app.picker.is_some());
 }
 
 #[test]
@@ -285,30 +285,32 @@ fn gpt_5_6_model_selection_prompts_for_and_saves_reasoning_effort() {
     app.input = PromptInput::from("/model");
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
     let picker = app.picker.as_mut().expect("model picker");
-    picker.query = "gpt-5.6-terra".to_string();
+    picker.query = "opencode/gpt-5.6-terra".to_string();
     picker.refresh_matches();
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-    assert_eq!(app.model, "chatgpt-codex/gpt-5.6-terra");
+    assert_eq!(app.model, "opencode/gpt-5.6-terra");
     assert_eq!(app.prompt_accessory, PromptAccessory::ReasoningEffort);
     let picker = app.picker.as_mut().expect("reasoning effort picker");
-    picker.query = "max".to_string();
+    picker.query = "xhigh".to_string();
     picker.refresh_matches();
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-    assert_eq!(app.cli.reasoning_effort, ReasoningEffort::Max);
+    assert_eq!(app.cli.reasoning_effort, ReasoningEffort::Xhigh);
     assert_eq!(app.prompt_accessory, PromptAccessory::None);
     assert_eq!(
         std::fs::read_to_string(app.cwd.join(".thndrs").join("config.toml")).expect("read config"),
-        "model = \"chatgpt-codex/gpt-5.6-terra\"\nreasoning_effort = \"max\"\n"
+        "model = \"opencode/gpt-5.6-terra\"\nreasoning_effort = \"xhigh\"\n"
     );
 }
 
 #[test]
 fn reasoning_command_opens_the_current_effort_picker() {
     let mut app = fresh_app();
+    app.model = "opencode/gpt-5.6-sol".to_string();
+    app.cli.model = app.model.clone();
     app.cli.reasoning_effort = ReasoningEffort::High;
     app.input = PromptInput::from("/reasoning");
 

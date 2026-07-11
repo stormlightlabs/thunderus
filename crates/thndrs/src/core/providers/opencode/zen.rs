@@ -7,10 +7,11 @@
 use std::path::Path;
 
 use crate::{
-    WebSearchMode,
     app::AgentEvent,
+    cli::{ReasoningEffort, ReasoningSummary, WebSearchMode},
     providers::{
-        self, KnownModel, ProviderError, ProviderHttpClient, ProviderMessage, Result, StreamFormat, StreamingProvider,
+        self, KnownModel, ProviderContinuation, ProviderError, ProviderHttpClient, ProviderMessage, Result,
+        StreamFormat, StreamingProvider,
     },
     thndrs_core::auth,
 };
@@ -31,6 +32,14 @@ pub const API_KEY_ENV: &str = "OPENCODE_ZEN_KEY";
 pub const MODEL_PREFIX: &str = "opencode/";
 
 pub const DEFAULT_RECOMMENDED_MAX_TOKENS: u32 = 32_768;
+
+/// Endpoint family selected by the OpenCode Zen model id.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EndpointFamily {
+    Responses,
+    AnthropicMessages,
+    OpenAiChat,
+}
 
 /// OpenAI-compatible model list response from `GET /models`.
 pub type ModelsResponse = super::ModelsResponse;
@@ -90,6 +99,13 @@ impl OpenCodeZenClient {
         ]
     }
 
+    /// Build headers for an Anthropic-compatible Messages request.
+    pub fn build_messages_headers(&self) -> Vec<(String, String)> {
+        let mut headers = self.build_chat_headers();
+        headers.push(("anthropic-version".to_string(), "2023-06-01".to_string()));
+        headers
+    }
+
     /// Build a request body for `POST /chat/completions`.
     pub fn build_chat_request_body(
         model: &str, messages: &[ProviderMessage], max_tokens: u32, stream: bool, tools: Option<&serde_json::Value>,
@@ -100,14 +116,69 @@ impl OpenCodeZenClient {
         ))
     }
 
-    /// Send a streaming request to `POST /chat/completions`.
+    /// Build the request body for the endpoint family selected by `model`.
+    pub fn build_request_body(
+        model: &str, messages: &[ProviderMessage], max_tokens: u32, tools: Option<&serde_json::Value>,
+        effort: ReasoningEffort, summary: ReasoningSummary, continuation: &ProviderContinuation,
+    ) -> Result<serde_json::Value> {
+        let raw_model = raw_model_id(model)?;
+        if !reasoning_options(model).contains(&effort) {
+            return Err(ProviderError::Json(format!(
+                "reasoning control `{}` is not supported by {model}",
+                effort.label()
+            )));
+        }
+        Ok(match endpoint_family(raw_model) {
+            EndpointFamily::Responses => providers::codex::ChatGptCodexClient::build_openai_responses_request_body(
+                raw_model,
+                messages,
+                tools,
+                effort,
+                summary,
+                continuation,
+            ),
+            EndpointFamily::AnthropicMessages => {
+                let mut body =
+                    providers::anthropic::build_messages_request_body(raw_model, messages, max_tokens, true, tools);
+                if effort != ReasoningEffort::Auto {
+                    body["output_config"] = serde_json::json!({ "effort": effort.label() });
+                    if supports_adaptive_thinking(raw_model) {
+                        body["thinking"] = serde_json::json!({ "type": "adaptive" });
+                    }
+                }
+                body
+            }
+            EndpointFamily::OpenAiChat => {
+                providers::openai::build_chat_request_body(raw_model, messages, max_tokens, true, tools)
+            }
+        })
+    }
+
+    /// Send a streaming request to the endpoint selected by `model`.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "The public helper mirrors the complete provider request boundary for focused fixture tests."
+    )]
     pub fn send_streaming_request(
         &self, model: &str, messages: &[ProviderMessage], max_tokens: u32, tools: Option<&serde_json::Value>,
+        effort: ReasoningEffort, summary: ReasoningSummary, continuation: &ProviderContinuation,
     ) -> Result<ureq::http::Response<ureq::Body>> {
-        let body = Self::build_chat_request_body(model, messages, max_tokens, true, tools)?;
-        let url = format!("{}/chat/completions", self.http.base_url());
+        let raw_model = raw_model_id(model)?;
+        let family = endpoint_family(raw_model);
+        let body = Self::build_request_body(model, messages, max_tokens, tools, effort, summary, continuation)?;
+        let path = match family {
+            EndpointFamily::Responses => "responses",
+            EndpointFamily::AnthropicMessages => "messages",
+            EndpointFamily::OpenAiChat => "chat/completions",
+        };
+        let url = format!("{}/{}", self.http.base_url(), path);
         let mut request = self.http.agent().post(&url);
-        for (key, value) in self.build_chat_headers() {
+        let headers = if family == EndpointFamily::AnthropicMessages {
+            self.build_messages_headers()
+        } else {
+            self.build_chat_headers()
+        };
+        for (key, value) in headers {
             request = request.header(&key, &value);
         }
 
@@ -186,17 +257,28 @@ impl StreamingProvider for OpenCodeZenClient {
         DEFAULT_RECOMMENDED_MAX_TOKENS
     }
 
-    /// TODO: Map reasoning effort and summaries when the OpenCode Zen backend
-    /// exposes model-specific controls for them.
     fn send_streaming_request(
         &self, model: &str, messages: &[ProviderMessage], request: &crate::providers::StreamingRequest<'_>,
     ) -> Result<ureq::http::Response<ureq::Body>> {
-        OpenCodeZenClient::send_streaming_request(self, model, messages, request.max_tokens, Some(request.tools))
+        OpenCodeZenClient::send_streaming_request(
+            self,
+            model,
+            messages,
+            request.max_tokens,
+            Some(request.tools),
+            request.reasoning_effort,
+            request.reasoning_summary,
+            request.continuation,
+        )
     }
 
     fn stream_format(&self, model: &str) -> Result<StreamFormat> {
-        raw_model_id(model)?;
-        Ok(StreamFormat::OpenAiChat)
+        let raw = raw_model_id(model)?;
+        Ok(match endpoint_family(raw) {
+            EndpointFamily::Responses => StreamFormat::ChatGptCodexResponses,
+            EndpointFamily::AnthropicMessages => StreamFormat::AnthropicMessages,
+            EndpointFamily::OpenAiChat => StreamFormat::OpenAiChat,
+        })
     }
 
     fn request_error_message(error: &ProviderError) -> String {
@@ -221,9 +303,96 @@ pub fn raw_model_id(model: &str) -> Result<&str> {
         .ok_or_else(|| ProviderError::invalid_model_id("OpenCode Zen", MODEL_PREFIX, model))
 }
 
+/// Select the documented OpenCode Zen endpoint for a raw model id.
+pub fn endpoint_family(model: &str) -> EndpointFamily {
+    if model.starts_with("gpt-") {
+        EndpointFamily::Responses
+    } else if model.starts_with("claude-") || model.starts_with("qwen") {
+        EndpointFamily::AnthropicMessages
+    } else {
+        EndpointFamily::OpenAiChat
+    }
+}
+
+/// Return the verified reasoning choices for one Zen model.
+pub fn reasoning_options(model: &str) -> Vec<ReasoningEffort> {
+    let Ok(raw) = raw_model_id(model) else {
+        return vec![ReasoningEffort::Auto];
+    };
+    if raw.starts_with("gpt-") {
+        if raw.contains("-pro") {
+            return vec![ReasoningEffort::Auto, ReasoningEffort::High];
+        }
+        return vec![
+            ReasoningEffort::Auto,
+            ReasoningEffort::None,
+            ReasoningEffort::Minimal,
+            ReasoningEffort::Low,
+            ReasoningEffort::Medium,
+            ReasoningEffort::High,
+            ReasoningEffort::Xhigh,
+        ];
+    }
+    if raw.starts_with("claude-") && supports_claude_effort(raw) {
+        let mut options = vec![
+            ReasoningEffort::Auto,
+            ReasoningEffort::Low,
+            ReasoningEffort::Medium,
+            ReasoningEffort::High,
+        ];
+        if supports_claude_xhigh(raw) {
+            options.push(ReasoningEffort::Xhigh);
+        }
+        if !raw.contains("4-5") {
+            options.push(ReasoningEffort::Max);
+        }
+        return options;
+    }
+    vec![ReasoningEffort::Auto]
+}
+
+fn supports_claude_effort(model: &str) -> bool {
+    matches!(
+        model,
+        "claude-fable-5"
+            | "claude-opus-4-8"
+            | "claude-opus-4-7"
+            | "claude-opus-4-6"
+            | "claude-opus-4-5"
+            | "claude-sonnet-5"
+            | "claude-sonnet-4-6"
+    )
+}
+
+fn supports_claude_xhigh(model: &str) -> bool {
+    matches!(
+        model,
+        "claude-fable-5" | "claude-opus-4-8" | "claude-opus-4-7" | "claude-sonnet-5"
+    )
+}
+
+fn supports_adaptive_thinking(model: &str) -> bool {
+    matches!(
+        model,
+        "claude-fable-5"
+            | "claude-opus-4-8"
+            | "claude-opus-4-7"
+            | "claude-opus-4-6"
+            | "claude-sonnet-5"
+            | "claude-sonnet-4-6"
+    )
+}
+
 /// Current OpenCode Zen models from public docs.
 pub fn known_models() -> Vec<KnownModel> {
-    vec![KnownModel { id: "opencode/big-pickle", description: "OpenCode Zen Big Pickle, free for a limited time" }]
+    vec![
+        KnownModel { id: "opencode/gpt-5.6-sol", description: "OpenCode Zen GPT-5.6 Sol (Responses)" },
+        KnownModel { id: "opencode/gpt-5.6-terra", description: "OpenCode Zen GPT-5.6 Terra (Responses)" },
+        KnownModel { id: "opencode/gpt-5.6-luna", description: "OpenCode Zen GPT-5.6 Luna (Responses)" },
+        KnownModel { id: "opencode/claude-opus-4-8", description: "OpenCode Zen Claude Opus 4.8 (Messages)" },
+        KnownModel { id: "opencode/claude-sonnet-5", description: "OpenCode Zen Claude Sonnet 5 (Messages)" },
+        KnownModel { id: "opencode/big-pickle", description: "OpenCode Zen Big Pickle (Chat Completions)" },
+    ]
 }
 
 pub fn model_picker_items(models: &[ModelInfo]) -> Vec<(String, String)> {
@@ -534,6 +703,52 @@ mod tests {
     }
 
     #[test]
+    fn routes_and_lowers_reasoning_by_model_family() {
+        assert_eq!(endpoint_family("gpt-5.6-sol"), EndpointFamily::Responses);
+        assert_eq!(endpoint_family("claude-opus-4-8"), EndpointFamily::AnthropicMessages);
+        assert_eq!(endpoint_family("big-pickle"), EndpointFamily::OpenAiChat);
+
+        let messages = vec![ProviderMessage::user("hello")];
+        let responses = OpenCodeZenClient::build_request_body(
+            "opencode/gpt-5.6-sol",
+            &messages,
+            128,
+            None,
+            ReasoningEffort::High,
+            ReasoningSummary::Off,
+            &ProviderContinuation::default(),
+        )
+        .expect("responses body");
+        assert_eq!(responses["reasoning"]["effort"], "high");
+
+        let anthropic = OpenCodeZenClient::build_request_body(
+            "opencode/claude-opus-4-8",
+            &messages,
+            128,
+            None,
+            ReasoningEffort::Xhigh,
+            ReasoningSummary::Off,
+            &ProviderContinuation::default(),
+        )
+        .expect("messages body");
+        assert_eq!(anthropic["output_config"]["effort"], "xhigh");
+        assert_eq!(anthropic["thinking"]["type"], "adaptive");
+
+        assert!(
+            OpenCodeZenClient::build_request_body(
+                "opencode/big-pickle",
+                &messages,
+                128,
+                None,
+                ReasoningEffort::High,
+                ReasoningSummary::Off,
+                &ProviderContinuation::default(),
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
     #[ignore = "requires OPENCODE_ZEN_KEY, network access, and acceptance of Big Pickle limited-free pricing/privacy caveats"]
     fn live_models_requires_opencode_zen_key() {
         let workspace_root = env::current_dir().expect("current dir");
@@ -549,7 +764,15 @@ mod tests {
         let client = OpenCodeZenClient::from_env_or_dotenv(&workspace_root).expect("OPENCODE_ZEN_KEY must be set");
         let messages = vec![ProviderMessage::user("Reply with exactly: ok")];
         let mut response = client
-            .send_streaming_request("opencode/big-pickle", &messages, 32, None)
+            .send_streaming_request(
+                "opencode/big-pickle",
+                &messages,
+                32,
+                None,
+                ReasoningEffort::Auto,
+                ReasoningSummary::Off,
+                &ProviderContinuation::default(),
+            )
             .expect("streaming Big Pickle request with OPENCODE_ZEN_KEY");
         let body = response.body_mut().read_to_string().expect("read body");
         assert!(body.contains("data:"));
@@ -566,7 +789,15 @@ mod tests {
         let defs = crate::tools::tool_definitions();
         let catalog = crate::tools::tool_catalog_schemas(&defs);
         let mut response = client
-            .send_streaming_request("opencode/big-pickle", &messages, 128, Some(&catalog))
+            .send_streaming_request(
+                "opencode/big-pickle",
+                &messages,
+                128,
+                Some(&catalog),
+                ReasoningEffort::Auto,
+                ReasoningSummary::Off,
+                &ProviderContinuation::default(),
+            )
             .expect("streaming Big Pickle tool request with OPENCODE_ZEN_KEY");
         let body = response.body_mut().read_to_string().expect("read body");
         assert!(body.contains("tool_calls") || body.contains("find_files"));

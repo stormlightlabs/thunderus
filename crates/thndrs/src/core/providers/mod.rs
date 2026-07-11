@@ -19,6 +19,27 @@ pub use opencode::zen as opencode_zen;
 
 pub type Result<T> = std::result::Result<T, ProviderError>;
 
+/// Return the reasoning controls that can be safely selected for `model`.
+///
+/// `Auto` is always available. Provider modules intentionally own the
+/// model-specific compatibility rules rather than relying on a global list.
+pub fn reasoning_options(model: &str) -> Vec<ReasoningEffort> {
+    if opencode::is_zen_model_id(model) {
+        opencode::zen::reasoning_options(model)
+    } else if opencode::is_go_model_id(model) {
+        vec![ReasoningEffort::Auto]
+    } else if codex::is_model_id(model) {
+        codex::reasoning_options(model)
+    } else {
+        umans::reasoning_options(model)
+    }
+}
+
+/// Return whether a requested reasoning control is valid for `model`.
+pub fn reasoning_option_is_supported(model: &str, effort: ReasoningEffort) -> bool {
+    reasoning_options(model).contains(&effort)
+}
+
 /// Minimal provider trait used by the agent loop.
 ///
 /// This trait intentionally stops at provider concerns: auth, metadata,
@@ -79,11 +100,9 @@ impl ProviderContinuation {
 pub struct StreamingRequest<'a> {
     pub max_tokens: u32,
     pub search_mode: WebSearchMode,
-    /// TODO: Forward this through every provider/model family that advertises a
-    /// compatible reasoning-effort control.
+    /// Model-specific reasoning control, validated by the provider boundary.
     pub reasoning_effort: ReasoningEffort,
-    /// TODO: Forward this through every provider/model family that advertises a
-    /// compatible reasoning-summary control.
+    /// Whether supporting providers should return reasoning summaries.
     pub reasoning_summary: ReasoningSummary,
     pub tools: &'a serde_json::Value,
     pub continuation: &'a ProviderContinuation,

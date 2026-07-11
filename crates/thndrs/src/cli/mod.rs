@@ -46,19 +46,26 @@ pub enum WebSearchMode {
     None,
 }
 
-/// Requested reasoning depth for providers and models that expose an effort control.
+/// Requested reasoning control for a provider model.
 ///
-/// TODO: Forward this through every supported provider/model family that advertises
-/// compatible reasoning-effort controls.
+/// The exact choices are model-specific. [`Auto`](Self::Auto) delegates to the
+/// provider default, while [`On`](Self::On) and [`None`](Self::None) are used by
+/// providers such as Umans that expose a reasoning toggle rather than a depth.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum ReasoningEffort {
+    /// Use the provider's default reasoning behavior without an override.
+    #[default]
+    Auto,
+    /// Explicitly enable provider-native reasoning where it is toggleable.
+    On,
     /// Disable explicit reasoning for latency-sensitive work.
     None,
+    /// Minimal reasoning for supporting Responses models.
+    Minimal,
     /// Quick, well-scoped work.
     Low,
     /// Balanced reasoning quality and latency.
-    #[default]
     Medium,
     /// Difficult multi-step work.
     High,
@@ -69,13 +76,26 @@ pub enum ReasoningEffort {
 }
 
 impl ReasoningEffort {
-    /// Every effort level supported by GPT-5.6.
-    pub const ALL: [Self; 6] = [Self::None, Self::Low, Self::Medium, Self::High, Self::Xhigh, Self::Max];
+    /// Every normalized reasoning control label.
+    pub const ALL: [Self; 9] = [
+        Self::Auto,
+        Self::On,
+        Self::None,
+        Self::Minimal,
+        Self::Low,
+        Self::Medium,
+        Self::High,
+        Self::Xhigh,
+        Self::Max,
+    ];
 
     /// Stable configuration label.
     pub fn label(self) -> &'static str {
         match self {
+            Self::Auto => "auto",
+            Self::On => "on",
             Self::None => "none",
+            Self::Minimal => "minimal",
             Self::Low => "low",
             Self::Medium => "medium",
             Self::High => "high",
@@ -87,7 +107,10 @@ impl ReasoningEffort {
     /// User-facing label for picker controls.
     pub fn display_label(self) -> &'static str {
         match self {
+            Self::Auto => "Auto",
+            Self::On => "On",
             Self::None => "None",
+            Self::Minimal => "Minimal",
             Self::Low => "Low",
             Self::Medium => "Medium",
             Self::High => "High",
@@ -99,7 +122,10 @@ impl ReasoningEffort {
     /// Short picker description for this reasoning level.
     pub fn description(self) -> &'static str {
         match self {
+            Self::Auto => "Use the provider default",
+            Self::On => "Enable provider-native reasoning",
             Self::None => "Lowest latency; no explicit reasoning",
+            Self::Minimal => "Minimal reasoning for simple work",
             Self::Low => "Quick, well-scoped work",
             Self::Medium => "Balanced quality and latency",
             Self::High => "Difficult multi-step work",
@@ -111,7 +137,10 @@ impl ReasoningEffort {
     /// Parse a configuration or ACP option value.
     pub fn parse(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
+            "auto" => Some(Self::Auto),
+            "on" | "enabled" => Some(Self::On),
             "none" => Some(Self::None),
+            "minimal" => Some(Self::Minimal),
             "low" => Some(Self::Low),
             "medium" => Some(Self::Medium),
             "high" => Some(Self::High),

@@ -57,9 +57,10 @@ provider-specific names.
 |                     | `native`           |                                     |                                                |
 |                     | `exa`,             |                                     |                                                |
 |                     | `none`             |                                     |                                                |
-| `reasoning_effort`  | `none`, `low`,     | `medium`                            | GPT-5.6 reasoning effort.                      |
-|                     | `medium`, `high`,  |                                     |                                                |
-|                     | `xhigh`, `max`     |                                     |                                                |
+| `reasoning_effort`  | model-specific:    | `auto`                              | Reasoning control; unsupported choices fail locally. |
+|                     | `auto`, `on`,      |                                     | Umans uses `on`/`none`; supported GPT/Claude routes expose effort levels. |
+|                     | `none`, `minimal`, |                                     |                                                |
+|                     | `low`–`max`        |                                     |                                                |
 | `reasoning_summary` | `off`, `auto`      | `off`                               | Whether GPT-5.6 summaries are shown.           |
 | `tick_rate_ms`      | integer            | `100`                               | Event poll interval in milliseconds.           |
 | `theme`             | `eldritch-minimal` | `eldritch-minimal`                  | UI color theme.                                |
@@ -84,7 +85,7 @@ entries, then CLI `--skill-dir` entries.
 ```toml
 model = "opencode/big-pickle"
 websearch = "auto"
-reasoning_effort = "medium"
+reasoning_effort = "auto"
 reasoning_summary = "off"
 tick_rate_ms = 100
 theme = "eldritch-minimal"

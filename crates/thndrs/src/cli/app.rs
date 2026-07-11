@@ -1651,13 +1651,22 @@ fn open_model_picker(app: &mut App) {
         offline_model_picker_items()
     } else {
         app.model_picker_items.clone()
-    };
+    }
+    .into_iter()
+    .filter(|item| provider_authenticated(provider_for_model(&item.label), &app.cwd))
+    .collect::<Vec<_>>();
+    if items.is_empty() {
+        app.transcript
+            .push(Entry::Status { text: String::from("no authenticated providers; run /login <provider> or /setup") });
+        return;
+    }
     app.picker = Some(PickerState::new(items, MODEL_PICKER_LIMIT));
     app.prompt_accessory = PromptAccessory::Models;
 }
 
 fn open_reasoning_effort_picker(app: &mut App) {
-    let items = ReasoningEffort::ALL
+    let options = crate::providers::reasoning_options(&app.model);
+    let items = options
         .into_iter()
         .map(|effort| {
             PickerItem::new(
@@ -1667,7 +1676,7 @@ fn open_reasoning_effort_picker(app: &mut App) {
         })
         .collect();
     let mut picker = PickerState::new(items, MODEL_PICKER_LIMIT);
-    picker.selected = ReasoningEffort::ALL
+    picker.selected = crate::providers::reasoning_options(&app.model)
         .iter()
         .position(|effort| *effort == app.cli.reasoning_effort)
         .unwrap_or_default();
@@ -2525,7 +2534,7 @@ fn accept_model_suggestion(app: &mut App) {
                 .push(Entry::Error { text: format!("failed to save selected model to project config: {err}") });
         }
     }
-    if codex::supports_reasoning_effort(&model) {
+    if crate::providers::reasoning_options(&model).len() > 1 {
         open_reasoning_effort_picker(app);
     } else {
         close_prompt_accessory(app);
@@ -2541,6 +2550,17 @@ fn accept_reasoning_effort_suggestion(app: &mut App) {
     else {
         return;
     };
+
+    if !crate::providers::reasoning_option_is_supported(&app.model, effort) {
+        app.transcript.push(Entry::Error {
+            text: format!(
+                "reasoning control `{}` is not supported by {}",
+                effort.label(),
+                app.model
+            ),
+        });
+        return;
+    }
 
     app.cli.reasoning_effort = effort;
     let pending_setup = app.pending_setup_reasoning_effort;

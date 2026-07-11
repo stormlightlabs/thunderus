@@ -584,7 +584,7 @@ fn parse_websearch_env(name: &str, value: &str) -> Result<WebSearchMode, ConfigE
 fn parse_reasoning_effort_env(name: &str, value: &str) -> Result<ReasoningEffort, ConfigError> {
     ReasoningEffort::parse(value).ok_or_else(|| ConfigError::InvalidEnv {
         name: name.to_string(),
-        message: format!("must be one of none, low, medium, high, xhigh, max (got '{value}')"),
+        message: format!("must be one of auto, on, none, minimal, low, medium, high, xhigh, max (got '{value}')"),
     })
 }
 
