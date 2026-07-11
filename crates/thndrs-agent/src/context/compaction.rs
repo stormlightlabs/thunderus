@@ -17,6 +17,17 @@ pub enum CompactionMode {
     Auto,
 }
 
+impl CompactionMode {
+    /// Stable lowercase label for diagnostics and user-facing context health.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Manual => "manual",
+            Self::Auto => "auto",
+        }
+    }
+}
+
 /// Review policy for a proposed compaction summary.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

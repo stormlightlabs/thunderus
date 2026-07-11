@@ -32,6 +32,11 @@ title: "CLI Reference"
 - `thndrs login chatgpt-codex`: start the ChatGPT Codex device-code login flow, with browser PKCE fallback.
 - `thndrs logout chatgpt-codex`: remove the stored ChatGPT Codex credential entry.
 
+Inside the TUI, `/context` inspects the active context working set and
+`/doctor` reports context source, pin, budget, and compaction review health.
+Use `/context pin <id-or-path>`, `/context drop <id>`, `/context recover <id>`,
+and `/context review <approve|reject>` for task-local context control.
+
 Supported API-key setup and login providers include `umans`, `opencode-go`, and
 `opencode-zen`. ChatGPT Codex setup and login share the ChatGPT-backed OAuth
 flow and store refreshable credentials in `~/.thndrs/auth.json`, not in

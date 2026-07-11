@@ -456,6 +456,54 @@ fn compact_writes_a_recoverable_manual_audit_record() {
 }
 
 #[test]
+fn risky_compaction_waits_for_review_and_preserves_context_until_approval() {
+    let mut app = fresh_app();
+    let original = vec![
+        Entry::User { text: "inspect the parser".to_string() },
+        Entry::Tool {
+            name: "read_file".to_string(),
+            arguments: "{}".to_string(),
+            status: ToolStatus::Ok,
+            output: vec!["error details".to_string()],
+        },
+    ];
+    app.transcript = original.clone();
+
+    assert_eq!(
+        handle_command(&mut app, "compact"),
+        Some(Msg::Agent(AgentEvent::Started))
+    );
+    update(&mut app, &Msg::Agent(AgentEvent::Started));
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::AssistantDelta("reviewable summary".to_string())),
+    );
+    update(&mut app, &Msg::Agent(AgentEvent::Finished));
+
+    assert!(app.pending_compaction_review.is_some());
+    assert_eq!(
+        app.last_compaction_review,
+        Some(session::CompactionReviewResult::Pending)
+    );
+    assert!(app.transcript.iter().any(|entry| matches!(
+        entry,
+        Entry::Status { text } if text.contains("review pending")
+    )));
+
+    app.input = PromptInput::from("/context review approve");
+    handle_command(&mut app, "context review approve");
+    assert!(app.pending_compaction_review.is_none());
+    assert_eq!(
+        app.last_compaction_review,
+        Some(session::CompactionReviewResult::Approved)
+    );
+    assert!(app.transcript.iter().any(|entry| matches!(
+        entry,
+        Entry::Agent { text, streaming: false } if text == "reviewable summary"
+    )));
+}
+
+#[test]
 fn auto_compaction_restarts_the_user_turn_after_success() {
     let mut app = fresh_app();
     app.transcript = vec![

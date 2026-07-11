@@ -60,13 +60,39 @@ Supported command families include:
 | `bg`                          | List background processes.                         |
 | `model`                       | Open the model picker.                             |
 | `skills`                      | Browse loaded skills.                              |
-| `doctor`                      | Show redacted setup diagnostics.                   |
+| `context`                     | Inspect the bounded active context working set.    |
+| `context pin <id-or-path>`    | Keep one context item visible across turn rebuilds. |
+| `context drop <id>`           | Exclude one item until it is recovered or reset.   |
+| `context recover <id>`        | Re-enable an item and pin omitted detail when needed. |
+| `context review <approve|reject>` | Resolve a pending compaction review.          |
+| `context drop --reset`        | Clear all explicit context drops.                 |
+| `doctor`                      | Show context source and budget health.             |
 | `auth status`                 | Show credential source/status without values.      |
 | `config path` / `config show` | Inspect config paths or redacted effective config. |
 | `setup`, `login`, `logout`    | Open setup/recovery credential surfaces.           |
 
 Slash command forms such as `/model` and `/skills` remain accepted for
 compatibility, but `:` command mode is the interactive command entry path.
+
+## Context Controls
+
+`/context` opens a bounded ledger of the current working set. It shows stable
+ids, item kinds, visibility, approximate token costs, source labels, budget
+pressure, instruction discovery diagnostics, and compaction review state. It
+does not show project-instruction or transcript content, and secret-shaped
+values are redacted.
+
+Use `/context pin <id-or-path>` for task-local evidence. Paths must refer to
+files inside the workspace. `/context drop <id>` excludes an item from later
+selection; `/context recover <id>` removes that exclusion and pins omitted
+recoverable detail when necessary. `/context drop --reset` clears all explicit
+drops. A failed action leaves the editable prompt unchanged.
+
+`/compact` asks the selected model for a continuation summary. When the covered
+range contains tool output, failures, permissions, or unresolved work, the
+summary waits for `/context review approve` or `/context review reject` before
+changing the active context. The original session records remain available for
+recovery.
 
 ## File Mentions
 

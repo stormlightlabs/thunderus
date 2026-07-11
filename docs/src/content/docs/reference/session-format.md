@@ -18,6 +18,8 @@ are appended and not rewritten.
   content-free context working-set and decision evidence.
 - `compaction`: a redacted summary plus covered ranges, hashes, review state,
   and recovery handles.
+- `compaction_review`: the user's approval or rejection of a pending summary,
+  keyed by its recovery handle.
 - `user`: user prompt text and turn id.
 - `assistant_finished`: final replayable assistant text.
 - `reasoning_finished`: final replayable reasoning text.

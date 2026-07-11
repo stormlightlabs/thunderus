@@ -679,6 +679,21 @@ fn compaction_records_round_trip_for_manual_and_automatic_triggers() {
 }
 
 #[test]
+fn compaction_review_record_round_trips_without_source_content() {
+    let record = SessionRecord::CompactionReview {
+        schema_version: SCHEMA_VERSION,
+        seq: 4,
+        time: "2026-07-11T12:00:00Z".to_string(),
+        recovery_handle: "session:1..4".to_string(),
+        review: CompactionReviewResult::Approved,
+    };
+    let json = record.to_json().expect("serialize review");
+    let restored = SessionRecord::from_json(&json).expect("deserialize review");
+    assert_eq!(restored, record);
+    assert!(!json.contains("source"));
+}
+
+#[test]
 fn writer_redacts_compaction_summary_and_preserves_transcript_reader() {
     let dir = tempfile::tempdir().expect("temp dir");
     let mut writer = test_writer(dir.path(), "compaction-session");

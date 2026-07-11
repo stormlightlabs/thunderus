@@ -16,6 +16,10 @@ use serde::{Deserialize, Serialize};
 use thndrs_agent::CancelToken;
 pub use thndrs_agent::ToolStatus;
 use thndrs_agent::context as agent_context;
+use thndrs_agent::context::{
+    CompactionSummaryCandidate, ContextItemKind, ContextVisibility, HarnessCandidate, InstructionCandidate,
+    PinnedCandidate, SelectionInput, SkillCandidate, TranscriptCandidate, UserTurnCandidate,
+};
 
 use crate::acp::config::provider_label;
 use crate::acp::permissions::{PendingPermission, PermissionDecision};
@@ -29,7 +33,7 @@ use crate::providers::{codex, opencode, umans};
 use crate::renderer::git::GitStatusSummary;
 use crate::thndrs_core::auth;
 use crate::tools::shell::ProcessRegistry;
-use crate::{config, fuzzy, internals, prompt, session, skills, tools};
+use crate::{config, fuzzy, internals, prompt, session, skills, tools, utils};
 use crate::{mcp, renderer};
 
 /// Number of UI ticks the user has to press Ctrl+D a second time before the
@@ -69,6 +73,8 @@ pub enum PromptAccessory {
     Models,
     ReasoningEffort,
     Skills,
+    /// Bounded inspection of the current context ledger.
+    Context,
 }
 
 /// Focused first-run and credential recovery surface.
@@ -597,6 +603,11 @@ pub struct App {
     pub ttft: TurnTtftState,
     /// Loaded context sources (e.g. AGENTS.md).
     pub context_sources: Vec<context::ContextSource>,
+    /// Filesystem discovery diagnostics for project instructions.
+    pub context_diagnostics: Vec<context::InstructionDiagnostic>,
+    /// Latest provider-neutral context ledger used for inspection and prompt
+    /// assembly. It is replaced at each turn boundary.
+    pub context_ledger: Option<agent_context::ContextLedger>,
     /// Discovered Agent Skills metadata.
     pub skills: Vec<skills::SkillMetadata>,
     /// Skill discovery diagnostics for ignored malformed skills.
@@ -622,6 +633,18 @@ pub struct App {
     /// context is retained until the configured provider summary and audit
     /// record both succeed.
     pending_manual_compaction: Option<PendingManualCompaction>,
+    /// A generated summary awaiting explicit review before it changes the
+    /// active working set.
+    pending_compaction_review: Option<PendingCompactionReview>,
+    /// Last compaction review state for the context health surface.
+    pub last_compaction_review: Option<session::CompactionReviewResult>,
+    /// Task-local pins retained across turn-boundary ledger rebuilds.
+    context_pins: Vec<PinnedCandidate>,
+    /// Explicitly dropped context ids retained until the user recovers or
+    /// resets them.
+    context_dropped_ids: Vec<String>,
+    /// Summaries that can stand in for older transcript entries.
+    compaction_summaries: Vec<CompactionSummaryCandidate>,
     /// Current target for input submitted while the agent is running.
     pub queue_target: QueueTarget,
     /// Setup state to resume after choosing a GPT-5.6 reasoning effort.
@@ -660,10 +683,9 @@ impl From<&Cli> for App {
         let workspace_root = context::discover_workspace_root(&value.cwd);
         let mut cli_snapshot = value.clone();
         cli_snapshot.cwd = workspace_root.clone();
-        let context_sources = match context::load_agents_md(&workspace_root) {
-            Some(source) => vec![source],
-            None => Vec::new(),
-        };
+        let context_inventory = context::discover_instructions(&workspace_root);
+        let context_sources = context_inventory.sources;
+        let context_diagnostics = context_inventory.diagnostics;
         let skill_inventory = skills::discover(&workspace_root, &value.skill_dirs);
         let transcript = Vec::new();
         let sessions_dir = value
@@ -754,6 +776,8 @@ impl From<&Cli> for App {
             session_tokens_out: 0,
             ttft: TurnTtftState::default(),
             context_sources,
+            context_diagnostics,
+            context_ledger: None,
             skills: skill_inventory.skills,
             skill_diagnostics: skill_inventory.diagnostics,
             ui_tick: 0,
@@ -763,6 +787,11 @@ impl From<&Cli> for App {
             process_registry: ProcessRegistry::new(),
             last_input: None,
             pending_manual_compaction: None,
+            pending_compaction_review: None,
+            last_compaction_review: None,
+            context_pins: Vec::new(),
+            context_dropped_ids: Vec::new(),
+            compaction_summaries: Vec::new(),
             queue_target: QueueTarget::default(),
             pending_setup_reasoning_effort: None,
             picker: None,
@@ -802,11 +831,19 @@ struct PendingManualCompaction {
     original_user_turn: Option<String>,
 }
 
+/// A provider-generated summary waiting for the user to approve or reject its
+/// replacement of the active transcript range.
+#[derive(Clone, Debug)]
+struct PendingCompactionReview {
+    pending: PendingManualCompaction,
+    summary: String,
+}
+
 impl App {
     /// Build the initial app from parsed CLI args.
     ///
-    /// Discovers the workspace root from `--cwd` (preferring the git root), loads root
-    /// `AGENTS.md` if present, and records context source metadata in the session.
+    /// Discovers the workspace root from `--cwd` (preferring the git root), loads
+    /// scoped `AGENTS.md` sources if present, and records their metadata in the session.
     pub fn from_cli(cli: &Cli) -> Self {
         cli.into()
     }
@@ -914,6 +951,534 @@ impl App {
     }
 }
 
+impl App {
+    /// Rebuild the deterministic context ledger for a turn boundary.
+    ///
+    /// The caller owns discovery, transcript projection, and persistence. The
+    /// agent library receives only typed candidates and returns the policy
+    /// result. This method also stores the latest ledger for bounded inspection.
+    pub fn refresh_context_ledger(&mut self, user_turn: Option<&str>) -> agent_context::ContextLedger {
+        let pinned_paths = self
+            .context_pins
+            .iter()
+            .filter_map(|pin| pin.source_path.clone())
+            .collect::<Vec<_>>();
+        let instruction_selection = context::select_instructions(&self.context_sources, &[], &pinned_paths);
+        let applicable_paths = instruction_selection
+            .applicable
+            .iter()
+            .map(|source| source.path.clone())
+            .collect::<std::collections::HashSet<_>>();
+
+        let mut harness = prompt::default_fragments()
+            .into_iter()
+            .map(|fragment| HarnessCandidate::new(fragment.name, fragment.content.len()))
+            .collect::<Vec<_>>();
+        harness.push(HarnessCandidate::new(
+            "tool_catalog",
+            tools::tool_definitions()
+                .into_iter()
+                .map(|tool| tool.name.len() + tool.description.len())
+                .sum(),
+        ));
+
+        let instructions = self
+            .context_sources
+            .iter()
+            .map(|source| InstructionCandidate {
+                path: source.path.clone(),
+                scope: source.scope.clone(),
+                content_hash: source.content_hash,
+                byte_count: source.byte_count,
+                content: Some(source.content.clone()),
+                truncated: source.truncated,
+                applicable: applicable_paths.contains(&source.path),
+            })
+            .collect();
+        let skills = self
+            .skills
+            .iter()
+            .map(|skill| {
+                SkillCandidate::discovered(&skill.name, skill.path.clone(), skill.content_hash, skill.byte_count)
+            })
+            .collect();
+        let transcript = self
+            .transcript
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| TranscriptCandidate {
+                seq: index as u64 + 1,
+                session_id: self.session_id.clone(),
+                label: transcript_candidate_label(entry),
+                bytes: transcript_candidate_bytes(entry),
+                ui_only: matches!(entry, Entry::Status { .. } | Entry::Error { .. }),
+                streaming: matches!(
+                    entry,
+                    Entry::Agent { streaming: true, .. } | Entry::Reasoning { streaming: true, .. }
+                ),
+            })
+            .collect();
+        let selection_input = SelectionInput {
+            harness,
+            user_turn: user_turn.map(|text| UserTurnCandidate::new(&self.session_id, self.turn_count + 1, text.len())),
+            instructions,
+            pins: self.context_pins.clone(),
+            compaction_summaries: self.compaction_summaries.clone(),
+            transcript,
+            skills,
+            dropped_ids: self.context_dropped_ids.clone(),
+        };
+
+        let provider = provider_label(&self.model);
+        let (limits, mut diagnostics) = agent_context::ModelContextLimits::resolve(provider, &self.model, None, None);
+        let mut ledger = agent_context::select_context(&selection_input, limits);
+        diagnostics.extend(
+            self.context_diagnostics
+                .iter()
+                .map(|diagnostic| agent_context::ContextDiagnostic {
+                    severity: match diagnostic.severity {
+                        context::InstructionSeverity::Info => agent_context::DiagnosticSeverity::Info,
+                        context::InstructionSeverity::Warning => agent_context::DiagnosticSeverity::Warning,
+                        context::InstructionSeverity::Error => agent_context::DiagnosticSeverity::Error,
+                    },
+                    code: "instruction_discovery".to_string(),
+                    message: diagnostic.summary(),
+                }),
+        );
+        ledger.diagnostics.extend(diagnostics);
+        self.context_ledger = Some(ledger.clone());
+        ledger
+    }
+
+    /// Open the bounded context inspection surface.
+    pub fn open_context_surface(&mut self) {
+        self.refresh_context_ledger(None);
+        self.prompt_accessory = PromptAccessory::Context;
+        self.input.clear();
+    }
+
+    /// Build the bounded semantic table used by the normal, narrow, and
+    /// small-height context surfaces.
+    pub fn context_table_view(&self) -> crate::renderer::view::TableView {
+        use crate::renderer::view::{ColumnAlignment, ColumnWidthPolicy, TableCellView, TableView};
+
+        let Some(ledger) = &self.context_ledger else {
+            return TableView {
+                header: vec![TableCellView {
+                    text: "context".to_string(),
+                    alignment: ColumnAlignment::Left,
+                    width: ColumnWidthPolicy::Flexible,
+                }],
+                rows: vec![vec![TableCellView {
+                    text: "no ledger".to_string(),
+                    alignment: ColumnAlignment::Left,
+                    width: ColumnWidthPolicy::Flexible,
+                }]],
+                selected_row: None,
+                narrow_fallback: vec!["context unavailable".to_string()],
+            };
+        };
+
+        let review = self
+            .last_compaction_review
+            .map(compaction_review_label)
+            .unwrap_or("none");
+        let counts = ledger.counts();
+        let mut rows = vec![
+            context_table_row(
+                "budget",
+                &format!("{} / {}", ledger.budget.used, ledger.budget.target),
+                "tokens",
+                "target",
+            ),
+            context_table_row(
+                "source",
+                ledger.budget.limits.source.label(),
+                ledger.budget.limits.confidence.label(),
+                "limits",
+            ),
+            context_table_row(
+                "compaction",
+                &format!("{} / {}", compaction_mode_label(self), review),
+                &counts.visible.to_string(),
+                "review",
+            ),
+        ];
+        rows.extend(ledger.items.iter().take(CONTEXT_INSPECTION_MAX_ITEMS).map(|item| {
+            vec![
+                TableCellView {
+                    text: redact_context_display(&item.id),
+                    alignment: ColumnAlignment::Left,
+                    width: ColumnWidthPolicy::Percent(34),
+                },
+                TableCellView {
+                    text: format!("{} / {}", item.kind.label(), item.visibility.label()),
+                    alignment: ColumnAlignment::Left,
+                    width: ColumnWidthPolicy::Percent(26),
+                },
+                TableCellView {
+                    text: item.token_estimate.to_string(),
+                    alignment: ColumnAlignment::Right,
+                    width: ColumnWidthPolicy::Fixed(9),
+                },
+                TableCellView {
+                    text: redact_context_display(&item.label),
+                    alignment: ColumnAlignment::Left,
+                    width: ColumnWidthPolicy::Flexible,
+                },
+            ]
+        }));
+        let mut narrow_fallback = vec![
+            format!("budget {} / {} tokens", ledger.budget.used, ledger.budget.target),
+            format!(
+                "limits {} ({})",
+                ledger.budget.limits.source.label(),
+                ledger.budget.limits.confidence.label()
+            ),
+            format!("compaction {} review {}", compaction_mode_label(self), review),
+            format!(
+                "items {} visible {} pinned {} dropped {} archived {} blocked {}",
+                ledger.items.len(),
+                counts.visible,
+                counts.pinned,
+                counts.dropped,
+                counts.archived,
+                counts.blocked
+            ),
+        ];
+        narrow_fallback.extend(
+            ledger
+                .items
+                .iter()
+                .take(CONTEXT_INSPECTION_MAX_ITEMS)
+                .map(|item| redact_context_display(&item.summary())),
+        );
+        TableView {
+            header: vec![
+                TableCellView {
+                    text: "context".to_string(),
+                    alignment: ColumnAlignment::Left,
+                    width: ColumnWidthPolicy::Percent(34),
+                },
+                TableCellView {
+                    text: "state".to_string(),
+                    alignment: ColumnAlignment::Left,
+                    width: ColumnWidthPolicy::Percent(26),
+                },
+                TableCellView {
+                    text: "tokens".to_string(),
+                    alignment: ColumnAlignment::Right,
+                    width: ColumnWidthPolicy::Fixed(9),
+                },
+                TableCellView {
+                    text: "label".to_string(),
+                    alignment: ColumnAlignment::Left,
+                    width: ColumnWidthPolicy::Flexible,
+                },
+            ],
+            rows,
+            selected_row: None,
+            narrow_fallback,
+        }
+    }
+
+    fn pin_context_reference(&mut self, reference: &str) -> Result<(), String> {
+        self.ensure_context_ledger();
+        let (candidate, item) = if let Some(item) = self.context_item(reference)? {
+            if item.kind == ContextItemKind::Harness {
+                return Err("harness context is always loaded and cannot be pinned".to_string());
+            }
+            (
+                PinnedCandidate {
+                    id: item.id.clone(),
+                    kind: item.kind.clone(),
+                    label: item.label.clone(),
+                    source_path: item.source_path.clone(),
+                    scope: item.scope.clone(),
+                    content_hash: item.content_hash,
+                    bytes: item.byte_count,
+                },
+                item.clone(),
+            )
+        } else {
+            let path = self.resolve_context_path(reference)?;
+            let candidate = PinnedCandidate::file(ContextItemKind::PinnedFile, path.clone(), ".", file_size(&path));
+            let item = agent_context::ContextItem {
+                id: candidate.id.clone(),
+                kind: candidate.kind.clone(),
+                label: candidate.label.clone(),
+                source_path: candidate.source_path.clone(),
+                scope: candidate.scope.clone(),
+                content_hash: candidate.content_hash,
+                byte_count: candidate.bytes,
+                content: None,
+                token_estimate: agent_context::estimate_tokens(candidate.bytes),
+                visibility: ContextVisibility::Pinned,
+                reason: "user pin".to_string(),
+            };
+            (candidate, item)
+        };
+        if self.context_pins.iter().any(|pin| pin.id == candidate.id) {
+            return Err(format!(
+                "context item `{}` is already pinned",
+                redact_context_display(&candidate.id)
+            ));
+        }
+        if let Some(writer) = self.session_writer.as_mut() {
+            writer
+                .append_context_pin(&item, "user pinned context item")
+                .map_err(|error| format!("failed to record context pin: {error}"))?;
+        }
+        self.context_pins.push(candidate);
+        self.refresh_context_ledger(None);
+        Ok(())
+    }
+
+    fn drop_context_reference(&mut self, reference: &str) -> Result<(), String> {
+        self.ensure_context_ledger();
+        let item = self
+            .context_item(reference)?
+            .ok_or_else(|| format!("unknown context item `{}`", redact_context_display(reference)))?
+            .clone();
+        if item.kind == ContextItemKind::Harness {
+            return Err("harness context cannot be dropped".to_string());
+        }
+        if self.context_dropped_ids.iter().any(|id| id == &item.id) {
+            return Err(format!(
+                "context item `{}` is already dropped",
+                redact_context_display(&item.id)
+            ));
+        }
+        if let Some(writer) = self.session_writer.as_mut() {
+            writer
+                .append_context_drop(&item, "user dropped context item")
+                .map_err(|error| format!("failed to record context drop: {error}"))?;
+        }
+        self.context_dropped_ids.push(item.id);
+        self.refresh_context_ledger(None);
+        Ok(())
+    }
+
+    fn recover_context_reference(&mut self, reference: &str) -> Result<(), String> {
+        self.ensure_context_ledger();
+        let item = self
+            .context_item(reference)?
+            .ok_or_else(|| format!("unknown context item `{}`", redact_context_display(reference)))?
+            .clone();
+        if item.kind == ContextItemKind::Harness {
+            return Err("harness context is always available and needs no recovery".to_string());
+        }
+        let was_dropped = self.context_dropped_ids.iter().any(|id| id == &item.id);
+        let needs_pin = !item.visibility.is_rendered();
+        if !was_dropped && !needs_pin {
+            return Err(format!(
+                "context item `{}` is already active",
+                redact_context_display(&item.id)
+            ));
+        }
+        if let Some(writer) = self.session_writer.as_mut() {
+            writer
+                .append_context_recovery(&item, "user recovered context item")
+                .map_err(|error| format!("failed to record context recovery: {error}"))?;
+        }
+        self.context_dropped_ids.retain(|id| id != &item.id);
+        if needs_pin && !self.context_pins.iter().any(|pin| pin.id == item.id) {
+            self.context_pins.push(PinnedCandidate {
+                id: item.id.clone(),
+                kind: item.kind.clone(),
+                label: item.label.clone(),
+                source_path: item.source_path.clone(),
+                scope: item.scope.clone(),
+                content_hash: item.content_hash,
+                bytes: item.byte_count,
+            });
+        }
+        self.refresh_context_ledger(None);
+        Ok(())
+    }
+
+    fn reset_context_drops(&mut self) -> Result<(), String> {
+        if self.context_dropped_ids.is_empty() {
+            return Err("no dropped context items to reset".to_string());
+        }
+        self.context_dropped_ids.clear();
+        self.refresh_context_ledger(None);
+        Ok(())
+    }
+
+    fn ensure_context_ledger(&mut self) {
+        if self.context_ledger.is_none() {
+            self.refresh_context_ledger(None);
+        }
+    }
+
+    fn restore_context_state(&mut self, records: &[session::SessionRecord]) {
+        self.context_pins.clear();
+        self.context_dropped_ids.clear();
+        self.compaction_summaries.clear();
+        self.last_compaction_review = None;
+        for record in records {
+            match record {
+                session::SessionRecord::ContextPin { item, .. } => {
+                    if item.kind != ContextItemKind::Harness && !self.context_pins.iter().any(|pin| pin.id == item.id) {
+                        self.context_pins.push(pinned_candidate_from_meta(item));
+                    }
+                }
+                session::SessionRecord::ContextDrop { item, .. } => {
+                    if !self.context_dropped_ids.iter().any(|id| id == &item.id) {
+                        self.context_dropped_ids.push(item.id.clone());
+                    }
+                }
+                session::SessionRecord::ContextRecovery { item, .. } => {
+                    self.context_dropped_ids.retain(|id| id != &item.id);
+                    if item.kind != ContextItemKind::Harness
+                        && !item.visibility.is_rendered()
+                        && !self.context_pins.iter().any(|pin| pin.id == item.id)
+                    {
+                        self.context_pins.push(pinned_candidate_from_meta(item));
+                    }
+                }
+                session::SessionRecord::Compaction { audit, .. } => {
+                    for candidate in &mut self.compaction_summaries {
+                        candidate.latest = false;
+                    }
+                    let mut candidate = CompactionSummaryCandidate::new(
+                        &self.session_id,
+                        audit.covered_start_seq,
+                        audit.covered_end_seq,
+                        audit.summary.len(),
+                        true,
+                    );
+                    candidate.content = Some(audit.summary.clone());
+                    self.compaction_summaries.push(candidate);
+                    self.last_compaction_review = audit.review;
+                }
+                session::SessionRecord::CompactionReview { review, .. } => {
+                    self.last_compaction_review = Some(*review);
+                }
+                _ => {}
+            }
+        }
+        self.context_ledger = None;
+    }
+
+    fn context_item(&self, reference: &str) -> Result<Option<&agent_context::ContextItem>, String> {
+        let Some(ledger) = &self.context_ledger else {
+            return Ok(None);
+        };
+        let matches = ledger
+            .items
+            .iter()
+            .filter(|item| item.id == reference || item.id.starts_with(reference))
+            .collect::<Vec<_>>();
+        match matches.as_slice() {
+            [] => Ok(None),
+            [item] => Ok(Some(item)),
+            _ => Err(format!("context reference `{reference}` is ambiguous")),
+        }
+    }
+
+    fn resolve_context_path(&self, value: &str) -> Result<PathBuf, String> {
+        let path = Path::new(value);
+        let path = if path.is_absolute() { path.to_path_buf() } else { self.cwd.join(path) };
+        let canonical = path
+            .canonicalize()
+            .map_err(|error| format!("cannot pin `{}`: {error}", redact_context_display(value)))?;
+        if !canonical.starts_with(&self.cwd) {
+            return Err("context pins must stay inside the workspace".to_string());
+        }
+        if !canonical.is_file() {
+            return Err(format!("context pin is not a file: {}", redact_context_display(value)));
+        }
+        Ok(canonical)
+    }
+}
+
+const CONTEXT_INSPECTION_MAX_ITEMS: usize = 64;
+const CONTEXT_DISPLAY_MAX_BYTES: usize = 160;
+
+fn transcript_candidate_label(entry: &Entry) -> String {
+    match entry {
+        Entry::User { .. } => "user".to_string(),
+        Entry::Agent { .. } => "assistant".to_string(),
+        Entry::Reasoning { .. } => "reasoning".to_string(),
+        Entry::Tool { name, .. } => format!("tool:{name}"),
+        Entry::Status { .. } => "status".to_string(),
+        Entry::Error { .. } => "error".to_string(),
+    }
+}
+
+fn pinned_candidate_from_meta(item: &session::ContextItemMeta) -> PinnedCandidate {
+    PinnedCandidate {
+        id: item.id.clone(),
+        kind: item.kind.clone(),
+        label: item.source_path.clone().unwrap_or_else(|| item.id.clone()),
+        source_path: item.source_path.clone().map(PathBuf::from),
+        scope: item.scope.clone().unwrap_or_else(|| ".".to_string()),
+        content_hash: item.content_hash,
+        bytes: item.byte_count,
+    }
+}
+
+fn transcript_candidate_bytes(entry: &Entry) -> usize {
+    match entry {
+        Entry::User { text }
+        | Entry::Agent { text, .. }
+        | Entry::Reasoning { text, .. }
+        | Entry::Status { text }
+        | Entry::Error { text } => text.len(),
+        Entry::Tool { name, arguments, output, .. } => {
+            name.len() + arguments.len() + output.iter().map(String::len).sum::<usize>()
+        }
+    }
+}
+
+fn file_size(path: &Path) -> usize {
+    std::fs::metadata(path)
+        .map(|metadata| metadata.len().min(usize::MAX as u64) as usize)
+        .unwrap_or(0)
+}
+
+fn redact_context_display(value: &str) -> String {
+    let redacted = tools::shell::redact_secrets(value);
+    utils::truncate_ellipsis(&redacted, CONTEXT_DISPLAY_MAX_BYTES)
+}
+
+fn context_table_row(name: &str, state: &str, tokens: &str, label: &str) -> Vec<crate::renderer::view::TableCellView> {
+    use crate::renderer::view::{ColumnAlignment, ColumnWidthPolicy, TableCellView};
+    vec![
+        TableCellView {
+            text: name.to_string(),
+            alignment: ColumnAlignment::Left,
+            width: ColumnWidthPolicy::Percent(34),
+        },
+        TableCellView {
+            text: state.to_string(),
+            alignment: ColumnAlignment::Left,
+            width: ColumnWidthPolicy::Percent(26),
+        },
+        TableCellView {
+            text: tokens.to_string(),
+            alignment: ColumnAlignment::Right,
+            width: ColumnWidthPolicy::Fixed(9),
+        },
+        TableCellView { text: label.to_string(), alignment: ColumnAlignment::Left, width: ColumnWidthPolicy::Flexible },
+    ]
+}
+
+fn compaction_mode_label(app: &App) -> &'static str {
+    effective_compaction_policy(app).mode.label()
+}
+
+fn compaction_review_label(review: session::CompactionReviewResult) -> &'static str {
+    match review {
+        session::CompactionReviewResult::NotRequired => "not-required",
+        session::CompactionReviewResult::Pending => "pending",
+        session::CompactionReviewResult::Approved => "approved",
+        session::CompactionReviewResult::Rejected => "rejected",
+    }
+}
+
 /// The only mutation path. Returns an optional follow-up message.
 pub fn update(app: &mut App, msg: &Msg) -> Option<Msg> {
     match msg {
@@ -958,7 +1523,7 @@ pub fn command_suggestions_for_app(app: &App) -> Vec<(&'static str, &'static str
         ("model", "switch model"),
         ("reasoning", "set reasoning effort"),
         ("skills", "browse loaded skills"),
-        ("doctor", "show redacted diagnostics"),
+        ("doctor", "show context health"),
         ("history", "list recent sessions"),
         ("resume", "resume a local session"),
         ("session", "show a local session summary"),
@@ -1068,7 +1633,8 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) -> Option<Msg> {
         PromptAccessory::Files(_)
         | PromptAccessory::Models
         | PromptAccessory::ReasoningEffort
-        | PromptAccessory::Skills => {
+        | PromptAccessory::Skills
+        | PromptAccessory::Context => {
             if let Some(picker) = app.picker.as_mut() {
                 match mouse.kind {
                     MouseEventKind::ScrollUp => picker.move_up(),
@@ -1096,6 +1662,13 @@ fn handle_accessory_key(app: &mut App, key: KeyEvent) -> KeyOutcome {
         PromptAccessory::Models => handle_model_accessory_key(app, key),
         PromptAccessory::ReasoningEffort => handle_reasoning_effort_accessory_key(app, key),
         PromptAccessory::Skills => handle_skill_accessory_key(app, key),
+        PromptAccessory::Context => match key.code {
+            KeyCode::Esc => {
+                close_prompt_accessory(app);
+                KeyOutcome::Handled
+            }
+            _ => KeyOutcome::Unhandled,
+        },
         PromptAccessory::None => KeyOutcome::Unhandled,
     }
 }
@@ -1632,7 +2205,8 @@ fn accept_prompt_suggestion(app: &mut App) -> Option<Msg> {
         | PromptAccessory::Help
         | PromptAccessory::Models
         | PromptAccessory::ReasoningEffort
-        | PromptAccessory::Skills => {
+        | PromptAccessory::Skills
+        | PromptAccessory::Context => {
             if app.mode == Mode::Command || app.input.as_str().starts_with('/') {
                 accept_command_suggestion(app)
             } else {
@@ -2777,6 +3351,12 @@ fn queue_running_input(app: &mut App, text: &str) {
 }
 
 fn submit_user_turn(app: &mut App, text: String) -> Option<Msg> {
+    if app.pending_compaction_review.is_some() {
+        app.transcript
+            .push(Entry::Error { text: "review the pending compaction before submitting another turn".to_string() });
+        app.input.set_text(&text);
+        return None;
+    }
     if let Some(recovery) = selected_provider_missing(app) {
         app.first_run_recovery = Some(recovery);
         return None;
@@ -2840,6 +3420,22 @@ fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
     }
     if let Some(session_id) = command.strip_prefix("debug log ") {
         return read_session_log_command(app, Some(session_id.trim()));
+    }
+
+    if command == "context" || command == "context show" {
+        app.open_context_surface();
+        return None;
+    }
+    if let Some(rest) = command.strip_prefix("context ") {
+        return handle_context_command(app, rest.trim());
+    }
+    if let Some((action, rest)) = command.split_once(' ')
+        && matches!(action, "pin" | "drop" | "recover")
+    {
+        return handle_context_command(app, &format!("{action} {rest}"));
+    }
+    if matches!(command, "pin" | "drop" | "recover") {
+        return handle_context_command(app, command);
     }
 
     if command == "mcp" {
@@ -3103,6 +3699,9 @@ fn command_contains_api_key_like_argument(command: &str) -> bool {
 fn is_api_key_like(value: &str) -> bool {
     let value = value.trim_matches(|ch: char| ch == '"' || ch == '\'' || ch == '`' || ch == ',' || ch == ';');
     let lower = value.to_ascii_lowercase();
+    if lower.starts_with("ctx_") {
+        return false;
+    }
     value.starts_with("sk-")
         || lower.contains("api_key=")
         || lower.contains("apikey=")
@@ -3119,10 +3718,133 @@ fn is_api_key_like(value: &str) -> bool {
 }
 
 fn run_doctor_slash(app: &mut App) {
-    let mut output = Vec::new();
-    let command = commands::doctor::DoctorCommand { json: false };
-    let result = commands::doctor::run_with_writer(&app.cli, &command, &mut output);
-    push_command_output(app, "doctor", &output, result);
+    app.refresh_context_ledger(None);
+    let Some(ledger) = app.context_ledger.as_ref() else {
+        app.transcript
+            .push(Entry::Error { text: "context health is unavailable".to_string() });
+        return;
+    };
+    let counts = ledger.counts();
+    let review = app
+        .last_compaction_review
+        .map(compaction_review_label)
+        .unwrap_or("none");
+    app.transcript.push(Entry::Status {
+        text: format!(
+            "thndrs doctor (context health)\nsources: {} ({} discovery diagnostics)\npins: {} dropped: {}\nbudget: {} / {} used, {} available, {} auto threshold\nlimits: {} ({})\ncompaction: {} review {}",
+            app.context_sources.len(),
+            app.context_diagnostics.len(),
+            counts.pinned,
+            counts.dropped,
+            ledger.budget.used,
+            ledger.budget.target,
+            ledger.budget.available_input,
+            ledger.budget.auto_compaction_threshold,
+            ledger.budget.limits.source.label(),
+            ledger.budget.limits.confidence.label(),
+            compaction_mode_label(app),
+            review,
+        ),
+    });
+}
+
+fn handle_context_command(app: &mut App, command: &str) -> Option<Msg> {
+    let Some((action, reference)) = command.split_once(' ') else {
+        return match command {
+            "show" => {
+                app.open_context_surface();
+                None
+            }
+            "drop --reset" => {
+                match app.reset_context_drops() {
+                    Ok(()) => app.input.clear(),
+                    Err(error) => app.transcript.push(Entry::Error { text: error }),
+                }
+                None
+            }
+            "review" => {
+                let state = app
+                    .last_compaction_review
+                    .map(compaction_review_label)
+                    .unwrap_or("none");
+                app.transcript
+                    .push(Entry::Status { text: format!("compaction review: {state}") });
+                app.input.clear();
+                None
+            }
+            "pin" | "drop" | "recover" => {
+                app.transcript
+                    .push(Entry::Error { text: format!("usage: /context {command} <id-or-path>") });
+                None
+            }
+            _ => {
+                app.transcript
+                    .push(Entry::Error { text: "usage: /context [show|pin|drop|recover|review]".to_string() });
+                None
+            }
+        };
+    };
+
+    let result = match action {
+        "pin" => app.pin_context_reference(reference.trim()),
+        "drop" if reference.trim() == "--reset" => app.reset_context_drops(),
+        "drop" => app.drop_context_reference(reference.trim()),
+        "recover" => app.recover_context_reference(reference.trim()),
+        "review" => return handle_context_review(app, reference.trim()),
+        _ => Err("usage: /context [show|pin|drop|recover|review]".to_string()),
+    };
+    match result {
+        Ok(()) => {
+            app.input.clear();
+            if matches!(action, "pin" | "drop" | "recover") {
+                app.prompt_accessory = PromptAccessory::Context;
+            }
+        }
+        Err(error) => app.transcript.push(Entry::Error { text: error }),
+    }
+    None
+}
+
+fn handle_context_review(app: &mut App, action: &str) -> Option<Msg> {
+    let Some(pending) = app.pending_compaction_review.as_ref() else {
+        app.transcript
+            .push(Entry::Error { text: "no compaction summary is awaiting review".to_string() });
+        return None;
+    };
+    let review = match action {
+        "approve" => session::CompactionReviewResult::Approved,
+        "reject" => session::CompactionReviewResult::Rejected,
+        _ => {
+            app.transcript
+                .push(Entry::Error { text: "usage: /context review <approve|reject>".to_string() });
+            return None;
+        }
+    };
+    if let Some(writer) = app.session_writer.as_mut()
+        && let Err(error) = writer.append_compaction_review(&pending.pending.recovery_handle, review)
+    {
+        app.transcript
+            .push(Entry::Error { text: format!("failed to record compaction review: {error}") });
+        return None;
+    }
+    let pending = app
+        .pending_compaction_review
+        .take()
+        .expect("review state checked above");
+    app.last_compaction_review = Some(review);
+    app.input.clear();
+    if review == session::CompactionReviewResult::Rejected {
+        let recovery_handle = pending.pending.recovery_handle.clone();
+        let original_user_turn = pending.pending.original_user_turn.clone();
+        restore_failed_compaction(app, pending.pending);
+        if let Some(turn) = original_user_turn {
+            app.input.set_text(&turn);
+        }
+        app.transcript
+            .push(Entry::Status { text: format!("compaction rejected  {recovery_handle}") });
+        return None;
+    }
+    apply_compaction(app, pending.pending, pending.summary).flatten()
 }
 
 fn run_auth_status_slash(app: &mut App) {
@@ -3156,6 +3878,7 @@ fn push_command_output(app: &mut App, label: &str, output: &[u8], result: std::i
 fn handle_running_command(app: &mut App, command: &str) -> Option<Msg> {
     let is_read_only = matches!(command, "quit" | "exit" | "help" | "bg")
         || matches!(command, "history" | "tokens" | "debug log")
+        || matches!(command, "context" | "context show" | "doctor")
         || command.starts_with("session ")
         || command.starts_with("debug log ");
     if is_read_only {
@@ -3252,7 +3975,8 @@ fn resume_session_command(app: &mut App, session_id: &str) -> Option<Msg> {
     };
     let summary = session::SessionReader::read_summary(&path);
     let transcript = session::SessionReader::read_transcript(&path);
-    let turn_count = session::SessionReader::read_records(&path)
+    let records = session::SessionReader::read_records(&path);
+    let turn_count = records
         .iter()
         .filter(|record| matches!(record, session::SessionRecord::User { .. }))
         .count() as u64;
@@ -3260,6 +3984,7 @@ fn resume_session_command(app: &mut App, session_id: &str) -> Option<Msg> {
     app.session_writer = Some(writer);
     app.session_id = id.clone();
     app.transcript = transcript;
+    app.restore_context_state(&records);
     app.session_tokens_in = summary.input_tokens;
     app.session_tokens_out = summary.output_tokens;
     app.turn_count = turn_count;
@@ -3622,6 +4347,14 @@ fn finish_manual_compaction(app: &mut App) -> Option<Option<Msg>> {
     };
 
     let risk = classify_compaction_risk(&pending.original_transcript);
+    let review = if effective_compaction_policy(app).requires_review(match risk {
+        session::CompactionRisk::Low => agent_context::CompactionRisk::Low,
+        session::CompactionRisk::High => agent_context::CompactionRisk::High,
+    }) {
+        session::CompactionReviewResult::Pending
+    } else {
+        session::CompactionReviewResult::NotRequired
+    };
     let audit = session::CompactionAudit {
         summary: summary.clone(),
         covered_start_seq: pending.covered_start_seq,
@@ -3629,7 +4362,7 @@ fn finish_manual_compaction(app: &mut App) -> Option<Option<Msg>> {
         source_hashes: Vec::new(),
         trigger: pending.trigger,
         risk,
-        review: Some(session::CompactionReviewResult::NotRequired),
+        review: Some(review),
         recovery_handles: vec![pending.recovery_handle.clone()],
         model: app.model.clone(),
         usage: None,
@@ -3643,8 +4376,37 @@ fn finish_manual_compaction(app: &mut App) -> Option<Option<Msg>> {
         return Some(None);
     }
 
+    if review == session::CompactionReviewResult::Pending {
+        let recovery_handle = pending.recovery_handle.clone();
+        let saved_pending = pending.clone();
+        restore_failed_compaction(app, saved_pending);
+        app.pending_compaction_review = Some(PendingCompactionReview { pending, summary });
+        app.last_compaction_review = Some(review);
+        app.transcript
+            .push(Entry::Status { text: format!("compaction review pending  {recovery_handle}") });
+        return Some(None);
+    }
+    app.last_compaction_review = Some(review);
+    apply_compaction(app, pending, summary)
+}
+
+/// Apply an approved or review-free summary to the active working set.
+fn apply_compaction(app: &mut App, pending: PendingManualCompaction, summary: String) -> Option<Option<Msg>> {
     let is_automatic = pending.trigger == session::CompactionTrigger::Automatic;
     let original_user_turn = pending.original_user_turn.clone();
+    for candidate in &mut app.compaction_summaries {
+        candidate.latest = false;
+    }
+    let mut summary_candidate = CompactionSummaryCandidate::new(
+        &app.session_id,
+        pending.covered_start_seq,
+        pending.covered_end_seq,
+        summary.len(),
+        true,
+    );
+    summary_candidate.content = Some(summary.clone());
+    app.compaction_summaries.push(summary_candidate);
+
     if is_automatic {
         app.transcript.clear();
     } else {

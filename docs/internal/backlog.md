@@ -8,8 +8,9 @@ tracks the work, keep the detail there instead of duplicating it here.
 ### Baseline-Owned Agent Boundary
 
 The provider-neutral agent event boundary and application composition seam are
-tracked in [`000_baseline`](features/000_baseline/plan.md). The tool-registry
-migration itself is complete and archived in `archive/v0.1.md`.
+complete and archived in
+[`v0.1`](archive/v0.1.md#baseline-architecture-and-context-control). The
+tool-registry migration is archived there as well.
 
 ### App State Boundaries
 

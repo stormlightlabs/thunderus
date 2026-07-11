@@ -202,6 +202,78 @@ fn slash_auth_config_and_doctor_append_redacted_output() {
 }
 
 #[test]
+fn context_surface_is_bounded_and_does_not_render_source_content() {
+    let mut app = fresh_app();
+    let source = app.cwd.join("AGENTS.md");
+    std::fs::write(&source, "api_key=source-secret-that-must-not-be-rendered\n").expect("write instructions");
+    app.context_sources = vec![context::load_agents_md(&app.cwd).expect("load instructions")];
+    app.input = PromptInput::from("/context");
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(app.prompt_accessory, PromptAccessory::Context);
+    let table = app.context_table_view();
+    let text = table
+        .rows
+        .iter()
+        .flat_map(|row| row.iter())
+        .map(|cell| cell.text.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(text.contains("budget"));
+    assert!(!text.contains("source-secret-that-must-not-be-rendered"));
+    assert!(table.rows.len() <= 67, "context table must stay bounded");
+}
+
+#[test]
+fn context_pin_drop_recover_and_failed_pin_preserve_prompt_input() {
+    let mut app = fresh_app();
+    let file = app.cwd.join("notes.md");
+    std::fs::write(&file, "private notes").expect("write file");
+
+    app.input = PromptInput::from("/context pin notes.md");
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(app.input.is_empty(), "successful context action clears its command");
+    let pinned_id = app
+        .context_ledger
+        .as_ref()
+        .expect("ledger")
+        .items
+        .iter()
+        .find(|item| item.kind == thndrs_agent::context::ContextItemKind::PinnedFile)
+        .expect("pinned item")
+        .id
+        .clone();
+
+    app.input = PromptInput::from(format!("/context drop {pinned_id}"));
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(
+        app.context_ledger
+            .as_ref()
+            .expect("ledger")
+            .items
+            .iter()
+            .any(|item| item.id == pinned_id && item.visibility == thndrs_agent::context::ContextVisibility::Dropped)
+    );
+
+    app.input = PromptInput::from(format!("/context recover {pinned_id}"));
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(
+        app.context_ledger
+            .as_ref()
+            .expect("ledger")
+            .items
+            .iter()
+            .any(|item| item.id == pinned_id && item.visibility == thndrs_agent::context::ContextVisibility::Pinned)
+    );
+
+    app.input = PromptInput::from("/context pin missing.md");
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(app.input.as_str(), "/context pin missing.md");
+    assert!(format!("{:?}", app.transcript).contains("cannot pin"));
+}
+
+#[test]
 fn slash_config_edit_reports_cli_only() {
     let mut app = fresh_app();
     app.input = PromptInput::from("/config edit");

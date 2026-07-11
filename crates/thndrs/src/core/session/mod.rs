@@ -116,6 +116,15 @@ pub enum SessionRecord {
         time: String,
         audit: CompactionAudit,
     },
+    /// The user's decision on a compaction summary that required review.
+    #[serde(rename = "compaction_review")]
+    CompactionReview {
+        schema_version: u32,
+        seq: u64,
+        time: String,
+        recovery_handle: String,
+        review: CompactionReviewResult,
+    },
     /// A user-submitted prompt.
     #[serde(rename = "user")]
     User {
@@ -367,6 +376,7 @@ impl SessionRecord {
             | SessionRecord::ContextDrop { seq, .. }
             | SessionRecord::ContextRecovery { seq, .. }
             | SessionRecord::Compaction { seq, .. }
+            | SessionRecord::CompactionReview { seq, .. }
             | SessionRecord::User { seq, .. }
             | SessionRecord::PromptMetadata { seq, .. }
             | SessionRecord::AssistantFinished { seq, .. }
@@ -917,6 +927,19 @@ impl SessionWriter {
             seq: 0,
             time: datetime::now_iso8601(),
             audit: audit.redacted(),
+        })
+    }
+
+    /// Append the review decision for a previously pending compaction.
+    pub fn append_compaction_review(
+        &mut self, recovery_handle: &str, review: CompactionReviewResult,
+    ) -> std::io::Result<()> {
+        self.append(SessionRecord::CompactionReview {
+            schema_version: SCHEMA_VERSION,
+            seq: 0,
+            time: datetime::now_iso8601(),
+            recovery_handle: tools::shell::redact_secrets(recovery_handle),
+            review,
         })
     }
 
@@ -1586,6 +1609,7 @@ fn set_seq(record: &mut SessionRecord, seq: u64) {
         | SessionRecord::ContextDrop { seq: s, .. }
         | SessionRecord::ContextRecovery { seq: s, .. }
         | SessionRecord::Compaction { seq: s, .. }
+        | SessionRecord::CompactionReview { seq: s, .. }
         | SessionRecord::User { seq: s, .. }
         | SessionRecord::PromptMetadata { seq: s, .. }
         | SessionRecord::AssistantFinished { seq: s, .. }

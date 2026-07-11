@@ -969,15 +969,39 @@ fn append_daily_log(observability: &Option<Observability>, session_id: &str, eve
 /// the provider. This is the `--print-prompt` debug path.
 fn run_print_prompt(cli: &Cli) -> io::Result<()> {
     let workspace_root = crate::context::discover_workspace_root(&cli.cwd);
-    let context_sources = match crate::context::load_agents_md(&workspace_root) {
-        Some(source) => vec![source],
-        None => Vec::new(),
-    };
+    let context_sources = crate::context::discover_instructions(&workspace_root).sources;
     let skill_inventory = skills::discover(&workspace_root, &cli.skill_dirs);
     let mcp_manager = load_mcp_manager_for_workspace(&workspace_root).ok();
     let tool_catalog = tools::runtime_tool_definitions(mcp_manager.as_deref());
-
     let user_turn = String::from("(no user prompt — print-prompt debug mode)");
+    let provider = acp::config::provider_label(&cli.model);
+    let (limits, _) = agent_context::ModelContextLimits::resolve(provider, &cli.model, None, None);
+    let selection = agent_context::SelectionInput {
+        harness: prompt::default_fragments()
+            .into_iter()
+            .map(|fragment| agent_context::HarnessCandidate::new(fragment.name, fragment.content.len()))
+            .collect(),
+        user_turn: Some(agent_context::UserTurnCandidate::new(
+            "print-prompt",
+            1,
+            user_turn.len(),
+        )),
+        instructions: context_sources
+            .iter()
+            .map(|source| agent_context::InstructionCandidate {
+                path: source.path.clone(),
+                scope: source.scope.clone(),
+                content_hash: source.content_hash,
+                byte_count: source.byte_count,
+                content: Some(source.content.clone()),
+                truncated: source.truncated,
+                applicable: true,
+            })
+            .collect(),
+        ..Default::default()
+    };
+    let ledger = agent_context::select_context(&selection, limits);
+
     let bundle = PromptBundle::new_with_skills(
         &workspace_root,
         &cli.model,
@@ -987,7 +1011,8 @@ fn run_print_prompt(cli: &Cli) -> io::Result<()> {
         &[],
         &user_turn,
     )
-    .with_tool_catalog(tool_catalog);
+    .with_tool_catalog(tool_catalog)
+    .with_context_ledger(ledger);
 
     let mut output = render_print_prompt(&bundle);
     output.push_str(&render_print_prompt_config(cli, &workspace_root));
@@ -1387,6 +1412,7 @@ fn maybe_spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>) {
     );
 
     let tool_catalog = tools::runtime_tool_definitions(mcp_manager.as_deref());
+    let ledger = app.refresh_context_ledger(Some(&prompt));
     let bundle = PromptBundle::new_with_skills(
         &config.root,
         &config.model,
@@ -1396,7 +1422,8 @@ fn maybe_spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>) {
         &app.transcript,
         &prompt,
     )
-    .with_tool_catalog(tool_catalog);
+    .with_tool_catalog(tool_catalog)
+    .with_context_ledger(ledger);
 
     if !app.compaction_in_flight() && preflight_requires_auto_compaction(app, &bundle) {
         start_auto_compaction(app, prompt);

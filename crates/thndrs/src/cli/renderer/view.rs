@@ -133,6 +133,7 @@ impl From<&App> for FocusedSurfaceView {
             PromptAccessory::Files(_) => app
                 .render_picker_surface("files")
                 .map_or(FocusedSurfaceView::None, FocusedSurfaceView::FilePicker),
+            PromptAccessory::Context => FocusedSurfaceView::StructuredTable(app.context_table_view()),
             _ => FocusedSurfaceView::None,
         }
     }
@@ -636,20 +637,20 @@ impl LiveView {
             super::live::accessory_rows(app, width, super::live::MAX_ACCESSORY_ROWS)
         } else {
             match &semantic.focused_surface {
-                FocusedSurfaceView::CommandPicker(_) | FocusedSurfaceView::FilePicker(_) | FocusedSurfaceView::Help => {
-                    super::adapter::render_surface(&SurfaceRenderInput::new(
-                        &semantic.focused_surface,
-                        &SurfaceThemeView::new(),
-                        width,
-                        super::live::MAX_ACCESSORY_ROWS,
-                    ))
-                }
+                FocusedSurfaceView::CommandPicker(_)
+                | FocusedSurfaceView::FilePicker(_)
+                | FocusedSurfaceView::Help
+                | FocusedSurfaceView::StructuredTable(_) => super::adapter::render_surface(&SurfaceRenderInput::new(
+                    &semantic.focused_surface,
+                    &SurfaceThemeView::new(),
+                    width,
+                    super::live::MAX_ACCESSORY_ROWS,
+                )),
                 FocusedSurfaceView::None
                 | FocusedSurfaceView::ToolDetail(_)
                 | FocusedSurfaceView::DiffDetail(_)
                 | FocusedSurfaceView::TranscriptLens { .. }
-                | FocusedSurfaceView::SetupForm(_)
-                | FocusedSurfaceView::StructuredTable(_) => {
+                | FocusedSurfaceView::SetupForm(_) => {
                     super::live::accessory_rows(app, width, super::live::MAX_ACCESSORY_ROWS)
                 }
             }

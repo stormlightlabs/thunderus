@@ -1,14 +1,15 @@
 # Tickets: ACP Validation And Expansion
 
 The baseline exposes the proven server through `thndrs acp serve`. These
-tickets start after the baseline release gate.
+tickets start after the
+[v0.1 release-candidate gate](../012_rc/tasks.md#ticket-12-execute-the-human-release-gate).
 
 ## Ticket 1: Validate A Real Editor Client
 
 **What to build:** Run a documented ACP editor/client path against the packaged
 server and fix only demonstrated compatibility gaps.
 
-**Blocked by:** Baseline release gate
+**Blocked by:** v0.1 release-candidate gate (012_rc, Ticket 12)
 
 **Acceptance criteria:**
 
@@ -46,4 +47,4 @@ that cannot use the local stdio executable.
 
 ## Frontier
 
-Ticket 1 starts after the baseline release gate.
+Ticket 1 starts after the v0.1 release-candidate gate.

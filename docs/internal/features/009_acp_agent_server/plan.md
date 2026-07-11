@@ -9,6 +9,12 @@ captured: 2026-07-10
 Validate the baseline `thndrs acp serve` mode with a real editor client and
 prepare registry metadata. Stdio remains the only supported transport.
 
+This is a post-v0.1 feature. The
+[release-candidate plan](../012_rc/plan.md) owns package publication readiness,
+the provider-led first-run workflow, and the application workbench. ACP real
+editor validation must not delay those selected release gates or reintroduce a
+default model path.
+
 ## Baseline Capability
 
 The baseline owns and must preserve the existing server behavior:

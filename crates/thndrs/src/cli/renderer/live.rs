@@ -24,6 +24,7 @@ pub const MAX_ACCESSORY_ROWS: usize = 8;
 
 const LIVE_INSET: usize = 2;
 
+#[derive(Copy, Clone)]
 struct ActionDimensions(usize, usize);
 
 impl ActionDimensions {
@@ -36,6 +37,7 @@ impl ActionDimensions {
     }
 }
 
+#[derive(Copy, Clone)]
 struct ActionStyles {
     selected_style: CellStyle,
     muted_style: CellStyle,
@@ -182,6 +184,7 @@ pub fn accessory_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
         PromptAccessory::Models => picker_rows(app, "models", width, max_height),
         PromptAccessory::ReasoningEffort => picker_rows(app, "reasoning effort", width, max_height),
         PromptAccessory::Skills => picker_rows(app, "skills", width, max_height),
+        PromptAccessory::Context => Vec::new(),
     }
 }
 

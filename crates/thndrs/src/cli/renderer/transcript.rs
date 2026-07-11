@@ -152,6 +152,7 @@ impl LabeledBlock {
     }
 }
 
+#[derive(Copy, Clone)]
 struct BannerIndent(usize, usize);
 
 impl BannerIndent {

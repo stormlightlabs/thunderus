@@ -51,11 +51,17 @@ surfaces are rendered through the iocraft adapter, then converted back into the
 same row model as the rest of the direct renderer. `Esc` closes the active
 accessory first.
 
+The `/context` ledger uses the same bounded surface path. Wide terminals show
+item ids, state, token estimates, and labels; narrow terminals fall back to
+compact one-line entries. At short heights the surface is clipped before it
+can displace the prompt. It displays metadata only, so source text stays out of
+the overlay and native scrollback.
+
 ## Setup Slash Commands
 
 The CLI commands are canonical, but the TUI exposes safe setup shortcuts:
 
-- `/doctor`: show redacted setup diagnostics.
+- `/doctor`: show context source, pin, budget, and compaction review health.
 - `/auth status`: show provider credential source/status without values.
 - `/config path`: show global and project config paths.
 - `/config show`: show redacted effective config and diagnostics.

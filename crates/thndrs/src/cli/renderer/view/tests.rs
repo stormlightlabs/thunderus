@@ -1,6 +1,7 @@
 use crate::acp::permissions::{PendingPermission, PermissionKindView, PermissionOptionView};
 use crate::app::{
     App, DetailPane, Entry, FilePickerSource, PickerItem, PickerState, PromptAccessory, RunState, ToolStatus,
+    VISIBLE_ROWS,
 };
 use crate::cli::{Cli, Theme, WebSearchMode};
 use crate::renderer;
@@ -64,6 +65,25 @@ fn build_view_idle_has_empty_transcript_and_banner() {
         !view.live.static_status.text().is_empty(),
         "live view should have a static status row"
     );
+}
+
+#[test]
+fn context_surface_stays_bounded_at_normal_narrow_and_small_height() {
+    let mut app = test_app();
+    app.refresh_context_ledger(None);
+    app.prompt_accessory = PromptAccessory::Context;
+
+    for (width, height) in [(80, 24), (30, 8), (20, 3)] {
+        let view = RendererView::build(&app, width, height);
+        assert!(
+            view.live.accessory_rows.iter().all(|row| row.width == width),
+            "context rows must preserve width at {width}x{height}"
+        );
+        assert!(
+            view.live.accessory_rows.len() <= VISIBLE_ROWS,
+            "context rows must remain bounded at {width}x{height}"
+        );
+    }
 }
 
 #[test]

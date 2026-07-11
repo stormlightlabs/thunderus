@@ -1613,6 +1613,7 @@ fn record_time(record: &SessionRecord) -> Option<String> {
         | SessionRecord::ContextDrop { time, .. }
         | SessionRecord::ContextRecovery { time, .. }
         | SessionRecord::Compaction { time, .. }
+        | SessionRecord::CompactionReview { time, .. }
         | SessionRecord::User { time, .. }
         | SessionRecord::PromptMetadata { time, .. }
         | SessionRecord::AssistantFinished { time, .. }
