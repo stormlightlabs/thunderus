@@ -1,5 +1,6 @@
 //! Provider-neutral run contracts shared by application adapters.
 
+use std::borrow::Cow;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -28,6 +29,101 @@ impl ToolStatus {
             ToolStatus::Cancelled => "✕ write cancelled",
         }
     }
+}
+
+/// A tool-use request from a provider.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ToolUseRequest {
+    /// Tool name chosen from the application-supplied catalog.
+    pub name: String,
+    /// Raw JSON arguments supplied by the provider.
+    pub arguments: String,
+    /// Provider-assigned id used to correlate the eventual result.
+    pub tool_use_id: String,
+}
+
+impl ToolUseRequest {
+    /// Build a tool-use request from its provider-neutral fields.
+    pub fn new(name: impl Into<String>, arguments: impl Into<String>, tool_use_id: impl Into<String>) -> Self {
+        Self { name: name.into(), arguments: arguments.into(), tool_use_id: tool_use_id.into() }
+    }
+}
+
+/// Structured output returned by an application-owned tool executor.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ToolOutput {
+    /// Tool name selected for execution.
+    pub name: String,
+    /// Execution status.
+    pub status: ToolStatus,
+    /// Output lines safe for display and provider feedback.
+    pub output: Vec<String>,
+    /// Failure detail when execution did not succeed.
+    pub error: Option<String>,
+}
+
+impl ToolOutput {
+    /// Build a successful output value.
+    pub fn ok(name: impl Into<String>, output: Vec<String>) -> Self {
+        Self { name: name.into(), status: ToolStatus::Ok, output, error: None }
+    }
+
+    /// Build a failed output value.
+    pub fn failed(name: impl Into<String>, error: impl Into<String>) -> Self {
+        Self { name: name.into(), status: ToolStatus::Failed, output: Vec::new(), error: Some(error.into()) }
+    }
+}
+
+/// A tool definition exposed to a provider/model.
+#[derive(Clone, Debug)]
+pub struct ToolDefinition {
+    /// Stable name selected by the provider in a tool-use request.
+    pub name: Cow<'static, str>,
+    /// Model-visible guidance for using the tool.
+    pub description: Cow<'static, str>,
+    /// JSON Schema for the tool arguments.
+    pub input_schema: serde_json::Value,
+}
+
+impl ToolDefinition {
+    /// Build a provider-visible tool definition.
+    pub fn new(
+        name: impl Into<Cow<'static, str>>, description: impl Into<Cow<'static, str>>, input_schema: serde_json::Value,
+    ) -> Self {
+        Self { name: name.into(), description: description.into(), input_schema }
+    }
+}
+
+/// Provider-neutral semantic output from an agent turn.
+///
+/// Application adapters may attach local-tool audit details, UI state, or ACP
+/// transport state when projecting these events to their own surfaces.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AgentEvent {
+    /// A turn started.
+    Started,
+    /// Informational provider or run status.
+    Status(String),
+    /// Incremental token accounting.
+    Usage { input_tokens: u64, output_tokens: u64 },
+    /// Incremental assistant text.
+    AssistantDelta(String),
+    /// Incremental reasoning text.
+    ReasoningDelta(String),
+    /// A tool call was requested.
+    ToolStarted { id: String, name: String, arguments: String },
+    /// A tool call completed.
+    ToolFinished { id: String, output: Vec<String>, status: ToolStatus },
+    /// Model metadata available for application model pickers.
+    ModelMetadataLoaded(Vec<(String, String)>),
+    /// A retry was scheduled after a recoverable provider failure.
+    Retrying { attempt: u32, max_attempts: u32, delay_ms: u64, error: String },
+    /// The turn completed normally.
+    Finished,
+    /// The turn failed recoverably.
+    Failed(String),
+    /// The turn was cancelled cooperatively.
+    Cancelled,
 }
 
 /// Decision returned by an application-owned tool permission hook.
@@ -107,5 +203,11 @@ mod tests {
         let policy = RetryPolicy::new(3, Duration::from_millis(25));
         assert_eq!(policy.delay_for_attempt(1), Duration::from_millis(25));
         assert_eq!(policy.delay_for_attempt(3), Duration::from_millis(100));
+    }
+
+    #[test]
+    fn tool_output_preserves_success_and_failure_states() {
+        assert_eq!(ToolOutput::ok("read", vec!["ok".to_string()]).status, ToolStatus::Ok);
+        assert_eq!(ToolOutput::failed("read", "missing").error.as_deref(), Some("missing"));
     }
 }

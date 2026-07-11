@@ -10,7 +10,6 @@
 #[cfg(test)]
 mod tests;
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -24,6 +23,10 @@ use crate::skills::{SkillActivation, SkillReferenceMeta};
 use crate::tools::{WriteOp, shell};
 use crate::{datetime, internals, tools};
 
+pub use thndrs_context::session::{
+    AcpPermissionOptionRecord, AcpSessionMetadata, McpToolSessionMeta, SessionConfigFile, SessionConfigMeta,
+};
+
 /// Current JSONL schema version.
 pub const SCHEMA_VERSION: u32 = 1;
 
@@ -32,55 +35,6 @@ pub const SCHEMA_VERSION: u32 = 1;
 /// Every record carries `schema_version`, `seq` (monotonic within the session),
 /// `time` (ISO 8601 UTC), and a `type` tag. Records are never rewritten;
 /// appends are the only mutation.
-/// Effective config metadata persisted in `session_meta` for audit and export.
-///
-/// Includes loaded config file paths with SHA-256 hashes, per-key origins,
-/// and diagnostics. Never includes raw secret values.
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
-pub struct SessionConfigMeta {
-    /// Effective session directory used for append-only JSONL files.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub session_dir: Option<String>,
-    /// Whether optional memory/retrieval was active for the session.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub memory_enabled: Option<bool>,
-    /// Loaded config files with source, display path, and SHA-256 hash.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub files: Vec<SessionConfigFile>,
-    /// Per-key origin labels (e.g. `"env:THNDRS_MODEL"`, `"project:.thndrs/config.toml"`).
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub origins: BTreeMap<String, String>,
-    /// Non-fatal config diagnostics.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub diagnostics: Vec<String>,
-    /// Loaded MCP config files with source, display path, and SHA-256 hash.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub mcp_files: Vec<SessionConfigFile>,
-    /// Non-fatal MCP config diagnostics.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub mcp_diagnostics: Vec<String>,
-}
-
-/// A loaded config file recorded in session metadata.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct SessionConfigFile {
-    /// Display path: workspace-relative, `~`-relative, or absolute.
-    pub path: String,
-    /// Source label: `"global"` or `"project"`.
-    pub source: String,
-    /// Lowercase hex SHA-256 of file bytes.
-    pub sha256: String,
-}
-
-/// MCP-specific metadata attached to external tool calls.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct McpToolSessionMeta {
-    /// Configured MCP server name.
-    pub server_name: String,
-    /// Original MCP tool name before provider-visible namespacing.
-    pub original_tool_name: String,
-}
-
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum SessionRecord {
@@ -550,38 +504,6 @@ impl SessionRecord {
             _ => None,
         }
     }
-}
-
-/// Persisted ACP permission option metadata.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct AcpPermissionOptionRecord {
-    /// ACP option id.
-    pub id: String,
-    /// Human-readable option label.
-    pub name: String,
-    /// Lowercase option kind.
-    pub kind: String,
-}
-
-/// ACP session metadata persisted once per ACP run.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct AcpSessionMetadata {
-    /// Configured ACP agent name.
-    pub agent_name: String,
-    /// Opaque external ACP session id returned by the agent.
-    pub acp_session_id: String,
-    /// Redacted command display used to start the agent.
-    pub command: String,
-    /// Selected ACP protocol version.
-    pub protocol_version: String,
-    /// Optional ACP agent info name.
-    pub agent_info_name: Option<String>,
-    /// Optional ACP agent info version.
-    pub agent_info_version: Option<String>,
-    /// Optional ACP client info name.
-    pub client_info_name: Option<String>,
-    /// Optional ACP client info version.
-    pub client_info_version: Option<String>,
 }
 
 /// Metadata for a single prompt turn, suitable for append-only JSONL storage.

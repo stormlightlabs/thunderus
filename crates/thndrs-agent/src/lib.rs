@@ -6,6 +6,10 @@
 
 pub mod cancel;
 pub mod contracts;
+pub mod run;
 
 pub use cancel::CancelToken;
-pub use contracts::{RetryPolicy, ToolPermissionDecision, ToolStatus};
+pub use contracts::{
+    AgentEvent, RetryPolicy, ToolDefinition, ToolOutput, ToolPermissionDecision, ToolStatus, ToolUseRequest,
+};
+pub use run::AgentRun;

@@ -30,7 +30,6 @@ mod subproc;
 mod web_search;
 mod write_patch;
 
-use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -153,25 +152,7 @@ impl ToolIterationBudget {
     }
 }
 
-/// A tool definition exposed to the provider/model.
-///
-/// The `name` is what the model uses in a `tool_use` block; `description` and
-/// `input_schema` are sent in the request so the model knows how to call it.
-#[derive(Clone, Debug)]
-pub struct ToolDefinition {
-    pub name: Cow<'static, str>,
-    pub description: Cow<'static, str>,
-    pub input_schema: serde_json::Value,
-}
-
-impl ToolDefinition {
-    /// Create a provider-visible tool definition.
-    pub fn new(
-        name: impl Into<Cow<'static, str>>, description: impl Into<Cow<'static, str>>, input_schema: serde_json::Value,
-    ) -> Self {
-        Self { name: name.into(), description: description.into(), input_schema }
-    }
-}
+pub use thndrs_agent::ToolDefinition;
 
 pub use registry::ProviderSchemaFormat;
 
@@ -202,48 +183,7 @@ impl AgentRunConfig {
     }
 }
 
-/// A tool-use request from the provider: a name and a JSON arguments object.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ToolUseRequest {
-    /// Tool name, matching a [`ToolDefinition::name`].
-    pub name: String,
-    /// Raw JSON arguments string as sent by the model.
-    pub arguments: String,
-    /// Provider-assigned id (e.g. `toolu_01`) used to correlate the
-    /// `tool_result` back to the originating `tool_use` block.
-    pub tool_use_id: String,
-}
-
-impl ToolUseRequest {
-    pub fn new(name: String, args: String, id: String) -> Self {
-        Self { name, arguments: args, tool_use_id: id }
-    }
-}
-
-/// Structured output from a tool execution.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ToolOutput {
-    /// Tool name (e.g. "read_file_range", "search_text").
-    pub name: String,
-    /// Execution status.
-    pub status: ToolStatus,
-    /// Output lines (for display and model content).
-    pub output: Vec<String>,
-    /// Error message, if the tool failed.
-    pub error: Option<String>,
-}
-
-impl ToolOutput {
-    /// Create a successful tool output.
-    pub fn ok(name: &str, output: Vec<String>) -> Self {
-        ToolOutput { name: name.to_string(), status: ToolStatus::Ok, output, error: None }
-    }
-
-    /// Create a failed tool output.
-    pub fn failed(name: &str, error: String) -> Self {
-        ToolOutput { name: name.to_string(), status: ToolStatus::Failed, output: Vec::new(), error: Some(error) }
-    }
-}
+pub use thndrs_agent::{ToolOutput, ToolUseRequest};
 
 /// A single search match from `rg --json`.
 #[derive(Clone, Debug, Eq, PartialEq)]

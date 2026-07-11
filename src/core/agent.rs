@@ -23,7 +23,9 @@
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::sync::Arc;
-use std::sync::mpsc::{self, Receiver, Sender};
+#[cfg(test)]
+use std::sync::mpsc;
+use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 use std::time::Duration;
 
@@ -253,11 +255,9 @@ impl RunHandle {
     /// on the next failed send. The [`CancellationToken`] inside `handle` can also be
     /// signalled for cooperative cancellation.
     pub fn spawn(self) -> Receiver<AgentEvent> {
-        let (tx, rx) = mpsc::channel::<AgentEvent>();
         let cancel = self.cancel.clone();
         tracing::info!(provider = ?self.provider, "starting agent thread");
-        thread::spawn(move || self.run_agent(&tx, &cancel));
-        rx
+        thndrs_agent::AgentRun::spawn(cancel, move |sender, cancel| self.run_agent(&sender, &cancel)).into_events()
     }
 
     /// Create a fake-provider run handle.
