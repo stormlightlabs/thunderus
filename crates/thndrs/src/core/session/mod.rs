@@ -10,6 +10,9 @@
 #[cfg(test)]
 mod tests;
 
+use std::collections::VecDeque;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -30,6 +33,9 @@ pub use thndrs_context::session::{
 
 /// Current JSONL schema version.
 pub const SCHEMA_VERSION: u32 = 1;
+
+/// Maximum amount of redacted log text returned by a reader.
+pub const MAX_LOG_OUTPUT_BYTES: usize = 32 * 1024;
 
 /// A single line in a session JSONL file.
 ///
@@ -745,11 +751,13 @@ enum ContextActionKind {
 ///
 /// Each session is a single `.jsonl` file. Records are appended one per line
 /// and never rewritten. The writer tracks a monotonic `seq` counter.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug)]
 pub struct SessionWriter {
     path: PathBuf,
     seq: u64,
     session_id: String,
+    lock_path: PathBuf,
+    _lock: File,
 }
 
 impl SessionWriter {
@@ -766,6 +774,7 @@ impl SessionWriter {
     ) -> std::io::Result<Self> {
         std::fs::create_dir_all(dir)?;
         let path = dir.join(format!("{session_id}.jsonl"));
+        let (lock_path, lock) = acquire_writer_lock(&path)?;
 
         let record = SessionRecord::SessionMeta {
             schema_version: SCHEMA_VERSION,
@@ -781,9 +790,17 @@ impl SessionWriter {
             config,
         };
 
-        std::fs::write(&path, format!("{}\n", record.to_json().map_err(io_err)?))?;
+        let write_result = (|| -> std::io::Result<()> {
+            use std::io::Write;
+            let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&path)?;
+            writeln!(file, "{}", record.to_json().map_err(io_err)?)
+        })();
+        if let Err(error) = write_result {
+            let _ = std::fs::remove_file(&lock_path);
+            return Err(error);
+        }
 
-        Ok(SessionWriter { path, seq: 1, session_id: session_id.to_string() })
+        Ok(SessionWriter { path, seq: 1, session_id: session_id.to_string(), lock_path, _lock: lock })
     }
 
     /// Sequence number that will be assigned to the next appended record.
@@ -797,6 +814,7 @@ impl SessionWriter {
     /// sequence. Corrupt trailing lines are ignored consistently with
     /// [`SessionReader`].
     pub fn resume(path: &Path, session_id: &str) -> std::io::Result<Self> {
+        let (lock_path, lock) = acquire_writer_lock(path)?;
         let records = SessionReader::read_records(path);
         let seq = records
             .iter()
@@ -804,9 +822,12 @@ impl SessionWriter {
             .max()
             .map_or(0, |max_seq| max_seq.saturating_add(1));
 
-        let _file = std::fs::OpenOptions::new().append(true).open(path)?;
+        if let Err(error) = std::fs::OpenOptions::new().append(true).open(path) {
+            let _ = std::fs::remove_file(&lock_path);
+            return Err(error);
+        }
 
-        Ok(SessionWriter { path: path.to_path_buf(), seq, session_id: session_id.to_string() })
+        Ok(SessionWriter { path: path.to_path_buf(), seq, session_id: session_id.to_string(), lock_path, _lock: lock })
     }
 
     /// Append a record to the session file.
@@ -1210,6 +1231,12 @@ impl SessionWriter {
     }
 }
 
+impl Drop for SessionWriter {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.lock_path);
+    }
+}
+
 /// Reads a session JSONL file and reconstructs transcript entries.
 ///
 /// Corrupt lines are skipped silently — the rest of the file is still
@@ -1296,6 +1323,17 @@ impl SessionReader {
 
         SessionSummary { title, model, input_tokens, output_tokens }
     }
+
+    /// Read a renderer-independent, redacted JSON projection of every valid
+    /// record in sequence order. Malformed lines remain omitted just as they
+    /// are for transcript recovery.
+    pub fn read_redacted_records(path: &Path) -> Vec<serde_json::Value> {
+        Self::read_records(path)
+            .into_iter()
+            .filter_map(|record| serde_json::to_value(record).ok())
+            .map(redact_json_value)
+            .collect()
+    }
 }
 
 /// Compact session metadata for sidebar display.
@@ -1306,6 +1344,32 @@ pub struct SessionSummary {
     pub input_tokens: u64,
     pub output_tokens: u64,
 }
+
+/// An error resolving a user-supplied local session identifier.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SessionLookupError {
+    /// No session has the supplied exact id or prefix.
+    NotFound { query: String },
+    /// More than one session has the supplied prefix.
+    Ambiguous { query: String, matches: Vec<String> },
+}
+
+impl std::fmt::Display for SessionLookupError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotFound { query } => write!(formatter, "session `{query}` is not found"),
+            Self::Ambiguous { query, matches } => {
+                write!(
+                    formatter,
+                    "session prefix `{query}` is ambiguous; matches: {}",
+                    matches.join(", ")
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for SessionLookupError {}
 
 impl SessionSummary {
     pub fn sidebar_label(&self) -> String {
@@ -1334,9 +1398,36 @@ pub fn list_session_files(dir: &Path) -> Vec<PathBuf> {
     files.sort_by(|a, b| {
         let mtime_a = std::fs::metadata(a).and_then(|m| m.modified()).ok();
         let mtime_b = std::fs::metadata(b).and_then(|m| m.modified()).ok();
-        mtime_b.cmp(&mtime_a)
+        mtime_b.cmp(&mtime_a).then_with(|| b.cmp(a))
     });
     files
+}
+
+/// Resolve an exact session id or a unique id prefix.
+///
+/// Matching only considers `.jsonl` files in `dir`; a missing or corrupt
+/// session file therefore cannot prevent other valid files from being found.
+pub fn resolve_session_file(dir: &Path, query: &str) -> Result<PathBuf, SessionLookupError> {
+    let files = list_session_files(dir);
+    if let Some(path) = files.iter().find(|path| session_id_from_path(path) == Some(query)) {
+        return Ok(path.clone());
+    }
+
+    let matches: Vec<PathBuf> = files
+        .into_iter()
+        .filter(|path| session_id_from_path(path).is_some_and(|id| id.starts_with(query)))
+        .collect();
+    match matches.as_slice() {
+        [] => Err(SessionLookupError::NotFound { query: query.to_string() }),
+        [path] => Ok(path.clone()),
+        _ => Err(SessionLookupError::Ambiguous {
+            query: query.to_string(),
+            matches: matches
+                .iter()
+                .filter_map(|path| session_id_from_path(path).map(ToString::to_string))
+                .collect(),
+        }),
+    }
 }
 
 /// List session titles from a directory, newest-first.
@@ -1384,6 +1475,79 @@ pub fn generate_session_id() -> String {
 /// Convert a serde_json error into an io::Error.
 fn io_err(e: serde_json::Error) -> std::io::Error {
     std::io::Error::new(std::io::ErrorKind::InvalidData, e)
+}
+
+fn acquire_writer_lock(path: &Path) -> std::io::Result<(PathBuf, File)> {
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("session.jsonl");
+    let lock_path = path.with_file_name(format!("{file_name}.lock"));
+    let lock = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&lock_path)
+        .map_err(|error| {
+            if error.kind() == std::io::ErrorKind::AlreadyExists {
+                std::io::Error::new(
+                    std::io::ErrorKind::WouldBlock,
+                    format!("session `{}` already has an active writer", path.display()),
+                )
+            } else {
+                error
+            }
+        })?;
+    Ok((lock_path, lock))
+}
+
+fn session_id_from_path(path: &Path) -> Option<&str> {
+    path.file_stem().and_then(|stem| stem.to_str())
+}
+
+fn redact_json_value(value: serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::String(text) => serde_json::Value::String(shell::redact_secrets(&text)),
+        serde_json::Value::Array(items) => serde_json::Value::Array(items.into_iter().map(redact_json_value).collect()),
+        serde_json::Value::Object(items) => serde_json::Value::Object(
+            items
+                .into_iter()
+                .map(|(key, value)| (key, redact_json_value(value)))
+                .collect(),
+        ),
+        value => value,
+    }
+}
+
+/// Read the last `max_lines` of a text log, redacting values and bounding the
+/// returned payload. Missing files produce an empty result.
+pub fn read_redacted_log_tail(path: &Path, max_lines: usize) -> Vec<String> {
+    if max_lines == 0 {
+        return Vec::new();
+    }
+    let Ok(file) = File::open(path) else {
+        return Vec::new();
+    };
+
+    let mut lines = VecDeque::with_capacity(max_lines);
+    for line in BufReader::new(file).lines().map_while(Result::ok) {
+        if lines.len() == max_lines {
+            lines.pop_front();
+        }
+        lines.push_back(shell::redact_secrets(&line));
+    }
+
+    let mut bytes = 0usize;
+    let mut output = Vec::new();
+    for line in lines.into_iter().rev() {
+        let line_bytes = line.len().saturating_add(1);
+        if bytes.saturating_add(line_bytes) > MAX_LOG_OUTPUT_BYTES {
+            break;
+        }
+        bytes = bytes.saturating_add(line_bytes);
+        output.push(line);
+    }
+    output.reverse();
+    output
 }
 
 /// Split a tool entry name like `"search_text#0"` into `("search_text", "0")`.

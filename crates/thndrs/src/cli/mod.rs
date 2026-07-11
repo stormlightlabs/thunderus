@@ -78,9 +78,15 @@ pub enum Command {
         command: commands::mcp::McpCommand,
     },
     /// Inspect local append-only session history.
+    #[command(alias = "sessions")]
     Session {
         #[command(subcommand)]
         command: commands::session::SessionCommand,
+    },
+    /// Read bounded, redacted local diagnostic logs.
+    Debug {
+        #[command(subcommand)]
+        command: commands::debug::DebugCommand,
     },
 }
 
@@ -905,7 +911,7 @@ mod tests {
 
     #[test]
     fn session_commands_parse() {
-        let list = Cli::try_parse_from(["thndrs", "session", "list"]).expect("parse");
+        let list = Cli::try_parse_from(["thndrs", "sessions", "list"]).expect("parse");
         assert_eq!(
             list.command,
             Some(Command::Session { command: commands::session::SessionCommand::List })
@@ -928,6 +934,47 @@ mod tests {
             show.command,
             Some(Command::Session {
                 command: commands::session::SessionCommand::Show { session_id: "session-1".to_string() }
+            })
+        );
+
+        let resume = Cli::try_parse_from(["thndrs", "sessions", "resume", "session-1"]).expect("parse");
+        assert_eq!(
+            resume.command,
+            Some(Command::Session {
+                command: commands::session::SessionCommand::Resume { session_id: "session-1".to_string() }
+            })
+        );
+
+        let inspect =
+            Cli::try_parse_from(["thndrs", "sessions", "inspect", "session-1", "--format", "json"]).expect("parse");
+        assert_eq!(
+            inspect.command,
+            Some(Command::Session {
+                command: commands::session::SessionCommand::Inspect {
+                    session_id: "session-1".to_string(),
+                    format: commands::session::SessionDataFormat::Json,
+                }
+            })
+        );
+
+        let export =
+            Cli::try_parse_from(["thndrs", "sessions", "export", "session-1", "--format", "jsonl"]).expect("parse");
+        assert_eq!(
+            export.command,
+            Some(Command::Session {
+                command: commands::session::SessionCommand::Export {
+                    session_id: "session-1".to_string(),
+                    format: commands::session::SessionDataFormat::Jsonl,
+                }
+            })
+        );
+
+        let debug =
+            Cli::try_parse_from(["thndrs", "debug", "session-log", "session-1", "--lines", "10"]).expect("parse");
+        assert_eq!(
+            debug.command,
+            Some(Command::Debug {
+                command: commands::debug::DebugCommand::SessionLog { session_id: "session-1".to_string(), lines: 10 }
             })
         );
     }

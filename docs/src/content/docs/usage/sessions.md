@@ -32,3 +32,53 @@ redacted before being recorded through tool output.
 Use normal repository tools such as `git diff` for file recovery and review. The
 session file explains what tool ran, what file was targeted, and whether an edit
 or command succeeded.
+
+## Browse and Resume
+
+Both `session` and `sessions` name the same CLI command group.
+
+Session ids accept an exact id or a unique prefix. An ambiguous prefix is rejected
+with the matching ids rather than picking one arbitrarily. Lists are newest first.
+
+```sh
+thndrs sessions list
+thndrs sessions show session-20260710-120000
+thndrs sessions resume session-20260710
+```
+
+`resume` acquires an exclusive local writer lock before it can append.
+
+It restores the saved transcript and token totals, but never restores a
+running tool, pending permission, queued input, or other live process state.
+
+Inside the TUI, use `/history`, `/session <id>`, `/resume <id>`, and `/tokens`.
+
+The read-only commands leave the prompt draft intact when lookup or file reading fails.
+
+## Inspection and export
+
+`inspect` produces a stable, renderer-independent JSON projection. `export`
+emits one redacted JSON record per line, in durable sequence order.
+Neither operation replays a tool, memory mutation, compaction, or any other side effect.
+
+```sh
+thndrs sessions inspect session-20260710 --format json
+thndrs sessions export session-20260710 --format jsonl > session.jsonl
+```
+
+The projection includes transcript, tool audit, usage, context, memory, skill,
+and configuration evidence already stored in the session.
+
+It omits raw provider payloads, file bodies, and unrecorded live state.
+Secret values are redacted (best-effort) in inspection and export output.
+
+## Debug logs
+
+Diagnostic readers are bounded and redact secret-looking values:
+
+```sh
+thndrs debug tail --lines 100
+thndrs debug session-log session-20260710 --lines 100
+```
+
+`/debug log [session-id]` reads the corresponding per-session log in the TUI.

@@ -134,22 +134,22 @@ session/log evidence from both the TUI and CLI.
 
 **Acceptance criteria:**
 
-- [ ] Exact and unambiguous-prefix session lookup, newest-first summaries, and
+- [x] Exact and unambiguous-prefix session lookup, newest-first summaries, and
       corrupt/missing-file tolerance are implemented and tested.
-- [ ] TUI commands `history`, `resume <id>`, `session <id>`, `tokens`, and
+- [x] TUI commands `history`, `resume <id>`, `session <id>`, `tokens`, and
       `debug log [session-id]` are suggested, bounded, and preserve a prompt
       draft after read-only command failure.
-- [ ] Resume appends only after an exclusive writer lock and never restores old
+- [x] Resume appends only after an exclusive writer lock and never restores old
       live tool/run state.
-- [ ] CLI preserves no-subcommand TUI startup and adds `sessions list`, `show`,
+- [x] CLI preserves no-subcommand TUI startup and adds `sessions list`, `show`,
       `resume`, `inspect --format json`, `export --format jsonl`, `debug tail`,
       and `debug session-log`, all respecting `--cwd`.
-- [ ] Inspection/export is renderer-independent, stable, redacted, and records
+- [x] Inspection/export is renderer-independent, stable, redacted, and records
       transcript/tool/usage/context/memory/skill/config evidence without
       replaying a destructive side effect.
-- [ ] Session and daily log readers cap output, tolerate absence, and redact
+- [x] Session and daily log readers cap output, tolerate absence, and redact
       secret-looking values.
-- [ ] Public session, CLI, usage, and README documentation cover the completed
+- [x] Public session, CLI, usage, and README documentation cover the completed
       commands, lookup rules, stored data, and omissions.
 
 **Verification:**

@@ -13,7 +13,37 @@ pub enum SessionCommand {
     Titles,
     /// Print replayable transcript entries for one local session id.
     Show {
-        /// Session id without the `.jsonl` suffix.
+        /// Exact id or unique id prefix, without the `.jsonl` suffix.
         session_id: String,
     },
+    /// Safely open an existing session for append-only continuation.
+    Resume {
+        /// Exact id or unique id prefix, without the `.jsonl` suffix.
+        session_id: String,
+    },
+    /// Print a stable, renderer-independent session projection.
+    Inspect {
+        /// Exact id or unique id prefix, without the `.jsonl` suffix.
+        session_id: String,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = SessionDataFormat::Json)]
+        format: SessionDataFormat,
+    },
+    /// Export redacted session records in append-only sequence order.
+    Export {
+        /// Exact id or unique id prefix, without the `.jsonl` suffix.
+        session_id: String,
+        /// Output format.
+        #[arg(long, value_enum, default_value_t = SessionDataFormat::Jsonl)]
+        format: SessionDataFormat,
+    },
+}
+
+/// Machine-readable session command output format.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, clap::ValueEnum)]
+pub enum SessionDataFormat {
+    /// A single JSON document.
+    Json,
+    /// One JSON value per line.
+    Jsonl,
 }

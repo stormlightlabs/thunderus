@@ -66,6 +66,74 @@ fn command_mode_typing_appends_to_input() {
 }
 
 #[test]
+fn session_commands_are_suggested() {
+    let app = fresh_app();
+    let suggestions = command_suggestions_for_app(&app);
+
+    for command in ["history", "resume", "session", "tokens", "debug log"] {
+        assert!(
+            suggestions.iter().any(|(suggestion, _)| *suggestion == command),
+            "missing {command}"
+        );
+    }
+}
+
+#[test]
+fn read_only_session_command_failure_preserves_prompt_draft() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from("/session missing");
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(app.input.as_str(), "/session missing");
+    assert!(matches!(app.transcript.last(), Some(Entry::Error { text }) if text.contains("not found")));
+}
+
+#[test]
+fn resume_restores_transcript_and_usage_without_live_run_state() {
+    let mut app = fresh_app();
+    let sessions_dir = session::sessions_dir(&app.cwd);
+    let mut writer = session::SessionWriter::create(
+        &sessions_dir,
+        "session-resume",
+        &app.cwd.display().to_string(),
+        "Saved work",
+        "umans",
+        "umans-coder",
+        "none",
+        "0.1.0",
+        None,
+    )
+    .expect("create session");
+    writer
+        .append_entry(&Entry::User { text: "earlier prompt".to_string() }, "turn_1")
+        .expect("append user");
+    writer.append_usage(7, 11).expect("append usage");
+    drop(writer);
+
+    app.run_state = RunState::Error("stale state".to_string());
+    app.queued_followups.push("stale queue".to_string());
+    app.input = PromptInput::from("/resume session-res");
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(app.session_id, "session-resume");
+    assert_eq!(app.run_state, RunState::Idle);
+    assert!(app.queued_followups.is_empty());
+    assert_eq!(app.session_tokens_in, 7);
+    assert_eq!(app.session_tokens_out, 11);
+    assert!(
+        app.transcript
+            .iter()
+            .any(|entry| matches!(entry, Entry::User { text } if text == "earlier prompt"))
+    );
+    assert!(
+        app.transcript
+            .iter()
+            .any(|entry| matches!(entry, Entry::Status { text } if text == "resumed session: session-resume"))
+    );
+}
+
+#[test]
 fn command_mode_enter_executes_and_returns_to_prompt() {
     let mut app = fresh_app();
     app.mode = Mode::Command;

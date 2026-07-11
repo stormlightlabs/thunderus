@@ -44,7 +44,13 @@ use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, Key
 use acp::config::provider_label;
 use app::PromptAccessory;
 use app::{App, Msg, RunState, start_auto_compaction, update};
-use cli::{Cli, Command, commands::acp::AcpCommand, commands::mcp::McpCommand, commands::session::SessionCommand};
+use cli::{
+    Cli, Command,
+    commands::acp::AcpCommand,
+    commands::debug::DebugCommand,
+    commands::mcp::McpCommand,
+    commands::session::{SessionCommand, SessionDataFormat},
+};
 use mcp::manager::McpManager;
 use prompt::PromptBundle;
 use renderer::backend::TerminalBackend;
@@ -177,6 +183,7 @@ fn run_command(cli: &Cli, command: &Command) -> io::Result<()> {
         Command::Acp { command } => run_acp_command(cli, command),
         Command::Mcp { command } => run_mcp_command(cli, command),
         Command::Session { command } => run_session_command(cli, command),
+        Command::Debug { command } => run_debug_command(cli, command),
     }
 }
 
@@ -241,6 +248,9 @@ fn run_session_command(cli: &Cli, command: &SessionCommand) -> io::Result<()> {
         SessionCommand::Latest => run_session_latest(&dir, &mut lock),
         SessionCommand::Titles => run_session_titles(&dir, &mut lock),
         SessionCommand::Show { session_id } => run_session_show(&dir, session_id, &mut lock),
+        SessionCommand::Resume { session_id } => run_session_resume(&dir, session_id, &mut lock),
+        SessionCommand::Inspect { session_id, format } => run_session_inspect(&dir, session_id, *format, &mut lock),
+        SessionCommand::Export { session_id, format } => run_session_export(&dir, session_id, *format, &mut lock),
     }
 }
 
@@ -298,13 +308,7 @@ fn run_session_titles<W: io::Write>(dir: &Path, writer: &mut W) -> io::Result<()
 }
 
 fn run_session_show<W: io::Write>(dir: &Path, session_id: &str, writer: &mut W) -> io::Result<()> {
-    let path = dir.join(format!("{session_id}.jsonl"));
-    if !path.is_file() {
-        return Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            format!("session `{session_id}` is not found"),
-        ));
-    }
+    let path = session::resolve_session_file(dir, session_id).map_err(io::Error::other)?;
 
     let _reader = session::SessionReader;
     let transcript = session::SessionReader::read_transcript(&path);
@@ -326,6 +330,127 @@ fn run_session_show<W: io::Write>(dir: &Path, session_id: &str, writer: &mut W) 
         }
     }
     Ok(())
+}
+
+fn run_session_resume<W: io::Write>(dir: &Path, session_id: &str, writer: &mut W) -> io::Result<()> {
+    let path = session::resolve_session_file(dir, session_id).map_err(io::Error::other)?;
+    let id = path.file_stem().and_then(|stem| stem.to_str()).unwrap_or(session_id);
+    let session_writer = session::SessionWriter::resume(&path, id)?;
+    writeln!(writer, "resumed: {id}")?;
+    writeln!(writer, "path: {}", session_writer.path().display())?;
+    Ok(())
+}
+
+fn run_session_inspect<W: io::Write>(
+    dir: &Path, session_id: &str, format: SessionDataFormat, writer: &mut W,
+) -> io::Result<()> {
+    if format != SessionDataFormat::Json {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "inspect only supports --format json",
+        ));
+    }
+    let path = session::resolve_session_file(dir, session_id).map_err(io::Error::other)?;
+    let id = path.file_stem().and_then(|stem| stem.to_str()).unwrap_or(session_id);
+    let summary = session::SessionReader::read_summary(&path);
+    let records = session::SessionReader::read_redacted_records(&path);
+    let projection = serde_json::json!({
+        "schema_version": session::SCHEMA_VERSION,
+        "session": {
+            "id": id,
+            "path": path,
+            "title": summary.title,
+            "model": summary.model,
+            "usage": { "input_tokens": summary.input_tokens, "output_tokens": summary.output_tokens },
+        },
+        "records": records,
+    });
+    serde_json::to_writer_pretty(&mut *writer, &projection).map_err(io::Error::other)?;
+    writeln!(writer)?;
+    Ok(())
+}
+
+fn run_session_export<W: io::Write>(
+    dir: &Path, session_id: &str, format: SessionDataFormat, writer: &mut W,
+) -> io::Result<()> {
+    if format != SessionDataFormat::Jsonl {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "export only supports --format jsonl",
+        ));
+    }
+    let path = session::resolve_session_file(dir, session_id).map_err(io::Error::other)?;
+    for record in session::SessionReader::read_redacted_records(&path) {
+        serde_json::to_writer(&mut *writer, &record).map_err(io::Error::other)?;
+        writeln!(writer)?;
+    }
+    Ok(())
+}
+
+fn run_debug_command(cli: &Cli, command: &DebugCommand) -> io::Result<()> {
+    let workspace = context::discover_workspace_root(&cli.cwd);
+    let stdout = io::stdout();
+    let mut lock = stdout.lock();
+    match command {
+        DebugCommand::Tail { lines } => run_debug_tail(&workspace, *lines, &mut lock),
+        DebugCommand::SessionLog { session_id, lines } => {
+            run_debug_session_log(&workspace, session_id, *lines, &mut lock)
+        }
+    }
+}
+
+fn run_debug_tail<W: io::Write>(workspace: &Path, lines: usize, writer: &mut W) -> io::Result<()> {
+    let daily_dir = workspace.join(".thndrs").join("logs").join("daily");
+    let Some(path) = newest_log_file(&daily_dir) else {
+        return Err(io::Error::new(io::ErrorKind::NotFound, "no daily debug log found"));
+    };
+    write_log_tail(&path, lines, writer)
+}
+
+fn run_debug_session_log<W: io::Write>(
+    workspace: &Path, session_id: &str, lines: usize, writer: &mut W,
+) -> io::Result<()> {
+    let sessions = session::sessions_dir(workspace);
+    let session_path = session::resolve_session_file(&sessions, session_id).map_err(io::Error::other)?;
+    let id = session_path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or(session_id);
+    let log_path = workspace
+        .join(".thndrs")
+        .join("logs")
+        .join("sessions")
+        .join(format!("thndrs-{id}.log"));
+    write_log_tail(&log_path, lines, writer)
+}
+
+fn write_log_tail<W: io::Write>(path: &Path, lines: usize, writer: &mut W) -> io::Result<()> {
+    let tail = session::read_redacted_log_tail(path, lines.min(2_000));
+    if tail.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("debug log `{}` is empty or missing", path.display()),
+        ));
+    }
+    for line in tail {
+        writeln!(writer, "{line}")?;
+    }
+    Ok(())
+}
+
+fn newest_log_file(dir: &Path) -> Option<PathBuf> {
+    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "log"))
+        .collect();
+    files.sort_by(|left, right| {
+        let left_time = std::fs::metadata(left).and_then(|metadata| metadata.modified()).ok();
+        let right_time = std::fs::metadata(right).and_then(|metadata| metadata.modified()).ok();
+        right_time.cmp(&left_time).then_with(|| right.cmp(left))
+    });
+    files.into_iter().next()
 }
 
 fn run_mcp_list<W: io::Write>(cli: &Cli, writer: &mut W) -> io::Result<()> {
@@ -1813,6 +1938,83 @@ for line in sys.stdin:
 
         assert!(output.contains("user: hello"));
         assert!(output.contains("assistant: hi"));
+    }
+
+    #[test]
+    fn session_inspect_and_export_are_redacted_and_sequence_ordered() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let session_dir = temp.path().join("sessions");
+        let mut writer = session::SessionWriter::create(
+            &session_dir,
+            "session-inspect",
+            "/repo",
+            "Inspect",
+            "umans",
+            "umans-coder",
+            "none",
+            "0.1.0",
+            None,
+        )
+        .expect("create session");
+        writer
+            .append_entry(
+                &app::Entry::User { text: "api_key=sk-secretvalue123".to_string() },
+                "turn_1",
+            )
+            .expect("append user");
+        writer.append_usage(2, 3).expect("append usage");
+        drop(writer);
+
+        let mut inspect = Vec::new();
+        let mut export = Vec::new();
+        run_session_inspect(&session_dir, "session-ins", SessionDataFormat::Json, &mut inspect).expect("inspect");
+        run_session_export(&session_dir, "session-inspect", SessionDataFormat::Jsonl, &mut export).expect("export");
+        let inspect = String::from_utf8(inspect).expect("utf8");
+        let export = String::from_utf8(export).expect("utf8");
+
+        assert!(inspect.contains("\"input_tokens\": 2"));
+        assert!(inspect.contains("api_key=[REDACTED]"));
+        assert!(!inspect.contains("sk-secretvalue123"));
+        let lines = export.lines().collect::<Vec<_>>();
+        assert_eq!(lines.len(), 3);
+        assert!(lines[0].contains("session_meta"));
+        assert!(lines[1].contains("user"));
+        assert!(lines[2].contains("usage"));
+    }
+
+    #[test]
+    fn debug_session_log_reads_a_bounded_redacted_tail() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let sessions_dir = session::sessions_dir(temp.path());
+        let writer = session::SessionWriter::create(
+            &sessions_dir,
+            "session-log",
+            "/repo",
+            "Log",
+            "umans",
+            "umans-coder",
+            "none",
+            "0.1.0",
+            None,
+        )
+        .expect("create session");
+        drop(writer);
+        let log_dir = temp.path().join(".thndrs").join("logs").join("sessions");
+        std::fs::create_dir_all(&log_dir).expect("create log dir");
+        std::fs::write(
+            log_dir.join("thndrs-session-log.log"),
+            "first\napi_key=sk-secretvalue123\nlast\n",
+        )
+        .expect("write log");
+
+        let mut output = Vec::new();
+        run_debug_session_log(temp.path(), "session-l", 2, &mut output).expect("read log");
+        let output = String::from_utf8(output).expect("utf8");
+
+        assert!(!output.contains("first"));
+        assert!(output.contains("api_key=[REDACTED]"));
+        assert!(!output.contains("sk-secretvalue123"));
+        assert!(output.contains("last"));
     }
 
     #[test]

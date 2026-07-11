@@ -1855,7 +1855,7 @@ mod tests {
         let workspace = tempfile::tempdir().expect("temp workspace");
         let workspace_path = workspace.path().canonicalize().expect("canonical workspace");
         let session_dir = tempfile::tempdir().expect("temp sessions");
-        let _writer = SessionWriter::create(
+        let writer = SessionWriter::create(
             session_dir.path(),
             "persisted-resume",
             &workspace_path.display().to_string(),
@@ -1867,6 +1867,7 @@ mod tests {
             None,
         )
         .expect("create persisted session");
+        drop(writer);
         let state = ServerState::new(ServerConfig::new(
             workspace_path.clone(),
             "umans-coder".to_string(),

@@ -33,7 +33,7 @@ pub struct LocalSessionMetadata {
 }
 
 /// Runtime state for one active ACP session.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug)]
 pub struct AcpServerSession {
     /// Opaque ACP session ID.
     pub acp_session_id: String,
@@ -47,6 +47,21 @@ pub struct AcpServerSession {
     pub session_writer: Option<SessionWriter>,
     /// MCP servers accepted from ACP `session/new`.
     pub mcp_config: Option<McpConfig>,
+}
+
+impl Clone for AcpServerSession {
+    /// Clone only serializable session state. A local writer is intentionally
+    /// not duplicated because it owns an exclusive append lock.
+    fn clone(&self) -> Self {
+        Self {
+            acp_session_id: self.acp_session_id.clone(),
+            metadata: self.metadata.clone(),
+            cwd: self.cwd.clone(),
+            turn_in_progress: self.turn_in_progress,
+            session_writer: None,
+            mcp_config: self.mcp_config.clone(),
+        }
+    }
 }
 
 /// Errors for ACP session state operations.

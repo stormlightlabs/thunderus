@@ -1581,6 +1581,74 @@ fn sessions_dir_is_under_thndrs() {
     );
 }
 
+#[test]
+fn resolve_session_file_accepts_exact_and_unique_prefixes() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let first = test_writer(dir.path(), "session-alpha");
+    let second = test_writer(dir.path(), "session-beta");
+    drop(first);
+    drop(second);
+
+    let exact = resolve_session_file(dir.path(), "session-alpha").expect("exact lookup");
+    let prefix = resolve_session_file(dir.path(), "session-b").expect("prefix lookup");
+
+    assert_eq!(exact.file_stem().and_then(|stem| stem.to_str()), Some("session-alpha"));
+    assert_eq!(prefix.file_stem().and_then(|stem| stem.to_str()), Some("session-beta"));
+}
+
+#[test]
+fn resolve_session_file_rejects_ambiguous_and_missing_prefixes() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let first = test_writer(dir.path(), "session-alpha");
+    let second = test_writer(dir.path(), "session-alpine");
+    drop(first);
+    drop(second);
+
+    assert!(matches!(
+        resolve_session_file(dir.path(), "session-al"),
+        Err(SessionLookupError::Ambiguous { matches, .. }) if matches.len() == 2
+    ));
+    assert!(matches!(
+        resolve_session_file(dir.path(), "missing"),
+        Err(SessionLookupError::NotFound { .. })
+    ));
+}
+
+#[test]
+fn resume_requires_an_exclusive_writer_lock() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let writer = test_writer(dir.path(), "locked-session");
+    let path = writer.path().to_path_buf();
+
+    let error = SessionWriter::resume(&path, "locked-session").expect_err("second writer must fail");
+    assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
+
+    drop(writer);
+    let resumed = SessionWriter::resume(&path, "locked-session").expect("writer can resume after release");
+    assert_eq!(resumed.session_id(), "locked-session");
+}
+
+#[test]
+fn redacted_records_and_log_tails_hide_secret_shaped_values_and_stay_bounded() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let mut writer = test_writer(dir.path(), "redacted-session");
+    writer
+        .append_entry(&Entry::User { text: "token=sk-secretvalue123".to_string() }, "turn_1")
+        .expect("append user");
+    let records = SessionReader::read_redacted_records(writer.path());
+    let rendered = serde_json::to_string(&records).expect("serialize records");
+    assert!(rendered.contains("sk-[REDACTED]"));
+    assert!(!rendered.contains("sk-secretvalue123"));
+
+    let log = dir.path().join("debug.log");
+    std::fs::write(&log, "one\ntoken=sk-secretvalue123\nthree\n").expect("write log");
+    let tail = read_redacted_log_tail(&log, 2);
+    assert_eq!(tail.len(), 2);
+    assert!(tail[0].contains("sk-[REDACTED]"));
+    assert!(!tail[0].contains("sk-secretvalue123"));
+    assert!(read_redacted_log_tail(&log, 0).is_empty());
+}
+
 /// Helper: create a session writer in a temp dir.
 fn test_writer(dir: &Path, name: &str) -> SessionWriter {
     SessionWriter::create(

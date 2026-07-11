@@ -14,6 +14,11 @@ are appended and not rewritten.
   app version.
 - `context`: loaded `AGENTS.md` metadata: path, scope, content hash,
   truncation state, and byte count.
+- `context_ledger`, `context_pin`, `context_drop`, and `context_recovery`:
+  content-free context working-set and decision evidence.
+- `memory_write` and `memory_delete`: content-free memory mutation audit data.
+- `compaction`: a redacted summary plus covered ranges, hashes, review state,
+  and recovery handles.
 - `user`: user prompt text and turn id.
 - `assistant_finished`: final replayable assistant text.
 - `reasoning_finished`: final replayable reasoning text.
@@ -22,6 +27,9 @@ are appended and not rewritten.
 - `tool_finished`: tool call id, status, and capped/redacted output.
 - `file_write`: file write audit metadata.
 - `shell_exec`: shell command lifecycle metadata.
+- `mcp_config_changed`: MCP configuration file hashes and diagnostics.
+- `skill_activated`: opened skill metadata and reference hashes.
+- `queued_input`: queued steering or follow-up input audit data.
 - `acp_session`: external ACP session metadata.
 - `acp_permission_request`: ACP permission prompt metadata.
 - `acp_permission_outcome`: ACP permission outcome metadata.
@@ -59,3 +67,11 @@ are not persisted by default.
 Prompt metadata also records compact self-knowledge inputs. This supports prompt
 inspection and replay audits without persisting full prompt text, project instruction
 text, or provider-private state.
+
+## Inspection and Export
+
+`thndrs sessions inspect <id> --format json` projects valid records without
+depending on the terminal renderer. `export --format jsonl` writes the same
+records one per line in sequence order. Both views redact secret-looking values
+and skip malformed lines, while preserving every valid record after a damaged
+line. They never replay a stored action.

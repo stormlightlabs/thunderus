@@ -934,6 +934,11 @@ pub fn command_suggestions_for_app(app: &App) -> Vec<(&'static str, &'static str
         ("model", "switch model"),
         ("skills", "browse loaded skills"),
         ("doctor", "show redacted diagnostics"),
+        ("history", "list recent sessions"),
+        ("resume", "resume a local session"),
+        ("session", "show a local session summary"),
+        ("tokens", "show current session token totals"),
+        ("debug log", "read the current session log"),
         ("memory recall", "search memory (metadata + FTS5)"),
         ("auth status", "show credential sources"),
         ("config path", "show config paths"),
@@ -2628,6 +2633,39 @@ fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
         return None;
     }
 
+    if command == "history" {
+        return run_history_command(app);
+    }
+    if command == "tokens" {
+        app.transcript.push(Entry::Status {
+            text: format!("tokens: in {} out {}", app.session_tokens_in, app.session_tokens_out),
+        });
+        app.input.clear();
+        return None;
+    }
+    if let Some(session_id) = command.strip_prefix("resume ") {
+        return resume_session_command(app, session_id.trim());
+    }
+    if command == "resume" {
+        app.transcript
+            .push(Entry::Error { text: String::from("usage: /resume <session-id>") });
+        return None;
+    }
+    if let Some(session_id) = command.strip_prefix("session ") {
+        return show_session_command(app, session_id.trim());
+    }
+    if command == "session" {
+        app.transcript
+            .push(Entry::Error { text: String::from("usage: /session <session-id>") });
+        return None;
+    }
+    if command == "debug log" {
+        return read_session_log_command(app, None);
+    }
+    if let Some(session_id) = command.strip_prefix("debug log ") {
+        return read_session_log_command(app, Some(session_id.trim()));
+    }
+
     if command == "mcp" {
         list_mcp_servers(app);
         return None;
@@ -2940,13 +2978,159 @@ fn push_command_output(app: &mut App, label: &str, output: &[u8], result: std::i
 fn handle_running_command(app: &mut App, command: &str) -> Option<Msg> {
     let is_read_only = matches!(command, "quit" | "exit" | "help" | "bg")
         || command == "memory recall"
-        || command.starts_with("memory recall ");
+        || command.starts_with("memory recall ")
+        || matches!(command, "history" | "tokens" | "debug log")
+        || command.starts_with("session ")
+        || command.starts_with("debug log ");
     if is_read_only {
         return handle_command(app, command);
     }
     app.transcript.push(Entry::Status {
         text: format!("/{command} is not available while the agent is working; use //{command} to queue it as text"),
     });
+    None
+}
+
+fn session_directory(app: &App) -> PathBuf {
+    app.cli
+        .session_dir
+        .clone()
+        .unwrap_or_else(|| session::sessions_dir(&app.cwd))
+}
+
+fn run_history_command(app: &mut App) -> Option<Msg> {
+    let dir = session_directory(app);
+    let files = session::list_session_files(&dir);
+    if files.is_empty() {
+        app.transcript
+            .push(Entry::Status { text: String::from("no sessions found") });
+    } else {
+        let rows = files
+            .into_iter()
+            .take(20)
+            .map(|path| {
+                let id = path.file_stem().and_then(|stem| stem.to_str()).unwrap_or("session");
+                let summary = session::SessionReader::read_summary(&path);
+                format!(
+                    "{id}\t{}\t{}\tin {} out {}",
+                    summary.title, summary.model, summary.input_tokens, summary.output_tokens
+                )
+            })
+            .collect::<Vec<_>>();
+        app.transcript
+            .push(Entry::Status { text: format!("sessions:\n{}", rows.join("\n")) });
+    }
+    app.input.clear();
+    None
+}
+
+fn show_session_command(app: &mut App, session_id: &str) -> Option<Msg> {
+    let path = match session::resolve_session_file(&session_directory(app), session_id) {
+        Ok(path) => path,
+        Err(error) => {
+            app.transcript.push(Entry::Error { text: error.to_string() });
+            return None;
+        }
+    };
+    let id = path.file_stem().and_then(|stem| stem.to_str()).unwrap_or(session_id);
+    let summary = session::SessionReader::read_summary(&path);
+    app.transcript.push(Entry::Status {
+        text: format!(
+            "session: {id}\ntitle: {}\nmodel: {}\ntokens: in {} out {}\npath: {}",
+            summary.title,
+            summary.model,
+            summary.input_tokens,
+            summary.output_tokens,
+            path.display()
+        ),
+    });
+    app.input.clear();
+    None
+}
+
+fn resume_session_command(app: &mut App, session_id: &str) -> Option<Msg> {
+    let path = match session::resolve_session_file(&session_directory(app), session_id) {
+        Ok(path) => path,
+        Err(error) => {
+            app.transcript.push(Entry::Error { text: error.to_string() });
+            return None;
+        }
+    };
+    let id = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or(session_id)
+        .to_string();
+    if id == app.session_id {
+        app.transcript
+            .push(Entry::Error { text: String::from("the current session is already active") });
+        return None;
+    }
+    let writer = match session::SessionWriter::resume(&path, &id) {
+        Ok(writer) => writer,
+        Err(error) => {
+            app.transcript
+                .push(Entry::Error { text: format!("cannot resume session `{id}`: {error}") });
+            return None;
+        }
+    };
+    let summary = session::SessionReader::read_summary(&path);
+    let transcript = session::SessionReader::read_transcript(&path);
+    let turn_count = session::SessionReader::read_records(&path)
+        .iter()
+        .filter(|record| matches!(record, session::SessionRecord::User { .. }))
+        .count() as u64;
+
+    app.session_writer = Some(writer);
+    app.session_id = id.clone();
+    app.transcript = transcript;
+    app.session_tokens_in = summary.input_tokens;
+    app.session_tokens_out = summary.output_tokens;
+    app.turn_count = turn_count;
+    app.last_input = None;
+    app.pending_manual_compaction = None;
+    app.queued_steering.clear();
+    app.queued_followups.clear();
+    app.pending_permission = None;
+    app.run_state = RunState::Idle;
+    app.input.clear();
+    app.history_cursor = None;
+    app.history_draft.clear();
+    app.transcript
+        .push(Entry::Status { text: format!("resumed session: {id}") });
+    None
+}
+
+fn read_session_log_command(app: &mut App, requested_session_id: Option<&str>) -> Option<Msg> {
+    let id = match requested_session_id {
+        Some(query) => match session::resolve_session_file(&session_directory(app), query) {
+            Ok(path) => path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or(query)
+                .to_string(),
+            Err(error) => {
+                app.transcript.push(Entry::Error { text: error.to_string() });
+                return None;
+            }
+        },
+        None => app.session_id.clone(),
+    };
+    let path = app
+        .cwd
+        .join(".thndrs")
+        .join("logs")
+        .join("sessions")
+        .join(format!("thndrs-{id}.log"));
+    let lines = session::read_redacted_log_tail(&path, 100);
+    if lines.is_empty() {
+        app.transcript
+            .push(Entry::Error { text: format!("debug log `{}` is empty or missing", path.display()) });
+        return None;
+    }
+    app.transcript
+        .push(Entry::Status { text: format!("debug log {id}:\n{}", lines.join("\n")) });
+    app.input.clear();
     None
 }
 

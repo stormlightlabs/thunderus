@@ -13,7 +13,9 @@ title: "CLI Reference"
 - `--no-alt-screen`: compatibility no-op; the TUI always renders inline without using the alternate screen.
 - `--print-prompt`: print the assembled prompt bundle and exit without calling the provider.
 
-## Auth Commands
+## Commands
+
+### Auth
 
 - `thndrs setup [--provider <umans|opencode-go|opencode-zen|chatgpt-codex>]`: run guided setup for the selected provider. API-key providers use hidden key entry; `chatgpt-codex` uses ChatGPT OAuth.
 - `thndrs setup --global`: prefer the user config and credential store.
@@ -35,10 +37,10 @@ Supported API-key setup and login providers include `umans`, `opencode-go`, and
 flow and store refreshable credentials in `~/.thndrs/auth.json`, not in
 `.thndrs/credentials.env`.
 
-## ACP Commands
+### ACP (Agent Context Protocol)
 
 ACP agents are selected in the TUI with `--model acp:<name>`. They are
-configured under `[acp_agents.<name>]`. For more information see [ACP](/usage/acp/).
+configured under `[acp_agents.<name>]`.
 
 - `thndrs acp list`: list configured ACP agents.
 - `thndrs acp inspect <name>`: show one configured ACP agent with command values redacted.
@@ -52,7 +54,9 @@ configured under `[acp_agents.<name>]`. For more information see [ACP](/usage/ac
 - `thndrs acp install <registry-id> [--name <name>] [--file <path>] --yes`: add a supported registry agent to workspace ACP config and installed-agent metadata.
 - `thndrs acp update <name> [--file <path>] --yes`: update a registry-managed ACP agent in workspace ACP config and installed-agent metadata.
 
-## ACP Agent Server
+For more information see [ACP](/usage/acp/).
+
+### ACP Agent Server
 
 `thndrs-acp-server` exposes `thndrs` as an ACP stdio agent for editors and IDEs.
 stdout is protocol-only; diagnostics go to stderr.
@@ -62,7 +66,7 @@ stdout is protocol-only; diagnostics go to stderr.
 - `--websearch <auto|native|exa|none>`: web search provider policy.
 - `--session-dir <path>`: append-only local session JSONL directory.
 
-## MCP Commands
+### MCP (Model Context Protocol)
 
 - `thndrs mcp list`: list configured MCP servers as
   `<server>\t<enabled|disabled>\t<transport>` and print config diagnostics.
@@ -75,3 +79,24 @@ stdout is protocol-only; diagnostics go to stderr.
 
 The `<tool>` argument for `mcp call` is the original MCP tool name reported by
 the server. Provider-facing names are namespaced as `mcp__{server}__{tool}`.
+
+### Session History & Management
+
+- `thndrs sessions list`: list local sessions newest first.
+- `thndrs sessions show <id>`: print the replayable transcript.
+- `thndrs sessions resume <id>`: validate and exclusively lock a local session
+  for append-only continuation.
+- `thndrs sessions inspect <id> --format json`: print the stable redacted JSON
+  session projection.
+- `thndrs sessions export <id> --format jsonl`: write redacted JSONL records in
+  sequence order.
+
+`session` is accepted as an alias for `sessions`. `<id>` may be exact or a
+unique prefix; ambiguous prefixes are rejected. All commands use `--cwd` to
+find the workspace session directory unless `--session-dir` is supplied.
+
+### Debugging
+
+- `thndrs debug tail [--lines <count>]`: read the newest bounded, redacted daily log.
+- `thndrs debug session-log <id> [--lines <count>]`: read a bounded, redacted
+  per-session log.
