@@ -1,0 +1,66 @@
+[package]
+name = "thndrs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Terminal AI pair programmer with local tools, sessions, MCP, and ACP support"
+license.workspace = true
+repository.workspace = true
+homepage = "https://thndrs.stormlightlabs.org"
+documentation = "https://thndrs.stormlightlabs.org"
+readme = "README.md"
+keywords = ["agent", "ai", "cli", "tui", "mcp"]
+categories = ["command-line-utilities", "development-tools"]
+default-run = "thndrs"
+include = ["/Cargo.toml", "/README.md", "/src/**", "/tests/**"]
+
+[lib]
+name = "thndrs_lib"
+
+[[bin]]
+name = "thndrs"
+path = "src/bin/thndrs.rs"
+
+[[bin]]
+name = "thndrs-acp-server"
+path = "src/bin/thndrs-acp-server.rs"
+
+[dependencies]
+agent-client-protocol.workspace = true
+clap.workspace = true
+crossterm.workspace = true
+futures.workspace = true
+http.workspace = true
+iocraft.workspace = true
+lectito.workspace = true
+markdown.workspace = true
+regex-lite.workspace = true
+rmcp.workspace = true
+rusqlite.workspace = true
+scraper.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml_ng.workspace = true
+sha2.workspace = true
+syntect.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+thndrs-agent = { version = "0.1.0", path = "../thndrs-agent" }
+thndrs-context = { version = "0.1.0", path = "../thndrs-context", features = ["memory"] }
+tokio.workspace = true
+tokio-util.workspace = true
+toml.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+unicode-segmentation.workspace = true
+unicode-width.workspace = true
+ureq.workspace = true
+url.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+tempfile.workspace = true
+vt100.workspace = true

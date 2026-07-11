@@ -7,7 +7,7 @@ title: "CLI Usage"
 Running `thndrs` without a subcommand launches the TUI.
 
 ```sh
-cargo run
+cargo run -p thndrs
 ```
 
 ## Working Directory
@@ -16,7 +16,7 @@ Use `--cwd` to select the workspace used for context loading, display, and
 read-only tools.
 
 ```sh
-cargo run -- --cwd /path/to/repo
+cargo run -p thndrs -- --cwd /path/to/repo
 ```
 
 ## Model Selection
@@ -24,7 +24,7 @@ cargo run -- --cwd /path/to/repo
 The default model is `opencode/big-pickle`.
 
 ```sh
-cargo run -- --model umans-coder
+cargo run -p thndrs -- --model umans-coder
 ```
 
 Built-in provider model prefixes include:
@@ -40,9 +40,9 @@ Built-in provider model prefixes include:
 Use `--websearch` to choose the web-search policy.
 
 ```sh
-cargo run -- --websearch native
-cargo run -- --websearch exa
-cargo run -- --websearch none
+cargo run -p thndrs -- --websearch native
+cargo run -p thndrs -- --websearch exa
+cargo run -p thndrs -- --websearch none
 ```
 
 `auto` is the default. `none` disables provider-side web search.
@@ -53,7 +53,7 @@ Use `--print-prompt` to print the assembled prompt bundle and lowered provider
 messages without calling the provider.
 
 ```sh
-cargo run -- --print-prompt
+cargo run -p thndrs -- --print-prompt
 ```
 
 The output redacts secrets.

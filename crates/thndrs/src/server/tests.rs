@@ -1228,13 +1228,13 @@ fn find_acp_server_binary() -> Option<PathBuf> {
     }
 
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let target_dir = manifest_dir.parent().and_then(Path::parent).map_or_else(
+        || manifest_dir.join("target"),
+        |workspace_root| workspace_root.join("target"),
+    );
     let candidates = [
-        manifest_dir.join("target").join("debug").join("thndrs-acp-server"),
-        manifest_dir
-            .join("target")
-            .join("debug")
-            .join("deps")
-            .join("thndrs-acp-server"),
+        target_dir.join("debug").join("thndrs-acp-server"),
+        target_dir.join("debug").join("deps").join("thndrs-acp-server"),
     ];
     candidates.into_iter().find(|path| path.exists())
 }

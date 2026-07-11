@@ -36,11 +36,11 @@ the existing `thndrs` package metadata and executable behavior.
 
 **Acceptance criteria:**
 
-- [x] The workspace has exactly the root `thndrs` package plus
-      `thndrs-agent` and `thndrs-context` library members.
+- [x] The workspace has exactly the `thndrs`, `thndrs-agent`, and
+      `thndrs-context` package members under `crates/`.
 - [x] The libraries declare stable package identities, Apache-2.0 licensing,
       repository metadata, and pre-1.0 versions.
-- [x] The root `thndrs` package metadata and executable name are unchanged.
+- [x] The `thndrs` package metadata and executable name are unchanged.
 - [x] No empty `thndrs-acp` placeholder package or new dependency is created.
 
 **Verification:**
@@ -103,7 +103,7 @@ projection, session/audit records, and file-backed lexical memory into
 
 ## Ticket 5: Compose The Existing Application Through Both Libraries
 
-**What to build:** Replace the root package's internal core imports with the
+**What to build:** Replace the `thndrs` package's internal core imports with the
 two extracted libraries and prove that the CLI/TUI remains a useful minimal
 agent when memory is off.
 
@@ -174,7 +174,7 @@ and preserve the baseline protocol and safety behavior.
       containment, permission, redaction, cancellation, and local-session
       audit behavior.
 - [ ] Existing fake-client tests run against the packaged executable.
-- [ ] The root `thndrs` package no longer owns the ACP executable.
+- [ ] The `thndrs` package no longer owns the ACP executable.
 
 **Verification:**
 
@@ -194,7 +194,7 @@ independent crates without publishing any of them.
       dependencies in its public contract.
 - [ ] All four packages pass `cargo package` without publishing.
 - [ ] Cross-library dependency checks prove the libraries remain independent.
-- [ ] The root application package metadata remains unchanged.
+- [ ] The `thndrs` application package metadata remains unchanged.
 - [ ] Any API intentionally exposed for future ACP use is documented as
       pre-1.0 and covered by a focused integration test.
 

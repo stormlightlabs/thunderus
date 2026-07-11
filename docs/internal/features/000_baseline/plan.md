@@ -42,7 +42,7 @@ action.
 - Context-control already has its typed ledger, scoped instructions, lexical
   memory recall, prompt projection, and append-only audit foundation. Session
   navigation/inspection is planned but not yet usable. ACP's stdio core is
-  implemented in the root package but is not yet in its final package.
+  implemented in the `thndrs` package but is not yet in its final package.
 
 ## Product Principles
 
@@ -106,9 +106,9 @@ thndrs-context ─┬──> thndrs
 ```
 
 The baseline first introduces the two libraries, then moves the proven ACP
-server into `thndrs-acp`. The root `thndrs` package remains the CLI/TUI
-application throughout. No placeholder application crate is created merely to
-complete the diagram.
+server into `thndrs-acp`. The `thndrs` package lives in `crates/thndrs` as the
+CLI/TUI application throughout. No placeholder application crate is created
+merely to complete the diagram.
 
 ## Directive Baseline
 

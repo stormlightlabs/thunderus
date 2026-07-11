@@ -7,13 +7,13 @@ title: "Quick Start"
 Run from a repository:
 
 ```sh
-cargo run
+cargo run -p thndrs
 ```
 
 To point `thndrs` at a different workspace:
 
 ```sh
-cargo run -- --cwd /path/to/repo
+cargo run -p thndrs -- --cwd /path/to/repo
 ```
 
 ## First Prompt

@@ -1,5 +1,6 @@
 [workspace]
-members = ["crates/thndrs-agent", "crates/thndrs-context"]
+members = ["crates/thndrs", "crates/thndrs-agent", "crates/thndrs-context"]
+default-members = ["crates/thndrs"]
 resolver = "3"
 
 [workspace.package]
@@ -75,78 +76,3 @@ vec_init_then_push = "warn"
 len_zero = "allow"
 range_plus_one = "allow"
 manual_range_contains = "allow"
-
-[package]
-name = "thndrs"
-version = "0.1.0"
-edition = "2024"
-rust-version = "1.85"
-description = "Terminal AI pair programmer with local tools, sessions, MCP, and ACP support"
-license = "Apache-2.0"
-repository = "https://github.com/stormlightlabs/thunderus"
-homepage = "https://thndrs.stormlightlabs.org"
-documentation = "https://thndrs.stormlightlabs.org"
-readme = "README.md"
-keywords = ["agent", "ai", "cli", "tui", "mcp"]
-categories = ["command-line-utilities", "development-tools"]
-default-run = "thndrs"
-include = [
-    "/Cargo.lock",
-    "/Cargo.toml",
-    "/CHANGELOG.md",
-    "/LICENSE",
-    "/README.md",
-    "/src/**",
-    "/tests/**",
-]
-
-[lib]
-name = "thndrs_lib"
-
-[[bin]]
-name = "thndrs"
-path = "src/bin/thndrs.rs"
-
-[[bin]]
-name = "thndrs-acp-server"
-path = "src/bin/thndrs-acp-server.rs"
-
-[dependencies]
-agent-client-protocol.workspace = true
-clap.workspace = true
-crossterm.workspace = true
-futures.workspace = true
-http.workspace = true
-iocraft.workspace = true
-lectito.workspace = true
-markdown.workspace = true
-regex-lite.workspace = true
-rmcp.workspace = true
-rusqlite.workspace = true
-scraper.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-serde_yaml_ng.workspace = true
-sha2.workspace = true
-syntect.workspace = true
-tempfile.workspace = true
-thiserror.workspace = true
-thndrs-agent = { path = "crates/thndrs-agent" }
-thndrs-context = { path = "crates/thndrs-context", features = ["memory"] }
-tokio.workspace = true
-tokio-util.workspace = true
-toml.workspace = true
-tracing.workspace = true
-tracing-subscriber.workspace = true
-unicode-segmentation.workspace = true
-unicode-width.workspace = true
-ureq.workspace = true
-url.workspace = true
-
-[lints]
-workspace = true
-
-[dev-dependencies]
-insta.workspace = true
-tempfile.workspace = true
-vt100.workspace = true
