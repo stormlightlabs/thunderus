@@ -6,13 +6,13 @@
 //! iocraft render loops, fullscreen mode, stdout, or stderr.
 
 use iocraft::prelude::*;
+use thndrs_agent::ToolStatus;
 
 use crate::renderer::row::Row;
 use crate::renderer::style::{self, CellStyle, Color as RendererColor, Span};
 use crate::renderer::view::{
     ColumnAlignment, ColumnWidthPolicy, DiffDetailView, FocusedSurfaceView, PickerSurfaceView, SetupFormView,
     SurfaceRenderInput, SurfaceRenderer, SurfaceThemeView, TableCellView, TableView, ThemeRole, ToolDetailView,
-    ToolRunState,
 };
 use crate::utils;
 
@@ -151,12 +151,12 @@ fn help_rows(width: usize, height: usize, theme: &SurfaceThemeView) -> Vec<Row> 
 
 fn tool_detail_rows(detail: &ToolDetailView, width: usize, height: usize, theme: &SurfaceThemeView) -> Vec<Row> {
     let status_role = match detail.status {
-        ToolRunState::Failed => theme.error,
-        ToolRunState::Cancelled => theme.warning,
+        ToolStatus::Failed => theme.error,
+        ToolStatus::Cancelled => theme.warning,
         _ => theme.selected,
     };
     let mut lines = vec![SurfaceLine::new(
-        format!("{} [{}]", detail.title, tool_status_label(detail.status)),
+        format!("{} [{}]", detail.title, detail.status.label()),
         status_role,
     )];
     let body_budget = height.saturating_sub(1);
@@ -443,15 +443,6 @@ fn query_label(query: &str) -> String {
     if query.is_empty() { "type to filter".to_string() } else { query.to_string() }
 }
 
-fn tool_status_label(status: ToolRunState) -> &'static str {
-    match status {
-        ToolRunState::Running => "running",
-        ToolRunState::Succeeded => "ok",
-        ToolRunState::Failed => "failed",
-        ToolRunState::Cancelled => "cancelled",
-    }
-}
-
 fn theme_role_style(role: ThemeRole) -> CellStyle {
     let p = style::palette();
     match role {
@@ -639,7 +630,7 @@ mod tests {
                 FocusedSurfaceView::ToolDetail(ToolDetailView {
                     entry_index: 2,
                     title: "run_shell".to_string(),
-                    status: ToolRunState::Failed,
+                    status: ToolStatus::Failed,
                     scroll: 1,
                     output: vec![
                         "line 0".to_string(),

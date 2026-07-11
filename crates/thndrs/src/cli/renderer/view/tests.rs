@@ -5,8 +5,7 @@ use crate::app::{
 use crate::cli::{Cli, Theme, WebSearchMode};
 use crate::renderer;
 use crate::renderer::view::{
-    FocusedSurfaceView, PromptStatusView, PromptSuggestionKind, ToolRunState, TranscriptRowKind, TruncationPolicy,
-    build_view,
+    FocusedSurfaceView, PromptStatusView, PromptSuggestionKind, RendererView, TranscriptRowKind, TruncationPolicy,
 };
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -47,7 +46,7 @@ fn test_app() -> App {
 #[test]
 fn build_view_idle_has_empty_transcript_and_banner() {
     let app = test_app();
-    let view = build_view(&app, 80, 24);
+    let view = RendererView::build(&app, 80, 24);
 
     assert!(
         !view.transcript.banner_rows.is_empty(),
@@ -74,7 +73,7 @@ fn build_view_submitted_user_is_not_rendered() {
     app.run_state = RunState::Working;
     app.transcript.push(Entry::User { text: "do the thing".to_string() });
 
-    let view = build_view(&app, 80, 24);
+    let view = RendererView::build(&app, 80, 24);
 
     assert!(
         view.transcript.banner_rows.is_empty(),
@@ -106,7 +105,7 @@ fn build_view_streaming_assistant_is_all_live() {
     app.transcript
         .push(Entry::Agent { text: text.to_string(), streaming: true });
 
-    let view = build_view(&app, 80, 24);
+    let view = RendererView::build(&app, 80, 24);
 
     assert!(
         !view
@@ -138,7 +137,7 @@ fn build_view_long_streaming_reasoning_is_all_live() {
         streaming: true,
     });
 
-    let view = build_view(&app, 32, 24);
+    let view = RendererView::build(&app, 32, 24);
 
     assert!(
         !view
@@ -171,7 +170,7 @@ fn build_view_streaming_assistant_short_block_is_all_live() {
     app.transcript
         .push(Entry::Agent { text: "short".to_string(), streaming: true });
 
-    let view = build_view(&app, 80, 24);
+    let view = RendererView::build(&app, 80, 24);
 
     assert!(
         view.transcript.live_rows.iter().any(|row| row.text().contains("Agent")),
@@ -202,7 +201,7 @@ fn build_view_running_tool_is_live_only() {
         output: vec!["running tests".to_string()],
     });
 
-    let view = build_view(&app, 80, 24);
+    let view = RendererView::build(&app, 80, 24);
 
     assert!(
         !view.transcript.live_rows.is_empty(),
@@ -232,8 +231,8 @@ fn build_view_narrow_changes_row_counts() {
     app.transcript
         .push(Entry::User { text: "This is a user message that will wrap differently at narrow width.".to_string() });
 
-    let wide = build_view(&app, 80, 24);
-    let narrow = build_view(&app, 40, 24);
+    let wide = RendererView::build(&app, 80, 24);
+    let narrow = RendererView::build(&app, 40, 24);
 
     assert_ne!(
         wide.transcript.stable_rows.len(),
@@ -255,7 +254,7 @@ fn build_view_narrow_changes_row_counts() {
 fn build_view_preserves_cursor_for_editable_prompt() {
     let mut app = test_app();
     app.input.set_text("hello world");
-    let view = build_view(&app, 80, 24);
+    let view = RendererView::build(&app, 80, 24);
 
     assert!(
         view.live.prompt_cursor.is_some(),
@@ -269,7 +268,7 @@ fn build_view_prompt_clipping_keeps_cursor_row() {
     app.input
         .set_text(&(0..20).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n"));
 
-    let view = build_view(&app, 80, 24);
+    let view = RendererView::build(&app, 80, 24);
     let text = view
         .live
         .prompt_rows
@@ -299,7 +298,7 @@ fn build_view_working_state_has_live_tail_and_status() {
         streaming: true,
     });
 
-    let view = build_view(&app, 80, 24);
+    let view = RendererView::build(&app, 80, 24);
 
     assert!(!view.live.live_tail.is_empty(), "working state should have a live tail");
     assert!(
@@ -319,7 +318,7 @@ fn build_view_streaming_with_tool_has_live_tail_and_running_status() {
         output: vec!["test running ...".to_string()],
     });
 
-    let view = build_view(&app, 80, 24);
+    let view = RendererView::build(&app, 80, 24);
 
     assert!(
         !view.live.live_tail.is_empty(),
@@ -338,7 +337,7 @@ fn build_view_accessory_surfaces_are_present_when_active() {
     app.prompt_accessory = PromptAccessory::Files(FilePickerSource::Forced);
     app.picker = Some(PickerState::new(vec![PickerItem::new("src/main.rs", "main entry")], 50));
 
-    let view = build_view(&app, 80, 24);
+    let view = RendererView::build(&app, 80, 24);
 
     assert!(
         !view.live.accessory_rows.is_empty(),
@@ -360,7 +359,7 @@ fn build_view_queued_summary_appears_when_prompts_queued() {
     app.queued_followups.push("next task".to_string());
     app.queued_steering.push("look at tests".to_string());
 
-    let view = build_view(&app, 80, 24);
+    let view = RendererView::build(&app, 80, 24);
 
     let summary = view
         .live
@@ -381,7 +380,7 @@ fn build_view_queued_summary_appears_when_prompts_queued() {
 #[test]
 fn build_view_queued_summary_absent_when_nothing_queued() {
     let app = test_app();
-    let view = build_view(&app, 80, 24);
+    let view = RendererView::build(&app, 80, 24);
 
     assert!(
         view.live.queued_summary.is_none(),
@@ -413,7 +412,7 @@ fn build_view_pending_permission_takes_priority_over_focused_surface() {
     });
     app.prompt_accessory = PromptAccessory::Help;
 
-    let view = build_view(&app, 80, 24);
+    let view = RendererView::build(&app, 80, 24);
     let text = view
         .live
         .accessory_rows
@@ -447,7 +446,7 @@ fn build_view_detail_pane_appears_when_open() {
     });
     app.detail_pane = DetailPane { entry_index: 0, scroll: 0, open: true };
 
-    let view = build_view(&app, 80, 24);
+    let view = RendererView::build(&app, 80, 24);
 
     assert!(
         !view.live.detail_pane.is_empty(),
@@ -474,7 +473,7 @@ fn build_view_detail_pane_scrolls_wrapped_rows() {
     });
     app.detail_pane = DetailPane { entry_index: 0, scroll: 1, open: true };
 
-    let view = build_view(&app, 30, 24);
+    let view = RendererView::build(&app, 30, 24);
     let body = view
         .live
         .detail_pane
@@ -508,7 +507,7 @@ fn build_view_detail_pane_reports_clipped_content() {
     });
     app.detail_pane = DetailPane { entry_index: 0, scroll: 3, open: true };
 
-    let view = build_view(&app, 80, 24);
+    let view = RendererView::build(&app, 80, 24);
     let body = view
         .live
         .detail_pane
@@ -552,7 +551,7 @@ fn build_view_handles_large_transcript_with_running_tool_and_detail_pane() {
     });
     app.detail_pane = DetailPane { entry_index: detail_index, scroll: 120, open: true };
 
-    let view = build_view(&app, 100, 32);
+    let view = RendererView::build(&app, 100, 32);
 
     assert!(
         view.transcript.stable_rows.len() > 300,
@@ -584,7 +583,7 @@ fn build_view_detail_pane_absent_when_closed() {
         output: vec!["file_a.rs".to_string()],
     });
 
-    let view = build_view(&app, 80, 24);
+    let view = RendererView::build(&app, 80, 24);
 
     assert!(
         view.live.detail_pane.is_empty(),
@@ -599,7 +598,7 @@ fn build_view_narrow_width_still_has_prompt_and_footer() {
         .set_text("a long prompt that wraps at narrow width definitely");
     app.transcript.push(Entry::User { text: "user message".to_string() });
 
-    let view = build_view(&app, 20, 24);
+    let view = RendererView::build(&app, 20, 24);
 
     assert!(
         !view.live.prompt_rows.is_empty(),
@@ -623,7 +622,7 @@ fn build_view_tiny_height_clips_live_tail() {
     let text = "line one. line two. line three. line four. line five. line six. line seven. line eight.".to_string();
     app.transcript.push(Entry::Agent { text, streaming: true });
 
-    let view = build_view(&app, 80, 8);
+    let view = RendererView::build(&app, 80, 8);
 
     assert!(
         !view.live.live_tail.is_empty(),
@@ -645,7 +644,7 @@ fn build_view_tiny_height_clips_live_tail() {
 #[test]
 fn build_view_tiny_height_still_has_prompt_and_status() {
     let app = test_app();
-    let view = build_view(&app, 80, 3);
+    let view = RendererView::build(&app, 80, 3);
 
     assert!(!view.live.prompt_rows.is_empty(), "prompt should exist at height 3");
     assert!(
@@ -657,7 +656,7 @@ fn build_view_tiny_height_still_has_prompt_and_status() {
 #[test]
 fn build_view_view_dimensions_match_input() {
     let app = test_app();
-    let view = build_view(&app, 72, 30);
+    let view = RendererView::build(&app, 72, 30);
 
     assert_eq!(view.width, 72);
     assert_eq!(view.height, 30);
@@ -679,7 +678,7 @@ fn semantic_view_maps_transcript_row_kinds_and_tool_states() {
     });
     app.transcript.push(Entry::Status { text: "cancelled".to_string() });
 
-    let view = build_view(&app, 80, 24);
+    let view = RendererView::build(&app, 80, 24);
     let rows = &view.semantic.transcript.rows;
 
     assert_eq!(rows[0].kind, TranscriptRowKind::User);
@@ -687,10 +686,7 @@ fn semantic_view_maps_transcript_row_kinds_and_tool_states() {
     assert_eq!(rows[2].kind, TranscriptRowKind::Reasoning);
     assert!(!rows[2].stable, "streaming reasoning should be semantic-live");
     assert_eq!(rows[3].kind, TranscriptRowKind::Tool);
-    assert_eq!(
-        rows[3].tool.as_ref().map(|tool| tool.status),
-        Some(ToolRunState::Failed)
-    );
+    assert_eq!(rows[3].tool.as_ref().map(|tool| tool.status), Some(ToolStatus::Failed));
     assert_eq!(rows[4].kind, TranscriptRowKind::Cancelled);
 }
 
@@ -710,7 +706,7 @@ fn semantic_view_represents_edit_and_diff_summaries() {
         ],
     });
 
-    let view = build_view(&app, 80, 24);
+    let view = RendererView::build(&app, 80, 24);
     let row = &view.semantic.transcript.rows[0];
 
     assert_eq!(row.kind, TranscriptRowKind::Diff);
@@ -731,7 +727,7 @@ fn semantic_prompt_has_queued_summary_without_queued_text() {
     app.queued_followups.push("do the private next thing".to_string());
     app.queued_steering.push("steer quietly".to_string());
 
-    let view = build_view(&app, 80, 24);
+    let view = RendererView::build(&app, 80, 24);
     let prompt = &view.semantic.prompt;
     let queued = prompt.queued.as_ref().expect("queued summary");
 
@@ -752,7 +748,7 @@ fn semantic_prompt_represents_command_suggestions() {
     app.input.set_text("he");
     app.prompt_accessory = PromptAccessory::Commands { selected: 0 };
 
-    let view = build_view(&app, 80, 24);
+    let view = RendererView::build(&app, 80, 24);
     let suggestions = &view.semantic.prompt.suggestions;
 
     assert_eq!(view.semantic.prompt.status, PromptStatusView::Suggesting);
@@ -770,7 +766,7 @@ fn semantic_prompt_represents_file_mention_suggestions() {
     app.prompt_accessory = PromptAccessory::Files(FilePickerSource::Mention { token_start: 5 });
     app.picker = Some(PickerState::new(vec![PickerItem::new("src/lib.rs", "library")], 50));
 
-    let view = build_view(&app, 80, 24);
+    let view = RendererView::build(&app, 80, 24);
     let suggestions = &view.semantic.prompt.suggestions;
 
     assert_eq!(view.semantic.prompt.status, PromptStatusView::Suggesting);
@@ -781,7 +777,7 @@ fn semantic_prompt_represents_file_mention_suggestions() {
 #[test]
 fn semantic_orientation_has_truncation_metadata() {
     let app = test_app();
-    let view = build_view(&app, 80, 24);
+    let view = RendererView::build(&app, 80, 24);
     let orientation = &view.semantic.orientation;
 
     assert!(
@@ -809,12 +805,12 @@ fn semantic_focused_surface_represents_tool_detail() {
     });
     app.detail_pane = DetailPane { entry_index: 0, scroll: 1, open: true };
 
-    let view = build_view(&app, 80, 24);
+    let view = RendererView::build(&app, 80, 24);
 
     match &view.semantic.focused_surface {
         FocusedSurfaceView::ToolDetail(detail) => {
             assert_eq!(detail.entry_index, 0);
-            assert_eq!(detail.status, ToolRunState::Succeeded);
+            assert_eq!(detail.status, ToolStatus::Ok);
             assert_eq!(detail.scroll, 1);
             assert_eq!(detail.output, vec!["one".to_string(), "two".to_string()]);
         }

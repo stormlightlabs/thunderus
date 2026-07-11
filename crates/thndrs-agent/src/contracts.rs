@@ -29,6 +29,15 @@ impl ToolStatus {
             ToolStatus::Cancelled => "✕ write cancelled",
         }
     }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            ToolStatus::Running => "running",
+            ToolStatus::Ok => "ok",
+            ToolStatus::Failed => "failed",
+            ToolStatus::Cancelled => "cancelled",
+        }
+    }
 }
 
 /// A tool-use request from a provider.

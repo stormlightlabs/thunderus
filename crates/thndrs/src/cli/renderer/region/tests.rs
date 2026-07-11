@@ -21,7 +21,7 @@ fn nonblank_lines(contents: &str) -> Vec<&str> {
 
 fn render_entry_styled(entry: &Entry, width: usize) -> String {
     let ctx = transcript::TranscriptRowContext::for_test("User", Path::new("."), width);
-    let rows = transcript::entry_rows(entry, &ctx);
+    let rows = ctx.rows_for_entry(entry);
     let frame = row::Frame { rows, width, cursor: None, cursor_visible: true };
     frame.render_styled()
 }
@@ -886,7 +886,7 @@ fn snapshot_short_startup_prompt_spacing() {
 fn snapshot_startup_banner() {
     let _guard = crate::test_env::lock();
     let app = test_app();
-    let rows = transcript::banner_rows(&app, 80);
+    let rows = app.render_banner_rows(80);
     let frame = row::Frame { rows, width: 80, cursor: None, cursor_visible: true };
     assert_region_snapshot("startup_banner", &frame.render_styled());
 }
@@ -895,7 +895,7 @@ fn snapshot_startup_banner() {
 fn snapshot_narrow_startup_banner() {
     let _guard = crate::test_env::lock();
     let app = test_app();
-    let rows = transcript::banner_rows(&app, 40);
+    let rows = app.render_banner_rows(40);
     let frame = row::Frame { rows, width: 40, cursor: None, cursor_visible: true };
     assert_region_snapshot("narrow_startup_banner", &frame.render_styled());
 }
@@ -1072,7 +1072,7 @@ fn tool_output_shortens_workspace_absolute_paths() {
         ],
     };
     let ctx = transcript::TranscriptRowContext::for_test("User", cwd, 120);
-    let rows = transcript::entry_rows(&entry, &ctx);
+    let rows = ctx.rows_for_entry(&entry);
     let frame = row::Frame { rows, width: 120, cursor: None, cursor_visible: true };
     let rendered = frame.render_text();
 

@@ -5,20 +5,20 @@ use crate::renderer::{self, row};
 use crate::skills::{self, SkillDiagnostic};
 use thndrs_context::context::ContextSource;
 
-use super::{TranscriptRowContext, banner_rows, entry_rows, startup_loaded_skill_lines};
+use super::TranscriptRowContext;
 
 fn ctx(width: usize) -> TranscriptRowContext<'static> {
     TranscriptRowContext::for_test("User", Path::new("."), width)
 }
 
 fn render_entry_styled(entry: &Entry, width: usize) -> String {
-    let rows = entry_rows(entry, &ctx(width));
+    let rows = ctx(width).rows_for_entry(entry);
     let frame = row::Frame { rows, width, cursor: None, cursor_visible: true };
     frame.render_styled()
 }
 
 fn render_banner_styled(app: &App, width: usize) -> String {
-    let rows = banner_rows(app, width);
+    let rows = app.render_banner_rows(width);
     let frame = row::Frame { rows, width, cursor: None, cursor_visible: true };
     frame.render_styled()
 }
@@ -96,8 +96,7 @@ fn snapshot_user_message_narrow() {
 #[test]
 fn user_message_has_balanced_vertical_padding() {
     let entry = Entry::User { text: "hello".to_string() };
-    let rows = entry_rows(&entry, &ctx(80));
-
+    let rows = ctx(80).rows_for_entry(&entry);
     assert!(
         rows.first().is_some_and(|row| row.text().trim().is_empty()),
         "user block should start with vertical padding"
@@ -574,7 +573,7 @@ fn startup_loaded_skills_wrap_at_hyphens_and_hide_extra_rows() {
     .collect();
 
     let snapshot = app.self_knowledge_snapshot();
-    let lines = startup_loaded_skill_lines(&snapshot, 24);
+    let lines = snapshot.loaded_skill_lines(24);
     let rendered = lines.join("\n");
 
     assert!(
@@ -619,7 +618,7 @@ fn snapshot_tool_path_shortened() {
         ],
     };
     let ctx = TranscriptRowContext::for_test("User", cwd, 120);
-    let rows = entry_rows(&entry, &ctx);
+    let rows = ctx.rows_for_entry(&entry);
     let frame = row::Frame { rows, width: 120, cursor: None, cursor_visible: true };
     let rendered = frame.render_text();
 
@@ -764,12 +763,12 @@ fn entry_rows_tag_group_id_when_entry_index_set() {
     let mut ctx = TranscriptRowContext::for_test("User", Path::new("."), 80);
     ctx.entry_index = Some(42);
 
-    let rows = entry_rows(&entry, &ctx);
-
+    let rows = ctx.rows_for_entry(&entry);
     assert!(
         rows.iter().all(|row| row.group_id.is_some()),
         "all rows should carry a group_id when entry_index is set"
     );
+
     let group_ids: Vec<_> = rows.iter().filter_map(|r| r.group_id).collect();
     assert!(
         group_ids.iter().all(|g| g.entry_index == 42),
@@ -781,9 +780,7 @@ fn entry_rows_tag_group_id_when_entry_index_set() {
 fn entry_rows_omit_group_id_when_entry_index_none() {
     let entry = Entry::User { text: "hello world".to_string() };
     let ctx = TranscriptRowContext::for_test("User", Path::new("."), 80);
-
-    let rows = entry_rows(&entry, &ctx);
-
+    let rows = ctx.rows_for_entry(&entry);
     assert!(
         rows.iter().all(|row| row.group_id.is_none()),
         "rows should not carry a group_id when entry_index is None"
@@ -794,7 +791,6 @@ fn entry_rows_omit_group_id_when_entry_index_none() {
 fn banner_normal_viewport_shows_all_sections() {
     let app = test_app();
     let rendered = render_banner_styled(&app, 80);
-
     for section in ["thndrs", "model", "cwd", "CONTEXT", "SKILLS", "SEARCH"] {
         assert!(
             rendered.contains(section),
@@ -804,6 +800,23 @@ fn banner_normal_viewport_shows_all_sections() {
 
     assert!(rendered.contains("help"), "banner should show help row");
     assert!(rendered.contains("/model"), "banner should show model switcher row");
+}
+
+#[test]
+fn banner_search_heading_uses_pink_label_color() {
+    let app = test_app();
+    let rows = app.render_banner_rows(80);
+    let search = rows
+        .iter()
+        .find(|row| row.text().trim() == "SEARCH")
+        .expect("search heading");
+
+    let label = search
+        .spans
+        .iter()
+        .find(|span| span.text == "SEARCH")
+        .expect("search label span");
+    assert_eq!(label.style.fg, renderer::style::palette().pink);
 }
 
 #[test]

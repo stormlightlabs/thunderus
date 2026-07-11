@@ -90,6 +90,17 @@ pub struct FirstRunRecovery {
 }
 
 impl FirstRunRecovery {
+    pub fn missing_label(&self) -> &'static str {
+        match self.stage {
+            RecoveryStage::ChooseProvider | RecoveryStage::ModelConfigScope => "none",
+            _ => match self.provider {
+                Some(commands::setup::SetupProviderArg::ChatgptCodex) => "ChatGPT OAuth credential",
+                Some(provider) => provider.api_key_env_var().unwrap_or("credential"),
+                None => "ACP agent config",
+            },
+        }
+    }
+
     fn setup(default_provider: SetupProviderArg) -> Self {
         let selected = SetupProviderArg::ALL
             .iter()

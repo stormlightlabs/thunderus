@@ -316,71 +316,41 @@ pub fn endpoint_family(model: &str) -> EndpointFamily {
 
 /// Return the verified reasoning choices for one Zen model.
 pub fn reasoning_options(model: &str) -> Vec<ReasoningEffort> {
-    let Ok(raw) = raw_model_id(model) else {
-        return vec![ReasoningEffort::Auto];
-    };
-    if raw.starts_with("gpt-") {
-        if raw.contains("-pro") {
-            return vec![ReasoningEffort::Auto, ReasoningEffort::High];
+    match raw_model_id(model) {
+        Ok(raw) => {
+            if raw.starts_with("gpt-") {
+                if raw.contains("-pro") {
+                    return vec![ReasoningEffort::Auto, ReasoningEffort::High];
+                }
+                return vec![
+                    ReasoningEffort::Auto,
+                    ReasoningEffort::None,
+                    ReasoningEffort::Minimal,
+                    ReasoningEffort::Low,
+                    ReasoningEffort::Medium,
+                    ReasoningEffort::High,
+                    ReasoningEffort::Xhigh,
+                ];
+            }
+            if raw.starts_with("claude-") && supports_claude_effort(raw) {
+                let mut options = vec![
+                    ReasoningEffort::Auto,
+                    ReasoningEffort::Low,
+                    ReasoningEffort::Medium,
+                    ReasoningEffort::High,
+                ];
+                if supports_claude_xhigh(raw) {
+                    options.push(ReasoningEffort::Xhigh);
+                }
+                if !raw.contains("4-5") {
+                    options.push(ReasoningEffort::Max);
+                }
+                return options;
+            }
+            vec![ReasoningEffort::Auto]
         }
-        return vec![
-            ReasoningEffort::Auto,
-            ReasoningEffort::None,
-            ReasoningEffort::Minimal,
-            ReasoningEffort::Low,
-            ReasoningEffort::Medium,
-            ReasoningEffort::High,
-            ReasoningEffort::Xhigh,
-        ];
+        Err(_) => vec![ReasoningEffort::Auto],
     }
-    if raw.starts_with("claude-") && supports_claude_effort(raw) {
-        let mut options = vec![
-            ReasoningEffort::Auto,
-            ReasoningEffort::Low,
-            ReasoningEffort::Medium,
-            ReasoningEffort::High,
-        ];
-        if supports_claude_xhigh(raw) {
-            options.push(ReasoningEffort::Xhigh);
-        }
-        if !raw.contains("4-5") {
-            options.push(ReasoningEffort::Max);
-        }
-        return options;
-    }
-    vec![ReasoningEffort::Auto]
-}
-
-fn supports_claude_effort(model: &str) -> bool {
-    matches!(
-        model,
-        "claude-fable-5"
-            | "claude-opus-4-8"
-            | "claude-opus-4-7"
-            | "claude-opus-4-6"
-            | "claude-opus-4-5"
-            | "claude-sonnet-5"
-            | "claude-sonnet-4-6"
-    )
-}
-
-fn supports_claude_xhigh(model: &str) -> bool {
-    matches!(
-        model,
-        "claude-fable-5" | "claude-opus-4-8" | "claude-opus-4-7" | "claude-sonnet-5"
-    )
-}
-
-fn supports_adaptive_thinking(model: &str) -> bool {
-    matches!(
-        model,
-        "claude-fable-5"
-            | "claude-opus-4-8"
-            | "claude-opus-4-7"
-            | "claude-opus-4-6"
-            | "claude-sonnet-5"
-            | "claude-sonnet-4-6"
-    )
 }
 
 /// Current OpenCode Zen models from public docs.
@@ -433,9 +403,40 @@ pub fn validate_api_key(api_key: &str) -> std::result::Result<(), String> {
     validate_api_key_at(BASE_URL, api_key)
 }
 
+fn supports_claude_effort(model: &str) -> bool {
+    matches!(
+        model,
+        "claude-fable-5"
+            | "claude-opus-4-8"
+            | "claude-opus-4-7"
+            | "claude-opus-4-6"
+            | "claude-opus-4-5"
+            | "claude-sonnet-5"
+            | "claude-sonnet-4-6"
+    )
+}
+
+fn supports_claude_xhigh(model: &str) -> bool {
+    matches!(
+        model,
+        "claude-fable-5" | "claude-opus-4-8" | "claude-opus-4-7" | "claude-sonnet-5"
+    )
+}
+
+fn supports_adaptive_thinking(model: &str) -> bool {
+    matches!(
+        model,
+        "claude-fable-5"
+            | "claude-opus-4-8"
+            | "claude-opus-4-7"
+            | "claude-opus-4-6"
+            | "claude-sonnet-5"
+            | "claude-sonnet-4-6"
+    )
+}
+
 fn validate_api_key_at(base_url: &str, api_key: &str) -> std::result::Result<(), String> {
-    let client = OpenCodeZenClient::new(base_url, api_key);
-    match client.fetch_models() {
+    match OpenCodeZenClient::new(base_url, api_key).fetch_models() {
         Ok(_) => Ok(()),
         Err(e) => Err(format!("validation failed: {e}")),
     }
@@ -443,16 +444,17 @@ fn validate_api_key_at(base_url: &str, api_key: &str) -> std::result::Result<(),
 
 fn terminal_status_error(code: u16, body: &str) -> bool {
     if matches!(code, 400..=404) {
-        return true;
+        true
+    } else {
+        let lower = body.to_ascii_lowercase();
+        lower.contains("balance")
+            || lower.contains("insufficient")
+            || lower.contains("unavailable model")
+            || lower.contains("model unavailable")
+            || lower.contains("free period")
+            || lower.contains("free-period")
+            || lower.contains("ended")
     }
-    let lower = body.to_ascii_lowercase();
-    lower.contains("balance")
-        || lower.contains("insufficient")
-        || lower.contains("unavailable model")
-        || lower.contains("model unavailable")
-        || lower.contains("free period")
-        || lower.contains("free-period")
-        || lower.contains("ended")
 }
 
 #[cfg(test)]
@@ -733,7 +735,6 @@ mod tests {
         .expect("messages body");
         assert_eq!(anthropic["output_config"]["effort"], "xhigh");
         assert_eq!(anthropic["thinking"]["type"], "adaptive");
-
         assert!(
             OpenCodeZenClient::build_request_body(
                 "opencode/big-pickle",

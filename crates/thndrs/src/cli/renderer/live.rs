@@ -1,10 +1,15 @@
 //! Live region row builders for the direct renderer.
 //!
-//! The live chrome is rebuilt each tick and composed into the full viewport by
-//! [`super::region::LiveRegion`].
+//! The live chrome is rebuilt each tick and composed into the full viewport by [`super::region::LiveRegion`].
+
+#[cfg(test)]
+mod tests;
+
+use std::collections::HashSet;
 
 use crate::app::{App, Entry, Mode, PromptAccessory, PromptState, RecoveryStage, RunState, ToolStatus};
 use crate::cli::commands;
+use crate::providers::{codex, umans};
 use crate::renderer::cursor::{prompt_cursor, prompt_rows};
 use crate::renderer::row::{CursorCoord, Row};
 use crate::renderer::style::{CellStyle, Color, Span};
@@ -18,6 +23,31 @@ pub const MAX_PROMPT_ROWS: usize = 8;
 pub const MAX_ACCESSORY_ROWS: usize = 8;
 
 const LIVE_INSET: usize = 2;
+
+struct ActionDimensions(usize, usize);
+
+impl ActionDimensions {
+    fn width(&self) -> usize {
+        self.0
+    }
+
+    fn max_height(&self) -> usize {
+        self.1
+    }
+}
+
+struct ActionStyles {
+    selected_style: CellStyle,
+    muted_style: CellStyle,
+    text_style: CellStyle,
+    bg: Color,
+}
+
+impl ActionStyles {
+    fn new(selected: CellStyle, muted: CellStyle, text: CellStyle, bg: Color) -> Self {
+        Self { selected_style: selected, muted_style: muted, text_style: text, bg }
+    }
+}
 
 /// Build the dynamic status row: session id + status icon + queue info.
 ///
@@ -51,7 +81,7 @@ pub fn dynamic_status_row(app: &App, width: usize) -> Row {
         ));
     }
 
-    Row::padded(spans, width, bg_style(bg))
+    Row::padded(spans, width, CellStyle::new().bg(bg))
 }
 
 /// Build prompt input rows from app state.
@@ -62,7 +92,7 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
     let surface = p.surface0;
     let prompt_state = app.prompt_state();
 
-    let (prompt_color, _show_input, icon) = match prompt_state {
+    let (prompt_color, _, icon) = match prompt_state {
         PromptState::Editable => (p.yellow, true, "›"),
         PromptState::Submitted => (p.teal, true, "»"),
         PromptState::Streaming | PromptState::RunningTool => (p.teal, true, "»"),
@@ -70,7 +100,7 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
         PromptState::Errored => (p.red, true, "✕"),
     };
 
-    let prefix_width = prompt_prefix_width(app);
+    let prefix_width = if app.mode == Mode::Command { 4 } else { 3 };
     let row_body_width = super::layout::content_width(width);
     let body_width = row_body_width.saturating_sub(LIVE_INSET + prefix_width).max(1);
     let cursor_indent = width.min(2) + LIVE_INSET + prefix_width;
@@ -110,7 +140,7 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
         if !line.is_empty() {
             spans.extend(mention_styled_spans(&line, text_style, mention_style, surface));
         }
-        rows.push(Row::padded(spans, width, bg_style(surface)));
+        rows.push(Row::padded(spans, width, CellStyle::new().bg(surface)));
     }
 
     if rows.is_empty() {
@@ -122,7 +152,7 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
         if app.mode == Mode::Command {
             spans.push(Span::styled(":", CellStyle::new().fg(p.accent).bg(surface)));
         }
-        rows.push(Row::padded(spans, width, bg_style(surface)));
+        rows.push(Row::padded(spans, width, CellStyle::new().bg(surface)));
     }
 
     (rows, if hidden_entry_active { None } else { Some(cursor) })
@@ -155,368 +185,7 @@ pub fn accessory_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
     }
 }
 
-fn first_run_recovery_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
-    let Some(recovery) = app.first_run_recovery.as_ref() else {
-        return Vec::new();
-    };
-    let p = super::style::palette();
-    let bg = p.surface0;
-    let title_style = CellStyle::new().fg(p.peach).bg(bg).bold();
-    let muted_style = CellStyle::new().fg(p.subtext0).bg(bg);
-    let text_style = CellStyle::new().fg(p.text).bg(bg);
-    let selected_style = CellStyle::new().fg(p.text).bg(bg).bold();
-
-    let provider = if recovery.stage == RecoveryStage::ChooseProvider {
-        "choose"
-    } else {
-        recovery.provider.map(|provider| provider.label()).unwrap_or("acp")
-    };
-    let missing = recovery_missing_label(recovery);
-
-    let mut rows = Vec::new();
-    rows.push(Row::padded(
-        vec![
-            Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(bg)),
-            Span::styled("setup", title_style),
-            Span::styled(
-                format!("  provider={provider} model={} missing={missing}", app.model),
-                muted_style,
-            ),
-        ],
-        width,
-        bg_style(bg),
-    ));
-
-    match recovery.stage {
-        RecoveryStage::ChooseProvider => {
-            rows.push(recovery_body_row(
-                width,
-                bg,
-                text_style,
-                "Choose the provider to configure.",
-            ));
-            push_recovery_actions(
-                &mut rows,
-                width,
-                max_height,
-                recovery.selected,
-                &["opencode-zen", "chatgpt-codex", "umans", "opencode-go"],
-                selected_style,
-                muted_style,
-                text_style,
-                bg,
-            );
-        }
-        RecoveryStage::ModelConfigScope => {
-            rows.push(recovery_body_row(
-                width,
-                bg,
-                text_style,
-                "Save this provider's default model to config?",
-            ));
-            push_recovery_actions(
-                &mut rows,
-                width,
-                max_height,
-                recovery.selected,
-                &["project config", "global config", "skip model config", "cancel setup"],
-                selected_style,
-                muted_style,
-                text_style,
-                bg,
-            );
-        }
-        RecoveryStage::MissingCredential => {
-            let body = if recovery.provider == Some(commands::setup::SetupProviderArg::ChatgptCodex) {
-                "Missing ChatGPT OAuth credential. Choose an action before submitting this prompt."
-            } else {
-                "Missing credential. Choose an action before submitting this prompt."
-            };
-            rows.push(recovery_body_row(width, bg, text_style, body));
-            let actions = if recovery.provider == Some(commands::setup::SetupProviderArg::ChatgptCodex) {
-                &[
-                    "start ChatGPT OAuth login",
-                    "switch model/provider",
-                    "show setup instructions",
-                    "continue without setup",
-                    "quit",
-                ][..]
-            } else {
-                &[
-                    "enter API key",
-                    "switch model/provider",
-                    "show setup instructions",
-                    "continue without setup",
-                    "quit",
-                ][..]
-            };
-            push_recovery_actions(
-                &mut rows,
-                width,
-                max_height,
-                recovery.selected,
-                actions,
-                selected_style,
-                muted_style,
-                text_style,
-                bg,
-            );
-        }
-        RecoveryStage::EnterKey => {
-            rows.push(recovery_body_row(
-                width,
-                bg,
-                text_style,
-                "Type the API key. Input is hidden. Enter continues, Esc cancels.",
-            ));
-        }
-        RecoveryStage::ConfirmStore => {
-            rows.push(recovery_body_row(width, bg, text_style, "Store this credential where?"));
-            push_recovery_actions(
-                &mut rows,
-                width,
-                max_height,
-                recovery.selected,
-                &["global credentials", "project credentials", "cancel"],
-                selected_style,
-                muted_style,
-                text_style,
-                bg,
-            );
-        }
-        RecoveryStage::Instructions => {
-            let text = if recovery.provider == Some(commands::setup::SetupProviderArg::ChatgptCodex) {
-                "Run `thndrs setup --provider chatgpt-codex` or `thndrs login chatgpt-codex` outside the TUI."
-            } else {
-                "Run `thndrs setup` or `thndrs login <provider>` outside the TUI."
-            };
-            rows.push(recovery_body_row(width, bg, text_style, text));
-            push_recovery_actions(
-                &mut rows,
-                width,
-                max_height,
-                recovery.selected,
-                &["back", "close"],
-                selected_style,
-                muted_style,
-                text_style,
-                bg,
-            );
-        }
-        RecoveryStage::ChatGptOAuthRequesting => {
-            rows.push(recovery_body_row(
-                width,
-                bg,
-                text_style,
-                "Requesting a ChatGPT OAuth device code.",
-            ));
-            push_recovery_actions(
-                &mut rows,
-                width,
-                max_height,
-                recovery.selected,
-                &["cancel"],
-                selected_style,
-                muted_style,
-                text_style,
-                bg,
-            );
-        }
-        RecoveryStage::ChatGptOAuthPolling => {
-            if let Some(oauth) = recovery.chatgpt_oauth.as_ref() {
-                let verification_uri = oauth
-                    .code
-                    .verification_uri
-                    .as_deref()
-                    .unwrap_or("https://auth.openai.com/codex/device");
-                rows.push(recovery_body_row(
-                    width,
-                    bg,
-                    text_style,
-                    &format!("Open {verification_uri} and enter code {}", oauth.code.user_code),
-                ));
-                rows.push(recovery_body_row(width, bg, muted_style, &oauth.status));
-            } else {
-                rows.push(recovery_body_row(width, bg, text_style, "Waiting for ChatGPT OAuth."));
-            }
-            push_recovery_actions(
-                &mut rows,
-                width,
-                max_height,
-                recovery.selected,
-                &["cancel"],
-                selected_style,
-                muted_style,
-                text_style,
-                bg,
-            );
-        }
-        RecoveryStage::ChatGptOAuthFailed => {
-            let text = recovery
-                .chatgpt_oauth
-                .as_ref()
-                .map(|oauth| oauth.status.as_str())
-                .unwrap_or("ChatGPT OAuth failed. Run `thndrs login chatgpt-codex` for browser fallback.");
-            rows.push(recovery_body_row(width, bg, text_style, text));
-            push_recovery_actions(
-                &mut rows,
-                width,
-                max_height,
-                recovery.selected,
-                &["retry ChatGPT OAuth login", "back"],
-                selected_style,
-                muted_style,
-                text_style,
-                bg,
-            );
-        }
-        RecoveryStage::LogoutConfirm => {
-            rows.push(recovery_body_row(
-                width,
-                bg,
-                text_style,
-                "Remove the stored credential from which store?",
-            ));
-            push_recovery_actions(
-                &mut rows,
-                width,
-                max_height,
-                recovery.selected,
-                &["global credentials", "project credentials", "cancel"],
-                selected_style,
-                muted_style,
-                text_style,
-                bg,
-            );
-        }
-        RecoveryStage::AcpMissing => {
-            rows.push(recovery_body_row(
-                width,
-                bg,
-                text_style,
-                "ACP models use ACP agent config, not provider API keys.",
-            ));
-            push_recovery_actions(
-                &mut rows,
-                width,
-                max_height,
-                recovery.selected,
-                &[
-                    "switch model/provider",
-                    "show ACP setup",
-                    "continue without setup",
-                    "quit",
-                ],
-                selected_style,
-                muted_style,
-                text_style,
-                bg,
-            );
-        }
-    }
-
-    rows.truncate(max_height);
-    rows
-}
-
-fn recovery_missing_label(recovery: &crate::app::FirstRunRecovery) -> &'static str {
-    if recovery.stage == RecoveryStage::ChooseProvider || recovery.stage == RecoveryStage::ModelConfigScope {
-        return "none";
-    }
-    match recovery.provider {
-        Some(commands::setup::SetupProviderArg::ChatgptCodex) => "ChatGPT OAuth credential",
-        Some(provider) => provider.api_key_env_var().unwrap_or("credential"),
-        None => "ACP agent config",
-    }
-}
-
-fn recovery_body_row(width: usize, bg: Color, style: CellStyle, text: &str) -> Row {
-    Row::padded(
-        vec![
-            Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(bg)),
-            Span::styled(text.to_string(), style),
-        ],
-        width,
-        bg_style(bg),
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-fn push_recovery_actions(
-    rows: &mut Vec<Row>, width: usize, max_height: usize, selected: usize, actions: &[&str], selected_style: CellStyle,
-    muted_style: CellStyle, text_style: CellStyle, bg: Color,
-) {
-    for (index, action) in actions.iter().enumerate() {
-        if rows.len() >= max_height {
-            break;
-        }
-        let is_selected = index == selected;
-        let marker = if is_selected { "›" } else { " " };
-        rows.push(Row::padded(
-            vec![
-                Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(bg)),
-                Span::styled(marker, if is_selected { selected_style } else { muted_style }),
-                Span::styled(" ", CellStyle::new().bg(bg)),
-                Span::styled(
-                    (*action).to_string(),
-                    if is_selected { selected_style } else { text_style },
-                ),
-            ],
-            width,
-            bg_style(bg),
-        ));
-    }
-}
-
-fn permission_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
-    let Some(permission) = app.pending_permission.as_ref() else {
-        return Vec::new();
-    };
-    let p = super::style::palette();
-    let bg = p.surface0;
-    let title_style = CellStyle::new().fg(p.peach).bg(bg).bold();
-    let muted_style = CellStyle::new().fg(p.subtext0).bg(bg);
-    let selected_style = CellStyle::new().fg(p.text).bg(bg).bold();
-    let option_style = CellStyle::new().fg(p.text).bg(bg);
-
-    let mut rows = Vec::new();
-    rows.push(Row::padded(
-        vec![
-            Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(bg)),
-            Span::styled("permission", title_style),
-            Span::styled(format!("  {}", permission.title), muted_style),
-        ],
-        width,
-        bg_style(bg),
-    ));
-
-    for (index, option) in permission.options.iter().enumerate() {
-        if rows.len() >= max_height {
-            break;
-        }
-        let selected = index == permission.selected;
-        let marker = if selected { "›" } else { " " };
-        rows.push(Row::padded(
-            vec![
-                Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(bg)),
-                Span::styled(marker, if selected { selected_style } else { muted_style }),
-                Span::styled(" ", CellStyle::new().bg(bg)),
-                Span::styled(
-                    option.name.clone(),
-                    if selected { selected_style } else { option_style },
-                ),
-                Span::styled(format!("  {}", option.kind.label()), muted_style),
-            ],
-            width,
-            bg_style(bg),
-        ));
-    }
-
-    rows
-}
-
-/// Build a queued-prompt summary row when steering or follow-up prompts are
-/// pending.
+/// Build a queued-prompt summary row when steering or follow-up prompts are pending.
 ///
 /// Returns `None` when the queue is empty or the agent is idle.
 pub fn queued_summary_row(app: &App, width: usize) -> Option<Row> {
@@ -530,7 +199,6 @@ pub fn queued_summary_row(app: &App, width: usize) -> Option<Row> {
     let bg = p.surface0;
     let label_style = CellStyle::new().fg(p.peach).bg(bg).bold();
     let muted_style = CellStyle::new().fg(p.subtext0).bg(bg);
-
     let mut spans = vec![
         Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(bg)),
         Span::styled("queued", label_style),
@@ -542,8 +210,7 @@ pub fn queued_summary_row(app: &App, width: usize) -> Option<Row> {
     if followups > 0 {
         spans.push(Span::styled(format!("  {followups} follow-up"), muted_style));
     }
-
-    Some(Row::padded(spans, width, bg_style(bg)))
+    Some(Row::padded(spans, width, CellStyle::new().bg(bg)))
 }
 
 /// Build detail pane rows for the expanded tool entry.
@@ -604,7 +271,7 @@ pub fn detail_pane_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> 
         let line = renderer::path_display::transcript_line(line, &app.cwd);
         for wrapped in super::layout::wrap_text(&line, body_width) {
             let spans = vec![Span::styled(GUTTER, gutter_style), Span::styled(wrapped, body_style)];
-            body_rows.push(Row::padded(spans, width, bg_style(bg)));
+            body_rows.push(Row::padded(spans, width, CellStyle::new().bg(bg)));
         }
     }
 
@@ -614,7 +281,7 @@ pub fn detail_pane_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> 
     let hidden_above = scroll;
     let hidden_below = body_rows.len().saturating_sub(scroll + body_budget);
 
-    rows.push(Row::padded(title_spans, width, bg_style(bg)));
+    rows.push(Row::padded(title_spans, width, CellStyle::new().bg(bg)));
     rows.extend(body_rows.into_iter().skip(scroll).take(body_budget));
     if (hidden_above > 0 || hidden_below > 0)
         && let Some(row) = rows.last_mut()
@@ -624,18 +291,7 @@ pub fn detail_pane_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> 
     rows
 }
 
-fn clipped_detail_indicator_row(
-    width: usize, bg: Color, style: CellStyle, hidden_above: usize, hidden_below: usize,
-) -> Row {
-    let text = match (hidden_above, hidden_below) {
-        (0, below) => format!("   │ … {below} rows below"),
-        (above, 0) => format!("   │ … {above} rows above"),
-        (above, below) => format!("   │ … {above} rows above, {below} below"),
-    };
-    Row::padded(vec![Span::styled(text, style)], width, bg_style(bg))
-}
-
-/// Build the static status row (model/search/tokens/cwd) below the prompt.
+/// Build the static status row (model/reasoning/search/tokens/cwd) below the prompt.
 ///
 /// Width-aware clipping hides segments that don't fit.
 pub fn static_status_row(app: &App, width: usize) -> Row {
@@ -644,7 +300,9 @@ pub fn static_status_row(app: &App, width: usize) -> Row {
     let subtext = CellStyle::new().fg(p.subtext0).bg(bg);
     let trust_text = "local user · workspace-contained tools · no TUI sandbox";
     let muted = CellStyle::new().fg(p.overlay0).bg(bg);
-    let model_label = format!("model: {}", app.model);
+    let model_label = format!("model: {}", codex::display_model_id(&app.model));
+    let reasoning_text =
+        supports_reasoning_status(&app.model).then(|| format!("reasoning: {}", app.cli.reasoning_effort.label()));
     let search_label = app.websearch.label();
     let search_text = format!("search: {search_label}");
     let token_text = format!("tok: ↑{} ↓{}", app.session_tokens_in, app.session_tokens_out);
@@ -654,15 +312,16 @@ pub fn static_status_row(app: &App, width: usize) -> Row {
     let ttft_style = CellStyle::new().fg(p.teal).bg(bg);
     let git_style = CellStyle::new().fg(p.green).bg(bg);
 
-    let (show_model, show_search, show_tokens, show_ttft, show_git, show_cwd, show_trust) = match width {
-        w if w < 24 => (false, false, false, false, false, false, false),
-        w if w < 42 => (true, false, false, false, false, false, false),
-        w if w < 56 => (true, true, false, false, false, false, false),
-        w if w < 72 => (true, true, true, false, false, false, false),
-        w if w < 88 => (true, true, true, false, true, false, false),
-        w if w < 97 => (true, true, true, true, true, false, false),
-        w if w < 160 => (true, true, true, true, true, true, false),
-        _ => (true, true, true, true, true, true, true),
+    let (show_model, show_reasoning, show_search, show_tokens, show_ttft, show_git, show_cwd, show_trust) = match width
+    {
+        w if w < 24 => (false, false, false, false, false, false, false, false),
+        w if w < 42 => (true, false, false, false, false, false, false, false),
+        w if w < 56 => (true, false, true, false, false, false, false, false),
+        w if w < 72 => (true, false, true, true, false, false, false, false),
+        w if w < 88 => (true, true, true, true, false, true, false, false),
+        w if w < 97 => (true, true, true, true, true, true, false, false),
+        w if w < 160 => (true, true, true, true, true, true, true, false),
+        _ => (true, true, true, true, true, true, true, true),
     };
 
     let mut spans: Vec<Span> = Vec::new();
@@ -690,6 +349,9 @@ pub fn static_status_row(app: &App, width: usize) -> Row {
     if show_model {
         push_segment(&model_label, subtext, &mut used);
     }
+    if show_reasoning && let Some(reasoning_text) = reasoning_text.as_deref() {
+        push_segment(reasoning_text, CellStyle::new().fg(p.mauve).bg(bg), &mut used);
+    }
     if show_search {
         push_segment(&search_text, subtext, &mut used);
     }
@@ -711,7 +373,329 @@ pub fn static_status_row(app: &App, width: usize) -> Row {
         push_segment(&cwd_display, muted, &mut used);
     }
 
-    Row::padded(spans, width, bg_style(bg))
+    Row::padded(spans, width, CellStyle::new().bg(bg))
+}
+
+fn first_run_recovery_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
+    let Some(recovery) = app.first_run_recovery.as_ref() else {
+        return Vec::new();
+    };
+    let p = super::style::palette();
+    let bg = p.surface0;
+    let title_style = CellStyle::new().fg(p.peach).bg(bg).bold();
+    let muted_style = CellStyle::new().fg(p.subtext0).bg(bg);
+    let text_style = CellStyle::new().fg(p.text).bg(bg);
+    let selected_style = CellStyle::new().fg(p.text).bg(bg).bold();
+
+    let provider = if recovery.stage == RecoveryStage::ChooseProvider {
+        "choose"
+    } else {
+        recovery.provider.map(|provider| provider.label()).unwrap_or("acp")
+    };
+    let missing = recovery.missing_label();
+
+    let mut rows = Vec::new();
+    rows.push(Row::padded(
+        vec![
+            Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(bg)),
+            Span::styled("setup", title_style),
+            Span::styled(
+                format!("  provider={provider} model={} missing={missing}", app.model),
+                muted_style,
+            ),
+        ],
+        width,
+        CellStyle::new().bg(bg),
+    ));
+
+    match recovery.stage {
+        RecoveryStage::ChooseProvider => {
+            rows.push(recovery_body_row(
+                width,
+                bg,
+                text_style,
+                "Choose the provider to configure.",
+            ));
+            push_recovery_actions(
+                &mut rows,
+                ActionDimensions(width, max_height),
+                recovery.selected,
+                &["opencode-zen", "chatgpt-codex", "umans", "opencode-go"],
+                ActionStyles::new(selected_style, muted_style, text_style, bg),
+            );
+        }
+        RecoveryStage::ModelConfigScope => {
+            rows.push(recovery_body_row(
+                width,
+                bg,
+                text_style,
+                "Save this provider's default model to config?",
+            ));
+            push_recovery_actions(
+                &mut rows,
+                ActionDimensions(width, max_height),
+                recovery.selected,
+                &["project config", "global config", "skip model config", "cancel setup"],
+                ActionStyles::new(selected_style, muted_style, text_style, bg),
+            );
+        }
+        RecoveryStage::MissingCredential => {
+            let body = if recovery.provider == Some(commands::setup::SetupProviderArg::ChatgptCodex) {
+                "Missing ChatGPT OAuth credential. Choose an action before submitting this prompt."
+            } else {
+                "Missing credential. Choose an action before submitting this prompt."
+            };
+            rows.push(recovery_body_row(width, bg, text_style, body));
+            let actions = if recovery.provider == Some(commands::setup::SetupProviderArg::ChatgptCodex) {
+                &[
+                    "start ChatGPT OAuth login",
+                    "switch model/provider",
+                    "show setup instructions",
+                    "continue without setup",
+                    "quit",
+                ][..]
+            } else {
+                &[
+                    "enter API key",
+                    "switch model/provider",
+                    "show setup instructions",
+                    "continue without setup",
+                    "quit",
+                ][..]
+            };
+            push_recovery_actions(
+                &mut rows,
+                ActionDimensions(width, max_height),
+                recovery.selected,
+                actions,
+                ActionStyles::new(selected_style, muted_style, text_style, bg),
+            );
+        }
+        RecoveryStage::EnterKey => {
+            rows.push(recovery_body_row(
+                width,
+                bg,
+                text_style,
+                "Type the API key. Input is hidden. Enter continues, Esc cancels.",
+            ));
+        }
+        RecoveryStage::ConfirmStore => {
+            rows.push(recovery_body_row(width, bg, text_style, "Store this credential where?"));
+            push_recovery_actions(
+                &mut rows,
+                ActionDimensions(width, max_height),
+                recovery.selected,
+                &["global credentials", "project credentials", "cancel"],
+                ActionStyles::new(selected_style, muted_style, text_style, bg),
+            );
+        }
+        RecoveryStage::Instructions => {
+            let text = if recovery.provider == Some(commands::setup::SetupProviderArg::ChatgptCodex) {
+                "Run `thndrs setup --provider chatgpt-codex` or `thndrs login chatgpt-codex` outside the TUI."
+            } else {
+                "Run `thndrs setup` or `thndrs login <provider>` outside the TUI."
+            };
+            rows.push(recovery_body_row(width, bg, text_style, text));
+            push_recovery_actions(
+                &mut rows,
+                ActionDimensions(width, max_height),
+                recovery.selected,
+                &["back", "close"],
+                ActionStyles::new(selected_style, muted_style, text_style, bg),
+            );
+        }
+        RecoveryStage::ChatGptOAuthRequesting => {
+            rows.push(recovery_body_row(
+                width,
+                bg,
+                text_style,
+                "Requesting a ChatGPT OAuth device code.",
+            ));
+            push_recovery_actions(
+                &mut rows,
+                ActionDimensions(width, max_height),
+                recovery.selected,
+                &["cancel"],
+                ActionStyles::new(selected_style, muted_style, text_style, bg),
+            );
+        }
+        RecoveryStage::ChatGptOAuthPolling => {
+            if let Some(oauth) = recovery.chatgpt_oauth.as_ref() {
+                let verification_uri = oauth
+                    .code
+                    .verification_uri
+                    .as_deref()
+                    .unwrap_or("https://auth.openai.com/codex/device");
+                rows.push(recovery_body_row(
+                    width,
+                    bg,
+                    text_style,
+                    &format!("Open {verification_uri} and enter code {}", oauth.code.user_code),
+                ));
+                rows.push(recovery_body_row(width, bg, muted_style, &oauth.status));
+            } else {
+                rows.push(recovery_body_row(width, bg, text_style, "Waiting for ChatGPT OAuth."));
+            }
+            push_recovery_actions(
+                &mut rows,
+                ActionDimensions(width, max_height),
+                recovery.selected,
+                &["cancel"],
+                ActionStyles::new(selected_style, muted_style, text_style, bg),
+            );
+        }
+        RecoveryStage::ChatGptOAuthFailed => {
+            let text = recovery
+                .chatgpt_oauth
+                .as_ref()
+                .map(|oauth| oauth.status.as_str())
+                .unwrap_or("ChatGPT OAuth failed. Run `thndrs login chatgpt-codex` for browser fallback.");
+            rows.push(recovery_body_row(width, bg, text_style, text));
+            push_recovery_actions(
+                &mut rows,
+                ActionDimensions(width, max_height),
+                recovery.selected,
+                &["retry ChatGPT OAuth login", "back"],
+                ActionStyles::new(selected_style, muted_style, text_style, bg),
+            );
+        }
+        RecoveryStage::LogoutConfirm => {
+            rows.push(recovery_body_row(
+                width,
+                bg,
+                text_style,
+                "Remove the stored credential from which store?",
+            ));
+            push_recovery_actions(
+                &mut rows,
+                ActionDimensions(width, max_height),
+                recovery.selected,
+                &["global credentials", "project credentials", "cancel"],
+                ActionStyles::new(selected_style, muted_style, text_style, bg),
+            );
+        }
+        RecoveryStage::AcpMissing => {
+            rows.push(recovery_body_row(
+                width,
+                bg,
+                text_style,
+                "ACP models use ACP agent config, not provider API keys.",
+            ));
+            push_recovery_actions(
+                &mut rows,
+                ActionDimensions(width, max_height),
+                recovery.selected,
+                &[
+                    "switch model/provider",
+                    "show ACP setup",
+                    "continue without setup",
+                    "quit",
+                ],
+                ActionStyles::new(selected_style, muted_style, text_style, bg),
+            );
+        }
+    }
+
+    rows.truncate(max_height);
+    rows
+}
+
+fn recovery_body_row(width: usize, bg: Color, style: CellStyle, text: &str) -> Row {
+    Row::padded(
+        vec![
+            Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(bg)),
+            Span::styled(text.to_string(), style),
+        ],
+        width,
+        CellStyle::new().bg(bg),
+    )
+}
+
+fn push_recovery_actions(
+    rows: &mut Vec<Row>, dims: ActionDimensions, selected: usize, actions: &[&str], styles: ActionStyles,
+) {
+    for (index, action) in actions.iter().enumerate() {
+        if rows.len() >= dims.max_height() {
+            break;
+        }
+        let is_selected = index == selected;
+        let marker = if is_selected { "›" } else { " " };
+        rows.push(Row::padded(
+            vec![
+                Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(styles.bg)),
+                Span::styled(
+                    marker,
+                    if is_selected { styles.selected_style } else { styles.muted_style },
+                ),
+                Span::styled(" ", CellStyle::new().bg(styles.bg)),
+                Span::styled(
+                    (*action).to_string(),
+                    if is_selected { styles.selected_style } else { styles.text_style },
+                ),
+            ],
+            dims.width(),
+            CellStyle::new().bg(styles.bg),
+        ));
+    }
+}
+
+fn permission_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
+    match app.pending_permission.as_ref() {
+        Some(permission) => {
+            let mut rows = Vec::new();
+            let p = super::style::palette();
+            let bg = p.surface0;
+            let title_style = CellStyle::new().fg(p.peach).bg(bg).bold();
+            let muted_style = CellStyle::new().fg(p.subtext0).bg(bg);
+            let selected_style = CellStyle::new().fg(p.text).bg(bg).bold();
+            let option_style = CellStyle::new().fg(p.text).bg(bg);
+
+            rows.push(Row::padded(
+                vec![
+                    Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(bg)),
+                    Span::styled("permission", title_style),
+                    Span::styled(format!("  {}", permission.title), muted_style),
+                ],
+                width,
+                CellStyle::new().bg(bg),
+            ));
+
+            for (index, option) in permission.options.iter().enumerate() {
+                if rows.len() >= max_height {
+                    break;
+                }
+                let selected = index == permission.selected;
+                let marker = if selected { "›" } else { " " };
+                rows.push(Row::padded(
+                    vec![
+                        Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(bg)),
+                        Span::styled(marker, if selected { selected_style } else { muted_style }),
+                        Span::styled(" ", CellStyle::new().bg(bg)),
+                        Span::styled(
+                            option.name.clone(),
+                            if selected { selected_style } else { option_style },
+                        ),
+                        Span::styled(format!("  {}", option.kind.label()), muted_style),
+                    ],
+                    width,
+                    CellStyle::new().bg(bg),
+                ));
+            }
+            rows
+        }
+        None => Vec::new(),
+    }
+}
+
+fn clipped_detail_indicator_row(
+    width: usize, bg: Color, style: CellStyle, hidden_above: usize, hidden_below: usize,
+) -> Row {
+    let text = match (hidden_above, hidden_below) {
+        (0, below) => format!("   │ … {below} rows below"),
+        (above, 0) => format!("   │ … {above} rows above"),
+        (above, below) => format!("   │ … {above} rows above, {below} below"),
+    };
+    Row::padded(vec![Span::styled(text, style)], width, CellStyle::new().bg(bg))
 }
 
 fn ttft_status_text(app: &App) -> Option<String> {
@@ -729,13 +713,9 @@ fn ttft_status_text(app: &App) -> Option<String> {
     })
 }
 
-/// Build a [`CellStyle`] with only a background color (for padding/fill).
-fn bg_style(color: Color) -> CellStyle {
-    CellStyle::new().bg(color)
-}
-
-fn prompt_prefix_width(app: &App) -> usize {
-    if app.mode == Mode::Command { 4 } else { 3 }
+/// Whether the active model exposes a configurable reasoning control.
+fn supports_reasoning_status(model: &str) -> bool {
+    codex::supports_reasoning_effort(model) || umans::reasoning_options(model).len() > 1
 }
 
 fn command_rows(app: &App, selected: usize, width: usize, max_height: usize) -> Vec<Row> {
@@ -750,7 +730,7 @@ fn command_rows(app: &App, selected: usize, width: usize, max_height: usize) -> 
                 CellStyle::new().fg(p.overlay0).bg(bg),
             )],
             width,
-            bg_style(bg),
+            CellStyle::new().bg(bg),
         )];
     }
 
@@ -776,7 +756,7 @@ fn command_rows(app: &App, selected: usize, width: usize, max_height: usize) -> 
                 Span::styled(cmd.to_string(), cmd_style),
                 Span::styled(format!("  {desc}"), desc_style),
             ];
-            Row::padded(spans, width, bg_style(row_bg))
+            Row::padded(spans, width, CellStyle::new().bg(row_bg))
         })
         .collect()
 }
@@ -784,8 +764,9 @@ fn command_rows(app: &App, selected: usize, width: usize, max_height: usize) -> 
 /// Build styled spans for a prompt line, highlighting `@path` mentions.
 ///
 /// Mention patterns are `@` followed by path-like characters (word chars,
-/// `/`, `.`, `-`, `_`). The `@` and path are styled with `mention_style`;
-/// all other text uses `text_style`.
+/// `/`, `.`, `-`, `_`).
+///
+/// The `@` and path are styled with `mention_style` whereas all other text uses `text_style`
 fn mention_styled_spans(line: &str, text_style: CellStyle, mention_style: CellStyle, _bg: Color) -> Vec<Span> {
     let mut spans = Vec::new();
     let mut current = String::new();
@@ -834,7 +815,7 @@ fn is_mention_char(ch: char) -> bool {
 
 /// Build fuzzy picker rows for the live region.
 ///
-/// Renders: query header, match list with selection marker + fuzzy highlight
+/// Renders the query header, match list with selection marker + fuzzy highlight
 /// indices + long label clipping, "no matches" row, and footer hints.
 fn picker_rows(app: &App, title: &str, width: usize, max_height: usize) -> Vec<Row> {
     let p = super::style::palette();
@@ -851,7 +832,7 @@ fn picker_rows(app: &App, title: &str, width: usize, max_height: usize) -> Vec<R
         return vec![Row::padded(
             vec![Span::styled(format!("{title} loading"), muted_style)],
             width,
-            bg_style(bg),
+            CellStyle::new().bg(bg),
         )];
     };
 
@@ -865,14 +846,14 @@ fn picker_rows(app: &App, title: &str, width: usize, max_height: usize) -> Vec<R
             Span::styled(query_display, muted_style),
         ],
         width,
-        bg_style(bg),
+        CellStyle::new().bg(bg),
     ));
 
     if picker.matches.is_empty() {
         rows.push(Row::padded(
             vec![Span::styled("no matches", muted_style)],
             width,
-            bg_style(bg),
+            CellStyle::new().bg(bg),
         ));
     } else {
         let visible_rows = picker.matches.len().clamp(1, crate::app::VISIBLE_ROWS);
@@ -914,7 +895,7 @@ fn picker_rows(app: &App, title: &str, width: usize, max_height: usize) -> Vec<R
                     detail_style,
                 ));
             }
-            rows.push(Row::padded(spans, width, bg_style(row_bg)));
+            rows.push(Row::padded(spans, width, CellStyle::new().bg(row_bg)));
         }
     }
 
@@ -926,7 +907,7 @@ fn picker_rows(app: &App, title: &str, width: usize, max_height: usize) -> Vec<R
             Span::styled(" close", muted_style),
         ],
         width,
-        bg_style(bg),
+        CellStyle::new().bg(bg),
     ));
 
     rows.truncate(max_height.max(1));
@@ -936,9 +917,10 @@ fn picker_rows(app: &App, title: &str, width: usize, max_height: usize) -> Vec<R
 /// Build styled spans for a path with fuzzy match indices highlighted.
 ///
 /// Characters at the given indices are rendered with `highlight_style`; all
-/// others use `base_style`. The indices refer to char positions in the
-/// original path, but since we truncate with ellipsis, indices beyond the
-/// truncated length are skipped.
+/// others use `base_style`.
+///
+/// The indices refer to char positions in the original path, but since we
+/// truncate with ellipsis, indices beyond the truncated length are skipped.
 fn build_fuzzy_highlight_spans(
     text: &str, indices: &[usize], base_style: CellStyle, highlight_style: CellStyle,
 ) -> Vec<Span> {
@@ -947,7 +929,7 @@ fn build_fuzzy_highlight_spans(
     }
 
     let chars: Vec<char> = text.chars().collect();
-    let index_set: std::collections::HashSet<usize> = indices.iter().copied().collect();
+    let index_set: HashSet<usize> = indices.iter().copied().collect();
 
     let mut spans = Vec::new();
     let mut current = String::new();
@@ -976,7 +958,6 @@ fn build_fuzzy_highlight_spans(
         let style = if current_is_highlight.unwrap_or(false) { highlight_style } else { base_style };
         spans.push(Span::styled(current, style));
     }
-
     spans
 }
 
@@ -1020,7 +1001,11 @@ fn help_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
         .take(max_height)
         .map(|&(key, desc)| {
             if desc.is_empty() {
-                Row::padded(vec![Span::styled(key.to_string(), section_style)], width, bg_style(bg))
+                Row::padded(
+                    vec![Span::styled(key.to_string(), section_style)],
+                    width,
+                    CellStyle::new().bg(bg),
+                )
             } else {
                 Row::padded(
                     vec![
@@ -1028,698 +1013,9 @@ fn help_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> {
                         Span::styled(desc.to_string(), desc_style),
                     ],
                     width,
-                    bg_style(bg),
+                    CellStyle::new().bg(bg),
                 )
             }
         })
         .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::acp::permissions::{PendingPermission, PermissionKindView, PermissionOptionView};
-    use crate::app::{App, FilePickerSource, FirstRunRecovery, Mode, PickerItem, PickerState, RecoveryStage, RunState};
-    use crate::cli::commands::setup::SetupProviderArg;
-    use crate::cli::{Cli, Theme, WebSearchMode};
-    use crate::renderer::git::GitStatusSummary;
-    use crate::renderer::layout::truncate_spans;
-    use crate::renderer::row::Frame;
-    use std::path::PathBuf;
-    use std::sync::mpsc;
-
-    fn test_app() -> App {
-        let mut app = App::from_cli(&Cli {
-            cwd: PathBuf::from("."),
-            model: "test-model".to_string(),
-            websearch: WebSearchMode::Native,
-            reasoning_effort: Default::default(),
-            reasoning_summary: Default::default(),
-            tick_rate_ms: 100,
-            no_alt_screen: true,
-            no_mouse: false,
-            mouse: false,
-            verbose: false,
-            theme: Theme::EldritchMinimal,
-            print_prompt: false,
-            memory: false,
-            skill_dirs: Vec::new(),
-            session_dir: None,
-            config_diagnostics: Vec::new(),
-            config_layers: Vec::new(),
-            config_origins: std::collections::BTreeMap::new(),
-            acp_agents: std::collections::BTreeMap::new(),
-            command: None,
-        });
-        app.git_status = Some(GitStatusSummary { branch: Some("main".to_string()), added: 0, modified: 0, deleted: 0 });
-        app
-    }
-
-    #[test]
-    fn dynamic_status_row_has_session_and_label() {
-        let app = test_app();
-        let row = dynamic_status_row(&app, 80);
-        let text = row.text();
-        assert!(!text.is_empty(), "status row should have content");
-        assert!(text.contains("idle"), "status label should appear");
-    }
-
-    #[test]
-    fn dynamic_status_row_shows_queue_when_working() {
-        let mut app = test_app();
-        app.run_state = RunState::Working;
-        app.queued_steering.push("steer".to_string());
-        let row = dynamic_status_row(&app, 80);
-        let text = row.text();
-        assert!(text.contains("target:"), "queue target should appear when working");
-        assert!(text.contains("queued: 1/0"), "queue counts should appear");
-    }
-
-    #[test]
-    fn prompt_rows_empty_input() {
-        let app = test_app();
-        let (rows, cursor) = prompt_rows_for(&app, 80);
-        assert_eq!(rows.len(), 1, "empty input should produce one row");
-        assert!(cursor.is_some(), "cursor should be present");
-        let text = rows[0].text();
-        assert!(text.contains("›"), "prompt icon should appear");
-    }
-
-    #[test]
-    fn prompt_rows_with_text() {
-        let mut app = test_app();
-        app.input.set_text("hello world");
-        let (rows, cursor) = prompt_rows_for(&app, 80);
-        assert_eq!(rows.len(), 1, "short text should fit on one row");
-        assert!(cursor.is_some());
-        assert!(rows[0].text().contains("hello world"));
-    }
-
-    #[test]
-    fn prompt_rows_multiline() {
-        let mut app = test_app();
-        app.input.set_text("line one\nline two");
-        let (rows, _cursor) = prompt_rows_for(&app, 80);
-        assert_eq!(rows.len(), 2, "two logical lines should produce two rows");
-    }
-
-    #[test]
-    fn prompt_rows_wraps_long_text() {
-        let mut app = test_app();
-        app.input.set_text(&"x".repeat(100));
-        let (rows, _cursor) = prompt_rows_for(&app, 20);
-        assert!(rows.len() > 1, "long text should wrap to multiple rows");
-    }
-
-    #[test]
-    fn prompt_rows_wrap_at_visible_content_width() {
-        let mut app = test_app();
-        app.input.set_text(&"x".repeat(11));
-        let (rows, cursor) = prompt_rows_for(&app, 20);
-
-        assert_eq!(rows.len(), 1);
-        assert_eq!(cursor, Some(CursorCoord::new(0, 18)));
-
-        app.input.insert_char('x');
-        let (rows, cursor) = prompt_rows_for(&app, 20);
-
-        assert_eq!(rows.len(), 2);
-        assert_eq!(cursor, Some(CursorCoord::new(1, 8)));
-    }
-
-    #[test]
-    fn prompt_rows_command_mode_shows_colon() {
-        let mut app = test_app();
-        app.mode = Mode::Command;
-        let (rows, _) = prompt_rows_for(&app, 80);
-        assert!(rows[0].text().contains(':'), "command mode should show colon prefix");
-    }
-
-    #[test]
-    fn prompt_rows_submitted_shows_queue_icon() {
-        let mut app = test_app();
-        app.run_state = RunState::Working;
-
-        let (rows, _) = prompt_rows_for(&app, 80);
-        assert!(
-            rows[0].text().contains("»"),
-            "submitted state should show queue composer icon"
-        );
-    }
-
-    #[test]
-    fn static_status_row_shows_model_at_narrow_width() {
-        let app = test_app();
-        let row = static_status_row(&app, 30);
-        assert!(row.text().contains("model:"), "model should show at width 30");
-    }
-
-    #[test]
-    fn static_status_row_hides_everything_at_tiny_width() {
-        let app = test_app();
-        let row = static_status_row(&app, 10);
-        let text = row.text();
-        assert!(text.trim().is_empty(), "nothing should show at width 10");
-    }
-
-    #[test]
-    fn static_status_row_width_thresholds_control_segments() {
-        let app = test_app();
-        let cases = [
-            (23, false, false, false, false, false, false, false),
-            (24, true, false, false, false, false, false, false),
-            (41, true, false, false, false, false, false, false),
-            (42, true, true, false, false, false, false, false),
-            (55, true, true, false, false, false, false, false),
-            (56, true, true, true, false, false, false, false),
-            (71, true, true, true, false, false, false, false),
-            (72, true, true, true, false, true, false, false),
-            (87, true, true, true, false, true, false, false),
-            (88, true, true, true, false, true, false, false),
-            (95, true, true, true, false, true, false, false),
-            (96, true, true, true, false, true, false, false),
-            (97, true, true, true, false, true, true, false),
-            (159, true, true, true, false, true, true, false),
-            (160, true, true, true, false, true, true, true),
-        ];
-
-        for (width, model, search, tokens, ttft, git, cwd, trust) in cases {
-            let text = static_status_row(&app, width).text();
-            assert_eq!(
-                text.contains("model:"),
-                model,
-                "model visibility at width {width}: {text}"
-            );
-            assert_eq!(
-                text.contains("search:"),
-                search,
-                "search visibility at width {width}: {text}"
-            );
-            assert_eq!(
-                text.contains("tok:"),
-                tokens,
-                "token visibility at width {width}: {text}"
-            );
-            assert_eq!(text.contains("ttft:"), ttft, "TTFT visibility at width {width}: {text}");
-            assert_eq!(text.contains("git:"), git, "git visibility at width {width}: {text}");
-            assert_eq!(text.contains("cwd:"), cwd, "cwd visibility at width {width}: {text}");
-            assert_eq!(
-                text.contains("local user"),
-                trust,
-                "trust visibility at width {width}: {text}"
-            );
-        }
-    }
-
-    #[test]
-    fn static_status_row_shows_trust_at_very_wide_width() {
-        let app = test_app();
-        let text = static_status_row(&app, 220).text();
-
-        assert!(
-            text.contains("local user · workspace-contained tools · no TUI sandbox"),
-            "trust label should be visible on very wide terminals"
-        );
-    }
-
-    #[test]
-    fn static_status_row_shows_pending_ttft_when_width_allows() {
-        let mut app = test_app();
-        app.ttft.set_pending_for_test();
-        let text = static_status_row(&app, 90).text();
-
-        assert!(text.contains("ttft: pending"));
-    }
-
-    #[test]
-    fn static_status_row_formats_measured_ttft() {
-        let mut app = test_app();
-        app.ttft
-            .set_last_completed_for_test(std::time::Duration::from_millis(987));
-        assert!(static_status_row(&app, 90).text().contains("ttft: 987ms"));
-
-        app.ttft
-            .set_last_completed_for_test(std::time::Duration::from_millis(1_234));
-        assert!(static_status_row(&app, 90).text().contains("ttft: 1.2s"));
-    }
-
-    #[test]
-    fn static_status_row_hides_ttft_at_narrow_width() {
-        let mut app = test_app();
-        app.ttft.set_pending_for_test();
-        let text = static_status_row(&app, 80).text();
-
-        assert!(text.contains("tok:"), "core token status should remain visible");
-        assert!(!text.contains("ttft:"), "TTFT should hide before core status");
-    }
-
-    #[test]
-    fn static_status_row_shows_all_at_wide_width() {
-        let app = test_app();
-        let row = static_status_row(&app, 128);
-        let text = row.text();
-        assert!(text.contains("model:"));
-        assert!(text.contains("search:"));
-        assert!(text.contains("tok:"));
-        assert!(text.contains("git: main clean"));
-    }
-
-    #[test]
-    fn accessory_rows_none_when_no_accessory() {
-        let app = test_app();
-        let rows = accessory_rows(&app, 80, 8);
-        assert!(rows.is_empty(), "no accessory should produce no rows");
-    }
-
-    #[test]
-    fn accessory_rows_help_has_entries() {
-        let mut app = test_app();
-        app.prompt_accessory = PromptAccessory::Help;
-
-        let rows = accessory_rows(&app, 80, 16);
-        assert!(!rows.is_empty(), "help should produce rows");
-        let combined: String = rows.iter().map(|r| r.text()).collect();
-        assert!(combined.contains("Navigation"), "help should have Navigation section");
-        assert!(combined.contains("Enter"), "help should include Enter key");
-        assert!(combined.contains("Escape"), "help should include Escape key");
-    }
-
-    #[test]
-    fn truncate_row_helper_works() {
-        let spans = vec![Span::plain("hello world")];
-        let out = truncate_spans(&spans, 5, CellStyle::default());
-        assert_eq!(out.iter().map(|s| s.text.chars().count()).sum::<usize>(), 5);
-    }
-
-    fn picker_app(files: &[String]) -> App {
-        let mut app = test_app();
-        let items: Vec<PickerItem> = files.iter().map(|file| PickerItem::new(file.clone(), "")).collect();
-        app.picker = Some(PickerState::new(items, 200));
-        app.prompt_accessory = PromptAccessory::Files(FilePickerSource::Forced);
-        app
-    }
-
-    #[test]
-    fn snapshot_file_picker_empty_query() {
-        let app = picker_app(&[
-            "src/main.rs".to_string(),
-            "src/lib.rs".to_string(),
-            "Cargo.toml".to_string(),
-        ]);
-        let rows = accessory_rows(&app, 80, 12);
-        let frame = Frame { rows, width: 80, cursor: None, cursor_visible: true };
-        insta::assert_snapshot!("file_picker_empty_query", frame.render_styled());
-    }
-
-    #[test]
-    fn snapshot_permission_prompt() {
-        let mut app = test_app();
-        let (tx, _rx) = mpsc::channel();
-        app.pending_permission = Some(PendingPermission {
-            tool_call_id: "call_1".to_string(),
-            title: "Write src/main.rs".to_string(),
-            options: vec![
-                PermissionOptionView {
-                    id: "allow".to_string(),
-                    name: "Allow once".to_string(),
-                    kind: PermissionKindView::AllowOnce,
-                },
-                PermissionOptionView {
-                    id: "reject".to_string(),
-                    name: "Reject".to_string(),
-                    kind: PermissionKindView::RejectOnce,
-                },
-            ],
-            selected: 1,
-            responder: tx,
-        });
-
-        let rows = accessory_rows(&app, 80, 12);
-        let frame = Frame { rows, width: 80, cursor: None, cursor_visible: true };
-        insta::assert_snapshot!("permission_prompt", frame.render_styled());
-    }
-
-    #[test]
-    fn snapshot_file_picker_filtered_results() {
-        let mut app = picker_app(&[
-            "src/main.rs".to_string(),
-            "src/lib.rs".to_string(),
-            "Cargo.toml".to_string(),
-        ]);
-        if let Some(picker) = app.picker.as_mut() {
-            picker.query = "main".to_string();
-            picker.matches = vec![PickerItem::new("src/main.rs", "")];
-            picker.match_indices = vec![vec![4, 5, 6, 7]];
-        }
-        let rows = accessory_rows(&app, 80, 12);
-        let frame = Frame { rows, width: 80, cursor: None, cursor_visible: true };
-        insta::assert_snapshot!("file_picker_filtered", frame.render_styled());
-    }
-
-    #[test]
-    fn snapshot_file_picker_no_matches() {
-        let mut app = picker_app(&["src/main.rs".to_string()]);
-        if let Some(picker) = app.picker.as_mut() {
-            picker.query = "xyz".to_string();
-            picker.matches = Vec::new();
-            picker.match_indices = Vec::new();
-        }
-        let rows = accessory_rows(&app, 80, 12);
-        let frame = Frame { rows, width: 80, cursor: None, cursor_visible: true };
-        insta::assert_snapshot!("file_picker_no_matches", frame.render_styled());
-    }
-
-    #[test]
-    fn snapshot_file_picker_long_path_clipping() {
-        let app = picker_app(&["src/very/deeply/nested/path/to/some/module/file.rs".to_string()]);
-        let rows = accessory_rows(&app, 30, 12);
-        let frame = Frame { rows, width: 30, cursor: None, cursor_visible: true };
-        insta::assert_snapshot!("file_picker_long_path", frame.render_styled());
-    }
-
-    #[test]
-    fn snapshot_file_picker_scrolled_selection() {
-        let files: Vec<String> = (0..15).map(|i| format!("src/file_{i:02}.rs")).collect();
-        let mut app = picker_app(&files);
-        if let Some(picker) = app.picker.as_mut() {
-            picker.selected = 5;
-            picker.scroll = 3;
-        }
-        let rows = accessory_rows(&app, 80, 12);
-        let frame = Frame { rows, width: 80, cursor: None, cursor_visible: true };
-        insta::assert_snapshot!("file_picker_scrolled", frame.render_styled());
-    }
-
-    #[test]
-    fn snapshot_model_picker() {
-        let mut app = test_app();
-        app.picker = Some(PickerState::new(
-            vec![
-                PickerItem::new("umans-coder", "Default route to Kimi K2.7-Code"),
-                PickerItem::new("umans-glm-5.2", "Largest context window"),
-            ],
-            50,
-        ));
-        if let Some(picker) = app.picker.as_mut() {
-            picker.selected = 1;
-        }
-        app.prompt_accessory = PromptAccessory::Models;
-        let rows = accessory_rows(&app, 80, 12);
-        let frame = Frame { rows, width: 80, cursor: None, cursor_visible: true };
-        insta::assert_snapshot!("model_picker", frame.render_styled());
-    }
-
-    #[test]
-    fn snapshot_mention_styling_in_prompt() {
-        let mut app = test_app();
-        app.input.set_text("check @src/main.rs for details");
-        let (rows, _) = prompt_rows_for(&app, 80);
-        let frame = Frame { rows, width: 80, cursor: None, cursor_visible: true };
-        insta::assert_snapshot!("mention_styling", frame.render_styled());
-    }
-
-    #[test]
-    fn snapshot_help_rows() {
-        let mut app = test_app();
-        app.prompt_accessory = PromptAccessory::Help;
-        let rows = accessory_rows(&app, 80, 16);
-        let frame = Frame { rows, width: 80, cursor: None, cursor_visible: true };
-        insta::assert_snapshot!("help_rows", frame.render_styled());
-    }
-
-    #[test]
-    fn help_rows_show_running_ctrl_t_binding() {
-        let mut app = test_app();
-        app.run_state = RunState::Working;
-        app.prompt_accessory = PromptAccessory::Help;
-        let rows = accessory_rows(&app, 80, 16);
-        let text = rows.iter().map(Row::text).collect::<Vec<_>>().join("\n");
-
-        assert!(
-            text.contains("Ctrl+T          toggle queue target"),
-            "running help should describe queue-target toggle: {text}"
-        );
-    }
-
-    #[test]
-    fn snapshot_command_suggestions() {
-        let mut app = test_app();
-        app.input.set_text("c");
-        app.mode = Mode::Command;
-        app.prompt_accessory = PromptAccessory::Commands { selected: 0 };
-        let rows = accessory_rows(&app, 80, 8);
-        let frame = Frame { rows, width: 80, cursor: None, cursor_visible: true };
-        insta::assert_snapshot!("command_suggestions", frame.render_styled());
-    }
-
-    #[test]
-    fn snapshot_first_run_recovery_normal() {
-        let mut app = test_app();
-        app.model = "umans-coder".to_string();
-        app.first_run_recovery = Some(FirstRunRecovery {
-            provider: Some(SetupProviderArg::Umans),
-            stage: RecoveryStage::MissingCredential,
-            pending_provider_prompt: true,
-            selected: 0,
-            secret_input: String::new(),
-            chatgpt_oauth: None,
-        });
-        let rows = accessory_rows(&app, 80, 8);
-        let frame = Frame { rows, width: 80, cursor: None, cursor_visible: true };
-        insta::assert_snapshot!("first_run_recovery_normal", frame.render_styled());
-    }
-
-    #[test]
-    fn snapshot_first_run_recovery_narrow() {
-        let mut app = test_app();
-        app.model = "opencode-go/kimi-k2.7-code".to_string();
-        app.first_run_recovery = Some(FirstRunRecovery {
-            provider: Some(SetupProviderArg::OpencodeGo),
-            stage: RecoveryStage::MissingCredential,
-            pending_provider_prompt: true,
-            selected: 0,
-            secret_input: String::new(),
-            chatgpt_oauth: None,
-        });
-        let rows = accessory_rows(&app, 40, 8);
-        let frame = Frame { rows, width: 40, cursor: None, cursor_visible: true };
-        insta::assert_snapshot!("first_run_recovery_narrow", frame.render_styled());
-    }
-
-    #[test]
-    fn snapshot_first_run_recovery_tiny() {
-        let mut app = test_app();
-        app.model = "umans-coder".to_string();
-        app.first_run_recovery = Some(FirstRunRecovery {
-            provider: Some(SetupProviderArg::Umans),
-            stage: RecoveryStage::ConfirmStore,
-            pending_provider_prompt: true,
-            selected: 1,
-            secret_input: "sk-hidden".to_string(),
-            chatgpt_oauth: None,
-        });
-        let rows = accessory_rows(&app, 24, 3);
-        let frame = Frame { rows, width: 24, cursor: None, cursor_visible: true };
-        let rendered = frame.render_styled();
-        assert!(!rendered.contains("sk-hidden"));
-        insta::assert_snapshot!("first_run_recovery_tiny", rendered);
-    }
-
-    #[test]
-    fn snapshot_chatgpt_recovery_normal() {
-        let mut app = test_app();
-        app.model = "chatgpt-codex/gpt-5.5".to_string();
-        app.first_run_recovery = Some(FirstRunRecovery {
-            provider: Some(SetupProviderArg::ChatgptCodex),
-            stage: RecoveryStage::MissingCredential,
-            pending_provider_prompt: true,
-            selected: 0,
-            secret_input: String::new(),
-            chatgpt_oauth: None,
-        });
-        let rows = accessory_rows(&app, 80, 8);
-        let frame = Frame { rows, width: 80, cursor: None, cursor_visible: true };
-        insta::assert_snapshot!("chatgpt_recovery_normal", frame.render_styled());
-    }
-
-    #[test]
-    fn snapshot_chatgpt_recovery_narrow() {
-        let mut app = test_app();
-        app.model = "chatgpt-codex/gpt-5.5".to_string();
-        app.first_run_recovery = Some(FirstRunRecovery {
-            provider: Some(SetupProviderArg::ChatgptCodex),
-            stage: RecoveryStage::MissingCredential,
-            pending_provider_prompt: true,
-            selected: 0,
-            secret_input: String::new(),
-            chatgpt_oauth: None,
-        });
-        let rows = accessory_rows(&app, 40, 8);
-        let frame = Frame { rows, width: 40, cursor: None, cursor_visible: true };
-        insta::assert_snapshot!("chatgpt_recovery_narrow", frame.render_styled());
-    }
-
-    #[test]
-    fn snapshot_chatgpt_recovery_tiny() {
-        let mut app = test_app();
-        app.model = "chatgpt-codex/gpt-5.5".to_string();
-        app.first_run_recovery = Some(FirstRunRecovery {
-            provider: Some(SetupProviderArg::ChatgptCodex),
-            stage: RecoveryStage::ChatGptOAuthPolling,
-            pending_provider_prompt: true,
-            selected: 0,
-            secret_input: String::new(),
-            chatgpt_oauth: Some(crate::app::ChatGptOAuthRecovery {
-                code: crate::thndrs_core::auth::ChatGptCodexDeviceCode {
-                    device_auth_id: "device-auth-secret-from-renderer-test".to_string(),
-                    user_code: "ABCD-EFGH".to_string(),
-                    verification_uri: Some("https://auth.example.test/device".to_string()),
-                    verification_uri_complete: None,
-                    expires_in: Some(900),
-                    interval: Some(5),
-                },
-                next_poll_tick: 10,
-                expires_at_tick: 9000,
-                status: "Waiting for ChatGPT authorization.".to_string(),
-            }),
-        });
-        let rows = accessory_rows(&app, 24, 3);
-        let frame = Frame { rows, width: 24, cursor: None, cursor_visible: true };
-        let rendered = frame.render_styled();
-        assert!(!rendered.contains("device-token-secret-from-renderer-test"));
-        insta::assert_snapshot!("chatgpt_recovery_tiny", rendered);
-    }
-
-    fn snapshot_prompt_at_widths(name: &str, text: &str) {
-        let mut combined = String::new();
-        for width in [80, 40] {
-            let mut app = test_app();
-            app.input.set_text(text);
-            let (rows, _) = prompt_rows_for(&app, width);
-            let frame = Frame { rows, width, cursor: None, cursor_visible: true };
-            combined.push_str(&format!("width={width}:\n"));
-            combined.push_str(&frame.render_styled());
-            combined.push('\n');
-        }
-        insta::assert_snapshot!(name, combined);
-    }
-
-    #[test]
-    fn snapshot_prompt_combining_marks() {
-        snapshot_prompt_at_widths("prompt_combining_marks", "ab\u{0327}cd");
-    }
-
-    #[test]
-    fn snapshot_prompt_zwj_emoji() {
-        snapshot_prompt_at_widths("prompt_zwj_emoji", "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}");
-    }
-
-    #[test]
-    fn snapshot_prompt_regional_indicators() {
-        snapshot_prompt_at_widths("prompt_regional_indicators", "\u{1f1fa}\u{1f1f8}\u{1f1ec}\u{1f1e7}");
-    }
-
-    #[test]
-    fn snapshot_prompt_cjk() {
-        snapshot_prompt_at_widths("prompt_cjk", "日本語テキスト");
-    }
-
-    #[test]
-    fn snapshot_prompt_zero_width() {
-        snapshot_prompt_at_widths("prompt_zero_width", "a\u{200b}b\u{200d}c");
-    }
-
-    #[test]
-    fn snapshot_prompt_long_word() {
-        snapshot_prompt_at_widths("prompt_long_word", &"a".repeat(120));
-    }
-
-    #[test]
-    fn snapshot_prompt_explicit_newline() {
-        snapshot_prompt_at_widths("prompt_explicit_newline", "line one\nline two\nline three");
-    }
-
-    #[test]
-    fn snapshot_picker_cjk() {
-        let mut app = test_app();
-        let items = vec![
-            PickerItem::new("src/日本語.rs".to_string(), ""),
-            PickerItem::new("src/テスト.rs".to_string(), ""),
-            PickerItem::new("Cargo.toml".to_string(), ""),
-        ];
-        app.picker = Some(PickerState::new(items, 200));
-        app.prompt_accessory = PromptAccessory::Files(FilePickerSource::Forced);
-
-        let mut combined = String::new();
-        for width in [80, 40] {
-            let rows = accessory_rows(&app, width, 12);
-            let frame = Frame { rows, width, cursor: None, cursor_visible: true };
-            combined.push_str(&format!("width={width}:\n"));
-            combined.push_str(&frame.render_styled());
-            combined.push('\n');
-        }
-        insta::assert_snapshot!("picker_cjk", combined);
-    }
-
-    #[test]
-    fn snapshot_footer_cjk() {
-        let mut app = test_app();
-        app.cwd = std::path::PathBuf::from("/Users/owais/日本語プロジェクト");
-
-        let mut combined = String::new();
-        for width in [80, 40] {
-            let row = static_status_row(&app, width);
-            let frame = Frame { rows: vec![row], width, cursor: None, cursor_visible: true };
-            combined.push_str(&format!("width={width}:\n"));
-            combined.push_str(&frame.render_styled());
-            combined.push('\n');
-        }
-        insta::assert_snapshot!("footer_cjk", combined);
-    }
-
-    #[test]
-    fn snapshot_ttft_statusline() {
-        let mut combined = String::new();
-
-        let mut pending = test_app();
-        pending.ttft.set_pending_for_test();
-        combined.push_str("pending:\n");
-        combined.push_str(
-            &Frame { rows: vec![static_status_row(&pending, 96)], width: 96, cursor: None, cursor_visible: true }
-                .render_styled(),
-        );
-        combined.push('\n');
-
-        let mut measured = test_app();
-        measured
-            .ttft
-            .set_last_completed_for_test(std::time::Duration::from_millis(842));
-        combined.push_str("measured:\n");
-        combined.push_str(
-            &Frame { rows: vec![static_status_row(&measured, 96)], width: 96, cursor: None, cursor_visible: true }
-                .render_styled(),
-        );
-        combined.push('\n');
-
-        let mut retained = test_app();
-        retained
-            .ttft
-            .set_last_completed_for_test(std::time::Duration::from_millis(1_340));
-        combined.push_str("retained:\n");
-        combined.push_str(
-            &Frame { rows: vec![static_status_row(&retained, 96)], width: 96, cursor: None, cursor_visible: true }
-                .render_styled(),
-        );
-        combined.push('\n');
-
-        let mut narrow = test_app();
-        narrow.ttft.set_pending_for_test();
-        combined.push_str("narrow:\n");
-        combined.push_str(
-            &Frame { rows: vec![static_status_row(&narrow, 80)], width: 80, cursor: None, cursor_visible: true }
-                .render_styled(),
-        );
-
-        insta::assert_snapshot!("ttft_statusline", combined);
-    }
 }

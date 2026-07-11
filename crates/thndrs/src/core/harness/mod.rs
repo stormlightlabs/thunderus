@@ -1,8 +1,7 @@
 //! Minimal UI-agnostic harness API for starting an agent turn.
 //!
-//! The harness starts a reusable agent run and exposes an event receiver plus a
-//! cooperative cancellation handle. It intentionally owns no renderer or
-//! UI-specific dependencies.
+//! The harness starts a reusable agent run and exposes an event receiver
+//! plus a cooperative cancellation handle.
 
 use std::sync::mpsc::Receiver;
 
@@ -10,6 +9,7 @@ use crate::agent::{RunHandle, ToolExecutionHook, ToolPermissionHook};
 use crate::app::AgentEvent;
 use crate::providers::ProviderMessage;
 use crate::tools::AgentRunConfig;
+
 use thndrs_agent::CancelToken;
 
 /// Handle returned when a harness turn has started.
@@ -21,15 +21,22 @@ pub struct HarnessHandle {
     pub cancel: CancelToken,
 }
 
-/// A single UI-independent harness turn description.
+impl HarnessHandle {
+    /// Request cancellation for this turn.
+    pub fn request_cancel(&self) {
+        self.cancel.cancel();
+    }
+}
+
+/// A single UI-independent harness turn description built from a
+/// pre-constructed agent runtime handle.
 #[derive(Debug)]
 pub struct HarnessTurn {
     handle: RunHandle,
 }
 
 impl HarnessTurn {
-    /// Build a harness turn from a pre-constructed agent runtime handle.
-    pub fn from_run_handle(handle: RunHandle) -> Self {
+    pub fn new(handle: RunHandle) -> Self {
         Self { handle }
     }
 
@@ -37,7 +44,7 @@ impl HarnessTurn {
     pub fn provider_with_steering(
         config: AgentRunConfig, messages: Vec<ProviderMessage>, expects_write: bool, steering: Receiver<String>,
     ) -> Self {
-        Self::from_run_handle(RunHandle::provider_with_steering(
+        Self::new(RunHandle::provider_with_steering(
             config,
             messages,
             expects_write,
@@ -50,7 +57,7 @@ impl HarnessTurn {
         config: AgentRunConfig, messages: Vec<ProviderMessage>, expects_write: bool, steering: Receiver<String>,
         permission_hook: ToolPermissionHook,
     ) -> Self {
-        Self::from_run_handle(
+        Self::new(
             RunHandle::provider_with_steering(config, messages, expects_write, steering)
                 .with_permission_hook(permission_hook),
         )
@@ -61,7 +68,7 @@ impl HarnessTurn {
         config: AgentRunConfig, messages: Vec<ProviderMessage>, expects_write: bool, steering: Receiver<String>,
         permission_hook: ToolPermissionHook, execution_hook: ToolExecutionHook,
     ) -> Self {
-        Self::from_run_handle(
+        Self::new(
             RunHandle::provider_with_steering(config, messages, expects_write, steering)
                 .with_permission_hook(permission_hook)
                 .with_execution_hook(execution_hook),
@@ -78,14 +85,7 @@ impl HarnessTurn {
     /// Create a deterministic fake-provider harness turn.
     #[cfg(test)]
     pub fn fake(config: AgentRunConfig, prompt: String) -> Self {
-        Self::from_run_handle(RunHandle::fake(config, prompt))
-    }
-}
-
-impl HarnessHandle {
-    /// Request cancellation for this turn.
-    pub fn request_cancel(&self) {
-        self.cancel.cancel();
+        Self::new(RunHandle::fake(config, prompt))
     }
 }
 

@@ -23,7 +23,7 @@ use crate::app::{App, PromptState};
 use crate::renderer::backend::TerminalBackend;
 use crate::renderer::row::{Frame, Row};
 use crate::renderer::style::{self, CellStyle, Span};
-use crate::renderer::view::{self, RendererView};
+use crate::renderer::view::RendererView;
 
 trait RowPolicyText {
     fn text_for_policy(&self) -> String;
@@ -97,7 +97,7 @@ impl LiveRegion {
             return frame;
         }
 
-        let view = view::build_view(app, width, height);
+        let view = RendererView::build(app, width, height);
         let live = self.build_live_frame(&view);
         let live_height = live.rows.len().min(height);
 
@@ -260,7 +260,7 @@ impl LiveRegion {
             self.committed_row_count = 0;
         }
 
-        let view = view::build_view(app, width, height);
+        let view = RendererView::build(app, width, height);
         if self.committed_row_count > view.transcript.stable_rows.len() {
             backend.clear_all()?;
             self.rendered_frame = None;
@@ -406,9 +406,8 @@ fn clip_startup_sections(rows: &[Row], width: usize, budget: usize) -> Vec<Row> 
     out
 }
 
-/// Keep the startup identity legible when there is not enough height for the
-/// full runtime summary. It remains a single intentional block, rather than a
-/// mixture of unrelated metadata rows.
+/// Keeps the startup identity legible when there is not enough height for
+/// the full runtime summary.
 fn compact_identity_section(rows: &[Row]) -> Vec<Row> {
     rows.iter()
         .filter(|row| {

@@ -4,6 +4,7 @@
 //! endpoint is not a stable OpenAI Platform API, so the public model ids keep a
 //! separate `chatgpt-codex/` prefix and status copy labels it experimental.
 
+use std::borrow::Cow;
 use std::path::Path;
 
 use crate::cli::{ReasoningEffort, ReasoningSummary};
@@ -25,6 +26,9 @@ pub const RESPONSES_URL: &str = "https://chatgpt.com/backend-api/codex/responses
 
 /// User/config-facing model id prefix.
 pub const MODEL_PREFIX: &str = "chatgpt-codex/";
+
+/// Display-only prefix for ChatGPT Codex models in the terminal UI.
+pub const DISPLAY_MODEL_PREFIX: &str = "codex/";
 
 /// Recommended request budget for known ChatGPT Codex models.
 pub const DEFAULT_RECOMMENDED_MAX_TOKENS: u32 = 32_768;
@@ -278,6 +282,14 @@ pub fn raw_model_id(model: &str) -> Result<&str> {
         .strip_prefix(MODEL_PREFIX)
         .filter(|raw| !raw.is_empty())
         .ok_or_else(|| ProviderError::invalid_model_id("ChatGPT Codex", MODEL_PREFIX, model))
+}
+
+/// Render a concise display label without changing the configured model id.
+pub fn display_model_id(model: &str) -> Cow<'_, str> {
+    match model.strip_prefix(MODEL_PREFIX) {
+        Some(raw) if !raw.is_empty() => Cow::Owned(format!("{DISPLAY_MODEL_PREFIX}{raw}")),
+        _ => Cow::Borrowed(model),
+    }
 }
 
 /// Whether this ChatGPT Codex model supports GPT-5.6 reasoning controls.
@@ -784,6 +796,12 @@ mod tests {
         assert!(supports_reasoning_effort("chatgpt-codex/gpt-5.6-terra"));
         assert!(supports_reasoning_effort("chatgpt-codex/gpt-5.6-luna"));
         assert!(!supports_reasoning_effort("chatgpt-codex/gpt-5.5"));
+    }
+
+    #[test]
+    fn display_model_id_uses_short_codex_prefix_only_for_codex_models() {
+        assert_eq!(display_model_id("chatgpt-codex/gpt-5.6-terra"), "codex/gpt-5.6-terra");
+        assert_eq!(display_model_id("umans/default"), "umans/default");
     }
 
     #[test]

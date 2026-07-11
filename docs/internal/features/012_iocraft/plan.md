@@ -55,8 +55,7 @@ plan assumed:
 - live region, scrollback commits, row widths, cursor placement, prompt rows,
   and transcript row rendering remain direct-renderer responsibilities.
 
-The main risk is no longer whether iocraft can render focused surfaces. The
-main risk is losing renderer invariants at the adapter boundary:
+The main risk is losing renderer invariants at the adapter boundary:
 
 - row counts must stay within content and viewport budgets;
 - clipped output needs visible indicators;
