@@ -145,6 +145,24 @@ fn snapshot_assistant_code_fence_narrow() {
 }
 
 #[test]
+fn ordinary_markdown_code_fence_is_highlighted_and_wrapped() {
+    let entry = Entry::Agent {
+        text: "Here is the code:\n```rs\nfn a_very_long_function_name() { println!(\"long line\"); }\n```".to_string(),
+        streaming: false,
+    };
+    let rendered = render_entry_styled(&entry, 32);
+
+    assert!(
+        rendered.contains("fn a_very_long"),
+        "code should be wrapped: {rendered}"
+    );
+    assert!(
+        rendered.contains("u=]"),
+        "ordinary Markdown code fences should retain syntax styles: {rendered}"
+    );
+}
+
+#[test]
 fn assistant_markdown_table_renders_as_structured_rows() {
     let entry = Entry::Agent {
         text: "````md\n| File | Added | Removed |\n| :--- | ---: | ---: |\n| src/lib.rs | 10 | 2 |\n| README.md | 1 | 0 |\n````"

@@ -711,6 +711,13 @@ fn build_transcript_view(app: &App, width: usize) -> TranscriptView {
     };
 
     for (index, entry) in app.transcript.iter().enumerate() {
+        // Submitted prompts remain in the transcript model for provider
+        // context, session persistence, retry, and Up/Down recall. The live
+        // transcript is an agent activity view, so do not echo the input a
+        // second time after it leaves the prompt surface.
+        if matches!(entry, Entry::User { .. }) {
+            continue;
+        }
         let mut entry_ctx = ctx.clone();
         entry_ctx.entry_index = Some(index);
         let (entry_stable, entry_live) = entry_stable_and_live_rows(entry, &entry_ctx);

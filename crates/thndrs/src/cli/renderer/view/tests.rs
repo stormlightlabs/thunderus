@@ -69,7 +69,7 @@ fn build_view_idle_has_empty_transcript_and_banner() {
 }
 
 #[test]
-fn build_view_submitted_user_is_stable() {
+fn build_view_submitted_user_is_not_rendered() {
     let mut app = test_app();
     app.run_state = RunState::Working;
     app.transcript.push(Entry::User { text: "do the thing".to_string() });
@@ -82,7 +82,7 @@ fn build_view_submitted_user_is_stable() {
     );
     assert!(
         !view.transcript.stable_rows.is_empty(),
-        "submitted user entry should appear in stable_rows"
+        "the startup banner is stable while the first response is pending"
     );
     assert!(
         view.transcript.live_rows.is_empty(),
@@ -92,8 +92,8 @@ fn build_view_submitted_user_is_stable() {
         view.transcript
             .stable_rows
             .iter()
-            .any(|row| row.text().contains("do the thing")),
-        "stable_rows should contain the user text"
+            .all(|row| !row.text().contains("do the thing")),
+        "submitted input should not be echoed in the visible transcript"
     );
 }
 

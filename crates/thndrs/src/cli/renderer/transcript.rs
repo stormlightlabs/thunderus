@@ -723,12 +723,21 @@ fn assistant_block_rows(
     rows
 }
 
-/// Extract the body from a four-tick markdown fence wrapper.
+/// Extract Markdown from either the internal four-tick wrapper or ordinary
+/// fenced Markdown returned by a provider.
+///
+/// Providers stream ordinary Markdown rather than the internal wrapper, so
+/// recognizing only the latter made code fences render as plain text and
+/// bypassed syntax highlighting.
 fn assistant_markdown_body(text: &str) -> Option<&str> {
-    let rest = text
+    if let Some(rest) = text
         .strip_prefix("````md\n")
-        .or_else(|| text.strip_prefix("````markdown\n"))?;
-    Some(rest.strip_suffix("\n````").unwrap_or(rest))
+        .or_else(|| text.strip_prefix("````markdown\n"))
+    {
+        return Some(rest.strip_suffix("\n````").unwrap_or(rest));
+    }
+
+    text.contains("```").then_some(text)
 }
 
 /// Render markdown body with code fence detection and syntax highlighting.
@@ -764,15 +773,7 @@ fn render_markdown_body(
             } else {
                 let lang = code_lang.as_deref();
                 let highlighted = super::highlight::highlight_lines(&code_buf, lang);
-                for hl_row in highlighted {
-                    let mut spans = vec![Span::styled(ENTRY_RAIL, rail_style), Span::styled(GUTTER, gutter_style)];
-                    let content_spans = hl_row
-                        .into_iter()
-                        .map(|s| Span { text: s.text, style: s.style.bg(bg) })
-                        .collect::<Vec<_>>();
-                    spans.extend(super::layout::truncate_spans(&content_spans, code_width, text_style));
-                    rows.push(Row::padded(spans, width, bg_style(bg)));
-                }
+                push_highlighted_code_rows(&mut rows, highlighted, rail_style, gutter_style, bg, width, code_width);
                 in_code_fence = false;
                 code_lang = None;
                 code_buf.clear();
@@ -824,15 +825,7 @@ fn render_markdown_body(
     if in_code_fence && !code_buf.is_empty() {
         let lang = code_lang.as_deref();
         let highlighted = super::highlight::highlight_lines(&code_buf, lang);
-        for hl_row in highlighted {
-            let mut spans = vec![Span::styled(ENTRY_RAIL, rail_style), Span::styled(GUTTER, gutter_style)];
-            let content_spans = hl_row
-                .into_iter()
-                .map(|s| Span { text: s.text, style: s.style.bg(bg) })
-                .collect::<Vec<_>>();
-            spans.extend(super::layout::truncate_spans(&content_spans, code_width, text_style));
-            rows.push(Row::padded(spans, width, bg_style(bg)));
-        }
+        push_highlighted_code_rows(&mut rows, highlighted, rail_style, gutter_style, bg, width, code_width);
     }
 
     if rows.is_empty() {
@@ -840,6 +833,25 @@ fn render_markdown_body(
     }
 
     rows
+}
+
+/// Append syntax-highlighted code rows, hard-wrapping oversized lines while
+/// preserving the highlighter's spans and styles on each continuation row.
+fn push_highlighted_code_rows(
+    rows: &mut Vec<Row>, highlighted: Vec<Vec<Span>>, rail_style: CellStyle, gutter_style: CellStyle, bg: Color,
+    width: usize, code_width: usize,
+) {
+    for highlighted_line in highlighted {
+        let content_spans = highlighted_line
+            .into_iter()
+            .map(|span| Span { text: span.text, style: span.style.bg(bg) })
+            .collect::<Vec<_>>();
+        for wrapped in super::layout::wrap_spans(&content_spans, code_width) {
+            let mut spans = vec![Span::styled(ENTRY_RAIL, rail_style), Span::styled(GUTTER, gutter_style)];
+            spans.extend(wrapped);
+            rows.push(Row::padded(spans, width, bg_style(bg)));
+        }
+    }
 }
 
 fn flush_plain_markdown_lines(

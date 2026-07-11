@@ -453,7 +453,7 @@ fn render_frame_full_redraw_on_resize() {
 }
 
 #[test]
-fn render_frame_commits_submitted_user_to_scrollback() {
+fn render_frame_does_not_commit_submitted_user_to_scrollback() {
     let mut app = test_app();
     app.run_state = RunState::Working;
     app.transcript.push(Entry::User { text: "start the task".to_string() });
@@ -468,8 +468,8 @@ fn render_frame_commits_submitted_user_to_scrollback() {
         "history rows should be inserted through a constrained scroll region"
     );
     assert!(
-        out.contains("start the task"),
-        "submitted prompt should be appended to native scrollback immediately"
+        !out.contains("start the task"),
+        "submitted prompt should not be echoed in native scrollback"
     );
     assert!(lr.committed_row_count > 0);
 }
@@ -500,7 +500,7 @@ fn build_frame_places_streaming_output_above_status_line() {
 }
 
 #[test]
-fn build_frame_keeps_user_text_visible_when_live_tail_grows() {
+fn build_frame_omits_user_text_when_live_tail_grows() {
     let mut app = test_app();
     app.run_state = RunState::Working;
     app.transcript
@@ -525,22 +525,17 @@ fn build_frame_keeps_user_text_visible_when_live_tail_grows() {
 
     let frame = LiveRegion::new().build_frame(&app, 120, 32);
     let lines: Vec<String> = frame.rows.iter().map(|row| row.text()).collect();
-    let user_label = lines
-        .iter()
-        .position(|line| line.contains("User"))
-        .expect("user label should remain visible");
-    let user_text = lines
-        .iter()
-        .position(|line| line.contains("consolidate the renderer milestones"))
-        .expect("user text should remain visible");
     let thinking = lines
         .iter()
         .position(|line| line.contains("Thinking"))
         .expect("live reasoning should render");
 
+    assert!(thinking < lines.len());
     assert!(
-        user_label < user_text && user_text < thinking,
-        "live rows should not overwrite the bottom of the user block:\n{}",
+        lines
+            .iter()
+            .all(|line| !line.contains("consolidate the renderer milestones")),
+        "submitted input should remain out of the transcript:\n{}",
         frame.render_text()
     );
 }

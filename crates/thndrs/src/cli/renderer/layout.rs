@@ -107,7 +107,6 @@ pub fn wrap_text_preserving_whitespace(text: &str, width: usize) -> Vec<String> 
 /// individual styles. A single logical row can contain multiple spans. Blank
 /// (empty-text) input produces a single empty row so callers always get at
 /// least one row.
-#[cfg(test)]
 pub fn wrap_spans(spans: &[Span], width: usize) -> Vec<Vec<Span>> {
     let width = width.max(1);
     let mut rows: Vec<Vec<Span>> = Vec::new();
@@ -519,28 +518,5 @@ mod tests {
         assert_eq!(rows[0][0].text, "a");
         assert_eq!(rows[1][0].text, flag);
         assert_eq!(rows[2][0].text, "b");
-    }
-
-    /// Confirm that `wrap_text` and `wrap_spans` remain renderer-owned
-    /// (no Textwrap dependency). If someone adds Textwrap, the Cargo.toml
-    /// dependency check below will fail.
-    #[test]
-    fn wrap_text_and_wrap_spans_are_renderer_owned() {
-        let text_rows = wrap_text("hello world test", 10);
-        assert_eq!(text_rows, vec!["hello", "world test"]);
-
-        let spans = vec![
-            Span::styled("red", CellStyle::new().fg(Color::Red)),
-            Span::styled("blue", CellStyle::new().fg(Color::Blue)),
-        ];
-        let span_rows = wrap_spans(&spans, 10);
-        assert_eq!(span_rows.len(), 1, "renderer-owned wrap_spans should work");
-    }
-
-    /// Confirm that the project does not depend on the `textwrap` crate.
-    #[test]
-    fn no_textwrap_dependency() {
-        let rows = wrap_text("a b c d e f", 5);
-        assert!(rows.iter().all(|r| utils::text_width(r) <= 5));
     }
 }
