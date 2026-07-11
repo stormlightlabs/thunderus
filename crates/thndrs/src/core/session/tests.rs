@@ -1056,9 +1056,9 @@ fn reader_transcript_shows_acp_client_metadata_when_present() {
     let mut writer = test_writer(dir.path(), "acp-client-session");
     writer
         .append_acp_session(&AcpSessionMetadata {
-            agent_name: "thndrs-acp-server".to_string(),
+            agent_name: "thndrs".to_string(),
             acp_session_id: "acp-session-00000001".to_string(),
-            command: "thndrs-acp-server".to_string(),
+            command: "thndrs acp serve".to_string(),
             protocol_version: "V1".to_string(),
             agent_info_name: None,
             agent_info_version: None,

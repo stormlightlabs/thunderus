@@ -1,7 +1,7 @@
 # Tickets: ACP Validation And Expansion
 
-The baseline packages the proven server as `thndrs-acp`. These tickets start
-after the baseline release gate.
+The baseline exposes the proven server through `thndrs acp serve`. These
+tickets start after the baseline release gate.
 
 ## Ticket 1: Validate A Real Editor Client
 
@@ -26,7 +26,7 @@ contract is proven.
 
 **Acceptance criteria:**
 
-- [ ] Documentation names the `thndrs-acp` command and supported capabilities.
+- [ ] Documentation names the `thndrs acp serve` command and supported capabilities.
 - [ ] Version reporting matches package metadata.
 - [ ] Registry smoke checks run without publishing.
 

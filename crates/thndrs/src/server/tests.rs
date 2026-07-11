@@ -630,7 +630,7 @@ fn attachs_local_session_writer_and_records_acp_session_metadata() {
     let payload = std::fs::read_to_string(entries.remove(0)).expect("read session writer payload");
     assert!(payload.contains("\"acp_session\""));
     assert!(payload.contains(&format!("\"acp_session_id\":\"{session_id}\"")));
-    assert!(payload.contains("thndrs-acp-server"));
+    assert!(payload.contains("thndrs acp serve"));
     assert!(payload.contains("\"local_session_id\":\"local-acp-session-1\""));
     let _ = session_id;
 }
@@ -1153,7 +1153,7 @@ fn execute_prompt_rejects_concurrent_prompts_for_same_session() {
 
 #[test]
 fn fake_acp_client_smoke_runs_initialize_new_and_prompt() {
-    let Some(_) = find_acp_server_binary() else {
+    let Some(_) = find_thndrs_binary() else {
         return;
     };
     let summary = run_fake_client(1, false);
@@ -1164,7 +1164,7 @@ fn fake_acp_client_smoke_runs_initialize_new_and_prompt() {
 
 #[test]
 fn fake_acp_client_smoke_runs_rich_content_prompt() {
-    let Some(_) = find_acp_server_binary() else {
+    let Some(_) = find_thndrs_binary() else {
         return;
     };
     let summary = run_fake_client(1, true);
@@ -1177,7 +1177,7 @@ fn fake_acp_client_smoke_runs_rich_content_prompt() {
 
 #[test]
 fn fake_acp_client_falls_back_to_protocol_one_for_unsupported_requests() {
-    let Some(_) = find_acp_server_binary() else {
+    let Some(_) = find_thndrs_binary() else {
         return;
     };
     let summary = run_fake_client(2, false);
@@ -1186,7 +1186,7 @@ fn fake_acp_client_falls_back_to_protocol_one_for_unsupported_requests() {
 }
 
 fn run_fake_client(protocol_version: u16, rich_content: bool) -> Value {
-    let server_path = find_acp_server_binary().expect("thndrs-acp-server binary path");
+    let server_path = find_thndrs_binary().expect("thndrs binary path");
     let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join("fixtures")
@@ -1198,6 +1198,10 @@ fn run_fake_client(protocol_version: u16, rich_content: bool) -> Value {
         .arg(&fixture)
         .arg("--server")
         .arg(server_path)
+        .arg("--server-arg")
+        .arg("acp")
+        .arg("--server-arg")
+        .arg("serve")
         .arg("--protocol-version")
         .arg(protocol_version.to_string())
         .arg("--cwd")
@@ -1222,8 +1226,8 @@ fn run_fake_client(protocol_version: u16, rich_content: bool) -> Value {
     serde_json::from_str(summary).expect("summary is valid json")
 }
 
-fn find_acp_server_binary() -> Option<PathBuf> {
-    if let Ok(path) = env::var("CARGO_BIN_EXE_thndrs-acp-server") {
+fn find_thndrs_binary() -> Option<PathBuf> {
+    if let Ok(path) = env::var("CARGO_BIN_EXE_thndrs") {
         return Some(PathBuf::from(path));
     }
 
@@ -1233,8 +1237,8 @@ fn find_acp_server_binary() -> Option<PathBuf> {
         |workspace_root| workspace_root.join("target"),
     );
     let candidates = [
-        target_dir.join("debug").join("thndrs-acp-server"),
-        target_dir.join("debug").join("deps").join("thndrs-acp-server"),
+        target_dir.join("debug").join("thndrs"),
+        target_dir.join("debug").join("deps").join("thndrs"),
     ];
     candidates.into_iter().find(|path| path.exists())
 }

@@ -11,14 +11,13 @@ agent: a workspace with two independently useful libraries, a simple default
 agent, explicit capability boundaries, and project directives that let an
 assigned agent complete one scoped ticket safely.
 
-The target workspace contains four crates over time:
+The target workspace contains three crates:
 
 | Crate | Role | Release order |
 | --- | --- | --- |
 | `thndrs-agent` | Reusable agent loop | First |
 | `thndrs-context` | Reusable context and memory system | First |
-| `thndrs` | Existing CLI/TUI package and executable | After the libraries |
-| `thndrs-acp` | ACP server package and executable | Baseline, after the libraries |
+| `thndrs` | CLI/TUI package, executable, and ACP server mode | After the libraries |
 
 `thndrs` retains its existing package metadata. The package identities are
 stable, but all public APIs remain pre-1.0 and may change as use in the two
@@ -27,8 +26,8 @@ action.
 
 ## Current State
 
-- The repository is one Cargo package with a library plus the `thndrs` and
-  `thndrs-acp-server` binaries.
+- The repository is a workspace containing the `thndrs` application and two
+  reusable libraries. `thndrs acp serve` exposes its existing ACP server.
 - `src/core/agent.rs` already contains a reusable loop and cancellation/tool
   hooks, but imports CLI and TUI types such as `WebSearchMode` and `App`'s
   `AgentEvent`.
@@ -54,8 +53,8 @@ action.
    diagnostics/session metadata, and reversible. The context library also has
    no default `memory` Cargo feature for downstream users.
 3. **Keep the libraries independent.** `thndrs-agent` and `thndrs-context`
-   have no dependency on each other. `thndrs` and `thndrs-acp` compose typed
-   data at their boundaries. A third shared crate requires explicit approval.
+   have no dependency on each other. `thndrs` composes typed data at its
+   application boundary. A third shared crate requires explicit approval.
 4. **Keep side effects at application adapters.** The agent library has no
    terminal UI, ACP protocol, direct filesystem policy, or TUI state. The
    context library has no provider, terminal, or ACP dependency. Applications
@@ -99,16 +98,15 @@ and ordinary project instructions remain available without memory.
 ## Workspace And Dependency Shape
 
 ```text
-thndrs-agent ───┬──> thndrs
-                └──> thndrs-acp
-thndrs-context ─┬──> thndrs
-                └──> thndrs-acp
+thndrs-agent ───┐
+                ├──> thndrs (CLI/TUI and `acp serve`)
+thndrs-context ─┘
 ```
 
-The baseline first introduces the two libraries, then moves the proven ACP
-server into `thndrs-acp`. The `thndrs` package lives in `crates/thndrs` as the
-CLI/TUI application throughout. No placeholder application crate is created
-merely to complete the diagram.
+The baseline first introduces the two libraries, then exposes the proven ACP
+server through `thndrs acp serve`. The `thndrs` package lives in
+`crates/thndrs` as the CLI/TUI application and server mode throughout. No
+placeholder application crate is created merely to complete the diagram.
 
 ## Directive Baseline
 
@@ -166,9 +164,9 @@ deletion or compaction.
 The current stdio ACP implementation is a baseline compatibility requirement:
 version negotiation, session creation/prompt/cancellation, streamed semantic
 updates, permission-gated writes/shell, session audit, and fake-client coverage
-must survive the library extraction and the baseline `thndrs-acp` package
-migration. `009_acp_agent_server` then handles real-editor testing, registry
-packaging, and any transport expansion.
+must survive the library extraction and the `thndrs acp serve` migration.
+`009_acp_agent_server` then handles real-editor testing, registry packaging,
+and any transport expansion.
 
 ### Explicitly Retained For Later Features
 
@@ -195,8 +193,8 @@ packaging, and any transport expansion.
   text in audit metadata.
 - The TUI and CLI session commands, safe resume behavior, inspect/export, and
   bounded redacted log readers work through `thndrs-context` session records.
-- `thndrs-acp` is a package/executable that consumes the two libraries without
-  a CLI/TUI package dependency.
+- `thndrs acp serve` uses the same provider, tool, configuration, and session
+  runtime as the CLI/TUI without a duplicate application package.
 - `AGENTS.md` and `.gitignore` make the operating contract durable.
 - The ACP fake-client contract remains green through the extraction and package
   migration.
@@ -213,7 +211,7 @@ Always:
 
 Ask first:
 
-- adding a workspace crate beyond the four named here;
+- adding a workspace crate beyond the three named here;
 - adding dependencies or default Cargo features;
 - committing a stable public API or a new cross-library shared crate;
 - changing tool permissions, session formats, or provider behavior;
@@ -249,7 +247,6 @@ cargo test --workspace
 cargo package -p thndrs-agent
 cargo package -p thndrs-context
 cargo package -p thndrs
-cargo package -p thndrs-acp
 ```
 
 Run focused cross-crate tests for the fake agent run, structured prompt/context

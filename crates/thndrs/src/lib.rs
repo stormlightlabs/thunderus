@@ -537,6 +537,7 @@ fn configured_mcp_server(config: &mcp::config::McpConfig, name: &str) -> io::Res
 
 fn run_acp_command(cli: &Cli, command: &AcpCommand) -> io::Result<()> {
     match command {
+        AcpCommand::Serve => run_acp_server(cli),
         AcpCommand::List => {
             print!("{}", render_acp_list(cli));
             Ok(())
@@ -591,6 +592,32 @@ fn run_acp_command(cli: &Cli, command: &AcpCommand) -> io::Result<()> {
             run_acp_update(cli, name, file.as_deref(), *yes, &mut lock)
         }
     }
+}
+
+/// Run the local ACP agent server through the primary `thndrs` executable.
+///
+/// The server shares the normal configuration pipeline with the CLI/TUI while
+/// keeping its protocol transport isolated: stdout remains ACP JSON-RPC and
+/// diagnostics are emitted only on stderr.
+fn run_acp_server(cli: &Cli) -> io::Result<()> {
+    let server_config = server::ServerConfig::new(
+        config::resolve_cli_path(&cli.cwd),
+        cli.model.clone(),
+        cli.websearch.label().to_string(),
+        cli.session_dir.clone(),
+    );
+    let _ = tracing_subscriber::fmt()
+        .with_writer(io::stderr)
+        .with_ansi(false)
+        .try_init();
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| io::Error::other(format!("failed to start ACP runtime: {error}")))?;
+
+    runtime
+        .block_on(server::run_stdio(server_config))
+        .map_err(|error| io::Error::other(format!("ACP server failed: {error}")))
 }
 
 fn render_acp_list(cli: &Cli) -> String {

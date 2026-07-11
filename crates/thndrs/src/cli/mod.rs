@@ -581,6 +581,17 @@ mod tests {
     }
 
     #[test]
+    fn acp_serve_command_parses() {
+        let cli = Cli::try_parse_from(["thndrs", "--cwd", "/workspace", "acp", "serve"]).expect("parse");
+
+        assert_eq!(cli.cwd, PathBuf::from("/workspace"));
+        assert_eq!(
+            cli.command,
+            Some(Command::Acp { command: commands::acp::AcpCommand::Serve })
+        );
+    }
+
+    #[test]
     fn first_run_setup_command_parses() {
         let cli = Cli::try_parse_from(["thndrs", "setup", "--provider", "umans", "--project"]).expect("parse");
         assert_eq!(

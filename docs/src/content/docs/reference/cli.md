@@ -58,10 +58,10 @@ For more information see [ACP](/usage/acp/).
 
 ### ACP Agent Server
 
-`thndrs-acp-server` exposes `thndrs` as an ACP stdio agent for editors and IDEs.
+`thndrs acp serve` exposes `thndrs` as an ACP stdio agent for editors and IDEs.
 stdout is protocol-only; diagnostics go to stderr.
 
-- `thndrs-acp-server --cwd <path>`: start the ACP server for a workspace.
+- `thndrs --cwd <path> acp serve`: start the ACP server for a workspace.
 - `--model <model>`: provider model for new sessions.
 - `--websearch <auto|native|exa|none>`: web search provider policy.
 - `--session-dir <path>`: append-only local session JSONL directory.

@@ -17,14 +17,6 @@ include = ["/Cargo.toml", "/README.md", "/src/**", "/tests/**"]
 [lib]
 name = "thndrs_lib"
 
-[[bin]]
-name = "thndrs"
-path = "src/bin/thndrs.rs"
-
-[[bin]]
-name = "thndrs-acp-server"
-path = "src/bin/thndrs-acp-server.rs"
-
 [dependencies]
 agent-client-protocol.workspace = true
 clap.workspace = true

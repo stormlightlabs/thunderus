@@ -18,7 +18,7 @@ inspecting a repository.
 - Choose automatic web search, provider-native search, Exa-backed search, or
   [no provider-side](https://lectito.stormlightlabs.org/docs/) web search.
 - Agent Client Protocol support: use external ACP agents from the TUI, or run
-  `thndrs-acp-server` so editors and IDEs can drive the `thndrs` harness over
+  `thndrs acp serve` so editors and IDEs can drive the `thndrs` harness over
   stdio.
   - See [ACP](/usage/acp/) for agent configuration, editor setup, supported
     capabilities, permission behavior, and troubleshooting.

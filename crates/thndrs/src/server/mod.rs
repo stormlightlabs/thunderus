@@ -38,7 +38,7 @@ impl ServerConfig {
     }
 }
 
-/// Run `thndrs-acp-server` over stdio until the ACP connection closes.
+/// Run `thndrs acp serve` over stdio until the ACP connection closes.
 pub async fn run_stdio(config: ServerConfig) -> Result<()> {
     handlers::run_stdio(config).await
 }

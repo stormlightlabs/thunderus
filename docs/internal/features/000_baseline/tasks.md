@@ -72,7 +72,7 @@ leaking back into the library.
 
 - `cargo test -p thndrs-agent`
 - `cargo test -p thndrs --lib agent`
-- `cargo test -p thndrs --bin thndrs-acp-server`
+- `cargo test -p thndrs --test acp_server_smoke`
 
 ## Ticket 4: Extract Context With Explicit Memory Capability
 
@@ -159,40 +159,42 @@ session/log evidence from both the TUI and CLI.
 - `cargo test -p thndrs`
 - `pnpm --dir docs build`
 
-## Ticket 7: Package The ACP Server As `thndrs-acp`
+## Ticket 7: Expose The ACP Server Through `thndrs acp serve`
 
-**What to build:** Move the proven ACP server into the fourth workspace package
-and preserve the baseline protocol and safety behavior.
+**What to build:** Replace the standalone ACP executable with a protocol-clean
+`thndrs acp serve` mode while preserving the baseline protocol and safety
+behavior.
 
 **Blocked by:** Ticket 5: Compose The Existing Application Through Both Libraries
 
 **Acceptance criteria:**
 
-- [ ] `thndrs-acp` depends directly on `thndrs-agent` and `thndrs-context`,
-      not on the CLI/TUI package.
-- [ ] The executable remains protocol-clean and preserves configuration,
+- [x] The server runs from the primary `thndrs` executable and reuses its
+      provider, tool, configuration, and session runtime without a duplicate
+      application package.
+- [x] The command remains protocol-clean and preserves configuration,
       containment, permission, redaction, cancellation, and local-session
       audit behavior.
-- [ ] Existing fake-client tests run against the packaged executable.
-- [ ] The `thndrs` package no longer owns the ACP executable.
+- [x] Existing fake-client tests run against `thndrs acp serve`.
+- [x] The standalone `thndrs-acp-server` executable no longer exists.
 
 **Verification:**
 
-- `cargo test -p thndrs-acp`
-- `cargo run -p thndrs-acp` with the fake client fixture
+- `cargo test -p thndrs --test acp_server_smoke`
+- `target/debug/thndrs --cwd /path/to/project acp serve` with the fake client fixture
 
 ## Ticket 8: Make The Workspace Package-Ready
 
-**What to build:** Verify the two libraries and two application packages as
-independent crates without publishing any of them.
+**What to build:** Verify the two libraries and the `thndrs` application
+package without publishing any of them.
 
-**Blocked by:** Ticket 6: Make Sessions Usable; Ticket 7: Package The ACP Server As `thndrs-acp`
+**Blocked by:** Ticket 6: Make Sessions Usable; Ticket 7: Expose The ACP Server Through `thndrs acp serve`
 
 **Acceptance criteria:**
 
 - [ ] Each library has a minimal README/API overview and no application-only
       dependencies in its public contract.
-- [ ] All four packages pass `cargo package` without publishing.
+- [ ] All three packages pass `cargo package` without publishing.
 - [ ] Cross-library dependency checks prove the libraries remain independent.
 - [ ] The `thndrs` application package metadata remains unchanged.
 - [ ] Any API intentionally exposed for future ACP use is documented as
@@ -203,7 +205,6 @@ independent crates without publishing any of them.
 - `cargo package -p thndrs-agent`
 - `cargo package -p thndrs-context`
 - `cargo package -p thndrs`
-- `cargo package -p thndrs-acp`
 - `cargo test --workspace`
 
 ## Ticket 9: Baseline Release Gate
@@ -233,9 +234,9 @@ feature.
 - `cargo package -p thndrs-agent`
 - `cargo package -p thndrs-context`
 - `cargo package -p thndrs`
-- `cargo package -p thndrs-acp`
 
 ## Frontier
 
-Tickets 3 and 4 can start now. Work one ticket per fresh agent context; a
-human selects the next ticket after each verified handoff.
+Ticket 7 can start now. Ticket 8 remains blocked on Ticket 7. Work one ticket
+per fresh agent context; a human selects the next ticket after each verified
+handoff.

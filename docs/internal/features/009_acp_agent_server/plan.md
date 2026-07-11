@@ -6,7 +6,7 @@ captured: 2026-07-10
 
 ## Objective
 
-Validate the baseline `thndrs-acp` package with a real editor client and
+Validate the baseline `thndrs acp serve` mode with a real editor client and
 prepare registry metadata. Stdio remains the only supported transport.
 
 ## Baseline Capability
@@ -21,18 +21,17 @@ The baseline owns and must preserve the existing server behavior:
   terminal capability handling, MCP configuration, and supported rich content;
 - fake-client regression coverage with protocol-clean stdout.
 
-## Package Design
+## Executable Design
 
-`thndrs-acp` is both package and executable. It depends directly on
-`thndrs-agent` and `thndrs-context`; it must not depend on the CLI/TUI package.
-It owns ACP transport, request handling, client permission RPC, and server
-configuration. The shared libraries continue to own the agent loop and
-context/session contracts.
+`thndrs acp serve` is a mode of the primary executable. It reuses the same
+provider, tool, configuration, and session runtime as the CLI/TUI while ACP
+transport, request handling, and client permission RPC remain in the server
+adapter.
 
 The public executable is:
 
 ```text
-thndrs-acp [--cwd <path>] [--model <model>] [--websearch <mode>] [--session-dir <path>]
+thndrs [--cwd <path>] [--model <model>] [--websearch <mode>] [--session-dir <path>] acp serve
 ```
 
 stdout contains only ACP JSON-RPC. Diagnostics use stderr or configured
@@ -40,11 +39,11 @@ tracing sinks.
 
 ## Success Criteria
 
-- The packaged executable retains all baseline ACP fixtures and local audit
+- The server mode retains all baseline ACP fixtures and local audit
   behavior.
 - A real editor/client path demonstrates initialization, prompt streaming,
   cancellation, permissions, and sessions without stdout pollution.
-- Registry material names the package/executable and its actual capabilities;
+- Registry material names the executable command and its actual capabilities;
   checks run without publishing.
 - Non-stdio work begins only for a documented concrete deployment that cannot
   use a local stdio executable.
@@ -82,8 +81,8 @@ Never:
 cargo fmt
 cargo clippy --workspace --fix --allow-dirty --allow-staged
 cargo clippy --workspace
-cargo test -p thndrs-acp
-cargo run -p thndrs-acp
+cargo test -p thndrs --test acp_server_smoke
+cargo run -p thndrs -- acp serve
 ```
 
 The detailed implementation frontier is in [tasks.md](tasks.md).

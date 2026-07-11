@@ -1,4 +1,4 @@
-//! ACP command definitions.
+//! ACP server, inspection, and smoke-test command definitions.
 
 use std::path::PathBuf;
 
@@ -7,6 +7,8 @@ use clap::Subcommand;
 /// ACP inspection and smoke-test commands.
 #[derive(Clone, Debug, Eq, PartialEq, Subcommand)]
 pub enum AcpCommand {
+    /// Run `thndrs` as an ACP agent server over stdio.
+    Serve,
     /// List configured ACP agents.
     List,
     /// Show one configured ACP agent with redacted values.

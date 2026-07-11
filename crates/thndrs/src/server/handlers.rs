@@ -105,9 +105,9 @@ impl ServerState {
 
             writer
                 .append_acp_session(&AcpSessionMetadata {
-                    agent_name: String::from("thndrs-acp-server"),
+                    agent_name: String::from("thndrs"),
                     acp_session_id: session_id.clone(),
-                    command: String::from("thndrs-acp-server"),
+                    command: String::from("thndrs acp serve"),
                     protocol_version: format!("{:?}", ProtocolVersion::V1),
                     agent_info_name: None,
                     agent_info_version: None,

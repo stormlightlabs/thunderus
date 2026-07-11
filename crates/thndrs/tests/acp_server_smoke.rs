@@ -1,4 +1,4 @@
-//! Stdio smoke tests for the ACP agent server binary.
+//! Stdio smoke tests for the ACP agent-server command.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -54,7 +54,7 @@ fn fake_client_smokes_rich_content_prompt() {
 }
 
 fn run_fake_client(scenario: &str, protocol_version: u16, rich_content: bool) -> Value {
-    let server_path = acp_server_binary();
+    let server_path = thndrs_binary();
     let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join("fixtures")
@@ -67,6 +67,10 @@ fn run_fake_client(scenario: &str, protocol_version: u16, rich_content: bool) ->
         .arg(&fixture)
         .arg("--server")
         .arg(server_path)
+        .arg("--server-arg")
+        .arg("acp")
+        .arg("--server-arg")
+        .arg("serve")
         .arg("--protocol-version")
         .arg(protocol_version.to_string())
         .arg("--cwd")
@@ -93,11 +97,11 @@ fn run_fake_client(scenario: &str, protocol_version: u16, rich_content: bool) ->
     serde_json::from_str(summary).expect("summary is valid json")
 }
 
-fn acp_server_binary() -> PathBuf {
-    let path = PathBuf::from(env!("CARGO_BIN_EXE_thndrs-acp-server"));
+fn thndrs_binary() -> PathBuf {
+    let path = PathBuf::from(env!("CARGO_BIN_EXE_thndrs"));
     assert!(
         Path::new(&path).exists(),
-        "thndrs-acp-server binary path does not exist: {}",
+        "thndrs binary path does not exist: {}",
         path.display()
     );
     path

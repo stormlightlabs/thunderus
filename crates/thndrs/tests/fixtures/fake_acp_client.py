@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Small ACP client fixture used by tests to drive `thndrs-acp-server`."""
+"""Small ACP client fixture used by tests to drive `thndrs acp serve`."""
 
 import argparse
 import json
@@ -88,7 +88,16 @@ def read_prompt(process, wanted_id, timeout_secs, session_id, cancel_after_updat
 
 def launch_server(args, model):
     process = subprocess.Popen(
-        [args.server, "--cwd", args.cwd, "--model", model, "--websearch", "none"],
+        [
+            args.server,
+            "--cwd",
+            args.cwd,
+            "--model",
+            model,
+            "--websearch",
+            "none",
+            *args.server_arg,
+        ],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -191,6 +200,12 @@ def close_process(process):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--server", required=True)
+    parser.add_argument(
+        "--server-arg",
+        action="append",
+        default=[],
+        help="argument appended after the standard server configuration flags",
+    )
     parser.add_argument("--protocol-version", type=int, default=1)
     parser.add_argument("--cwd", required=True)
     parser.add_argument("--rich-content", action="store_true")

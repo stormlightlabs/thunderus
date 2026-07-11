@@ -9,7 +9,7 @@ workspace boundary, permission prompts, cancellation, and session records.
 ACP agents are configured in normal `thndrs` TOML config and selected with the
 model id form `acp:<name>`.
 
-`thndrs` can also act as an ACP agent server through `thndrs-acp-server`. In
+`thndrs` can also act as an ACP agent server through `thndrs acp serve`. In
 that mode an editor or IDE launches `thndrs`, sends ACP requests over stdio,
 and receives streamed session updates while the normal `thndrs` harness,
 providers, tools, project context, and session records do the work.
@@ -71,11 +71,11 @@ or run failures.
 
 ## Running The Agent Server
 
-Use `thndrs-acp-server` when another ACP client, usually an editor, should drive
+Use `thndrs acp serve` when another ACP client, usually an editor, should drive
 the `thndrs` harness:
 
 ```sh
-thndrs-acp-server --cwd /path/to/project
+thndrs --cwd /path/to/project acp serve
 ```
 
 The server speaks newline-delimited ACP JSON-RPC over stdio. stdout is reserved
@@ -99,7 +99,7 @@ Configure the editor's ACP agent command to launch the binary with stdio. The
 exact key names vary by client, but the shape should be:
 
 ```json
-{ "agents": { "thndrs": { "command": "thndrs-acp-server", "args": ["--cwd", "/path/to/project"] } } }
+{ "agents": { "thndrs": { "command": "thndrs", "args": ["--cwd", "/path/to/project", "acp", "serve"] } } }
 ```
 
 For per-project use, prefer an absolute `--cwd` and keep provider credentials in
@@ -108,7 +108,7 @@ server in commands that print banners or progress text to stdout.
 
 ## Server Capabilities
 
-`thndrs-acp-server` supports these ACP v1 agent behaviors:
+`thndrs acp serve` supports these ACP v1 agent behaviors:
 
 - `initialize`, `session/new`, `session/prompt`, `session/cancel`, and
   streamed `session/update`.
@@ -142,8 +142,8 @@ prompt submission is blocked until the request is answered or cancelled.
 Permission request and outcome metadata are written to the local session record.
 Credentials and raw protocol stdio lines are not stored.
 
-When `thndrs-acp-server` is the agent, the direction is reversed:
-`thndrs-acp-server` asks the editor client for permission before file writes and
+When `thndrs acp serve` is the agent, the direction is reversed:
+`thndrs acp serve` asks the editor client for permission before file writes and
 shell commands. The initial options are allow once and reject once. Blanket
 approvals are not persisted. If the client rejects the request, cancels it, or
 disconnects before answering, the tool operation is rejected or the active prompt
