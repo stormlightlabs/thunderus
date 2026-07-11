@@ -1233,7 +1233,11 @@ fn permission_response_decision(outcome: RequestPermissionOutcome) -> ToolPermis
         RequestPermissionOutcome::Cancelled => ToolPermissionDecision::Cancelled,
         RequestPermissionOutcome::Selected(selected) => {
             let option_id = selected.option_id.0.as_ref();
-            ToolPermissionDecision::from_acp_option_id(option_id)
+            if option_id.starts_with("allow") {
+                ToolPermissionDecision::Allow
+            } else {
+                ToolPermissionDecision::Reject
+            }
         }
         _ => ToolPermissionDecision::Reject,
     }

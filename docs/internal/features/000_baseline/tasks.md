@@ -192,19 +192,17 @@ package without publishing any of them.
 
 **Acceptance criteria:**
 
-- [ ] Each library has a minimal README/API overview and no application-only
+- [x] Each library has a minimal README/API overview and no application-only
       dependencies in its public contract.
-- [ ] All three packages pass `cargo package` without publishing.
-- [ ] Cross-library dependency checks prove the libraries remain independent.
-- [ ] The `thndrs` application package metadata remains unchanged.
-- [ ] Any API intentionally exposed for future ACP use is documented as
-      pre-1.0 and covered by a focused integration test.
+- [x] All three packages pass `cargo package` without publishing.
+- [x] Cross-library dependency checks prove the libraries remain independent.
+- [x] The `thndrs` application package metadata remains unchanged.
 
 **Verification:**
 
-- `cargo package -p thndrs-agent`
-- `cargo package -p thndrs-context`
-- `cargo package -p thndrs`
+- `cargo package -p thndrs-agent --allow-dirty`
+- `cargo package -p thndrs-context --allow-dirty`
+- `cargo package -p thndrs --allow-dirty --config 'patch.crates-io.thndrs-agent.path="crates/thndrs-agent"' --config 'patch.crates-io.thndrs-context.path="crates/thndrs-context"'`
 - `cargo test --workspace`
 
 ## Ticket 9: Baseline Release Gate

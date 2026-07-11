@@ -135,7 +135,7 @@ impl AgentTurn {
 
 /// Provider-neutral semantic output from an agent turn.
 ///
-/// Application adapters may attach local-tool audit details, UI state, or ACP
+/// Application adapters may attach local-tool audit details, UI state, or
 /// transport state when projecting these events to their own surfaces.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AgentEvent {
@@ -190,19 +190,6 @@ pub enum ToolPermissionDecision {
 }
 
 impl ToolPermissionDecision {
-    /// Convert an application permission option identifier into a decision.
-    pub fn from_option_id(option_id: &str) -> Self {
-        if option_id.starts_with("allow") { Self::Allow } else { Self::Reject }
-    }
-
-    /// Convert an ACP permission option identifier into a decision.
-    ///
-    /// This compatibility spelling keeps ACP-specific naming at the adapter
-    /// boundary while the decision itself remains protocol-neutral.
-    pub fn from_acp_option_id(option_id: &str) -> Self {
-        Self::from_option_id(option_id)
-    }
-
     /// Stable outcome label for session records.
     pub const fn outcome_label(self) -> &'static str {
         match self {
@@ -239,15 +226,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn permission_option_mapping_is_conservative() {
-        assert_eq!(
-            ToolPermissionDecision::from_option_id("allow_once"),
-            ToolPermissionDecision::Allow
-        );
-        assert_eq!(
-            ToolPermissionDecision::from_option_id("deny"),
-            ToolPermissionDecision::Reject
-        );
+    fn permission_outcomes_have_stable_labels() {
+        assert_eq!(ToolPermissionDecision::Allow.outcome_label(), "allowed");
+        assert_eq!(ToolPermissionDecision::Reject.outcome_label(), "rejected");
+        assert_eq!(ToolPermissionDecision::Cancelled.outcome_label(), "cancelled");
     }
 
     #[test]

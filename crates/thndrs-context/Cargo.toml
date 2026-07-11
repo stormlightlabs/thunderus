@@ -6,6 +6,7 @@ rust-version.workspace = true
 description = "Context, memory, prompt-context, and session contracts for coding agents"
 license.workspace = true
 repository.workspace = true
+readme = "README.md"
 
 [dependencies]
 serde.workspace = true

@@ -6,6 +6,7 @@ rust-version.workspace = true
 description = "Provider-neutral coding-agent loop and contracts"
 license.workspace = true
 repository.workspace = true
+readme = "README.md"
 
 [dependencies]
 serde.workspace = true

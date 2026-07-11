@@ -1,8 +1,4 @@
-//! Provider-neutral coding-agent loop and contracts.
-//!
-//! Application adapters own provider selection, tool policy, terminal I/O,
-//! and ACP transport. This crate owns shared run contracts such as cooperative
-//! cancellation.
+#![doc = include_str!("../README.md")]
 
 pub mod adapters;
 pub mod budget;

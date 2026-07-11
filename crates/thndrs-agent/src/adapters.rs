@@ -12,7 +12,7 @@ type ToolExecutionCallback<Context, Output> = dyn Fn(&ToolUseRequest, &Context, 
 /// Typed application adapter for a sensitive tool permission decision.
 ///
 /// `Context` is owned by the application. It may contain local policy such as
-/// workspace containment or an ACP permission bridge; neither becomes a
+/// workspace containment or a remote permission bridge; neither becomes a
 /// dependency of this crate.
 #[derive(Clone)]
 pub struct ToolPermissionHook<Context>(Arc<ToolPermissionCallback<Context>>);
@@ -40,7 +40,7 @@ impl<Context> fmt::Debug for ToolPermissionHook<Context> {
 /// Typed application adapter for a tool execution override.
 ///
 /// The output remains application-defined so local filesystem, process, and
-/// ACP audit details do not leak into the provider-neutral contract.
+/// transport audit details do not leak into the provider-neutral contract.
 #[derive(Clone)]
 pub struct ToolExecutionHook<Context, Output>(Arc<ToolExecutionCallback<Context, Output>>);
 

@@ -1,8 +1,4 @@
-//! Context, memory, prompt-context, and session contracts for coding agents.
-//!
-//! The library owns project-instruction discovery, typed context selection,
-//! and optional file-backed memory. Application adapters choose when those
-//! capabilities are used and where their user interfaces are rendered.
+#![doc = include_str!("../README.md")]
 
 mod support;
 
