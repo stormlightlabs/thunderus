@@ -95,6 +95,7 @@ pub struct Palette {
     pub text: Color,
     pub subtext0: Color,
     pub mauve: Color,
+    pub pink: Color,
     pub green: Color,
     pub yellow: Color,
     pub red: Color,
@@ -116,6 +117,7 @@ pub const ICEBERG_DARK: Palette = Palette {
     text: Color::Rgb { r: 198, g: 200, b: 209 },
     subtext0: Color::Rgb { r: 129, g: 133, b: 150 },
     mauve: Color::Rgb { r: 160, g: 147, b: 199 },
+    pink: Color::Rgb { r: 242, g: 101, b: 181 },
     green: Color::Rgb { r: 180, g: 190, b: 130 },
     yellow: Color::Rgb { r: 226, g: 164, b: 120 },
     red: Color::Rgb { r: 226, g: 120, b: 120 },
@@ -135,12 +137,13 @@ pub const ELDRITCH_MINIMAL: Palette = Palette {
     text: Color::Rgb { r: 235, g: 250, b: 250 },
     subtext0: Color::Rgb { r: 171, g: 180, b: 218 },
     mauve: Color::Rgb { r: 164, g: 140, b: 242 },
+    pink: Color::Rgb { r: 242, g: 101, b: 181 },
     green: Color::Rgb { r: 55, g: 244, b: 153 },
-    yellow: Color::Rgb { r: 224, g: 224, b: 224 },
+    yellow: Color::Rgb { r: 241, g: 252, b: 121 },
     red: Color::Rgb { r: 241, g: 108, b: 117 },
     blue: Color::Rgb { r: 4, g: 209, b: 249 },
     teal: Color::Rgb { r: 4, g: 209, b: 249 },
-    peach: Color::Rgb { r: 224, g: 224, b: 224 },
+    peach: Color::Rgb { r: 247, g: 198, b: 127 },
 };
 
 pub const CATPPUCCIN_MOCHA: Palette = Palette {
@@ -154,6 +157,7 @@ pub const CATPPUCCIN_MOCHA: Palette = Palette {
     text: Color::Rgb { r: 205, g: 214, b: 244 },
     subtext0: Color::Rgb { r: 166, g: 173, b: 200 },
     mauve: Color::Rgb { r: 203, g: 166, b: 247 },
+    pink: Color::Rgb { r: 245, g: 194, b: 231 },
     green: Color::Rgb { r: 166, g: 227, b: 161 },
     yellow: Color::Rgb { r: 249, g: 226, b: 175 },
     red: Color::Rgb { r: 243, g: 139, b: 168 },
@@ -356,5 +360,16 @@ mod tests {
         assert_eq!(Theme::IcebergDark.renderer_palette(), ICEBERG_DARK);
         assert_eq!(Theme::EldritchMinimal.renderer_palette(), ELDRITCH_MINIMAL);
         assert_eq!(Theme::CatppuccinMocha.renderer_palette(), CATPPUCCIN_MOCHA);
+    }
+
+    #[test]
+    fn eldritch_minimal_uses_the_terminal_label_palette() {
+        assert_eq!(ELDRITCH_MINIMAL.teal, Color::Rgb { r: 4, g: 209, b: 249 });
+        assert_eq!(ELDRITCH_MINIMAL.green, Color::Rgb { r: 55, g: 244, b: 153 });
+        assert_eq!(ELDRITCH_MINIMAL.mauve, Color::Rgb { r: 164, g: 140, b: 242 });
+        assert_eq!(ELDRITCH_MINIMAL.pink, Color::Rgb { r: 242, g: 101, b: 181 });
+        assert_eq!(ELDRITCH_MINIMAL.yellow, Color::Rgb { r: 241, g: 252, b: 121 });
+        assert_eq!(ELDRITCH_MINIMAL.peach, Color::Rgb { r: 247, g: 198, b: 127 });
+        assert_eq!(ELDRITCH_MINIMAL.red, Color::Rgb { r: 241, g: 108, b: 117 });
     }
 }

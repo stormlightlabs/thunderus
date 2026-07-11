@@ -48,6 +48,7 @@ struct StartupBannerTheme {
     key_style: CellStyle,
     value_style: CellStyle,
     heading_style: CellStyle,
+    attention_style: CellStyle,
     muted_style: CellStyle,
     hint_style: CellStyle,
     separator_style: CellStyle,
@@ -103,9 +104,10 @@ pub fn banner_rows(app: &crate::app::App, width: usize) -> Vec<Row> {
         bg,
         brand_style: CellStyle::new().fg(p.accent).bg(bg).bold(),
         version_style: CellStyle::new().fg(p.overlay0).bg(bg),
-        key_style: CellStyle::new().fg(p.overlay1).bg(bg),
+        key_style: CellStyle::new().fg(p.mauve).bg(bg),
         value_style: CellStyle::new().fg(p.text).bg(bg),
         heading_style: CellStyle::new().fg(p.teal).bg(bg).bold(),
+        attention_style: CellStyle::new().fg(p.peach).bg(bg).bold(),
         muted_style: CellStyle::new().fg(p.subtext0).bg(bg),
         hint_style: CellStyle::new().fg(p.teal).bg(bg),
         separator_style: CellStyle::new().fg(p.overlay0).bg(bg),
@@ -359,8 +361,9 @@ fn push_banner_key_value_row(rows: &mut Vec<Row>, key: &str, value: &str, theme:
 }
 
 fn push_banner_heading(rows: &mut Vec<Row>, label: &str, theme: StartupBannerTheme) {
+    let style = if label == "attention" { theme.attention_style } else { theme.heading_style };
     rows.push(Row::padded(
-        vec![Span::styled(label.to_ascii_uppercase(), theme.heading_style)],
+        vec![Span::styled(label.to_ascii_uppercase(), style)],
         theme.width,
         bg_style(theme.bg),
     ));

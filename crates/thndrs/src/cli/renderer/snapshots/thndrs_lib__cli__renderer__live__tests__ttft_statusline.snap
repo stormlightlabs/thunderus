@@ -1,12 +1,12 @@
 ---
-source: src/cli/renderer/live.rs
+source: crates/thndrs/src/cli/renderer/live.rs
 expression: combined
 ---
 pending:
-│     model: test-model   search: native   tok: ↑0 ↓0   ttft: pending   git: main clean             # [bg=#212337]=   [bg=#212337]=   [fg=#abb4da bg=#212337]=model: test-model [bg=#212337]=    [fg=#abb4da bg=#212337]=search: native [bg=#212337]=    [fg=#e0e0e0 bg=#212337]=tok: ↑0 ↓0 [bg=#212337]=    [fg=#04d1f9 bg=#212337]=ttft: pending [bg=#212337]=    [fg=#37f499 bg=#212337]=git: main clean [bg=#212337]=          [bg=#212337]=  
+│     model: test-model   search: native   tok: ↑0 ↓0   ttft: pending   git: main clean             # [bg=#212337]=   [bg=#212337]=   [fg=#abb4da bg=#212337]=model: test-model [bg=#212337]=    [fg=#abb4da bg=#212337]=search: native [bg=#212337]=    [fg=#f7c67f bg=#212337]=tok: ↑0 ↓0 [bg=#212337]=    [fg=#04d1f9 bg=#212337]=ttft: pending [bg=#212337]=    [fg=#37f499 bg=#212337]=git: main clean [bg=#212337]=          [bg=#212337]=  
 measured:
-│     model: test-model   search: native   tok: ↑0 ↓0   ttft: 842ms   git: main clean               # [bg=#212337]=   [bg=#212337]=   [fg=#abb4da bg=#212337]=model: test-model [bg=#212337]=    [fg=#abb4da bg=#212337]=search: native [bg=#212337]=    [fg=#e0e0e0 bg=#212337]=tok: ↑0 ↓0 [bg=#212337]=    [fg=#04d1f9 bg=#212337]=ttft: 842ms [bg=#212337]=    [fg=#37f499 bg=#212337]=git: main clean [bg=#212337]=            [bg=#212337]=  
+│     model: test-model   search: native   tok: ↑0 ↓0   ttft: 842ms   git: main clean               # [bg=#212337]=   [bg=#212337]=   [fg=#abb4da bg=#212337]=model: test-model [bg=#212337]=    [fg=#abb4da bg=#212337]=search: native [bg=#212337]=    [fg=#f7c67f bg=#212337]=tok: ↑0 ↓0 [bg=#212337]=    [fg=#04d1f9 bg=#212337]=ttft: 842ms [bg=#212337]=    [fg=#37f499 bg=#212337]=git: main clean [bg=#212337]=            [bg=#212337]=  
 retained:
-│     model: test-model   search: native   tok: ↑0 ↓0   ttft: 1.3s   git: main clean                # [bg=#212337]=   [bg=#212337]=   [fg=#abb4da bg=#212337]=model: test-model [bg=#212337]=    [fg=#abb4da bg=#212337]=search: native [bg=#212337]=    [fg=#e0e0e0 bg=#212337]=tok: ↑0 ↓0 [bg=#212337]=    [fg=#04d1f9 bg=#212337]=ttft: 1.3s [bg=#212337]=    [fg=#37f499 bg=#212337]=git: main clean [bg=#212337]=             [bg=#212337]=  
+│     model: test-model   search: native   tok: ↑0 ↓0   ttft: 1.3s   git: main clean                # [bg=#212337]=   [bg=#212337]=   [fg=#abb4da bg=#212337]=model: test-model [bg=#212337]=    [fg=#abb4da bg=#212337]=search: native [bg=#212337]=    [fg=#f7c67f bg=#212337]=tok: ↑0 ↓0 [bg=#212337]=    [fg=#04d1f9 bg=#212337]=ttft: 1.3s [bg=#212337]=    [fg=#37f499 bg=#212337]=git: main clean [bg=#212337]=             [bg=#212337]=  
 narrow:
-│     model: test-model   search: native   tok: ↑0 ↓0   git: main clean             # [bg=#212337]=   [bg=#212337]=   [fg=#abb4da bg=#212337]=model: test-model [bg=#212337]=    [fg=#abb4da bg=#212337]=search: native [bg=#212337]=    [fg=#e0e0e0 bg=#212337]=tok: ↑0 ↓0 [bg=#212337]=    [fg=#37f499 bg=#212337]=git: main clean [bg=#212337]=          [bg=#212337]=
+│     model: test-model   search: native   tok: ↑0 ↓0   git: main clean             # [bg=#212337]=   [bg=#212337]=   [fg=#abb4da bg=#212337]=model: test-model [bg=#212337]=    [fg=#abb4da bg=#212337]=search: native [bg=#212337]=    [fg=#f7c67f bg=#212337]=tok: ↑0 ↓0 [bg=#212337]=    [fg=#37f499 bg=#212337]=git: main clean [bg=#212337]=          [bg=#212337]=

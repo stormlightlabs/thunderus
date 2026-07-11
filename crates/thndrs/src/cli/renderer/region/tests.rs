@@ -98,7 +98,7 @@ fn build_frame_contains_live_prompt_and_status() {
 }
 
 #[test]
-fn build_frame_short_startup_prioritizes_identity_context_and_help() {
+fn build_frame_short_startup_prioritizes_complete_identity_context_and_attention_sections() {
     let _guard = crate::test_env::lock();
     let mut app = test_app();
     app.context_sources = vec![context::ContextSource {
@@ -131,13 +131,35 @@ fn build_frame_short_startup_prioritizes_identity_context_and_help() {
         "critical diagnostics should survive short-height clipping:\n{combined}"
     );
     assert!(
-        combined.contains("help"),
-        "prompt help should survive when the constrained budget allows it:\n{combined}"
-    );
-    assert!(
         combined.contains("rows hidden"),
         "compressed startup rows should be explicit:\n{combined}"
     );
+}
+
+#[test]
+fn build_frame_short_startup_never_orphans_a_section_heading() {
+    let mut app = test_app();
+    app.context_sources = vec![context::ContextSource {
+        path: app.cwd.join("AGENTS.md"),
+        scope: ".".to_string(),
+        content: "# Project".to_string(),
+        content_hash: 42,
+        truncated: false,
+        byte_count: 9,
+    }];
+
+    let contents = LiveRegion::new().build_frame(&app, 80, 16).render_text();
+    let lines: Vec<_> = contents.lines().map(str::trim).collect();
+    for heading in ["CONTEXT", "SKILLS", "SEARCH", "ATTENTION"] {
+        if let Some(index) = lines.iter().position(|line| *line == heading) {
+            assert!(
+                lines
+                    .get(index + 1)
+                    .is_some_and(|line| !line.is_empty() && !line.chars().all(|ch| ch == '─')),
+                "{heading} must retain a content row when visible:\n{contents}"
+            );
+        }
+    }
 }
 
 #[test]

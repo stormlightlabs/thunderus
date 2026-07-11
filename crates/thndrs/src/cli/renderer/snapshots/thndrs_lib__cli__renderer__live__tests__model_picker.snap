@@ -1,9 +1,8 @@
 ---
-source: src/cli/renderer/live.rs
-assertion_line: 998
+source: crates/thndrs/src/cli/renderer/live.rs
 expression: frame.render_styled()
 ---
 │   models  type to filter                                                          # [bg=#212337]=   [fg=#37f499 bg=#212337 b]=models [bg=#212337]=   [fg=#3b4261 bg=#212337]=type to filter [bg=#212337]=                                                       [bg=#212337]=  
 │      umans-coder  Default route to Kimi K2.7-Code                                 # [bg=#212337]=   [bg=#212337]=  [bg=#212337]=   [fg=#ebfafa bg=#212337]=umans-coder [bg=#212337]=   [fg=#3b4261 bg=#212337]=Default route to Kimi K2.7-Code [bg=#212337]=                              [bg=#212337]=  
-│   ›  umans-glm-5.2  Largest context window                                        # [bg=#292e42]=   [fg=#e0e0e0 bg=#292e42 b]=› [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=umans-glm-5.2 [bg=#292e42]=   [fg=#3b4261 bg=#292e42]=Largest context window [bg=#292e42]=                                     [bg=#292e42]=  
+│   ›  umans-glm-5.2  Largest context window                                        # [bg=#292e42]=   [fg=#f7c67f bg=#292e42 b]=› [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=umans-glm-5.2 [bg=#292e42]=   [fg=#3b4261 bg=#292e42]=Largest context window [bg=#292e42]=                                     [bg=#292e42]=  
 │   Enter select   Esc close                                                        # [bg=#212337]=   [fg=#37f499 bg=#212337 b]=Enter [fg=#3b4261 bg=#212337]= select    [fg=#37f499 bg=#212337 b]=Esc [fg=#3b4261 bg=#212337]= close [bg=#212337]=                                                     [bg=#212337]=

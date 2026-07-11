@@ -312,6 +312,11 @@ impl LiveRegion {
     }
 }
 
+struct StartupSectionGroup {
+    priority: u8,
+    rows: Vec<Row>,
+}
+
 /// Keep the last `budget` rows, dropping older rows from the top.
 ///
 /// When `budget` exceeds the row count, all rows are returned unchanged.
@@ -338,62 +343,125 @@ fn startup_history_rows(rows: Vec<Row>, width: usize, budget: usize) -> Vec<Row>
         0 => Vec::new(),
         budget if rows.len() <= budget => rows,
         1 => vec![hidden_startup_row(width, rows.len())],
-        _ => {
-            let keep_budget = budget - 1;
-            let keep = {
-                let mut ranked: Vec<(usize, usize)> = rows
-                    .iter()
-                    .enumerate()
-                    .map(|(index, _)| {
-                        let text = rows[index].text_for_policy();
-                        let trimmed = text.trim();
-                        let key = trimmed.strip_prefix('|').map(str::trim).unwrap_or(trimmed);
+        _ => clip_startup_sections(&rows, width, budget),
+    }
+}
 
-                        if key.contains("THNDRS") || key.contains("thndrs") {
-                            return (0, index);
-                        }
-                        if key.starts_with("model ") || key.starts_with("cwd ") || key.starts_with("search ") {
-                            return (1, index);
-                        }
-                        if key == "CONTEXT"
-                            || key.starts_with("skill diagnostic")
-                            || key.contains("AGENTS.md")
-                            || key.contains("SKILL.md")
-                            || key.contains("invalid YAML")
-                        {
-                            return (2, index);
-                        }
-                        if key.starts_with("Ask for") || key.starts_with("? help") {
-                            return (3, index);
-                        }
-                        if key == "SKILLS" || key == "SEARCH" || key == "ATTENTION" || key.chars().all(|ch| ch == '─')
-                        {
-                            return (4, index);
-                        }
-                        if trimmed.is_empty() {
-                            return (6, index);
-                        }
-                        (5, index)
-                    })
-                    .collect();
-                ranked.sort_by_key(|(priority, index)| (*priority, *index));
+/// Clip the startup banner by complete semantic sections.
+///
+/// A heading, its separator, and its content must travel together. Selecting
+/// individual rows makes constrained viewports misleading: a heading can be
+/// left without its value, or a diagnostic can appear detached from attention.
+fn clip_startup_sections(rows: &[Row], width: usize, budget: usize) -> Vec<Row> {
+    let keep_budget = budget - 1;
+    let mut groups = startup_section_groups(rows);
+    if keep_budget < 14
+        && let Some(identity) = groups.first_mut()
+    {
+        identity.rows = compact_identity_section(&identity.rows);
+    }
+    let compact_identity = groups
+        .first()
+        .and_then(|group| group.rows.iter().find(|row| row.text_for_policy().contains("thndrs")))
+        .cloned();
+    let mut selected = vec![false; groups.len()];
+    let mut remaining = keep_budget;
 
-                let mut indexes: Vec<usize> = ranked.into_iter().take(keep_budget).map(|(_, index)| index).collect();
-                indexes.sort_unstable();
-                indexes
-            };
-            let hidden = rows.len().saturating_sub(keep.len());
-            let mut out = Vec::with_capacity(budget);
-            for (index, row) in rows.into_iter().enumerate() {
-                if keep.contains(&index) {
-                    out.push(row);
-                }
-            }
+    let mut candidates: Vec<(u8, usize)> = groups
+        .iter()
+        .enumerate()
+        .map(|(index, group)| (group.priority, index))
+        .collect();
+    candidates.sort_unstable();
 
-            out.push(hidden_startup_row(width, hidden));
-            out
+    for (_, index) in candidates {
+        let group = &groups[index];
+        if group.rows.len() <= remaining {
+            selected[index] = true;
+            remaining -= group.rows.len();
         }
     }
+
+    let hidden = groups
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| !selected[*index])
+        .map(|(_, group)| group.rows.len())
+        .sum();
+    let mut out: Vec<Row> = groups
+        .into_iter()
+        .enumerate()
+        .filter(|(index, _)| selected[*index])
+        .flat_map(|(_, group)| group.rows)
+        .collect();
+
+    if out.is_empty() {
+        // At extreme heights, preserve the application identity instead of a
+        // detached metadata row. The next height tier restores complete groups.
+        if let Some(row) = compact_identity {
+            out.push(row);
+        }
+    }
+    out.push(hidden_startup_row(width, hidden));
+    out
+}
+
+/// Keep the startup identity legible when there is not enough height for the
+/// full runtime summary. It remains a single intentional block, rather than a
+/// mixture of unrelated metadata rows.
+fn compact_identity_section(rows: &[Row]) -> Vec<Row> {
+    rows.iter()
+        .filter(|row| {
+            let text = row.text_for_policy();
+            let trimmed = text.trim();
+            trimmed.starts_with("thndrs") || trimmed.starts_with("model")
+        })
+        .cloned()
+        .collect()
+}
+
+fn startup_section_groups(rows: &[Row]) -> Vec<StartupSectionGroup> {
+    let labels = ["CONTEXT", "SKILLS", "SEARCH", "ATTENTION"];
+    let heading_indexes: Vec<usize> = rows
+        .iter()
+        .enumerate()
+        .filter_map(|(index, row)| labels.contains(&row.text_for_policy().trim()).then_some(index))
+        .collect();
+    let help_index = rows
+        .iter()
+        .position(|row| row.text_for_policy().trim().starts_with("Ask for"));
+
+    let first_section = heading_indexes.first().copied().unwrap_or(rows.len());
+    let mut boundaries = vec![0, first_section.saturating_sub(1)];
+    boundaries.extend(heading_indexes.iter().map(|index| index.saturating_sub(1)));
+    if let Some(index) = help_index {
+        boundaries.push(index.saturating_sub(1));
+    }
+    boundaries.push(rows.len());
+    boundaries.sort_unstable();
+    boundaries.dedup();
+
+    boundaries
+        .windows(2)
+        .filter_map(|window| {
+            let start = window[0];
+            let end = window[1];
+            (start < end).then(|| {
+                let heading = rows
+                    .get(start + 1)
+                    .map(RowPolicyText::text_for_policy)
+                    .unwrap_or_default();
+                let priority = match heading.trim() {
+                    "CONTEXT" => 1,
+                    "ATTENTION" => 2,
+                    "SKILLS" | "SEARCH" => 4,
+                    _ if help_index.is_some_and(|index| start == index.saturating_sub(1)) => 3,
+                    _ => 0,
+                };
+                StartupSectionGroup { priority, rows: rows[start..end].to_vec() }
+            })
+        })
+        .collect()
 }
 
 fn hidden_startup_row(width: usize, hidden: usize) -> Row {
