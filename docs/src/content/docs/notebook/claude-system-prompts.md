@@ -93,10 +93,6 @@ product documentation.
 - Should more tool-specific prompt text move into tool schemas?
   - **Recommendation**: Borrow the pattern of colocating rules with tools and modes, but
     avoid importing a large prompt ecosystem without a matching product workflow.
-- Should LSP be implemented through installed language servers, a Rust crate,
-  or deferred until the read-only file tools feel insufficient?
-  - **Recommendation**: Defer LSP until text search, file reads, and edit tools produce
-    clear gaps that language-server diagnostics would solve.
 - How much of the security monitor should be static Rust policy versus
   model-assisted classification?
   - **Recommendation**: Put hard safety boundaries in deterministic policy and use

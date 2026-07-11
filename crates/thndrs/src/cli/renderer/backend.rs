@@ -124,8 +124,7 @@ impl<W: Write> TerminalBackend<W> {
 
     /// Clear the visible screen.
     pub fn clear_all(&mut self) -> io::Result<()> {
-        queue!(self.writer, MoveTo(0, 0), CtClear(ClearType::All))?;
-        self.writer.flush()
+        queue!(self.writer, MoveTo(0, 0), CtClear(ClearType::All))
     }
 
     /// Clear the visible screen and purge terminal scrollback where supported.
@@ -150,7 +149,9 @@ impl<W: Write> TerminalBackend<W> {
     /// natively (Shift+PageUp, mouse wheel when not captured, etc.).
     ///
     /// After insertion, the scroll region is reset and the cursor is returned
-    /// to its previous position.
+    /// to its previous position. The caller flushes after it also queues the
+    /// replacement live frame, so this intermediate scrollback state is never
+    /// presented as a separate visible update.
     pub fn insert_history_lines(&mut self, rows: &[Row], viewport_top: u16) -> io::Result<()> {
         if rows.is_empty() {
             return Ok(());
@@ -171,8 +172,7 @@ impl<W: Write> TerminalBackend<W> {
             write_screen_row(&mut self.writer, row)?;
         }
 
-        queue!(self.writer, ResetScrollRegion)?;
-        self.writer.flush()
+        queue!(self.writer, ResetScrollRegion)
     }
 
     /// Move the cursor to a coordinate within the live region.
@@ -221,7 +221,7 @@ impl<W: Write> TerminalBackend<W> {
         } else {
             queue!(self.writer, Hide)?;
         }
-        self.writer.flush()
+        Ok(())
     }
 
     /// Render only rows that differ from `prev`, leaving unchanged rows on
@@ -276,7 +276,7 @@ impl<W: Write> TerminalBackend<W> {
                 queue!(self.writer, Hide)?;
             }
         }
-        self.writer.flush()
+        Ok(())
     }
 
     /// Flush any buffered output.
@@ -469,6 +469,24 @@ pub fn terminal_size() -> (u16, u16) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Default)]
+    struct FlushTrackingWriter {
+        bytes: Vec<u8>,
+        flushes: usize,
+    }
+
+    impl Write for FlushTrackingWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.bytes.extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            self.flushes += 1;
+            Ok(())
+        }
+    }
 
     fn backend(width: u16, height: u16) -> TerminalBackend<Vec<u8>> {
         TerminalBackend::new(Vec::new(), width, height)
@@ -752,6 +770,26 @@ mod tests {
             diff_bytes.contains("\x1b[1;9H"),
             "cursor should be placed after the diffed row: {diff_bytes:?}"
         );
+    }
+
+    #[test]
+    fn history_insert_and_frame_render_defer_flush_until_caller_requests_it() {
+        let writer = FlushTrackingWriter::default();
+        let mut b = TerminalBackend::new(writer, 20, 10);
+        let history_row = Row::padded(vec![Span::plain("history")], 20, CellStyle::default());
+        let mut frame = Frame::new(20);
+        frame.push(Row::padded(vec![Span::plain("live")], 20, CellStyle::default()));
+
+        b.insert_history_lines(&[history_row], 10).unwrap();
+        b.render_frame(&frame, 0).unwrap();
+        assert_eq!(
+            b.writer().flushes,
+            0,
+            "renderer steps must not expose an intermediate frame"
+        );
+
+        b.flush().unwrap();
+        assert_eq!(b.writer().flushes, 1);
     }
 
     #[test]

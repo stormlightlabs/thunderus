@@ -607,7 +607,7 @@ fn render_frame_keeps_long_streaming_assistant_uncommitted() {
 }
 
 #[test]
-fn vt100_submitted_prompt_survives_first_render_scrollback_round_trip() {
+fn vt100_submitted_prompt_does_not_enter_scrollback() {
     let mut app = test_app();
     app.run_state = RunState::Working;
     app.transcript.push(Entry::User { text: "start the task".to_string() });
@@ -618,8 +618,8 @@ fn vt100_submitted_prompt_survives_first_render_scrollback_round_trip() {
 
     let contents = vt100_contents(backend.writer(), 80, 18);
     assert!(
-        contents.contains("start the task"),
-        "vt100 should interpret the scroll-region insert as visible/history content:\n{contents}"
+        !contents.contains("start the task"),
+        "submitted prompts should not appear in visible/history content:\n{contents}"
     );
     assert!(
         contents.contains("sending") || contents.contains("submitted"),
@@ -661,7 +661,7 @@ fn vt100_streaming_tail_stays_above_status_without_commit() {
 }
 
 #[test]
-fn vt100_resize_replays_committed_rows_without_duplicate_prompt() {
+fn vt100_resize_replays_committed_rows_without_submitted_prompt() {
     let mut app = test_app();
     app.run_state = RunState::Working;
     app.transcript
@@ -689,8 +689,8 @@ fn vt100_resize_replays_committed_rows_without_duplicate_prompt() {
         .filter(|line| line.contains("resize preserves exactly one"))
         .count();
     assert_eq!(
-        prompt_count, 1,
-        "prompt should be replayed once after narrow/wide round trip:\n{contents}"
+        prompt_count, 0,
+        "submitted prompt should not be replayed after narrow/wide round trip:\n{contents}"
     );
     assert!(
         contents.contains("stable response rows"),
@@ -721,8 +721,8 @@ fn vt100_resize_replays_startup_banner_with_committed_scrollback() {
         "startup banner sections should be replayed with committed scrollback after resize:\n{contents}"
     );
     assert!(
-        contents.contains("trigger scrollback replay"),
-        "committed prompt should still be present with replayed banner:\n{contents}"
+        !contents.contains("trigger scrollback replay"),
+        "submitted prompt should remain outside replayed scrollback:\n{contents}"
     );
 }
 
@@ -1129,6 +1129,8 @@ fn stable_rows_replay_after_width_change() {
     app.run_state = RunState::Working;
     app.transcript
         .push(Entry::User { text: "resize replay test".to_string() });
+    app.transcript
+        .push(Entry::Agent { text: "resize replay response".to_string(), streaming: false });
 
     let mut backend = TerminalBackend::new(Vec::new(), 80, 24);
     let mut lr = LiveRegion::new();
@@ -1148,8 +1150,8 @@ fn stable_rows_replay_after_width_change() {
         "replayed rows should be inserted through a scroll region: {new_bytes:?}"
     );
     assert!(
-        new_bytes.contains("resize replay test"),
-        "replayed rows should contain the user entry text: {new_bytes:?}"
+        new_bytes.contains("resize replay response"),
+        "replayed rows should contain the stable assistant text: {new_bytes:?}"
     );
 }
 

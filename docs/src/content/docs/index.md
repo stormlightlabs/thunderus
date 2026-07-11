@@ -27,7 +27,5 @@ inspecting a repository.
 
 ## Coming Soon
 
-- Read-only code-intelligence (LSP-based) tools such as document symbols,
-  workspace symbols, go to definition, references, hover, and implementations.
 - Granular context control & file (markdown) backed memory
 - Better session observability & config/session controls

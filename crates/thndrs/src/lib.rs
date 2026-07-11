@@ -59,6 +59,11 @@ use utils::datetime;
 use thndrs_agent::CancelToken;
 use thndrs_context::context;
 
+/// Fastest cadence at which the direct renderer redraws agent-driven frames.
+const MAX_RENDER_RATE: Duration = Duration::from_millis(33);
+/// Largest event burst applied before yielding back to the render/event loop.
+const MAX_AGENT_EVENTS_PER_RENDER: usize = 256;
+
 enum AcpEventWrite {
     Continue,
     Finished,
@@ -1072,6 +1077,7 @@ fn run_inline(tick: Duration, cli: &Cli) -> io::Result<()> {
 fn direct_loop<W: io::Write>(
     backend: &mut TerminalBackend<W>, live: &mut LiveRegion, tick: Duration, cli: &Cli, mouse_enabled: bool,
 ) -> io::Result<()> {
+    let tick = tick.max(MAX_RENDER_RATE);
     let mut app = App::from_cli(cli);
     let workspace_root = context::discover_workspace_root(&cli.cwd);
     let observability = init_tracing(&workspace_root, &app.session_id);
@@ -1105,18 +1111,22 @@ fn direct_loop<W: io::Write>(
     let mut mouse_captured = false;
     let (width, height) = backend_size(backend);
     direct_render(backend, live, &mut app, width, height)?;
+    let mut render_dirty = false;
 
     loop {
         let deadline = Instant::now() + tick;
         while Instant::now() < deadline {
-            drain_direct_agent_events(&mut app, &mut agent, backend, live, &observability)?;
-            drain_git_status_watcher(&mut app, &git_watcher, backend, live)?;
+            render_dirty |= drain_direct_agent_events(&mut app, &mut agent, backend, live, &observability)?;
+            render_dirty |= drain_git_status_watcher(&mut app, &git_watcher, backend, live)?;
             manage_agent_lifecycle(&app, &mut agent);
             maybe_spawn_agent(&mut app, &mut agent);
             flush_steering(&mut app, &agent);
             sync_mouse_capture(&app, &mut mouse_captured, mouse_enabled);
-            let (w, h) = backend_size(backend);
-            direct_render(backend, live, &mut app, w, h)?;
+            if render_dirty {
+                let (w, h) = backend_size(backend);
+                direct_render(backend, live, &mut app, w, h)?;
+                render_dirty = false;
+            }
 
             if app.quit {
                 tracing::info!("quitting thndrs");
@@ -1160,10 +1170,15 @@ fn direct_loop<W: io::Write>(
             }
         }
         handle_direct_msg(&mut app, Msg::Tick, backend, live)?;
-        drain_git_status_watcher(&mut app, &git_watcher, backend, live)?;
+        render_dirty |=
+            app.run_state != RunState::Idle || app.first_run_recovery.is_some() || app.ctrl_d_pending.is_some();
+        render_dirty |= drain_git_status_watcher(&mut app, &git_watcher, backend, live)?;
         sync_mouse_capture(&app, &mut mouse_captured, mouse_enabled);
-        let (w, h) = backend_size(backend);
-        direct_render(backend, live, &mut app, w, h)?;
+        if render_dirty {
+            let (w, h) = backend_size(backend);
+            direct_render(backend, live, &mut app, w, h)?;
+            render_dirty = false;
+        }
         if app.quit {
             tracing::info!("quitting thndrs");
             append_daily_log(&observability, &app.session_id, "session_end", "reason=quit");
@@ -1250,12 +1265,13 @@ fn handle_direct_msg<W: io::Write>(
 fn drain_direct_agent_events<W: io::Write>(
     app: &mut App, agent: &mut Option<AgentSlot>, backend: &mut TerminalBackend<W>, live: &mut LiveRegion,
     observability: &Option<Observability>,
-) -> io::Result<()> {
+) -> io::Result<bool> {
     let Some(slot) = agent else {
-        return Ok(());
+        return Ok(false);
     };
+    let mut changed = false;
 
-    loop {
+    for _ in 0..MAX_AGENT_EVENTS_PER_RENDER {
         match slot.receiver.try_recv() {
             Ok(event) => {
                 match &event {
@@ -1279,27 +1295,31 @@ fn drain_direct_agent_events<W: io::Write>(
                     _ => {}
                 }
                 handle_direct_msg(app, Msg::Agent(event), backend, live)?;
+                changed = true;
             }
             Err(mpsc::TryRecvError::Empty) => break,
             Err(mpsc::TryRecvError::Disconnected) => {
                 *agent = None;
                 if app.run_state == RunState::Stopping {
                     handle_direct_msg(app, Msg::Agent(app::AgentEvent::Cancelled), backend, live)?;
+                    changed = true;
                 }
                 break;
             }
         }
     }
-    Ok(())
+    Ok(changed)
 }
 
 fn drain_git_status_watcher<W: io::Write>(
     app: &mut App, watcher: &GitStatusWatcher, backend: &mut TerminalBackend<W>, live: &mut LiveRegion,
-) -> io::Result<()> {
+) -> io::Result<bool> {
+    let mut changed = false;
     while let Ok(status) = watcher.receiver.try_recv() {
         handle_direct_msg(app, Msg::GitStatusChanged(status), backend, live)?;
+        changed = true;
     }
-    Ok(())
+    Ok(changed)
 }
 
 /// Spawn the unified agent stream if the app is in [`RunState::Working`] state
@@ -2232,6 +2252,32 @@ for line in sys.stdin:
 
         assert!(agent.is_none(), "disconnected slot should be cleared");
         assert_eq!(app.run_state, RunState::Idle);
+    }
+
+    #[test]
+    fn drain_direct_agent_events_limits_each_render_batch() {
+        let cli = Cli::default();
+        let mut app = App::from_cli(&cli);
+        app.session_writer = None;
+        let (event_tx, event_rx) = mpsc::channel();
+        for index in 0..=MAX_AGENT_EVENTS_PER_RENDER {
+            event_tx
+                .send(app::AgentEvent::Status(format!("event {index}")))
+                .expect("queue event");
+        }
+        let (steering_tx, _steering_rx) = mpsc::channel();
+        let mut agent = Some(AgentSlot { receiver: event_rx, cancel: CancelToken::new(), steering: steering_tx });
+        let mut live = renderer::region::LiveRegion::new();
+        let mut backend = TerminalBackend::new(Vec::new(), 80, 24);
+
+        let changed =
+            drain_direct_agent_events(&mut app, &mut agent, &mut backend, &mut live, &None).expect("drain events");
+
+        assert!(changed);
+        assert!(matches!(
+            agent.as_ref().expect("agent remains active").receiver.try_recv(),
+            Ok(app::AgentEvent::Status(text)) if text == format!("event {MAX_AGENT_EVENTS_PER_RENDER}")
+        ));
     }
 
     #[test]

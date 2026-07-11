@@ -2329,3 +2329,22 @@ fn skill_activation_record_defaults_rendered_metadata_for_old_sessions() {
         }
     ));
 }
+
+#[test]
+fn read_records_from_tail_discards_partial_record_and_keeps_recent_records() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let mut writer = test_writer(dir.path(), "tail-records");
+    writer
+        .append_entry(&Entry::Agent { text: "x".repeat(4_096), streaming: false }, "turn_1")
+        .expect("append large response");
+    writer
+        .append_entry(&Entry::User { text: "recent prompt".to_string() }, "turn_2")
+        .expect("append recent prompt");
+
+    let records = SessionReader::read_records_from_tail(writer.path(), 512);
+
+    assert!(records.iter().any(|record| matches!(
+        record,
+        SessionRecord::User { text, .. } if text == "recent prompt"
+    )));
+}

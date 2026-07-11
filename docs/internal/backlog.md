@@ -36,37 +36,12 @@ migration itself is complete and archived in `archive/v0.1.md`.
   marks results as degraded.
 - Surface fallback choice in diagnostics, transcript/tool metadata, and tests.
 
-## LSP And Code Intelligence
-
-Add read-only LSP-backed tools only when they are clearly better than plain file
-search.
-
-Supported operations:
-
-- document symbols;
-- workspace symbols;
-- go to definition;
-- find references;
-- hover;
-- find implementations where supported.
-
-Rules:
-
-- never edit files through LSP;
-- prefer installed language servers and degrade clearly when none is available;
-- keep startup and indexing bounded with visible diagnostics;
-- record LSP calls as structured transcript/tool events;
-- preserve plain file search as fallback;
-- unit-test fixture responses and no-server fallback behavior;
-- add snapshots for LSP transcript entries.
-
 ## Required Checks
 
 - Prompt input tests for grapheme-aware insert, delete, backspace, cursor
   movement, word movement, wrapping, and cursor placement.
 - Long-prompt benchmark or spike covering `String` versus Ropey before adopting
   a rope-backed prompt buffer.
-- LSP fixture tests and no-server fallback tests.
 - Skill metadata validation and progressive-loading tests.
 - Remote skill fetch safety and reference-depth tests.
 - Agent self-knowledge snapshot tests.
@@ -78,7 +53,6 @@ Rules:
 - `CHANGELOG.md` using Keep a Changelog categories.
 - Install documentation.
 - Search mode and fallback documentation.
-- LSP/code-intelligence documentation.
 - Skill authoring and skill loading documentation.
 - Agent self-knowledge/introspection documentation.
 - Release candidate checklist.
@@ -90,8 +64,6 @@ Rules:
 - In-app task management.
 - Subagents or multi-agent orchestration.
 - Custom terminal multiplexer.
-- LSP code actions or automatic refactors.
-- Long-lived LSP server process management.
 - Skill marketplace, installer, sharing, or publishing.
 - Skill-specific tool permission enforcement.
 - Plugin framework for self-description.

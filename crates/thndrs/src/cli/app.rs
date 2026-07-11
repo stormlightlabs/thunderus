@@ -45,6 +45,8 @@ pub const VISIBLE_ROWS: usize = 8;
 const LARGE_PICKER_LIMIT: usize = 200;
 const MODEL_PICKER_LIMIT: usize = 50;
 const PROJECT_INPUT_HISTORY_LIMIT: usize = 200;
+const PROJECT_INPUT_HISTORY_SESSION_LIMIT: usize = 32;
+const PROJECT_INPUT_HISTORY_BYTES_PER_SESSION: usize = 64 * 1024;
 
 /// Top-level interaction mode.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
@@ -1724,8 +1726,14 @@ fn offline_model_picker_items() -> Vec<PickerItem> {
 fn load_project_input_history(sessions_dir: &Path) -> Vec<String> {
     let mut newest_first = Vec::new();
 
-    for path in session::list_session_files(sessions_dir) {
-        for record in session::SessionReader::read_records(&path).into_iter().rev() {
+    for path in session::list_session_files(sessions_dir)
+        .into_iter()
+        .take(PROJECT_INPUT_HISTORY_SESSION_LIMIT)
+    {
+        for record in session::SessionReader::read_records_from_tail(&path, PROJECT_INPUT_HISTORY_BYTES_PER_SESSION)
+            .into_iter()
+            .rev()
+        {
             let session::SessionRecord::User { text, .. } = record else {
                 continue;
             };

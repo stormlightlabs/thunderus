@@ -1259,6 +1259,48 @@ impl SessionReader {
             .collect()
     }
 
+    /// Read only the trailing portion of a session file.
+    ///
+    /// If the bounded read starts in the middle of a JSONL record, that first
+    /// partial record is discarded. This is suitable for bounded input recall,
+    /// where recent turns matter more than a full historical reconstruction.
+    pub(crate) fn read_records_from_tail(path: &Path, max_bytes: usize) -> Vec<SessionRecord> {
+        use std::io::{Read, Seek};
+
+        if max_bytes == 0 {
+            return Vec::new();
+        }
+
+        let Ok(mut file) = std::fs::File::open(path) else {
+            return Vec::new();
+        };
+        let Ok(file_len) = file.metadata().map(|metadata| metadata.len()) else {
+            return Vec::new();
+        };
+        let start = file_len.saturating_sub(max_bytes as u64);
+        let read_start = start.saturating_sub(1);
+        if file.seek(std::io::SeekFrom::Start(read_start)).is_err() {
+            return Vec::new();
+        }
+
+        let mut bytes = Vec::new();
+        if file.read_to_end(&mut bytes).is_err() {
+            return Vec::new();
+        }
+        let content = String::from_utf8_lossy(&bytes);
+        let complete_records = if start == 0 {
+            content.as_ref()
+        } else {
+            content.split_once('\n').map_or("", |(_, records)| records)
+        };
+
+        complete_records
+            .lines()
+            .filter(|line| !line.is_empty())
+            .filter_map(|line| SessionRecord::from_json(line).ok())
+            .collect()
+    }
+
     /// Read a session file and reconstruct the transcript.
     ///
     /// Only records that map to [`Entry`] values are included. Metadata
