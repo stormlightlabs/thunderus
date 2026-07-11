@@ -6,12 +6,13 @@
 
 use std::path::Path;
 
+use crate::cli::{ReasoningEffort, ReasoningSummary};
 use crate::{
     app::AgentEvent,
     cli::WebSearchMode,
     providers::{
-        self, KnownModel, ProviderContentBlock, ProviderError, ProviderMessage, ProviderMessageContent, Result,
-        StreamFormat, StreamingProvider,
+        self, KnownModel, ProviderContentBlock, ProviderContinuation, ProviderError, ProviderMessage,
+        ProviderMessageContent, Result, StreamFormat, StreamingProvider, StreamingRequest,
     },
     thndrs_core::auth::{self, ChatGptCodexAuth},
 };
@@ -54,6 +55,8 @@ pub enum ResponsesSseEvent {
         input_tokens: u64,
         output_tokens: u64,
     },
+    /// Complete output item retained only for in-memory continuation.
+    OutputItem(serde_json::Value),
     Done,
     Malformed(String),
     Other,
@@ -98,8 +101,27 @@ impl ChatGptCodexClient {
     pub fn build_responses_request_body(
         model: &str, messages: &[ProviderMessage], tools: Option<&serde_json::Value>,
     ) -> Result<serde_json::Value> {
+        Self::build_responses_request_body_with_reasoning(
+            model,
+            messages,
+            tools,
+            ReasoningEffort::default(),
+            ReasoningSummary::default(),
+            &ProviderContinuation::default(),
+        )
+    }
+
+    /// Build a GPT-5.6-aware Responses streaming request body.
+    ///
+    /// TODO: Apply these controls to additional ChatGPT Codex models once
+    /// private-backend support has been verified for each model.
+    pub(crate) fn build_responses_request_body_with_reasoning(
+        model: &str, messages: &[ProviderMessage], tools: Option<&serde_json::Value>, effort: ReasoningEffort,
+        summary: ReasoningSummary, continuation: &ProviderContinuation,
+    ) -> Result<serde_json::Value> {
         let raw_model = raw_model_id(model)?;
         let (instructions, input) = responses_input(messages);
+        let input = continuation_input(continuation, messages).unwrap_or(input);
         let mut body = serde_json::json!({
             "model": raw_model,
             "store": false,
@@ -111,6 +133,13 @@ impl ChatGptCodexClient {
             "text": { "verbosity": "low" },
             "include": ["reasoning.encrypted_content"],
         });
+        if raw_model == "gpt-5.6-sol" {
+            let mut reasoning = serde_json::json!({ "effort": effort.label() });
+            if summary == ReasoningSummary::Auto {
+                reasoning["summary"] = serde_json::Value::String("auto".to_string());
+            }
+            body["reasoning"] = reasoning;
+        }
         if let Some(tool_schemas) = tools {
             let converted = responses_tools(tool_schemas);
             if !converted.as_array().is_some_and(|arr| arr.is_empty()) {
@@ -121,10 +150,12 @@ impl ChatGptCodexClient {
     }
 
     /// Send a streaming request to `POST /responses`.
-    pub fn send_streaming_request(
-        &self, model: &str, messages: &[ProviderMessage], tools: Option<&serde_json::Value>,
+    pub(crate) fn send_streaming_request(
+        &self, model: &str, messages: &[ProviderMessage], tools: Option<&serde_json::Value>, effort: ReasoningEffort,
+        summary: ReasoningSummary, continuation: &ProviderContinuation,
     ) -> Result<ureq::http::Response<ureq::Body>> {
-        let body = Self::build_responses_request_body(model, messages, tools)?;
+        let body =
+            Self::build_responses_request_body_with_reasoning(model, messages, tools, effort, summary, continuation)?;
         let url = format!("{}/responses", self.base_url);
         let mut request = self.agent.post(&url);
         for (key, value) in self.build_responses_headers() {
@@ -187,10 +218,17 @@ impl StreamingProvider for ChatGptCodexClient {
     }
 
     fn send_streaming_request(
-        &self, model: &str, messages: &[ProviderMessage], _max_tokens: u32, _search_mode: WebSearchMode,
-        tools: &serde_json::Value,
+        &self, model: &str, messages: &[ProviderMessage], request: &StreamingRequest<'_>,
     ) -> Result<ureq::http::Response<ureq::Body>> {
-        ChatGptCodexClient::send_streaming_request(self, model, messages, Some(tools))
+        ChatGptCodexClient::send_streaming_request(
+            self,
+            model,
+            messages,
+            Some(request.tools),
+            request.reasoning_effort,
+            request.reasoning_summary,
+            request.continuation,
+        )
     }
 
     fn stream_format(&self, model: &str) -> Result<StreamFormat> {
@@ -223,11 +261,55 @@ pub fn raw_model_id(model: &str) -> Result<&str> {
 /// Current ChatGPT Codex models from the provider expansion plan.
 pub fn known_models() -> Vec<KnownModel> {
     vec![
+        KnownModel { id: "chatgpt-codex/gpt-5.6-sol", description: "ChatGPT-backed Codex GPT-5.6 Sol, experimental" },
         KnownModel { id: "chatgpt-codex/gpt-5.5", description: "ChatGPT-backed Codex, experimental" },
         KnownModel { id: "chatgpt-codex/gpt-5.4", description: "ChatGPT-backed Codex, experimental" },
         KnownModel { id: "chatgpt-codex/gpt-5.4-mini", description: "ChatGPT-backed Codex mini, experimental" },
         KnownModel { id: "chatgpt-codex/gpt-5.3-codex-spark", description: "ChatGPT-backed Codex Spark, experimental" },
     ]
+}
+
+/// Extend an in-memory Responses history after one streamed response.
+pub(crate) fn record_response_items(
+    continuation: &mut ProviderContinuation, messages: &[ProviderMessage], response_items: Vec<serde_json::Value>,
+) {
+    if response_items.is_empty() {
+        return;
+    }
+
+    let mut items = match continuation.responses_items() {
+        Some((items, consumed_messages)) => {
+            let mut items = items.to_vec();
+            items.extend(responses_input_items(&messages[consumed_messages..]));
+            items
+        }
+        None => responses_input_items(messages),
+    };
+    items.extend(response_items);
+    continuation.set_responses_items(items, messages.len());
+}
+
+/// Append a tool result to an in-memory Responses history.
+pub(crate) fn record_tool_output(
+    continuation: &mut ProviderContinuation, call_id: &str, output: &str, consumed_messages: usize,
+) {
+    let Some((items, _)) = continuation.responses_items() else {
+        return;
+    };
+    let mut items = items.to_vec();
+    items.push(serde_json::json!({
+        "type": "function_call_output",
+        "call_id": call_id,
+        "output": output,
+    }));
+    continuation.set_responses_items(items, consumed_messages);
+}
+
+fn continuation_input(continuation: &ProviderContinuation, messages: &[ProviderMessage]) -> Option<serde_json::Value> {
+    let (items, consumed_messages) = continuation.responses_items()?;
+    let mut input = items.to_vec();
+    input.extend(responses_input_items(&messages[consumed_messages..]));
+    Some(serde_json::Value::Array(input))
 }
 
 /// Convert a ChatGPT Codex error into a human-readable failure string.
@@ -277,6 +359,11 @@ pub fn parse_responses_sse_event(data: &str) -> Vec<ResponsesSseEvent> {
     if let Some(reasoning) = extract_responses_reasoning_delta(&value, event_type) {
         events.push(ResponsesSseEvent::ReasoningDelta(reasoning));
     }
+    if event_type == "response.output_item.done"
+        && let Some(item) = value.get("item")
+    {
+        events.push(ResponsesSseEvent::OutputItem(item.clone()));
+    }
     if let Some(tool_event) = extract_responses_tool_event(&value, event_type) {
         events.push(tool_event);
     }
@@ -292,7 +379,7 @@ fn extract_responses_text_delta(value: &serde_json::Value, event_type: &str) -> 
 }
 
 fn extract_responses_reasoning_delta(value: &serde_json::Value, event_type: &str) -> Option<String> {
-    if !event_type.contains("reasoning") {
+    if !event_type.contains("reasoning_summary") {
         return None;
     }
     string_field(value, &["delta", "text", "summary_text"])
@@ -435,6 +522,13 @@ fn responses_input(messages: &[ProviderMessage]) -> (String, serde_json::Value) 
     (instructions, serde_json::Value::Array(input))
 }
 
+fn responses_input_items(messages: &[ProviderMessage]) -> Vec<serde_json::Value> {
+    match responses_input(messages).1 {
+        serde_json::Value::Array(items) => items,
+        _ => Vec::new(),
+    }
+}
+
 fn responses_items_for_message(message: &ProviderMessage) -> Vec<serde_json::Value> {
     match &message.content {
         ProviderMessageContent::Text(text) => {
@@ -517,6 +611,7 @@ mod tests {
     #[test]
     fn known_models_include_chatgpt_codex_picker_entries() {
         let ids: Vec<&str> = known_models().iter().map(|model| model.id).collect();
+        assert!(ids.contains(&"chatgpt-codex/gpt-5.6-sol"));
         assert!(ids.contains(&"chatgpt-codex/gpt-5.5"));
         assert!(ids.contains(&"chatgpt-codex/gpt-5.4"));
         assert!(ids.contains(&"chatgpt-codex/gpt-5.4-mini"));
@@ -590,6 +685,74 @@ mod tests {
     }
 
     #[test]
+    fn sol_request_includes_reasoning_effort_and_optional_summary() {
+        let messages = vec![ProviderMessage::user("inspect the project")];
+        let body = ChatGptCodexClient::build_responses_request_body_with_reasoning(
+            "chatgpt-codex/gpt-5.6-sol",
+            &messages,
+            None,
+            ReasoningEffort::Xhigh,
+            ReasoningSummary::Auto,
+            &ProviderContinuation::default(),
+        )
+        .expect("body");
+
+        assert_eq!(body["model"], "gpt-5.6-sol");
+        assert_eq!(body["reasoning"]["effort"], "xhigh");
+        assert_eq!(body["reasoning"]["summary"], "auto");
+        assert_eq!(body["include"], serde_json::json!(["reasoning.encrypted_content"]));
+    }
+
+    #[test]
+    fn older_models_keep_the_existing_responses_payload() {
+        let body = ChatGptCodexClient::build_responses_request_body_with_reasoning(
+            "chatgpt-codex/gpt-5.5",
+            &[ProviderMessage::user("hello")],
+            None,
+            ReasoningEffort::High,
+            ReasoningSummary::Auto,
+            &ProviderContinuation::default(),
+        )
+        .expect("body");
+
+        assert!(body.get("reasoning").is_none());
+    }
+
+    #[test]
+    fn continuation_replays_encrypted_response_items_and_tool_outputs() {
+        let messages = vec![ProviderMessage::user("inspect")];
+        let mut continuation = ProviderContinuation::default();
+        record_response_items(
+            &mut continuation,
+            &messages,
+            vec![serde_json::json!({
+                "type": "reasoning",
+                "encrypted_content": "opaque",
+            })],
+        );
+        record_tool_output(&mut continuation, "call_1", "Cargo.toml", messages.len());
+
+        let body = ChatGptCodexClient::build_responses_request_body_with_reasoning(
+            "chatgpt-codex/gpt-5.6-sol",
+            &messages,
+            None,
+            ReasoningEffort::Medium,
+            ReasoningSummary::Off,
+            &continuation,
+        )
+        .expect("body");
+        let input = body["input"].as_array().expect("input array");
+
+        assert!(input.iter().any(|item| item["encrypted_content"] == "opaque"));
+        assert!(
+            input
+                .iter()
+                .any(|item| item["type"] == "function_call_output" && item["call_id"] == "call_1")
+        );
+        assert!(body["reasoning"].get("summary").is_none());
+    }
+
+    #[test]
     fn build_responses_body_uses_raw_model_for_text_only_turns() {
         let messages = vec![
             ProviderMessage {
@@ -658,7 +821,7 @@ mod tests {
             vec![ResponsesSseEvent::TextDelta("hi".to_string())]
         );
         assert_eq!(
-            parse_responses_sse_event(r#"{"type":"response.reasoning_text.delta","delta":"thinking"}"#),
+            parse_responses_sse_event(r#"{"type":"response.reasoning_summary_text.delta","delta":"thinking"}"#),
             vec![ResponsesSseEvent::ReasoningDelta("thinking".to_string())]
         );
         assert_eq!(
@@ -702,12 +865,21 @@ mod tests {
             parse_responses_sse_event(
                 r#"{"type":"response.output_item.done","item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"find_files","arguments":"{\"pattern\":\"Cargo\"}"}}"#
             ),
-            vec![ResponsesSseEvent::ToolCallDone {
-                id: "fc_1".to_string(),
-                call_id: Some("call_1".to_string()),
-                name: "find_files".to_string(),
-                arguments: r#"{"pattern":"Cargo"}"#.to_string(),
-            }]
+            vec![
+                ResponsesSseEvent::OutputItem(serde_json::json!({
+                    "id":"fc_1",
+                    "type":"function_call",
+                    "call_id":"call_1",
+                    "name":"find_files",
+                    "arguments":"{\"pattern\":\"Cargo\"}",
+                })),
+                ResponsesSseEvent::ToolCallDone {
+                    id: "fc_1".to_string(),
+                    call_id: Some("call_1".to_string()),
+                    name: "find_files".to_string(),
+                    arguments: r#"{"pattern":"Cargo"}"#.to_string(),
+                }
+            ]
         );
     }
 
@@ -785,7 +957,14 @@ mod tests {
             .expect("real ChatGPT subscription credentials and network access are required");
         let messages = vec![ProviderMessage::user("Reply with exactly: ok")];
         let mut response = client
-            .send_streaming_request("chatgpt-codex/gpt-5.5", &messages, None)
+            .send_streaming_request(
+                "chatgpt-codex/gpt-5.5",
+                &messages,
+                None,
+                ReasoningEffort::default(),
+                ReasoningSummary::default(),
+                &ProviderContinuation::default(),
+            )
             .expect("ChatGPT Codex text-only stream requires subscription credentials");
         let body = response.body_mut().read_to_string().expect("read body");
         assert!(body.contains("data:"));
@@ -803,10 +982,50 @@ mod tests {
         let defs = crate::tools::tool_definitions();
         let catalog = crate::tools::tool_catalog_schemas(&defs);
         let mut response = client
-            .send_streaming_request("chatgpt-codex/gpt-5.5", &messages, Some(&catalog))
+            .send_streaming_request(
+                "chatgpt-codex/gpt-5.5",
+                &messages,
+                Some(&catalog),
+                ReasoningEffort::default(),
+                ReasoningSummary::default(),
+                &ProviderContinuation::default(),
+            )
             .expect("ChatGPT Codex tool-call stream requires subscription credentials");
         let body = response.body_mut().read_to_string().expect("read body");
         assert!(body.contains("function_call") || body.contains("find_files"));
+    }
+
+    #[test]
+    #[ignore = "requires real ChatGPT subscription credentials and validates private GPT-5.6 Sol backend support"]
+    fn live_sol_supports_each_reasoning_effort() {
+        let workspace_root = env::current_dir().expect("current dir");
+        let client = ChatGptCodexClient::from_env_or_dotenv(&workspace_root)
+            .expect("real ChatGPT subscription credentials are required");
+        let messages = vec![ProviderMessage::user("Reply with exactly: ok")];
+
+        for effort in [
+            ReasoningEffort::Low,
+            ReasoningEffort::Medium,
+            ReasoningEffort::High,
+            ReasoningEffort::Xhigh,
+        ] {
+            let mut response = client
+                .send_streaming_request(
+                    "chatgpt-codex/gpt-5.6-sol",
+                    &messages,
+                    None,
+                    effort,
+                    ReasoningSummary::Off,
+                    &ProviderContinuation::default(),
+                )
+                .unwrap_or_else(|error| panic!("GPT-5.6 Sol rejected {}: {error}", effort.label()));
+            let body = response.body_mut().read_to_string().expect("read body");
+            assert!(
+                body.contains("data:"),
+                "GPT-5.6 Sol {} did not stream SSE",
+                effort.label()
+            );
+        }
     }
 
     #[test]

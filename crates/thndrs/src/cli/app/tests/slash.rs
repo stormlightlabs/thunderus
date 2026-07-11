@@ -334,10 +334,10 @@ fn slash_setup_can_choose_chatgpt_and_write_project_model() {
         update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
         update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-        assert_eq!(app.model, "chatgpt-codex/gpt-5.5");
+        assert_eq!(app.model, "chatgpt-codex/gpt-5.6-sol");
         assert_eq!(
             std::fs::read_to_string(workspace.join(".thndrs").join("config.toml")).expect("read config"),
-            "model = \"chatgpt-codex/gpt-5.5\"\n"
+            "model = \"chatgpt-codex/gpt-5.6-sol\"\n"
         );
         let recovery = app.first_run_recovery.as_ref().expect("chatgpt recovery");
         assert_eq!(recovery.stage, RecoveryStage::MissingCredential);

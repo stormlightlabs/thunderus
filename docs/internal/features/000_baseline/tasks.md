@@ -215,13 +215,13 @@ feature.
 
 **Acceptance criteria:**
 
-- [ ] Workspace, library package, fake agent, context/session,
+- [x] Workspace, library package, fake agent, context/session,
       memory-disabled startup, ACP event mapping, and session UX checks pass.
-- [ ] `AGENTS.md` reflects the delivered workspace and boundaries.
-- [ ] No new crate, dependency, default capability, or application rewrite was
+- [x] `AGENTS.md` reflects the delivered workspace and boundaries.
+- [x] No new crate, dependency, default capability, or application rewrite was
       introduced outside approved tickets.
-- [ ] The next feature is explicitly selected by a human from the retained
-      context, ACP, setup/reasoning, or iocraft plans.
+- [x] The next feature is explicitly selected by a human from the retained
+      context, ACP, setup/reasoning, or iocraft plans: iocraft.
 
 **Verification:**
 
@@ -232,9 +232,3 @@ feature.
 - `cargo package -p thndrs-agent`
 - `cargo package -p thndrs-context`
 - `cargo package -p thndrs`
-
-## Frontier
-
-Ticket 7 can start now. Ticket 8 remains blocked on Ticket 7. Work one ticket
-per fresh agent context; a human selects the next ticket after each verified
-handoff.

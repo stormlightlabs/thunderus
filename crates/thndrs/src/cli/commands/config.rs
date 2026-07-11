@@ -254,6 +254,16 @@ fn write_config<W: Write>(config: &config::Config, writer: &mut W) -> io::Result
         "  websearch: {}",
         config.websearch.unwrap_or(crate::cli::WebSearchMode::Auto).label()
     )?;
+    writeln!(
+        writer,
+        "  reasoning_effort: {}",
+        config.reasoning_effort.unwrap_or_default().label()
+    )?;
+    writeln!(
+        writer,
+        "  reasoning_summary: {}",
+        config.reasoning_summary.unwrap_or_default().label()
+    )?;
     writeln!(writer, "  tick_rate_ms: {}", config.tick_rate_ms.unwrap_or(0))?;
     writeln!(writer, "  mouse: {}", config.mouse.unwrap_or(false))?;
     writeln!(writer, "  verbose: {}", config.verbose.unwrap_or(false))?;

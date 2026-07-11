@@ -5,7 +5,7 @@ title: "ChatGPT Codex Provider"
 ChatGPT Codex models use the `chatgpt-codex/<model-id>` form:
 
 ```toml
-model = "chatgpt-codex/gpt-5.5"
+model = "chatgpt-codex/gpt-5.6-sol"
 ```
 
 This provider is explicit opt-in. It is ChatGPT-backed and experimental because
@@ -57,10 +57,21 @@ the provider.
 
 Known model picker entries include:
 
-- `chatgpt-codex/gpt-5.5`
+- `chatgpt-codex/gpt-5.6-sol`
 - `chatgpt-codex/gpt-5.4`
 - `chatgpt-codex/gpt-5.4-mini`
 - `chatgpt-codex/gpt-5.3-codex-spark`
 
 The provider labels these entries as ChatGPT-backed and experimental in status
 copy to help distinguish them from OpenAI Platform API-key (coming soon) routes.
+
+## GPT-5.6 Sol reasoning
+
+`chatgpt-codex/gpt-5.6-sol` accepts `reasoning_effort = "low"`, `"medium"`,
+`"high"`, or `"xhigh"`. The default is `medium`. Set
+`reasoning_summary = "auto"` to render provider-returned reasoning summaries;
+the default `off` preserves opaque reasoning only for the active tool loop.
+
+These controls are available in TOML, through their `THNDRS_` environment
+variables, and as ACP session options. They do not persist private provider
+payloads in thndrs session files.

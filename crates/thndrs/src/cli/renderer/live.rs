@@ -1051,6 +1051,8 @@ mod tests {
             cwd: PathBuf::from("."),
             model: "test-model".to_string(),
             websearch: WebSearchMode::Native,
+            reasoning_effort: Default::default(),
+            reasoning_summary: Default::default(),
             tick_rate_ms: 100,
             no_alt_screen: true,
             no_mouse: false,

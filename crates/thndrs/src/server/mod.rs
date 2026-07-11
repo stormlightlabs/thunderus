@@ -15,6 +15,7 @@ mod tests;
 
 use std::path::PathBuf;
 
+use crate::cli::{ReasoningEffort, ReasoningSummary};
 use agent_client_protocol::Result;
 
 /// Runtime configuration accepted by the ACP agent binary.
@@ -27,6 +28,10 @@ pub struct ServerConfig {
     pub model: String,
     /// Web search policy label selected for future harness turns.
     pub websearch: String,
+    /// Default reasoning effort for ChatGPT Codex GPT-5.6 Sol sessions.
+    pub reasoning_effort: ReasoningEffort,
+    /// Default reasoning-summary policy for ChatGPT Codex GPT-5.6 Sol sessions.
+    pub reasoning_summary: ReasoningSummary,
     /// Optional append-only session directory.
     pub session_dir: Option<PathBuf>,
 }
@@ -34,7 +39,21 @@ pub struct ServerConfig {
 impl ServerConfig {
     /// Build a server config from parsed binary flags.
     pub fn new(cwd: PathBuf, model: String, websearch: String, session_dir: Option<PathBuf>) -> Self {
-        Self { cwd, model, websearch, session_dir }
+        Self {
+            cwd,
+            model,
+            websearch,
+            reasoning_effort: ReasoningEffort::default(),
+            reasoning_summary: ReasoningSummary::default(),
+            session_dir,
+        }
+    }
+
+    /// Apply resolved reasoning defaults from local configuration.
+    pub fn with_reasoning(mut self, effort: ReasoningEffort, summary: ReasoningSummary) -> Self {
+        self.reasoning_effort = effort;
+        self.reasoning_summary = summary;
+        self
     }
 }
 

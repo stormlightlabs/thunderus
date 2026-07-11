@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::Duration;
 
-use crate::cli::WebSearchMode;
+use crate::cli::{ReasoningEffort, ReasoningSummary, WebSearchMode};
 use crate::harness::{HarnessHandle, HarnessTurn};
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1::{
@@ -18,8 +18,8 @@ use agent_client_protocol::schema::v1::{
 use tempfile::tempdir;
 
 use super::config_options::{
-    ConfigOptionValue, MODEL_CONFIG_OPTION_ID, WEBSEARCH_CONFIG_OPTION_ID, initial_config_option_ids,
-    initial_config_options, validate_config_option,
+    ConfigOptionValue, MODEL_CONFIG_OPTION_ID, REASONING_EFFORT_CONFIG_OPTION_ID, REASONING_SUMMARY_CONFIG_OPTION_ID,
+    WEBSEARCH_CONFIG_OPTION_ID, initial_config_option_ids, initial_config_options, validate_config_option,
 };
 use super::events::{SessionUpdateIntent, ToolCallKind, ToolStatusIntent, classify_tool, map_agent_event};
 use super::handlers::{ServerState, acp_mcp_config, execute_prompt, initialize, set_config_option};
@@ -414,21 +414,37 @@ fn concurrent_turn_guard_blocks_second_turn_and_allows_after_end() {
 fn config_options_have_stable_ids_and_validate_values() {
     assert_eq!(
         initial_config_option_ids(),
-        &[MODEL_CONFIG_OPTION_ID, WEBSEARCH_CONFIG_OPTION_ID]
+        &[
+            MODEL_CONFIG_OPTION_ID,
+            WEBSEARCH_CONFIG_OPTION_ID,
+            REASONING_EFFORT_CONFIG_OPTION_ID,
+            REASONING_SUMMARY_CONFIG_OPTION_ID,
+        ]
     );
     let option_ids: Vec<&str> = initial_config_options().iter().map(|option| option.id).collect();
     assert!(option_ids.contains(&MODEL_CONFIG_OPTION_ID));
     assert!(option_ids.contains(&WEBSEARCH_CONFIG_OPTION_ID));
+    assert!(option_ids.contains(&REASONING_EFFORT_CONFIG_OPTION_ID));
+    assert!(option_ids.contains(&REASONING_SUMMARY_CONFIG_OPTION_ID));
 
     let model = validate_config_option(MODEL_CONFIG_OPTION_ID, "claude-3-opus").expect("model");
     assert!(matches!(model, ConfigOptionValue::Model(model) if model == "claude-3-opus"));
 
     let ws = validate_config_option(WEBSEARCH_CONFIG_OPTION_ID, "native").expect("websearch");
     assert!(matches!(ws, ConfigOptionValue::WebSearch(WebSearchMode::Native)));
+    assert!(matches!(
+        validate_config_option(REASONING_EFFORT_CONFIG_OPTION_ID, "xhigh"),
+        Ok(ConfigOptionValue::ReasoningEffort(ReasoningEffort::Xhigh))
+    ));
+    assert!(matches!(
+        validate_config_option(REASONING_SUMMARY_CONFIG_OPTION_ID, "auto"),
+        Ok(ConfigOptionValue::ReasoningSummary(ReasoningSummary::Auto))
+    ));
 
     assert!(validate_config_option(MODEL_CONFIG_OPTION_ID, "").is_err());
     assert!(validate_config_option("missing", "x").is_err());
     assert!(validate_config_option(WEBSEARCH_CONFIG_OPTION_ID, "bad").is_err());
+    assert!(validate_config_option(REASONING_EFFORT_CONFIG_OPTION_ID, "max").is_err());
 }
 
 #[test]
@@ -441,7 +457,13 @@ fn session_metadata_placeholder_is_set_and_updatable() {
 
     assert_eq!(
         store.session(session_id.as_str()).expect("session").metadata,
-        LocalSessionMetadata { local_session_id: "local-meta".to_string(), model: None, websearch: None }
+        LocalSessionMetadata {
+            local_session_id: "local-meta".to_string(),
+            model: None,
+            websearch: None,
+            reasoning_effort: None,
+            reasoning_summary: None,
+        }
     );
 
     store
@@ -475,7 +497,7 @@ fn set_config_option_updates_model_and_refreshes_options() {
 
     let response = set_config_option(
         &state,
-        &SetSessionConfigOptionRequest::new(session_id, WEBSEARCH_CONFIG_OPTION_ID, "none"),
+        &SetSessionConfigOptionRequest::new(session_id.clone(), WEBSEARCH_CONFIG_OPTION_ID, "none"),
     )
     .expect("set websearch");
     let json = serde_json::to_value(&response).expect("serialize response");
@@ -483,6 +505,17 @@ fn set_config_option_updates_model_and_refreshes_options() {
 
     assert!(text.contains("\"currentValue\":\"custom-model\""));
     assert!(text.contains("\"currentValue\":\"none\""));
+
+    let response = set_config_option(
+        &state,
+        &SetSessionConfigOptionRequest::new(session_id, REASONING_EFFORT_CONFIG_OPTION_ID, "xhigh"),
+    )
+    .expect("set effort");
+    assert!(
+        serde_json::to_string(&response)
+            .expect("serialize")
+            .contains("\"currentValue\":\"xhigh\"")
+    );
 }
 
 #[test]
@@ -519,6 +552,16 @@ fn execute_prompt_uses_selected_config_options() {
         &SetSessionConfigOptionRequest::new(session_id.clone(), WEBSEARCH_CONFIG_OPTION_ID, "none"),
     )
     .expect("set websearch");
+    set_config_option(
+        &state,
+        &SetSessionConfigOptionRequest::new(session_id.clone(), REASONING_EFFORT_CONFIG_OPTION_ID, "high"),
+    )
+    .expect("set effort");
+    set_config_option(
+        &state,
+        &SetSessionConfigOptionRequest::new(session_id.clone(), REASONING_SUMMARY_CONFIG_OPTION_ID, "auto"),
+    )
+    .expect("set summary");
 
     let response = execute_prompt(
         &state,
@@ -527,6 +570,8 @@ fn execute_prompt_uses_selected_config_options() {
         |config, _messages, _expects_write, _prompt| {
             assert_eq!(config.model, "selected-model");
             assert_eq!(config.search_mode, WebSearchMode::None);
+            assert_eq!(config.reasoning_effort, ReasoningEffort::High);
+            assert_eq!(config.reasoning_summary, ReasoningSummary::Auto);
             HarnessTurn::fake(config, String::new()).start()
         },
     )

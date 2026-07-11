@@ -33,7 +33,8 @@ use ureq::http::Response;
 use crate::WebSearchMode;
 use crate::app::{AgentEvent, ToolStatus};
 use crate::providers::{
-    ProviderContentBlock, ProviderError, ProviderMessage, ProviderTurn, StreamFormat, StreamingProvider,
+    ProviderContentBlock, ProviderContinuation, ProviderError, ProviderMessage, ProviderTurn, StreamFormat,
+    StreamingProvider, StreamingRequest,
 };
 use crate::providers::{anthropic, codex, openai, opencode, umans};
 use crate::tools::{self, AgentRunConfig, ToolOutput, ToolUseRequest, WriteResult, shell::ProcessResult};
@@ -267,6 +268,10 @@ impl RunHandle {
     /// dispatches any tool-use requests, feeds the tool results back as
     /// provider-native tool result messages, and repeats until the model stops
     /// requesting tools or the per-turn cap is hit.
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "Provider turns intentionally centralize cancellation, tool permissions, and continuation state."
+    )]
     fn run_provider<P>(&self, tx: &Sender<AgentEvent>, cancel: &CancelToken)
     where
         P: StreamingProvider,
@@ -309,6 +314,7 @@ impl RunHandle {
         let mut tool_budget =
             thndrs_agent::ToolIterationBudget::new(self.config.max_tool_iterations, tools::MAX_TOOL_CONTINUATIONS);
         let mut wrote_file = false;
+        let mut continuation = ProviderContinuation::default();
 
         loop {
             if cancel.is_cancelled() {
@@ -387,12 +393,18 @@ impl RunHandle {
                 messages: &messages,
                 max_tokens,
                 search_mode: self.config.search_mode,
+                reasoning_effort: self.config.reasoning_effort,
+                reasoning_summary: self.config.reasoning_summary,
                 tool_schemas: &tool_schemas,
+                continuation: &continuation,
             };
-            let Some(turn) = request_provider_turn_with_retries(&request, tool_budget.total_batches(), tx, cancel)
+            let Some(mut turn) = request_provider_turn_with_retries(&request, tool_budget.total_batches(), tx, cancel)
             else {
                 return;
             };
+            if self.provider == ProviderKind::ChatGptCodex {
+                codex::record_response_items(&mut continuation, &messages, std::mem::take(&mut turn.response_items));
+            }
             tracing::info!(
                 text_chars = turn.assistant_text.chars().count(),
                 tool_calls = turn.tool_requests.len(),
@@ -440,6 +452,7 @@ impl RunHandle {
             }
 
             let mut tool_results: Vec<ProviderMessage> = Vec::new();
+            let mut response_tool_outputs = Vec::new();
             for req in &turn.tool_requests {
                 if cancel.is_cancelled() {
                     tracing::warn!(provider = provider.name(), tool = %req.name, tool_id = %req.tool_use_id, "provider run cancelled before tool dispatch");
@@ -510,10 +523,16 @@ impl RunHandle {
                 };
                 let is_error = status == ToolStatus::Failed;
                 tool_results.push(ProviderMessage::tool_result(&tool_id, &result_content, is_error));
+                response_tool_outputs.push((tool_id, result_content));
             }
 
             messages.push(ProviderMessage::assistant_blocks(assistant_blocks));
             messages.extend(tool_results);
+            if self.provider == ProviderKind::ChatGptCodex {
+                for (call_id, output) in response_tool_outputs {
+                    codex::record_tool_output(&mut continuation, &call_id, &output, messages.len());
+                }
+            }
             append_steering_messages(&mut messages, self);
         }
     }
@@ -701,7 +720,10 @@ where
     messages: &'a [ProviderMessage],
     max_tokens: u32,
     search_mode: crate::cli::WebSearchMode,
+    reasoning_effort: crate::cli::ReasoningEffort,
+    reasoning_summary: crate::cli::ReasoningSummary,
     tool_schemas: &'a serde_json::Value,
+    continuation: &'a ProviderContinuation,
 }
 
 /// Best-effort classifier for prompts that should not finish without a
@@ -892,13 +914,18 @@ fn provider_request_attempt<P>(
 where
     P: StreamingProvider,
 {
-    match request.provider.send_streaming_request(
-        request.model,
-        request.messages,
-        request.max_tokens,
-        request.search_mode,
-        request.tool_schemas,
-    ) {
+    let provider_request = StreamingRequest {
+        max_tokens: request.max_tokens,
+        search_mode: request.search_mode,
+        reasoning_effort: request.reasoning_effort,
+        reasoning_summary: request.reasoning_summary,
+        tools: request.tool_schemas,
+        continuation: request.continuation,
+    };
+    match request
+        .provider
+        .send_streaming_request(request.model, request.messages, &provider_request)
+    {
         Ok(response) => {
             match send(
                 tx,
@@ -1084,6 +1111,7 @@ fn stream_anthropic_response(
         tool_requests: state.tool_requests,
         assistant_text: state.assistant_text,
         stop_reason: state.stop_reason,
+        response_items: Vec::new(),
     })
 }
 
@@ -1188,7 +1216,7 @@ fn stream_openai_chat_response(
         cancel,
     );
 
-    Ok(ProviderTurn { tool_requests, assistant_text, stop_reason })
+    Ok(ProviderTurn { tool_requests, assistant_text, stop_reason, response_items: Vec::new() })
 }
 
 fn collect_openai_chat_event(
@@ -1266,6 +1294,7 @@ fn stream_chatgpt_codex_response(
     let mut event_count = 0usize;
     let mut saw_response = false;
     let mut stop_reason = None;
+    let mut response_items = Vec::new();
     tracing::info!("reading ChatGPT Codex Responses SSE stream");
 
     for line_result in reader.lines() {
@@ -1298,6 +1327,9 @@ fn stream_chatgpt_codex_response(
         for data in codex::parse_responses_sse_chunk(&(line + "\n")) {
             event_count += 1;
             for event in codex::parse_responses_sse_event(&data) {
+                if let codex::ResponsesSseEvent::OutputItem(item) = &event {
+                    response_items.push(item.clone());
+                }
                 collect_chatgpt_codex_event(
                     event,
                     &mut tool_blocks,
@@ -1348,7 +1380,7 @@ fn stream_chatgpt_codex_response(
         cancel,
     );
 
-    Ok(ProviderTurn { tool_requests, assistant_text, stop_reason })
+    Ok(ProviderTurn { tool_requests, assistant_text, stop_reason, response_items })
 }
 
 fn collect_chatgpt_codex_event(
@@ -1425,6 +1457,7 @@ fn collect_chatgpt_codex_event(
                 return Err("cancelled".to_string());
             }
         }
+        codex::ResponsesSseEvent::OutputItem(_) => {}
         codex::ResponsesSseEvent::Malformed(payload) => {
             return Err(format!("malformed provider stream payload: {payload}"));
         }

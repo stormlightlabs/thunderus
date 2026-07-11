@@ -1,5 +1,5 @@
 use super::*;
-use crate::cli::{Theme, WebSearchMode};
+use crate::cli::{ReasoningEffort, ReasoningSummary, Theme, WebSearchMode};
 use std::path::PathBuf;
 
 fn with_home<T>(home: &Path, f: impl FnOnce() -> T) -> T {
@@ -51,6 +51,8 @@ fn parses_known_config_fields() {
         r#"
         model = "umans-glm-5.2"
         websearch = "native"
+        reasoning_effort = "xhigh"
+        reasoning_summary = "auto"
         tick_rate_ms = 250
         mouse = true
         theme = "catppuccin-mocha"
@@ -70,6 +72,8 @@ fn parses_known_config_fields() {
 
     assert_eq!(config.model.as_deref(), Some("umans-glm-5.2"));
     assert_eq!(config.websearch, Some(WebSearchMode::Native));
+    assert_eq!(config.reasoning_effort, Some(ReasoningEffort::Xhigh));
+    assert_eq!(config.reasoning_summary, Some(ReasoningSummary::Auto));
     assert_eq!(config.tick_rate_ms, Some(250));
     assert_eq!(config.mouse, Some(true));
     assert_eq!(config.theme, Some(Theme::CatppuccinMocha));
@@ -350,6 +354,32 @@ fn env_loads_model() {
     assert_eq!(
         origins.get("model"),
         Some(&ConfigOrigin { source: ConfigSource::Environment, detail: "THNDRS_MODEL".to_string() })
+    );
+}
+
+#[test]
+fn env_loads_reasoning_controls_and_rejects_invalid_values() {
+    let mut origins = BTreeMap::new();
+    let mut diagnostics = Vec::new();
+    let config = load_env(
+        &[
+            ("THNDRS_REASONING_EFFORT".to_string(), "high".to_string()),
+            ("THNDRS_REASONING_SUMMARY".to_string(), "auto".to_string()),
+        ],
+        &mut origins,
+        &mut diagnostics,
+    )
+    .expect("load controls");
+
+    assert_eq!(config.reasoning_effort, Some(ReasoningEffort::High));
+    assert_eq!(config.reasoning_summary, Some(ReasoningSummary::Auto));
+    assert!(
+        load_env(
+            &[("THNDRS_REASONING_EFFORT".to_string(), "max".to_string())],
+            &mut BTreeMap::new(),
+            &mut Vec::new(),
+        )
+        .is_err()
     );
 }
 
@@ -979,6 +1009,6 @@ websearch=Some(Native)
 verbose=Some(true)
 session_dir_suffix=.thndrs/sessions
 layers=[("project", ".thndrs/config.toml")]
-origins=[("acp_agents", "default", "default"), ("context", "default", "default"), ("default_workspace", "default", "default"), ("memory", "default", "default"), ("model", "project", ".thndrs/config.toml"), ("mouse", "default", "default"), ("session_dir", "project", ".thndrs/config.toml"), ("skill_dirs", "default", "default"), ("theme", "default", "default"), ("tick_rate_ms", "default", "default"), ("verbose", "env", "THNDRS_VERBOSE"), ("websearch", "project", ".thndrs/config.toml")]
+origins=[("acp_agents", "default", "default"), ("context", "default", "default"), ("default_workspace", "default", "default"), ("memory", "default", "default"), ("model", "project", ".thndrs/config.toml"), ("mouse", "default", "default"), ("reasoning_effort", "default", "default"), ("reasoning_summary", "default", "default"), ("session_dir", "project", ".thndrs/config.toml"), ("skill_dirs", "default", "default"), ("theme", "default", "default"), ("tick_rate_ms", "default", "default"), ("verbose", "env", "THNDRS_VERBOSE"), ("websearch", "project", ".thndrs/config.toml")]
 "###);
 }

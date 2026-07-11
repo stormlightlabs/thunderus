@@ -46,6 +46,80 @@ pub enum WebSearchMode {
     None,
 }
 
+/// Requested reasoning depth for providers and models that expose an effort control.
+///
+/// TODO: Forward this through every supported provider/model family that advertises
+/// compatible reasoning-effort controls.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ReasoningEffort {
+    /// Quick, well-scoped work.
+    Low,
+    /// Balanced reasoning quality and latency.
+    #[default]
+    Medium,
+    /// Difficult multi-step work.
+    High,
+    /// The deepest supported effort for this provider route.
+    Xhigh,
+}
+
+impl ReasoningEffort {
+    /// Stable configuration label.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::Xhigh => "xhigh",
+        }
+    }
+
+    /// Parse a configuration or ACP option value.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "low" => Some(Self::Low),
+            "medium" => Some(Self::Medium),
+            "high" => Some(Self::High),
+            "xhigh" | "x-high" | "extra-high" => Some(Self::Xhigh),
+            _ => None,
+        }
+    }
+}
+
+/// Whether providers render a reasoning summary in the transcript.
+///
+/// TODO: Forward this through every supported provider/model family that advertises
+/// compatible reasoning-summary controls.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ReasoningSummary {
+    /// Keep reasoning opaque while preserving it for provider continuity.
+    #[default]
+    Off,
+    /// Request the provider's best available reasoning summary.
+    Auto,
+}
+
+impl ReasoningSummary {
+    /// Stable configuration label.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Auto => "auto",
+        }
+    }
+
+    /// Parse a configuration or ACP option value.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "off" => Some(Self::Off),
+            "auto" => Some(Self::Auto),
+            _ => None,
+        }
+    }
+}
+
 /// Top-level non-interactive commands.
 #[derive(Clone, Debug, Eq, PartialEq, Subcommand)]
 pub enum Command {
@@ -140,6 +214,18 @@ pub struct Cli {
     /// Web search provider policy.
     #[arg(long, value_enum, default_value = "auto")]
     pub websearch: WebSearchMode,
+    /// Configured reasoning effort for supporting provider models.
+    ///
+    /// TODO: Route this through every provider/model family that supports
+    /// reasoning-effort controls.
+    #[arg(skip)]
+    pub reasoning_effort: ReasoningEffort,
+    /// Configured reasoning-summary policy for supporting provider models.
+    ///
+    /// TODO: Route this through every provider/model family that supports
+    /// reasoning-summary controls.
+    #[arg(skip)]
+    pub reasoning_summary: ReasoningSummary,
     /// Event poll interval in milliseconds.
     #[arg(long, default_value_t = 100)]
     pub tick_rate_ms: u64,
@@ -197,6 +283,8 @@ impl Default for Cli {
             cwd: PathBuf::from("."),
             model: String::from(config::DEFAULT_MODEL),
             websearch: WebSearchMode::Auto,
+            reasoning_effort: ReasoningEffort::default(),
+            reasoning_summary: ReasoningSummary::default(),
             tick_rate_ms: 100,
             no_alt_screen: true,
             no_mouse: false,
@@ -335,6 +423,8 @@ impl Cli {
         };
         self.model = config.model.unwrap_or(defaults.model);
         self.websearch = config.websearch.unwrap_or(defaults.websearch);
+        self.reasoning_effort = config.reasoning_effort.unwrap_or(defaults.reasoning_effort);
+        self.reasoning_summary = config.reasoning_summary.unwrap_or(defaults.reasoning_summary);
         self.tick_rate_ms = config.tick_rate_ms.unwrap_or(defaults.tick_rate_ms);
         self.mouse = config.mouse.unwrap_or(defaults.mouse);
         self.verbose = config.verbose.unwrap_or(defaults.verbose);

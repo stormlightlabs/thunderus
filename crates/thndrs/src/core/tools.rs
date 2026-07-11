@@ -36,7 +36,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::app::ToolStatus;
-use crate::cli::WebSearchMode;
+use crate::cli::{ReasoningEffort, ReasoningSummary, WebSearchMode};
 use crate::mcp::manager::McpManager;
 
 /// Maximum number of tool-call iterations per agent turn before the loop
@@ -97,6 +97,16 @@ pub struct AgentRunConfig {
     pub model: String,
     /// Web search mode.
     pub search_mode: WebSearchMode,
+    /// Reasoning effort requested for supporting provider models.
+    ///
+    /// TODO: Route this through every provider/model family that supports
+    /// reasoning-effort controls.
+    pub reasoning_effort: ReasoningEffort,
+    /// Whether supporting providers should return reasoning summaries.
+    ///
+    /// TODO: Route this through every provider/model family that supports
+    /// reasoning-summary controls.
+    pub reasoning_summary: ReasoningSummary,
     /// Maximum tool-call iterations per turn.
     pub max_tool_iterations: usize,
     /// Optional MCP manager used to extend the built-in tool registry.
@@ -105,7 +115,22 @@ pub struct AgentRunConfig {
 
 impl AgentRunConfig {
     pub fn new(root: PathBuf, model: String, search_mode: WebSearchMode) -> Self {
-        AgentRunConfig { root, model, search_mode, max_tool_iterations: MAX_TOOL_ITERATIONS, mcp_manager: None }
+        AgentRunConfig {
+            root,
+            model,
+            search_mode,
+            reasoning_effort: ReasoningEffort::default(),
+            reasoning_summary: ReasoningSummary::default(),
+            max_tool_iterations: MAX_TOOL_ITERATIONS,
+            mcp_manager: None,
+        }
+    }
+
+    /// Apply the resolved reasoning settings for this run.
+    pub fn with_reasoning(mut self, effort: ReasoningEffort, summary: ReasoningSummary) -> Self {
+        self.reasoning_effort = effort;
+        self.reasoning_summary = summary;
+        self
     }
 
     /// Attach an MCP manager to this run.

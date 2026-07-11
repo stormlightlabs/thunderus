@@ -185,11 +185,12 @@ impl StreamingProvider for OpenCodeZenClient {
         DEFAULT_RECOMMENDED_MAX_TOKENS
     }
 
+    /// TODO: Map reasoning effort and summaries when the OpenCode Zen backend
+    /// exposes model-specific controls for them.
     fn send_streaming_request(
-        &self, model: &str, messages: &[ProviderMessage], max_tokens: u32, _search_mode: crate::cli::WebSearchMode,
-        tools: &serde_json::Value,
+        &self, model: &str, messages: &[ProviderMessage], request: &crate::providers::StreamingRequest<'_>,
     ) -> Result<ureq::http::Response<ureq::Body>> {
-        OpenCodeZenClient::send_streaming_request(self, model, messages, max_tokens, Some(tools))
+        OpenCodeZenClient::send_streaming_request(self, model, messages, request.max_tokens, Some(request.tools))
     }
 
     fn stream_format(&self, model: &str) -> Result<StreamFormat> {

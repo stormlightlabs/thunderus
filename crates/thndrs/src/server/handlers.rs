@@ -85,6 +85,14 @@ impl ServerState {
                 websearch_mode(&self.config.websearch),
             )
             .map_err(|err| err.to_string())?;
+        inner
+            .sessions
+            .update_session_reasoning(
+                &session_id,
+                Some(self.config.reasoning_effort),
+                Some(self.config.reasoning_summary),
+            )
+            .map_err(|err| err.to_string())?;
 
         if let Some(session_dir) = &self.config.session_dir {
             let mut writer = SessionWriter::create(
@@ -170,7 +178,15 @@ impl ServerState {
             .websearch
             .or_else(|| websearch_mode(&self.config.websearch))
             .unwrap_or(WebSearchMode::Auto);
-        Ok(acp_config_options(&model, websearch))
+        let effort = session
+            .metadata
+            .reasoning_effort
+            .unwrap_or(self.config.reasoning_effort);
+        let summary = session
+            .metadata
+            .reasoning_summary
+            .unwrap_or(self.config.reasoning_summary);
+        Ok(acp_config_options(&model, websearch, effort, summary))
     }
 
     fn set_config_option(&self, session_id: &str, option: &ConfigOptionValue) -> Result<(), String> {
@@ -185,15 +201,31 @@ impl ServerState {
             .ok_or_else(|| format!("missing session: {session_id}"))?;
         let model = match option {
             ConfigOptionValue::Model(model) => Some(model.clone()),
-            ConfigOptionValue::WebSearch(_) => session.metadata.model,
+            ConfigOptionValue::WebSearch(_)
+            | ConfigOptionValue::ReasoningEffort(_)
+            | ConfigOptionValue::ReasoningSummary(_) => session.metadata.model,
         };
         let websearch = match option {
-            ConfigOptionValue::Model(_) => session.metadata.websearch,
+            ConfigOptionValue::Model(_)
+            | ConfigOptionValue::ReasoningEffort(_)
+            | ConfigOptionValue::ReasoningSummary(_) => session.metadata.websearch,
             ConfigOptionValue::WebSearch(mode) => Some(*mode),
         };
         inner
             .sessions
             .update_session_metadata(session_id, model, websearch)
+            .map_err(|error| error.to_string())?;
+        let effort = match option {
+            ConfigOptionValue::ReasoningEffort(effort) => Some(*effort),
+            _ => session.metadata.reasoning_effort,
+        };
+        let summary = match option {
+            ConfigOptionValue::ReasoningSummary(summary) => Some(*summary),
+            _ => session.metadata.reasoning_summary,
+        };
+        inner
+            .sessions
+            .update_session_reasoning(session_id, effort, summary)
             .map_err(|error| error.to_string())?;
         Ok(())
     }
@@ -305,6 +337,14 @@ impl ServerState {
                 session_id,
                 Some(self.config.model.clone()),
                 websearch_mode(&self.config.websearch),
+            )
+            .map_err(|error| error.to_string())?;
+        inner
+            .sessions
+            .update_session_reasoning(
+                session_id,
+                Some(self.config.reasoning_effort),
+                Some(self.config.reasoning_summary),
             )
             .map_err(|error| error.to_string())?;
         Ok(())
@@ -1267,7 +1307,15 @@ fn run_prompt_turn(
         .unwrap_or(WebSearchMode::Auto);
     let model = session.metadata.model.unwrap_or_else(|| state.config.model.clone());
 
-    let mut config = AgentRunConfig::new(session.cwd, model, websearch);
+    let effort = session
+        .metadata
+        .reasoning_effort
+        .unwrap_or(state.config.reasoning_effort);
+    let summary = session
+        .metadata
+        .reasoning_summary
+        .unwrap_or(state.config.reasoning_summary);
+    let mut config = AgentRunConfig::new(session.cwd, model, websearch).with_reasoning(effort, summary);
     if let Some(mcp_config) = session.mcp_config {
         config = config.with_mcp_manager(Arc::new(McpManager::from_config(&mcp_config)));
     }

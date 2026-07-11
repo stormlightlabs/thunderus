@@ -57,6 +57,9 @@ provider-specific names.
 |                     | `native`           |                                     |                                                |
 |                     | `exa`,             |                                     |                                                |
 |                     | `none`             |                                     |                                                |
+| `reasoning_effort`  | `low`, `medium`,   | `medium`                            | GPT-5.6 Sol reasoning effort.                  |
+|                     | `high`, `xhigh`    |                                     |                                                |
+| `reasoning_summary` | `off`, `auto`      | `off`                               | Whether GPT-5.6 Sol summaries are shown.       |
 | `tick_rate_ms`      | integer            | `100`                               | Event poll interval in milliseconds.           |
 | `theme`             | `eldritch-minimal` | `eldritch-minimal`                  | UI color theme.                                |
 |                     | `iceberg-dark`     |                                     |                                                |
@@ -80,6 +83,8 @@ entries, then CLI `--skill-dir` entries.
 ```toml
 model = "opencode/big-pickle"
 websearch = "auto"
+reasoning_effort = "medium"
+reasoning_summary = "off"
 tick_rate_ms = 100
 theme = "eldritch-minimal"
 mouse = false

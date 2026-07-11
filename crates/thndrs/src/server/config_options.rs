@@ -1,6 +1,6 @@
 //! ACP session config option primitives.
 
-use crate::cli::WebSearchMode;
+use crate::cli::{ReasoningEffort, ReasoningSummary, WebSearchMode};
 use agent_client_protocol::schema::v1::{SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectOption};
 
 /// ACP config option id for model selection.
@@ -8,6 +8,10 @@ pub const MODEL_CONFIG_OPTION_ID: &str = "model";
 
 /// ACP config option id for web-search mode selection.
 pub const WEBSEARCH_CONFIG_OPTION_ID: &str = "websearch";
+/// ACP config option id for reasoning effort.
+pub const REASONING_EFFORT_CONFIG_OPTION_ID: &str = "reasoning_effort";
+/// ACP config option id for reasoning-summary display.
+pub const REASONING_SUMMARY_CONFIG_OPTION_ID: &str = "reasoning_summary";
 
 /// Stable ACP option specification shape.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -27,6 +31,10 @@ pub enum ConfigOptionValue {
     Model(String),
     /// ACP `websearch` value.
     WebSearch(WebSearchMode),
+    /// ACP `reasoning_effort` value.
+    ReasoningEffort(ReasoningEffort),
+    /// ACP `reasoning_summary` value.
+    ReasoningSummary(ReasoningSummary),
 }
 
 impl ConfigOptionValue {
@@ -35,6 +43,8 @@ impl ConfigOptionValue {
         match self {
             Self::Model(model) => model.clone(),
             Self::WebSearch(mode) => mode.label().to_string(),
+            Self::ReasoningEffort(effort) => effort.label().to_string(),
+            Self::ReasoningSummary(summary) => summary.label().to_string(),
         }
     }
 }
@@ -64,22 +74,36 @@ impl std::error::Error for ConfigOptionError {}
 /// Return the initial ACP config option IDs supported by the server.
 ///
 /// Kept in stable order for protocol responses and tests.
-pub fn initial_config_option_ids() -> &'static [&'static str; 2] {
-    &[MODEL_CONFIG_OPTION_ID, WEBSEARCH_CONFIG_OPTION_ID]
+pub fn initial_config_option_ids() -> &'static [&'static str; 4] {
+    &[
+        MODEL_CONFIG_OPTION_ID,
+        WEBSEARCH_CONFIG_OPTION_ID,
+        REASONING_EFFORT_CONFIG_OPTION_ID,
+        REASONING_SUMMARY_CONFIG_OPTION_ID,
+    ]
 }
 
 /// Return the initial server config option specs.
 pub fn initial_config_options() -> &'static [ConfigOptionSpec] {
-    const OPTIONS: [ConfigOptionSpec; 2] = [
+    const OPTIONS: [ConfigOptionSpec; 4] = [
         ConfigOptionSpec { id: MODEL_CONFIG_OPTION_ID, label: "Model", mode: "string" },
         ConfigOptionSpec { id: WEBSEARCH_CONFIG_OPTION_ID, label: "Web Search", mode: "enum" },
+        ConfigOptionSpec { id: REASONING_EFFORT_CONFIG_OPTION_ID, label: "Reasoning Effort", mode: "enum" },
+        ConfigOptionSpec { id: REASONING_SUMMARY_CONFIG_OPTION_ID, label: "Reasoning Summary", mode: "enum" },
     ];
     &OPTIONS
 }
 
 /// Return ACP session config options for the current session state.
-pub fn acp_config_options(model: &str, websearch: WebSearchMode) -> Vec<SessionConfigOption> {
-    vec![model_config_option(model), websearch_config_option(websearch)]
+pub fn acp_config_options(
+    model: &str, websearch: WebSearchMode, effort: ReasoningEffort, summary: ReasoningSummary,
+) -> Vec<SessionConfigOption> {
+    vec![
+        model_config_option(model),
+        websearch_config_option(websearch),
+        reasoning_effort_config_option(effort),
+        reasoning_summary_config_option(summary),
+    ]
 }
 
 /// Validate one config option id/value pair.
@@ -87,6 +111,8 @@ pub fn validate_config_option(option_id: &str, value: &str) -> Result<ConfigOpti
     match option_id {
         MODEL_CONFIG_OPTION_ID => validate_model(value),
         WEBSEARCH_CONFIG_OPTION_ID => validate_websearch(value),
+        REASONING_EFFORT_CONFIG_OPTION_ID => validate_reasoning_effort(value),
+        REASONING_SUMMARY_CONFIG_OPTION_ID => validate_reasoning_summary(value),
         _ => Err(ConfigOptionError::UnknownOption { id: option_id.to_string() }),
     }
 }
@@ -120,6 +146,26 @@ fn validate_websearch(value: &str) -> Result<ConfigOptionValue, ConfigOptionErro
     Ok(ConfigOptionValue::WebSearch(mode))
 }
 
+fn validate_reasoning_effort(value: &str) -> Result<ConfigOptionValue, ConfigOptionError> {
+    ReasoningEffort::parse(value)
+        .map(ConfigOptionValue::ReasoningEffort)
+        .ok_or_else(|| ConfigOptionError::InvalidValue {
+            id: REASONING_EFFORT_CONFIG_OPTION_ID.to_string(),
+            value: value.to_string(),
+            reason: "must be one of low/medium/high/xhigh".to_string(),
+        })
+}
+
+fn validate_reasoning_summary(value: &str) -> Result<ConfigOptionValue, ConfigOptionError> {
+    ReasoningSummary::parse(value)
+        .map(ConfigOptionValue::ReasoningSummary)
+        .ok_or_else(|| ConfigOptionError::InvalidValue {
+            id: REASONING_SUMMARY_CONFIG_OPTION_ID.to_string(),
+            value: value.to_string(),
+            reason: "must be one of off/auto".to_string(),
+        })
+}
+
 fn model_config_option(model: &str) -> SessionConfigOption {
     SessionConfigOption::select(
         MODEL_CONFIG_OPTION_ID,
@@ -145,5 +191,35 @@ fn websearch_config_option(websearch: WebSearchMode) -> SessionConfigOption {
         ],
     )
     .description("Web search mode for future prompt turns")
+    .category(SessionConfigOptionCategory::ModelConfig)
+}
+
+fn reasoning_effort_config_option(effort: ReasoningEffort) -> SessionConfigOption {
+    SessionConfigOption::select(
+        REASONING_EFFORT_CONFIG_OPTION_ID,
+        "Reasoning Effort",
+        effort.label(),
+        vec![
+            SessionConfigSelectOption::new("low", "Low"),
+            SessionConfigSelectOption::new("medium", "Medium"),
+            SessionConfigSelectOption::new("high", "High"),
+            SessionConfigSelectOption::new("xhigh", "Extra High"),
+        ],
+    )
+    .description("ChatGPT Codex GPT-5.6 Sol reasoning effort for future prompt turns")
+    .category(SessionConfigOptionCategory::ModelConfig)
+}
+
+fn reasoning_summary_config_option(summary: ReasoningSummary) -> SessionConfigOption {
+    SessionConfigOption::select(
+        REASONING_SUMMARY_CONFIG_OPTION_ID,
+        "Reasoning Summary",
+        summary.label(),
+        vec![
+            SessionConfigSelectOption::new("off", "Off"),
+            SessionConfigSelectOption::new("auto", "Auto"),
+        ],
+    )
+    .description("Whether ChatGPT Codex reasoning summaries are shown for future prompt turns")
     .category(SessionConfigOptionCategory::ModelConfig)
 }

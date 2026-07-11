@@ -5,6 +5,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::app::AgentEvent;
+use crate::cli::{ReasoningEffort, ReasoningSummary};
 use crate::tools::ToolUseRequest;
 
 pub mod anthropic;
@@ -24,7 +25,7 @@ pub type Result<T> = std::result::Result<T, ProviderError>;
 /// request dispatch, retry/error policy, and which stream format to parse.
 ///
 /// The agent loop still owns cancellation, tool dispatch, and transcript events.
-pub trait StreamingProvider: Sized {
+pub(crate) trait StreamingProvider: Sized {
     type Metadata;
 
     fn name(&self) -> &'static str;
@@ -40,12 +41,52 @@ pub trait StreamingProvider: Sized {
     }
     fn token_budget(&self, model: &str, metadata: Option<&Self::Metadata>) -> u32;
     fn send_streaming_request(
-        &self, model: &str, messages: &[ProviderMessage], max_tokens: u32, search_mode: crate::cli::WebSearchMode,
-        tools: &serde_json::Value,
+        &self, model: &str, messages: &[ProviderMessage], request: &StreamingRequest<'_>,
     ) -> Result<ureq::http::Response<ureq::Body>>;
     fn stream_format(&self, model: &str) -> Result<StreamFormat>;
     fn request_error_message(error: &ProviderError) -> String;
     fn is_retryable_request_error(error: &ProviderError) -> bool;
+}
+
+/// Provider-private continuation state retained only for one active agent run.
+///
+/// This is intentionally crate-private: response items can contain encrypted
+/// provider data and must not become a library or session-file contract.
+#[derive(Clone, Debug, Default)]
+pub(crate) enum ProviderContinuation {
+    #[default]
+    None,
+    Responses {
+        items: Vec<serde_json::Value>,
+        consumed_messages: usize,
+    },
+}
+
+impl ProviderContinuation {
+    pub(crate) fn responses_items(&self) -> Option<(&[serde_json::Value], usize)> {
+        match self {
+            Self::None => None,
+            Self::Responses { items, consumed_messages } => Some((items, *consumed_messages)),
+        }
+    }
+
+    pub(crate) fn set_responses_items(&mut self, items: Vec<serde_json::Value>, consumed_messages: usize) {
+        *self = Self::Responses { items, consumed_messages };
+    }
+}
+
+/// Per-turn settings passed to an internal streaming provider request.
+pub(crate) struct StreamingRequest<'a> {
+    pub(crate) max_tokens: u32,
+    pub(crate) search_mode: crate::cli::WebSearchMode,
+    /// TODO: Forward this through every provider/model family that advertises a
+    /// compatible reasoning-effort control.
+    pub(crate) reasoning_effort: ReasoningEffort,
+    /// TODO: Forward this through every provider/model family that advertises a
+    /// compatible reasoning-summary control.
+    pub(crate) reasoning_summary: ReasoningSummary,
+    pub(crate) tools: &'a serde_json::Value,
+    pub(crate) continuation: &'a ProviderContinuation,
 }
 
 /// Shared provider request error shape.
@@ -300,10 +341,11 @@ impl ProviderMessage {
 
 /// Provider-neutral result of one streamed model turn.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ProviderTurn {
-    pub tool_requests: Vec<ToolUseRequest>,
-    pub assistant_text: String,
-    pub stop_reason: Option<String>,
+pub(crate) struct ProviderTurn {
+    pub(crate) tool_requests: Vec<ToolUseRequest>,
+    pub(crate) assistant_text: String,
+    pub(crate) stop_reason: Option<String>,
+    pub(crate) response_items: Vec<serde_json::Value>,
 }
 
 pub fn summarize_error_body(body: &str) -> String {

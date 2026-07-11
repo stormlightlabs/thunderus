@@ -15,12 +15,14 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use thndrs_context::context::ContextConfig;
 
-use crate::cli::{Theme, WebSearchMode};
+use crate::cli::{ReasoningEffort, ReasoningSummary, Theme, WebSearchMode};
 use crate::utils;
 
-static CONFIG_KEYS: [&str; 12] = [
+static CONFIG_KEYS: [&str; 14] = [
     "model",
     "websearch",
+    "reasoning_effort",
+    "reasoning_summary",
     "tick_rate_ms",
     "theme",
     "mouse",
@@ -109,6 +111,8 @@ pub type AcpAgentsConfig = BTreeMap<String, AcpAgentConfig>;
 pub struct Config {
     pub model: Option<String>,
     pub websearch: Option<WebSearchMode>,
+    pub reasoning_effort: Option<ReasoningEffort>,
+    pub reasoning_summary: Option<ReasoningSummary>,
     pub tick_rate_ms: Option<u64>,
     pub mouse: Option<bool>,
     pub verbose: Option<bool>,
@@ -126,6 +130,8 @@ impl Config {
     pub fn merge(mut self, other: Config) -> Self {
         self.model = other.model.or(self.model);
         self.websearch = other.websearch.or(self.websearch);
+        self.reasoning_effort = other.reasoning_effort.or(self.reasoning_effort);
+        self.reasoning_summary = other.reasoning_summary.or(self.reasoning_summary);
         self.tick_rate_ms = other.tick_rate_ms.or(self.tick_rate_ms);
         self.mouse = other.mouse.or(self.mouse);
         self.verbose = other.verbose.or(self.verbose);
@@ -467,6 +473,14 @@ pub fn load_env(
                 config.websearch = Some(parse_websearch_env(key, value)?);
                 origins.insert("websearch".to_string(), env_origin(key));
             }
+            "reasoning_effort" => {
+                config.reasoning_effort = Some(parse_reasoning_effort_env(key, value)?);
+                origins.insert("reasoning_effort".to_string(), env_origin(key));
+            }
+            "reasoning_summary" => {
+                config.reasoning_summary = Some(parse_reasoning_summary_env(key, value)?);
+                origins.insert("reasoning_summary".to_string(), env_origin(key));
+            }
             "tick_rate_ms" => {
                 config.tick_rate_ms = Some(parse_u64_env(key, value)?);
                 origins.insert("tick_rate_ms".to_string(), env_origin(key));
@@ -541,6 +555,20 @@ fn parse_websearch_env(name: &str, value: &str) -> Result<WebSearchMode, ConfigE
             message: format!("must be one of auto, native, exa, none (got '{value}')"),
         }),
     }
+}
+
+fn parse_reasoning_effort_env(name: &str, value: &str) -> Result<ReasoningEffort, ConfigError> {
+    ReasoningEffort::parse(value).ok_or_else(|| ConfigError::InvalidEnv {
+        name: name.to_string(),
+        message: format!("must be one of low, medium, high, xhigh (got '{value}')"),
+    })
+}
+
+fn parse_reasoning_summary_env(name: &str, value: &str) -> Result<ReasoningSummary, ConfigError> {
+    ReasoningSummary::parse(value).ok_or_else(|| ConfigError::InvalidEnv {
+        name: name.to_string(),
+        message: format!("must be one of off, auto (got '{value}')"),
+    })
 }
 
 fn parse_theme_env(name: &str, value: &str) -> Result<Theme, ConfigError> {
@@ -661,6 +689,18 @@ fn record_origins(config: &Config, source: ConfigSource, detail: &str, origins: 
             ConfigOrigin { source, detail: detail.to_string() },
         );
     }
+    if config.reasoning_effort.is_some() {
+        origins.insert(
+            "reasoning_effort".to_string(),
+            ConfigOrigin { source, detail: detail.to_string() },
+        );
+    }
+    if config.reasoning_summary.is_some() {
+        origins.insert(
+            "reasoning_summary".to_string(),
+            ConfigOrigin { source, detail: detail.to_string() },
+        );
+    }
     if config.tick_rate_ms.is_some() {
         origins.insert(
             "tick_rate_ms".to_string(),
@@ -720,6 +760,8 @@ fn record_origins(config: &Config, source: ConfigSource, detail: &str, origins: 
 fn has_any_value(config: &Config) -> bool {
     config.model.is_some()
         || config.websearch.is_some()
+        || config.reasoning_effort.is_some()
+        || config.reasoning_summary.is_some()
         || config.tick_rate_ms.is_some()
         || config.theme.is_some()
         || config.mouse.is_some()
@@ -735,6 +777,8 @@ fn default_config(workspace: &Path, cwd: &Path) -> Config {
     Config {
         model: Some(DEFAULT_MODEL.to_string()),
         websearch: Some(WebSearchMode::Auto),
+        reasoning_effort: Some(ReasoningEffort::default()),
+        reasoning_summary: Some(ReasoningSummary::default()),
         tick_rate_ms: Some(100),
         mouse: Some(false),
         verbose: Some(false),

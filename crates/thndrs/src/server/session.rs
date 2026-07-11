@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use crate::cli::WebSearchMode;
+use crate::cli::{ReasoningEffort, ReasoningSummary, WebSearchMode};
 use crate::mcp::config::McpConfig;
 use crate::session::SessionWriter;
 
@@ -30,6 +30,10 @@ pub struct LocalSessionMetadata {
     pub model: Option<String>,
     /// Current web-search mode selected for this ACP session.
     pub websearch: Option<WebSearchMode>,
+    /// Current reasoning effort selected for this ACP session.
+    pub reasoning_effort: Option<ReasoningEffort>,
+    /// Current reasoning-summary policy selected for this ACP session.
+    pub reasoning_summary: Option<ReasoningSummary>,
 }
 
 /// Runtime state for one active ACP session.
@@ -138,7 +142,13 @@ impl AcpSessionStore {
         let acp_session_id = self.next_id();
         let session = AcpServerSession {
             acp_session_id: acp_session_id.clone(),
-            metadata: LocalSessionMetadata { local_session_id: local_session_id.clone(), model: None, websearch: None },
+            metadata: LocalSessionMetadata {
+                local_session_id: local_session_id.clone(),
+                model: None,
+                websearch: None,
+                reasoning_effort: None,
+                reasoning_summary: None,
+            },
             cwd,
             turn_in_progress: false,
             session_writer: None,
@@ -171,7 +181,13 @@ impl AcpSessionStore {
 
         let session = AcpServerSession {
             acp_session_id: acp_session_id.clone(),
-            metadata: LocalSessionMetadata { local_session_id: local_session_id.clone(), model: None, websearch: None },
+            metadata: LocalSessionMetadata {
+                local_session_id: local_session_id.clone(),
+                model: None,
+                websearch: None,
+                reasoning_effort: None,
+                reasoning_summary: None,
+            },
             cwd,
             turn_in_progress: false,
             session_writer,
@@ -242,6 +258,18 @@ impl AcpSessionStore {
         };
         session.metadata.model = model;
         session.metadata.websearch = websearch;
+        Ok(())
+    }
+
+    /// Update reasoning controls without changing model or web-search metadata.
+    pub fn update_session_reasoning(
+        &mut self, acp_session_id: &str, effort: Option<ReasoningEffort>, summary: Option<ReasoningSummary>,
+    ) -> Result<(), AcpSessionError> {
+        let Some(session) = self.sessions.get_mut(acp_session_id) else {
+            return Err(AcpSessionError::MissingSession { acp_session_id: acp_session_id.to_string() });
+        };
+        session.metadata.reasoning_effort = effort;
+        session.metadata.reasoning_summary = summary;
         Ok(())
     }
 

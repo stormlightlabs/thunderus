@@ -230,11 +230,12 @@ impl StreamingProvider for OpenCodeGoClient {
         recommended_max_tokens_for_model(model, metadata)
     }
 
+    /// TODO: Map reasoning effort and summaries when the OpenCode Go backend
+    /// exposes model-specific controls for them.
     fn send_streaming_request(
-        &self, model: &str, messages: &[ProviderMessage], max_tokens: u32, _search_mode: crate::cli::WebSearchMode,
-        tools: &serde_json::Value,
+        &self, model: &str, messages: &[ProviderMessage], request: &crate::providers::StreamingRequest<'_>,
     ) -> Result<ureq::http::Response<ureq::Body>> {
-        OpenCodeGoClient::send_streaming_request(self, model, messages, max_tokens, Some(tools))
+        OpenCodeGoClient::send_streaming_request(self, model, messages, request.max_tokens, Some(request.tools))
     }
 
     fn stream_format(&self, model: &str) -> Result<StreamFormat> {

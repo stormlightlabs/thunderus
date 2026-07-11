@@ -76,7 +76,7 @@ impl SetupProviderArg {
             },
             Self::ChatgptCodex => ProviderMetadata {
                 label: "chatgpt-codex",
-                default_model: "chatgpt-codex/gpt-5.5",
+                default_model: "chatgpt-codex/gpt-5.6-sol",
                 auth_kind: ProviderAuthKind::ChatGptOAuth { env_override: auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV },
                 setup_summary: "ChatGPT Codex uses ChatGPT OAuth stored in ~/.thndrs/auth.json.",
             },
