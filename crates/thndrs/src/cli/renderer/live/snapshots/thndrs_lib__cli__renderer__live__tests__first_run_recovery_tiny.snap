@@ -1,0 +1,9 @@
+---
+source: crates/thndrs/src/cli/renderer/live/tests.rs
+assertion_line: 509
+expression: rendered
+---
+│     setup  provider=umans model=umans-coder missing=UMANS_API_KEY  # [bg=#212337]=   [bg=#212337]=   [fg=#f7c67f bg=#212337 b]=setup [fg=#abb4da bg=#212337]=  provider=umans model=umans-coder missing=UMANS_API_KEY
+│     Store this credential where?  # [bg=#212337]=   [bg=#212337]=   [fg=#ebfafa bg=#212337]=Store this credential where?
+│       global credentials  # [bg=#212337]=   [bg=#212337]=   [fg=#abb4da bg=#212337]=  [bg=#212337]=  [fg=#ebfafa bg=#212337]=global credentials
+

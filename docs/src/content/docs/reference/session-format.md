@@ -16,7 +16,6 @@ are appended and not rewritten.
   truncation state, and byte count.
 - `context_ledger`, `context_pin`, `context_drop`, and `context_recovery`:
   content-free context working-set and decision evidence.
-- `memory_write` and `memory_delete`: content-free memory mutation audit data.
 - `compaction`: a redacted summary plus covered ranges, hashes, review state,
   and recovery handles.
 - `user`: user prompt text and turn id.

@@ -1,8 +1,7 @@
 # thndrs
 
 `thndrs` is a minimal coding agent. Its default behavior is an explicit prompt,
-project instructions, local tools, and durable sessions with optional memory and
-retrieval.
+project instructions, local tools, and durable sessions.
 
 ## Development
 
@@ -21,13 +20,13 @@ approval before implementation.
 
 ## Workspace direction
 
-- `thndrs-agent`: provider-neutral agent loop and contracts.
-- `thndrs-context`: context, memory, prompt-context, and session contracts.
+- `thndrs-agent`: provider-neutral agent loop, contracts, and context control.
 - `thndrs`: CLI/TUI application and ACP server mode.
 
-`thndrs-agent` and `thndrs-context` remain independent leaf libraries. The
-`thndrs` application composes them. A new shared crate or a dependency between
-the libraries needs a real consumer and approval.
+`thndrs-agent` remains a reusable leaf library. The `thndrs` application
+composes it; application adapters own filesystem discovery, session persistence,
+terminal I/O, and transport. A new shared crate needs a real consumer and
+approval.
 
 Terminal I/O, ACP transport, direct filesystem/shell policy, and UI state stay
 in application adapters.

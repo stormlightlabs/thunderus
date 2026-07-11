@@ -27,5 +27,5 @@ inspecting a repository.
 
 ## Coming Soon
 
-- Granular context control & file (markdown) backed memory
+- Granular context control and working-set inspection
 - Better session observability & config/session controls

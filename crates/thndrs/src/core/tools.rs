@@ -237,7 +237,7 @@ pub fn provider_tool_catalog_schemas(defs: &[ToolDefinition], format: ProviderSc
 ///
 /// Send this schema every provider turn. Umans does not expose explicit
 /// reusable-history or prompt-cache behavior for tool definitions, so we do
-/// not rely on hidden provider memory for them.
+/// not rely on hidden provider state for them.
 pub fn tool_catalog_schemas(defs: &[ToolDefinition]) -> serde_json::Value {
     provider_tool_catalog_schemas(defs, ProviderSchemaFormat::Anthropic)
 }

@@ -1,0 +1,9 @@
+---
+source: crates/thndrs/src/cli/renderer/live/tests.rs
+assertion_line: 456
+expression: frame.render_styled()
+---
+│   › clear  clear transcript                                                       # [bg=#292e42]=   [fg=#f7c67f bg=#292e42 b]=› [bg=#292e42]=  [fg=#ebfafa bg=#292e42 b]=clear [fg=#3b4261 bg=#292e42]=  clear transcript [bg=#292e42]=                                                    [bg=#292e42]=  
+│     config path  show config paths                                                # [bg=#212337]=   [bg=#212337]=  [bg=#212337]=  [fg=#abb4da bg=#212337]=config path [fg=#3b4261 bg=#212337]=  show config paths [bg=#212337]=                                             [bg=#212337]=  
+│     config show  show redacted config                                             # [bg=#212337]=   [bg=#212337]=  [bg=#212337]=  [fg=#abb4da bg=#212337]=config show [fg=#3b4261 bg=#212337]=  show redacted config [bg=#212337]=                                          [bg=#212337]=
+

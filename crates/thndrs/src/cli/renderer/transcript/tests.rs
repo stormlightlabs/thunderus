@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
 
 use crate::app::{App, Entry, ToolStatus};
+use crate::context::ContextSource;
 use crate::renderer::{self, row};
 use crate::skills::{self, SkillDiagnostic};
-use thndrs_context::context::ContextSource;
 
 use super::TranscriptRowContext;
 
@@ -45,7 +45,6 @@ fn test_app() -> App {
         verbose: false,
         theme: Theme::EldritchMinimal,
         print_prompt: false,
-        memory: false,
         skill_dirs: Vec::new(),
         session_dir: None,
         config_diagnostics: Vec::new(),
@@ -156,8 +155,8 @@ fn ordinary_markdown_code_fence_is_highlighted_and_wrapped() {
         "code should be wrapped: {rendered}"
     );
     assert!(
-        rendered.contains("u=]"),
-        "ordinary Markdown code fences should retain syntax styles: {rendered}"
+        rendered.contains("[fg=#b48ead bg=#171928]=fn"),
+        "ordinary Markdown code fences should highlight Rust keywords: {rendered}"
     );
 }
 

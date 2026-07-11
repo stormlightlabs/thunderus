@@ -1,12 +1,11 @@
 use super::*;
 use crate::app::ToolStatus;
 use std::path::PathBuf;
-use thndrs_context::context::{
+use thndrs_agent::context::{
     CompactionSummaryCandidate, ContextItemKind, HarnessCandidate, InstructionCandidate, ModelContextLimits,
     ModelLimitConfidence, ModelLimitSource, PinnedCandidate, SelectionInput, TranscriptCandidate, UserTurnCandidate,
     select_context,
 };
-use thndrs_context::memory::{MemoryItem, MemoryKind, MemoryRootKind, MemorySource};
 
 fn test_bundle() -> PromptBundle {
     PromptBundle {
@@ -37,26 +36,6 @@ fn ledger_limits() -> ModelContextLimits {
         recommended_completion_tokens: 4_096,
         source: ModelLimitSource::LiveMetadata,
         confidence: ModelLimitConfidence::Exact,
-    }
-}
-
-fn memory_item(id: &str, title: &str, root: MemoryRootKind, body: &str) -> MemoryItem {
-    MemoryItem {
-        id: id.to_string(),
-        title: title.to_string(),
-        kind: MemoryKind::Fact,
-        scope: root.default_scope(),
-        paths: Vec::new(),
-        tags: Vec::new(),
-        created: "2026-07-03T00:00:00Z".to_string(),
-        updated: "2026-07-03T00:00:00Z".to_string(),
-        source: MemorySource::ExplicitUser,
-        root,
-        path: PathBuf::from(format!("/repo/.thndrs/memory/notes/{id}.md")),
-        content_hash: 1,
-        byte_count: body.len(),
-        truncated: false,
-        body: body.to_string(),
     }
 }
 
@@ -896,7 +875,7 @@ fn default_fragments_are_non_empty() {
 }
 
 #[test]
-fn context_projection_renders_no_memory() {
+fn context_projection_without_selected_content_omits_projection() {
     let input = SelectionInput {
         harness: vec![HarnessCandidate::new("base_identity", 100)],
         user_turn: Some(UserTurnCandidate::new("sess_1", 0, 50)),
@@ -906,55 +885,10 @@ fn context_projection_renders_no_memory() {
     let prompt = render_system_prompt(&bundle_with_ledger(ledger));
 
     assert!(prompt.contains("<context_dashboard>"), "dashboard must be present");
-    assert!(!prompt.contains("<memory>"), "no memory block when no memory selected");
     assert!(
         !prompt.contains("<selected_context>"),
         "no projection block when nothing to render"
     );
-}
-
-#[test]
-fn context_projection_renders_core_memory() {
-    let input = SelectionInput {
-        harness: vec![HarnessCandidate::new("base_identity", 100)],
-        user_turn: Some(UserTurnCandidate::new("sess_1", 0, 50)),
-        core_memory: vec![memory_item(
-            "mem_core",
-            "Core facts",
-            MemoryRootKind::User,
-            "prefer cargo test",
-        )],
-        ..Default::default()
-    };
-    let ledger = select_context(&input, ledger_limits());
-    let prompt = render_system_prompt(&bundle_with_ledger(ledger));
-
-    assert!(prompt.contains("<memory>"));
-    assert!(prompt.contains("mem_core"));
-    assert!(prompt.contains("prefer cargo test"));
-    assert!(prompt.contains("<scope>user</scope>"));
-}
-
-#[test]
-fn context_projection_renders_archival_memory() {
-    let input = SelectionInput {
-        harness: vec![HarnessCandidate::new("base_identity", 100)],
-        user_turn: Some(UserTurnCandidate::new("sess_1", 0, 50)),
-        archival_memory: vec![memory_item(
-            "mem_arch",
-            "Build steps",
-            MemoryRootKind::Project,
-            "run cargo build",
-        )],
-        ..Default::default()
-    };
-    let ledger = select_context(&input, ledger_limits());
-    let prompt = render_system_prompt(&bundle_with_ledger(ledger));
-
-    assert!(prompt.contains("<memory>"));
-    assert!(prompt.contains("mem_arch"));
-    assert!(prompt.contains("run cargo build"));
-    assert!(prompt.contains("<scope>project</scope>"));
 }
 
 #[test]
@@ -1040,7 +974,7 @@ fn context_projection_dashboard_excludes_full_content() {
     let input = SelectionInput {
         harness: vec![HarnessCandidate::new("base_identity", 100)],
         user_turn: Some(UserTurnCandidate::new("sess_1", 0, 50)),
-        core_memory: vec![memory_item("mem_secret", "creds", MemoryRootKind::User, secret)],
+        instructions: vec![instruction_with_content(".", true, secret)],
         ..Default::default()
     };
 
@@ -1082,8 +1016,6 @@ fn context_dashboard_is_compact_for_every_turn() {
         harness: vec![HarnessCandidate::new("base_identity", 100)],
         user_turn: Some(UserTurnCandidate::new("sess_1", 0, 50)),
         instructions: vec![instruction_with_content(".", true, "# Root\n")],
-        core_memory: vec![memory_item("mem_core", "Core", MemoryRootKind::User, "facts")],
-        archival_memory: vec![memory_item("mem_arch", "Arch", MemoryRootKind::Project, "notes")],
         transcript: vec![TranscriptCandidate::new("sess_1", 1, "user", 100)],
         ..Default::default()
     };
@@ -1121,7 +1053,7 @@ fn context_ledger_none_preserves_legacy_project_context() {
 }
 
 #[test]
-fn snapshot_context_projection_no_memory() {
+fn snapshot_context_projection_without_durable_storage() {
     let input = SelectionInput {
         harness: vec![HarnessCandidate::new("base_identity", 100)],
         user_turn: Some(UserTurnCandidate::new("sess_1", 0, 50)),
@@ -1129,43 +1061,7 @@ fn snapshot_context_projection_no_memory() {
     };
     let ledger = select_context(&input, ledger_limits());
     let prompt = render_system_prompt(&bundle_with_ledger(ledger));
-    insta::assert_snapshot!(prompt);
-}
-
-#[test]
-fn snapshot_context_projection_core_memory() {
-    let input = SelectionInput {
-        harness: vec![HarnessCandidate::new("base_identity", 100)],
-        user_turn: Some(UserTurnCandidate::new("sess_1", 0, 50)),
-        core_memory: vec![memory_item(
-            "mem_core",
-            "Core facts",
-            MemoryRootKind::User,
-            "prefer cargo test",
-        )],
-        ..Default::default()
-    };
-    let ledger = select_context(&input, ledger_limits());
-    let prompt = render_system_prompt(&bundle_with_ledger(ledger));
-    insta::assert_snapshot!(prompt);
-}
-
-#[test]
-fn snapshot_context_projection_archival_memory() {
-    let input = SelectionInput {
-        harness: vec![HarnessCandidate::new("base_identity", 100)],
-        user_turn: Some(UserTurnCandidate::new("sess_1", 0, 50)),
-        archival_memory: vec![memory_item(
-            "mem_arch",
-            "Build steps",
-            MemoryRootKind::Project,
-            "run cargo build",
-        )],
-        ..Default::default()
-    };
-    let ledger = select_context(&input, ledger_limits());
-    let prompt = render_system_prompt(&bundle_with_ledger(ledger));
-    insta::assert_snapshot!(prompt);
+    insta::assert_snapshot!("snapshot_context_projection_no_memory", prompt);
 }
 
 #[test]

@@ -24,7 +24,6 @@ fn test_app() -> App {
         verbose: false,
         theme: Theme::EldritchMinimal,
         print_prompt: false,
-        memory: false,
         skill_dirs: Vec::new(),
         session_dir: None,
         config_diagnostics: Vec::new(),

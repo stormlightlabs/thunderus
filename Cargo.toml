@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/thndrs", "crates/thndrs-agent", "crates/thndrs-context"]
+members = ["crates/thndrs", "crates/thndrs-agent"]
 default-members = ["crates/thndrs"]
 resolver = "3"
 
@@ -22,7 +22,6 @@ lectito = "0.2"
 markdown = "1.0.0"
 regex-lite = "0.1"
 rmcp = { version = "2.1.0", default-features = false, features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest"] }
-rusqlite = { version = "0.40", features = ["bundled"] }
 scraper = "0.27"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

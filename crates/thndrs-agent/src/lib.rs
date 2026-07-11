@@ -3,6 +3,7 @@
 pub mod adapters;
 pub mod budget;
 pub mod cancel;
+pub mod context;
 pub mod contracts;
 pub mod run;
 

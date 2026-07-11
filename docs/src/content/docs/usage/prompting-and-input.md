@@ -24,7 +24,7 @@ be edited and retried.
 ## Prompt History
 
 Use `Up` and `Down` to recall submitted prompts. The TUI keeps the newest 200
-entries in memory and persists them in `.thndrs/input-history.jsonl`
+entries in its prompt-history buffer and persists them in `.thndrs/input-history.jsonl`
 (append-only, capped at 1MiB).
 
 On Unix, thndrs keeps the file readable and writable only by its owner.

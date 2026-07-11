@@ -10,8 +10,8 @@ use super::auth::{
 };
 use crate::cli::Cli;
 use crate::config;
+use crate::context;
 use crate::thndrs_core::auth;
-use thndrs_context::context;
 
 /// Providers supported by first-run setup and login commands.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]

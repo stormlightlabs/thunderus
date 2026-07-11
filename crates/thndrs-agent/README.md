@@ -44,6 +44,14 @@ assert_eq!(turn.tools[0].name, "read_file");
 sends your event type and checks the supplied [`CancelToken`]; consume the
 receiver in the UI or transport that owns presentation.
 
+## Control context
+
+[`context`] provides pure, deterministic context control for agent turns:
+typed candidate items, token budgets, selection, compact ledgers, and
+compaction policy. Hosts supply project instructions, transcript entries,
+skills, and pins; the module performs no filesystem, provider, terminal, or
+persistence work.
+
 ## Keep policy in your application
 
 This crate does not read files, run processes, or contact a model provider.
@@ -60,5 +68,6 @@ consumers establish the boundaries worth committing to.
 [`AgentRun`]: https://docs.rs/thndrs-agent/latest/thndrs_agent/struct.AgentRun.html
 [`AgentTurn`]: https://docs.rs/thndrs-agent/latest/thndrs_agent/struct.AgentTurn.html
 [`CancelToken`]: https://docs.rs/thndrs-agent/latest/thndrs_agent/struct.CancelToken.html
+[`context`]: https://docs.rs/thndrs-agent/latest/thndrs_agent/context/index.html
 [`ToolExecutionHook`]: https://docs.rs/thndrs-agent/latest/thndrs_agent/struct.ToolExecutionHook.html
 [`ToolPermissionHook`]: https://docs.rs/thndrs-agent/latest/thndrs_agent/struct.ToolPermissionHook.html

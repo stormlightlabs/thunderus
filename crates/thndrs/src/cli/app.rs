@@ -7,16 +7,15 @@
 #[cfg(test)]
 mod tests;
 
-mod memory;
-
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use crate::context;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use serde::{Deserialize, Serialize};
 use thndrs_agent::CancelToken;
 pub use thndrs_agent::ToolStatus;
-use thndrs_context::{context, memory as memory_contracts};
+use thndrs_agent::context as agent_context;
 
 use crate::acp::config::provider_label;
 use crate::acp::permissions::{PendingPermission, PermissionDecision};
@@ -581,10 +580,6 @@ pub struct App {
     pub history_draft: String,
     pub transcript: Vec<Entry>,
     pub cwd: PathBuf,
-    /// Whether optional memory and retrieval are active for this run.
-    pub memory_enabled: bool,
-    /// Memory roots are resolved only after memory is deliberately enabled.
-    pub memory_roots: Option<memory_contracts::MemoryRoots>,
     /// Current git working tree summary for the status line.
     pub git_status: Option<GitStatusSummary>,
     pub model: String,
@@ -670,10 +665,6 @@ impl From<&Cli> for App {
             None => Vec::new(),
         };
         let skill_inventory = skills::discover(&workspace_root, &value.skill_dirs);
-        let memory_roots = value
-            .memory
-            .then(|| memory_contracts::MemoryRoots::resolve(&workspace_root));
-
         let transcript = Vec::new();
         let sessions_dir = value
             .session_dir
@@ -713,7 +704,6 @@ impl From<&Cli> for App {
             let session_dir = Some(sessions_dir.display().to_string());
             Some(session::SessionConfigMeta {
                 session_dir,
-                memory_enabled: Some(value.memory),
                 files,
                 origins,
                 diagnostics,
@@ -754,8 +744,6 @@ impl From<&Cli> for App {
             transcript,
             git_status: renderer::git::collect(&workspace_root),
             cwd: workspace_root,
-            memory_roots,
-            memory_enabled: value.memory,
             model: value.model.clone(),
             model_picker_items: offline_model_picker_items(),
             user_label: default_user_label(),
@@ -976,7 +964,6 @@ pub fn command_suggestions_for_app(app: &App) -> Vec<(&'static str, &'static str
         ("session", "show a local session summary"),
         ("tokens", "show current session token totals"),
         ("debug log", "read the current session log"),
-        ("memory recall", "search memory (metadata + FTS5)"),
         ("auth status", "show credential sources"),
         ("config path", "show config paths"),
         ("config show", "show redacted config"),
@@ -2822,17 +2809,6 @@ fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
         return None;
     }
 
-    if command.starts_with("memory ") {
-        if memory::run_memory_command(app, command).is_some() {
-            app.input.clear();
-        } else {
-            app.transcript
-                .push(Entry::Error { text: String::from("usage: /memory recall <query>") });
-            app.input.clear();
-        }
-        return None;
-    }
-
     if command == "history" {
         return run_history_command(app);
     }
@@ -3034,7 +3010,7 @@ fn start_compaction(
         .as_ref()
         .map_or(0, |writer| writer.next_sequence().saturating_sub(1));
     let recovery_handle = format!("session:{}:{covered_start_seq}..{covered_end_seq}", app.session_id);
-    let request = match context::prepare_manual_compaction(policy, &app.model, &source, &recovery_handle) {
+    let request = match agent_context::prepare_manual_compaction(policy, &app.model, &source, &recovery_handle) {
         Ok(request) => request,
         Err(message) => {
             app.transcript.push(Entry::Error { text: message });
@@ -3071,17 +3047,17 @@ fn start_compaction(
 }
 
 /// Resolve the configured compaction policy from loaded config layers.
-pub fn effective_compaction_policy(app: &App) -> context::CompactionPolicy {
+pub fn effective_compaction_policy(app: &App) -> agent_context::CompactionPolicy {
     let config = app
         .cli
         .config_layers
         .iter()
         .map(|layer| &layer.config.context.compaction)
         .rev()
-        .find(|config| **config != context::CompactionConfig::default())
+        .find(|config| **config != agent_context::CompactionConfig::default())
         .cloned()
         .unwrap_or_default();
-    context::CompactionPolicy::from_config(&config)
+    agent_context::CompactionPolicy::from_config(&config)
 }
 
 /// Render active transcript material for the configured compaction model.
@@ -3179,8 +3155,6 @@ fn push_command_output(app: &mut App, label: &str, output: &[u8], result: std::i
 /// Prefix with `//` to queue a literal slash-prefixed follow-up.
 fn handle_running_command(app: &mut App, command: &str) -> Option<Msg> {
     let is_read_only = matches!(command, "quit" | "exit" | "help" | "bg")
-        || command == "memory recall"
-        || command.starts_with("memory recall ")
         || matches!(command, "history" | "tokens" | "debug log")
         || command.starts_with("session ")
         || command.starts_with("debug log ");
@@ -3721,7 +3695,7 @@ fn restore_failed_compaction(app: &mut App, pending: PendingManualCompaction) {
 
 /// Map transcript signals to the durable compaction-risk classification.
 fn classify_compaction_risk(entries: &[Entry]) -> session::CompactionRisk {
-    let signals = context::CompactionRiskSignals {
+    let signals = agent_context::CompactionRiskSignals {
         has_tool_output_or_diff: entries.iter().any(|entry| matches!(entry, Entry::Tool { .. })),
         has_failure_or_permission: entries.iter().any(|entry| matches!(entry, Entry::Error { .. })),
         has_correction_or_unresolved_work: entries.iter().any(
@@ -3729,8 +3703,8 @@ fn classify_compaction_risk(entries: &[Entry]) -> session::CompactionRisk {
         ),
     };
     match signals.classify() {
-        context::CompactionRisk::Low => session::CompactionRisk::Low,
-        context::CompactionRisk::High => session::CompactionRisk::High,
+        agent_context::CompactionRisk::Low => session::CompactionRisk::Low,
+        agent_context::CompactionRisk::High => session::CompactionRisk::High,
     }
 }
 

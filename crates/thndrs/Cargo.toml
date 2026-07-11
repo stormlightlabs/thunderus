@@ -28,7 +28,6 @@ lectito.workspace = true
 markdown.workspace = true
 regex-lite.workspace = true
 rmcp.workspace = true
-rusqlite.workspace = true
 scraper.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -38,7 +37,6 @@ syntect.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 thndrs-agent = { version = "0.1.0", path = "../thndrs-agent" }
-thndrs-context = { version = "0.1.0", path = "../thndrs-context", features = ["memory"] }
 tokio.workspace = true
 tokio-util.workspace = true
 toml.workspace = true

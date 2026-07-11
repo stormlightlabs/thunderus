@@ -5,10 +5,11 @@
 
 use crate::agent::ProviderKind;
 use crate::cli::WebSearchMode;
+use crate::context::ContextSource;
 use crate::prompt::PromptBundle;
 use crate::skills::SkillMetadata;
 use crate::utils;
-use thndrs_context::context::{ContextSource, render_model_dashboard};
+use thndrs_agent::context::render_model_dashboard;
 
 pub const RENDERER_MODE: &str = "direct-inline";
 

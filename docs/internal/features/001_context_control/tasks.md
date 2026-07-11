@@ -1,83 +1,87 @@
 ---
-title: Context Control And Memory: Post-Baseline Tasks
-status: Draft
-captured: 2026-07-10
+title: Context Control: Agent Primitive and Memory Removal Tickets
+status: Ready
+captured: 2026-07-11
 ---
 
-The ledger, scoped instructions, file-backed lexical memory, prompt projection,
-audit records, and initial session contract moved to
-[`000_baseline`](../000_baseline/plan.md). This file retains only work that
-builds on a usable, optional memory capability.
+Implementation tickets for [the context-control specification](plan.md). Work
+the frontier: any ticket whose blockers are complete can start.
 
-## Semantic Retrieval Contract
+## Move pure context policy into `thndrs-agent`
 
-**What to build:** Define the future semantic retrieval extension without
-adding embeddings, vector tables, model downloads, or remote calls.
+**What to build:** Make `thndrs-agent::context` the reusable home for the
+typed ledger, budget, deterministic selection, prompt-projection inputs, and
+compaction policy. Keep filesystem discovery and session persistence in the
+application, then retire `thndrs-context`.
 
-**Blocked by:** Baseline release gate
-
-**Acceptance criteria:**
-
-- [ ] Memory Markdown remains the source of truth.
-- [ ] Candidate provider, cache metadata, mixed-model, rebuild, and lexical
-      fallback rules are documented.
-- [ ] The future extension cannot silently replace FTS/BM25 or make semantic
-      retrieval mandatory.
-
-## Context And Memory Interaction
-
-**What to build:** Add visible inspection and explicit mutation commands above
-the baseline ledger and optional memory capability.
-
-**Blocked by:** Baseline release gate
+**Blocked by:** None - can start immediately
 
 **Acceptance criteria:**
 
-- [ ] `/context`, `/context all`, `/memory`, `/memory stats`, and
-      `/memory recall` show bounded, redacted read-only data while preserving
-      prompt input on failure.
-- [ ] `/pin`, `/drop`, `/recover`, `/clear-context`, `/remember`,
-      `/memory open`, `/memory forget`, and `/memory index rebuild` obey the
-      existing audit, containment, secret-warning, and no-side-effect-on-replay
-      rules.
-- [ ] Memory commands clearly report that memory is disabled until a user
-      enables it.
-
-## Compaction And Health
-
-**What to build:** Complete high-risk compaction review and make source/index,
-pin, budget, and compaction health actionable.
-
-**Blocked by:** Context And Memory Interaction
-
-**Acceptance criteria:**
-
-- [ ] `always`, `auto`, and `never` review policies visibly distinguish
-      approval-required and no-review compactions.
-- [ ] Health reports actionable source, index, pin, budget, and review-state
-      findings through a redacted `/doctor` command.
-- [ ] Context/memory/compaction rows and focused surfaces remain clear at
-      narrow and small terminal sizes without replacing native scrollback.
-
-## Public Documentation And Verification
-
-**What to build:** Document everyday optional-memory and context-control use
-after the interactions are complete.
-
-**Blocked by:** Context And Memory Interaction; Compaction And Health
-
-**Acceptance criteria:**
-
-- [ ] Public docs explain enablement, scope, precedence, inspection, mutation,
-      compaction, recovery, and the deferred semantic-retrieval boundary.
-- [ ] Docs state that memory cannot grant permissions or override higher-priority
-      instructions.
-- [ ] Rust and public-doc verification passes.
+- [x] `thndrs-agent` exposes pure context-control types and functions with no
+      provider, terminal, filesystem, ACP, or memory dependency.
+- [x] `thndrs` uses the new module for every remaining context-policy call;
+      application-owned `AGENTS.md` discovery and session metadata remain in
+      `thndrs`.
+- [x] `thndrs-context` is absent from the workspace, manifests, lockfile, and
+      source imports.
+- [x] Existing non-memory ledger, instruction, selection, prompt, and
+      compaction behavior has deterministic regression coverage.
 
 **Verification:**
 
-- `cargo test context`
-- `cargo test memory`
-- `cargo test app`
-- `cargo test renderer`
+- `cargo test -p thndrs-agent`
+- `cargo test -p thndrs`
+- `cargo test --workspace`
+
+## Remove the built-in memory surface
+
+**What to build:** Delete every built-in durable-memory behavior from the CLI,
+configuration, prompt/session flow, dependencies, and tests. The resulting
+application has no memory mode, command, storage, retrieval, or compatibility
+path.
+
+**Blocked by:** Move pure context policy into `thndrs-agent`
+
+**Acceptance criteria:**
+
+- [x] No source or supported command accepts memory configuration, performs a
+      memory mutation or recall, or creates/reads a memory root or index.
+- [x] Context selection and session records contain no memory candidate, item
+      kind, mutation, audit, or compatibility variant.
+- [x] Memory-only dependencies and files are deleted, while generic MCP and
+      ordinary prompt-history behavior remain unchanged.
+- [x] Focused search distinguishes removed durable memory from unrelated uses
+      of the word “memory,” such as in-memory UI state.
+
+**Verification:**
+
+- `cargo fmt --check`
+- `cargo clippy --workspace`
+- `cargo test --workspace`
+
+## Finish the context-only controls and documentation
+
+**What to build:** Complete the planned context inspection, working-set,
+compaction, health, rendering, and documentation work without reintroducing a
+memory concern.
+
+**Blocked by:** Remove the built-in memory surface
+
+**Acceptance criteria:**
+
+- [ ] Context inspection and working-set controls are bounded, redacted,
+      preserve prompt input on failure, and explain pins, drops, recovery,
+      budgets, and compaction without memory terminology.
+- [ ] Compaction review and `/doctor` report only context source, pin, budget,
+      and review-state health.
+- [ ] Context-only surfaces have normal, narrow, and small-height regression
+      coverage and retain native transcript scrollback.
+- [ ] Public and internal product documentation no longer presents memory as a
+      `thndrs` capability; the project-agnostic notebook is unchanged.
+
+**Verification:**
+
+- `cargo test -p thndrs`
+- `cargo test --workspace`
 - `pnpm --dir docs build`

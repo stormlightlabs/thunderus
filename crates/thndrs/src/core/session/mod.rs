@@ -7,6 +7,7 @@
 //! Each [`SessionRecord`] is one append-only JSONL line tagged with
 //! `schema_version`, a monotonic `seq`, `time`, and `type`.
 
+mod contracts;
 #[cfg(test)]
 mod tests;
 
@@ -19,16 +20,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::acp::permissions::PendingPermission;
 use crate::app::{Entry, ToolStatus};
+use crate::context::ContextSource;
 use crate::prompt::{EnvironmentMetadata, HistoryReuse, PromptBundle};
 use crate::skills::{SkillActivation, SkillReferenceMeta};
 use crate::tools::{WriteOp, shell};
 use crate::{datetime, internals, tools};
-use thndrs_context::context::{ContextItem, ContextLedger, ContextSource};
-use thndrs_context::memory::{MemoryDeleteRecord, MemoryDeletion, MemoryWrite};
+use thndrs_agent::context::{ContextItem, ContextLedger};
 
-pub use thndrs_context::session::{
+pub use contracts::{
     AcpPermissionOptionRecord, AcpSessionMetadata, ContextDiagnosticMeta, ContextItemMeta, ContextLedgerMeta,
-    ContextSourceMeta, McpToolSessionMeta, MemoryMutationMeta, SessionConfigFile, SessionConfigMeta,
+    ContextSourceMeta, McpToolSessionMeta, SessionConfigFile, SessionConfigMeta,
 };
 
 /// Current JSONL schema version.
@@ -106,22 +107,6 @@ pub enum SessionRecord {
         time: String,
         item: ContextItemMeta,
         reason: String,
-    },
-    /// An explicit memory write, without the memory body or title.
-    #[serde(rename = "memory_write")]
-    MemoryWrite {
-        schema_version: u32,
-        seq: u64,
-        time: String,
-        memory: MemoryMutationMeta,
-    },
-    /// A completed memory deletion audit, without forgotten content.
-    #[serde(rename = "memory_delete")]
-    MemoryDelete {
-        schema_version: u32,
-        seq: u64,
-        time: String,
-        deletion: MemoryDeleteRecord,
     },
     /// A manual or automatic compaction audit record.
     #[serde(rename = "compaction")]
@@ -381,8 +366,6 @@ impl SessionRecord {
             | SessionRecord::ContextPin { seq, .. }
             | SessionRecord::ContextDrop { seq, .. }
             | SessionRecord::ContextRecovery { seq, .. }
-            | SessionRecord::MemoryWrite { seq, .. }
-            | SessionRecord::MemoryDelete { seq, .. }
             | SessionRecord::Compaction { seq, .. }
             | SessionRecord::User { seq, .. }
             | SessionRecord::PromptMetadata { seq, .. }
@@ -671,7 +654,7 @@ pub struct CompactionTokenUsage {
 ///
 /// The summary is intentionally retained because it becomes model-visible
 /// working context. The covered source is represented only by ranges, stable
-/// handles, and hashes; full transcript, file, memory, and provider payload
+/// handles, and hashes; full transcript, file, and provider payload
 /// content never belongs in this record.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct CompactionAudit {
@@ -925,27 +908,6 @@ impl SessionWriter {
     /// Append a content-free user recovery action.
     pub fn append_context_recovery(&mut self, item: &ContextItem, reason: &str) -> std::io::Result<()> {
         self.append_context_action(item, reason, ContextActionKind::Recovery)
-    }
-
-    /// Append a content-free audit record for an explicit memory write.
-    pub fn append_memory_write(&mut self, write: &MemoryWrite) -> std::io::Result<()> {
-        self.append(SessionRecord::MemoryWrite {
-            schema_version: SCHEMA_VERSION,
-            seq: 0,
-            time: datetime::now_iso8601(),
-            memory: MemoryMutationMeta::from(write),
-        })
-    }
-
-    /// Append a content-free audit record for a completed memory deletion.
-    pub fn append_memory_delete(&mut self, deletion: &MemoryDeletion) -> std::io::Result<()> {
-        let time = datetime::now_iso8601();
-        self.append(SessionRecord::MemoryDelete {
-            schema_version: SCHEMA_VERSION,
-            seq: 0,
-            time: time.clone(),
-            deletion: deletion.to_audit_record(&time),
-        })
     }
 
     /// Append a compaction audit record without source payloads.
@@ -1623,8 +1585,6 @@ fn set_seq(record: &mut SessionRecord, seq: u64) {
         | SessionRecord::ContextPin { seq: s, .. }
         | SessionRecord::ContextDrop { seq: s, .. }
         | SessionRecord::ContextRecovery { seq: s, .. }
-        | SessionRecord::MemoryWrite { seq: s, .. }
-        | SessionRecord::MemoryDelete { seq: s, .. }
         | SessionRecord::Compaction { seq: s, .. }
         | SessionRecord::User { seq: s, .. }
         | SessionRecord::PromptMetadata { seq: s, .. }

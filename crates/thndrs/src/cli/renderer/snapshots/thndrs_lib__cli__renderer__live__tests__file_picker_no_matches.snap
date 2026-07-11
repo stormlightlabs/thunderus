@@ -1,8 +1,0 @@
----
-source: src/cli/renderer/live.rs
-assertion_line: 958
-expression: frame.render_styled()
----
-│   files  xyz                                                                      # [bg=#212337]=   [fg=#37f499 bg=#212337 b]=files [bg=#212337]=   [fg=#3b4261 bg=#212337]=xyz [bg=#212337]=                                                                   [bg=#212337]=  
-│   no matches                                                                      # [bg=#212337]=   [fg=#3b4261 bg=#212337]=no matches [bg=#212337]=                                                                   [bg=#212337]=  
-│   Enter select   Esc close                                                        # [bg=#212337]=   [fg=#37f499 bg=#212337 b]=Enter [fg=#3b4261 bg=#212337]= select    [fg=#37f499 bg=#212337 b]=Esc [fg=#3b4261 bg=#212337]= close [bg=#212337]=                                                     [bg=#212337]=

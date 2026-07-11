@@ -9,8 +9,8 @@ use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 
 use super::setup::{ProviderAuthKind, SetupProviderArg};
 use crate::cli::Cli;
+use crate::context;
 use crate::thndrs_core::auth;
-use thndrs_context::context;
 
 /// Store one provider credential.
 #[derive(Clone, Debug, Eq, PartialEq, Args)]

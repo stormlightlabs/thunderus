@@ -1,0 +1,10 @@
+---
+source: crates/thndrs/src/cli/renderer/live/tests.rs
+assertion_line: 588
+expression: combined
+---
+width=80:
+│     ›  日本語テキスト                                                             # [bg=#212337]=   [bg=#212337]=   [fg=#f1fc79 bg=#212337]=› [bg=#212337]=   [fg=#ebfafa bg=#212337]=日本語テキスト [bg=#212337]=                                                          [bg=#212337]=  
+width=40:
+│     ›  日本語テキスト                     # [bg=#212337]=   [bg=#212337]=   [fg=#f1fc79 bg=#212337]=› [bg=#212337]=   [fg=#ebfafa bg=#212337]=日本語テキスト [bg=#212337]=                  [bg=#212337]=
+

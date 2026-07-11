@@ -1,13 +1,13 @@
 //! `thndrs config` command definitions.
 
 use crate::config;
+use crate::context;
 use crate::tools::shell::redact_secrets;
 use clap::{Args, Subcommand};
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use thndrs_context::context;
 
 use crate::cli::{Cli, WebSearchMode};
 
@@ -267,7 +267,6 @@ fn write_config<W: Write>(config: &config::Config, writer: &mut W) -> io::Result
     writeln!(writer, "  tick_rate_ms: {}", config.tick_rate_ms.unwrap_or(0))?;
     writeln!(writer, "  mouse: {}", config.mouse.unwrap_or(false))?;
     writeln!(writer, "  verbose: {}", config.verbose.unwrap_or(false))?;
-    writeln!(writer, "  memory: {}", config.memory.unwrap_or(false))?;
     writeln!(writer, "  theme: {:?}", config.theme.unwrap_or_default())?;
     if config.skill_dirs.is_empty() {
         writeln!(writer, "  skill_dirs: []")?;

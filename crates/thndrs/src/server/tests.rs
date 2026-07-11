@@ -491,12 +491,15 @@ fn set_config_option_updates_model_and_refreshes_options() {
 
     let response = set_config_option(
         &state,
-        &SetSessionConfigOptionRequest::new(session_id.clone(), MODEL_CONFIG_OPTION_ID, "custom-model"),
+        &SetSessionConfigOptionRequest::new(session_id.clone(), MODEL_CONFIG_OPTION_ID, "chatgpt-codex/gpt-5.6-sol"),
     )
     .expect("set model");
     let json = serde_json::to_value(&response).expect("serialize response");
 
-    assert!(json.to_string().contains("\"currentValue\":\"custom-model\""));
+    assert!(
+        json.to_string()
+            .contains("\"currentValue\":\"chatgpt-codex/gpt-5.6-sol\"")
+    );
     assert!(json.to_string().contains("\"configOptions\""));
 
     let response = set_config_option(
@@ -507,7 +510,7 @@ fn set_config_option_updates_model_and_refreshes_options() {
     let json = serde_json::to_value(&response).expect("serialize response");
     let text = json.to_string();
 
-    assert!(text.contains("\"currentValue\":\"custom-model\""));
+    assert!(text.contains("\"currentValue\":\"chatgpt-codex/gpt-5.6-sol\""));
     assert!(text.contains("\"currentValue\":\"none\""));
 
     let response = set_config_option(
@@ -548,7 +551,7 @@ fn execute_prompt_uses_selected_config_options() {
     let session_id = state.create_session(workspace.path()).expect("session created");
     set_config_option(
         &state,
-        &SetSessionConfigOptionRequest::new(session_id.clone(), MODEL_CONFIG_OPTION_ID, "selected-model"),
+        &SetSessionConfigOptionRequest::new(session_id.clone(), MODEL_CONFIG_OPTION_ID, "chatgpt-codex/gpt-5.6-sol"),
     )
     .expect("set model");
     set_config_option(
@@ -572,7 +575,7 @@ fn execute_prompt_uses_selected_config_options() {
         &PromptRequest::new(session_id, vec![ContentBlock::Text(TextContent::new("check config"))]),
         |_intent| Ok(()),
         |config, _messages, _expects_write, _prompt| {
-            assert_eq!(config.model, "selected-model");
+            assert_eq!(config.model, "chatgpt-codex/gpt-5.6-sol");
             assert_eq!(config.search_mode, WebSearchMode::None);
             assert_eq!(config.reasoning_effort, ReasoningEffort::High);
             assert_eq!(config.reasoning_summary, ReasoningSummary::Auto);

@@ -21,7 +21,7 @@
 //! 10. Project context — loaded `AGENTS.md` text (below policy and user
 //!     instructions), **or** the selected context projection
 //!     (`<selected_context>`) from the attached [`ContextLedger`] when one is
-//!     present. The ledger path renders selected instructions, memory,
+//!     present. The ledger path renders selected instructions,
 //!     compaction summaries, and pinned handles.
 //! 11. Tool catalog — provider-native schemas for local tools.
 //! 12. Transcript tail — projected model-visible entries (selected by the
@@ -36,6 +36,7 @@ use std::path::Path;
 use crate::app::Entry;
 use crate::app::ToolStatus;
 use crate::cli::WebSearchMode;
+use crate::context::ContextSource;
 use crate::internals;
 use crate::providers::ProviderMessage;
 use crate::skills;
@@ -44,7 +45,7 @@ use crate::tools;
 use crate::tools::ToolDefinition;
 use crate::utils;
 use crate::utils::datetime;
-use thndrs_context::context::{ContextItem, ContextLedger, ContextSource};
+use thndrs_agent::context::{ContextItem, ContextLedger};
 
 /// Whether the provider supports reusable history / prompt caching for
 /// AGENTS.md content.
@@ -118,7 +119,7 @@ pub struct PromptBundle {
     /// Selected context projection from the context selection policy (P7/P8).
     ///
     /// When `Some`, the system prompt renders selected project instructions,
-    /// memory, compaction summaries, and pinned handles from the ledger items,
+    /// compaction summaries, and pinned handles from the ledger items,
     /// the transcript tail is taken from ledger-selected transcript context,
     /// and a compact context dashboard is added to `<thndrs_self_knowledge>`.
     ///
@@ -164,7 +165,7 @@ impl PromptBundle {
     }
 
     /// Attach a selected context projection (P7 ledger) so the system prompt
-    /// renders selected instructions, memory, summaries, pins, and transcript
+    /// renders selected instructions, summaries, pins, and transcript
     /// context from the ledger, and adds a context dashboard to
     /// `<thndrs_self_knowledge>`.
     pub fn with_context_ledger(mut self, ledger: ContextLedger) -> Self {
@@ -315,7 +316,7 @@ fn render_legacy_project_context(bundle: &PromptBundle) -> String {
 /// Render the selected context projection from a [`ContextLedger`] into a
 /// single `<selected_context>` block.
 fn render_context_projection(ledger: &ContextLedger) -> String {
-    use thndrs_context::context::ContextItemKind as Kind;
+    use thndrs_agent::context::ContextItemKind as Kind;
 
     let rendered: Vec<&ContextItem> = ledger
         .items
@@ -324,12 +325,7 @@ fn render_context_projection(ledger: &ContextLedger) -> String {
             item.visibility.is_rendered()
                 && matches!(
                     item.kind,
-                    Kind::ProjectInstruction
-                        | Kind::UserMemory
-                        | Kind::ProjectMemory
-                        | Kind::Summary
-                        | Kind::PinnedFile
-                        | Kind::Skill
+                    Kind::ProjectInstruction | Kind::Summary | Kind::PinnedFile | Kind::Skill
                 )
         })
         .collect();
@@ -348,14 +344,6 @@ fn render_context_projection(ledger: &ContextLedger) -> String {
                     out.push_str(&format!("    <content><![CDATA[{}]]></content>\n", cdata(content)));
                 }
                 out.push_str("  </instruction>\n");
-            }
-            Kind::UserMemory | Kind::ProjectMemory => {
-                out.push_str("  <memory>\n");
-                push_item_meta(&mut out, 4, item);
-                if let Some(content) = item.content.as_deref() {
-                    out.push_str(&format!("    <content><![CDATA[{}]]></content>\n", cdata(content)));
-                }
-                out.push_str("  </memory>\n");
             }
             Kind::Summary => {
                 out.push_str("  <compaction_summary>\n");

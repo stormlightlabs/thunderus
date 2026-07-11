@@ -18,7 +18,7 @@ pub use cli::{app, input, renderer};
 
 pub use prelude::*;
 pub use thndrs_core::{
-    acp, config, fuzzy, harness, internals, mcp, prelude, prompt, providers, search, skills, tools, utils,
+    acp, config, context, fuzzy, harness, internals, mcp, prelude, prompt, providers, search, skills, tools, utils,
 };
 
 #[cfg(test)]
@@ -57,7 +57,7 @@ use renderer::region::LiveRegion;
 use utils::datetime;
 
 use thndrs_agent::CancelToken;
-use thndrs_context::context;
+use thndrs_agent::context as agent_context;
 
 /// Fastest cadence at which the direct renderer redraws agent-driven frames.
 const MAX_RENDER_RATE: Duration = Duration::from_millis(33);
@@ -240,7 +240,7 @@ fn run_mcp_command(cli: &Cli, command: &McpCommand) -> io::Result<()> {
 }
 
 fn run_session_command(cli: &Cli, command: &SessionCommand) -> io::Result<()> {
-    let workspace = context::discover_workspace_root(&cli.cwd);
+    let workspace = crate::context::discover_workspace_root(&cli.cwd);
     let dir = cli
         .session_dir
         .clone()
@@ -392,7 +392,7 @@ fn run_session_export<W: io::Write>(
 }
 
 fn run_debug_command(cli: &Cli, command: &DebugCommand) -> io::Result<()> {
-    let workspace = context::discover_workspace_root(&cli.cwd);
+    let workspace = crate::context::discover_workspace_root(&cli.cwd);
     let stdout = io::stdout();
     let mut lock = stdout.lock();
     match command {
@@ -458,7 +458,7 @@ fn newest_log_file(dir: &Path) -> Option<PathBuf> {
 }
 
 fn run_mcp_list<W: io::Write>(cli: &Cli, writer: &mut W) -> io::Result<()> {
-    let workspace = context::discover_workspace_root(&cli.cwd);
+    let workspace = crate::context::discover_workspace_root(&cli.cwd);
     let effective = load_effective_mcp_for_workspace(&workspace)?;
     if effective.config.servers.is_empty() {
         writeln!(writer, "no MCP servers configured")?;
@@ -476,7 +476,7 @@ fn run_mcp_list<W: io::Write>(cli: &Cli, writer: &mut W) -> io::Result<()> {
 }
 
 fn run_mcp_test<W: io::Write>(cli: &Cli, name: &str, writer: &mut W) -> io::Result<()> {
-    let workspace = context::discover_workspace_root(&cli.cwd);
+    let workspace = crate::context::discover_workspace_root(&cli.cwd);
     let effective = load_effective_mcp_for_workspace(&workspace)?;
     let server = configured_mcp_server(&effective.config, name)?;
     let client = mcp::manager::McpClient::connect(name.to_string(), &server).map_err(io::Error::other)?;
@@ -488,7 +488,7 @@ fn run_mcp_test<W: io::Write>(cli: &Cli, name: &str, writer: &mut W) -> io::Resu
 }
 
 fn run_mcp_tools<W: io::Write>(cli: &Cli, name: &str, writer: &mut W) -> io::Result<()> {
-    let workspace = context::discover_workspace_root(&cli.cwd);
+    let workspace = crate::context::discover_workspace_root(&cli.cwd);
     let effective = load_effective_mcp_for_workspace(&workspace)?;
     let server = configured_mcp_server(&effective.config, name)?;
     let client = mcp::manager::McpClient::connect(name.to_string(), &server).map_err(io::Error::other)?;
@@ -501,7 +501,7 @@ fn run_mcp_tools<W: io::Write>(cli: &Cli, name: &str, writer: &mut W) -> io::Res
 fn run_mcp_call<W: io::Write>(
     cli: &Cli, server_name: &str, tool_name: &str, json: &str, writer: &mut W,
 ) -> io::Result<()> {
-    let workspace = context::discover_workspace_root(&cli.cwd);
+    let workspace = crate::context::discover_workspace_root(&cli.cwd);
     let effective = load_effective_mcp_for_workspace(&workspace)?;
     let server = configured_mcp_server(&effective.config, server_name)?;
     let client = mcp::manager::McpClient::connect(server_name.to_string(), &server).map_err(io::Error::other)?;
@@ -681,7 +681,7 @@ fn run_acp_smoke<W: io::Write>(cli: &Cli, name: &str, prompt: &str, writer: &mut
         ));
     }
 
-    let workspace_root = context::discover_workspace_root(&cli.cwd);
+    let workspace_root = crate::context::discover_workspace_root(&cli.cwd);
     let mut handle = acp::runner::RunHandle::new(
         workspace_root.clone(),
         name.to_string(),
@@ -731,7 +731,7 @@ fn run_acp_logout<W: io::Write>(cli: &Cli, name: &str, writer: &mut W) -> io::Re
 
 fn run_acp_list_sessions<W: io::Write>(cli: &Cli, name: &str, writer: &mut W) -> io::Result<()> {
     let agent = configured_acp_agent(cli, name)?;
-    let workspace_root = context::discover_workspace_root(&cli.cwd);
+    let workspace_root = crate::context::discover_workspace_root(&cli.cwd);
     let sessions = acp::runner::list_sessions(name, agent, workspace_root).map_err(io::Error::other)?;
     if sessions.is_empty() {
         writeln!(writer, "no ACP sessions found")?;
@@ -763,7 +763,7 @@ fn run_acp_list_sessions<W: io::Write>(cli: &Cli, name: &str, writer: &mut W) ->
 
 fn run_acp_load_session<W: io::Write>(cli: &Cli, name: &str, session_id: &str, writer: &mut W) -> io::Result<()> {
     let agent = configured_acp_agent(cli, name)?;
-    let workspace_root = context::discover_workspace_root(&cli.cwd);
+    let workspace_root = crate::context::discover_workspace_root(&cli.cwd);
     let events =
         acp::runner::load_session(name, agent, workspace_root, session_id.to_string()).map_err(io::Error::other)?;
     for event in events {
@@ -778,7 +778,7 @@ fn run_acp_load_session<W: io::Write>(cli: &Cli, name: &str, session_id: &str, w
 
 fn run_acp_resume_session<W: io::Write>(cli: &Cli, name: &str, session_id: &str, writer: &mut W) -> io::Result<()> {
     let agent = configured_acp_agent(cli, name)?;
-    let workspace_root = context::discover_workspace_root(&cli.cwd);
+    let workspace_root = crate::context::discover_workspace_root(&cli.cwd);
     let metadata =
         acp::runner::resume_session(name, agent, workspace_root, session_id.to_string()).map_err(io::Error::other)?;
     writeln!(
@@ -810,7 +810,7 @@ fn run_acp_registry<W: io::Write>(file: Option<&Path>, writer: &mut W) -> io::Re
 fn run_acp_install<W: io::Write>(
     cli: &Cli, agent_id: &str, name: Option<String>, file: Option<&Path>, yes: bool, writer: &mut W,
 ) -> io::Result<()> {
-    let workspace = context::discover_workspace_root(&cli.cwd);
+    let workspace = crate::context::discover_workspace_root(&cli.cwd);
     let request = acp::registry::InstallRequest {
         agent_id: agent_id.to_string(),
         name,
@@ -832,7 +832,7 @@ fn run_acp_install<W: io::Write>(
 fn run_acp_update<W: io::Write>(
     cli: &Cli, name: &str, file: Option<&Path>, yes: bool, writer: &mut W,
 ) -> io::Result<()> {
-    let workspace = context::discover_workspace_root(&cli.cwd);
+    let workspace = crate::context::discover_workspace_root(&cli.cwd);
     let request = acp::registry::UpdateRequest {
         name: name.to_string(),
         source: registry_source(file),
@@ -968,8 +968,8 @@ fn append_daily_log(observability: &Option<Observability>, session_id: &str, eve
 /// Print the assembled prompt bundle with secrets redacted, without calling
 /// the provider. This is the `--print-prompt` debug path.
 fn run_print_prompt(cli: &Cli) -> io::Result<()> {
-    let workspace_root = context::discover_workspace_root(&cli.cwd);
-    let context_sources = match context::load_agents_md(&workspace_root) {
+    let workspace_root = crate::context::discover_workspace_root(&cli.cwd);
+    let context_sources = match crate::context::load_agents_md(&workspace_root) {
         Some(source) => vec![source],
         None => Vec::new(),
     };
@@ -1079,7 +1079,7 @@ fn direct_loop<W: io::Write>(
 ) -> io::Result<()> {
     let tick = tick.max(MAX_RENDER_RATE);
     let mut app = App::from_cli(cli);
-    let workspace_root = context::discover_workspace_root(&cli.cwd);
+    let workspace_root = crate::context::discover_workspace_root(&cli.cwd);
     let observability = init_tracing(&workspace_root, &app.session_id);
     if cli.verbose
         && let Some(obs) = &observability
@@ -1346,7 +1346,7 @@ fn maybe_spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>) {
         })
         .unwrap_or_default();
     let cli = app.cli.clone();
-    let workspace_root = context::discover_workspace_root(&cli.cwd);
+    let workspace_root = crate::context::discover_workspace_root(&cli.cwd);
     let resolved_websearch = cli.websearch.resolve_for_prompt(&prompt);
     let mut config = tools::AgentRunConfig::new(workspace_root, cli.model.clone(), resolved_websearch)
         .with_reasoning(cli.reasoning_effort, cli.reasoning_summary);
@@ -1424,22 +1424,22 @@ fn maybe_spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>) {
 /// live metadata loads inside the agent thread), estimates the full prompt
 /// token cost from the lowered provider messages (which include the rendered
 /// system prompt as the first message), and runs the pure
-/// [`context::preflight_auto_compaction`] decision.
+/// [`agent_context::preflight_auto_compaction`] decision.
 ///
 /// Returns `false` when auto mode is disabled or the estimate fits the policy.
 fn preflight_requires_auto_compaction(app: &App, bundle: &PromptBundle) -> bool {
     let policy = app::effective_compaction_policy(app);
-    if !matches!(policy.mode, context::CompactionMode::Auto) {
+    if !matches!(policy.mode, agent_context::CompactionMode::Auto) {
         return false;
     }
     let provider = acp::config::provider_label(&app.model);
-    let (limits, _) = context::ModelContextLimits::resolve(provider, &app.model, None, None);
+    let (limits, _) = agent_context::ModelContextLimits::resolve(provider, &app.model, None, None);
     let messages = prompt::lower_to_umans_messages(bundle);
     let bytes = messages.iter().map(|message| message.as_text().len()).sum::<usize>();
-    let estimate = context::estimate_tokens(bytes) as u64;
+    let estimate = agent_context::estimate_tokens(bytes) as u64;
     matches!(
-        context::preflight_auto_compaction(policy, &limits, estimate),
-        context::AutoCompactionDecision::Compact
+        agent_context::preflight_auto_compaction(policy, &limits, estimate),
+        agent_context::AutoCompactionDecision::Compact
     )
 }
 
@@ -1480,7 +1480,7 @@ fn manage_agent_lifecycle(app: &App, agent: &mut Option<AgentSlot>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use context::ContextSource;
+    use crate::context::ContextSource;
     use prompt::PromptBundle;
     use std::path::{Path, PathBuf};
     use std::process::Command;
@@ -2315,7 +2315,7 @@ for line in sys.stdin:
     #[test]
     fn maybe_spawn_agent_auto_compacts_oversized_turn_instead_of_spawning() {
         let mut config = config::Config::default();
-        config.context.compaction.mode = context::CompactionMode::Auto;
+        config.context.compaction.mode = agent_context::CompactionMode::Auto;
         let cli = Cli {
             model: "fake-agent".to_string(),
             config_layers: vec![config::LoadedConfigLayer {
@@ -2359,7 +2359,7 @@ for line in sys.stdin:
     #[test]
     fn maybe_spawn_agent_does_not_auto_compact_when_mode_is_manual() {
         let mut config = config::Config::default();
-        config.context.compaction.mode = context::CompactionMode::Manual;
+        config.context.compaction.mode = agent_context::CompactionMode::Manual;
         let cli = Cli {
             model: "fake-agent".to_string(),
             config_layers: vec![config::LoadedConfigLayer {
@@ -2396,7 +2396,7 @@ for line in sys.stdin:
     #[test]
     fn maybe_spawn_agent_does_not_run_preflight_while_agent_in_flight() {
         let mut config = config::Config::default();
-        config.context.compaction.mode = context::CompactionMode::Auto;
+        config.context.compaction.mode = agent_context::CompactionMode::Auto;
         let cli = Cli {
             model: "fake-agent".to_string(),
             config_layers: vec![config::LoadedConfigLayer {

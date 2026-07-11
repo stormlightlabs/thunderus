@@ -79,7 +79,7 @@ new user turn after the active run finishes.
 
 Queued input is written to the session log as audit metadata, but resume does
 not rebuild pending queues after a crash. If that audit append fails, the TUI
-keeps the in-memory queue and shows an error in the transcript.
+keeps the queued input buffer and shows an error in the transcript.
 
 Slash commands are restricted while a run is active. `/help`, `/bg`, `/quit`,
 and `/exit` can run immediately; commands that mutate idle-only UI state, such

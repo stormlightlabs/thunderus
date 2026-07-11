@@ -1,0 +1,16 @@
+---
+source: crates/thndrs/src/cli/renderer/live/tests.rs
+assertion_line: 394
+expression: frame.render_styled()
+---
+│   files  type to filter                                                           # [bg=#212337]=   [fg=#37f499 bg=#212337 b]=files [bg=#212337]=   [fg=#3b4261 bg=#212337]=type to filter [bg=#212337]=                                                        [bg=#212337]=  
+│      src/file_03.rs                                                               # [bg=#212337]=   [bg=#212337]=  [bg=#212337]=   [fg=#ebfafa bg=#212337]=src/file_03.rs [bg=#212337]=                                                            [bg=#212337]=  
+│      src/file_04.rs                                                               # [bg=#212337]=   [bg=#212337]=  [bg=#212337]=   [fg=#ebfafa bg=#212337]=src/file_04.rs [bg=#212337]=                                                            [bg=#212337]=  
+│   ›  src/file_05.rs                                                               # [bg=#292e42]=   [fg=#f7c67f bg=#292e42 b]=› [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=src/file_05.rs [bg=#292e42]=                                                            [bg=#292e42]=  
+│      src/file_06.rs                                                               # [bg=#212337]=   [bg=#212337]=  [bg=#212337]=   [fg=#ebfafa bg=#212337]=src/file_06.rs [bg=#212337]=                                                            [bg=#212337]=  
+│      src/file_07.rs                                                               # [bg=#212337]=   [bg=#212337]=  [bg=#212337]=   [fg=#ebfafa bg=#212337]=src/file_07.rs [bg=#212337]=                                                            [bg=#212337]=  
+│      src/file_08.rs                                                               # [bg=#212337]=   [bg=#212337]=  [bg=#212337]=   [fg=#ebfafa bg=#212337]=src/file_08.rs [bg=#212337]=                                                            [bg=#212337]=  
+│      src/file_09.rs                                                               # [bg=#212337]=   [bg=#212337]=  [bg=#212337]=   [fg=#ebfafa bg=#212337]=src/file_09.rs [bg=#212337]=                                                            [bg=#212337]=  
+│      src/file_10.rs                                                               # [bg=#212337]=   [bg=#212337]=  [bg=#212337]=   [fg=#ebfafa bg=#212337]=src/file_10.rs [bg=#212337]=                                                            [bg=#212337]=  
+│   Enter select   Esc close                                                        # [bg=#212337]=   [fg=#37f499 bg=#212337 b]=Enter [fg=#3b4261 bg=#212337]= select    [fg=#37f499 bg=#212337 b]=Esc [fg=#3b4261 bg=#212337]= close [bg=#212337]=                                                     [bg=#212337]=
+

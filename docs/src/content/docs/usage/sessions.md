@@ -59,15 +59,15 @@ The read-only commands leave the prompt draft intact when lookup or file reading
 
 `inspect` produces a stable, renderer-independent JSON projection. `export`
 emits one redacted JSON record per line, in durable sequence order.
-Neither operation replays a tool, memory mutation, compaction, or any other side effect.
+Neither operation replays a tool, compaction, or any other side effect.
 
 ```sh
 thndrs sessions inspect session-20260710 --format json
 thndrs sessions export session-20260710 --format jsonl > session.jsonl
 ```
 
-The projection includes transcript, tool audit, usage, context, memory, skill,
-and configuration evidence already stored in the session.
+The projection includes transcript, tool audit, usage, context, skill, and
+configuration evidence already stored in the session.
 
 It omits raw provider payloads, file bodies, and unrecorded live state.
 Secret values are redacted (best-effort) in inspection and export output.

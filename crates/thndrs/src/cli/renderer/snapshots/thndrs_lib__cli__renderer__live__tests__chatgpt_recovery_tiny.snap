@@ -1,7 +1,0 @@
----
-source: crates/thndrs/src/cli/renderer/live.rs
-expression: rendered
----
-│     setup  provider=chatgpt-codex model=chatgpt-codex/gpt-5.5 missing=ChatGPT OAuth credential  # [bg=#212337]=   [bg=#212337]=   [fg=#f7c67f bg=#212337 b]=setup [fg=#abb4da bg=#212337]=  provider=chatgpt-codex model=chatgpt-codex/gpt-5.5 missing=ChatGPT OAuth credential
-│     Open https://auth.example.test/device and enter code ABCD-EFGH  # [bg=#212337]=   [bg=#212337]=   [fg=#ebfafa bg=#212337]=Open https://auth.example.test/device and enter code ABCD-EFGH
-│     Waiting for ChatGPT authorization.  # [bg=#212337]=   [bg=#212337]=   [fg=#abb4da bg=#212337]=Waiting for ChatGPT authorization.

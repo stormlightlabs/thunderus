@@ -1,0 +1,13 @@
+---
+source: crates/thndrs/src/cli/renderer/live/tests.rs
+assertion_line: 526
+expression: frame.render_styled()
+---
+│     setup  provider=chatgpt-codex model=chatgpt-codex/gpt-5.5 missing=ChatGPT OAuth credential  # [bg=#212337]=   [bg=#212337]=   [fg=#f7c67f bg=#212337 b]=setup [fg=#abb4da bg=#212337]=  provider=chatgpt-codex model=chatgpt-codex/gpt-5.5 missing=ChatGPT OAuth credential
+│     Missing ChatGPT OAuth credential. Choose an action before submitting this prompt.  # [bg=#212337]=   [bg=#212337]=   [fg=#ebfafa bg=#212337]=Missing ChatGPT OAuth credential. Choose an action before submitting this prompt.
+│     › start ChatGPT OAuth login                                                   # [bg=#212337]=   [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=› [bg=#212337]=  [fg=#ebfafa bg=#212337 b]=start ChatGPT OAuth login [bg=#212337]=                                                [bg=#212337]=  
+│       switch model/provider                                                       # [bg=#212337]=   [bg=#212337]=   [fg=#abb4da bg=#212337]=  [bg=#212337]=  [fg=#ebfafa bg=#212337]=switch model/provider [bg=#212337]=                                                    [bg=#212337]=  
+│       show setup instructions                                                     # [bg=#212337]=   [bg=#212337]=   [fg=#abb4da bg=#212337]=  [bg=#212337]=  [fg=#ebfafa bg=#212337]=show setup instructions [bg=#212337]=                                                  [bg=#212337]=  
+│       continue without setup                                                      # [bg=#212337]=   [bg=#212337]=   [fg=#abb4da bg=#212337]=  [bg=#212337]=  [fg=#ebfafa bg=#212337]=continue without setup [bg=#212337]=                                                   [bg=#212337]=  
+│       quit                                                                        # [bg=#212337]=   [bg=#212337]=   [fg=#abb4da bg=#212337]=  [bg=#212337]=  [fg=#ebfafa bg=#212337]=quit [bg=#212337]=                                                                     [bg=#212337]=
+

@@ -622,7 +622,7 @@ impl App {
         push_banner_separator(&mut rows, theme);
         push_banner_heading(&mut rows, "skills", theme);
         for line in &snapshot.loaded_skill_lines(theme.body_width().saturating_sub(2)) {
-            push_wrapped_banner_text(&mut rows, &line, BannerIndent(2, 2), theme, theme.muted_style);
+            push_wrapped_banner_text(&mut rows, line, BannerIndent(2, 2), theme, theme.muted_style);
         }
 
         push_banner_separator(&mut rows, theme);

@@ -314,9 +314,6 @@ pub struct Cli {
     /// Print the assembled prompt bundle/lowered messages with secrets redacted.
     #[arg(long, default_value_t = false)]
     pub print_prompt: bool,
-    /// Enable optional local memory and lexical recall for this run.
-    #[arg(long, default_value_t = false)]
-    pub memory: bool,
     /// Additional skill directories to scan.
     #[arg(long = "skill-dir")]
     pub skill_dirs: Vec<PathBuf>,
@@ -356,7 +353,6 @@ impl Default for Cli {
             verbose: false,
             theme: Theme::default(),
             print_prompt: false,
-            memory: false,
             skill_dirs: Vec::new(),
             session_dir: None,
             config_diagnostics: Vec::new(),
@@ -462,10 +458,6 @@ impl Cli {
             config.verbose = Some(true);
             insert_cli_origin(&mut origins, "verbose", "--verbose");
         }
-        if is_command_line(matches, "memory") {
-            config.memory = Some(self.memory);
-            insert_cli_origin(&mut origins, "memory", "--memory");
-        }
         if is_command_line(matches, "skill_dirs") && !self.skill_dirs.is_empty() {
             config
                 .skill_dirs
@@ -492,7 +484,6 @@ impl Cli {
         self.tick_rate_ms = config.tick_rate_ms.unwrap_or(defaults.tick_rate_ms);
         self.mouse = config.mouse.unwrap_or(defaults.mouse);
         self.verbose = config.verbose.unwrap_or(defaults.verbose);
-        self.memory = config.memory.unwrap_or(defaults.memory);
         self.theme = config.theme.unwrap_or(defaults.theme);
         self.skill_dirs = config.skill_dirs;
         self.session_dir = config.session_dir;

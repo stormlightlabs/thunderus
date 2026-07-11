@@ -2,13 +2,13 @@ use std::time::Duration;
 
 use super::*;
 use crate::cli::WebSearchMode;
+use crate::context::ContextSource;
 use crate::prompt::PromptBundle;
 use crate::skills::SkillActivation;
-use thndrs_context::context::{
+use thndrs_agent::context::{
     ContextBudget, ContextItem, ContextItemKind, ContextLedger, ContextVisibility, ModelContextLimits,
     ModelLimitConfidence, ModelLimitSource,
 };
-use thndrs_context::memory::{MemoryRoots, MemoryScope, delete_memory, resolve_for_forget, write_memory};
 
 fn bundle_with_context() -> PromptBundle {
     let source = ContextSource {
@@ -31,10 +31,10 @@ fn bundle_with_context() -> PromptBundle {
 
 fn context_item(content: &str) -> ContextItem {
     ContextItem {
-        id: "ctx_project_memory_1".to_string(),
-        kind: ContextItemKind::ProjectMemory,
-        label: "repository credentials".to_string(),
-        source_path: Some(PathBuf::from("/repo/.thndrs/memory/notes/credentials.md")),
+        id: "ctx_pinned_file_1".to_string(),
+        kind: ContextItemKind::PinnedFile,
+        label: "repository build notes".to_string(),
+        source_path: Some(PathBuf::from("/repo/docs/build.md")),
         scope: ".".to_string(),
         content_hash: Some(42),
         byte_count: content.len(),
@@ -648,74 +648,6 @@ fn reader_skips_malformed_optional_context_metadata_and_keeps_other_records() {
     assert_eq!(records.len(), 2);
     assert!(matches!(&records[0], SessionRecord::Cancelled { reason, .. } if reason == "before malformed metadata"));
     assert!(matches!(&records[1], SessionRecord::Cancelled { reason, .. } if reason == "after malformed metadata"));
-}
-
-#[test]
-fn memory_mutation_records_round_trip_without_memory_body() {
-    let dir = tempfile::tempdir().expect("temp dir");
-    let roots = MemoryRoots { user: Some(dir.path().join("user-memory")), project: dir.path().join("project-memory") };
-    let body = "api_key=supersecretvalue";
-    let write = write_memory(&roots, MemoryScope::Project, "Credential guidance", body, &[]).expect("write memory");
-    let deletion = resolve_for_forget(&roots, &write.item.id).expect("resolve deletion");
-    delete_memory(&deletion).expect("delete memory");
-
-    let write_record = SessionRecord::MemoryWrite {
-        schema_version: 1,
-        seq: 3,
-        time: "2026-07-10T12:00:00Z".to_string(),
-        memory: MemoryMutationMeta::from(&write),
-    };
-    let delete_record = SessionRecord::MemoryDelete {
-        schema_version: 1,
-        seq: 4,
-        time: "2026-07-10T12:00:01Z".to_string(),
-        deletion: deletion.to_audit_record("2026-07-10T12:00:01Z"),
-    };
-
-    for (record_type, record) in [("memory_write", write_record), ("memory_delete", delete_record)] {
-        let json = record.to_json().expect("serialize memory mutation");
-        let restored = SessionRecord::from_json(&json).expect("deserialize memory mutation");
-
-        assert_eq!(record, restored);
-        assert!(json.contains(&format!("\"type\":\"{record_type}\"")));
-        assert!(json.contains(&write.item.id));
-        assert!(json.contains("project"));
-        assert!(!json.contains(body));
-        assert!(!json.contains("supersecretvalue"));
-        assert!(!json.contains("Credential guidance"));
-    }
-}
-
-#[test]
-fn writer_appends_memory_mutations_without_affecting_transcript_reader() {
-    let dir = tempfile::tempdir().expect("temp dir");
-    let roots = MemoryRoots { user: Some(dir.path().join("user-memory")), project: dir.path().join("project-memory") };
-    let write = write_memory(
-        &roots,
-        MemoryScope::Project,
-        "Build instruction",
-        "run cargo test before merging",
-        &[],
-    )
-    .expect("write memory");
-    let deletion = resolve_for_forget(&roots, &write.item.id).expect("resolve deletion");
-    delete_memory(&deletion).expect("delete memory");
-
-    let mut writer = test_writer(dir.path(), "memory-mutations-session");
-    writer
-        .append_entry(&Entry::User { text: "remember this".to_string() }, "turn_1")
-        .expect("append user");
-    writer.append_memory_write(&write).expect("append memory write");
-    writer.append_memory_delete(&deletion).expect("append memory deletion");
-
-    let records = SessionReader::read_records(writer.path());
-    assert!(matches!(records.get(2), Some(SessionRecord::MemoryWrite { memory, .. }) if memory.id == write.item.id));
-    assert!(
-        matches!(records.get(3), Some(SessionRecord::MemoryDelete { deletion: audit, .. }) if audit.id == write.item.id)
-    );
-
-    let transcript = SessionReader::read_transcript(writer.path());
-    assert_eq!(transcript, vec![Entry::User { text: "remember this".to_string() }]);
 }
 
 #[test]

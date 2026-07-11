@@ -5,9 +5,9 @@ use crate::app::{
     App, DetailPane, Entry, FilePickerSource, PickerItem, PickerState, PromptAccessory, RunState, ToolStatus,
 };
 use crate::cli::{Cli, Theme, WebSearchMode};
+use crate::context;
 use crate::renderer::{self, row, transcript};
 use crate::skills::SkillDiagnostic;
-use thndrs_context::context;
 
 fn vt100_contents(bytes: &[u8], width: u16, height: u16) -> String {
     let mut parser = vt100::Parser::new(height, width, 200);
@@ -46,7 +46,6 @@ fn test_app() -> App {
         verbose: false,
         theme: Theme::EldritchMinimal,
         print_prompt: false,
-        memory: false,
         skill_dirs: Vec::new(),
         session_dir: None,
         config_diagnostics: Vec::new(),

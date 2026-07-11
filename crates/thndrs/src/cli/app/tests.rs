@@ -2,7 +2,6 @@ mod commands;
 mod helpers;
 mod input;
 mod labels;
-mod memory;
 mod movement;
 mod prompts;
 mod slash;
@@ -10,6 +9,7 @@ mod slash;
 use super::*;
 use crate::acp::permissions::{PendingPermission, PermissionDecision, PermissionKindView, PermissionOptionView};
 use crate::config::{Config, ConfigOrigin, ConfigSource, LoadedConfigLayer};
+use crate::context;
 use crate::harness::HarnessTurn;
 use crate::input::PromptInput;
 use crate::renderer;
@@ -18,7 +18,6 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::io::Write;
 use std::sync::mpsc;
 use thndrs_agent::CancelToken;
-use thndrs_context::context;
 
 use helpers::*;
 
@@ -56,25 +55,18 @@ fn from_cli_starts_with_fresh_transcript_not_latest_session() {
 }
 
 #[test]
-fn fresh_startup_leaves_memory_unresolved_and_records_it_as_disabled() {
+fn fresh_startup_records_context_without_memory_state() {
     let dir = tempfile::tempdir().expect("create temp dir");
     let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
     let app = App::from_cli(&cli);
-    let _: &[thndrs_context::context::ContextSource] = &app.context_sources;
-
-    assert!(!app.memory_enabled);
-    assert!(app.memory_roots.is_none());
-    assert!(
-        !dir.path().join(".thndrs").join("memory").exists(),
-        "fresh startup must not create or scan a memory root"
-    );
+    let _: &[context::ContextSource] = &app.context_sources;
 
     let writer = app.session_writer.as_ref().expect("session writer");
     let records = session::SessionReader::read_records(writer.path());
     let Some(session::SessionRecord::SessionMeta { config: Some(config), .. }) = records.first() else {
         panic!("fresh session metadata record");
     };
-    assert_eq!(config.memory_enabled, Some(false));
+    assert!(config.files.is_empty());
 }
 
 #[test]
