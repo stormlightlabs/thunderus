@@ -14,11 +14,12 @@ use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use serde::{Deserialize, Serialize};
+use thndrs_agent::CancelToken;
 pub use thndrs_agent::ToolStatus;
+use thndrs_context::{context, memory as memory_contracts};
 
 use crate::acp::config::provider_label;
 use crate::acp::permissions::{PendingPermission, PermissionDecision};
-use crate::cancel::CancelToken;
 use crate::cli::commands::auth::CredentialScope;
 use crate::cli::commands::setup::SetupProviderArg;
 use crate::cli::{Cli, Theme, WebSearchMode};
@@ -27,7 +28,7 @@ use crate::providers::{codex, opencode, umans};
 use crate::renderer::git::GitStatusSummary;
 use crate::thndrs_core::auth;
 use crate::tools::shell::ProcessRegistry;
-use crate::{config, context, fuzzy, internals, prompt, session, skills, tools};
+use crate::{config, fuzzy, internals, prompt, session, skills, tools};
 use crate::{mcp, renderer};
 
 /// Number of UI ticks the user has to press Ctrl+D a second time before the
@@ -559,7 +560,7 @@ pub struct App {
     /// Whether optional memory and retrieval are active for this run.
     pub memory_enabled: bool,
     /// Memory roots are resolved only after memory is deliberately enabled.
-    pub(crate) memory_roots: Option<crate::memory::MemoryRoots>,
+    pub(crate) memory_roots: Option<memory_contracts::MemoryRoots>,
     /// Current git working tree summary for the status line.
     pub git_status: Option<GitStatusSummary>,
     pub model: String,
@@ -645,7 +646,7 @@ impl From<&Cli> for App {
         let skill_inventory = skills::discover(&workspace_root, &value.skill_dirs);
         let memory_roots = value
             .memory
-            .then(|| crate::memory::MemoryRoots::resolve(&workspace_root));
+            .then(|| memory_contracts::MemoryRoots::resolve(&workspace_root));
 
         let transcript = Vec::new();
         let sessions_dir = value

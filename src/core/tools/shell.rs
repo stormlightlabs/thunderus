@@ -40,9 +40,9 @@ use std::time::{Duration, Instant};
 
 use super::{MAX_OUTPUT_BYTES, TIMEOUT_SECS, ToolDefinition, ToolOutput, ToolUseRequest, path};
 use crate::app::ToolStatus;
-use crate::cancel::CancelToken;
 use crate::tools::registry::{ToolContext, ToolError, ToolExecution};
 use crate::utils;
+use thndrs_agent::CancelToken;
 
 /// Maximum number of output lines retained for the transcript/tool result.
 const MAX_OUTPUT_LINES: usize = 200;

@@ -1,12 +1,13 @@
 //! `thndrs config` command definitions.
 
+use crate::config;
 use crate::tools::shell::redact_secrets;
-use crate::{config, context};
 use clap::{Args, Subcommand};
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use thndrs_context::context;
 
 use crate::cli::Cli;
 

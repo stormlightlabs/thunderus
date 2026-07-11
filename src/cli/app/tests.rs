@@ -9,7 +9,6 @@ mod slash;
 
 use super::*;
 use crate::acp::permissions::{PendingPermission, PermissionDecision, PermissionKindView, PermissionOptionView};
-use crate::cancel::CancelToken;
 use crate::config::{Config, ConfigOrigin, ConfigSource, LoadedConfigLayer};
 use crate::harness::HarnessTurn;
 use crate::input::PromptInput;
@@ -18,6 +17,8 @@ use crate::tools::AgentRunConfig;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::io::Write;
 use std::sync::mpsc;
+use thndrs_agent::CancelToken;
+use thndrs_context::context;
 
 use helpers::*;
 
@@ -59,6 +60,7 @@ fn fresh_startup_leaves_memory_unresolved_and_records_it_as_disabled() {
     let dir = tempfile::tempdir().expect("create temp dir");
     let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
     let app = App::from_cli(&cli);
+    let _: &[thndrs_context::context::ContextSource] = &app.context_sources;
 
     assert!(!app.memory_enabled);
     assert!(app.memory_roots.is_none());
@@ -155,7 +157,7 @@ fn from_cli_writes_effective_config_metadata_to_session_meta() {
     };
     let config = config.as_ref().expect("config metadata");
 
-    let workspace_root = crate::context::discover_workspace_root(dir.path());
+    let workspace_root = context::discover_workspace_root(dir.path());
     assert_eq!(cwd, &workspace_root.display().to_string());
     assert_eq!(model, "env-model");
     assert_eq!(websearch, "native");

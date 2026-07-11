@@ -16,12 +16,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::acp::permissions::PendingPermission;
 use crate::app::{Entry, ToolStatus};
-use crate::context::{ContextItem, ContextLedger, ContextSource};
-use crate::memory::{MemoryDeleteRecord, MemoryDeletion, MemoryWrite};
 use crate::prompt::{EnvironmentMetadata, HistoryReuse, PromptBundle};
 use crate::skills::{SkillActivation, SkillReferenceMeta};
 use crate::tools::{WriteOp, shell};
 use crate::{datetime, internals, tools};
+use thndrs_context::context::{ContextItem, ContextLedger, ContextSource};
+use thndrs_context::memory::{MemoryDeleteRecord, MemoryDeletion, MemoryWrite};
 
 pub use thndrs_context::session::{
     AcpPermissionOptionRecord, AcpSessionMetadata, ContextDiagnosticMeta, ContextItemMeta, ContextLedgerMeta,

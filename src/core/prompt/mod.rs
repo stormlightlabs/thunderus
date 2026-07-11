@@ -36,8 +36,6 @@ use std::path::Path;
 use crate::app::Entry;
 use crate::app::ToolStatus;
 use crate::cli::WebSearchMode;
-use crate::context::ContextLedger;
-use crate::context::ContextSource;
 use crate::internals;
 use crate::providers::ProviderMessage;
 use crate::skills;
@@ -46,6 +44,7 @@ use crate::tools;
 use crate::tools::ToolDefinition;
 use crate::utils;
 use crate::utils::datetime;
+use thndrs_context::context::{ContextItem, ContextLedger, ContextSource};
 
 /// Whether the provider supports reusable history / prompt caching for
 /// AGENTS.md content.
@@ -316,9 +315,9 @@ fn render_legacy_project_context(bundle: &PromptBundle) -> String {
 /// Render the selected context projection from a [`ContextLedger`] into a
 /// single `<selected_context>` block.
 fn render_context_projection(ledger: &ContextLedger) -> String {
-    use crate::context::ContextItemKind as Kind;
+    use thndrs_context::context::ContextItemKind as Kind;
 
-    let rendered: Vec<&crate::context::ContextItem> = ledger
+    let rendered: Vec<&ContextItem> = ledger
         .items
         .iter()
         .filter(|item| {
@@ -385,7 +384,7 @@ fn render_context_projection(ledger: &ContextLedger) -> String {
 }
 
 /// Append metadata (id, scope, path, hash) for a rendered context item.
-fn push_item_meta(out: &mut String, indent: usize, item: &crate::context::ContextItem) {
+fn push_item_meta(out: &mut String, indent: usize, item: &ContextItem) {
     let pad = " ".repeat(indent);
     out.push_str(&format!("{pad}<id>{}</id>\n", utils::escape_xml(&item.id)));
     out.push_str(&format!("{pad}<label>{}</label>\n", utils::escape_xml(&item.label)));

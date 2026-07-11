@@ -6,9 +6,9 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 use serde_json::to_string_pretty;
+use thndrs_context::context;
 
 use crate::acp::config::provider_label;
-use crate::context;
 use crate::mcp;
 use crate::renderer::backend::terminal_size;
 use crate::session;

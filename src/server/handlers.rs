@@ -16,7 +16,6 @@ use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 use crate::agent::prompt_expects_workspace_write;
 use crate::agent::{ToolExecutionHook, ToolPermissionDecision, ToolPermissionHook};
 use crate::app::AgentEvent;
-use crate::cancel::CancelToken;
 use crate::cli::WebSearchMode;
 use crate::harness::HarnessHandle;
 use crate::mcp::config::{McpConfig, McpServerConfig, McpTransport};
@@ -34,6 +33,7 @@ use crate::session::{
 };
 use crate::tools::shell::{ProcessKind, ProcessResult, ProcessStatus, ShellArgs, redact_secrets};
 use crate::tools::{AgentRunConfig, MAX_OUTPUT_BYTES, ToolOutput, ToolUseRequest};
+use thndrs_agent::CancelToken;
 
 const PERMISSION_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const TERMINAL_POLL_INTERVAL: Duration = Duration::from_millis(100);

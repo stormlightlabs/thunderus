@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
 
 use crate::app::{App, Entry, ToolStatus};
-use crate::context::ContextSource;
 use crate::renderer::{self, row};
 use crate::skills::{self, SkillDiagnostic};
+use thndrs_context::context::ContextSource;
 
 use super::{TranscriptRowContext, banner_rows, entry_rows, startup_loaded_skill_lines};
 

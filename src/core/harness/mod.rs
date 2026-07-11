@@ -8,9 +8,9 @@ use std::sync::mpsc::Receiver;
 
 use crate::agent::{RunHandle, ToolExecutionHook, ToolPermissionHook};
 use crate::app::AgentEvent;
-use crate::cancel::CancelToken;
 use crate::providers::ProviderMessage;
 use crate::tools::AgentRunConfig;
+use thndrs_agent::CancelToken;
 
 /// Handle returned when a harness turn has started.
 #[derive(Debug)]

@@ -9,8 +9,9 @@ use super::auth::{
     validate_provider_key,
 };
 use crate::cli::Cli;
+use crate::config;
 use crate::thndrs_core::auth;
-use crate::{config, context};
+use thndrs_context::context;
 
 /// Providers supported by first-run setup and login commands.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]

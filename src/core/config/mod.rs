@@ -13,6 +13,7 @@ use std::path::{Component, Path, PathBuf};
 
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+use thndrs_context::context::ContextConfig;
 
 use crate::cli::{Theme, WebSearchMode};
 use crate::utils;
@@ -117,7 +118,7 @@ pub struct Config {
     pub session_dir: Option<PathBuf>,
     pub default_workspace: Option<PathBuf>,
     pub acp_agents: AcpAgentsConfig,
-    pub context: crate::context::ContextConfig,
+    pub context: ContextConfig,
 }
 
 impl Config {
@@ -134,7 +135,7 @@ impl Config {
         self.default_workspace = other.default_workspace.or(self.default_workspace);
         self.skill_dirs.extend(other.skill_dirs);
         self.acp_agents.extend(other.acp_agents);
-        if other.context != crate::context::ContextConfig::default() {
+        if other.context != ContextConfig::default() {
             self.context = other.context;
         }
         self
@@ -743,7 +744,7 @@ fn default_config(workspace: &Path, cwd: &Path) -> Config {
         session_dir: Some(resolve_path(&workspace.join(".thndrs").join("sessions"), cwd)),
         default_workspace: Some(cwd.to_path_buf()),
         acp_agents: BTreeMap::new(),
-        context: crate::context::ContextConfig::default(),
+        context: ContextConfig::default(),
     }
 }
 

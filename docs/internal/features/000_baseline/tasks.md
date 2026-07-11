@@ -111,12 +111,12 @@ agent when memory is off.
 
 **Acceptance criteria:**
 
-- [ ] `thndrs` composes typed agent and context values at its application
+- [x] `thndrs` composes typed agent and context values at its application
       boundary without re-exporting internal implementation modules as a
       compatibility shortcut.
-- [ ] Existing prompt inspection, fake-provider, context/session, renderer,
+- [x] Existing prompt inspection, fake-provider, context/session, renderer,
       and ACP fake-client tests pass with memory disabled.
-- [ ] No TUI framework, plugin system, or broad application-state abstraction
+- [x] No TUI framework, plugin system, or broad application-state abstraction
       is introduced.
 
 **Verification:**

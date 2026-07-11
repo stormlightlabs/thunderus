@@ -15,10 +15,10 @@ use futures::{channel::oneshot, future::select};
 
 use crate::acp::{config, events, fs, permissions, terminal};
 use crate::app::{AgentEvent, ToolStatus};
-use crate::cancel::CancelToken;
 use crate::config::AcpAgentConfig;
 use crate::mcp::config::{McpConfig, McpServerConfig, McpTransport};
 use crate::session::AcpSessionMetadata;
+use thndrs_agent::CancelToken;
 
 const CANCEL_POLL_INTERVAL: Duration = Duration::from_millis(50);
 

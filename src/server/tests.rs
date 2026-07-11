@@ -7,7 +7,6 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::Duration;
 
-use crate::cancel::CancelToken;
 use crate::cli::WebSearchMode;
 use crate::harness::{HarnessHandle, HarnessTurn};
 use agent_client_protocol::schema::ProtocolVersion;
@@ -33,6 +32,7 @@ use crate::providers::{ProviderContentBlock, ProviderMessageContent};
 use crate::server::ServerConfig;
 use crate::session::{SessionReader, SessionRecord};
 use serde_json::Value;
+use thndrs_agent::CancelToken;
 
 #[test]
 fn maps_assistant_deltas() {

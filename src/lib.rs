@@ -6,6 +6,11 @@
 pub mod cli;
 pub mod server;
 
+#[path = "core/agent.rs"]
+pub mod agent;
+#[path = "core/session/mod.rs"]
+pub mod session;
+
 #[path = "core/mod.rs"]
 mod thndrs_core;
 
@@ -13,8 +18,7 @@ pub use cli::{app, input, renderer};
 
 pub use prelude::*;
 pub use thndrs_core::{
-    acp, agent, cancel, config, context, fuzzy, harness, internals, mcp, memory, prelude, prompt, providers, search,
-    session, skills, tools, utils,
+    acp, config, fuzzy, harness, internals, mcp, prelude, prompt, providers, search, skills, tools, utils,
 };
 
 #[cfg(test)]
@@ -47,7 +51,8 @@ use renderer::backend::TerminalBackend;
 use renderer::region::LiveRegion;
 use utils::datetime;
 
-use crate::thndrs_core::cancel::CancelToken;
+use thndrs_agent::CancelToken;
+use thndrs_context::context;
 
 enum AcpEventWrite {
     Continue,

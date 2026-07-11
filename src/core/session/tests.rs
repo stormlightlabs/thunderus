@@ -2,13 +2,13 @@ use std::time::Duration;
 
 use super::*;
 use crate::cli::WebSearchMode;
-use crate::context::{
+use crate::prompt::PromptBundle;
+use crate::skills::SkillActivation;
+use thndrs_context::context::{
     ContextBudget, ContextItem, ContextItemKind, ContextLedger, ContextVisibility, ModelContextLimits,
     ModelLimitConfidence, ModelLimitSource,
 };
-use crate::memory::{MemoryRoots, MemoryScope, delete_memory, resolve_for_forget, write_memory};
-use crate::prompt::PromptBundle;
-use crate::skills::SkillActivation;
+use thndrs_context::memory::{MemoryRoots, MemoryScope, delete_memory, resolve_for_forget, write_memory};
 
 fn bundle_with_context() -> PromptBundle {
     let source = ContextSource {

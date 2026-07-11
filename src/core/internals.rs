@@ -5,10 +5,10 @@
 
 use crate::agent::ProviderKind;
 use crate::cli::WebSearchMode;
-use crate::context::ContextSource;
 use crate::prompt::PromptBundle;
 use crate::skills::SkillMetadata;
 use crate::utils;
+use thndrs_context::context::{ContextSource, render_model_dashboard};
 
 pub const RENDERER_MODE: &str = "direct-inline";
 
@@ -223,10 +223,7 @@ impl From<&PromptBundle> for SelfKnowledgeSnapshot {
             &bundle.project_context,
         );
         let inventory = KnowledgeInventorySnapshot::new(references, prompt_context);
-        let context_dashboard = bundle
-            .context_ledger
-            .as_ref()
-            .map(crate::context::render_model_dashboard);
+        let context_dashboard = bundle.context_ledger.as_ref().map(render_model_dashboard);
         let snapshot = SelfKnowledgeSnapshot::new(AppIdentitySnapshot::default(), runtime, inventory, Vec::new());
         if let Some(dashboard) = context_dashboard {
             snapshot.with_context_dashboard(dashboard)

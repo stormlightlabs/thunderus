@@ -2,7 +2,7 @@
 //!
 //! `/memory recall` is read-only and allowed while the agent is working.
 
-use crate::memory::{RecallRequest, recall};
+use thndrs_context::memory::{RecallRequest, recall};
 
 use super::{App, Entry};
 

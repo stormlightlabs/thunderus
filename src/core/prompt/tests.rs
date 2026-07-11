@@ -1,12 +1,12 @@
 use super::*;
 use crate::app::ToolStatus;
-use crate::context::select_context;
-use crate::context::{
-    CompactionSummaryCandidate, HarnessCandidate, InstructionCandidate, ModelContextLimits, ModelLimitConfidence,
-    ModelLimitSource, PinnedCandidate, SelectionInput, TranscriptCandidate, UserTurnCandidate,
-};
-use crate::memory::{MemoryItem, MemoryKind, MemoryRootKind, MemorySource};
 use std::path::PathBuf;
+use thndrs_context::context::{
+    CompactionSummaryCandidate, ContextItemKind, HarnessCandidate, InstructionCandidate, ModelContextLimits,
+    ModelLimitConfidence, ModelLimitSource, PinnedCandidate, SelectionInput, TranscriptCandidate, UserTurnCandidate,
+    select_context,
+};
+use thndrs_context::memory::{MemoryItem, MemoryKind, MemoryRootKind, MemorySource};
 
 fn test_bundle() -> PromptBundle {
     PromptBundle {
@@ -72,7 +72,7 @@ fn instruction_with_content(scope: &str, applicable: bool, content: &str) -> Ins
     }
 }
 
-fn bundle_with_ledger(ledger: crate::context::ContextLedger) -> PromptBundle {
+fn bundle_with_ledger(ledger: ContextLedger) -> PromptBundle {
     let mut bundle = test_bundle();
     bundle.context_ledger = Some(ledger);
     bundle
@@ -960,7 +960,7 @@ fn context_projection_renders_archival_memory() {
 #[test]
 fn context_projection_renders_pins_as_handles_without_content() {
     let pin = PinnedCandidate::file(
-        crate::context::ContextItemKind::PinnedFile,
+        ContextItemKind::PinnedFile,
         PathBuf::from("/repo/src/lib.rs"),
         "src",
         300,
@@ -1060,7 +1060,7 @@ fn context_projection_overloaded_budget_blocks_items() {
         harness: vec![HarnessCandidate::new("base_identity", 100)],
         user_turn: Some(UserTurnCandidate::new("sess_1", 0, 50)),
         pins: vec![PinnedCandidate::file(
-            crate::context::ContextItemKind::PinnedFile,
+            ContextItemKind::PinnedFile,
             PathBuf::from("/repo/huge.rs"),
             "src",
             huge,
@@ -1174,7 +1174,7 @@ fn snapshot_context_projection_pins() {
         harness: vec![HarnessCandidate::new("base_identity", 100)],
         user_turn: Some(UserTurnCandidate::new("sess_1", 0, 50)),
         pins: vec![PinnedCandidate::file(
-            crate::context::ContextItemKind::PinnedFile,
+            ContextItemKind::PinnedFile,
             PathBuf::from("/repo/src/lib.rs"),
             "src",
             300,
@@ -1233,7 +1233,7 @@ fn snapshot_context_projection_overloaded_budget() {
         harness: vec![HarnessCandidate::new("base_identity", 100)],
         user_turn: Some(UserTurnCandidate::new("sess_1", 0, 50)),
         pins: vec![PinnedCandidate::file(
-            crate::context::ContextItemKind::PinnedFile,
+            ContextItemKind::PinnedFile,
             PathBuf::from("/repo/huge.rs"),
             "src",
             huge,

@@ -1,7 +1,7 @@
 use super::*;
-use crate::cancel::CancelToken;
 use crate::input::PromptInput;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use thndrs_agent::CancelToken;
 
 use helpers::*;
 

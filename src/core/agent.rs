@@ -32,12 +32,12 @@ use ureq::http::Response;
 
 use crate::WebSearchMode;
 use crate::app::{AgentEvent, ToolStatus};
-use crate::cancel::CancelToken;
 use crate::providers::{
     ProviderContentBlock, ProviderError, ProviderMessage, ProviderTurn, StreamFormat, StreamingProvider,
 };
 use crate::providers::{anthropic, codex, openai, opencode, umans};
 use crate::tools::{self, AgentRunConfig, ToolOutput, ToolUseRequest, WriteResult, shell::ProcessResult};
+use thndrs_agent::CancelToken;
 
 const PROVIDER_RETRY_POLICY: RetryPolicy = RetryPolicy::new(4, Duration::from_millis(2500));
 
