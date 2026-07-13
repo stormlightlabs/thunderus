@@ -60,7 +60,7 @@ impl SetupProviderArg {
                 label: "umans",
                 default_model: "umans-coder",
                 auth_kind: ProviderAuthKind::ApiKey { env_var: auth::UMANS_API_KEY_ENV },
-                setup_summary: "Umans Code uses an API key stored in a thndrs credential store.",
+                setup_summary: "Umans Code uses a UMANS_API_KEY from app.umans.ai, stored only in a thndrs credential store.",
             },
             Self::OpencodeGo => ProviderMetadata {
                 label: "opencode-go",

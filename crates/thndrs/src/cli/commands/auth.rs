@@ -273,7 +273,11 @@ pub fn prompt_scope<W: Write>(writer: &mut W) -> io::Result<CredentialScope> {
 
 /// Read an API key from the terminal without echoing typed characters.
 pub fn read_hidden_api_key<W: Write>(writer: &mut W, provider: SetupProviderArg) -> io::Result<String> {
-    write!(writer, "Enter {} API key (input hidden): ", provider.label())?;
+    let label = match provider {
+        SetupProviderArg::Umans => "Umans Code API key".to_string(),
+        _ => format!("{} API key", provider.label()),
+    };
+    write!(writer, "Enter {label} (input hidden): ")?;
     writer.flush()?;
     enable_raw_mode()?;
     let result = read_hidden_line();

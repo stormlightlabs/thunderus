@@ -403,7 +403,7 @@ fn snapshot_model_picker() {
     let mut app = test_app();
     app.picker = Some(PickerState::new(
         vec![
-            PickerItem::new("umans-coder", "Default route to Kimi K2.7-Code"),
+            PickerItem::new("umans-coder", "Recommended route to Kimi K2.7-Code"),
             PickerItem::new("umans-glm-5.2", "Largest context window"),
         ],
         50,

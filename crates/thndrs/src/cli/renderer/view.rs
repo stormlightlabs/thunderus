@@ -10,7 +10,8 @@
 mod tests;
 
 use crate::app::{
-    App, Entry, FilePickerSource, FirstRunRecovery, Mode, PromptAccessory, RecoveryStage, RunState, ToolStatus,
+    App, CONTEXT_INSPECTION_MAX_ITEMS, ChatGptOAuthMethod, Entry, FilePickerSource, FirstRunRecovery, Mode,
+    PromptAccessory, RecoveryStage, RunState, ToolStatus,
 };
 use crate::cli::commands::setup::SetupProviderArg;
 use crate::renderer::row::{CursorCoord, Row};
@@ -926,7 +927,7 @@ impl App {
             ledger
                 .items
                 .iter()
-                .take(crate::app::CONTEXT_INSPECTION_MAX_ITEMS)
+                .take(CONTEXT_INSPECTION_MAX_ITEMS)
                 .map(|item| redact_context_display(&item.summary())),
         );
         TableView {
@@ -969,45 +970,53 @@ fn setup_details(recovery: &FirstRunRecovery) -> Vec<String> {
         RecoveryStage::ModelConfigScope => {
             details.push("Optionally save the selected model to project or global config.".to_string())
         }
-        RecoveryStage::MissingCredential => {
-            if recovery.provider == Some(crate::cli::commands::setup::SetupProviderArg::ChatgptCodex) {
-                details.push(
-                    "Browser PKCE is the default. Device code is an explicit headless route; neither asks for an API key."
-                        .to_string(),
-                );
-            } else {
-                details.push(
-                    "The credential stays hidden and is written only after an explicit scope choice.".to_string(),
-                );
-            }
-        }
-        RecoveryStage::EnterKey => {
-            details.push("Input is hidden. Enter continues; Esc preserves the draft.".to_string())
-        }
+        RecoveryStage::MissingCredential => match recovery.provider {
+            Some(SetupProviderArg::ChatgptCodex) => details.push(
+                "Browser PKCE is the default. Device code is an explicit headless route; neither asks for an API key."
+                    .to_string(),
+            ),
+            Some(SetupProviderArg::Umans) => details.push(
+                "Create a Umans Code API key at app.umans.ai, enter it hidden, then choose global or project storage."
+                    .to_string(),
+            ),
+            _ => details
+                .push("The credential stays hidden and is written only after an explicit scope choice.".to_string()),
+        },
+        RecoveryStage::EnterKey => match recovery.provider {
+            Some(SetupProviderArg::Umans) => details.push(
+                "Input is hidden. Enter stores the Umans Code key at the chosen scope; Esc preserves the draft."
+                    .to_string(),
+            ),
+            _ => details.push("Input is hidden. Enter continues; Esc preserves the draft.".to_string()),
+        },
         RecoveryStage::ConfirmStore => details.push("Choose where the credential may be stored.".to_string()),
         RecoveryStage::Instructions => details.push(setup_instruction(recovery).to_string()),
         RecoveryStage::ChatGptOAuthRequesting => {
             details.push("Starting the selected ChatGPT OAuth method.".to_string())
         }
-        RecoveryStage::ChatGptOAuthPolling => {
-            if let Some(oauth) = recovery.chatgpt_oauth.as_ref() {
-                if oauth.method == crate::app::ChatGptOAuthMethod::Browser {
-                    details.push("Open or copy this authorization URL:".to_string());
-                    if let Some(url) = oauth.authorization_url.as_deref() {
-                        details.push(url.to_string());
+        RecoveryStage::ChatGptOAuthPolling => match recovery.chatgpt_oauth.as_ref() {
+            Some(oauth) => {
+                match oauth.method {
+                    ChatGptOAuthMethod::Browser => {
+                        details.push("Open or copy this authorization URL:".to_string());
+                        if let Some(url) = oauth.authorization_url.as_deref() {
+                            details.push(url.to_string());
+                        }
                     }
-                } else if let Some(code) = oauth.code.as_ref() {
-                    let uri = code
-                        .verification_uri
-                        .as_deref()
-                        .unwrap_or("https://auth.openai.com/codex/device");
-                    details.push(format!("Open {uri} and enter code {}.", code.user_code));
-                }
+                    _ => {
+                        if let Some(code) = oauth.code.as_ref() {
+                            let uri = code
+                                .verification_uri
+                                .as_deref()
+                                .unwrap_or("https://auth.openai.com/codex/device");
+                            details.push(format!("Open {uri} and enter code {}.", code.user_code));
+                        }
+                    }
+                };
                 details.push(oauth.status.clone());
-            } else {
-                details.push("Waiting for ChatGPT OAuth.".to_string());
             }
-        }
+            None => details.push("Waiting for ChatGPT OAuth.".to_string()),
+        },
         RecoveryStage::ChatGptOAuthPasteRedirect => {
             details.push("Paste the full browser redirect URL. Input is hidden.".to_string())
         }
@@ -1047,7 +1056,7 @@ fn setup_actions(recovery: &FirstRunRecovery) -> Vec<PickerItemView> {
             "cancel setup".to_string(),
         ],
         RecoveryStage::MissingCredential => {
-            if recovery.provider == Some(crate::cli::commands::setup::SetupProviderArg::ChatgptCodex) {
+            if recovery.provider == Some(SetupProviderArg::ChatgptCodex) {
                 vec![
                     "start browser PKCE login".to_string(),
                     "use headless device code".to_string(),
@@ -1058,7 +1067,10 @@ fn setup_actions(recovery: &FirstRunRecovery) -> Vec<PickerItemView> {
                 ]
             } else {
                 vec![
-                    "enter API key".to_string(),
+                    match recovery.provider {
+                        Some(SetupProviderArg::Umans) => "enter Umans API key".to_string(),
+                        _ => "enter API key".to_string(),
+                    },
                     "switch model/provider".to_string(),
                     "show setup instructions".to_string(),
                     "continue without setup".to_string(),
@@ -1078,7 +1090,7 @@ fn setup_actions(recovery: &FirstRunRecovery) -> Vec<PickerItemView> {
             if recovery
                 .chatgpt_oauth
                 .as_ref()
-                .is_some_and(|oauth| oauth.method == crate::app::ChatGptOAuthMethod::Browser)
+                .is_some_and(|oauth| oauth.method == ChatGptOAuthMethod::Browser)
             {
                 vec!["cancel".to_string(), "paste full redirect URL".to_string()]
             } else {
@@ -1108,6 +1120,9 @@ fn setup_instruction(recovery: &FirstRunRecovery) -> &'static str {
         Some(arg) => match arg {
             SetupProviderArg::ChatgptCodex => {
                 "Run `thndrs setup --provider chatgpt-codex` or `thndrs login chatgpt-codex` outside the TUI."
+            }
+            SetupProviderArg::Umans => {
+                "Create a key at app.umans.ai, then run `thndrs login umans`; thndrs stores it in credentials.env, never TOML."
             }
             _ => "Run `thndrs setup` or `thndrs login <provider>` outside the TUI.",
         },

@@ -12,6 +12,7 @@ use crate::app::AgentEvent;
 use crate::cli::{ReasoningEffort, WebSearchMode};
 use crate::providers::{
     self, KnownModel, ProviderError, ProviderHttpClient, ProviderMessage, Result, StreamFormat, StreamingProvider,
+    StreamingRequest,
 };
 use crate::thndrs_core::auth;
 
@@ -30,20 +31,31 @@ pub const API_KEY_ENV: &str = "UMANS_API_KEY";
 pub const DEFAULT_RECOMMENDED_MAX_TOKENS: u32 = 32_768;
 
 /// Model information from `GET /v1/models/info`.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+///
+/// Umans may add optional metadata fields as its model catalogue changes. The
+/// provider keeps the fields needed by setup and request lowering, while
+/// tolerating omitted descriptive fields so a catalogue update does not make
+/// an otherwise usable provider unavailable.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct ModelInfo {
+    #[serde(default)]
     pub name: String,
+    #[serde(default)]
     pub display_name: String,
+    #[serde(default)]
     pub description: String,
+    #[serde(default)]
     pub base_model: BaseModel,
+    #[serde(default)]
     pub capabilities: Capabilities,
     #[serde(default)]
     pub benchmarks: serde_json::Value,
 }
 
 /// Base model descriptor used by model metadata display.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct BaseModel {
+    #[serde(default)]
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
@@ -90,7 +102,7 @@ impl UmansClient {
             .read_to_string()
             .map_err(|e| ProviderError::Http(e.to_string()))?;
 
-        serde_json::from_str::<HashMap<String, ModelInfo>>(&body).map_err(|e| ProviderError::Json(e.to_string()))
+        parse_models_info(&body)
     }
 
     /// Build the request body for `POST /v1/messages`.
@@ -254,7 +266,7 @@ impl StreamingProvider for UmansClient {
     }
 
     fn send_streaming_request(
-        &self, model: &str, messages: &[ProviderMessage], request: &crate::providers::StreamingRequest<'_>,
+        &self, model: &str, messages: &[ProviderMessage], request: &StreamingRequest<'_>,
     ) -> Result<ureq::http::Response<ureq::Body>> {
         UmansClient::send_streaming_request(
             self,
@@ -284,20 +296,28 @@ impl StreamingProvider for UmansClient {
 }
 
 /// Model capabilities.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct Capabilities {
+    #[serde(default)]
     pub max_completion_tokens: u64,
+    #[serde(default)]
     pub recommended_max_tokens: u64,
+    #[serde(default)]
     pub context_window: u64,
+    #[serde(default)]
     pub supports_vision: serde_json::Value,
+    #[serde(default)]
     pub supports_tools: bool,
+    #[serde(default)]
     pub reasoning: Reasoning,
 }
 
 /// Reasoning configuration included in live model metadata.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct Reasoning {
+    #[serde(default)]
     pub supported: bool,
+    #[serde(default)]
     pub can_disable: bool,
     #[serde(default)]
     pub levels: Vec<String>,
@@ -320,16 +340,63 @@ pub fn is_retryable_error(err: &ProviderError) -> bool {
     err.is_retryable()
 }
 
+/// Parse the public model catalogue shape used by Umans.
+///
+/// The current endpoint returns a map keyed by model id. Supporting the common
+/// `models`/`data` wrappers as well keeps discovery resilient to harmless API
+/// envelope changes and makes the request boundary easy to test without a
+/// network call.
+pub fn parse_models_info(body: &str) -> Result<HashMap<String, ModelInfo>> {
+    let value: serde_json::Value = serde_json::from_str(body).map_err(|e| ProviderError::Json(e.to_string()))?;
+    let catalogue = value.get("models").or_else(|| value.get("data")).unwrap_or(&value);
+
+    let mut models = match catalogue {
+        serde_json::Value::Object(entries) => entries
+            .iter()
+            .filter_map(|(id, value)| {
+                serde_json::from_value::<ModelInfo>(value.clone())
+                    .ok()
+                    .map(|info| (id.clone(), info))
+            })
+            .collect::<HashMap<_, _>>(),
+        serde_json::Value::Array(entries) => entries
+            .iter()
+            .filter_map(|value| {
+                let info = serde_json::from_value::<ModelInfo>(value.clone()).ok()?;
+                let id = if info.name.trim().is_empty() { info.base_model.name.clone() } else { info.name.clone() };
+                (!id.trim().is_empty()).then_some((id, info))
+            })
+            .collect::<HashMap<_, _>>(),
+        _ => {
+            return Err(ProviderError::Json(
+                "model catalogue must be an object or array".to_string(),
+            ));
+        }
+    };
+
+    for (id, info) in &mut models {
+        if info.name.trim().is_empty() {
+            info.name.clone_from(id);
+        }
+        if info.display_name.trim().is_empty() {
+            info.display_name.clone_from(&info.name);
+        }
+        if info.base_model.name.trim().is_empty() {
+            info.base_model.name.clone_from(&info.name);
+        }
+    }
+    Ok(models)
+}
+
 /// Current Umans Code models from the public docs.
 ///
 /// Live metadata can still be fetched with [`UmansClient::fetch_models_info`],
 /// but the picker should remain useful before credentials or network are ready.
 pub fn known_models() -> Vec<KnownModel> {
     vec![
-        KnownModel { id: "umans-coder", description: "Default route, currently Kimi K2.7-Code" },
+        KnownModel { id: "umans-coder", description: "Recommended route, currently Kimi K2.7-Code" },
         KnownModel { id: "umans-kimi-k2.7", description: "Hard coding tasks, always-on reasoning" },
         KnownModel { id: "umans-glm-5.2", description: "Latest GLM, largest context window" },
-        KnownModel { id: "umans-glm-5.1", description: "Previous GLM for text-first workflows" },
         KnownModel { id: "umans-flash", description: "Fast light model for context and summaries" },
     ]
 }
@@ -366,7 +433,33 @@ pub fn model_status(model: &str, models: &HashMap<String, ModelInfo>) -> Option<
 ///
 /// Auth errors (401/403) and rate-limit errors (429) are labeled distinctly.
 pub fn error_to_agent_event(err: &ProviderError) -> AgentEvent {
-    AgentEvent::Failed(err.failure_message("rate limit exceeded"))
+    AgentEvent::Failed(actionable_error_message(err))
+}
+
+fn actionable_error_message(err: &ProviderError) -> String {
+    match err {
+        ProviderError::MissingApiKey { .. } => err.to_string(),
+        ProviderError::Status { code, body } => match code {
+            401 | 403 => {
+                format!("Umans authentication failed (HTTP {code}); check UMANS_API_KEY or run `thndrs login umans`")
+            }
+            429 => "Umans rate limit exceeded; check your Umans usage/plan, then retry".to_string(),
+            500..=599 => format!("Umans server error (HTTP {code}): {body}; retry shortly"),
+            _ => format!("Umans request failed (HTTP {code}): {body}"),
+        },
+        ProviderError::Auth(message) => {
+            format!("Umans authentication failed: {message}; check UMANS_API_KEY or run `thndrs login umans`")
+        }
+        ProviderError::Http(message) => {
+            format!("Umans network error: {message}; check your connection and retry")
+        }
+        ProviderError::Json(message) => {
+            format!("Umans response parse error: {message}; retry or check the Umans service status")
+        }
+        ProviderError::InvalidModelId { model, .. } => {
+            format!("Umans model `{model}` is not valid; choose a current Umans model with `/model`")
+        }
+    }
 }
 
 fn model_picker_detail(info: &ModelInfo) -> String {
@@ -797,6 +890,22 @@ mod tests {
     }
 
     #[test]
+    fn parse_models_info_accepts_catalogue_wrappers_and_missing_display_fields() {
+        let body = r#"{
+            "data": [
+                {"name":"umans-new-model","base_model":{"name":"new-base"},"capabilities":{"supports_tools":true}}
+            ]
+        }"#;
+
+        let models = parse_models_info(body).expect("wrapped catalogue");
+        let model = models.get("umans-new-model").expect("model id");
+        assert_eq!(model.display_name, "umans-new-model");
+        assert_eq!(model.base_model.name, "new-base");
+        assert!(model.capabilities.supports_tools);
+        assert_eq!(model.capabilities.recommended_max_tokens, 0);
+    }
+
+    #[test]
     fn parse_sse_event_text_delta() {
         let data = r#"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}"#;
         let event = parse_sse_event("content_block_delta", data);
@@ -979,13 +1088,16 @@ mod tests {
     #[test]
     fn error_to_agent_event_auth_failure() {
         let event = error_to_agent_event(&ProviderError::Status { code: 401, body: "Unauthorized".into() });
-        assert!(matches!(event, AgentEvent::Failed(msg) if msg.contains("authentication failed")));
+        assert!(
+            matches!(event, AgentEvent::Failed(ref msg) if msg.contains("authentication failed") && msg.contains("thndrs login umans"))
+        );
+        assert!(!format!("{event:?}").contains("Unauthorized"));
     }
 
     #[test]
     fn error_to_agent_event_rate_limit() {
         let event = error_to_agent_event(&ProviderError::Status { code: 429, body: "Too Many Requests".into() });
-        assert!(matches!(event, AgentEvent::Failed(msg) if msg.contains("rate limit")));
+        assert!(matches!(event, AgentEvent::Failed(msg) if msg.contains("rate limit") && msg.contains("usage/plan")));
     }
 
     #[test]

@@ -4,19 +4,34 @@ title: "Umans Provider"
 
 ## Models
 
-`thndrs` supports Umans Code through `umans-coder` and `umans-glm-5.2`.
+Setup requires an explicit model choice; `thndrs` does not silently choose a
+provider or model. The Umans model picker currently includes:
 
-`umans-coder` is the main Umans coding model. `umans-glm-5.2` is useful when
-you want the GLM model path or its larger context behavior.
+- `umans-coder` - the recommended route, currently backed by Kimi K2.7-Code.
+- `umans-kimi-k2.7` - hard coding tasks with always-on reasoning.
+- `umans-glm-5.2` - GLM 5.2 and the largest Umans context window.
+- `umans-flash` - a fast model for short context, summaries, and interactive work.
+
+Umans can change the model behind `umans-coder`; use model metadata or `/model`
+to inspect the current catalogue.
 
 ## Authentication
 
-Set `UMANS_API_KEY` in the environment. `thndrs` does not accept API keys in CLI
-flags.
+Create an API key in the Umans dashboard under API Keys. `thndrs` does not
+accept API keys in CLI flags. You can either export `UMANS_API_KEY` for a
+process-local credential or run the guided login flow:
 
 ```sh
 export UMANS_API_KEY=sk-...
+# or, in an interactive terminal:
+thndrs login umans
 ```
+
+The guided flow asks whether the key belongs in the global store
+(`~/.thndrs/credentials.env`) or the current project store
+(`.thndrs/credentials.env`). Project credentials are added to Git's local
+exclude file. Keys are never written to TOML, sessions, prompt inspection,
+snapshots, or diagnostics.
 
 ## Messages API
 
@@ -33,6 +48,11 @@ Provider streaming output is normalized into app events. Assistant text,
 reasoning, tool calls, completion, and errors are kept as distinct event types
 so the transcript can render them separately.
 
+Extended thinking is a provider/model capability. For models that support the
+toggle, `thndrs` lowers `On` and `None` to the Messages API `thinking` object;
+`Auto` leaves Umans' model default unchanged. Models with always-on reasoning
+only expose `Auto` in the picker.
+
 ## Tool Schemas
 
 Local read-only tools are sent as provider-native tool schemas. Tool
@@ -41,15 +61,9 @@ behavior.
 
 ## Error Mapping
 
-Provider errors are mapped into transcript errors and return the prompt to a
-usable state.
+Provider errors are mapped into actionable transcript errors and return the
+prompt draft to a usable state.
 
-## Model Metadata
-
-`thndrs` can read Umans model metadata from `/v1/models/info` for visible model
-capabilities.
-
-## Smoke Test
-
-The live provider smoke test is ignored by default and requires `UMANS_API_KEY`
-plus network access.
+- Authentication failures point to `UMANS_API_KEY`/`thndrs login umans`
+- rate limits suggest checking Umans usage
+- network and server failures can be retried

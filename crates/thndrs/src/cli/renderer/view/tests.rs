@@ -1,6 +1,6 @@
 use crate::acp::permissions::{PendingPermission, PermissionKindView, PermissionOptionView};
 use crate::app::{
-    App, DetailPane, Entry, FilePickerSource, FirstRunRecovery, PickerItem, PickerState, PromptAccessory,
+    App, DetailPane, Entry, FilePickerSource, FirstRunRecovery, Mode, PickerItem, PickerState, PromptAccessory,
     RecoveryStage, RunState, ToolStatus, VISIBLE_ROWS,
 };
 use crate::cli::{Cli, Theme, WebSearchMode, commands::setup::SetupProviderArg};
@@ -763,7 +763,7 @@ fn semantic_prompt_has_queued_summary_without_queued_text() {
 #[test]
 fn semantic_prompt_represents_command_suggestions() {
     let mut app = test_app();
-    app.mode = crate::app::Mode::Command;
+    app.mode = Mode::Command;
     app.input.set_text("he");
     app.prompt_accessory = PromptAccessory::Commands { selected: 0 };
 
@@ -867,6 +867,7 @@ fn semantic_setup_surface_projects_selection_and_masks_credentials() {
             assert_eq!(form.fields[0].label, "umans API key");
             assert_eq!(form.fields[0].value, "[hidden]");
             assert!(form.fields[0].secret);
+            assert!(form.details.iter().any(|detail| detail.contains("Umans Code key")));
             assert!(!format!("{form:?}").contains("sk-view-secret"));
         }
         surface => panic!("expected setup surface, got {surface:?}"),

@@ -42,115 +42,21 @@ the renderer so application behavior exposes semantic state and events only.
 Replaced fixed-default-model startup with a required, keyboard-first provider/setup
 gateway that makes an authenticated coding session the only successful first-run outcome.
 
-**Scope note:** This gateway establishes provider choice and the no-default-model
-rule; it does not prescribe ChatGPT Codex’s OAuth transport. Ticket 8 supersedes
-the inherited device-code-first behavior with a browser-first provider workflow.
-
 ## Ticket 8: Make ChatGPT Codex A First-Class Browser-First Workflow
 
-**What to build:** Finish and verify the ChatGPT Codex path from required setup
+Finished and verifed the ChatGPT Codex path from required setup
 through browser-first OAuth, a coding turn, safe tool use, and session recovery.
-Device code remains an explicit headless/remote alternative, not a prerequisite
-or an automatic fallback.
-
-**Blocked by:** Ticket 7: Require Provider-Led Setup Before Coding
-
-**Acceptance criteria:**
-
-- [x] Setup recognizes an existing valid ChatGPT Codex credential. When one is
-      absent, login uses the supported ChatGPT OAuth route and never asks for
-      or stores a ChatGPT API key.
-- [x] Browser PKCE is preselected for browser-capable environments. It starts a
-      short-lived loopback callback, launches or shows a copyable authorization
-      URL, validates callback state, and lets the user paste the full redirect
-      URL when the callback cannot reach the application.
-- [x] Device code is a clearly labeled, user-selected headless/remote method.
-      Its start, polling, slow-down, cancellation, expiry, auth failure, and
-      credential write behavior have deterministic fake coverage and safe
-      human-facing copy. Neither method silently falls through to the other.
-- [x] Provider/model selection, request lowering, stream events, tool calls,
-      cancellation, session recovery, and supported GPT-5.6 reasoning
-      effort/summary lowering are covered at the application boundary.
-- [x] Secrets, access tokens, refresh tokens, and account details are absent
-      from logs, sessions, prompt inspection, snapshots, and diagnostics. The
-      same boundary covers authorization codes, callback query strings, PKCE
-      verifiers, and device-auth identifiers.
-- [x] A release owner can perform the documented browser-default
-      disposable-repository smoke: authenticate, make a bounded code change,
-      approve tools, run verification, inspect the result, and resume the
-      session. The headless/device-code smoke is recorded separately when the
-      approved account and provider policy permit it.
-
-**Verification:**
-
-- `cargo test -p thndrs providers::codex`
-- `cargo test -p thndrs cli::app`
-- human browser-default ChatGPT Codex smoke using an explicitly approved account
 
 ## Ticket 9: Make Umans A First-Class Workflow
 
-**What to build:** Finish and verify the Umans path from required setup through
+Finished and verify the Umans path from required setup through
 credential entry, a coding turn, safe tool use, and session recovery.
-
-**Blocked by:** Ticket 7: Require Provider-Led Setup Before Coding
-
-**Acceptance criteria:**
-
-- [ ] Umans setup has a clear provider-specific key flow, safe credential
-      scope choice, cancellation/failure recovery, and no default-model claim.
-- [ ] Model discovery/selection, request lowering, stream events, tool calls,
-      cancellation, session recovery, and its supported thinking-toggle
-      lowering are covered at the application boundary.
-- [ ] The credential is stored only at the existing safe boundary and is
-      excluded from TOML, logs, sessions, prompt inspection, snapshots, and
-      diagnostics.
-- [ ] Provider failure messages are actionable and retain the prompt draft.
-- [ ] A release owner can perform the documented disposable-repository smoke:
-      authenticate, make a bounded code change, approve tools, run verification,
-      inspect the result, and resume the session.
-
-**Verification:**
-
-- `cargo test -p thndrs providers::umans`
-- `cargo test -p thndrs cli::app`
-- human Umans smoke using an explicitly approved account
 
 ## Ticket 10: Build The Restrained Workbench UI
 
-**What to build:** Implement the two-lane renderer architecture and the
-single-column signal-rail language from the reviewed concepts, centralizing
-bounded iocraft surfaces while keeping transcript history open in direct rows.
-
-**Blocked by:** Tickets 6 and 7
-
-**Acceptance criteria:**
-
-- [x] `renderer/adapter.rs` is the only source module that imports or calls
-      iocraft; it receives semantic data and returns `Vec<Row>` with no
-      terminal writes, render loop, or app state.
-- [x] Setup/authentication, permission, picker, help, and detail surfaces use
-      consistent Unicode framing, title/status information, explicit focus,
-      keyboard hints, and visible clipping state.
-- [x] The committed transcript has no persistent card-per-entry treatment; it
-      remains native-scrollback-friendly with readable role, spacing, text
-      hierarchy, and typed event marks. It has no persistent sidebar, fake
-      terminal chrome, or second main panel.
-- [x] The live prompt/work region has compact orientation information without
-      becoming a persistent dashboard.
-- [x] Permission and setup/recovery surfaces still outrank optional detail/help
-      surfaces, and `Esc` preserves their established behavior.
-- [x] Normal, narrow, tiny-height, monochrome-equivalent, Unicode, long-line,
-      and clipping snapshots demonstrate graceful fallbacks. Eldritch Minimal,
-      Iceberg Dark, and Catppuccin Mocha use renderer palette roles rather than
-      page-local colors.
-
-**Verification:**
-
-- `cargo test -p thndrs renderer::adapter`
-- `cargo test -p thndrs renderer::view`
-- `cargo test -p thndrs renderer::region`
-- `cargo test -p thndrs renderer:: -- --test-threads=1`
-- `cargo test --workspace`
+Implemented two-lane renderer architecture and the single-column signal-rail language
+from the reviewed concepts, centralizing bounded iocraft surfaces while keeping transcript
+history open in direct rows.
 
 ## Ticket 11: Prepare Release Docs And Package Evidence
 

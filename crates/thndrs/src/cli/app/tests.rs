@@ -858,6 +858,62 @@ fn missing_provider_credential_opens_recovery_and_preserves_prompt() {
 }
 
 #[test]
+fn umans_setup_cancellation_keeps_prompt_draft_and_discards_secret_buffer() {
+    let mut app = fresh_app();
+    app.input = PromptInput::from("draft while setting up Umans");
+    app.first_run_recovery = Some(FirstRunRecovery::missing_provider(SetupProviderArg::Umans, true));
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    for ch in "sk-cancelled-key".chars() {
+        update(&mut app, &key(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    update(&mut app, &key(KeyCode::Esc, KeyModifiers::NONE));
+
+    let recovery = app
+        .first_run_recovery
+        .as_ref()
+        .expect("Umans recovery remains available");
+    assert_eq!(recovery.stage, RecoveryStage::MissingCredential);
+    assert!(recovery.secret_input.is_empty());
+    assert_eq!(app.input.as_str(), "draft while setting up Umans");
+    assert!(!format!("{app:?}").contains("sk-cancelled-key"));
+}
+
+#[test]
+fn umans_provider_failure_is_actionable_and_restores_prompt_draft() {
+    let mut app = fresh_app();
+    app.model = "umans-coder".to_string();
+    app.cli.model = app.model.clone();
+    app.first_run_recovery = None;
+    let prompt = "make the bounded Umans change";
+
+    assert_eq!(
+        submit_user_turn(&mut app, prompt.to_string()),
+        Some(Msg::Agent(AgentEvent::Started))
+    );
+    update(&mut app, &Msg::Agent(AgentEvent::Started));
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::Failed(
+            "Umans authentication failed (HTTP 401); check UMANS_API_KEY or run `thndrs login umans`".to_string(),
+        )),
+    );
+
+    assert_eq!(
+        app.run_state,
+        RunState::Error(
+            "Umans authentication failed (HTTP 401); check UMANS_API_KEY or run `thndrs login umans`".to_string()
+        )
+    );
+    assert_eq!(app.input.as_str(), prompt);
+    assert!(
+        app.transcript
+            .iter()
+            .any(|entry| matches!(entry, Entry::Error { text } if text.contains("thndrs login umans")))
+    );
+}
+
+#[test]
 fn fresh_setup_authenticates_before_model_selection_and_retains_draft() {
     let dir = tempfile::tempdir().expect("create temp dir");
     let home = dir.path().join("home");
@@ -1370,6 +1426,13 @@ fn chatgpt_browser_oauth_escape_cancels_without_writing_credentials() {
 fn offline_model_picker_includes_provider_expansion_models() {
     let items = offline_model_picker_items();
 
+    for model in ["umans-coder", "umans-kimi-k2.7", "umans-glm-5.2", "umans-flash"] {
+        assert!(
+            items.iter().any(|item| item.label == model),
+            "missing Umans model {model}"
+        );
+    }
+    assert!(!items.iter().any(|item| item.label == "umans-glm-5.1"));
     assert!(items.iter().any(|item| item.label == "opencode/big-pickle"));
     assert!(items.iter().any(|item| item.label == "chatgpt-codex/gpt-5.5"));
 }
