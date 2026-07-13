@@ -30,6 +30,7 @@ impl ToolStatus {
         }
     }
 
+    /// Stable lowercase status label.
     pub const fn label(self) -> &'static str {
         match self {
             ToolStatus::Running => "running",
@@ -118,7 +119,12 @@ pub enum AgentMessage {
     /// An assistant tool-use request.
     ToolUse(ToolUseRequest),
     /// A completed application-owned tool result.
-    ToolResult { id: String, output: ToolOutput },
+    ToolResult {
+        /// Provider or application id that correlates the result with a tool request.
+        id: String,
+        /// Application-owned result returned by the tool executor.
+        output: ToolOutput,
+    },
 }
 
 /// Provider-neutral input for one agent turn.
@@ -153,30 +159,45 @@ pub enum AgentEvent {
     /// Informational provider or run status.
     Status(String),
     /// Incremental token accounting.
-    Usage { input_tokens: u64, output_tokens: u64 },
+    Usage {
+        /// Number of input tokens observed for the request or increment.
+        input_tokens: u64,
+        /// Number of output tokens observed for the request or increment.
+        output_tokens: u64,
+    },
     /// Incremental assistant text.
     AssistantDelta(String),
     /// Incremental reasoning text.
     ReasoningDelta(String),
     /// A tool call was requested.
     ToolStarted {
+        /// Provider-assigned id for the tool call.
         id: String,
+        /// Application catalog name selected for the call.
         name: String,
+        /// Raw JSON arguments supplied for the call.
         arguments: String,
     },
     /// A tool call completed.
     ToolFinished {
+        /// Provider-assigned id for the tool call.
         id: String,
+        /// Output lines returned by the application-owned executor.
         output: Vec<String>,
+        /// Final execution status.
         status: ToolStatus,
     },
     /// Model metadata available for application model pickers.
     ModelMetadataLoaded(Vec<(String, String)>),
     /// A retry was scheduled after a recoverable provider failure.
     Retrying {
+        /// One-based retry attempt that will run next.
         attempt: u32,
+        /// Maximum retry attempts configured for the request.
         max_attempts: u32,
+        /// Delay before the next attempt, in milliseconds.
         delay_ms: u64,
+        /// Redacted, provider-neutral failure detail.
         error: String,
     },
     /// The turn completed normally.

@@ -1,8 +1,9 @@
 # thndrs-agent
 
-`thndrs-agent` is for authors of coding-agent applications who need a small,
-provider-independent vocabulary for one turn. This includes messages in, semantic
-events out, tool requests, permission decisions, and cancellation.
+`thndrs-agent` is an experimental, provider-neutral Rust library for authors of
+coding-agent applications. It provides a small vocabulary for iterations of agent loops,
+namely messages in, semantic events out, tool requests, permission decisions, and
+cooperative cancellation.
 
 Use it when your application owns the model client and tool policy but you want
 the rest of the agent loop to speak stable, typed Rust values. A terminal UI,
@@ -52,6 +53,15 @@ compaction policy. Hosts supply project instructions, transcript entries,
 skills, and pins; the module performs no filesystem, provider, terminal, or
 persistence work.
 
+## Modules
+
+- [`adapters`](https://docs.rs/thndrs-agent/0.1.0/thndrs_agent/adapters/) contains application-owned permission and execution callbacks.
+- [`budget`](https://docs.rs/thndrs-agent/0.1.0/thndrs_agent/budget/) bounds tool batches and continuation segments.
+- [`cancel`](https://docs.rs/thndrs-agent/0.1.0/thndrs_agent/cancel/) provides a shared cooperative cancellation token.
+- [`context`](https://docs.rs/thndrs-agent/0.1.0/thndrs_agent/context/) contains pure selection, control, and compaction policy.
+- [`contracts`](https://docs.rs/thndrs-agent/0.1.0/thndrs_agent/contracts/) defines provider-neutral messages, events, tools, and retry values.
+- [`run`](https://docs.rs/thndrs-agent/0.1.0/thndrs_agent/run/) owns a background run's event channel and cancellation handle.
+
 ## Keep policy in your application
 
 This crate does not read files, run processes, or contact a model provider.
@@ -61,8 +71,10 @@ application context and result types remain yours.
 
 ## Stability
 
-The crate is pre-1.0. Expect its public API to evolve while `thndrs` and other
-consumers establish the boundaries worth committing to.
+The crate is intentionally pre-1.0. Expect its public API to evolve while
+`thndrs` and other external consumers establish the boundaries worth committing
+to. Public modules remain available and supported during that work; “experimental”
+describes the compatibility promise, not a private or disposable API.
 
 [`AgentEvent`]: https://docs.rs/thndrs-agent/latest/thndrs_agent/enum.AgentEvent.html
 [`AgentRun`]: https://docs.rs/thndrs-agent/latest/thndrs_agent/struct.AgentRun.html

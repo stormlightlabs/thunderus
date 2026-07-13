@@ -1,12 +1,17 @@
 [package]
 name = "thndrs-agent"
-version.workspace = true
+version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 description = "Provider-neutral coding-agent loop and contracts"
 license.workspace = true
 repository.workspace = true
+homepage = "https://thndrs.stormlightlabs.org"
+documentation = "https://docs.rs/thndrs-agent"
 readme = "README.md"
+keywords = ["agent", "ai", "coding", "llm", "tools"]
+categories = ["development-tools", "api-bindings"]
+include = ["/Cargo.toml", "/README.md", "/src/**"]
 
 [dependencies]
 serde.workspace = true

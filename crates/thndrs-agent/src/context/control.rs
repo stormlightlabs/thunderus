@@ -164,6 +164,7 @@ pub enum ModelLimitSource {
 }
 
 impl ModelLimitSource {
+    /// Stable lowercase source label.
     pub fn label(&self) -> &'static str {
         match self {
             ModelLimitSource::Fallback => "fallback",
@@ -189,6 +190,7 @@ pub enum ModelLimitConfidence {
 }
 
 impl ModelLimitConfidence {
+    /// Stable lowercase confidence label.
     pub fn label(&self) -> &'static str {
         match self {
             ModelLimitConfidence::Conservative => "conservative",
@@ -212,6 +214,7 @@ pub enum DiagnosticSeverity {
 }
 
 impl DiagnosticSeverity {
+    /// Stable lowercase severity label.
     pub fn label(&self) -> &'static str {
         match self {
             DiagnosticSeverity::Info => "info",
@@ -336,8 +339,11 @@ impl ModelContextLimits {
 /// A `None` context window or completion budget falls through to the next precedence source.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LiveModelMetadata {
+    /// Total model context window in tokens, when reported by the provider.
     pub context_window: Option<u64>,
+    /// Maximum completion size in tokens, when reported by the provider.
     pub max_completion_tokens: Option<u64>,
+    /// Recommended completion size in tokens, when reported by the provider.
     pub recommended_completion_tokens: Option<u64>,
 }
 
@@ -380,8 +386,11 @@ impl LiveModelMetadata {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ModelLimitOverride {
+    /// Total model context window in tokens.
     pub context_window: u64,
+    /// Maximum completion size in tokens.
     pub max_completion_tokens: u64,
+    /// Recommended completion size in tokens.
     pub recommended_completion_tokens: u64,
 }
 
@@ -512,6 +521,7 @@ impl ContextBudget {
 /// A diagnostic about context or model-limit state.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContextDiagnostic {
+    /// Severity of the condition reported by this diagnostic.
     pub severity: DiagnosticSeverity,
     /// Short code (e.g. `"fallback_model_limits"`, `"invalid_model_override"`).
     pub code: String,
@@ -548,8 +558,11 @@ impl ContextDiagnostic {
 /// diagnostics for a turn.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContextLedger {
+    /// Every candidate item and its selected, omitted, or blocked state.
     pub items: Vec<ContextItem>,
+    /// Resolved token limits and current budget usage.
     pub budget: ContextBudget,
+    /// Diagnostics produced while resolving limits or selecting context.
     pub diagnostics: Vec<ContextDiagnostic>,
 }
 
@@ -585,12 +598,19 @@ impl ContextLedger {
 /// Visibility counts for a [`ContextLedger`].
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ContextCounts {
+    /// Number of visible items.
     pub visible: usize,
+    /// Number of pinned items.
     pub pinned: usize,
+    /// Number of summary-only items.
     pub summary_only: usize,
+    /// Number of archived items.
     pub archived: usize,
+    /// Number of unselected candidate items.
     pub candidate: usize,
+    /// Number of explicitly dropped items.
     pub dropped: usize,
+    /// Number of items blocked by the budget.
     pub blocked: usize,
 }
 

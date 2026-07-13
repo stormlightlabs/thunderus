@@ -176,8 +176,8 @@ impl SkillCandidate {
 
 /// An instruction source considered for selection.
 ///
-/// Mirrors the fields the policy needs from [`crate::context::ContextSource`]
-/// without forcing the caller to clone full content; selection works on
+/// Mirrors the fields the policy needs from an application's instruction-source
+/// type without forcing the caller to clone full content; selection works on
 /// metadata only.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InstructionCandidate {

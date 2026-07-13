@@ -5,34 +5,9 @@ Work the frontier: any ticket whose blockers are complete can start.
 
 ## Ticket 1: Make Both Packages Independently Releasable
 
-**What to build:** Give `thndrs` and `thndrs-agent` independent v0 SemVer
-contracts, complete crates.io discovery metadata, and public documentation that
-matches their intended users.
-
-**Blocked by:** None - can start immediately
-
-**Acceptance criteria:**
-
-- [ ] Both packages start at `0.1.0` but declare their own package version
-      rather than inheriting one shared workspace version.
-- [ ] `thndrs` uses the intended compatible `thndrs-agent` release line and
-      local development continues to work through the path dependency.
-- [ ] `thndrs-agent` has homepage, documentation, keywords, categories, and
-      complete README/rustdoc guidance for external application authors.
-- [ ] The public library docs state that every public module is experimental,
-      supported for external use, provider-neutral, and on a path to stability.
-- [ ] Library examples compile and do not imply that applications should import
-      provider wire types, filesystem policy, terminal I/O, or session storage.
-- [ ] Both package manifests and archive contents are intentionally reviewed;
-      no package is published or tagged.
-
-**Verification:**
-
-- `cargo test -p thndrs-agent --doc`
-- `cargo package -p thndrs-agent --allow-dirty`
-- `cargo package -p thndrs --allow-dirty` after the release owner makes the
-  published dependency version available
-- human metadata and README review
+Gave `thndrs` and `thndrs-agent` independent v0 SemVer contracts, complete
+crates.io discovery metadata, and public documentation that matches their
+intended users.
 
 ## Ticket 2: Establish The App Composition Seam
 

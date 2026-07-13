@@ -43,11 +43,11 @@ mod tests {
     #[test]
     fn run_exposes_events_and_the_shared_cancel_token() {
         let cancel = CancelToken::new();
-        let run = AgentRun::spawn(cancel.clone(), |sender, received_cancel| {
+        let run = AgentRun::spawn(cancel, |sender, received_cancel| {
             sender.send(received_cancel.is_cancelled()).expect("send event");
         });
 
         assert!(!run.cancel().is_cancelled());
-        assert_eq!(run.into_events().recv().expect("receive event"), false);
+        assert!(!run.into_events().recv().expect("receive event"));
     }
 }
