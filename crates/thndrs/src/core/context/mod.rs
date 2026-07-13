@@ -1,6 +1,6 @@
 //! Application-owned context discovery and instruction adapters.
 //!
-//! Pure context policy lives in `thndrs_agent::context`; this module performs
+//! Pure context policy lives in [`thndrs_agent::context`]; this module performs
 //! filesystem discovery and supplies the resulting application data.
 
 pub mod instructions;

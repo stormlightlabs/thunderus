@@ -9,7 +9,7 @@ mod slash;
 use super::*;
 use crate::acp::permissions::{PendingPermission, PermissionDecision, PermissionKindView, PermissionOptionView};
 use crate::config::{Config, ConfigOrigin, ConfigSource, LoadedConfigLayer};
-use crate::context;
+use crate::context::{AGENTS_MD_SIZE_CAP, ContextSource, discover_workspace_root};
 use crate::harness::HarnessTurn;
 use crate::input::PromptInput;
 use crate::renderer;
@@ -59,7 +59,7 @@ fn fresh_startup_records_context_without_memory_state() {
     let dir = tempfile::tempdir().expect("create temp dir");
     let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
     let app = App::from_cli(&cli);
-    let _: &[context::ContextSource] = &app.context_sources;
+    let _: &[ContextSource] = &app.context_sources;
 
     let writer = app.session_writer.as_ref().expect("session writer");
     let records = session::SessionReader::read_records(writer.path());
@@ -185,7 +185,7 @@ fn from_cli_writes_effective_config_metadata_to_session_meta() {
     };
     let config = config.as_ref().expect("config metadata");
 
-    let workspace_root = context::discover_workspace_root(dir.path());
+    let workspace_root = discover_workspace_root(dir.path());
     assert_eq!(cwd, &workspace_root.display().to_string());
     assert_eq!(model, "env-model");
     assert_eq!(websearch, "native");
@@ -1636,7 +1636,7 @@ fn app_with_agents_md_loads_context_and_adds_status() {
 #[test]
 fn app_with_oversized_agents_md_marks_truncation() {
     let dir = tempfile::tempdir().expect("create temp dir");
-    let big_content = "x".repeat(context::AGENTS_MD_SIZE_CAP + 1000);
+    let big_content = "x".repeat(AGENTS_MD_SIZE_CAP + 1000);
     let agents_path = dir.path().join("AGENTS.md");
     let mut f = std::fs::File::create(&agents_path).expect("create AGENTS.md");
     f.write_all(big_content.as_bytes()).expect("write AGENTS.md");
@@ -1647,7 +1647,7 @@ fn app_with_oversized_agents_md_marks_truncation() {
     assert_eq!(app.context_sources.len(), 1);
     let source = &app.context_sources[0];
     assert!(source.truncated);
-    assert!(source.content.len() <= context::AGENTS_MD_SIZE_CAP);
+    assert!(source.content.len() <= AGENTS_MD_SIZE_CAP);
 
     assert!(
         app.transcript.is_empty(),

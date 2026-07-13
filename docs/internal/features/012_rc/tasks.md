@@ -11,83 +11,20 @@ intended users.
 
 ## Ticket 2: Establish The App Composition Seam
 
-**What to build:** Turn the oversized application module into a documented
-composition boundary that can host cohesive child modules without changing any
-user-visible behavior.
-
-**Blocked by:** None - can start immediately
-
-**Acceptance criteria:**
-
-- [ ] The root app module retains the shared public state/message vocabulary
-      and the single `update(&mut App, Msg) -> Option<Msg>` mutation route.
-- [ ] It declares an intentional child-module layout for onboarding, input,
-      commands, context, and agent lifecycle behavior.
-- [ ] Existing tests compile through the new module topology without broad
-      visibility leaks, new traits, or a second effect system.
-- [ ] No command behavior, setup behavior, keybinding, persisted session data,
-      renderer output, or public application behavior changes in this ticket.
-- [ ] The coordinator’s module docs explain ownership and the extraction order.
-
-**Verification:**
-
-- `cargo test -p thndrs cli::app`
-- `cargo test -p thndrs renderer::view`
-- `cargo fmt --check`
+Established a documented private composition boundary for the application
+coordinator without changing user-visible behavior.
 
 ## Ticket 3: Extract Onboarding And Authentication Behavior
 
-**What to build:** Move first-run recovery, provider setup, credential handling,
-and ChatGPT OAuth interaction into a cohesive application module while keeping
-the existing behavior unchanged.
-
-**Blocked by:** Ticket 2: Establish The App Composition Seam
-
-**Acceptance criteria:**
-
-- [ ] Recovery/setup state, provider authentication checks, OAuth polling, and
-      credential-store actions live outside the root coordinator.
-- [ ] Secret input remains hidden and absent from transcript/session/prompt
-      surfaces; provider credentials retain their existing ownership and scope.
-- [ ] Setup cancellation, OAuth cancellation, failed authentication, and model
-      switching retain the prompt draft.
-- [ ] Existing model-specific reasoning setup/picker state and config writes
-      remain behaviorally unchanged during the extraction.
-- [ ] The root app module contains routing and shared state only, not the
-      extracted feature’s private workflow helpers.
-- [ ] Existing setup and recovery snapshots/tests pass without intentional UI
-      change.
-
-**Verification:**
-
-- `cargo test -p thndrs cli::app::tests`
-- focused setup/recovery snapshot review
+Extracted first-run recovery, provider setup, credential handling, and ChatGPT
+OAuth interaction into a cohesive private application module while keeping the
+existing behavior unchanged.
 
 ## Ticket 4: Extract Input, Pickers, And Command Routing
 
-**What to build:** Move keyboard interaction, prompt accessories, picker state,
-and slash-command dispatch into cohesive modules while preserving every existing
-input path.
-
-**Blocked by:** Ticket 2: Establish The App Composition Seam
-
-**Acceptance criteria:**
-
-- [ ] Prompt editing, command mode, file/model/skill/reasoning pickers,
-      detail-surface navigation, and input history no longer crowd the root
-      coordinator.
-- [ ] Keyboard handling still reaches all mutations through `update` and does
-      not parse application behavior from rendered display strings.
-- [ ] Prompt draft retention, queued steering input, picker selection,
-      `Esc` behavior, and command suggestion behavior remain covered.
-- [ ] Public keybinding behavior and existing command names are unchanged.
-- [ ] The extraction adds no renderer or iocraft dependency to app behavior.
-
-**Verification:**
-
-- `cargo test -p thndrs cli::app::tests::input`
-- `cargo test -p thndrs cli::app::tests::movement`
-- `cargo test -p thndrs cli::app::tests::slash`
+Extracted keyboard interaction, prompt accessories, picker state, and
+slash-command dispatch into cohesive private modules while preserving every
+existing input path.
 
 ## Ticket 5: Extract Context, Commands, And Agent Lifecycle Behavior
 

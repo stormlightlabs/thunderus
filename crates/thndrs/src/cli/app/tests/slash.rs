@@ -206,7 +206,7 @@ fn context_surface_is_bounded_and_does_not_render_source_content() {
     let mut app = fresh_app();
     let source = app.cwd.join("AGENTS.md");
     std::fs::write(&source, "api_key=source-secret-that-must-not-be-rendered\n").expect("write instructions");
-    app.context_sources = vec![context::load_agents_md(&app.cwd).expect("load instructions")];
+    app.context_sources = vec![crate::context::load_agents_md(&app.cwd).expect("load instructions")];
     app.input = PromptInput::from("/context");
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
