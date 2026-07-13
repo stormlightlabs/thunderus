@@ -76,13 +76,13 @@ const BUILTIN_TOOLS: &[ToolEntry] = &[
         name: "write_patch",
         definition: super::write_patch::definition,
         execute: super::write_patch::execute_request,
-        example_input: r#"{"op":"edit","path":"notes.txt","old_string":"hello","new_string":"hi"}"#,
+        example_input: r#"{"patches":[{"op":"edit","path":"notes.txt","old_string":"hello","new_string":"hi"}]}"#,
     },
     ToolEntry {
         name: "run_shell",
         definition: super::shell::definition,
         execute: super::shell::execute_request,
-        example_input: r#"{"program":"cargo","args":["test","tools"]}"#,
+        example_input: r#"{"argv":["cargo","test","tools"]}"#,
     },
 ];
 

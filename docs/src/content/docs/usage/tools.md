@@ -10,6 +10,11 @@ one stable name, one provider schema, one executor, and one example input used
 by tests. Configured MCP tools are appended at runtime after server discovery
 and appear with `mcp__{server}__{tool}` names.
 
+Built-in tool modules own their schemas, parsing, execution, and side-effect
+metadata. Providers receive the catalog derived from that registry, so a tool
+cannot be exposed without an executor or executed without a schema. See the
+[Tool Reference](/reference/tools/) for exact input fields.
+
 ## File Discovery
 
 `find_files` discovers paths inside the selected workspace. It is backed by
@@ -37,6 +42,9 @@ Tool wrappers enforce workspace containment, timeouts, output caps, max result
 counts, max line lengths, and transcript truncation. Hidden files, ignored
 files, symlink following, and unrestricted searches are not default behavior.
 
+`AGENTS.md` files can guide tool choice and project conventions. They cannot
+grant filesystem access, change the tool catalog, or disable these limits.
+
 MCP tool calls share the same transcript and output limits, but the MCP server
 itself is external. Stdio servers run as local child processes and Streamable
 HTTP servers run wherever their configured endpoint points.
@@ -57,18 +65,27 @@ records avoid storing full file contents or uncapped process output.
 The write tools are `create_file`, `replace_range`, and `write_patch`.
 `create_file` fails if the file already exists. `replace_range` edits one
 unique exact string occurrence. `write_patch` is the unified create, replace,
-or edit entry point. All write paths must stay inside the workspace root.
+or edit entry point. Its `patches` array accepts one create/replace operation or
+one or more edits for the same file. Batched edits all match the original file,
+and the tool validates them before writing. All write paths must stay inside
+the workspace root.
 
 ## Shell
 
-`run_shell` runs a program plus argv list in the workspace. Prefer narrower
-tools for file discovery, search, reads, edits, and URL reads. Use shell for
-builds, tests, formatters, and commands that do not fit a narrower tool.
+`run_shell` takes one `argv` array containing the program and its arguments. It
+runs that command in the workspace. Prefer narrower tools for file discovery,
+search, reads, edits, and URL reads. Use shell for builds, tests, formatters,
+and commands that do not fit a narrower tool.
 
 The shell tool is not a sandbox. Commands run as the local `thndrs` process.
 If shell syntax is required, the model must invoke an explicit shell program in
 argv, such as `sh` with `-c`; `thndrs` does not add a separate command-string
 tool.
+
+Configured [MCP tools](/usage/mcp/) enter through the external-tool path. Their
+provider names are namespaced, and their results use the same output limits,
+redaction, and session log path as built-in tools. Those limits constrain what
+`thndrs` records and displays; they do not constrain what an MCP server can do.
 
 ## Running Input
 

@@ -1,7 +1,9 @@
 <edit_guidance>
   <preferred_tool>
-    Prefer <tool>write_patch</tool> for file writes. Use op=create for new files, op=edit for small
-    exact replacements, and op=replace only when rewriting the whole file is intentional.
+    Prefer <tool>write_patch</tool> for file writes. Place operations in its patches array. Use
+    op=create for new files, op=edit for exact replacements, and op=replace only when rewriting the
+    whole file is intentional. Batch edits only when they belong to one file; they all match the
+    original content.
   </preferred_tool>
   <exact_edits>
     For op=edit or <tool>replace_range</tool>, first read the target file and make old_string match

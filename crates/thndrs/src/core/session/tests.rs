@@ -1716,7 +1716,7 @@ fn registry_write_side_effect_persists_to_session_record() {
 
     let request = tools::ToolUseRequest::new(
         "write_patch".to_string(),
-        r#"{"op":"create","path":"audit.txt","content":"hello\n"}"#.to_string(),
+        r#"{"patches":[{"op":"create","path":"audit.txt","content":"hello\n"}]}"#.to_string(),
         "call_1".to_string(),
     );
     let (output, write_result, shell_result) = tools::dispatch_full(&request, &workspace);

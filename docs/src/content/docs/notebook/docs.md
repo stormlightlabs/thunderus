@@ -101,7 +101,7 @@ The template should stay lightweight. Pages should describe the decisions a cont
 - **Architecture:** one-turn lifecycle, state ownership, module map, cross-cutting invariants.
 - **Prompt System:** prompt bundle fields, fragment ordering, self-knowledge snapshot, transcript projection, tests.
 - **Agent Loop:** provider streaming, retries, cancellation, tool batches, continuation budgets.
-- **Tool Boundary:** workspace containment, typed tools, write audit, shell command handling, truncation.
+- **Tools and Security:** workspace containment, typed tools, write audit, shell command handling, truncation.
 - **Renderer:** row model, transcript/live split, backend, width behavior, snapshots.
 - **Sessions:** append-only JSONL, replayable records, audit metadata, schema evolution.
 - **Providers:** provider trait, provider-specific lowering, stream formats, metadata loading.
@@ -123,7 +123,7 @@ The template should stay lightweight. Pages should describe the decisions a cont
 ## Connections
 
 - Related ideas: Diataxis, architecture invariants, contributor handbooks, source maps, API boundaries.
-- Related local docs: Architecture, Testing, Prompt Assembly, Tool Boundary, Transcript Model, Session Format.
+- Related local docs: Architecture, Testing, Prompt Assembly, Tools, Security and Permissions, Transcript Model, Session Format.
 - Contradictions or tensions: Too much internals detail can make docs stale; too little leaves contributors dependent on oral history.
 - Useful applications: Use this note as the rubric when expanding Development pages or promoting Notebook research.
 

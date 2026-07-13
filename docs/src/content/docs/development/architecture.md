@@ -54,17 +54,18 @@ the same catalog to function tools at the provider boundary.
 
 ## Tool Registry
 
-Tool dispatch exposes typed, bounded tools instead of raw shell command
-strings. Built-in tools live in `src/tools/<tool>.rs` and are registered in
-`src/tools/registry.rs`. Each registry entry has a stable name, provider-visible
-definition, executor, and valid example input.
+Tool dispatch exposes typed, bounded tools instead of raw shell command strings.
+Built-in tools live in `thndrs_core::tools::<tool>` and are registered in `thndrs_core::tools::registry`.
+
+Each registry entry has a stable name, provider-visible definition, executor,
+and valid example input.
 
 To add a built-in tool:
 
-1. Add a `src/tools/<name>.rs` module with module docs, a `definition()`, input
-   parsing, `execute_request()`, and focused unit tests.
-2. Register it in `src/tools/registry.rs` with its name, definition function,
-   executor, and example input.
+1. Add a `thndrs_core::tools::<name>` module with module docs, a `definition()`,
+   input parsing, `execute_request()`, and focused unit tests.
+2. Register it in `thndrs_core::tools::registry` with its name, definition
+   function, executor, and example input.
 3. Add schema, parsing, execution, and failure tests. If it writes files or
    launches processes, return structured side-effect metadata and add session
    tests for the audit records.

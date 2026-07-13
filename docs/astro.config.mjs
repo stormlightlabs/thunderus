@@ -80,7 +80,6 @@ export default defineConfig({
               collapsed: true,
             },
             { label: "Transcripts", slug: "concepts/transcript-model" },
-            { label: "Tools", slug: "concepts/tool-boundary" },
           ],
         },
         /* Providers: integration-specific behavior and provider boundaries. */

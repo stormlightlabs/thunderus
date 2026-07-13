@@ -73,8 +73,10 @@ expression: output
 
 <edit_guidance>
   <preferred_tool>
-    Prefer <tool>write_patch</tool> for file writes. Use op=create for new files, op=edit for small
-    exact replacements, and op=replace only when rewriting the whole file is intentional.
+    Prefer <tool>write_patch</tool> for file writes. Place operations in its patches array. Use
+    op=create for new files, op=edit for exact replacements, and op=replace only when rewriting the
+    whole file is intentional. Batch edits only when they belong to one file; they all match the
+    original content.
   </preferred_tool>
   <exact_edits>
     For op=edit or <tool>replace_range</tool>, first read the target file and make old_string match
@@ -581,75 +583,70 @@ Build with cargo. Run tests with cargo test.
     "name": "replace_range"
   },
   {
-    "description": "write_patch\n\nApply a structured patch to create, replace, or edit a file.\n\nUse this as the preferred file-write tool. Set op=create for new files, op=edit\nfor exact replacements, or op=replace only for intentional whole-file rewrites.\nSupports multi-edit arrays and stale hash guards. Paths are contained; failures leave files unchanged.",
+    "description": "write_patch\n\nApply one or more structured patches to a file.\n\nUse this as the preferred file-write tool. Put operations in patches. A call may\ncontain one create/replace operation or one or more edits for the same file. All\nedits match the original file, not earlier edits in the call. Paths are contained;\nfailures leave the file unchanged.",
     "input_schema": {
       "properties": {
-        "content": {
-          "description": "Full file content for create/replace ops.",
-          "type": "string"
-        },
-        "edits": {
-          "description": "Multiple disjoint replacements for edit ops; all match the original file.",
+        "patches": {
+          "description": "One create/replace patch, or one or more disjoint edits for the same file.",
           "items": {
             "properties": {
+              "content": {
+                "description": "Full file content, required for create/replace.",
+                "type": "string"
+              },
+              "expected_before_hash": {
+                "description": "Optional current-content hash guard.",
+                "type": "integer"
+              },
               "new_string": {
+                "description": "The replacement string.",
                 "type": "string"
               },
               "old_string": {
+                "description": "The exact unique string to find in the original file.",
+                "type": "string"
+              },
+              "op": {
+                "description": "The patch operation. create/replace must be the only patch in a call.",
+                "enum": [
+                  "create",
+                  "replace",
+                  "edit"
+                ],
+                "type": "string"
+              },
+              "path": {
+                "description": "Path relative to the workspace root.",
                 "type": "string"
               }
             },
             "required": [
-              "old_string",
-              "new_string"
+              "op",
+              "path"
             ],
             "type": "object"
           },
+          "minItems": 1,
           "type": "array"
-        },
-        "expected_before_hash": {
-          "description": "Optional current-content hash guard for edit/replace ops.",
-          "type": "integer"
-        },
-        "new_string": {
-          "description": "The replacement string for legacy single edit ops.",
-          "type": "string"
-        },
-        "old_string": {
-          "description": "The exact string to find for legacy single edit ops.",
-          "type": "string"
-        },
-        "op": {
-          "description": "The patch operation.",
-          "enum": [
-            "create",
-            "replace",
-            "edit"
-          ],
-          "type": "string"
-        },
-        "path": {
-          "description": "Path relative to the workspace root.",
-          "type": "string"
         }
       },
       "required": [
-        "op",
-        "path"
+        "patches"
       ],
       "type": "object"
     },
     "name": "write_patch"
   },
   {
-    "description": "run_shell\n\nRun a shell command in the workspace and capture stdout, stderr, and exit status.\n\nPrefer narrow tools when they fit: find_files, search_text, read_file_range,\ncreate_file, replace_range, read_url. Use for build, test, format, inspection.\n\nRuns as thndrs with its permissions — not sandboxed. Avoid destructive commands\nunless explicitly requested. argv only. Output is capped, truncated, and redacted.\nTimeouts enforced.",
+    "description": "run_shell\n\nRun an argv command in the workspace and capture stdout, stderr, and exit status.\n\nPrefer narrow tools when they fit: find_files, search_text, read_file_range,\ncreate_file, replace_range, read_url. Use for build, test, format, inspection.\n\nRuns as thndrs with its permissions — not sandboxed. Avoid destructive commands\nunless explicitly requested. Output is capped, truncated, and redacted.\nTimeouts enforced.",
     "input_schema": {
       "properties": {
-        "args": {
-          "description": "Argv after the program.",
+        "argv": {
+          "description": "Full argv: program followed by its arguments.",
           "items": {
             "type": "string"
           },
+          "minItems": 1,
           "type": "array"
         },
         "background": {
@@ -660,17 +657,14 @@ Build with cargo. Run tests with cargo test.
           "description": "Optional working directory relative to the workspace root.",
           "type": "string"
         },
-        "program": {
-          "description": "The program to run (e.g. \"cargo\", \"ls\").",
-          "type": "string"
-        },
-        "timeout_secs": {
-          "description": "Timeout in seconds.",
+        "timeout_ms": {
+          "description": "Optional timeout in milliseconds.",
+          "minimum": 1,
           "type": "integer"
         }
       },
       "required": [
-        "program"
+        "argv"
       ],
       "type": "object"
     },

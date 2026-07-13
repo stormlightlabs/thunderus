@@ -107,4 +107,5 @@ into prompt noise.
 
 - [Project Context](/usage/project-context/)
 - [Prompt Assembly](/concepts/prompt-assembly/)
-- [Tool Boundary](/concepts/tool-boundary/)
+- [Tools](/usage/tools/)
+- [Security and Permissions](/usage/security-and-permissions/)

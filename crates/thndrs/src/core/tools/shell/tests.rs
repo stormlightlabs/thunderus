@@ -16,7 +16,7 @@ fn sh(script: &str) -> ShellArgs {
 }
 
 fn one_shot(program: &str, args: Vec<String>) -> ShellArgs {
-    ShellArgs { program: program.to_string(), args, cwd: None, timeout_secs: None, kind: ProcessKind::OneShot }
+    ShellArgs { program: program.to_string(), args, cwd: None, timeout: None, kind: ProcessKind::OneShot }
 }
 
 #[test]
@@ -128,7 +128,7 @@ fn run_command_timeout_kills_process() {
         program: "sh".to_string(),
         args: vec!["-c".to_string(), "sleep 30".to_string()],
         cwd: None,
-        timeout_secs: Some(1),
+        timeout: Some(Duration::from_secs(1)),
         kind: ProcessKind::OneShot,
     };
     let result = run_command(&args, root, &cancel).expect("run");
@@ -147,7 +147,7 @@ fn run_command_cancellation_kills_process() {
         program: "sh".to_string(),
         args: vec!["-c".to_string(), "sleep 30".to_string()],
         cwd: None,
-        timeout_secs: Some(60),
+        timeout: Some(Duration::from_secs(60)),
         kind: ProcessKind::OneShot,
     };
 
@@ -191,7 +191,7 @@ fn run_command_runs_in_specified_cwd() {
         program: "cat".to_string(),
         args: vec!["nested.txt".to_string()],
         cwd: Some(PathBuf::from("subdir")),
-        timeout_secs: None,
+        timeout: None,
         kind: ProcessKind::OneShot,
     };
 
@@ -212,7 +212,7 @@ fn run_command_rejects_cwd_outside_root() {
         program: "echo".to_string(),
         args: vec![],
         cwd: Some(PathBuf::from(escape)),
-        timeout_secs: None,
+        timeout: None,
         kind: ProcessKind::OneShot,
     };
     let result = run_command(&args, root, &cancel);
@@ -229,7 +229,7 @@ fn run_command_rejects_nonexistent_cwd() {
         program: "echo".to_string(),
         args: vec![],
         cwd: Some(PathBuf::from("nonexistent_dir")),
-        timeout_secs: None,
+        timeout: None,
         kind: ProcessKind::OneShot,
     };
     let result = run_command(&args, root, &cancel);
@@ -614,7 +614,7 @@ fn exec_timeout_returns_failed_tool_output() {
         program: "sh".to_string(),
         args: vec!["-c".to_string(), "sleep 30".to_string()],
         cwd: None,
-        timeout_secs: Some(1),
+        timeout: Some(Duration::from_secs(1)),
         kind: ProcessKind::OneShot,
     };
     let output = exec(&args, root);
@@ -648,19 +648,24 @@ fn parse_arguments_reads_all_fields() {
     assert_eq!(args.program, "cargo");
     assert_eq!(args.args, vec!["test".to_string(), "tools".to_string()]);
     assert_eq!(args.cwd, Some(PathBuf::from("src")));
-    assert_eq!(args.timeout_secs, Some(7));
+    assert_eq!(args.timeout, Some(Duration::from_secs(7)));
     assert_eq!(args.kind, ProcessKind::Background);
 }
 
 #[test]
-fn parse_arguments_malformed_json_uses_safe_defaults() {
-    let args = parse_arguments("not json").expect("parse");
+fn parse_arguments_rejects_malformed_json() {
+    let error = parse_arguments("not json").expect_err("malformed JSON should fail");
+    assert!(error.to_string().contains("invalid JSON"));
+}
 
-    assert_eq!(args.program, "");
-    assert!(args.args.is_empty());
-    assert!(args.cwd.is_none());
-    assert!(args.timeout_secs.is_none());
-    assert_eq!(args.kind, ProcessKind::OneShot);
+#[test]
+fn parse_arguments_reads_argv_and_timeout_ms() {
+    let args = parse_arguments(r#"{"argv":["pnpm","--dir","docs","build"],"timeout_ms":120000}"#)
+        .expect("parse canonical arguments");
+
+    assert_eq!(args.program, "pnpm");
+    assert_eq!(args.args, vec!["--dir", "docs", "build"]);
+    assert_eq!(args.timeout, Some(Duration::from_secs(120)));
 }
 
 #[test]
@@ -712,7 +717,7 @@ fn registry_execute_missing_program_fails_without_shell_result() {
             .output
             .error
             .as_ref()
-            .is_some_and(|error| error.contains("missing or empty 'program' field"))
+            .is_some_and(|error| error.contains("missing command"))
     );
 }
 

@@ -1,9 +1,9 @@
 //! Structured file write operations.
 //!
-//! A patch specifies one file operation (`create`, `replace`, or `edit`) plus
-//! the fields needed for that operation. `edit` supports either the legacy
-//! single `old_string`/`new_string` pair or an `edits` array of disjoint
-//! replacements that are all matched against the original file.
+//! A call contains a `patches` array. Each patch specifies one file operation
+//! (`create`, `replace`, or `edit`) plus the fields needed for that operation.
+//! Multiple edits may be batched for one file and are all matched against the
+//! original content.
 //!
 //! All operations enforce workspace-root containment. Failed patches leave the
 //! target file unchanged.
@@ -49,13 +49,15 @@ pub enum Patch {
 impl Patch {
     /// Parse a patch from a JSON arguments string.
     ///
-    /// The JSON must have an `op` field (`"create"`, `"replace"`, or `"edit"`)
-    /// and the fields required by that operation. For `edit`, callers may use
-    /// either legacy `old_string`/`new_string` fields or an `edits` array whose
-    /// entries contain `old_string` and `new_string`.
+    /// A multi-item batch must contain edits for one file so it can be applied
+    /// as one validated write.
     pub fn from_json(args: &str) -> Result<Self, String> {
         let v = serde_json::from_str::<serde_json::Value>(args).map_err(|e| format!("invalid arguments: {e}"))?;
+        let patches = v.get("patches").ok_or_else(|| "missing 'patches' field".to_string())?;
+        Self::parse_patch_batch(patches)
+    }
 
+    fn parse_patch(v: &serde_json::Value) -> Result<Patch, String> {
         let op = v
             .get("op")
             .and_then(|o| o.as_str())
@@ -70,33 +72,75 @@ impl Patch {
 
         match op {
             "create" => {
-                let content = string_field(&v, "content", "create requires a 'content' field")?;
+                let content = string_field(v, "content", "create requires a 'content' field")?;
                 Ok(Patch::Create { path, content })
             }
             "replace" => {
-                let content = string_field(&v, "content", "replace requires a 'content' field")?;
+                let content = string_field(v, "content", "replace requires a 'content' field")?;
                 Ok(Patch::Replace { path, content, expected_before_hash })
             }
-            "edit" => Ok(Patch::Edit { path, edits: parse_edits(&v)?, expected_before_hash }),
+            "edit" => {
+                let old_string = string_field(v, "old_string", "edit requires an 'old_string' field")?;
+                let new_string = string_field(v, "new_string", "edit requires a 'new_string' field")?;
+                Ok(Patch::Edit { path, edits: vec![Replacement { old_string, new_string }], expected_before_hash })
+            }
             other => Err(format!(
                 "unknown patch op: '{other}' (expected create, replace, or edit)"
             )),
         }
     }
-}
 
-/// Apply a structured patch to a file.
-///
-/// Dispatches to the appropriate write primitive based on the patch operation.
-/// On failure, the file is left unchanged and no [`WriteResult`] is returned.
-pub fn exec(patch: &Patch, root: &Path) -> (ToolOutput, Option<WriteResult>) {
-    match patch {
-        Patch::Create { path, content } => create_file::exec(path, root, content),
-        Patch::Replace { path, content, expected_before_hash } => {
-            exec_replace(path, root, content, *expected_before_hash)
+    fn parse_patch_batch(value: &serde_json::Value) -> Result<Patch, String> {
+        let patches = value
+            .as_array()
+            .ok_or_else(|| "'patches' must be an array".to_string())?;
+        if patches.is_empty() {
+            return Err("'patches' must contain at least one patch".to_string());
         }
-        Patch::Edit { path, edits, expected_before_hash } => {
-            replace_range::exec_many(path, root, edits, *expected_before_hash)
+
+        let mut patches = patches.iter().map(Self::parse_patch);
+        let first = patches
+            .next()
+            .ok_or_else(|| "'patches' must contain at least one patch".to_string())?
+            .map_err(|error| format!("patches[0]: {error}"))?;
+        if patches.len() == 0 {
+            return Ok(first);
+        }
+
+        let Patch::Edit { path, mut edits, expected_before_hash } = first else {
+            return Err("multi-patch calls only support edit operations for one file".to_string());
+        };
+
+        for (index, patch) in patches.enumerate() {
+            let patch = patch.map_err(|error| format!("patches[{}]: {error}", index + 1))?;
+            let Patch::Edit { path: patch_path, edits: patch_edits, expected_before_hash: patch_hash } = patch else {
+                return Err("multi-patch calls only support edit operations for one file".to_string());
+            };
+            if patch_path != path {
+                return Err("multi-patch calls must target one file".to_string());
+            }
+            if patch_hash != expected_before_hash {
+                return Err("multi-patch calls must use the same expected_before_hash".to_string());
+            }
+            edits.extend(patch_edits);
+        }
+
+        Ok(Patch::Edit { path, edits, expected_before_hash })
+    }
+
+    /// Apply a structured patch to a file.
+    ///
+    /// Dispatches to the appropriate write primitive based on the patch operation.
+    /// On failure, the file is left unchanged and no [`WriteResult`] is returned.
+    pub fn exec(&self, root: &Path) -> (ToolOutput, Option<WriteResult>) {
+        match self {
+            Patch::Create { path, content } => create_file::exec(path, root, content),
+            Patch::Replace { path, content, expected_before_hash } => {
+                exec_replace(path, root, content, *expected_before_hash)
+            }
+            Patch::Edit { path, edits, expected_before_hash } => {
+                replace_range::exec_many(path, root, edits, *expected_before_hash)
+            }
         }
     }
 }
@@ -107,34 +151,34 @@ pub fn definition() -> ToolDefinition {
         NAME,
         r#"write_patch
 
-Apply a structured patch to create, replace, or edit a file.
+Apply one or more structured patches to a file.
 
-Use this as the preferred file-write tool. Set op=create for new files, op=edit
-for exact replacements, or op=replace only for intentional whole-file rewrites.
-Supports multi-edit arrays and stale hash guards. Paths are contained; failures leave files unchanged."#,
+Use this as the preferred file-write tool. Put operations in patches. A call may
+contain one create/replace operation or one or more edits for the same file. All
+edits match the original file, not earlier edits in the call. Paths are contained;
+failures leave the file unchanged."#,
         serde_json::json!({
             "type": "object",
             "properties": {
-                "op": { "type": "string", "enum": ["create", "replace", "edit"], "description": "The patch operation." },
-                "path": { "type": "string", "description": "Path relative to the workspace root." },
-                "content": { "type": "string", "description": "Full file content for create/replace ops." },
-                "old_string": { "type": "string", "description": "The exact string to find for legacy single edit ops." },
-                "new_string": { "type": "string", "description": "The replacement string for legacy single edit ops." },
-                "edits": {
+                "patches": {
                     "type": "array",
+                    "minItems": 1,
                     "items": {
                         "type": "object",
                         "properties": {
-                            "old_string": { "type": "string" },
-                            "new_string": { "type": "string" }
+                            "op": { "type": "string", "enum": ["create", "replace", "edit"], "description": "The patch operation. create/replace must be the only patch in a call." },
+                            "path": { "type": "string", "description": "Path relative to the workspace root." },
+                            "content": { "type": "string", "description": "Full file content, required for create/replace." },
+                            "old_string": { "type": "string", "description": "The exact unique string to find in the original file." },
+                            "new_string": { "type": "string", "description": "The replacement string." },
+                            "expected_before_hash": { "type": "integer", "description": "Optional current-content hash guard." }
                         },
-                        "required": ["old_string", "new_string"]
+                        "required": ["op", "path"]
                     },
-                    "description": "Multiple disjoint replacements for edit ops; all match the original file."
-                },
-                "expected_before_hash": { "type": "integer", "description": "Optional current-content hash guard for edit/replace ops." }
+                    "description": "One create/replace patch, or one or more disjoint edits for the same file."
+                }
             },
-            "required": ["op", "path"]
+            "required": ["patches"]
         }),
     )
 }
@@ -143,7 +187,7 @@ Supports multi-edit arrays and stale hash guards. Paths are contained; failures 
 pub fn execute_request(request: &ToolUseRequest, ctx: ToolContext<'_>) -> ToolExecution {
     match Patch::from_json(&request.arguments) {
         Ok(patch) => {
-            let (output, write_result) = exec(&patch, ctx.root);
+            let (output, write_result) = patch.exec(ctx.root);
             ToolExecution::full(output, write_result, None)
         }
         Err(error) => ToolExecution::output(ToolOutput::failed(NAME, error)),
@@ -157,38 +201,6 @@ fn string_field(v: &serde_json::Value, field: &str, message: &str) -> Result<Str
         .ok_or_else(|| message.to_string())
 }
 
-fn parse_edits(v: &serde_json::Value) -> Result<Vec<Replacement>, String> {
-    if let Some(edits) = v.get("edits") {
-        let edits = edits
-            .as_array()
-            .ok_or_else(|| "edit field 'edits' must be an array".to_string())?;
-        if edits.is_empty() {
-            return Err("edit field 'edits' must contain at least one replacement".to_string());
-        }
-        return edits
-            .iter()
-            .enumerate()
-            .map(|(i, edit)| {
-                let old_string = edit
-                    .get("old_string")
-                    .and_then(|s| s.as_str())
-                    .ok_or_else(|| format!("edits[{i}] requires an 'old_string' field"))?
-                    .to_string();
-                let new_string = edit
-                    .get("new_string")
-                    .and_then(|s| s.as_str())
-                    .ok_or_else(|| format!("edits[{i}] requires a 'new_string' field"))?
-                    .to_string();
-                Ok(Replacement { old_string, new_string })
-            })
-            .collect();
-    }
-
-    let old_string = string_field(v, "old_string", "edit requires an 'old_string' field")?;
-    let new_string = string_field(v, "new_string", "edit requires a 'new_string' field")?;
-    Ok(vec![Replacement { old_string, new_string }])
-}
-
 /// Replace the entire contents of a file.
 ///
 /// Unlike `create_file`, this overwrites an existing file. If
@@ -197,14 +209,12 @@ fn parse_edits(v: &serde_json::Value) -> Result<Vec<Replacement>, String> {
 fn exec_replace(
     path_str: &str, root: &Path, content: &str, expected_before_hash: Option<u64>,
 ) -> (ToolOutput, Option<WriteResult>) {
-    let resolved = match path::resolve_within_root(root, path_str) {
-        Ok(p) => p,
-        Err(e) => return (ToolOutput::failed("write_patch", e.to_string()), None),
-    };
-
-    replace_range::with_file_lock(&resolved, || {
-        exec_replace_locked(&resolved, content, expected_before_hash)
-    })
+    match path::resolve_within_root(root, path_str) {
+        Ok(resolved) => replace_range::with_file_lock(&resolved, || {
+            exec_replace_locked(&resolved, content, expected_before_hash)
+        }),
+        Err(e) => (ToolOutput::failed("write_patch", e.to_string()), None),
+    }
 }
 
 fn exec_replace_locked(
@@ -269,7 +279,7 @@ mod tests {
 
     #[test]
     fn patch_from_json_create() {
-        let args = r#"{"op":"create","path":"a.txt","content":"hello"}"#;
+        let args = r#"{"patches":[{"op":"create","path":"a.txt","content":"hello"}]}"#;
         let patch = Patch::from_json(args).expect("parse");
         assert_eq!(
             patch,
@@ -279,7 +289,7 @@ mod tests {
 
     #[test]
     fn patch_from_json_replace() {
-        let args = r#"{"op":"replace","path":"a.txt","content":"world","expected_before_hash":7}"#;
+        let args = r#"{"patches":[{"op":"replace","path":"a.txt","content":"world","expected_before_hash":7}]}"#;
         let patch = Patch::from_json(args).expect("parse");
         assert_eq!(
             patch,
@@ -288,8 +298,8 @@ mod tests {
     }
 
     #[test]
-    fn patch_from_json_edit_legacy() {
-        let args = r#"{"op":"edit","path":"a.txt","old_string":"foo","new_string":"bar"}"#;
+    fn patch_from_json_edit() {
+        let args = r#"{"patches":[{"op":"edit","path":"a.txt","old_string":"foo","new_string":"bar"}]}"#;
         let patch = Patch::from_json(args).expect("parse");
         assert_eq!(
             patch,
@@ -302,9 +312,9 @@ mod tests {
     }
 
     #[test]
-    fn patch_from_json_edit_array() {
-        let args = r#"{"op":"edit","path":"a.txt","edits":[{"old_string":"foo","new_string":"bar"},{"old_string":"baz","new_string":"qux"}]}"#;
-        let patch = Patch::from_json(args).expect("parse");
+    fn patch_from_json_coalesces_same_file_patch_batch() {
+        let args = r#"{"patches":[{"op":"edit","path":"a.txt","old_string":"foo","new_string":"bar"},{"op":"edit","path":"a.txt","old_string":"baz","new_string":"qux"}]}"#;
+        let patch = Patch::from_json(args).expect("parse patch batch");
         assert_eq!(
             patch,
             Patch::Edit {
@@ -319,22 +329,30 @@ mod tests {
     }
 
     #[test]
+    fn patch_from_json_rejects_multi_file_patch_batch() {
+        let args = r#"{"patches":[{"op":"edit","path":"a.txt","old_string":"foo","new_string":"bar"},{"op":"edit","path":"b.txt","old_string":"baz","new_string":"qux"}]}"#;
+        let error = Patch::from_json(args).expect_err("multi-file batch should fail");
+        assert!(error.contains("must target one file"));
+    }
+
+    #[test]
     fn patch_from_json_unknown_op_rejected() {
-        let args = r#"{"op":"delete","path":"a.txt"}"#;
+        let args = r#"{"patches":[{"op":"delete","path":"a.txt"}]}"#;
         let result = Patch::from_json(args);
         assert!(result.is_err());
         assert!(result.as_ref().unwrap_err().contains("unknown patch op"));
     }
 
     #[test]
-    fn patch_from_json_missing_op_rejected() {
-        let args = r#"{"path":"a.txt","content":"x"}"#;
-        assert!(Patch::from_json(args).is_err());
+    fn patch_from_json_missing_patches_rejected() {
+        let error = Patch::from_json(r#"{"op":"edit","path":"a.txt","old_string":"a","new_string":"b"}"#)
+            .expect_err("top-level patch shape should fail");
+        assert!(error.contains("missing 'patches' field"));
     }
 
     #[test]
     fn patch_from_json_edit_missing_old_string_rejected() {
-        let args = r#"{"op":"edit","path":"a.txt","new_string":"bar"}"#;
+        let args = r#"{"patches":[{"op":"edit","path":"a.txt","new_string":"bar"}]}"#;
         assert!(Patch::from_json(args).is_err());
     }
 
@@ -343,7 +361,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("temp dir");
         let root = dir.path();
         let patch = Patch::Create { path: "new.txt".to_string(), content: "hello\n".to_string() };
-        let (output, result) = exec(&patch, root);
+        let (output, result) = patch.exec(root);
         assert_eq!(output.status, ToolStatus::Ok);
         assert!(result.is_some());
         assert_eq!(std::fs::read_to_string(root.join("new.txt")).expect("read"), "hello\n");
@@ -356,7 +374,7 @@ mod tests {
         std::fs::write(root.join("exists.txt"), "old").expect("write");
 
         let patch = Patch::Create { path: "exists.txt".to_string(), content: "new".to_string() };
-        let (output, result) = exec(&patch, root);
+        let (output, result) = patch.exec(root);
         assert_eq!(output.status, ToolStatus::Failed);
         assert!(result.is_none());
         assert_eq!(std::fs::read_to_string(root.join("exists.txt")).expect("read"), "old");
@@ -373,7 +391,7 @@ mod tests {
             content: "new content\n".to_string(),
             expected_before_hash: None,
         };
-        let (output, result) = exec(&patch, root);
+        let (output, result) = patch.exec(root);
         assert_eq!(output.status, ToolStatus::Ok);
         assert!(result.is_some());
         assert_eq!(
@@ -393,7 +411,7 @@ mod tests {
             content: "new content\n".to_string(),
             expected_before_hash: Some(123),
         };
-        let (output, result) = exec(&patch, root);
+        let (output, result) = patch.exec(root);
         assert_eq!(output.status, ToolStatus::Failed);
         assert!(result.is_none());
         assert_eq!(
@@ -417,7 +435,7 @@ mod tests {
             expected_before_hash: None,
         };
 
-        let (output, result) = exec(&patch, root);
+        let (output, result) = patch.exec(root);
         assert_eq!(output.status, ToolStatus::Ok);
         assert!(result.is_some());
         assert_eq!(
@@ -438,7 +456,7 @@ mod tests {
             expected_before_hash: None,
         };
 
-        let (output, result) = exec(&patch, root);
+        let (output, result) = patch.exec(root);
         assert_eq!(output.status, ToolStatus::Failed);
         assert!(result.is_none());
         assert_eq!(std::fs::read_to_string(root.join("file.txt")).expect("read"), "hello\n");
@@ -455,7 +473,7 @@ mod tests {
             expected_before_hash: None,
         };
 
-        let (output, result) = exec(&patch, root);
+        let (output, result) = patch.exec(root);
         assert_eq!(output.status, ToolStatus::Failed);
         assert!(result.is_none());
         assert!(
@@ -471,7 +489,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("temp dir");
         let request = crate::tools::ToolUseRequest::new(
             "write_patch".to_string(),
-            r#"{"op":"create","path":"file.txt","content":"hello\n"}"#.to_string(),
+            r#"{"patches":[{"op":"create","path":"file.txt","content":"hello\n"}]}"#.to_string(),
             "call_1".to_string(),
         );
 
@@ -489,12 +507,36 @@ mod tests {
     }
 
     #[test]
+    fn registry_execute_patch_batch_applies_one_atomic_multi_edit() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        std::fs::write(dir.path().join("file.txt"), "alpha beta gamma\n").expect("write fixture");
+        let request = crate::tools::ToolUseRequest::new(
+            "write_patch".to_string(),
+            r#"{"patches":[{"op":"edit","path":"file.txt","old_string":"alpha","new_string":"one"},{"op":"edit","path":"file.txt","old_string":"gamma","new_string":"three"}]}"#.to_string(),
+            "call_1".to_string(),
+        );
+
+        let execution = crate::tools::registry::execute(&request, crate::tools::registry::ToolContext::new(dir.path()));
+
+        assert_eq!(execution.output.status, ToolStatus::Ok);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("file.txt")).expect("read"),
+            "one beta three\n"
+        );
+        assert_eq!(
+            execution.write_result.as_ref().map(|result| result.op),
+            Some(WriteOp::Edit)
+        );
+    }
+
+    #[test]
     fn registry_execute_replace_rejects_stale_hash() {
         let dir = tempfile::tempdir().expect("temp dir");
         std::fs::write(dir.path().join("file.txt"), "old\n").expect("write");
         let request = crate::tools::ToolUseRequest::new(
             "write_patch".to_string(),
-            r#"{"op":"replace","path":"file.txt","content":"new\n","expected_before_hash":7}"#.to_string(),
+            r#"{"patches":[{"op":"replace","path":"file.txt","content":"new\n","expected_before_hash":7}]}"#
+                .to_string(),
             "call_1".to_string(),
         );
 
@@ -514,7 +556,10 @@ mod tests {
         let outside = dir.path().parent().unwrap().join("escape.txt");
         let request = crate::tools::ToolUseRequest::new(
             "write_patch".to_string(),
-            format!(r#"{{"op":"replace","path":"{}","content":"nope"}}"#, outside.display()),
+            format!(
+                r#"{{"patches":[{{"op":"replace","path":"{}","content":"nope"}}]}}"#,
+                outside.display()
+            ),
             "call_1".to_string(),
         );
 

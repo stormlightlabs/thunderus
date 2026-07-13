@@ -6,20 +6,21 @@ The tool catalog is sent to the provider as structured tool schemas. Tool names
 and input fields are part of the user-visible contract, but output may be capped
 or summarized for the transcript.
 
-The public catalog is derived from the built-in tool registry in `src/tools/`.
+The public catalog is derived from the built-in tool registry in `thndrs_core::tools`.
+
 Schema descriptions and examples below should match the tool modules that parse
 and execute them.
 
-Configured MCP tools are appended to the same provider catalog at runtime. They
-are always namespaced as `mcp__{server}__{tool}` so external tools cannot
-replace built-in tool names. Session records keep both the configured server
-name and the original MCP tool name for inspection.
+Configured MCP tools are appended to the same provider catalog at runtime. They are
+always namespaced as `mcp__{server}__{tool}` so external tools cannot replace built-in tool names.
+Session records keep both the configured server name and the original MCP tool name for inspection.
 
-MCP definitions come from server `tools/list` responses. Their JSON input
-schemas are passed through to the provider under the namespaced tool name, and
-tool-call results are converted back into the local `ToolOutput` shape. Text
-content is emitted as output lines; structured content is rendered as a bounded
-line in the transcript.
+MCP definitions come from server `tools/list` responses.
+
+Their JSON input schemas are passed through to the provider under the namespaced tool name,
+and tool-call results are converted back into the local `ToolOutput` shape.
+
+Text content is emitted as output lines; structured content is rendered as a bounded line in the transcript.
 
 ## `find_files`
 
@@ -128,14 +129,22 @@ Unified write entry point for create, replace, and exact edit operations.
 
 Inputs:
 
+- `patches`: non-empty array of patch objects.
+
+Each patch contains:
+
 - `op`: `create`, `replace`, or `edit`.
 - `path`: path relative to the workspace root.
-- `content`: full content for `create` and `replace`.
-- `old_string`: exact string for `edit`.
-- `new_string`: replacement string for `edit`.
+- `content`: full content, required for `create` and `replace`.
+- `old_string`: exact string, required for `edit`.
+- `new_string`: replacement string, required for `edit`.
+- `expected_before_hash`: optional stale-content guard for `edit` and `replace`.
 
 Use `edit` for small exact replacements, `create` for new files, and `replace`
-only when overwriting the full file is intentional.
+only when overwriting the full file is intentional. A call may contain one
+`create` or `replace` patch, or one or more `edit` patches for the same file.
+Every edit matches the original file content. The tool validates the full batch
+before writing, so a failed batch leaves the file unchanged.
 
 ## `run_shell`
 
@@ -144,10 +153,9 @@ timing.
 
 Inputs:
 
-- `program`: program name.
-- `args`: argv after the program.
+- `argv`: non-empty array containing the program followed by its arguments.
 - `cwd`: optional working directory relative to the workspace root.
-- `timeout_secs`: optional timeout.
+- `timeout_ms`: optional timeout in milliseconds.
 - `background`: run as a long-lived background process.
 
 Commands run as the local `thndrs` process, not in a sandbox. Output is capped,

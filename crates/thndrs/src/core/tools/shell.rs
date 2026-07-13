@@ -354,8 +354,8 @@ pub struct ShellArgs {
     /// Optional working directory relative to the workspace root.
     /// Defaults to the workspace root.
     pub cwd: Option<PathBuf>,
-    /// Timeout in seconds. Defaults to [`TIMEOUT_SECS`].
-    pub timeout_secs: Option<u64>,
+    /// Wall-clock timeout. Defaults to [`TIMEOUT_SECS`].
+    pub timeout: Option<Duration>,
     /// One-shot or background.
     pub kind: ProcessKind,
 }
@@ -375,48 +375,42 @@ pub fn definition() -> ToolDefinition {
         NAME,
         r#"run_shell
 
-Run a shell command in the workspace and capture stdout, stderr, and exit status.
+Run an argv command in the workspace and capture stdout, stderr, and exit status.
 
 Prefer narrow tools when they fit: find_files, search_text, read_file_range,
 create_file, replace_range, read_url. Use for build, test, format, inspection.
 
 Runs as thndrs with its permissions — not sandboxed. Avoid destructive commands
-unless explicitly requested. argv only. Output is capped, truncated, and redacted.
+unless explicitly requested. Output is capped, truncated, and redacted.
 Timeouts enforced."#,
         serde_json::json!({
             "type": "object",
             "properties": {
-                "program": { "type": "string", "description": "The program to run (e.g. \"cargo\", \"ls\")." },
-                "args": { "type": "array", "items": { "type": "string" }, "description": "Argv after the program." },
+                "argv": { "type": "array", "minItems": 1, "items": { "type": "string" }, "description": "Full argv: program followed by its arguments." },
                 "cwd": { "type": "string", "description": "Optional working directory relative to the workspace root." },
-                "timeout_secs": { "type": "integer", "description": "Timeout in seconds." },
+                "timeout_ms": { "type": "integer", "minimum": 1, "description": "Optional timeout in milliseconds." },
                 "background": { "type": "boolean", "description": "If true, run as a long-lived background process." }
             },
-            "required": ["program"]
+            "required": ["argv"]
         }),
     )
 }
 
 /// Parse provider JSON arguments for `run_shell`.
 pub fn parse_arguments(arguments: &str) -> Result<ShellArgs, ToolError> {
-    let args = serde_json::from_str::<serde_json::Value>(arguments).unwrap_or(serde_json::Value::Null);
-    let program = args
-        .get("program")
-        .and_then(|value| value.as_str())
-        .unwrap_or("")
-        .to_string();
-    let cmd_args = args
-        .get("args")
-        .and_then(|value| value.as_array())
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|value| value.as_str().map(str::to_string))
-                .collect()
-        })
-        .unwrap_or_default();
+    let args = serde_json::from_str::<serde_json::Value>(arguments)
+        .map_err(|error| ToolError::InvalidArguments(format!("invalid JSON: {error}")))?;
+    let (program, cmd_args) = parse_argv(&args)?;
     let cwd = args.get("cwd").and_then(|value| value.as_str()).map(PathBuf::from);
-    let timeout_secs = args.get("timeout_secs").and_then(|value| value.as_u64());
+    let timeout = match optional_u64(&args, "timeout_ms")? {
+        Some(0) => {
+            return Err(ToolError::InvalidArguments(
+                "'timeout_ms' must be greater than zero".to_string(),
+            ));
+        }
+        Some(milliseconds) => Some(Duration::from_millis(milliseconds)),
+        None => optional_u64(&args, "timeout_secs")?.map(Duration::from_secs),
+    };
     let kind = if args
         .get("background")
         .and_then(|value| value.as_bool())
@@ -427,7 +421,59 @@ pub fn parse_arguments(arguments: &str) -> Result<ShellArgs, ToolError> {
         ProcessKind::OneShot
     };
 
-    Ok(ShellArgs { program, args: cmd_args, cwd, timeout_secs, kind })
+    Ok(ShellArgs { program, args: cmd_args, cwd, timeout, kind })
+}
+
+fn parse_argv(args: &serde_json::Value) -> Result<(String, Vec<String>), ToolError> {
+    if let Some(argv) = args.get("argv") {
+        let argv = argv
+            .as_array()
+            .ok_or_else(|| ToolError::InvalidArguments("'argv' must be an array".to_string()))?;
+        let argv = argv
+            .iter()
+            .enumerate()
+            .map(|(index, value)| {
+                value
+                    .as_str()
+                    .map(str::to_string)
+                    .ok_or_else(|| ToolError::InvalidArguments(format!("argv[{index}] must be a string")))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let (program, command_args) = argv
+            .split_first()
+            .ok_or_else(|| ToolError::InvalidArguments("'argv' must contain a program".to_string()))?;
+        if program.is_empty() {
+            return Err(ToolError::InvalidArguments("argv[0] must not be empty".to_string()));
+        }
+        return Ok((program.clone(), command_args.to_vec()));
+    }
+
+    let program = args
+        .get("program")
+        .and_then(|value| value.as_str())
+        .unwrap_or("")
+        .to_string();
+    let command_args = args
+        .get("args")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|value| value.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok((program, command_args))
+}
+
+fn optional_u64(args: &serde_json::Value, field: &str) -> Result<Option<u64>, ToolError> {
+    match args.get(field) {
+        None => Ok(None),
+        Some(value) => value
+            .as_u64()
+            .map(Some)
+            .ok_or_else(|| ToolError::InvalidArguments(format!("'{field}' must be a non-negative integer"))),
+    }
 }
 
 /// Execute a registry request for `run_shell`.
@@ -466,7 +512,7 @@ pub fn run_command(args: &ShellArgs, root: &Path, cancel: &CancelToken) -> Resul
         .stderr(Stdio::piped())
         .stdin(Stdio::null());
 
-    let timeout = Duration::from_secs(args.timeout_secs.unwrap_or(TIMEOUT_SECS));
+    let timeout = args.timeout.unwrap_or(Duration::from_secs(TIMEOUT_SECS));
     let start = Instant::now();
 
     let mut child = cmd
@@ -638,7 +684,10 @@ fn split_and_cap(buf: &[u8]) -> Vec<String> {
 
 fn execute_args(args: &ShellArgs, root: &Path) -> ToolExecution {
     if args.program.is_empty() {
-        return ToolExecution::output(ToolOutput::failed(NAME, "missing or empty 'program' field".to_string()));
+        return ToolExecution::output(ToolOutput::failed(
+            NAME,
+            "missing command: provide non-empty 'argv' or 'program'".to_string(),
+        ));
     }
 
     let cancel = CancelToken::new();

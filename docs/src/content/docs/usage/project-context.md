@@ -191,6 +191,6 @@ diagnostic so stale guidance does not silently shape the run.
 ## Related Docs
 
 - [Prompt Assembly](/concepts/prompt-assembly/)
-- [Tool Boundary](/concepts/tool-boundary/)
+- [Tools](/usage/tools/)
 - [Session Format](/reference/session-format/)
 - [Security and Permissions](/usage/security-and-permissions/)
