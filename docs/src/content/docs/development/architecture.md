@@ -5,23 +5,20 @@ title: "Architecture"
 ## Module Map
 
 ```sh
-src
-├── agent.rs        # Fake, Umans, and OpenCode Go agent event loop
-├── app.rs          # App state, messages, update logic, state tests
-├── cli.rs          # CLI args, value enums, parse tests
-├── lib.rs          # Terminal setup and app run loop
-├── main.rs         # Binary entrypoint
-├── providers       # Concrete provider clients
-├── renderer        # Row model, live region, backend, highlighting, snapshots
-├── tools.rs        # Built-in tool types, registry facade, and shared limits
-├── tools/          # Per-tool schemas, parsers, executors, and tests
-└── session.rs      # Append-only session persistence
+. (crates/thndrs/src)
+├── cli/             # CLI commands, app state, input, and renderer
+│   └─ renderer/     # Row model, semantic views, bounded adapter, live region
+├── core/            # Agent loop, providers, tools, prompts, auth, and sessions
+├── server/          # ACP/server transport and session handling
+├── lib.rs           # Library exports and terminal-facing composition
+└── main.rs          # Binary entrypoint
 ```
 
 ## App State
 
-The app starts with one `App` struct and plain enums. Shared state stays in
-`App`; rendering details live in `src/renderer/`.
+The app starts with one `App` struct and plain enums.
+
+Shared state stays in `App` while rendering details live in the `renderer` module.
 
 ## Messages
 

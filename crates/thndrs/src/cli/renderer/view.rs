@@ -6,9 +6,13 @@
 //! that [`super::region::LiveRegion`] can focus on scrollback commits, width
 //! epochs, and frame composition.
 
+#[cfg(test)]
+mod tests;
+
 use crate::app::{
     App, Entry, FilePickerSource, FirstRunRecovery, Mode, PromptAccessory, RecoveryStage, RunState, ToolStatus,
 };
+use crate::cli::commands::setup::SetupProviderArg;
 use crate::renderer::row::{CursorCoord, Row};
 use crate::renderer::transcript::TranscriptRowContext;
 use crate::tools::shell::redact_secrets;
@@ -91,9 +95,10 @@ pub enum TruncationPolicy {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FocusedSurfaceView {
     None,
-    CommandPicker(PickerSurfaceView),
-    FilePicker(PickerSurfaceView),
-    Help,
+    Permission(PermissionView),
+    CommandPicker(PickerView),
+    FilePicker(PickerView),
+    Help(HelpView),
     ToolDetail(ToolDetailView),
     DiffDetail(DiffDetailView),
     TranscriptLens {
@@ -106,6 +111,21 @@ pub enum FocusedSurfaceView {
 
 impl From<&App> for FocusedSurfaceView {
     fn from(app: &App) -> Self {
+        if let Some(permission) = app.pending_permission.as_ref() {
+            return FocusedSurfaceView::Permission(PermissionView {
+                title: permission.title.clone(),
+                scope: "local user · active tool only · no TUI sandbox".to_string(),
+                selected: permission.selected,
+                options: permission
+                    .options
+                    .iter()
+                    .map(|option| PermissionOptionView {
+                        label: option.name.clone(),
+                        kind: option.kind.label().to_string(),
+                    })
+                    .collect(),
+            });
+        }
         if let Some(form) = app.render_setup_form_view() {
             return FocusedSurfaceView::SetupForm(form);
         }
@@ -121,13 +141,15 @@ impl From<&App> for FocusedSurfaceView {
             });
         }
         match app.prompt_accessory {
-            PromptAccessory::Help => FocusedSurfaceView::Help,
+            PromptAccessory::Help => {
+                FocusedSurfaceView::Help(HelpView { queue_target_toggle: matches!(app.run_state, RunState::Working) })
+            }
             PromptAccessory::Commands { selected } => {
                 let items = crate::app::command_suggestions_for_app(app)
                     .into_iter()
                     .map(|(label, detail)| PickerItemView { label: label.to_string(), detail: detail.to_string() })
                     .collect();
-                FocusedSurfaceView::CommandPicker(PickerSurfaceView {
+                FocusedSurfaceView::CommandPicker(PickerView {
                     title: "commands".to_string(),
                     query: app.input.text(),
                     selected,
@@ -137,10 +159,42 @@ impl From<&App> for FocusedSurfaceView {
             PromptAccessory::Files(_) => app
                 .render_picker_surface("files")
                 .map_or(FocusedSurfaceView::None, FocusedSurfaceView::FilePicker),
+            PromptAccessory::Models => app
+                .render_picker_surface("models")
+                .map_or(FocusedSurfaceView::None, FocusedSurfaceView::CommandPicker),
+            PromptAccessory::ReasoningEffort => app
+                .render_picker_surface("reasoning effort")
+                .map_or(FocusedSurfaceView::None, FocusedSurfaceView::CommandPicker),
+            PromptAccessory::Skills => app
+                .render_picker_surface("skills")
+                .map_or(FocusedSurfaceView::None, FocusedSurfaceView::CommandPicker),
             PromptAccessory::Context => FocusedSurfaceView::StructuredTable(app.render_context_table()),
             _ => FocusedSurfaceView::None,
         }
     }
+}
+
+/// A semantic ACP permission decision surface.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PermissionView {
+    pub title: String,
+    pub scope: String,
+    pub options: Vec<PermissionOptionView>,
+    pub selected: usize,
+}
+
+/// A single ACP permission choice after provider-specific kinds are lowered to
+/// display-safe semantic text.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PermissionOptionView {
+    pub label: String,
+    pub kind: String,
+}
+
+/// Semantic help state for the one context-sensitive keyboard binding.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HelpView {
+    pub queue_target_toggle: bool,
 }
 
 /// Table column alignment.
@@ -332,7 +386,14 @@ impl EditSummaryView {
             return None;
         }
         Some(EditSummaryView {
-            path: output.iter().find_map(|line| path_like_suffix(line)),
+            path: output.iter().find_map(|line| {
+                line.rsplit_once(": ").map(|(_, path)| path.to_string()).or_else(|| {
+                    line.split_whitespace()
+                        .last()
+                        .filter(|part| part.contains('/'))
+                        .map(str::to_string)
+                })
+            }),
             operation: name.split('#').next().map(str::to_string),
             status,
         })
@@ -491,7 +552,7 @@ pub struct OrientationFieldView {
 
 /// Semantic picker/list surface.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PickerSurfaceView {
+pub struct PickerView {
     pub title: String,
     pub query: String,
     pub selected: usize,
@@ -525,8 +586,14 @@ pub struct DiffDetailView {
 /// Setup/recovery form semantic state.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SetupFormView {
+    pub title: String,
+    pub stage: String,
+    pub status: String,
+    pub details: Vec<String>,
     pub fields: Vec<SetupFieldView>,
     pub focus_index: usize,
+    pub actions: Vec<PickerItemView>,
+    pub selected: usize,
     pub validation_errors: Vec<String>,
     pub submit_label: String,
     pub cancel_label: String,
@@ -637,27 +704,22 @@ impl LiveView {
         let (prompt_rows, prompt_cursor) =
             clip_prompt_rows_around_cursor(prompt_rows, prompt_cursor, super::live::MAX_PROMPT_ROWS);
 
-        let accessory_rows = if app.pending_permission.is_some() || app.first_run_recovery.is_some() {
-            super::live::accessory_rows(app, width, super::live::MAX_ACCESSORY_ROWS)
-        } else {
-            match &semantic.focused_surface {
-                FocusedSurfaceView::CommandPicker(_)
-                | FocusedSurfaceView::FilePicker(_)
-                | FocusedSurfaceView::Help
-                | FocusedSurfaceView::StructuredTable(_) => super::adapter::render_surface(&SurfaceRenderInput::new(
-                    &semantic.focused_surface,
-                    &SurfaceThemeView::new(),
-                    width,
-                    super::live::MAX_ACCESSORY_ROWS,
-                )),
-                FocusedSurfaceView::None
-                | FocusedSurfaceView::ToolDetail(_)
-                | FocusedSurfaceView::DiffDetail(_)
-                | FocusedSurfaceView::TranscriptLens { .. }
-                | FocusedSurfaceView::SetupForm(_) => {
-                    super::live::accessory_rows(app, width, super::live::MAX_ACCESSORY_ROWS)
-                }
-            }
+        let accessory_rows = match &semantic.focused_surface {
+            FocusedSurfaceView::ToolDetail(_)
+            | FocusedSurfaceView::DiffDetail(_)
+            | FocusedSurfaceView::TranscriptLens { .. } => Vec::new(),
+            _ => super::live::accessory_rows(app, width, super::live::MAX_ACCESSORY_ROWS),
+        };
+        let detail_pane = match &semantic.focused_surface {
+            FocusedSurfaceView::ToolDetail(_)
+            | FocusedSurfaceView::DiffDetail(_)
+            | FocusedSurfaceView::TranscriptLens { .. } => super::adapter::render_surface(&SurfaceRenderInput::new(
+                &semantic.focused_surface,
+                &SurfaceThemeView::new(),
+                width,
+                super::live::MAX_ACCESSORY_ROWS,
+            )),
+            _ => Vec::new(),
         };
 
         LiveView {
@@ -667,11 +729,7 @@ impl LiveView {
             prompt_cursor,
             accessory_rows,
             queued_summary: super::live::queued_summary_row(app, width),
-            detail_pane: if app.detail_pane.open {
-                super::live::detail_pane_rows(app, width, super::live::MAX_ACCESSORY_ROWS)
-            } else {
-                Vec::new()
-            },
+            detail_pane,
             static_status: super::live::static_status_row(app, width),
         }
     }
@@ -726,9 +784,9 @@ impl App {
             .unwrap_or_default()
     }
 
-    fn render_picker_surface(&self, title: &str) -> Option<PickerSurfaceView> {
+    fn render_picker_surface(&self, title: &str) -> Option<PickerView> {
         let picker = self.picker.as_ref()?;
-        Some(PickerSurfaceView {
+        Some(PickerView {
             title: title.to_string(),
             query: picker.query.clone(),
             selected: picker.selected,
@@ -743,9 +801,22 @@ impl App {
     fn render_setup_form_view(&self) -> Option<SetupFormView> {
         let recovery = self.first_run_recovery.as_ref()?;
         let (label, value, secret) = setup_field(recovery);
+        let provider = recovery
+            .provider
+            .map(|provider| provider.label().to_string())
+            .unwrap_or_else(|| "advanced / ACP".to_string());
+        let stage = recovery.stage.label().to_string();
+        let status = format!("{provider} · {stage}");
+        let details = setup_details(recovery);
         Some(SetupFormView {
+            title: "setup".to_string(),
+            stage,
+            status,
+            details,
             fields: vec![SetupFieldView { label, value, focused: true, secret, multiline: false, error: None }],
             focus_index: 0,
+            actions: setup_actions(recovery),
+            selected: recovery.selected,
             validation_errors: Vec::new(),
             submit_label: if recovery.stage == RecoveryStage::EnterKey {
                 "submit".to_string()
@@ -758,10 +829,6 @@ impl App {
     }
 
     /// Project the context ledger into bounded table data owned by the renderer.
-    ///
-    /// The application owns context selection and mutation. This projection only
-    /// exposes redacted identifiers, bounded counts, and semantic column policies;
-    /// it never includes source contents.
     pub fn render_context_table(&self) -> TableView {
         let Some(ledger) = &self.context_ledger else {
             return TableView {
@@ -892,17 +959,174 @@ impl App {
     }
 }
 
+fn setup_details(recovery: &FirstRunRecovery) -> Vec<String> {
+    let mut details = Vec::new();
+    match recovery.stage {
+        RecoveryStage::ChooseProvider => {
+            details.push("Choose a provider before a model; no provider or model is assumed by setup.".to_string())
+        }
+        RecoveryStage::ModelSelection => details.push("Choose the model available for this provider.".to_string()),
+        RecoveryStage::ModelConfigScope => {
+            details.push("Optionally save the selected model to project or global config.".to_string())
+        }
+        RecoveryStage::MissingCredential => {
+            if recovery.provider == Some(crate::cli::commands::setup::SetupProviderArg::ChatgptCodex) {
+                details.push(
+                    "Browser PKCE is the default. Device code is an explicit headless route; neither asks for an API key."
+                        .to_string(),
+                );
+            } else {
+                details.push(
+                    "The credential stays hidden and is written only after an explicit scope choice.".to_string(),
+                );
+            }
+        }
+        RecoveryStage::EnterKey => {
+            details.push("Input is hidden. Enter continues; Esc preserves the draft.".to_string())
+        }
+        RecoveryStage::ConfirmStore => details.push("Choose where the credential may be stored.".to_string()),
+        RecoveryStage::Instructions => details.push(setup_instruction(recovery).to_string()),
+        RecoveryStage::ChatGptOAuthRequesting => {
+            details.push("Starting the selected ChatGPT OAuth method.".to_string())
+        }
+        RecoveryStage::ChatGptOAuthPolling => {
+            if let Some(oauth) = recovery.chatgpt_oauth.as_ref() {
+                if oauth.method == crate::app::ChatGptOAuthMethod::Browser {
+                    details.push("Open or copy this authorization URL:".to_string());
+                    if let Some(url) = oauth.authorization_url.as_deref() {
+                        details.push(url.to_string());
+                    }
+                } else if let Some(code) = oauth.code.as_ref() {
+                    let uri = code
+                        .verification_uri
+                        .as_deref()
+                        .unwrap_or("https://auth.openai.com/codex/device");
+                    details.push(format!("Open {uri} and enter code {}.", code.user_code));
+                }
+                details.push(oauth.status.clone());
+            } else {
+                details.push("Waiting for ChatGPT OAuth.".to_string());
+            }
+        }
+        RecoveryStage::ChatGptOAuthPasteRedirect => {
+            details.push("Paste the full browser redirect URL. Input is hidden.".to_string())
+        }
+        RecoveryStage::ChatGptOAuthFailed => details.push(
+            recovery
+                .chatgpt_oauth
+                .as_ref()
+                .map(|oauth| oauth.status.clone())
+                .unwrap_or_else(|| "ChatGPT OAuth failed.".to_string()),
+        ),
+        RecoveryStage::LogoutConfirm => details.push("Remove the credential from the selected store.".to_string()),
+        RecoveryStage::AcpMissing => {
+            details.push("ACP models use ACP agent config, not provider API keys.".to_string())
+        }
+    }
+    details
+}
+
+fn setup_actions(recovery: &FirstRunRecovery) -> Vec<PickerItemView> {
+    let labels: Vec<String> = match recovery.stage {
+        RecoveryStage::ChooseProvider => vec![
+            "ChatGPT Codex".to_string(),
+            "Umans".to_string(),
+            "show setup instructions".to_string(),
+        ],
+        RecoveryStage::ModelSelection => recovery
+            .provider
+            .map(crate::app::setup_model_options)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|item| item.label)
+            .collect(),
+        RecoveryStage::ModelConfigScope => vec![
+            "project config".to_string(),
+            "global config".to_string(),
+            "skip model config".to_string(),
+            "cancel setup".to_string(),
+        ],
+        RecoveryStage::MissingCredential => {
+            if recovery.provider == Some(crate::cli::commands::setup::SetupProviderArg::ChatgptCodex) {
+                vec![
+                    "start browser PKCE login".to_string(),
+                    "use headless device code".to_string(),
+                    "switch model/provider".to_string(),
+                    "show setup instructions".to_string(),
+                    "continue without setup".to_string(),
+                    "quit".to_string(),
+                ]
+            } else {
+                vec![
+                    "enter API key".to_string(),
+                    "switch model/provider".to_string(),
+                    "show setup instructions".to_string(),
+                    "continue without setup".to_string(),
+                    "quit".to_string(),
+                ]
+            }
+        }
+        RecoveryStage::EnterKey => Vec::new(),
+        RecoveryStage::ConfirmStore | RecoveryStage::LogoutConfirm => vec![
+            "global credentials".to_string(),
+            "project credentials".to_string(),
+            "cancel".to_string(),
+        ],
+        RecoveryStage::Instructions => vec!["back".to_string(), "close".to_string()],
+        RecoveryStage::ChatGptOAuthRequesting | RecoveryStage::ChatGptOAuthPasteRedirect => vec!["cancel".to_string()],
+        RecoveryStage::ChatGptOAuthPolling => {
+            if recovery
+                .chatgpt_oauth
+                .as_ref()
+                .is_some_and(|oauth| oauth.method == crate::app::ChatGptOAuthMethod::Browser)
+            {
+                vec!["cancel".to_string(), "paste full redirect URL".to_string()]
+            } else {
+                vec!["cancel".to_string()]
+            }
+        }
+        RecoveryStage::ChatGptOAuthFailed => vec![
+            "retry browser PKCE".to_string(),
+            "use headless device code".to_string(),
+            "back".to_string(),
+        ],
+        RecoveryStage::AcpMissing => vec![
+            "switch model/provider".to_string(),
+            "show ACP setup".to_string(),
+            "continue without setup".to_string(),
+            "quit".to_string(),
+        ],
+    };
+    labels
+        .into_iter()
+        .map(|label| PickerItemView { detail: String::new(), label })
+        .collect()
+}
+
+fn setup_instruction(recovery: &FirstRunRecovery) -> &'static str {
+    match recovery.provider {
+        Some(arg) => match arg {
+            SetupProviderArg::ChatgptCodex => {
+                "Run `thndrs setup --provider chatgpt-codex` or `thndrs login chatgpt-codex` outside the TUI."
+            }
+            _ => "Run `thndrs setup` or `thndrs login <provider>` outside the TUI.",
+        },
+        None => "Advanced providers remain available through `thndrs setup` or ACP configuration.",
+    }
+}
+
 fn setup_field(recovery: &FirstRunRecovery) -> (String, String, bool) {
     match recovery.stage {
         RecoveryStage::ChooseProvider => ("provider".to_string(), "choose provider".to_string(), false),
-        RecoveryStage::ModelSelection => {
-            let value = recovery
+        RecoveryStage::ModelSelection => (
+            "model".to_string(),
+            recovery
                 .provider
                 .map(crate::app::setup_model_options)
                 .and_then(|options| options.get(recovery.selected).map(|item| item.label.clone()))
-                .unwrap_or_else(|| "choose model".to_string());
-            ("model".to_string(), value, false)
-        }
+                .unwrap_or_else(|| "choose model".to_string()),
+            false,
+        ),
         RecoveryStage::ModelConfigScope => (
             "config".to_string(),
             match recovery.selected {
@@ -950,10 +1174,11 @@ fn setup_field(recovery: &FirstRunRecovery) -> (String, String, bool) {
         RecoveryStage::LogoutConfirm => (
             "credential scope".to_string(),
             match recovery.selected {
-                0 => "global credentials".to_string(),
-                1 => "project credentials".to_string(),
-                _ => "cancel".to_string(),
-            },
+                0 => "global credentials",
+                1 => "project credentials",
+                _ => "cancel",
+            }
+            .to_string(),
             false,
         ),
         RecoveryStage::AcpMissing => ("provider".to_string(), "ACP agent config".to_string(), false),
@@ -982,8 +1207,7 @@ fn context_table_row(name: &str, state: &str, tokens: &str, label: &str) -> Vec<
 }
 
 fn redact_context_display(value: &str) -> String {
-    let redacted = redact_secrets(value);
-    utils::truncate_ellipsis(&redacted, 160)
+    utils::truncate_ellipsis(&redact_secrets(value), 160)
 }
 
 fn clip_prompt_rows_around_cursor(
@@ -1006,15 +1230,3 @@ fn clip_prompt_rows_around_cursor(
 
     (clipped_rows, clipped_cursor)
 }
-
-fn path_like_suffix(line: &str) -> Option<String> {
-    line.rsplit_once(": ").map(|(_, path)| path.to_string()).or_else(|| {
-        line.split_whitespace()
-            .last()
-            .filter(|part| part.contains('/'))
-            .map(str::to_string)
-    })
-}
-
-#[cfg(test)]
-mod tests;

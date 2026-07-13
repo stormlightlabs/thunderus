@@ -81,7 +81,6 @@ export default defineConfig({
             },
             { label: "Transcripts", slug: "concepts/transcript-model" },
             { label: "Tools", slug: "concepts/tool-boundary" },
-            { label: "TUI", slug: "usage/tui" },
           ],
         },
         /* Providers: integration-specific behavior and provider boundaries. */

@@ -1,40 +1,46 @@
 ---
-source: src/cli/renderer/adapter.rs
+source: crates/thndrs/src/cli/renderer/adapter.rs
 expression: rendered
 ---
 command picker:
-│     commands  c                                       # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  commands  c                                     
-│     › clear  clear transcript                         # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  › clear  clear transcript                       
-│       config show  redacted config                    # [bg=#212337]=   [fg=#ebfafa bg=#212337]=    config show  redacted config                  
-│     Enter select   Esc close                          # [bg=#212337]=   [fg=#3b4261 bg=#212337]=  Enter select   Esc close                        
+│   ╭ commands · focus: option 1/2 ────────────────╮  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╭ commands · focus: option 1/2 ────────────────╮
+│   │    › clear  clear transcript                     │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  › clear  clear transcript                      [fg=#ebfafa bg=#212337 b]=│
+│   │    … 1 rows above · 1 below                      │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  … 1 rows above · 1 below                       [fg=#ebfafa bg=#212337 b]=│
+│   │    Enter select · Esc close                      │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  Enter select · Esc close                       [fg=#ebfafa bg=#212337 b]=│
+│   ╰──────────────────────────────────────────────╯  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╰──────────────────────────────────────────────╯
 file picker:
-│     files  src                                        # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  files  src                                      
-│       src/main.rs  binary                             # [bg=#212337]=   [fg=#ebfafa bg=#212337]=    src/main.rs  binary                           
-│     › src/cli/renderer/adapter.rs  focused UI         # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  › src/cli/renderer/adapter.rs  focused UI       
-│     Enter select   Esc close                          # [bg=#212337]=   [fg=#3b4261 bg=#212337]=  Enter select   Esc close                        
+│   ╭ files · focus: option 2/2 ───────────────────╮  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╭ files · focus: option 2/2 ───────────────────╮
+│   │    › src/cli/renderer/adapter.rs  focused UI     │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  › src/cli/renderer/adapter.rs  focused UI      [fg=#ebfafa bg=#212337 b]=│
+│   │    … 2 rows above                                │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  … 2 rows above                                 [fg=#ebfafa bg=#212337 b]=│
+│   │    Enter select · Esc close                      │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  Enter select · Esc close                       [fg=#ebfafa bg=#212337 b]=│
+│   ╰──────────────────────────────────────────────╯  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╰──────────────────────────────────────────────╯
 help:
-│     help                                              # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  help                                            
-│     Enter    submit prompt or accept focused select…  # [bg=#212337]=   [fg=#ebfafa bg=#212337]=  Enter    submit prompt or accept focused select…
-│     Esc      close focused surface and return to pr…  # [bg=#212337]=   [fg=#ebfafa bg=#212337]=  Esc      close focused surface and return to pr…
-│     Ctrl+C   stop a running turn                      # [bg=#212337]=   [fg=#ebfafa bg=#212337]=  Ctrl+C   stop a running turn                    
-│     Ctrl+O   open output, diff, warning, or error d…  # [bg=#212337]=   [fg=#ebfafa bg=#212337]=  Ctrl+O   open output, diff, warning, or error d…
+│   ╭ help · focus: keyboard ──────────────────────╮  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╭ help · focus: keyboard ──────────────────────╮
+│   │    ── Navigation ──                              │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  ── Navigation ──                               [fg=#ebfafa bg=#212337 b]=│
+│   │    … 23 rows below                               │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  … 23 rows below                                [fg=#ebfafa bg=#212337 b]=│
+│   │    Esc close · keys remain active                │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  Esc close · keys remain active                 [fg=#ebfafa bg=#212337 b]=│
+│   ╰──────────────────────────────────────────────╯  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╰──────────────────────────────────────────────╯
 tool detail:
-│     run_shell [failed]                                # [bg=#212337]=   [fg=#f16c75 bg=#212337]=  run_shell [failed]                              
-│     error: missing semicolon                          # [bg=#212337]=   [fg=#ebfafa bg=#212337]=  error: missing semicolon                        
-│     line 2                                            # [bg=#212337]=   [fg=#ebfafa bg=#212337]=  line 2                                          
+│   ╭ run_shell · failed · focus: output ──────────╮  # [bg=#212337]=   [fg=#f16c75 bg=#212337]=╭ run_shell · failed · focus: output ──────────╮
+│   │    … 1 rows above                                │  # [bg=#212337]=   [fg=#f16c75 bg=#212337]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  … 1 rows above                                 [fg=#f16c75 bg=#212337]=│
+│   │    … 1 rows above · 2 below                      │  # [bg=#212337]=   [fg=#f16c75 bg=#212337]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  … 1 rows above · 2 below                       [fg=#f16c75 bg=#212337]=│
+│   │    ↑/↓ scroll · Esc close                        │  # [bg=#212337]=   [fg=#f16c75 bg=#212337]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  ↑/↓ scroll · Esc close                         [fg=#f16c75 bg=#212337]=│
+│   ╰──────────────────────────────────────────────╯  # [bg=#212337]=   [fg=#f16c75 bg=#212337]=╰──────────────────────────────────────────────╯
 diff detail:
-│     src/lib.rs +1 -1                                  # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  src/lib.rs +1 -1                                
-│     --- a/src/lib.rs                                  # [bg=#212337]=   [fg=#ebfafa bg=#212337]=  --- a/src/lib.rs                                
-│     +++ b/src/lib.rs                                  # [bg=#212337]=   [fg=#ebfafa bg=#212337]=  +++ b/src/lib.rs                                
-│     -old                                              # [bg=#212337]=   [fg=#f16c75 bg=#212337]=  -old                                            
-│     +new                                              # [bg=#212337]=   [fg=#37f499 bg=#212337]=  +new                                            
+│   ╭ diff · +1 -1 · focus: output · src/lib.rs ───╮  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╭ diff · +1 -1 · focus: output · src/lib.rs ───╮
+│   │    +new                                          │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#37f499 bg=#212337]=  +new                                           [fg=#ebfafa bg=#212337 b]=│
+│   │    … 3 rows above                                │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  … 3 rows above                                 [fg=#ebfafa bg=#212337 b]=│
+│   │    ↑/↓ scroll · Esc close                        │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  ↑/↓ scroll · Esc close                         [fg=#ebfafa bg=#212337 b]=│
+│   ╰──────────────────────────────────────────────╯  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╰──────────────────────────────────────────────╯
 setup form:
-│     setup                                             # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  setup                                           
-│     ! credential is required                          # [bg=#212337]=   [fg=#f16c75 bg=#212337]=  ! credential is required                        
-│     › credential: [hidden]                            # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  › credential: [hidden]                          
-│     submit   cancel                                   # [bg=#212337]=   [fg=#3b4261 bg=#212337]=  submit   cancel                                 
+│   ╭ setup · Umans · credential entry · focus: i… ╮  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╭ setup · Umans · credential entry · focus: i… ╮
+│   │    ! credential is required                      │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#f16c75 bg=#212337]=  ! credential is required                       [fg=#ebfafa bg=#212337 b]=│
+│   │    … 2 rows below                                │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  … 2 rows below                                 [fg=#ebfafa bg=#212337 b]=│
+│   │    submit · cancel · Esc cancel                  │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  submit · cancel · Esc cancel                   [fg=#ebfafa bg=#212337 b]=│
+│   ╰──────────────────────────────────────────────╯  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╰──────────────────────────────────────────────╯
 table:
-│     command                         status            # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  command                         status          
-│     ------------------------ ---------------------    # [bg=#212337]=   [fg=#3b4261 bg=#212337]=  ------------------------ ---------------------  
-│       cargo test                        ok            # [bg=#212337]=   [fg=#ebfafa bg=#212337]=    cargo test                        ok          
-│     › cargo clippy                      fix           # [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  › cargo clippy                      fix
+│   ╭ context · focus: row 2/2 ────────────────────╮  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╭ context · focus: row 2/2 ────────────────────╮
+│   │    › cargo clippy                    fix         │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  › cargo clippy                    fix          [fg=#ebfafa bg=#212337 b]=│
+│   │    … 3 rows above                                │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  … 3 rows above                                 [fg=#ebfafa bg=#212337 b]=│
+│   │    ↑/↓ inspect · Esc close                       │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  ↑/↓ inspect · Esc close                        [fg=#ebfafa bg=#212337 b]=│
+│   ╰──────────────────────────────────────────────╯  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╰──────────────────────────────────────────────╯

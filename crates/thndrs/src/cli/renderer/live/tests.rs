@@ -1,5 +1,6 @@
 use super::*;
 use crate::acp::permissions::{PendingPermission, PermissionKindView, PermissionOptionView};
+use crate::app::PromptAccessory;
 use crate::app::{
     App, ChatGptOAuthMethod, FilePickerSource, FirstRunRecovery, Mode, PickerItem, PickerState, RecoveryStage, RunState,
 };

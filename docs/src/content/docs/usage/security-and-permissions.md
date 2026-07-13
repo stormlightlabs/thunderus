@@ -53,9 +53,6 @@ local child processes under the same user account as `thndrs`; their cwd is
 kept inside the workspace, output is capped and redacted, and lifecycle metadata
 is recorded in the session log.
 
-ACP permission prompts are user interaction, not a sandbox. Only configure ACP
-agents you are willing to run locally.
-
 ## Writes
 
 Write-capable tools are workspace-contained and transcripted. Failed writes

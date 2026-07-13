@@ -125,21 +125,21 @@ bounded iocraft surfaces while keeping transcript history open in direct rows.
 
 **Acceptance criteria:**
 
-- [ ] `renderer/adapter.rs` is the only source module that imports or calls
+- [x] `renderer/adapter.rs` is the only source module that imports or calls
       iocraft; it receives semantic data and returns `Vec<Row>` with no
       terminal writes, render loop, or app state.
-- [ ] Setup/authentication, permission, picker, help, and detail surfaces use
+- [x] Setup/authentication, permission, picker, help, and detail surfaces use
       consistent Unicode framing, title/status information, explicit focus,
       keyboard hints, and visible clipping state.
-- [ ] The committed transcript has no persistent card-per-entry treatment; it
+- [x] The committed transcript has no persistent card-per-entry treatment; it
       remains native-scrollback-friendly with readable role, spacing, text
       hierarchy, and typed event marks. It has no persistent sidebar, fake
       terminal chrome, or second main panel.
-- [ ] The live prompt/work region has compact orientation information without
+- [x] The live prompt/work region has compact orientation information without
       becoming a persistent dashboard.
-- [ ] Permission and setup/recovery surfaces still outrank optional detail/help
+- [x] Permission and setup/recovery surfaces still outrank optional detail/help
       surfaces, and `Esc` preserves their established behavior.
-- [ ] Normal, narrow, tiny-height, monochrome-equivalent, Unicode, long-line,
+- [x] Normal, narrow, tiny-height, monochrome-equivalent, Unicode, long-line,
       and clipping snapshots demonstrate graceful fallbacks. Eldritch Minimal,
       Iceberg Dark, and Catppuccin Mocha use renderer palette roles rather than
       page-local colors.
@@ -149,6 +149,8 @@ bounded iocraft surfaces while keeping transcript history open in direct rows.
 - `cargo test -p thndrs renderer::adapter`
 - `cargo test -p thndrs renderer::view`
 - `cargo test -p thndrs renderer::region`
+- `cargo test -p thndrs renderer:: -- --test-threads=1`
+- `cargo test --workspace`
 
 ## Ticket 11: Prepare Release Docs And Package Evidence
 

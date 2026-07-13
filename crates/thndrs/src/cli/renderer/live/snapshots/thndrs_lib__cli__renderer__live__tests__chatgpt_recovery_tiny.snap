@@ -1,8 +1,7 @@
 ---
 source: crates/thndrs/src/cli/renderer/live/tests.rs
-assertion_line: 576
 expression: rendered
 ---
-│     setup  provider=chatgpt-codex model=chatgpt-codex/gpt-5.5 missing=ChatGPT OAuth credential  # [bg=#212337]=   [bg=#212337]=   [fg=#f7c67f bg=#212337 b]=setup [fg=#abb4da bg=#212337]=  provider=chatgpt-codex model=chatgpt-codex/gpt-5.5 missing=ChatGPT OAuth credential
-│     Headless login: open https://auth.example.test/device and enter code ABCD-EFGH  # [bg=#212337]=   [bg=#212337]=   [fg=#ebfafa bg=#212337]=Headless login: open https://auth.example.test/device and enter code ABCD-EFGH
-│     Waiting for ChatGPT authorization.  # [bg=#212337]=   [bg=#212337]=   [fg=#abb4da bg=#212337]=Waiting for ChatGPT authorization.
+│   ╭ setup · chatgpt-cod… ╮  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╭ setup · chatgpt-cod… ╮
+│   │    … 3 above · › cancel  │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  … 3 above · › cancel   [fg=#ebfafa bg=#212337 b]=│
+│   ╰──────────────────────╯  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╰──────────────────────╯

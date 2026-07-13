@@ -236,6 +236,25 @@ pub enum RecoveryStage {
     AcpMissing,
 }
 
+impl RecoveryStage {
+    pub fn label(self) -> &'static str {
+        match self {
+            RecoveryStage::ChooseProvider => "choose provider",
+            RecoveryStage::ModelSelection => "choose model",
+            RecoveryStage::ModelConfigScope => "model scope",
+            RecoveryStage::MissingCredential => "authentication required",
+            RecoveryStage::EnterKey => "credential entry",
+            RecoveryStage::ConfirmStore => "credential scope",
+            RecoveryStage::Instructions => "setup instructions",
+            RecoveryStage::ChatGptOAuthRequesting => "starting OAuth",
+            RecoveryStage::ChatGptOAuthPolling => "OAuth in progress",
+            RecoveryStage::ChatGptOAuthPasteRedirect => "paste redirect",
+            RecoveryStage::ChatGptOAuthFailed => "OAuth failed",
+            RecoveryStage::LogoutConfirm => "remove credential",
+            RecoveryStage::AcpMissing => "ACP setup required",
+        }
+    }
+}
 /// Small seam for testing TUI OAuth without real network calls.
 #[derive(Clone, Copy, Debug)]
 pub struct ChatGptOAuthDriver {

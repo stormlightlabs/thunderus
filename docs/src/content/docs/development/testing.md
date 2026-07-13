@@ -7,20 +7,26 @@ title: "Testing"
 State transitions, CLI parsing, prompt assembly, tool wrappers, provider request
 construction, and parsing logic are covered with unit tests.
 
-## Layout Tests
+## Layout
 
 Renderer geometry is tested through pure row-model helpers. These tests check
 wrapping, padding, prompt cursor placement, live-region sizing, and
 narrow-terminal behavior without opening a real terminal.
 
-## Snapshot Tests
+## Snapshots
 
 Renderer snapshots use the row model plus `insta` at fixed terminal sizes.
 Backend tests assert important terminal escape sequences such as full-screen
-clear/purge. Snapshots cover prompt, picker/help, startup, submitted,
-streaming, reasoning, tool, error, banner, and narrow-layout states.
+clear/purge.
 
-## Fixture Driven
+Snapshots cover prompt, picker/help, setup, permissions, detail surfaces,
+startup, submitted, streaming, reasoning, tool, error, banner, and narrow-layout
+states.
+
+The renderer suite also exercises normal, tiny-height, Unicode, long-line, clipping,
+and monochrome-equivalent fallbacks, including surface priority and secret masking.
+
+## Fixtures
 
 ### Providers
 

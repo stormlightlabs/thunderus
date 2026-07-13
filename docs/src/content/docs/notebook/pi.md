@@ -6,44 +6,37 @@ Captured: 2026-06-29
 Tags: [coding-agent, harness, terminal-ui, agent-loop, minimalism]
 ---
 
-Source:
-
-- https://pi.dev
-- https://pi.dev/docs
-- https://mariozechner.at/posts/2025-11-30-pi-coding-agent/
-- https://github.com/earendil-works/pi
-
 ## Summary
 
 Pi argues that a coding harness can stay small and inspectable by exposing simple tools,
 explicit context, event-streamed agent state, file-based planning, and terminal-native
 workflows instead of baking in heavyweight modes, hidden orchestration, or in-process
-permission theater.
+permission theater[^pi-article].
 
 ## Key Ideas
 
 - **Minimal core, extensible edges:** Pi splits LLM API, agent loop, TUI, and CLI harness
-  into separate packages. The CLI adds sessions, tools, themes, context files, and customization.
+  into separate packages. The CLI adds sessions, tools, themes, context files, and customization.[^pi-github]
 - **Context control matters:** The article stresses that hidden prompt/tool/context
   injection makes model behavior harder to predict.
-  Pi keeps prompt/tool definitions small and surfaces what gets loaded.
+  Pi keeps prompt/tool definitions small and surfaces what gets loaded.[^pi-article]
 - **Four default tools can be enough:** Pi's default coding surface is read, write, edit,
-  and bash, with separate read-only tools available for restricted runs.
+  and bash, with separate read-only tools available for restricted runs.[^pi-docs]
 - **Events are the UI contract:** `pi-agent-core` emits agent, turn, message, stream
-  update, and tool execution events; a UI can subscribe and render incrementally.
+  update, and tool execution events; a UI can subscribe and render incrementally.[^pi-github]
 - **Queueing is a first-class interaction:** Pi supports steering messages during work
-  and follow-up messages after work, rather than forcing the user to wait silently.
+  and follow-up messages after work, rather than forcing the user to wait silently.[^pi-docs]
 - **Use the terminal instead of rebuilding it:** The Pi article chooses an
   append-to-scrollback TUI for coding-agent chat so native terminal search/scrolling keep
-  working.
+  working.[^pi-article]
 - **No built-in plan mode/todos/sub-agents/MCP by default:** Pi prefers files, CLI tools
-  with READMEs, tmux, and explicit separate sessions over hidden state and heavyweight tool surfaces.
+  with READMEs, tmux, and explicit separate sessions over hidden state and heavyweight tool surfaces.[^pi-article]
 - **Sandbox outside the harness:** Pi does not pretend permission prompts solve the core
-  security problem; its docs recommend containers, micro-VM routing, or policy sandboxes when stronger boundaries are needed.
+  security problem; its docs recommend containers, micro-VM routing, or policy sandboxes when stronger boundaries are needed.[^pi-docs]
 - **Shell execution is a normal local capability:** Pi's built-in `bash` tool spawns the
   configured shell in the working directory, streams combined stdout/stderr, supports timeout and
   abort, kills the process tree, truncates visible output, and saves oversized output to a temp file.
-  It does not classify commands for approval.
+  It does not classify commands for approval.[^pi-github]
 - **Project trust is input loading, not command permission:** Pi asks/tracks whether project-local
   settings, extensions, skills, prompts, and themes may be loaded. Once running, built-in tools and
   extensions use the permissions of the `pi` process.
@@ -176,3 +169,11 @@ Useful `pi` prompt-level guardrails:
   - **Recommendation**: Propagate cancellation through one shared turn-control path so model streams, tools, and UI state settle consistently.
 - What session format will be stable enough to inspect and replay?
   - **Recommendation**: Use append-only typed records with stable identifiers, final replayable content, and capped tool settlements as the inspectable baseline.
+
+[^pi-site]: [Pi](https://pi.dev)
+
+[^pi-docs]: [Pi documentation](https://pi.dev/docs)
+
+[^pi-article]: ["Pi: A Coding Agent That Stays Small," Mario Zechner](https://mariozechner.at/posts/2025-11-30-pi-coding-agent/)
+
+[^pi-github]: [earendil-works/pi](https://github.com/earendil-works/pi)

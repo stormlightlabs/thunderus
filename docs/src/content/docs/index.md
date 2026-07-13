@@ -1,5 +1,5 @@
 ---
-title: "thndrs"
+title: "What is thndrs?"
 ---
 
 `thndrs` is an agentic coding harness meant to act as an LLM powered pair
