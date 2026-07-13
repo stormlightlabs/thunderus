@@ -37,6 +37,7 @@ pub enum FilePickerSource {
     Forced,
     Mention { token_start: usize },
 }
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum KeyOutcome {
     Unhandled,
@@ -150,7 +151,7 @@ impl PickerState {
 pub fn handle_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
         if app.run_state == RunState::Working {
-            cancel_stream(app);
+            agent_lifecycle::cancel_stream(app);
             return None;
         }
         app.quit = true;
@@ -167,7 +168,7 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
         && !key.modifiers.contains(KeyModifiers::ALT)
     {
         if let Some(deadline) = app.ctrl_d_pending
-            && !now_or_after_deadline(app.ui_tick, deadline)
+            && !agent_lifecycle::now_or_after_deadline(app.ui_tick, deadline)
         {
             app.ctrl_d_pending = None;
             app.quit = true;
@@ -194,7 +195,7 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
     app.ctrl_d_pending = None;
 
     if app.pending_permission.is_some() {
-        return handle_permission_key(app, key);
+        return agent_lifecycle::handle_permission_key(app, key);
     }
 
     if app.first_run_recovery.is_some() {
@@ -536,12 +537,12 @@ pub fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
         let handled = match key.code {
             KeyCode::Left | KeyCode::Char('b') => {
                 app.input.cursor_word_left();
-                exit_history_navigation(app);
+                agent_lifecycle::exit_history_navigation(app);
                 true
             }
             KeyCode::Right | KeyCode::Char('f') => {
                 app.input.cursor_word_right();
-                exit_history_navigation(app);
+                agent_lifecycle::exit_history_navigation(app);
                 true
             }
             KeyCode::Backspace => {
@@ -549,7 +550,7 @@ pub fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
                 if !killed.is_empty() {
                     app.kill_ring.push(killed);
                 }
-                exit_history_navigation(app);
+                agent_lifecycle::exit_history_navigation(app);
                 sync_prompt_accessory(app);
                 true
             }
@@ -558,7 +559,7 @@ pub fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
                 if !killed.is_empty() {
                     app.kill_ring.push(killed);
                 }
-                exit_history_navigation(app);
+                agent_lifecycle::exit_history_navigation(app);
                 sync_prompt_accessory(app);
                 true
             }
@@ -573,12 +574,12 @@ pub fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
         let handled = match key.code {
             KeyCode::Left => {
                 app.input.cursor_word_left();
-                exit_history_navigation(app);
+                agent_lifecycle::exit_history_navigation(app);
                 true
             }
             KeyCode::Right => {
                 app.input.cursor_word_right();
-                exit_history_navigation(app);
+                agent_lifecycle::exit_history_navigation(app);
                 true
             }
             _ => false,
@@ -592,30 +593,30 @@ pub fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
         let handled = match key.code {
             KeyCode::Char('a') => {
                 app.input.cursor_to_start();
-                exit_history_navigation(app);
+                agent_lifecycle::exit_history_navigation(app);
                 sync_prompt_accessory(app);
                 true
             }
             KeyCode::Char('e') => {
                 app.input.cursor_to_end();
-                exit_history_navigation(app);
+                agent_lifecycle::exit_history_navigation(app);
                 sync_prompt_accessory(app);
                 true
             }
             KeyCode::Char('b') => {
                 app.input.cursor_left();
-                exit_history_navigation(app);
+                agent_lifecycle::exit_history_navigation(app);
                 sync_prompt_accessory(app);
                 true
             }
             KeyCode::Char('f') => {
                 app.input.cursor_right();
-                exit_history_navigation(app);
+                agent_lifecycle::exit_history_navigation(app);
                 sync_prompt_accessory(app);
                 true
             }
             KeyCode::Char('j') => {
-                exit_history_navigation(app);
+                agent_lifecycle::exit_history_navigation(app);
                 app.input.insert_char('\n');
                 sync_prompt_accessory(app);
                 true
@@ -625,7 +626,7 @@ pub fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
                 if !killed.is_empty() {
                     app.kill_ring.push(killed);
                 }
-                exit_history_navigation(app);
+                agent_lifecycle::exit_history_navigation(app);
                 sync_prompt_accessory(app);
                 true
             }
@@ -634,7 +635,7 @@ pub fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
                 if !killed.is_empty() {
                     app.kill_ring.push(killed);
                 }
-                exit_history_navigation(app);
+                agent_lifecycle::exit_history_navigation(app);
                 sync_prompt_accessory(app);
                 true
             }
@@ -643,7 +644,7 @@ pub fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
                 if !killed.is_empty() {
                     app.kill_ring.push(killed);
                 }
-                exit_history_navigation(app);
+                agent_lifecycle::exit_history_navigation(app);
                 sync_prompt_accessory(app);
                 true
             }
@@ -651,13 +652,13 @@ pub fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
                 if let Some(killed) = app.kill_ring.last() {
                     app.input.yank(killed);
                 }
-                exit_history_navigation(app);
+                agent_lifecycle::exit_history_navigation(app);
                 sync_prompt_accessory(app);
                 true
             }
             KeyCode::Char('t') => {
                 app.input.transpose_chars();
-                exit_history_navigation(app);
+                agent_lifecycle::exit_history_navigation(app);
                 sync_prompt_accessory(app);
                 true
             }
@@ -679,68 +680,68 @@ pub fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
             None
         }
         KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => {
-            exit_history_navigation(app);
+            agent_lifecycle::exit_history_navigation(app);
             app.input.insert_char('\n');
             sync_prompt_accessory(app);
             None
         }
         KeyCode::Up => {
             if !app.input.cursor_up() {
-                recall_older_input(app);
+                agent_lifecycle::recall_older_input(app);
             } else {
-                exit_history_navigation(app);
+                agent_lifecycle::exit_history_navigation(app);
             }
             sync_prompt_accessory(app);
             None
         }
         KeyCode::Down => {
             if !app.input.cursor_down() {
-                recall_newer_input(app);
+                agent_lifecycle::recall_newer_input(app);
             } else {
-                exit_history_navigation(app);
+                agent_lifecycle::exit_history_navigation(app);
             }
             sync_prompt_accessory(app);
             None
         }
         KeyCode::Left => {
             app.input.cursor_left();
-            exit_history_navigation(app);
+            agent_lifecycle::exit_history_navigation(app);
             sync_prompt_accessory(app);
             None
         }
         KeyCode::Right => {
             app.input.cursor_right();
-            exit_history_navigation(app);
+            agent_lifecycle::exit_history_navigation(app);
             sync_prompt_accessory(app);
             None
         }
         KeyCode::Home => {
             app.input.cursor_to_start();
-            exit_history_navigation(app);
+            agent_lifecycle::exit_history_navigation(app);
             sync_prompt_accessory(app);
             None
         }
         KeyCode::End => {
             app.input.cursor_to_end();
-            exit_history_navigation(app);
+            agent_lifecycle::exit_history_navigation(app);
             sync_prompt_accessory(app);
             None
         }
         KeyCode::PageUp | KeyCode::PageDown => None,
         KeyCode::Delete => {
-            exit_history_navigation(app);
+            agent_lifecycle::exit_history_navigation(app);
             app.input.delete_forward();
             sync_prompt_accessory(app);
             None
         }
         KeyCode::Char(ch) => {
-            exit_history_navigation(app);
+            agent_lifecycle::exit_history_navigation(app);
             app.input.insert_char(ch);
             sync_prompt_accessory(app);
             None
         }
         KeyCode::Backspace => {
-            exit_history_navigation(app);
+            agent_lifecycle::exit_history_navigation(app);
             app.input.backspace();
             sync_prompt_accessory(app);
             None
@@ -748,7 +749,7 @@ pub fn handle_prompt_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
         KeyCode::Enter => handle_submit(app),
         KeyCode::Tab => accept_prompt_suggestion(app),
         KeyCode::Esc if app.run_state == RunState::Working => {
-            cancel_stream(app);
+            agent_lifecycle::cancel_stream(app);
             None
         }
         _ => None,
@@ -1299,7 +1300,7 @@ pub fn handle_submit(app: &mut App) -> Option<Msg> {
 
 pub fn queue_running_input(app: &mut App, text: &str) {
     app.input.clear();
-    remember_input(app, text);
+    agent_lifecycle::remember_input(app, text);
     let (kind, count) = match app.queue_target {
         QueueTarget::Steering => {
             app.queued_steering.push(text.to_string());
@@ -1334,7 +1335,7 @@ pub fn submit_user_turn(app: &mut App, text: String) -> Option<Msg> {
         return None;
     }
 
-    remember_input(app, &text);
+    agent_lifecycle::remember_input(app, &text);
     let user_entry = Entry::User { text: text.clone() };
     app.transcript.push(user_entry.clone());
     app.input.clear();
@@ -1344,7 +1345,7 @@ pub fn submit_user_turn(app: &mut App, text: String) -> Option<Msg> {
     app.ttft.start_turn();
     app.turn_count += 1;
     let turn_id = format!("turn_{}", app.turn_count);
-    refresh_mcp_config_audit(app, &turn_id);
+    agent_lifecycle::refresh_mcp_config_audit(app, &turn_id);
     if let Some(ref mut writer) = app.session_writer {
         let _ = writer.append_entry(&user_entry, &turn_id);
     }

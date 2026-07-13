@@ -28,58 +28,14 @@ existing input path.
 
 ## Ticket 5: Extract Context, Commands, And Agent Lifecycle Behavior
 
-**What to build:** Move context/compaction controls, command output projection,
+Moved context/compaction controls, command output projection,
 agent event lifecycle, cancellation, and persistence helpers into behavior-owned
 modules without changing their safety or session semantics.
 
-**Blocked by:** Ticket 2: Establish The App Composition Seam
-
-**Acceptance criteria:**
-
-- [ ] Context inspection, pins, compaction review, and context audit behavior
-      stay deterministic, bounded, redacted, and independent of rendering.
-- [ ] Agent events, permission/cancellation handling, session persistence,
-      input history, MCP audit, and stream finalization retain their ordering
-      and failure behavior.
-- [ ] Slash-command output remains redacted and preserves existing commands,
-      exit/error behavior, and session metadata guarantees.
-- [ ] Extracted modules depend on domain data and message routing rather than
-      renderer cell/style types.
-- [ ] Existing context, session, command, cancellation, and permission tests
-      remain green.
-
-**Verification:**
-
-- `cargo test -p thndrs core::context`
-- `cargo test -p thndrs core::session`
-- `cargo test -p thndrs cli::app::tests::commands`
-- `cargo test -p thndrs cli::app::tests::prompts`
-
 ## Ticket 6: Finish The Thin Coordinator And Renderer Boundary
 
-**What to build:** Complete the app split and move presentation projection into
+Completed the app split and move presentation projection into
 the renderer so application behavior exposes semantic state and events only.
-
-**Blocked by:** Tickets 3, 4, and 5
-
-**Acceptance criteria:**
-
-- [ ] The root coordinator is small, documented, and limited to shared state,
-      message routing, and explicit feature composition.
-- [ ] The app layer no longer constructs renderer view cells or imports
-      presentation-only types to express domain behavior.
-- [ ] Renderer view projection owns semantic table/detail/orientation data and
-      remains pure enough for deterministic tests.
-- [ ] The direct-renderer transcript, prompt cursor, terminal I/O, scrollback,
-      and resize behavior are unchanged.
-- [ ] Existing normal, narrow, and tiny-height renderer snapshots are reviewed
-      for unintended differences.
-
-**Verification:**
-
-- `cargo test -p thndrs renderer`
-- `cargo test -p thndrs cli::app`
-- `cargo test -p thndrs`
 
 ## Ticket 7: Require Provider-Led Setup Before Coding
 

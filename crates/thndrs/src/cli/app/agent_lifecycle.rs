@@ -1,1 +1,454 @@
 //! Agent event lifecycle, cancellation, and session persistence.
+
+use super::*;
+use crate::mcp;
+
+/// Process an [`AgentEvent`] and mutate `app` accordingly.
+pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
+    match event {
+        AgentEvent::Started => {
+            app.run_state = RunState::Working;
+            None
+        }
+        AgentEvent::Status(text) => {
+            if app.verbose || !is_verbose_status(&text) {
+                app.transcript.push(Entry::Status { text });
+            }
+            None
+        }
+        AgentEvent::Usage { input_tokens, output_tokens } => {
+            app.session_tokens_in = app.session_tokens_in.saturating_add(input_tokens);
+            app.session_tokens_out = app.session_tokens_out.saturating_add(output_tokens);
+            if let Some(ref mut writer) = app.session_writer {
+                let _ = writer.append_usage(input_tokens, output_tokens);
+            }
+            None
+        }
+        AgentEvent::AssistantDelta(delta) => {
+            app.ttft.stop_on_semantic_output();
+            finalize_reasoning(app);
+            if let Some(Entry::Agent { text, streaming: true }) = app.transcript.last_mut() {
+                text.push_str(&delta);
+            } else {
+                app.transcript.push(Entry::Agent { text: delta, streaming: true });
+            }
+            None
+        }
+        AgentEvent::ReasoningDelta(delta) => {
+            app.ttft.stop_on_semantic_output();
+            if let Some(Entry::Reasoning { text, streaming: true }) = app.transcript.last_mut() {
+                text.push_str(&delta);
+            } else {
+                app.transcript.push(Entry::Reasoning { text: delta, streaming: true });
+            }
+            None
+        }
+        AgentEvent::ToolStarted { id, name, arguments } => {
+            app.ttft.stop_on_semantic_output();
+            finalize_streaming(app);
+            app.transcript.push(Entry::Tool {
+                name: format!("{name}#{id}"),
+                arguments: arguments.clone(),
+                status: ToolStatus::Running,
+                output: Vec::new(),
+            });
+            if let Some(ref mut writer) = app.session_writer {
+                let turn_id = format!("turn_{}", app.turn_count);
+                let _ = writer.append_tool_started(&turn_id, &id, &name, &arguments);
+            }
+            None
+        }
+        AgentEvent::ToolFinished { id, output, status, write_result, shell_result } => {
+            app.ttft.stop_on_semantic_output();
+            finalize_streaming(app);
+            for entry in app.transcript.iter_mut().rev() {
+                if let Entry::Tool { name, output: out, status: s, .. } = entry
+                    && name.ends_with(&format!("#{id}"))
+                {
+                    *out = output;
+                    *s = status;
+                    break;
+                }
+            }
+
+            persist_last_entry(app);
+
+            if let Some(result) = write_result
+                && let Some(ref mut writer) = app.session_writer
+            {
+                let turn_id = format!("turn_{}", app.turn_count);
+                let _ = writer.append_file_write(&turn_id, &result, status);
+            }
+
+            if let Some(result) = shell_result {
+                if result.kind == tools::shell::ProcessKind::Background {
+                    let cancel = CancelToken::new();
+                    let id =
+                        app.process_registry
+                            .register(result.command.clone(), result.cwd.clone(), result.kind, cancel);
+                    app.transcript.push(Entry::Status {
+                        text: format!("background process [{id}] started: {}", result.command.join(" ")),
+                    });
+                }
+
+                if let Some(ref mut writer) = app.session_writer {
+                    let turn_id = format!("turn_{}", app.turn_count);
+                    let _ = writer.append_shell_exec(&turn_id, &result);
+                }
+            }
+            app.refresh_git_status();
+            None
+        }
+        AgentEvent::ModelMetadataLoaded(items) => {
+            app.model_picker_items = items
+                .into_iter()
+                .map(|(label, detail)| PickerItem::new(label, detail))
+                .collect();
+            None
+        }
+        AgentEvent::Retrying { attempt, max_attempts, delay_ms, error } => {
+            discard_retry_output(app);
+            app.run_state = RunState::Working;
+            app.transcript.push(Entry::Status {
+                text: format!(
+                    "retrying provider request ({attempt}/{max_attempts}) in {:.1}s after: {error}",
+                    delay_ms as f64 / 1000.0
+                ),
+            });
+            None
+        }
+        AgentEvent::PermissionRequest(permission) => {
+            finalize_streaming(app);
+            if app.pending_permission.is_some() {
+                let _ = permission.cancel();
+                app.transcript.push(Entry::Error {
+                    text: "acp: received a second permission request while one is pending; cancelled it".to_string(),
+                });
+                return None;
+            }
+            let turn_id = format!("turn_{}", app.turn_count);
+            if let Some(ref mut writer) = app.session_writer {
+                let _ = writer.append_acp_permission_request(&turn_id, &permission);
+            }
+            app.pending_permission = Some(permission);
+            None
+        }
+        AgentEvent::PermissionResolved { tool_call_id, outcome } => {
+            let turn_id = format!("turn_{}", app.turn_count);
+            if let Some(ref mut writer) = app.session_writer {
+                let _ = writer.append_acp_permission_outcome(&turn_id, &tool_call_id, &outcome);
+            }
+            None
+        }
+        AgentEvent::AcpSession(metadata) => {
+            if let Some(ref mut writer) = app.session_writer {
+                let _ = writer.append_acp_session(&metadata);
+            }
+            None
+        }
+        AgentEvent::Finished => {
+            app.ttft.clear_pending();
+            finalize_streaming(app);
+            cancel_pending_permission(app);
+            app.run_state = RunState::Idle;
+            app.last_input = None;
+            app.refresh_git_status();
+            match context::finish_manual_compaction(app) {
+                None => persist_final_response(app),
+                Some(None) => {}
+                Some(Some(restart)) => return Some(restart),
+            }
+            if app.queued_followups.is_empty() {
+                None
+            } else {
+                let next = app.queued_followups.remove(0);
+                submit_user_turn(app, next)
+            }
+        }
+        AgentEvent::Failed(msg) => {
+            let manual_compaction = context::restore_failed_manual_compaction(app);
+            app.ttft.clear_pending();
+            finalize_streaming(app);
+            cancel_pending_permission(app);
+            app.transcript.push(Entry::Error { text: msg.clone() });
+            app.run_state = RunState::Error(msg);
+            if !manual_compaction && let Some(input) = app.last_input.take() {
+                app.input.set_text(&input);
+            }
+            persist_last_entry(app);
+            app.refresh_git_status();
+            None
+        }
+        AgentEvent::Cancelled => {
+            context::restore_failed_manual_compaction(app);
+            app.ttft.clear_pending();
+            finalize_streaming(app);
+            cancel_pending_permission(app);
+            cancel_running_tools(app);
+            if app.run_state == RunState::Working {
+                app.transcript.push(Entry::Status { text: String::from("cancelled") });
+            }
+            app.run_state = RunState::Idle;
+            app.last_input = None;
+            app.queued_steering.clear();
+            persist_last_entry(app);
+            app.refresh_git_status();
+            None
+        }
+    }
+}
+
+pub fn handle_permission_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
+    match key.code {
+        KeyCode::Up => {
+            if let Some(permission) = app.pending_permission.as_mut() {
+                permission.move_up();
+            }
+            None
+        }
+        KeyCode::Down => {
+            if let Some(permission) = app.pending_permission.as_mut() {
+                permission.move_down();
+            }
+            None
+        }
+        KeyCode::Enter => {
+            if let Some(permission) = app.pending_permission.take()
+                && let Some(PermissionDecision::Selected(option_id)) = permission.select()
+            {
+                app.transcript.push(Entry::Status {
+                    text: format!("acp permission {}: selected {option_id}", permission.tool_call_id),
+                });
+            }
+            None
+        }
+        KeyCode::Esc => {
+            if let Some(permission) = app.pending_permission.take() {
+                let _ = permission.cancel();
+                app.transcript
+                    .push(Entry::Status { text: format!("acp permission {}: cancelled", permission.tool_call_id) });
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+/// Cancel an active stream by marking all streaming entries complete,
+/// recording a cancelled status entry, and transitioning to `Stopping`.
+///
+/// The app loop observes the transition out of `Working` and drops the
+/// background receiver, which stops the agent thread on its next failed send.
+/// When the `Cancelled` agent event arrives (or the channel disconnects), the
+/// state transitions from `Stopping` to `Idle`.
+pub fn cancel_stream(app: &mut App) {
+    cancel_pending_permission(app);
+    finalize_streaming(app);
+    app.transcript.push(Entry::Status { text: String::from("cancelled") });
+    app.run_state = RunState::Stopping;
+    persist_last_entry(app);
+}
+
+pub fn cancel_pending_permission(app: &mut App) {
+    if let Some(permission) = app.pending_permission.take() {
+        let _ = permission.cancel();
+    }
+}
+
+pub fn remember_input(app: &mut App, text: &str) {
+    if text.is_empty() || app.input_history.last().is_some_and(|last| last == text) {
+        return;
+    }
+    let overflow = app
+        .input_history
+        .len()
+        .saturating_add(1)
+        .saturating_sub(INPUT_HISTORY_LIMIT);
+    if overflow > 0 {
+        app.input_history.drain(..overflow);
+    }
+    app.input_history.push(text.to_string());
+    let _ = app.input_history_store.append(&app.session_id, text);
+}
+
+pub fn recall_older_input(app: &mut App) {
+    if app.input_history.is_empty() {
+        return;
+    }
+
+    let next = match app.history_cursor {
+        Some(0) => 0,
+        Some(index) => index.saturating_sub(1),
+        None => {
+            app.history_draft = app.input.text();
+            app.input_history.len() - 1
+        }
+    };
+    app.history_cursor = Some(next);
+    app.input.set_text(&app.input_history[next]);
+}
+
+pub fn recall_newer_input(app: &mut App) {
+    let Some(index) = app.history_cursor else {
+        return;
+    };
+
+    if index + 1 < app.input_history.len() {
+        let next = index + 1;
+        app.history_cursor = Some(next);
+        app.input.set_text(&app.input_history[next]);
+    } else {
+        app.history_cursor = None;
+        app.input.set_text(&app.history_draft);
+        app.history_draft.clear();
+    }
+}
+
+pub fn exit_history_navigation(app: &mut App) {
+    if app.history_cursor.is_some() {
+        app.history_cursor = None;
+        app.history_draft.clear();
+    }
+}
+
+/// Persist the last transcript entry to the session file, if a writer exists.
+///
+/// Only finalized entries are written — streaming/running entries are skipped
+/// by `SessionRecord::from_entry`.
+pub fn persist_last_entry(app: &mut App) {
+    if let Some(ref mut writer) = app.session_writer
+        && let Some(entry) = app.transcript.last()
+    {
+        let turn_id = format!("turn_{}", app.turn_count);
+        let _ = writer.append_entry(entry, &turn_id);
+    }
+}
+
+/// Persist the final model response even if provider status rows were appended
+/// after the last assistant/reasoning delta.
+pub fn persist_final_response(app: &mut App) {
+    if let Some(ref mut writer) = app.session_writer
+        && let Some(entry) = app.transcript.iter().rev().find(|entry| {
+            matches!(
+                entry,
+                Entry::Agent { streaming: false, .. } | Entry::Reasoning { streaming: false, .. }
+            )
+        })
+    {
+        let turn_id = format!("turn_{}", app.turn_count);
+        let _ = writer.append_entry(entry, &turn_id);
+    }
+}
+
+/// Whether `ui_tick` is at or past `deadline`, accounting for wrap-around.
+///
+/// If `deadline` has wrapped (e.g. `ui_tick` is small and `deadline` is near
+/// `u64::MAX`), we treat the deadline as already passed — a wrap is so rare
+/// that expiring early is the safe choice.
+pub fn now_or_after_deadline(ui_tick: u64, deadline: u64) -> bool {
+    if deadline >= ui_tick { deadline.wrapping_sub(ui_tick) > u64::MAX / 2 } else { true }
+}
+
+/// Mark all streaming `Assistant` and `Reasoning` entries as complete.
+pub fn finalize_streaming(app: &mut App) {
+    for entry in &mut app.transcript {
+        match entry {
+            Entry::Agent { streaming, .. } => *streaming = false,
+            Entry::Reasoning { streaming, .. } => *streaming = false,
+            _ => {}
+        }
+    }
+}
+
+/// Mark any running tool entries as cancelled.
+///
+/// Called when the active run is interrupted so that the renderer can show a
+/// distinct cancelled-tool row instead of leaving the tool in a running state.
+pub fn cancel_running_tools(app: &mut App) {
+    for entry in &mut app.transcript {
+        if let Entry::Tool { status, .. } = entry
+            && *status == ToolStatus::Running
+        {
+            *status = ToolStatus::Cancelled;
+        }
+    }
+}
+
+/// Mark active reasoning entries complete when the model moves on to visible
+/// assistant text or a tool call.
+pub fn finalize_reasoning(app: &mut App) {
+    for entry in &mut app.transcript {
+        if let Entry::Reasoning { streaming, .. } = entry {
+            *streaming = false;
+        }
+    }
+}
+
+/// Remove partial assistant/reasoning output from a provider attempt that is
+/// about to be retried. Tool entries and prior completed transcript context are
+/// left intact.
+pub fn discard_retry_output(app: &mut App) {
+    while matches!(
+        app.transcript.last(),
+        Some(Entry::Agent { .. } | Entry::Reasoning { .. })
+    ) {
+        app.transcript.pop();
+    }
+}
+
+pub fn load_mcp_config_audit(workspace: &Path) -> (Vec<session::SessionConfigFile>, Vec<String>) {
+    let env_vars: Vec<(String, String)> = std::env::vars().collect();
+    match mcp::config::load_effective_mcp(workspace, &env_vars) {
+        Ok(effective) => {
+            let files = effective
+                .layers
+                .iter()
+                .filter_map(|layer| {
+                    let path = layer.display_path.as_ref()?;
+                    Some(session::SessionConfigFile {
+                        path: path.clone(),
+                        source: layer.source.as_str().to_string(),
+                        sha256: layer.hash.clone().unwrap_or_default(),
+                    })
+                })
+                .collect();
+            (files, effective.diagnostics)
+        }
+        Err(err) => (Vec::new(), vec![format!("failed to load MCP config: {err}")]),
+    }
+}
+
+pub fn refresh_mcp_config_audit(app: &mut App, turn_id: &str) {
+    let (current_files, current_diagnostics) = load_mcp_config_audit(&app.cwd);
+    if app.mcp_config_files == current_files && app.mcp_config_diagnostics == current_diagnostics {
+        return;
+    }
+
+    let previous_files = std::mem::replace(&mut app.mcp_config_files, current_files.clone());
+    app.mcp_config_diagnostics = current_diagnostics.clone();
+    app.transcript
+        .push(Entry::Status { text: mcp_config_changed_status(&previous_files, &current_files) });
+    if let Some(ref mut writer) = app.session_writer {
+        let _ = writer.append_mcp_config_changed(turn_id, previous_files, current_files, current_diagnostics);
+    }
+}
+
+fn mcp_config_changed_status(
+    previous_files: &[session::SessionConfigFile], current_files: &[session::SessionConfigFile],
+) -> String {
+    let previous = config_file_hash_summary(previous_files);
+    let current = config_file_hash_summary(current_files);
+    format!("MCP config changed: {previous} -> {current}")
+}
+
+fn config_file_hash_summary(files: &[session::SessionConfigFile]) -> String {
+    if files.is_empty() {
+        return "none".to_string();
+    }
+
+    files
+        .iter()
+        .map(|file| format!("{}:{}:{}", file.source, file.path, file.sha256))
+        .collect::<Vec<_>>()
+        .join(", ")
+}

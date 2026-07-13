@@ -9,6 +9,8 @@
 use crate::app::{App, Entry, FilePickerSource, Mode, PromptAccessory, RunState, ToolStatus};
 use crate::renderer::row::{CursorCoord, Row};
 use crate::renderer::transcript::TranscriptRowContext;
+use crate::tools::shell::redact_secrets;
+use crate::utils;
 
 /// Renderer adapter for iocraft-backed or other bounded surfaces.
 pub trait SurfaceRenderer {
@@ -133,7 +135,7 @@ impl From<&App> for FocusedSurfaceView {
             PromptAccessory::Files(_) => app
                 .render_picker_surface("files")
                 .map_or(FocusedSurfaceView::None, FocusedSurfaceView::FilePicker),
-            PromptAccessory::Context => FocusedSurfaceView::StructuredTable(app.context_table_view()),
+            PromptAccessory::Context => FocusedSurfaceView::StructuredTable(app.render_context_table()),
             _ => FocusedSurfaceView::None,
         }
     }
@@ -755,6 +757,166 @@ impl App {
             complete: false,
         })
     }
+
+    /// Project the context ledger into bounded table data owned by the renderer.
+    ///
+    /// The application owns context selection and mutation. This projection only
+    /// exposes redacted identifiers, bounded counts, and semantic column policies;
+    /// it never includes source contents.
+    pub fn render_context_table(&self) -> TableView {
+        let Some(ledger) = &self.context_ledger else {
+            return TableView {
+                header: vec![TableCellView {
+                    text: "context".to_string(),
+                    alignment: ColumnAlignment::Left,
+                    width: ColumnWidthPolicy::Flexible,
+                }],
+                rows: vec![vec![TableCellView {
+                    text: "no ledger".to_string(),
+                    alignment: ColumnAlignment::Left,
+                    width: ColumnWidthPolicy::Flexible,
+                }]],
+                selected_row: None,
+                narrow_fallback: vec!["context unavailable".to_string()],
+            };
+        };
+
+        let review = self.last_compaction_review.map(|a| a.label()).unwrap_or("none");
+        let counts = ledger.counts();
+        let mut rows = vec![
+            context_table_row(
+                "budget",
+                &format!("{} / {}", ledger.budget.used, ledger.budget.target),
+                "tokens",
+                "target",
+            ),
+            context_table_row(
+                "source",
+                ledger.budget.limits.source.label(),
+                ledger.budget.limits.confidence.label(),
+                "limits",
+            ),
+            context_table_row(
+                "compaction",
+                &format!("{} / {}", self.effective_compaction_policy().mode.label(), review),
+                &counts.visible.to_string(),
+                "review",
+            ),
+        ];
+        rows.extend(
+            ledger
+                .items
+                .iter()
+                .take(crate::app::CONTEXT_INSPECTION_MAX_ITEMS)
+                .map(|item| {
+                    vec![
+                        TableCellView {
+                            text: redact_context_display(&item.id),
+                            alignment: ColumnAlignment::Left,
+                            width: ColumnWidthPolicy::Percent(34),
+                        },
+                        TableCellView {
+                            text: format!("{} / {}", item.kind.label(), item.visibility.label()),
+                            alignment: ColumnAlignment::Left,
+                            width: ColumnWidthPolicy::Percent(26),
+                        },
+                        TableCellView {
+                            text: item.token_estimate.to_string(),
+                            alignment: ColumnAlignment::Right,
+                            width: ColumnWidthPolicy::Fixed(9),
+                        },
+                        TableCellView {
+                            text: redact_context_display(&item.label),
+                            alignment: ColumnAlignment::Left,
+                            width: ColumnWidthPolicy::Flexible,
+                        },
+                    ]
+                }),
+        );
+
+        let mut narrow_fallback = vec![
+            format!("budget {} / {} tokens", ledger.budget.used, ledger.budget.target),
+            format!(
+                "limits {} ({})",
+                ledger.budget.limits.source.label(),
+                ledger.budget.limits.confidence.label()
+            ),
+            format!(
+                "compaction {} review {}",
+                self.effective_compaction_policy().mode.label(),
+                review
+            ),
+            format!(
+                "items {} visible {} pinned {} dropped {} archived {} blocked {}",
+                ledger.items.len(),
+                counts.visible,
+                counts.pinned,
+                counts.dropped,
+                counts.archived,
+                counts.blocked
+            ),
+        ];
+        narrow_fallback.extend(
+            ledger
+                .items
+                .iter()
+                .take(crate::app::CONTEXT_INSPECTION_MAX_ITEMS)
+                .map(|item| redact_context_display(&item.summary())),
+        );
+        TableView {
+            header: vec![
+                TableCellView {
+                    text: "context".to_string(),
+                    alignment: ColumnAlignment::Left,
+                    width: ColumnWidthPolicy::Percent(34),
+                },
+                TableCellView {
+                    text: "state".to_string(),
+                    alignment: ColumnAlignment::Left,
+                    width: ColumnWidthPolicy::Percent(26),
+                },
+                TableCellView {
+                    text: "tokens".to_string(),
+                    alignment: ColumnAlignment::Right,
+                    width: ColumnWidthPolicy::Fixed(9),
+                },
+                TableCellView {
+                    text: "label".to_string(),
+                    alignment: ColumnAlignment::Left,
+                    width: ColumnWidthPolicy::Flexible,
+                },
+            ],
+            rows,
+            selected_row: None,
+            narrow_fallback,
+        }
+    }
+}
+
+fn context_table_row(name: &str, state: &str, tokens: &str, label: &str) -> Vec<TableCellView> {
+    vec![
+        TableCellView {
+            text: name.to_string(),
+            alignment: ColumnAlignment::Left,
+            width: ColumnWidthPolicy::Percent(34),
+        },
+        TableCellView {
+            text: state.to_string(),
+            alignment: ColumnAlignment::Left,
+            width: ColumnWidthPolicy::Percent(26),
+        },
+        TableCellView {
+            text: tokens.to_string(),
+            alignment: ColumnAlignment::Right,
+            width: ColumnWidthPolicy::Fixed(9),
+        },
+        TableCellView { text: label.to_string(), alignment: ColumnAlignment::Left, width: ColumnWidthPolicy::Flexible },
+    ]
+}
+
+fn redact_context_display(value: &str) -> String {
+    let redacted = redact_secrets(value);
+    utils::truncate_ellipsis(&redacted, 160)
 }
 
 fn clip_prompt_rows_around_cursor(

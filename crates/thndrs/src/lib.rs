@@ -1455,7 +1455,7 @@ fn maybe_spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>) {
 ///
 /// Returns `false` when auto mode is disabled or the estimate fits the policy.
 fn preflight_requires_auto_compaction(app: &App, bundle: &PromptBundle) -> bool {
-    let policy = app::effective_compaction_policy(app);
+    let policy = app.effective_compaction_policy();
     if !matches!(policy.mode, agent_context::CompactionMode::Auto) {
         return false;
     }

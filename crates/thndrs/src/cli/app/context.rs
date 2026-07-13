@@ -1,1 +1,760 @@
-//! Context inspection, pins, and compaction behavior.
+//! Builds the context ledger from prompt fragments, workspace instructions,
+//! skills, pins, compaction summaries, and transcript candidates.
+//!
+//! Pin, drop, and recovery actions append redacted metadata to the session.
+//! Compaction saves the current transcript and applies a provider summary only
+//! after its audit record is written; failed or rejected compactions restore the
+//! saved transcript and any pending user turn.
+
+use crate::session::CompactionRisk;
+
+use super::*;
+
+/// Pending compaction request with enough information to atomically replace
+/// active context after a successful configured-model response.
+///
+/// Carries both the manual (`/compact`) and automatic (preflight pressure)
+/// paths. For automatic compaction, `original_user_turn` holds the user turn
+/// to restart after the summary is applied; for manual compaction it is
+/// `None` because `/compact` is a command, not a submitted turn.
+#[derive(Clone, Debug)]
+pub struct PendingManualCompaction {
+    original_transcript: Vec<Entry>,
+    covered_start_seq: u64,
+    covered_end_seq: u64,
+    recovery_handle: String,
+    /// Manual or automatic initiation, written to the audit record.
+    trigger: session::CompactionTrigger,
+    /// The user turn to restart after a successful automatic compaction.
+    /// `None` for manual compaction.
+    original_user_turn: Option<String>,
+}
+
+/// A provider-generated summary waiting for the user to approve or reject its
+/// replacement of the active transcript range.
+#[derive(Clone, Debug)]
+pub struct PendingCompactionReview {
+    pending: PendingManualCompaction,
+    summary: String,
+}
+impl App {
+    /// Rebuild the deterministic context ledger for a turn boundary.
+    ///
+    /// The caller owns discovery, transcript projection, and persistence. The
+    /// agent library receives only typed candidates and returns the policy
+    /// result. This method also stores the latest ledger for bounded inspection.
+    pub fn refresh_context_ledger(&mut self, user_turn: Option<&str>) -> agent_context::ContextLedger {
+        let pinned_paths = self
+            .context_pins
+            .iter()
+            .filter_map(|pin| pin.source_path.clone())
+            .collect::<Vec<_>>();
+        let instruction_selection = crate::context::select_instructions(&self.context_sources, &[], &pinned_paths);
+        let applicable_paths = instruction_selection
+            .applicable
+            .iter()
+            .map(|source| source.path.clone())
+            .collect::<std::collections::HashSet<_>>();
+
+        let mut harness = prompt::default_fragments()
+            .into_iter()
+            .map(|fragment| HarnessCandidate::new(fragment.name, fragment.content.len()))
+            .collect::<Vec<_>>();
+        harness.push(HarnessCandidate::new(
+            "tool_catalog",
+            tools::tool_definitions()
+                .into_iter()
+                .map(|tool| tool.name.len() + tool.description.len())
+                .sum(),
+        ));
+
+        let instructions = self
+            .context_sources
+            .iter()
+            .map(|source| InstructionCandidate {
+                path: source.path.clone(),
+                scope: source.scope.clone(),
+                content_hash: source.content_hash,
+                byte_count: source.byte_count,
+                content: Some(source.content.clone()),
+                truncated: source.truncated,
+                applicable: applicable_paths.contains(&source.path),
+            })
+            .collect();
+        let skills = self
+            .skills
+            .iter()
+            .map(|skill| {
+                SkillCandidate::discovered(&skill.name, skill.path.clone(), skill.content_hash, skill.byte_count)
+            })
+            .collect();
+        let transcript = self
+            .transcript
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| TranscriptCandidate {
+                seq: index as u64 + 1,
+                session_id: self.session_id.clone(),
+                label: transcript_candidate_label(entry),
+                bytes: transcript_candidate_bytes(entry),
+                ui_only: matches!(entry, Entry::Status { .. } | Entry::Error { .. }),
+                streaming: matches!(
+                    entry,
+                    Entry::Agent { streaming: true, .. } | Entry::Reasoning { streaming: true, .. }
+                ),
+            })
+            .collect();
+        let selection_input = SelectionInput {
+            harness,
+            user_turn: user_turn.map(|text| UserTurnCandidate::new(&self.session_id, self.turn_count + 1, text.len())),
+            instructions,
+            pins: self.context_pins.clone(),
+            compaction_summaries: self.compaction_summaries.clone(),
+            transcript,
+            skills,
+            dropped_ids: self.context_dropped_ids.clone(),
+        };
+
+        let provider = provider_label(&self.model);
+        let (limits, mut diagnostics) = agent_context::ModelContextLimits::resolve(provider, &self.model, None, None);
+        let mut ledger = agent_context::select_context(&selection_input, limits);
+        diagnostics.extend(
+            self.context_diagnostics
+                .iter()
+                .map(|diagnostic| agent_context::ContextDiagnostic {
+                    severity: match diagnostic.severity {
+                        crate::context::InstructionSeverity::Info => agent_context::DiagnosticSeverity::Info,
+                        crate::context::InstructionSeverity::Warning => agent_context::DiagnosticSeverity::Warning,
+                        crate::context::InstructionSeverity::Error => agent_context::DiagnosticSeverity::Error,
+                    },
+                    code: "instruction_discovery".to_string(),
+                    message: diagnostic.summary(),
+                }),
+        );
+        ledger.diagnostics.extend(diagnostics);
+        self.context_ledger = Some(ledger.clone());
+        ledger
+    }
+
+    /// Open the bounded context inspection surface.
+    pub fn open_context_surface(&mut self) {
+        self.refresh_context_ledger(None);
+        self.prompt_accessory = PromptAccessory::Context;
+        self.input.clear();
+    }
+
+    fn pin_context_reference(&mut self, reference: &str) -> Result<(), String> {
+        self.ensure_context_ledger();
+        let (candidate, item) = if let Some(item) = self.context_item(reference)? {
+            if item.kind == ContextItemKind::Harness {
+                return Err("harness context is always loaded and cannot be pinned".to_string());
+            }
+            (
+                PinnedCandidate {
+                    id: item.id.clone(),
+                    kind: item.kind.clone(),
+                    label: item.label.clone(),
+                    source_path: item.source_path.clone(),
+                    scope: item.scope.clone(),
+                    content_hash: item.content_hash,
+                    bytes: item.byte_count,
+                },
+                item.clone(),
+            )
+        } else {
+            let path = self.resolve_context_path(reference)?;
+            let candidate = PinnedCandidate::file(ContextItemKind::PinnedFile, path.clone(), ".", file_size(&path));
+            let item = agent_context::ContextItem {
+                id: candidate.id.clone(),
+                kind: candidate.kind.clone(),
+                label: candidate.label.clone(),
+                source_path: candidate.source_path.clone(),
+                scope: candidate.scope.clone(),
+                content_hash: candidate.content_hash,
+                byte_count: candidate.bytes,
+                content: None,
+                token_estimate: agent_context::estimate_tokens(candidate.bytes),
+                visibility: ContextVisibility::Pinned,
+                reason: "user pin".to_string(),
+            };
+            (candidate, item)
+        };
+        if self.context_pins.iter().any(|pin| pin.id == candidate.id) {
+            return Err(format!(
+                "context item `{}` is already pinned",
+                redact_context_display(&candidate.id)
+            ));
+        }
+        if let Some(writer) = self.session_writer.as_mut() {
+            writer
+                .append_context_pin(&item, "user pinned context item")
+                .map_err(|error| format!("failed to record context pin: {error}"))?;
+        }
+        self.context_pins.push(candidate);
+        self.refresh_context_ledger(None);
+        Ok(())
+    }
+
+    fn drop_context_reference(&mut self, reference: &str) -> Result<(), String> {
+        self.ensure_context_ledger();
+        let item = self
+            .context_item(reference)?
+            .ok_or_else(|| format!("unknown context item `{}`", redact_context_display(reference)))?
+            .clone();
+        if item.kind == ContextItemKind::Harness {
+            return Err("harness context cannot be dropped".to_string());
+        }
+        if self.context_dropped_ids.iter().any(|id| id == &item.id) {
+            return Err(format!(
+                "context item `{}` is already dropped",
+                redact_context_display(&item.id)
+            ));
+        }
+        if let Some(writer) = self.session_writer.as_mut() {
+            writer
+                .append_context_drop(&item, "user dropped context item")
+                .map_err(|error| format!("failed to record context drop: {error}"))?;
+        }
+        self.context_dropped_ids.push(item.id);
+        self.refresh_context_ledger(None);
+        Ok(())
+    }
+
+    fn recover_context_reference(&mut self, reference: &str) -> Result<(), String> {
+        self.ensure_context_ledger();
+        let item = self
+            .context_item(reference)?
+            .ok_or_else(|| format!("unknown context item `{}`", redact_context_display(reference)))?
+            .clone();
+        if item.kind == ContextItemKind::Harness {
+            return Err("harness context is always available and needs no recovery".to_string());
+        }
+        let was_dropped = self.context_dropped_ids.iter().any(|id| id == &item.id);
+        let needs_pin = !item.visibility.is_rendered();
+        if !was_dropped && !needs_pin {
+            return Err(format!(
+                "context item `{}` is already active",
+                redact_context_display(&item.id)
+            ));
+        }
+        if let Some(writer) = self.session_writer.as_mut() {
+            writer
+                .append_context_recovery(&item, "user recovered context item")
+                .map_err(|error| format!("failed to record context recovery: {error}"))?;
+        }
+        self.context_dropped_ids.retain(|id| id != &item.id);
+        if needs_pin && !self.context_pins.iter().any(|pin| pin.id == item.id) {
+            self.context_pins.push(PinnedCandidate {
+                id: item.id.clone(),
+                kind: item.kind.clone(),
+                label: item.label.clone(),
+                source_path: item.source_path.clone(),
+                scope: item.scope.clone(),
+                content_hash: item.content_hash,
+                bytes: item.byte_count,
+            });
+        }
+        self.refresh_context_ledger(None);
+        Ok(())
+    }
+
+    fn reset_context_drops(&mut self) -> Result<(), String> {
+        if self.context_dropped_ids.is_empty() {
+            return Err("no dropped context items to reset".to_string());
+        }
+        self.context_dropped_ids.clear();
+        self.refresh_context_ledger(None);
+        Ok(())
+    }
+
+    fn ensure_context_ledger(&mut self) {
+        if self.context_ledger.is_none() {
+            self.refresh_context_ledger(None);
+        }
+    }
+
+    pub fn restore_context_state(&mut self, records: &[session::SessionRecord]) {
+        self.context_pins.clear();
+        self.context_dropped_ids.clear();
+        self.compaction_summaries.clear();
+        self.last_compaction_review = None;
+        for record in records {
+            match record {
+                session::SessionRecord::ContextPin { item, .. } => {
+                    if item.kind != ContextItemKind::Harness && !self.context_pins.iter().any(|pin| pin.id == item.id) {
+                        self.context_pins.push(pinned_candidate_from_meta(item));
+                    }
+                }
+                session::SessionRecord::ContextDrop { item, .. } => {
+                    if !self.context_dropped_ids.iter().any(|id| id == &item.id) {
+                        self.context_dropped_ids.push(item.id.clone());
+                    }
+                }
+                session::SessionRecord::ContextRecovery { item, .. } => {
+                    self.context_dropped_ids.retain(|id| id != &item.id);
+                    if item.kind != ContextItemKind::Harness
+                        && !item.visibility.is_rendered()
+                        && !self.context_pins.iter().any(|pin| pin.id == item.id)
+                    {
+                        self.context_pins.push(pinned_candidate_from_meta(item));
+                    }
+                }
+                session::SessionRecord::Compaction { audit, .. } => {
+                    for candidate in &mut self.compaction_summaries {
+                        candidate.latest = false;
+                    }
+                    let mut candidate = CompactionSummaryCandidate::new(
+                        &self.session_id,
+                        audit.covered_start_seq,
+                        audit.covered_end_seq,
+                        audit.summary.len(),
+                        true,
+                    );
+                    candidate.content = Some(audit.summary.clone());
+                    self.compaction_summaries.push(candidate);
+                    self.last_compaction_review = audit.review;
+                }
+                session::SessionRecord::CompactionReview { review, .. } => {
+                    self.last_compaction_review = Some(*review);
+                }
+                _ => {}
+            }
+        }
+        self.context_ledger = None;
+    }
+
+    fn context_item(&self, reference: &str) -> Result<Option<&agent_context::ContextItem>, String> {
+        let Some(ledger) = &self.context_ledger else {
+            return Ok(None);
+        };
+        let matches = ledger
+            .items
+            .iter()
+            .filter(|item| item.id == reference || item.id.starts_with(reference))
+            .collect::<Vec<_>>();
+        match matches.as_slice() {
+            [] => Ok(None),
+            [item] => Ok(Some(item)),
+            _ => Err(format!("context reference `{reference}` is ambiguous")),
+        }
+    }
+
+    fn resolve_context_path(&self, value: &str) -> Result<PathBuf, String> {
+        let path = Path::new(value);
+        let path = if path.is_absolute() { path.to_path_buf() } else { self.cwd.join(path) };
+        let canonical = path
+            .canonicalize()
+            .map_err(|error| format!("cannot pin `{}`: {error}", redact_context_display(value)))?;
+        if !canonical.starts_with(&self.cwd) {
+            return Err("context pins must stay inside the workspace".to_string());
+        }
+        if !canonical.is_file() {
+            return Err(format!("context pin is not a file: {}", redact_context_display(value)));
+        }
+        Ok(canonical)
+    }
+}
+pub const CONTEXT_INSPECTION_MAX_ITEMS: usize = 64;
+const CONTEXT_DISPLAY_MAX_BYTES: usize = 160;
+
+fn transcript_candidate_label(entry: &Entry) -> String {
+    match entry {
+        Entry::User { .. } => "user".to_string(),
+        Entry::Agent { .. } => "assistant".to_string(),
+        Entry::Reasoning { .. } => "reasoning".to_string(),
+        Entry::Tool { name, .. } => format!("tool:{name}"),
+        Entry::Status { .. } => "status".to_string(),
+        Entry::Error { .. } => "error".to_string(),
+    }
+}
+
+fn pinned_candidate_from_meta(item: &session::ContextItemMeta) -> PinnedCandidate {
+    PinnedCandidate {
+        id: item.id.clone(),
+        kind: item.kind.clone(),
+        label: item.source_path.clone().unwrap_or_else(|| item.id.clone()),
+        source_path: item.source_path.clone().map(PathBuf::from),
+        scope: item.scope.clone().unwrap_or_else(|| ".".to_string()),
+        content_hash: item.content_hash,
+        bytes: item.byte_count,
+    }
+}
+
+fn transcript_candidate_bytes(entry: &Entry) -> usize {
+    match entry {
+        Entry::User { text }
+        | Entry::Agent { text, .. }
+        | Entry::Reasoning { text, .. }
+        | Entry::Status { text }
+        | Entry::Error { text } => text.len(),
+        Entry::Tool { name, arguments, output, .. } => {
+            name.len() + arguments.len() + output.iter().map(String::len).sum::<usize>()
+        }
+    }
+}
+
+fn file_size(path: &Path) -> usize {
+    std::fs::metadata(path)
+        .map(|metadata| metadata.len().min(usize::MAX as u64) as usize)
+        .unwrap_or(0)
+}
+
+fn redact_context_display(value: &str) -> String {
+    let redacted = tools::shell::redact_secrets(value);
+    utils::truncate_ellipsis(&redacted, CONTEXT_DISPLAY_MAX_BYTES)
+}
+
+pub fn compaction_mode_label(app: &App) -> &'static str {
+    app.effective_compaction_policy().mode.label()
+}
+
+/// Start an automatic compaction triggered by preflight context pressure.
+///
+/// `original_user_turn` is the user turn that was about to be sent to the
+/// provider; it is restarted after the summary is applied. The user turn is
+/// already in the transcript, so the covered range starts from sequence 1.
+///
+/// Returns `None` (without spawning) when compaction cannot start, leaving
+/// the submitted turn recoverable.
+pub fn start_auto_compaction(app: &mut App, original_user_turn: String) -> Option<Msg> {
+    start_compaction(app, session::CompactionTrigger::Automatic, Some(original_user_turn))
+}
+
+/// Shared core for manual and automatic compaction.
+///
+/// Saves the active transcript, builds a configured-model summary request,
+/// submits it as the turn to run, and records enough state to atomically
+/// replace active context on success or restore it on failure.
+pub fn start_compaction(
+    app: &mut App, trigger: session::CompactionTrigger, original_user_turn: Option<String>,
+) -> Option<Msg> {
+    let original_transcript = app.transcript.clone();
+    let source = render_compaction_source(&original_transcript);
+    let policy = app.effective_compaction_policy();
+    let covered_start_seq = 1;
+    let covered_end_seq = app
+        .session_writer
+        .as_ref()
+        .map_or(0, |writer| writer.next_sequence().saturating_sub(1));
+    let recovery_handle = format!("session:{}:{covered_start_seq}..{covered_end_seq}", app.session_id);
+    let request = match agent_context::prepare_manual_compaction(policy, &app.model, &source, &recovery_handle) {
+        Ok(request) => request,
+        Err(message) => {
+            app.transcript.push(Entry::Error { text: message });
+            if trigger == session::CompactionTrigger::Automatic
+                && let Some(turn) = original_user_turn
+            {
+                app.last_input = Some(turn);
+            }
+            return None;
+        }
+    };
+
+    let started = match super::input::submit_user_turn(app, request.prompt) {
+        Some(msg) => msg,
+        None => {
+            app.transcript = original_transcript;
+            if trigger == session::CompactionTrigger::Automatic
+                && let Some(turn) = original_user_turn
+            {
+                app.last_input = Some(turn);
+            }
+            return None;
+        }
+    };
+    app.pending_manual_compaction = Some(PendingManualCompaction {
+        original_transcript,
+        covered_start_seq,
+        covered_end_seq,
+        recovery_handle,
+        trigger,
+        original_user_turn,
+    });
+    Some(started)
+}
+
+/// Render active transcript material for the configured compaction model.
+fn render_compaction_source(entries: &[Entry]) -> String {
+    entries
+        .iter()
+        .map(|entry| match entry {
+            Entry::User { text } => format!("user: {text}"),
+            Entry::Agent { text, .. } => format!("assistant: {text}"),
+            Entry::Reasoning { text, .. } => format!("reasoning: {text}"),
+            Entry::Tool { name, arguments, output, .. } => {
+                format!("tool {name} {arguments}: {}", output.join("\n"))
+            }
+            Entry::Status { text } => format!("status: {text}"),
+            Entry::Error { text } => format!("error: {text}"),
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+// FIXME: wrapping an option in an option is awful
+pub fn finish_manual_compaction(app: &mut App) -> Option<Option<Msg>> {
+    let pending = app.pending_manual_compaction.take()?;
+    let summary = app.transcript.iter().rev().find_map(|entry| match entry {
+        Entry::Agent { text, .. } if !text.trim().is_empty() => Some(text.clone()),
+        _ => None,
+    });
+    let Some(summary) = summary else {
+        restore_failed_compaction(app, pending);
+        app.transcript
+            .push(Entry::Error { text: "compaction model returned no summary".to_string() });
+        return Some(None);
+    };
+
+    let risk = classify_compaction_risk(&pending.original_transcript);
+    let review = if app.effective_compaction_policy().requires_review(match risk {
+        session::CompactionRisk::Low => agent_context::CompactionRisk::Low,
+        session::CompactionRisk::High => agent_context::CompactionRisk::High,
+    }) {
+        session::CompactionReviewResult::Pending
+    } else {
+        session::CompactionReviewResult::NotRequired
+    };
+    let audit = session::CompactionAudit {
+        summary: summary.clone(),
+        covered_start_seq: pending.covered_start_seq,
+        covered_end_seq: pending.covered_end_seq,
+        source_hashes: Vec::new(),
+        trigger: pending.trigger,
+        risk,
+        review: Some(review),
+        recovery_handles: vec![pending.recovery_handle.clone()],
+        model: app.model.clone(),
+        usage: None,
+    };
+    if let Some(writer) = app.session_writer.as_mut()
+        && let Err(error) = writer.append_compaction(&audit)
+    {
+        restore_failed_compaction(app, pending);
+        app.transcript
+            .push(Entry::Error { text: format!("failed to record compaction audit: {error}") });
+        return Some(None);
+    }
+
+    match review {
+        session::CompactionReviewResult::Pending => {
+            let recovery_handle = pending.recovery_handle.clone();
+            let saved_pending = pending.clone();
+            restore_failed_compaction(app, saved_pending);
+            app.pending_compaction_review = Some(PendingCompactionReview { pending, summary });
+            app.last_compaction_review = Some(review);
+            app.transcript
+                .push(Entry::Status { text: format!("compaction review pending  {recovery_handle}") });
+            Some(None)
+        }
+        _ => {
+            app.last_compaction_review = Some(review);
+            apply_compaction(app, pending, summary)
+        }
+    }
+}
+
+/// Apply an approved or review-free summary to the active working set.
+/// FIXME: wrapping an option in an option is awful
+pub fn apply_compaction(app: &mut App, pending: PendingManualCompaction, summary: String) -> Option<Option<Msg>> {
+    let is_automatic = pending.trigger == session::CompactionTrigger::Automatic;
+    let original_user_turn = pending.original_user_turn.clone();
+    for candidate in &mut app.compaction_summaries {
+        candidate.latest = false;
+    }
+    let mut summary_candidate = CompactionSummaryCandidate::new(
+        &app.session_id,
+        pending.covered_start_seq,
+        pending.covered_end_seq,
+        summary.len(),
+        true,
+    );
+    summary_candidate.content = Some(summary.clone());
+    app.compaction_summaries.push(summary_candidate);
+
+    if is_automatic {
+        app.transcript.clear();
+    } else {
+        app.transcript = pending.original_transcript;
+        app.transcript
+            .push(Entry::Status { text: format!("compacted  {}", pending.recovery_handle) });
+    }
+    let summary_entry = Entry::Agent { text: summary, streaming: false };
+    app.transcript.push(summary_entry.clone());
+    if let Some(writer) = app.session_writer.as_mut() {
+        let turn_id = format!("turn_{}", app.turn_count);
+        let _ = writer.append_entry(&summary_entry, &turn_id);
+    }
+    if is_automatic {
+        app.transcript
+            .push(Entry::Status { text: format!("auto-compacted  {}", pending.recovery_handle) });
+        if let Some(turn) = original_user_turn {
+            return Some(super::input::submit_user_turn(app, turn));
+        }
+    }
+    Some(None)
+}
+
+/// Restore active context when a compaction request fails or cannot complete.
+///
+/// For automatic compaction, the submitted user turn is preserved by restoring
+/// `last_input` so the user can resubmit or edit it. For manual compaction,
+/// only the transcript is restored.
+pub fn restore_failed_manual_compaction(app: &mut App) -> bool {
+    match app.pending_manual_compaction.take() {
+        Some(pending) => {
+            restore_failed_compaction(app, pending);
+            true
+        }
+        None => false,
+    }
+}
+
+/// Restore the saved transcript and, for automatic compaction, the submitted
+/// user turn.
+pub fn restore_failed_compaction(app: &mut App, pending: PendingManualCompaction) {
+    app.transcript = pending.original_transcript;
+    if pending.trigger == session::CompactionTrigger::Automatic
+        && let Some(turn) = pending.original_user_turn
+    {
+        app.last_input = Some(turn);
+    }
+}
+
+/// Map transcript signals to the durable compaction-risk classification.
+fn classify_compaction_risk(entries: &[Entry]) -> CompactionRisk {
+    let signals = agent_context::CompactionRiskSignals {
+        has_tool_output_or_diff: entries.iter().any(|entry| matches!(entry, Entry::Tool { .. })),
+        has_failure_or_permission: entries.iter().any(|entry| matches!(entry, Entry::Error { .. })),
+        has_correction_or_unresolved_work: entries.iter().any(
+            |entry| matches!(entry, Entry::Status { text } if text.contains("permission") || text.contains("failed")),
+        ),
+    };
+    match signals.classify() {
+        agent_context::CompactionRisk::Low => session::CompactionRisk::Low,
+        agent_context::CompactionRisk::High => session::CompactionRisk::High,
+    }
+}
+
+pub fn run_doctor_slash(app: &mut App) {
+    app.refresh_context_ledger(None);
+    let Some(ledger) = app.context_ledger.as_ref() else {
+        app.transcript
+            .push(Entry::Error { text: "context health is unavailable".to_string() });
+        return;
+    };
+    let counts = ledger.counts();
+    let review = app.last_compaction_review.map(|a| a.label()).unwrap_or("none");
+    app.transcript.push(Entry::Status {
+        text: format!(
+            "thndrs doctor (context health)\nsources: {} ({} discovery diagnostics)\npins: {} dropped: {}\nbudget: {} / {} used, {} available, {} auto threshold\nlimits: {} ({})\ncompaction: {} review {}",
+            app.context_sources.len(),
+            app.context_diagnostics.len(),
+            counts.pinned,
+            counts.dropped,
+            ledger.budget.used,
+            ledger.budget.target,
+            ledger.budget.available_input,
+            ledger.budget.auto_compaction_threshold,
+            ledger.budget.limits.source.label(),
+            ledger.budget.limits.confidence.label(),
+            compaction_mode_label(app),
+            review,
+        ),
+    });
+}
+
+pub fn handle_context_command(app: &mut App, command: &str) -> Option<Msg> {
+    let Some((action, reference)) = command.split_once(' ') else {
+        return match command {
+            "show" => {
+                app.open_context_surface();
+                None
+            }
+            "drop --reset" => {
+                match app.reset_context_drops() {
+                    Ok(()) => app.input.clear(),
+                    Err(error) => app.transcript.push(Entry::Error { text: error }),
+                }
+                None
+            }
+            "review" => {
+                let state = app.last_compaction_review.map(|a| a.label()).unwrap_or("none");
+                app.transcript
+                    .push(Entry::Status { text: format!("compaction review: {state}") });
+                app.input.clear();
+                None
+            }
+            "pin" | "drop" | "recover" => {
+                app.transcript
+                    .push(Entry::Error { text: format!("usage: /context {command} <id-or-path>") });
+                None
+            }
+            _ => {
+                app.transcript
+                    .push(Entry::Error { text: "usage: /context [show|pin|drop|recover|review]".to_string() });
+                None
+            }
+        };
+    };
+
+    let result = match action {
+        "pin" => app.pin_context_reference(reference.trim()),
+        "drop" if reference.trim() == "--reset" => app.reset_context_drops(),
+        "drop" => app.drop_context_reference(reference.trim()),
+        "recover" => app.recover_context_reference(reference.trim()),
+        "review" => return handle_context_review(app, reference.trim()),
+        _ => Err("usage: /context [show|pin|drop|recover|review]".to_string()),
+    };
+    match result {
+        Ok(()) => {
+            app.input.clear();
+            if matches!(action, "pin" | "drop" | "recover") {
+                app.prompt_accessory = PromptAccessory::Context;
+            }
+        }
+        Err(error) => app.transcript.push(Entry::Error { text: error }),
+    }
+    None
+}
+
+fn handle_context_review(app: &mut App, action: &str) -> Option<Msg> {
+    let Some(pending) = app.pending_compaction_review.as_ref() else {
+        app.transcript
+            .push(Entry::Error { text: "no compaction summary is awaiting review".to_string() });
+        return None;
+    };
+    let review = match action {
+        "approve" => session::CompactionReviewResult::Approved,
+        "reject" => session::CompactionReviewResult::Rejected,
+        _ => {
+            app.transcript
+                .push(Entry::Error { text: "usage: /context review <approve|reject>".to_string() });
+            return None;
+        }
+    };
+    if let Some(writer) = app.session_writer.as_mut()
+        && let Err(error) = writer.append_compaction_review(&pending.pending.recovery_handle, review)
+    {
+        app.transcript
+            .push(Entry::Error { text: format!("failed to record compaction review: {error}") });
+        return None;
+    }
+    let pending = app
+        .pending_compaction_review
+        .take()
+        .expect("review state checked above");
+    app.last_compaction_review = Some(review);
+    app.input.clear();
+    if review == session::CompactionReviewResult::Rejected {
+        let recovery_handle = pending.pending.recovery_handle.clone();
+        let original_user_turn = pending.pending.original_user_turn.clone();
+        restore_failed_compaction(app, pending.pending);
+        if let Some(turn) = original_user_turn {
+            app.input.set_text(&turn);
+        }
+        app.transcript
+            .push(Entry::Status { text: format!("compaction rejected  {recovery_handle}") });
+        return None;
+    }
+    apply_compaction(app, pending.pending, pending.summary).flatten()
+}

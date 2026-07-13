@@ -1,11 +1,15 @@
 //! Slash-command routing and command output projection.
 //!
-//! This module handles text entered after `/` or `:`. It dispatches session,
-//! context, setup/auth, model, skill, MCP, background-process, and quit
-//! commands, and appends their redacted status or error output to the
-//! transcript. Commands that need another agent turn return a [`Msg`].
+//! This module handles text entered after `/` or `:`.
+//!
+//! It dispatches session, context, setup/auth, model, skill, MCP,
+//! background-process, and quit commands, and appends their redacted
+//! status  or error output to the transcript.
+//!
+//! Commands that need another agent turn return a [`Msg`].
 
 use super::*;
+use crate::{cli::commands::config::ConfigCommand, mcp};
 
 /// Route a slash command (the part after `/` or the text after `:`).
 pub fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
@@ -55,15 +59,15 @@ pub fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
         return None;
     }
     if let Some(rest) = command.strip_prefix("context ") {
-        return handle_context_command(app, rest.trim());
+        return super::context::handle_context_command(app, rest.trim());
     }
     if let Some((action, rest)) = command.split_once(' ')
         && matches!(action, "pin" | "drop" | "recover")
     {
-        return handle_context_command(app, &format!("{action} {rest}"));
+        return super::context::handle_context_command(app, &format!("{action} {rest}"));
     }
     if matches!(command, "pin" | "drop" | "recover") {
-        return handle_context_command(app, command);
+        return super::context::handle_context_command(app, command);
     }
 
     if command == "mcp" {
@@ -111,7 +115,7 @@ pub fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
     }
 
     match command {
-        "compact" => start_manual_compaction(app),
+        "compact" => super::context::start_compaction(app, session::CompactionTrigger::Manual, None),
         "clear" => {
             app.transcript.clear();
             app.input.clear();
@@ -145,7 +149,7 @@ pub fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
             None
         }
         "doctor" => {
-            run_doctor_slash(app);
+            super::context::run_doctor_slash(app);
             app.input.clear();
             None
         }
@@ -201,6 +205,7 @@ pub fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
         _ => None,
     }
 }
+
 pub fn command_suggestions_for_app(app: &App) -> Vec<(&'static str, &'static str)> {
     let query = super::input::command_query(app);
     let commands = [
@@ -230,6 +235,29 @@ pub fn command_suggestions_for_app(app: &App) -> Vec<(&'static str, &'static str
         .filter(|(cmd, _)| cmd.starts_with(&query))
         .collect()
 }
+
+/// Handle a slash command submitted while the agent is working.
+///
+/// Safe commands (`quit`, `exit`, `help`, `bg`) execute immediately.
+///
+/// Commands that mutate idle-only UI state are rejected instead of being queued as text.
+///
+/// Prefix with `//` to queue a literal slash-prefixed follow-up.
+pub fn handle_running_command(app: &mut App, command: &str) -> Option<Msg> {
+    let is_read_only = matches!(command, "quit" | "exit" | "help" | "bg")
+        || matches!(command, "history" | "tokens" | "debug log")
+        || matches!(command, "context" | "context show" | "doctor")
+        || command.starts_with("session ")
+        || command.starts_with("debug log ");
+    if is_read_only {
+        return handle_command(app, command);
+    }
+    app.transcript.push(Entry::Status {
+        text: format!("/{command} is not available while the agent is working; use //{command} to queue it as text"),
+    });
+    None
+}
+
 fn parse_api_key_provider(input: &str) -> Option<SetupProviderArg> {
     match input {
         "umans" => Some(SetupProviderArg::Umans),
@@ -273,143 +301,13 @@ fn is_api_key_like(value: &str) -> bool {
             && value.chars().any(|ch| ch.is_ascii_alphabetic()))
 }
 
-fn run_doctor_slash(app: &mut App) {
-    app.refresh_context_ledger(None);
-    let Some(ledger) = app.context_ledger.as_ref() else {
-        app.transcript
-            .push(Entry::Error { text: "context health is unavailable".to_string() });
-        return;
-    };
-    let counts = ledger.counts();
-    let review = app
-        .last_compaction_review
-        .map(compaction_review_label)
-        .unwrap_or("none");
-    app.transcript.push(Entry::Status {
-        text: format!(
-            "thndrs doctor (context health)\nsources: {} ({} discovery diagnostics)\npins: {} dropped: {}\nbudget: {} / {} used, {} available, {} auto threshold\nlimits: {} ({})\ncompaction: {} review {}",
-            app.context_sources.len(),
-            app.context_diagnostics.len(),
-            counts.pinned,
-            counts.dropped,
-            ledger.budget.used,
-            ledger.budget.target,
-            ledger.budget.available_input,
-            ledger.budget.auto_compaction_threshold,
-            ledger.budget.limits.source.label(),
-            ledger.budget.limits.confidence.label(),
-            compaction_mode_label(app),
-            review,
-        ),
-    });
-}
-
-fn handle_context_command(app: &mut App, command: &str) -> Option<Msg> {
-    let Some((action, reference)) = command.split_once(' ') else {
-        return match command {
-            "show" => {
-                app.open_context_surface();
-                None
-            }
-            "drop --reset" => {
-                match app.reset_context_drops() {
-                    Ok(()) => app.input.clear(),
-                    Err(error) => app.transcript.push(Entry::Error { text: error }),
-                }
-                None
-            }
-            "review" => {
-                let state = app
-                    .last_compaction_review
-                    .map(compaction_review_label)
-                    .unwrap_or("none");
-                app.transcript
-                    .push(Entry::Status { text: format!("compaction review: {state}") });
-                app.input.clear();
-                None
-            }
-            "pin" | "drop" | "recover" => {
-                app.transcript
-                    .push(Entry::Error { text: format!("usage: /context {command} <id-or-path>") });
-                None
-            }
-            _ => {
-                app.transcript
-                    .push(Entry::Error { text: "usage: /context [show|pin|drop|recover|review]".to_string() });
-                None
-            }
-        };
-    };
-
-    let result = match action {
-        "pin" => app.pin_context_reference(reference.trim()),
-        "drop" if reference.trim() == "--reset" => app.reset_context_drops(),
-        "drop" => app.drop_context_reference(reference.trim()),
-        "recover" => app.recover_context_reference(reference.trim()),
-        "review" => return handle_context_review(app, reference.trim()),
-        _ => Err("usage: /context [show|pin|drop|recover|review]".to_string()),
-    };
-    match result {
-        Ok(()) => {
-            app.input.clear();
-            if matches!(action, "pin" | "drop" | "recover") {
-                app.prompt_accessory = PromptAccessory::Context;
-            }
-        }
-        Err(error) => app.transcript.push(Entry::Error { text: error }),
-    }
-    None
-}
-
-fn handle_context_review(app: &mut App, action: &str) -> Option<Msg> {
-    let Some(pending) = app.pending_compaction_review.as_ref() else {
-        app.transcript
-            .push(Entry::Error { text: "no compaction summary is awaiting review".to_string() });
-        return None;
-    };
-    let review = match action {
-        "approve" => session::CompactionReviewResult::Approved,
-        "reject" => session::CompactionReviewResult::Rejected,
-        _ => {
-            app.transcript
-                .push(Entry::Error { text: "usage: /context review <approve|reject>".to_string() });
-            return None;
-        }
-    };
-    if let Some(writer) = app.session_writer.as_mut()
-        && let Err(error) = writer.append_compaction_review(&pending.pending.recovery_handle, review)
-    {
-        app.transcript
-            .push(Entry::Error { text: format!("failed to record compaction review: {error}") });
-        return None;
-    }
-    let pending = app
-        .pending_compaction_review
-        .take()
-        .expect("review state checked above");
-    app.last_compaction_review = Some(review);
-    app.input.clear();
-    if review == session::CompactionReviewResult::Rejected {
-        let recovery_handle = pending.pending.recovery_handle.clone();
-        let original_user_turn = pending.pending.original_user_turn.clone();
-        restore_failed_compaction(app, pending.pending);
-        if let Some(turn) = original_user_turn {
-            app.input.set_text(&turn);
-        }
-        app.transcript
-            .push(Entry::Status { text: format!("compaction rejected  {recovery_handle}") });
-        return None;
-    }
-    apply_compaction(app, pending.pending, pending.summary).flatten()
-}
-
 fn run_auth_status_slash(app: &mut App) {
     let mut output = Vec::new();
     let result = crate::cli::commands::auth::write_auth_status(&app.cwd, &mut output);
     push_command_output(app, "auth status", &output, result);
 }
 
-fn run_config_slash(app: &mut App, command: &crate::cli::commands::config::ConfigCommand) {
+fn run_config_slash(app: &mut App, command: &ConfigCommand) {
     let mut output = Vec::new();
     let result = crate::cli::commands::config::run_with_writer(&app.cli, command, &mut output);
     push_command_output(app, "config", &output, result);
@@ -426,22 +324,236 @@ fn push_command_output(app: &mut App, label: &str, output: &[u8], result: std::i
     }
 }
 
-/// Handle a slash command submitted while the agent is working.
-///
-/// Safe commands (`quit`, `exit`, `help`, `bg`) execute immediately. Commands
-/// that mutate idle-only UI state are rejected instead of being queued as text.
-/// Prefix with `//` to queue a literal slash-prefixed follow-up.
-pub fn handle_running_command(app: &mut App, command: &str) -> Option<Msg> {
-    let is_read_only = matches!(command, "quit" | "exit" | "help" | "bg")
-        || matches!(command, "history" | "tokens" | "debug log")
-        || matches!(command, "context" | "context show" | "doctor")
-        || command.starts_with("session ")
-        || command.starts_with("debug log ");
-    if is_read_only {
-        return handle_command(app, command);
+fn run_history_command(app: &mut App) -> Option<Msg> {
+    let dir = app.session_directory();
+    let files = session::list_session_files(&dir);
+    if files.is_empty() {
+        app.transcript
+            .push(Entry::Status { text: String::from("no sessions found") });
+    } else {
+        let rows = files
+            .into_iter()
+            .take(20)
+            .map(|path| {
+                let id = path.file_stem().and_then(|stem| stem.to_str()).unwrap_or("session");
+                let summary = session::SessionReader::read_summary(&path);
+                format!(
+                    "{id}\t{}\t{}\tin {} out {}",
+                    summary.title, summary.model, summary.input_tokens, summary.output_tokens
+                )
+            })
+            .collect::<Vec<_>>();
+        app.transcript
+            .push(Entry::Status { text: format!("sessions:\n{}", rows.join("\n")) });
     }
-    app.transcript.push(Entry::Status {
-        text: format!("/{command} is not available while the agent is working; use //{command} to queue it as text"),
-    });
+    app.input.clear();
     None
+}
+
+fn show_session_command(app: &mut App, session_id: &str) -> Option<Msg> {
+    let path = match session::resolve_session_file(&app.session_directory(), session_id) {
+        Ok(path) => path,
+        Err(error) => {
+            app.transcript.push(Entry::Error { text: error.to_string() });
+            return None;
+        }
+    };
+    let id = path.file_stem().and_then(|stem| stem.to_str()).unwrap_or(session_id);
+    let summary = session::SessionReader::read_summary(&path);
+    app.transcript.push(Entry::Status {
+        text: format!(
+            "session: {id}\ntitle: {}\nmodel: {}\ntokens: in {} out {}\npath: {}",
+            summary.title,
+            summary.model,
+            summary.input_tokens,
+            summary.output_tokens,
+            path.display()
+        ),
+    });
+    app.input.clear();
+    None
+}
+
+fn resume_session_command(app: &mut App, session_id: &str) -> Option<Msg> {
+    let path = match session::resolve_session_file(&app.session_directory(), session_id) {
+        Ok(path) => path,
+        Err(error) => {
+            app.transcript.push(Entry::Error { text: error.to_string() });
+            return None;
+        }
+    };
+    let id = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or(session_id)
+        .to_string();
+    if id == app.session_id {
+        app.transcript
+            .push(Entry::Error { text: String::from("the current session is already active") });
+        return None;
+    }
+    let writer = match session::SessionWriter::resume(&path, &id) {
+        Ok(writer) => writer,
+        Err(error) => {
+            app.transcript
+                .push(Entry::Error { text: format!("cannot resume session `{id}`: {error}") });
+            return None;
+        }
+    };
+    let summary = session::SessionReader::read_summary(&path);
+    let transcript = session::SessionReader::read_transcript(&path);
+    let records = session::SessionReader::read_records(&path);
+    let turn_count = records
+        .iter()
+        .filter(|record| matches!(record, session::SessionRecord::User { .. }))
+        .count() as u64;
+
+    app.session_writer = Some(writer);
+    app.session_id = id.clone();
+    app.transcript = transcript;
+    app.restore_context_state(&records);
+    app.session_tokens_in = summary.input_tokens;
+    app.session_tokens_out = summary.output_tokens;
+    app.turn_count = turn_count;
+    app.last_input = None;
+    app.pending_manual_compaction = None;
+    app.queued_steering.clear();
+    app.queued_followups.clear();
+    app.pending_permission = None;
+    app.run_state = RunState::Idle;
+    app.input.clear();
+    app.history_cursor = None;
+    app.history_draft.clear();
+    app.transcript
+        .push(Entry::Status { text: format!("resumed session: {id}") });
+    None
+}
+
+fn read_session_log_command(app: &mut App, requested_session_id: Option<&str>) -> Option<Msg> {
+    let id = match requested_session_id {
+        Some(query) => match session::resolve_session_file(&app.session_directory(), query) {
+            Ok(path) => path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or(query)
+                .to_string(),
+            Err(error) => {
+                app.transcript.push(Entry::Error { text: error.to_string() });
+                return None;
+            }
+        },
+        None => app.session_id.clone(),
+    };
+    let path = app
+        .cwd
+        .join(".thndrs")
+        .join("logs")
+        .join("sessions")
+        .join(format!("thndrs-{id}.log"));
+    let lines = session::read_redacted_log_tail(&path, 100);
+    if lines.is_empty() {
+        app.transcript
+            .push(Entry::Error { text: format!("debug log `{}` is empty or missing", path.display()) });
+        return None;
+    }
+    app.transcript
+        .push(Entry::Status { text: format!("debug log {id}:\n{}", lines.join("\n")) });
+    app.input.clear();
+    None
+}
+
+/// List background processes in the transcript.
+fn list_background_processes(app: &mut App) {
+    let bg_ids: Vec<u64> = app.process_registry.background_ids().collect();
+    if bg_ids.is_empty() {
+        app.transcript
+            .push(Entry::Status { text: String::from("no background processes") });
+    } else {
+        let lines: Vec<String> = bg_ids
+            .iter()
+            .filter_map(|id| {
+                app.process_registry.get(*id).map(|p| {
+                    let elapsed = p.elapsed().as_secs();
+                    let cmd = p.command.join(" ");
+                    format!("[{id}] {cmd} cwd={} ({elapsed}s)", p.cwd.display())
+                })
+            })
+            .collect();
+        app.transcript
+            .push(Entry::Status { text: format!("background processes:\n{}", lines.join("\n")) });
+    }
+}
+
+fn list_mcp_servers(app: &mut App) {
+    let env_vars: Vec<(String, String)> = std::env::vars().collect();
+    match mcp::config::load_effective_mcp(&app.cwd, &env_vars) {
+        Ok(effective) if effective.config.servers.is_empty() => {
+            app.transcript
+                .push(Entry::Status { text: String::from("no MCP servers configured") });
+        }
+        Ok(effective) => {
+            let mut lines = Vec::new();
+            for (name, server) in &effective.config.servers {
+                let status = if server.enabled { "enabled" } else { "disabled" };
+                lines.push(format!("{name}\t{status}\t{:?}", server.transport));
+            }
+            lines.extend(
+                effective
+                    .diagnostics
+                    .into_iter()
+                    .map(|diagnostic| format!("diagnostic: {diagnostic}")),
+            );
+            app.transcript
+                .push(Entry::Status { text: format!("MCP servers:\n{}", lines.join("\n")) });
+        }
+        Err(err) => app
+            .transcript
+            .push(Entry::Error { text: format!("failed to load MCP config: {err}") }),
+    }
+}
+
+fn list_mcp_tools(app: &mut App, name: &str) {
+    if name.is_empty() {
+        app.transcript
+            .push(Entry::Error { text: String::from("usage: /mcp tools <name>") });
+        return;
+    }
+
+    let env_vars: Vec<(String, String)> = std::env::vars().collect();
+    let effective = match mcp::config::load_effective_mcp(&app.cwd, &env_vars) {
+        Ok(effective) => effective,
+        Err(err) => {
+            app.transcript
+                .push(Entry::Error { text: format!("failed to load MCP config: {err}") });
+            return;
+        }
+    };
+    let Some(server) = effective.config.servers.get(name) else {
+        app.transcript
+            .push(Entry::Error { text: format!("MCP server `{name}` is not configured") });
+        return;
+    };
+    if !server.enabled {
+        app.transcript
+            .push(Entry::Error { text: format!("MCP server `{name}` is disabled") });
+        return;
+    }
+
+    match mcp::manager::McpClient::connect(name.to_string(), server) {
+        Ok(client) => {
+            let lines: Vec<String> = client
+                .tool_definitions()
+                .into_iter()
+                .map(|tool| format!("{}\t{}", tool.name, tool.description))
+                .collect();
+            app.transcript.push(Entry::Status {
+                text: if lines.is_empty() {
+                    format!("MCP server `{name}` exposes no tools")
+                } else {
+                    format!("MCP tools for `{name}`:\n{}", lines.join("\n"))
+                },
+            });
+        }
+        Err(err) => app.transcript.push(Entry::Error { text: err.to_string() }),
+    }
 }

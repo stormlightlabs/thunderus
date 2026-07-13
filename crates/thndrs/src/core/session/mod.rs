@@ -641,6 +641,17 @@ pub enum CompactionReviewResult {
     Rejected,
 }
 
+impl CompactionReviewResult {
+    pub fn label(self) -> &'static str {
+        match self {
+            CompactionReviewResult::NotRequired => "not-required",
+            CompactionReviewResult::Pending => "pending",
+            CompactionReviewResult::Approved => "approved",
+            CompactionReviewResult::Rejected => "rejected",
+        }
+    }
+}
+
 /// Source hash associated with a compacted input item.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct CompactionSourceHash {

@@ -212,7 +212,7 @@ fn context_surface_is_bounded_and_does_not_render_source_content() {
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
     assert_eq!(app.prompt_accessory, PromptAccessory::Context);
-    let table = app.context_table_view();
+    let table = app.render_context_table();
     let text = table
         .rows
         .iter()

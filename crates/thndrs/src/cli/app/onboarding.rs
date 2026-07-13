@@ -628,13 +628,13 @@ pub fn poll_chatgpt_oauth_on_tick(app: &mut App) {
         recovery.stage = RecoveryStage::ChatGptOAuthFailed;
         return;
     };
-    if now_or_after_deadline(app.ui_tick, oauth.expires_at_tick) {
+    if super::agent_lifecycle::now_or_after_deadline(app.ui_tick, oauth.expires_at_tick) {
         oauth.status = String::from("ChatGPT OAuth device code expired.");
         recovery.stage = RecoveryStage::ChatGptOAuthFailed;
         recovery.selected = 0;
         return;
     }
-    if !now_or_after_deadline(app.ui_tick, oauth.next_poll_tick) {
+    if !super::agent_lifecycle::now_or_after_deadline(app.ui_tick, oauth.next_poll_tick) {
         return;
     }
 
