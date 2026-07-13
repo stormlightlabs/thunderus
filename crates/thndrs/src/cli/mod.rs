@@ -274,7 +274,10 @@ pub struct Cli {
     #[arg(long, default_value = ".")]
     pub cwd: PathBuf,
     /// Model to use for completions.
-    #[arg(long, default_value = config::DEFAULT_MODEL)]
+    ///
+    /// If omitted, first-run setup asks for a provider and model before the
+    /// coding workspace becomes usable.
+    #[arg(long, default_value = "")]
     pub model: String,
     /// Web search provider policy.
     #[arg(long, value_enum, default_value = "auto")]
@@ -343,7 +346,7 @@ impl Default for Cli {
     fn default() -> Self {
         Cli {
             cwd: PathBuf::from("."),
-            model: String::from(config::DEFAULT_MODEL),
+            model: String::new(),
             websearch: WebSearchMode::Auto,
             reasoning_effort: ReasoningEffort::default(),
             reasoning_summary: ReasoningSummary::default(),
@@ -541,7 +544,7 @@ mod tests {
     fn cli_defaults_match_spec() {
         let cli = Cli::try_parse_from(["thndrs"]).expect("default parse");
         assert_eq!(cli.cwd, PathBuf::from("."));
-        assert_eq!(cli.model, "opencode/big-pickle");
+        assert!(cli.model.is_empty());
         assert_eq!(cli.websearch, WebSearchMode::Auto);
         assert_eq!(cli.tick_rate_ms, 100);
         assert!(cli.no_alt_screen);

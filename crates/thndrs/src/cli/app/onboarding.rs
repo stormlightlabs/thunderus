@@ -17,7 +17,7 @@
 use super::*;
 
 /// Focused first-run and credential recovery surface.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct FirstRunRecovery {
     /// Provider being configured or diagnosed.
     pub provider: Option<SetupProviderArg>,
@@ -33,10 +33,27 @@ pub struct FirstRunRecovery {
     pub chatgpt_oauth: Option<ChatGptOAuthRecovery>,
 }
 
+impl std::fmt::Debug for FirstRunRecovery {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("FirstRunRecovery")
+            .field("provider", &self.provider)
+            .field("stage", &self.stage)
+            .field("pending_provider_prompt", &self.pending_provider_prompt)
+            .field("selected", &self.selected)
+            .field(
+                "secret_input",
+                &if self.secret_input.is_empty() { "<empty>" } else { "[redacted]" },
+            )
+            .field("chatgpt_oauth", &self.chatgpt_oauth)
+            .finish()
+    }
+}
+
 impl FirstRunRecovery {
     pub fn missing_label(&self) -> &'static str {
         match self.stage {
-            RecoveryStage::ChooseProvider | RecoveryStage::ModelConfigScope => "none",
+            RecoveryStage::ChooseProvider | RecoveryStage::ModelSelection | RecoveryStage::ModelConfigScope => "none",
             _ => match self.provider {
                 Some(crate::cli::commands::setup::SetupProviderArg::ChatgptCodex) => "ChatGPT OAuth credential",
                 Some(provider) => provider.api_key_env_var().unwrap_or("credential"),
@@ -46,10 +63,11 @@ impl FirstRunRecovery {
     }
 
     pub fn setup(default_provider: SetupProviderArg) -> Self {
-        let selected = SetupProviderArg::ALL
-            .iter()
-            .position(|provider| *provider == default_provider)
-            .unwrap_or(0);
+        let selected = match default_provider {
+            SetupProviderArg::ChatgptCodex => 0,
+            SetupProviderArg::Umans => 1,
+            SetupProviderArg::OpencodeGo | SetupProviderArg::OpencodeZen => 2,
+        };
         Self {
             provider: Some(default_provider),
             stage: RecoveryStage::ChooseProvider,
@@ -107,6 +125,28 @@ impl FirstRunRecovery {
             chatgpt_oauth: None,
         }
     }
+
+    pub fn action_count(&self) -> usize {
+        match self.stage {
+            RecoveryStage::ChooseProvider => 3,
+            RecoveryStage::ModelSelection => self.app_model_selection_count(),
+            RecoveryStage::ModelConfigScope => 4,
+            RecoveryStage::MissingCredential => 5,
+            RecoveryStage::EnterKey => 1,
+            RecoveryStage::ConfirmStore | RecoveryStage::LogoutConfirm => 3,
+            RecoveryStage::Instructions => 2,
+            RecoveryStage::ChatGptOAuthRequesting | RecoveryStage::ChatGptOAuthPolling => 1,
+            RecoveryStage::ChatGptOAuthFailed => 2,
+            RecoveryStage::AcpMissing => 4,
+        }
+    }
+
+    fn app_model_selection_count(&self) -> usize {
+        self.provider
+            .map(setup_model_options)
+            .map(|options| options.len())
+            .unwrap_or(0)
+    }
 }
 
 /// ChatGPT OAuth state shown in the focused recovery surface.
@@ -129,6 +169,8 @@ pub enum RecoveryStage {
     ChooseProvider,
     /// Choose whether and where to persist the selected provider's default model.
     ModelConfigScope,
+    /// Choose a model after provider authentication succeeds.
+    ModelSelection,
     /// Selected provider is missing an API-key credential.
     MissingCredential,
     /// Hidden API-key entry is active.
@@ -188,13 +230,13 @@ pub fn provider_for_model(model: &str) -> SetupProviderArg {
 }
 
 pub fn provider_authenticated(provider: SetupProviderArg, cwd: &std::path::Path) -> bool {
-    if provider == SetupProviderArg::ChatgptCodex {
-        return chatgpt_codex_auth_available_locally();
+    match provider {
+        SetupProviderArg::ChatgptCodex => chatgpt_codex_auth_available_locally(),
+        _ => match provider.api_key_env_var() {
+            Some(env_var) => auth::credential_source(env_var, cwd).is_some(),
+            _ => false,
+        },
     }
-    let Some(env_var) = provider.api_key_env_var() else {
-        return false;
-    };
-    auth::credential_source(env_var, cwd).is_some()
 }
 
 pub fn chatgpt_codex_auth_available_locally() -> bool {
@@ -208,6 +250,10 @@ pub fn chatgpt_codex_auth_available_locally() -> bool {
 }
 
 pub fn selected_provider_missing(app: &App) -> Option<FirstRunRecovery> {
+    if app.model.trim().is_empty() {
+        return Some(FirstRunRecovery::setup(SetupProviderArg::ChatgptCodex));
+    }
+
     if let Some(acp_name) = crate::acp::config::parse_model_id(&app.model) {
         if app.cli.acp_agents.contains_key(acp_name) {
             return None;
@@ -220,20 +266,6 @@ pub fn selected_provider_missing(app: &App) -> Option<FirstRunRecovery> {
         Some(FirstRunRecovery::missing_provider(provider, true))
     } else {
         None
-    }
-}
-
-pub fn recovery_action_count(recovery: &FirstRunRecovery) -> usize {
-    match recovery.stage {
-        RecoveryStage::ChooseProvider => SetupProviderArg::ALL.len(),
-        RecoveryStage::ModelConfigScope => 4,
-        RecoveryStage::MissingCredential => 5,
-        RecoveryStage::EnterKey => 1,
-        RecoveryStage::ConfirmStore | RecoveryStage::LogoutConfirm => 3,
-        RecoveryStage::Instructions => 2,
-        RecoveryStage::ChatGptOAuthRequesting | RecoveryStage::ChatGptOAuthPolling => 1,
-        RecoveryStage::ChatGptOAuthFailed => 2,
-        RecoveryStage::AcpMissing => 4,
     }
 }
 
@@ -286,7 +318,7 @@ pub fn handle_first_run_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
             None
         }
         KeyCode::Down => {
-            let max = recovery_action_count(recovery).saturating_sub(1);
+            let max = recovery.action_count().saturating_sub(1);
             recovery.selected = (recovery.selected + 1).min(max);
             None
         }
@@ -300,19 +332,32 @@ pub fn accept_recovery_action(app: &mut App) -> Option<Msg> {
 
     match recovery.stage {
         RecoveryStage::ChooseProvider => {
-            let provider = SetupProviderArg::ALL
-                .get(recovery.selected)
-                .copied()
-                .unwrap_or_else(|| provider_for_model(&app.model));
+            let Some(provider) = first_run_provider(recovery.selected) else {
+                app.first_run_recovery = Some(FirstRunRecovery {
+                    provider: None,
+                    stage: RecoveryStage::Instructions,
+                    pending_provider_prompt: recovery.pending_provider_prompt,
+                    selected: 0,
+                    secret_input: String::new(),
+                    chatgpt_oauth: None,
+                });
+                return None;
+            };
+            let stage = if provider_authenticated(provider, &app.cwd) {
+                RecoveryStage::ModelSelection
+            } else {
+                RecoveryStage::MissingCredential
+            };
             app.first_run_recovery = Some(FirstRunRecovery {
                 provider: Some(provider),
-                stage: RecoveryStage::ModelConfigScope,
-                pending_provider_prompt: false,
+                stage,
+                pending_provider_prompt: recovery.pending_provider_prompt,
                 selected: 0,
                 secret_input: String::new(),
                 chatgpt_oauth: None,
             });
         }
+        RecoveryStage::ModelSelection => select_setup_model(app, &recovery),
         RecoveryStage::ModelConfigScope => configure_setup_model_scope(app, &recovery),
         RecoveryStage::MissingCredential if recovery.provider == Some(SetupProviderArg::ChatgptCodex) => {
             match recovery.selected {
@@ -414,7 +459,11 @@ pub fn accept_recovery_action(app: &mut App) -> Option<Msg> {
         RecoveryStage::Instructions => match recovery.selected {
             0 => {
                 if let Some(active) = app.first_run_recovery.as_mut() {
-                    active.stage = RecoveryStage::MissingCredential;
+                    active.stage = if active.provider.is_none() {
+                        RecoveryStage::ChooseProvider
+                    } else {
+                        RecoveryStage::MissingCredential
+                    };
                     active.selected = 0;
                 }
             }
@@ -515,9 +564,15 @@ pub fn after_setup_model_config(app: &mut App, provider: SetupProviderArg, scope
 }
 
 pub fn write_setup_model_config(
-    app: &mut App, provider: SetupProviderArg, scope: CredentialScope,
+    app: &mut App, _provider: SetupProviderArg, scope: CredentialScope,
 ) -> std::io::Result<()> {
-    let model = provider.default_model();
+    let model = app.model.trim();
+    if model.is_empty() {
+        let err = std::io::Error::new(std::io::ErrorKind::InvalidInput, "choose a model before saving setup");
+        app.transcript
+            .push(Entry::Error { text: format!("failed to save selected model to config: {err}") });
+        return Err(err);
+    }
     let path = match scope {
         CredentialScope::Global => match config::global_config_path() {
             Some(path) => path,
@@ -533,8 +588,6 @@ pub fn write_setup_model_config(
 
     match config::write_model_config(&path, model) {
         Ok(()) => {
-            app.model = model.to_string();
-            app.cli.model = model.to_string();
             let display = match scope {
                 CredentialScope::Global => config::global_config_path_display(&path),
                 CredentialScope::Project => config::project_config_path_display(&path, &app.cwd),
@@ -562,6 +615,17 @@ pub fn advance_after_setup_model_config(app: &mut App, provider: SetupProviderAr
     } else {
         app.first_run_recovery = Some(FirstRunRecovery::login(provider));
     }
+}
+
+pub fn setup_model_options(provider: SetupProviderArg) -> Vec<PickerItem> {
+    let mut options: Vec<PickerItem> = offline_model_picker_items()
+        .into_iter()
+        .filter(|item| provider_for_model(&item.label) == provider)
+        .collect();
+    if !options.iter().any(|item| item.label == provider.default_model()) {
+        options.insert(0, PickerItem::new(provider.default_model(), "provider setup model"));
+    }
+    options
 }
 
 pub fn start_chatgpt_oauth_recovery(app: &mut App) {
@@ -656,10 +720,22 @@ pub fn poll_chatgpt_oauth_on_tick(app: &mut App) {
         Ok(auth::ChatGptCodexDevicePoll::Authorized(credentials)) => {
             match (app.chatgpt_oauth_driver.write_credentials)(&credentials) {
                 Ok(()) => {
-                    app.first_run_recovery = None;
+                    let needs_model = app.model.trim().is_empty();
                     app.transcript.push(Entry::Status {
                         text: String::from("chatgpt-codex credential stored in global auth store"),
                     });
+                    if needs_model {
+                        app.first_run_recovery = Some(FirstRunRecovery {
+                            provider: Some(SetupProviderArg::ChatgptCodex),
+                            stage: RecoveryStage::ModelSelection,
+                            pending_provider_prompt: recovery.pending_provider_prompt,
+                            selected: 0,
+                            secret_input: String::new(),
+                            chatgpt_oauth: None,
+                        });
+                    } else {
+                        app.first_run_recovery = None;
+                    }
                 }
                 Err(err) => {
                     oauth.status = format!(
@@ -754,7 +830,18 @@ pub fn store_recovery_credential(app: &mut App, recovery: &FirstRunRecovery) {
             }
             app.transcript
                 .push(Entry::Status { text: format!("{} credential stored in {}", provider.label(), scope.label()) });
-            app.first_run_recovery = None;
+            if app.model.trim().is_empty() {
+                app.first_run_recovery = Some(FirstRunRecovery {
+                    provider: Some(provider),
+                    stage: RecoveryStage::ModelSelection,
+                    pending_provider_prompt: recovery.pending_provider_prompt,
+                    selected: 0,
+                    secret_input: String::new(),
+                    chatgpt_oauth: None,
+                });
+            } else {
+                app.first_run_recovery = None;
+            }
         }
         Err(err) => app
             .transcript
@@ -797,5 +884,36 @@ pub fn remove_recovery_credential(app: &mut App, recovery: &FirstRunRecovery) {
         Err(err) => app
             .transcript
             .push(Entry::Error { text: format!("credential remove failed: {err}") }),
+    }
+}
+
+fn select_setup_model(app: &mut App, recovery: &FirstRunRecovery) {
+    let Some(provider) = recovery.provider else {
+        app.first_run_recovery = Some(FirstRunRecovery::setup(SetupProviderArg::ChatgptCodex));
+        return;
+    };
+    let options = setup_model_options(provider);
+    let Some(model) = options.get(recovery.selected).map(|item| item.label.clone()) else {
+        return;
+    };
+    app.model = model.clone();
+    app.cli.model = model.clone();
+    app.transcript
+        .push(Entry::Status { text: format!("model selected: {model}") });
+    app.first_run_recovery = Some(FirstRunRecovery {
+        provider: Some(provider),
+        stage: RecoveryStage::ModelConfigScope,
+        pending_provider_prompt: recovery.pending_provider_prompt,
+        selected: 0,
+        secret_input: String::new(),
+        chatgpt_oauth: None,
+    });
+}
+
+fn first_run_provider(selected: usize) -> Option<SetupProviderArg> {
+    match selected {
+        0 => Some(SetupProviderArg::ChatgptCodex),
+        1 => Some(SetupProviderArg::Umans),
+        _ => None,
     }
 }

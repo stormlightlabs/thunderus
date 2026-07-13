@@ -371,20 +371,16 @@ fn slash_setup_writes_project_model_and_prompts_for_api_key() {
         let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
         let mut app = App::from_cli(&cli);
         app.session_writer = None;
+        app.first_run_recovery = None;
         app.input = PromptInput::from("/setup");
 
         update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
         update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
-        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-        assert_eq!(app.model, "opencode/big-pickle");
-        assert_eq!(
-            std::fs::read_to_string(dir.path().join(".thndrs").join("config.toml")).expect("read config"),
-            "model = \"opencode/big-pickle\"\n"
-        );
         let recovery = app.first_run_recovery.as_ref().expect("credential entry");
-        assert_eq!(recovery.stage, RecoveryStage::EnterKey);
-        assert_eq!(recovery.provider, Some(SetupProviderArg::OpencodeZen));
+        assert_eq!(recovery.stage, RecoveryStage::MissingCredential);
+        assert_eq!(recovery.provider, Some(SetupProviderArg::Umans));
+        assert!(app.model.is_empty(), "authentication precedes model selection");
     });
 }
 
@@ -399,21 +395,14 @@ fn slash_setup_can_choose_chatgpt_and_write_project_model() {
         let cli = Cli { cwd: workspace.clone(), ..Cli::default() };
         let mut app = App::from_cli(&cli);
         app.session_writer = None;
+        app.first_run_recovery = None;
+        app.model = "chatgpt-codex/gpt-5.5".to_string();
+        app.cli.model = app.model.clone();
         app.input = PromptInput::from("/setup");
 
         update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
-        update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
-        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
         update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
-        assert_eq!(app.prompt_accessory, PromptAccessory::ReasoningEffort);
-        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
-
-        assert_eq!(app.model, "chatgpt-codex/gpt-5.6-sol");
-        assert_eq!(
-            std::fs::read_to_string(workspace.join(".thndrs").join("config.toml")).expect("read config"),
-            "model = \"chatgpt-codex/gpt-5.6-sol\"\nreasoning_effort = \"auto\"\n"
-        );
         let recovery = app.first_run_recovery.as_ref().expect("chatgpt recovery");
         assert_eq!(recovery.stage, RecoveryStage::MissingCredential);
         assert_eq!(recovery.provider, Some(SetupProviderArg::ChatgptCodex));

@@ -166,8 +166,9 @@ fn multiline_input_while_working() {
 #[test]
 fn queued_input_persisted_to_session_writer() {
     let dir = tempfile::tempdir().expect("create temp dir");
-    let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
+    let cli = Cli { cwd: dir.path().to_path_buf(), model: "umans-coder".to_string(), ..Cli::default() };
     let mut app = App::from_cli(&cli);
+    app.first_run_recovery = None;
     app.run_state = RunState::Working;
     app.queue_target = QueueTarget::FollowUp;
     app.input = PromptInput::from("persisted follow-up");
@@ -198,8 +199,9 @@ fn queued_input_persisted_to_session_writer() {
 #[test]
 fn queued_input_append_failure_is_visible() {
     let dir = tempfile::tempdir().expect("create temp dir");
-    let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
+    let cli = Cli { cwd: dir.path().to_path_buf(), model: "umans-coder".to_string(), ..Cli::default() };
     let mut app = App::from_cli(&cli);
+    app.first_run_recovery = None;
     let session_path = app
         .session_writer
         .as_ref()

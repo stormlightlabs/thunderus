@@ -39,36 +39,8 @@ the renderer so application behavior exposes semantic state and events only.
 
 ## Ticket 7: Require Provider-Led Setup Before Coding
 
-**What to build:** Replace fixed-default-model startup with a required,
-keyboard-first provider/setup gateway that makes an authenticated coding session
-the only successful first-run outcome.
-
-**Blocked by:** Tickets 3 and 6
-
-**Acceptance criteria:**
-
-- [ ] A clean HOME/workspace has no implied default model and cannot submit a
-      prompt before provider setup/authentication reaches a ready state.
-- [ ] The setup UI has explicit provider choice, provider-specific
-      authentication copy, cancellation, failure recovery, and next-step
-      guidance; it retains an equivalent CLI route with useful
-      non-interactive failure instructions.
-- [ ] After authentication and model selection, existing supported
-      `reasoning_effort`/`reasoning_summary` controls remain available without
-      being required for first-run success; unsupported models remain
-      conservative.
-- [ ] Setup does not write secrets to TOML, sessions, logs, prompt inspection,
-      renderer view state, or snapshots.
-- [ ] The prompt draft survives every setup success, cancellation, and failure
-      path.
-- [ ] Existing advanced provider and ACP configuration stays available without
-      becoming the first-run default.
-
-**Verification:**
-
-- setup/recovery app and renderer snapshots at normal, narrow, and tiny height
-- fresh-HOME CLI/TUI tests with no credentials
-- `cargo test -p thndrs cli::app`
+Replaced fixed-default-model startup with a required, keyboard-first provider/setup
+gateway that makes an authenticated coding session the only successful first-run outcome.
 
 ## Ticket 8: Make ChatGPT Codex A First-Class Workflow
 

@@ -1,9 +1,9 @@
 use crate::acp::permissions::{PendingPermission, PermissionKindView, PermissionOptionView};
 use crate::app::{
-    App, DetailPane, Entry, FilePickerSource, PickerItem, PickerState, PromptAccessory, RunState, ToolStatus,
-    VISIBLE_ROWS,
+    App, DetailPane, Entry, FilePickerSource, FirstRunRecovery, PickerItem, PickerState, PromptAccessory,
+    RecoveryStage, RunState, ToolStatus, VISIBLE_ROWS,
 };
-use crate::cli::{Cli, Theme, WebSearchMode};
+use crate::cli::{Cli, Theme, WebSearchMode, commands::setup::SetupProviderArg};
 use crate::renderer;
 use crate::renderer::view::{
     FocusedSurfaceView, PromptStatusView, PromptSuggestionKind, RendererView, TranscriptRowKind, TruncationPolicy,
@@ -834,5 +834,41 @@ fn semantic_focused_surface_represents_tool_detail() {
             assert_eq!(detail.output, vec!["one".to_string(), "two".to_string()]);
         }
         other => panic!("expected tool detail surface, got {other:?}"),
+    }
+}
+
+#[test]
+fn semantic_setup_surface_projects_selection_and_masks_credentials() {
+    let mut app = test_app();
+    app.first_run_recovery = Some(FirstRunRecovery::setup(SetupProviderArg::ChatgptCodex));
+
+    let view = RendererView::build(&app, 80, 24);
+    match &view.semantic.focused_surface {
+        FocusedSurfaceView::SetupForm(form) => {
+            assert_eq!(form.fields[0].label, "provider");
+            assert_eq!(form.fields[0].value, "choose provider");
+            assert!(!form.fields[0].secret);
+            assert_eq!(form.submit_label, "continue");
+        }
+        surface => panic!("expected setup surface, got {surface:?}"),
+    }
+
+    app.first_run_recovery = Some(FirstRunRecovery {
+        provider: Some(SetupProviderArg::Umans),
+        stage: RecoveryStage::EnterKey,
+        pending_provider_prompt: false,
+        selected: 0,
+        secret_input: "sk-view-secret".to_string(),
+        chatgpt_oauth: None,
+    });
+    let view = RendererView::build(&app, 80, 24);
+    match &view.semantic.focused_surface {
+        FocusedSurfaceView::SetupForm(form) => {
+            assert_eq!(form.fields[0].label, "umans API key");
+            assert_eq!(form.fields[0].value, "[hidden]");
+            assert!(form.fields[0].secret);
+            assert!(!format!("{form:?}").contains("sk-view-secret"));
+        }
+        surface => panic!("expected setup surface, got {surface:?}"),
     }
 }

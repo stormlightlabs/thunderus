@@ -6,7 +6,9 @@
 //! that [`super::region::LiveRegion`] can focus on scrollback commits, width
 //! epochs, and frame composition.
 
-use crate::app::{App, Entry, FilePickerSource, Mode, PromptAccessory, RunState, ToolStatus};
+use crate::app::{
+    App, Entry, FilePickerSource, FirstRunRecovery, Mode, PromptAccessory, RecoveryStage, RunState, ToolStatus,
+};
 use crate::renderer::row::{CursorCoord, Row};
 use crate::renderer::transcript::TranscriptRowContext;
 use crate::tools::shell::redact_secrets;
@@ -740,19 +742,16 @@ impl App {
 
     fn render_setup_form_view(&self) -> Option<SetupFormView> {
         let recovery = self.first_run_recovery.as_ref()?;
-        let secret = !recovery.secret_input.is_empty();
+        let (label, value, secret) = setup_field(recovery);
         Some(SetupFormView {
-            fields: vec![SetupFieldView {
-                label: "credential".to_string(),
-                value: if secret { "[hidden]".to_string() } else { String::new() },
-                focused: true,
-                secret: true,
-                multiline: false,
-                error: None,
-            }],
+            fields: vec![SetupFieldView { label, value, focused: true, secret, multiline: false, error: None }],
             focus_index: 0,
             validation_errors: Vec::new(),
-            submit_label: "submit".to_string(),
+            submit_label: if recovery.stage == RecoveryStage::EnterKey {
+                "submit".to_string()
+            } else {
+                "continue".to_string()
+            },
             cancel_label: "cancel".to_string(),
             complete: false,
         })
@@ -890,6 +889,69 @@ impl App {
             selected_row: None,
             narrow_fallback,
         }
+    }
+}
+
+fn setup_field(recovery: &FirstRunRecovery) -> (String, String, bool) {
+    match recovery.stage {
+        RecoveryStage::ChooseProvider => ("provider".to_string(), "choose provider".to_string(), false),
+        RecoveryStage::ModelSelection => {
+            let value = recovery
+                .provider
+                .map(crate::app::setup_model_options)
+                .and_then(|options| options.get(recovery.selected).map(|item| item.label.clone()))
+                .unwrap_or_else(|| "choose model".to_string());
+            ("model".to_string(), value, false)
+        }
+        RecoveryStage::ModelConfigScope => (
+            "config".to_string(),
+            match recovery.selected {
+                0 => "project config".to_string(),
+                1 => "global config".to_string(),
+                2 => "skip model config".to_string(),
+                _ => "cancel setup".to_string(),
+            },
+            false,
+        ),
+        RecoveryStage::EnterKey => (
+            recovery
+                .provider
+                .map(|provider| format!("{} API key", provider.label()))
+                .unwrap_or_else(|| "API key".to_string()),
+            if recovery.secret_input.is_empty() { String::new() } else { "[hidden]".to_string() },
+            true,
+        ),
+        RecoveryStage::MissingCredential => (
+            "provider".to_string(),
+            recovery
+                .provider
+                .map_or_else(|| "advanced / ACP".to_string(), |provider| provider.label().to_string()),
+            false,
+        ),
+        RecoveryStage::ConfirmStore => (
+            "credential scope".to_string(),
+            match recovery.selected {
+                0 => "global credentials".to_string(),
+                1 => "project credentials".to_string(),
+                _ => "cancel".to_string(),
+            },
+            false,
+        ),
+        RecoveryStage::Instructions => ("next".to_string(), "follow setup instructions".to_string(), false),
+        RecoveryStage::ChatGptOAuthRequesting | RecoveryStage::ChatGptOAuthPolling => {
+            ("provider".to_string(), "ChatGPT OAuth".to_string(), false)
+        }
+        RecoveryStage::ChatGptOAuthFailed => ("provider".to_string(), "ChatGPT OAuth failed".to_string(), false),
+        RecoveryStage::LogoutConfirm => (
+            "credential scope".to_string(),
+            match recovery.selected {
+                0 => "global credentials".to_string(),
+                1 => "project credentials".to_string(),
+                _ => "cancel".to_string(),
+            },
+            false,
+        ),
+        RecoveryStage::AcpMissing => ("provider".to_string(), "ACP agent config".to_string(), false),
     }
 }
 

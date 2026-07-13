@@ -137,11 +137,16 @@ where
     F: FnOnce(&mut W) -> io::Result<()>,
 {
     let workspace = context::discover_workspace_root(&cli.cwd);
-    let inferred_provider = provider_for_model(&cli.model);
+    let inferred_provider = (!cli.model.trim().is_empty()).then(|| provider_for_model(&cli.model));
     let provider = match command.provider {
         Some(provider) => provider,
         None if interactive => prompt_provider(writer, inferred_provider)?,
-        None => inferred_provider,
+        None => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "non-interactive setup needs --provider <chatgpt-codex|umans|opencode-zen|opencode-go> or --model <model-id>",
+            ));
+        }
     };
     let auth_status = auth_status(provider, &workspace);
     let scope = command_scope(command);
@@ -216,12 +221,16 @@ where
     Ok(())
 }
 
-fn prompt_provider<W: Write>(writer: &mut W, default_provider: SetupProviderArg) -> io::Result<SetupProviderArg> {
+fn prompt_provider<W: Write>(
+    writer: &mut W, default_provider: Option<SetupProviderArg>,
+) -> io::Result<SetupProviderArg> {
     write_provider_choices(writer, default_provider)?;
     let mut answer = String::new();
     io::stdin().read_line(&mut answer)?;
     let answer = answer.trim();
-    if answer.is_empty() {
+    if answer.is_empty()
+        && let Some(default_provider) = default_provider
+    {
         return Ok(default_provider);
     }
     match answer {
@@ -236,10 +245,10 @@ fn prompt_provider<W: Write>(writer: &mut W, default_provider: SetupProviderArg)
     }
 }
 
-fn write_provider_choices<W: Write>(writer: &mut W, default_provider: SetupProviderArg) -> io::Result<()> {
+fn write_provider_choices<W: Write>(writer: &mut W, default_provider: Option<SetupProviderArg>) -> io::Result<()> {
     writeln!(writer, "Choose provider:")?;
     for (index, provider) in SetupProviderArg::ALL.iter().enumerate() {
-        let default = if *provider == default_provider { " (default)" } else { "" };
+        let default = if Some(*provider) == default_provider { " (default)" } else { "" };
         writeln!(
             writer,
             "  {}) {}{} [{}] - {}",
@@ -250,7 +259,10 @@ fn write_provider_choices<W: Write>(writer: &mut W, default_provider: SetupProvi
             provider.metadata().setup_summary
         )?;
     }
-    write!(writer, "Provider [{}]: ", default_provider.label())?;
+    match default_provider {
+        Some(provider) => write!(writer, "Provider [{}]: ", provider.label())?,
+        None => write!(writer, "Provider: ")?,
+    }
     writer.flush()
 }
 
@@ -453,7 +465,7 @@ mod tests {
     #[test]
     fn provider_choice_copy_marks_opencode_zen_default_and_caveats() {
         let mut output = Vec::new();
-        write_provider_choices(&mut output, SetupProviderArg::OpencodeZen).expect("choices");
+        write_provider_choices(&mut output, Some(SetupProviderArg::OpencodeZen)).expect("choices");
         let output = String::from_utf8(output).expect("utf8");
 
         assert!(output.contains("opencode-zen (default)"));
@@ -513,6 +525,27 @@ mod tests {
         assert!(err.contains("interactive ChatGPT OAuth"));
         assert!(!output.contains("Enter chatgpt-codex API key"));
         assert!(!err.contains("CHATGPT_CODEX_ACCESS_TOKEN is missing"));
+    }
+
+    #[test]
+    fn setup_without_provider_or_model_explains_noninteractive_route() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let workspace = tmp.path().join("workspace");
+        let home = tmp.path().join("home");
+        fs::create_dir_all(&workspace).expect("workspace");
+        fs::create_dir_all(&home).expect("home");
+        let cli = Cli { cwd: workspace, ..Cli::default() };
+        let command = SetupCommand { provider: None, global: false, project: false };
+        let mut output = Vec::new();
+
+        let err = with_home(&home, || {
+            run_with_writer(&cli, &command, false, &mut output, |_| Ok(())).expect_err("missing route")
+        });
+
+        assert!(output.is_empty());
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+        assert!(err.to_string().contains("--provider"));
+        assert!(err.to_string().contains("--model"));
     }
 
     #[test]

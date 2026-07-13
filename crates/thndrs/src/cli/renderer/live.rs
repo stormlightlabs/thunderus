@@ -7,7 +7,9 @@ mod tests;
 
 use std::collections::HashSet;
 
-use crate::app::{App, Entry, Mode, PromptAccessory, PromptState, RecoveryStage, RunState, ToolStatus};
+use crate::app::{
+    App, Entry, Mode, PromptAccessory, PromptState, RecoveryStage, RunState, ToolStatus, setup_model_options,
+};
 use crate::cli::commands;
 use crate::providers::{codex, umans};
 use crate::renderer::cursor::{prompt_cursor, prompt_rows};
@@ -423,7 +425,28 @@ fn first_run_recovery_rows(app: &App, width: usize, max_height: usize) -> Vec<Ro
                 &mut rows,
                 ActionDimensions(width, max_height),
                 recovery.selected,
-                &["opencode-zen", "chatgpt-codex", "umans", "opencode-go"],
+                &[
+                    "ChatGPT Codex  [first class]",
+                    "Umans  [first class]",
+                    "advanced providers / ACP",
+                ],
+                ActionStyles::new(selected_style, muted_style, text_style, bg),
+            );
+        }
+        RecoveryStage::ModelSelection => {
+            rows.push(recovery_body_row(
+                width,
+                bg,
+                text_style,
+                "Choose a model for this authenticated provider.",
+            ));
+            let actions = recovery.provider.map(setup_model_options).unwrap_or_default();
+            let action_labels: Vec<String> = actions.into_iter().map(|item| item.label).collect();
+            push_recovery_actions(
+                &mut rows,
+                ActionDimensions(width, max_height),
+                recovery.selected,
+                &action_labels,
                 ActionStyles::new(selected_style, muted_style, text_style, bg),
             );
         }
@@ -432,7 +455,7 @@ fn first_run_recovery_rows(app: &App, width: usize, max_height: usize) -> Vec<Ro
                 width,
                 bg,
                 text_style,
-                "Save this provider's default model to config?",
+                "Save the selected model to config?",
             ));
             push_recovery_actions(
                 &mut rows,
@@ -443,10 +466,22 @@ fn first_run_recovery_rows(app: &App, width: usize, max_height: usize) -> Vec<Ro
             );
         }
         RecoveryStage::MissingCredential => {
-            let body = if recovery.provider == Some(commands::setup::SetupProviderArg::ChatgptCodex) {
-                "Missing ChatGPT OAuth credential. Choose an action before submitting this prompt."
-            } else {
-                "Missing credential. Choose an action before submitting this prompt."
+            let body = match recovery.provider {
+                Some(commands::setup::SetupProviderArg::ChatgptCodex) => {
+                    "Missing ChatGPT OAuth credential. Sign in with your ChatGPT account before submitting this prompt."
+                }
+                Some(commands::setup::SetupProviderArg::Umans) => {
+                    "Missing Umans API key. Enter it to store it outside config before submitting this prompt."
+                }
+                Some(commands::setup::SetupProviderArg::OpencodeGo) => {
+                    "Missing OpenCode Go API key. Run CLI setup or enter the key before submitting this prompt."
+                }
+                Some(commands::setup::SetupProviderArg::OpencodeZen) => {
+                    "Missing OpenCode Zen API key. Run CLI setup or enter the key before submitting this prompt."
+                }
+                None => {
+                    "Missing provider configuration. Choose an available setup route before submitting this prompt."
+                }
             };
             rows.push(recovery_body_row(width, bg, text_style, body));
             let actions = if recovery.provider == Some(commands::setup::SetupProviderArg::ChatgptCodex) {
@@ -475,12 +510,12 @@ fn first_run_recovery_rows(app: &App, width: usize, max_height: usize) -> Vec<Ro
             );
         }
         RecoveryStage::EnterKey => {
-            rows.push(recovery_body_row(
-                width,
-                bg,
-                text_style,
-                "Type the API key. Input is hidden. Enter continues, Esc cancels.",
-            ));
+            let credential_label = recovery
+                .provider
+                .map(|provider| format!("{} API key", provider.label()))
+                .unwrap_or_else(|| String::from("API key"));
+            let body = format!("Type the {credential_label}. Input is hidden. Enter continues, Esc cancels.");
+            rows.push(recovery_body_row(width, bg, text_style, &body));
         }
         RecoveryStage::ConfirmStore => {
             rows.push(recovery_body_row(width, bg, text_style, "Store this credential where?"));
@@ -493,8 +528,11 @@ fn first_run_recovery_rows(app: &App, width: usize, max_height: usize) -> Vec<Ro
             );
         }
         RecoveryStage::Instructions => {
+            // FIXME: pattern matching
             let text = if recovery.provider == Some(commands::setup::SetupProviderArg::ChatgptCodex) {
                 "Run `thndrs setup --provider chatgpt-codex` or `thndrs login chatgpt-codex` outside the TUI."
+            } else if recovery.provider.is_none() {
+                "Advanced providers remain available: use `thndrs setup --provider opencode-zen|opencode-go` or configure an ACP model."
             } else {
                 "Run `thndrs setup` or `thndrs login <provider>` outside the TUI."
             };
@@ -614,8 +652,8 @@ fn recovery_body_row(width: usize, bg: Color, style: CellStyle, text: &str) -> R
     )
 }
 
-fn push_recovery_actions(
-    rows: &mut Vec<Row>, dims: ActionDimensions, selected: usize, actions: &[&str], styles: ActionStyles,
+fn push_recovery_actions<T: AsRef<str>>(
+    rows: &mut Vec<Row>, dims: ActionDimensions, selected: usize, actions: &[T], styles: ActionStyles,
 ) {
     for (index, action) in actions.iter().enumerate() {
         if rows.len() >= dims.max_height() {
@@ -632,7 +670,7 @@ fn push_recovery_actions(
                 ),
                 Span::styled(" ", CellStyle::new().bg(styles.bg)),
                 Span::styled(
-                    (*action).to_string(),
+                    action.as_ref().to_string(),
                     if is_selected { styles.selected_style } else { styles.text_style },
                 ),
             ],
@@ -716,7 +754,6 @@ fn ttft_status_text(app: &App) -> Option<String> {
     })
 }
 
-/// Whether the active model exposes a configurable reasoning control.
 fn supports_reasoning_status(model: &str) -> bool {
     codex::supports_reasoning_effort(model) || umans::reasoning_options(model).len() > 1
 }

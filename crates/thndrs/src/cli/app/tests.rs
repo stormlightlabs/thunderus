@@ -92,8 +92,9 @@ fn from_cli_seeds_up_arrow_history_from_project_sessions() {
         .append_entry(&Entry::User { text: String::from("second project prompt") }, "turn_2")
         .expect("append second entry");
 
-    let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
+    let cli = Cli { cwd: dir.path().to_path_buf(), model: "umans-coder".to_string(), ..Cli::default() };
     let mut app = App::from_cli(&cli);
+    app.first_run_recovery = None;
 
     update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)));
 
@@ -134,7 +135,7 @@ fn from_cli_prefers_dedicated_input_history_over_session_scan() {
         .append("history-session", "dedicated prompt")
         .expect("append dedicated history");
 
-    let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
+    let cli = Cli { cwd: dir.path().to_path_buf(), model: "opencode/big-pickle".to_string(), ..Cli::default() };
     let app = App::from_cli(&cli);
 
     assert_eq!(app.input_history, vec!["dedicated prompt".to_string()]);
@@ -214,7 +215,7 @@ fn from_cli_writes_mcp_config_metadata_to_session_meta() {
     )
     .expect("write mcp config");
 
-    let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
+    let cli = Cli { cwd: dir.path().to_path_buf(), model: "opencode/big-pickle".to_string(), ..Cli::default() };
     let app = helpers::with_home(&home, || App::from_cli(&cli));
     let path = app
         .session_writer
@@ -262,8 +263,9 @@ fn submit_user_turn_records_mcp_config_change_before_user() {
     )
     .expect("write mcp config");
 
-    let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
+    let cli = Cli { cwd: dir.path().to_path_buf(), model: "umans-coder".to_string(), ..Cli::default() };
     let mut app = with_home(&home, || App::from_cli(&cli));
+    app.first_run_recovery = None;
     let previous_hash = app.mcp_config_files[0].sha256.clone();
     std::fs::write(
         &mcp_path,
@@ -328,7 +330,7 @@ fn usage_event_accumulates_session_tokens() {
 #[test]
 fn finished_persists_final_assistant_even_after_status_row() {
     let dir = tempfile::tempdir().expect("create temp dir");
-    let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
+    let cli = Cli { cwd: dir.path().to_path_buf(), model: "opencode/big-pickle".to_string(), ..Cli::default() };
     let mut app = App::from_cli(&cli);
     let path = app
         .session_writer
@@ -423,7 +425,7 @@ fn compact_writes_a_recoverable_manual_audit_record() {
         "test-zen-key",
     )
     .expect("seed credential");
-    let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
+    let cli = Cli { cwd: dir.path().to_path_buf(), model: "opencode/big-pickle".to_string(), ..Cli::default() };
     let mut app = App::from_cli(&cli);
     let path = app
         .session_writer
@@ -603,7 +605,7 @@ fn auto_compaction_writes_an_automatic_trigger_audit_record() {
         "test-zen-key",
     )
     .expect("seed credential");
-    let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
+    let cli = Cli { cwd: dir.path().to_path_buf(), model: "opencode/big-pickle".to_string(), ..Cli::default() };
     let mut app = App::from_cli(&cli);
     let path = app
         .session_writer
@@ -844,14 +846,57 @@ fn missing_provider_credential_opens_recovery_and_preserves_prompt() {
         app.session_writer = None;
         app.input = PromptInput::from("hello");
 
+        update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
         update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
         assert_eq!(app.input.as_str(), "hello");
         assert!(app.transcript.is_empty());
         let recovery = app.first_run_recovery.as_ref().expect("recovery");
         assert_eq!(recovery.stage, RecoveryStage::MissingCredential);
-        assert_eq!(recovery.provider, Some(SetupProviderArg::OpencodeZen));
-        assert!(recovery.pending_provider_prompt);
+        assert_eq!(recovery.provider, Some(SetupProviderArg::Umans));
+    });
+}
+
+#[test]
+fn fresh_setup_authenticates_before_model_selection_and_retains_draft() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(&home).expect("create home");
+
+    with_setup_home(&home, || {
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).expect("create workspace");
+        let cli = Cli { cwd: workspace, ..Cli::default() };
+        let mut app = App::from_cli(&cli);
+        app.session_writer = None;
+        app.first_run_recovery = None;
+        app.input = PromptInput::from("draft before setup");
+
+        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+        update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
+        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.model, "");
+        assert_eq!(
+            app.first_run_recovery.as_ref().map(|recovery| recovery.stage),
+            Some(RecoveryStage::MissingCredential)
+        );
+
+        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+        for ch in "test-umans-key".chars() {
+            update(&mut app, &key(KeyCode::Char(ch), KeyModifiers::NONE));
+        }
+        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+        update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
+        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert_eq!(app.model, "");
+        assert_eq!(
+            app.first_run_recovery.as_ref().map(|recovery| recovery.stage),
+            Some(RecoveryStage::ModelSelection)
+        );
+        update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.model, "umans-coder");
+        assert_eq!(app.input.as_str(), "draft before setup");
     });
 }
 
@@ -879,6 +924,7 @@ fn chatgpt_submit_uses_stored_auth_without_recovery_refresh() {
         let cli = Cli { cwd: workspace, model: "chatgpt-codex/gpt-5.5".to_string(), ..Cli::default() };
         let mut app = App::from_cli(&cli);
         app.session_writer = None;
+        app.first_run_recovery = None;
         app.input = PromptInput::from("hello");
 
         update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
@@ -906,6 +952,7 @@ fn acp_missing_config_uses_acp_recovery_not_provider_key_setup() {
         let cli = Cli { cwd: dir.path().to_path_buf(), model: "acp:missing".to_string(), ..Cli::default() };
         let mut app = App::from_cli(&cli);
         app.session_writer = None;
+        app.first_run_recovery = None;
         app.input = PromptInput::from("hello");
 
         update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
@@ -928,6 +975,7 @@ fn recovery_enter_key_stores_project_credential_without_transcript_secret() {
         for ch in "sk-secret-from-test".chars() {
             update(&mut app, &key(KeyCode::Char(ch), KeyModifiers::NONE));
         }
+        assert!(!format!("{app:?}").contains("sk-secret-from-test"));
         update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
         update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
         update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
@@ -1665,7 +1713,7 @@ fn context_sources_are_guidance_not_permission() {
     let cli = Cli { cwd: dir.path().to_path_buf(), ..Cli::default() };
     let app = App::from_cli(&cli);
 
-    assert_eq!(app.model, "opencode/big-pickle");
+    assert!(app.model.is_empty());
     assert!(app.context_sources[0].content.contains("Model: gpt-4"));
 }
 

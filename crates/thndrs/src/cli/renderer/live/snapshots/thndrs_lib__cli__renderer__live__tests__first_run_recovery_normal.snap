@@ -4,10 +4,9 @@ assertion_line: 473
 expression: frame.render_styled()
 ---
 │     setup  provider=umans model=umans-coder missing=UMANS_API_KEY                 # [bg=#212337]=   [bg=#212337]=   [fg=#f7c67f bg=#212337 b]=setup [fg=#abb4da bg=#212337]=  provider=umans model=umans-coder missing=UMANS_API_KEY [bg=#212337]=              [bg=#212337]=  
-│     Missing credential. Choose an action before submitting this prompt.           # [bg=#212337]=   [bg=#212337]=   [fg=#ebfafa bg=#212337]=Missing credential. Choose an action before submitting this prompt. [bg=#212337]=        [bg=#212337]=  
+│     Missing Umans API key. Enter it to store it outside config before submitting this prompt.  # [bg=#212337]=   [bg=#212337]=   [fg=#ebfafa bg=#212337]=Missing Umans API key. Enter it to store it outside config before submitting this prompt.
 │     › enter API key                                                               # [bg=#212337]=   [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=› [bg=#212337]=  [fg=#ebfafa bg=#212337 b]=enter API key [bg=#212337]=                                                            [bg=#212337]=  
 │       switch model/provider                                                       # [bg=#212337]=   [bg=#212337]=   [fg=#abb4da bg=#212337]=  [bg=#212337]=  [fg=#ebfafa bg=#212337]=switch model/provider [bg=#212337]=                                                    [bg=#212337]=  
 │       show setup instructions                                                     # [bg=#212337]=   [bg=#212337]=   [fg=#abb4da bg=#212337]=  [bg=#212337]=  [fg=#ebfafa bg=#212337]=show setup instructions [bg=#212337]=                                                  [bg=#212337]=  
 │       continue without setup                                                      # [bg=#212337]=   [bg=#212337]=   [fg=#abb4da bg=#212337]=  [bg=#212337]=  [fg=#ebfafa bg=#212337]=continue without setup [bg=#212337]=                                                   [bg=#212337]=  
 │       quit                                                                        # [bg=#212337]=   [bg=#212337]=   [fg=#abb4da bg=#212337]=  [bg=#212337]=  [fg=#ebfafa bg=#212337]=quit [bg=#212337]=                                                                     [bg=#212337]=
-

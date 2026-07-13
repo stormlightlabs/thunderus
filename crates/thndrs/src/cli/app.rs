@@ -30,6 +30,7 @@ use input::accept_model_suggestion;
 
 pub use commands::command_suggestions_for_app;
 pub use input::{FilePickerSource, Mode, PickerItem, PickerState, PromptAccessory};
+pub(crate) use onboarding::setup_model_options;
 pub use onboarding::{ChatGptOAuthDriver, ChatGptOAuthRecovery, FirstRunRecovery, RecoveryStage};
 
 use input::{
@@ -497,7 +498,7 @@ impl From<&Cli> for App {
             let _ = writer.append_context(&context_sources);
         }
 
-        App {
+        let mut app = App {
             cli: cli_snapshot,
             session_id,
             mode: Mode::default(),
@@ -551,7 +552,10 @@ impl From<&Cli> for App {
             mcp_config_files,
             mcp_config_diagnostics,
             quit: false,
-        }
+        };
+
+        app.first_run_recovery = selected_provider_missing(&app);
+        app
     }
 }
 

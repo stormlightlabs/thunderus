@@ -34,7 +34,8 @@ static CONFIG_KEYS: [&str; 13] = [
     "context",
 ];
 
-/// Built-in completion model used when config and CLI flags do not override it.
+/// Historical model identifier retained for compatibility with provider and
+/// fixture code. It is no longer used as an application default.
 pub const DEFAULT_MODEL: &str = "opencode/big-pickle";
 
 #[derive(Debug, thiserror::Error)]
@@ -785,7 +786,7 @@ fn has_any_value(config: &Config) -> bool {
 
 fn default_config(workspace: &Path, cwd: &Path) -> Config {
     Config {
-        model: Some(DEFAULT_MODEL.to_string()),
+        model: None,
         websearch: Some(WebSearchMode::Auto),
         reasoning_effort: Some(ReasoningEffort::default()),
         reasoning_summary: Some(ReasoningSummary::default()),
