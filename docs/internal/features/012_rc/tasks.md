@@ -57,25 +57,25 @@ or an automatic fallback.
 
 **Acceptance criteria:**
 
-- [ ] Setup recognizes an existing valid ChatGPT Codex credential. When one is
+- [x] Setup recognizes an existing valid ChatGPT Codex credential. When one is
       absent, login uses the supported ChatGPT OAuth route and never asks for
       or stores a ChatGPT API key.
-- [ ] Browser PKCE is preselected for browser-capable environments. It starts a
+- [x] Browser PKCE is preselected for browser-capable environments. It starts a
       short-lived loopback callback, launches or shows a copyable authorization
       URL, validates callback state, and lets the user paste the full redirect
       URL when the callback cannot reach the application.
-- [ ] Device code is a clearly labeled, user-selected headless/remote method.
+- [x] Device code is a clearly labeled, user-selected headless/remote method.
       Its start, polling, slow-down, cancellation, expiry, auth failure, and
       credential write behavior have deterministic fake coverage and safe
       human-facing copy. Neither method silently falls through to the other.
-- [ ] Provider/model selection, request lowering, stream events, tool calls,
+- [x] Provider/model selection, request lowering, stream events, tool calls,
       cancellation, session recovery, and supported GPT-5.6 reasoning
       effort/summary lowering are covered at the application boundary.
-- [ ] Secrets, access tokens, refresh tokens, and account details are absent
+- [x] Secrets, access tokens, refresh tokens, and account details are absent
       from logs, sessions, prompt inspection, snapshots, and diagnostics. The
       same boundary covers authorization codes, callback query strings, PKCE
       verifiers, and device-auth identifiers.
-- [ ] A release owner can perform the documented browser-default
+- [x] A release owner can perform the documented browser-default
       disposable-repository smoke: authenticate, make a bounded code change,
       approve tools, run verification, inspect the result, and resume the
       session. The headless/device-code smoke is recorded separately when the

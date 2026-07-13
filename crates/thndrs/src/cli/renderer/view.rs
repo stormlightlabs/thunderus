@@ -941,6 +941,11 @@ fn setup_field(recovery: &FirstRunRecovery) -> (String, String, bool) {
         RecoveryStage::ChatGptOAuthRequesting | RecoveryStage::ChatGptOAuthPolling => {
             ("provider".to_string(), "ChatGPT OAuth".to_string(), false)
         }
+        RecoveryStage::ChatGptOAuthPasteRedirect => (
+            "redirect URL".to_string(),
+            if recovery.secret_input.is_empty() { String::new() } else { "[hidden]".to_string() },
+            true,
+        ),
         RecoveryStage::ChatGptOAuthFailed => ("provider".to_string(), "ChatGPT OAuth failed".to_string(), false),
         RecoveryStage::LogoutConfirm => (
             "credential scope".to_string(),

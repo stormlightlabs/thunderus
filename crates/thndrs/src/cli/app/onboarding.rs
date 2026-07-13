@@ -7,7 +7,8 @@
 //! 3. collecting an API key
 //! 4. writing or removing the resulting credential.
 //!
-//! ChatGPT Codex uses its device-code OAuth flow instead of API-key entry.
+//! ChatGPT Codex uses browser-first PKCE OAuth instead of API-key entry. Device
+//! code remains an explicit headless/remote alternative.
 //!
 //! API-key input stays in [`FirstRunRecovery::secret_input`] until it is
 //! written to the provider credential store.
@@ -29,7 +30,7 @@ pub struct FirstRunRecovery {
     pub selected: usize,
     /// Hidden API-key buffer. This is never rendered or written to transcripts.
     pub secret_input: String,
-    /// ChatGPT OAuth device-code state. Token material is never rendered.
+    /// ChatGPT OAuth state. Token material is never rendered.
     pub chatgpt_oauth: Option<ChatGptOAuthRecovery>,
 }
 
@@ -131,12 +132,23 @@ impl FirstRunRecovery {
             RecoveryStage::ChooseProvider => 3,
             RecoveryStage::ModelSelection => self.app_model_selection_count(),
             RecoveryStage::ModelConfigScope => 4,
-            RecoveryStage::MissingCredential => 5,
+            RecoveryStage::MissingCredential => {
+                if self.provider == Some(SetupProviderArg::ChatgptCodex) {
+                    6
+                } else {
+                    5
+                }
+            }
             RecoveryStage::EnterKey => 1,
             RecoveryStage::ConfirmStore | RecoveryStage::LogoutConfirm => 3,
             RecoveryStage::Instructions => 2,
-            RecoveryStage::ChatGptOAuthRequesting | RecoveryStage::ChatGptOAuthPolling => 1,
-            RecoveryStage::ChatGptOAuthFailed => 2,
+            RecoveryStage::ChatGptOAuthRequesting | RecoveryStage::ChatGptOAuthPasteRedirect => 1,
+            RecoveryStage::ChatGptOAuthPolling => self
+                .chatgpt_oauth
+                .as_ref()
+                .filter(|oauth| oauth.method == ChatGptOAuthMethod::Browser)
+                .map_or(1, |_| 2),
+            RecoveryStage::ChatGptOAuthFailed => 3,
             RecoveryStage::AcpMissing => 4,
         }
     }
@@ -149,17 +161,48 @@ impl FirstRunRecovery {
     }
 }
 
+/// ChatGPT OAuth method selected by the user.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ChatGptOAuthMethod {
+    /// Browser PKCE with a loopback callback.
+    Browser,
+    /// Device code for headless or remote environments.
+    DeviceCode,
+}
+
 /// ChatGPT OAuth state shown in the focused recovery surface.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct ChatGptOAuthRecovery {
-    /// Device-code response used for polling. Its debug output redacts the device token.
-    pub code: auth::ChatGptCodexDeviceCode,
-    /// UI tick when the next single poll is allowed.
+    /// OAuth method selected by the user.
+    pub method: ChatGptOAuthMethod,
+    /// Browser authorization URL, when browser PKCE is active.
+    pub authorization_url: Option<String>,
+    /// Device-code response used for polling, when device code is active. Its
+    /// debug output redacts the device token.
+    pub code: Option<auth::ChatGptCodexDeviceCode>,
+    /// UI tick when the next single device-code poll is allowed.
     pub next_poll_tick: u64,
-    /// OAuth expiry tick derived from the device-code lifetime.
+    /// OAuth expiry tick.
     pub expires_at_tick: u64,
     /// Redacted status text for the recovery surface.
     pub status: String,
+}
+
+impl std::fmt::Debug for ChatGptOAuthRecovery {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ChatGptOAuthRecovery")
+            .field("method", &self.method)
+            .field(
+                "authorization_url",
+                &self.authorization_url.as_ref().map(|_| "[redacted]"),
+            )
+            .field("code", &self.code)
+            .field("next_poll_tick", &self.next_poll_tick)
+            .field("expires_at_tick", &self.expires_at_tick)
+            .field("status", &self.status)
+            .finish()
+    }
 }
 
 /// Step within the first-run recovery surface.
@@ -179,10 +222,12 @@ pub enum RecoveryStage {
     ConfirmStore,
     /// Show setup instructions in a focused surface.
     Instructions,
-    /// Requesting a ChatGPT OAuth device code.
+    /// Starting a ChatGPT OAuth method.
     ChatGptOAuthRequesting,
-    /// Waiting for ChatGPT OAuth browser authorization and polling on ticks.
+    /// Waiting for browser callback or device-code authorization.
     ChatGptOAuthPolling,
+    /// Pasting the full browser redirect URL into a hidden input.
+    ChatGptOAuthPasteRedirect,
     /// ChatGPT OAuth failed with a redacted, user-readable error.
     ChatGptOAuthFailed,
     /// Confirm logout and storage scope.
@@ -194,6 +239,12 @@ pub enum RecoveryStage {
 /// Small seam for testing TUI OAuth without real network calls.
 #[derive(Clone, Copy, Debug)]
 pub struct ChatGptOAuthDriver {
+    pub start_browser_login: fn() -> Result<auth::ChatGptCodexBrowserLogin, auth::AuthError>,
+    pub open_browser: fn(&str) -> Result<(), auth::AuthError>,
+    pub poll_browser_login:
+        fn(&mut auth::ChatGptCodexBrowserLogin) -> Result<auth::ChatGptCodexBrowserPoll, auth::AuthError>,
+    pub complete_browser_redirect:
+        fn(&auth::ChatGptCodexBrowserLogin, &str) -> Result<auth::ChatGptCodexCredentials, auth::AuthError>,
     pub request_device_code: fn() -> Result<auth::ChatGptCodexDeviceCode, auth::AuthError>,
     pub poll_device_code_once:
         fn(&auth::ChatGptCodexDeviceCode) -> Result<auth::ChatGptCodexDevicePoll, auth::AuthError>,
@@ -203,6 +254,10 @@ pub struct ChatGptOAuthDriver {
 impl Default for ChatGptOAuthDriver {
     fn default() -> Self {
         Self {
+            start_browser_login: auth::start_chatgpt_codex_browser_login,
+            open_browser: auth::open_chatgpt_codex_authorization_url,
+            poll_browser_login: auth::poll_chatgpt_codex_browser_login_once,
+            complete_browser_redirect: auth::ChatGptCodexBrowserLogin::complete_redirect,
             request_device_code: auth::request_chatgpt_codex_device_code,
             poll_device_code_once: auth::poll_chatgpt_codex_device_code_once,
             write_credentials: auth::write_chatgpt_codex_credentials,
@@ -246,7 +301,13 @@ pub fn chatgpt_codex_auth_available_locally() -> bool {
         return auth::chatgpt_account_id_from_jwt(&token).is_ok();
     }
 
-    matches!(auth::read_chatgpt_codex_credentials(), Ok(Some(_)))
+    matches!(
+        auth::read_chatgpt_codex_credentials(),
+        Ok(Some(credentials))
+            if !credentials.access_token.trim().is_empty()
+                && !credentials.refresh_token.trim().is_empty()
+                && !credentials.account_id.trim().is_empty()
+    )
 }
 
 pub fn selected_provider_missing(app: &App) -> Option<FirstRunRecovery> {
@@ -272,11 +333,15 @@ pub fn selected_provider_missing(app: &App) -> Option<FirstRunRecovery> {
 pub fn handle_first_run_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
     let recovery = app.first_run_recovery.as_mut()?;
 
-    if recovery.stage == RecoveryStage::EnterKey {
+    if recovery.stage == RecoveryStage::EnterKey || recovery.stage == RecoveryStage::ChatGptOAuthPasteRedirect {
         match key.code {
             KeyCode::Esc => {
                 recovery.secret_input.clear();
-                recovery.stage = RecoveryStage::MissingCredential;
+                recovery.stage = if recovery.stage == RecoveryStage::ChatGptOAuthPasteRedirect {
+                    RecoveryStage::ChatGptOAuthPolling
+                } else {
+                    RecoveryStage::MissingCredential
+                };
                 recovery.selected = 0;
             }
             KeyCode::Backspace => {
@@ -284,8 +349,17 @@ pub fn handle_first_run_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
             }
             KeyCode::Enter => {
                 if recovery.secret_input.trim().is_empty() {
-                    app.transcript
-                        .push(Entry::Error { text: String::from("API key cannot be empty") });
+                    app.transcript.push(Entry::Error {
+                        text: if recovery.stage == RecoveryStage::ChatGptOAuthPasteRedirect {
+                            String::from("paste the full ChatGPT redirect URL or press Esc to cancel")
+                        } else {
+                            String::from("API key cannot be empty")
+                        },
+                    });
+                } else if recovery.stage == RecoveryStage::ChatGptOAuthPasteRedirect {
+                    let redirect = recovery.secret_input.clone();
+                    recovery.secret_input.clear();
+                    complete_chatgpt_oauth_redirect(app, &redirect);
                 } else {
                     recovery.stage = RecoveryStage::ConfirmStore;
                     recovery.selected = 0;
@@ -305,6 +379,7 @@ pub fn handle_first_run_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
         recovery.stage = RecoveryStage::MissingCredential;
         recovery.selected = 0;
         recovery.chatgpt_oauth = None;
+        app.chatgpt_browser_login = None;
         return None;
     }
 
@@ -361,19 +436,20 @@ pub fn accept_recovery_action(app: &mut App) -> Option<Msg> {
         RecoveryStage::ModelConfigScope => configure_setup_model_scope(app, &recovery),
         RecoveryStage::MissingCredential if recovery.provider == Some(SetupProviderArg::ChatgptCodex) => {
             match recovery.selected {
-                0 => start_chatgpt_oauth_recovery(app),
-                1 => {
+                0 => start_chatgpt_browser_oauth_recovery(app),
+                1 => start_chatgpt_device_oauth_recovery(app),
+                2 => {
                     app.first_run_recovery = None;
                     open_model_picker(app);
                 }
-                2 => {
+                3 => {
                     if let Some(active) = app.first_run_recovery.as_mut() {
                         active.stage = RecoveryStage::Instructions;
                         active.selected = 0;
                         active.chatgpt_oauth = None;
                     }
                 }
-                3 => {
+                4 => {
                     if recovery.pending_provider_prompt {
                         app.transcript.push(Entry::Status {
                             text: String::from(
@@ -386,7 +462,7 @@ pub fn accept_recovery_action(app: &mut App) -> Option<Msg> {
                             .push(Entry::Status { text: String::from("setup skipped") });
                     }
                 }
-                4 => {
+                5 => {
                     app.quit = true;
                     return Some(Msg::Quit);
                 }
@@ -472,20 +548,39 @@ pub fn accept_recovery_action(app: &mut App) -> Option<Msg> {
         },
         RecoveryStage::ChatGptOAuthRequesting => {}
         RecoveryStage::ChatGptOAuthPolling => {
-            if let Some(active) = app.first_run_recovery.as_mut() {
+            if recovery
+                .chatgpt_oauth
+                .as_ref()
+                .is_some_and(|oauth| oauth.method == ChatGptOAuthMethod::Browser && recovery.selected == 1)
+            {
+                if let Some(active) = app.first_run_recovery.as_mut() {
+                    active.stage = RecoveryStage::ChatGptOAuthPasteRedirect;
+                    active.selected = 0;
+                    active.secret_input.clear();
+                }
+            } else if let Some(active) = app.first_run_recovery.as_mut() {
                 active.stage = RecoveryStage::MissingCredential;
                 active.selected = 0;
                 active.chatgpt_oauth = None;
+                app.chatgpt_browser_login = None;
             }
         }
+        RecoveryStage::ChatGptOAuthPasteRedirect => {}
         RecoveryStage::ChatGptOAuthFailed => match recovery.selected {
-            0 => start_chatgpt_oauth_recovery(app),
+            0 => match recovery.chatgpt_oauth.as_ref().map(|oauth| oauth.method) {
+                Some(ChatGptOAuthMethod::DeviceCode) => start_chatgpt_device_oauth_recovery(app),
+                _ => start_chatgpt_browser_oauth_recovery(app),
+            },
             1 => {
+                start_chatgpt_device_oauth_recovery(app);
+            }
+            2 => {
                 if let Some(active) = app.first_run_recovery.as_mut() {
                     active.stage = RecoveryStage::MissingCredential;
                     active.selected = 0;
                     active.chatgpt_oauth = None;
                 }
+                app.chatgpt_browser_login = None;
             }
             _ => {}
         },
@@ -628,7 +723,8 @@ pub fn setup_model_options(provider: SetupProviderArg) -> Vec<PickerItem> {
     options
 }
 
-pub fn start_chatgpt_oauth_recovery(app: &mut App) {
+/// Start the browser-first ChatGPT Codex OAuth recovery.
+pub fn start_chatgpt_browser_oauth_recovery(app: &mut App) {
     let pending_provider_prompt = app
         .first_run_recovery
         .as_ref()
@@ -638,6 +734,57 @@ pub fn start_chatgpt_oauth_recovery(app: &mut App) {
         active.selected = 0;
         active.chatgpt_oauth = None;
     }
+    app.chatgpt_browser_login = None;
+
+    match (app.chatgpt_oauth_driver.start_browser_login)() {
+        Ok(login) => {
+            let authorization_url = login.authorization_url().to_string();
+            let status = match (app.chatgpt_oauth_driver.open_browser)(&authorization_url) {
+                Ok(()) => String::from("Browser opened. Waiting for the ChatGPT callback."),
+                Err(_) => String::from("Browser did not open; copy the authorization URL below."),
+            };
+            let expires_at_tick = app.ui_tick.wrapping_add(seconds_to_ticks(app, 5 * 60));
+            app.chatgpt_browser_login = Some(login);
+            app.first_run_recovery = Some(FirstRunRecovery {
+                provider: Some(SetupProviderArg::ChatgptCodex),
+                stage: RecoveryStage::ChatGptOAuthPolling,
+                pending_provider_prompt,
+                selected: 0,
+                secret_input: String::new(),
+                chatgpt_oauth: Some(ChatGptOAuthRecovery {
+                    method: ChatGptOAuthMethod::Browser,
+                    authorization_url: Some(authorization_url),
+                    code: None,
+                    next_poll_tick: app.ui_tick,
+                    expires_at_tick,
+                    status,
+                }),
+            });
+        }
+        Err(err) => set_chatgpt_oauth_failure(
+            app,
+            ChatGptOAuthMethod::Browser,
+            pending_provider_prompt,
+            format!(
+                "ChatGPT browser OAuth could not start: {}",
+                redact_auth_error(&err.to_string())
+            ),
+        ),
+    }
+}
+
+/// Start the explicitly selected headless ChatGPT Codex device-code recovery.
+pub fn start_chatgpt_device_oauth_recovery(app: &mut App) {
+    let pending_provider_prompt = app
+        .first_run_recovery
+        .as_ref()
+        .is_some_and(|recovery| recovery.pending_provider_prompt);
+    if let Some(active) = app.first_run_recovery.as_mut() {
+        active.stage = RecoveryStage::ChatGptOAuthRequesting;
+        active.selected = 0;
+        active.chatgpt_oauth = None;
+    }
+    app.chatgpt_browser_login = None;
 
     match (app.chatgpt_oauth_driver.request_device_code)() {
         Ok(code) => {
@@ -654,7 +801,9 @@ pub fn start_chatgpt_oauth_recovery(app: &mut App) {
                 selected: 0,
                 secret_input: String::new(),
                 chatgpt_oauth: Some(ChatGptOAuthRecovery {
-                    code,
+                    method: ChatGptOAuthMethod::DeviceCode,
+                    authorization_url: None,
+                    code: Some(code),
                     next_poll_tick,
                     expires_at_tick,
                     status: String::from("Waiting for ChatGPT authorization."),
@@ -662,95 +811,211 @@ pub fn start_chatgpt_oauth_recovery(app: &mut App) {
             });
         }
         Err(err) => {
-            app.first_run_recovery = Some(FirstRunRecovery {
-                provider: Some(SetupProviderArg::ChatgptCodex),
-                stage: RecoveryStage::ChatGptOAuthFailed,
+            set_chatgpt_oauth_failure(
+                app,
+                ChatGptOAuthMethod::DeviceCode,
                 pending_provider_prompt,
-                selected: 0,
-                secret_input: String::new(),
-                chatgpt_oauth: None,
-            });
-            app.transcript.push(Entry::Error {
-                text: format!(
-                    "ChatGPT OAuth device-code request failed: {}",
+                format!(
+                    "ChatGPT device-code login could not start: {}",
                     redact_auth_error(&err.to_string())
                 ),
+            );
+        }
+    }
+}
+
+fn set_chatgpt_oauth_failure(app: &mut App, method: ChatGptOAuthMethod, pending_provider_prompt: bool, status: String) {
+    app.chatgpt_browser_login = None;
+    app.first_run_recovery = Some(FirstRunRecovery {
+        provider: Some(SetupProviderArg::ChatgptCodex),
+        stage: RecoveryStage::ChatGptOAuthFailed,
+        pending_provider_prompt,
+        selected: 0,
+        secret_input: String::new(),
+        chatgpt_oauth: Some(ChatGptOAuthRecovery {
+            method,
+            authorization_url: None,
+            code: None,
+            next_poll_tick: app.ui_tick,
+            expires_at_tick: app.ui_tick,
+            status: status.clone(),
+        }),
+    });
+    app.transcript.push(Entry::Error { text: status });
+}
+
+fn finish_chatgpt_oauth(
+    app: &mut App, credentials: &auth::ChatGptCodexCredentials, pending_provider_prompt: bool,
+    method: ChatGptOAuthMethod,
+) {
+    match (app.chatgpt_oauth_driver.write_credentials)(credentials) {
+        Ok(()) => {
+            app.chatgpt_browser_login = None;
+            let needs_model = app.model.trim().is_empty();
+            app.transcript.push(Entry::Status {
+                text: String::from("chatgpt-codex OAuth credential stored in global auth store"),
             });
+            if needs_model {
+                app.first_run_recovery = Some(FirstRunRecovery {
+                    provider: Some(SetupProviderArg::ChatgptCodex),
+                    stage: RecoveryStage::ModelSelection,
+                    pending_provider_prompt,
+                    selected: 0,
+                    secret_input: String::new(),
+                    chatgpt_oauth: None,
+                });
+            } else {
+                app.first_run_recovery = None;
+            }
+        }
+        Err(err) => set_chatgpt_oauth_failure(
+            app,
+            method,
+            pending_provider_prompt,
+            format!(
+                "ChatGPT OAuth credential write failed: {}",
+                redact_auth_error(&err.to_string())
+            ),
+        ),
+    }
+}
+
+fn complete_chatgpt_oauth_redirect(app: &mut App, redirect: &str) {
+    let pending_provider_prompt = app
+        .first_run_recovery
+        .as_ref()
+        .is_some_and(|recovery| recovery.pending_provider_prompt);
+    let result = app
+        .chatgpt_browser_login
+        .as_ref()
+        .ok_or_else(|| auth::AuthError::ChatGptCodex("browser OAuth session is no longer active".to_string()))
+        .and_then(|login| (app.chatgpt_oauth_driver.complete_browser_redirect)(login, redirect));
+    match result {
+        Ok(credentials) => {
+            finish_chatgpt_oauth(app, &credentials, pending_provider_prompt, ChatGptOAuthMethod::Browser)
+        }
+        Err(err) => {
+            let status = format!("ChatGPT redirect was rejected: {}", redact_auth_error(&err.to_string()));
+            if let Some(recovery) = app.first_run_recovery.as_mut() {
+                recovery.stage = RecoveryStage::ChatGptOAuthPolling;
+                recovery.selected = 0;
+                if let Some(oauth) = recovery.chatgpt_oauth.as_mut() {
+                    oauth.status = status.clone();
+                }
+            }
+            app.transcript.push(Entry::Error { text: status });
         }
     }
 }
 
 pub fn poll_chatgpt_oauth_on_tick(app: &mut App) {
     let tick_ms = app.cli.tick_rate_ms.max(1);
-    let Some(recovery) = app.first_run_recovery.as_mut() else {
+    let Some(recovery) = app.first_run_recovery.as_ref() else {
         return;
     };
     if recovery.stage != RecoveryStage::ChatGptOAuthPolling {
         return;
     }
-    let Some(oauth) = recovery.chatgpt_oauth.as_mut() else {
-        recovery.stage = RecoveryStage::ChatGptOAuthFailed;
+    let Some(oauth) = recovery.chatgpt_oauth.as_ref() else {
         return;
     };
-    if super::agent_lifecycle::now_or_after_deadline(app.ui_tick, oauth.expires_at_tick) {
-        oauth.status = String::from("ChatGPT OAuth device code expired.");
-        recovery.stage = RecoveryStage::ChatGptOAuthFailed;
-        recovery.selected = 0;
+    let method = oauth.method;
+    let pending_provider_prompt = recovery.pending_provider_prompt;
+    let expires_at_tick = oauth.expires_at_tick;
+    let next_poll_tick = oauth.next_poll_tick;
+    if super::agent_lifecycle::now_or_after_deadline(app.ui_tick, expires_at_tick) {
+        set_chatgpt_oauth_failure(
+            app,
+            method,
+            pending_provider_prompt,
+            match method {
+                ChatGptOAuthMethod::Browser => String::from("ChatGPT browser OAuth callback expired."),
+                ChatGptOAuthMethod::DeviceCode => String::from("ChatGPT device-code login expired."),
+            },
+        );
         return;
     }
-    if !super::agent_lifecycle::now_or_after_deadline(app.ui_tick, oauth.next_poll_tick) {
+    if method == ChatGptOAuthMethod::DeviceCode
+        && !super::agent_lifecycle::now_or_after_deadline(app.ui_tick, next_poll_tick)
+    {
         return;
     }
 
-    match (app.chatgpt_oauth_driver.poll_device_code_once)(&oauth.code) {
-        Ok(auth::ChatGptCodexDevicePoll::Pending) => {
-            oauth.status = String::from("Waiting for ChatGPT authorization.");
-            oauth.next_poll_tick = app.ui_tick.wrapping_add(seconds_to_ticks_for_ms(
-                tick_ms,
-                oauth.code.interval.unwrap_or(5).max(1),
-            ));
-        }
-        Ok(auth::ChatGptCodexDevicePoll::SlowDown) => {
-            oauth.status = String::from("Waiting for ChatGPT authorization.");
-            oauth.next_poll_tick = app.ui_tick.wrapping_add(seconds_to_ticks_for_ms(
-                tick_ms,
-                oauth.code.interval.unwrap_or(5).max(1).saturating_add(5),
-            ));
-        }
-        Ok(auth::ChatGptCodexDevicePoll::Authorized(credentials)) => {
-            match (app.chatgpt_oauth_driver.write_credentials)(&credentials) {
-                Ok(()) => {
-                    let needs_model = app.model.trim().is_empty();
-                    app.transcript.push(Entry::Status {
-                        text: String::from("chatgpt-codex credential stored in global auth store"),
-                    });
-                    if needs_model {
-                        app.first_run_recovery = Some(FirstRunRecovery {
-                            provider: Some(SetupProviderArg::ChatgptCodex),
-                            stage: RecoveryStage::ModelSelection,
-                            pending_provider_prompt: recovery.pending_provider_prompt,
-                            selected: 0,
-                            secret_input: String::new(),
-                            chatgpt_oauth: None,
-                        });
-                    } else {
-                        app.first_run_recovery = None;
-                    }
+    match method {
+        ChatGptOAuthMethod::Browser => {
+            let result = app
+                .chatgpt_browser_login
+                .as_mut()
+                .ok_or_else(|| auth::AuthError::ChatGptCodex("browser OAuth session is no longer active".to_string()))
+                .and_then(|login| (app.chatgpt_oauth_driver.poll_browser_login)(login));
+            match result {
+                Ok(auth::ChatGptCodexBrowserPoll::Pending) => {}
+                Ok(auth::ChatGptCodexBrowserPoll::Authorized(credentials)) => {
+                    finish_chatgpt_oauth(app, &credentials, pending_provider_prompt, method);
                 }
-                Err(err) => {
-                    oauth.status = format!(
-                        "ChatGPT OAuth credential write failed: {}",
-                        redact_auth_error(&err.to_string())
-                    );
-                    recovery.stage = RecoveryStage::ChatGptOAuthFailed;
-                    recovery.selected = 0;
-                }
+                Err(err) => set_chatgpt_oauth_failure(
+                    app,
+                    method,
+                    pending_provider_prompt,
+                    format!("ChatGPT browser OAuth failed: {}", redact_auth_error(&err.to_string())),
+                ),
             }
         }
-        Err(err) => {
-            oauth.status = format!("ChatGPT OAuth polling failed: {}", redact_auth_error(&err.to_string()));
-            recovery.stage = RecoveryStage::ChatGptOAuthFailed;
-            recovery.selected = 0;
+        ChatGptOAuthMethod::DeviceCode => {
+            let Some(code) = app
+                .first_run_recovery
+                .as_ref()
+                .and_then(|recovery| recovery.chatgpt_oauth.as_ref())
+                .and_then(|oauth| oauth.code.as_ref())
+                .cloned()
+            else {
+                set_chatgpt_oauth_failure(
+                    app,
+                    method,
+                    pending_provider_prompt,
+                    String::from("ChatGPT device-code state is unavailable."),
+                );
+                return;
+            };
+            match (app.chatgpt_oauth_driver.poll_device_code_once)(&code) {
+                Ok(auth::ChatGptCodexDevicePoll::Pending) => {
+                    if let Some(oauth) = app
+                        .first_run_recovery
+                        .as_mut()
+                        .and_then(|recovery| recovery.chatgpt_oauth.as_mut())
+                    {
+                        oauth.status = String::from("Waiting for ChatGPT authorization.");
+                        oauth.next_poll_tick = app
+                            .ui_tick
+                            .wrapping_add(seconds_to_ticks_for_ms(tick_ms, code.interval.unwrap_or(5).max(1)));
+                    }
+                }
+                Ok(auth::ChatGptCodexDevicePoll::SlowDown) => {
+                    if let Some(oauth) = app
+                        .first_run_recovery
+                        .as_mut()
+                        .and_then(|recovery| recovery.chatgpt_oauth.as_mut())
+                    {
+                        oauth.status = String::from("ChatGPT asked the client to slow down; waiting.");
+                        oauth.next_poll_tick = app.ui_tick.wrapping_add(seconds_to_ticks_for_ms(
+                            tick_ms,
+                            code.interval.unwrap_or(5).max(1).saturating_add(5),
+                        ));
+                    }
+                }
+                Ok(auth::ChatGptCodexDevicePoll::Authorized(credentials)) => {
+                    finish_chatgpt_oauth(app, &credentials, pending_provider_prompt, method);
+                }
+                Err(err) => set_chatgpt_oauth_failure(
+                    app,
+                    method,
+                    pending_provider_prompt,
+                    format!(
+                        "ChatGPT device-code polling failed: {}",
+                        redact_auth_error(&err.to_string())
+                    ),
+                ),
+            }
         }
     }
 }

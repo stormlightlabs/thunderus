@@ -30,8 +30,8 @@ use input::accept_model_suggestion;
 
 pub use commands::command_suggestions_for_app;
 pub use input::{FilePickerSource, Mode, PickerItem, PickerState, PromptAccessory};
-pub(crate) use onboarding::setup_model_options;
-pub use onboarding::{ChatGptOAuthDriver, ChatGptOAuthRecovery, FirstRunRecovery, RecoveryStage};
+pub use onboarding::setup_model_options;
+pub use onboarding::{ChatGptOAuthDriver, ChatGptOAuthMethod, ChatGptOAuthRecovery, FirstRunRecovery, RecoveryStage};
 
 use input::{
     handle_key, handle_mouse, load_legacy_project_input_history, offline_model_picker_items, open_model_picker,
@@ -402,6 +402,8 @@ pub struct App {
     pub first_run_recovery: Option<FirstRunRecovery>,
     /// ChatGPT OAuth functions used by focused recovery.
     pub chatgpt_oauth_driver: ChatGptOAuthDriver,
+    /// Short-lived browser PKCE callback owned by the application adapter.
+    pub chatgpt_browser_login: Option<auth::ChatGptCodexBrowserLogin>,
     /// Steering messages waiting to be sent to the active agent thread.
     pub queued_steering: Vec<String>,
     /// Follow-up prompts to submit as new turns after the active run completes.
@@ -543,6 +545,7 @@ impl From<&Cli> for App {
             prompt_accessory: PromptAccessory::None,
             first_run_recovery: None,
             chatgpt_oauth_driver: ChatGptOAuthDriver::default(),
+            chatgpt_browser_login: None,
             queued_steering: Vec::new(),
             queued_followups: Vec::new(),
             kill_ring: Vec::new(),

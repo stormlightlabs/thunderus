@@ -1,22 +1,22 @@
 use super::*;
-use crate::input::PromptInput;
+use crate::{input::PromptInput, thndrs_core};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::path::Path;
 
 fn with_isolated_setup_env<T>(home: &Path, f: impl FnOnce() -> T) -> T {
     let _guard = crate::test_env::lock();
     let old_home = std::env::var_os("HOME");
-    let old_umans = std::env::var_os(crate::thndrs_core::auth::UMANS_API_KEY_ENV);
-    let old_opencode = std::env::var_os(crate::thndrs_core::auth::OPENCODE_GO_KEY_ENV);
-    let old_opencode_zen = std::env::var_os(crate::thndrs_core::auth::OPENCODE_ZEN_KEY_ENV);
-    let old_chatgpt = std::env::var_os(crate::thndrs_core::auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV);
+    let old_umans = std::env::var_os(thndrs_core::auth::UMANS_API_KEY_ENV);
+    let old_opencode = std::env::var_os(thndrs_core::auth::OPENCODE_GO_KEY_ENV);
+    let old_opencode_zen = std::env::var_os(thndrs_core::auth::OPENCODE_ZEN_KEY_ENV);
+    let old_chatgpt = std::env::var_os(thndrs_core::auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV);
 
     unsafe {
         std::env::set_var("HOME", home);
-        std::env::remove_var(crate::thndrs_core::auth::UMANS_API_KEY_ENV);
-        std::env::remove_var(crate::thndrs_core::auth::OPENCODE_GO_KEY_ENV);
-        std::env::remove_var(crate::thndrs_core::auth::OPENCODE_ZEN_KEY_ENV);
-        std::env::remove_var(crate::thndrs_core::auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV);
+        std::env::remove_var(thndrs_core::auth::UMANS_API_KEY_ENV);
+        std::env::remove_var(thndrs_core::auth::OPENCODE_GO_KEY_ENV);
+        std::env::remove_var(thndrs_core::auth::OPENCODE_ZEN_KEY_ENV);
+        std::env::remove_var(thndrs_core::auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV);
     }
 
     let result = f();
@@ -28,24 +28,24 @@ fn with_isolated_setup_env<T>(home: &Path, f: impl FnOnce() -> T) -> T {
             std::env::remove_var("HOME");
         }
         if let Some(value) = old_umans {
-            std::env::set_var(crate::thndrs_core::auth::UMANS_API_KEY_ENV, value);
+            std::env::set_var(thndrs_core::auth::UMANS_API_KEY_ENV, value);
         } else {
-            std::env::remove_var(crate::thndrs_core::auth::UMANS_API_KEY_ENV);
+            std::env::remove_var(thndrs_core::auth::UMANS_API_KEY_ENV);
         }
         if let Some(value) = old_opencode {
-            std::env::set_var(crate::thndrs_core::auth::OPENCODE_GO_KEY_ENV, value);
+            std::env::set_var(thndrs_core::auth::OPENCODE_GO_KEY_ENV, value);
         } else {
-            std::env::remove_var(crate::thndrs_core::auth::OPENCODE_GO_KEY_ENV);
+            std::env::remove_var(thndrs_core::auth::OPENCODE_GO_KEY_ENV);
         }
         if let Some(value) = old_opencode_zen {
-            std::env::set_var(crate::thndrs_core::auth::OPENCODE_ZEN_KEY_ENV, value);
+            std::env::set_var(thndrs_core::auth::OPENCODE_ZEN_KEY_ENV, value);
         } else {
-            std::env::remove_var(crate::thndrs_core::auth::OPENCODE_ZEN_KEY_ENV);
+            std::env::remove_var(thndrs_core::auth::OPENCODE_ZEN_KEY_ENV);
         }
         if let Some(value) = old_chatgpt {
-            std::env::set_var(crate::thndrs_core::auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV, value);
+            std::env::set_var(thndrs_core::auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV, value);
         } else {
-            std::env::remove_var(crate::thndrs_core::auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV);
+            std::env::remove_var(thndrs_core::auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV);
         }
     }
 
@@ -427,10 +427,12 @@ fn slash_chatgpt_codex_login_surface_starts_tui_oauth() {
         request_device_code: oauth_request_ok,
         poll_device_code_once: oauth_poll_pending,
         write_credentials: oauth_write_ok,
+        ..Default::default()
     };
     app.input = PromptInput::from("/login chatgpt-codex");
 
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    update(&mut app, &key(KeyCode::Down, KeyModifiers::NONE));
     update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
 
     let recovery = app.first_run_recovery.as_ref().expect("oauth recovery");

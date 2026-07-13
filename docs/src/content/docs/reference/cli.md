@@ -29,7 +29,7 @@ title: "CLI Reference"
 - `thndrs config show --redacted`: print effective config, origins, loaded files, and diagnostics.
 - `thndrs config edit --global`: open the global config file with `$EDITOR`.
 - `thndrs config edit --project`: open the project config file with `$EDITOR`.
-- `thndrs login chatgpt-codex`: start the ChatGPT Codex device-code login flow, with browser PKCE fallback.
+- `thndrs login chatgpt-codex [--oauth-method <browser|device-code>]`: log in through ChatGPT OAuth.
 - `thndrs logout chatgpt-codex`: remove the stored ChatGPT Codex credential entry.
 
 Inside the TUI, `/context` inspects the active context working set and

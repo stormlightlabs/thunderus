@@ -760,6 +760,7 @@ mod tests {
             login.command,
             Some(Command::Login(commands::auth::LoginCommand {
                 provider: commands::setup::SetupProviderArg::OpencodeGo,
+                oauth_method: commands::auth::ChatGptOAuthMethod::Browser,
             }))
         );
 
@@ -768,6 +769,7 @@ mod tests {
             zen_login.command,
             Some(Command::Login(commands::auth::LoginCommand {
                 provider: commands::setup::SetupProviderArg::OpencodeZen,
+                oauth_method: commands::auth::ChatGptOAuthMethod::Browser,
             }))
         );
 
@@ -776,6 +778,17 @@ mod tests {
             codex_login.command,
             Some(Command::Login(commands::auth::LoginCommand {
                 provider: commands::setup::SetupProviderArg::ChatgptCodex,
+                oauth_method: commands::auth::ChatGptOAuthMethod::Browser,
+            }))
+        );
+
+        let device_login = Cli::try_parse_from(["thndrs", "login", "chatgpt-codex", "--oauth-method", "device-code"])
+            .expect("parse explicit device-code login");
+        assert_eq!(
+            device_login.command,
+            Some(Command::Login(commands::auth::LoginCommand {
+                provider: commands::setup::SetupProviderArg::ChatgptCodex,
+                oauth_method: commands::auth::ChatGptOAuthMethod::DeviceCode,
             }))
         );
 

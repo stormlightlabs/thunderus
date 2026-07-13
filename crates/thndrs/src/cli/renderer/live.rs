@@ -108,10 +108,12 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
     let row_body_width = super::layout::content_width(width);
     let body_width = row_body_width.saturating_sub(LIVE_INSET + prefix_width).max(1);
     let cursor_indent = width.min(2) + LIVE_INSET + prefix_width;
-    let hidden_entry_active = app
-        .first_run_recovery
-        .as_ref()
-        .is_some_and(|recovery| recovery.stage == RecoveryStage::EnterKey);
+    let hidden_entry_active = app.first_run_recovery.as_ref().is_some_and(|recovery| {
+        matches!(
+            recovery.stage,
+            RecoveryStage::EnterKey | RecoveryStage::ChatGptOAuthPasteRedirect
+        )
+    });
     let hidden_display = String::from("credential: [hidden]");
     let input_text = if hidden_entry_active { hidden_display.as_str() } else { app.input.as_str() };
     let cursor_pos = if hidden_entry_active { input_text.len() } else { app.input.cursor() };
@@ -486,7 +488,8 @@ fn first_run_recovery_rows(app: &App, width: usize, max_height: usize) -> Vec<Ro
             rows.push(recovery_body_row(width, bg, text_style, body));
             let actions = if recovery.provider == Some(commands::setup::SetupProviderArg::ChatgptCodex) {
                 &[
-                    "start ChatGPT OAuth login",
+                    "start browser PKCE login",
+                    "use headless device code",
                     "switch model/provider",
                     "show setup instructions",
                     "continue without setup",
@@ -516,6 +519,14 @@ fn first_run_recovery_rows(app: &App, width: usize, max_height: usize) -> Vec<Ro
                 .unwrap_or_else(|| String::from("API key"));
             let body = format!("Type the {credential_label}. Input is hidden. Enter continues, Esc cancels.");
             rows.push(recovery_body_row(width, bg, text_style, &body));
+        }
+        RecoveryStage::ChatGptOAuthPasteRedirect => {
+            rows.push(recovery_body_row(
+                width,
+                bg,
+                text_style,
+                "Paste the full browser redirect URL. Input is hidden; Enter submits, Esc cancels.",
+            ));
         }
         RecoveryStage::ConfirmStore => {
             rows.push(recovery_body_row(width, bg, text_style, "Store this credential where?"));
@@ -550,7 +561,7 @@ fn first_run_recovery_rows(app: &App, width: usize, max_height: usize) -> Vec<Ro
                 width,
                 bg,
                 text_style,
-                "Requesting a ChatGPT OAuth device code.",
+                "Starting the selected ChatGPT OAuth method.",
             ));
             push_recovery_actions(
                 &mut rows,
@@ -561,9 +572,23 @@ fn first_run_recovery_rows(app: &App, width: usize, max_height: usize) -> Vec<Ro
             );
         }
         RecoveryStage::ChatGptOAuthPolling => {
-            if let Some(oauth) = recovery.chatgpt_oauth.as_ref() {
-                let verification_uri = oauth
-                    .code
+            if let Some(oauth) = recovery.chatgpt_oauth.as_ref()
+                && oauth.method == crate::app::ChatGptOAuthMethod::Browser
+            {
+                rows.push(recovery_body_row(
+                    width,
+                    bg,
+                    text_style,
+                    "Open or copy this ChatGPT authorization URL:",
+                ));
+                if let Some(url) = oauth.authorization_url.as_deref() {
+                    rows.push(recovery_body_row(width, bg, muted_style, url));
+                }
+                rows.push(recovery_body_row(width, bg, muted_style, &oauth.status));
+            } else if let Some(oauth) = recovery.chatgpt_oauth.as_ref()
+                && let Some(code) = oauth.code.as_ref()
+            {
+                let verification_uri = code
                     .verification_uri
                     .as_deref()
                     .unwrap_or("https://auth.openai.com/codex/device");
@@ -571,7 +596,10 @@ fn first_run_recovery_rows(app: &App, width: usize, max_height: usize) -> Vec<Ro
                     width,
                     bg,
                     text_style,
-                    &format!("Open {verification_uri} and enter code {}", oauth.code.user_code),
+                    &format!(
+                        "Headless login: open {verification_uri} and enter code {}",
+                        code.user_code
+                    ),
                 ));
                 rows.push(recovery_body_row(width, bg, muted_style, &oauth.status));
             } else {
@@ -581,7 +609,15 @@ fn first_run_recovery_rows(app: &App, width: usize, max_height: usize) -> Vec<Ro
                 &mut rows,
                 ActionDimensions(width, max_height),
                 recovery.selected,
-                &["cancel"],
+                if recovery
+                    .chatgpt_oauth
+                    .as_ref()
+                    .is_some_and(|oauth| oauth.method == crate::app::ChatGptOAuthMethod::Browser)
+                {
+                    &["cancel", "paste full redirect URL"][..]
+                } else {
+                    &["cancel"][..]
+                },
                 ActionStyles::new(selected_style, muted_style, text_style, bg),
             );
         }
@@ -590,13 +626,13 @@ fn first_run_recovery_rows(app: &App, width: usize, max_height: usize) -> Vec<Ro
                 .chatgpt_oauth
                 .as_ref()
                 .map(|oauth| oauth.status.as_str())
-                .unwrap_or("ChatGPT OAuth failed. Run `thndrs login chatgpt-codex` for browser fallback.");
+                .unwrap_or("ChatGPT OAuth failed. Choose browser PKCE or the explicit headless device-code route.");
             rows.push(recovery_body_row(width, bg, text_style, text));
             push_recovery_actions(
                 &mut rows,
                 ActionDimensions(width, max_height),
                 recovery.selected,
-                &["retry ChatGPT OAuth login", "back"],
+                &["retry browser PKCE", "use headless device code", "back"],
                 ActionStyles::new(selected_style, muted_style, text_style, bg),
             );
         }

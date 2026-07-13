@@ -52,6 +52,4 @@ credential sources, tool availability, session directory status, MCP/ACP
 counts, and blocking setup issues without printing credential values.
 
 If the TUI opens with a provider model but no usable credential, it shows a
-focused recovery surface before submitting the first prompt. You can enter a
-key, switch model/provider, show setup instructions, or quit without losing the
-prompt draft.
+recovery screen before submitting the first prompt.

@@ -14,7 +14,7 @@ inspecting a repository.
 - `AGENTS.md` support
 - `SKILL.md` support
 - Provider expansion across Umans.ai, OpenCode Go, OpenCode Zen Big Pickle, and
-  experimental ChatGPT-backed Codex models.
+  ChatGPT Codex models.
 - Choose automatic web search, provider-native search, Exa-backed search, or
   [no provider-side](https://lectito.stormlightlabs.org/docs/) web search.
 - Agent Client Protocol support: use external ACP agents from the TUI, or run
@@ -23,9 +23,5 @@ inspecting a repository.
   - See [ACP](/usage/acp/) for agent configuration, editor setup, supported
     capabilities, permission behavior, and troubleshooting.
 - Session history
-- Internal inspection for the agent
-
-## Coming Soon
-
-- Granular context control and working-set inspection
-- Better session observability & config/session controls
+- Visible context control with pin, drop, recover, and review actions
+- Model-specific reasoning controls

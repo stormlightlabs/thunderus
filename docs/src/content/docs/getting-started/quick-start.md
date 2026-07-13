@@ -2,19 +2,34 @@
 title: "Quick Start"
 ---
 
+## Set Up a Provider
+
+`thndrs` requires an authenticated provider before it can start a coding turn.
+Run setup from the repository you want to work in and choose a provider:
+
+```sh
+thndrs setup
+
+# to go right to chatgpt/codex setup:
+thndrs setup --provider chatgpt-codex
+```
+
 ## Running the TUI
 
 Run from a repository:
 
 ```sh
-cargo run -p thndrs
+thndrs
 ```
 
 To point `thndrs` at a different workspace:
 
 ```sh
-cargo run -p thndrs -- --cwd /path/to/repo
+thndrs --cwd /path/to/repo
 ```
+
+When developing from a checkout, replace `thndrs` in these commands with
+`cargo run -p thndrs --`.
 
 ## First Prompt
 

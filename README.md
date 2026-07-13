@@ -6,11 +6,16 @@ A minimal AI pair programmer.
 
 ## Overview
 
-**todo**
+`thndrs` is an agentic coding harness for working with repository-aware
+large language models.
 
 ## Features
 
-**todo**
+- Support for ChatGPT COdex, Umans, OpenCode Go & Zen LLM providers.
+- Native terminal scrollback, structured transcript events, session recovery,
+  redacted diagnostics, and configurable reasoning controls.
+- Workspace-contained file, search, URL, and shell tools with explicit approval
+  for side effects.
 
 ### Terminal Pairing
 
@@ -20,23 +25,20 @@ A minimal AI pair programmer.
 
 ### Project Context
 
-**todo**
+`thndrs` discovers repository guidance such as `AGENTS.md` and skills (`SKILL.md`),
+assembles bounded context, and exposes context inspection and recovery controls
+inside the TUI.
 
 <!-- good screenshot: startup state showing loaded AGENTS.md/context status row -->
 
 ### Web Search
 
-**todo**
-
-<!-- good screenshot: search started/result rows in the transcript -->
+Choose automatic, provider-native, Exa-backed, or disabled provider-side web
+search with `--websearch` or `THNDRS_WEBSEARCH`.
 
 ### Themes
 
-<!-- good screenshot: side-by-side terminal captures of eldritch-minimal, iceberg-dark, and catppuccin-mocha themes -->
-
-| Eldritch | Iceberg  | Mocha    |
-| -------- | -------- | -------- |
-| **todo** | **todo** | **todo** |
+The TUI supports Eldritch Minimal[^eld], Iceberg[^ice], and Catppuccin[^cat] Mocha palettes.
 
 ## Quickstart
 
@@ -55,7 +57,7 @@ cargo install --locked thndrs
 ```
 
 Then run `thndrs setup` from the repository you want to work in. Setup checks
-local config, stores provider credentials outside TOML, and prints the next
+local config, stores provider credentials outside the TOML, and prints the next
 command to run.
 
 ## Configuration
@@ -66,15 +68,19 @@ See the doc site for the up to date [configuration reference](https://thndrs.sto
 
 **todo**
 
-<!-- good screenshot: normal running session after a tool call, with prompt ready for follow-up -->
-
 ## Documentation
 
 Public documentation is in an Astro/Starlight [project](/docs) and is published at
-https://thndrs.stormlightlabs.org.
+<https://thndrs.stormlightlabs.org>.
 
 ## License
 
 `thndrs` is licensed under the Apache License, Version 2.0.
 
 See [`LICENSE`](./LICENSE) for the full license text.
+
+[^eld]: Eldritch.nvim theme <https://github.com/eldritch-theme/eldritch.nvim>
+
+[^ice]: Iceberg.vim theme <https://github.com/cocopon/iceberg.vim>
+
+[^cat]: Catppuccin palette <https://catppuccin.com/>

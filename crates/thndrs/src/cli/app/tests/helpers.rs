@@ -194,6 +194,10 @@ pub fn oauth_poll_pending(_: &auth::ChatGptCodexDeviceCode) -> Result<auth::Chat
     Ok(auth::ChatGptCodexDevicePoll::Pending)
 }
 
+pub fn oauth_poll_slow_down(_: &auth::ChatGptCodexDeviceCode) -> Result<auth::ChatGptCodexDevicePoll, auth::AuthError> {
+    Ok(auth::ChatGptCodexDevicePoll::SlowDown)
+}
+
 pub fn oauth_poll_authorized(
     _: &auth::ChatGptCodexDeviceCode,
 ) -> Result<auth::ChatGptCodexDevicePoll, auth::AuthError> {
@@ -208,6 +212,32 @@ pub fn oauth_poll_fail(_: &auth::ChatGptCodexDeviceCode) -> Result<auth::ChatGpt
 
 pub fn oauth_write_ok(_: &auth::ChatGptCodexCredentials) -> Result<(), auth::AuthError> {
     Ok(())
+}
+
+pub fn oauth_write_fail(_: &auth::ChatGptCodexCredentials) -> Result<(), auth::AuthError> {
+    Err(auth::AuthError::ChatGptCodex(String::from(
+        "credential store unavailable",
+    )))
+}
+
+pub fn oauth_browser_start() -> Result<auth::ChatGptCodexBrowserLogin, auth::AuthError> {
+    Ok(auth::test_chatgpt_codex_browser_login())
+}
+
+pub fn oauth_browser_open(_: &str) -> Result<(), auth::AuthError> {
+    Ok(())
+}
+
+pub fn oauth_browser_pending(
+    _: &mut auth::ChatGptCodexBrowserLogin,
+) -> Result<auth::ChatGptCodexBrowserPoll, auth::AuthError> {
+    Ok(auth::ChatGptCodexBrowserPoll::Pending)
+}
+
+pub fn oauth_browser_complete(
+    _: &auth::ChatGptCodexBrowserLogin, _: &str,
+) -> Result<auth::ChatGptCodexCredentials, auth::AuthError> {
+    Ok(test_chatgpt_credentials())
 }
 
 pub fn working_app_with_streaming() -> App {

@@ -21,10 +21,11 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{BufRead, Write};
-use std::net::TcpListener;
+use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
 use sha2::Digest;
@@ -54,6 +55,7 @@ const DEVICE_REDIRECT_URI: &str = "https://auth.openai.com/deviceauth/callback";
 const DEVICE_CODE_TIMEOUT_SECONDS: u64 = 15 * 60;
 const PKCE_CALLBACK_ADDR: &str = "127.0.0.1:1455";
 const PKCE_CALLBACK_URL: &str = "http://localhost:1455/auth/callback";
+const PKCE_CALLBACK_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const PKCE_AUTHORIZE_URL: &str = "https://auth.openai.com/oauth/authorize";
 const OAUTH_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 const OAUTH_SCOPE: &str = "openid profile email offline_access";
@@ -90,6 +92,12 @@ impl CredentialSource {
 impl ChatGptCodexCredentials {
     fn is_expired(&self, now_ms: u64) -> bool {
         self.expires_at_ms <= now_ms.saturating_add(60_000)
+    }
+
+    fn is_usable(&self) -> bool {
+        !self.access_token.trim().is_empty()
+            && !self.refresh_token.trim().is_empty()
+            && !self.account_id.trim().is_empty()
     }
 }
 
@@ -189,13 +197,32 @@ pub struct ChatGptCodexTokenResponse {
     pub expires_in: Option<u64>,
 }
 
+/// A browser PKCE login waiting for its loopback callback.
+pub struct ChatGptCodexBrowserLogin {
+    listener: Option<TcpListener>,
+    verifier: String,
+    state: String,
+    redirect_uri: String,
+    authorization_url: String,
+    expires_at: Instant,
+}
+
+/// Result of checking a browser PKCE callback without blocking.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ChatGptCodexBrowserPoll {
+    /// No callback has arrived yet.
+    Pending,
+    /// The callback completed and credentials are ready to store.
+    Authorized(ChatGptCodexCredentials),
+}
+
 impl std::fmt::Debug for ChatGptCodexCredentials {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ChatGptCodexCredentials")
             .field("access_token", &redact_value(&self.access_token))
             .field("refresh_token", &redact_value(&self.refresh_token))
             .field("expires_at_ms", &self.expires_at_ms)
-            .field("account_id", &self.account_id)
+            .field("account_id", &redact_value(&self.account_id))
             .finish()
     }
 }
@@ -204,7 +231,7 @@ impl std::fmt::Debug for ChatGptCodexAuth {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ChatGptCodexAuth")
             .field("access_token", &redact_value(&self.access_token))
-            .field("account_id", &self.account_id)
+            .field("account_id", &redact_value(&self.account_id))
             .finish()
     }
 }
@@ -213,9 +240,15 @@ impl std::fmt::Debug for ChatGptCodexDeviceCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ChatGptCodexDeviceCode")
             .field("device_auth_id", &redact_value(&self.device_auth_id))
-            .field("user_code", &self.user_code)
-            .field("verification_uri", &self.verification_uri)
-            .field("verification_uri_complete", &self.verification_uri_complete)
+            .field("user_code", &"[redacted]")
+            .field(
+                "verification_uri",
+                &self.verification_uri.as_ref().map(|_| "[redacted]"),
+            )
+            .field(
+                "verification_uri_complete",
+                &self.verification_uri_complete.as_ref().map(|_| "[redacted]"),
+            )
             .field("expires_in", &self.expires_in)
             .field("interval", &self.interval)
             .finish()
@@ -231,6 +264,17 @@ impl std::fmt::Debug for ChatGptCodexTokenResponse {
                 &self.refresh_token.as_ref().map(|token| redact_value(token)),
             )
             .field("expires_in", &self.expires_in)
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for ChatGptCodexBrowserLogin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChatGptCodexBrowserLogin")
+            .field("listener", &self.listener.as_ref().map_or("[not bound]", |_| "[bound]"))
+            .field("redirect_uri", &self.redirect_uri)
+            .field("authorization_url", &"[redacted]")
+            .field("expires_at", &self.expires_at)
             .finish()
     }
 }
@@ -286,6 +330,11 @@ fn resolve_chatgpt_codex_file_auth_at(
         .map_err(|_| AuthError::ChatGptCodex("refresh lock poisoned".to_string()))?;
     let mut credentials = read_chatgpt_codex_credentials_at(path)?
         .ok_or_else(|| AuthError::ChatGptCodex("run `thndrs login chatgpt-codex`".to_string()))?;
+    if !credentials.is_usable() {
+        return Err(AuthError::ChatGptCodex(
+            "stored ChatGPT Codex credential is incomplete; run `thndrs login chatgpt-codex`".to_string(),
+        ));
+    }
     if credentials.is_expired(now_ms()) {
         credentials = refresh(credentials)?;
         write_chatgpt_codex_credentials_at(path, &credentials)?;
@@ -404,7 +453,7 @@ pub fn poll_chatgpt_codex_device_code_once(code: &ChatGptCodexDeviceCode) -> Res
         Some("slow_down") => Ok(ChatGptCodexDevicePoll::SlowDown),
         _ if status == 403 || status == 404 => Ok(ChatGptCodexDevicePoll::Pending),
         _ => {
-            let message = chatgpt_codex_error_message(&body).unwrap_or_else(|| body.chars().take(240).collect());
+            let message = chatgpt_codex_error_summary(&body);
             Err(AuthError::ChatGptCodex(format!(
                 "device-code poll failed with status {status}: {message}"
             )))
@@ -412,16 +461,147 @@ pub fn poll_chatgpt_codex_device_code_once(code: &ChatGptCodexDeviceCode) -> Res
     }
 }
 
-/// Browser PKCE fallback for ChatGPT Codex login.
-pub fn login_chatgpt_codex_with_browser_pkce() -> Result<ChatGptCodexCredentials, AuthError> {
+/// Start a browser-first ChatGPT Codex PKCE login.
+///
+/// The listener is bound before the authorization URL is returned, so a fast
+/// browser redirect cannot race setup. It is non-blocking and expires after a
+/// short interval; callers should check it with
+/// [`poll_chatgpt_codex_browser_login_once`] and may use
+/// [`ChatGptCodexBrowserLogin::complete_redirect`] when a pasted full redirect
+/// is needed.
+pub fn start_chatgpt_codex_browser_login() -> Result<ChatGptCodexBrowserLogin, AuthError> {
+    let listener = TcpListener::bind(PKCE_CALLBACK_ADDR)
+        .map_err(|e| AuthError::ChatGptCodex(format!("failed to bind localhost:1455 callback: {e}")))?;
+    listener
+        .set_nonblocking(true)
+        .map_err(|e| AuthError::ChatGptCodex(format!("failed to prepare browser callback: {e}")))?;
+
     let verifier = random_pkce_verifier()?;
     let challenge = base64_url_encode(&sha2::Sha256::digest(verifier.as_bytes()));
     let state = random_pkce_verifier()?;
-    let auth_url = chatgpt_codex_pkce_authorize_url(&challenge, &state);
-    eprintln!("Open this URL to continue ChatGPT Codex login:\n{auth_url}");
-    let code = wait_for_pkce_callback_code(&state)?;
-    let token = exchange_chatgpt_codex_authorization_code(&code, &verifier, PKCE_CALLBACK_URL)?;
-    credentials_from_token_response(token, None)
+    let authorization_url = chatgpt_codex_pkce_authorize_url(&challenge, &state);
+
+    Ok(ChatGptCodexBrowserLogin {
+        listener: Some(listener),
+        verifier,
+        state,
+        redirect_uri: PKCE_CALLBACK_URL.to_string(),
+        authorization_url,
+        expires_at: Instant::now() + PKCE_CALLBACK_TIMEOUT,
+    })
+}
+
+#[cfg(test)]
+pub fn test_chatgpt_codex_browser_login() -> ChatGptCodexBrowserLogin {
+    ChatGptCodexBrowserLogin {
+        listener: None,
+        verifier: String::from("test-verifier"),
+        state: String::from("test-state"),
+        redirect_uri: PKCE_CALLBACK_URL.to_string(),
+        authorization_url: String::from("https://auth.example.test/oauth/authorize?state=test-state"),
+        expires_at: Instant::now() + PKCE_CALLBACK_TIMEOUT,
+    }
+}
+
+impl ChatGptCodexBrowserLogin {
+    /// Copyable authorization URL for display or browser launch.
+    pub fn authorization_url(&self) -> &str {
+        &self.authorization_url
+    }
+
+    /// Registered redirect URI for this login.
+    pub fn redirect_uri(&self) -> &str {
+        &self.redirect_uri
+    }
+
+    /// Poll the loopback callback once and exchange a valid authorization code.
+    pub fn poll(&mut self) -> Result<ChatGptCodexBrowserPoll, AuthError> {
+        if Instant::now() >= self.expires_at {
+            return Err(AuthError::ChatGptCodex("browser OAuth callback expired".to_string()));
+        }
+
+        let Some(listener) = self.listener.as_ref() else {
+            return Ok(ChatGptCodexBrowserPoll::Pending);
+        };
+        let (mut stream, _) = match listener.accept() {
+            Ok(connection) => connection,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                return Ok(ChatGptCodexBrowserPoll::Pending);
+            }
+            Err(error) => {
+                return Err(AuthError::ChatGptCodex(format!(
+                    "failed to accept browser callback: {error}"
+                )));
+            }
+        };
+
+        let redirect = read_browser_callback(&mut stream)?;
+        let credentials = self.complete_redirect(&redirect)?;
+        Ok(ChatGptCodexBrowserPoll::Authorized(credentials))
+    }
+
+    /// Complete this login from a pasted full redirect URL.
+    pub fn complete_redirect(&self, redirect: &str) -> Result<ChatGptCodexCredentials, AuthError> {
+        if Instant::now() >= self.expires_at {
+            return Err(AuthError::ChatGptCodex("browser OAuth callback expired".to_string()));
+        }
+        let code = parse_chatgpt_codex_redirect(redirect, &self.state)?;
+        let token = exchange_chatgpt_codex_authorization_code(&code, &self.verifier, &self.redirect_uri)?;
+        credentials_from_token_response(token, None)
+    }
+}
+
+/// Poll a browser login once without sleeping.
+pub fn poll_chatgpt_codex_browser_login_once(
+    login: &mut ChatGptCodexBrowserLogin,
+) -> Result<ChatGptCodexBrowserPoll, AuthError> {
+    login.poll()
+}
+
+/// Open a ChatGPT authorization URL using the host's conventional browser launcher.
+pub fn open_chatgpt_codex_authorization_url(url: &str) -> Result<(), AuthError> {
+    #[cfg(target_os = "macos")]
+    let mut command = Command::new("open");
+    #[cfg(target_os = "linux")]
+    let mut command = Command::new("xdg-open");
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = Command::new("cmd");
+        command.args(["/C", "start", ""]);
+        command
+    };
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    return Err(AuthError::ChatGptCodex(
+        "automatic browser launch is unavailable".to_string(),
+    ));
+
+    command
+        .arg(url)
+        .status()
+        .map_err(|_| AuthError::ChatGptCodex("automatic browser launch failed".to_string()))
+        .and_then(|status| {
+            if status.success() {
+                Ok(())
+            } else {
+                Err(AuthError::ChatGptCodex("automatic browser launch failed".to_string()))
+            }
+        })
+}
+
+/// Browser PKCE login for headless CLI callers that cannot use the TUI recovery surface.
+pub fn login_chatgpt_codex_with_browser_pkce() -> Result<ChatGptCodexCredentials, AuthError> {
+    let mut login = start_chatgpt_codex_browser_login()?;
+    eprintln!(
+        "Open this URL to continue ChatGPT Codex browser login (copy/paste the URL if it does not open):\n{}",
+        login.authorization_url()
+    );
+    let _ = open_chatgpt_codex_authorization_url(login.authorization_url());
+    loop {
+        match login.poll()? {
+            ChatGptCodexBrowserPoll::Pending => std::thread::sleep(Duration::from_millis(100)),
+            ChatGptCodexBrowserPoll::Authorized(credentials) => return Ok(credentials),
+        }
+    }
 }
 
 /// Convert a token response into persistable ChatGPT Codex credentials.
@@ -681,8 +861,10 @@ where
         .read_to_string()
         .map_err(|e| AuthError::ChatGptCodex(format!("{context} body read failed: {e}")))?;
     if !(200..=299).contains(&status) {
-        let message = chatgpt_codex_error_message(&body).unwrap_or_else(|| body.chars().take(240).collect());
-        return Err(AuthError::ChatGptCodex(message));
+        return Err(AuthError::ChatGptCodex(format!(
+            "{context} failed with status {status}: {}",
+            chatgpt_codex_error_summary(&body)
+        )));
     }
     serde_json::from_str(&body).map_err(|e| AuthError::ChatGptCodex(format!("{context} JSON parse failed: {e}")))
 }
@@ -696,15 +878,14 @@ fn chatgpt_codex_error_code(body: &str) -> Option<String> {
     error.get("code").and_then(|v| v.as_str()).map(str::to_string)
 }
 
-fn chatgpt_codex_error_message(body: &str) -> Option<String> {
-    let value = serde_json::from_str::<serde_json::Value>(body).ok()?;
-    value
-        .pointer("/error/message")
-        .or_else(|| value.get("error_description"))
-        .or_else(|| value.get("error").and_then(|error| error.get("message")))
-        .or_else(|| value.get("error"))
-        .and_then(|v| v.as_str())
-        .map(str::to_string)
+fn chatgpt_codex_error_summary(body: &str) -> &'static str {
+    match chatgpt_codex_error_code(body).as_deref() {
+        Some("deviceauth_authorization_pending" | "authorization_pending") => "authorization pending",
+        Some("slow_down") => "provider requested slower polling",
+        Some("invalid_grant" | "invalid_request") => "authorization was rejected or expired",
+        Some("access_denied") => "authorization was denied",
+        _ => "provider returned an authentication error",
+    }
 }
 
 fn chatgpt_codex_pkce_authorize_url(challenge: &str, state: &str) -> String {
@@ -723,31 +904,55 @@ fn chatgpt_codex_pkce_authorize_url(challenge: &str, state: &str) -> String {
     url.to_string()
 }
 
-fn wait_for_pkce_callback_code(expected_state: &str) -> Result<String, AuthError> {
-    let listener = TcpListener::bind(PKCE_CALLBACK_ADDR)
-        .map_err(|e| AuthError::ChatGptCodex(format!("failed to bind localhost:1455 callback: {e}")))?;
-    let (mut stream, _) = listener
-        .accept()
-        .map_err(|e| AuthError::ChatGptCodex(format!("failed to accept browser callback: {e}")))?;
-    let mut reader = std::io::BufReader::new(
+fn read_browser_callback(stream: &mut TcpStream) -> Result<String, AuthError> {
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .map_err(|e| AuthError::ChatGptCodex(format!("failed to prepare browser callback: {e}")))?;
+    let mut request_line = String::new();
+    std::io::BufReader::new(
         stream
             .try_clone()
             .map_err(|e| AuthError::ChatGptCodex(format!("failed to read browser callback: {e}")))?,
-    );
-    let mut request_line = String::new();
-    reader
-        .read_line(&mut request_line)
-        .map_err(|e| AuthError::ChatGptCodex(format!("failed to read browser callback: {e}")))?;
-    let path = request_line
+    )
+    .read_line(&mut request_line)
+    .map_err(|e| AuthError::ChatGptCodex(format!("failed to read browser callback: {e}")))?;
+
+    let target = request_line
         .split_whitespace()
         .nth(1)
         .ok_or_else(|| AuthError::ChatGptCodex("browser callback was malformed".to_string()))?;
-    let url = url::Url::parse(&format!("http://localhost{path}"))
-        .map_err(|e| AuthError::ChatGptCodex(format!("browser callback URL was malformed: {e}")))?;
-    let code = url
+    let redirect = if target.starts_with("http://") || target.starts_with("https://") {
+        target.to_string()
+    } else {
+        format!("http://localhost:1455{target}")
+    };
+    let body = "You can return to thndrs.\n";
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{body}",
+        body.len()
+    );
+    let _ = stream.write_all(response.as_bytes());
+    Ok(redirect)
+}
+
+fn parse_chatgpt_codex_redirect(redirect: &str, expected_state: &str) -> Result<String, AuthError> {
+    let url = url::Url::parse(redirect)
+        .map_err(|_| AuthError::ChatGptCodex("browser callback URL was malformed".to_string()))?;
+    if url.scheme() != "http"
+        || !matches!(url.host_str(), Some("localhost" | "127.0.0.1"))
+        || url.port() != Some(1455)
+        || url.path() != "/auth/callback"
+    {
+        return Err(AuthError::ChatGptCodex(
+            "browser callback URL was unexpected".to_string(),
+        ));
+    }
+    if url
         .query_pairs()
-        .find_map(|(key, value)| if key == "code" { Some(value.into_owned()) } else { None })
-        .ok_or_else(|| AuthError::ChatGptCodex("browser callback did not include code".to_string()))?;
+        .any(|(key, _)| key == "error" || key == "error_description")
+    {
+        return Err(AuthError::ChatGptCodex("ChatGPT authorization was denied".to_string()));
+    }
     let state = url
         .query_pairs()
         .find_map(|(key, value)| if key == "state" { Some(value.into_owned()) } else { None })
@@ -757,10 +962,9 @@ fn wait_for_pkce_callback_code(expected_state: &str) -> Result<String, AuthError
             "browser callback state did not match".to_string(),
         ));
     }
-    let response =
-        "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 31\r\n\r\nChatGPT Codex login complete.\n";
-    let _ = stream.write_all(response.as_bytes());
-    Ok(code)
+    url.query_pairs()
+        .find_map(|(key, value)| if key == "code" { Some(value.into_owned()) } else { None })
+        .ok_or_else(|| AuthError::ChatGptCodex("browser callback did not include code".to_string()))
 }
 
 fn default_device_verification_url() -> Option<String> {
@@ -1044,6 +1248,7 @@ mod tests {
             assert!(!debug.contains("secret-token"));
             assert!(!debug.contains("response-access-secret"));
             assert!(!debug.contains("response-refresh-secret"));
+            assert!(!debug.contains("acct_file"));
         }
     }
 
@@ -1066,7 +1271,7 @@ mod tests {
             device_auth_id: "device-auth-secret-from-test".to_string(),
             user_code: "USER-CODE".to_string(),
             verification_uri: Some(DEVICE_VERIFICATION_URL.to_string()),
-            verification_uri_complete: None,
+            verification_uri_complete: Some("https://auth.example.test/device?user_code=USER-CODE".to_string()),
             expires_in: Some(DEVICE_CODE_TIMEOUT_SECONDS),
             interval: Some(5),
         };
@@ -1074,7 +1279,7 @@ mod tests {
         let debug = format!("{code:?}");
         assert!(debug.contains("[redacted]"));
         assert!(!debug.contains("device-auth-secret-from-test"));
-        assert!(debug.contains("USER-CODE"));
+        assert!(!debug.contains("USER-CODE"));
     }
 
     #[test]
@@ -1101,6 +1306,39 @@ mod tests {
             Some("true")
         );
         assert_eq!(params.get("originator").map(String::as_str), Some(OAUTH_ORIGINATOR));
+    }
+
+    #[test]
+    fn chatgpt_codex_browser_redirect_requires_matching_state_without_logging_query() {
+        let redirect = "http://localhost:1455/auth/callback?code=authorization-code-secret&state=state-ok";
+        assert_eq!(
+            parse_chatgpt_codex_redirect(redirect, "state-ok").unwrap(),
+            "authorization-code-secret"
+        );
+
+        let error = parse_chatgpt_codex_redirect(redirect, "state-wrong").expect_err("state mismatch");
+        assert!(error.to_string().contains("state did not match"));
+        assert!(!error.to_string().contains("authorization-code-secret"));
+        assert!(!format!("{error:?}").contains("authorization-code-secret"));
+
+        let error = parse_chatgpt_codex_redirect(
+            "https://localhost:1455/auth/callback?code=authorization-code-secret&state=state-ok",
+            "state-ok",
+        )
+        .expect_err("unexpected callback scheme");
+        assert!(error.to_string().contains("URL was unexpected"));
+    }
+
+    #[test]
+    fn chatgpt_codex_browser_redirect_rejects_denial_without_query_details() {
+        let error = parse_chatgpt_codex_redirect(
+            "http://localhost:1455/auth/callback?error=access_denied&error_description=secret-account-detail&state=state-ok",
+            "state-ok",
+        )
+        .expect_err("denied callback");
+
+        assert!(error.to_string().contains("authorization was denied"));
+        assert!(!error.to_string().contains("secret-account-detail"));
     }
 
     #[test]

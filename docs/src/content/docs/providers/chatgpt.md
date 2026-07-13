@@ -22,10 +22,23 @@ thndrs login chatgpt-codex
 thndrs logout chatgpt-codex
 ```
 
-Setup and login share the same authentication path. They use device-code
-authentication first and fall back to a browser PKCE flow with a localhost
-callback when needed. Stored credentials are refreshed before provider requests
-when possible.
+Setup and login share the same authentication path. Browser PKCE is the default
+for browser-capable environments where `thndrs` starts a short-lived callback at
+`http://localhost:1455/auth/callback`, opens or displays a copyable
+authorization URL, and validates the returned state before exchanging the
+authorization code.
+
+The TUI accepts the full redirect URL when the callback cannot reach `thndrs`.
+
+Device code is an explicit headless or remote alternative. Select it with:
+
+```sh
+thndrs login chatgpt-codex --oauth-method device-code
+```
+
+The two methods do not silently fall through to each other.
+
+Stored credentials are refreshed before provider requests when possible.
 
 ChatGPT Codex credentials do not use `OPENAI_API_KEY`. They are ChatGPT
 subscription credentials with a bearer access token and ChatGPT account id.
@@ -60,6 +73,7 @@ Known model picker entries include:
 - `chatgpt-codex/gpt-5.6-sol`
 - `chatgpt-codex/gpt-5.6-terra`
 - `chatgpt-codex/gpt-5.6-luna`
+- `chatgpt-codex/gpt-5.5`
 - `chatgpt-codex/gpt-5.4`
 - `chatgpt-codex/gpt-5.4-mini`
 - `chatgpt-codex/gpt-5.3-codex-spark`

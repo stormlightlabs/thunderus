@@ -3,7 +3,7 @@
 use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 
-use clap::{Args, Subcommand};
+use clap::{Args, Subcommand, ValueEnum};
 use crossterm::event::{Event, KeyCode, KeyEventKind, read};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 
@@ -17,6 +17,19 @@ use crate::thndrs_core::auth;
 pub struct LoginCommand {
     /// Provider whose credential should be stored.
     pub provider: SetupProviderArg,
+    /// ChatGPT OAuth method. Browser PKCE is the default; device code is explicit.
+    #[arg(long, value_enum, default_value = "browser")]
+    pub oauth_method: ChatGptOAuthMethod,
+}
+
+/// ChatGPT Codex OAuth method for the headless login command.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+#[value(rename_all = "kebab-case")]
+pub enum ChatGptOAuthMethod {
+    /// Browser PKCE with a short-lived loopback callback.
+    Browser,
+    /// Device code for an explicitly selected headless or remote login.
+    DeviceCode,
 }
 
 /// Remove one stored provider credential.
@@ -59,7 +72,7 @@ pub fn run_login(cli: &Cli, command: &LoginCommand) -> io::Result<()> {
     require_interactive("login")?;
 
     if command.provider == SetupProviderArg::ChatgptCodex {
-        return run_chatgpt_codex_login(&mut writer);
+        return run_chatgpt_codex_login_with_method(&mut writer, command.oauth_method);
     }
 
     let workspace = context::discover_workspace_root(&cli.cwd);
@@ -300,8 +313,14 @@ fn read_hidden_line() -> io::Result<String> {
 
 /// Run the shared ChatGPT Codex OAuth login flow.
 pub fn run_chatgpt_codex_login<W: Write>(writer: &mut W) -> io::Result<()> {
+    run_chatgpt_codex_login_with_method(writer, ChatGptOAuthMethod::Browser)
+}
+
+/// Run ChatGPT Codex login with an explicit OAuth method.
+pub fn run_chatgpt_codex_login_with_method<W: Write>(writer: &mut W, method: ChatGptOAuthMethod) -> io::Result<()> {
     run_chatgpt_codex_login_with(
         writer,
+        method,
         auth::request_chatgpt_codex_device_code,
         auth::poll_chatgpt_codex_device_code,
         auth::login_chatgpt_codex_with_browser_pkce,
@@ -310,8 +329,8 @@ pub fn run_chatgpt_codex_login<W: Write>(writer: &mut W) -> io::Result<()> {
 }
 
 fn run_chatgpt_codex_login_with<W, Request, Poll, Browser, Store>(
-    writer: &mut W, request_device_code: Request, poll_device_code: Poll, browser_pkce: Browser,
-    store_credentials: Store,
+    writer: &mut W, method: ChatGptOAuthMethod, request_device_code: Request, poll_device_code: Poll,
+    browser_pkce: Browser, store_credentials: Store,
 ) -> io::Result<()>
 where
     W: Write,
@@ -324,11 +343,19 @@ where
         writer,
         "ChatGPT Codex login uses ChatGPT OAuth and stores credentials in ~/.thndrs/auth.json"
     )?;
-    let credentials = match request_device_code() {
-        Ok(code) => {
+    let credentials = match method {
+        ChatGptOAuthMethod::Browser => {
             writeln!(
                 writer,
-                "Open {} and enter code {}",
+                "Browser PKCE is selected. The authorization URL will open or be shown for copying."
+            )?;
+            browser_pkce().map_err(io::Error::other)?
+        }
+        ChatGptOAuthMethod::DeviceCode => {
+            let code = request_device_code().map_err(io::Error::other)?;
+            writeln!(
+                writer,
+                "Headless device-code login selected. Open {} and enter code {}",
                 code.verification_uri
                     .as_deref()
                     .unwrap_or("https://auth.openai.com/codex/device"),
@@ -336,13 +363,6 @@ where
             )?;
             writer.flush()?;
             poll_device_code(&code).map_err(io::Error::other)?
-        }
-        Err(err) => {
-            writeln!(
-                writer,
-                "device-code login unavailable ({err}); falling back to browser PKCE"
-            )?;
-            browser_pkce().map_err(io::Error::other)?
         }
     };
     store_credentials(&credentials).map_err(io::Error::other)?;
@@ -412,17 +432,36 @@ mod tests {
 
         run_chatgpt_codex_login_with(
             &mut output,
+            ChatGptOAuthMethod::DeviceCode,
             || Ok(code),
             |_| Ok(credentials),
-            || panic!("device code should be used first"),
+            || panic!("browser PKCE should not be used for explicit device-code login"),
             |_| Ok(()),
         )
         .expect("login");
 
         let output = String::from_utf8(output).expect("utf8");
         assert!(output.contains("USER-CODE"));
+        assert!(output.contains("Headless device-code login selected"));
         assert!(!output.contains("device-token-secret-from-test"));
         assert!(!output.contains("access-token-secret-from-test"));
         assert!(!output.contains("refresh-token-secret-from-test"));
+    }
+
+    #[test]
+    fn chatgpt_oauth_methods_never_fall_back_to_each_other() {
+        let mut output = Vec::new();
+        let error = run_chatgpt_codex_login_with(
+            &mut output,
+            ChatGptOAuthMethod::DeviceCode,
+            || Err(auth::AuthError::ChatGptCodex("device unavailable".to_string())),
+            |_| unreachable!("poll should not run after request failure"),
+            || panic!("device-code failure must not fall back to browser"),
+            |_| Ok(()),
+        )
+        .expect_err("explicit device failure should be returned");
+
+        assert!(error.to_string().contains("device unavailable"));
+        assert!(!String::from_utf8(output).expect("utf8").contains("falling back"));
     }
 }

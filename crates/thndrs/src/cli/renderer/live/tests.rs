@@ -1,11 +1,14 @@
 use super::*;
 use crate::acp::permissions::{PendingPermission, PermissionKindView, PermissionOptionView};
-use crate::app::{App, FilePickerSource, FirstRunRecovery, Mode, PickerItem, PickerState, RecoveryStage, RunState};
+use crate::app::{
+    App, ChatGptOAuthMethod, FilePickerSource, FirstRunRecovery, Mode, PickerItem, PickerState, RecoveryStage, RunState,
+};
 use crate::cli::commands::setup::SetupProviderArg;
 use crate::cli::{Cli, Theme, WebSearchMode};
 use crate::renderer::git::GitStatusSummary;
 use crate::renderer::layout::truncate_spans;
 use crate::renderer::row::Frame;
+use crate::thndrs_core::auth::ChatGptCodexDeviceCode;
 use std::path::PathBuf;
 use std::sync::mpsc;
 
@@ -554,14 +557,16 @@ fn snapshot_chatgpt_recovery_tiny() {
         selected: 0,
         secret_input: String::new(),
         chatgpt_oauth: Some(crate::app::ChatGptOAuthRecovery {
-            code: crate::thndrs_core::auth::ChatGptCodexDeviceCode {
+            method: ChatGptOAuthMethod::DeviceCode,
+            authorization_url: None,
+            code: Some(ChatGptCodexDeviceCode {
                 device_auth_id: "device-auth-secret-from-renderer-test".to_string(),
                 user_code: "ABCD-EFGH".to_string(),
                 verification_uri: Some("https://auth.example.test/device".to_string()),
                 verification_uri_complete: None,
                 expires_in: Some(900),
                 interval: Some(5),
-            },
+            }),
             next_poll_tick: 10,
             expires_at_tick: 9000,
             status: "Waiting for ChatGPT authorization.".to_string(),
