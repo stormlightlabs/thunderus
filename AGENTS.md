@@ -5,31 +5,17 @@ project instructions, local tools, and durable sessions.
 
 ## Development
 
-Feature plans and tasks live in `docs/internal/features/`. They provide product
-context, acceptance criteria, and dependencies for work the user has selected.
-They do not authorize starting or sequencing work on their own: the user drives
-priorities, chooses the active feature or ticket, and decides when to move on.
+The working tree is user-owned. Treat Git as read-only unless a user requests a Git operation.
 
-The working tree is user-owned. Treat Git as read-only unless a user requests a
-Git operation. Publishing crates, creating releases or tags, and changing the
-existing `thndrs` package metadata require direct user approval.
-
-Dependencies, public API commitments, package boundaries, permissions, session
-formats, provider behavior, and work outside the assigned scope require
-approval before implementation.
-
-## Workspace direction
+## Workspace
 
 - `thndrs-agent`: provider-neutral agent loop, contracts, and context control.
 - `thndrs`: CLI/TUI application and ACP server mode.
 
-`thndrs-agent` remains a reusable leaf library. The `thndrs` application
-composes it; application adapters own filesystem discovery, session persistence,
-terminal I/O, and transport. A new shared crate needs a real consumer and
-approval.
+`thndrs-agent` is a reusable leaf library.
 
-Terminal I/O, ACP transport, direct filesystem/shell policy, and UI state stay
-in application adapters.
+The `thndrs` application composes it with application adapters own filesystem discovery,
+session persistence, terminal I/O, and transport, which stay in application adapters.
 
 Provider wire payloads do not appear in public library APIs.
 
@@ -70,5 +56,3 @@ cargo test --workspace
 ```
 
 Public documentation changes require `pnpm --dir docs build`.
-
-Internal planning changes require a Markdown and diff review.

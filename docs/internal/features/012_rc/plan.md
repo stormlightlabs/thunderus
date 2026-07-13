@@ -13,7 +13,8 @@ to make and verify a real code change. `thndrs` must itself support this
 workflow for its own development.
 
 The release makes ChatGPT Codex and Umans first-class, thoroughly tested
-providers. It replaces the fixed default model with required UI setup, then
+providers. It replaces the fixed default model with required UI setup, makes
+ChatGPT authentication browser-first rather than device-code-first, then
 polishes the transcript-first TUI into a quiet workbench. Before that visual
 work, it splits the oversized application module without changing observable
 behavior.
@@ -34,14 +35,22 @@ behavior.
   not mean private, unsupported, or disposable. Every public item needs
   accurate documentation and a SemVer-aware change record.
 - A fresh `thndrs` installation enters a keyboard-first UI setup gateway before
-  a coding workspace is usable. The user chooses and authenticates a provider;
-  no model is selected until setup completes. CLI setup remains an equivalent
-  route, not a bypass around authentication.
+  a coding workspace is usable. The user chooses a provider and either confirms
+  an existing valid credential or authenticates it; no model is selected until
+  setup completes. CLI setup remains an equivalent route, not a bypass around
+  authentication.
 - ChatGPT Codex and Umans are first-class v0.1 providers. Each is a release
   gate: authenticated setup, a real repository coding task, local tool use,
   verification, and session recovery must be demonstrated with real accounts.
   Existing OpenCode and ACP paths remain available but are not presented as the
   first-run default or used to lower these gates.
+- ChatGPT Codex uses browser-first OAuth with PKCE. The application launches or
+  displays a copyable authorization URL, completes through a short-lived
+  loopback callback, and can accept a pasted full redirect URL when that
+  callback cannot arrive. Device-code OAuth is a deliberately chosen
+  headless/remote path, never a silent or required first attempt. Both paths
+  produce the same safely stored, refreshable credential; neither asks for or
+  stores a ChatGPT API key.
 - Preserve the implemented model-specific `reasoning_effort` and
   `reasoning_summary` controls through the refactor and new setup flow. Their
   existing config, TUI, ACP, provider-lowering, session, redaction, and
@@ -107,9 +116,12 @@ behavior.
   language, hidden secret entry where appropriate, cancellation, failure
   recovery, and clear next action. It never writes secrets to TOML, session
   records, logs, prompt inspection, or rendered views.
-- ChatGPT Codex setup completes through the supported OAuth route. Umans setup
-  completes through its supported credential route. Both persist only their
-  own credential material at the existing safe storage boundary.
+- ChatGPT Codex setup recognizes an existing valid credential or completes
+  browser-first OAuth through the supported provider route. Its browser path
+  exposes a copyable URL and state-validated redirect recovery; device code is
+  available only as an explicit headless/remote choice. Umans setup completes
+  through its supported credential route. Both persist only their own credential
+  material at the existing safe storage boundary.
 - Existing model-specific reasoning effort/summary configuration remains
   available after provider-led setup. Unsupported models do not show a
   misleading control, and raw hidden reasoning remains absent from persisted
@@ -119,8 +131,9 @@ behavior.
   local tool actions, run verification, inspect output, and resume the session.
 - Automated tests deterministically cover setup stage transitions, cancellation,
   redaction, provider/model selection, failed authentication, draft retention,
-  and the provider-specific request boundary. Real credentials remain absent
-  from CI and fixtures.
+  browser callback and explicit device-code OAuth boundaries, and the
+  provider-specific request boundary. Real credentials remain absent from CI and
+  fixtures.
 
 ### Application And Renderer Architecture
 
@@ -143,6 +156,9 @@ behavior.
 
 ### Workbench Polish
 
+- Normal work remains one text column. At wide widths, extra room goes to
+  trailing metadata and longer tool previews, never to a persistent sidebar,
+  dashboard, fake terminal chrome, or a second main panel.
 - Setup/authentication, permissions, pickers, help, and detail inspection use
   semantic bounded surfaces with a consistent Unicode frame, title/status row,
   keyboard affordances, explicit focus, and narrow/tiny-height fallbacks.
@@ -155,6 +171,10 @@ behavior.
 - Borders, color, and icons are redundant cues; labels and state remain
   understandable in monochrome, small terminals, and terminals with imperfect
   Unicode glyph support.
+- Color uses semantic roles from the existing Eldritch Minimal, Iceberg Dark,
+  and Catppuccin Mocha palettes rather than page-local palettes. The transcript
+  signal grammar remains readable through glyphs, labels, and weight when color
+  is absent.
 - Unicode display-width, long unbroken paths, CJK, emoji, combining marks,
   clipping above/below, and small terminal dimensions have deterministic
   behavior coverage.
@@ -183,6 +203,13 @@ described a pre-implementation design with different keys and provider
 assumptions; its completed contract is archived rather than retained as an
 active feature.
 
+The current ChatGPT Codex path inherited an earlier device-code-first decision:
+the TUI owns only device-code request/poll states, and the CLI tries device code
+before its existing browser-PKCE fallback. The fallback blocks on a loopback
+listener, writes its URL directly to stderr, and has no pasted-redirect recovery.
+This release plan supersedes that choice; Ticket 8 makes browser OAuth the
+normal path while preserving device code as an explicit headless alternative.
+
 `crates/thndrs/src/cli/app.rs` is 4,741 lines. It mixes core state/message
 definitions with key routing, focused pickers, setup/OAuth recovery,
 slash-command projection, context/compaction, agent lifecycle, and session
@@ -194,18 +221,22 @@ not reflect the new release, onboarding, or architecture goals.
 ## Visual Concepts
 
 The implementation must use these concepts as review artifacts, not as a
-browser runtime or a pixel-perfect requirement:
+browser runtime or a pixel-perfect requirement. They demonstrate one
+single-column signal rail, not a sidebar shell or a browser-window simulation:
 
-| Concept | Decision it demonstrates |
-| --- | --- |
-| [Setup gateway](../../../../.sandbox/concepts/01-setup-gateway.html) | Provider choice and required authentication before a usable workspace; no default model. |
-| [Active workbench](../../../../.sandbox/concepts/02-active-workbench.html) | Open transcript plus a single framed live prompt/work region. |
-| [Guarded decision](../../../../.sandbox/concepts/03-guarded-decision.html) | High-priority bounded permission surface with visible scope and keyboard focus. |
+| Concept                                                                             | Decision it demonstrates                                                                                                 |
+| ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| [Setup handoff](../../../../.sandbox/concepts/01-setup-gateway.html)                | Provider choice plus browser-default ChatGPT OAuth, with an explicit headless device-code alternative; no default model. |
+| [Active signal rail](../../../../.sandbox/concepts/02-active-workbench.html)        | Open single-column transcript, typed event marks, and a compact focused prompt/work region.                              |
+| [In-place guarded decision](../../../../.sandbox/concepts/03-guarded-decision.html) | A high-priority decision in the transcript flow, with visible scope, honest local-process wording, and keyboard focus.   |
 
 The concepts draw on iocraft’s declarative bounded-layout/canvas role and its
-border support, plus current coding-agent documentation patterns that make
-project context and tools explicit. They intentionally reject a persistent
-dashboard or card-per-message layout.
+border support, Ratatui’s state/update/testing discipline, and Gridland’s
+cell-budget and responsive-density lessons. They do not add a component tree or
+layout dependency. Their palette variables mirror the renderer’s three existing
+themes, and their distinctive character comes from an event/signal grammar—not
+from arbitrary browser effects. They intentionally reject a persistent dashboard
+or card-per-message layout.
 
 ## Technical Plan
 
@@ -239,9 +270,21 @@ no UI redesign is allowed until this boundary is green.
 
 Represent setup as typed semantic state independent of terminal rendering.
 Remove the app’s fixed default model path. On a fresh installation, route
-startup through provider choice, authentication, model discovery/selection where
-needed, and an explicit ready state. Retain equivalent CLI entry points and
-clear non-interactive failure messages.
+startup through provider choice, existing-credential recognition or
+authentication, model discovery/selection where needed, and an explicit ready
+state. Retain equivalent CLI entry points and clear non-interactive failure
+messages.
+
+For ChatGPT Codex, represent the authentication method and lifecycle as private
+application state. Browser PKCE is preselected: start a short-lived loopback
+listener, open or display a copyable authorization URL, validate the callback
+state, and offer pasted full-redirect recovery when the callback cannot reach
+the application. Device code is a separately selected headless/remote path with
+its own start, polling, slow-down, expiry, cancellation, and failure states.
+Never silently switch between the two methods. The application adapter owns
+browser/URL presentation, loopback transport, and credential persistence;
+`thndrs-agent` stays provider-neutral and no generic OAuth framework or new
+dependency is introduced without approval.
 
 Strengthen ChatGPT Codex and Umans independently: typed provider setup state,
 redaction, credential ownership, request/stream failure behavior, model
@@ -256,6 +299,11 @@ Define renderer-owned semantic view data for the active orientation line,
 onboarding stages, permissions, picker rows, detail headers, clipping, and
 keyboard hints. Keep visual style lookup and Unicode/frame composition inside
 renderer modules.
+
+Compose normal work as a single signal rail: terse typed event marks establish
+the transcript rhythm, while only the active prompt or a focused decision gains
+a bounded surface. Treat narrow, normal, and wide terminals as density changes
+within that column, not as invitations to add a side panel.
 
 Evolve the centralized adapter into a small set of pure, snapshot-tested
 bounded-surface components. It receives semantic view data, a theme-role set,
@@ -283,13 +331,16 @@ for the final explicit human smoke.
   public-API documentation checks where practical.
 - Retain an update/app regression test for every extracted `app` behavior;
   moving a function without a stable behavior check is not a valid extraction.
-- Snapshot focused surfaces at normal, narrow, and tiny height. Cover
-  monochrome-equivalent labels, secret masking, CJK, emoji, combining marks,
-  long paths, long tool output, clipping states, and selected/focused rows.
+- Snapshot focused surfaces at normal, narrow, wide, and tiny height. Cover the
+  three renderer palettes, monochrome-equivalent labels, secret masking, CJK,
+  emoji, combining marks, long paths, long tool output, clipping states, and
+  selected/focused rows.
 - Add deterministic setup tests for fresh HOME, no default model, provider
-  choice, ChatGPT OAuth start/cancel/failure/success projection, Umans secret
-  entry/cancel/failure/success projection, model-specific reasoning choices,
-  non-interactive instructions, draft retention, and redaction.
+  choice, existing ChatGPT credentials, browser OAuth URL/callback/state
+  mismatch/pasted-redirect/cancel/failure/success projection, explicitly chosen
+  ChatGPT device-code start/poll/slow-down/expiry/cancel/failure/success,
+  Umans secret entry/cancel/failure/success projection, model-specific reasoning
+  choices, non-interactive instructions, draft retention, and redaction.
 - Add provider fake coverage for ChatGPT Codex and Umans model/request/stream
   failure boundaries, while retaining real smoke tests as explicitly ignored or
   human-run tests with no credentials in the repository.
@@ -349,10 +400,15 @@ Never:
 - publish, tag, or alter registry credentials without direct human approval;
 - put credentials in TOML, logs, tests, snapshots, sessions, prompt inspection,
   package archives, or visual concepts;
+- make ChatGPT device code the default or a prerequisite for browser-capable
+  users, silently cross over between OAuth methods, or persist/render an
+  authorization code, callback query, PKCE verifier, device-auth identifier, or
+  token;
 - let iocraft own `App` state, terminal I/O, cursor placement, native
   scrollback, or a render loop;
 - make committed transcript entries persistent cards or hide a permission/setup
-  decision behind optional UI;
+  decision behind optional UI, add a persistent sidebar, or imply that an
+  approval surface is an operating-system sandbox;
 - add a new default model implicitly after removing the current one.
 
 ## Deferred Milestones

@@ -42,34 +42,50 @@ the renderer so application behavior exposes semantic state and events only.
 Replaced fixed-default-model startup with a required, keyboard-first provider/setup
 gateway that makes an authenticated coding session the only successful first-run outcome.
 
-## Ticket 8: Make ChatGPT Codex A First-Class Workflow
+**Scope note:** This gateway establishes provider choice and the no-default-model
+rule; it does not prescribe ChatGPT Codex’s OAuth transport. Ticket 8 supersedes
+the inherited device-code-first behavior with a browser-first provider workflow.
+
+## Ticket 8: Make ChatGPT Codex A First-Class Browser-First Workflow
 
 **What to build:** Finish and verify the ChatGPT Codex path from required setup
-through OAuth, a coding turn, safe tool use, and session recovery.
+through browser-first OAuth, a coding turn, safe tool use, and session recovery.
+Device code remains an explicit headless/remote alternative, not a prerequisite
+or an automatic fallback.
 
 **Blocked by:** Ticket 7: Require Provider-Led Setup Before Coding
 
 **Acceptance criteria:**
 
-- [ ] Setup and login consistently use the supported ChatGPT OAuth flow and
-      never ask for or store a ChatGPT API key.
-- [ ] Device-code start, polling, cancellation, expiry, auth failure, and
+- [ ] Setup recognizes an existing valid ChatGPT Codex credential. When one is
+      absent, login uses the supported ChatGPT OAuth route and never asks for
+      or stores a ChatGPT API key.
+- [ ] Browser PKCE is preselected for browser-capable environments. It starts a
+      short-lived loopback callback, launches or shows a copyable authorization
+      URL, validates callback state, and lets the user paste the full redirect
+      URL when the callback cannot reach the application.
+- [ ] Device code is a clearly labeled, user-selected headless/remote method.
+      Its start, polling, slow-down, cancellation, expiry, auth failure, and
       credential write behavior have deterministic fake coverage and safe
-      human-facing copy.
+      human-facing copy. Neither method silently falls through to the other.
 - [ ] Provider/model selection, request lowering, stream events, tool calls,
       cancellation, session recovery, and supported GPT-5.6 reasoning
       effort/summary lowering are covered at the application boundary.
 - [ ] Secrets, access tokens, refresh tokens, and account details are absent
-      from logs, sessions, prompt inspection, snapshots, and diagnostics.
-- [ ] A release owner can perform the documented disposable-repository smoke:
-      authenticate, make a bounded code change, approve tools, run verification,
-      inspect the result, and resume the session.
+      from logs, sessions, prompt inspection, snapshots, and diagnostics. The
+      same boundary covers authorization codes, callback query strings, PKCE
+      verifiers, and device-auth identifiers.
+- [ ] A release owner can perform the documented browser-default
+      disposable-repository smoke: authenticate, make a bounded code change,
+      approve tools, run verification, inspect the result, and resume the
+      session. The headless/device-code smoke is recorded separately when the
+      approved account and provider policy permit it.
 
 **Verification:**
 
 - `cargo test -p thndrs providers::codex`
 - `cargo test -p thndrs cli::app`
-- human ChatGPT Codex smoke using an explicitly approved account
+- human browser-default ChatGPT Codex smoke using an explicitly approved account
 
 ## Ticket 9: Make Umans A First-Class Workflow
 
@@ -102,8 +118,8 @@ credential entry, a coding turn, safe tool use, and session recovery.
 ## Ticket 10: Build The Restrained Workbench UI
 
 **What to build:** Implement the two-lane renderer architecture and the
-restrained workbench language from the reviewed concepts, centralizing bounded
-iocraft surfaces while keeping transcript history open in direct rows.
+single-column signal-rail language from the reviewed concepts, centralizing
+bounded iocraft surfaces while keeping transcript history open in direct rows.
 
 **Blocked by:** Tickets 6 and 7
 
@@ -116,21 +132,23 @@ iocraft surfaces while keeping transcript history open in direct rows.
       consistent Unicode framing, title/status information, explicit focus,
       keyboard hints, and visible clipping state.
 - [ ] The committed transcript has no persistent card-per-entry treatment; it
-      remains native-scrollback-friendly with readable role, spacing, and text
-      hierarchy.
+      remains native-scrollback-friendly with readable role, spacing, text
+      hierarchy, and typed event marks. It has no persistent sidebar, fake
+      terminal chrome, or second main panel.
 - [ ] The live prompt/work region has compact orientation information without
       becoming a persistent dashboard.
 - [ ] Permission and setup/recovery surfaces still outrank optional detail/help
       surfaces, and `Esc` preserves their established behavior.
 - [ ] Normal, narrow, tiny-height, monochrome-equivalent, Unicode, long-line,
-      and clipping snapshots demonstrate graceful fallbacks.
+      and clipping snapshots demonstrate graceful fallbacks. Eldritch Minimal,
+      Iceberg Dark, and Catppuccin Mocha use renderer palette roles rather than
+      page-local colors.
 
 **Verification:**
 
 - `cargo test -p thndrs renderer::adapter`
 - `cargo test -p thndrs renderer::view`
 - `cargo test -p thndrs renderer::region`
-- manual real-terminal review against `.sandbox/concepts/`
 
 ## Ticket 11: Prepare Release Docs And Package Evidence
 
@@ -144,9 +162,10 @@ non-publishing artifact needed for the human release review.
 - [ ] README and public site have no release-facing placeholders, stale
       completion claims, or source-checkout instructions where installed-user
       commands belong.
-- [ ] Public docs describe required setup, first-class ChatGPT Codex/Umans
-      workflows, model-specific reasoning controls, advanced provider status,
-      sessions, diagnostics, tool safety, and the lack of a TUI sandbox.
+- [ ] Public docs describe required setup, the browser-default and explicit
+      headless ChatGPT Codex OAuth paths, first-class Umans workflow,
+      model-specific reasoning controls, advanced provider status, sessions,
+      diagnostics, tool safety, and the lack of a TUI sandbox.
 - [ ] The changelog summarizes visible release behavior and records the v0 API
       compatibility policy/migration expectations for `thndrs-agent`.
 - [ ] Package archives are inspected for README, license, intended sources,
