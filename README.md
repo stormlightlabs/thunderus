@@ -37,9 +37,3 @@ Its CLI, configuration, provider, session, and tool behavior may evolve.
 `thndrs` is licensed under the Apache License, Version 2.0.
 
 See [`LICENSE`](./LICENSE) for the full license text.
-
-[^eld]: Eldritch.nvim theme <https://github.com/eldritch-theme/eldritch.nvim>
-
-[^ice]: Iceberg.vim theme <https://github.com/cocopon/iceberg.vim>
-
-[^cat]: Catppuccin palette <https://catppuccin.com/>
