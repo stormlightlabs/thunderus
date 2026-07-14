@@ -1,8 +1,6 @@
 # thndrs
 
-`thndrs` is a terminal coding assistant for working directly in a project.
-Start it from your repository, describe the work you want done, and keep the
-conversation alongside your code.
+`thndrs` is an LLM-powered pair programmer.
 
 ## Install
 
@@ -10,20 +8,23 @@ conversation alongside your code.
 cargo install --locked thndrs
 ```
 
-Run setup from the repository you want to work in, then start the assistant:
+Run `thndrs` from the repository you want to work in:
 
 ```sh
 cd path/to/project
-thndrs setup
 thndrs
 ```
 
-Local tools run with the permissions of the user who started `thndrs` without
-a sandbox.
+On a fresh install, the application opens required setup before it accepts a
+coding prompt. Choose a provider and authenticate there, or run `thndrs setup`
+for the equivalent CLI workflow.
 
-The application supports durable sessions, local tools, MCP, ACP, and multiple
-provider adapters. See the [docs](https://thndrs.stormlightlabs.org/)
-for provider setup, configuration, sessions, and troubleshooting.
+Local tools run with the permissions of the user who started `thndrs`.
+
+Use a container, VM, or OS-level sandbox when isolation matters.
+
+The [docs](https://thndrs.stormlightlabs.org/) cover provider setup,
+configuration, sessions, diagnostics, and tool safety.
 
 `thndrs` is an experimental application. Its CLI, configuration, provider, session,
 and tool behavior may evolve during the pre-v1 release line.

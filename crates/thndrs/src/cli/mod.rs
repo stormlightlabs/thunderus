@@ -297,9 +297,6 @@ pub struct Cli {
     /// Event poll interval in milliseconds.
     #[arg(long, default_value_t = 100)]
     pub tick_rate_ms: u64,
-    /// Compatibility no-op; the TUI always renders inline.
-    #[arg(long, default_value_t = true)]
-    pub no_alt_screen: bool,
     /// Disable terminal mouse capture so native selection and scrollback work.
     #[arg(long, default_value_t = false, conflicts_with = "mouse")]
     pub no_mouse: bool,
@@ -351,7 +348,6 @@ impl Default for Cli {
             reasoning_effort: ReasoningEffort::default(),
             reasoning_summary: ReasoningSummary::default(),
             tick_rate_ms: 100,
-            no_alt_screen: true,
             no_mouse: false,
             mouse: false,
             verbose: false,
@@ -547,7 +543,6 @@ mod tests {
         assert!(cli.model.is_empty());
         assert_eq!(cli.websearch, WebSearchMode::Auto);
         assert_eq!(cli.tick_rate_ms, 100);
-        assert!(cli.no_alt_screen);
         assert!(!cli.no_mouse);
         assert!(!cli.mouse);
         assert!(!cli.verbose);
@@ -705,13 +700,11 @@ mod tests {
             "umans-glm-5.2",
             "--tick-rate-ms",
             "250",
-            "--no-alt-screen",
         ])
         .expect("explicit flags parse");
         assert_eq!(cli.cwd, PathBuf::from("/tmp/repo"));
         assert_eq!(cli.model, "umans-glm-5.2");
         assert_eq!(cli.tick_rate_ms, 250);
-        assert!(cli.no_alt_screen);
     }
 
     #[test]

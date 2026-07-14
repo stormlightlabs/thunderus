@@ -78,13 +78,20 @@ impl OpenCodeZenClient {
             .agent()
             .get(&url)
             .header("Authorization", &format!("Bearer {}", self.http.api_key()))
+            .config()
+            .http_status_as_error(false)
+            .build()
             .call()
             .map_err(|e| ProviderError::Http(e.to_string()))?;
 
+        let status = resp.status().as_u16();
         let body = resp
             .body_mut()
             .read_to_string()
             .map_err(|e| ProviderError::Http(e.to_string()))?;
+        if !(200..=299).contains(&status) {
+            return Err(ProviderError::Status { code: status, body: providers::summarize_error_body(&body) });
+        }
 
         serde_json::from_str::<ModelsResponse>(&body)
             .map(|response| response.data)
@@ -395,11 +402,11 @@ pub fn error_message(err: &ProviderError) -> String {
 }
 
 /// Try to validate an OpenCode Zen API key with a lightweight model-list request.
-///
-/// This is an optional hook for `login` and `setup` commands. A network failure
-/// or validation error returns an explanation. The credential should still be
-/// stored and reported as unverified when the network is unavailable.
 pub fn validate_api_key(api_key: &str) -> std::result::Result<(), String> {
+    probe_api_key(api_key).map_err(|error| format!("validation failed: {error}"))
+}
+
+pub fn probe_api_key(api_key: &str) -> Result<()> {
     validate_api_key_at(BASE_URL, api_key)
 }
 
@@ -435,11 +442,8 @@ fn supports_adaptive_thinking(model: &str) -> bool {
     )
 }
 
-fn validate_api_key_at(base_url: &str, api_key: &str) -> std::result::Result<(), String> {
-    match OpenCodeZenClient::new(base_url, api_key).fetch_models() {
-        Ok(_) => Ok(()),
-        Err(e) => Err(format!("validation failed: {e}")),
-    }
+fn validate_api_key_at(base_url: &str, api_key: &str) -> Result<()> {
+    OpenCodeZenClient::new(base_url, api_key).fetch_models().map(|_| ())
 }
 
 fn terminal_status_error(code: u16, body: &str) -> bool {
@@ -469,6 +473,10 @@ mod tests {
     use crate::providers::openai::{ChatSseEvent, parse_chat_sse_event};
 
     fn mock_models_server(body: &'static str) -> String {
+        mock_models_response_server("200 OK", body)
+    }
+
+    fn mock_models_response_server(status: &'static str, body: &'static str) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock server");
         let addr = listener.local_addr().expect("local addr");
         thread::spawn(move || {
@@ -476,7 +484,7 @@ mod tests {
             let mut request = [0_u8; 1024];
             let _ = stream.read(&mut request);
             let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
                 body.len(),
                 body
             );
@@ -608,6 +616,15 @@ mod tests {
 
         assert!(!home.join(".thndrs").join("credentials.env").exists());
         assert!(!workspace.join(".thndrs").join("credentials.env").exists());
+    }
+
+    #[test]
+    fn validation_preserves_rejected_credential_status() {
+        let base_url = mock_models_response_server("403 Forbidden", r#"{"error":"forbidden"}"#);
+
+        let error = validate_api_key_at(&base_url, "rejected-key").expect_err("credential should be rejected");
+
+        assert!(matches!(error, ProviderError::Status { code: 403, .. }));
     }
 
     #[test]

@@ -10,17 +10,16 @@ title: "CLI Reference"
 - `--verbose`: show diagnostic transcript rows such as provider events and log paths.
 - `--theme <eldritch-minimal|iceberg-dark|catppuccin-mocha>`: UI color theme.
 - `--mouse`: enable terminal mouse capture for overlay mouse events.
-- `--no-alt-screen`: compatibility no-op; the TUI always renders inline without using the alternate screen.
 - `--print-prompt`: print the assembled prompt bundle and exit without calling the provider.
 
 ## Commands
 
 ### Auth
 
-- `thndrs setup [--provider <umans|opencode-go|opencode-zen|chatgpt-codex>]`: run guided setup for the selected provider. API-key providers use hidden key entry; `chatgpt-codex` uses ChatGPT OAuth.
+- `thndrs setup [--provider <umans|opencode-go|opencode-zen|chatgpt-codex>]`: choose a provider, verify or establish its credential, and apply that provider's initial model when writing a config file. API-key providers use hidden key entry; `chatgpt-codex` uses ChatGPT OAuth. Use `/model`, `--model`, or configuration to select another model.
 - `thndrs setup --global`: prefer the user config and credential store.
 - `thndrs setup --project`: prefer the workspace config and credential store.
-- `thndrs login <provider>`: store an API-key provider credential after hidden input and explicit confirmation.
+- `thndrs login <provider>`: replace or renew a provider credential. API-key providers use hidden input and explicit confirmation.
 - `thndrs logout <provider>`: remove the selected provider's stored credential.
 - `thndrs auth status`: show provider credential sources without values.
 - `thndrs doctor`: print redacted human-readable setup diagnostics.

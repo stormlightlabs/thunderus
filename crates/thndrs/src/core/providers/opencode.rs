@@ -55,3 +55,11 @@ pub fn validate_go_api_key(api_key: &str) -> std::result::Result<(), String> {
 pub fn validate_zen_api_key(api_key: &str) -> std::result::Result<(), String> {
     zen::validate_api_key(api_key)
 }
+
+pub fn probe_go_api_key(api_key: &str) -> crate::providers::Result<()> {
+    go::probe_api_key(api_key)
+}
+
+pub fn probe_zen_api_key(api_key: &str) -> crate::providers::Result<()> {
+    zen::probe_api_key(api_key)
+}

@@ -131,12 +131,6 @@ fn rejects_no_mouse_as_config_key() {
 }
 
 #[test]
-fn rejects_no_alt_screen_as_config_key() {
-    let err = toml::from_str::<Config>("no_alt_screen = true").expect_err("no_alt_screen rejected");
-    assert!(err.to_string().contains("unknown field"));
-}
-
-#[test]
 fn rejects_secret_shaped_api_key() {
     let err = check_for_secret_keys("umans_api_key = \"abc\"").expect_err("secret key rejected");
     assert!(matches!(err, ConfigError::SecretInConfig { key } if key == "umans_api_key"));

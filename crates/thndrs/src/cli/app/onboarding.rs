@@ -15,6 +15,8 @@
 //!
 //! It is not copied into transcript, prompt, or session metadata.
 
+use std::io;
+
 use super::*;
 
 /// Focused first-run and credential recovery surface.
@@ -255,7 +257,10 @@ impl RecoveryStage {
         }
     }
 }
+
 /// Small seam for testing TUI OAuth without real network calls.
+///
+/// FIXME: what on earth is this
 #[derive(Clone, Copy, Debug)]
 pub struct ChatGptOAuthDriver {
     pub start_browser_login: fn() -> Result<auth::ChatGptCodexBrowserLogin, auth::AuthError>,
@@ -677,12 +682,10 @@ pub fn after_setup_model_config(app: &mut App, provider: SetupProviderArg, scope
     }
 }
 
-pub fn write_setup_model_config(
-    app: &mut App, _provider: SetupProviderArg, scope: CredentialScope,
-) -> std::io::Result<()> {
+pub fn write_setup_model_config(app: &mut App, _provider: SetupProviderArg, scope: CredentialScope) -> io::Result<()> {
     let model = app.model.trim();
     if model.is_empty() {
-        let err = std::io::Error::new(std::io::ErrorKind::InvalidInput, "choose a model before saving setup");
+        let err = io::Error::new(io::ErrorKind::InvalidInput, "choose a model before saving setup");
         app.transcript
             .push(Entry::Error { text: format!("failed to save selected model to config: {err}") });
         return Err(err);
@@ -691,7 +694,7 @@ pub fn write_setup_model_config(
         CredentialScope::Global => match config::global_config_path() {
             Some(path) => path,
             None => {
-                let err = std::io::Error::new(std::io::ErrorKind::NotFound, "HOME is not available");
+                let err = io::Error::new(io::ErrorKind::NotFound, "HOME is not available");
                 app.transcript
                     .push(Entry::Error { text: format!("failed to save selected model to global config: {err}") });
                 return Err(err);
@@ -722,8 +725,12 @@ pub fn write_setup_model_config(
 pub fn advance_after_setup_model_config(app: &mut App, provider: SetupProviderArg) {
     if provider_authenticated(provider, &app.cwd) {
         app.first_run_recovery = None;
-        app.transcript
-            .push(Entry::Status { text: format!("setup complete for {}", provider.label()) });
+        app.transcript.push(Entry::Status {
+            text: format!(
+                "setup saved for {}; thndrs will verify the credential on the first provider request",
+                provider.label()
+            ),
+        });
     } else if provider == SetupProviderArg::ChatgptCodex {
         app.first_run_recovery = Some(FirstRunRecovery::missing_provider(provider, false));
     } else {

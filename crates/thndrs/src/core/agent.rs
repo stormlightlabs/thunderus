@@ -166,10 +166,14 @@ struct ChatToolCallBuilder {
 impl ChatToolCallBuilder {
     fn finish(self) -> Option<ToolUseRequest> {
         if self.name.is_empty() {
-            return None;
+            None
+        } else {
+            Some(ToolUseRequest::new(
+                self.name,
+                if self.arguments_json.trim().is_empty() { "{}".to_string() } else { self.arguments_json },
+                self.id,
+            ))
         }
-        let arguments = if self.arguments_json.trim().is_empty() { "{}".to_string() } else { self.arguments_json };
-        Some(ToolUseRequest::new(self.name, arguments, self.id))
     }
 }
 
@@ -870,6 +874,11 @@ where
         }
         Err(e) => {
             let message = P::request_error_message(&e);
+            if e.is_credential_rejected() {
+                tracing::warn!(error = %message, "provider rejected credentials while loading model metadata");
+                let _ = send(tx, AgentEvent::Failed(message), cancel);
+                return MetadataLoaded::Abort;
+            }
             tracing::warn!(error = %message, "failed to load provider model metadata; using fallback token budget");
             match send(
                 tx,
@@ -1666,6 +1675,56 @@ mod tests {
         AgentRunConfig::new(PathBuf::from("."), String::from("fake-agent"), WebSearchMode::Native)
     }
 
+    struct MetadataErrorProvider {
+        code: u16,
+    }
+
+    impl StreamingProvider for MetadataErrorProvider {
+        type Metadata = ();
+
+        fn name(&self) -> &'static str {
+            "metadata-test"
+        }
+
+        fn load_status(&self) -> String {
+            "provider: loading metadata-test".to_string()
+        }
+
+        fn request_status(&self, _model: &str, _search_mode: WebSearchMode) -> String {
+            "provider: requesting metadata-test".to_string()
+        }
+
+        fn from_env_or_dotenv(_root: &Path) -> providers::Result<Self> {
+            Ok(Self { code: 401 })
+        }
+
+        fn load_metadata(&self) -> providers::Result<Self::Metadata> {
+            Err(ProviderError::Status { code: self.code, body: "metadata endpoint rejected request".to_string() })
+        }
+
+        fn token_budget(&self, _model: &str, _metadata: Option<&Self::Metadata>) -> u32 {
+            1
+        }
+
+        fn send_streaming_request(
+            &self, _model: &str, _messages: &[ProviderMessage], _request: &StreamingRequest<'_>,
+        ) -> providers::Result<ureq::http::Response<ureq::Body>> {
+            panic!("a rejected metadata request must abort before sending the prompt")
+        }
+
+        fn stream_format(&self, _model: &str) -> providers::Result<StreamFormat> {
+            Ok(StreamFormat::AnthropicMessages)
+        }
+
+        fn request_error_message(error: &ProviderError) -> String {
+            error.failure_message("metadata-test rate limit")
+        }
+
+        fn is_retryable_request_error(error: &ProviderError) -> bool {
+            error.is_retryable()
+        }
+    }
+
     fn dispatch_output(req: &ToolUseRequest, root: &Path) -> tools::ToolOutput {
         tools::dispatch_full(req, root).0
     }
@@ -1702,6 +1761,39 @@ mod tests {
                 "provider stopped at max_tokens (32768) before producing assistant text".to_string()
             )
             .is_retryable::<umans::UmansClient>()
+        );
+    }
+
+    #[test]
+    fn rejected_metadata_aborts_before_sending_the_prompt() {
+        let (_steering_tx, steering_rx) = mpsc::channel();
+        let handle = RunHandle::provider_with_steering(config(), Vec::new(), false, steering_rx);
+        let (tx, rx) = mpsc::channel();
+        let cancel = CancelToken::new();
+
+        handle.run_provider::<MetadataErrorProvider>(&tx, &cancel);
+
+        let events: Vec<AgentEvent> = rx.try_iter().collect();
+        assert!(events.iter().any(|event| {
+            matches!(event, AgentEvent::Failed(message) if message == "authentication failed (HTTP 401)")
+        }));
+        assert!(!events.iter().any(|event| {
+            matches!(event, AgentEvent::Status(message) if message.contains("fallback token budget"))
+        }));
+    }
+
+    #[test]
+    fn unavailable_metadata_uses_the_fallback_token_budget() {
+        let provider = MetadataErrorProvider { code: 503 };
+        let (tx, rx) = mpsc::channel();
+        let cancel = CancelToken::new();
+
+        let metadata = load_provider_metadata(&provider, "metadata-test", &tx, &cancel);
+
+        assert!(matches!(metadata, MetadataLoaded::Unavailable));
+        assert_eq!(
+            rx.try_recv().expect("fallback status"),
+            AgentEvent::Status("provider: model metadata unavailable; using fallback token budget".to_string())
         );
     }
 

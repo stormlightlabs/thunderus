@@ -2,7 +2,9 @@
 title: "OpenCode Zen Provider"
 ---
 
-OpenCode Zen models use the `opencode/<model-id>` form. The built-in default is:
+OpenCode Zen models use the `opencode/<model-id>` form in `thndrs.toml`.
+
+For example:
 
 ```toml
 model = "opencode/big-pickle"
@@ -29,10 +31,6 @@ thndrs setup
 thndrs setup --provider opencode-zen
 ```
 
-OpenCode Zen Big Pickle is the built-in default provider choice in guided
-setup. The setup flow shows the required `OPENCODE_ZEN_KEY`, limited-free
-caveat, and free-period privacy caveat before credential entry.
-
 Provider keys are not accepted through CLI flags or TOML config. Stored API keys
 live in the same managed credential files used by setup and login, and are
 redacted from diagnostics, prompt inspection, snapshots, and session metadata.
@@ -41,7 +39,7 @@ redacted from diagnostics, prompt inspection, snapshots, and session metadata.
 `opencode/` model ids and `OPENCODE_ZEN_KEY`; OpenCode Go keeps
 `opencode-go/` model ids and `OPENCODE_GO_KEY`.
 
-## Big Pickle Caveats
+## Big Pickle
 
 OpenCode lists Big Pickle as free for input, output, and cached-read tokens, but
 its docs also describe that free access as time-limited. Treat that as a current

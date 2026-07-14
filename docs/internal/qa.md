@@ -1,173 +1,178 @@
 # v0.1 Release QA Checklist
 
-Run this from a clean checkout before cutting the release. Use real credentials
-only where explicitly called out, and do not paste secrets into notes.
+Use this checklist for the release candidate and the human publication gate.
+Record commands, versions, dates, terminal details, and redacted results. Do
+not record credentials, account identifiers, registry tokens, authorization
+URLs, callback URLs, device codes, or tool output that contains secrets.
 
-## Build And Static Checks
+## Candidate Record
+
+- Candidate version:
+- Candidate revision:
+- Reviewer:
+- Date and timezone:
+- Platform and architecture:
+- Rust and Cargo versions:
+- Terminal emulator, font, width, and height:
+
+## Build And Documentation Checks
 
 - [ ] `cargo fmt`
-- [ ] `cargo clippy --fix --all-targets --allow-dirty`
-- [ ] `cargo clippy --all-targets`
-- [ ] `cargo test`
+- [ ] `cargo clippy --workspace --fix --allow-dirty --allow-staged`
+- [ ] `cargo clippy --workspace`
+- [ ] `cargo test --workspace`
 - [ ] `pnpm --dir docs build`
-- [ ] Confirm generated docs report all internal links valid.
-- [ ] Confirm `CHANGELOG.md` covers user-visible changes.
-- [ ] Confirm `docs/internal/archive/v0.1.md` includes completed feature notes.
+- [ ] `git diff --check`
+- [ ] Public README and site contain installed-user commands, no placeholders,
+  no superseded default-model claims, and no source-checkout instructions in
+  user workflows.
+- [ ] Changelog describes the v0.1 release candidate and the
+  `thndrs-agent` v0 compatibility and migration policy.
 
-## Fresh Install Path
+Record command output locations or a concise redacted result:
 
-- [ ] Install with `cargo install --locked thndrs` in a clean environment.
-- [ ] Run `thndrs --version`.
-- [ ] Run `thndrs setup` in a temp HOME and temp workspace.
-- [ ] Confirm setup prints workspace, provider, credential status, and next
-  command.
-- [ ] Confirm setup presents OpenCode Zen Big Pickle as the default provider
-  choice before credential entry.
-- [ ] Confirm OpenCode Zen setup copy mentions the required
-  `OPENCODE_ZEN_KEY`, limited-free caveat, and free-period privacy caveat.
-- [ ] Confirm setup can switch from OpenCode Zen to another provider before
-  credential entry.
-- [ ] Confirm setup does not duplicate existing config keys when run twice.
-- [ ] Run setup in a git repo and confirm `.git/info/exclude` includes
-  `.thndrs/credentials.env`.
-- [ ] Run setup with non-interactive stdin and confirm it fails with useful
-  instructions.
-- [ ] Run non-interactive `thndrs setup --provider chatgpt-codex` and confirm
-  it fails with OAuth-specific instructions unless ChatGPT auth is already
-  available.
+- Build/check evidence:
+- Documentation build evidence:
+- Markdown/diff reviewer:
 
-## Config And Credentials
+## Package Archive Review
 
-- [ ] `thndrs config path` prints global and project paths.
-- [ ] `thndrs config show --redacted` prints effective config without secrets.
-- [ ] `thndrs config edit --global` handles missing `$EDITOR` clearly.
-- [ ] `thndrs config edit --project` creates parent directories only after
-  confirmation.
-- [ ] `thndrs login umans` stores only `UMANS_API_KEY`.
-- [ ] `thndrs logout umans` removes only `UMANS_API_KEY`.
-- [ ] `thndrs login opencode-go` stores only `OPENCODE_GO_KEY`.
-- [ ] `thndrs logout opencode-go` removes only `OPENCODE_GO_KEY`.
-- [ ] `thndrs login opencode-zen` stores only `OPENCODE_ZEN_KEY`.
-- [ ] `thndrs logout opencode-zen` removes only `OPENCODE_ZEN_KEY`.
-- [ ] `thndrs setup --provider chatgpt-codex` starts ChatGPT OAuth and never
-  asks for an API key or credential-store scope.
-- [ ] `thndrs setup --provider chatgpt-codex` may still write the selected
-  default model when the user explicitly confirms it.
-- [ ] ChatGPT setup, login, and TUI recovery do not create or modify
-  `.thndrs/credentials.env` with ChatGPT token material.
-- [ ] `thndrs auth status` shows sources and never values.
-- [ ] Credential files are mode `0600` on Unix.
-- [ ] Project credentials are ignored by git.
-- [ ] Process env credentials override global, project, and `.env` credentials.
+Run before publishing `thndrs-agent`:
 
-## Doctor
+```sh
+cargo package -p thndrs-agent --allow-dirty
+tar -tzf target/package/thndrs-agent-0.1.0.crate
+```
 
-- [ ] `thndrs doctor` exits `1` when the selected provider is missing
-  credentials.
-- [ ] `thndrs doctor --json` exits `1` for the same blocking setup issue.
-- [ ] With fake stored credentials, doctor output is redacted.
-- [ ] With valid credentials, doctor exits `0`.
-- [ ] Doctor reports `rg`, `fd`, session directory, MCP counts, ACP counts, and
-  terminal summary.
-- [ ] `doctor --json` is safe to paste into an issue.
+- [ ] Archive includes `Cargo.toml`, `README.md`, `LICENSE`, and intended Rust
+  sources.
+- [ ] Archive contains no credentials, local sessions, generated build output,
+  editor files, or unrelated repository content.
+- [ ] `thndrs-agent` README and documentation example describe a
+  provider-neutral library boundary.
 
-## TUI First Run
+Record:
 
-- [ ] Launch TUI with missing provider credentials.
-- [ ] Confirm recovery appears before prompt submission.
-- [ ] Confirm prompt draft survives setup, cancellation, model switching, and
-  quit paths.
-- [ ] Enter an API key through the recovery surface and confirm hidden input.
-- [ ] Store a key globally and confirm it works on restart.
-- [ ] Store a key for the project and confirm it works on restart.
-- [ ] Launch TUI with missing ChatGPT Codex auth and confirm recovery says
-  ChatGPT OAuth credential, not API key.
-- [ ] Start ChatGPT OAuth from TUI recovery and confirm the verification URL and
-  user code render in the focused recovery surface.
-- [ ] Cancel ChatGPT OAuth polling with Esc and confirm no credentials are
-  written and the prompt draft is preserved.
-- [ ] Complete ChatGPT OAuth from TUI recovery with a real account and confirm
-  recovery clears, prompt draft is preserved, and credentials are stored in
-  `~/.thndrs/auth.json`.
-- [ ] Confirm API-key-looking slash-command arguments are rejected.
-- [ ] Confirm ACP models show ACP recovery, not provider API-key setup.
+- Archive path:
+- Archive reviewer:
+- Included sources and fixtures reviewed:
+- Excluded/generated artifact result:
 
-## TUI Slash Commands
+After `thndrs-agent 0.1.0` is available from crates.io, repeat the archive
+review for `thndrs` before approving its publication. Confirm that its README,
+license, application sources, intended tests/fixtures, and no generated or
+secret material are present.
 
-- [ ] `/doctor` appends redacted diagnostics.
-- [ ] `/auth status` appends provider status without values.
-- [ ] `/config path` appends config paths.
-- [ ] `/config show` appends redacted effective config.
-- [ ] `/setup` opens the setup surface.
-- [ ] `/login opencode-zen` opens hidden credential entry.
-- [ ] `/login chatgpt-codex` opens the ChatGPT OAuth recovery surface, not
-  hidden API-key entry.
-- [ ] `/logout opencode-zen` opens a confirmation surface.
-- [ ] `/config edit` tells the user to run the CLI command outside the TUI.
+## Clean Install Evidence
 
-## Providers
+Run this only after the publication order makes the application installable:
 
-- [ ] OpenCode Zen missing credentials fail before network access.
-- [ ] With `OPENCODE_ZEN_KEY`, `opencode/big-pickle` streams a small response.
-- [ ] Big Pickle picker text keeps the limited-free/privacy caveat.
-- [ ] OpenCode Go still uses `opencode-go/` and `OPENCODE_GO_KEY`.
-- [ ] Umans still uses `umans-coder` and `UMANS_API_KEY`.
-- [ ] ChatGPT Codex missing credentials fail before network access.
-- [ ] ChatGPT Codex recovery actions are ordered as OAuth login, switch
-  model/provider, setup instructions, optional continue, then quit.
-- [ ] `thndrs login chatgpt-codex` device-code flow works with a real account.
-- [ ] `thndrs setup --provider chatgpt-codex` uses the same device-code flow as
-  `thndrs login chatgpt-codex`.
-- [ ] ChatGPT Codex browser PKCE fallback works when tested manually.
-- [ ] `CHATGPT_CODEX_ACCESS_TOKEN` works for one process and does not write
-  `~/.thndrs/auth.json`.
+```sh
+cargo install --locked thndrs
+thndrs --version
+```
 
-## Model And Statusline
+- [ ] Use a clean HOME and a disposable workspace.
+- [ ] Launch `thndrs` and confirm required setup appears before a coding prompt
+  can submit.
+- [ ] Confirm no provider or model is silently selected on the fresh install.
+- [ ] Confirm `thndrs setup` offers the equivalent CLI route.
+- [ ] Confirm `thndrs doctor` and `thndrs doctor --json` provide redacted,
+  actionable diagnostics.
+- [ ] Confirm a rejected credential blocks a coding prompt and gives the
+  appropriate `thndrs login <provider>` recovery action.
+- [ ] Confirm a network, rate-limit, or service failure asks the user to retry
+  setup instead of calling the credential invalid.
 
-- [ ] Fresh config defaults to `opencode/big-pickle`.
-- [ ] `--model umans-coder` overrides config.
-- [ ] `THNDRS_MODEL` overrides TOML and is overridden by `--model`.
-- [ ] Model picker includes Umans, OpenCode Go, OpenCode Zen, ChatGPT Codex,
-  and configured ACP agents.
-- [ ] TTFT shows `ttft: pending` before first semantic model output.
-- [ ] TTFT switches to milliseconds or seconds after first output.
-- [ ] TTFT hides before core fields on narrow terminals.
+Record:
 
-## Sessions And Privacy
+- Install source and command:
+- HOME/workspace preparation:
+- Installed version:
+- Setup and diagnostic result:
 
-- [ ] Session metadata includes safe config origins and provider/model labels.
-- [ ] Session records do not include provider API keys.
-- [ ] ChatGPT access and refresh tokens do not appear in logs, sessions, prompt
-  inspection, or snapshots.
-- [ ] Shell output redaction catches common token patterns.
-- [ ] Tool write and shell audit records still appear after successful runs.
+## First-Class Provider Evidence
 
-## MCP And ACP
+Use a disposable repository and a real provider account only during the human
+release gate. Record the date, selected model, task scope, commands run, and
+result without recording account data or credentials.
 
-- [ ] `thndrs mcp list` handles empty config.
-- [ ] `thndrs mcp test <server>` reports ready/skipped/failed clearly.
-- [ ] `thndrs mcp tools <server>` lists namespaced tools.
-- [ ] `thndrs mcp call <server> <tool> --json <args>` records bounded output.
-- [ ] `thndrs acp list` handles empty config.
-- [ ] `thndrs acp inspect <name>` redacts command env.
-- [ ] `thndrs acp smoke <name> --prompt "ping"` works with a configured agent.
-- [ ] ACP permission prompts can approve and reject a request.
+### ChatGPT Codex
 
-## Docs
+- [ ] Browser-first setup opens or displays a copyable authorization URL and
+  completes through the callback or pasted full redirect URL.
+- [ ] Explicit headless login uses
+  `thndrs login chatgpt-codex --oauth-method device-code`; it is never selected
+  automatically.
+- [ ] A failed, expired, or cancelled login leaves no credential material in
+  session files, logs, prompt inspection, or the transcript.
+- [ ] An already-stored expired or revoked OAuth credential blocks setup or the
+  first provider request, preserves the prompt draft, and offers `/login
+  chatgpt-codex` recovery. A transient OAuth or catalog outage instead asks the
+  user to retry and does not call the credential invalid.
+- [ ] A bounded coding task can use approved local tools, run verification,
+  inspect output, and resume its resulting session.
 
-- [ ] README quickstart points to `cargo install --locked thndrs`,
-  `thndrs setup`, and `thndrs`.
-- [ ] README config section links to the live config reference.
-- [ ] Installation docs describe setup-first flow.
-- [ ] Provider docs cover OpenCode Zen, OpenCode Go, Umans, and ChatGPT Codex.
-- [ ] Environment variable docs describe provider credential precedence.
-- [ ] TUI docs list safe setup/auth/config slash commands.
-- [ ] Security docs still warn that local tools are not a sandbox.
+Record:
 
-## Release Packaging
+- Browser OAuth result:
+- Explicit device-code result:
+- Stored-credential recovery result:
+- Coding task, verification, and session-resume result:
 
-- [ ] `cargo package` succeeds.
-- [ ] Inspect packaged files for missing docs, license, README, or generated
-  artifacts that should not ship.
-- [ ] Install from the local package and run `thndrs setup`.
-- [ ] Tag only after tests, docs build, package check, and manual smoke pass.
+### Umans
+
+- [ ] Setup accepts an Umans credential through hidden input or a process-local
+  `UMANS_API_KEY`; no key appears in TOML, diagnostics, sessions, or snapshots.
+- [ ] A rejected key gives a redacted recovery path to `thndrs login umans`.
+- [ ] A rejected process-local `UMANS_API_KEY` names the environment override
+  and tells the user to replace or unset it before login; it does not pretend a
+  stored credential will take precedence.
+- [ ] A network, rate-limit, or service failure asks the user to retry setup
+  rather than replacing a credential that was not rejected.
+- [ ] A bounded coding task can use approved local tools, run verification,
+  inspect output, and resume its resulting session.
+
+Record:
+
+- Setup and credential result:
+- Environment-override recovery result:
+- Coding task, verification, and session-resume result:
+
+## Terminal, Safety, And Session Review
+
+- [ ] Review normal, narrow, and short terminal layouts with Unicode,
+  long paths, CJK, emoji, and combining marks where available.
+- [ ] Review monochrome or reduced-color behavior and confirm labels remain
+  understandable.
+- [ ] Confirm committed transcript history stays in native terminal scrollback.
+- [ ] Confirm setup, permissions, pickers, help, and detail surfaces remain
+  usable at narrow dimensions.
+- [ ] Confirm the UI and public docs say that local tools are not a sandbox.
+- [ ] Confirm session inspection/export and diagnostics redact secret-looking
+  values while preserving useful audit metadata.
+
+Record:
+
+- Terminal review result:
+- Safety wording reviewer:
+- Session and redaction result:
+
+## Publication Order And Approval
+
+- [ ] Publish `thndrs-agent 0.1.0` only after its archive review and direct
+  approval.
+- [ ] Wait for registry availability, then package and clean-install-test
+  `thndrs` against the published dependency.
+- [ ] Obtain separate approval before publishing `thndrs 0.1.0`.
+- [ ] Tag only after both publications and the recorded checks succeed.
+- [ ] Confirm this checklist and its evidence contain no secrets, credentials,
+  account identifiers, or registry tokens.
+
+Record:
+
+- `thndrs-agent` publication approval/result:
+- Registry availability evidence:
+- `thndrs` package/install evidence:
+- `thndrs` publication approval/result:
+- Tag approval/result:

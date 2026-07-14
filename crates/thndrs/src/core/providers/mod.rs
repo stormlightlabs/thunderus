@@ -130,6 +130,9 @@ pub enum ProviderError {
     /// Authentication error before a provider request can be sent.
     #[error("authentication failed: {0}")]
     Auth(String),
+    /// Credential verification could not complete because a dependency is unavailable.
+    #[error("authentication verification unavailable: {0}")]
+    AuthUnavailable(String),
     /// JSON serialization/deserialization error.
     #[error("json error: {0}")]
     Json(String),
@@ -144,12 +147,21 @@ impl ProviderError {
         ProviderError::InvalidModelId { provider, prefix, model: model.to_string() }
     }
 
+    /// Whether the provider explicitly rejected the current credential.
+    pub fn is_credential_rejected(&self) -> bool {
+        matches!(
+            self,
+            ProviderError::Status { code: 401 | 403, .. } | ProviderError::Auth(_)
+        )
+    }
+
     pub fn is_retryable(&self) -> bool {
         match self {
             ProviderError::MissingApiKey { .. }
             | ProviderError::InvalidModelId { .. }
             | ProviderError::Auth(_)
             | ProviderError::Json(_) => false,
+            ProviderError::AuthUnavailable(_) => true,
             ProviderError::Status { code, .. } => *code == 429 || (500..=599).contains(code),
             ProviderError::Http(message) => {
                 let lower = message.to_ascii_lowercase();
@@ -168,6 +180,7 @@ impl ProviderError {
                 _ => format!("HTTP {code}: {body}"),
             },
             ProviderError::Auth(message) => format!("authentication failed: {message}"),
+            ProviderError::AuthUnavailable(message) => format!("authentication verification unavailable: {message}"),
             ProviderError::Http(e) => format!("network error: {e}"),
             ProviderError::Json(e) => format!("response parse error: {e}"),
         }

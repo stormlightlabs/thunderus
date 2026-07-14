@@ -4,8 +4,8 @@ expression: frame.render_styled()
 ---
 │   ╭ setup · chatgpt-codex · authenticat… ╮  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╭ setup · chatgpt-codex · authenticat… ╮
 │   │    Browser PKCE is the default. Device c…│  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  Browser PKCE is the default. Device c… [fg=#ebfafa bg=#212337 b]=│
-│   │    › provider: chatgpt-codex             │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  › provider: chatgpt-codex              [fg=#ebfafa bg=#212337 b]=│
-│   │    › start browser PKCE login            │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  › start browser PKCE login             [fg=#ebfafa bg=#212337 b]=│
+│   │    ❯ provider: chatgpt-codex             │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  ❯ provider: chatgpt-codex              [fg=#ebfafa bg=#212337 b]=│
+│   │    ❯ start browser PKCE login            │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  ❯ start browser PKCE login             [fg=#ebfafa bg=#212337 b]=│
 │   │      use headless device code            │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#ebfafa bg=#212337]=    use headless device code             [fg=#ebfafa bg=#212337 b]=│
 │   │    … 4 rows below                        │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  … 4 rows below                         [fg=#ebfafa bg=#212337 b]=│
 │   │    continue · cancel · Esc cancel        │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  continue · cancel · Esc cancel         [fg=#ebfafa bg=#212337 b]=│

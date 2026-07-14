@@ -24,6 +24,8 @@ pub const BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 /// ChatGPT Codex Responses endpoint.
 pub const RESPONSES_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
 
+const MODELS_PATH: &str = "models";
+
 /// User/config-facing model id prefix.
 pub const MODEL_PREFIX: &str = "chatgpt-codex/";
 
@@ -76,7 +78,7 @@ pub struct ChatGptCodexClient {
 impl ChatGptCodexClient {
     /// Create a client from `CHATGPT_CODEX_ACCESS_TOKEN` or `~/.thndrs/auth.json`.
     pub fn from_env_or_dotenv(_workspace_root: &Path) -> Result<Self> {
-        let auth = auth::resolve_chatgpt_codex_auth().map_err(|e| ProviderError::Auth(e.to_string()))?;
+        let auth = auth::resolve_chatgpt_codex_auth().map_err(|error| provider_error_from_auth_error(&error))?;
         tracing::debug!("loaded ChatGPT Codex auth");
         Ok(Self::new(BASE_URL, auth))
     }
@@ -86,8 +88,7 @@ impl ChatGptCodexClient {
         Self { base_url: base_url.trim_end_matches('/').to_string(), auth, agent: ureq::Agent::new_with_defaults() }
     }
 
-    /// Build the headers for a streaming Responses request.
-    pub fn build_responses_headers(&self) -> Vec<(String, String)> {
+    fn build_auth_headers(&self) -> Vec<(String, String)> {
         vec![
             (
                 "Authorization".to_string(),
@@ -95,10 +96,18 @@ impl ChatGptCodexClient {
             ),
             ("chatgpt-account-id".to_string(), self.auth.account_id.clone()),
             ("originator".to_string(), "thndrs".to_string()),
+        ]
+    }
+
+    /// Build the headers for a streaming Responses request.
+    pub fn build_responses_headers(&self) -> Vec<(String, String)> {
+        let mut headers = self.build_auth_headers();
+        headers.extend([
             ("OpenAI-Beta".to_string(), "responses=experimental".to_string()),
             ("accept".to_string(), "text/event-stream".to_string()),
             ("content-type".to_string(), "application/json".to_string()),
-        ]
+        ]);
+        headers
     }
 
     /// Build a Responses-like streaming request body.
@@ -139,42 +148,39 @@ impl ChatGptCodexClient {
     ) -> serde_json::Value {
         build_openai_responses_request_body(raw_model, messages, tools, effort, summary, continuation)
     }
-}
 
-fn build_openai_responses_request_body(
-    raw_model: &str, messages: &[ProviderMessage], tools: Option<&serde_json::Value>, effort: ReasoningEffort,
-    summary: ReasoningSummary, continuation: &ProviderContinuation,
-) -> serde_json::Value {
-    let (instructions, input) = responses_input(messages);
-    let input = continuation_input(continuation, messages).unwrap_or(input);
-    let mut body = serde_json::json!({
-        "model": raw_model,
-        "store": false,
-        "stream": true,
-        "instructions": instructions,
-        "input": input,
-        "tool_choice": "auto",
-        "parallel_tool_calls": true,
-        "text": { "verbosity": "low" },
-        "include": ["reasoning.encrypted_content"],
-    });
-    if effort != ReasoningEffort::Auto {
-        let mut reasoning = serde_json::json!({ "effort": effort.label() });
-        if summary == ReasoningSummary::Auto {
-            reasoning["summary"] = serde_json::Value::String("auto".to_string());
+    /// Verify the configured credential against the lightweight model catalog.
+    pub fn probe_authentication(&self) -> Result<()> {
+        let url = format!("{}/{MODELS_PATH}", self.base_url);
+        let mut request = self.agent.get(&url);
+        for (key, value) in self.build_auth_headers() {
+            request = request.header(&key, &value);
         }
-        body["reasoning"] = reasoning;
-    }
-    if let Some(tool_schemas) = tools {
-        let converted = responses_tools(tool_schemas);
-        if !converted.as_array().is_some_and(|arr| arr.is_empty()) {
-            body["tools"] = converted;
-        }
-    }
-    body
-}
+        let mut response = request
+            .config()
+            .http_status_as_error(false)
+            .build()
+            .call()
+            .map_err(|error| ProviderError::Http(error.to_string()))?;
 
-impl ChatGptCodexClient {
+        let status = response.status().as_u16();
+        if !(200..=299).contains(&status) {
+            let body = response
+                .body_mut()
+                .read_to_string()
+                .unwrap_or_else(|error| format!("failed to read error body: {error}"));
+            return Err(ProviderError::Status { code: status, body: providers::summarize_error_body(&body) });
+        }
+
+        let body = response
+            .body_mut()
+            .read_to_string()
+            .map_err(|error| ProviderError::Http(error.to_string()))?;
+        serde_json::from_str::<serde_json::Value>(&body)
+            .map(|_| ())
+            .map_err(|error| ProviderError::Json(format!("ChatGPT Codex model catalog JSON parse failed: {error}")))
+    }
+
     /// Send a streaming request to `POST /responses`.
     pub fn send_streaming_request(
         &self, model: &str, messages: &[ProviderMessage], tools: Option<&serde_json::Value>, effort: ReasoningEffort,
@@ -271,6 +277,52 @@ impl StreamingProvider for ChatGptCodexClient {
     }
 }
 
+/// Verify the configured ChatGPT Codex credential using the model catalog.
+pub fn probe_env_or_dotenv_authentication(workspace_root: &Path) -> Result<()> {
+    ChatGptCodexClient::from_env_or_dotenv(workspace_root)?.probe_authentication()
+}
+
+fn provider_error_from_auth_error(error: &auth::AuthError) -> ProviderError {
+    if error.is_verification_unavailable() {
+        ProviderError::AuthUnavailable(error.to_string())
+    } else {
+        ProviderError::Auth(error.to_string())
+    }
+}
+
+fn build_openai_responses_request_body(
+    raw_model: &str, messages: &[ProviderMessage], tools: Option<&serde_json::Value>, effort: ReasoningEffort,
+    summary: ReasoningSummary, continuation: &ProviderContinuation,
+) -> serde_json::Value {
+    let (instructions, input) = responses_input(messages);
+    let input = continuation_input(continuation, messages).unwrap_or(input);
+    let mut body = serde_json::json!({
+        "model": raw_model,
+        "store": false,
+        "stream": true,
+        "instructions": instructions,
+        "input": input,
+        "tool_choice": "auto",
+        "parallel_tool_calls": true,
+        "text": { "verbosity": "low" },
+        "include": ["reasoning.encrypted_content"],
+    });
+    if effort != ReasoningEffort::Auto {
+        let mut reasoning = serde_json::json!({ "effort": effort.label() });
+        if summary == ReasoningSummary::Auto {
+            reasoning["summary"] = serde_json::Value::String("auto".to_string());
+        }
+        body["reasoning"] = reasoning;
+    }
+    if let Some(tool_schemas) = tools {
+        let converted = responses_tools(tool_schemas);
+        if !converted.as_array().is_some_and(|arr| arr.is_empty()) {
+            body["tools"] = converted;
+        }
+    }
+    body
+}
+
 /// Whether `model` is a ChatGPT Codex model id.
 pub fn is_model_id(model: &str) -> bool {
     model.strip_prefix(MODEL_PREFIX).is_some_and(|raw| !raw.is_empty())
@@ -330,10 +382,6 @@ pub fn known_models() -> Vec<KnownModel> {
     ]
 }
 
-fn is_gpt_5_6_raw_model(model: &str) -> bool {
-    matches!(model, "gpt-5.6-sol" | "gpt-5.6-terra" | "gpt-5.6-luna")
-}
-
 /// Extend an in-memory Responses history after one streamed response.
 pub fn record_response_items(
     continuation: &mut ProviderContinuation, messages: &[ProviderMessage], response_items: Vec<serde_json::Value>,
@@ -370,16 +418,14 @@ pub fn record_tool_output(
     continuation.set_responses_items(items, consumed_messages);
 }
 
-fn continuation_input(continuation: &ProviderContinuation, messages: &[ProviderMessage]) -> Option<serde_json::Value> {
-    let (items, consumed_messages) = continuation.responses_items()?;
-    let mut input = items.to_vec();
-    input.extend(responses_input_items(&messages[consumed_messages..]));
-    Some(serde_json::Value::Array(input))
-}
-
 /// Convert a ChatGPT Codex error into a human-readable failure string.
 pub fn error_message(err: &ProviderError) -> String {
-    err.failure_message("ChatGPT Codex usage limit exceeded")
+    match err {
+        ProviderError::AuthUnavailable(message) => format!(
+            "ChatGPT Codex credential verification unavailable: {message}; retry `thndrs setup --provider chatgpt-codex`"
+        ),
+        _ => err.failure_message("ChatGPT Codex usage limit exceeded"),
+    }
 }
 
 pub fn is_retryable_error(err: &ProviderError) -> bool {
@@ -434,6 +480,17 @@ pub fn parse_responses_sse_event(data: &str) -> Vec<ResponsesSseEvent> {
     }
 
     if events.is_empty() { vec![ResponsesSseEvent::Other] } else { events }
+}
+
+fn is_gpt_5_6_raw_model(model: &str) -> bool {
+    matches!(model, "gpt-5.6-sol" | "gpt-5.6-terra" | "gpt-5.6-luna")
+}
+
+fn continuation_input(continuation: &ProviderContinuation, messages: &[ProviderMessage]) -> Option<serde_json::Value> {
+    let (items, consumed_messages) = continuation.responses_items()?;
+    let mut input = items.to_vec();
+    input.extend(responses_input_items(&messages[consumed_messages..]));
+    Some(serde_json::Value::Array(input))
 }
 
 fn extract_responses_text_delta(value: &serde_json::Value, event_type: &str) -> Option<String> {
@@ -657,8 +714,68 @@ fn terminal_status_error(code: u16, body: &str) -> bool {
 mod tests {
     use std::collections::HashMap;
     use std::env;
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::net::TcpListener;
+    use std::thread;
 
     use super::*;
+
+    struct ModelsFixture {
+        base_url: String,
+        task: thread::JoinHandle<()>,
+    }
+
+    impl ModelsFixture {
+        fn respond(status: &str, body: &str) -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock models server");
+            let addr = listener.local_addr().expect("mock models server address");
+            let status = status.to_string();
+            let body = body.to_string();
+            let task = thread::spawn(move || {
+                let (mut stream, _) = listener.accept().expect("accept mock models request");
+                let mut request = String::new();
+                {
+                    let mut reader = BufReader::new(&mut stream);
+                    loop {
+                        let mut line = String::new();
+                        let count = reader.read_line(&mut line).expect("read mock models request");
+                        if count == 0 || line == "\r\n" || line == "\n" {
+                            break;
+                        }
+                        request.push_str(&line);
+                    }
+                }
+                let request = request.to_ascii_lowercase();
+                assert!(request.starts_with("get /models "));
+                assert!(request.contains("authorization: bearer test-token"));
+                assert!(request.contains("chatgpt-account-id: acct_123"));
+
+                let response = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream
+                    .write_all(response.as_bytes())
+                    .expect("write mock models response");
+            });
+            Self { base_url: format!("http://{addr}"), task }
+        }
+
+        fn drop_connection() -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock models server");
+            let addr = listener.local_addr().expect("mock models server address");
+            let task = thread::spawn(move || {
+                let (mut stream, _) = listener.accept().expect("accept mock models request");
+                let mut request = [0_u8; 4096];
+                let _ = stream.read(&mut request);
+            });
+            Self { base_url: format!("http://{addr}"), task }
+        }
+
+        fn finish(self) {
+            self.task.join().expect("mock models server");
+        }
+    }
 
     fn test_auth() -> ChatGptCodexAuth {
         ChatGptCodexAuth { access_token: "test-token".to_string(), account_id: "acct_123".to_string() }
@@ -714,6 +831,18 @@ mod tests {
     }
 
     #[test]
+    fn unavailable_chatgpt_auth_is_not_treated_as_a_rejected_credential() {
+        let error = provider_error_from_auth_error(&auth::AuthError::ChatGptCodexUnavailable(
+            "token request failed with status 503".to_string(),
+        ));
+
+        assert!(matches!(error, ProviderError::AuthUnavailable(_)));
+        assert!(!error.is_credential_rejected());
+        assert!(is_retryable_error(&error));
+        assert!(error_message(&error).contains("retry `thndrs setup --provider chatgpt-codex`"));
+    }
+
+    #[test]
     fn build_headers_include_expected_names_without_snapshotting_token() {
         let client = ChatGptCodexClient::new(BASE_URL, test_auth());
         let headers: HashMap<String, String> = client.build_responses_headers().into_iter().collect();
@@ -723,6 +852,69 @@ mod tests {
         assert_eq!(headers.get("OpenAI-Beta").unwrap(), "responses=experimental");
         assert_eq!(headers.get("accept").unwrap(), "text/event-stream");
         assert_eq!(headers.get("content-type").unwrap(), "application/json");
+    }
+
+    #[test]
+    fn authentication_probe_uses_the_authenticated_models_catalog() {
+        let fixture = ModelsFixture::respond("200 OK", r#"{"object":"list","data":[]}"#);
+        let result = ChatGptCodexClient::new(&fixture.base_url, test_auth()).probe_authentication();
+
+        fixture.finish();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn authentication_probe_preserves_rejected_credential_statuses() {
+        for (status, code) in [("401 Unauthorized", 401), ("403 Forbidden", 403)] {
+            let fixture = ModelsFixture::respond(status, r#"{"error":"rejected"}"#);
+            let error = ChatGptCodexClient::new(&fixture.base_url, test_auth())
+                .probe_authentication()
+                .expect_err("credential should be rejected");
+
+            fixture.finish();
+            assert!(matches!(&error, ProviderError::Status { code: actual, .. } if *actual == code));
+            assert!(error.is_credential_rejected());
+            assert!(!error.is_retryable());
+        }
+    }
+
+    #[test]
+    fn authentication_probe_preserves_transient_statuses() {
+        for (status, code) in [("429 Too Many Requests", 429), ("503 Service Unavailable", 503)] {
+            let fixture = ModelsFixture::respond(status, r#"{"error":"unavailable"}"#);
+            let error = ChatGptCodexClient::new(&fixture.base_url, test_auth())
+                .probe_authentication()
+                .expect_err("provider should be unavailable");
+
+            fixture.finish();
+            assert!(matches!(&error, ProviderError::Status { code: actual, .. } if *actual == code));
+            assert!(!error.is_credential_rejected());
+            assert!(error.is_retryable());
+        }
+    }
+
+    #[test]
+    fn authentication_probe_treats_connection_failures_as_unavailable() {
+        let fixture = ModelsFixture::drop_connection();
+        let error = ChatGptCodexClient::new(&fixture.base_url, test_auth())
+            .probe_authentication()
+            .expect_err("connection should fail");
+
+        fixture.finish();
+        assert!(matches!(error, ProviderError::Http(_)));
+        assert!(!error.is_credential_rejected());
+    }
+
+    #[test]
+    fn authentication_probe_treats_malformed_catalogs_as_unavailable() {
+        let fixture = ModelsFixture::respond("200 OK", "not-json");
+        let error = ChatGptCodexClient::new(&fixture.base_url, test_auth())
+            .probe_authentication()
+            .expect_err("malformed catalog");
+
+        fixture.finish();
+        assert!(matches!(error, ProviderError::Json(_)));
+        assert!(!error.is_credential_rejected());
     }
 
     #[test]

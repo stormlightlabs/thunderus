@@ -176,6 +176,8 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
                 app.input.set_text(&input);
             }
             persist_last_entry(app);
+            open_credential_recovery_after_rejection(app);
+            persist_last_entry(app);
             app.refresh_git_status();
             None
         }
@@ -311,10 +313,7 @@ pub fn exit_history_navigation(app: &mut App) {
     }
 }
 
-/// Persist the last transcript entry to the session file, if a writer exists.
-///
-/// Only finalized entries are written — streaming/running entries are skipped
-/// by `SessionRecord::from_entry`.
+/// Persist the last, finalized transcript entry to the session file, if a writer exists.
 pub fn persist_last_entry(app: &mut App) {
     if let Some(ref mut writer) = app.session_writer
         && let Some(entry) = app.transcript.last()
@@ -343,8 +342,9 @@ pub fn persist_final_response(app: &mut App) {
 /// Whether `ui_tick` is at or past `deadline`, accounting for wrap-around.
 ///
 /// If `deadline` has wrapped (e.g. `ui_tick` is small and `deadline` is near
-/// `u64::MAX`), we treat the deadline as already passed — a wrap is so rare
-/// that expiring early is the safe choice.
+/// [`u64::MAX`]), we treat the deadline as already passed.
+///
+/// A wrap is so rare that expiring early is the safe choice.
 pub fn now_or_after_deadline(ui_tick: u64, deadline: u64) -> bool {
     if deadline >= ui_tick { deadline.wrapping_sub(ui_tick) > u64::MAX / 2 } else { true }
 }
@@ -451,4 +451,72 @@ fn config_file_hash_summary(files: &[session::SessionConfigFile]) -> String {
         .map(|file| format!("{}:{}:{}", file.source, file.path, file.sha256))
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+fn open_credential_recovery_after_rejection(app: &mut App) {
+    let RunState::Error(message) = &app.run_state else {
+        return;
+    };
+    if !is_credential_rejection(message) || crate::acp::config::parse_model_id(&app.model).is_some() {
+        return;
+    }
+
+    let provider = super::onboarding::provider_for_model(&app.model);
+    if let Some(env_var) = active_environment_credential(provider, &app.cwd) {
+        app.transcript.push(Entry::Status {
+            text: format!(
+                "{env_var} takes precedence over stored credentials; replace or unset it, then use `/login {}` if needed",
+                provider.label()
+            ),
+        });
+        return;
+    }
+
+    app.first_run_recovery = Some(FirstRunRecovery::login(provider));
+    app.transcript.push(Entry::Status {
+        text: format!(
+            "credential rejected; opened `/login {}` recovery while keeping the prompt draft",
+            provider.label()
+        ),
+    });
+}
+
+fn is_credential_rejection(message: &str) -> bool {
+    let message = message.trim_start().to_ascii_lowercase();
+    message.starts_with("authentication failed (http 401)")
+        || message.starts_with("authentication failed (http 403)")
+        || message.starts_with("authentication failed:")
+        || message.starts_with("umans authentication failed (http 401)")
+        || message.starts_with("umans authentication failed (http 403)")
+        || message.starts_with("umans authentication failed:")
+}
+
+fn active_environment_credential(provider: SetupProviderArg, workspace: &std::path::Path) -> Option<&'static str> {
+    match provider {
+        SetupProviderArg::ChatgptCodex
+            if std::env::var(auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV).is_ok_and(|value| !value.trim().is_empty()) =>
+        {
+            Some(auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV)
+        }
+        _ => provider.api_key_env_var().filter(|env_var| {
+            matches!(
+                auth::credential_source(env_var, workspace),
+                Some(auth::CredentialSource::Environment)
+            )
+        }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_credential_rejection;
+
+    #[test]
+    fn credential_rejection_detection_ignores_auth_words_in_server_errors() {
+        assert!(is_credential_rejection("authentication failed (HTTP 401)"));
+        assert!(is_credential_rejection("Umans authentication failed: invalid token"));
+        assert!(!is_credential_rejection(
+            "server error (HTTP 500): upstream authentication failed while validating its own service"
+        ));
+    }
 }

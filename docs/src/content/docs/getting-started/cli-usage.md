@@ -7,7 +7,7 @@ title: "CLI Usage"
 Running `thndrs` without a subcommand launches the TUI.
 
 ```sh
-cargo run -p thndrs
+thndrs
 ```
 
 ## Working Directory
@@ -16,51 +16,56 @@ Use `--cwd` to select the workspace used for context loading, display, and
 read-only tools.
 
 ```sh
-cargo run -p thndrs -- --cwd /path/to/repo
+thndrs --cwd /path/to/repo
 ```
 
 ## Model Selection
 
-The default model is `opencode/big-pickle`.
+A fresh install has no default model. `thndrs` opens required setup, where you
+choose a provider and model before submitting a coding prompt. After setup,
+`--model` overrides that selection for one run.
 
 ```sh
-cargo run -p thndrs -- --model umans-coder
+thndrs --model umans-coder
 ```
 
 Built-in provider model prefixes include:
 
-- `opencode/<model-id>`, including `opencode/big-pickle`
-- `opencode-go/<model-id>`, for OpenCode Go
-- `chatgpt-codex/<model-id>`, for experimental ChatGPT-backed Codex
+- `chatgpt-codex/<model-id>`, for ChatGPT-backed Codex
 - `umans-coder`
 - `umans-glm-5.2`
+- `opencode/<model-id>`, for OpenCode Zen
+- `opencode-go/<model-id>`, for OpenCode Go
+
+ChatGPT Codex and Umans are the first-class v0.1 workflows. OpenCode providers
+and configured ACP agents are advanced integrations.
 
 ## Web Searching
 
 Use `--websearch` to choose the web-search policy.
 
 ```sh
-cargo run -p thndrs -- --websearch native
-cargo run -p thndrs -- --websearch exa
-cargo run -p thndrs -- --websearch none
+thndrs --websearch native
+thndrs --websearch exa
+thndrs --websearch none
 ```
 
 `auto` is the default. `none` disables provider-side web search.
 
 ## Prompt Inspection
 
-Use `--print-prompt` to print the assembled prompt bundle and lowered provider
-messages without calling the provider.
+Use `--print-prompt` to print the assembled system prompt bundle and lowered
+provider messages without calling the provider.
 
 ```sh
-cargo run -p thndrs -- --print-prompt
+thndrs --print-prompt
 ```
 
 The output redacts secrets.
 
 ## Terminal Options
 
-Use `--tick-rate-ms` to tune UI tick timing. The TUI always renders inline
-without entering the alternate screen; `--no-alt-screen` is kept as a
-compatibility no-op. Use `--no-mouse` to leave terminal mouse selection and
-native scrollback uncaptured.
+Use `--tick-rate-ms` to tune UI tick timing. The TUI renders inline without
+entering the alternate screen.
+
+Use `--no-mouse` to leave terminal mouse selection and native scrollback uncaptured.

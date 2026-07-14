@@ -65,6 +65,17 @@ impl CredentialScope {
     }
 }
 
+/// Result of a lightweight provider credential check.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProviderCredentialHealth {
+    /// The provider accepted the credential.
+    Verified,
+    /// The provider rejected the credential or its permissions.
+    Rejected,
+    /// A transport or service failure prevented verification.
+    Unavailable,
+}
+
 /// Run `thndrs login`.
 pub fn run_login(cli: &Cli, command: &LoginCommand) -> io::Result<()> {
     let stdout = io::stdout();
@@ -113,20 +124,22 @@ pub fn run_login(cli: &Cli, command: &LoginCommand) -> io::Result<()> {
         return Ok(());
     }
 
-    let path = credential_path(scope, &workspace)?;
-    auth::set_credential(&path, env_var, api_key).map_err(io::Error::other)?;
-    if scope == CredentialScope::Project {
-        auth::ensure_git_exclude(&workspace).map_err(io::Error::other)?;
-    }
+    let health = check_provider_key(command.provider, api_key);
+    store_api_key_credential(scope, &workspace, command.provider, env_var, api_key, health)?;
     writeln!(
         writer,
         "{} credential stored in {}",
         command.provider.label(),
         scope.label()
     )?;
-    match validate_provider_key(command.provider, api_key) {
-        Ok(()) => writeln!(writer, "validation: ok")?,
-        Err(err) => writeln!(writer, "validation: stored but unverified ({err})")?,
+    match health {
+        ProviderCredentialHealth::Verified => writeln!(writer, "validation: ok")?,
+        ProviderCredentialHealth::Unavailable => writeln!(
+            writer,
+            "validation: unavailable; credential stored but not verified. Retry `thndrs setup --provider {}` before coding.",
+            command.provider.label()
+        )?,
+        ProviderCredentialHealth::Rejected => return Err(credential_rejected_error(command.provider)),
     }
     Ok(())
 }
@@ -231,6 +244,43 @@ pub fn credential_path(scope: CredentialScope, workspace: &Path) -> io::Result<P
     }
 }
 
+fn store_api_key_credential(
+    scope: CredentialScope, workspace: &Path, provider: SetupProviderArg, env_var: &str, api_key: &str,
+    health: ProviderCredentialHealth,
+) -> io::Result<()> {
+    if health == ProviderCredentialHealth::Rejected {
+        return Err(credential_rejected_error(provider));
+    }
+
+    let path = credential_path(scope, workspace)?;
+    auth::set_credential(&path, env_var, api_key).map_err(io::Error::other)?;
+    if scope == CredentialScope::Project {
+        auth::ensure_git_exclude(workspace).map_err(io::Error::other)?;
+    }
+    Ok(())
+}
+
+/// Check a provider key with a lightweight provider request.
+///
+/// Rejections are distinct from transient verification failures so setup does
+/// not send a user to replace a credential during an outage.
+pub fn check_provider_key(provider: SetupProviderArg, api_key: &str) -> ProviderCredentialHealth {
+    let result = match provider {
+        SetupProviderArg::Umans => crate::providers::umans::probe_api_key(api_key),
+        SetupProviderArg::OpencodeGo => crate::providers::opencode::probe_go_api_key(api_key),
+        SetupProviderArg::OpencodeZen => crate::providers::opencode::probe_zen_api_key(api_key),
+        SetupProviderArg::ChatgptCodex => return ProviderCredentialHealth::Rejected,
+    };
+    classify_provider_key_result(result)
+}
+
+/// Check the resolved ChatGPT Codex OAuth credential with the model catalog.
+pub fn check_chatgpt_codex_auth(workspace: &Path) -> ProviderCredentialHealth {
+    classify_provider_key_result(crate::providers::chatgpt_codex::probe_env_or_dotenv_authentication(
+        workspace,
+    ))
+}
+
 /// Validate a provider key without persisting provider payloads.
 pub fn validate_provider_key(provider: SetupProviderArg, api_key: &str) -> Result<(), String> {
     match provider {
@@ -239,6 +289,46 @@ pub fn validate_provider_key(provider: SetupProviderArg, api_key: &str) -> Resul
         SetupProviderArg::OpencodeZen => crate::providers::opencode::validate_zen_api_key(api_key),
         SetupProviderArg::ChatgptCodex => Err("ChatGPT Codex uses OAuth login, not API-key validation".to_string()),
     }
+}
+
+fn classify_provider_key_result(result: crate::providers::Result<()>) -> ProviderCredentialHealth {
+    match result {
+        Ok(()) => ProviderCredentialHealth::Verified,
+        Err(error) if error.is_credential_rejected() => ProviderCredentialHealth::Rejected,
+        Err(_) => ProviderCredentialHealth::Unavailable,
+    }
+}
+
+/// Build the safe recovery error for a rejected stored credential.
+pub fn credential_rejected_error(provider: SetupProviderArg) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        format!(
+            "{} rejected the credential; run `thndrs login {}` to replace it",
+            provider.label(),
+            provider.label()
+        ),
+    )
+}
+
+/// Build the safe recovery error for a rejected credential with known precedence.
+pub fn credential_rejected_error_for_source(provider: SetupProviderArg, source: auth::CredentialSource) -> io::Error {
+    if source == auth::CredentialSource::Environment {
+        let env_var = match provider.metadata().auth_kind {
+            ProviderAuthKind::ApiKey { env_var } => env_var,
+            ProviderAuthKind::ChatGptOAuth { env_override } => env_override,
+        };
+        return io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!(
+                "{} rejected the credential from {env_var}; replace or unset {env_var} before using `thndrs login {}`",
+                provider.label(),
+                provider.label()
+            ),
+        );
+    }
+
+    credential_rejected_error(provider)
 }
 
 /// Ask for yes/no confirmation.
@@ -388,6 +478,70 @@ fn chatgpt_codex_status() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn provider_key_check_distinguishes_rejection_from_unavailability() {
+        assert_eq!(
+            classify_provider_key_result(Err(crate::providers::ProviderError::Status {
+                code: 401,
+                body: "unauthorized".to_string(),
+            })),
+            ProviderCredentialHealth::Rejected
+        );
+        assert_eq!(
+            classify_provider_key_result(Err(crate::providers::ProviderError::Status {
+                code: 503,
+                body: "unavailable".to_string(),
+            })),
+            ProviderCredentialHealth::Unavailable
+        );
+        assert_eq!(
+            classify_provider_key_result(Err(crate::providers::ProviderError::Http("offline".to_string()))),
+            ProviderCredentialHealth::Unavailable
+        );
+        assert_eq!(
+            classify_provider_key_result(Err(crate::providers::ProviderError::Json(
+                "invalid catalog".to_string()
+            ))),
+            ProviderCredentialHealth::Unavailable
+        );
+        assert_eq!(
+            classify_provider_key_result(Err(crate::providers::ProviderError::AuthUnavailable(
+                "refresh endpoint unavailable".to_string(),
+            ))),
+            ProviderCredentialHealth::Unavailable
+        );
+    }
+
+    #[test]
+    fn environment_credential_rejection_explains_precedence() {
+        let error = credential_rejected_error_for_source(SetupProviderArg::Umans, auth::CredentialSource::Environment);
+
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        assert!(error.to_string().contains("replace or unset UMANS_API_KEY"));
+        assert!(error.to_string().contains("thndrs login umans"));
+    }
+
+    #[test]
+    fn rejected_login_credential_is_not_persisted() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let workspace = tmp.path().join("workspace");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        let path = auth::project_credentials_path(&workspace);
+
+        let error = store_api_key_credential(
+            CredentialScope::Project,
+            &workspace,
+            SetupProviderArg::Umans,
+            auth::UMANS_API_KEY_ENV,
+            "rejected-key",
+            ProviderCredentialHealth::Rejected,
+        )
+        .expect_err("rejected credential");
+
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        assert!(!path.exists());
+    }
 
     #[test]
     fn auth_status_does_not_print_values() {

@@ -154,7 +154,7 @@ fn picker_rows(picker: &PickerView, width: usize, height: usize, theme: &Surface
     } else {
         body.extend(picker.items.iter().enumerate().map(|(index, item)| {
             let selected = index == picker.selected;
-            let marker = if selected { "›" } else { " " };
+            let marker = if selected { "❯" } else { " " };
             let detail = if item.detail.is_empty() {
                 String::new()
             } else {
@@ -223,7 +223,7 @@ fn permission_rows(permission: &PermissionView, width: usize, height: usize, the
     let focus = if permission.options.is_empty() { None } else { Some(1 + permission.selected) };
     body.extend(permission.options.iter().enumerate().map(|(index, option)| {
         let selected = index == permission.selected;
-        let marker = if selected { "›" } else { " " };
+        let marker = if selected { "❯" } else { " " };
         let text = format!("{marker} {}  [{}]", option.label, option.kind);
         if selected { SurfaceLine::selected(text) } else { SurfaceLine::text(text) }
     }));
@@ -333,7 +333,7 @@ fn setup_form_rows(form: &SetupFormView, width: usize, height: usize, theme: &Su
     let field_focus = if form.actions.is_empty() { Some(form.focus_index) } else { None };
     body.extend(form.fields.iter().enumerate().map(|(index, field)| {
         let focused = index == form.focus_index || field.focused;
-        let marker = if focused { "›" } else { " " };
+        let marker = if focused { "❯" } else { " " };
         let value = if field.secret && !field.value.is_empty() { "[hidden]".to_string() } else { field.value.clone() };
         let multiline = if field.multiline { " multiline" } else { "" };
         let error = field
@@ -346,7 +346,7 @@ fn setup_form_rows(form: &SetupFormView, width: usize, height: usize, theme: &Su
     let action_offset = body.len();
     body.extend(form.actions.iter().enumerate().map(|(index, action)| {
         let selected = index == form.selected;
-        let marker = if selected { "›" } else { " " };
+        let marker = if selected { "❯" } else { " " };
         let text = format!("{marker} {}", action.label);
         if selected { SurfaceLine::selected(text) } else { SurfaceLine::text(text) }
     }));
@@ -402,7 +402,7 @@ fn table_rows(table: &TableView, width: usize, height: usize, theme: &SurfaceThe
     ));
     body.extend(table.rows.iter().enumerate().map(|(index, row)| {
         let selected = table.selected_row == Some(index);
-        let marker = if selected { "›" } else { " " };
+        let marker = if selected { "❯" } else { " " };
         let text = format!("{marker} {}", table_line(row, &widths));
         if selected { SurfaceLine::selected(text) } else { SurfaceLine::text(text) }
     }));
@@ -818,7 +818,7 @@ mod tests {
         let text = rows.iter().map(Row::text).collect::<Vec<_>>().join("\n");
 
         assert!(text.contains("commands"));
-        assert!(text.contains("› health"));
+        assert!(text.contains("❯ health"));
         assert!(rows.iter().all(|row| row.width == 32));
     }
 

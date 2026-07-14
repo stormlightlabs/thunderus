@@ -75,7 +75,6 @@ impl SawkInput {
 /// - `sed_print`: print a 1-indexed line range.
 /// - `sed_substitute_preview`: show changed lines from a regex replacement preview.
 /// - `awk_fields`: extract 1-indexed fields from optionally filtered lines.
-#[allow(dead_code)]
 pub fn exec(args: &Value, root: &Path) -> ToolOutput {
     match SawkInput::from_value(args) {
         Ok(input) => exec_input(&input, root),
@@ -113,18 +112,10 @@ Paths are contained; output is capped/truncated; no sed -i or awk system()."#,
     )
 }
 
-/// Parse provider JSON arguments for `sawk`.
-pub fn parse_arguments(arguments: &str) -> Result<SawkInput, ToolError> {
-    let args = serde_json::from_str::<serde_json::Value>(arguments).unwrap_or(serde_json::Value::Null);
-    SawkInput::from_value(&args)
-}
-
 /// Execute a registry request for `sawk`.
 pub fn execute_request(request: &ToolUseRequest, ctx: ToolContext<'_>) -> ToolExecution {
-    match parse_arguments(&request.arguments) {
-        Ok(input) => ToolExecution::output(exec_input(&input, ctx.root)),
-        Err(error) => ToolExecution::output(ToolOutput::failed(NAME, error.to_string())),
-    }
+    let args = serde_json::from_str::<Value>(&request.arguments).unwrap_or(Value::Null);
+    ToolExecution::output(exec(&args, ctx.root))
 }
 
 fn exec_input(input: &SawkInput, root: &Path) -> ToolOutput {
@@ -222,6 +213,7 @@ fn awk_fields(content: &str, input: &SawkInput) -> ToolOutput {
         .filter(|field| **field > 0)
         .map(|field| *field as usize)
         .collect::<Vec<_>>();
+
     if fields.is_empty() {
         return ToolOutput::failed("sawk", "awk_fields requires a non-empty fields array".to_string());
     }
@@ -350,40 +342,6 @@ mod tests {
                 .as_ref()
                 .is_some_and(|e| e.contains("escapes workspace root"))
         );
-    }
-
-    #[test]
-    fn parse_arguments_reads_common_and_action_fields() {
-        let input = parse_arguments(
-            r#"{"action":"awk_fields","path":"file.txt","start_line":2,"end_line":5,"max_lines":3,"pattern":"red","replacement":"blue","global":true,"fields":[1,3],"delimiter":","}"#,
-        )
-        .expect("parse");
-
-        assert_eq!(input.action, "awk_fields");
-        assert_eq!(input.path, "file.txt");
-        assert_eq!(input.start_line, Some(2));
-        assert_eq!(input.end_line, Some(5));
-        assert_eq!(input.max_lines, Some(3));
-        assert_eq!(input.pattern.as_deref(), Some("red"));
-        assert_eq!(input.replacement.as_deref(), Some("blue"));
-        assert!(input.global);
-        assert_eq!(input.fields, vec![1, 3]);
-        assert_eq!(input.delimiter.as_deref(), Some(","));
-    }
-
-    #[test]
-    fn parse_arguments_malformed_json_uses_safe_defaults() {
-        let input = parse_arguments("not valid json").expect("parse");
-        assert_eq!(input.action, "");
-        assert_eq!(input.path, "");
-        assert_eq!(input.start_line, None);
-        assert_eq!(input.end_line, None);
-        assert_eq!(input.max_lines, None);
-        assert_eq!(input.pattern, None);
-        assert_eq!(input.replacement, None);
-        assert!(!input.global);
-        assert!(input.fields.is_empty());
-        assert_eq!(input.delimiter, None);
     }
 
     #[test]

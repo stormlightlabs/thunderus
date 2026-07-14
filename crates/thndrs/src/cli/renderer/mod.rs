@@ -170,7 +170,7 @@ mod tests {
         let mut frame = Frame::new(30);
         let prompt_style = CellStyle::new().fg(Color::Yellow);
         frame.push(Row::padded(
-            vec![Span::styled("›  hello", prompt_style)],
+            vec![Span::styled("❯  hello", prompt_style)],
             30,
             CellStyle::default(),
         ));
@@ -186,7 +186,7 @@ mod tests {
         let indent = 3;
         let body_width = 27;
         for line in cursor::prompt_rows(text, body_width) {
-            let spans = vec![Span::styled("›  ", style), Span::styled(line, CellStyle::default())];
+            let spans = vec![Span::styled("❯  ", style), Span::styled(line, CellStyle::default())];
             frame.push(Row::padded(spans, 30, CellStyle::default()));
         }
         frame.set_cursor(prompt_cursor(text, 9, body_width, indent));

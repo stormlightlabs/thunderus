@@ -16,23 +16,22 @@ cargo install --locked thndrs
 
 ## First Run
 
-Run setup from the repository you want to use:
+Run `thndrs` from the repository you want to use:
 
 ```sh
-thndrs setup
 thndrs
 ```
 
-Setup detects the workspace, selected provider, config files, credential
-status, session directory, and local search tools. It can write user or project
-config and store provider credentials outside TOML.
+On a fresh install, the application opens required setup before it accepts a
+coding prompt. Choose a provider and authenticate there. `thndrs setup` offers
+the same workflow from the CLI.
 
 Provider credentials can also be managed directly:
 
 ```sh
-thndrs login opencode-zen
+thndrs setup --provider chatgpt-codex
+thndrs setup --provider umans
 thndrs auth status
-thndrs logout opencode-zen
 ```
 
 Secrets are not accepted through CLI flags or TOML config. Use `thndrs login`,
@@ -51,5 +50,10 @@ thndrs doctor --json
 credential sources, tool availability, session directory status, MCP/ACP
 counts, and blocking setup issues without printing credential values.
 
-If the TUI opens with a provider model but no usable credential, it shows a
-recovery screen before submitting the first prompt.
+If a provider rejects a credential, `thndrs` keeps the prompt out of the coding
+path and points to the appropriate login action.
+
+A network or service failure will ask you to retry setup instead.
+
+Local tools run with the permissions of the user who started `thndrs`. Use a container,
+VM, or OS-level sandbox when the task needs isolation.

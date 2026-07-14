@@ -881,36 +881,113 @@ fn umans_setup_cancellation_keeps_prompt_draft_and_discards_secret_buffer() {
 
 #[test]
 fn umans_provider_failure_is_actionable_and_restores_prompt_draft() {
-    let mut app = fresh_app();
-    app.model = "umans-coder".to_string();
-    app.cli.model = app.model.clone();
-    app.first_run_recovery = None;
-    let prompt = "make the bounded Umans change";
+    with_provider_env_removed(|| {
+        let mut app = fresh_app();
+        app.model = "umans-coder".to_string();
+        app.cli.model = app.model.clone();
+        app.first_run_recovery = None;
+        let prompt = "make the bounded Umans change";
 
-    assert_eq!(
-        submit_user_turn(&mut app, prompt.to_string()),
-        Some(Msg::Agent(AgentEvent::Started))
-    );
-    update(&mut app, &Msg::Agent(AgentEvent::Started));
-    update(
-        &mut app,
-        &Msg::Agent(AgentEvent::Failed(
-            "Umans authentication failed (HTTP 401); check UMANS_API_KEY or run `thndrs login umans`".to_string(),
-        )),
-    );
+        assert_eq!(
+            submit_user_turn(&mut app, prompt.to_string()),
+            Some(Msg::Agent(AgentEvent::Started))
+        );
+        update(&mut app, &Msg::Agent(AgentEvent::Started));
+        update(
+            &mut app,
+            &Msg::Agent(AgentEvent::Failed(
+                "Umans authentication failed (HTTP 401); check UMANS_API_KEY or run `thndrs login umans`".to_string(),
+            )),
+        );
 
-    assert_eq!(
-        app.run_state,
-        RunState::Error(
-            "Umans authentication failed (HTTP 401); check UMANS_API_KEY or run `thndrs login umans`".to_string()
-        )
-    );
-    assert_eq!(app.input.as_str(), prompt);
-    assert!(
-        app.transcript
-            .iter()
-            .any(|entry| matches!(entry, Entry::Error { text } if text.contains("thndrs login umans")))
-    );
+        assert_eq!(
+            app.run_state,
+            RunState::Error(
+                "Umans authentication failed (HTTP 401); check UMANS_API_KEY or run `thndrs login umans`".to_string()
+            )
+        );
+        assert_eq!(app.input.as_str(), prompt);
+        assert_eq!(
+            app.first_run_recovery
+                .as_ref()
+                .map(|recovery| (recovery.provider, recovery.stage)),
+            Some((Some(SetupProviderArg::Umans), RecoveryStage::EnterKey))
+        );
+        assert!(
+            app.transcript
+                .iter()
+                .any(|entry| matches!(entry, Entry::Status { text } if text.contains("/login umans")))
+        );
+    });
+}
+
+#[test]
+fn rejected_environment_credential_names_the_override_without_opening_login() {
+    with_provider_env_removed(|| {
+        unsafe {
+            std::env::set_var(auth::UMANS_API_KEY_ENV, "rejected-environment-key");
+        }
+        let mut app = fresh_app();
+        app.model = "umans-coder".to_string();
+        app.cli.model = app.model.clone();
+        app.first_run_recovery = None;
+
+        assert_eq!(
+            submit_user_turn(&mut app, "make the bounded Umans change".to_string()),
+            Some(Msg::Agent(AgentEvent::Started))
+        );
+        update(&mut app, &Msg::Agent(AgentEvent::Started));
+        update(
+            &mut app,
+            &Msg::Agent(AgentEvent::Failed(
+                "Umans authentication failed (HTTP 403); check UMANS_API_KEY or run `thndrs login umans`".to_string(),
+            )),
+        );
+
+        assert!(app.first_run_recovery.is_none());
+        assert!(app.transcript.iter().any(|entry| {
+            matches!(entry, Entry::Status { text } if text.contains("UMANS_API_KEY takes precedence"))
+        }));
+        assert!(
+            !app.transcript
+                .iter()
+                .any(|entry| { matches!(entry, Entry::Status { text } if text.contains("opened `/login")) })
+        );
+    });
+}
+
+#[test]
+fn rejected_credential_failure_is_persisted_before_opening_login_recovery() {
+    with_provider_env_removed(|| {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cli = Cli { cwd: dir.path().to_path_buf(), model: "umans-coder".to_string(), ..Cli::default() };
+        let mut app = App::from_cli(&cli);
+        app.first_run_recovery = None;
+        let session_path = app
+            .session_writer
+            .as_ref()
+            .expect("session writer")
+            .path()
+            .to_path_buf();
+
+        update(
+            &mut app,
+            &Msg::Agent(AgentEvent::Failed(
+                "Umans authentication failed (HTTP 401); check UMANS_API_KEY or run `thndrs login umans`".to_string(),
+            )),
+        );
+
+        let records = session::SessionReader::read_records(&session_path);
+        assert!(records.iter().any(|record| {
+            matches!(record, session::SessionRecord::Failed { error, .. } if error.contains("authentication failed"))
+        }));
+        assert_eq!(
+            app.first_run_recovery
+                .as_ref()
+                .map(|recovery| (recovery.provider, recovery.stage)),
+            Some((Some(SetupProviderArg::Umans), RecoveryStage::EnterKey))
+        );
+    });
 }
 
 #[test]

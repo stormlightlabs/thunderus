@@ -4,13 +4,13 @@ expression: rendered
 ---
 command picker:
 │   ╭ commands · focus: option 1/2 ────────────────╮  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╭ commands · focus: option 1/2 ────────────────╮
-│   │    › clear  clear transcript                     │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  › clear  clear transcript                      [fg=#ebfafa bg=#212337 b]=│
+│   │    ❯ clear  clear transcript                     │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  ❯ clear  clear transcript                      [fg=#ebfafa bg=#212337 b]=│
 │   │    … 1 rows above · 1 below                      │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  … 1 rows above · 1 below                       [fg=#ebfafa bg=#212337 b]=│
 │   │    Enter select · Esc close                      │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  Enter select · Esc close                       [fg=#ebfafa bg=#212337 b]=│
 │   ╰──────────────────────────────────────────────╯  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╰──────────────────────────────────────────────╯
 file picker:
 │   ╭ files · focus: option 2/2 ───────────────────╮  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╭ files · focus: option 2/2 ───────────────────╮
-│   │    › src/cli/renderer/adapter.rs  focused UI     │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  › src/cli/renderer/adapter.rs  focused UI      [fg=#ebfafa bg=#212337 b]=│
+│   │    ❯ src/cli/renderer/adapter.rs  focused UI     │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  ❯ src/cli/renderer/adapter.rs  focused UI      [fg=#ebfafa bg=#212337 b]=│
 │   │    … 2 rows above                                │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  … 2 rows above                                 [fg=#ebfafa bg=#212337 b]=│
 │   │    Enter select · Esc close                      │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  Enter select · Esc close                       [fg=#ebfafa bg=#212337 b]=│
 │   ╰──────────────────────────────────────────────╯  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╰──────────────────────────────────────────────╯
@@ -40,7 +40,7 @@ setup form:
 │   ╰──────────────────────────────────────────────╯  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╰──────────────────────────────────────────────╯
 table:
 │   ╭ context · focus: row 2/2 ────────────────────╮  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╭ context · focus: row 2/2 ────────────────────╮
-│   │    › cargo clippy                    fix         │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  › cargo clippy                    fix          [fg=#ebfafa bg=#212337 b]=│
+│   │    ❯ cargo clippy                    fix         │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  ❯ cargo clippy                    fix          [fg=#ebfafa bg=#212337 b]=│
 │   │    … 3 rows above                                │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  … 3 rows above                                 [fg=#ebfafa bg=#212337 b]=│
 │   │    ↑/↓ inspect · Esc close                       │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  ↑/↓ inspect · Esc close                        [fg=#ebfafa bg=#212337 b]=│
 │   ╰──────────────────────────────────────────────╯  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╰──────────────────────────────────────────────╯

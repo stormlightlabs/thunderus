@@ -2,24 +2,23 @@
 title: "Quick Start"
 ---
 
-## Set Up a Provider
+## Start
 
-`thndrs` requires an authenticated provider before it can start a coding turn.
-Run setup from the repository you want to work in and choose a provider:
-
-```sh
-thndrs setup
-
-# to go right to chatgpt/codex setup:
-thndrs setup --provider chatgpt-codex
-```
-
-## Running the TUI
-
-Run from a repository:
+Run `thndrs` from the repository you want to work in:
 
 ```sh
 thndrs
+```
+
+The first launch opens required setup. Choose a provider, authenticate, and
+select a model before submitting a coding prompt. `thndrs setup` provides the
+guided CLI credential and configuration route; its selected provider supplies
+the initial model. Use the TUI `/model` command or configuration to choose a
+different model.
+
+```sh
+thndrs setup --provider chatgpt-codex
+thndrs setup --provider umans
 ```
 
 To point `thndrs` at a different workspace:
@@ -28,11 +27,9 @@ To point `thndrs` at a different workspace:
 thndrs --cwd /path/to/repo
 ```
 
-When developing from a checkout, replace `thndrs` in these commands with
-`cargo run -p thndrs --`.
+For ChatGPT Codex, setup starts browser OAuth by default. In a headless or
+remote environment, choose device code explicitly with:
 
-## First Prompt
-
-Type a prompt in the bottom prompt line and press Enter. The transcript shows
-your message, assistant output, reasoning updates, tool activity, and final
-status.
+```sh
+thndrs login chatgpt-codex --oauth-method device-code
+```

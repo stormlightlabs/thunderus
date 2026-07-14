@@ -2,7 +2,8 @@
 # Copy values into ~/.thndrs/config.toml or .thndrs/config.toml.
 # Do not put provider API keys, tokens, passwords, or other secrets here.
 
-model = "opencode/big-pickle"
+# Setup records the initial provider and model. Uncomment to override it.
+# model = "umans-coder"
 websearch = "auto"
 tick_rate_ms = 100
 theme = "eldritch-minimal"

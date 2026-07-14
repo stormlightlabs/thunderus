@@ -104,7 +104,7 @@ pub type AcpAgentsConfig = BTreeMap<String, AcpAgentConfig>;
 /// User-editable configuration loaded from TOML.
 ///
 /// Only ordinary runtime keys are present. CLI-only flags (`print_prompt`,
-/// `cwd`, `no_alt_screen`, `no_mouse`) are not TOML keys. Secret-shaped keys
+/// `cwd`, `no_mouse`) are not TOML keys. Secret-shaped keys
 /// are rejected before deserialization reaches this struct.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 #[serde(default, deny_unknown_fields)]

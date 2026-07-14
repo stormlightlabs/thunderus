@@ -21,7 +21,6 @@ fn test_app() -> App {
         reasoning_effort: Default::default(),
         reasoning_summary: Default::default(),
         tick_rate_ms: 100,
-        no_alt_screen: true,
         no_mouse: false,
         mouse: false,
         verbose: false,
@@ -66,7 +65,7 @@ fn prompt_rows_empty_input() {
     assert_eq!(rows.len(), 1, "empty input should produce one row");
     assert!(cursor.is_some(), "cursor should be present");
     let text = rows[0].text();
-    assert!(text.contains("›"), "prompt icon should appear");
+    assert!(text.contains("❯"), "prompt icon should appear");
 }
 
 #[test]

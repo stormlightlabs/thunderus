@@ -436,6 +436,13 @@ impl SessionRecord {
                 turn_id: turn_id.to_string(),
                 text: text.clone(),
             }),
+            Entry::Error { text } => Some(SessionRecord::Failed {
+                schema_version: SCHEMA_VERSION,
+                seq,
+                time: time.to_string(),
+                turn_id: turn_id.to_string(),
+                error: text.clone(),
+            }),
             Entry::Tool { name, arguments, status, output } if *status != ToolStatus::Running => {
                 let (tool_name, call_id) = split_tool_name_id(name);
                 Some(SessionRecord::ToolFinished {

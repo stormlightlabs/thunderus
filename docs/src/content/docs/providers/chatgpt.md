@@ -8,9 +8,8 @@ ChatGPT Codex models use the `chatgpt-codex/<model-id>` form:
 model = "chatgpt-codex/gpt-5.6-sol"
 ```
 
-This provider is explicit opt-in. It is ChatGPT-backed and experimental because
-it talks to the ChatGPT Codex backend rather than a stable OpenAI Platform API
-endpoint.
+ChatGPT Codex is ChatGPT subscription-backed and uses the Codex backend rather than an
+OpenAI Platform API endpoint.
 
 ## Authentication
 
@@ -78,19 +77,18 @@ Known model picker entries include:
 - `chatgpt-codex/gpt-5.4-mini`
 - `chatgpt-codex/gpt-5.3-codex-spark`
 
-The provider labels these entries as ChatGPT-backed and experimental in status
-copy to help distinguish them from OpenAI Platform API-key (coming soon) routes.
-
 ## GPT-5.6 reasoning
 
 `chatgpt-codex/gpt-5.6-sol`, `chatgpt-codex/gpt-5.6-terra`, and
 `chatgpt-codex/gpt-5.6-luna` accept `reasoning_effort = "none"`, `"low"`,
 `"medium"`, `"high"`, `"xhigh"`, or `"max"`. The default is `medium`.
+
 Selecting a GPT-5.6 model from `/model` opens the reasoning-effort picker; use
-`/reasoning` to change it later. Set
-`reasoning_summary = "auto"` to render provider-returned reasoning summaries;
-the default `off` preserves opaque reasoning only for the active tool loop.
+`/reasoning` to change it later.
+
+Set `reasoning_summary = "auto"` to render provider-returned reasoning summaries.
+
+`off` preserves opaque reasoning only for the active tool loop.
 
 These controls are available in TOML, through their `THNDRS_` environment
-variables, and as ACP session options. They do not persist private provider
-payloads in thndrs session files.
+variables, and as ACP session options.

@@ -40,7 +40,6 @@ fn test_app() -> App {
         reasoning_effort: Default::default(),
         reasoning_summary: Default::default(),
         tick_rate_ms: 100,
-        no_alt_screen: true,
         no_mouse: false,
         mouse: false,
         verbose: false,
@@ -235,7 +234,7 @@ fn build_frame_keeps_live_rows_at_bottom_with_status_notice() {
     );
     assert!(frame.rows[frame.len() - 1].text().trim().is_empty());
     assert!(frame.rows[frame.len() - 2].text().contains("model:"));
-    assert!(frame.rows[frame.len() - 3].text().contains("›"));
+    assert!(frame.rows[frame.len() - 3].text().contains("❯"));
     assert!(frame.rows[frame.len() - 4].text().contains("test-session"));
     assert!(frame.rows[frame.len() - 5].text().trim().is_empty());
     assert_eq!(

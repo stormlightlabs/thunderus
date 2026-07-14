@@ -11,7 +11,7 @@ documentation = "https://docs.rs/thndrs-agent"
 readme = "README.md"
 keywords = ["agent", "ai", "coding", "llm", "tools"]
 categories = ["development-tools", "api-bindings"]
-include = ["/Cargo.toml", "/README.md", "/src/**"]
+include = ["/Cargo.toml", "/LICENSE", "/README.md", "/src/**"]
 
 [dependencies]
 serde.workspace = true

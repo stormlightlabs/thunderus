@@ -66,7 +66,7 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
     let prompt_state = app.prompt_state();
 
     let (prompt_color, _, icon) = match prompt_state {
-        PromptState::Editable => (p.yellow, true, "›"),
+        PromptState::Editable => (p.yellow, true, "❯"),
         PromptState::Submitted => (p.teal, true, "»"),
         PromptState::Streaming | PromptState::RunningTool => (p.teal, true, "»"),
         PromptState::Stopped => (p.teal, true, "○"),

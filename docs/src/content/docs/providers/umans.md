@@ -4,8 +4,7 @@ title: "Umans Provider"
 
 ## Models
 
-Setup requires an explicit model choice; `thndrs` does not silently choose a
-provider or model. The Umans model picker currently includes:
+The Umans integration includes:
 
 - `umans-coder` - the recommended route, currently backed by Kimi K2.7-Code.
 - `umans-kimi-k2.7` - hard coding tasks with always-on reasoning.
@@ -22,7 +21,11 @@ accept API keys in CLI flags. You can either export `UMANS_API_KEY` for a
 process-local credential or run the guided login flow:
 
 ```sh
+thndrs setup --provider umans
+
+# or use a process-local credential:
 export UMANS_API_KEY=sk-...
+
 # or, in an interactive terminal:
 thndrs login umans
 ```
@@ -64,6 +67,8 @@ behavior.
 Provider errors are mapped into actionable transcript errors and return the
 prompt draft to a usable state.
 
-- Authentication failures point to `UMANS_API_KEY`/`thndrs login umans`
+- Authentication failures point to `UMANS_API_KEY`/`thndrs login umans`. If
+  `UMANS_API_KEY` is an environment override, replace or unset it before login.
+  - A stored key cannot take precedence over it.
 - rate limits suggest checking Umans usage
 - network and server failures can be retried

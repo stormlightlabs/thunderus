@@ -2,8 +2,9 @@
 title: "Configuration"
 ---
 
-`thndrs` uses built-in defaults, optional TOML config files, `THNDRS_`
-environment variables, and CLI flags.
+`thndrs` uses required first-run setup, optional TOML config files, `THNDRS_`
+environment variables, and CLI flags. A fresh install has no completion model
+so setup records the provider and model before a coding prompt can run.
 
 Precedence, from highest to lowest:
 
@@ -50,28 +51,28 @@ provider-specific names.
 
 ## Keys
 
-| Key                 | Type               | Default                             | Description                                    |
-| ------------------- | ------------------ | ----------------------------------- | ---------------------------------------------- |
-| `model`             | string             | `opencode/big-pickle`               | Default completion model.                      |
-| `websearch`         | `auto`             | `auto`                              | Web-search mode.                               |
-|                     | `native`           |                                     |                                                |
-|                     | `exa`,             |                                     |                                                |
-|                     | `none`             |                                     |                                                |
-| `reasoning_effort`  | model-specific:    | `auto`                              | Reasoning control; unsupported choices fail locally. |
+| Key                 | Type               | Default                             | Description                                                               |
+| ------------------- | ------------------ | ----------------------------------- | ------------------------------------------------------------------------- |
+| `model`             | string             | set by setup                        | Completion model override.                                                |
+| `websearch`         | `auto`             | `auto`                              | Web-search mode.                                                          |
+|                     | `native`           |                                     |                                                                           |
+|                     | `exa`,             |                                     |                                                                           |
+|                     | `none`             |                                     |                                                                           |
+| `reasoning_effort`  | model-specific:    | `auto`                              | Reasoning control; unsupported choices fail locally.                      |
 |                     | `auto`, `on`,      |                                     | Umans uses `on`/`none`; supported GPT/Claude routes expose effort levels. |
-|                     | `none`, `minimal`, |                                     |                                                |
-|                     | `low`–`max`        |                                     |                                                |
-| `reasoning_summary` | `off`, `auto`      | `off`                               | Whether GPT-5.6 summaries are shown.           |
-| `tick_rate_ms`      | integer            | `100`                               | Event poll interval in milliseconds.           |
-| `theme`             | `eldritch-minimal` | `eldritch-minimal`                  | UI color theme.                                |
-|                     | `iceberg-dark`     |                                     |                                                |
-|                     | `catppuccin-mocha` |                                     |                                                |
-| `mouse`             | boolean            | `false`                             | Enable focused terminal mouse capture.         |
-| `verbose`           | boolean            | `false`                             | Show diagnostic transcript rows.               |
-| `skill_dirs`        | array of paths     | `[]`                                | Additional local skill discovery roots.        |
-| `session_dir`       | path               | `.thndrs/sessions` in the workspace | Directory for append-only session JSONL files. |
-| `default_workspace` | path               | current process directory           | Workspace used when `--cwd` is omitted.        |
-| `acp_agents`        | table              | `{}`                                | Configured external ACP agents.                |
+|                     | `none`, `minimal`, |                                     |                                                                           |
+|                     | `low`–`max`        |                                     |                                                                           |
+| `reasoning_summary` | `off`, `auto`      | `off`                               | Whether GPT-5.6 summaries are shown.                                      |
+| `tick_rate_ms`      | integer            | `100`                               | Event poll interval in milliseconds.                                      |
+| `theme`             | `eldritch-minimal` | `eldritch-minimal`                  | UI color theme.                                                           |
+|                     | `iceberg-dark`     |                                     |                                                                           |
+|                     | `catppuccin-mocha` |                                     |                                                                           |
+| `mouse`             | boolean            | `false`                             | Enable focused terminal mouse capture.                                    |
+| `verbose`           | boolean            | `false`                             | Show diagnostic transcript rows.                                          |
+| `skill_dirs`        | array of paths     | `[]`                                | Additional local skill discovery roots.                                   |
+| `session_dir`       | path               | `.thndrs/sessions` in the workspace | Directory for append-only session JSONL files.                            |
+| `default_workspace` | path               | current process directory           | Workspace used when `--cwd` is omitted.                                   |
+| `acp_agents`        | table              | `{}`                                | Configured external ACP agents.                                           |
 
 Relative `skill_dirs`, `session_dir`, and `default_workspace` values are
 resolved relative to the config file that declares them.
@@ -83,7 +84,8 @@ entries, then CLI `--skill-dir` entries.
 ## Example
 
 ```toml
-model = "opencode/big-pickle"
+# Setup records the initial provider and model. Uncomment to override it.
+# model = "umans-coder"
 websearch = "auto"
 reasoning_effort = "auto"
 reasoning_summary = "off"
@@ -112,7 +114,6 @@ These settings are intentionally CLI-only:
 
 - `--cwd`: one-run workspace override.
 - `--print-prompt`: print prompt assembly and exit.
-- `--no-alt-screen`: compatibility no-op while the parser accepts it.
 - `--no-mouse`: one-run override for `mouse = false`.
 
 `cwd` is not a TOML or environment key because it controls which project config
@@ -135,11 +136,6 @@ Set `session_dir` to use another directory. Session metadata records safe
 configuration metadata such as loaded config file paths, SHA-256 hashes, key
 origins, effective model, web-search mode, workspace, and session directory.
 It does not persist provider API keys or raw provider-private state.
-
-The built-in model default is `opencode/big-pickle`. OpenCode describes Big
-Pickle as free for a limited time and documents a free-period privacy exception
-where collected data may be used to improve the model. Select another `model`
-when that provider behavior is not acceptable.
 
 ## Web Search
 

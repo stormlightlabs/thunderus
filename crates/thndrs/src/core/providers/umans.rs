@@ -94,13 +94,22 @@ impl UmansClient {
             .http
             .agent()
             .get(&url)
+            .header("x-api-key", self.http.api_key())
+            .header("anthropic-version", ANTHROPIC_VERSION)
+            .config()
+            .http_status_as_error(false)
+            .build()
             .call()
             .map_err(|e| ProviderError::Http(e.to_string()))?;
 
+        let status = resp.status().as_u16();
         let body = resp
             .body_mut()
             .read_to_string()
             .map_err(|e| ProviderError::Http(e.to_string()))?;
+        if !(200..=299).contains(&status) {
+            return Err(ProviderError::Status { code: status, body: providers::summarize_error_body(&body) });
+        }
 
         parse_models_info(&body)
     }
@@ -450,6 +459,9 @@ fn actionable_error_message(err: &ProviderError) -> String {
         ProviderError::Auth(message) => {
             format!("Umans authentication failed: {message}; check UMANS_API_KEY or run `thndrs login umans`")
         }
+        ProviderError::AuthUnavailable(message) => {
+            format!("Umans authentication verification unavailable: {message}; retry shortly")
+        }
         ProviderError::Http(message) => {
             format!("Umans network error: {message}; check your connection and retry")
         }
@@ -495,20 +507,16 @@ fn compact_token_count(tokens: u64) -> String {
 }
 
 /// Try to validate an Umans API key with a lightweight model-info request.
-///
-/// This is an optional hook for `login` and `setup` commands. A network failure
-/// or validation error returns an explanation. The credential should still be
-/// stored and reported as unverified when the network is unavailable.
 pub fn validate_api_key(api_key: &str) -> std::result::Result<(), String> {
+    probe_api_key(api_key).map_err(|error| format!("validation failed: {error}"))
+}
+
+pub fn probe_api_key(api_key: &str) -> Result<()> {
     validate_api_key_at(BASE_URL, api_key)
 }
 
-fn validate_api_key_at(base_url: &str, api_key: &str) -> std::result::Result<(), String> {
-    let client = UmansClient::new(base_url, api_key);
-    match client.fetch_models_info() {
-        Ok(_) => Ok(()),
-        Err(e) => Err(format!("validation failed: {e}")),
-    }
+fn validate_api_key_at(base_url: &str, api_key: &str) -> Result<()> {
+    UmansClient::new(base_url, api_key).fetch_models_info().map(|_| ())
 }
 
 #[cfg(test)]
@@ -528,9 +536,28 @@ mod tests {
         thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("accept request");
             let mut request = [0_u8; 1024];
-            let _ = stream.read(&mut request);
+            let count = stream.read(&mut request).expect("read request");
+            let request = String::from_utf8_lossy(&request[..count]).to_ascii_lowercase();
+            assert!(request.contains("x-api-key: sk-validation"));
             let response = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream.write_all(response.as_bytes()).expect("write response");
+        });
+        format!("http://{addr}")
+    }
+
+    fn mock_models_info_response_server(status: &'static str, body: &'static str) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock server");
+        let addr = listener.local_addr().expect("local addr");
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept request");
+            let mut request = [0_u8; 1024];
+            let _ = stream.read(&mut request);
+            let response = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
                 body.len(),
                 body
             );
@@ -828,6 +855,15 @@ mod tests {
 
         assert!(!home.join(".thndrs").join("credentials.env").exists());
         assert!(!workspace.join(".thndrs").join("credentials.env").exists());
+    }
+
+    #[test]
+    fn validation_preserves_rejected_credential_status() {
+        let base_url = mock_models_info_response_server("401 Unauthorized", r#"{"error":"invalid key"}"#);
+
+        let error = validate_api_key_at(&base_url, "rejected-key").expect_err("credential should be rejected");
+
+        assert!(matches!(error, ProviderError::Status { code: 401, .. }));
     }
 
     #[test]

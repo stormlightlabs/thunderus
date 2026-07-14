@@ -4,8 +4,8 @@ expression: frame.render_styled()
 ---
 │   ╭ setup · opencode-go · authenticatio… ╮  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╭ setup · opencode-go · authenticatio… ╮
 │   │    The credential stays hidden and is wr…│  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  The credential stays hidden and is wr… [fg=#ebfafa bg=#212337 b]=│
-│   │    › provider: opencode-go               │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  › provider: opencode-go                [fg=#ebfafa bg=#212337 b]=│
-│   │    › enter API key                       │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  › enter API key                        [fg=#ebfafa bg=#212337 b]=│
+│   │    ❯ provider: opencode-go               │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  ❯ provider: opencode-go                [fg=#ebfafa bg=#212337 b]=│
+│   │    ❯ enter API key                       │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  ❯ enter API key                        [fg=#ebfafa bg=#212337 b]=│
 │   │      switch model/provider               │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#ebfafa bg=#212337]=    switch model/provider                [fg=#ebfafa bg=#212337 b]=│
 │   │    … 3 rows below                        │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  … 3 rows below                         [fg=#ebfafa bg=#212337 b]=│
 │   │    continue · cancel · Esc cancel        │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  continue · cancel · Esc cancel         [fg=#ebfafa bg=#212337 b]=│

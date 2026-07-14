@@ -53,23 +53,23 @@ appear above the prompt and can be accepted with `Tab` or completed with
 
 Supported command families include:
 
-| Command                       | Purpose                                            |
-| ----------------------------- | -------------------------------------------------- |
-| `clear`                       | Clear the visible transcript.                      |
-| `help`                        | Open help.                                         |
-| `bg`                          | List background processes.                         |
-| `model`                       | Open the model picker.                             |
-| `skills`                      | Browse loaded skills.                              |
-| `context`                     | Inspect the bounded active context working set.    |
-| `context pin <id-or-path>`    | Keep one context item visible across turn rebuilds. |
-| `context drop <id>`           | Exclude one item until it is recovered or reset.   |
+| Command                       | Purpose                                               |
+| ----------------------------- | ----------------------------------------------------- |
+| `clear`                       | Clear the visible transcript.                         |
+| `help`                        | Open help.                                            |
+| `bg`                          | List background processes.                            |
+| `model`                       | Open the model picker.                                |
+| `skills`                      | Browse loaded skills.                                 |
+| `context`                     | Inspect the bounded active context working set.       |
+| `context pin <id-or-path>`    | Keep one context item visible across turn rebuilds.   |
+| `context drop <id>`           | Exclude one item until it is recovered or reset.      |
 | `context recover <id>`        | Re-enable an item and pin omitted detail when needed. |
-| `context review <approve|reject>` | Resolve a pending compaction review.          |
-| `context drop --reset`        | Clear all explicit context drops.                 |
-| `doctor`                      | Show context source and budget health.             |
-| `auth status`                 | Show credential source/status without values.      |
-| `config path` / `config show` | Inspect config paths or redacted effective config. |
-| `setup`, `login`, `logout`    | Open setup/recovery credential surfaces.           |
+| `context review <approve      | reject>`                                              | Resolve a pending compaction review. |
+| `context drop --reset`        | Clear all explicit context drops.                     |
+| `doctor`                      | Show setup, context, and budget health.               |
+| `auth status`                 | Show credential source/status without values.         |
+| `config path` / `config show` | Inspect config paths or redacted effective config.    |
+| `setup`, `login`, `logout`    | Choose a provider/model or recover a credential.      |
 
 Slash command forms such as `/model` and `/skills` remain accepted for
 compatibility, but `:` command mode is the interactive command entry path.

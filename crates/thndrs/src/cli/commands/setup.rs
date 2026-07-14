@@ -1,17 +1,19 @@
 //! `thndrs setup` command definitions.
 
 use std::io::{self, IsTerminal, Write};
+use std::path::Path;
 
 use clap::{Args, ValueEnum};
 
 use super::auth::{
-    CredentialScope, confirm, credential_path, prompt_scope, read_hidden_api_key, run_chatgpt_codex_login,
-    validate_provider_key,
+    CredentialScope, ProviderCredentialHealth, check_chatgpt_codex_auth, check_provider_key, confirm, credential_path,
+    credential_rejected_error, credential_rejected_error_for_source, prompt_scope, read_hidden_api_key,
+    run_chatgpt_codex_login,
 };
 use crate::cli::Cli;
-use crate::config;
 use crate::context;
 use crate::thndrs_core::auth;
+use crate::{config, providers};
 
 /// Providers supported by first-run setup and login commands.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
@@ -27,6 +29,20 @@ pub enum SetupProviderArg {
     ChatgptCodex,
 }
 
+impl SetupProviderArg {
+    fn for_model(model: &str) -> Self {
+        if providers::opencode::is_zen_model_id(model) {
+            Self::OpencodeZen
+        } else if providers::opencode::is_go_model_id(model) {
+            Self::OpencodeGo
+        } else if providers::chatgpt_codex::is_model_id(model) {
+            Self::ChatgptCodex
+        } else {
+            Self::Umans
+        }
+    }
+}
+
 /// Authentication mechanism used by a setup provider.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProviderAuthKind {
@@ -34,6 +50,25 @@ pub enum ProviderAuthKind {
     ApiKey { env_var: &'static str },
     /// Provider uses ChatGPT OAuth credentials stored in `~/.thndrs/auth.json`.
     ChatGptOAuth { env_override: &'static str },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ChatGptSetupAuthStatus {
+    EnvironmentOverride,
+    StoredCredential,
+    MissingCredential,
+    InvalidStore,
+}
+
+impl ChatGptSetupAuthStatus {
+    fn label(self) -> &'static str {
+        match self {
+            Self::EnvironmentOverride => "environment override",
+            Self::StoredCredential => "~/.thndrs/auth.json",
+            Self::MissingCredential => "missing OAuth credential",
+            Self::InvalidStore => "invalid auth store",
+        }
+    }
 }
 
 /// Static metadata used by setup, login, and auth status commands.
@@ -116,6 +151,18 @@ pub struct SetupCommand {
     pub project: bool,
 }
 
+impl SetupCommand {
+    fn scope(&self) -> Option<CredentialScope> {
+        if self.global {
+            Some(CredentialScope::Global)
+        } else if self.project {
+            Some(CredentialScope::Project)
+        } else {
+            None
+        }
+    }
+}
+
 /// Run the first-run setup workflow.
 pub fn run(cli: &Cli, command: &SetupCommand) -> io::Result<()> {
     let stdout = io::stdout();
@@ -126,18 +173,23 @@ pub fn run(cli: &Cli, command: &SetupCommand) -> io::Result<()> {
         io::stdin().is_terminal(),
         &mut writer,
         run_chatgpt_codex_login,
+        check_provider_key,
+        check_chatgpt_codex_auth,
     )
 }
 
-fn run_with_writer<W, F>(
-    cli: &Cli, command: &SetupCommand, interactive: bool, writer: &mut W, chatgpt_login: F,
+fn run_with_writer<W, F, H, O>(
+    cli: &Cli, command: &SetupCommand, interactive: bool, writer: &mut W, chatgpt_login: F, check_key: H,
+    check_chatgpt_auth: O,
 ) -> io::Result<()>
 where
     W: Write,
     F: FnOnce(&mut W) -> io::Result<()>,
+    H: Fn(SetupProviderArg, &str) -> ProviderCredentialHealth,
+    O: Fn(&Path) -> ProviderCredentialHealth,
 {
     let workspace = context::discover_workspace_root(&cli.cwd);
-    let inferred_provider = (!cli.model.trim().is_empty()).then(|| provider_for_model(&cli.model));
+    let inferred_provider = (!cli.model.trim().is_empty()).then(|| SetupProviderArg::for_model(&cli.model));
     let provider = match command.provider {
         Some(provider) => provider,
         None if interactive => prompt_provider(writer, inferred_provider)?,
@@ -148,8 +200,11 @@ where
             ));
         }
     };
-    let auth_status = auth_status(provider, &workspace);
-    let scope = command_scope(command);
+    let chatgpt_auth_status = (provider == SetupProviderArg::ChatgptCodex).then(chatgpt_setup_auth_status);
+    let auth_status = chatgpt_auth_status
+        .map(|status| status.label().to_string())
+        .unwrap_or_else(|| auth_status(provider, &workspace));
+    let scope = command.scope();
 
     writeln!(writer, "workspace: {}", workspace.display())?;
     writeln!(writer, "model: {}", provider.default_model())?;
@@ -157,15 +212,26 @@ where
     writeln!(writer, "auth: {auth_status}")?;
     writeln!(writer, "setup: {}", provider.metadata().setup_summary)?;
 
-    if let ProviderAuthKind::ChatGptOAuth { .. } = provider.metadata().auth_kind {
+    if let Some(chatgpt_auth_status) = chatgpt_auth_status {
+        run_chatgpt_setup(
+            provider,
+            chatgpt_auth_status,
+            &workspace,
+            interactive,
+            writer,
+            chatgpt_login,
+            check_chatgpt_auth,
+        )?;
         maybe_write_oauth_model_config(&workspace, provider, scope, interactive, writer)?;
-        return run_chatgpt_setup(provider, auth_status.as_str(), interactive, writer, chatgpt_login);
+        write_chatgpt_setup_next(provider, chatgpt_auth_status, writer)?;
+        return Ok(());
     }
 
     let env_var = provider
         .api_key_env_var()
         .expect("API-key setup branch only handles API-key providers");
-    let credential_source = auth::credential_source(env_var, &workspace);
+    let credential = auth::resolve_credential(env_var, &workspace);
+    let credential_source = credential.as_ref().map(|(_, source)| *source);
     if scope.is_none() && credential_source.is_none() && !interactive {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -178,9 +244,15 @@ where
         None => CredentialScope::Project,
     };
 
-    maybe_write_model_config(&workspace, provider, scope, interactive, true, writer)?;
-
-    if credential_source.is_none() {
+    if let Some((api_key, source)) = credential {
+        match check_key(provider, &api_key) {
+            ProviderCredentialHealth::Verified => {}
+            ProviderCredentialHealth::Rejected => return Err(credential_rejected_error_for_source(provider, source)),
+            ProviderCredentialHealth::Unavailable => {
+                return Err(verification_unavailable_error(provider));
+            }
+        }
+    } else {
         if !interactive {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -201,24 +273,62 @@ where
                 writer,
                 &format!("Store {} credential in {} store?", provider.label(), scope.label()),
             )? {
+                let health = check_key(provider, api_key);
+                if health == ProviderCredentialHealth::Rejected {
+                    return Err(credential_rejected_error(provider));
+                }
                 let path = credential_path(scope, &workspace)?;
                 auth::set_credential(&path, env_var, api_key).map_err(io::Error::other)?;
                 if scope == CredentialScope::Project {
                     auth::ensure_git_exclude(&workspace).map_err(io::Error::other)?;
                 }
                 writeln!(writer, "{} credential stored in {}", provider.label(), scope.label())?;
-                match validate_provider_key(provider, api_key) {
-                    Ok(()) => writeln!(writer, "validation: ok")?,
-                    Err(err) => writeln!(writer, "validation: stored but unverified ({err})")?,
+                match health {
+                    ProviderCredentialHealth::Verified => writeln!(writer, "validation: ok")?,
+                    ProviderCredentialHealth::Unavailable => {
+                        writeln!(
+                            writer,
+                            "validation: unavailable; credential stored but not verified. Retry `thndrs setup --provider {}` before coding.",
+                            provider.label()
+                        )?;
+                        return Err(verification_unavailable_error(provider));
+                    }
+                    ProviderCredentialHealth::Rejected => return Err(credential_rejected_error(provider)),
                 }
+            } else {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!(
+                        "credential was not stored; run `thndrs login {}` before coding",
+                        provider.label()
+                    ),
+                ));
             }
         } else {
-            writeln!(writer, "credential setup skipped")?;
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "credential setup skipped; run `thndrs login {}` before coding",
+                    provider.label()
+                ),
+            ));
         }
     }
 
+    maybe_write_model_config(&workspace, provider, scope, interactive, true, writer)?;
     writeln!(writer, "next: thndrs")?;
     Ok(())
+}
+
+fn verification_unavailable_error(provider: SetupProviderArg) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::ConnectionAborted,
+        format!(
+            "could not verify {} credentials; retry `thndrs setup --provider {}` before coding",
+            provider.label(),
+            provider.label()
+        ),
+    )
 }
 
 fn prompt_provider<W: Write>(
@@ -271,17 +381,35 @@ fn auth_status(provider: SetupProviderArg, workspace: &std::path::Path) -> Strin
         ProviderAuthKind::ApiKey { env_var } => auth::credential_source(env_var, workspace)
             .map(|source| source.label().to_string())
             .unwrap_or_else(|| "missing".to_string()),
-        ProviderAuthKind::ChatGptOAuth { env_override } => {
-            if std::env::var(env_override).is_ok_and(|value| !value.trim().is_empty()) {
-                "environment override".to_string()
-            } else {
-                match auth::read_chatgpt_codex_credentials() {
-                    Ok(Some(_)) => "~/.thndrs/auth.json".to_string(),
-                    Ok(None) => "missing OAuth credential".to_string(),
-                    Err(_) => "invalid auth store".to_string(),
-                }
+        ProviderAuthKind::ChatGptOAuth { .. } => chatgpt_setup_auth_status().label().to_string(),
+    }
+}
+
+fn chatgpt_setup_auth_status() -> ChatGptSetupAuthStatus {
+    if std::env::var(auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV).is_ok_and(|value| !value.trim().is_empty()) {
+        return ChatGptSetupAuthStatus::EnvironmentOverride;
+    }
+    match auth::read_chatgpt_codex_credentials() {
+        Ok(Some(_)) => ChatGptSetupAuthStatus::StoredCredential,
+        Ok(None) => ChatGptSetupAuthStatus::MissingCredential,
+        Err(_) => ChatGptSetupAuthStatus::InvalidStore,
+    }
+}
+
+fn verify_chatgpt_setup_auth(status: ChatGptSetupAuthStatus, health: ProviderCredentialHealth) -> io::Result<()> {
+    match health {
+        ProviderCredentialHealth::Verified => Ok(()),
+        ProviderCredentialHealth::Rejected => match status {
+            ChatGptSetupAuthStatus::EnvironmentOverride => Err(credential_rejected_error_for_source(
+                SetupProviderArg::ChatgptCodex,
+                auth::CredentialSource::Environment,
+            )),
+            ChatGptSetupAuthStatus::StoredCredential | ChatGptSetupAuthStatus::InvalidStore => {
+                Err(credential_rejected_error(SetupProviderArg::ChatgptCodex))
             }
-        }
+            ChatGptSetupAuthStatus::MissingCredential => Ok(()),
+        },
+        ProviderCredentialHealth::Unavailable => Err(verification_unavailable_error(SetupProviderArg::ChatgptCodex)),
     }
 }
 
@@ -317,65 +445,55 @@ fn prompt_config_scope<W: Write>(writer: &mut W) -> io::Result<CredentialScope> 
     }
 }
 
-fn run_chatgpt_setup<W, F>(
-    provider: SetupProviderArg, auth_status: &str, interactive: bool, writer: &mut W, chatgpt_login: F,
+fn run_chatgpt_setup<W, F, O>(
+    provider: SetupProviderArg, auth_status: ChatGptSetupAuthStatus, workspace: &Path, interactive: bool,
+    writer: &mut W, chatgpt_login: F, check_chatgpt_auth: O,
 ) -> io::Result<()>
 where
     W: Write,
     F: FnOnce(&mut W) -> io::Result<()>,
+    O: Fn(&Path) -> ProviderCredentialHealth,
 {
-    if auth_status == "environment override" {
-        if interactive && confirm(writer, "Create or update stored ChatGPT OAuth credentials now?")? {
-            chatgpt_login(writer)?;
-            writeln!(writer, "next: thndrs")?;
-            return Ok(());
+    match auth_status {
+        ChatGptSetupAuthStatus::EnvironmentOverride => {
+            verify_chatgpt_setup_auth(auth_status, check_chatgpt_auth(workspace))?;
+            if interactive && confirm(writer, "Create or update stored ChatGPT OAuth credentials now?")? {
+                chatgpt_login(writer)?;
+            }
         }
-        writeln!(
-            writer,
-            "next: run `thndrs login {}` interactively to create or update stored OAuth credentials",
-            provider.label()
-        )?;
-        return Ok(());
+        ChatGptSetupAuthStatus::StoredCredential | ChatGptSetupAuthStatus::InvalidStore => {
+            verify_chatgpt_setup_auth(auth_status, check_chatgpt_auth(workspace))?;
+        }
+        ChatGptSetupAuthStatus::MissingCredential => {
+            if !interactive {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!(
+                        "{} setup uses interactive ChatGPT OAuth, not an API key; run `thndrs setup --provider {}` or `thndrs login {}` in a terminal",
+                        provider.label(),
+                        provider.label(),
+                        provider.label()
+                    ),
+                ));
+            }
+            chatgpt_login(writer)?;
+            verify_chatgpt_setup_auth(ChatGptSetupAuthStatus::StoredCredential, check_chatgpt_auth(workspace))?;
+        }
     }
-    if auth_status == "~/.thndrs/auth.json" {
-        writeln!(writer, "next: thndrs")?;
-        return Ok(());
-    }
-    if !interactive {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!(
-                "{} setup uses interactive ChatGPT OAuth, not an API key; run `thndrs setup --provider {}` or `thndrs login {}` in a terminal",
-                provider.label(),
-                provider.label(),
-                provider.label()
-            ),
-        ));
-    }
-    chatgpt_login(writer)?;
-    writeln!(writer, "next: thndrs")?;
     Ok(())
 }
 
-fn provider_for_model(model: &str) -> SetupProviderArg {
-    if crate::providers::opencode::is_zen_model_id(model) {
-        SetupProviderArg::OpencodeZen
-    } else if crate::providers::opencode::is_go_model_id(model) {
-        SetupProviderArg::OpencodeGo
-    } else if crate::providers::chatgpt_codex::is_model_id(model) {
-        SetupProviderArg::ChatgptCodex
-    } else {
-        SetupProviderArg::Umans
-    }
-}
-
-fn command_scope(command: &SetupCommand) -> Option<CredentialScope> {
-    if command.global {
-        Some(CredentialScope::Global)
-    } else if command.project {
-        Some(CredentialScope::Project)
-    } else {
-        None
+fn write_chatgpt_setup_next<W: Write>(
+    provider: SetupProviderArg, auth_status: ChatGptSetupAuthStatus, writer: &mut W,
+) -> io::Result<()> {
+    match auth_status {
+        ChatGptSetupAuthStatus::EnvironmentOverride => writeln!(
+            writer,
+            "next: thndrs (using {}); run `thndrs login {}` later to create or update stored OAuth credentials",
+            auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV,
+            provider.label(),
+        ),
+        _ => writeln!(writer, "next: thndrs"),
     }
 }
 
@@ -425,16 +543,38 @@ mod tests {
         result
     }
 
+    fn with_chatgpt_access_token<T>(token: Option<&str>, f: impl FnOnce() -> T) -> T {
+        let old_token = std::env::var_os(auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV);
+        unsafe {
+            match token {
+                Some(token) => std::env::set_var(auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV, token),
+                None => std::env::remove_var(auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV),
+            }
+        }
+        let result = f();
+        unsafe {
+            if let Some(token) = old_token {
+                std::env::set_var(auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV, token);
+            } else {
+                std::env::remove_var(auth::CHATGPT_CODEX_ACCESS_TOKEN_ENV);
+            }
+        }
+        result
+    }
+
     #[test]
     fn provider_defaults_from_model() {
-        assert_eq!(provider_for_model("umans-coder"), SetupProviderArg::Umans);
-        assert_eq!(provider_for_model("opencode/big-pickle"), SetupProviderArg::OpencodeZen);
+        assert_eq!(SetupProviderArg::for_model("umans-coder"), SetupProviderArg::Umans);
         assert_eq!(
-            provider_for_model("opencode-go/kimi-k2.7-code"),
+            SetupProviderArg::for_model("opencode/big-pickle"),
+            SetupProviderArg::OpencodeZen
+        );
+        assert_eq!(
+            SetupProviderArg::for_model("opencode-go/kimi-k2.7-code"),
             SetupProviderArg::OpencodeGo
         );
         assert_eq!(
-            provider_for_model("chatgpt-codex/gpt-5.5"),
+            SetupProviderArg::for_model("chatgpt-codex/gpt-5.5"),
             SetupProviderArg::ChatgptCodex
         );
     }
@@ -488,12 +628,21 @@ mod tests {
             "secret",
         )
         .expect("credential");
-        let cli = Cli { cwd: workspace, ..Cli::default() };
+        let cli = Cli { cwd: workspace.clone(), ..Cli::default() };
         let command = SetupCommand { provider: Some(SetupProviderArg::OpencodeZen), global: false, project: false };
         let mut output = Vec::new();
 
         with_home(&home, || {
-            run_with_writer(&cli, &command, false, &mut output, |_| Ok(())).expect("setup");
+            run_with_writer(
+                &cli,
+                &command,
+                false,
+                &mut output,
+                |_| Ok(()),
+                |_, _| ProviderCredentialHealth::Verified,
+                |_| ProviderCredentialHealth::Verified,
+            )
+            .expect("setup");
         });
         let output = String::from_utf8(output).expect("utf8");
 
@@ -501,6 +650,129 @@ mod tests {
         assert!(output.contains("model: opencode/big-pickle"));
         assert!(output.contains("auth: project credentials"));
         assert!(output.contains("OpenCode Zen Big Pickle is the default model"));
+    }
+
+    #[test]
+    fn rejected_existing_credential_keeps_setup_incomplete() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let workspace = tmp.path().join("workspace");
+        let home = tmp.path().join("home");
+        fs::create_dir_all(&workspace).expect("workspace");
+        fs::create_dir_all(&home).expect("home");
+        auth::set_credential(
+            &auth::project_credentials_path(&workspace),
+            auth::UMANS_API_KEY_ENV,
+            "rejected-key",
+        )
+        .expect("credential");
+        let cli = Cli { cwd: workspace.clone(), ..Cli::default() };
+        let command = SetupCommand { provider: Some(SetupProviderArg::Umans), global: false, project: false };
+        let mut output = Vec::new();
+
+        let error = with_home(&home, || {
+            run_with_writer(
+                &cli,
+                &command,
+                false,
+                &mut output,
+                |_| Ok(()),
+                |_, _| ProviderCredentialHealth::Rejected,
+                |_| ProviderCredentialHealth::Verified,
+            )
+            .expect_err("rejected credential")
+        });
+        let output = String::from_utf8(output).expect("utf8");
+
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        assert!(error.to_string().contains("thndrs login umans"));
+        assert!(!output.contains("next: thndrs"));
+        assert!(!workspace.join(".thndrs/config.toml").exists());
+    }
+
+    #[test]
+    fn unavailable_existing_credential_keeps_setup_incomplete() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let workspace = tmp.path().join("workspace");
+        let home = tmp.path().join("home");
+        fs::create_dir_all(&workspace).expect("workspace");
+        fs::create_dir_all(&home).expect("home");
+        auth::set_credential(
+            &auth::project_credentials_path(&workspace),
+            auth::UMANS_API_KEY_ENV,
+            "unverified-key",
+        )
+        .expect("credential");
+        let cli = Cli { cwd: workspace.clone(), ..Cli::default() };
+        let command = SetupCommand { provider: Some(SetupProviderArg::Umans), global: false, project: false };
+        let mut output = Vec::new();
+
+        let error = with_home(&home, || {
+            run_with_writer(
+                &cli,
+                &command,
+                false,
+                &mut output,
+                |_| Ok(()),
+                |_, _| ProviderCredentialHealth::Unavailable,
+                |_| ProviderCredentialHealth::Verified,
+            )
+            .expect_err("unavailable verification")
+        });
+        let output = String::from_utf8(output).expect("utf8");
+
+        assert_eq!(error.kind(), io::ErrorKind::ConnectionAborted);
+        assert!(error.to_string().contains("could not verify umans credentials"));
+        assert!(!output.contains("next: thndrs"));
+        assert!(!workspace.join(".thndrs/config.toml").exists());
+    }
+
+    #[test]
+    fn rejected_environment_credential_explains_precedence() {
+        let _guard = crate::test_env::lock();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let workspace = tmp.path().join("workspace");
+        let home = tmp.path().join("home");
+        fs::create_dir_all(&workspace).expect("workspace");
+        fs::create_dir_all(&home).expect("home");
+        let old_home = std::env::var_os("HOME");
+        let old_key = std::env::var_os(auth::UMANS_API_KEY_ENV);
+        unsafe {
+            std::env::set_var("HOME", &home);
+            std::env::set_var(auth::UMANS_API_KEY_ENV, "rejected-environment-key");
+        }
+        let cli = Cli { cwd: workspace.clone(), ..Cli::default() };
+        let command = SetupCommand { provider: Some(SetupProviderArg::Umans), global: false, project: false };
+        let mut output = Vec::new();
+
+        let error = run_with_writer(
+            &cli,
+            &command,
+            false,
+            &mut output,
+            |_| Ok(()),
+            |_, _| ProviderCredentialHealth::Rejected,
+            |_| ProviderCredentialHealth::Verified,
+        )
+        .expect_err("rejected environment credential");
+
+        unsafe {
+            if let Some(home) = old_home {
+                std::env::set_var("HOME", home);
+            } else {
+                std::env::remove_var("HOME");
+            }
+            if let Some(key) = old_key {
+                std::env::set_var(auth::UMANS_API_KEY_ENV, key);
+            } else {
+                std::env::remove_var(auth::UMANS_API_KEY_ENV);
+            }
+        }
+
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        assert!(error.to_string().contains("replace or unset UMANS_API_KEY"));
+        assert!(error.to_string().contains("thndrs login umans"));
+        assert!(!String::from_utf8(output).expect("utf8").contains("next: thndrs"));
+        assert!(!workspace.join(".thndrs/config.toml").exists());
     }
 
     #[test]
@@ -515,7 +787,18 @@ mod tests {
         let mut output = Vec::new();
 
         let err = with_home(&home, || {
-            run_with_writer(&cli, &command, false, &mut output, |_| Ok(())).expect_err("missing auth")
+            with_chatgpt_access_token(None, || {
+                run_with_writer(
+                    &cli,
+                    &command,
+                    false,
+                    &mut output,
+                    |_| Ok(()),
+                    |_, _| ProviderCredentialHealth::Verified,
+                    |_| ProviderCredentialHealth::Verified,
+                )
+                .expect_err("missing auth")
+            })
         });
         let output = String::from_utf8(output).expect("utf8");
         let err = err.to_string();
@@ -539,7 +822,16 @@ mod tests {
         let mut output = Vec::new();
 
         let err = with_home(&home, || {
-            run_with_writer(&cli, &command, false, &mut output, |_| Ok(())).expect_err("missing route")
+            run_with_writer(
+                &cli,
+                &command,
+                false,
+                &mut output,
+                |_| Ok(()),
+                |_, _| ProviderCredentialHealth::Verified,
+                |_| ProviderCredentialHealth::Verified,
+            )
+            .expect_err("missing route")
         });
 
         assert!(output.is_empty());
@@ -566,11 +858,21 @@ mod tests {
         let mut called = false;
 
         with_home(&home, || {
-            run_with_writer(&cli, &command, true, &mut output, |writer| {
-                called = true;
-                writeln!(writer, "fake ChatGPT OAuth login")
-            })
-            .expect("setup");
+            with_chatgpt_access_token(None, || {
+                run_with_writer(
+                    &cli,
+                    &command,
+                    true,
+                    &mut output,
+                    |writer| {
+                        called = true;
+                        writeln!(writer, "fake ChatGPT OAuth login")
+                    },
+                    |_, _| ProviderCredentialHealth::Verified,
+                    |_| ProviderCredentialHealth::Verified,
+                )
+                .expect("setup");
+            });
         });
         let output = String::from_utf8(output).expect("utf8");
 
@@ -581,17 +883,144 @@ mod tests {
     }
 
     #[test]
+    fn rejected_chatgpt_environment_override_explains_precedence_before_setup_writes_config() {
+        let _guard = crate::test_env::lock();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let workspace = tmp.path().join("workspace");
+        let home = tmp.path().join("home");
+        fs::create_dir_all(&workspace).expect("workspace");
+        fs::create_dir_all(&home).expect("home");
+        let old_home = std::env::var_os("HOME");
+        unsafe {
+            std::env::set_var("HOME", &home);
+        }
+        let cli = Cli { cwd: workspace.clone(), ..Cli::default() };
+        let command = SetupCommand { provider: Some(SetupProviderArg::ChatgptCodex), global: false, project: true };
+        let mut output = Vec::new();
+
+        let error = with_chatgpt_access_token(Some("rejected-environment-token"), || {
+            run_with_writer(
+                &cli,
+                &command,
+                true,
+                &mut output,
+                |_| panic!("rejected environment override must not start OAuth login"),
+                |_, _| ProviderCredentialHealth::Verified,
+                |_| ProviderCredentialHealth::Rejected,
+            )
+            .expect_err("rejected environment override")
+        });
+
+        unsafe {
+            if let Some(home) = old_home {
+                std::env::set_var("HOME", home);
+            } else {
+                std::env::remove_var("HOME");
+            }
+        }
+
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        assert!(
+            error
+                .to_string()
+                .contains("replace or unset CHATGPT_CODEX_ACCESS_TOKEN")
+        );
+        assert!(error.to_string().contains("thndrs login chatgpt-codex"));
+        assert!(!String::from_utf8(output).expect("utf8").contains("next: thndrs"));
+        assert!(!workspace.join(".thndrs/config.toml").exists());
+    }
+
+    #[test]
+    fn unavailable_stored_chatgpt_credential_keeps_setup_incomplete() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let workspace = tmp.path().join("workspace");
+        let home = tmp.path().join("home");
+        fs::create_dir_all(&workspace).expect("workspace");
+        fs::create_dir_all(&home).expect("home");
+        let cli = Cli { cwd: workspace.clone(), ..Cli::default() };
+        let command = SetupCommand { provider: Some(SetupProviderArg::ChatgptCodex), global: false, project: true };
+        let mut output = Vec::new();
+
+        let error = with_home(&home, || {
+            with_chatgpt_access_token(None, || {
+                auth::write_chatgpt_codex_credentials(&auth::ChatGptCodexCredentials {
+                    access_token: "access-token".to_string(),
+                    refresh_token: "refresh-token".to_string(),
+                    expires_at_ms: u64::MAX,
+                    account_id: "acct_test".to_string(),
+                })
+                .expect("stored OAuth credential");
+                run_with_writer(
+                    &cli,
+                    &command,
+                    true,
+                    &mut output,
+                    |_| panic!("unavailable stored credential must not start OAuth login"),
+                    |_, _| ProviderCredentialHealth::Verified,
+                    |_| ProviderCredentialHealth::Unavailable,
+                )
+                .expect_err("unavailable OAuth verification")
+            })
+        });
+        let output = String::from_utf8(output).expect("utf8");
+
+        assert_eq!(error.kind(), io::ErrorKind::ConnectionAborted);
+        assert!(error.to_string().contains("could not verify chatgpt-codex credentials"));
+        assert!(!error.to_string().contains("thndrs login"));
+        assert!(!output.contains("next: thndrs"));
+        assert!(!workspace.join(".thndrs/config.toml").exists());
+    }
+
+    #[test]
+    fn fresh_chatgpt_oauth_is_verified_before_setup_writes_config() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let workspace = tmp.path().join("workspace");
+        let home = tmp.path().join("home");
+        fs::create_dir_all(&workspace).expect("workspace");
+        fs::create_dir_all(&home).expect("home");
+        let cli = Cli { cwd: workspace.clone(), ..Cli::default() };
+        let command = SetupCommand { provider: Some(SetupProviderArg::ChatgptCodex), global: false, project: true };
+        let mut output = Vec::new();
+        let mut login_called = false;
+
+        let error = with_home(&home, || {
+            with_chatgpt_access_token(None, || {
+                run_with_writer(
+                    &cli,
+                    &command,
+                    true,
+                    &mut output,
+                    |_| {
+                        login_called = true;
+                        Ok(())
+                    },
+                    |_, _| ProviderCredentialHealth::Verified,
+                    |_| ProviderCredentialHealth::Rejected,
+                )
+                .expect_err("post-login OAuth verification should reject unusable credentials")
+            })
+        });
+        let output = String::from_utf8(output).expect("utf8");
+
+        assert!(login_called);
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        assert!(error.to_string().contains("thndrs login chatgpt-codex"));
+        assert!(!output.contains("next: thndrs"));
+        assert!(!workspace.join(".thndrs/config.toml").exists());
+    }
+
+    #[test]
     fn setup_scope_uses_flags() {
         assert_eq!(
-            command_scope(&SetupCommand { provider: None, global: true, project: false }),
+            SetupCommand { provider: None, global: true, project: false }.scope(),
             Some(CredentialScope::Global)
         );
         assert_eq!(
-            command_scope(&SetupCommand { provider: None, global: false, project: true }),
+            SetupCommand { provider: None, global: false, project: true }.scope(),
             Some(CredentialScope::Project)
         );
         assert_eq!(
-            command_scope(&SetupCommand { provider: None, global: false, project: false }),
+            SetupCommand { provider: None, global: false, project: false }.scope(),
             None
         );
     }

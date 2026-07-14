@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 //! Credential storage for provider API keys.
 //!
 //! Credentials are stored in simple `.env`-format files, **not** in TOML config.
@@ -46,8 +44,6 @@ pub const CHATGPT_CODEX_ACCESS_TOKEN_ENV: &str = "CHATGPT_CODEX_ACCESS_TOKEN";
 
 /// source: codex-rs/login/src/auth/manager.rs
 const CHATGPT_CODEX_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
-
-const CHATGPT_CODEX_AUTH_KEY: &str = "chatgpt_codex";
 const DEVICE_USER_CODE_URL: &str = "https://auth.openai.com/api/accounts/deviceauth/usercode";
 const DEVICE_TOKEN_URL: &str = "https://auth.openai.com/api/accounts/deviceauth/token";
 const DEVICE_VERIFICATION_URL: &str = "https://auth.openai.com/codex/device";
@@ -60,9 +56,6 @@ const PKCE_AUTHORIZE_URL: &str = "https://auth.openai.com/oauth/authorize";
 const OAUTH_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 const OAUTH_SCOPE: &str = "openid profile email offline_access";
 const OAUTH_ORIGINATOR: &str = "thndrs";
-
-/// Known provider API key variable names.
-pub const KNOWN_API_KEY_VARS: &[&str] = &[UMANS_API_KEY_ENV, OPENCODE_GO_KEY_ENV, OPENCODE_ZEN_KEY_ENV];
 
 /// Describes where a credential value was found, without leaking the value.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -130,6 +123,19 @@ pub enum AuthError {
     /// ChatGPT Codex credential data is missing or malformed.
     #[error("chatgpt-codex auth failed: {0}")]
     ChatGptCodex(String),
+    /// ChatGPT Codex credential verification could not reach the provider.
+    #[error("chatgpt-codex authentication verification unavailable: {0}")]
+    ChatGptCodexUnavailable(String),
+}
+
+impl AuthError {
+    /// Whether retrying later may resolve this without replacing credentials.
+    pub fn is_verification_unavailable(&self) -> bool {
+        matches!(
+            self,
+            Self::ChatGptCodexUnavailable(_) | Self::Read { .. } | Self::Write { .. } | Self::NoHomeDirectory
+        )
+    }
 }
 
 /// File-backed ChatGPT Codex credential entry.
@@ -207,6 +213,65 @@ pub struct ChatGptCodexBrowserLogin {
     expires_at: Instant,
 }
 
+impl std::fmt::Debug for ChatGptCodexBrowserLogin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChatGptCodexBrowserLogin")
+            .field("listener", &self.listener.as_ref().map_or("[not bound]", |_| "[bound]"))
+            .field("redirect_uri", &self.redirect_uri)
+            .field("authorization_url", &"[redacted]")
+            .field("expires_at", &self.expires_at)
+            .finish()
+    }
+}
+
+impl ChatGptCodexBrowserLogin {
+    /// Copyable authorization URL for display or browser launch.
+    pub fn authorization_url(&self) -> &str {
+        &self.authorization_url
+    }
+
+    /// Registered redirect URI for this login.
+    pub fn redirect_uri(&self) -> &str {
+        &self.redirect_uri
+    }
+
+    /// Poll the loopback callback once and exchange a valid authorization code.
+    pub fn poll(&mut self) -> Result<ChatGptCodexBrowserPoll, AuthError> {
+        if Instant::now() >= self.expires_at {
+            return Err(AuthError::ChatGptCodex("browser OAuth callback expired".to_string()));
+        }
+
+        let Some(listener) = self.listener.as_ref() else {
+            return Ok(ChatGptCodexBrowserPoll::Pending);
+        };
+        let (mut stream, _) = match listener.accept() {
+            Ok(connection) => connection,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                return Ok(ChatGptCodexBrowserPoll::Pending);
+            }
+            Err(error) => {
+                return Err(AuthError::ChatGptCodex(format!(
+                    "failed to accept browser callback: {error}"
+                )));
+            }
+        };
+
+        let redirect = read_browser_callback(&mut stream)?;
+        let credentials = self.complete_redirect(&redirect)?;
+        Ok(ChatGptCodexBrowserPoll::Authorized(credentials))
+    }
+
+    /// Complete this login from a pasted full redirect URL.
+    pub fn complete_redirect(&self, redirect: &str) -> Result<ChatGptCodexCredentials, AuthError> {
+        if Instant::now() >= self.expires_at {
+            return Err(AuthError::ChatGptCodex("browser OAuth callback expired".to_string()));
+        }
+        let code = parse_chatgpt_codex_redirect(redirect, &self.state)?;
+        let token = exchange_chatgpt_codex_authorization_code(&code, &self.verifier, &self.redirect_uri)?;
+        credentials_from_token_response(token, None)
+    }
+}
+
 /// Result of checking a browser PKCE callback without blocking.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ChatGptCodexBrowserPoll {
@@ -264,17 +329,6 @@ impl std::fmt::Debug for ChatGptCodexTokenResponse {
                 &self.refresh_token.as_ref().map(|token| redact_value(token)),
             )
             .field("expires_in", &self.expires_in)
-            .finish()
-    }
-}
-
-impl std::fmt::Debug for ChatGptCodexBrowserLogin {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ChatGptCodexBrowserLogin")
-            .field("listener", &self.listener.as_ref().map_or("[not bound]", |_| "[bound]"))
-            .field("redirect_uri", &self.redirect_uri)
-            .field("authorization_url", &"[redacted]")
-            .field("expires_at", &self.expires_at)
             .finish()
     }
 }
@@ -390,7 +444,7 @@ pub fn request_chatgpt_codex_device_code() -> Result<ChatGptCodexDeviceCode, Aut
         .http_status_as_error(false)
         .build()
         .send_json(serde_json::json!({ "client_id": CHATGPT_CODEX_CLIENT_ID }))
-        .map_err(|e| AuthError::ChatGptCodex(format!("device-code request failed: {e}")))?;
+        .map_err(|e| AuthError::ChatGptCodexUnavailable(format!("device-code request failed: {e}")))?;
     read_json_response(&mut response, "device-code request")
 }
 
@@ -430,16 +484,16 @@ pub fn poll_chatgpt_codex_device_code_once(code: &ChatGptCodexDeviceCode) -> Res
             "device_auth_id": code.device_auth_id,
             "user_code": code.user_code,
         }))
-        .map_err(|e| AuthError::ChatGptCodex(format!("device-code poll failed: {e}")))?;
+        .map_err(|e| AuthError::ChatGptCodexUnavailable(format!("device-code poll failed: {e}")))?;
     let status = response.status().as_u16();
     let body = response
         .body_mut()
         .read_to_string()
-        .map_err(|e| AuthError::ChatGptCodex(format!("device-code poll body read failed: {e}")))?;
+        .map_err(|e| AuthError::ChatGptCodexUnavailable(format!("device-code poll body read failed: {e}")))?;
 
     if (200..=299).contains(&status) {
         let auth_response: ChatGptCodexDeviceAuthResponse = serde_json::from_str(&body)
-            .map_err(|e| AuthError::ChatGptCodex(format!("device-code poll JSON parse failed: {e}")))?;
+            .map_err(|e| AuthError::ChatGptCodexUnavailable(format!("device-code poll JSON parse failed: {e}")))?;
         let token = exchange_chatgpt_codex_authorization_code(
             &auth_response.authorization_code,
             &auth_response.code_verifier,
@@ -500,54 +554,6 @@ pub fn test_chatgpt_codex_browser_login() -> ChatGptCodexBrowserLogin {
         redirect_uri: PKCE_CALLBACK_URL.to_string(),
         authorization_url: String::from("https://auth.example.test/oauth/authorize?state=test-state"),
         expires_at: Instant::now() + PKCE_CALLBACK_TIMEOUT,
-    }
-}
-
-impl ChatGptCodexBrowserLogin {
-    /// Copyable authorization URL for display or browser launch.
-    pub fn authorization_url(&self) -> &str {
-        &self.authorization_url
-    }
-
-    /// Registered redirect URI for this login.
-    pub fn redirect_uri(&self) -> &str {
-        &self.redirect_uri
-    }
-
-    /// Poll the loopback callback once and exchange a valid authorization code.
-    pub fn poll(&mut self) -> Result<ChatGptCodexBrowserPoll, AuthError> {
-        if Instant::now() >= self.expires_at {
-            return Err(AuthError::ChatGptCodex("browser OAuth callback expired".to_string()));
-        }
-
-        let Some(listener) = self.listener.as_ref() else {
-            return Ok(ChatGptCodexBrowserPoll::Pending);
-        };
-        let (mut stream, _) = match listener.accept() {
-            Ok(connection) => connection,
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                return Ok(ChatGptCodexBrowserPoll::Pending);
-            }
-            Err(error) => {
-                return Err(AuthError::ChatGptCodex(format!(
-                    "failed to accept browser callback: {error}"
-                )));
-            }
-        };
-
-        let redirect = read_browser_callback(&mut stream)?;
-        let credentials = self.complete_redirect(&redirect)?;
-        Ok(ChatGptCodexBrowserPoll::Authorized(credentials))
-    }
-
-    /// Complete this login from a pasted full redirect URL.
-    pub fn complete_redirect(&self, redirect: &str) -> Result<ChatGptCodexCredentials, AuthError> {
-        if Instant::now() >= self.expires_at {
-            return Err(AuthError::ChatGptCodex("browser OAuth callback expired".to_string()));
-        }
-        let code = parse_chatgpt_codex_redirect(redirect, &self.state)?;
-        let token = exchange_chatgpt_codex_authorization_code(&code, &self.verifier, &self.redirect_uri)?;
-        credentials_from_token_response(token, None)
     }
 }
 
@@ -654,33 +660,6 @@ pub fn read_credentials(path: &Path) -> Result<BTreeMap<String, String>, AuthErr
     Ok(credentials)
 }
 
-/// Parse a single `.env`-format assignment line.
-///
-/// Supports `KEY=value`, `export KEY=value`, and quoted values
-/// (`KEY="value"`, `KEY='value'`).
-fn parse_credential_line(line: &str) -> Option<(String, String)> {
-    let line = line.trim();
-    if line.is_empty() || line.starts_with('#') {
-        return None;
-    }
-    let line = line.strip_prefix("export ").unwrap_or(line);
-    let (key, raw_value) = line.split_once('=')?;
-    let key = key.trim();
-    if key.is_empty() {
-        return None;
-    }
-    let raw_value = raw_value.trim();
-    let value = raw_value
-        .strip_prefix('"')
-        .and_then(|v| v.strip_suffix('"'))
-        .or_else(|| raw_value.strip_prefix('\'').and_then(|v| v.strip_suffix('\'')))
-        .unwrap_or(raw_value);
-    if value.is_empty() {
-        return None;
-    }
-    Some((key.to_string(), value.to_string()))
-}
-
 /// Write a single credential key-value pair to the credential file,
 /// preserving all unrelated entries.
 ///
@@ -739,6 +718,117 @@ pub fn remove_credential(path: &Path, key: &str) -> Result<(), AuthError> {
         .collect();
 
     write_lines_atomic(path, &filtered)
+}
+
+/// Redact a credential value for display/debug output.
+///
+/// This returns a fixed sentinel string so callers cannot accidentally leak
+/// value prefixes, hashes, suffixes, or lengths.
+pub fn redact_value(_value: &str) -> String {
+    String::from("[redacted]")
+}
+
+/// Resolve a credential by checking all sources in precedence order.
+///
+/// Order: process environment → global credential store
+/// (`~/.thndrs/credentials.env`) → project credential store
+/// (`<workspace>/.thndrs/credentials.env`) → workspace `.env` (legacy).
+///
+/// Returns `None` when the key is not found in any source.
+pub fn resolve_credential(key: &str, workspace: &Path) -> Option<(String, CredentialSource)> {
+    if let Ok(value) = std::env::var(key) {
+        if !value.is_empty() {
+            return Some((value, CredentialSource::Environment));
+        }
+    }
+
+    if let Ok(global_path) = global_credentials_path() {
+        if let Ok(creds) = read_credentials(&global_path) {
+            if let Some(value) = creds.get(key) {
+                return Some((value.clone(), CredentialSource::GlobalStore));
+            }
+        }
+    }
+
+    let project_path = project_credentials_path(workspace);
+    if let Ok(creds) = read_credentials(&project_path) {
+        if let Some(value) = creds.get(key) {
+            return Some((value.clone(), CredentialSource::ProjectStore));
+        }
+    }
+
+    let dotenv_path = workspace.join(".env");
+    if let Ok(creds) = read_credentials(&dotenv_path) {
+        if let Some(value) = creds.get(key) {
+            return Some((value.clone(), CredentialSource::DotEnvLegacy));
+        }
+    }
+
+    None
+}
+
+/// Return the [`CredentialSource`] for a key without revealing its value.
+pub fn credential_source(key: &str, workspace: &Path) -> Option<CredentialSource> {
+    resolve_credential(key, workspace).map(|(_, source)| source)
+}
+
+/// Ensure `.thndrs/credentials.env` is listed in `.git/info/exclude` so it
+/// cannot be accidentally committed.
+///
+/// If the workspace is not inside a git repository, this is a no-op.
+/// Repeated calls are idempotent: the exclude entry is never duplicated.
+pub fn ensure_git_exclude(workspace: &Path) -> Result<(), AuthError> {
+    let git_dir = workspace.join(".git");
+    let exclude_path = git_dir.join("info").join("exclude");
+    if !exclude_path.is_file() {
+        return Ok(());
+    }
+
+    let exclude_entry = ".thndrs/credentials.env";
+    let content = fs::read_to_string(&exclude_path)
+        .map_err(|source| AuthError::GitExclude(format!("failed to read {}: {source}", exclude_path.display())))?;
+
+    let already_excluded = content.lines().any(|line| line.trim() == exclude_entry);
+    if already_excluded {
+        return Ok(());
+    }
+
+    let mut file = fs::OpenOptions::new()
+        .append(true)
+        .open(&exclude_path)
+        .map_err(|source| AuthError::GitExclude(format!("failed to open {}: {source}", exclude_path.display())))?;
+
+    writeln!(file, "{exclude_entry}")
+        .map_err(|source| AuthError::GitExclude(format!("failed to write {}: {source}", exclude_path.display())))?;
+
+    Ok(())
+}
+
+/// Parse a single `.env`-format assignment line.
+///
+/// Supports `KEY=value`, `export KEY=value`, and quoted values
+/// (`KEY="value"`, `KEY='value'`).
+fn parse_credential_line(line: &str) -> Option<(String, String)> {
+    let line = line.trim();
+    if line.is_empty() || line.starts_with('#') {
+        return None;
+    }
+    let line = line.strip_prefix("export ").unwrap_or(line);
+    let (key, raw_value) = line.split_once('=')?;
+    let key = key.trim();
+    if key.is_empty() {
+        return None;
+    }
+    let raw_value = raw_value.trim();
+    let value = raw_value
+        .strip_prefix('"')
+        .and_then(|v| v.strip_suffix('"'))
+        .or_else(|| raw_value.strip_prefix('\'').and_then(|v| v.strip_suffix('\'')))
+        .unwrap_or(raw_value);
+    if value.is_empty() {
+        return None;
+    }
+    Some((key.to_string(), value.to_string()))
 }
 
 /// Read all lines from a text file.
@@ -839,7 +929,7 @@ fn exchange_chatgpt_codex_token_form(params: &[(&str, &str)]) -> Result<ChatGptC
         .http_status_as_error(false)
         .build()
         .send(&body)
-        .map_err(|e| AuthError::ChatGptCodex(format!("token request failed: {e}")))?;
+        .map_err(|e| AuthError::ChatGptCodexUnavailable(format!("token request failed: {e}")))?;
     read_json_response(&mut response, "token request")
 }
 
@@ -859,14 +949,24 @@ where
     let body = response
         .body_mut()
         .read_to_string()
-        .map_err(|e| AuthError::ChatGptCodex(format!("{context} body read failed: {e}")))?;
+        .map_err(|e| AuthError::ChatGptCodexUnavailable(format!("{context} body read failed: {e}")))?;
     if !(200..=299).contains(&status) {
-        return Err(AuthError::ChatGptCodex(format!(
-            "{context} failed with status {status}: {}",
-            chatgpt_codex_error_summary(&body)
-        )));
+        return Err(chatgpt_codex_response_error(context, status, &body));
     }
-    serde_json::from_str(&body).map_err(|e| AuthError::ChatGptCodex(format!("{context} JSON parse failed: {e}")))
+    serde_json::from_str(&body)
+        .map_err(|e| AuthError::ChatGptCodexUnavailable(format!("{context} JSON parse failed: {e}")))
+}
+
+fn chatgpt_codex_response_error(context: &str, status: u16, body: &str) -> AuthError {
+    let message = format!(
+        "{context} failed with status {status}: {}",
+        chatgpt_codex_error_summary(body)
+    );
+    if status == 408 || status == 429 || (500..=599).contains(&status) {
+        AuthError::ChatGptCodexUnavailable(message)
+    } else {
+        AuthError::ChatGptCodex(message)
+    }
 }
 
 fn chatgpt_codex_error_code(body: &str) -> Option<String> {
@@ -1056,90 +1156,6 @@ fn base64_url_encode(bytes: &[u8]) -> String {
     out
 }
 
-/// Redact a credential value for display/debug output.
-///
-/// This returns a fixed sentinel string so callers cannot accidentally leak
-/// value prefixes, hashes, suffixes, or lengths.
-pub fn redact_value(_value: &str) -> String {
-    String::from("[redacted]")
-}
-
-/// Resolve a credential by checking all sources in precedence order.
-///
-/// Order: process environment → global credential store
-/// (`~/.thndrs/credentials.env`) → project credential store
-/// (`<workspace>/.thndrs/credentials.env`) → workspace `.env` (legacy).
-///
-/// Returns `None` when the key is not found in any source.
-pub fn resolve_credential(key: &str, workspace: &Path) -> Option<(String, CredentialSource)> {
-    if let Ok(value) = std::env::var(key) {
-        if !value.is_empty() {
-            return Some((value, CredentialSource::Environment));
-        }
-    }
-
-    if let Ok(global_path) = global_credentials_path() {
-        if let Ok(creds) = read_credentials(&global_path) {
-            if let Some(value) = creds.get(key) {
-                return Some((value.clone(), CredentialSource::GlobalStore));
-            }
-        }
-    }
-
-    let project_path = project_credentials_path(workspace);
-    if let Ok(creds) = read_credentials(&project_path) {
-        if let Some(value) = creds.get(key) {
-            return Some((value.clone(), CredentialSource::ProjectStore));
-        }
-    }
-
-    let dotenv_path = workspace.join(".env");
-    if let Ok(creds) = read_credentials(&dotenv_path) {
-        if let Some(value) = creds.get(key) {
-            return Some((value.clone(), CredentialSource::DotEnvLegacy));
-        }
-    }
-
-    None
-}
-
-/// Return the [`CredentialSource`] for a key without revealing its value.
-pub fn credential_source(key: &str, workspace: &Path) -> Option<CredentialSource> {
-    resolve_credential(key, workspace).map(|(_, source)| source)
-}
-
-/// Ensure `.thndrs/credentials.env` is listed in `.git/info/exclude` so it
-/// cannot be accidentally committed.
-///
-/// If the workspace is not inside a git repository, this is a no-op.
-/// Repeated calls are idempotent: the exclude entry is never duplicated.
-pub fn ensure_git_exclude(workspace: &Path) -> Result<(), AuthError> {
-    let git_dir = workspace.join(".git");
-    let exclude_path = git_dir.join("info").join("exclude");
-    if !exclude_path.is_file() {
-        return Ok(());
-    }
-
-    let exclude_entry = ".thndrs/credentials.env";
-    let content = fs::read_to_string(&exclude_path)
-        .map_err(|source| AuthError::GitExclude(format!("failed to read {}: {source}", exclude_path.display())))?;
-
-    let already_excluded = content.lines().any(|line| line.trim() == exclude_entry);
-    if already_excluded {
-        return Ok(());
-    }
-
-    let mut file = fs::OpenOptions::new()
-        .append(true)
-        .open(&exclude_path)
-        .map_err(|source| AuthError::GitExclude(format!("failed to open {}: {source}", exclude_path.display())))?;
-
-    writeln!(file, "{exclude_entry}")
-        .map_err(|source| AuthError::GitExclude(format!("failed to write {}: {source}", exclude_path.display())))?;
-
-    Ok(())
-}
-
 /// Set Unix file mode `0600` (owner read/write only) when supported.
 #[cfg(unix)]
 fn set_unix_permissions(path: &Path) {
@@ -1224,6 +1240,22 @@ mod tests {
         assert!(matches!(
             chatgpt_account_id_from_jwt("not-a-jwt"),
             Err(AuthError::ChatGptCodex(message)) if message.contains("not a JWT")
+        ));
+    }
+
+    #[test]
+    fn chatgpt_token_response_distinguishes_service_unavailability_from_rejection() {
+        assert!(matches!(
+            chatgpt_codex_response_error("token request", 503, r#"{"error":"server_error"}"#),
+            AuthError::ChatGptCodexUnavailable(message) if message.contains("status 503")
+        ));
+        assert!(matches!(
+            chatgpt_codex_response_error("token request", 429, r#"{"error":"rate_limited"}"#),
+            AuthError::ChatGptCodexUnavailable(message) if message.contains("status 429")
+        ));
+        assert!(matches!(
+            chatgpt_codex_response_error("token request", 401, r#"{"error":"invalid_grant"}"#),
+            AuthError::ChatGptCodex(message) if message.contains("status 401")
         ));
     }
 
@@ -1366,7 +1398,6 @@ mod tests {
         assert_eq!(read_chatgpt_codex_credentials_at(&path).unwrap(), None);
         let removed: serde_json::Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(removed["other"]["keep"], true);
-        assert!(removed.get(CHATGPT_CODEX_AUTH_KEY).is_none());
     }
 
     #[test]
@@ -2023,13 +2054,6 @@ mod tests {
     fn credential_source_returns_none_for_missing() {
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(credential_source("THIS_KEY_DOES_NOT_EXIST", dir.path()), None);
-    }
-
-    #[test]
-    fn known_api_key_vars_are_complete() {
-        assert!(KNOWN_API_KEY_VARS.contains(&UMANS_API_KEY_ENV));
-        assert!(KNOWN_API_KEY_VARS.contains(&OPENCODE_GO_KEY_ENV));
-        assert!(KNOWN_API_KEY_VARS.contains(&OPENCODE_ZEN_KEY_ENV));
     }
 
     #[test]

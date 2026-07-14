@@ -60,34 +60,7 @@ history open in direct rows.
 
 ## Ticket 11: Prepare Release Docs And Package Evidence
 
-**What to build:** Complete the installed-user documentation and gather every
-non-publishing artifact needed for the human release review.
-
-**Blocked by:** Tickets 1, 8, 9, and 10
-
-**Acceptance criteria:**
-
-- [ ] README and public site have no release-facing placeholders, stale
-      completion claims, or source-checkout instructions where installed-user
-      commands belong.
-- [ ] Public docs describe required setup, the browser-default and explicit
-      headless ChatGPT Codex OAuth paths, first-class Umans workflow,
-      model-specific reasoning controls, advanced provider status, sessions,
-      diagnostics, tool safety, and the lack of a TUI sandbox.
-- [ ] The changelog summarizes visible release behavior and records the v0 API
-      compatibility policy/migration expectations for `thndrs-agent`.
-- [ ] Package archives are inspected for README, license, intended sources,
-      test fixtures, and unwanted generated artifacts.
-- [ ] The release QA checklist contains reproducible clean-install,
-      real-provider, package-order, and human-terminal evidence fields.
-- [ ] Public documentation build and internal Markdown/diff review pass.
-
-**Verification:**
-
-- `pnpm --dir docs build`
-- `cargo package -p thndrs-agent --allow-dirty`
-- `git diff --check`
-- human archive and QA-checklist review
+Completed the installed-user documentation and non-publishing release evidence.
 
 ## Ticket 12: Execute The Human Release Gate
 
@@ -126,5 +99,4 @@ not publish or tag without separate direct approval.
 
 Tickets that can start immediately:
 
-- Ticket 1: Make Both Packages Independently Releasable
-- Ticket 2: Establish The App Composition Seam
+- Ticket 12: Execute The Human Release Gate
