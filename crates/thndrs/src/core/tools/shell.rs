@@ -46,7 +46,7 @@ use thndrs_agent::CancelToken;
 
 /// Maximum number of output lines retained for the transcript/tool result.
 const MAX_OUTPUT_LINES: usize = 200;
-const NAME: &str = "run_shell";
+pub(crate) const NAME: &str = "run_shell";
 
 /// Outcome of waiting for a process, honoring timeout and cancellation.
 enum WaitOutcome {
@@ -425,10 +425,14 @@ pub fn parse_arguments(arguments: &str) -> Result<ShellArgs, ToolError> {
 }
 
 fn parse_argv(args: &serde_json::Value) -> Result<(String, Vec<String>), ToolError> {
-    if let Some(argv) = args.get("argv") {
+    if let Some((field, argv)) = args
+        .get("argv")
+        .map(|argv| ("argv", argv))
+        .or_else(|| args.get("command").map(|command| ("command", command)))
+    {
         let argv = argv
             .as_array()
-            .ok_or_else(|| ToolError::InvalidArguments("'argv' must be an array".to_string()))?;
+            .ok_or_else(|| ToolError::InvalidArguments(format!("'{field}' must be an array")))?;
         let argv = argv
             .iter()
             .enumerate()
@@ -436,14 +440,14 @@ fn parse_argv(args: &serde_json::Value) -> Result<(String, Vec<String>), ToolErr
                 value
                     .as_str()
                     .map(str::to_string)
-                    .ok_or_else(|| ToolError::InvalidArguments(format!("argv[{index}] must be a string")))
+                    .ok_or_else(|| ToolError::InvalidArguments(format!("{field}[{index}] must be a string")))
             })
             .collect::<Result<Vec<_>, _>>()?;
         let (program, command_args) = argv
             .split_first()
-            .ok_or_else(|| ToolError::InvalidArguments("'argv' must contain a program".to_string()))?;
+            .ok_or_else(|| ToolError::InvalidArguments(format!("'{field}' must contain a program")))?;
         if program.is_empty() {
-            return Err(ToolError::InvalidArguments("argv[0] must not be empty".to_string()));
+            return Err(ToolError::InvalidArguments(format!("{field}[0] must not be empty")));
         }
         return Ok((program.clone(), command_args.to_vec()));
     }
@@ -478,8 +482,21 @@ fn optional_u64(args: &serde_json::Value, field: &str) -> Result<Option<u64>, To
 
 /// Execute a registry request for `run_shell`.
 pub fn execute_request(request: &ToolUseRequest, ctx: ToolContext<'_>) -> ToolExecution {
+    let cancel = CancelToken::new();
+    execute_request_with_cancel(request, ctx.root, &cancel)
+}
+
+/// Execute a `run_shell` request with the cancellation token for its enclosing
+/// agent run.
+///
+/// The registry entry uses [`execute_request`] to preserve its stable generic
+/// executor signature. The live agent dispatcher calls this variant so
+/// stopping an agent also terminates its active shell child.
+pub(crate) fn execute_request_with_cancel(
+    request: &ToolUseRequest, root: &Path, cancel: &CancelToken,
+) -> ToolExecution {
     match parse_arguments(&request.arguments) {
-        Ok(args) => execute_args(&args, ctx.root),
+        Ok(args) => execute_args(&args, root, cancel),
         Err(error) => ToolExecution::output(ToolOutput::failed(NAME, error.to_string())),
     }
 }
@@ -682,16 +699,15 @@ fn split_and_cap(buf: &[u8]) -> Vec<String> {
     lines
 }
 
-fn execute_args(args: &ShellArgs, root: &Path) -> ToolExecution {
+fn execute_args(args: &ShellArgs, root: &Path, cancel: &CancelToken) -> ToolExecution {
     if args.program.is_empty() {
         return ToolExecution::output(ToolOutput::failed(
             NAME,
-            "missing command: provide non-empty 'argv' or 'program'".to_string(),
+            "missing command: provide non-empty 'argv', 'command', or 'program'".to_string(),
         ));
     }
 
-    let cancel = CancelToken::new();
-    match run_command(args, root, &cancel) {
+    match run_command(args, root, cancel) {
         Ok(result) => ToolExecution::full(output_from_result(&result), None, Some(result)),
         Err(error) => ToolExecution::output(ToolOutput::failed(NAME, error)),
     }

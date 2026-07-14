@@ -15,7 +15,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use thndrs_agent::context::ContextConfig;
 
-use crate::cli::{ReasoningEffort, ReasoningSummary, Theme, WebSearchMode};
+use crate::cli::{DEFAULT_TICK_RATE_MS, ReasoningEffort, ReasoningSummary, Theme, WebSearchMode};
 use crate::utils;
 
 static CONFIG_KEYS: [&str; 13] = [
@@ -790,7 +790,7 @@ fn default_config(workspace: &Path, cwd: &Path) -> Config {
         websearch: Some(WebSearchMode::Auto),
         reasoning_effort: Some(ReasoningEffort::default()),
         reasoning_summary: Some(ReasoningSummary::default()),
-        tick_rate_ms: Some(100),
+        tick_rate_ms: Some(DEFAULT_TICK_RATE_MS),
         mouse: Some(false),
         verbose: Some(false),
         theme: Some(Theme::default()),

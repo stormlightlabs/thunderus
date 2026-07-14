@@ -31,7 +31,7 @@ pub fn dynamic_status_row(app: &App, width: usize) -> Row {
 
     let label = app.status_label();
     let status_color = super::style::status_color(label);
-    let icon = super::style::status_icon(label, app.ui_tick);
+    let icon = super::style::status_icon(label, super::style::spinner_tick(app.ui_tick, app.cli.tick_rate_ms));
     let session = if app.session_id.is_empty() { "thndrs" } else { &app.session_id };
 
     let mut spans = vec![

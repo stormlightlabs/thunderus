@@ -7,7 +7,12 @@ use crate::mcp;
 pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
     match event {
         AgentEvent::Started => {
-            app.run_state = RunState::Working;
+            // A `Started` event can still be queued when the user stops the
+            // run. Do not let it revive a run that is already winding down.
+            if app.run_state != RunState::Stopping {
+                app.stopping_deadline = None;
+                app.run_state = RunState::Working;
+            }
             None
         }
         AgentEvent::Status(text) => {
@@ -147,6 +152,7 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             None
         }
         AgentEvent::Finished => {
+            app.stopping_deadline = None;
             app.ttft.clear_pending();
             finalize_streaming(app);
             cancel_pending_permission(app);
@@ -166,6 +172,7 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             }
         }
         AgentEvent::Failed(msg) => {
+            app.stopping_deadline = None;
             let manual_compaction = context::restore_failed_manual_compaction(app);
             app.ttft.clear_pending();
             finalize_streaming(app);
@@ -182,6 +189,7 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             None
         }
         AgentEvent::Cancelled => {
+            app.stopping_deadline = None;
             context::restore_failed_manual_compaction(app);
             app.ttft.clear_pending();
             finalize_streaming(app);
@@ -242,13 +250,41 @@ pub fn handle_permission_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
 /// The app loop observes the transition out of `Working` and drops the
 /// background receiver, which stops the agent thread on its next failed send.
 /// When the `Cancelled` agent event arrives (or the channel disconnects), the
-/// state transitions from `Stopping` to `Idle`.
+/// state transitions from `Stopping` to `Idle`. A short deadline also bounds
+/// this state when a worker is blocked in a non-cancellable operation.
 pub fn cancel_stream(app: &mut App) {
     cancel_pending_permission(app);
     finalize_streaming(app);
     app.transcript.push(Entry::Status { text: String::from("cancelled") });
     app.run_state = RunState::Stopping;
+    app.stopping_deadline = Some(app.ui_tick.wrapping_add(stopping_grace_ticks(app)));
     persist_last_entry(app);
+}
+
+/// Complete a stopped run once the worker has had a short chance to acknowledge
+/// cancellation.
+///
+/// The direct loop drops the receiver after this transitions the app to idle,
+/// so a worker that remains blocked cannot later mutate a subsequent run.
+pub fn finish_stopping_if_due(app: &mut App) {
+    let Some(deadline) = app.stopping_deadline else {
+        return;
+    };
+
+    if app.run_state != RunState::Stopping {
+        app.stopping_deadline = None;
+        return;
+    }
+
+    if now_or_after_deadline(app.ui_tick, deadline) {
+        handle_agent_event(app, AgentEvent::Cancelled);
+    }
+}
+
+/// Translate the fixed stop grace period to the configured tick cadence.
+pub(super) fn stopping_grace_ticks(app: &App) -> u64 {
+    let tick_ms = app.cli.tick_rate_ms.max(1);
+    STOPPING_GRACE_MS / tick_ms + u64::from(STOPPING_GRACE_MS % tick_ms != 0)
 }
 
 pub fn cancel_pending_permission(app: &mut App) {

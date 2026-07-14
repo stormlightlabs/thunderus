@@ -390,7 +390,9 @@ const ALLOWED_ACCEPT_HEADER: &str = "text/html, application/xhtml+xml, text/plai
 /// Search DuckDuckGo and return up to `limit` parsed results.
 ///
 /// Uses a sync `ureq` POST to `html.duckduckgo.com/html/`. Empty queries and
-/// zero limits return an empty result set without a network request.
+/// zero limits return an empty result set without a network request. The
+/// request shares the bounded fetch timeout so a stalled search cannot hold an
+/// agent worker indefinitely.
 pub fn search_duckduckgo(query: &str, limit: usize) -> Result<Vec<SearchResult>> {
     let query = query.trim();
     if query.is_empty() || limit == 0 {
@@ -403,7 +405,7 @@ pub fn search_duckduckgo(query: &str, limit: usize) -> Result<Vec<SearchResult>>
         .append_pair("l", "us-en")
         .finish();
 
-    let agent = ureq::Agent::new_with_defaults();
+    let agent = duckduckgo_agent();
     let response = agent
         .post(DUCKDUCKGO_HTML_URL)
         .header("User-Agent", USER_AGENT)
@@ -416,6 +418,7 @@ pub fn search_duckduckgo(query: &str, limit: usize) -> Result<Vec<SearchResult>>
         Err(ureq::Error::StatusCode(code)) => {
             return Err(SearchError::HttpStatus { status: code, body: String::new() });
         }
+        Err(ureq::Error::Timeout(_)) => return Err(SearchError::Timeout { secs: FETCH_TIMEOUT_SECS }),
         Err(e) => return Err(SearchError::Http(e.to_string())),
     };
 
@@ -525,6 +528,14 @@ pub fn format_search_results(results: &[SearchResult]) -> Vec<String> {
             format!("{}. {} — {} ({})", i + 1, r.title, snippet, r.url)
         })
         .collect()
+}
+
+/// Create the bounded transport used by the local DuckDuckGo fallback.
+fn duckduckgo_agent() -> ureq::Agent {
+    let config = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(FETCH_TIMEOUT_SECS)))
+        .build();
+    ureq::Agent::new_with_config(config)
 }
 
 /// Check if an IPv4 address is private/loopback/link-local.
@@ -843,6 +854,12 @@ mod tests {
         let secs = FETCH_TIMEOUT_SECS;
         assert!(secs <= 60, "timeout should be at most 60s");
         assert!(secs >= 5, "timeout should allow at least 5s");
+    }
+
+    #[test]
+    fn duckduckgo_search_uses_the_bounded_fetch_timeout() {
+        let timeouts = duckduckgo_agent().config().timeouts();
+        assert_eq!(timeouts.global, Some(Duration::from_secs(FETCH_TIMEOUT_SECS)));
     }
 
     #[test]

@@ -18,6 +18,12 @@ use serde::Deserialize;
 
 use crate::config;
 
+/// Smallest event and render interval supported by the direct terminal UI.
+pub const MIN_TICK_RATE_MS: u64 = 33;
+
+/// Default event and render cadence for the direct terminal UI.
+pub const DEFAULT_TICK_RATE_MS: u64 = MIN_TICK_RATE_MS;
+
 /// Built-in UI color theme.
 #[derive(ValueEnum, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 #[repr(u8)]
@@ -299,8 +305,8 @@ pub struct Cli {
     /// reasoning-summary controls.
     #[arg(skip)]
     pub reasoning_summary: ReasoningSummary,
-    /// Event poll interval in milliseconds.
-    #[arg(long, default_value_t = 100)]
+    /// Event poll interval in milliseconds (minimum [`MIN_TICK_RATE_MS`]).
+    #[arg(long, default_value_t = DEFAULT_TICK_RATE_MS)]
     pub tick_rate_ms: u64,
     /// Disable terminal mouse capture so native selection and scrollback work.
     #[arg(long, default_value_t = false, conflicts_with = "mouse")]
@@ -352,7 +358,7 @@ impl Default for Cli {
             websearch: WebSearchMode::Auto,
             reasoning_effort: ReasoningEffort::default(),
             reasoning_summary: ReasoningSummary::default(),
-            tick_rate_ms: 100,
+            tick_rate_ms: DEFAULT_TICK_RATE_MS,
             no_mouse: false,
             mouse: false,
             verbose: false,
@@ -547,7 +553,7 @@ mod tests {
         assert_eq!(cli.cwd, PathBuf::from("."));
         assert!(cli.model.is_empty());
         assert_eq!(cli.websearch, WebSearchMode::Auto);
-        assert_eq!(cli.tick_rate_ms, 100);
+        assert_eq!(cli.tick_rate_ms, DEFAULT_TICK_RATE_MS);
         assert!(!cli.no_mouse);
         assert!(!cli.mouse);
         assert!(!cli.verbose);

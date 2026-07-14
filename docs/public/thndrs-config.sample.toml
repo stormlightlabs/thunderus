@@ -5,7 +5,7 @@
 # Setup records the initial provider and model. Uncomment to override it.
 # model = "umans-coder"
 websearch = "auto"
-tick_rate_ms = 100
+tick_rate_ms = 33
 theme = "eldritch-minimal"
 mouse = false
 verbose = false

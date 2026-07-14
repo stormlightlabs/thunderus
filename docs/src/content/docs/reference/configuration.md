@@ -63,7 +63,7 @@ provider-specific names.
 |                     | `none`, `minimal`, |                                     |                                                                           |
 |                     | `low`–`max`        |                                     |                                                                           |
 | `reasoning_summary` | `off`, `auto`      | `off`                               | Whether GPT-5.6 summaries are shown.                                      |
-| `tick_rate_ms`      | integer            | `100`                               | Event poll interval in milliseconds.                                      |
+| `tick_rate_ms`      | integer            | `33`                                | Event poll interval in milliseconds; values below `33` use `33`.          |
 | `theme`             | `eldritch-minimal` | `eldritch-minimal`                  | UI color theme.                                                           |
 |                     | `iceberg-dark`     |                                     |                                                                           |
 |                     | `catppuccin-mocha` |                                     |                                                                           |
@@ -89,7 +89,7 @@ entries, then CLI `--skill-dir` entries.
 websearch = "auto"
 reasoning_effort = "auto"
 reasoning_summary = "off"
-tick_rate_ms = 100
+tick_rate_ms = 33
 theme = "eldritch-minimal"
 mouse = false
 verbose = false

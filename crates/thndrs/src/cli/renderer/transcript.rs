@@ -23,8 +23,8 @@ const MAX_STARTUP_LOADED_SKILL_ROWS: usize = 4;
 /// Gutter prefix for tool output lines.
 pub const GUTTER: &str = "   │ ";
 
-/// Role rail shown on transcript entry rows.
-const ENTRY_RAIL: &str = "│ ";
+/// Role rail shown on transcript entry rows and partial-entry continuations.
+pub(crate) const ENTRY_RAIL: &str = "│ ";
 
 #[derive(Clone, Copy)]
 enum TableAlign {
@@ -1048,17 +1048,29 @@ fn assistant_block_rows(
     rows
 }
 
-/// Extract Markdown from either the internal four-tick wrapper or ordinary
-/// fenced Markdown returned by a provider.
+/// Extract Markdown from an outer provider wrapper or ordinary fenced Markdown.
 fn assistant_markdown_body(text: &str) -> Option<&str> {
-    if let Some(rest) = text
-        .strip_prefix("````md\n")
-        .or_else(|| text.strip_prefix("````markdown\n"))
-    {
-        return Some(rest.strip_suffix("\n````").unwrap_or(rest));
-    }
+    strip_outer_markdown_fence(text).or_else(|| text.contains("```").then_some(text))
+}
 
-    text.contains("```").then_some(text)
+/// Strip a complete or streaming outer Markdown fence without confusing its
+/// contents with a code block.
+fn strip_outer_markdown_fence(text: &str) -> Option<&str> {
+    for (opening, closing) in [
+        ("````markdown\r\n", "\r\n````"),
+        ("````markdown\n", "\n````"),
+        ("````md\r\n", "\r\n````"),
+        ("````md\n", "\n````"),
+        ("```markdown\r\n", "\r\n```"),
+        ("```markdown\n", "\n```"),
+        ("```md\r\n", "\r\n```"),
+        ("```md\n", "\n```"),
+    ] {
+        if let Some(body) = text.strip_prefix(opening) {
+            return Some(body.strip_suffix(closing).unwrap_or(body));
+        }
+    }
+    None
 }
 
 /// Render markdown body with code fence detection and syntax highlighting.

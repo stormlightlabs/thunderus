@@ -5,7 +5,7 @@ use crate::context::ContextSource;
 use crate::renderer::{self, row};
 use crate::skills::{self, SkillDiagnostic};
 
-use super::TranscriptRowContext;
+use super::{GUTTER, TranscriptRowContext};
 
 fn ctx(width: usize) -> TranscriptRowContext<'static> {
     TranscriptRowContext::for_test("User", Path::new("."), width)
@@ -156,6 +156,22 @@ fn ordinary_markdown_code_fence_is_highlighted_and_wrapped() {
     assert!(
         rendered.contains("[fg=#b48ead bg=#171928]=fn"),
         "ordinary Markdown code fences should highlight Rust keywords: {rendered}"
+    );
+}
+
+#[test]
+fn markdown_provider_wrapper_does_not_render_as_a_nested_code_block() {
+    let entry =
+        Entry::Agent { text: "```markdown\r\n1. This is an ordinary response.\r\n```".to_string(), streaming: false };
+    let rows = ctx(80).rows_for_entry(&entry);
+
+    assert!(
+        rows.iter().all(|row| !row.text().contains(GUTTER)),
+        "an outer Markdown wrapper must not add a code gutter"
+    );
+    assert!(
+        rows.iter().any(|row| row.text().contains("ordinary response")),
+        "wrapped Markdown should remain visible as response text"
     );
 }
 

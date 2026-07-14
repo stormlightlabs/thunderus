@@ -140,8 +140,8 @@ impl PickerState {
 
 /// - Ctrl+C cancels a running agent stream, otherwise quits.
 /// - Ctrl+D requires a double-press: the first press shows a confirmation
-///   message; the second press within [`QUIT_CONFIRM_TIMEOUT_TICKS`] ticks
-///   quits. Any other key (or timeout) cancels the pending state.
+///   message; the second press within roughly three seconds quits. Any other
+///   key (or timeout) cancels the pending state.
 /// - Printable characters append to the input buffer.
 /// - Backspace removes the last character.
 /// - `Enter` submits: slash commands (`/clear`, `/quit`) are routed, otherwise
@@ -174,7 +174,7 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
             app.quit = true;
             return Some(Msg::Quit);
         } else {
-            let deadline = app.ui_tick.wrapping_add(QUIT_CONFIRM_TIMEOUT_TICKS);
+            let deadline = app.ui_tick.wrapping_add(quit_confirm_timeout_ticks(app));
             app.ctrl_d_pending = Some(deadline);
             app.transcript
                 .push(Entry::Status { text: String::from("Press CTRL+D again to quit.") });
@@ -1324,6 +1324,20 @@ pub fn queue_running_input(app: &mut App, text: &str) {
 }
 
 pub fn submit_user_turn(app: &mut App, text: String) -> Option<Msg> {
+    start_turn(app, text, true)
+}
+
+/// Start an internal provider turn without adding it to the user transcript,
+/// input history, or durable user-turn records.
+///
+/// Compaction uses this for its configured-model summary request. It remains
+/// an ordinary agent turn for lifecycle and cancellation purposes, but is not
+/// text the user entered and should never be rendered as such.
+pub(super) fn submit_internal_turn(app: &mut App, text: String) -> Option<Msg> {
+    start_turn(app, text, false)
+}
+
+fn start_turn(app: &mut App, text: String, record_user_entry: bool) -> Option<Msg> {
     if app.pending_compaction_review.is_some() {
         app.transcript
             .push(Entry::Error { text: "review the pending compaction before submitting another turn".to_string() });
@@ -1335,9 +1349,11 @@ pub fn submit_user_turn(app: &mut App, text: String) -> Option<Msg> {
         return None;
     }
 
-    agent_lifecycle::remember_input(app, &text);
-    let user_entry = Entry::User { text: text.clone() };
-    app.transcript.push(user_entry.clone());
+    let user_entry = record_user_entry.then(|| Entry::User { text: text.clone() });
+    if let Some(entry) = user_entry.as_ref() {
+        agent_lifecycle::remember_input(app, &text);
+        app.transcript.push(entry.clone());
+    }
     app.input.clear();
     app.history_cursor = None;
     app.history_draft.clear();
@@ -1346,8 +1362,10 @@ pub fn submit_user_turn(app: &mut App, text: String) -> Option<Msg> {
     app.turn_count += 1;
     let turn_id = format!("turn_{}", app.turn_count);
     agent_lifecycle::refresh_mcp_config_audit(app, &turn_id);
-    if let Some(ref mut writer) = app.session_writer {
-        let _ = writer.append_entry(&user_entry, &turn_id);
+    if let Some(ref mut writer) = app.session_writer
+        && let Some(entry) = user_entry.as_ref()
+    {
+        let _ = writer.append_entry(entry, &turn_id);
     }
     Some(Msg::Agent(AgentEvent::Started))
 }

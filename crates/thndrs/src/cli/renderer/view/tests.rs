@@ -86,7 +86,7 @@ fn context_surface_stays_bounded_at_normal_narrow_and_small_height() {
 }
 
 #[test]
-fn build_view_submitted_user_is_not_rendered() {
+fn build_view_submitted_user_is_rendered() {
     let mut app = test_app();
     app.run_state = RunState::Working;
     app.transcript.push(Entry::User { text: "do the thing".to_string() });
@@ -99,7 +99,7 @@ fn build_view_submitted_user_is_not_rendered() {
     );
     assert!(
         !view.transcript.stable_rows.is_empty(),
-        "the startup banner is stable while the first response is pending"
+        "submitted user rows should be stable while the first response is pending"
     );
     assert!(
         view.transcript.live_rows.is_empty(),
@@ -109,8 +109,8 @@ fn build_view_submitted_user_is_not_rendered() {
         view.transcript
             .stable_rows
             .iter()
-            .all(|row| !row.text().contains("do the thing")),
-        "submitted input should not be echoed in the visible transcript"
+            .any(|row| row.text().contains("do the thing")),
+        "submitted input should be retained in the visible transcript"
     );
 }
 

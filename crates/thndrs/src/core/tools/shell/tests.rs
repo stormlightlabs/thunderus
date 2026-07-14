@@ -669,6 +669,14 @@ fn parse_arguments_reads_argv_and_timeout_ms() {
 }
 
 #[test]
+fn parse_arguments_accepts_legacy_command_argv_array() {
+    let args = parse_arguments(r#"{"command":["sh","-lc","printf ok"]}"#).expect("parse compatibility arguments");
+
+    assert_eq!(args.program, "sh");
+    assert_eq!(args.args, vec!["-lc", "printf ok"]);
+}
+
+#[test]
 fn registry_execute_foreground_command_returns_shell_result() {
     let dir = tempfile::tempdir().expect("temp dir");
     let request = tools::ToolUseRequest::new(

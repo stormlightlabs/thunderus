@@ -6,6 +6,7 @@ use crate::app::{
 };
 use crate::cli::{Cli, Theme, WebSearchMode};
 use crate::context;
+use crate::renderer::style::Color;
 use crate::renderer::{self, row, transcript};
 use crate::skills::SkillDiagnostic;
 
@@ -412,6 +413,10 @@ fn render_frame_writes_from_top() {
     lr.render_frame(&app, &mut backend, 80, 24).unwrap();
 
     let out = String::from_utf8(backend.writer().clone()).unwrap();
+    assert!(
+        out.contains("\x1b[?2026h") && out.contains("\x1b[?2026l"),
+        "a changed frame should be published as one synchronized terminal update"
+    );
     assert!(out.contains("\x1b[1;1H"), "viewport render should start at top-left");
     assert!(out.contains("\x1b[K"), "should clear each row to end-of-line");
     assert_eq!(lr.rendered_width, Some(80));
@@ -464,16 +469,21 @@ fn render_frame_full_redraw_on_resize() {
     lr.render_frame(&app, &mut backend, 80, 24).unwrap();
 
     let first_len = String::from_utf8(backend.writer().clone()).unwrap().len();
+    backend.set_size(100, 30);
     lr.render_frame(&app, &mut backend, 100, 30).unwrap();
 
     let second_output = String::from_utf8(backend.writer().clone()).unwrap();
     let second_new_bytes = second_output.len() - first_len;
 
     assert!(second_new_bytes > 0, "resize should trigger a full redraw with output");
+    assert_eq!(backend.width(), 100);
+    assert_eq!(backend.height(), 30);
+    assert_eq!(lr.rendered_width, Some(100));
+    assert_eq!(lr.rendered_height, Some(30));
 }
 
 #[test]
-fn render_frame_does_not_commit_submitted_user_to_scrollback() {
+fn render_frame_commits_submitted_user_to_scrollback() {
     let mut app = test_app();
     app.run_state = RunState::Working;
     app.transcript.push(Entry::User { text: "start the task".to_string() });
@@ -488,8 +498,8 @@ fn render_frame_does_not_commit_submitted_user_to_scrollback() {
         "history rows should be inserted through a constrained scroll region"
     );
     assert!(
-        !out.contains("start the task"),
-        "submitted prompt should not be echoed in native scrollback"
+        out.contains("start the task"),
+        "submitted prompt should be retained in native scrollback"
     );
     assert!(lr.committed_row_count > 0);
 }
@@ -520,7 +530,7 @@ fn build_frame_places_streaming_output_above_status_line() {
 }
 
 #[test]
-fn build_frame_omits_user_text_when_live_tail_grows() {
+fn build_frame_keeps_user_text_when_live_tail_grows() {
     let mut app = test_app();
     app.run_state = RunState::Working;
     app.transcript
@@ -554,8 +564,8 @@ fn build_frame_omits_user_text_when_live_tail_grows() {
     assert!(
         lines
             .iter()
-            .all(|line| !line.contains("consolidate the renderer milestones")),
-        "submitted input should remain out of the transcript:\n{}",
+            .any(|line| line.contains("consolidate the renderer milestones")),
+        "submitted input should remain in the transcript:\n{}",
         frame.render_text()
     );
 }
@@ -627,7 +637,7 @@ fn render_frame_keeps_long_streaming_assistant_uncommitted() {
 }
 
 #[test]
-fn vt100_submitted_prompt_does_not_enter_scrollback() {
+fn vt100_submitted_prompt_enters_scrollback() {
     let mut app = test_app();
     app.run_state = RunState::Working;
     app.transcript.push(Entry::User { text: "start the task".to_string() });
@@ -638,8 +648,8 @@ fn vt100_submitted_prompt_does_not_enter_scrollback() {
 
     let contents = vt100_contents(backend.writer(), 80, 18);
     assert!(
-        !contents.contains("start the task"),
-        "submitted prompts should not appear in visible/history content:\n{contents}"
+        contents.contains("start the task"),
+        "submitted prompts should appear in visible/history content:\n{contents}"
     );
     assert!(
         contents.contains("sending") || contents.contains("submitted"),
@@ -681,7 +691,7 @@ fn vt100_streaming_tail_stays_above_status_without_commit() {
 }
 
 #[test]
-fn vt100_resize_replays_committed_rows_without_submitted_prompt() {
+fn vt100_resize_replays_committed_rows_with_submitted_prompt_once() {
     let mut app = test_app();
     app.run_state = RunState::Working;
     app.transcript
@@ -709,8 +719,8 @@ fn vt100_resize_replays_committed_rows_without_submitted_prompt() {
         .filter(|line| line.contains("resize preserves exactly one"))
         .count();
     assert_eq!(
-        prompt_count, 0,
-        "submitted prompt should not be replayed after narrow/wide round trip:\n{contents}"
+        prompt_count, 1,
+        "submitted prompt should be replayed exactly once after narrow/wide round trip:\n{contents}"
     );
     assert!(
         contents.contains("stable response rows"),
@@ -741,8 +751,96 @@ fn vt100_resize_replays_startup_banner_with_committed_scrollback() {
         "startup banner sections should be replayed with committed scrollback after resize:\n{contents}"
     );
     assert!(
-        !contents.contains("trigger scrollback replay"),
-        "submitted prompt should remain outside replayed scrollback:\n{contents}"
+        contents.contains("trigger scrollback replay"),
+        "submitted prompt should be retained in replayed scrollback:\n{contents}"
+    );
+}
+
+#[test]
+fn transcript_clipping_marks_every_partial_entry_with_an_outer_rail() {
+    let mut rows = ["entry heading", "first body row", "second body row", "latest body row"]
+        .into_iter()
+        .map(|text| {
+            Row::padded(
+                vec![Span::styled(ENTRY_RAIL, CellStyle::default()), Span::plain(text)],
+                80,
+                CellStyle::default(),
+            )
+        })
+        .collect::<Vec<_>>();
+    for row in &mut rows {
+        row.group_id = Some(row::RowGroupId { entry_index: 7 });
+    }
+
+    let clipped = clip_transcript_rows_from_top(&rows, 2, 80);
+
+    assert_eq!(clipped.len(), 2);
+    assert_eq!(clipped[0].spans[0].text, "  ");
+    assert!(clipped[0].spans.iter().any(|span| span.text == ENTRY_RAIL));
+    assert!(clipped[0].text().contains("3 earlier row(s) in this entry hidden"));
+    assert!(clipped[1].text().contains("latest body row"));
+    assert_eq!(clipped[0].group_id, Some(row::RowGroupId { entry_index: 7 }));
+}
+
+#[test]
+fn transcript_clipping_preserves_the_outer_rail_style_over_padding() {
+    let rail_style = CellStyle::new().fg(Color::Green).bg(Color::Blue).bold();
+    let padding_style = CellStyle::new().fg(Color::Red).bg(Color::Blue);
+    let mut rows = ["entry heading", "first body row", "latest body row"]
+        .into_iter()
+        .map(|text| {
+            Row::padded(
+                vec![Span::styled(ENTRY_RAIL, rail_style), Span::plain(text)],
+                80,
+                padding_style,
+            )
+        })
+        .collect::<Vec<_>>();
+    for row in &mut rows {
+        row.group_id = Some(row::RowGroupId { entry_index: 7 });
+    }
+
+    let clipped = clip_transcript_rows_from_top(&rows, 2, 80);
+    let marker_rail = clipped[0]
+        .spans
+        .iter()
+        .find(|span| span.text == ENTRY_RAIL)
+        .expect("continuation marker should include the outer entry rail");
+
+    assert_eq!(marker_rail.style, rail_style);
+}
+
+#[test]
+fn transcript_clipping_never_copies_a_nested_code_gutter_into_its_marker() {
+    let rail_style = CellStyle::default();
+    let mut rows = [
+        vec![Span::styled(ENTRY_RAIL, rail_style), Span::plain("Agent")],
+        vec![
+            Span::styled(ENTRY_RAIL, rail_style),
+            Span::styled(transcript::GUTTER, rail_style),
+            Span::plain("first"),
+        ],
+        vec![
+            Span::styled(ENTRY_RAIL, rail_style),
+            Span::styled(transcript::GUTTER, rail_style),
+            Span::plain("latest"),
+        ],
+    ]
+    .into_iter()
+    .map(|spans| Row::padded(spans, 80, CellStyle::default()))
+    .collect::<Vec<_>>();
+    for row in &mut rows {
+        row.group_id = Some(row::RowGroupId { entry_index: 7 });
+    }
+
+    let clipped = clip_transcript_rows_from_top(&rows, 2, 80);
+
+    assert_eq!(clipped[0].spans[0].text, "  ");
+    assert!(clipped[0].spans.iter().any(|span| span.text == ENTRY_RAIL));
+    assert!(clipped[0].text().contains("2 earlier row(s) in this entry hidden"));
+    assert!(
+        !clipped[0].text().contains(transcript::GUTTER),
+        "continuation marker must not look like nested code or tool output"
     );
 }
 

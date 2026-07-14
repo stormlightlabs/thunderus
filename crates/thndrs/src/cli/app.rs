@@ -64,18 +64,18 @@ use crate::cli::commands::auth::CredentialScope;
 use crate::cli::commands::setup::SetupProviderArg;
 use crate::cli::git::{self, GitStatusSummary};
 use crate::cli::input::history::{INPUT_HISTORY_LIMIT, InputHistoryStore};
-use crate::cli::{Cli, ReasoningEffort, Theme, WebSearchMode};
+use crate::cli::{Cli, MIN_TICK_RATE_MS, ReasoningEffort, Theme, WebSearchMode};
 use crate::input::PromptInput;
 use crate::providers::{codex, opencode, umans};
 use crate::thndrs_core::auth;
 use crate::tools::shell::ProcessRegistry;
 use crate::{config, fuzzy, internals, prompt, session, skills, tools, utils};
 
-/// Number of UI ticks the user has to press Ctrl+D a second time before the
-/// quit confirmation expires and a fresh double-press is needed.
-///
-/// With the default 100 ms tick rate this is roughly 3 seconds.
-const QUIT_CONFIRM_TIMEOUT_TICKS: u64 = 30;
+/// How long a Ctrl+D quit confirmation stays armed.
+const QUIT_CONFIRM_TIMEOUT_MS: u64 = 3_000;
+/// How long the UI waits for an agent to acknowledge cancellation before
+/// releasing the stopped prompt.
+const STOPPING_GRACE_MS: u64 = 250;
 
 pub const VISIBLE_ROWS: usize = 8;
 
@@ -360,10 +360,12 @@ pub struct App {
     /// Monotonic UI tick used for lightweight animated affordances.
     pub ui_tick: u64,
     /// When `Some`, the user pressed Ctrl+D once and we are waiting for a
-    /// second press within [`QUIT_CONFIRM_TIMEOUT_TICKS`] ticks to actually
-    /// quit. The value is the tick deadline at which the pending confirmation
-    /// expires.
+    /// second press within roughly three seconds to actually quit. The value
+    /// is the tick deadline at which the pending confirmation expires.
     pub ctrl_d_pending: Option<u64>,
+    /// Tick deadline that bounds how long a cancelled run may remain in the
+    /// `Stopping` state while its worker unwinds.
+    pub(crate) stopping_deadline: Option<u64>,
     /// Append-only session writer. `None` when persistence is disabled
     /// (e.g. the sessions directory is not writable).
     pub session_writer: Option<session::SessionWriter>,
@@ -371,8 +373,10 @@ pub struct App {
     pub turn_count: u64,
     /// Registry of background processes started via `run_shell`.
     pub process_registry: ProcessRegistry,
-    /// The last submitted prompt text, retained so it can be restored on
-    /// provider failure. Cleared on successful completion.
+    /// The active provider prompt, retained so user input can be restored on
+    /// provider failure. This can be an internal compaction request that is
+    /// intentionally absent from the visible transcript. Cleared on successful
+    /// completion.
     pub last_input: Option<String>,
     /// In-flight compaction (manual or automatic). The original active
     /// context is retained until the configured provider summary and audit
@@ -430,6 +434,7 @@ impl From<&Cli> for App {
         let workspace_root = crate::context::discover_workspace_root(&value.cwd);
         let mut cli_snapshot = value.clone();
         cli_snapshot.cwd = workspace_root.clone();
+        cli_snapshot.tick_rate_ms = cli_snapshot.tick_rate_ms.max(MIN_TICK_RATE_MS);
         let context_inventory = crate::context::discover_instructions(&workspace_root);
         let context_sources = context_inventory.sources;
         let context_diagnostics = context_inventory.diagnostics;
@@ -529,6 +534,7 @@ impl From<&Cli> for App {
             skill_diagnostics: skill_inventory.diagnostics,
             ui_tick: 0,
             ctrl_d_pending: None,
+            stopping_deadline: None,
             session_writer,
             turn_count: 0,
             process_registry: ProcessRegistry::new(),
@@ -716,6 +722,7 @@ pub fn update(app: &mut App, msg: &Msg) -> Option<Msg> {
             {
                 app.ctrl_d_pending = None;
             }
+            agent_lifecycle::finish_stopping_if_due(app);
             poll_chatgpt_oauth_on_tick(app);
             None
         }
@@ -741,4 +748,13 @@ fn default_user_label() -> String {
 
 fn is_verbose_status(text: &str) -> bool {
     text.starts_with("provider:") || text.starts_with("logs  ") || text.starts_with("tool budget:")
+}
+
+/// Translate the fixed Ctrl+D confirmation window to the configured tick cadence.
+///
+/// This keeps the user-visible timeout stable when a faster render cadence is
+/// selected for smoother streaming output.
+fn quit_confirm_timeout_ticks(app: &App) -> u64 {
+    let tick_ms = app.cli.tick_rate_ms.max(1);
+    QUIT_CONFIRM_TIMEOUT_MS / tick_ms + u64::from(QUIT_CONFIRM_TIMEOUT_MS % tick_ms != 0)
 }

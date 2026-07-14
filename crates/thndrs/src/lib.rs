@@ -45,7 +45,7 @@ use acp::config::provider_label;
 use app::PromptAccessory;
 use app::{App, Msg, RunState, start_auto_compaction, update};
 use cli::{
-    Cli, Command, commands,
+    Cli, Command, MIN_TICK_RATE_MS, commands,
     commands::debug::DebugCommand,
     commands::mcp::McpCommand,
     commands::session::{SessionCommand, SessionDataFormat},
@@ -60,10 +60,13 @@ use utils::datetime;
 use thndrs_agent::CancelToken;
 use thndrs_agent::context as agent_context;
 
-/// Fastest cadence at which the direct renderer redraws agent-driven frames.
-const MAX_RENDER_RATE: Duration = Duration::from_millis(33);
+/// Smallest interval at which the direct renderer redraws agent-driven frames.
+const MIN_RENDER_INTERVAL: Duration = Duration::from_millis(MIN_TICK_RATE_MS);
 /// Largest event burst applied before yielding back to the render/event loop.
 const MAX_AGENT_EVENTS_PER_RENDER: usize = 256;
+/// Buffer one complete terminal transaction so CRLF scrollback commits cannot
+/// be line-buffered and shown before their replacement frame.
+const TERMINAL_WRITE_BUFFER_CAPACITY: usize = 64 * 1024;
 
 enum AcpEventWrite {
     Continue,
@@ -1083,12 +1086,14 @@ fn run_inline(tick: Duration, cli: &Cli) -> io::Result<()> {
     renderer::enter_raw_mode()?;
 
     let mouse_enabled = cli.mouse && !cli.no_mouse;
-    let stdout = io::stdout();
-    let mut backend = TerminalBackend::new(stdout, renderer::terminal_size().0, renderer::terminal_size().1);
+    let (width, height) = renderer::terminal_size();
+    let stdout = io::BufWriter::with_capacity(TERMINAL_WRITE_BUFFER_CAPACITY, io::stdout());
+    let mut backend = TerminalBackend::new(stdout, width, height);
     let mut live = LiveRegion::new();
     let result = direct_loop(&mut backend, &mut live, tick, cli, mouse_enabled);
 
     let _ = backend.show_cursor();
+    let _ = backend.flush();
     renderer::leave_raw_mode()?;
 
     let _ = crossterm::execute!(
@@ -1108,7 +1113,7 @@ fn run_inline(tick: Duration, cli: &Cli) -> io::Result<()> {
 fn direct_loop<W: io::Write>(
     backend: &mut TerminalBackend<W>, live: &mut LiveRegion, tick: Duration, cli: &Cli, mouse_enabled: bool,
 ) -> io::Result<()> {
-    let tick = tick.max(MAX_RENDER_RATE);
+    let tick = tick.max(MIN_RENDER_INTERVAL);
     let mut app = App::from_cli(cli);
     let workspace_root = crate::context::discover_workspace_root(&cli.cwd);
     let observability = init_tracing(&workspace_root, &app.session_id);
@@ -1140,8 +1145,7 @@ fn direct_loop<W: io::Write>(
     let mut agent: Option<AgentSlot> = None;
     let git_watcher = GitStatusWatcher::spawn(workspace_root);
     let mut mouse_captured = false;
-    let (width, height) = backend_size(backend);
-    direct_render(backend, live, &mut app, width, height)?;
+    direct_render(backend, live, &mut app)?;
     let mut render_dirty = false;
 
     loop {
@@ -1154,8 +1158,7 @@ fn direct_loop<W: io::Write>(
             flush_steering(&mut app, &agent);
             sync_mouse_capture(&app, &mut mouse_captured, mouse_enabled);
             if render_dirty {
-                let (w, h) = backend_size(backend);
-                direct_render(backend, live, &mut app, w, h)?;
+                direct_render(backend, live, &mut app)?;
                 render_dirty = false;
             }
 
@@ -1173,19 +1176,15 @@ fn direct_loop<W: io::Write>(
                 Event::Key(key) => {
                     handle_direct_key(&mut app, key, &mut agent, backend, live)?;
                     sync_mouse_capture(&app, &mut mouse_captured, mouse_enabled);
-                    let (w, h) = backend_size(backend);
-                    direct_render(backend, live, &mut app, w, h)?;
+                    direct_render(backend, live, &mut app)?;
                 }
                 Event::Mouse(mouse) => {
                     handle_direct_msg(&mut app, Msg::Mouse(mouse), backend, live)?;
-                    let (w, h) = backend_size(backend);
-                    direct_render(backend, live, &mut app, w, h)?;
+                    direct_render(backend, live, &mut app)?;
                 }
-                Event::Resize(_, _) => {
-                    let (w, h) = renderer::terminal_size();
-                    backend.set_size(w, h);
-                    let (w, h) = backend_size(backend);
-                    direct_render(backend, live, &mut app, w, h)?;
+                Event::Resize(width, height) => {
+                    apply_terminal_resize(backend, width, height);
+                    direct_render(backend, live, &mut app)?;
                 }
                 _ => {}
             }
@@ -1206,8 +1205,7 @@ fn direct_loop<W: io::Write>(
         render_dirty |= drain_git_status_watcher(&mut app, &git_watcher, backend, live)?;
         sync_mouse_capture(&app, &mut mouse_captured, mouse_enabled);
         if render_dirty {
-            let (w, h) = backend_size(backend);
-            direct_render(backend, live, &mut app, w, h)?;
+            direct_render(backend, live, &mut app)?;
             render_dirty = false;
         }
         if app.quit {
@@ -1246,14 +1244,23 @@ fn backend_size<W: io::Write>(backend: &TerminalBackend<W>) -> (usize, usize) {
     (backend.width() as usize, backend.height() as usize)
 }
 
+/// Apply dimensions supplied by Crossterm's resize event.
+///
+/// The event payload is authoritative for this frame. Re-querying the terminal
+/// can race the resize or fall back to an unrelated default size.
+fn apply_terminal_resize<W: io::Write>(backend: &mut TerminalBackend<W>, width: u16, height: u16) {
+    backend.set_size(width, height);
+}
+
 /// Render the complete logical viewport.
 ///
 /// The live region handles committing finalized transcript entries to
 /// terminal scrollback and rendering only the live chrome (prompt, status,
 /// streaming content) via diff-based rendering.
 fn direct_render<W: io::Write>(
-    backend: &mut TerminalBackend<W>, live: &mut LiveRegion, app: &mut App, width: usize, height: usize,
+    backend: &mut TerminalBackend<W>, live: &mut LiveRegion, app: &mut App,
 ) -> io::Result<()> {
+    let (width, height) = backend_size(backend);
     renderer::style::set_theme(app.theme);
     live.render_frame(app, backend, width, height)?;
     backend.flush()
@@ -1367,15 +1374,7 @@ fn maybe_spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>) {
         return;
     }
 
-    let prompt = app
-        .transcript
-        .iter()
-        .rev()
-        .find_map(|e| match e {
-            app::Entry::User { text } => Some(text.clone()),
-            _ => None,
-        })
-        .unwrap_or_default();
+    let prompt = active_provider_prompt(app);
     let cli = app.cli.clone();
     let workspace_root = crate::context::discover_workspace_root(&cli.cwd);
     let resolved_websearch = cli.websearch.resolve_for_prompt(&prompt);
@@ -1449,6 +1448,25 @@ fn maybe_spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>) {
     let (steering_tx, steering_rx) = mpsc::channel();
     let turn = harness::HarnessTurn::provider_with_steering(config, messages, expects_write, steering_rx).start();
     *agent = Some(AgentSlot { receiver: turn.events, cancel: turn.cancel, steering: steering_tx });
+}
+
+/// Return the prompt for the turn that is about to start.
+///
+/// Normal submitted prompts are present in the transcript, but internal turns
+/// such as compaction must remain invisible there. `last_input` carries the
+/// exact active provider prompt for both paths; the transcript fallback keeps
+/// manually assembled application state usable in tests and adapters.
+fn active_provider_prompt(app: &App) -> String {
+    app.last_input.clone().unwrap_or_else(|| {
+        app.transcript
+            .iter()
+            .rev()
+            .find_map(|entry| match entry {
+                app::Entry::User { text } => Some(text.clone()),
+                _ => None,
+            })
+            .unwrap_or_default()
+    })
 }
 
 /// Whether the upcoming provider request is oversized and needs auto-compaction.
@@ -2214,7 +2232,7 @@ for line in sys.stdin:
 
         let mut live = renderer::region::LiveRegion::new();
         let mut backend = TerminalBackend::new(Vec::new(), 80, 24);
-        direct_render(&mut backend, &mut live, &mut app, 80, 24).expect("initial render");
+        direct_render(&mut backend, &mut live, &mut app).expect("initial render");
 
         handle_direct_msg(&mut app, Msg::Clear, &mut backend, &mut live).expect("clear");
         assert!(app.transcript.is_empty());
@@ -2346,6 +2364,18 @@ for line in sys.stdin:
     }
 
     #[test]
+    fn active_provider_prompt_prefers_an_internal_turn_over_visible_history() {
+        let cli = Cli::default();
+        let mut app = App::from_cli(&cli);
+        app.session_writer = None;
+        app.transcript
+            .push(app::Entry::User { text: "visible user turn".to_string() });
+        app.last_input = Some("Summarize the active context.".to_string());
+
+        assert_eq!(active_provider_prompt(&app), "Summarize the active context.");
+    }
+
+    #[test]
     fn maybe_spawn_agent_auto_compacts_oversized_turn_instead_of_spawning() {
         let mut config = config::Config::default();
         config.context.compaction.mode = agent_context::CompactionMode::Auto;
@@ -2384,8 +2414,16 @@ for line in sys.stdin:
             "auto-compaction should be triggered instead"
         );
         assert!(
-            matches!(app.transcript.last(), Some(app::Entry::User { text }) if text.contains("Summarize")),
-            "the compaction prompt should be the active turn"
+            app.transcript
+                .iter()
+                .all(|entry| !matches!(entry, app::Entry::User { text } if text.contains("Summarize"))),
+            "the internal compaction prompt must stay out of the visible transcript"
+        );
+        assert!(
+            app.last_input
+                .as_deref()
+                .is_some_and(|prompt| prompt.contains("Summarize")),
+            "the internal compaction prompt should remain active for the provider"
         );
     }
 
@@ -2474,16 +2512,38 @@ for line in sys.stdin:
         let mut live = renderer::region::LiveRegion::new();
         let mut backend = TerminalBackend::new(Vec::new(), 80, 24);
 
-        direct_render(&mut backend, &mut live, &mut app, 80, 24).expect("initial render");
+        direct_render(&mut backend, &mut live, &mut app).expect("initial render");
         let first_len = String::from_utf8(backend.writer().clone()).unwrap().len();
 
-        direct_render(&mut backend, &mut live, &mut app, 80, 24).expect("second render");
+        direct_render(&mut backend, &mut live, &mut app).expect("second render");
         let second_output = String::from_utf8(backend.writer().clone()).unwrap();
         let new_bytes = &second_output[first_len..];
 
         assert!(
             !new_bytes.contains("\x1b[?25l"),
             "direct_render should not emit Hide cursor on re-render of identical frame: {new_bytes:?}"
+        );
+    }
+
+    #[test]
+    fn resize_event_dimensions_drive_the_full_viewport_repaint() {
+        let cli = Cli::default();
+        let mut app = App::from_cli(&cli);
+        app.session_writer = None;
+        let mut live = renderer::region::LiveRegion::new();
+        let mut backend = TerminalBackend::new(Vec::new(), 80, 24);
+
+        direct_render(&mut backend, &mut live, &mut app).expect("initial render");
+        backend.writer().clear();
+
+        apply_terminal_resize(&mut backend, 100, 30);
+        direct_render(&mut backend, &mut live, &mut app).expect("resized render");
+
+        assert_eq!(backend_size(&backend), (100, 30));
+        let output = String::from_utf8(backend.writer().clone()).expect("utf8 output");
+        assert!(
+            output.contains("\x1b[30;1H"),
+            "resized frame must redraw the physical bottom row: {output:?}"
         );
     }
 

@@ -368,7 +368,12 @@ fn compact_uses_provider_summary_and_replaces_active_context_only_after_success(
         Some(Msg::Agent(AgentEvent::Started))
     );
     assert!(app.pending_manual_compaction.is_some());
-    assert!(matches!(app.transcript.last(), Some(Entry::User { text }) if text.contains("Summarize")));
+    assert!(
+        app.transcript
+            .iter()
+            .all(|entry| !matches!(entry, Entry::User { text } if text.contains("Summarize"))),
+        "internal compaction requests must stay out of the user transcript"
+    );
 
     update(&mut app, &Msg::Agent(AgentEvent::Started));
     update(
@@ -400,6 +405,10 @@ fn failed_compaction_restores_active_context_without_restoring_internal_prompt()
     assert_eq!(
         handle_command(&mut app, "compact"),
         Some(Msg::Agent(AgentEvent::Started))
+    );
+    assert!(
+        app.input_history.iter().all(|prompt| !prompt.contains("Summarize")),
+        "internal compaction requests must not enter prompt history"
     );
     update(&mut app, &Msg::Agent(AgentEvent::Started));
     update(
@@ -455,6 +464,12 @@ fn compact_writes_a_recoverable_manual_audit_record() {
                 && audit.model == cli.model
                 && audit.recovery_handles.len() == 1
     )));
+    assert!(
+        records
+            .iter()
+            .all(|record| !matches!(record, session::SessionRecord::User { text, .. } if text.contains("Summarize"))),
+        "internal compaction requests must not be persisted as user records"
+    );
 }
 
 #[test]
@@ -519,7 +534,12 @@ fn auto_compaction_restarts_the_user_turn_after_success() {
         Some(Msg::Agent(AgentEvent::Started))
     );
     assert!(app.compaction_in_flight());
-    assert!(matches!(app.transcript.last(), Some(Entry::User { text }) if text.contains("Summarize")));
+    assert!(
+        app.transcript
+            .iter()
+            .all(|entry| !matches!(entry, Entry::User { text } if text.contains("Summarize"))),
+        "internal compaction requests must stay out of the user transcript"
+    );
 
     update(&mut app, &Msg::Agent(AgentEvent::Started));
     update(
@@ -665,6 +685,59 @@ fn ctrl_c_cancels_running_stream() {
 }
 
 #[test]
+fn stopping_timeout_returns_to_idle_when_agent_never_acknowledges_cancel() {
+    let mut app = fresh_app();
+    update(&mut app, &Msg::Agent(AgentEvent::Started));
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+
+    assert_eq!(app.run_state, RunState::Stopping);
+    let deadline = app.stopping_deadline.expect("stopping deadline");
+
+    for _ in 0..=deadline {
+        update(&mut app, &Msg::Tick);
+        if app.ui_tick > deadline || app.run_state == RunState::Idle {
+            break;
+        }
+    }
+
+    assert_eq!(app.run_state, RunState::Idle);
+    assert!(app.stopping_deadline.is_none());
+    assert!(matches!(app.transcript.last(), Some(Entry::Status { text }) if text == "cancelled"));
+}
+
+#[test]
+fn late_started_event_does_not_revive_stopping_run() {
+    let mut app = fresh_app();
+    update(&mut app, &Msg::Agent(AgentEvent::Started));
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+    let deadline = app.stopping_deadline;
+
+    update(&mut app, &Msg::Agent(AgentEvent::Started));
+
+    assert_eq!(app.run_state, RunState::Stopping);
+    assert_eq!(app.stopping_deadline, deadline);
+}
+
+#[test]
+fn terminal_agent_events_clear_stopping_deadline() {
+    for event in [
+        AgentEvent::Finished,
+        AgentEvent::Failed("provider unavailable".to_string()),
+        AgentEvent::Cancelled,
+    ] {
+        let mut app = fresh_app();
+        update(&mut app, &Msg::Agent(AgentEvent::Started));
+        update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+        assert!(app.stopping_deadline.is_some());
+
+        update(&mut app, &Msg::Agent(event));
+
+        assert_ne!(app.run_state, RunState::Stopping);
+        assert!(app.stopping_deadline.is_none());
+    }
+}
+
+#[test]
 fn ctrl_d_first_press_shows_confirmation() {
     let mut app = fresh_app();
     update(
@@ -710,7 +783,7 @@ fn ctrl_d_timeout_expires_and_requires_double_press_again() {
     );
     assert!(app.ctrl_d_pending.is_some());
 
-    for _ in 0..QUIT_CONFIRM_TIMEOUT_TICKS + 1 {
+    for _ in 0..quit_confirm_timeout_ticks(&app) + 1 {
         update(&mut app, &Msg::Tick);
     }
     assert!(app.ctrl_d_pending.is_none(), "pending should expire after timeout");
@@ -721,6 +794,29 @@ fn ctrl_d_timeout_expires_and_requires_double_press_again() {
     );
     assert!(!app.quit, "expired second press should not quit");
     assert!(app.ctrl_d_pending.is_some(), "should arm a fresh confirmation");
+}
+
+#[test]
+fn ctrl_d_timeout_is_stable_at_the_faster_render_cadence() {
+    let mut app = fresh_app();
+    app.cli.tick_rate_ms = 33;
+
+    update(
+        &mut app,
+        &Msg::Key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL)),
+    );
+
+    assert_eq!(app.ctrl_d_pending, Some(91));
+}
+
+#[test]
+fn app_clamps_tick_rate_to_the_direct_renderer_minimum() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let cli = Cli { cwd: dir.path().to_path_buf(), tick_rate_ms: 1, ..Cli::default() };
+
+    let app = App::from_cli(&cli);
+
+    assert_eq!(app.cli.tick_rate_ms, crate::cli::MIN_TICK_RATE_MS);
 }
 
 #[test]
@@ -1757,6 +1853,54 @@ fn tool_finished_marks_failed_status() {
         Entry::Tool { status, .. } => assert_eq!(*status, ToolStatus::Failed),
         _ => panic!("expected Tool entry"),
     }
+}
+
+#[test]
+fn failed_tool_error_line_is_visible_and_persisted() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let cli = Cli { cwd: dir.path().to_path_buf(), model: "fake-agent".to_string(), ..Cli::default() };
+    let mut app = App::from_cli(&cli);
+    let session_path = app
+        .session_writer
+        .as_ref()
+        .expect("session writer")
+        .path()
+        .to_path_buf();
+    let error = "error: missing command: provide non-empty 'argv', 'command', or 'program'";
+
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::ToolStarted {
+            id: String::from("call_1"),
+            name: String::from("run_shell"),
+            arguments: String::from(r#"{"command":["sh","-lc","true"]}"#),
+        }),
+    );
+    update(
+        &mut app,
+        &Msg::Agent(AgentEvent::ToolFinished {
+            id: String::from("call_1"),
+            output: vec![error.to_string()],
+            status: ToolStatus::Failed,
+            write_result: None,
+            shell_result: None,
+        }),
+    );
+
+    let Some(Entry::Tool { output, .. }) = app.transcript.last() else {
+        panic!("expected failed tool entry");
+    };
+    assert_eq!(output, &vec![error.to_string()]);
+
+    let records = session::SessionReader::read_records(&session_path);
+    let persisted = records
+        .iter()
+        .find_map(|record| match record {
+            session::SessionRecord::ToolFinished { status: ToolStatus::Failed, output, .. } => Some(output),
+            _ => None,
+        })
+        .expect("persisted failed tool record");
+    assert_eq!(persisted, &vec![error.to_string()]);
 }
 
 #[test]

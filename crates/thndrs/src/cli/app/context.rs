@@ -423,7 +423,7 @@ pub fn start_auto_compaction(app: &mut App, original_user_turn: String) -> Optio
 /// Shared core for manual and automatic compaction.
 ///
 /// Saves the active transcript, builds a configured-model summary request,
-/// submits it as the turn to run, and records enough state to atomically
+/// starts it as an internal turn, and records enough state to atomically
 /// replace active context on success or restore it on failure.
 pub fn start_compaction(
     app: &mut App, trigger: session::CompactionTrigger, original_user_turn: Option<String>,
@@ -450,7 +450,7 @@ pub fn start_compaction(
         }
     };
 
-    let started = match super::input::submit_user_turn(app, request.prompt) {
+    let started = match super::input::submit_internal_turn(app, request.prompt) {
         Some(msg) => msg,
         None => {
             app.transcript = original_transcript;

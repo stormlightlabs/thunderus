@@ -13,7 +13,7 @@ use crate::{
     cli::WebSearchMode,
     providers::{
         self, KnownModel, ProviderContentBlock, ProviderContinuation, ProviderError, ProviderMessage,
-        ProviderMessageContent, Result, StreamFormat, StreamingProvider, StreamingRequest,
+        ProviderMessageContent, Result, StreamFormat, StreamingProvider, StreamingRequest, provider_http_agent,
     },
     thndrs_core::auth::{self, ChatGptCodexAuth},
 };
@@ -85,7 +85,7 @@ impl ChatGptCodexClient {
 
     /// Create a client with explicit auth material.
     pub fn new(base_url: &str, auth: ChatGptCodexAuth) -> Self {
-        Self { base_url: base_url.trim_end_matches('/').to_string(), auth, agent: ureq::Agent::new_with_defaults() }
+        Self { base_url: base_url.trim_end_matches('/').to_string(), auth, agent: provider_http_agent() }
     }
 
     fn build_auth_headers(&self) -> Vec<(String, String)> {
@@ -494,10 +494,10 @@ fn continuation_input(continuation: &ProviderContinuation, messages: &[ProviderM
 }
 
 fn extract_responses_text_delta(value: &serde_json::Value, event_type: &str) -> Option<String> {
-    if !event_type.contains("output_text") && !event_type.contains("message") {
+    if event_type != "response.output_text.delta" {
         return None;
     }
-    string_field(value, &["delta", "text"])
+    string_field(value, &["delta"])
 }
 
 fn extract_responses_reasoning_delta(value: &serde_json::Value, event_type: &str) -> Option<String> {
@@ -689,7 +689,11 @@ fn responses_tools(tools: &serde_json::Value) -> serde_json::Value {
                     "type": "function",
                     "name": function.get("name").cloned().unwrap_or(serde_json::Value::Null),
                     "description": function.get("description").cloned().unwrap_or(serde_json::Value::String(String::new())),
-                    "parameters": function.get("parameters").cloned().unwrap_or_else(|| serde_json::json!({ "type": "object" })),
+                    "parameters": function
+                        .get("parameters")
+                        .or_else(|| function.get("input_schema"))
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!({ "type": "object" })),
                     "strict": false,
                 })
             })
@@ -855,6 +859,24 @@ mod tests {
     }
 
     #[test]
+    fn client_uses_shared_provider_timeouts() {
+        let client = ChatGptCodexClient::new(BASE_URL, test_auth());
+        let timeouts = client.agent.config().timeouts();
+
+        assert_eq!(
+            timeouts.global, None,
+            "SSE streams must not have a total lifetime deadline"
+        );
+        assert_eq!(timeouts.per_call, None, "SSE streams must not have a per-call deadline");
+        assert_eq!(timeouts.resolve, Some(providers::PROVIDER_CONNECT_TIMEOUT));
+        assert_eq!(timeouts.connect, Some(providers::PROVIDER_CONNECT_TIMEOUT));
+        assert_eq!(timeouts.send_request, Some(providers::PROVIDER_REQUEST_TIMEOUT));
+        assert_eq!(timeouts.send_body, Some(providers::PROVIDER_REQUEST_TIMEOUT));
+        assert_eq!(timeouts.recv_response, Some(providers::PROVIDER_RESPONSE_TIMEOUT));
+        assert_eq!(timeouts.recv_body, Some(providers::PROVIDER_STREAM_IDLE_TIMEOUT));
+    }
+
+    #[test]
     fn authentication_probe_uses_the_authenticated_models_catalog() {
         let fixture = ModelsFixture::respond("200 OK", r#"{"object":"list","data":[]}"#);
         let result = ChatGptCodexClient::new(&fixture.base_url, test_auth()).probe_authentication();
@@ -941,6 +963,29 @@ mod tests {
         assert_eq!(body["text"]["verbosity"], "low");
         assert_eq!(body["tools"][0]["type"], "function");
         assert_eq!(body["tools"][0]["name"], defs[0].name.as_ref());
+    }
+
+    #[test]
+    fn build_responses_body_preserves_run_shell_argv_schema_from_anthropic_catalog() {
+        let messages = vec![ProviderMessage::user("run a command")];
+        let defs = crate::tools::tool_definitions();
+        let catalog = crate::tools::tool_catalog_schemas(&defs);
+        let body = ChatGptCodexClient::build_responses_request_body("chatgpt-codex/gpt-5.5", &messages, Some(&catalog))
+            .expect("body");
+        let run_shell = body["tools"]
+            .as_array()
+            .expect("tools array")
+            .iter()
+            .find(|tool| tool["name"] == "run_shell")
+            .expect("run_shell tool");
+        let definition = defs
+            .iter()
+            .find(|definition| definition.name.as_ref() == "run_shell")
+            .expect("run_shell definition");
+
+        assert_eq!(run_shell["parameters"], definition.input_schema);
+        assert_eq!(run_shell["parameters"]["required"], serde_json::json!(["argv"]));
+        assert_eq!(run_shell["parameters"]["properties"]["argv"]["type"], "array");
     }
 
     #[test]
@@ -1131,6 +1176,23 @@ mod tests {
             vec![ResponsesSseEvent::ResponseStatus("in_progress".to_string())]
         );
         assert_eq!(parse_responses_sse_event("[DONE]"), vec![ResponsesSseEvent::Done]);
+    }
+
+    #[test]
+    fn parse_responses_sse_text_done_does_not_repeat_finalized_text() {
+        let text: String = [
+            parse_responses_sse_event(r#"{"type":"response.output_text.delta","delta":"hi"}"#),
+            parse_responses_sse_event(r#"{"type":"response.output_text.done","text":"hi"}"#),
+        ]
+        .into_iter()
+        .flatten()
+        .filter_map(|event| match event {
+            ResponsesSseEvent::TextDelta(text) => Some(text),
+            _ => None,
+        })
+        .collect();
+
+        assert_eq!(text, "hi");
     }
 
     #[test]

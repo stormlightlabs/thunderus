@@ -12,13 +12,12 @@ use std::io::{self, Write};
 use crossterm::cursor::{Hide, MoveTo, Show};
 use crossterm::queue;
 use crossterm::style as cts;
-use crossterm::terminal::{Clear as CtClear, ClearType};
-
-use crate::utils;
+use crossterm::terminal::{BeginSynchronizedUpdate, Clear as CtClear, ClearType, EndSynchronizedUpdate};
+use unicode_segmentation::UnicodeSegmentation;
 
 use super::row::{CursorCoord, Frame, Row};
 use super::style::{CellStyle, Color, Span};
-use unicode_segmentation::UnicodeSegmentation;
+use crate::utils;
 
 /// Set the terminal scroll region (DECSTBM) to constrain scrolling to a
 /// range of rows. Rows are 1-based per the ANSI spec.
@@ -30,9 +29,9 @@ impl crossterm::Command for SetScrollRegion {
     }
 
     #[cfg(windows)]
-    fn execute_winapi(&self) -> std::io::Result<()> {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
+    fn execute_winapi(&self) -> io::Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
             "SetScrollRegion not supported via WinAPI",
         ))
     }
@@ -52,9 +51,9 @@ impl crossterm::Command for ResetScrollRegion {
     }
 
     #[cfg(windows)]
-    fn execute_winapi(&self) -> std::io::Result<()> {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
+    fn execute_winapi(&self) -> io::Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
             "ResetScrollRegion not supported via WinAPI",
         ))
     }
@@ -136,6 +135,21 @@ impl<W: Write> TerminalBackend<W> {
             CtClear(ClearType::Purge)
         )?;
         self.writer.flush()
+    }
+
+    /// Begin a synchronized terminal update.
+    ///
+    /// Terminals that support the ANSI synchronized-update extension defer
+    /// presenting queued writes until [`Self::end_synchronized_update`] is
+    /// sent. Unsupported terminals safely ignore the sequence.
+    pub fn begin_synchronized_update(&mut self) -> io::Result<()> {
+        queue!(self.writer, BeginSynchronizedUpdate)
+    }
+
+    /// Finish a synchronized terminal update started with
+    /// [`Self::begin_synchronized_update`].
+    pub fn end_synchronized_update(&mut self) -> io::Result<()> {
+        queue!(self.writer, EndSynchronizedUpdate)
     }
 
     /// Insert history rows above the viewport into the terminal's native

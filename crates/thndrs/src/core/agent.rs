@@ -499,6 +499,7 @@ impl RunHandle {
                     }
                 };
                 let status = output.status;
+                let display_output = tool_display_output(&output);
                 if write_result.is_some() && status == ToolStatus::Ok {
                     wrote_file = true;
                 }
@@ -507,7 +508,7 @@ impl RunHandle {
                     tx,
                     AgentEvent::ToolFinished {
                         id: tool_id.clone(),
-                        output: output.output.clone(),
+                        output: display_output.clone(),
                         status,
                         write_result,
                         shell_result: shell_result.map(Box::new),
@@ -526,11 +527,8 @@ impl RunHandle {
                     input,
                 });
 
-                let result_content = if output.output.is_empty() {
-                    output.error.unwrap_or_else(|| "(no output)".to_string())
-                } else {
-                    output.output.join("\n")
-                };
+                let result_content =
+                    if display_output.is_empty() { "(no output)".to_string() } else { display_output.join("\n") };
                 let is_error = status == ToolStatus::Failed;
                 tool_results.push(ProviderMessage::tool_result(&tool_id, &result_content, is_error));
                 response_tool_outputs.push((tool_id, result_content));
@@ -602,11 +600,12 @@ impl RunHandle {
 
             let (search_output, _, _) = tools::dispatch_full(&search_req, &self.config.root);
             let search_status = search_output.status;
+            let search_display_output = tool_display_output(&search_output);
             match send(
                 tx,
                 ToolFinished {
                     id: search_id,
-                    output: search_output.output,
+                    output: search_display_output,
                     status: search_status,
                     write_result: None,
                     shell_result: None,
@@ -638,9 +637,10 @@ impl RunHandle {
 
         let (output, _, _) = tools::dispatch_full(&tool_req, &self.config.root);
         let status = output.status;
+        let display_output = tool_display_output(&output);
         match send(
             tx,
-            ToolFinished { id: tool_id, output: output.output, status, write_result: None, shell_result: None },
+            ToolFinished { id: tool_id, output: display_output, status, write_result: None, shell_result: None },
             cancel,
         ) {
             None => return,
@@ -680,11 +680,12 @@ impl RunHandle {
                 }
             };
             let shell_status = shell_output.status;
+            let shell_display_output = tool_display_output(&shell_output);
             match send(
                 tx,
                 ToolFinished {
                     id: shell_id,
-                    output: shell_output.output,
+                    output: shell_display_output,
                     status: shell_status,
                     write_result,
                     shell_result: shell_result.map(Box::new),
@@ -834,7 +835,29 @@ fn dispatch_tool_request(
     {
         return output;
     }
-    tools::dispatch_runtime_full(request, &handle.config.root, handle.config.mcp_manager.as_deref())
+    tools::dispatch_runtime_full_with_cancel(
+        request,
+        &handle.config.root,
+        handle.config.mcp_manager.as_deref(),
+        cancel,
+    )
+}
+
+/// Return transcript and provider-result lines for a completed tool request.
+///
+/// Tool executors keep an error separate from ordinary output so callers can
+/// distinguish success from failure. Materialize that error here because the
+/// application event and durable session record carry display lines only.
+fn tool_display_output(output: &ToolOutput) -> Vec<String> {
+    let mut lines = output.output.clone();
+    let Some(error) = output.error.as_deref().map(str::trim).filter(|error| !error.is_empty()) else {
+        return lines;
+    };
+    let error_line = format!("error: {error}");
+    if !lines.iter().any(|line| line == error || line == &error_line) {
+        lines.insert(0, error_line);
+    }
+    lines
 }
 
 fn approve_tool_request(request: &ToolUseRequest, handle: &RunHandle, cancel: &CancelToken) -> ToolPermissionDecision {
@@ -1645,10 +1668,14 @@ fn extract_tool_use_start(data: &str) -> Option<(usize, ToolUseBuilder)> {
     ))
 }
 
-/// Send an event, respecting cancellation. Returns `Some(())` on success, or
-/// `None` if the send failed (receiver dropped) or cancellation was requested.
+/// Send an event, respecting cancellation.
+///
+/// A cancellation notification itself must still cross the channel after the
+/// token has been set. Otherwise the UI can remain in its stopping state while
+/// the worker exits.
 fn send(tx: &Sender<AgentEvent>, event: AgentEvent, cancel: &CancelToken) -> Option<()> {
-    if cancel.is_cancelled() {
+    if cancel.is_cancelled() && !matches!(event, AgentEvent::Cancelled) {
+        let _ = tx.send(AgentEvent::Cancelled);
         return None;
     }
     if tx.send(event).is_err() {
@@ -1889,6 +1916,20 @@ mod tests {
             !events.contains(&AgentEvent::Finished),
             "cancelled run must not finish normally"
         );
+        assert!(
+            events.contains(&AgentEvent::Cancelled),
+            "cancelled run must notify the UI before its channel closes"
+        );
+    }
+
+    #[test]
+    fn cancellation_notification_is_sent_after_token_is_cancelled() {
+        let (tx, rx) = mpsc::channel();
+        let token = CancelToken::new();
+        token.cancel();
+
+        assert_eq!(send(&tx, AgentEvent::Cancelled, &token), Some(()));
+        assert_eq!(rx.recv().expect("cancellation event"), AgentEvent::Cancelled);
     }
 
     #[test]
@@ -2592,5 +2633,49 @@ mod tests {
         let output = dispatch_output(&req, Path::new("."));
         assert_eq!(output.status, ToolStatus::Failed);
         assert!(output.error.as_ref().is_some_and(|e| e.contains("missing")));
+    }
+
+    #[test]
+    fn agent_dispatch_cancellation_stops_run_shell() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let handle = RunHandle::fake(
+            AgentRunConfig::new(dir.path().to_path_buf(), "fake-agent".to_string(), WebSearchMode::None),
+            String::new(),
+        );
+        let request = ToolUseRequest::new(
+            "run_shell".to_string(),
+            serde_json::json!({ "argv": ["sh", "-c", "exec sleep 30"] }).to_string(),
+            "call_1".to_string(),
+        );
+        let cancel = handle.cancel.clone();
+        let canceller = cancel.clone();
+        let stopper = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            canceller.cancel();
+        });
+        let started = std::time::Instant::now();
+
+        let (output, _, process) = dispatch_tool_request(&request, &handle, &cancel);
+
+        stopper.join().expect("cancellation thread");
+        let process = process.expect("shell process result");
+        assert_eq!(output.status, ToolStatus::Failed);
+        assert_eq!(process.status, crate::tools::shell::ProcessStatus::Cancelled);
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    }
+
+    #[test]
+    fn tool_display_output_includes_failure_detail_without_changing_success_output() {
+        let success = ToolOutput::ok("find_files", vec!["src/lib.rs".to_string()]);
+        assert_eq!(tool_display_output(&success), vec!["src/lib.rs"]);
+
+        let failure = ToolOutput::failed(
+            "run_shell",
+            "missing command: provide non-empty 'argv', 'command', or 'program'",
+        );
+        assert_eq!(
+            tool_display_output(&failure),
+            vec!["error: missing command: provide non-empty 'argv', 'command', or 'program'"]
+        );
     }
 }

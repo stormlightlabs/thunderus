@@ -23,6 +23,7 @@ use crate::app::{App, PromptState};
 use crate::renderer::backend::TerminalBackend;
 use crate::renderer::row::{Frame, Row};
 use crate::renderer::style::{self, CellStyle, Span};
+use crate::renderer::transcript::ENTRY_RAIL;
 use crate::renderer::view::RendererView;
 
 trait RowPolicyText {
@@ -65,6 +66,20 @@ pub struct LiveRegion {
     committed_width: Option<usize>,
 }
 
+/// One prepared direct-render update.
+///
+/// The projection and frame are built before terminal writes so the backend can
+/// bracket the complete update atomically with synchronized-update control
+/// sequences.
+struct RenderPlan<'a> {
+    frame: Frame,
+    rows_to_commit: &'a [Row],
+    width: usize,
+    height: usize,
+    top_row: u16,
+    replay_history: bool,
+}
+
 impl Default for LiveRegion {
     fn default() -> Self {
         Self::new()
@@ -92,22 +107,33 @@ impl LiveRegion {
     ///
     /// Once the banner is committed, the frame contains only the live chrome.
     pub fn build_frame(&self, app: &App, width: usize, height: usize) -> Frame {
+        let view = RendererView::build(app, width, height);
+        self.build_frame_from_view(app, &view)
+    }
+
+    /// Compose a terminal-sized frame from a projection that was already
+    /// built for the current render pass.
+    ///
+    /// Keeping this separate from [`Self::build_frame`] lets the hot render
+    /// path reuse its projection for both scrollback commits and frame layout
+    /// instead of rebuilding and re-highlighting the transcript twice.
+    fn build_frame_from_view(&self, app: &App, view: &RendererView) -> Frame {
+        let width = view.width;
+        let height = view.height;
         let mut frame = Frame::new(width);
         if width == 0 || height == 0 {
             return frame;
         }
 
-        let view = RendererView::build(app, width, height);
-        let live = self.build_live_frame(&view);
+        let live = self.build_live_frame(view);
         let live_height = live.rows.len().min(height);
 
         let startup = app.transcript.is_empty();
-        let history_rows = if startup { view.transcript.banner_rows } else { view.transcript.stable_rows };
         let available_history = height.saturating_sub(live_height);
         let history_rows = if startup {
-            startup_history_rows(history_rows, width, available_history)
+            startup_history_rows(view.transcript.banner_rows.clone(), width, available_history)
         } else {
-            clip_from_top(history_rows, available_history)
+            clip_transcript_rows_from_top(&view.transcript.stable_rows, available_history, width)
         };
 
         frame.rows.extend(history_rows);
@@ -188,7 +214,7 @@ impl LiveRegion {
             if !live.detail_pane.is_empty() { live.detail_pane.clone() } else { live.accessory_rows.clone() };
 
         let queued: Vec<Row> = live.queued_summary.clone().into_iter().collect();
-        let tail = live.live_tail.clone();
+        let tail = &live.live_tail;
         let reserved = footer.len() + prompt.len() + status_chrome.len();
         let remaining = height.saturating_sub(reserved);
 
@@ -198,7 +224,7 @@ impl LiveRegion {
         let after_queued = after_accessory.saturating_sub(queued_budget);
         let tail_budget = tail.len().min(after_queued);
 
-        let tail_rows = clip_from_top(tail, tail_budget);
+        let tail_rows = clip_transcript_rows_from_top(tail, tail_budget, width);
         let queued_rows = clip_from_top(queued, queued_budget);
         let accessory_rows = clip_from_top(accessory, accessory_budget);
 
@@ -251,32 +277,48 @@ impl LiveRegion {
             return Ok(());
         }
 
-        if self
+        let view = RendererView::build(app, width, height);
+        let replay_history = self
             .committed_width
             .is_some_and(|committed_width| committed_width != width)
-        {
+            || self.committed_row_count > view.transcript.stable_rows.len();
+        let commit_start = if replay_history { 0 } else { self.committed_row_count };
+        let rows_to_commit = &view.transcript.stable_rows[commit_start..];
+        let frame = self.build_frame_from_view(app, &view);
+        let top_row = 0;
+        let frame_changed = self.rendered_frame.as_ref() != Some(&frame);
+        let viewport_changed = self.rendered_width != Some(width)
+            || self.rendered_height != Some(height)
+            || self.rendered_top_row != Some(top_row);
+        let needs_output = replay_history || !rows_to_commit.is_empty() || viewport_changed || frame_changed;
+        if !needs_output {
+            return Ok(());
+        }
+
+        let plan = RenderPlan { frame, rows_to_commit, width, height, top_row, replay_history };
+        backend.begin_synchronized_update()?;
+        let result = self.render_frame_inner(backend, plan);
+        let end_result = backend.end_synchronized_update();
+        result.and(end_result)
+    }
+
+    fn render_frame_inner<W: io::Write>(
+        &mut self, backend: &mut TerminalBackend<W>, plan: RenderPlan<'_>,
+    ) -> io::Result<()> {
+        let RenderPlan { frame, rows_to_commit, width, height, top_row, replay_history } = plan;
+        if replay_history {
             backend.clear_all()?;
             self.rendered_frame = None;
             self.committed_row_count = 0;
+            self.committed_width = None;
         }
 
-        let view = RendererView::build(app, width, height);
-        if self.committed_row_count > view.transcript.stable_rows.len() {
-            backend.clear_all()?;
-            self.rendered_frame = None;
-            self.committed_row_count = 0;
-        }
-
-        let rows_to_commit = &view.transcript.stable_rows[self.committed_row_count..];
         if !rows_to_commit.is_empty() {
             backend.insert_history_lines(rows_to_commit, height as u16)?;
             self.rendered_frame = None;
-            self.committed_row_count = view.transcript.stable_rows.len();
+            self.committed_row_count += rows_to_commit.len();
             self.committed_width = Some(width);
         }
-
-        let frame = self.build_frame(app, width, height);
-        let top_row = 0;
 
         if self.rendered_top_row.is_some_and(|prev_top| prev_top != top_row) {
             if let Some(prev) = self.rendered_frame.as_ref() {
@@ -329,6 +371,86 @@ fn clip_from_top(mut rows: Vec<Row>, budget: usize) -> Vec<Row> {
         return rows;
     }
     rows.split_off(rows.len() - budget)
+}
+
+/// Keep the latest transcript rows with an explicit partial-entry marker.
+///
+/// Group identity is semantic row metadata, unlike the rendered code and tool
+/// gutters. A marker therefore remains aligned with its entry even when the
+/// first retained row is nested code or tool output. When an entry heading is
+/// still visible, it remains more useful than a continuation marker.
+fn clip_transcript_rows_from_top(rows: &[Row], budget: usize, width: usize) -> Vec<Row> {
+    if budget == 0 || rows.is_empty() {
+        return Vec::new();
+    }
+    if rows.len() <= budget {
+        return rows.to_vec();
+    }
+
+    let first_visible = rows.len() - budget;
+    let Some(group_id) = rows[first_visible].group_id else {
+        return rows[first_visible..].to_vec();
+    };
+
+    let group_start = rows[..first_visible]
+        .iter()
+        .rposition(|row| row.group_id != Some(group_id))
+        .map_or(0, |index| index + 1);
+    if group_start == first_visible {
+        return rows[first_visible..].to_vec();
+    }
+
+    let first_nonblank = rows[group_start..=first_visible]
+        .iter()
+        .position(|row| !row.text_for_policy().trim().is_empty())
+        .map(|index| group_start + index);
+    if first_nonblank == Some(first_visible) {
+        return rows[first_visible..].to_vec();
+    }
+
+    // The marker replaces `first_visible`, so that row is hidden along with
+    // the earlier rows from this entry.
+    let hidden_rows = first_visible - group_start + 1;
+    let entry_rows = &rows[group_start..=first_visible];
+    // `Row::padded` places layout padding before the rendered entry rail. Pick
+    // the rail explicitly so a continuation retains the entry's color instead
+    // of inheriting the padding style. The fallback keeps custom transcript
+    // rows without a rail readable.
+    let rail_style = entry_rows
+        .iter()
+        .flat_map(|row| row.spans.iter())
+        .find(|span| span.text == ENTRY_RAIL)
+        .or_else(|| {
+            entry_rows
+                .iter()
+                .flat_map(|row| row.spans.iter())
+                .find(|span| !span.text.trim().is_empty())
+        })
+        .map(|span| span.style)
+        .unwrap_or_default();
+    let marker_style = CellStyle::new().fg(style::palette().overlay1).bg(rail_style.bg);
+    let mut marker = Row::padded(
+        vec![
+            Span::styled(ENTRY_RAIL, rail_style),
+            Span::styled(
+                format!("… {hidden_rows} earlier row(s) in this entry hidden"),
+                marker_style,
+            ),
+        ],
+        width,
+        CellStyle::new().bg(marker_style.bg),
+    );
+    marker.group_id = Some(group_id);
+
+    if budget == 1 {
+        return vec![marker];
+    }
+
+    let visible_tail = rows[rows.len() - (budget - 1)..].to_vec();
+    let mut clipped = Vec::with_capacity(budget);
+    clipped.push(marker);
+    clipped.extend(visible_tail);
+    clipped
 }
 
 /// Apply startup-specific clipping instead of blindly taking the bottom rows.

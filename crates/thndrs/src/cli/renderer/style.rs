@@ -12,6 +12,8 @@ pub use crossterm::style::Color;
 
 use crate::cli::Theme;
 
+const SPINNER_FRAME_INTERVAL_MS: u64 = 66;
+
 /// Style attributes applied to a cell's text and background.
 ///
 /// Mirrors the subset of ANSI attributes `thndrs` uses today: foreground and
@@ -211,6 +213,14 @@ pub fn status_icon(label: &str, tick: u64) -> &'static str {
     }
 }
 
+/// Convert UI ticks to a spinner frame that advances about every 66 milliseconds.
+///
+/// The event/render loop may run faster than the spinner so streaming output
+/// stays responsive without making the activity affordance visually frantic.
+pub fn spinner_tick(ui_tick: u64, tick_rate_ms: u64) -> u64 {
+    ui_tick.saturating_mul(tick_rate_ms.max(1)) / SPINNER_FRAME_INTERVAL_MS
+}
+
 pub fn spinner_frame(tick: u64) -> &'static str {
     const FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
     FRAMES[(tick as usize) % FRAMES.len()]
@@ -353,6 +363,14 @@ mod tests {
         assert_eq!(spinner_frame(0), "⠋");
         assert_eq!(spinner_frame(10), "⠋");
         assert_eq!(spinner_frame(11), "⠙");
+    }
+
+    #[test]
+    fn spinner_tick_advances_at_a_smooth_66_ms_cadence() {
+        assert_eq!(spinner_tick(0, 33), 0);
+        assert_eq!(spinner_tick(1, 33), 0);
+        assert_eq!(spinner_tick(2, 33), 1);
+        assert_eq!(spinner_tick(1, 100), 1);
     }
 
     #[test]

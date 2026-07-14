@@ -1,12 +1,29 @@
 //! Provider implementations.
 
 use std::path::Path;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
 use crate::app::AgentEvent;
 use crate::cli::{ReasoningEffort, ReasoningSummary, WebSearchMode};
 use crate::tools::ToolUseRequest;
+
+/// Bound DNS resolution and TCP/TLS setup so a disconnected provider cannot
+/// hold an agent run indefinitely.
+pub(crate) const PROVIDER_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Bound request transmission, including request bodies such as tool schemas.
+pub(crate) const PROVIDER_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Bound the wait for a provider to begin its HTTP response.
+pub(crate) const PROVIDER_RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Bound one stalled read from a streaming provider response.
+///
+/// This is deliberately not a global request deadline: active SSE streams may
+/// continue longer than this interval as long as they keep producing data.
+pub(crate) const PROVIDER_STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub mod anthropic;
 pub mod codex;
@@ -18,6 +35,23 @@ pub use codex as chatgpt_codex;
 pub use opencode::zen as opencode_zen;
 
 pub type Result<T> = std::result::Result<T, ProviderError>;
+
+/// Create the shared HTTP transport configuration for provider clients.
+///
+/// `ureq` applies `timeout_recv_body` to each blocking body read. That gives
+/// streaming responses a finite inactivity timeout without imposing a total
+/// lifetime on an otherwise healthy SSE response.
+pub(crate) fn provider_http_agent() -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .timeout_resolve(Some(PROVIDER_CONNECT_TIMEOUT))
+        .timeout_connect(Some(PROVIDER_CONNECT_TIMEOUT))
+        .timeout_send_request(Some(PROVIDER_REQUEST_TIMEOUT))
+        .timeout_send_body(Some(PROVIDER_REQUEST_TIMEOUT))
+        .timeout_recv_response(Some(PROVIDER_RESPONSE_TIMEOUT))
+        .timeout_recv_body(Some(PROVIDER_STREAM_IDLE_TIMEOUT))
+        .build()
+        .new_agent()
+}
 
 /// Return the reasoning controls that can be safely selected for `model`.
 ///
@@ -310,7 +344,7 @@ impl ProviderHttpClient {
         ProviderHttpClient {
             base_url: base_url.trim_end_matches('/').to_string(),
             api_key: api_key.to_string(),
-            agent: ureq::Agent::new_with_defaults(),
+            agent: provider_http_agent(),
         }
     }
 
@@ -424,4 +458,27 @@ fn parse_api_key_line(line: &str, env_name: &str) -> Option<String> {
         .unwrap_or(value);
 
     if value.is_empty() { None } else { Some(value.to_string()) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn provider_http_client_bounds_setup_and_streaming_idle_timeouts() {
+        let client = ProviderHttpClient::new("https://provider.example", "test-key");
+        let timeouts = client.agent().config().timeouts();
+
+        assert_eq!(
+            timeouts.global, None,
+            "SSE streams must not have a total lifetime deadline"
+        );
+        assert_eq!(timeouts.per_call, None, "SSE streams must not have a per-call deadline");
+        assert_eq!(timeouts.resolve, Some(PROVIDER_CONNECT_TIMEOUT));
+        assert_eq!(timeouts.connect, Some(PROVIDER_CONNECT_TIMEOUT));
+        assert_eq!(timeouts.send_request, Some(PROVIDER_REQUEST_TIMEOUT));
+        assert_eq!(timeouts.send_body, Some(PROVIDER_REQUEST_TIMEOUT));
+        assert_eq!(timeouts.recv_response, Some(PROVIDER_RESPONSE_TIMEOUT));
+        assert_eq!(timeouts.recv_body, Some(PROVIDER_STREAM_IDLE_TIMEOUT));
+    }
 }

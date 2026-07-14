@@ -261,9 +261,6 @@ impl TranscriptView {
         let ctx = TranscriptRowContext { user_label: &app.user_label, cwd: &app.cwd, width, entry_index: None };
 
         for (index, entry) in app.transcript.iter().enumerate() {
-            if matches!(entry, Entry::User { .. }) {
-                continue;
-            }
             let mut entry_ctx = ctx.clone();
             entry_ctx.entry_index = Some(index);
             let (entry_stable, entry_live) = entry_ctx.rows_for_entry_stable_and_live_rows(entry);

@@ -1,5 +1,5 @@
 use super::*;
-use crate::cli::{ReasoningEffort, ReasoningSummary, Theme, WebSearchMode};
+use crate::cli::{DEFAULT_TICK_RATE_MS, ReasoningEffort, ReasoningSummary, Theme, WebSearchMode};
 use std::path::PathBuf;
 
 fn with_home<T>(home: &Path, f: impl FnOnce() -> T) -> T {
@@ -615,7 +615,7 @@ fn effective_config_defaults_when_no_files() {
     assert!(effective.layers.is_empty(), "no config files should produce no layers");
     assert_eq!(effective.config.model, None);
     assert_eq!(effective.config.websearch, Some(WebSearchMode::Auto));
-    assert_eq!(effective.config.tick_rate_ms, Some(100));
+    assert_eq!(effective.config.tick_rate_ms, Some(DEFAULT_TICK_RATE_MS));
     assert_eq!(effective.config.mouse, Some(false));
     assert_eq!(effective.config.verbose, Some(false));
     assert_eq!(effective.config.theme, Some(Theme::EldritchMinimal));
