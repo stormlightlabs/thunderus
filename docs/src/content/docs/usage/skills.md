@@ -23,7 +23,9 @@ Built-in discovery checks these project directories:
 
 It also checks the same names under the user's home directory. `.agents/skills`
 matches the Agent Skills convention; `.claude`, `.codex`, and `.pi` are
-compatibility locations for existing local skill packages.
+compatibility locations for existing local skill packages. When more than one
+skill has the same name, the first matching skill in discovery-root order is
+used. Inspect the selected and ignored paths with `thndrs skills doctor`.
 
 At discovery time, only compact metadata is used:
 
@@ -101,7 +103,8 @@ the runtime permission boundary.
 
 Malformed skills are skipped and surfaced as diagnostics. Diagnostics are shown
 compactly so users can fix local skill packages without turning broken metadata
-into prompt noise.
+into prompt noise. Duplicate names are expected when compatibility roots overlap;
+they are resolved silently and listed by `thndrs skills doctor`.
 
 ## Related Docs
 

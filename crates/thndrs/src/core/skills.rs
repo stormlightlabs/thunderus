@@ -89,6 +89,16 @@ impl SkillSource {
 pub struct SkillInventory {
     pub skills: Vec<SkillMetadata>,
     pub diagnostics: Vec<SkillDiagnostic>,
+    /// Name collisions resolved by keeping the first skill found in discovery-root order.
+    pub duplicates: Vec<SkillDuplicate>,
+}
+
+/// A duplicate skill name and the deterministic resolution chosen during discovery.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SkillDuplicate {
+    pub name: String,
+    pub selected_path: PathBuf,
+    pub ignored_paths: Vec<PathBuf>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -566,8 +576,6 @@ fn validate_name(path: &Path, name: &str, parent_name: &str) -> Result<(), Skill
 fn discover_from_roots(roots: Vec<SkillRoot>) -> SkillInventory {
     let mut skills = Vec::new();
     let mut diagnostics = Vec::new();
-    let mut seen_names: HashMap<String, PathBuf> = HashMap::new();
-    let mut duplicate_names: BTreeMap<String, usize> = BTreeMap::new();
 
     for root in roots {
         if !root.path.is_dir() {
@@ -576,36 +584,28 @@ fn discover_from_roots(roots: Vec<SkillRoot>) -> SkillInventory {
         discover_dir(&root.path, &root, 0, &mut skills, &mut diagnostics);
     }
 
-    let mut deduped = Vec::new();
+    let mut selected_skills: Vec<SkillMetadata> = Vec::new();
+    let mut selected_by_name: HashMap<String, usize> = HashMap::new();
+    let mut duplicates: BTreeMap<String, SkillDuplicate> = BTreeMap::new();
     for skill in skills {
-        if seen_names.contains_key(&skill.name) {
-            *duplicate_names.entry(skill.name).or_default() += 1;
+        if let Some(&selected_index) = selected_by_name.get(&skill.name) {
+            let duplicate = duplicates.entry(skill.name.clone()).or_insert_with(|| SkillDuplicate {
+                name: skill.name.clone(),
+                selected_path: selected_skills[selected_index].path.clone(),
+                ignored_paths: Vec::new(),
+            });
+            duplicate.ignored_paths.push(skill.path);
             continue;
         }
-        seen_names.insert(skill.name.clone(), skill.path.clone());
-        deduped.push(skill);
-    }
-    if !duplicate_names.is_empty() {
-        diagnostics.push(duplicate_skill_diagnostic(&duplicate_names));
+        selected_by_name.insert(skill.name.clone(), selected_skills.len());
+        selected_skills.push(skill);
     }
 
-    SkillInventory { skills: deduped, diagnostics: collapse_redundant_diagnostics(diagnostics) }
-}
-
-fn duplicate_skill_diagnostic(duplicate_names: &BTreeMap<String, usize>) -> SkillDiagnostic {
-    let duplicate_installs = duplicate_names.values().sum::<usize>();
-    let total_names = duplicate_names.len();
-    let mut names = duplicate_names.keys().take(8).cloned().collect::<Vec<_>>();
-    if duplicate_names.len() > names.len() {
-        names.push(format!("and {} more", duplicate_names.len() - names.len()));
+    SkillInventory {
+        skills: selected_skills,
+        diagnostics: collapse_redundant_diagnostics(diagnostics),
+        duplicates: duplicates.into_values().collect(),
     }
-    SkillDiagnostic::new(
-        "skills",
-        format!(
-            "{duplicate_installs} duplicate skill install(s) ignored across {total_names} skill name(s): {}",
-            names.join(", ")
-        ),
-    )
 }
 
 fn collapse_redundant_diagnostics(diagnostics: Vec<SkillDiagnostic>) -> Vec<SkillDiagnostic> {
@@ -765,7 +765,7 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_skill_installs_are_collapsed_into_one_diagnostic() {
+    fn duplicate_skill_installs_use_the_first_discovery_root_and_are_reported_separately() {
         let dir = tempfile::tempdir().expect("temp dir");
         for root in [".agents/skills", ".claude/skills", ".codex/skills"] {
             write(
@@ -781,14 +781,22 @@ mod tests {
         ]);
 
         assert_eq!(inventory.skills.len(), 1);
-        assert_eq!(inventory.diagnostics.len(), 1);
-        assert_eq!(inventory.diagnostics[0].path, PathBuf::from("skills"));
-        assert!(
-            inventory.diagnostics[0]
-                .message
-                .contains("2 duplicate skill install(s) ignored")
+        assert_eq!(
+            inventory.skills[0].path,
+            dir.path().join(".agents/skills/example-skill/SKILL.md")
         );
-        assert!(inventory.diagnostics[0].message.contains("example-skill"));
+        assert!(inventory.diagnostics.is_empty());
+        assert_eq!(
+            inventory.duplicates,
+            vec![SkillDuplicate {
+                name: "example-skill".to_string(),
+                selected_path: dir.path().join(".agents/skills/example-skill/SKILL.md"),
+                ignored_paths: vec![
+                    dir.path().join(".claude/skills/example-skill/SKILL.md"),
+                    dir.path().join(".codex/skills/example-skill/SKILL.md"),
+                ],
+            }]
+        );
     }
 
     #[test]

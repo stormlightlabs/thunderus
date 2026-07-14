@@ -8,3 +8,4 @@ pub mod doctor;
 pub mod mcp;
 pub mod session;
 pub mod setup;
+pub mod skills;

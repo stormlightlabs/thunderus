@@ -24,6 +24,7 @@ title: "CLI Reference"
 - `thndrs auth status`: show provider credential sources without values.
 - `thndrs doctor`: print redacted human-readable setup diagnostics.
 - `thndrs doctor --json`: print redacted machine-readable diagnostics for bug reports.
+- `thndrs skills doctor`: show duplicate skill names, the selected path, and ignored paths.
 - `thndrs config path`: print global and project config paths.
 - `thndrs config show --redacted`: print effective config, origins, loaded files, and diagnostics.
 - `thndrs config edit --global`: open the global config file with `$EDITOR`.

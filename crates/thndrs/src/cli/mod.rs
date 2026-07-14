@@ -216,6 +216,11 @@ pub enum Command {
         #[command(subcommand)]
         command: commands::mcp::McpCommand,
     },
+    /// Inspect discovered skills and their resolution.
+    Skills {
+        #[command(subcommand)]
+        command: commands::skills::SkillsCommand,
+    },
     /// Inspect local append-only session history.
     #[command(alias = "sessions")]
     Session {
@@ -806,6 +811,15 @@ mod tests {
         assert_eq!(
             cli.command,
             Some(Command::Doctor(commands::doctor::DoctorCommand { json: true }))
+        );
+    }
+
+    #[test]
+    fn skills_doctor_command_parses() {
+        let cli = Cli::try_parse_from(["thndrs", "skills", "doctor"]).expect("parse");
+        assert_eq!(
+            cli.command,
+            Some(Command::Skills { command: commands::skills::SkillsCommand::Doctor })
         );
     }
 
