@@ -25,8 +25,7 @@ export default defineConfig({
           attrs: {
             property: "og:description",
             content:
-              "Use coding models from a terminal UI with visible context,\
-              structured transcript events, and bounded repository tools.",
+              "Use coding models from a terminal UI with visible context, structured transcript events, and bounded repository tools.",
           },
         },
         { tag: "meta", attrs: { property: "og:type", content: "website" } },
