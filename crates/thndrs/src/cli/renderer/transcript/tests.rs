@@ -23,6 +23,25 @@ fn render_banner_styled(app: &App, width: usize) -> String {
     frame.render_styled()
 }
 
+#[test]
+fn ordinary_transcript_rows_use_terminal_default_background() {
+    let entries = [
+        Entry::User { text: "inspect the renderer".to_string() },
+        Entry::Agent { text: "I found the projection.".to_string(), streaming: false },
+        Entry::Reasoning { text: "checking layout".to_string(), streaming: false },
+    ];
+
+    for entry in entries {
+        let rows = ctx(80).rows_for_entry(&entry);
+        assert!(
+            rows.iter()
+                .flat_map(|row| &row.spans)
+                .all(|span| span.style.bg == renderer::style::Color::Reset),
+            "ordinary transcript entries should inherit the terminal background: {entry:?}"
+        );
+    }
+}
+
 fn assert_snapshot(name: &str, contents: &str) {
     insta::with_settings!({snapshot_path => "../snapshots"}, {
         insta::assert_snapshot!(name, contents);
@@ -106,6 +125,30 @@ fn user_message_has_balanced_vertical_padding() {
 }
 
 #[test]
+fn user_and_activity_labels_share_the_same_rail_column() {
+    let user = Entry::User { text: "hello".to_string() };
+    let tool = Entry::Tool {
+        name: "search_text".to_string(),
+        arguments: r#"{"pattern":"hello"}"#.to_string(),
+        status: ToolStatus::Ok,
+        output: vec!["src/lib.rs:1:hello".to_string()],
+    };
+
+    let user_rows = ctx(80).rows_for_entry(&user);
+    let tool_rows = ctx(80).rows_for_entry(&tool);
+    let user_label = user_rows
+        .iter()
+        .find(|row| row.text().contains("User"))
+        .expect("user label row");
+    let activity_label = tool_rows
+        .iter()
+        .find(|row| row.text().contains("Activity"))
+        .expect("activity label row");
+
+    assert_eq!(user_label.text().find('│'), activity_label.text().find('│'));
+}
+
+#[test]
 fn snapshot_assistant_text_normal() {
     let entry = Entry::Agent { text: "Sure! I can help with that. Let me take a look.".to_string(), streaming: false };
     assert_snapshot("transcript_assistant_text_normal", &render_entry_styled(&entry, 80));
@@ -154,7 +197,7 @@ fn ordinary_markdown_code_fence_is_highlighted_and_wrapped() {
         "code should be wrapped: {rendered}"
     );
     assert!(
-        rendered.contains("[fg=#b48ead bg=#171928]=fn"),
+        rendered.contains("[fg=#b48ead]=fn"),
         "ordinary Markdown code fences should highlight Rust keywords: {rendered}"
     );
 }
@@ -260,6 +303,31 @@ fn snapshot_tool_running_narrow() {
 }
 
 #[test]
+fn completed_shell_tool_shows_command_without_opaque_call_id() {
+    let entry = Entry::Tool {
+        name: "run_shell#call_szT01Chdh05ZL1XMRRkV29xa".to_string(),
+        arguments: r#"{"argv":["mv","docs/design/thndrs-ui-concepts.html",".sandbox/"] ,"cwd":"."}"#.to_string(),
+        status: ToolStatus::Ok,
+        output: vec!["Process exited with code 0".to_string()],
+    };
+
+    let rendered = render_entry_styled(&entry, 120);
+
+    assert!(
+        rendered.contains("run_shell"),
+        "tool name should remain visible:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("$ mv docs/design/thndrs-ui-concepts.html .sandbox/"),
+        "shell activity should summarize its argv:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("call_szT01Chdh05ZL1XMRRkV29xa") && !rendered.contains("cwd: ."),
+        "opaque call ids and low-value cwd-only summaries should be hidden:\n{rendered}"
+    );
+}
+
+#[test]
 fn snapshot_tool_running_partial_output() {
     let entry = Entry::Tool {
         name: "run_shell".to_string(),
@@ -292,6 +360,26 @@ fn snapshot_tool_ok_normal() {
         ],
     };
     assert_snapshot("transcript_tool_ok_normal", &render_entry_styled(&entry, 80));
+}
+
+#[test]
+fn settled_tool_collapses_output_behind_detail_affordance() {
+    let entry = Entry::Tool {
+        name: "search_text".to_string(),
+        arguments: r#"{"pattern":"fn main"}"#.to_string(),
+        status: ToolStatus::Ok,
+        output: vec!["src/main.rs:1:fn main()".to_string()],
+    };
+    let rendered = render_entry_styled(&entry, 80);
+
+    assert!(
+        rendered.contains('▸'),
+        "settled tool should advertise detail: {rendered}"
+    );
+    assert!(
+        !rendered.contains("src/main.rs:1:fn main()"),
+        "settled output should stay in the detail surface: {rendered}"
+    );
 }
 
 #[test]
@@ -476,7 +564,7 @@ fn banner_context_section_shows_agents_md_not_full_path() {
 }
 
 #[test]
-fn banner_context_section_shows_truncation() {
+fn banner_context_section_keeps_truncated_source_compact() {
     let _guard = crate::test_env::lock();
     let mut app = test_app();
     app.context_sources = vec![ContextSource {
@@ -491,24 +579,16 @@ fn banner_context_section_shows_truncation() {
     let rendered = render_banner_styled(&app, 80);
 
     assert!(
-        rendered.contains("AGENTS.md (truncated, 40000") && rendered.contains("bytes)"),
-        "Context section should preserve AGENTS.md truncation metadata:\n{rendered}"
-    );
-}
-
-#[test]
-fn banner_cwd_uses_statusline_truncation_without_wrapping() {
-    let _guard = crate::test_env::lock();
-    let app = test_app();
-    let rendered = render_banner_styled(&app, 40);
-
-    assert!(
-        rendered.contains("~/Pr/St/O/thndrs"),
-        "cwd row should use statusline-style path truncation:\n{rendered}"
+        rendered.contains("AGENTS.md loaded"),
+        "context source should remain readable:\n{rendered}"
     );
     assert!(
-        !rendered.contains("ource/thndrs"),
-        "cwd row should not wrap onto a second row:\n{rendered}"
+        rendered.contains("./AGENTS.md"),
+        "context path should remain visible:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("40000 bytes"),
+        "readiness row should remain compact:\n{rendered}"
     );
 }
 
@@ -556,8 +636,8 @@ fn banner_no_duplicate_context_loaded_status_entry() {
 
     let rendered = render_banner_styled(&app, 80);
     assert!(
-        rendered.contains("CONTEXT"),
-        "banner should have a context section:\n{rendered}"
+        rendered.contains("AGENTS.md loaded"),
+        "banner should show context readiness:\n{rendered}"
     );
     assert!(
         rendered.contains("AGENTS.md"),
@@ -565,12 +645,12 @@ fn banner_no_duplicate_context_loaded_status_entry() {
     );
     assert!(
         !rendered.contains("loaded AGENTS.md"),
-        "banner should not show context as a duplicate loaded status message:\n{rendered}"
+        "banner should not duplicate the old context status wording:\n{rendered}"
     );
 }
 
 #[test]
-fn startup_loaded_skills_wrap_at_hyphens_and_hide_extra_rows() {
+fn banner_summarizes_loaded_skills_as_readiness() {
     let mut app = test_app();
     app.skills = [
         "make-interfaces-feel-better",
@@ -586,25 +666,19 @@ fn startup_loaded_skills_wrap_at_hyphens_and_hide_extra_rows() {
     .map(test_skill)
     .collect();
 
-    let snapshot = app.self_knowledge_snapshot();
-    let lines = snapshot.loaded_skill_lines(24);
-    let rendered = lines.join("\n");
+    let rendered = render_banner_styled(&app, 80);
 
     assert!(
-        lines.len() <= 4,
-        "loaded skills should be capped at four rows:\n{rendered}"
+        rendered.contains("8 skills available"),
+        "banner should show the skill count:\n{rendered}"
     );
     assert!(
-        rendered.contains("make-interfaces-feel-\nbetter,"),
-        "long hyphenated skill names should wrap at a hyphen:\n{rendered}"
+        rendered.contains("skills"),
+        "banner should label skill readiness:\n{rendered}"
     );
     assert!(
-        rendered.contains("...6 skills hidden"),
-        "loaded skills should report hidden skill count:\n{rendered}"
-    );
-    assert!(
-        !rendered.contains("feel-bette"),
-        "loaded skills should not split a hyphenated word mid-segment:\n{rendered}"
+        !rendered.contains("make-interfaces"),
+        "banner should remain compact:\n{rendered}"
     );
 }
 
@@ -625,7 +699,7 @@ fn snapshot_tool_path_shortened() {
     let entry = Entry::Tool {
         name: "search_text".to_string(),
         arguments: r#"{"pattern":"Entry::Status"}"#.to_string(),
-        status: ToolStatus::Ok,
+        status: ToolStatus::Running,
         output: vec![
             "/Users/owais/Projects/StormlightLabs/OpenSource/thndrs/src/session/tests.rs:1420: Entry::Status"
                 .to_string(),
@@ -738,7 +812,7 @@ fn plain_tool_output_preserves_code_indentation_after_search_prefix() {
     let entry = Entry::Tool {
         name: "search_text".to_string(),
         arguments: r#"{"pattern": "println", "path": "src/main.rs"}"#.to_string(),
-        status: ToolStatus::Ok,
+        status: ToolStatus::Running,
         output: vec!["src/main.rs:2:    println!(\"hello\");".to_string()],
     };
     let rendered = render_entry_styled(&entry, 80);
@@ -805,7 +879,14 @@ fn entry_rows_omit_group_id_when_entry_index_none() {
 fn banner_normal_viewport_shows_all_sections() {
     let app = test_app();
     let rendered = render_banner_styled(&app, 80);
-    for section in ["thndrs", "model", "cwd", "CONTEXT", "SKILLS", "SEARCH"] {
+    for section in [
+        "thndrs / ready",
+        "Ask for change, run a command, or inspect the repo.",
+        "No project instructions",
+        "skills",
+        "Web Search",
+        "native",
+    ] {
         assert!(
             rendered.contains(section),
             "normal viewport should show {section}:\n{rendered}"
@@ -817,20 +898,20 @@ fn banner_normal_viewport_shows_all_sections() {
 }
 
 #[test]
-fn banner_search_heading_uses_pink_label_color() {
+fn banner_search_metadata_uses_quiet_color() {
     let app = test_app();
     let rows = app.render_banner_rows(80);
     let search = rows
         .iter()
-        .find(|row| row.text().trim() == "SEARCH")
-        .expect("search heading");
+        .find(|row| row.text().contains("Web Search"))
+        .expect("search readiness row");
 
     let label = search
         .spans
         .iter()
-        .find(|span| span.text == "SEARCH")
-        .expect("search label span");
-    assert_eq!(label.style.fg, renderer::style::palette().pink);
+        .find(|span| span.text == "native")
+        .expect("search metadata span");
+    assert_eq!(label.style.fg, renderer::style::palette().overlay1);
 }
 
 #[test]
@@ -838,9 +919,9 @@ fn banner_narrow_viewport_preserves_sections() {
     let app = test_app();
     let rendered = render_banner_styled(&app, 40);
 
-    assert!(rendered.contains("model"), "narrow viewport should show model row");
+    assert!(rendered.contains("thndrs"), "narrow viewport should show identity");
     assert!(
-        rendered.contains("CONTEXT"),
-        "narrow viewport should show context section"
+        rendered.contains("No project instructions"),
+        "narrow viewport should show context readiness"
     );
 }

@@ -1,11 +1,7 @@
 ---
-source: src/cli/renderer/transcript/tests.rs
+source: crates/thndrs/src/cli/renderer/transcript/tests.rs
 expression: contents
 ---
-│                                           # [bg=#171928]=                                        
-│   │ ✓ search_text [ok]                    # [bg=#171928]=   [fg=#37f499 bg=#171928]=│  [fg=#37f499 bg=#171928]=✓  [fg=#ebfafa bg=#171928 b]=search_text [fg=#37f499 bg=#171928]= [ok] [bg=#171928]=                 [bg=#171928]=  
-│   │   pattern: fn main                    # [bg=#171928]=   [fg=#37f499 bg=#171928]=│  [bg=#171928]=   [fg=#abb4da bg=#171928]=pattern: fn main [bg=#171928]=                 [bg=#171928]=  
-│   │    │ src/main.rs:1:fn main() {        # [bg=#171928]=   [fg=#37f499 bg=#171928]=│  [fg=#3b4261 bg=#171928]=   │  [fg=#abb4da bg=#171928]=src/main.rs:1:fn main() { [bg=#171928]=     [bg=#171928]=  
-│   │    │ src/main.rs:2:    println!("h    # [bg=#171928]=   [fg=#37f499 bg=#171928]=│  [fg=#3b4261 bg=#171928]=   │  [fg=#abb4da bg=#171928]=src/main.rs:2:    println!("h [bg=#171928]=  
-│   │    │ ello");                          # [bg=#171928]=   [fg=#37f499 bg=#171928]=│  [fg=#3b4261 bg=#171928]=   │  [fg=#abb4da bg=#171928]=ello"); [bg=#171928]=                       [bg=#171928]=  
-│   │    │ src/main.rs:3:}                  # [bg=#171928]=   [fg=#37f499 bg=#171928]=│  [fg=#3b4261 bg=#171928]=   │  [fg=#abb4da bg=#171928]=src/main.rs:3:} [bg=#171928]=               [bg=#171928]=
+│                                           # [-]=                                        
+│   │ Activity                              # [-]=   [fg=#f1fc79]=│  [fg=#f1fc79 b]=Activity [-]=                           [-]=  
+│   │ ✓ search_text  pattern: fn main  ▸    # [-]=   [fg=#f1fc79]=│  [fg=#37f499]=✓  [fg=#ebfafa b]=search_text [-]=   [fg=#abb4da]=pattern: fn main [fg=#3b4261]=  ▸ [-]=

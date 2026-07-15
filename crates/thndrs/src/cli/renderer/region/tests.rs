@@ -136,7 +136,7 @@ fn build_frame_short_startup_prioritizes_complete_identity_context_and_attention
 }
 
 #[test]
-fn build_frame_short_startup_never_orphans_a_section_heading() {
+fn build_frame_short_startup_keeps_readiness_rows_together() {
     let mut app = test_app();
     app.context_sources = vec![context::ContextSource {
         path: app.cwd.join("AGENTS.md"),
@@ -148,17 +148,14 @@ fn build_frame_short_startup_never_orphans_a_section_heading() {
     }];
 
     let contents = LiveRegion::new().build_frame(&app, 80, 16).render_text();
-    let lines: Vec<_> = contents.lines().map(str::trim).collect();
-    for heading in ["CONTEXT", "SKILLS", "SEARCH", "ATTENTION"] {
-        if let Some(index) = lines.iter().position(|line| *line == heading) {
-            assert!(
-                lines
-                    .get(index + 1)
-                    .is_some_and(|line| !line.is_empty() && !line.chars().all(|ch| ch == '─')),
-                "{heading} must retain a content row when visible:\n{contents}"
-            );
-        }
-    }
+    let visible_readiness = ["AGENTS.md loaded", "skills", "Web Search"]
+        .into_iter()
+        .filter(|label| contents.contains(label))
+        .count();
+    assert!(
+        visible_readiness == 0 || visible_readiness == 3,
+        "readiness rows should clip as one semantic group:\n{contents}"
+    );
 }
 
 #[test]
@@ -206,19 +203,18 @@ fn build_frame_keeps_live_rows_at_bottom() {
     let frame = LiveRegion::new().build_frame(&app, 80, 12);
     assert!(frame.rows[frame.len() - 1].text().trim().is_empty());
     assert!(frame.rows[frame.len() - 2].text().contains("model:"));
-    assert!(frame.rows[frame.len() - 3].text().contains("hello"));
-    assert!(frame.rows[frame.len() - 4].text().contains("test-session"));
-    assert!(frame.rows[frame.len() - 5].text().trim().is_empty());
-    assert!(frame.rows[frame.len() - 6].text().trim().is_empty());
-    assert_eq!(
-        frame.rows[frame.len() - 5].spans[0].style.bg,
-        renderer::style::palette().surface0,
-        "spacer above live status should be input surface padding"
-    );
+    assert!(frame.rows[frame.len() - 3].text().contains('╰'));
+    assert!(frame.rows[frame.len() - 4].text().contains("hello"));
+    assert!(frame.rows[frame.len() - 5].text().contains("╭─ test-session"));
     assert_eq!(
         frame.rows[frame.len() - 6].spans[0].style.bg,
-        renderer::style::palette().surface_dim,
-        "spacer above input surface should keep transcript background"
+        renderer::style::palette().panel_bg,
+        "the spacer above the composer should extend its surface"
+    );
+    assert_eq!(
+        frame.rows[frame.len() - 5].spans[1].style.bg,
+        renderer::style::palette().panel_bg,
+        "prompt frame should use the focused composer surface"
     );
 }
 
@@ -235,12 +231,12 @@ fn build_frame_keeps_live_rows_at_bottom_with_status_notice() {
     );
     assert!(frame.rows[frame.len() - 1].text().trim().is_empty());
     assert!(frame.rows[frame.len() - 2].text().contains("model:"));
-    assert!(frame.rows[frame.len() - 3].text().contains("❯"));
-    assert!(frame.rows[frame.len() - 4].text().contains("test-session"));
-    assert!(frame.rows[frame.len() - 5].text().trim().is_empty());
+    assert!(frame.rows[frame.len() - 3].text().contains('╰'));
+    assert!(frame.rows[frame.len() - 4].text().contains("❯"));
+    assert!(frame.rows[frame.len() - 5].text().contains("╭─ test-session"));
     assert_eq!(
         frame.cursor,
-        Some(renderer::row::CursorCoord::new(frame.len() - 3, 7)),
+        Some(renderer::row::CursorCoord::new(frame.len() - 4, 7)),
         "cursor should be on the bottom-pinned prompt row"
     );
 }
@@ -281,32 +277,35 @@ fn build_frame_keeps_prompt_gutters_as_pair_when_height_allows_them() {
 }
 
 #[test]
-fn build_frame_uses_dim_spacer_then_input_surface_padding_around_prompt_chrome() {
+fn build_frame_uses_canvas_backed_complete_prompt_frame() {
     let mut app = test_app();
     app.input.set_text("hello");
 
     let frame = LiveRegion::new().build_frame(&app, 80, 12);
-    let dim_spacer = &frame.rows[frame.len() - 6];
-    let top_gutter = &frame.rows[frame.len() - 5];
+    let top_border = &frame.rows[frame.len() - 5];
+    let bottom_border = &frame.rows[frame.len() - 3];
     let bottom_gutter = &frame.rows[frame.len() - 1];
 
-    assert!(dim_spacer.text().trim().is_empty());
-    assert!(top_gutter.text().trim().is_empty());
+    assert!(top_border.text().contains("╭─ test-session"));
+    assert!(bottom_border.text().contains('╰'));
+    assert!(bottom_border.text().contains('╯'));
     assert!(bottom_gutter.text().trim().is_empty());
-    assert_eq!(
-        dim_spacer.spans[0].style.bg,
-        renderer::style::palette().surface_dim,
-        "spacer above prompt surface should use transcript background"
+    assert!(
+        frame.rows[frame.len() - 2]
+            .spans
+            .iter()
+            .all(|span| span.style.bg == renderer::style::palette().panel_bg),
+        "status line should extend the composer surface"
     );
     assert_eq!(
-        top_gutter.spans[0].style.bg,
-        renderer::style::palette().surface0,
-        "spacer above session should match input surface padding"
+        top_border.spans[1].style.bg,
+        renderer::style::palette().panel_bg,
+        "prompt frame should use the focused composer surface"
     );
     assert_eq!(
         bottom_gutter.spans[0].style.bg,
-        renderer::style::palette().surface0,
-        "footer gutter should remain input surface padding"
+        renderer::style::palette().panel_bg,
+        "footer gutter should extend the composer surface"
     );
 }
 
@@ -483,6 +482,41 @@ fn render_frame_full_redraw_on_resize() {
 }
 
 #[test]
+fn startup_resize_purges_stale_rows_and_keeps_composer_at_bottom() {
+    let app = test_app();
+    let mut backend = TerminalBackend::new(Vec::new(), 80, 24);
+    let mut lr = LiveRegion::new();
+    lr.render_frame(&app, &mut backend, 80, 24).unwrap();
+
+    let first_len = backend.writer().len();
+    backend.set_size(80, 18);
+    lr.render_frame(&app, &mut backend, 80, 18).unwrap();
+
+    let output = String::from_utf8(backend.writer().clone()).unwrap();
+    let resize_bytes = &output[first_len..];
+    assert!(
+        resize_bytes.contains("\x1b[3J"),
+        "resize should purge startup rows pushed into native scrollback: {resize_bytes:?}"
+    );
+
+    let contents = vt100_contents(backend.writer(), 80, 18);
+    let lines = contents.lines().collect::<Vec<_>>();
+    let composer = lines
+        .iter()
+        .position(|line| line.contains("test-session"))
+        .expect("composer should remain visible after resize");
+    assert!(
+        composer >= lines.len().saturating_sub(7),
+        "composer should remain pinned near the viewport bottom after resize:\n{contents}"
+    );
+    assert_eq!(
+        lines.iter().filter(|line| line.contains("thndrs / ready")).count(),
+        1,
+        "startup heading should not duplicate after resize:\n{contents}"
+    );
+}
+
+#[test]
 fn render_frame_commits_submitted_user_to_scrollback() {
     let mut app = test_app();
     app.run_state = RunState::Working;
@@ -596,9 +630,9 @@ fn build_frame_keeps_done_prompt_bottom_anchored_after_latest_assistant_message(
     );
     assert!(frame.rows[frame.len() - 1].text().trim().is_empty());
     assert!(frame.rows[frame.len() - 2].text().contains("model:"));
-    assert!(frame.rows[frame.len() - 3].text().contains("Please update @TODO.md"));
-    assert!(frame.rows[frame.len() - 4].text().contains("test-session"));
-    assert!(frame.rows[frame.len() - 5].text().trim().is_empty());
+    assert!(frame.rows[frame.len() - 3].text().contains('╰'));
+    assert!(frame.rows[frame.len() - 4].text().contains("Please update @TODO.md"));
+    assert!(frame.rows[frame.len() - 5].text().contains("╭─ test-session"));
 }
 
 #[test]
@@ -747,8 +781,8 @@ fn vt100_resize_replays_startup_banner_with_committed_scrollback() {
 
     let contents = vt100_contents(backend.writer(), 80, 23);
     assert!(
-        contents.contains("SEARCH"),
-        "startup banner sections should be replayed with committed scrollback after resize:\n{contents}"
+        contents.contains("Web Search") && contents.contains("native"),
+        "startup readiness should be replayed with committed scrollback after resize:\n{contents}"
     );
     assert!(
         contents.contains("trigger scrollback replay"),
@@ -1161,7 +1195,7 @@ fn tool_output_shortens_workspace_absolute_paths() {
     let entry = Entry::Tool {
         name: "search_text".to_string(),
         arguments: r#"{"pattern":"Entry::Status"}"#.to_string(),
-        status: ToolStatus::Ok,
+        status: ToolStatus::Running,
         output: vec![
             "/Users/owais/Projects/StormlightLabs/OpenSource/thndrs/src/session/tests.rs:1420: Entry::Status"
                 .to_string(),
@@ -1223,8 +1257,8 @@ fn committed_row_count_resets_on_width_change() {
         "width change should clear the viewport before replay: {new_bytes:?}"
     );
     assert!(
-        !new_bytes.contains("\x1b[3J"),
-        "width change should preserve native scrollback instead of purging it: {new_bytes:?}"
+        new_bytes.contains("\x1b[3J"),
+        "width change should purge stale native scrollback before replay: {new_bytes:?}"
     );
     assert!(
         new_bytes.contains("\x1b[1;24r"),
@@ -1274,7 +1308,7 @@ fn stable_rows_replay_after_width_change() {
 }
 
 #[test]
-fn width_change_clears_all_before_rebuild() {
+fn width_change_clears_screen_and_stale_scrollback_before_rebuild() {
     let mut app = test_app();
     app.run_state = RunState::Working;
     app.transcript
@@ -1294,8 +1328,8 @@ fn width_change_clears_all_before_rebuild() {
         "width change should clear the visible screen: {new_bytes:?}"
     );
     assert!(
-        !new_bytes.contains("\x1b[3J"),
-        "width change should not purge native scrollback: {new_bytes:?}"
+        new_bytes.contains("\x1b[3J"),
+        "width change should purge stale native scrollback: {new_bytes:?}"
     );
 }
 
@@ -1419,12 +1453,9 @@ fn build_frame_active_picker_plus_streaming_output() {
         .rposition(|l| l.contains("model:"))
         .expect("static footer should be visible");
 
-    assert!(
-        streaming_pos < status_pos,
-        "streaming output should be above dynamic status"
-    );
-    assert!(status_pos < picker_pos, "dynamic status should be above picker");
-    assert!(picker_pos < footer_pos, "picker should be above static footer");
+    assert!(streaming_pos < picker_pos, "streaming output should be above picker");
+    assert!(picker_pos < status_pos, "picker should be above the composer");
+    assert!(status_pos < footer_pos, "composer should be above static footer");
 }
 
 #[test]

@@ -102,8 +102,9 @@ pub fn render_surface(input: &SurfaceRenderInput<'_>) -> Vec<Row> {
         FocusedSurfaceView::Permission(permission) => {
             permission_rows(permission, input.width, input.height, input.theme)
         }
-        FocusedSurfaceView::CommandPicker(picker) => picker_rows(picker, input.width, input.height, input.theme),
-        FocusedSurfaceView::FilePicker(picker) => picker_rows(picker, input.width, input.height, input.theme),
+        FocusedSurfaceView::CommandPicker(picker) | FocusedSurfaceView::FilePicker(picker) => {
+            quiet_picker_rows(picker, input.width, input.height)
+        }
         FocusedSurfaceView::Help(help) => help_rows(help, input.width, input.height, input.theme),
         FocusedSurfaceView::ToolDetail(detail) => tool_detail_rows(detail, input.width, input.height, input.theme),
         FocusedSurfaceView::DiffDetail(detail) => diff_detail_rows(detail, input.width, input.height, input.theme),
@@ -146,7 +147,7 @@ pub fn transcript_lens_rows(title: &str, body: &[String], width: usize, height: 
     canvas_to_rows(&canvas, width, CellStyle::default())
 }
 
-fn picker_rows(picker: &PickerView, width: usize, height: usize, theme: &SurfaceThemeView) -> Vec<Row> {
+fn picker_content(picker: &PickerView, width: usize) -> ViewContent {
     let mut body = vec![SurfaceLine::muted(format!("filter: {}", query_label(&picker.query)))];
     let focus = if picker.items.is_empty() { None } else { Some(1 + picker.selected) };
     if picker.items.is_empty() {
@@ -171,23 +172,56 @@ fn picker_rows(picker: &PickerView, width: usize, height: usize, theme: &Surface
             if selected { SurfaceLine::selected(text) } else { SurfaceLine::text(text) }
         }));
     }
-    render_bounded_view(
-        &ViewContent {
-            title: picker.title.clone(),
-            status: format!(
-                "focus: option {}/{}",
-                picker.selected.saturating_add(1),
-                picker.items.len().max(1)
-            ),
-            body,
-            focus,
-            hints: "Enter select · Esc close".to_string(),
-            border: ThemeRole::Selected,
-        },
-        width,
-        height,
-        theme,
-    )
+    ViewContent {
+        title: picker.title.clone(),
+        status: format!(
+            "focus: option {}/{}",
+            picker.selected.saturating_add(1),
+            picker.items.len().max(1)
+        ),
+        body,
+        focus,
+        hints: "Enter select · Esc close".to_string(),
+        border: ThemeRole::Selected,
+    }
+}
+
+fn quiet_picker_rows(picker: &PickerView, width: usize, height: usize) -> Vec<Row> {
+    if width == 0 || height == 0 {
+        return Vec::new();
+    }
+    let p = style::palette();
+    let content = picker_content(picker, width);
+    let rail_style = CellStyle::new().fg(p.overlay0);
+    let mut header_spans = vec![
+        Span::styled("│  ", rail_style),
+        Span::styled(content.title.to_uppercase(), CellStyle::new().fg(p.yellow).bold()),
+    ];
+    let used = super::layout::spans_width(&header_spans);
+    let status = content.status.strip_prefix("focus: ").unwrap_or(&content.status);
+    let status_width = utils::text_width(status);
+    let body_width = super::layout::content_width(width);
+    if used + status_width + 2 <= body_width {
+        header_spans.push(Span::plain(" ".repeat(body_width - used - status_width)));
+        header_spans.push(Span::styled(status, CellStyle::new().fg(p.overlay1)));
+    }
+
+    let mut rows = vec![Row::padded(header_spans, width, CellStyle::new())];
+    let body = layout_surface_body(&content, height.saturating_sub(1));
+    for line in body {
+        let text_style = match line.role {
+            ThemeRole::Selected => CellStyle::new().fg(p.text).bold(),
+            ThemeRole::Muted => CellStyle::new().fg(p.overlay0),
+            role => theme_role_style(role),
+        };
+        rows.push(Row::padded(
+            vec![Span::styled("│  ", rail_style), Span::styled(line.text, text_style)],
+            width,
+            CellStyle::new(),
+        ));
+    }
+    rows.truncate(height);
+    rows
 }
 
 fn help_rows(help: &HelpView, width: usize, height: usize, theme: &SurfaceThemeView) -> Vec<Row> {
@@ -817,8 +851,16 @@ mod tests {
         });
         let text = rows.iter().map(Row::text).collect::<Vec<_>>().join("\n");
 
-        assert!(text.contains("commands"));
+        assert!(text.contains("COMMANDS"));
         assert!(text.contains("❯ health"));
+        assert!(
+            !text.contains('╭'),
+            "command picker should use a quiet rail instead of a box"
+        );
+        assert!(
+            rows.iter()
+                .all(|row| row.spans.iter().all(|span| span.style.bg == RendererColor::Reset))
+        );
         assert!(rows.iter().all(|row| row.width == 32));
     }
 
@@ -887,7 +929,7 @@ mod tests {
     }
 
     #[test]
-    fn bounded_picker_uses_frame_and_preserves_content_rows() {
+    fn file_picker_uses_quiet_rail_and_preserves_content_rows() {
         let surface = FocusedSurfaceView::FilePicker(PickerView {
             title: "files".to_string(),
             query: "missing".to_string(),
@@ -898,9 +940,13 @@ mod tests {
         let rows =
             render_surface(&SurfaceRenderInput { surface: &surface, theme: &test_theme(), width: 40, height: 8 });
 
-        assert_eq!(rows.len(), 5);
-        assert!(rows[0].text().contains("╭ files"));
-        assert!(rows[0].text().contains("files"));
+        assert_eq!(rows.len(), 4);
+        assert!(rows[0].text().contains("FILES"));
+        assert!(!rows.iter().any(|row| row.text().contains('╭')));
+        assert!(
+            rows.iter()
+                .all(|row| row.spans.iter().all(|span| span.style.bg == RendererColor::Reset))
+        );
         assert!(rows.iter().any(|row| row.text().contains("no matches")));
     }
 

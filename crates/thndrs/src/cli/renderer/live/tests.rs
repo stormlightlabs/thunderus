@@ -39,26 +39,6 @@ fn test_app() -> App {
 }
 
 #[test]
-fn dynamic_status_row_has_session_and_label() {
-    let app = test_app();
-    let row = dynamic_status_row(&app, 80);
-    let text = row.text();
-    assert!(!text.is_empty(), "status row should have content");
-    assert!(text.contains("idle"), "status label should appear");
-}
-
-#[test]
-fn dynamic_status_row_shows_queue_when_working() {
-    let mut app = test_app();
-    app.run_state = RunState::Working;
-    app.queued_steering.push("steer".to_string());
-    let row = dynamic_status_row(&app, 80);
-    let text = row.text();
-    assert!(text.contains("target:"), "queue target should appear when working");
-    assert!(text.contains("queued: 1/0"), "queue counts should appear");
-}
-
-#[test]
 fn prompt_rows_empty_input() {
     let app = test_app();
     let (rows, cursor) = prompt_rows_for(&app, 80);
@@ -97,17 +77,55 @@ fn prompt_rows_wraps_long_text() {
 #[test]
 fn prompt_rows_wrap_at_visible_content_width() {
     let mut app = test_app();
-    app.input.set_text(&"x".repeat(11));
+    app.input.set_text(&"x".repeat(9));
     let (rows, cursor) = prompt_rows_for(&app, 20);
 
     assert_eq!(rows.len(), 1);
-    assert_eq!(cursor, Some(CursorCoord::new(0, 18)));
+    assert_eq!(cursor, Some(CursorCoord::new(0, 16)));
 
     app.input.insert_char('x');
     let (rows, cursor) = prompt_rows_for(&app, 20);
 
     assert_eq!(rows.len(), 2);
     assert_eq!(cursor, Some(CursorCoord::new(1, 8)));
+}
+
+#[test]
+fn frame_prompt_rows_adds_complete_composer_border_and_offsets_cursor() {
+    let mut app = test_app();
+    app.session_id = "test-session".to_string();
+    app.input.set_text("hello");
+    let (body_rows, cursor) = prompt_rows_for(&app, 80);
+    let (rows, cursor) = frame_prompt_rows(&app, 80, body_rows, cursor);
+
+    assert_eq!(rows.len(), 3);
+    assert!(rows[0].text().contains("╭─ test-session"));
+    assert!(!rows[0].text().contains("prompt"));
+    assert!(!rows[0].text().contains("idle"));
+    assert!(rows[1].text().contains("│ ❯  hello"));
+    assert!(rows[1].text().trim_end().ends_with('│'));
+    assert!(rows[2].text().contains('╰'));
+    assert!(rows[2].text().contains('╯'));
+    assert_eq!(cursor, Some(CursorCoord::new(1, 12)));
+    assert!(
+        rows.iter()
+            .flat_map(|row| &row.spans)
+            .all(|span| span.style.bg == renderer::style::palette().panel_bg),
+        "the full composer block should retain its background"
+    );
+}
+
+#[test]
+fn frame_prompt_rows_shows_only_non_idle_status() {
+    let mut app = test_app();
+    app.session_id = "test-session".to_string();
+    app.run_state = RunState::Working;
+    app.transcript
+        .push(Entry::Agent { text: "working".to_string(), streaming: true });
+    let (body_rows, cursor) = prompt_rows_for(&app, 80);
+    let (rows, _) = frame_prompt_rows(&app, 80, body_rows, cursor);
+
+    assert!(rows[0].text().contains("working"));
 }
 
 #[test]

@@ -133,8 +133,7 @@ impl<W: Write> TerminalBackend<W> {
             MoveTo(0, 0),
             CtClear(ClearType::All),
             CtClear(ClearType::Purge)
-        )?;
-        self.writer.flush()
+        )
     }
 
     /// Begin a synchronized terminal update.

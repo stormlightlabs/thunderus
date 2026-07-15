@@ -258,11 +258,19 @@ impl TranscriptView {
         let mut live_rows = Vec::new();
         stable_rows.extend(banner_rows);
 
-        let ctx = TranscriptRowContext { user_label: &app.user_label, cwd: &app.cwd, width, entry_index: None };
+        let ctx = TranscriptRowContext {
+            user_label: &app.user_label,
+            cwd: &app.cwd,
+            width,
+            entry_index: None,
+            tool_group_start: true,
+        };
 
+        let mut previous_was_tool = false;
         for (index, entry) in app.transcript.iter().enumerate() {
             let mut entry_ctx = ctx.clone();
             entry_ctx.entry_index = Some(index);
+            entry_ctx.tool_group_start = !previous_was_tool;
             let (entry_stable, entry_live) = entry_ctx.rows_for_entry_stable_and_live_rows(entry);
             if entry_stable.is_empty() {
                 live_rows.extend(entry_live);
@@ -270,6 +278,7 @@ impl TranscriptView {
                 stable_rows.extend(entry_stable);
                 live_rows.extend(entry_live);
             }
+            previous_was_tool = matches!(entry, Entry::Tool { .. });
         }
 
         Self { banner_rows: Vec::new(), stable_rows, live_rows }
@@ -676,8 +685,6 @@ impl SurfaceThemeView {
 pub struct LiveView {
     /// Clipped mutable transcript tail rows.
     pub live_tail: Vec<Row>,
-    /// Dynamic status row above the prompt.
-    pub dynamic_status: Row,
     /// Prompt input rows.
     pub prompt_rows: Vec<Row>,
     /// Cursor coordinate relative to the first prompt row.
@@ -697,10 +704,11 @@ impl LiveView {
         app: &App, width: usize, _height: usize, transcript: &TranscriptView, semantic: &SemanticUiView,
     ) -> LiveView {
         let live_tail = transcript.live_rows.clone();
-        let dynamic_status = super::live::dynamic_status_row(app, width);
         let (prompt_rows, prompt_cursor) = super::live::prompt_rows_for(app, width);
+        let prompt_body_budget = super::live::MAX_PROMPT_ROWS.saturating_sub(super::live::composer_frame_height(width));
         let (prompt_rows, prompt_cursor) =
-            clip_prompt_rows_around_cursor(prompt_rows, prompt_cursor, super::live::MAX_PROMPT_ROWS);
+            clip_prompt_rows_around_cursor(prompt_rows, prompt_cursor, prompt_body_budget);
+        let (prompt_rows, prompt_cursor) = super::live::frame_prompt_rows(app, width, prompt_rows, prompt_cursor);
 
         let accessory_rows = match &semantic.focused_surface {
             FocusedSurfaceView::ToolDetail(_)
@@ -722,7 +730,6 @@ impl LiveView {
 
         LiveView {
             live_tail,
-            dynamic_status,
             prompt_rows,
             prompt_cursor,
             accessory_rows,

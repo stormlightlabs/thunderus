@@ -7,11 +7,10 @@
 //! 1. banner before the first transcript rows have been committed;
 //! 2. recent committed transcript rows;
 //! 3. the mutable transcript tail, if any;
-//! 4. dynamic status row (session + status icon);
-//! 5. prompt input rows;
-//! 6. optional accessory rows (help/commands/files);
-//! 7. static status row (model/search/tokens/cwd);
-//! 8. blank canvas rows after the compact transcript/live content.
+//! 4. prompt input rows;
+//! 5. optional accessory rows (help/commands/files);
+//! 6. static status row (model/search/tokens/cwd);
+//! 7. blank terminal-default rows after the compact transcript/live content.
 //!
 //! Transcript row construction lives in [`super::transcript`]; the pure view
 //! projection built from app state lives in [`super::view`]. This module keeps
@@ -62,7 +61,7 @@ pub struct LiveRegion {
     committed_row_count: usize,
     /// Terminal width used for committed rows.
     ///
-    /// Width changes require replay so wrapped rows do not duplicate or stale.
+    /// Viewport resizes require replay so wrapped rows do not duplicate or stale.
     committed_width: Option<usize>,
 }
 
@@ -138,11 +137,10 @@ impl LiveRegion {
 
         frame.rows.extend(history_rows);
 
-        let p = style::palette();
         let live_start = live.rows.len().saturating_sub(live_height);
 
         while frame.rows.len() < height.saturating_sub(live_height) {
-            frame.push(Row::blank(width, CellStyle::new().bg(p.panel_bg)));
+            frame.push(Row::blank(width, CellStyle::new()));
         }
 
         let live_offset = frame.rows.len();
@@ -163,7 +161,7 @@ impl LiveRegion {
         frame.cursor_visible = cursor_visible;
 
         while frame.rows.len() < height {
-            frame.push(Row::blank(width, CellStyle::new().bg(p.panel_bg)));
+            frame.push(Row::blank(width, CellStyle::new()));
         }
 
         frame
@@ -181,41 +179,31 @@ impl LiveRegion {
     /// 4. queued prompt summary — clipped before accessory
     /// 5. live tail (mutable transcript rows) — clipped first
     ///
-    /// The dynamic status row (session + spinner) is part of the prompt
-    /// chrome and stays between the live tail and the queued/accessory block;
-    /// it is kept as long as the prompt is visible.
-    ///
     /// Vertical order (top to bottom):
-    ///   live_tail → spacer → dynamic_status → queued → accessory → prompt → footer
+    ///   live_tail → queued → accessory → framed prompt → footer
     fn build_live_frame(&self, view: &RendererView) -> Frame {
         let width = view.width;
         let height = view.height;
         let live = &view.live;
-        let p = style::palette();
-        let surface_bg = CellStyle::new().bg(p.surface0);
+        let surface_bg = CellStyle::new().bg(super::style::palette().panel_bg);
 
-        let min_prompt_chrome = live.prompt_rows.len() + 2;
+        let min_prompt_chrome = live.prompt_rows.len() + 1;
         let keep_prompt_gutters = height >= min_prompt_chrome + 3;
 
         let mut footer = vec![live.static_status.clone()];
         if keep_prompt_gutters {
             footer.push(Row::blank(width, surface_bg));
         }
+        let prompt_gutter =
+            keep_prompt_gutters.then(|| Row::blank(width, CellStyle::new().bg(super::style::palette().panel_bg)));
         let prompt = live.prompt_rows.clone();
-
-        let mut status_chrome = Vec::new();
-        if keep_prompt_gutters {
-            status_chrome.push(Row::blank(width, CellStyle::new().bg(p.surface_dim)));
-            status_chrome.push(Row::blank(width, surface_bg));
-        }
-        status_chrome.push(live.dynamic_status.clone());
 
         let accessory =
             if !live.detail_pane.is_empty() { live.detail_pane.clone() } else { live.accessory_rows.clone() };
 
         let queued: Vec<Row> = live.queued_summary.clone().into_iter().collect();
         let tail = &live.live_tail;
-        let reserved = footer.len() + prompt.len() + status_chrome.len();
+        let reserved = footer.len() + prompt.len() + usize::from(prompt_gutter.is_some());
         let remaining = height.saturating_sub(reserved);
 
         let accessory_budget = accessory.len().min(remaining);
@@ -233,13 +221,14 @@ impl LiveRegion {
         for row in tail_rows {
             frame.push(row);
         }
-        for row in status_chrome {
-            frame.push(row);
-        }
         for row in queued_rows {
             frame.push(row);
         }
         for row in accessory_rows {
+            frame.push(row);
+        }
+
+        if let Some(row) = prompt_gutter {
             frame.push(row);
         }
 
@@ -278,9 +267,16 @@ impl LiveRegion {
         }
 
         let view = RendererView::build(app, width, height);
-        let replay_history = self
-            .committed_width
-            .is_some_and(|committed_width| committed_width != width)
+        let viewport_resized = self
+            .rendered_width
+            .is_some_and(|rendered_width| rendered_width != width)
+            || self
+                .rendered_height
+                .is_some_and(|rendered_height| rendered_height != height);
+        let replay_history = viewport_resized
+            || self
+                .committed_width
+                .is_some_and(|committed_width| committed_width != width)
             || self.committed_row_count > view.transcript.stable_rows.len();
         let commit_start = if replay_history { 0 } else { self.committed_row_count };
         let rows_to_commit = &view.transcript.stable_rows[commit_start..];
@@ -307,7 +303,10 @@ impl LiveRegion {
     ) -> io::Result<()> {
         let RenderPlan { frame, rows_to_commit, width, height, top_row, replay_history } = plan;
         if replay_history {
-            backend.clear_all()?;
+            // A terminal resize can move live viewport rows into native
+            // scrollback. Purge those stale pixels before rebuilding the
+            // complete transcript and bottom-pinned live region.
+            backend.clear_all_and_scrollback()?;
             self.rendered_frame = None;
             self.committed_row_count = 0;
             self.committed_width = None;
@@ -463,17 +462,20 @@ fn clip_transcript_rows_from_top(rows: &[Row], budget: usize, width: usize) -> V
 fn startup_history_rows(rows: Vec<Row>, width: usize, budget: usize) -> Vec<Row> {
     match budget {
         0 => Vec::new(),
-        budget if rows.len() <= budget => rows,
+        budget if rows.len() <= budget => {
+            // Keep the compact welcome above the viewport midpoint, with the
+            // remaining space flowing naturally toward the composer.
+            let top_padding = budget.saturating_sub(rows.len()) / 3;
+            let mut positioned = vec![Row::blank(width, CellStyle::new()); top_padding];
+            positioned.extend(rows);
+            positioned
+        }
         1 => vec![hidden_startup_row(width, rows.len())],
         _ => clip_startup_sections(&rows, width, budget),
     }
 }
 
-/// Clip the startup banner by complete semantic sections.
-///
-/// A heading, its separator, and its content must travel together. Selecting
-/// individual rows makes constrained viewports misleading: a heading can be
-/// left without its value, or a diagnostic can appear detached from attention.
+/// Clip the startup banner by complete semantic groups.
 fn clip_startup_sections(rows: &[Row], width: usize, budget: usize) -> Vec<Row> {
     let keep_budget = budget - 1;
     let mut groups = startup_section_groups(rows);
@@ -535,54 +537,46 @@ fn compact_identity_section(rows: &[Row]) -> Vec<Row> {
         .filter(|row| {
             let text = row.text_for_policy();
             let trimmed = text.trim();
-            trimmed.starts_with("thndrs") || trimmed.starts_with("model")
+            trimmed.starts_with("thndrs")
         })
         .cloned()
         .collect()
 }
 
 fn startup_section_groups(rows: &[Row]) -> Vec<StartupSectionGroup> {
-    let labels = ["CONTEXT", "SKILLS", "SEARCH", "ATTENTION"];
-    let heading_indexes: Vec<usize> = rows
-        .iter()
-        .enumerate()
-        .filter_map(|(index, row)| labels.contains(&row.text_for_policy().trim()).then_some(index))
-        .collect();
-    let help_index = rows
-        .iter()
-        .position(|row| row.text_for_policy().trim().starts_with("Ask for"));
-
-    let first_section = heading_indexes.first().copied().unwrap_or(rows.len());
-    let mut boundaries = vec![0, first_section.saturating_sub(1)];
-    boundaries.extend(heading_indexes.iter().map(|index| index.saturating_sub(1)));
-    if let Some(index) = help_index {
-        boundaries.push(index.saturating_sub(1));
+    let mut groups = Vec::new();
+    let mut current = Vec::new();
+    for row in rows {
+        if row.text_for_policy().trim().is_empty() {
+            if !current.is_empty() {
+                groups.push(startup_section_group(std::mem::take(&mut current)));
+            }
+        } else {
+            current.push(row.clone());
+        }
     }
-    boundaries.push(rows.len());
-    boundaries.sort_unstable();
-    boundaries.dedup();
+    if !current.is_empty() {
+        groups.push(startup_section_group(current));
+    }
+    groups
+}
 
-    boundaries
-        .windows(2)
-        .filter_map(|window| {
-            let start = window[0];
-            let end = window[1];
-            (start < end).then(|| {
-                let heading = rows
-                    .get(start + 1)
-                    .map(RowPolicyText::text_for_policy)
-                    .unwrap_or_default();
-                let priority = match heading.trim() {
-                    "CONTEXT" => 1,
-                    "ATTENTION" => 2,
-                    "SKILLS" | "SEARCH" => 4,
-                    _ if help_index.is_some_and(|index| start == index.saturating_sub(1)) => 3,
-                    _ => 0,
-                };
-                StartupSectionGroup { priority, rows: rows[start..end].to_vec() }
-            })
-        })
-        .collect()
+fn startup_section_group(rows: Vec<Row>) -> StartupSectionGroup {
+    let text = rows
+        .iter()
+        .map(RowPolicyText::text_for_policy)
+        .collect::<Vec<_>>()
+        .join("\n");
+    let priority = if text.contains("thndrs") {
+        0
+    } else if text.contains("│") {
+        1
+    } else if text.contains("ATTENTION") {
+        2
+    } else {
+        3
+    };
+    StartupSectionGroup { priority, rows }
 }
 
 fn hidden_startup_row(width: usize, hidden: usize) -> Row {
@@ -590,10 +584,10 @@ fn hidden_startup_row(width: usize, hidden: usize) -> Row {
     Row::padded(
         vec![Span::styled(
             format!("... {hidden} rows hidden"),
-            CellStyle::new().fg(p.subtext0).bg(p.panel_bg),
+            CellStyle::new().fg(p.subtext0),
         )],
         width,
-        CellStyle::new().bg(p.panel_bg),
+        CellStyle::new(),
     )
 }
 

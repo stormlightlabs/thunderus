@@ -2,9 +2,8 @@
 source: crates/thndrs/src/cli/renderer/live/tests.rs
 expression: frame.render_styled()
 ---
-│   ╭ models · focus: option 2/2 ──────────────────────────────────────────────────╮  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╭ models · focus: option 2/2 ──────────────────────────────────────────────────╮
-│   │    filter: type to filter                                                        │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  filter: type to filter                                                         [fg=#ebfafa bg=#212337 b]=│
-│   │      umans-coder  Recommended route to Kimi K2.7-…                               │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#ebfafa bg=#212337]=    umans-coder  Recommended route to Kimi K2.7-…                                [fg=#ebfafa bg=#212337 b]=│
-│   │    ❯ umans-glm-5.2  Largest context window                                       │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  ❯ umans-glm-5.2  Largest context window                                        [fg=#ebfafa bg=#212337 b]=│
-│   │    Enter select · Esc close                                                      │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  Enter select · Esc close                                                       [fg=#ebfafa bg=#212337 b]=│
-│   ╰──────────────────────────────────────────────────────────────────────────────╯  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╰──────────────────────────────────────────────────────────────────────────────╯
+│   │  MODELS                                                         option 2/2    # [-]=   [fg=#3b4261]=│   [fg=#f1fc79 b]=MODELS [-]=                                                          [fg=#6473b7]=option 2/2 [-]=  
+│   │  filter: type to filter                                                       # [-]=   [fg=#3b4261]=│   [fg=#3b4261]=filter: type to filter [-]=                                                    [-]=  
+│   │    umans-coder  Recommended route to Kimi K2.7-…                              # [-]=   [fg=#3b4261]=│   [fg=#ebfafa]=  umans-coder  Recommended route to Kimi K2.7-… [-]=                           [-]=  
+│   │  ❯ umans-glm-5.2  Largest context window                                      # [-]=   [fg=#3b4261]=│   [fg=#ebfafa b]=❯ umans-glm-5.2  Largest context window [-]=                                   [-]=  
+│   │  Enter select · Esc close                                                     # [-]=   [fg=#3b4261]=│   [fg=#3b4261]=Enter select · Esc close [-]=                                                  [-]=

@@ -1,8 +1,8 @@
 ---
-source: src/cli/renderer/transcript/tests.rs
+source: crates/thndrs/src/cli/renderer/transcript/tests.rs
 expression: contents
 ---
-│                                           # [bg=#171928]=                                        
-│   │ Agent                                 # [bg=#171928]=   [fg=#37f499 bg=#171928 b]=│  [fg=#37f499 bg=#171928 b]=Agent [bg=#171928]=                              [bg=#171928]=  
-│   │ Sure! I can help with that. Let me    # [bg=#171928]=   [fg=#37f499 bg=#171928 b]=│  [fg=#ebfafa bg=#171928]=Sure! I can help with that. Let me [bg=#171928]=  
-│   │ take a look.                          # [bg=#171928]=   [fg=#37f499 bg=#171928 b]=│  [fg=#ebfafa bg=#171928]=take a look. [bg=#171928]=                       [bg=#171928]=
+│                                           # [-]=                                        
+│   │ Agent                                 # [-]=   [fg=#37f499 b]=│  [fg=#37f499 b]=Agent [-]=                              [-]=  
+│   │ Sure! I can help with that. Let me    # [-]=   [fg=#37f499 b]=│  [fg=#ebfafa]=Sure! I can help with that. Let me [-]=  
+│   │ take a look.                          # [-]=   [fg=#37f499 b]=│  [fg=#ebfafa]=take a look. [-]=                       [-]=

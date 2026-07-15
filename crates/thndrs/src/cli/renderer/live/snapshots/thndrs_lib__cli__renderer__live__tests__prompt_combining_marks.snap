@@ -1,9 +1,8 @@
 ---
 source: crates/thndrs/src/cli/renderer/live/tests.rs
-assertion_line: 593
 expression: combined
 ---
 width=80:
-│     ❯  ab̧cd                                                                       # [bg=#212337]=   [bg=#212337]=   [fg=#f1fc79 bg=#212337]=❯ [bg=#212337]=   [fg=#ebfafa bg=#212337]=ab̧cd [bg=#212337]=                                                                    [bg=#212337]=  
+│   │ ❯  ab̧cd                                                                  │    # [bg=#171928]=   [fg=#f1fc79 bg=#171928]=│ [bg=#171928]=  [fg=#f1fc79 bg=#171928]=❯ [bg=#171928]=   [fg=#ebfafa bg=#171928]=ab̧cd [bg=#171928]=                                                                   [fg=#f1fc79 bg=#171928]=│ [bg=#171928]=  
 width=40:
-│     ❯  ab̧cd                               # [bg=#212337]=   [bg=#212337]=   [fg=#f1fc79 bg=#212337]=❯ [bg=#212337]=   [fg=#ebfafa bg=#212337]=ab̧cd [bg=#212337]=                            [bg=#212337]=
+│   │ ❯  ab̧cd                          │    # [bg=#171928]=   [fg=#f1fc79 bg=#171928]=│ [bg=#171928]=  [fg=#f1fc79 bg=#171928]=❯ [bg=#171928]=   [fg=#ebfafa bg=#171928]=ab̧cd [bg=#171928]=                           [fg=#f1fc79 bg=#171928]=│ [bg=#171928]=

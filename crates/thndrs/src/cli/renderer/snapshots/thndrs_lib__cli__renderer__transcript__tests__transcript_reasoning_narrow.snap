@@ -1,8 +1,8 @@
 ---
-source: src/cli/renderer/transcript/tests.rs
+source: crates/thndrs/src/cli/renderer/transcript/tests.rs
 expression: contents
 ---
-│                                           # [bg=#171928]=                                        
-│   │ Thinking ✓                            # [bg=#171928]=   [fg=#a48cf2 bg=#171928 b]=│  [fg=#a48cf2 bg=#171928 b]=Thinking ✓ [bg=#171928]=                         [bg=#171928]=  
-│   │ I need to check the file structure    # [bg=#171928]=   [fg=#a48cf2 bg=#171928 b]=│  [fg=#abb4da bg=#171928 i]=I need to check the file structure [bg=#171928]=  
-│   │ first.                                # [bg=#171928]=   [fg=#a48cf2 bg=#171928 b]=│  [fg=#abb4da bg=#171928 i]=first. [bg=#171928]=                             [bg=#171928]=
+│                                           # [-]=                                        
+│   │ Thinking ✓                            # [-]=   [fg=#a48cf2 b]=│  [fg=#a48cf2 b]=Thinking ✓ [-]=                         [-]=  
+│   │ I need to check the file structure    # [-]=   [fg=#a48cf2 b]=│  [fg=#abb4da i]=I need to check the file structure [-]=  
+│   │ first.                                # [-]=   [fg=#a48cf2 b]=│  [fg=#abb4da i]=first. [-]=                             [-]=

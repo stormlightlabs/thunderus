@@ -1,10 +1,7 @@
 ---
-source: src/cli/renderer/region/tests.rs
+source: crates/thndrs/src/cli/renderer/region/tests.rs
 expression: contents
 ---
-│                                                                                   # [bg=#171928]=                                                                                
-│   │ ✓ read_file_range [ok]  path: config.json                                     # [bg=#171928]=   [fg=#37f499 bg=#171928]=│  [fg=#37f499 bg=#171928]=✓  [fg=#ebfafa bg=#171928 b]=read_file_range [fg=#37f499 bg=#171928]= [ok] [bg=#171928]=   [fg=#abb4da bg=#171928]=path: config.json [bg=#171928]=                                  [bg=#171928]=  
-│   │    │ {                                                                        # [bg=#171928]=   [fg=#37f499 bg=#171928]=│  [fg=#3b4261 bg=#171928]=   │  [fg=#c0c5ce bg=#171928]={ [bg=#171928]=                                                                     [bg=#171928]=  
-│   │    │   "name": "thndrs",                                                      # [bg=#171928]=   [fg=#37f499 bg=#171928]=│  [fg=#3b4261 bg=#171928]=   │  [fg=#c0c5ce bg=#171928]=   [fg=#c0c5ce bg=#171928]=" [fg=#a3be8c bg=#171928]=name [fg=#c0c5ce bg=#171928]=" [fg=#c0c5ce bg=#171928]=: [fg=#c0c5ce bg=#171928]=  [fg=#c0c5ce bg=#171928]=" [fg=#a3be8c bg=#171928]=thndrs [fg=#c0c5ce bg=#171928]=" [fg=#c0c5ce bg=#171928]=, [bg=#171928]=                                                   [bg=#171928]=  
-│   │    │   "version": "0.1.0"                                                     # [bg=#171928]=   [fg=#37f499 bg=#171928]=│  [fg=#3b4261 bg=#171928]=   │  [fg=#c0c5ce bg=#171928]=   [fg=#c0c5ce bg=#171928]=" [fg=#a3be8c bg=#171928]=version [fg=#c0c5ce bg=#171928]=" [fg=#c0c5ce bg=#171928]=: [fg=#c0c5ce bg=#171928]=  [fg=#c0c5ce bg=#171928]=" [fg=#a3be8c bg=#171928]=0.1.0 [fg=#c0c5ce bg=#171928]=" [bg=#171928]=                                                  [bg=#171928]=  
-│   │    │ }                                                                        # [bg=#171928]=   [fg=#37f499 bg=#171928]=│  [fg=#3b4261 bg=#171928]=   │  [fg=#c0c5ce bg=#171928]=} [bg=#171928]=                                                                     [bg=#171928]=
+│                                                                                   # [-]=                                                                                
+│   │ Activity                                                                      # [-]=   [fg=#f1fc79]=│  [fg=#f1fc79 b]=Activity [-]=                                                                   [-]=  
+│   │ ✓ read_file_range  path: config.json  ▸                                       # [-]=   [fg=#f1fc79]=│  [fg=#37f499]=✓  [fg=#ebfafa b]=read_file_range [-]=   [fg=#abb4da]=path: config.json [fg=#3b4261]=  ▸ [-]=                                    [-]=

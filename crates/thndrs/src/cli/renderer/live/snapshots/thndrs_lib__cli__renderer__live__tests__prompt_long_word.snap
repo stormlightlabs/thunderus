@@ -1,13 +1,13 @@
 ---
 source: crates/thndrs/src/cli/renderer/live/tests.rs
-assertion_line: 593
 expression: combined
 ---
 width=80:
-│     ❯  aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa    # [bg=#212337]=   [bg=#212337]=   [fg=#f1fc79 bg=#212337]=❯ [bg=#212337]=   [fg=#ebfafa bg=#212337]=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa [bg=#212337]=  
-│        aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa                          # [bg=#212337]=   [bg=#212337]=      [fg=#ebfafa bg=#212337]=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa [bg=#212337]=                       [bg=#212337]=  
+│   │ ❯  aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa │    # [bg=#171928]=   [fg=#f1fc79 bg=#171928]=│ [bg=#171928]=  [fg=#f1fc79 bg=#171928]=❯ [bg=#171928]=   [fg=#ebfafa bg=#171928]=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa [bg=#171928]=  [fg=#f1fc79 bg=#171928]=│ [bg=#171928]=  
+│   │    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa                   │    # [bg=#171928]=   [fg=#f1fc79 bg=#171928]=│ [bg=#171928]=     [fg=#ebfafa bg=#171928]=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa [bg=#171928]=                    [fg=#f1fc79 bg=#171928]=│ [bg=#171928]=  
 width=40:
-│     ❯  aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa    # [bg=#212337]=   [bg=#212337]=   [fg=#f1fc79 bg=#212337]=❯ [bg=#212337]=   [fg=#ebfafa bg=#212337]=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa [bg=#212337]=  
-│        aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa    # [bg=#212337]=   [bg=#212337]=      [fg=#ebfafa bg=#212337]=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa [bg=#212337]=  
-│        aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa    # [bg=#212337]=   [bg=#212337]=      [fg=#ebfafa bg=#212337]=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa [bg=#212337]=  
-│        aaaaaaaaaaaaaaaaaaaaaaaaaaa        # [bg=#212337]=   [bg=#212337]=      [fg=#ebfafa bg=#212337]=aaaaaaaaaaaaaaaaaaaaaaaaaaa [bg=#212337]=     [bg=#212337]=
+│   │ ❯  aaaaaaaaaaaaaaaaaaaaaaaaaaaaa │    # [bg=#171928]=   [fg=#f1fc79 bg=#171928]=│ [bg=#171928]=  [fg=#f1fc79 bg=#171928]=❯ [bg=#171928]=   [fg=#ebfafa bg=#171928]=aaaaaaaaaaaaaaaaaaaaaaaaaaaaa [bg=#171928]=  [fg=#f1fc79 bg=#171928]=│ [bg=#171928]=  
+│   │    aaaaaaaaaaaaaaaaaaaaaaaaaaaaa │    # [bg=#171928]=   [fg=#f1fc79 bg=#171928]=│ [bg=#171928]=     [fg=#ebfafa bg=#171928]=aaaaaaaaaaaaaaaaaaaaaaaaaaaaa [bg=#171928]=  [fg=#f1fc79 bg=#171928]=│ [bg=#171928]=  
+│   │    aaaaaaaaaaaaaaaaaaaaaaaaaaaaa │    # [bg=#171928]=   [fg=#f1fc79 bg=#171928]=│ [bg=#171928]=     [fg=#ebfafa bg=#171928]=aaaaaaaaaaaaaaaaaaaaaaaaaaaaa [bg=#171928]=  [fg=#f1fc79 bg=#171928]=│ [bg=#171928]=  
+│   │    aaaaaaaaaaaaaaaaaaaaaaaaaaaaa │    # [bg=#171928]=   [fg=#f1fc79 bg=#171928]=│ [bg=#171928]=     [fg=#ebfafa bg=#171928]=aaaaaaaaaaaaaaaaaaaaaaaaaaaaa [bg=#171928]=  [fg=#f1fc79 bg=#171928]=│ [bg=#171928]=  
+│   │    aaaa                          │    # [bg=#171928]=   [fg=#f1fc79 bg=#171928]=│ [bg=#171928]=     [fg=#ebfafa bg=#171928]=aaaa [bg=#171928]=                           [fg=#f1fc79 bg=#171928]=│ [bg=#171928]=

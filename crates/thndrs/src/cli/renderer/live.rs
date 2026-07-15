@@ -5,7 +5,7 @@
 #[cfg(test)]
 mod tests;
 
-use crate::app::{App, Entry, Mode, PromptState, RecoveryStage, RunState, ToolStatus};
+use crate::app::{App, Entry, Mode, PromptState, RecoveryStage, ToolStatus};
 use crate::providers::{codex, umans};
 use crate::renderer::cursor::{prompt_cursor, prompt_rows};
 use crate::renderer::row::{CursorCoord, Row};
@@ -21,61 +21,29 @@ pub const MAX_PROMPT_ROWS: usize = 8;
 pub const MAX_ACCESSORY_ROWS: usize = 8;
 
 const LIVE_INSET: usize = 2;
-
-/// Build the dynamic status row: session id + status icon + queue info.
-///
-/// Sits above the prompt input in the live region.
-pub fn dynamic_status_row(app: &App, width: usize) -> Row {
-    let p = super::style::palette();
-    let bg = p.surface0;
-
-    let label = app.status_label();
-    let status_color = super::style::status_color(label);
-    let icon = super::style::status_icon(label, super::style::spinner_tick(app.ui_tick, app.cli.tick_rate_ms));
-    let session = if app.session_id.is_empty() { "thndrs" } else { &app.session_id };
-
-    let mut spans = vec![
-        Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(bg)),
-        Span::styled(session.to_string(), CellStyle::new().fg(p.accent).bg(bg).bold()),
-        Span::styled("  ", CellStyle::new().bg(bg)),
-        Span::styled(format!("{icon} {label}"), CellStyle::new().fg(status_color).bg(bg)),
-    ];
-
-    if matches!(app.run_state, RunState::Working) {
-        spans.push(Span::styled("  ", CellStyle::new().bg(bg)));
-        spans.push(Span::styled(
-            format!(
-                "target: {}  queued: {}/{}",
-                app.queue_target.label(),
-                app.queued_steering.len(),
-                app.queued_followups.len()
-            ),
-            CellStyle::new().fg(p.subtext0).bg(bg),
-        ));
-    }
-
-    Row::padded(spans, width, CellStyle::new().bg(bg))
-}
+const COMPOSER_MIN_CONTENT_WIDTH: usize = 8;
 
 /// Build prompt input rows from app state.
 ///
 /// Returns the rows and the cursor coordinate (relative to the first row).
 pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord>) {
     let p = super::style::palette();
-    let surface = p.surface0;
+    let surface = p.panel_bg;
     let prompt_state = app.prompt_state();
 
-    let (prompt_color, _, icon) = match prompt_state {
-        PromptState::Editable => (p.yellow, true, "❯"),
-        PromptState::Submitted => (p.teal, true, "»"),
-        PromptState::Streaming | PromptState::RunningTool => (p.teal, true, "»"),
-        PromptState::Stopped => (p.teal, true, "○"),
-        PromptState::Errored => (p.red, true, "✕"),
+    let (prompt_color, icon) = match prompt_state {
+        PromptState::Editable => (p.yellow, "❯"),
+        PromptState::Submitted => (p.teal, "»"),
+        PromptState::Streaming | PromptState::RunningTool => (p.teal, "»"),
+        PromptState::Stopped => (p.teal, "○"),
+        PromptState::Errored => (p.red, "✕"),
     };
 
     let prefix_width = if app.mode == Mode::Command { 4 } else { 3 };
     let row_body_width = super::layout::content_width(width);
-    let body_width = row_body_width.saturating_sub(LIVE_INSET + prefix_width).max(1);
+    let framed = composer_frame_height(width) > 0;
+    let horizontal_chrome = if framed { 4 } else { LIVE_INSET };
+    let body_width = row_body_width.saturating_sub(horizontal_chrome + prefix_width).max(1);
     let cursor_indent = width.min(2) + LIVE_INSET + prefix_width;
     let hidden_entry_active = app.first_run_recovery.as_ref().is_some_and(|recovery| {
         matches!(
@@ -93,9 +61,26 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
     let text_style = CellStyle::new().fg(p.text).bg(surface);
     let mention_style = CellStyle::new().fg(p.accent).bg(surface).bold();
 
+    let border_style = CellStyle::new().fg(prompt_color).bg(surface);
     let mut rows = Vec::with_capacity(visual_rows.len());
     for (idx, line) in visual_rows.into_iter().enumerate() {
-        let mut spans: Vec<Span> = if idx == 0 {
+        let mut spans: Vec<Span> = if framed && idx == 0 {
+            let mut s = vec![
+                Span::styled("│", border_style),
+                Span::styled(" ", CellStyle::new().bg(surface)),
+                Span::styled(icon, CellStyle::new().fg(prompt_color).bg(surface)),
+                Span::styled("  ", CellStyle::new().bg(surface)),
+            ];
+            if app.mode == Mode::Command {
+                s.push(Span::styled(":", CellStyle::new().fg(p.accent).bg(surface)));
+            }
+            s
+        } else if framed {
+            vec![
+                Span::styled("│", border_style),
+                Span::styled(" ".repeat(1 + prefix_width), CellStyle::new().bg(surface)),
+            ]
+        } else if idx == 0 {
             let mut s = vec![
                 Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(surface)),
                 Span::styled(icon, CellStyle::new().fg(prompt_color).bg(surface)),
@@ -115,22 +100,129 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
         if !line.is_empty() {
             spans.extend(mention_styled_spans(&line, text_style, mention_style, surface));
         }
+        if framed {
+            let used = super::layout::spans_width(&spans);
+            let fill = row_body_width.saturating_sub(used + 1);
+            spans.push(Span::styled(" ".repeat(fill), CellStyle::new().bg(surface)));
+            spans.push(Span::styled("│", border_style));
+        }
         rows.push(Row::padded(spans, width, CellStyle::new().bg(surface)));
     }
 
     if rows.is_empty() {
-        let mut spans = vec![
-            Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(surface)),
-            Span::styled(icon, CellStyle::new().fg(prompt_color).bg(surface)),
-            Span::styled("  ", CellStyle::new().bg(surface)),
-        ];
+        let mut spans = if framed {
+            vec![
+                Span::styled("│", border_style),
+                Span::styled(" ", CellStyle::new().bg(surface)),
+                Span::styled(icon, CellStyle::new().fg(prompt_color).bg(surface)),
+                Span::styled("  ", CellStyle::new().bg(surface)),
+            ]
+        } else {
+            vec![
+                Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(surface)),
+                Span::styled(icon, CellStyle::new().fg(prompt_color).bg(surface)),
+                Span::styled("  ", CellStyle::new().bg(surface)),
+            ]
+        };
         if app.mode == Mode::Command {
             spans.push(Span::styled(":", CellStyle::new().fg(p.accent).bg(surface)));
+        }
+        if framed {
+            let used = super::layout::spans_width(&spans);
+            let fill = row_body_width.saturating_sub(used + 1);
+            spans.push(Span::styled(" ".repeat(fill), CellStyle::new().bg(surface)));
+            spans.push(Span::styled("│", border_style));
         }
         rows.push(Row::padded(spans, width, CellStyle::new().bg(surface)));
     }
 
     (rows, if hidden_entry_active { None } else { Some(cursor) })
+}
+
+/// Number of horizontal frame rows reserved by the composer at this width.
+pub(crate) fn composer_frame_height(width: usize) -> usize {
+    usize::from(super::layout::content_width(width) >= COMPOSER_MIN_CONTENT_WIDTH) * 2
+}
+
+/// Add the horizontal frame around already-wrapped prompt body rows.
+pub(crate) fn frame_prompt_rows(
+    app: &App, width: usize, rows: Vec<Row>, cursor: Option<CursorCoord>,
+) -> (Vec<Row>, Option<CursorCoord>) {
+    if composer_frame_height(width) == 0 {
+        return (rows, cursor);
+    }
+
+    let p = super::style::palette();
+    let bg = p.panel_bg;
+    let border_color = match app.prompt_state() {
+        PromptState::Editable => p.yellow,
+        PromptState::Submitted | PromptState::Streaming | PromptState::RunningTool | PromptState::Stopped => p.teal,
+        PromptState::Errored => p.red,
+    };
+    let border_style = CellStyle::new().fg(border_color).bg(bg);
+    let label_style = border_style.bold();
+    let content_width = super::layout::content_width(width);
+
+    let left = "╭─";
+    let session = if app.session_id.is_empty() { "thndrs" } else { &app.session_id };
+    let session_budget = content_width.saturating_sub(5).max(1);
+    let label = format!(" {} ", utils::truncate_ellipsis(session, session_budget));
+    let status_label = app.status_label();
+    let status = (status_label != "idle").then(|| {
+        let icon = super::style::status_icon(
+            status_label,
+            super::style::spinner_tick(app.ui_tick, app.cli.tick_rate_ms),
+        );
+        format!(" {icon} {status_label} ")
+    });
+    let status_width = status.as_deref().map_or(0, utils::text_width);
+    let fixed = utils::text_width(left) + utils::text_width(&label) + status_width + 1;
+    let top_spans = if fixed + 2 <= content_width {
+        let mut spans = vec![
+            Span::styled(left, border_style),
+            Span::styled(label, label_style),
+            Span::styled("─".repeat(content_width - fixed), border_style),
+        ];
+        if let Some(status) = status {
+            spans.push(Span::styled(
+                status,
+                CellStyle::new().fg(super::style::status_color(status_label)).bg(bg),
+            ));
+        }
+        spans.push(Span::styled("╮", border_style));
+        spans
+    } else if utils::text_width(left) + utils::text_width(&label) < content_width {
+        let fixed = utils::text_width(left) + utils::text_width(&label) + 1;
+        vec![
+            Span::styled(left, border_style),
+            Span::styled(label, label_style),
+            Span::styled("─".repeat(content_width - fixed), border_style),
+            Span::styled("╮", border_style),
+        ]
+    } else {
+        vec![Span::styled(
+            format!("╭{}╮", "─".repeat(content_width.saturating_sub(2))),
+            border_style,
+        )]
+    };
+
+    let mut framed = Vec::with_capacity(rows.len() + 2);
+    framed.push(Row::padded(top_spans, width, CellStyle::new().bg(bg)));
+    framed.extend(rows);
+    framed.push(Row::padded(
+        vec![Span::styled(
+            format!("╰{}╯", "─".repeat(content_width.saturating_sub(2))),
+            border_style,
+        )],
+        width,
+        CellStyle::new().bg(bg),
+    ));
+
+    let cursor = cursor.map(|mut cursor| {
+        cursor.row += 1;
+        cursor
+    });
+    (framed, cursor)
 }
 
 /// Build accessory rows (help, commands, or file picker) if active.
@@ -165,7 +257,7 @@ pub fn queued_summary_row(app: &App, width: usize) -> Option<Row> {
     }
 
     let p = super::style::palette();
-    let bg = p.surface0;
+    let bg = Color::Reset;
     let label_style = CellStyle::new().fg(p.peach).bg(bg).bold();
     let muted_style = CellStyle::new().fg(p.subtext0).bg(bg);
     let mut spans = vec![
@@ -221,13 +313,14 @@ pub fn detail_pane_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> 
         ToolStatus::Cancelled => "cancelled",
     };
 
+    let base_name = name.split('#').next().unwrap_or(name);
     let mut title_spans = vec![
         Span::styled(" ".repeat(LIVE_INSET), CellStyle::new().bg(bg)),
-        Span::styled(name.to_string(), title_style),
+        Span::styled(base_name.to_string(), title_style),
         Span::styled(format!(" [{status_label}]"), status_style),
     ];
 
-    let args_summary = renderer::transcript::summarize_tool_args(arguments, &app.cwd);
+    let args_summary = renderer::transcript::summarize_tool_invocation(base_name, arguments, &app.cwd);
     if !args_summary.is_empty() {
         title_spans.push(Span::styled("  ", CellStyle::new().bg(bg)));
         title_spans.push(Span::styled(args_summary, muted_style));
@@ -265,7 +358,7 @@ pub fn detail_pane_rows(app: &App, width: usize, max_height: usize) -> Vec<Row> 
 /// Width-aware clipping hides segments that don't fit.
 pub fn static_status_row(app: &App, width: usize) -> Row {
     let p = super::style::palette();
-    let bg = p.surface0;
+    let bg = p.panel_bg;
     let subtext = CellStyle::new().fg(p.subtext0).bg(bg);
     let trust_text = "local user · workspace-contained tools · no TUI sandbox";
     let muted = CellStyle::new().fg(p.overlay0).bg(bg);

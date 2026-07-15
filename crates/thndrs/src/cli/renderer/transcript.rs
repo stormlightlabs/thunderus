@@ -5,8 +5,7 @@
 use std::path::Path;
 
 use crate::app::{App, Entry, ToolStatus};
-use crate::internals::{SelfKnowledgeSnapshot, StartupSection};
-use crate::providers::codex;
+use crate::internals::StartupSection;
 use crate::renderer::row::Row;
 use crate::renderer::style::{CellStyle, Color, Span};
 use crate::{renderer, utils};
@@ -16,9 +15,6 @@ const MAX_TOOL_OUTPUT_LINES: usize = 6;
 
 /// Minimum content width where markdown tables remain legible.
 const MIN_TABLE_RENDER_WIDTH: usize = 24;
-
-/// Maximum skill-list rows shown under the startup workbench loaded heading.
-const MAX_STARTUP_LOADED_SKILL_ROWS: usize = 4;
 
 /// Gutter prefix for tool output lines.
 pub const GUTTER: &str = "   │ ";
@@ -43,12 +39,14 @@ pub struct TranscriptRowContext<'a> {
     /// [`RowGroupId`] so native scrollback navigation can correlate rows to the
     /// originating entry.
     pub entry_index: Option<usize>,
+    /// Whether this entry begins a consecutive group of tool activity.
+    pub(crate) tool_group_start: bool,
 }
 
 impl TranscriptRowContext<'_> {
     /// Build all rows for a single transcript entry.
     pub fn rows_for_entry(&self, entry: &Entry) -> Vec<Row> {
-        let mut rows = entry_to_rows(entry, self.user_label, self.width, self.cwd);
+        let mut rows = entry_to_rows(entry, self.user_label, self.width, self.cwd, self.tool_group_start);
         if let Some(index) = self.entry_index {
             let group_id = renderer::row::RowGroupId { entry_index: index };
             for row in &mut rows {
@@ -77,24 +75,20 @@ impl<'a> TranscriptRowContext<'a> {
     /// Build a context without entry grouping.
     #[cfg(test)]
     pub fn for_test(user_label: &'a str, cwd: &'a Path, width: usize) -> Self {
-        Self { user_label, cwd, width, entry_index: None }
+        Self { user_label, cwd, width, entry_index: None, tool_group_start: true }
     }
 }
 
 #[derive(Clone, Copy)]
 struct StartupBannerTheme {
     width: usize,
-    bg: Color,
     brand_style: CellStyle,
-    version_style: CellStyle,
-    key_style: CellStyle,
-    value_style: CellStyle,
-    heading_style: CellStyle,
-    search_style: CellStyle,
     attention_style: CellStyle,
     muted_style: CellStyle,
     hint_style: CellStyle,
-    separator_style: CellStyle,
+    rail_style: CellStyle,
+    success_style: CellStyle,
+    meta_style: CellStyle,
 }
 
 impl StartupBannerTheme {
@@ -175,6 +169,7 @@ struct ToolBlockView<'a> {
     body_width: usize,
     bg: Color,
     cwd: &'a Path,
+    group_start: bool,
 }
 
 impl ToolBlockView<'_> {
@@ -190,22 +185,35 @@ impl ToolBlockView<'_> {
         let status_style = CellStyle::new().fg(status_color).bg(self.bg);
         let muted_style = CellStyle::new().fg(p.subtext0).bg(self.bg);
         let gutter_style = CellStyle::new().fg(p.overlay0).bg(self.bg);
-        let rail_style = CellStyle::new().fg(status_color).bg(self.bg);
+        let rail_style = CellStyle::new().fg(p.yellow).bg(self.bg);
         let content_width = self.body_width.saturating_sub(utils::text_width(ENTRY_RAIL));
         let tool_content_width = content_width.saturating_sub(utils::text_width(GUTTER));
 
-        let args_summary = summarize_tool_args(self.args, self.cwd);
         let base_name = self.name.split('#').next().unwrap_or(self.name);
+        let args_summary = summarize_tool_invocation(base_name, self.args, self.cwd);
         let lang = super::highlight::tool_output_language(base_name, self.args);
 
-        let mut rows = vec![Row::blank(self.width, CellStyle::new().bg(self.bg))];
+        let mut rows = Vec::new();
+        if self.group_start {
+            rows.push(Row::blank(self.width, CellStyle::new().bg(self.bg)));
+            rows.push(Row::padded(
+                vec![
+                    Span::styled(ENTRY_RAIL, rail_style),
+                    Span::styled("Activity", CellStyle::new().fg(p.yellow).bg(self.bg).bold()),
+                ],
+                self.width,
+                CellStyle::new().bg(self.bg),
+            ));
+        }
 
         let mut header_spans = vec![
             Span::styled(ENTRY_RAIL, rail_style),
             Span::styled(format!("{icon} "), status_style),
-            Span::styled(self.name.to_string(), header_style),
-            Span::styled(format!(" [{status_label}]"), status_style),
+            Span::styled(base_name.to_string(), header_style),
         ];
+        if self.status != ToolStatus::Ok {
+            header_spans.push(Span::styled(format!(" [{status_label}]"), status_style));
+        }
 
         if !args_summary.is_empty() {
             let header_width: usize = header_spans.iter().map(|s| utils::text_width(&s.text)).sum();
@@ -225,12 +233,8 @@ impl ToolBlockView<'_> {
                 header_spans = Vec::new();
             }
         }
-        if self.width >= 90 && !self.output.is_empty() && !header_spans.is_empty() {
-            let metadata = format!("  lines: {}", self.output.len());
-            let header_width: usize = header_spans.iter().map(|s| utils::text_width(&s.text)).sum();
-            if header_width + utils::text_width(&metadata) <= self.body_width {
-                header_spans.push(Span::styled(metadata, CellStyle::new().fg(p.overlay0).bg(self.bg)));
-            }
+        if self.status == ToolStatus::Ok && !self.output.is_empty() && !header_spans.is_empty() {
+            header_spans.push(Span::styled("  ▸", CellStyle::new().fg(p.overlay0).bg(self.bg)));
         }
         if !header_spans.is_empty() {
             rows.push(Row::padded(header_spans, self.width, CellStyle::new().bg(self.bg)));
@@ -258,6 +262,10 @@ impl ToolBlockView<'_> {
                 self.width,
                 CellStyle::new().bg(self.bg),
             ));
+        }
+
+        if self.status == ToolStatus::Ok {
+            return rows;
         }
 
         match lang {
@@ -576,93 +584,63 @@ impl App {
     /// Build startup banner rows from app state.
     pub fn render_banner_rows(&self, width: usize) -> Vec<Row> {
         let p = super::style::palette();
-        let bg = p.panel_bg;
+        let bg = Color::Reset;
         let theme = StartupBannerTheme {
             width,
-            bg,
             brand_style: CellStyle::new().fg(p.accent).bg(bg).bold(),
-            version_style: CellStyle::new().fg(p.overlay0).bg(bg),
-            key_style: CellStyle::new().fg(p.mauve).bg(bg),
-            value_style: CellStyle::new().fg(p.text).bg(bg),
-            heading_style: CellStyle::new().fg(p.teal).bg(bg).bold(),
-            search_style: CellStyle::new().fg(p.pink).bg(bg).bold(),
             attention_style: CellStyle::new().fg(p.peach).bg(bg).bold(),
             muted_style: CellStyle::new().fg(p.subtext0).bg(bg),
-            hint_style: CellStyle::new().fg(p.teal).bg(bg),
-            separator_style: CellStyle::new().fg(p.overlay0).bg(bg),
+            hint_style: CellStyle::new().fg(p.yellow).bg(bg).bold(),
+            rail_style: CellStyle::new().fg(p.overlay0).bg(bg),
+            success_style: CellStyle::new().fg(p.green).bg(bg),
+            meta_style: CellStyle::new().fg(p.overlay1).bg(bg),
         };
         let snapshot = self.self_knowledge_snapshot();
         let sections = snapshot.startup_sections();
+        let context_lines = self.startup_section_lines(&sections, "Context");
+        let diagnostics = self.startup_section_lines(&sections, "Diagnostics");
 
-        let mut rows = vec![Row::blank(width, CellStyle::new().bg(bg))];
-        push_banner_brand_row(&mut rows, &snapshot, theme);
-        push_banner_separator(&mut rows, theme);
-        push_banner_key_value_row(
-            &mut rows,
-            "model",
-            &format!(
-                "{} · {}",
-                codex::display_model_id(&snapshot.runtime.provider.model),
-                snapshot.runtime.provider.provider
-            ),
-            theme,
-        );
-        if !self.cwd.as_os_str().is_empty() {
-            let cwd_line = super::path_display::cwd_segment(&self.cwd, theme.body_width());
-            let cwd_line = cwd_line.strip_prefix("cwd: ").unwrap_or(&cwd_line);
-            push_banner_key_value_row(&mut rows, "cwd", cwd_line, theme);
-        }
-        push_banner_key_value_row(&mut rows, "search", &snapshot.runtime.provider.search.mode, theme);
-
-        push_banner_separator(&mut rows, theme);
-        push_banner_heading(&mut rows, "context", theme);
-        for line in self.startup_section_lines(&sections, "Context") {
-            push_wrapped_banner_text(&mut rows, &line, BannerIndent(2, 2), theme, theme.value_style);
-        }
-
-        push_banner_separator(&mut rows, theme);
-        push_banner_heading(&mut rows, "skills", theme);
-        for line in &snapshot.loaded_skill_lines(theme.body_width().saturating_sub(2)) {
-            push_wrapped_banner_text(&mut rows, line, BannerIndent(2, 2), theme, theme.muted_style);
-        }
-
-        push_banner_separator(&mut rows, theme);
-        push_banner_heading(&mut rows, "search", theme);
+        let mut rows = Vec::new();
+        push_banner_brand_row(&mut rows, theme);
         push_wrapped_banner_text(
             &mut rows,
-            &snapshot.search_line(),
-            BannerIndent(2, 2),
+            "Ask for change, run a command, or inspect the repo.",
+            BannerIndent(0, 0),
             theme,
             theme.muted_style,
         );
+        rows.push(Row::blank(width, CellStyle::new()));
 
-        let diagnostics = self.startup_section_lines(&sections, "Diagnostics");
+        let context_ready = context_lines.iter().any(|line| line != "(none)");
+        let context_text = readiness_context_text(&context_lines);
+        let context_path = context_lines
+            .iter()
+            .find(|line| line.as_str() != "(none)")
+            .map(|line| readiness_context_path(line))
+            .unwrap_or_else(|| "—".to_string());
+        push_banner_readiness_row(&mut rows, &context_text, &context_path, context_ready, theme);
+
+        let skill_count = snapshot.inventory.references.skills.len();
+        let skills_text = match skill_count {
+            0 => "No skills available".to_string(),
+            1 => "1 skill available".to_string(),
+            count => format!("{count} skills available"),
+        };
+        push_banner_readiness_row(&mut rows, &skills_text, "skills", skill_count > 0, theme);
+
+        let search_mode = snapshot.runtime.provider.search.mode.as_str();
+        push_banner_readiness_row(&mut rows, "Web Search", search_mode, true, theme);
+
         if diagnostics.iter().any(|line| line != "(none)") {
-            push_banner_separator(&mut rows, theme);
-            push_banner_heading(&mut rows, "attention", theme);
+            rows.push(Row::blank(width, CellStyle::new()));
+            push_banner_attention_heading(&mut rows, theme);
             for line in diagnostics {
                 push_wrapped_banner_text(&mut rows, &line, BannerIndent(2, 2), theme, theme.muted_style);
             }
         }
 
-        push_banner_separator(&mut rows, theme);
-        push_wrapped_banner_text(
-            &mut rows,
-            "Ask for a change, run a command, or inspect this repo.",
-            BannerIndent(0, 0),
-            theme,
-            theme.muted_style,
-        );
-        rows.push(Row::blank(width, CellStyle::new().bg(bg)));
-        push_wrapped_banner_text(
-            &mut rows,
-            "? help /model /search",
-            BannerIndent(0, 0),
-            theme,
-            theme.hint_style,
-        );
-
-        rows.push(Row::blank(width, CellStyle::new().bg(bg)));
+        rows.push(Row::blank(width, CellStyle::new()));
+        push_banner_help(&mut rows, theme);
         rows
     }
 
@@ -684,51 +662,18 @@ impl App {
     }
 }
 
-impl SelfKnowledgeSnapshot {
-    fn loaded_skill_lines(&self, width: usize) -> Vec<String> {
-        let skill_names = self
-            .inventory
-            .references
-            .skills
-            .iter()
-            .map(|skill| skill.name.as_str())
-            .collect::<Vec<_>>();
-        if skill_names.is_empty() {
-            return vec!["(none)".to_string()];
-        }
-
-        let content_width = width.max(1);
-        let mut shown = 0usize;
-        let mut rows = Vec::new();
-        for count in 1..=skill_names.len() {
-            let hidden = skill_names.len() - count;
-            let candidate = loaded_skill_rows(&skill_names[..count], hidden > 0, content_width);
-            let available_rows = if hidden > 0 {
-                MAX_STARTUP_LOADED_SKILL_ROWS.saturating_sub(1)
-            } else {
-                MAX_STARTUP_LOADED_SKILL_ROWS
-            };
-            if candidate.len() > available_rows {
-                break;
-            }
-            shown = count;
-            rows = candidate;
-        }
-
-        let hidden = skill_names.len() - shown;
-        if hidden > 0 {
-            rows.push(format!("...{hidden} skills hidden"));
-        }
-
-        rows
+/// Produce a compact, user-facing summary for a tool invocation.
+pub fn summarize_tool_invocation(name: &str, args: &str, cwd: &Path) -> String {
+    let summary = summarize_tool_args(args, cwd);
+    if name != "run_shell" || summary.is_empty() {
+        return summary;
     }
 
-    fn search_line(&self) -> String {
-        format!(
-            "{}; {}",
-            self.runtime.provider.search.provider_native_search, self.runtime.provider.search.local_search
-        )
-    }
+    let command = summary
+        .strip_prefix("argv: ")
+        .or_else(|| summary.strip_prefix("program: "))
+        .unwrap_or(&summary);
+    format!("$ {command}")
 }
 
 /// Produce a short summary of a tool's arguments for the transcript line.
@@ -745,6 +690,17 @@ pub fn summarize_tool_args(args: &str, cwd: &Path) -> String {
 
     match v.as_object() {
         Some(obj) => {
+            if let Some(argv) = obj.get("argv").and_then(|value| value.as_array()) {
+                let command = argv
+                    .iter()
+                    .filter_map(|value| value.as_str())
+                    .map(|value| super::path_display::transcript_line(value, cwd))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                if !command.is_empty() {
+                    return format!("argv: {}", utils::truncate_ellipsis(&command, 72));
+                }
+            }
             for key in &["pattern", "path", "query", "root", "glob", "file", "program", "url"] {
                 if let Some(val) = obj.get(*key).and_then(|f| f.as_str()) {
                     let val = super::path_display::transcript_line(val, cwd);
@@ -763,63 +719,6 @@ pub fn summarize_tool_args(args: &str, cwd: &Path) -> String {
     }
 }
 
-fn loaded_skill_rows(skill_names: &[&str], has_hidden: bool, width: usize) -> Vec<String> {
-    let mut rows = vec![String::new()];
-    for (index, name) in skill_names.iter().enumerate() {
-        let suffix = if has_hidden || index + 1 < skill_names.len() { "," } else { "" };
-        add_loaded_skill(&mut rows, &format!("{name}{suffix}"), width);
-    }
-    rows.into_iter().filter(|line| !line.is_empty()).collect()
-}
-
-fn add_loaded_skill(rows: &mut Vec<String>, token: &str, width: usize) {
-    for part in split_hyphenated_token(token, width) {
-        let current = rows.last_mut().expect("loaded skill rows should keep one active row");
-        let separator_width = usize::from(!current.is_empty());
-        if current.is_empty() {
-            current.push_str(&part);
-        } else if utils::text_width(current) + separator_width + utils::text_width(&part) <= width {
-            current.push(' ');
-            current.push_str(&part);
-        } else {
-            rows.push(part);
-        }
-    }
-}
-
-fn split_hyphenated_token(token: &str, width: usize) -> Vec<String> {
-    let width = width.max(1);
-    let mut remaining = token;
-    let mut parts = Vec::new();
-    while utils::text_width(remaining) > width {
-        let split = hyphen_split_index(remaining, width);
-        parts.push(remaining[..split].to_string());
-        remaining = &remaining[split..];
-    }
-    if !remaining.is_empty() {
-        parts.push(remaining.to_string());
-    }
-    parts
-}
-
-fn hyphen_split_index(text: &str, width: usize) -> usize {
-    let mut fallback = text.len();
-    for (index, _) in text.char_indices() {
-        if index > 0 && utils::text_width(&text[..index]) > width {
-            fallback = index;
-            break;
-        }
-    }
-
-    text.char_indices()
-        .filter_map(|(index, ch)| {
-            let split = index + ch.len_utf8();
-            (ch == '-' && split <= fallback && utils::text_width(&text[..split]) <= width).then_some(split)
-        })
-        .next_back()
-        .unwrap_or_else(|| fallback.max(1))
-}
-
 fn wrap_with_indent(text: &str, indent: BannerIndent, width: usize) -> Vec<String> {
     let first_width = width.saturating_sub(indent.first()).max(1);
     let continuation_width = width.saturating_sub(indent.continuation()).max(1);
@@ -836,59 +735,85 @@ fn wrap_with_indent(text: &str, indent: BannerIndent, width: usize) -> Vec<Strin
     out
 }
 
-fn push_banner_brand_row(rows: &mut Vec<Row>, snapshot: &SelfKnowledgeSnapshot, theme: StartupBannerTheme) {
+fn readiness_context_text(lines: &[String]) -> String {
+    let visible = lines
+        .iter()
+        .filter(|line| line.as_str() != "(none)")
+        .collect::<Vec<_>>();
+    let Some(first) = visible.first() else {
+        return "No project instructions".to_string();
+    };
+    let path = first.split(" (truncated").next().unwrap_or(first);
+    let name = Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(path);
+    format!("{name} loaded")
+}
+
+fn readiness_context_path(line: &str) -> String {
+    let path = line.split(" (truncated").next().unwrap_or(line);
+    if Path::new(path).components().count() == 1 { format!("./{path}") } else { path.to_string() }
+}
+
+fn push_banner_brand_row(rows: &mut Vec<Row>, theme: StartupBannerTheme) {
     rows.push(Row::padded(
         vec![
-            Span::styled(snapshot.identity.app_name.to_string(), theme.brand_style),
-            Span::styled(format!("  v{}", snapshot.identity.app_version), theme.version_style),
+            Span::styled("thndrs", theme.brand_style),
+            Span::styled(" / ready", theme.meta_style.bold()),
         ],
         theme.width,
-        CellStyle::new().bg(theme.bg),
+        CellStyle::new(),
     ));
 }
 
-fn push_banner_separator(rows: &mut Vec<Row>, theme: StartupBannerTheme) {
-    let width = theme.body_width().max(1);
-    rows.push(Row::padded(
-        vec![Span::styled("─".repeat(width), theme.separator_style)],
-        theme.width,
-        CellStyle::new().bg(theme.bg),
-    ));
-}
-
-fn push_banner_key_value_row(rows: &mut Vec<Row>, key: &str, value: &str, theme: StartupBannerTheme) {
-    let key_width = 7usize.min(theme.body_width());
-    let prefix = format!("{key:<key_width$}");
-    let value_width = theme
-        .body_width()
-        .saturating_sub(utils::text_width(&prefix))
-        .saturating_sub(1)
-        .max(1);
-    for (index, line) in super::layout::wrap_text(value, value_width).into_iter().enumerate() {
-        let key_text = if index == 0 { prefix.clone() } else { " ".repeat(key_width) };
-        rows.push(Row::padded(
-            vec![
-                Span::styled(key_text, theme.key_style),
-                Span::styled(" ".to_string(), theme.muted_style),
-                Span::styled(line, theme.value_style),
-            ],
-            theme.width,
-            CellStyle::new().bg(theme.bg),
-        ));
+fn push_banner_readiness_row(rows: &mut Vec<Row>, text: &str, meta: &str, ready: bool, theme: StartupBannerTheme) {
+    let prefix_width = utils::text_width("│   ✓ ");
+    let available = theme.body_width().saturating_sub(prefix_width).max(1);
+    let wrapped = super::layout::wrap_text(text, available);
+    for (index, line) in wrapped.into_iter().enumerate() {
+        let marker = if index == 0 { if ready { "✓ " } else { "· " } } else { "  " };
+        let marker_style = if ready { theme.success_style } else { theme.muted_style };
+        let mut spans = vec![
+            Span::styled("│   ", theme.rail_style),
+            Span::styled(marker, marker_style),
+            Span::styled(line, theme.muted_style),
+        ];
+        if index == 0 {
+            let used = super::layout::spans_width(&spans);
+            let meta_width = utils::text_width(meta);
+            if used + meta_width + 2 <= theme.body_width() {
+                spans.push(Span::styled(
+                    " ".repeat(theme.body_width() - used - meta_width),
+                    theme.muted_style,
+                ));
+                spans.push(Span::styled(meta, theme.meta_style));
+            }
+        }
+        rows.push(Row::padded(spans, theme.width, CellStyle::new()));
     }
 }
 
-fn push_banner_heading(rows: &mut Vec<Row>, label: &str, theme: StartupBannerTheme) {
-    let style = match label {
-        "search" => theme.search_style,
-        "attention" => theme.attention_style,
-        _ => theme.heading_style,
-    };
+fn push_banner_attention_heading(rows: &mut Vec<Row>, theme: StartupBannerTheme) {
     rows.push(Row::padded(
-        vec![Span::styled(label.to_ascii_uppercase(), style)],
+        vec![Span::styled("ATTENTION", theme.attention_style)],
         theme.width,
-        CellStyle::new().bg(theme.bg),
+        CellStyle::new(),
     ));
+}
+
+fn push_banner_help(rows: &mut Vec<Row>, theme: StartupBannerTheme) {
+    let spans = vec![
+        Span::styled("?", theme.hint_style),
+        Span::styled(" help   ", theme.muted_style),
+        Span::styled("/model", theme.hint_style),
+        Span::styled(" switch   ", theme.muted_style),
+        Span::styled("/search", theme.hint_style),
+        Span::styled(" configure", theme.muted_style),
+    ];
+    for line in super::layout::wrap_spans(&spans, theme.body_width()) {
+        rows.push(Row::padded(line, theme.width, CellStyle::new()));
+    }
 }
 
 fn push_wrapped_banner_text(
@@ -899,7 +824,7 @@ fn push_wrapped_banner_text(
         rows.push(Row::padded(
             vec![Span::styled(line, text_style)],
             theme.width,
-            CellStyle::new().bg(theme.bg),
+            CellStyle::new(),
         ));
     }
 }
@@ -958,21 +883,20 @@ fn path_like_suffix(line: &str) -> Option<String> {
 }
 
 /// Convert a single transcript entry to padded rows for scrollback.
-fn entry_to_rows(entry: &Entry, user_label: &str, width: usize, cwd: &Path) -> Vec<Row> {
+fn entry_to_rows(entry: &Entry, user_label: &str, width: usize, cwd: &Path, tool_group_start: bool) -> Vec<Row> {
     let p = super::style::palette();
-    let bg = p.surface_dim;
+    let bg = Color::Reset;
     let body_width = super::layout::content_width(width);
     let railed_body_width = body_width.saturating_sub(utils::text_width(ENTRY_RAIL));
 
     match entry {
         Entry::User { text } => {
-            let surface1 = p.surface1;
-            let rail_style = CellStyle::new().fg(p.blue).bg(surface1).bold();
-            let label_style = CellStyle::new().fg(p.blue).bg(surface1).bold();
-            let text_style = CellStyle::new().fg(p.text).bg(surface1);
-            let mut rows = LabeledBlock::new(rail_style, label_style, text_style, surface1, width, railed_body_width)
+            let rail_style = CellStyle::new().fg(p.blue).bg(bg).bold();
+            let label_style = CellStyle::new().fg(p.blue).bg(bg).bold();
+            let text_style = CellStyle::new().fg(p.subtext0).bg(bg).italic();
+            let mut rows = LabeledBlock::new(rail_style, label_style, text_style, bg, width, railed_body_width)
                 .build(user_label, text);
-            rows.push(Row::blank(width, CellStyle::new().bg(surface1)));
+            rows.push(Row::blank(width, CellStyle::new().bg(bg)));
             rows
         }
         Entry::Agent { text, .. } => {
@@ -987,9 +911,18 @@ fn entry_to_rows(entry: &Entry, user_label: &str, width: usize, cwd: &Path) -> V
             let label = if *streaming { "Thinking ·" } else { "Thinking ✓" };
             LabeledBlock::new(rail_style, label_style, text_style, bg, width, railed_body_width).build(label, text)
         }
-        Entry::Tool { name, arguments, status, output } => {
-            ToolBlockView { name, args: arguments, status: *status, output, width, body_width, bg, cwd }.rows()
+        Entry::Tool { name, arguments, status, output } => ToolBlockView {
+            name,
+            args: arguments,
+            status: *status,
+            output,
+            width,
+            body_width,
+            bg,
+            cwd,
+            group_start: tool_group_start,
         }
+        .rows(),
         Entry::Status { text } => {
             let rail_style = CellStyle::new().fg(p.overlay1).bg(bg);
             let label_style = CellStyle::new().fg(p.overlay1).bg(bg).bold();
@@ -998,10 +931,12 @@ fn entry_to_rows(entry: &Entry, user_label: &str, width: usize, cwd: &Path) -> V
                 .build(status_label_for(text), text)
         }
         Entry::Error { text } => {
-            let rail_style = CellStyle::new().fg(p.red).bg(bg).bold();
-            let label_style = CellStyle::new().fg(p.red).bg(bg).bold();
-            let text_style = CellStyle::new().fg(p.text).bg(bg);
-            LabeledBlock::new(rail_style, label_style, text_style, bg, width, railed_body_width).build("⚠ Error", text)
+            let error_bg = p.surface_dim;
+            let rail_style = CellStyle::new().fg(p.red).bg(error_bg).bold();
+            let label_style = CellStyle::new().fg(p.red).bg(error_bg).bold();
+            let text_style = CellStyle::new().fg(p.text).bg(error_bg);
+            LabeledBlock::new(rail_style, label_style, text_style, error_bg, width, railed_body_width)
+                .build("⚠ Error", text)
         }
     }
 }

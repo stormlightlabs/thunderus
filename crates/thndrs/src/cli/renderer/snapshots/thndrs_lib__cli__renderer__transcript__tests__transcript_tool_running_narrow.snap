@@ -2,9 +2,10 @@
 source: crates/thndrs/src/cli/renderer/transcript/tests.rs
 expression: contents
 ---
-│                                           # [bg=#171928]=                                        
-│   │ · run_shell [running]                 # [bg=#171928]=   [fg=#f7c67f bg=#171928]=│  [fg=#f7c67f bg=#171928]=·  [fg=#ebfafa bg=#171928 b]=run_shell [fg=#f7c67f bg=#171928]= [running] [bg=#171928]=              [bg=#171928]=  
-│   │   program: cargo test                 # [bg=#171928]=   [fg=#f7c67f bg=#171928]=│  [bg=#171928]=   [fg=#abb4da bg=#171928]=program: cargo test [bg=#171928]=              [bg=#171928]=  
-│   │    │ running 3 tests                  # [bg=#171928]=   [fg=#f7c67f bg=#171928]=│  [fg=#3b4261 bg=#171928]=   │  [fg=#8fa1b3 bg=#171928]=running [fg=#c0c5ce bg=#171928]= 3 tests [bg=#171928]=               [bg=#171928]=  
-│   │    │ test tests::foo ... ok           # [bg=#171928]=   [fg=#f7c67f bg=#171928]=│  [fg=#3b4261 bg=#171928]=   │  [fg=#8fa1b3 bg=#171928]=test [fg=#c0c5ce bg=#171928]= tests::foo ... ok [bg=#171928]=        [bg=#171928]=  
-│   │    │ test tests::bar ... ok           # [bg=#171928]=   [fg=#f7c67f bg=#171928]=│  [fg=#3b4261 bg=#171928]=   │  [fg=#8fa1b3 bg=#171928]=test [fg=#c0c5ce bg=#171928]= tests::bar ... ok [bg=#171928]=        [bg=#171928]=
+│                                           # [-]=                                        
+│   │ Activity                              # [-]=   [fg=#f1fc79]=│  [fg=#f1fc79 b]=Activity [-]=                           [-]=  
+│   │ · run_shell [running]                 # [-]=   [fg=#f1fc79]=│  [fg=#f7c67f]=·  [fg=#ebfafa b]=run_shell [fg=#f7c67f]= [running] [-]=              [-]=  
+│   │   $ cargo test                        # [-]=   [fg=#f1fc79]=│  [-]=   [fg=#abb4da]=$ cargo test [-]=                     [-]=  
+│   │    │ running 3 tests                  # [-]=   [fg=#f1fc79]=│  [fg=#3b4261]=   │  [fg=#8fa1b3]=running [fg=#c0c5ce]= 3 tests [-]=               [-]=  
+│   │    │ test tests::foo ... ok           # [-]=   [fg=#f1fc79]=│  [fg=#3b4261]=   │  [fg=#8fa1b3]=test [fg=#c0c5ce]= tests::foo ... ok [-]=        [-]=  
+│   │    │ test tests::bar ... ok           # [-]=   [fg=#f1fc79]=│  [fg=#3b4261]=   │  [fg=#8fa1b3]=test [fg=#c0c5ce]= tests::bar ... ok [-]=        [-]=

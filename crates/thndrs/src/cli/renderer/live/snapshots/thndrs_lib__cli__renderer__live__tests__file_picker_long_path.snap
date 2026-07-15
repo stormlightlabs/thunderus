@@ -2,8 +2,7 @@
 source: crates/thndrs/src/cli/renderer/live/tests.rs
 expression: frame.render_styled()
 ---
-│   ╭ files · focus: option 1/1 ─╮  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╭ files · focus: option 1/1 ─╮
-│   │    filter: type to filter      │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  filter: type to filter       [fg=#ebfafa bg=#212337 b]=│
-│   │    ❯ …th/to/some/module/file.rs│  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  ❯ …th/to/some/module/file.rs [fg=#ebfafa bg=#212337 b]=│
-│   │    Enter select · Esc close    │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  Enter select · Esc close     [fg=#ebfafa bg=#212337 b]=│
-│   ╰────────────────────────────╯  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╰────────────────────────────╯
+│   │  FILES        option 1/1    # [-]=   [fg=#3b4261]=│   [fg=#f1fc79 b]=FILES [-]=         [fg=#6473b7]=option 1/1 [-]=  
+│   │  filter: type to filter     # [-]=   [fg=#3b4261]=│   [fg=#3b4261]=filter: type to filter [-]=  [-]=  
+│   │  ❯ …th/to/some/module/file.rs  # [-]=   [fg=#3b4261]=│   [fg=#ebfafa b]=❯ …th/to/some/module/file.rs
+│   │  Enter select · Esc close   # [-]=   [fg=#3b4261]=│   [fg=#3b4261]=Enter select · Esc close [-]=

@@ -1,8 +1,8 @@
 ---
-source: src/cli/renderer/region/tests.rs
+source: crates/thndrs/src/cli/renderer/region/tests.rs
 expression: contents
 ---
-│                                                                                   # [bg=#292e42]=                                                                                
-│   │ User                                                                          # [bg=#292e42]=   [fg=#04d1f9 bg=#292e42 b]=│  [fg=#04d1f9 bg=#292e42 b]=User [bg=#292e42]=                                                                       [bg=#292e42]=  
-│   │ Hello, can you help me with this?                                             # [bg=#292e42]=   [fg=#04d1f9 bg=#292e42 b]=│  [fg=#ebfafa bg=#292e42]=Hello, can you help me with this? [bg=#292e42]=                                          [bg=#292e42]=  
-│                                                                                   # [bg=#292e42]=
+│                                                                                   # [-]=                                                                                
+│   │ User                                                                          # [-]=   [fg=#04d1f9 b]=│  [fg=#04d1f9 b]=User [-]=                                                                       [-]=  
+│   │ Hello, can you help me with this?                                             # [-]=   [fg=#04d1f9 b]=│  [fg=#abb4da i]=Hello, can you help me with this? [-]=                                          [-]=  
+│                                                                                   # [-]=

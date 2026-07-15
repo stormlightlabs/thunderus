@@ -243,6 +243,29 @@ fn build_view_running_tool_is_live_only() {
 }
 
 #[test]
+fn consecutive_tools_share_one_activity_heading() {
+    let mut app = test_app();
+    for name in ["find_files", "search_text"] {
+        app.transcript.push(Entry::Tool {
+            name: name.to_string(),
+            arguments: "{}".to_string(),
+            status: ToolStatus::Ok,
+            output: vec!["stored output".to_string()],
+        });
+    }
+
+    let view = RendererView::build(&app, 80, 24);
+    let activity_headings = view
+        .transcript
+        .stable_rows
+        .iter()
+        .filter(|row| row.text().contains("Activity"))
+        .count();
+
+    assert_eq!(activity_headings, 1, "consecutive tools should form one activity group");
+}
+
+#[test]
 fn build_view_narrow_changes_row_counts() {
     let mut app = test_app();
     app.input.set_text("a longer prompt that should wrap at narrow width");
@@ -297,18 +320,23 @@ fn build_view_prompt_clipping_keeps_cursor_row() {
 
     assert_eq!(view.live.prompt_rows.len(), renderer::live::MAX_PROMPT_ROWS);
     assert!(
+        text.contains("╭─ test-session"),
+        "clipping should preserve the top frame:\n{text}"
+    );
+    assert!(text.contains('╰'), "clipping should preserve the bottom frame:\n{text}");
+    assert!(
         text.contains("line 19"),
         "prompt clipping should keep the editable tail:\n{text}"
     );
     assert_eq!(
         view.live.prompt_cursor.map(|cursor| cursor.row),
-        Some(renderer::live::MAX_PROMPT_ROWS - 1),
+        Some(renderer::live::MAX_PROMPT_ROWS - 2),
         "cursor row should be rebased into the clipped prompt rows"
     );
 }
 
 #[test]
-fn build_view_working_state_has_live_tail_and_status() {
+fn build_view_working_state_has_live_tail_and_composer_status() {
     let mut app = test_app();
     app.run_state = RunState::Working;
     app.transcript.push(Entry::Agent {
@@ -319,10 +347,7 @@ fn build_view_working_state_has_live_tail_and_status() {
     let view = RendererView::build(&app, 80, 24);
 
     assert!(!view.live.live_tail.is_empty(), "working state should have a live tail");
-    assert!(
-        !view.live.dynamic_status.text().is_empty(),
-        "dynamic status should be present during working state"
-    );
+    assert!(view.live.prompt_rows[0].text().contains("working"));
 }
 
 #[test]

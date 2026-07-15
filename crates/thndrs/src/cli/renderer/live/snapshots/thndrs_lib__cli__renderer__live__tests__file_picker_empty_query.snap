@@ -2,10 +2,9 @@
 source: crates/thndrs/src/cli/renderer/live/tests.rs
 expression: frame.render_styled()
 ---
-│   ╭ files · focus: option 1/3 ───────────────────────────────────────────────────╮  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╭ files · focus: option 1/3 ───────────────────────────────────────────────────╮
-│   │    filter: type to filter                                                        │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  filter: type to filter                                                         [fg=#ebfafa bg=#212337 b]=│
-│   │    ❯ src/main.rs                                                                 │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#292e42]=   [fg=#ebfafa bg=#292e42 b]=  ❯ src/main.rs                                                                  [fg=#ebfafa bg=#212337 b]=│
-│   │      src/lib.rs                                                                  │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#ebfafa bg=#212337]=    src/lib.rs                                                                   [fg=#ebfafa bg=#212337 b]=│
-│   │      Cargo.toml                                                                  │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#ebfafa bg=#212337]=    Cargo.toml                                                                   [fg=#ebfafa bg=#212337 b]=│
-│   │    Enter select · Esc close                                                      │  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=│ [bg=#212337]=   [fg=#3b4261 bg=#212337]=  Enter select · Esc close                                                       [fg=#ebfafa bg=#212337 b]=│
-│   ╰──────────────────────────────────────────────────────────────────────────────╯  # [bg=#212337]=   [fg=#ebfafa bg=#212337 b]=╰──────────────────────────────────────────────────────────────────────────────╯
+│   │  FILES                                                          option 1/3    # [-]=   [fg=#3b4261]=│   [fg=#f1fc79 b]=FILES [-]=                                                           [fg=#6473b7]=option 1/3 [-]=  
+│   │  filter: type to filter                                                       # [-]=   [fg=#3b4261]=│   [fg=#3b4261]=filter: type to filter [-]=                                                    [-]=  
+│   │  ❯ src/main.rs                                                                # [-]=   [fg=#3b4261]=│   [fg=#ebfafa b]=❯ src/main.rs [-]=                                                             [-]=  
+│   │    src/lib.rs                                                                 # [-]=   [fg=#3b4261]=│   [fg=#ebfafa]=  src/lib.rs [-]=                                                              [-]=  
+│   │    Cargo.toml                                                                 # [-]=   [fg=#3b4261]=│   [fg=#ebfafa]=  Cargo.toml [-]=                                                              [-]=  
+│   │  Enter select · Esc close                                                     # [-]=   [fg=#3b4261]=│   [fg=#3b4261]=Enter select · Esc close [-]=                                                  [-]=
