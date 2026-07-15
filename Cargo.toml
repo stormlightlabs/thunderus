@@ -20,6 +20,7 @@ iocraft = "0.8.3"
 lectito = "0.2"
 markdown = "1.0.0"
 regex-lite = "0.1"
+ratatui = { version = "0.30.0", default-features = false }
 rmcp = { version = "2.1.0", default-features = false, features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest"] }
 scraper = "0.27"
 serde = { version = "1", features = ["derive"] }

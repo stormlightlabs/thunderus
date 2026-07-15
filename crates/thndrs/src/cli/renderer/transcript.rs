@@ -1,4 +1,4 @@
-//! Semantic transcript row construction for the direct renderer.
+//! Semantic transcript row construction for the terminal renderer.
 //!
 //! This module owns turning transcript [`Entry`] values into [`Row`] blocks.
 
@@ -36,7 +36,7 @@ pub struct TranscriptRowContext<'a> {
     pub cwd: &'a Path,
     pub width: usize,
     /// Index of the entry in the transcript. When present, rows are tagged with a
-    /// [`RowGroupId`] so native scrollback navigation can correlate rows to the
+    /// [`RowGroupId`] so viewport navigation can correlate rows to the
     /// originating entry.
     pub entry_index: Option<usize>,
     /// Whether this entry begins a consecutive group of tool activity.
@@ -641,6 +641,7 @@ impl App {
 
         rows.push(Row::blank(width, CellStyle::new()));
         push_banner_help(&mut rows, theme);
+        rows.push(Row::blank(width, CellStyle::new()));
         rows
     }
 

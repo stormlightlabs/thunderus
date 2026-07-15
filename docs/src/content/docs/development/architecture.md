@@ -38,11 +38,12 @@ it through the terminal loop.
 
 ## UI Rendering
 
-The direct renderer writes stable transcript blocks once into native terminal
-scrollback. The live region redraws only active streaming content, dynamic
-status, prompt input, accessory rows, and static footer status. A renderer-owned
-row model keeps wrapping, padding, styling, and cursor placement testable
-without terminal I/O.
+The Ratatui renderer owns the alternate-screen viewport. It projects transcript
+entries in chronological order, reserves the bottom rows for the growing prompt
+and status surfaces, and keeps transcript scrolling in application state. A
+single draw composes the transcript, prompt, pickers, detail panes, and other
+overlays. The renderer-owned row model keeps wrapping, padding, styling, cursor
+placement, and viewport navigation testable without terminal I/O.
 
 ## Provider Client
 

@@ -898,6 +898,22 @@ fn banner_normal_viewport_shows_all_sections() {
 }
 
 #[test]
+fn banner_ends_with_a_transparent_spacer_below_shortcuts() {
+    let app = test_app();
+    let rows = app.render_banner_rows(80);
+    let spacer = rows.last().expect("banner spacer row");
+
+    assert!(spacer.text().trim().is_empty());
+    assert!(
+        spacer
+            .spans
+            .iter()
+            .all(|span| span.style.bg == renderer::style::Color::Reset),
+        "banner spacer should inherit the terminal background"
+    );
+}
+
+#[test]
 fn banner_search_metadata_uses_quiet_color() {
     let app = test_app();
     let rows = app.render_banner_rows(80);

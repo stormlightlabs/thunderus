@@ -11,4 +11,5 @@ expression: contents
 │   │   ✓ Web Search           native       # [-]=   [fg=#3b4261]=│    [fg=#37f499]=✓  [fg=#abb4da]=Web Search [fg=#abb4da]=            [fg=#6473b7]=native [-]=    [-]=  
 │                                           # [-]=                                        
 │   ? help   /model switch   /search        # [-]=   [fg=#f1fc79 b]=? [fg=#abb4da]= help    [fg=#f1fc79 b]=/model [fg=#abb4da]= switch    [fg=#f1fc79 b]=/search [fg=#abb4da]=  [-]=    [-]=  
-│   configure                               # [-]=   [fg=#abb4da]=configure [-]=                            [-]=
+│   configure                               # [-]=   [fg=#abb4da]=configure [-]=                            [-]=  
+│                                           # [-]=

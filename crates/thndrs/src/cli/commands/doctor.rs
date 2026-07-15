@@ -11,7 +11,6 @@ use serde_json::to_string_pretty;
 use crate::acp::config::provider_label;
 use crate::cli::Cli;
 use crate::mcp;
-use crate::renderer::backend::terminal_size;
 use crate::session;
 use crate::thndrs_core::auth;
 use crate::thndrs_core::diagnostics::{
@@ -187,7 +186,7 @@ fn collect_acp_status(acp_agents: &BTreeMap<String, crate::config::AcpAgentConfi
 }
 
 fn collect_terminal_summary() -> DoctorTerminalSummary {
-    let (width, height) = terminal_size();
+    let (width, height) = crossterm::terminal::size().unwrap_or((80, 24));
     let term_env = std::env::var("TERM").ok().filter(|value| !value.trim().is_empty());
     let no_color = std::env::var_os("NO_COLOR").is_some();
 

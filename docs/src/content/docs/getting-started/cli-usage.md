@@ -65,7 +65,13 @@ The output redacts secrets.
 
 ## Terminal Options
 
-Use `--tick-rate-ms` to tune UI tick timing. The TUI renders inline without
-entering the alternate screen.
+Use `--tick-rate-ms` to tune UI tick timing. The TUI uses an alternate screen
+with an application-owned transcript.
 
-Use `--no-mouse` to leave terminal mouse selection and native scrollback uncaptured.
+Page Up and Page Down scroll by a page; Alt+Up and Alt+Down scroll by a line;
+Ctrl+Home and Ctrl+End jump to the oldest entry and the live tail.
+
+Use `--mouse` to enable transcript wheel scrolling and mouse navigation in pickers.
+
+Use `--no-mouse` to disable capture. Most terminal emulators let you hold a modifier
+while selecting text when capture is enabled.

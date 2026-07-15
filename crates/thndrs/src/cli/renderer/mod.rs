@@ -1,30 +1,26 @@
-//! Direct terminal renderer for `thndrs`.
+//! Terminal rendering for `thndrs`.
 //!
-//! Source of truth for inline rendering. The row model
+//! The row model
 //! ([`style`], [`layout`], [`row`], [`cursor`]) is independent of crossterm I/O
-//! so wrapping, padding, truncation, cursor coordinates, and snapshots can be
-//! unit-tested. The [`backend`] module is the only place that translates rows
-//! into ANSI escape sequences.
+//! so wrapping, padding, truncation, cursor coordinates, and snapshots remain
+//! unit-testable. [`alternate`] owns the production Ratatui surface and terminal
+//! lifecycle.
 
 pub mod adapter;
-pub mod backend;
+pub mod alternate;
 pub mod cursor;
 pub mod git;
 pub mod highlight;
 pub mod layout;
 pub mod live;
 pub mod path_display;
-pub mod region;
 pub mod row;
 pub mod style;
 pub mod transcript;
 pub mod view;
 
-pub use backend::{enter_raw_mode, leave_raw_mode, terminal_size};
-
 #[cfg(test)]
 mod tests {
-    use super::backend::TerminalBackend;
     use super::cursor;
     use super::cursor::prompt_cursor;
     use super::layout::{content_width, wrap_text};
@@ -209,34 +205,5 @@ mod tests {
             surface,
         ));
         insta::assert_snapshot!(frame.render_styled());
-    }
-
-    #[test]
-    fn backend_writes_styled_row_to_buffer() {
-        let mut backend = TerminalBackend::new(Vec::new(), 20, 10);
-        let row = Row::padded(
-            vec![Span::styled("hi", CellStyle::new().fg(Color::Green).bg(Color::Blue))],
-            6,
-            CellStyle::default(),
-        );
-        backend.write_row(0, &row).expect("write row");
-        let out = String::from_utf8(backend.writer().clone()).expect("utf8");
-        assert!(out.contains("hi"), "row text should be in output");
-        assert!(out.ends_with("\x1b[0m"), "should reset color at end");
-    }
-
-    #[test]
-    fn backend_render_frame_writes_all_rows_and_cursor() {
-        let mut backend = TerminalBackend::new(Vec::new(), 20, 10);
-        let mut frame = Frame::new(20);
-        frame.push(Row::padded(vec![Span::plain("row1")], 10, CellStyle::default()));
-        frame.push(Row::padded(vec![Span::plain("row2")], 10, CellStyle::default()));
-        frame.set_cursor(CursorCoord::new(1, 4));
-        backend.render_frame(&frame, 0).expect("render frame");
-
-        let out = String::from_utf8(backend.writer().clone()).expect("utf8");
-        assert!(out.contains("row1"));
-        assert!(out.contains("row2"));
-        assert!(out.contains("\x1b[2;5H"));
     }
 }

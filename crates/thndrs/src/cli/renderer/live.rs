@@ -1,6 +1,7 @@
-//! Live region row builders for the direct renderer.
+//! Live prompt and focused-surface row builders.
 //!
-//! The live chrome is rebuilt each tick and composed into the full viewport by [`super::region::LiveRegion`].
+//! The live chrome is rebuilt after dirty updates and composed into the full
+//! viewport by [`super::alternate::AlternateViewport`].
 
 #[cfg(test)]
 mod tests;

@@ -50,9 +50,12 @@ Move through previously submitted prompts.
 
 ## Transcript Scrollback
 
-The conversation transcript is written to native terminal scrollback instead of
-an app-owned viewport. Use your terminal or multiplexer scroll controls for
-wheel/trackpad scrolling, search, and selection.
+| Key                             | Description                         |
+| ------------------------------- | ----------------------------------- |
+| `PageUp` / `PageDown`           | Scroll by one visible page          |
+| `Ctrl+PageUp` / `Ctrl+PageDown` | Scroll by half a visible page       |
+| `Alt+Up` / `Alt+Down`           | Scroll by one rendered row          |
+| `Ctrl+Home` / `Ctrl+End`        | Jump to oldest entry / latest entry |
 
 ## Help Overlay
 
@@ -107,10 +110,10 @@ Available after running `:model`.
 
 ## Mouse
 
-Mouse capture is disabled by default so the terminal owns selection and
-scrollback. When mouse input is enabled for overlays:
+Mouse capture is disabled by default. Run with `--mouse` to enable transcript
+and picker scrolling:
 
-| Action        | Description                    |
-| ------------- | ------------------------------ |
-| `Scroll Up`   | Move the picker selection up   |
-| `Scroll Down` | Move the picker selection down |
+| Action        | Description                                           |
+| ------------- | ----------------------------------------------------- |
+| `Scroll Up`   | Scroll transcript up, or move picker selection up     |
+| `Scroll Down` | Scroll transcript down, or move picker selection down |

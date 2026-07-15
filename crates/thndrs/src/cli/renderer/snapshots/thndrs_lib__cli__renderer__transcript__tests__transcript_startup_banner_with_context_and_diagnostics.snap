@@ -13,4 +13,5 @@ expression: contents
 │     skill diagnostic /Users/test/.thndrs/skills/bad/SKILL.md: invalid YAML        # [-]=   [fg=#abb4da]=  skill diagnostic /Users/test/.thndrs/skills/bad/SKILL.md: invalid YAML [-]=     [-]=  
 │     frontmatter                                                                   # [-]=   [fg=#abb4da]=  frontmatter [-]=                                                                [-]=  
 │                                                                                   # [-]=                                                                                
-│   ? help   /model switch   /search configure                                      # [-]=   [fg=#f1fc79 b]=? [fg=#abb4da]= help    [fg=#f1fc79 b]=/model [fg=#abb4da]= switch    [fg=#f1fc79 b]=/search [fg=#abb4da]= configure [-]=                                   [-]=
+│   ? help   /model switch   /search configure                                      # [-]=   [fg=#f1fc79 b]=? [fg=#abb4da]= help    [fg=#f1fc79 b]=/model [fg=#abb4da]= switch    [fg=#f1fc79 b]=/search [fg=#abb4da]= configure [-]=                                   [-]=  
+│                                                                                   # [-]=

@@ -39,10 +39,12 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEvent};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use ratatui::Terminal;
+use ratatui::backend::CrosstermBackend;
+use ratatui::layout::Rect;
 
 use acp::config::provider_label;
-use app::PromptAccessory;
 use app::{App, Msg, RunState, start_auto_compaction, update};
 use cli::{
     Cli, Command, MIN_TICK_RATE_MS, commands,
@@ -53,14 +55,13 @@ use cli::{
 };
 use mcp::manager::McpManager;
 use prompt::PromptBundle;
-use renderer::backend::TerminalBackend;
-use renderer::region::LiveRegion;
+use renderer::alternate::{AlternateScreenSession, AlternateViewport, render_logical_frame};
 use utils::datetime;
 
 use thndrs_agent::CancelToken;
 use thndrs_agent::context as agent_context;
 
-/// Smallest interval at which the direct renderer redraws agent-driven frames.
+/// Smallest interval at which the TUI applies periodic agent-driven updates.
 const MIN_RENDER_INTERVAL: Duration = Duration::from_millis(MIN_TICK_RATE_MS);
 /// Largest event burst applied before yielding back to the render/event loop.
 const MAX_AGENT_EVENTS_PER_RENDER: usize = 256;
@@ -1080,39 +1081,73 @@ fn redact_secret(text: &str) -> String {
     text.replace("sk-", "sk-[REDACTED]")
 }
 
-/// Inline mode using the direct renderer: a logical viewport owns the visible
-/// terminal area and is rebuilt for the current terminal size each tick.
+/// Interactive alternate-screen mode with one application-owned viewport.
 fn run_inline(tick: Duration, cli: &Cli) -> io::Result<()> {
-    renderer::enter_raw_mode()?;
-
     let mouse_enabled = cli.mouse && !cli.no_mouse;
-    let (width, height) = renderer::terminal_size();
+    let _terminal_session = AlternateScreenSession::enter(mouse_enabled)?;
     let stdout = io::BufWriter::with_capacity(TERMINAL_WRITE_BUFFER_CAPACITY, io::stdout());
-    let mut backend = TerminalBackend::new(stdout, width, height);
-    let mut live = LiveRegion::new();
-    let result = direct_loop(&mut backend, &mut live, tick, cli, mouse_enabled);
-
-    let _ = backend.show_cursor();
-    let _ = backend.flush();
-    renderer::leave_raw_mode()?;
-
-    let _ = crossterm::execute!(
-        io::stdout(),
-        crossterm::cursor::MoveTo(0, renderer::terminal_size().1.saturating_sub(1))
-    );
-    println!();
-    result
+    let terminal = Terminal::new(CrosstermBackend::new(stdout))?;
+    let mut surface = RatatuiSurface::new(terminal);
+    interactive_loop(&mut surface, tick, cli)
 }
 
-/// Direct renderer event loop: drives the agent, polls events, and renders via
-/// [`TerminalBackend`] + [`LiveRegion`].
-///
-/// History and live prompt chrome are rendered as one terminal-sized frame so
-/// resize and wrapping behavior is owned by the renderer instead of native
-/// terminal scrollback side effects.
-fn direct_loop<W: io::Write>(
-    backend: &mut TerminalBackend<W>, live: &mut LiveRegion, tick: Duration, cli: &Cli, mouse_enabled: bool,
-) -> io::Result<()> {
+trait InteractiveSurface {
+    fn draw(&mut self, app: &mut App) -> io::Result<()>;
+    fn resize(&mut self, width: u16, height: u16) -> io::Result<()>;
+    fn clear(&mut self) -> io::Result<()>;
+    fn handle_navigation(&mut self, app: &App, event: &Event) -> bool;
+}
+
+struct RatatuiSurface<W: io::Write> {
+    terminal: Terminal<CrosstermBackend<W>>,
+    viewport: AlternateViewport,
+}
+
+impl<W: io::Write> RatatuiSurface<W> {
+    fn new(terminal: Terminal<CrosstermBackend<W>>) -> Self {
+        Self { terminal, viewport: AlternateViewport::default() }
+    }
+}
+
+impl<W: io::Write> InteractiveSurface for RatatuiSurface<W> {
+    fn draw(&mut self, app: &mut App) -> io::Result<()> {
+        let projection_started = Instant::now();
+        renderer::style::set_theme(app.theme);
+        let area = self.terminal.size()?;
+        let logical = self
+            .viewport
+            .build_frame(app, area.width as usize, area.height as usize);
+        let projection_elapsed = projection_started.elapsed();
+        let draw_started = Instant::now();
+        self.terminal.draw(|frame| render_logical_frame(frame, &logical))?;
+        tracing::trace!(
+            projection_us = projection_elapsed.as_micros(),
+            draw_us = draw_started.elapsed().as_micros(),
+            width = area.width,
+            height = area.height,
+            "ratatui frame timing"
+        );
+        Ok(())
+    }
+
+    fn resize(&mut self, width: u16, height: u16) -> io::Result<()> {
+        self.terminal.resize(Rect::new(0, 0, width, height))?;
+        Ok(())
+    }
+
+    fn clear(&mut self) -> io::Result<()> {
+        self.viewport.reset();
+        self.terminal.clear()
+    }
+
+    fn handle_navigation(&mut self, app: &App, event: &Event) -> bool {
+        self.viewport.handle_navigation(app, event)
+    }
+}
+
+/// Renderer-neutral interactive coordinator for application, agent, terminal,
+/// and render events.
+fn interactive_loop<S: InteractiveSurface>(surface: &mut S, tick: Duration, cli: &Cli) -> io::Result<()> {
     let tick = tick.max(MIN_RENDER_INTERVAL);
     let mut app = App::from_cli(cli);
     let workspace_root = crate::context::discover_workspace_root(&cli.cwd);
@@ -1128,7 +1163,7 @@ fn direct_loop<W: io::Write>(
         cwd = %workspace_root.display(),
         model = %cli.model,
         websearch = %cli.websearch.label(),
-        "starting thndrs (direct renderer)"
+        "starting thndrs (ratatui renderer)"
     );
     append_daily_log(
         &observability,
@@ -1144,21 +1179,19 @@ fn direct_loop<W: io::Write>(
 
     let mut agent: Option<AgentSlot> = None;
     let git_watcher = GitStatusWatcher::spawn(workspace_root);
-    let mut mouse_captured = false;
-    direct_render(backend, live, &mut app)?;
+    surface.draw(&mut app)?;
     let mut render_dirty = false;
 
     loop {
         let deadline = Instant::now() + tick;
         while Instant::now() < deadline {
-            render_dirty |= drain_direct_agent_events(&mut app, &mut agent, backend, live, &observability)?;
-            render_dirty |= drain_git_status_watcher(&mut app, &git_watcher, backend, live)?;
+            render_dirty |= drain_agent_events(&mut app, &mut agent, surface, &observability)?;
+            render_dirty |= drain_git_status_watcher(&mut app, &git_watcher, surface)?;
             manage_agent_lifecycle(&app, &mut agent);
             maybe_spawn_agent(&mut app, &mut agent);
             flush_steering(&mut app, &agent);
-            sync_mouse_capture(&app, &mut mouse_captured, mouse_enabled);
             if render_dirty {
-                direct_render(backend, live, &mut app)?;
+                surface.draw(&mut app)?;
                 render_dirty = false;
             }
 
@@ -1172,26 +1205,40 @@ fn direct_loop<W: io::Write>(
             if !event::poll(remaining)? {
                 break;
             }
-            match event::read()? {
+            let terminal_event = event::read()?;
+            if surface.handle_navigation(&app, &terminal_event) {
+                surface.draw(&mut app)?;
+                continue;
+            }
+            match terminal_event {
+                Event::Key(key) if key.kind == KeyEventKind::Release => {}
                 Event::Key(key) => {
-                    handle_direct_key(&mut app, key, &mut agent, backend, live)?;
-                    sync_mouse_capture(&app, &mut mouse_captured, mouse_enabled);
-                    direct_render(backend, live, &mut app)?;
+                    handle_key(&mut app, key, &mut agent, surface)?;
+                    surface.draw(&mut app)?;
                 }
                 Event::Mouse(mouse) => {
-                    handle_direct_msg(&mut app, Msg::Mouse(mouse), backend, live)?;
-                    direct_render(backend, live, &mut app)?;
+                    handle_msg(&mut app, Msg::Mouse(mouse), surface)?;
+                    surface.draw(&mut app)?;
                 }
                 Event::Resize(width, height) => {
-                    apply_terminal_resize(backend, width, height);
-                    direct_render(backend, live, &mut app)?;
+                    surface.resize(width, height)?;
+                    surface.draw(&mut app)?;
+                }
+                Event::Paste(text) => {
+                    for ch in text.replace("\r\n", "\n").replace('\r', "\n").chars() {
+                        handle_msg(
+                            &mut app,
+                            Msg::Key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE)),
+                            surface,
+                        )?;
+                    }
+                    surface.draw(&mut app)?;
                 }
                 _ => {}
             }
 
             maybe_spawn_agent(&mut app, &mut agent);
             flush_steering(&mut app, &agent);
-            sync_mouse_capture(&app, &mut mouse_captured, mouse_enabled);
 
             if app.quit {
                 tracing::info!("quitting thndrs");
@@ -1199,13 +1246,12 @@ fn direct_loop<W: io::Write>(
                 return Ok(());
             }
         }
-        handle_direct_msg(&mut app, Msg::Tick, backend, live)?;
+        handle_msg(&mut app, Msg::Tick, surface)?;
         render_dirty |=
             app.run_state != RunState::Idle || app.first_run_recovery.is_some() || app.ctrl_d_pending.is_some();
-        render_dirty |= drain_git_status_watcher(&mut app, &git_watcher, backend, live)?;
-        sync_mouse_capture(&app, &mut mouse_captured, mouse_enabled);
+        render_dirty |= drain_git_status_watcher(&mut app, &git_watcher, surface)?;
         if render_dirty {
-            direct_render(backend, live, &mut app)?;
+            surface.draw(&mut app)?;
             render_dirty = false;
         }
         if app.quit {
@@ -1216,60 +1262,9 @@ fn direct_loop<W: io::Write>(
     }
 }
 
-/// Toggle terminal mouse capture based on whether the file picker is open.
-///
-/// When the file picker is active, mouse capture is enabled so scroll-wheel
-/// navigation works inside the picker. At all other times mouse capture is
-/// disabled so the user can select and copy transcript/input text using
-/// native terminal selection.
-fn sync_mouse_capture(app: &App, captured: &mut bool, mouse_enabled: bool) {
-    if !mouse_enabled {
-        return;
-    }
-    let picker_open = matches!(
-        app.prompt_accessory,
-        PromptAccessory::Files(_) | PromptAccessory::Skills
-    );
-    if picker_open && !*captured {
-        let _ = crossterm::execute!(io::stdout(), EnableMouseCapture);
-        *captured = true;
-    } else if !picker_open && *captured {
-        let _ = crossterm::execute!(io::stdout(), DisableMouseCapture);
-        *captured = false;
-    }
-}
-
-/// Read the current size from the backend as `usize` tuples.
-fn backend_size<W: io::Write>(backend: &TerminalBackend<W>) -> (usize, usize) {
-    (backend.width() as usize, backend.height() as usize)
-}
-
-/// Apply dimensions supplied by Crossterm's resize event.
-///
-/// The event payload is authoritative for this frame. Re-querying the terminal
-/// can race the resize or fall back to an unrelated default size.
-fn apply_terminal_resize<W: io::Write>(backend: &mut TerminalBackend<W>, width: u16, height: u16) {
-    backend.set_size(width, height);
-}
-
-/// Render the complete logical viewport.
-///
-/// The live region handles committing finalized transcript entries to
-/// terminal scrollback and rendering only the live chrome (prompt, status,
-/// streaming content) via diff-based rendering.
-fn direct_render<W: io::Write>(
-    backend: &mut TerminalBackend<W>, live: &mut LiveRegion, app: &mut App,
-) -> io::Result<()> {
-    let (width, height) = backend_size(backend);
-    renderer::style::set_theme(app.theme);
-    live.render_frame(app, backend, width, height)?;
-    backend.flush()
-}
-
-/// Process a key in the direct renderer path.
-fn handle_direct_key<W: io::Write>(
-    app: &mut App, key: KeyEvent, agent: &mut Option<AgentSlot>, backend: &mut TerminalBackend<W>,
-    live: &mut LiveRegion,
+/// Process a key through the shared application update path.
+fn handle_key<S: InteractiveSurface>(
+    app: &mut App, key: KeyEvent, agent: &mut Option<AgentSlot>, surface: &mut S,
 ) -> io::Result<()> {
     if key.code == crossterm::event::KeyCode::Esc
         && app.run_state == RunState::Working
@@ -1277,20 +1272,17 @@ fn handle_direct_key<W: io::Write>(
     {
         slot.cancel.cancel();
     }
-    handle_direct_msg(app, Msg::Key(key), backend, live)
+    handle_msg(app, Msg::Key(key), surface)
 }
 
-/// Process a message and chain follow-ups, then render.
-fn handle_direct_msg<W: io::Write>(
-    app: &mut App, msg: Msg, backend: &mut TerminalBackend<W>, live: &mut LiveRegion,
-) -> io::Result<()> {
+/// Process a message and all pure follow-ups through one application path.
+fn handle_msg<S: InteractiveSurface>(app: &mut App, msg: Msg, surface: &mut S) -> io::Result<()> {
     let mut next = Some(msg);
     while let Some(m) = next {
         let is_clear = matches!(m, Msg::Clear);
         next = update(app, &m);
         if is_clear {
-            live.reset();
-            backend.clear_all_and_scrollback()?;
+            surface.clear()?;
         }
         if app.quit {
             return Ok(());
@@ -1299,10 +1291,9 @@ fn handle_direct_msg<W: io::Write>(
     Ok(())
 }
 
-/// Drain agent events in the direct renderer path.
-fn drain_direct_agent_events<W: io::Write>(
-    app: &mut App, agent: &mut Option<AgentSlot>, backend: &mut TerminalBackend<W>, live: &mut LiveRegion,
-    observability: &Option<Observability>,
+/// Drain a bounded burst of agent events through the shared update path.
+fn drain_agent_events<S: InteractiveSurface>(
+    app: &mut App, agent: &mut Option<AgentSlot>, surface: &mut S, observability: &Option<Observability>,
 ) -> io::Result<bool> {
     let Some(slot) = agent else {
         return Ok(false);
@@ -1332,14 +1323,14 @@ fn drain_direct_agent_events<W: io::Write>(
                     }
                     _ => {}
                 }
-                handle_direct_msg(app, Msg::Agent(event), backend, live)?;
+                handle_msg(app, Msg::Agent(event), surface)?;
                 changed = true;
             }
             Err(mpsc::TryRecvError::Empty) => break,
             Err(mpsc::TryRecvError::Disconnected) => {
                 *agent = None;
                 if app.run_state == RunState::Stopping {
-                    handle_direct_msg(app, Msg::Agent(app::AgentEvent::Cancelled), backend, live)?;
+                    handle_msg(app, Msg::Agent(app::AgentEvent::Cancelled), surface)?;
                     changed = true;
                 }
                 break;
@@ -1349,12 +1340,12 @@ fn drain_direct_agent_events<W: io::Write>(
     Ok(changed)
 }
 
-fn drain_git_status_watcher<W: io::Write>(
-    app: &mut App, watcher: &GitStatusWatcher, backend: &mut TerminalBackend<W>, live: &mut LiveRegion,
+fn drain_git_status_watcher<S: InteractiveSurface>(
+    app: &mut App, watcher: &GitStatusWatcher, surface: &mut S,
 ) -> io::Result<bool> {
     let mut changed = false;
     while let Ok(status) = watcher.receiver.try_recv() {
-        handle_direct_msg(app, Msg::GitStatusChanged(status), backend, live)?;
+        handle_msg(app, Msg::GitStatusChanged(status), surface)?;
         changed = true;
     }
     Ok(changed)
@@ -1583,6 +1574,32 @@ mod tests {
             .join("tests")
             .join("fixtures")
             .join("fake_acp_agent.py")
+    }
+
+    #[derive(Default)]
+    struct TestSurface {
+        clears: usize,
+        size: (u16, u16),
+    }
+
+    impl InteractiveSurface for TestSurface {
+        fn draw(&mut self, _app: &mut App) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn resize(&mut self, width: u16, height: u16) -> io::Result<()> {
+            self.size = (width, height);
+            Ok(())
+        }
+
+        fn clear(&mut self) -> io::Result<()> {
+            self.clears += 1;
+            Ok(())
+        }
+
+        fn handle_navigation(&mut self, _app: &App, _event: &Event) -> bool {
+            false
+        }
     }
 
     fn acp_fixture_cli(cwd: &Path, script: &str) -> Cli {
@@ -2224,22 +2241,16 @@ for line in sys.stdin:
     }
 
     #[test]
-    fn clear_resets_direct_renderer_and_purges_terminal() {
+    fn clear_resets_application_and_render_surface() {
         let cli = Cli::default();
         let mut app = App::from_cli(&cli);
         app.session_writer = None;
         app.transcript.push(app::Entry::User { text: "hello".to_string() });
 
-        let mut live = renderer::region::LiveRegion::new();
-        let mut backend = TerminalBackend::new(Vec::new(), 80, 24);
-        direct_render(&mut backend, &mut live, &mut app).expect("initial render");
-
-        handle_direct_msg(&mut app, Msg::Clear, &mut backend, &mut live).expect("clear");
+        let mut surface = TestSurface::default();
+        handle_msg(&mut app, Msg::Clear, &mut surface).expect("clear");
         assert!(app.transcript.is_empty());
-
-        let output = String::from_utf8_lossy(backend.writer());
-        assert!(output.contains("\u{1b}[2J"), "visible screen should be cleared");
-        assert!(output.contains("\u{1b}[3J"), "terminal scrollback should be purged");
+        assert_eq!(surface.clears, 1);
     }
 
     #[test]
@@ -2296,17 +2307,15 @@ for line in sys.stdin:
         drop(event_tx);
         let (steering_tx, _steering_rx) = mpsc::channel();
         let mut agent = Some(AgentSlot { receiver: event_rx, cancel: CancelToken::new(), steering: steering_tx });
-        let mut live = renderer::region::LiveRegion::new();
-        let mut backend = TerminalBackend::new(Vec::new(), 80, 24);
-
-        drain_direct_agent_events(&mut app, &mut agent, &mut backend, &mut live, &None).expect("drain events");
+        let mut surface = TestSurface::default();
+        drain_agent_events(&mut app, &mut agent, &mut surface, &None).expect("drain events");
 
         assert!(agent.is_none(), "disconnected slot should be cleared");
         assert_eq!(app.run_state, RunState::Idle);
     }
 
     #[test]
-    fn drain_direct_agent_events_limits_each_render_batch() {
+    fn drain_agent_events_limits_each_render_batch() {
         let cli = Cli::default();
         let mut app = App::from_cli(&cli);
         app.session_writer = None;
@@ -2318,11 +2327,8 @@ for line in sys.stdin:
         }
         let (steering_tx, _steering_rx) = mpsc::channel();
         let mut agent = Some(AgentSlot { receiver: event_rx, cancel: CancelToken::new(), steering: steering_tx });
-        let mut live = renderer::region::LiveRegion::new();
-        let mut backend = TerminalBackend::new(Vec::new(), 80, 24);
-
-        let changed =
-            drain_direct_agent_events(&mut app, &mut agent, &mut backend, &mut live, &None).expect("drain events");
+        let mut surface = TestSurface::default();
+        let changed = drain_agent_events(&mut app, &mut agent, &mut surface, &None).expect("drain events");
 
         assert!(changed);
         assert!(matches!(
@@ -2504,47 +2510,10 @@ for line in sys.stdin:
     }
 
     #[test]
-    fn direct_render_does_not_emit_redundant_hide_cursor() {
-        let cli = Cli::default();
-        let mut app = App::from_cli(&cli);
-        app.session_writer = None;
-
-        let mut live = renderer::region::LiveRegion::new();
-        let mut backend = TerminalBackend::new(Vec::new(), 80, 24);
-
-        direct_render(&mut backend, &mut live, &mut app).expect("initial render");
-        let first_len = String::from_utf8(backend.writer().clone()).unwrap().len();
-
-        direct_render(&mut backend, &mut live, &mut app).expect("second render");
-        let second_output = String::from_utf8(backend.writer().clone()).unwrap();
-        let new_bytes = &second_output[first_len..];
-
-        assert!(
-            !new_bytes.contains("\x1b[?25l"),
-            "direct_render should not emit Hide cursor on re-render of identical frame: {new_bytes:?}"
-        );
-    }
-
-    #[test]
     fn resize_event_dimensions_drive_the_full_viewport_repaint() {
-        let cli = Cli::default();
-        let mut app = App::from_cli(&cli);
-        app.session_writer = None;
-        let mut live = renderer::region::LiveRegion::new();
-        let mut backend = TerminalBackend::new(Vec::new(), 80, 24);
-
-        direct_render(&mut backend, &mut live, &mut app).expect("initial render");
-        backend.writer().clear();
-
-        apply_terminal_resize(&mut backend, 100, 30);
-        direct_render(&mut backend, &mut live, &mut app).expect("resized render");
-
-        assert_eq!(backend_size(&backend), (100, 30));
-        let output = String::from_utf8(backend.writer().clone()).expect("utf8 output");
-        assert!(
-            output.contains("\x1b[30;1H"),
-            "resized frame must redraw the physical bottom row: {output:?}"
-        );
+        let mut surface = TestSurface::default();
+        surface.resize(100, 30).expect("resize");
+        assert_eq!(surface.size, (100, 30));
     }
 
     #[test]

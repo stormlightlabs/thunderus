@@ -3,8 +3,8 @@
 //! [`RendererView`] is a data-only staging area built from [`App`] plus
 //! terminal dimensions. It contains no crossterm types and performs no terminal
 //! writes. The view separates semantic row construction from viewport policy so
-//! that [`super::region::LiveRegion`] can focus on scrollback commits, width
-//! epochs, and frame composition.
+//! that [`super::alternate::AlternateViewport`] can focus on viewport policy,
+//! projection caching, and frame composition.
 
 #[cfg(test)]
 mod tests;
@@ -237,13 +237,43 @@ impl RendererView {
 
 /// Transcript portion of the view: committed banner rows, stable rows, and rows
 /// that are still mutable (streaming or running).
+#[derive(Clone)]
 pub struct TranscriptView {
+    /// Every transcript row in chronological application order.
+    ///
+    /// Unlike the stable/live partitions below, this projection never moves a
+    /// settled entry ahead of an earlier mutable entry. Full-screen renderers
+    /// should use this sequence as their source of truth.
+    pub rows: Vec<Row>,
     /// Banner rows shown before the first transcript entry is committed.
     pub banner_rows: Vec<Row>,
-    /// Rows that can be safely committed to native scrollback.
+    /// Settled rows retained for live-tail classification and compatibility
+    /// snapshots.
     pub stable_rows: Vec<Row>,
-    /// Rows that must remain in the live viewport until the entry settles.
+    /// Rows that remain mutable until their entry settles.
     pub live_rows: Vec<Row>,
+}
+
+/// Project one transcript entry at a specific width.
+///
+/// Alternate-screen caching uses this boundary to invalidate a changing entry
+/// without rebuilding settled entries above it.
+pub(crate) fn project_transcript_entry(app: &App, entry_index: usize, width: usize) -> (Vec<Row>, Vec<Row>) {
+    let Some(entry) = app.transcript.get(entry_index) else {
+        return (Vec::new(), Vec::new());
+    };
+    let previous_was_tool = entry_index
+        .checked_sub(1)
+        .and_then(|index| app.transcript.get(index))
+        .is_some_and(|entry| matches!(entry, Entry::Tool { .. }));
+    TranscriptRowContext {
+        user_label: &app.user_label,
+        cwd: &app.cwd,
+        width,
+        entry_index: Some(entry_index),
+        tool_group_start: !previous_was_tool,
+    }
+    .rows_for_entry_stable_and_live_rows(entry)
 }
 
 impl TranscriptView {
@@ -251,9 +281,10 @@ impl TranscriptView {
         let banner_rows = app.render_banner_rows(width);
 
         if app.transcript.is_empty() {
-            return Self { banner_rows, stable_rows: Vec::new(), live_rows: Vec::new() };
+            return Self { rows: banner_rows.clone(), banner_rows, stable_rows: Vec::new(), live_rows: Vec::new() };
         }
 
+        let mut rows = banner_rows.clone();
         let mut stable_rows = Vec::new();
         let mut live_rows = Vec::new();
         stable_rows.extend(banner_rows);
@@ -272,6 +303,8 @@ impl TranscriptView {
             entry_ctx.entry_index = Some(index);
             entry_ctx.tool_group_start = !previous_was_tool;
             let (entry_stable, entry_live) = entry_ctx.rows_for_entry_stable_and_live_rows(entry);
+            rows.extend(entry_stable.iter().cloned());
+            rows.extend(entry_live.iter().cloned());
             if entry_stable.is_empty() {
                 live_rows.extend(entry_live);
             } else {
@@ -281,7 +314,7 @@ impl TranscriptView {
             previous_was_tool = matches!(entry, Entry::Tool { .. });
         }
 
-        Self { banner_rows: Vec::new(), stable_rows, live_rows }
+        Self { rows, banner_rows: Vec::new(), stable_rows, live_rows }
     }
 }
 
@@ -700,7 +733,7 @@ pub struct LiveView {
 }
 
 impl LiveView {
-    fn build(
+    pub(crate) fn build(
         app: &App, width: usize, _height: usize, transcript: &TranscriptView, semantic: &SemanticUiView,
     ) -> LiveView {
         let live_tail = transcript.live_rows.clone();

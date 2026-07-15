@@ -1,4 +1,4 @@
-//! Row, block, and frame primitives for the direct renderer.
+//! Row, block, and frame primitives shared by projection and Ratatui rendering.
 //!
 //! A [`Row`] is one terminal row after wrapping and padding decisions. A
 //! [`Frame`] is the complete live-region render.
@@ -6,9 +6,8 @@
 use super::style::{CellStyle, Span};
 
 /// Stable identity for a group of rows that belong to the same transcript
-/// entry. This metadata is used for native terminal scrollback navigation: a
-/// screen reader or terminal search can correlate rows back to the originating
-/// entry without parsing the rendered text.
+/// entry. The alternate viewport uses this metadata to preserve a reader's
+/// position without parsing rendered text.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RowGroupId {
     /// Index into [`crate::app::App::transcript`] for the entry that produced
@@ -22,7 +21,7 @@ pub struct Row {
     pub spans: Vec<Span>,
     /// Width in display columns the row is padded/truncated to.
     pub width: usize,
-    /// Optional transcript entry grouping metadata for scrollback navigation.
+    /// Optional transcript entry grouping metadata for viewport navigation.
     pub group_id: Option<RowGroupId>,
 }
 

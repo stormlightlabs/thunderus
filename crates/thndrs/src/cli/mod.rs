@@ -308,13 +308,14 @@ pub struct Cli {
     /// Event poll interval in milliseconds (minimum [`MIN_TICK_RATE_MS`]).
     #[arg(long, default_value_t = DEFAULT_TICK_RATE_MS)]
     pub tick_rate_ms: u64,
-    /// Disable terminal mouse capture so native selection and scrollback work.
+    /// Disable mouse capture in the alternate-screen interface.
     #[arg(long, default_value_t = false, conflicts_with = "mouse")]
     pub no_mouse: bool,
     /// Enable terminal mouse capture for overlay mouse events.
     ///
-    /// Capture is toggled on only while an overlay needs mouse events, so native
-    /// terminal text selection works at all other times.
+    /// Enables transcript wheel scrolling and overlay mouse navigation. Most
+    /// terminals retain a modifier-assisted text selection gesture while mouse
+    /// capture is active.
     #[arg(long, default_value_t = false, conflicts_with = "no_mouse")]
     pub mouse: bool,
     /// Show diagnostic transcript rows such as provider events and log paths.
