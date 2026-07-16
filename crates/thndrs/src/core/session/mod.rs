@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::acp::permissions::PendingPermission;
 use crate::app::{Entry, ToolStatus};
+use crate::artifacts::{self, ArtifactMetadata};
 use crate::context::ContextSource;
 use crate::prompt::{EnvironmentMetadata, HistoryReuse, PromptBundle};
 use crate::skills::{SkillActivation, SkillReferenceMeta};
@@ -204,6 +205,9 @@ pub enum SessionRecord {
         call_id: String,
         status: ToolStatus,
         output: Vec<String>,
+        /// Metadata and handle for bounded redacted recoverable evidence.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        artifact: Option<ArtifactMetadata>,
         /// MCP metadata when this tool came from an MCP server.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         mcp: Option<McpToolSessionMeta>,
@@ -425,6 +429,13 @@ impl SessionRecord {
     /// reasoning still streaming, tools still running) are skipped because
     /// they represent incomplete live state.
     pub fn from_entry(entry: &Entry, seq: u64, time: &str, turn_id: &str) -> Option<SessionRecord> {
+        Self::from_entry_with_artifact(entry, seq, time, turn_id, None)
+    }
+
+    /// Convert a transcript entry while attaching bounded artifact metadata.
+    pub fn from_entry_with_artifact(
+        entry: &Entry, seq: u64, time: &str, turn_id: &str, artifact: Option<ArtifactMetadata>,
+    ) -> Option<SessionRecord> {
         match entry {
             Entry::User { text } => Some(SessionRecord::User {
                 schema_version: SCHEMA_VERSION,
@@ -463,7 +474,8 @@ impl SessionRecord {
                     turn_id: turn_id.to_string(),
                     call_id,
                     status: *status,
-                    output: output.clone(),
+                    output: artifacts::bounded_redacted_lines(output, artifacts::DEFAULT_MAX_ARTIFACT_BYTES),
+                    artifact,
                     mcp: mcp_tool_session_meta(&tool_name),
                 })
                 .map(|r| (r, tool_name))
@@ -871,6 +883,22 @@ impl SessionWriter {
     /// persisted for replay.
     pub fn append_entry(&mut self, entry: &Entry, turn_id: &str) -> std::io::Result<()> {
         if let Some(record) = SessionRecord::from_entry(entry, self.seq, &datetime::now_iso8601(), turn_id) {
+            self.seq += 1;
+            let line = record.to_json().map_err(io_err)?;
+            use std::io::Write;
+            let mut file = std::fs::OpenOptions::new().append(true).open(&self.path)?;
+            writeln!(file, "{line}")?;
+        }
+        Ok(())
+    }
+
+    /// Append a finalized transcript entry with bounded artifact metadata.
+    pub fn append_entry_with_artifact(
+        &mut self, entry: &Entry, turn_id: &str, artifact: Option<ArtifactMetadata>,
+    ) -> std::io::Result<()> {
+        if let Some(record) =
+            SessionRecord::from_entry_with_artifact(entry, self.seq, &datetime::now_iso8601(), turn_id, artifact)
+        {
             self.seq += 1;
             let line = record.to_json().map_err(io_err)?;
             use std::io::Write;

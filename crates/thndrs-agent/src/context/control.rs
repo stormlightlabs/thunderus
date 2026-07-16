@@ -439,6 +439,8 @@ pub struct ContextItem {
     pub scope: String,
     /// Content hash of the full original content, when applicable.
     pub content_hash: Option<u64>,
+    /// Stable handle for bounded redacted recovery, when this item has one.
+    pub artifact_handle: Option<String>,
     /// Original byte count of the source content.
     pub byte_count: usize,
     /// Renderable content for the prompt projection, when this item is
@@ -718,6 +720,9 @@ pub fn render_model_dashboard(ledger: &ContextLedger) -> String {
         element(&mut out, 6, "visibility", item.visibility.label());
         element(&mut out, 6, "tokens", &item.token_estimate.to_string());
         element(&mut out, 6, "label", &item.label);
+        if let Some(handle) = &item.artifact_handle {
+            element(&mut out, 6, "recovery_handle", handle);
+        }
         out.push_str("    </item>\n");
     }
     out.push_str("  </items>\n");

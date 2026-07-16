@@ -540,7 +540,11 @@ impl PersistedTurn {
                         turn_id: self.turn_id.clone(),
                         call_id: id.clone(),
                         status: *status,
-                        output: output.clone(),
+                        output: crate::artifacts::bounded_redacted_lines(
+                            output,
+                            crate::artifacts::DEFAULT_MAX_ARTIFACT_BYTES,
+                        ),
+                        artifact: None,
                         mcp: None,
                     },
                 );

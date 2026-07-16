@@ -45,6 +45,7 @@ use onboarding::{
 #[cfg(test)]
 mod tests;
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -370,6 +371,8 @@ pub struct App {
     /// Append-only session writer. `None` when persistence is disabled
     /// (e.g. the sessions directory is not writable).
     pub session_writer: Option<session::SessionWriter>,
+    /// Tool-call ids mapped to their bounded redacted recovery handles.
+    pub(crate) tool_artifacts: HashMap<String, String>,
     /// Monotonic turn counter for session record correlation.
     pub turn_count: u64,
     /// Registry of background processes started via `run_shell`.
@@ -530,6 +533,7 @@ impl From<&Cli> for App {
             ctrl_d_pending: None,
             stopping_deadline: None,
             session_writer,
+            tool_artifacts: HashMap::new(),
             turn_count: 0,
             process_registry: ProcessRegistry::new(),
             last_input: None,
@@ -577,6 +581,14 @@ impl App {
     /// the configured-model summary request is the active turn.
     pub fn compaction_in_flight(&self) -> bool {
         self.pending_manual_compaction.is_some()
+    }
+
+    /// Return the local bounded artifact store for this session workspace.
+    ///
+    /// The store is deliberately separate from JSONL so session records carry
+    /// metadata and handles without making artifact bodies part of replay truth.
+    pub fn artifact_store(&self) -> crate::artifacts::ArtifactStore {
+        crate::artifacts::ArtifactStore::new(self.session_directory().join("artifacts"))
     }
 
     /// Build the compact self-knowledge snapshot used by the startup display.

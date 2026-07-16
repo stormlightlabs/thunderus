@@ -86,20 +86,22 @@ existing context-control boundary without making raw output durable by default.
 
 **Blocked by:** Ticket 1: Separate Evidence, Display, And Model Projections
 
+**Status:** Complete
+
 **Acceptance criteria:**
 
-- [ ] Artifact creation applies redaction and byte caps before persistence.
-- [ ] Artifact metadata includes identity, kind, content hash, original/bounded
+- [x] Artifact creation applies redaction and byte caps before persistence.
+- [x] Artifact metadata includes identity, kind, content hash, original/bounded
       byte counts, truncation, creation, and expiry/retention state.
-- [ ] Session JSONL stores artifact metadata and handles rather than raw
+- [x] Session JSONL stores artifact metadata and handles rather than raw
       unredacted bodies.
-- [ ] Recovery returns bounded redacted evidence and records the recovery
+- [x] Recovery returns bounded redacted evidence and records the recovery
       action.
-- [ ] Missing or expired artifacts produce an explicit diagnostic while their
+- [x] Missing or expired artifacts produce an explicit diagnostic while their
       audit metadata remains usable.
-- [ ] Full unredacted retention is disabled by default and cannot be reached
+- [x] Full unredacted retention is disabled by default and cannot be reached
       through export.
-- [ ] Secret-shaped fixtures do not appear in stored records, recovered output,
+- [x] Secret-shaped fixtures do not appear in stored records, recovered output,
       logs, or error messages.
 
 **Verification:**

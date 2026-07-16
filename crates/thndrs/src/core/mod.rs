@@ -1,6 +1,7 @@
 //! Core implementation modules and public headless API exports.
 
 pub mod acp;
+pub mod artifacts;
 pub mod auth;
 pub mod config;
 pub mod context;

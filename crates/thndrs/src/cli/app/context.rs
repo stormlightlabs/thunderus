@@ -38,6 +38,33 @@ pub struct PendingCompactionReview {
     summary: String,
 }
 impl App {
+    /// Recover bounded redacted evidence for a context item or artifact handle.
+    ///
+    /// The recovery action is appended even when the body is missing or
+    /// expired, so the item's audit metadata remains useful across resume.
+    pub fn recover_context_evidence(&mut self, reference: &str) -> Result<crate::artifacts::ArtifactRecovery, String> {
+        self.ensure_context_ledger();
+        let item = self
+            .context_ledger
+            .as_ref()
+            .and_then(|ledger| {
+                ledger.items.iter().find(|item| {
+                    item.artifact_handle.as_deref() == Some(reference)
+                        || item.id == reference
+                        || item.id.starts_with(reference)
+                })
+            })
+            .ok_or_else(|| format!("unknown context artifact `{}`", redact_context_display(reference)))?
+            .clone();
+        let handle = item.artifact_handle.as_deref().ok_or_else(|| {
+            format!(
+                "context item `{}` has no recoverable artifact",
+                redact_context_display(&item.id)
+            )
+        })?;
+        self.recover_artifact_for_item(&item, handle, "user requested bounded artifact recovery")
+    }
+
     /// Rebuild the deterministic context ledger for a turn boundary.
     ///
     /// The caller owns discovery, transcript projection, and persistence. The
@@ -97,6 +124,13 @@ impl App {
                 session_id: self.session_id.clone(),
                 label: transcript_candidate_label(entry),
                 bytes: transcript_candidate_bytes(entry),
+                artifact_handle: match entry {
+                    Entry::Tool { name, .. } => name
+                        .rsplit_once('#')
+                        .and_then(|(_, id)| self.tool_artifacts.get(id))
+                        .cloned(),
+                    _ => None,
+                },
                 ui_only: matches!(entry, Entry::Status { .. } | Entry::Error { .. }),
                 streaming: matches!(
                     entry,
@@ -157,6 +191,7 @@ impl App {
                     source_path: item.source_path.clone(),
                     scope: item.scope.clone(),
                     content_hash: item.content_hash,
+                    artifact_handle: item.artifact_handle.clone(),
                     bytes: item.byte_count,
                 },
                 item.clone(),
@@ -171,6 +206,7 @@ impl App {
                 source_path: candidate.source_path.clone(),
                 scope: candidate.scope.clone(),
                 content_hash: candidate.content_hash,
+                artifact_handle: candidate.artifact_handle.clone(),
                 byte_count: candidate.bytes,
                 content: None,
                 token_estimate: agent_context::estimate_tokens(candidate.bytes),
@@ -232,13 +268,22 @@ impl App {
         }
         let was_dropped = self.context_dropped_ids.iter().any(|id| id == &item.id);
         let needs_pin = !item.visibility.is_rendered();
-        if !was_dropped && !needs_pin {
+        let artifact_recovered = if let Some(handle) = item.artifact_handle.as_deref() {
+            let recovery = self.recover_artifact_for_item(&item, handle, "user requested bounded artifact recovery")?;
+            if let Some(diagnostic) = recovery.diagnostic {
+                return Err(diagnostic.message);
+            }
+            true
+        } else {
+            false
+        };
+        if !was_dropped && !needs_pin && !artifact_recovered {
             return Err(format!(
                 "context item `{}` is already active",
                 redact_context_display(&item.id)
             ));
         }
-        if let Some(writer) = self.session_writer.as_mut() {
+        if !artifact_recovered && let Some(writer) = self.session_writer.as_mut() {
             writer
                 .append_context_recovery(&item, "user recovered context item")
                 .map_err(|error| format!("failed to record context recovery: {error}"))?;
@@ -252,11 +297,27 @@ impl App {
                 source_path: item.source_path.clone(),
                 scope: item.scope.clone(),
                 content_hash: item.content_hash,
+                artifact_handle: item.artifact_handle.clone(),
                 bytes: item.byte_count,
             });
         }
         self.refresh_context_ledger(None);
         Ok(())
+    }
+
+    fn recover_artifact_for_item(
+        &mut self, item: &agent_context::ContextItem, handle: &str, reason: &str,
+    ) -> Result<crate::artifacts::ArtifactRecovery, String> {
+        let recovery = self
+            .artifact_store()
+            .recover(handle)
+            .map_err(|_| format!("artifact `{}` metadata is unavailable", redact_context_display(handle)))?;
+        if let Some(writer) = self.session_writer.as_mut() {
+            writer
+                .append_context_recovery(item, reason)
+                .map_err(|_| "failed to record context recovery".to_string())?;
+        }
+        Ok(recovery)
     }
 
     fn reset_context_drops(&mut self) -> Result<(), String> {
@@ -278,6 +339,7 @@ impl App {
         self.context_pins.clear();
         self.context_dropped_ids.clear();
         self.compaction_summaries.clear();
+        self.tool_artifacts.clear();
         self.last_compaction_review = None;
         for record in records {
             match record {
@@ -299,6 +361,9 @@ impl App {
                     {
                         self.context_pins.push(pinned_candidate_from_meta(item));
                     }
+                }
+                session::SessionRecord::ToolFinished { call_id, artifact: Some(artifact), .. } => {
+                    self.tool_artifacts.insert(call_id.clone(), artifact.handle.clone());
                 }
                 session::SessionRecord::Compaction { audit, .. } => {
                     for candidate in &mut self.compaction_summaries {
@@ -377,6 +442,7 @@ fn pinned_candidate_from_meta(item: &session::ContextItemMeta) -> PinnedCandidat
         source_path: item.source_path.clone().map(PathBuf::from),
         scope: item.scope.clone().unwrap_or_else(|| ".".to_string()),
         content_hash: item.content_hash,
+        artifact_handle: item.artifact_handle.clone(),
         bytes: item.byte_count,
     }
 }

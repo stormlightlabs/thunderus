@@ -18,7 +18,8 @@ pub use cli::{app, input, renderer};
 
 pub use prelude::*;
 pub use thndrs_core::{
-    acp, config, context, fuzzy, harness, internals, mcp, prelude, prompt, providers, search, skills, tools, utils,
+    acp, artifacts, config, context, fuzzy, harness, internals, mcp, prelude, prompt, providers, search, skills, tools,
+    utils,
 };
 
 #[cfg(test)]

@@ -16,6 +16,16 @@ pub fn now_iso8601() -> String {
     format!("{}T{hour:02}:{minute:02}:{second:02}Z", date_from_days(days))
 }
 
+/// Format a Unix timestamp as an ISO 8601 UTC string.
+pub fn from_unix_seconds(secs: u64) -> String {
+    let days = secs / 86_400;
+    let remainder = secs % 86_400;
+    let hour = remainder / 3600;
+    let minute = (remainder % 3600) / 60;
+    let second = remainder % 60;
+    format!("{}T{hour:02}:{minute:02}:{second:02}Z", date_from_days(days))
+}
+
 /// Convert days since Unix epoch to a YYYY-MM-DD string.
 ///
 /// Uses the Howard Hinnant algorithm for date calculation.

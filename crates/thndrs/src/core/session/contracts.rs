@@ -57,6 +57,9 @@ pub struct ContextItemMeta {
     /// Hash of the source content, when available.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_hash: Option<u64>,
+    /// Stable handle for bounded redacted recovery, when available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact_handle: Option<String>,
     /// Source byte size.
     pub byte_count: usize,
     /// Conservative token estimate used by selection.
@@ -78,6 +81,7 @@ impl From<&ContextItem> for ContextItemMeta {
             source_path: item.source_path.as_ref().map(|path| path.display().to_string()),
             scope: Some(item.scope.clone()),
             content_hash: item.content_hash,
+            artifact_handle: item.artifact_handle.clone(),
             byte_count: item.byte_count,
             token_estimate: item.token_estimate,
             visibility: item.visibility.clone(),

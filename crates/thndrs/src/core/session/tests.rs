@@ -38,6 +38,7 @@ fn context_item(content: &str) -> ContextItem {
         source_path: Some(PathBuf::from("/repo/docs/build.md")),
         scope: ".".to_string(),
         content_hash: Some(42),
+        artifact_handle: None,
         byte_count: content.len(),
         content: Some(content.to_string()),
         token_estimate: 64,
@@ -500,6 +501,7 @@ fn session_record_json_round_trip_tool_finished() {
         call_id: "call_1".to_string(),
         status: ToolStatus::Ok,
         output: vec!["src/main.rs:1:fn main()".to_string()],
+        artifact: None,
         mcp: None,
     };
     let json = record.to_json().expect("serialize");

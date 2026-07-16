@@ -201,6 +201,9 @@ pub struct ProviderUsage {
 pub struct ContextItemSnapshot {
     /// Stable context item id.
     pub id: String,
+    /// Stable handle for bounded redacted recovery, when available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact_handle: Option<String>,
     /// State at the request boundary.
     pub state: ContextVisibility,
     /// Stable policy reason code.
@@ -213,6 +216,7 @@ impl From<&ContextItem> for ContextItemSnapshot {
     fn from(item: &ContextItem) -> Self {
         Self {
             id: item.id.clone(),
+            artifact_handle: item.artifact_handle.clone(),
             state: item.visibility.clone(),
             reason_code: item.reason_code.clone(),
             reason: item.reason.clone(),
@@ -344,6 +348,7 @@ mod tests {
             source_path: None,
             scope: ".".to_string(),
             content_hash: None,
+            artifact_handle: None,
             byte_count: 4,
             content: None,
             token_estimate: 18,

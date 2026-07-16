@@ -46,6 +46,8 @@ pub struct TranscriptCandidate {
     pub label: String,
     /// Estimated UTF-8 byte size of the rendered entry content.
     pub bytes: usize,
+    /// Stable handle for bounded redacted recovery of this transcript item.
+    pub artifact_handle: Option<String>,
     /// Whether the entry is UI-only (status/error rows) or live-only (streaming).
     pub ui_only: bool,
     /// Whether the entry is still streaming and not yet settled.
@@ -60,6 +62,7 @@ impl TranscriptCandidate {
             session_id: session_id.into(),
             label: label.into(),
             bytes,
+            artifact_handle: None,
             ui_only: false,
             streaming: false,
         }
@@ -96,6 +99,8 @@ pub struct PinnedCandidate {
     pub scope: String,
     /// Content hash when applicable.
     pub content_hash: Option<u64>,
+    /// Stable handle for bounded redacted recovery, when this pin is evidence.
+    pub artifact_handle: Option<String>,
     /// Estimated UTF-8 byte size of the pinned content.
     pub bytes: usize,
 }
@@ -105,7 +110,16 @@ impl PinnedCandidate {
     pub fn file(kind: ContextItemKind, path: PathBuf, scope: impl Into<String>, bytes: usize) -> Self {
         let id = item_id_for_path(&kind, &path);
         let label = path.display().to_string();
-        PinnedCandidate { id, kind, label, source_path: Some(path), scope: scope.into(), content_hash: None, bytes }
+        PinnedCandidate {
+            id,
+            kind,
+            label,
+            source_path: Some(path),
+            scope: scope.into(),
+            content_hash: None,
+            artifact_handle: None,
+            bytes,
+        }
     }
 }
 
@@ -293,6 +307,7 @@ pub fn select_context(input: &SelectionInput, limits: ModelContextLimits) -> Con
             source_path: None,
             scope: ".".to_string(),
             content_hash: None,
+            artifact_handle: None,
             byte_count: harness.bytes,
             content: None,
             token_estimate: estimate_tokens(harness.bytes),
@@ -310,6 +325,7 @@ pub fn select_context(input: &SelectionInput, limits: ModelContextLimits) -> Con
             source_path: None,
             scope: ".".to_string(),
             content_hash: None,
+            artifact_handle: None,
             byte_count: turn.bytes,
             content: None,
             token_estimate: estimate_tokens(turn.bytes),
@@ -342,6 +358,7 @@ pub fn select_context(input: &SelectionInput, limits: ModelContextLimits) -> Con
             source_path: pin.source_path.clone(),
             scope: pin.scope.clone(),
             content_hash: pin.content_hash,
+            artifact_handle: pin.artifact_handle.clone(),
             byte_count: pin.bytes,
             content: None,
             token_estimate: estimate_tokens(pin.bytes),
@@ -380,6 +397,7 @@ pub fn select_context(input: &SelectionInput, limits: ModelContextLimits) -> Con
             source_path: Some(instruction.path.clone()),
             scope: instruction.scope.clone(),
             content_hash: Some(instruction.content_hash),
+            artifact_handle: None,
             byte_count: instruction.byte_count,
             content: if visibility.is_rendered() { instruction.content.clone() } else { None },
             token_estimate: estimate_tokens(instruction.byte_count),
@@ -417,6 +435,7 @@ pub fn select_context(input: &SelectionInput, limits: ModelContextLimits) -> Con
             source_path: Some(skill.path.clone()),
             scope: ".".to_string(),
             content_hash: Some(skill.content_hash),
+            artifact_handle: None,
             byte_count: skill.bytes,
             content: None,
             token_estimate: estimate_tokens(skill.bytes),
@@ -456,6 +475,7 @@ pub fn select_context(input: &SelectionInput, limits: ModelContextLimits) -> Con
             source_path: None,
             scope: ".".to_string(),
             content_hash: None,
+            artifact_handle: None,
             byte_count: summary.bytes,
             content: if visibility.is_rendered() { summary.content.clone() } else { None },
             token_estimate: estimate_tokens(summary.bytes),
@@ -540,6 +560,7 @@ fn push_transcript(items: &mut Vec<ContextItem>, input: &SelectionInput, availab
             source_path: None,
             scope: ".".to_string(),
             content_hash: None,
+            artifact_handle: candidate.artifact_handle.clone(),
             byte_count: candidate.bytes,
             content: None,
             token_estimate: estimate_tokens(candidate.bytes),

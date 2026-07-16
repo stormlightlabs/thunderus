@@ -80,17 +80,8 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
         AgentEvent::ToolFinished { id, output, status, write_result, shell_result } => {
             app.ttft.stop_on_semantic_output();
             finalize_streaming(app);
-            for entry in app.transcript.iter_mut().rev() {
-                if let Entry::Tool { name, output: out, status: s, .. } = entry
-                    && name.ends_with(&format!("#{id}"))
-                {
-                    *out = output;
-                    *s = status;
-                    break;
-                }
-            }
-
-            persist_last_entry(app);
+            let artifact = finish_tool_output(app, &id, status, &output);
+            persist_last_entry_with_artifact(app, artifact);
 
             if let Some(result) = write_result
                 && let Some(ref mut writer) = app.session_writer
@@ -220,6 +211,32 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             None
         }
     }
+}
+
+fn finish_tool_output(
+    app: &mut App, id: &str, status: ToolStatus, output: &[String],
+) -> Option<crate::artifacts::ArtifactMetadata> {
+    let artifact = app
+        .artifact_store()
+        .create_tool_evidence(&format!("tool:{id}"), output)
+        .ok();
+    let safe_output = artifact.as_ref().map_or_else(
+        || crate::artifacts::bounded_redacted_lines(output, crate::artifacts::DEFAULT_MAX_ARTIFACT_BYTES),
+        |write| write.bounded_lines.clone(),
+    );
+    if let Some(write) = &artifact {
+        app.tool_artifacts.insert(id.to_string(), write.metadata.handle.clone());
+    }
+    for entry in app.transcript.iter_mut().rev() {
+        if let Entry::Tool { name, output: out, status: entry_status, .. } = entry
+            && name.ends_with(&format!("#{id}"))
+        {
+            *out = safe_output;
+            *entry_status = status;
+            break;
+        }
+    }
+    artifact.map(|write| write.metadata)
 }
 
 pub fn handle_permission_key(app: &mut App, key: KeyEvent) -> Option<Msg> {
@@ -370,6 +387,16 @@ pub fn persist_last_entry(app: &mut App) {
     {
         let turn_id = format!("turn_{}", app.turn_count);
         let _ = writer.append_entry(entry, &turn_id);
+    }
+}
+
+/// Persist the last tool entry with its bounded artifact metadata.
+fn persist_last_entry_with_artifact(app: &mut App, artifact: Option<crate::artifacts::ArtifactMetadata>) {
+    if let Some(ref mut writer) = app.session_writer
+        && let Some(entry) = app.transcript.last()
+    {
+        let turn_id = format!("turn_{}", app.turn_count);
+        let _ = writer.append_entry_with_artifact(entry, &turn_id, artifact);
     }
 }
 
