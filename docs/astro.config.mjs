@@ -150,6 +150,8 @@ export default defineConfig({
               collapsed: true,
               items: [
                 { label: "Context Control", slug: "notebook/context-control" },
+                { label: "Context Observability", slug: "notebook/context-observability" },
+                { label: "Token Optimization", slug: "notebook/token-optimization" },
                 { label: "AGENTS.md", slug: "notebook/agents-md" },
                 { label: "SKILLS.md", slug: "notebook/skills" },
                 { label: "MCP", slug: "notebook/mcp" },
