@@ -51,7 +51,28 @@ thndrs sessions resume session-20260710
 It restores the saved transcript and token totals, but never restores a
 running tool, pending permission, queued input, or other live process state.
 
-Inside the TUI, use `/history`, `/session <id>`, `/resume <id>`, and `/tokens`.
+Inside the TUI, use `/history`, `/session <id>`, `/resume <id>`, `/context`,
+and `/tokens` to take a look at your usage.
+
+`/context` shows item state, policy reason, protection, replacement,
+and recovery availability.
+
+`/tokens` distinguishes the local estimate from provider-reported components and
+normalized input.
+
+Export the current bounded context projection with `/context export`:
+
+```text
+/context export context.json
+/context export context.md markdown
+/context export context.json --artifacts
+```
+
+Exports are versioned and redact sensitive information.
+
+Artifact bodies are excluded unless `--artifacts` is explicitly supplied.
+
+Unselected source content and unredacted provider payloads are never exported.
 
 The read-only commands leave the prompt draft intact when lookup or file reading fails.
 

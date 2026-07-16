@@ -15,6 +15,12 @@ pub const TOKEN_ESTIMATOR_VERSION: &str = "utf8-bytes-divisor-3-overhead-16-v1";
 /// Version of the provider usage normalization rules.
 pub const USAGE_NORMALIZATION_VERSION: &str = "provider-inclusive-input-v1";
 
+/// Maximum model-projection bytes retained on an in-memory request event.
+///
+/// The projection is deliberately skipped by accounting serialization. It is
+/// supplied to the application for inspection/export and is not session truth.
+pub const MODEL_PROJECTION_MAX_BYTES: usize = 128 * 1024;
+
 /// Why a measured value is known.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -196,6 +202,32 @@ pub struct ProviderUsage {
     pub inclusive_input_tokens: TokenMeasurement,
 }
 
+/// One bounded provider-neutral message in the model-facing request projection.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ModelProjectionMessage {
+    /// Message role at the provider-neutral boundary.
+    pub role: String,
+    /// Bounded rendered content. Structured content is represented as JSON.
+    pub content: String,
+}
+
+/// One deterministic reduction receipt proposed for a request.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ContextReductionReceipt {
+    /// Stable context item id.
+    pub item_id: String,
+    /// Reducer or selection method name.
+    pub method: String,
+    /// Reducer method version.
+    pub version: String,
+    /// Bytes before the proposed decision.
+    pub before_bytes: u64,
+    /// Bytes after the proposed decision.
+    pub after_bytes: u64,
+    /// Whether the proposed decision may remove information.
+    pub lossy: bool,
+}
+
 /// One context candidate captured at the final request boundary.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ContextItemSnapshot {
@@ -250,6 +282,15 @@ pub struct ProviderRequestAccounting {
     pub provider_usage: Option<ProviderUsage>,
     /// All context candidates considered for this request, once each.
     pub context: Vec<ContextItemSnapshot>,
+    /// Shadow reducer receipts for this request.
+    #[serde(default)]
+    pub shadow_receipts: Vec<ContextReductionReceipt>,
+    /// In-memory model projection for the selected request.
+    ///
+    /// This is not durable session data and is skipped during serialization;
+    /// the application may use it to build an explicit bounded export.
+    #[serde(skip)]
+    pub model_projection: Vec<ModelProjectionMessage>,
 }
 
 impl ProviderRequestAccounting {
@@ -278,8 +319,42 @@ impl ProviderRequestAccounting {
             },
             provider_usage: None,
             context,
+            shadow_receipts: Vec::new(),
+            model_projection: Vec::new(),
         }
     }
+
+    /// Attach a bounded in-memory model projection without changing durable
+    /// accounting or provider request bytes.
+    pub fn with_model_projection(mut self, projection: Vec<ModelProjectionMessage>) -> Self {
+        let mut bytes = 0usize;
+        self.model_projection = projection
+            .into_iter()
+            .filter_map(|mut message| {
+                let remaining = MODEL_PROJECTION_MAX_BYTES.saturating_sub(bytes);
+                if remaining == 0 {
+                    return None;
+                }
+                message.content = truncate_utf8(&message.content, remaining);
+                bytes = bytes
+                    .saturating_add(message.role.len())
+                    .saturating_add(message.content.len());
+                Some(message)
+            })
+            .collect();
+        self
+    }
+}
+
+fn truncate_utf8(value: &str, max_bytes: usize) -> String {
+    if value.len() <= max_bytes {
+        return value.to_string();
+    }
+    let mut end = max_bytes;
+    while end > 0 && !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    value[..end].to_string()
 }
 
 /// Estimate input tokens from serialized request bytes.

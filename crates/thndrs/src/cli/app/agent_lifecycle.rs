@@ -30,6 +30,7 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             None
         }
         AgentEvent::RequestAccounting(accounting) => {
+            app.last_request_accounting = Some(accounting.as_ref().clone());
             if let Some(usage) = &accounting.provider_usage {
                 if let Some(input_tokens) = usage.components.input_tokens {
                     app.session_tokens_in = app.session_tokens_in.saturating_add(input_tokens);

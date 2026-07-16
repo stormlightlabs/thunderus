@@ -25,9 +25,8 @@ pub fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
         return run_history_command(app);
     }
     if command == "tokens" {
-        app.transcript.push(Entry::Status {
-            text: format!("tokens: in {} out {}", app.session_tokens_in, app.session_tokens_out),
-        });
+        app.transcript
+            .push(Entry::Status { text: app.token_accounting_status() });
         app.input.clear();
         return None;
     }
@@ -247,6 +246,7 @@ pub fn handle_running_command(app: &mut App, command: &str) -> Option<Msg> {
     let is_read_only = matches!(command, "quit" | "exit" | "help" | "bg")
         || matches!(command, "history" | "tokens" | "debug log")
         || matches!(command, "context" | "context show" | "doctor")
+        || command.starts_with("context export ")
         || command.starts_with("session ")
         || command.starts_with("debug log ");
     if is_read_only {
@@ -412,6 +412,10 @@ fn resume_session_command(app: &mut App, session_id: &str) -> Option<Msg> {
     app.session_id = id.clone();
     app.transcript = transcript;
     app.restore_context_state(&records);
+    app.last_request_accounting = records.iter().rev().find_map(|record| match record {
+        session::SessionRecord::RequestAccounting { accounting, .. } => Some(accounting.clone()),
+        _ => None,
+    });
     app.session_tokens_in = summary.input_tokens;
     app.session_tokens_out = summary.output_tokens;
     app.turn_count = turn_count;

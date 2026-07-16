@@ -913,6 +913,7 @@ impl App {
                 .iter()
                 .take(crate::app::CONTEXT_INSPECTION_MAX_ITEMS)
                 .map(|item| {
+                    let details = crate::context::export::export_item(item);
                     vec![
                         TableCellView {
                             text: redact_context_display(&item.id),
@@ -920,7 +921,15 @@ impl App {
                             width: ColumnWidthPolicy::Percent(34),
                         },
                         TableCellView {
-                            text: format!("{} / {}", item.kind.label(), item.visibility.label()),
+                            text: format!(
+                                "{} / {} reason:{} prot:{} rec:{} repl:{}",
+                                item.kind.label(),
+                                item.visibility.label(),
+                                details.reason_code,
+                                yes_no(details.protected),
+                                yes_no(details.recovery_available),
+                                details.replacement.as_deref().unwrap_or("none")
+                            ),
                             alignment: ColumnAlignment::Left,
                             width: ColumnWidthPolicy::Percent(26),
                         },
@@ -960,13 +969,18 @@ impl App {
                 counts.blocked
             ),
         ];
-        narrow_fallback.extend(
-            ledger
-                .items
-                .iter()
-                .take(CONTEXT_INSPECTION_MAX_ITEMS)
-                .map(|item| redact_context_display(&item.summary())),
-        );
+        narrow_fallback.extend(ledger.items.iter().take(CONTEXT_INSPECTION_MAX_ITEMS).map(|item| {
+            let details = crate::context::export::export_item(item);
+            format!(
+                "{} state {} reason {} protected {} recovery {} replacement {}",
+                redact_context_display(&item.id),
+                item.visibility.label(),
+                details.reason_code,
+                yes_no(details.protected),
+                yes_no(details.recovery_available),
+                details.replacement.as_deref().unwrap_or("none")
+            )
+        }));
         TableView {
             header: vec![
                 TableCellView {
@@ -975,7 +989,7 @@ impl App {
                     width: ColumnWidthPolicy::Percent(34),
                 },
                 TableCellView {
-                    text: "state".to_string(),
+                    text: "state / reason / protection / recovery".to_string(),
                     alignment: ColumnAlignment::Left,
                     width: ColumnWidthPolicy::Percent(26),
                 },
@@ -1260,6 +1274,10 @@ fn context_table_row(name: &str, state: &str, tokens: &str, label: &str) -> Vec<
 
 fn redact_context_display(value: &str) -> String {
     utils::truncate_ellipsis(&redact_secrets(value), 160)
+}
+
+fn yes_no(value: bool) -> &'static str {
+    if value { "yes" } else { "no" }
 }
 
 fn clip_prompt_rows_around_cursor(

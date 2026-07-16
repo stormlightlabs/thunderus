@@ -3,6 +3,7 @@
 //! Pure context policy lives in [`thndrs_agent::context`]; this module performs
 //! filesystem discovery and supplies the resulting application data.
 
+pub mod export;
 pub mod instructions;
 
 pub use instructions::{

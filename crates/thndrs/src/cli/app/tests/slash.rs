@@ -226,6 +226,66 @@ fn context_surface_is_bounded_and_does_not_render_source_content() {
 }
 
 #[test]
+fn tokens_command_exposes_estimate_provider_components_and_error() {
+    let mut app = fresh_app();
+    let mut accounting = thndrs_agent::ProviderRequestAccounting::from_serialized_request(
+        "turn_1",
+        "turn_1:request:1",
+        1,
+        "fixture",
+        "fixture-model",
+        b"request",
+        Vec::new(),
+    );
+    accounting.provider_usage = Some(
+        thndrs_agent::ProviderUsageComponents {
+            input_tokens: Some(100),
+            output_tokens: Some(7),
+            cache_read_input_tokens: Some(4),
+            cache_creation_input_tokens: Some(2),
+            reasoning_tokens: None,
+        }
+        .normalize("fixture", thndrs_agent::ProviderUsageRule::AnthropicMessages),
+    );
+    app.last_request_accounting = Some(accounting);
+    app.input = PromptInput::from("/tokens");
+
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+
+    let output = app
+        .transcript
+        .iter()
+        .find_map(|entry| match entry {
+            Entry::Status { text } if text.starts_with("tokens\n") => Some(text.as_str()),
+            _ => None,
+        })
+        .expect("token inspection output");
+    assert!(output.contains("estimated/"));
+    assert!(output.contains("100 input / 7 output"));
+    assert!(output.contains("cache: 4 read / 2 create"));
+    assert!(output.contains("normalized input: 106"));
+    assert!(output.contains("estimate error:"));
+}
+
+#[test]
+fn context_export_command_writes_versioned_json_and_markdown() {
+    let mut app = fresh_app();
+    let json_path = app.cwd.join("context-export.json");
+    app.input = PromptInput::from("/context export context-export.json");
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    let json = std::fs::read_to_string(&json_path).expect("json export");
+    assert!(json.contains("context-export-v1"));
+    assert!(json.contains("model_projection"));
+
+    let markdown_path = app.cwd.join("context-export.md");
+    app.input = PromptInput::from("/context export context-export.md markdown");
+    update(&mut app, &key(KeyCode::Enter, KeyModifiers::NONE));
+    let markdown = std::fs::read_to_string(&markdown_path).expect("markdown export");
+    assert!(markdown.starts_with("# Context export"));
+    assert!(markdown.contains("## Context items"));
+}
+
+#[test]
 fn context_pin_drop_recover_and_failed_pin_preserve_prompt_input() {
     let mut app = fresh_app();
     let file = app.cwd.join("notes.md");

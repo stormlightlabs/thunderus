@@ -163,21 +163,23 @@ model.
 - Ticket 3: Preserve Bounded Redacted Artifacts And Recovery
 - Ticket 4: Establish The Replay And Benchmark Framework
 
+**Status:** Complete
+
 **Acceptance criteria:**
 
-- [ ] `/context` exposes item state, reason, replacement, protection, and
+- [x] `/context` exposes item state, reason, replacement, protection, and
       recovery availability without displaying raw archived bodies by default.
-- [ ] `/tokens` exposes request estimates, provenance, provider components,
+- [x] `/tokens` exposes request estimates, provenance, provider components,
       normalized totals, shadow receipts, and estimate error.
-- [ ] The normal workbench indicator remains compact and labels estimated and
+- [x] The normal workbench indicator remains compact and labels estimated and
       provider-reported values distinctly.
-- [ ] One versioned export model renders deterministically to JSON and Markdown.
-- [ ] Default export includes accounting metadata and the bounded rendered model
+- [x] One versioned export model renders deterministically to JSON and Markdown.
+- [x] Default export includes accounting metadata and the bounded rendered model
       projection but excludes artifact bodies and unselected content.
-- [ ] An explicit option adds only bounded redacted artifact bodies; no option
+- [x] An explicit option adds only bounded redacted artifact bodies; no option
       exports unredacted artifacts.
-- [ ] Export redacts and caps again and fails safely on unwritable targets.
-- [ ] Narrow-terminal, long-label, unknown-usage, and secret fixtures have
+- [x] Export redacts and caps again and fails safely on unwritable targets.
+- [x] Narrow-terminal, long-label, unknown-usage, and secret fixtures have
       deterministic behavior coverage.
 
 **Verification:**

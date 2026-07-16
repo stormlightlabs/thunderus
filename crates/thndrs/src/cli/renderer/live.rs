@@ -368,7 +368,7 @@ pub fn static_status_row(app: &App, width: usize) -> Row {
         supports_reasoning_status(&app.model).then(|| format!("reasoning: {}", app.cli.reasoning_effort.label()));
     let search_label = app.websearch.label();
     let search_text = format!("search: {search_label}");
-    let token_text = format!("tok: ↑{} ↓{}", app.session_tokens_in, app.session_tokens_out);
+    let token_text = compact_token_status(app);
     let ttft_text = ttft_status_text(app);
     let git_text = app.git_status.as_ref().map(|summary| summary.display());
     let token_style = CellStyle::new().fg(p.peach).bg(bg);
@@ -463,6 +463,27 @@ fn ttft_status_text(app: &App) -> Option<String> {
             format!("ttft: {:.1}s", millis as f64 / 1_000.0)
         }
     })
+}
+
+fn compact_token_status(app: &App) -> String {
+    let Some(accounting) = &app.last_request_accounting else {
+        return format!("tok: ↑{} ↓{}", app.session_tokens_in, app.session_tokens_out);
+    };
+    let estimate = accounting
+        .estimated_input_tokens
+        .value
+        .map_or_else(|| "?".to_string(), |value| value.to_string());
+    let provider = accounting
+        .provider_usage
+        .as_ref()
+        .and_then(|usage| usage.inclusive_input_tokens.value)
+        .map_or_else(|| "?".to_string(), |value| value.to_string());
+    let cache = accounting
+        .provider_usage
+        .as_ref()
+        .and_then(|usage| usage.components.cache_read_input_tokens)
+        .map_or_else(|| "?".to_string(), |value| value.to_string());
+    format!("tok est:{estimate} prov:{provider} cache:{cache}")
 }
 
 fn supports_reasoning_status(model: &str) -> bool {

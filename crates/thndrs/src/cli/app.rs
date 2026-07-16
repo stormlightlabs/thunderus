@@ -355,6 +355,9 @@ pub struct App {
     /// Latest provider-neutral context ledger used for inspection and prompt
     /// assembly. It is replaced at each turn boundary.
     pub context_ledger: Option<agent_context::ContextLedger>,
+    /// Most recent completed provider request accounting for `/tokens` and
+    /// context export. The request projection is in-memory only.
+    pub last_request_accounting: Option<ProviderRequestAccounting>,
     /// Discovered Agent Skills metadata.
     pub skills: Vec<skills::SkillMetadata>,
     /// Skill discovery diagnostics for ignored malformed skills.
@@ -527,6 +530,7 @@ impl From<&Cli> for App {
             context_sources,
             context_diagnostics,
             context_ledger: None,
+            last_request_accounting: None,
             skills: skill_inventory.skills,
             skill_diagnostics: skill_inventory.diagnostics,
             ui_tick: 0,
@@ -589,6 +593,63 @@ impl App {
     /// metadata and handles without making artifact bodies part of replay truth.
     pub fn artifact_store(&self) -> crate::artifacts::ArtifactStore {
         crate::artifacts::ArtifactStore::new(self.session_directory().join("artifacts"))
+    }
+
+    /// Render the bounded `/tokens` inspection projection.
+    pub fn token_accounting_status(&self) -> String {
+        let Some(accounting) = &self.last_request_accounting else {
+            return format!(
+                "tokens\nsession totals: in {} out {}\nrequest accounting: unavailable",
+                self.session_tokens_in, self.session_tokens_out
+            );
+        };
+        let estimate = accounting
+            .estimated_input_tokens
+            .value
+            .map_or_else(|| "unknown".to_string(), |value| value.to_string());
+        let estimate_source = match &accounting.estimated_input_tokens.provenance {
+            thndrs_agent::MeasurementProvenance::Estimated { version, .. } => format!("estimated/{version}"),
+            _ => "unknown".to_string(),
+        };
+        let Some(usage) = accounting.provider_usage.as_ref() else {
+            return format!(
+                "tokens\nrequest: {} attempt {}\nlocal: {} bytes, {} tokens ({})\nprovider: unknown\nshadow receipts: {}",
+                accounting.request_id,
+                accounting.attempt,
+                accounting.serialized_bytes.value,
+                estimate,
+                estimate_source,
+                accounting.shadow_receipts.len()
+            );
+        };
+        let inclusive = usage
+            .inclusive_input_tokens
+            .value
+            .map_or_else(|| "unknown".to_string(), |value| value.to_string());
+        let estimate_error = match (
+            accounting.estimated_input_tokens.value,
+            usage.inclusive_input_tokens.value,
+        ) {
+            (Some(estimated), Some(provider)) => (provider as i128 - estimated as i128).to_string(),
+            _ => "unknown".to_string(),
+        };
+        format!(
+            "tokens\nrequest: {} attempt {}\nlocal: {} bytes, {} tokens ({})\nprovider {} reported: {} input / {} output\ncache: {} read / {} create\nnormalized input: {} ({})\nestimate error: {} tokens\nshadow receipts: {}",
+            accounting.request_id,
+            accounting.attempt,
+            accounting.serialized_bytes.value,
+            estimate,
+            estimate_source,
+            usage.provider,
+            display_token(usage.components.input_tokens),
+            display_token(usage.components.output_tokens),
+            display_token(usage.components.cache_read_input_tokens),
+            display_token(usage.components.cache_creation_input_tokens),
+            inclusive,
+            usage.rule.label(),
+            estimate_error,
+            accounting.shadow_receipts.len()
+        )
     }
 
     /// Build the compact self-knowledge snapshot used by the startup display.
@@ -709,6 +770,10 @@ impl App {
             .unwrap_or_default();
         CompactionPolicy::from_config(&config)
     }
+}
+
+fn display_token(value: Option<u64>) -> String {
+    value.map_or_else(|| "unknown".to_string(), |value| value.to_string())
 }
 
 /// The only mutation path. Returns an optional follow-up message.

@@ -6,6 +6,7 @@
 //! after its audit record is written; failed or rejected compactions restore the
 //! saved transcript and any pending user turn.
 
+use crate::context::export::{ContextExport, ContextExportFormat, ExportArtifact, artifact_from_recovery};
 use crate::session::CompactionRisk;
 
 use super::*;
@@ -175,6 +176,76 @@ impl App {
         self.refresh_context_ledger(None);
         self.prompt_accessory = PromptAccessory::Context;
         self.input.clear();
+    }
+
+    /// Build the current bounded context export.
+    pub fn build_context_export(&mut self, include_artifacts: bool) -> ContextExport {
+        self.ensure_context_ledger();
+        let ledger = self
+            .context_ledger
+            .clone()
+            .unwrap_or_else(|| self.refresh_context_ledger(None));
+        let mut artifacts = Vec::new();
+        let store = self.artifact_store();
+        let mut handles = std::collections::BTreeSet::new();
+        for item in &ledger.items {
+            let Some(handle) = item.artifact_handle.as_deref() else { continue };
+            if !handles.insert(handle.to_string()) {
+                continue;
+            }
+            let artifact = match store.recover(handle) {
+                Ok(recovery) => artifact_from_recovery(recovery, include_artifacts),
+                Err(_) => ExportArtifact {
+                    handle: handle.to_string(),
+                    metadata: None,
+                    body: None,
+                    diagnostic: Some("artifact metadata is unavailable".to_string()),
+                },
+            };
+            artifacts.push(artifact);
+        }
+        let diagnostics = ledger
+            .diagnostics
+            .iter()
+            .map(|diagnostic| format!("{}: {}", diagnostic.code, diagnostic.message))
+            .collect();
+        ContextExport::from_parts(
+            self.session_id.clone(),
+            &ledger,
+            self.last_request_accounting.clone(),
+            artifacts,
+            diagnostics,
+        )
+    }
+
+    /// Render and atomically write a bounded context export.
+    pub fn write_context_export(
+        &mut self, path: &Path, format: ContextExportFormat, include_artifacts: bool,
+    ) -> Result<(), String> {
+        let export = self.build_context_export(include_artifacts);
+        let content = match format {
+            ContextExportFormat::Json => export
+                .to_json()
+                .map_err(|error| format!("failed to encode export: {error}"))?,
+            ContextExportFormat::Markdown => export.to_markdown(),
+        };
+        let parent = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        let file_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("context-export");
+        let temporary = parent.join(format!(".{file_name}.thndrs-export-{}", std::process::id()));
+        if let Err(error) = std::fs::write(&temporary, content.as_bytes()) {
+            return Err(format!("cannot write context export: {error}"));
+        }
+        if let Err(error) = std::fs::rename(&temporary, path) {
+            let _ = std::fs::remove_file(&temporary);
+            return Err(format!("cannot finalize context export: {error}"));
+        }
+        Ok(())
     }
 
     fn pin_context_reference(&mut self, reference: &str) -> Result<(), String> {
@@ -751,6 +822,12 @@ pub fn handle_context_command(app: &mut App, command: &str) -> Option<Msg> {
                 app.input.clear();
                 None
             }
+            "export" => {
+                app.transcript.push(Entry::Error {
+                    text: "usage: /context export <path> [json|markdown] [--artifacts]".to_string(),
+                });
+                None
+            }
             "pin" | "drop" | "recover" => {
                 app.transcript
                     .push(Entry::Error { text: format!("usage: /context {command} <id-or-path>") });
@@ -770,7 +847,8 @@ pub fn handle_context_command(app: &mut App, command: &str) -> Option<Msg> {
         "drop" => app.drop_context_reference(reference.trim()),
         "recover" => app.recover_context_reference(reference.trim()),
         "review" => return handle_context_review(app, reference.trim()),
-        _ => Err("usage: /context [show|pin|drop|recover|review]".to_string()),
+        "export" => return handle_context_export(app, reference.trim()),
+        _ => Err("usage: /context [show|pin|drop|recover|review|export]".to_string()),
     };
     match result {
         Ok(()) => {
@@ -781,6 +859,50 @@ pub fn handle_context_command(app: &mut App, command: &str) -> Option<Msg> {
         }
         Err(error) => app.transcript.push(Entry::Error { text: error }),
     }
+    None
+}
+
+fn handle_context_export(app: &mut App, input: &str) -> Option<Msg> {
+    let mut path = None;
+    let mut format = None;
+    let mut include_artifacts = false;
+    for part in input.split_whitespace() {
+        if matches!(part, "--artifacts" | "--include-artifacts") {
+            include_artifacts = true;
+        } else if let Some(parsed) = ContextExportFormat::parse(part) {
+            if format.replace(parsed).is_some() {
+                app.transcript
+                    .push(Entry::Error { text: "context export format was specified more than once".to_string() });
+                return None;
+            }
+        } else if path.replace(part).is_some() {
+            app.transcript
+                .push(Entry::Error { text: "usage: /context export <path> [json|markdown] [--artifacts]".to_string() });
+            return None;
+        }
+    }
+    let Some(path) = path else {
+        app.transcript
+            .push(Entry::Error { text: "usage: /context export <path> [json|markdown] [--artifacts]".to_string() });
+        return None;
+    };
+    let path = Path::new(path);
+    let path = if path.is_absolute() { path.to_path_buf() } else { app.cwd.join(path) };
+    let format = format.unwrap_or_else(|| match path.extension().and_then(|extension| extension.to_str()) {
+        Some("md" | "markdown") => ContextExportFormat::Markdown,
+        _ => ContextExportFormat::Json,
+    });
+    match app.write_context_export(&path, format, include_artifacts) {
+        Ok(()) => app.transcript.push(Entry::Status {
+            text: format!(
+                "context exported: {} ({})",
+                redact_context_display(&path.display().to_string()),
+                format.label()
+            ),
+        }),
+        Err(error) => app.transcript.push(Entry::Error { text: error }),
+    }
+    app.input.clear();
     None
 }
 

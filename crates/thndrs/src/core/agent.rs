@@ -40,7 +40,7 @@ use crate::providers::{
 use crate::providers::{anthropic, codex, openai, opencode, umans};
 use crate::tools::{self, AgentRunConfig, ToolOutput, ToolUseRequest, WriteResult, shell::ProcessResult};
 use thndrs_agent::CancelToken;
-use thndrs_agent::{ProviderRequestAccounting, ProviderUsageComponents, ProviderUsageRule};
+use thndrs_agent::{ModelProjectionMessage, ProviderRequestAccounting, ProviderUsageComponents, ProviderUsageRule};
 
 const PROVIDER_RETRY_POLICY: RetryPolicy = RetryPolicy::new(4, Duration::from_millis(2500));
 
@@ -1008,6 +1008,22 @@ where
                         request.model,
                         &serialized_body,
                         request.context.to_vec(),
+                    );
+                    accounting = accounting.with_model_projection(
+                        request
+                            .messages
+                            .iter()
+                            .map(|message| ModelProjectionMessage {
+                                role: message.role.clone(),
+                                content: match &message.content {
+                                    crate::providers::ProviderMessageContent::Text(content) => content.clone(),
+                                    crate::providers::ProviderMessageContent::Blocks(blocks) => {
+                                        serde_json::to_string(blocks)
+                                            .unwrap_or_else(|_| String::from("[unserializable blocks]"))
+                                    }
+                                },
+                            })
+                            .collect(),
                     );
                     accounting.provider_usage = provider_usage;
                     if send(tx, AgentEvent::RequestAccounting(Box::new(accounting)), cancel).is_none() {
