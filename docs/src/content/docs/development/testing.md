@@ -33,6 +33,37 @@ and monochrome-equivalent fallbacks, including surface priority and secret maski
 Provider tests use no-network fixtures for request construction, metadata
 parsing, and stream parsing.
 
+### Context replay
+
+Context replay fixtures live in the `thndrs-agent` under `fixtures/context-replay/`.
+They are versioned JSON and keep required facts separate from projection prose.
+
+If you're adding a fixture, it should:
+
+1. use `schema_version: "context-replay-v1"`;
+2. keep item order stable and give every item a unique id;
+3. attach stable `fact_ids` to evidence items and list their descriptions in
+   `required_facts`;
+4. add recovery cases for every artifact handle whose availability matters;
+5. add a `ReplayScenario` value for each adversarial case it covers; and
+6. record provider usage only when a real provider fixture supplies it.
+
+Run the deterministic evaluator tests with:
+
+```sh
+cargo test -p thndrs-agent replay
+```
+
+Run the Divan measurements with:
+
+```sh
+cargo bench -p thndrs-agent --bench context_projection
+```
+
+Benchmarks measure selection, projection, receipts, and report export. They do
+not decide whether a candidate is correct: the evaluator fails before a report
+is produced when a required fact or expected recovery outcome is lost.
+
 ## Ignored Live Tests
 
 Provider live smoke tests are ignored by default. OpenCode Zen live tests

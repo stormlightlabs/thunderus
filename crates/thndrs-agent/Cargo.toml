@@ -11,11 +11,19 @@ documentation = "https://docs.rs/thndrs-agent"
 readme = "README.md"
 keywords = ["agent", "ai", "coding", "llm", "tools"]
 categories = ["development-tools", "api-bindings"]
-include = ["/Cargo.toml", "/LICENSE", "/README.md", "/src/**"]
+include = ["/Cargo.toml", "/LICENSE", "/README.md", "/benches/**", "/fixtures/**", "/src/**"]
 
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
+thiserror.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+divan.workspace = true
+
+[[bench]]
+name = "context_projection"
+harness = false

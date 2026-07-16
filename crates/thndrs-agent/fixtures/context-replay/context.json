@@ -1,0 +1,172 @@
+{
+  "schema_version": "context-replay-v1",
+  "id": "context-observability-core",
+  "description": "Frozen provider-neutral context evidence covering preservation, omission, cache accounting, and recovery.",
+  "scenarios": [
+    "repeated_reads",
+    "overlapping_reads",
+    "passing_tests",
+    "failing_tests",
+    "noisy_progress",
+    "middle_position_error",
+    "state_changing_commands",
+    "failed_large_write",
+    "protected_evidence",
+    "cache_components",
+    "recovery"
+  ],
+  "items": [
+    {
+      "id": "user-request",
+      "kind": "user_turn",
+      "label": "user request",
+      "content": "Fix the parser and keep the existing error behavior.",
+      "fact_ids": ["user-constraint"],
+      "protected": true
+    },
+    {
+      "id": "read-config-first",
+      "kind": "tool_output",
+      "label": "read config lines 1-30",
+      "content": "config: parser = strict\nconfig: diagnostics = stable",
+      "fact_ids": ["parser-mode"],
+      "recovery_handle": "artifact:read-config"
+    },
+    {
+      "id": "read-config-repeat",
+      "kind": "tool_output",
+      "label": "read config lines 1-30 again",
+      "content": "config: parser = strict\nconfig: diagnostics = stable",
+      "fact_ids": ["parser-mode"],
+      "recovery_handle": "artifact:read-config-repeat"
+    },
+    {
+      "id": "read-config-overlap",
+      "kind": "tool_output",
+      "label": "read config lines 20-45",
+      "content": "config: diagnostics = stable\nconfig: recovery = bounded",
+      "fact_ids": ["recovery-bounded"],
+      "recovery_handle": "artifact:read-config-overlap"
+    },
+    {
+      "id": "progress-1",
+      "kind": "progress",
+      "label": "cargo check progress",
+      "content": "Checking parser v1\nChecking diagnostics v1",
+      "fact_ids": []
+    },
+    {
+      "id": "progress-2",
+      "kind": "progress",
+      "label": "cargo check progress repeat",
+      "content": "Checking parser v1\nChecking diagnostics v1",
+      "fact_ids": []
+    },
+    {
+      "id": "test-pass",
+      "kind": "passing_test",
+      "label": "cargo test parser",
+      "content": "test parser::accepts_valid_input ... ok\ntest result: ok. 1 passed",
+      "fact_ids": ["passing-test"],
+      "recovery_handle": "artifact:test-pass"
+    },
+    {
+      "id": "test-fail",
+      "kind": "failing_test",
+      "label": "cargo test diagnostics",
+      "content": "test diagnostics::keeps_location ... FAILED\nassertion failed: left == right",
+      "fact_ids": ["failing-test", "failure-location"],
+      "recovery_handle": "artifact:test-fail",
+      "protected": true
+    },
+    {
+      "id": "error-before",
+      "kind": "assistant",
+      "label": "initial diagnosis",
+      "content": "The parser loses the source location before rendering diagnostics.",
+      "fact_ids": ["failure-location"]
+    },
+    {
+      "id": "error-middle",
+      "kind": "error",
+      "label": "middle tool failure",
+      "content": "error: diagnostics fixture is missing a source span",
+      "fact_ids": ["middle-error"],
+      "recovery_handle": "artifact:error-middle",
+      "protected": true
+    },
+    {
+      "id": "command-before-state",
+      "kind": "command",
+      "label": "cargo test --lib",
+      "content": "$ cargo test --lib\nstate: parser-before-fix",
+      "fact_ids": ["command-before"] ,
+      "state_fingerprint": "parser-before-fix"
+    },
+    {
+      "id": "command-after-state",
+      "kind": "command",
+      "label": "cargo test --lib",
+      "content": "$ cargo test --lib\nstate: parser-after-fix",
+      "fact_ids": ["command-after"],
+      "state_fingerprint": "parser-after-fix"
+    },
+    {
+      "id": "failed-write-large-input",
+      "kind": "write",
+      "label": "write parser.rs",
+      "content": "write rejected: parser.rs changed since read\ninput digest: 9f2d8c1a\nproposed bytes: 4096",
+      "original_bytes": 65536,
+      "fact_ids": ["failed-write"],
+      "recovery_handle": "artifact:failed-write",
+      "protected": true,
+      "state_fingerprint": "parser-after-state-change"
+    },
+    {
+      "id": "protected-output",
+      "kind": "protected_evidence",
+      "label": "unverified write evidence",
+      "content": "unverified write remains protected until explicit verification",
+      "fact_ids": ["protected-write"],
+      "recovery_handle": "artifact:protected-write",
+      "protected": true
+    },
+    {
+      "id": "final-summary",
+      "kind": "assistant",
+      "label": "working summary",
+      "content": "The fix preserves parser locations; the write still needs verification.",
+      "fact_ids": ["unresolved-verification"]
+    }
+  ],
+  "required_facts": [
+    {"id": "user-constraint", "description": "The user's compatibility constraint remains visible.", "protected": true},
+    {"id": "parser-mode", "description": "The parser mode observed in repeated reads.", "protected": false},
+    {"id": "recovery-bounded", "description": "Overlapping reads show bounded recovery support.", "protected": false},
+    {"id": "passing-test", "description": "A passing test result was observed.", "protected": false},
+    {"id": "failing-test", "description": "A failing test result was observed.", "protected": true},
+    {"id": "failure-location", "description": "The failing diagnostic has a source location issue.", "protected": true},
+    {"id": "middle-error", "description": "An error in the middle of the sequence remains represented.", "protected": true},
+    {"id": "command-before", "description": "The command ran before the state change.", "protected": false},
+    {"id": "command-after", "description": "The same command ran after the state change.", "protected": false},
+    {"id": "failed-write", "description": "The failed write and its conflict remain recoverable.", "protected": true},
+    {"id": "protected-write", "description": "Unverified write evidence stays protected.", "protected": true},
+    {"id": "unresolved-verification", "description": "Verification remains unresolved.", "protected": true}
+  ],
+  "recovery": [
+    {"id": "failed-write-recovery", "artifact_handle": "artifact:failed-write", "expected_available": true},
+    {"id": "protected-write-recovery", "artifact_handle": "artifact:protected-write", "expected_available": true},
+    {"id": "middle-error-recovery", "artifact_handle": "artifact:error-middle", "expected_available": true}
+  ],
+  "provider_usage": {
+    "provider": "anthropic",
+    "rule": "anthropic_messages",
+    "components": {
+      "input_tokens": 100,
+      "output_tokens": 20,
+      "cache_read_input_tokens": 30,
+      "cache_creation_input_tokens": 5,
+      "reasoning_tokens": null
+    }
+  }
+}

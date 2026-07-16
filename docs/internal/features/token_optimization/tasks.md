@@ -122,24 +122,26 @@ preservation, recovery, and runtime before reducers change production requests.
 - Ticket 2: Account For Every Final Provider Request
 - Ticket 3: Preserve Bounded Redacted Artifacts And Recovery
 
+**Status:** Complete
+
 **Acceptance criteria:**
 
-- [ ] The fixture schema is versioned, deterministic, provider-neutral where
+- [x] The fixture schema is versioned, deterministic, provider-neutral where
       practical, and represents required facts separately from expected prose.
-- [ ] Fixtures cover repeated/overlapping reads, passing/failing test output,
+- [x] Fixtures cover repeated/overlapping reads, passing/failing test output,
       noisy progress, a middle-position error, repeated commands across state
       changes, failed writes with large inputs, protected evidence, cache
       components, and recovery.
-- [ ] The evaluator compares baseline and candidate projections and emits one
+- [x] The evaluator compares baseline and candidate projections and emits one
       typed report as deterministic JSON or Markdown.
-- [ ] Reports include exact bytes, estimated tokens, receipts, required-fact
+- [x] Reports include exact bytes, estimated tokens, receipts, required-fact
       preservation, recovery outcomes, and elapsed time; provider usage appears
       only when present in a recorded fixture.
-- [ ] Divan benchmarks pure selection, projection, receipt generation, and
+- [x] Divan benchmarks pure selection, projection, receipt generation, and
       export/evaluation with byte/item counters on stable Rust.
-- [ ] Timing results do not decide correctness; failed invariants make the
+- [x] Timing results do not decide correctness; failed invariants make the
       evaluator fail independently of Divan output.
-- [ ] Focused benchmark commands and fixture-authoring guidance are documented.
+- [x] Focused benchmark commands and fixture-authoring guidance are documented.
 
 **Verification:**
 

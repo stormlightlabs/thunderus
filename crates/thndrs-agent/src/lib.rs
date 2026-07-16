@@ -9,6 +9,7 @@ pub mod budget;
 pub mod cancel;
 pub mod context;
 pub mod contracts;
+pub mod replay;
 pub mod run;
 
 pub use accounting::{
@@ -22,5 +23,11 @@ pub use cancel::CancelToken;
 pub use contracts::{
     AgentEvent, AgentMessage, AgentTurn, RetryPolicy, ToolDefinition, ToolDisplayProjection, ToolEvidenceKind,
     ToolEvidenceMetadata, ToolModelProjection, ToolOutput, ToolPermissionDecision, ToolStatus, ToolUseRequest,
+};
+pub use replay::{
+    BaselinePolicy, CandidatePolicy, ProjectionReport, RecordedProviderUsage, RecoveryCase, RecoveryOutcome,
+    ReplayComparison, ReplayError, ReplayEvaluator, ReplayFixture, ReplayItem, ReplayItemKind, ReplayPolicy,
+    ReplayProjection, ReplayReceipt, ReplayReport, ReplayScenario, ReplayTiming, RequiredFact, RequiredFactResult,
+    evaluate_fixture, load_fixture, project_fixture, select_items,
 };
 pub use run::AgentRun;
