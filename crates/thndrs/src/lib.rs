@@ -525,7 +525,7 @@ fn run_mcp_call<W: io::Write>(
             output.error.unwrap_or_else(|| "MCP tool failed".to_string())
         ),
         _ => {
-            for line in output.output {
+            for line in output.display_lines() {
                 writeln!(writer, "{line}")?;
             }
             Ok(())

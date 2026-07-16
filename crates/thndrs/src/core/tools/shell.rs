@@ -205,7 +205,9 @@ impl ProcessResult {
             ToolStatus::Ok => ToolOutput::ok(NAME, self.to_output_lines()),
             _ => {
                 let mut output = self.to_failed_output();
-                output.output = self.to_output_lines();
+                let lines = self.to_output_lines();
+                output.display.lines = lines.clone();
+                output.model.lines = lines;
                 output
             }
         }

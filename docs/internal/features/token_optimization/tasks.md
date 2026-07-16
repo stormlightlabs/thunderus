@@ -1,6 +1,6 @@
 ---
 title: Tickets - Token Optimization And Context Observability
-status: Ready
+status: In Progress
 captured: 2026-07-16
 ---
 
@@ -24,17 +24,19 @@ form only after all callers are green.
 
 **Blocked by:** None - can start immediately
 
+**Status:** Complete
+
 **Acceptance criteria:**
 
-- [ ] Provider-neutral types distinguish evidence metadata, display projection,
+- [x] Provider-neutral types distinguish evidence metadata, display projection,
       and model projection without importing provider or filesystem types.
-- [ ] Existing tool constructors have a simple compatibility path that creates
+- [x] Existing tool constructors have a simple compatibility path that creates
       equivalent display and model projections during migration.
-- [ ] Prompt-tail lowering and active tool-loop feedback consume the model
+- [x] Prompt-tail lowering and active tool-loop feedback consume the model
       projection, while UI/ACP surfaces consume the display projection.
-- [ ] Existing provider-request and renderer fixtures remain behavior-equivalent.
-- [ ] Raw unredacted output is not added to a durable public contract.
-- [ ] Module/API documentation explains ownership and redaction expectations.
+- [x] Existing provider-request and renderer fixtures remain behavior-equivalent.
+- [x] Raw unredacted output is not added to a durable public contract.
+- [x] Module/API documentation explains ownership and redaction expectations.
 
 **Verification:**
 

@@ -116,8 +116,8 @@ mod tests {
         let path = root.join("Cargo.toml");
         let output = exec(&path, &root, 1, Some(3));
         assert_eq!(output.status, ToolStatus::Ok);
-        assert_eq!(output.output.len(), 3);
-        assert!(output.output[0].starts_with("1:"));
+        assert_eq!(output.display.lines.len(), 3);
+        assert!(output.display.lines[0].starts_with("1:"));
     }
 
     #[test]
@@ -171,6 +171,6 @@ mod tests {
         let output = tools::registry::execute(&request, &tools::registry::ToolContext::new(dir.path())).output;
 
         assert_eq!(output.status, ToolStatus::Ok);
-        assert_eq!(output.output, vec!["2: b", "3: c"]);
+        assert_eq!(output.display.lines, vec!["2: b", "3: c"]);
     }
 }

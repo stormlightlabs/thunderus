@@ -402,10 +402,15 @@ pub fn lower_to_umans_messages(bundle: &PromptBundle) -> Vec<ProviderMessage> {
             Entry::Agent { text, streaming: false, .. } => messages.push(ProviderMessage::assistant(text)),
             Entry::Reasoning { text, streaming: false, .. } => messages.push(ProviderMessage::assistant(text)),
             Entry::Tool { name, output, status, .. } if *status != ToolStatus::Running => {
+                // Session transcript entries currently retain their bounded
+                // display lines for compatibility. Lower them through the
+                // provider-neutral model projection so this boundary is
+                // ready for independently persisted projections.
+                let model_output = tools::ToolOutput::ok(name, output.clone()).model.lines;
                 messages.push(ProviderMessage::user(
-                    &(match output.is_empty() {
+                    &(match model_output.is_empty() {
                         true => format!("[tool: {name} — no output]"),
-                        false => format!("[tool: {name}]\n{}", output.join("\n")),
+                        false => format!("[tool: {name}]\n{}", model_output.join("\n")),
                     }),
                 ))
             }

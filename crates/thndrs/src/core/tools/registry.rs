@@ -118,10 +118,10 @@ impl<'a> ToolContext<'a> {
     }
 }
 
-/// Unified output and side-effect audits from a tool execution.
+/// Evidence metadata, projections, and side-effect audits from a tool execution.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ToolExecution {
-    /// Display/model output produced by the tool.
+    /// Tool evidence metadata plus independent display/model projections.
     pub output: ToolOutput,
     /// Optional file-write audit metadata for session persistence.
     pub write_result: Option<WriteResult>,

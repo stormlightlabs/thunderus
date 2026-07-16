@@ -162,7 +162,7 @@ fn sanitize_mcp_output(mut output: ToolOutput) -> ToolOutput {
     let mut sanitized = Vec::new();
     let mut truncated = false;
 
-    for line in output.output {
+    for line in output.display.lines {
         if sanitized.len() >= MAX_MCP_OUTPUT_LINES {
             truncated = true;
             break;
@@ -196,7 +196,9 @@ fn sanitize_mcp_output(mut output: ToolOutput) -> ToolOutput {
     if let Some(error) = output.error {
         output.error = Some(shell::redact_secrets(&error));
     }
-    output.output = sanitized;
+    output.display.lines = sanitized.clone();
+    output.model.lines = sanitized;
+    output.evidence.byte_count = output.display.lines.join("\n").len();
     output
 }
 
@@ -279,9 +281,9 @@ mod tests {
             vec![format!("api_key=sk-{}", "a".repeat(80)), "x".repeat(MAX_LINE_LEN + 20)],
         ));
 
-        assert!(output.output[0].contains("[REDACTED]"));
-        assert!(output.output[1].ends_with("..."));
-        assert!(output.output.iter().any(|line| line == "[mcp output truncated]"));
+        assert!(output.display.lines[0].contains("[REDACTED]"));
+        assert!(output.display.lines[1].ends_with("..."));
+        assert!(output.display.lines.iter().any(|line| line == "[mcp output truncated]"));
     }
 
     #[test]

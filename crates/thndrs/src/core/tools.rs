@@ -156,7 +156,9 @@ impl AgentRunConfig {
     }
 }
 
-pub use thndrs_agent::{ToolOutput, ToolUseRequest};
+pub use thndrs_agent::{
+    ToolDisplayProjection, ToolEvidenceKind, ToolEvidenceMetadata, ToolModelProjection, ToolOutput, ToolUseRequest,
+};
 
 /// A single search match from `rg --json`.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -354,7 +356,8 @@ pub fn searchable_file_paths(root: &Path, max_results: usize) -> Result<Vec<Stri
     }
 
     Ok(output
-        .output
+        .display
+        .lines
         .into_iter()
         .map(|p| normalize_tool_path(root, &p))
         .collect())
@@ -378,7 +381,7 @@ mod tests {
         let output = ToolOutput::ok("test", vec!["line1".to_string()]);
         assert_eq!(output.name, "test");
         assert_eq!(output.status, ToolStatus::Ok);
-        assert_eq!(output.output, vec!["line1"]);
+        assert_eq!(output.display.lines, vec!["line1"]);
         assert!(output.error.is_none());
     }
 
@@ -387,7 +390,7 @@ mod tests {
         let output = ToolOutput::failed("test", "something went wrong".to_string());
         assert_eq!(output.name, "test");
         assert_eq!(output.status, ToolStatus::Failed);
-        assert!(output.output.is_empty());
+        assert!(output.display.lines.is_empty());
         assert_eq!(output.error.as_deref(), Some("something went wrong"));
     }
 

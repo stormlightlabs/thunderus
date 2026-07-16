@@ -593,7 +593,7 @@ fn exec_success_returns_ok_tool_output() {
     let output = exec(&args, root);
     assert_eq!(output.status, ToolStatus::Ok);
     assert_eq!(output.name, "run_shell");
-    assert!(output.output.iter().any(|l| l.contains("hello")));
+    assert!(output.display.lines.iter().any(|l| l.contains("hello")));
 }
 
 #[test]
@@ -628,8 +628,8 @@ fn exec_includes_command_summary_in_output() {
     let root = dir.path();
     let args = echo(&["test"]);
     let output = exec(&args, root);
-    assert!(output.output[0].contains("echo test"));
-    assert!(output.output[0].contains("one-shot"));
+    assert!(output.display.lines[0].contains("echo test"));
+    assert!(output.display.lines[0].contains("one-shot"));
 }
 
 #[test]

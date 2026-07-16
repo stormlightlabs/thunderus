@@ -498,7 +498,8 @@ impl RunHandle {
                     }
                 };
                 let status = output.status;
-                let display_output = tool_display_output(&output);
+                let display_output = output.display_lines();
+                let model_output = output.model_lines();
                 if write_result.is_some() && status == ToolStatus::Ok {
                     wrote_file = true;
                 }
@@ -527,7 +528,7 @@ impl RunHandle {
                 });
 
                 let result_content =
-                    if display_output.is_empty() { "(no output)".to_string() } else { display_output.join("\n") };
+                    if model_output.is_empty() { "(no output)".to_string() } else { model_output.join("\n") };
                 let is_error = status == ToolStatus::Failed;
                 tool_results.push(ProviderMessage::tool_result(&tool_id, &result_content, is_error));
                 response_tool_outputs.push((tool_id, result_content));
@@ -601,7 +602,7 @@ impl RunHandle {
             let (search_output, _, _) =
                 tools::dispatch_full_with_search(&search_req, &self.config.root, &search_config);
             let search_status = search_output.status;
-            let search_display_output = tool_display_output(&search_output);
+            let search_display_output = search_output.display_lines();
             match send(
                 tx,
                 ToolFinished {
@@ -638,7 +639,7 @@ impl RunHandle {
 
         let (output, _, _) = tools::dispatch_full(&tool_req, &self.config.root);
         let status = output.status;
-        let display_output = tool_display_output(&output);
+        let display_output = output.display_lines();
         match send(
             tx,
             ToolFinished { id: tool_id, output: display_output, status, write_result: None, shell_result: None },
@@ -681,7 +682,7 @@ impl RunHandle {
                 }
             };
             let shell_status = shell_output.status;
-            let shell_display_output = tool_display_output(&shell_output);
+            let shell_display_output = shell_output.display_lines();
             match send(
                 tx,
                 ToolFinished {
@@ -843,23 +844,6 @@ fn dispatch_tool_request(
         cancel,
         &search_config,
     )
-}
-
-/// Return transcript and provider-result lines for a completed tool request.
-///
-/// Tool executors keep an error separate from ordinary output so callers can
-/// distinguish success from failure. Materialize that error here because the
-/// application event and durable session record carry display lines only.
-fn tool_display_output(output: &ToolOutput) -> Vec<String> {
-    let mut lines = output.output.clone();
-    let Some(error) = output.error.as_deref().map(str::trim).filter(|error| !error.is_empty()) else {
-        return lines;
-    };
-    let error_line = format!("error: {error}");
-    if !lines.iter().any(|line| line == error || line == &error_line) {
-        lines.insert(0, error_line);
-    }
-    lines
 }
 
 fn approve_tool_request(request: &ToolUseRequest, handle: &RunHandle, cancel: &CancelToken) -> ToolPermissionDecision {
@@ -1946,7 +1930,7 @@ mod tests {
         );
         let output = dispatch_output(&req, Path::new("src/cli"));
         assert_eq!(output.status, ToolStatus::Ok);
-        assert!(output.output.iter().any(|p| p.contains("cli/mod.rs")));
+        assert!(output.display.lines.iter().any(|p| p.contains("cli/mod.rs")));
     }
 
     #[test]
@@ -1963,7 +1947,7 @@ mod tests {
         );
         let output = dispatch_output(&req, Path::new("."));
         assert_eq!(output.status, ToolStatus::Ok);
-        assert_eq!(output.output.len(), 3);
+        assert_eq!(output.display.lines.len(), 3);
     }
 
     #[test]
@@ -2613,7 +2597,7 @@ mod tests {
         let output = dispatch_output(&req, Path::new("."));
         assert_eq!(output.status, ToolStatus::Ok);
         assert_eq!(output.name, "run_shell");
-        assert!(output.output.iter().any(|l| l.contains("hello")));
+        assert!(output.display.lines.iter().any(|l| l.contains("hello")));
     }
 
     #[test]
@@ -2672,14 +2656,14 @@ mod tests {
     #[test]
     fn tool_display_output_includes_failure_detail_without_changing_success_output() {
         let success = ToolOutput::ok("find_files", vec!["src/lib.rs".to_string()]);
-        assert_eq!(tool_display_output(&success), vec!["src/lib.rs"]);
+        assert_eq!(success.display_lines(), vec!["src/lib.rs"]);
 
         let failure = ToolOutput::failed(
             "run_shell",
             "missing command: provide non-empty 'argv', 'command', or 'program'",
         );
         assert_eq!(
-            tool_display_output(&failure),
+            failure.display_lines(),
             vec!["error: missing command: provide non-empty 'argv', 'command', or 'program'"]
         );
     }

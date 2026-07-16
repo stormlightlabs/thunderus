@@ -519,8 +519,8 @@ mod tests {
 
         let written = std::fs::read_to_string(&file).expect("read");
         assert_eq!(written, "hello there\nfoo bar\n");
-        assert!(output.output.iter().any(|line| line == "-hello world"));
-        assert!(output.output.iter().any(|line| line == "+hello there"));
+        assert!(output.display.lines.iter().any(|line| line == "-hello world"));
+        assert!(output.display.lines.iter().any(|line| line == "+hello there"));
     }
 
     #[test]

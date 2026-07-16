@@ -168,15 +168,15 @@ mod tests {
     fn list_searchable_files_lists_source_files() {
         let output = exec(Path::new("src"), None, MAX_RESULTS, false);
         assert_eq!(output.status, ToolStatus::Ok);
-        assert!(!output.output.is_empty());
-        assert!(output.output.iter().any(|p| p.contains(".rs")));
+        assert!(!output.display.lines.is_empty());
+        assert!(output.display.lines.iter().any(|p| p.contains(".rs")));
     }
 
     #[test]
     fn list_searchable_files_with_glob_filter() {
         let output = exec(Path::new("src"), Some("*.rs"), MAX_RESULTS, false);
         assert_eq!(output.status, ToolStatus::Ok);
-        assert!(output.output.iter().all(|p| p.ends_with(".rs")));
+        assert!(output.display.lines.iter().all(|p| p.ends_with(".rs")));
     }
 
     #[test]
@@ -225,6 +225,6 @@ mod tests {
         let output = tools::registry::execute(&request, &tools::registry::ToolContext::new(dir.path())).output;
 
         assert_eq!(output.status, ToolStatus::Ok);
-        assert!(output.output.iter().any(|path| path.ends_with("alpha.rs")));
+        assert!(output.display.lines.iter().any(|path| path.ends_with("alpha.rs")));
     }
 }

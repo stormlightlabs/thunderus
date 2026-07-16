@@ -239,7 +239,7 @@ mod tests {
         }
         .run();
         assert_eq!(output.status, ToolStatus::Ok);
-        assert!(output.output.iter().any(|p| p.contains("cli/mod.rs")));
+        assert!(output.display.lines.iter().any(|p| p.contains("cli/mod.rs")));
     }
 
     #[test]
@@ -256,7 +256,7 @@ mod tests {
         }
         .run();
         assert_eq!(output.status, ToolStatus::Ok);
-        assert!(output.output.is_empty());
+        assert!(output.display.lines.is_empty());
     }
 
     #[test]
@@ -296,6 +296,6 @@ mod tests {
         let output = tools::registry::execute(&request, &tools::registry::ToolContext::new(Path::new("."))).output;
 
         assert_eq!(output.status, ToolStatus::Ok);
-        assert!(output.output.iter().any(|path| path.contains("Cargo.toml")));
+        assert!(output.display.lines.iter().any(|path| path.contains("Cargo.toml")));
     }
 }

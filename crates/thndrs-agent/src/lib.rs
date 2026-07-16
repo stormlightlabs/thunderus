@@ -14,7 +14,7 @@ pub use adapters::{ToolExecutionHook, ToolPermissionHook};
 pub use budget::{ToolBudgetDecision, ToolIterationBudget};
 pub use cancel::CancelToken;
 pub use contracts::{
-    AgentEvent, AgentMessage, AgentTurn, RetryPolicy, ToolDefinition, ToolOutput, ToolPermissionDecision, ToolStatus,
-    ToolUseRequest,
+    AgentEvent, AgentMessage, AgentTurn, RetryPolicy, ToolDefinition, ToolDisplayProjection, ToolEvidenceKind,
+    ToolEvidenceMetadata, ToolModelProjection, ToolOutput, ToolPermissionDecision, ToolStatus, ToolUseRequest,
 };
 pub use run::AgentRun;

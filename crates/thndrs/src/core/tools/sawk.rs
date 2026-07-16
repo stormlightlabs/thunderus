@@ -292,7 +292,7 @@ mod tests {
         let output = exec(&args, dir.path());
 
         assert_eq!(output.status, ToolStatus::Ok);
-        assert_eq!(output.output, vec!["2: b", "3: c"]);
+        assert_eq!(output.display.lines, vec!["2: b", "3: c"]);
     }
 
     #[test]
@@ -311,7 +311,10 @@ mod tests {
         let output = exec(&args, dir.path());
 
         assert_eq!(output.status, ToolStatus::Ok);
-        assert_eq!(output.output, vec!["-1: foo", "+1: baz", "-2: bar foo", "+2: bar baz"]);
+        assert_eq!(
+            output.display.lines,
+            vec!["-1: foo", "+1: baz", "-2: bar foo", "+2: bar baz"]
+        );
         assert_eq!(std::fs::read_to_string(&file).expect("read"), "foo\nbar foo\n");
     }
 
@@ -324,7 +327,7 @@ mod tests {
         let output = exec(&args, dir.path());
 
         assert_eq!(output.status, ToolStatus::Ok);
-        assert_eq!(output.output, vec!["1: two\tthree", "2: blue\tgreen"]);
+        assert_eq!(output.display.lines, vec!["1: two\tthree", "2: blue\tgreen"]);
     }
 
     #[test]
@@ -357,6 +360,6 @@ mod tests {
         let output = tools::registry::execute(&request, &tools::registry::ToolContext::new(dir.path())).output;
 
         assert_eq!(output.status, ToolStatus::Ok);
-        assert_eq!(output.output, vec!["2: b", "3: c"]);
+        assert_eq!(output.display.lines, vec!["2: b", "3: c"]);
     }
 }

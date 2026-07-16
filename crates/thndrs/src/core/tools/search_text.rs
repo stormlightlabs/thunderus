@@ -271,15 +271,15 @@ mod tests {
             false,
         );
         assert_eq!(output.status, ToolStatus::Ok);
-        assert!(output.output.is_empty());
+        assert!(output.display.lines.is_empty());
     }
 
     #[test]
     fn search_text_finds_matches() {
         let output = exec("thndrs", Path::new("Cargo.toml"), None, &[], MAX_RESULTS, 0, false);
         assert_eq!(output.status, ToolStatus::Ok);
-        assert!(!output.output.is_empty());
-        assert!(output.output[0].contains("Cargo.toml"));
+        assert!(!output.display.lines.is_empty());
+        assert!(output.display.lines[0].contains("Cargo.toml"));
     }
 
     #[test]
@@ -301,7 +301,7 @@ mod tests {
             false,
         );
         assert_eq!(output.status, ToolStatus::Ok);
-        assert!(output.output.iter().any(|line| line.contains("search_text.rs")));
+        assert!(output.display.lines.iter().any(|line| line.contains("search_text.rs")));
     }
 
     #[test]
@@ -317,9 +317,9 @@ mod tests {
         );
         assert_eq!(output.status, ToolStatus::Ok);
         assert!(
-            output.output.len() >= 2,
+            output.display.lines.len() >= 2,
             "expected match plus context, got {:?}",
-            output.output
+            output.display.lines
         );
     }
 
@@ -360,6 +360,6 @@ mod tests {
         let output = tools::registry::execute(&request, &tools::registry::ToolContext::new(dir.path())).output;
 
         assert_eq!(output.status, ToolStatus::Ok);
-        assert!(output.output.iter().any(|line| line.contains("alpha.rs")));
+        assert!(output.display.lines.iter().any(|line| line.contains("alpha.rs")));
     }
 }

@@ -41,67 +41,11 @@ impl ToolStatus {
     }
 }
 
-/// A tool-use request from a provider.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ToolUseRequest {
-    /// Tool name chosen from the application-supplied catalog.
-    pub name: String,
-    /// Raw JSON arguments supplied by the provider.
-    pub arguments: String,
-    /// Provider-assigned id used to correlate the eventual result.
-    pub tool_use_id: String,
-}
-
-impl ToolUseRequest {
-    /// Build a tool-use request from its provider-neutral fields.
-    pub fn new(name: impl Into<String>, arguments: impl Into<String>, tool_use_id: impl Into<String>) -> Self {
-        Self { name: name.into(), arguments: arguments.into(), tool_use_id: tool_use_id.into() }
-    }
-}
-
-/// Structured output returned by an application-owned tool executor.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ToolOutput {
-    /// Tool name selected for execution.
-    pub name: String,
-    /// Execution status.
-    pub status: ToolStatus,
-    /// Output lines safe for display and provider feedback.
-    pub output: Vec<String>,
-    /// Failure detail when execution did not succeed.
-    pub error: Option<String>,
-}
-
-impl ToolOutput {
-    /// Build a successful output value.
-    pub fn ok(name: impl Into<String>, output: Vec<String>) -> Self {
-        Self { name: name.into(), status: ToolStatus::Ok, output, error: None }
-    }
-
-    /// Build a failed output value.
-    pub fn failed(name: impl Into<String>, error: impl Into<String>) -> Self {
-        Self { name: name.into(), status: ToolStatus::Failed, output: Vec::new(), error: Some(error.into()) }
-    }
-}
-
-/// A tool definition exposed to a provider/model.
-#[derive(Clone, Debug)]
-pub struct ToolDefinition {
-    /// Stable name selected by the provider in a tool-use request.
-    pub name: Cow<'static, str>,
-    /// Model-visible guidance for using the tool.
-    pub description: Cow<'static, str>,
-    /// JSON Schema for the tool arguments.
-    pub input_schema: serde_json::Value,
-}
-
-impl ToolDefinition {
-    /// Build a provider-visible tool definition.
-    pub fn new(
-        name: impl Into<Cow<'static, str>>, description: impl Into<Cow<'static, str>>, input_schema: serde_json::Value,
-    ) -> Self {
-        Self { name: name.into(), description: description.into(), input_schema }
-    }
+/// The kind of bounded evidence associated with a tool execution.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum ToolEvidenceKind {
+    /// The normal result produced by a tool execution.
+    Output,
 }
 
 /// Provider-neutral message supplied to or produced by an agent turn.
@@ -127,24 +71,25 @@ pub enum AgentMessage {
     },
 }
 
-/// Provider-neutral input for one agent turn.
-///
-/// Applications assemble messages and tool definitions, then their provider
-/// adapter performs the wire-level request. The turn contract remains useful
-/// to deterministic fakes and future application adapters without bringing
-/// provider protocol types into this crate.
-#[derive(Clone, Debug)]
-pub struct AgentTurn {
-    /// Ordered conversation and tool-result messages.
-    pub messages: Vec<AgentMessage>,
-    /// Tool definitions available for this turn.
-    pub tools: Vec<ToolDefinition>,
+/// Decision returned by an application-owned tool permission hook.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ToolPermissionDecision {
+    /// The tool call may execute.
+    Allow,
+    /// The tool call must be rejected before execution.
+    Reject,
+    /// The prompt turn was cancelled while waiting for permission.
+    Cancelled,
 }
 
-impl AgentTurn {
-    /// Create a turn from application-owned messages and tool definitions.
-    pub fn new(messages: Vec<AgentMessage>, tools: Vec<ToolDefinition>) -> Self {
-        Self { messages, tools }
+impl ToolPermissionDecision {
+    /// Stable outcome label for session records.
+    pub const fn outcome_label(self) -> &'static str {
+        match self {
+            Self::Allow => "allowed",
+            Self::Reject => "rejected",
+            Self::Cancelled => "cancelled",
+        }
     }
 }
 
@@ -208,25 +153,178 @@ pub enum AgentEvent {
     Cancelled,
 }
 
-/// Decision returned by an application-owned tool permission hook.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ToolPermissionDecision {
-    /// The tool call may execute.
-    Allow,
-    /// The tool call must be rejected before execution.
-    Reject,
-    /// The prompt turn was cancelled while waiting for permission.
-    Cancelled,
+/// A tool-use request from a provider.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ToolUseRequest {
+    /// Tool name chosen from the application-supplied catalog.
+    pub name: String,
+    /// Raw JSON arguments supplied by the provider.
+    pub arguments: String,
+    /// Provider-assigned id used to correlate the eventual result.
+    pub tool_use_id: String,
 }
 
-impl ToolPermissionDecision {
-    /// Stable outcome label for session records.
-    pub const fn outcome_label(self) -> &'static str {
-        match self {
-            Self::Allow => "allowed",
-            Self::Reject => "rejected",
-            Self::Cancelled => "cancelled",
+impl ToolUseRequest {
+    /// Build a tool-use request from its provider-neutral fields.
+    pub fn new(name: impl Into<String>, arguments: impl Into<String>, tool_use_id: impl Into<String>) -> Self {
+        Self { name: name.into(), arguments: arguments.into(), tool_use_id: tool_use_id.into() }
+    }
+}
+
+/// Bounded, provider-neutral metadata about durable tool evidence.
+///
+/// `byte_count` describes the UTF-8, newline-joined compatibility rendering
+/// when constructed by [`ToolOutput::ok`] or [`ToolOutput::failed`]. Custom
+/// executors may provide their own exact measurement. `artifact_handle` is an
+/// application-owned opaque reference and never contains the evidence body.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ToolEvidenceMetadata {
+    /// Stable identity for this evidence within the owning application.
+    pub identity: String,
+    /// Coarse evidence classification.
+    pub kind: ToolEvidenceKind,
+    /// Exact UTF-8 byte count at the application's declared boundary.
+    pub byte_count: usize,
+    /// Optional application-computed content hash.
+    pub content_hash: Option<String>,
+    /// Optional opaque handle for bounded redacted recovery.
+    pub artifact_handle: Option<String>,
+}
+
+impl ToolEvidenceMetadata {
+    /// Build compatibility metadata for newline-joined text lines.
+    pub fn for_lines(identity: impl Into<String>, lines: &[String]) -> Self {
+        Self {
+            identity: identity.into(),
+            kind: ToolEvidenceKind::Output,
+            byte_count: lines.join("\n").len(),
+            content_hash: None,
+            artifact_handle: None,
         }
+    }
+}
+
+/// User-facing bounded projection of a tool result.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ToolDisplayProjection {
+    /// Lines rendered by the CLI, TUI, or ACP adapter.
+    pub lines: Vec<String>,
+}
+
+impl ToolDisplayProjection {
+    /// Build a display projection from already bounded lines.
+    pub fn new(lines: Vec<String>) -> Self {
+        Self { lines }
+    }
+}
+
+/// Model-facing bounded projection of a tool result.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ToolModelProjection {
+    /// Lines lowered into the next provider request.
+    pub lines: Vec<String>,
+}
+
+impl ToolModelProjection {
+    /// Build a model projection from already bounded lines.
+    pub fn new(lines: Vec<String>) -> Self {
+        Self { lines }
+    }
+}
+
+/// Structured output returned by an application-owned tool executor.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ToolOutput {
+    /// Tool name selected for execution.
+    pub name: String,
+    /// Execution status.
+    pub status: ToolStatus,
+    /// Metadata for bounded redacted evidence retained by the application.
+    pub evidence: ToolEvidenceMetadata,
+    /// User-facing projection. This is the source for UI and ACP surfaces.
+    pub display: ToolDisplayProjection,
+    /// Model-facing projection. This is the source for provider feedback.
+    pub model: ToolModelProjection,
+    /// Failure detail when execution did not succeed.
+    pub error: Option<String>,
+}
+
+impl ToolOutput {
+    /// Build a successful output value.
+    pub fn ok(name: impl Into<String>, output: Vec<String>) -> Self {
+        let name = name.into();
+        Self {
+            evidence: ToolEvidenceMetadata::for_lines(&name, &output),
+            name,
+            status: ToolStatus::Ok,
+            display: ToolDisplayProjection::new(output.clone()),
+            model: ToolModelProjection::new(output),
+            error: None,
+        }
+    }
+
+    /// Build a failed output value.
+    pub fn failed(name: impl Into<String>, error: impl Into<String>) -> Self {
+        let name = name.into();
+        Self {
+            evidence: ToolEvidenceMetadata::for_lines(&name, &[]),
+            name,
+            status: ToolStatus::Failed,
+            display: ToolDisplayProjection::new(Vec::new()),
+            model: ToolModelProjection::new(Vec::new()),
+            error: Some(error.into()),
+        }
+    }
+
+    /// Return display lines, materializing the structured failure detail.
+    pub fn display_lines(&self) -> Vec<String> {
+        projection_lines(&self.display.lines, self.error.as_deref())
+    }
+
+    /// Return model lines, materializing the structured failure detail.
+    pub fn model_lines(&self) -> Vec<String> {
+        projection_lines(&self.model.lines, self.error.as_deref())
+    }
+}
+
+/// A tool definition exposed to a provider/model.
+#[derive(Clone, Debug)]
+pub struct ToolDefinition {
+    /// Stable name selected by the provider in a tool-use request.
+    pub name: Cow<'static, str>,
+    /// Model-visible guidance for using the tool.
+    pub description: Cow<'static, str>,
+    /// JSON Schema for the tool arguments.
+    pub input_schema: serde_json::Value,
+}
+
+impl ToolDefinition {
+    /// Build a provider-visible tool definition.
+    pub fn new(
+        name: impl Into<Cow<'static, str>>, description: impl Into<Cow<'static, str>>, input_schema: serde_json::Value,
+    ) -> Self {
+        Self { name: name.into(), description: description.into(), input_schema }
+    }
+}
+
+/// Provider-neutral input for one agent turn.
+///
+/// Applications assemble messages and tool definitions, then their provider
+/// adapter performs the wire-level request. The turn contract remains useful
+/// to deterministic fakes and future application adapters without bringing
+/// provider protocol types into this crate.
+#[derive(Clone, Debug)]
+pub struct AgentTurn {
+    /// Ordered conversation and tool-result messages.
+    pub messages: Vec<AgentMessage>,
+    /// Tool definitions available for this turn.
+    pub tools: Vec<ToolDefinition>,
+}
+
+impl AgentTurn {
+    /// Create a turn from application-owned messages and tool definitions.
+    pub fn new(messages: Vec<AgentMessage>, tools: Vec<ToolDefinition>) -> Self {
+        Self { messages, tools }
     }
 }
 
@@ -251,6 +349,18 @@ impl RetryPolicy {
     }
 }
 
+fn projection_lines(lines: &[String], error: Option<&str>) -> Vec<String> {
+    let mut lines = lines.to_vec();
+    let Some(error) = error.map(str::trim).filter(|error| !error.is_empty()) else {
+        return lines;
+    };
+    let error_line = format!("error: {error}");
+    if !lines.iter().any(|line| line == error || line == &error_line) {
+        lines.insert(0, error_line);
+    }
+    lines
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -271,8 +381,27 @@ mod tests {
 
     #[test]
     fn tool_output_preserves_success_and_failure_states() {
-        assert_eq!(ToolOutput::ok("read", vec!["ok".to_string()]).status, ToolStatus::Ok);
-        assert_eq!(ToolOutput::failed("read", "missing").error.as_deref(), Some("missing"));
+        let success = ToolOutput::ok("read", vec!["ok".to_string()]);
+        assert_eq!(success.status, ToolStatus::Ok);
+        assert_eq!(success.display.lines, vec!["ok"]);
+        assert_eq!(success.model.lines, vec!["ok"]);
+        assert_eq!(success.evidence.byte_count, 2);
+
+        let failure = ToolOutput::failed("read", "missing");
+        assert_eq!(failure.error.as_deref(), Some("missing"));
+        assert_eq!(failure.display_lines(), vec!["error: missing"]);
+        assert_eq!(failure.model_lines(), vec!["error: missing"]);
+    }
+
+    #[test]
+    fn display_and_model_projections_can_diverge_without_raw_output() {
+        let mut output = ToolOutput::ok("read", vec!["full result".to_string()]);
+        output.display.lines = vec!["shown to user".to_string()];
+        output.model.lines = vec!["sent to model".to_string()];
+
+        assert_eq!(output.display.lines, vec!["shown to user"]);
+        assert_eq!(output.model.lines, vec!["sent to model"]);
+        assert_eq!(output.evidence.artifact_handle, None);
     }
 
     #[test]
