@@ -9,7 +9,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::app::AgentEvent;
-use crate::cli::{ReasoningEffort, WebSearchMode};
+use crate::cli::ReasoningEffort;
 use crate::providers::{
     self, KnownModel, ProviderError, ProviderHttpClient, ProviderMessage, Result, StreamFormat, StreamingProvider,
     StreamingRequest,
@@ -21,9 +21,6 @@ pub const BASE_URL: &str = "https://api.code.umans.ai";
 
 /// Required Anthropic version header value.
 pub const ANTHROPIC_VERSION: &str = "2023-06-01";
-
-/// Header name for the Umans web search provider selector.
-pub const WEBSEARCH_HEADER: &str = "X-Umans-Websearch-Provider";
 
 /// Environment variable name for the API key.
 pub const API_KEY_ENV: &str = "UMANS_API_KEY";
@@ -156,21 +153,16 @@ impl UmansClient {
     }
 
     /// Build the HTTP headers map for a Messages API request.
-    pub fn build_headers(&self, search_mode: WebSearchMode) -> Vec<(String, String)> {
+    pub fn build_headers(&self) -> Vec<(String, String)> {
         vec![
             ("x-api-key".to_string(), self.http.api_key().to_string()),
             ("anthropic-version".to_string(), ANTHROPIC_VERSION.to_string()),
             ("Content-Type".to_string(), "application/json".to_string()),
-            (WEBSEARCH_HEADER.to_string(), search_mode.header_value().to_string()),
         ]
     }
 
     /// Send a streaming `POST /v1/messages` request and return the HTTP
     /// response.
-    ///
-    /// Includes the `X-Umans-Websearch-Provider` header so Umans knows which
-    /// search backend to use (or `none` to pass a local `web_search` tool
-    /// through unchanged).
     ///
     /// When `tools` is `Some`, the compact tool schema is included in the
     /// request body so the model can issue `tool_use` blocks. The schema is
@@ -179,8 +171,8 @@ impl UmansClient {
     /// The caller reads lines from the response body and feeds them to
     /// [`parse_sse_chunk`] and [`parse_sse_event`].
     pub fn send_streaming_request(
-        &self, model: &str, messages: &[ProviderMessage], max_tokens: u32, mode: WebSearchMode,
-        tools: Option<&serde_json::Value>, effort: ReasoningEffort,
+        &self, model: &str, messages: &[ProviderMessage], max_tokens: u32, tools: Option<&serde_json::Value>,
+        effort: ReasoningEffort,
     ) -> Result<ureq::http::Response<ureq::Body>> {
         let url = format!("{}/v1/messages", self.http.base_url());
         let body = Self::build_messages_request_body_with_reasoning(model, messages, max_tokens, true, tools, effort)?;
@@ -188,14 +180,13 @@ impl UmansClient {
         tracing::info!(
             model,
             max_tokens,
-            search = %mode.header_value(),
             messages = messages.len(),
             tools = tool_count,
             "sending Umans streaming request"
         );
 
         let mut request = self.http.agent().post(&url);
-        for (key, value) in self.build_headers(mode) {
+        for (key, value) in self.build_headers() {
             request = request.header(&key, &value);
         }
 
@@ -236,11 +227,8 @@ impl StreamingProvider for UmansClient {
         String::from("provider: loading UMANS_API_KEY")
     }
 
-    fn request_status(&self, model: &str, search_mode: WebSearchMode) -> String {
-        format!(
-            "provider: POST /v1/messages model={model} search={}",
-            search_mode.header_value()
-        )
+    fn request_status(&self, model: &str) -> String {
+        format!("provider: POST /v1/messages model={model}")
     }
 
     fn from_env_or_dotenv(root: &Path) -> Result<Self> {
@@ -282,7 +270,6 @@ impl StreamingProvider for UmansClient {
             model,
             messages,
             request.max_tokens,
-            request.search_mode,
             Some(request.tools),
             request.reasoning_effort,
         )
@@ -522,7 +509,6 @@ fn validate_api_key_at(base_url: &str, api_key: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::WebSearchMode;
     use crate::providers::anthropic::{SseEvent, parse_sse_chunk, parse_sse_event, sse_to_agent_event};
     use crate::providers::{ProviderContentBlock, ProviderMessage, ProviderMessageContent};
     use std::env;
@@ -681,28 +667,16 @@ mod tests {
     #[test]
     fn build_headers_include_api_key_and_version() {
         let client = UmansClient::new(BASE_URL, "sk-test-key");
-        let headers = client.build_headers(WebSearchMode::Native);
+        let headers = client.build_headers();
         let header_map: HashMap<String, String> = headers.into_iter().collect();
         assert_eq!(header_map.get("x-api-key").unwrap(), "sk-test-key");
         assert_eq!(header_map.get("anthropic-version").unwrap(), ANTHROPIC_VERSION);
         assert_eq!(header_map.get("Content-Type").unwrap(), "application/json");
-        assert_eq!(header_map.get(WEBSEARCH_HEADER).unwrap(), "native");
-    }
-
-    #[test]
-    fn build_headers_websearch_varies_by_mode() {
-        let client = UmansClient::new(BASE_URL, "sk-test-key");
-        let native_headers = client.build_headers(WebSearchMode::Native);
-        let native_map: HashMap<String, String> = native_headers.into_iter().collect();
-        assert_eq!(native_map.get(WEBSEARCH_HEADER).unwrap(), "native");
-
-        let exa_headers = client.build_headers(WebSearchMode::Exa);
-        let exa_map: HashMap<String, String> = exa_headers.into_iter().collect();
-        assert_eq!(exa_map.get(WEBSEARCH_HEADER).unwrap(), "exa");
-
-        let none_headers = client.build_headers(WebSearchMode::None);
-        let none_map: HashMap<String, String> = none_headers.into_iter().collect();
-        assert_eq!(none_map.get(WEBSEARCH_HEADER).unwrap(), "none");
+        assert!(
+            !header_map
+                .keys()
+                .any(|key| key.eq_ignore_ascii_case("x-umans-websearch-provider"))
+        );
     }
 
     #[test]
@@ -726,7 +700,7 @@ mod tests {
         std::fs::write(dir.path().join(".env"), "UMANS_API_KEY=sk-dotenv-key\n").unwrap();
 
         let client = UmansClient::from_env_or_dotenv(dir.path()).unwrap();
-        let headers: HashMap<String, String> = client.build_headers(WebSearchMode::Native).into_iter().collect();
+        let headers: HashMap<String, String> = client.build_headers().into_iter().collect();
 
         assert_eq!(headers.get("x-api-key").unwrap(), "sk-dotenv-key");
     }
@@ -745,7 +719,7 @@ mod tests {
         .unwrap();
 
         let client = UmansClient::from_env_or_dotenv(dir.path()).unwrap();
-        let headers: HashMap<String, String> = client.build_headers(WebSearchMode::Native).into_iter().collect();
+        let headers: HashMap<String, String> = client.build_headers().into_iter().collect();
 
         assert_eq!(headers.get("x-api-key").unwrap(), "sk-quoted-dotenv-key");
     }
@@ -778,7 +752,7 @@ mod tests {
             }
         }
 
-        let headers: HashMap<String, String> = client.build_headers(WebSearchMode::Native).into_iter().collect();
+        let headers: HashMap<String, String> = client.build_headers().into_iter().collect();
         assert_eq!(headers.get("x-api-key").unwrap(), "sk-global-key");
     }
 
@@ -810,7 +784,7 @@ mod tests {
             }
         }
 
-        let headers: HashMap<String, String> = client.build_headers(WebSearchMode::Native).into_iter().collect();
+        let headers: HashMap<String, String> = client.build_headers().into_iter().collect();
         assert_eq!(headers.get("x-api-key").unwrap(), "sk-project-key");
     }
 

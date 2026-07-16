@@ -156,7 +156,7 @@ pub fn parse_arguments(arguments: &str) -> Result<ReplaceRangeInput, ToolError> 
 }
 
 /// Execute a registry request for `replace_range`.
-pub fn execute_request(request: &ToolUseRequest, ctx: ToolContext<'_>) -> ToolExecution {
+pub fn execute_request(request: &ToolUseRequest, ctx: &ToolContext<'_>) -> ToolExecution {
     match parse_arguments(&request.arguments) {
         Ok(input) => {
             let replacements = [Replacement { old_string: input.old_string, new_string: input.new_string }];
@@ -658,7 +658,8 @@ mod tests {
             "call_1".to_string(),
         );
 
-        let execution = crate::tools::registry::execute(&request, crate::tools::registry::ToolContext::new(dir.path()));
+        let execution =
+            crate::tools::registry::execute(&request, &crate::tools::registry::ToolContext::new(dir.path()));
 
         assert_eq!(execution.output.status, ToolStatus::Ok);
         assert_eq!(
@@ -681,7 +682,8 @@ mod tests {
             "call_1".to_string(),
         );
 
-        let execution = crate::tools::registry::execute(&request, crate::tools::registry::ToolContext::new(dir.path()));
+        let execution =
+            crate::tools::registry::execute(&request, &crate::tools::registry::ToolContext::new(dir.path()));
 
         assert_eq!(execution.output.status, ToolStatus::Failed);
         assert!(execution.write_result.is_none());

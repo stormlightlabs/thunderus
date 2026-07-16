@@ -99,7 +99,11 @@ mod tests {
 
     #[test]
     fn fake_turn_starts_and_finishes_without_app() {
-        let config = AgentRunConfig::new(PathBuf::from("."), String::from("fake-agent"), WebSearchMode::Native);
+        let config = AgentRunConfig::new(
+            PathBuf::from("."),
+            String::from("fake-agent"),
+            WebSearchMode::DuckDuckGo,
+        );
         let handle = HarnessTurn::fake(config, String::new()).start();
         let mut events = Vec::new();
 

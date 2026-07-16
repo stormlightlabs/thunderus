@@ -90,7 +90,7 @@ pub fn parse_arguments(arguments: &str) -> Result<ListSearchableFilesInput, Tool
 }
 
 /// Execute a registry request for `list_searchable_files`.
-pub fn execute_request(request: &ToolUseRequest, ctx: ToolContext<'_>) -> ToolExecution {
+pub fn execute_request(request: &ToolUseRequest, ctx: &ToolContext<'_>) -> ToolExecution {
     match parse_arguments(&request.arguments) {
         Ok(input) => ToolExecution::output(exec(ctx.root, input.glob.as_deref(), MAX_RESULTS, input.include_hidden)),
         Err(error) => ToolExecution::output(ToolOutput::failed(NAME, error.to_string())),
@@ -222,7 +222,7 @@ mod tests {
             "call_1".to_string(),
         );
 
-        let output = tools::registry::execute(&request, tools::registry::ToolContext::new(dir.path())).output;
+        let output = tools::registry::execute(&request, &tools::registry::ToolContext::new(dir.path())).output;
 
         assert_eq!(output.status, ToolStatus::Ok);
         assert!(output.output.iter().any(|path| path.ends_with("alpha.rs")));

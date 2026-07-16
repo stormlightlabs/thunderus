@@ -1,23 +1,28 @@
-//! Local web search and article extraction.
+//! Application-owned web search and article extraction.
 //!
-//! This is the local fallback for when Umans server-side search is disabled
-//! (`websearch: none`). It uses DuckDuckGo's HTML endpoint for search and the
-//! Lectito crate for article extraction.
+//! Search backends are deliberately kept outside provider adapters. DuckDuckGo
+//! is the default public backend; an explicitly configured SearXNG instance is
+//! also supported, while `none` disables this boundary. Search results are
+//! normalized before their public pages are fetched through the same bounded
+//! Lectito-backed extraction path used by `read_url`.
 //!
 //! - Search: sync HTTP via [`ureq`] against `html.duckduckgo.com/html/`.
 //! - Parsing: ported from lectito's mcp bin, using [`scraper`] for CSS
 //!   selectors.
 //! - Extraction: [`lectito::extract`] for HTML → Markdown/text.
 //! - Bot-challenge detection: checks for known DDG anomaly markers.
-//! - Result limits: kept small (default 5) to avoid runaway output.
+//! - Result limits: kept small (default 5, hard maximum 10).
 
 use std::time::Duration;
 
+use crate::cli::WebSearchMode;
 use scraper::{Html, Selector};
 use ureq::ResponseExt;
 
 /// Maximum number of local search results returned by default.
 pub const DEFAULT_SEARCH_LIMIT: usize = 5;
+/// Hard maximum number of search results returned by one tool call.
+pub const MAX_SEARCH_LIMIT: usize = 10;
 
 /// DuckDuckGo's form-backed HTML search endpoint.
 pub const DUCKDUCKGO_HTML_URL: &str = "https://html.duckduckgo.com/html/";
@@ -27,6 +32,12 @@ const MAX_ARTICLE_CONTENT_LEN: usize = 65_536;
 
 /// Maximum response body size for fetched URLs (1 MiB).
 const MAX_RESPONSE_BYTES: usize = 1_048_576;
+
+/// Maximum response body size accepted from a search backend.
+const MAX_SEARCH_RESPONSE_BYTES: usize = 512 * 1024;
+
+/// Maximum combined output emitted by one `web_search` call.
+pub const MAX_SEARCH_OUTPUT_BYTES: usize = 65_536;
 
 /// Maximum number of HTTP redirects to follow. ureq's default is 10; we tighten
 /// this to keep redirect chains short and bounded.
@@ -55,6 +66,15 @@ pub enum SearchError {
     /// DuckDuckGo returned an anti-bot page instead of search results.
     #[error("bot challenge: {0}")]
     Blocked(String),
+    /// A search backend returned malformed JSON.
+    #[error("invalid search JSON: {0}")]
+    Json(String),
+    /// The configured search backend is incomplete or invalid.
+    #[error("invalid search configuration: {0}")]
+    InvalidConfiguration(String),
+    /// The application-owned web search backend is disabled.
+    #[error("web search is disabled")]
+    Disabled,
     /// Lectito extraction failed.
     #[error("extraction error: {0}")]
     Extraction(String),
@@ -90,6 +110,62 @@ pub struct SearchResult {
     pub url: String,
     /// DuckDuckGo's result snippet, when present.
     pub snippet: Option<String>,
+}
+
+/// Configuration consumed by the application-owned search tool.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SearchConfig {
+    /// Selected application-owned backend.
+    pub backend: WebSearchMode,
+    /// Base URL for SearXNG, when that backend is selected.
+    pub searxng_url: Option<String>,
+}
+
+impl Default for SearchConfig {
+    fn default() -> Self {
+        Self { backend: WebSearchMode::DuckDuckGo, searxng_url: None }
+    }
+}
+
+impl SearchConfig {
+    /// Construct and validate a backend configuration.
+    pub fn new(backend: WebSearchMode, searxng_url: Option<String>) -> Result<Self> {
+        let config = Self { backend, searxng_url: searxng_url.map(|url| url.trim().to_string()) };
+        config.validate()?;
+        Ok(config)
+    }
+
+    /// Construct a configuration from already merged application settings.
+    /// Runtime validation remains at the tool boundary so malformed CLI-only
+    /// combinations still become structured tool errors.
+    pub fn from_parts(backend: WebSearchMode, searxng_url: Option<String>) -> Self {
+        Self { backend, searxng_url: searxng_url.map(|url| url.trim().to_string()) }
+    }
+
+    /// Validate the selected backend and any required SearXNG base URL.
+    pub fn validate(&self) -> Result<()> {
+        if self.backend != WebSearchMode::Searxng {
+            return Ok(());
+        }
+
+        let Some(base_url) = self.searxng_url.as_deref().filter(|url| !url.is_empty()) else {
+            return Err(SearchError::InvalidConfiguration(
+                "searxng requires an HTTP(S) base URL".to_string(),
+            ));
+        };
+        validate_search_base_url(base_url)
+    }
+}
+
+/// One normalized result plus the best-effort extracted page content.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SearchResultContent {
+    /// Normalized search result metadata.
+    pub result: SearchResult,
+    /// Extracted page content when the result URL could be fetched safely.
+    pub content: Option<FetchedContent>,
+    /// Per-result extraction error, retained so later results can succeed.
+    pub error: Option<String>,
 }
 
 /// Extracted article content.
@@ -327,23 +403,23 @@ pub fn process_body(body: &str, final_url: &str, kind: ContentKind) -> Result<Pr
             match article {
                 Some(a) => Ok(ProcessedContent {
                     title: a.title,
-                    markdown: a.markdown,
-                    text_content: a.text_content,
+                    markdown: cap_text(&a.markdown, MAX_ARTICLE_CONTENT_LEN),
+                    text_content: cap_text(&a.text_content, MAX_ARTICLE_CONTENT_LEN),
                     truncated: a.truncated,
                 }),
 
                 None => Ok(ProcessedContent {
                     title: title_from_url(final_url),
-                    markdown: body.to_string(),
-                    text_content: body.to_string(),
+                    markdown: cap_text(body, MAX_ARTICLE_CONTENT_LEN),
+                    text_content: cap_text(body, MAX_ARTICLE_CONTENT_LEN),
                     truncated: body.len() > MAX_ARTICLE_CONTENT_LEN,
                 }),
             }
         }
         ContentKind::Text => Ok(ProcessedContent {
             title: title_from_url(final_url),
-            markdown: body.to_string(),
-            text_content: body.to_string(),
+            markdown: cap_text(body, MAX_ARTICLE_CONTENT_LEN),
+            text_content: cap_text(body, MAX_ARTICLE_CONTENT_LEN),
             truncated: body.len() > MAX_ARTICLE_CONTENT_LEN,
         }),
     }
@@ -415,19 +491,133 @@ pub fn search_duckduckgo(query: &str, limit: usize) -> Result<Vec<SearchResult>>
 
     let response = match response {
         Ok(r) => r,
-        Err(ureq::Error::StatusCode(code)) => {
-            return Err(SearchError::HttpStatus { status: code, body: String::new() });
-        }
         Err(ureq::Error::Timeout(_)) => return Err(SearchError::Timeout { secs: FETCH_TIMEOUT_SECS }),
         Err(e) => return Err(SearchError::Http(e.to_string())),
     };
-
-    let status = response.status().as_u16();
-    let body = response.into_body().read_to_string().unwrap_or_default();
-    match status >= 400 {
-        true => Err(SearchError::HttpStatus { status, body: body.chars().take(500).collect() }),
-        false => parse_duckduckgo_html(&body, limit),
+    let (status, body) = read_response_body(response, MAX_SEARCH_RESPONSE_BYTES)?;
+    if status >= 400 {
+        return Err(SearchError::HttpStatus { status, body: body.chars().take(500).collect() });
     }
+    parse_duckduckgo_html(&body, cap_search_limit(limit))
+}
+
+/// Search with the configured application-owned backend.
+pub fn search_with_config(config: &SearchConfig, query: &str, limit: usize) -> Result<Vec<SearchResult>> {
+    config.validate()?;
+    let limit = cap_search_limit(limit);
+    match config.backend {
+        WebSearchMode::DuckDuckGo => search_duckduckgo(query, limit),
+        WebSearchMode::Searxng => search_searxng(config.searxng_url.as_deref().unwrap_or_default(), query, limit),
+        WebSearchMode::None => Err(SearchError::Disabled),
+    }
+}
+
+// TODO: Add Exa as another application-owned backend when its API contract is
+// stable enough to fit this normalized result boundary.
+// TODO: Add Tavily as another application-owned backend behind the same caps.
+// TODO: Add Brave as another application-owned backend without reintroducing
+// provider-specific request payloads or headers.
+
+/// Search and best-effort fetch each selected result page in result order.
+pub fn search_and_extract(config: &SearchConfig, query: &str, limit: usize) -> Result<Vec<SearchResultContent>> {
+    let results = search_with_config(config, query, limit)?;
+    Ok(extract_result_pages(results, fetch_url))
+}
+
+/// Extract result pages with a caller-supplied fetcher.
+///
+/// The real tool passes [`fetch_url`]. Keeping this small boundary injectable
+/// makes ordering, partial-success, limit, and SSRF-policy behavior testable
+/// without relying on public internet pages.
+pub fn extract_result_pages<F>(results: Vec<SearchResult>, mut fetcher: F) -> Vec<SearchResultContent>
+where
+    F: FnMut(&str) -> Result<FetchedContent>,
+{
+    results
+        .into_iter()
+        .map(|result| match fetcher(&result.url) {
+            Ok(content) => SearchResultContent { result, content: Some(content), error: None },
+            Err(error) => SearchResultContent { result, content: None, error: Some(error.to_string()) },
+        })
+        .collect()
+}
+
+/// Search a SearXNG JSON endpoint and return normalized results.
+///
+/// SearXNG's configured base URL may be loopback or private because it is an
+/// explicit local service. URLs returned in its result list are not trusted;
+/// page extraction still goes through [`fetch_url`] and its public-target
+/// checks.
+pub fn search_searxng(base_url: &str, query: &str, limit: usize) -> Result<Vec<SearchResult>> {
+    let query = query.trim();
+    if query.is_empty() || limit == 0 {
+        return Ok(Vec::new());
+    }
+    let endpoint = searxng_search_url(base_url)?;
+    let mut url = endpoint;
+    url.query_pairs_mut()
+        .append_pair("q", query)
+        .append_pair("format", "json");
+
+    let response = searxng_agent()
+        .get(url.as_str())
+        .header("User-Agent", USER_AGENT)
+        .header("Accept", "application/json")
+        .config()
+        .http_status_as_error(false)
+        .build()
+        .call()
+        .map_err(|error| match error {
+            ureq::Error::TooManyRedirects => SearchError::TooManyRedirects { max: MAX_REDIRECTS },
+            ureq::Error::Timeout(_) => SearchError::Timeout { secs: FETCH_TIMEOUT_SECS },
+            other => SearchError::Http(other.to_string()),
+        })?;
+    let (status, body) = read_response_body(response, MAX_SEARCH_RESPONSE_BYTES)?;
+    if status >= 400 {
+        return Err(SearchError::HttpStatus { status, body: body.chars().take(500).collect() });
+    }
+    parse_searxng_json(&body, cap_search_limit(limit))
+}
+
+/// Parse SearXNG's normalized JSON result envelope.
+pub fn parse_searxng_json(json: &str, limit: usize) -> Result<Vec<SearchResult>> {
+    if limit == 0 {
+        return Ok(Vec::new());
+    }
+    let value =
+        serde_json::from_str::<serde_json::Value>(json).map_err(|error| SearchError::Json(error.to_string()))?;
+    let Some(results) = value.get("results").and_then(serde_json::Value::as_array) else {
+        return Err(SearchError::Json(
+            "response did not contain a results array".to_string(),
+        ));
+    };
+
+    let mut normalized = Vec::new();
+    for result in results {
+        let Some(url) = result.get("url").and_then(serde_json::Value::as_str).map(str::trim) else {
+            continue;
+        };
+        let Some(url) = normalize_result_url(url) else {
+            continue;
+        };
+        let title = result
+            .get("title")
+            .and_then(serde_json::Value::as_str)
+            .map(clean_text)
+            .filter(|title| !title.is_empty())
+            .unwrap_or_else(|| url.clone());
+        let snippet = result
+            .get("content")
+            .or_else(|| result.get("snippet"))
+            .and_then(serde_json::Value::as_str)
+            .map(clean_text)
+            .filter(|snippet| !snippet.is_empty());
+        normalized.push(SearchResult { title, url, snippet });
+        if normalized.len() >= limit {
+            break;
+        }
+    }
+    Ok(normalized)
 }
 
 /// Parse DuckDuckGo HTML search results.
@@ -510,8 +700,8 @@ pub fn extract_article(html: &str, base_url: Option<&str>) -> Result<Option<Arti
     match article {
         Some(a) => Ok(Some(ArticleContent {
             title: a.title.unwrap_or_default(),
-            markdown: a.markdown.clone(),
-            text_content: a.text_content,
+            markdown: cap_text(&a.markdown, MAX_ARTICLE_CONTENT_LEN),
+            text_content: cap_text(&a.text_content, MAX_ARTICLE_CONTENT_LEN),
             truncated: a.markdown.len() > MAX_ARTICLE_CONTENT_LEN,
         })),
         None => Ok(None),
@@ -520,22 +710,136 @@ pub fn extract_article(html: &str, base_url: Option<&str>) -> Result<Option<Arti
 
 /// Format search results as transcript output lines.
 pub fn format_search_results(results: &[SearchResult]) -> Vec<String> {
-    results
+    let content = results
         .iter()
-        .enumerate()
-        .map(|(i, r)| {
-            let snippet = r.snippet.as_deref().unwrap_or("");
-            format!("{}. {} — {} ({})", i + 1, r.title, snippet, r.url)
-        })
-        .collect()
+        .cloned()
+        .map(|result| SearchResultContent { result, content: None, error: None })
+        .collect::<Vec<_>>();
+    format_search_results_with_content(&content)
+}
+
+/// Format normalized results and best-effort page extraction with a total cap.
+pub fn format_search_results_with_content(results: &[SearchResultContent]) -> Vec<String> {
+    let mut output = String::new();
+    for (index, result) in results.iter().enumerate() {
+        let snippet = result.result.snippet.as_deref().unwrap_or("(no snippet)");
+        let mut lines = vec![
+            format!("{}. {} — {}", index + 1, result.result.title, snippet),
+            format!("   url: {}", result.result.url),
+        ];
+        if let Some(content) = &result.content {
+            lines.push(format!("   extracted_title: {}", content.title));
+            lines.push(format!("   final_url: {}", content.final_url));
+            if content.truncated {
+                lines.push("   extracted_content: (truncated)".to_string());
+            }
+            lines.extend(content.markdown.lines().map(|line| format!("   {line}")));
+            if !content.diagnostics.is_empty() {
+                lines.push(format!("   diagnostics: {}", content.diagnostics.join(", ")));
+            }
+        } else if let Some(error) = &result.error {
+            lines.push(format!("   extraction_error: {error}"));
+        }
+
+        for line in lines {
+            let line = cap_text(&line, MAX_SEARCH_OUTPUT_BYTES);
+            if output.len() + line.len() + 1 > MAX_SEARCH_OUTPUT_BYTES {
+                output.push_str("[search output truncated]\n");
+                return output.lines().map(str::to_string).collect();
+            }
+            output.push_str(&line);
+            output.push('\n');
+        }
+    }
+    output.lines().map(str::to_string).collect()
 }
 
 /// Create the bounded transport used by the local DuckDuckGo fallback.
 fn duckduckgo_agent() -> ureq::Agent {
     let config = ureq::Agent::config_builder()
+        .max_redirects(MAX_REDIRECTS)
+        .max_redirects_will_error(true)
         .timeout_global(Some(Duration::from_secs(FETCH_TIMEOUT_SECS)))
         .build();
     ureq::Agent::new_with_config(config)
+}
+
+/// Create the bounded transport used by a configured SearXNG backend.
+fn searxng_agent() -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .max_redirects(MAX_REDIRECTS)
+        .max_redirects_will_error(true)
+        .timeout_global(Some(Duration::from_secs(FETCH_TIMEOUT_SECS)))
+        .build()
+        .new_agent()
+}
+
+fn searxng_search_url(base_url: &str) -> Result<url::Url> {
+    validate_search_base_url(base_url)?;
+    let mut base = url::Url::parse(base_url.trim_end_matches('/'))
+        .map_err(|error| SearchError::InvalidConfiguration(error.to_string()))?;
+    let path = format!("{}/search", base.path().trim_end_matches('/'));
+    base.set_path(if path == "/search" { "/search" } else { &path });
+    Ok(base)
+}
+
+fn validate_search_base_url(base_url: &str) -> Result<()> {
+    let parsed = url::Url::parse(base_url)
+        .map_err(|error| SearchError::InvalidConfiguration(format!("invalid base URL: {error}")))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(SearchError::InvalidConfiguration(
+            "SearXNG base URL must use HTTP or HTTPS".to_string(),
+        ));
+    }
+    if parsed.host_str().is_none() {
+        return Err(SearchError::InvalidConfiguration(
+            "SearXNG base URL must include a host".to_string(),
+        ));
+    }
+    if parsed.query().is_some() || parsed.fragment().is_some() {
+        return Err(SearchError::InvalidConfiguration(
+            "SearXNG base URL must not include a query or fragment".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn normalize_result_url(value: &str) -> Option<String> {
+    let parsed = url::Url::parse(value).ok()?;
+    if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
+        return None;
+    }
+    Some(parsed.to_string())
+}
+
+fn cap_search_limit(limit: usize) -> usize {
+    limit.min(MAX_SEARCH_LIMIT)
+}
+
+fn read_response_body(response: ureq::http::Response<ureq::Body>, limit: usize) -> Result<(u16, String)> {
+    let status = response.status().as_u16();
+    let body = response
+        .into_body()
+        .with_config()
+        .limit(limit as u64)
+        .read_to_string()
+        .map_err(|error| match error {
+            ureq::Error::BodyExceedsLimit(_) => SearchError::Oversized { max: limit },
+            ureq::Error::Timeout(_) => SearchError::Timeout { secs: FETCH_TIMEOUT_SECS },
+            other => SearchError::Http(other.to_string()),
+        })?;
+    Ok((status, body))
+}
+
+fn cap_text(text: &str, max_bytes: usize) -> String {
+    if text.len() <= max_bytes {
+        return text.to_string();
+    }
+    let mut end = max_bytes.saturating_sub("…".len());
+    while !text.is_char_boundary(end) {
+        end = end.saturating_sub(1);
+    }
+    format!("{}…", &text[..end])
 }
 
 /// Check if an IPv4 address is private/loopback/link-local.
@@ -629,7 +933,24 @@ fn html_unescape(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
     use super::*;
+
+    fn spawn_http_response(response: String) -> (String, std::thread::JoinHandle<()>) {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind test server");
+        let address = listener.local_addr().expect("test server address");
+        let handle = std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut request = [0_u8; 1024];
+            let _ = stream.read(&mut request);
+            let _ = stream.write_all(response.as_bytes());
+        });
+        (format!("http://{address}"), handle)
+    }
 
     #[test]
     fn parse_duckduckgo_html_extracts_results() {
@@ -738,10 +1059,10 @@ mod tests {
                 snippet: None,
             },
         ]);
-        assert_eq!(lines.len(), 2);
+        assert_eq!(lines.len(), 4);
         assert!(lines[0].contains("Rust Async"));
-        assert!(lines[0].contains("tokio.rs"));
-        assert!(lines[1].contains("Async Book"));
+        assert!(lines[1].contains("tokio.rs"));
+        assert!(lines[2].contains("Async Book"));
     }
 
     #[test]
@@ -1003,5 +1324,178 @@ mod tests {
         let result = process_body("body", "https://example.com/path/my%20file.txt", ContentKind::Text)
             .expect("text should process");
         assert_eq!(result.title, "my file.txt");
+    }
+
+    #[test]
+    fn parse_searxng_json_normalizes_results_and_caps_limit() {
+        let json = r#"{
+            "results": [
+                {"title":"First","url":"https://example.com/one","content":" first   snippet "},
+                {"title":"Private","url":"http://127.0.0.1:8080/secret","content":"local"},
+                {"title":"Third","url":"https://example.com/three","content":"third"}
+            ]
+        }"#;
+
+        let results = parse_searxng_json(json, 2).expect("SearXNG JSON parses");
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].title, "First");
+        assert_eq!(results[0].snippet.as_deref(), Some("first snippet"));
+        assert_eq!(results[1].url, "http://127.0.0.1:8080/secret");
+    }
+
+    #[test]
+    fn parse_searxng_json_rejects_malformed_and_missing_results() {
+        assert!(matches!(parse_searxng_json("{not json}", 5), Err(SearchError::Json(_))));
+        assert!(matches!(parse_searxng_json("{}", 5), Err(SearchError::Json(_))));
+    }
+
+    #[test]
+    fn parse_searxng_json_accepts_empty_results() {
+        assert!(
+            parse_searxng_json(r#"{"results":[]}"#, 5)
+                .expect("empty response parses")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn searxng_configuration_requires_http_base_url_but_allows_loopback() {
+        assert!(SearchConfig::new(WebSearchMode::Searxng, None).is_err());
+        assert!(SearchConfig::new(WebSearchMode::Searxng, Some("ftp://localhost".to_string())).is_err());
+        assert!(SearchConfig::new(WebSearchMode::Searxng, Some("http://127.0.0.1:8080".to_string())).is_ok());
+    }
+
+    #[test]
+    fn searxng_url_uses_search_path_and_query_parameters() {
+        let url = searxng_search_url("http://127.0.0.1:8080/searxng/").expect("base URL");
+        assert_eq!(url.as_str(), "http://127.0.0.1:8080/searxng/search");
+        let config =
+            SearchConfig::new(WebSearchMode::Searxng, Some("http://127.0.0.1:8080".to_string())).expect("config");
+        assert!(matches!(
+            search_with_config(&config, "", 5),
+            Ok(results) if results.is_empty()
+        ));
+    }
+
+    #[test]
+    fn extract_result_pages_preserves_order_and_partial_failures() {
+        let results = vec![
+            SearchResult { title: "one".to_string(), url: "https://example.com/one".to_string(), snippet: None },
+            SearchResult { title: "private".to_string(), url: "http://127.0.0.1/secret".to_string(), snippet: None },
+            SearchResult { title: "three".to_string(), url: "https://example.com/three".to_string(), snippet: None },
+        ];
+        let extracted = extract_result_pages(results, |url| {
+            if is_private_url(url) {
+                Err(SearchError::PrivateNetwork(url.to_string()))
+            } else {
+                Ok(FetchedContent {
+                    final_url: url.to_string(),
+                    status: 200,
+                    title: "page".to_string(),
+                    markdown: "content".to_string(),
+                    text_content: "content".to_string(),
+                    truncated: false,
+                    diagnostics: vec!["fake".to_string()],
+                })
+            }
+        });
+        assert_eq!(extracted.len(), 3);
+        assert_eq!(extracted[0].result.title, "one");
+        assert!(extracted[0].content.is_some());
+        assert!(extracted[1].content.is_none());
+        assert!(
+            extracted[1]
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains("private network"))
+        );
+        assert!(extracted[2].content.is_some());
+    }
+
+    #[test]
+    fn formatted_search_output_is_capped() {
+        let result = SearchResultContent {
+            result: SearchResult {
+                title: "large".to_string(),
+                url: "https://example.com/large".to_string(),
+                snippet: None,
+            },
+            content: Some(FetchedContent {
+                final_url: "https://example.com/large".to_string(),
+                status: 200,
+                title: "large".to_string(),
+                markdown: "x".repeat(MAX_SEARCH_OUTPUT_BYTES * 2),
+                text_content: String::new(),
+                truncated: true,
+                diagnostics: Vec::new(),
+            }),
+            error: None,
+        };
+        let lines = format_search_results_with_content(&[result]);
+        let bytes: usize = lines.iter().map(|line| line.len() + 1).sum();
+        assert!(bytes <= MAX_SEARCH_OUTPUT_BYTES + "[search output truncated]\n".len());
+        assert!(lines.iter().any(|line| line.contains("truncated")));
+    }
+
+    #[test]
+    fn search_backend_errors_are_structured() {
+        let config =
+            SearchConfig::new(WebSearchMode::Searxng, Some("http://127.0.0.1:1".to_string())).expect("loopback config");
+        let error = search_with_config(&config, "rust", 1).expect_err("unreachable instance");
+        assert!(matches!(error, SearchError::Http(_) | SearchError::Timeout { .. }));
+        assert!(
+            SearchError::Timeout { secs: FETCH_TIMEOUT_SECS }
+                .to_string()
+                .contains("timed out")
+        );
+    }
+
+    #[test]
+    fn searxng_http_errors_preserve_status_and_bounded_body() {
+        let body = r#"{"error":"temporarily unavailable"}"#;
+        let response = format!(
+            "HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let (base_url, handle) = spawn_http_response(response);
+        let error = search_searxng(&base_url, "rust", 5).expect_err("HTTP error should be structured");
+        handle.join().expect("test server thread");
+        assert!(matches!(
+            error,
+            SearchError::HttpStatus { status: 503, body } if body.contains("temporarily unavailable")
+        ));
+    }
+
+    #[test]
+    fn searxng_local_server_returns_normalized_results() {
+        let body = r#"{"results":[{"title":"Rust","url":"https://www.rust-lang.org/","content":"A language"},{"title":"Tokio","url":"https://tokio.rs/","snippet":"Async runtime"}]}"#;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let (base_url, handle) = spawn_http_response(response);
+        let results = search_searxng(&base_url, "rust", 20).expect("local SearXNG response");
+        handle.join().expect("test server thread");
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].title, "Rust");
+        assert_eq!(results[0].snippet.as_deref(), Some("A language"));
+        assert_eq!(results[1].title, "Tokio");
+    }
+
+    #[test]
+    #[ignore = "requires public network access"]
+    fn live_duckduckgo_smoke() {
+        match search_duckduckgo("Rust programming language", 1) {
+            Ok(results) => {
+                assert!(!results.is_empty(), "DuckDuckGo should return at least one result");
+                assert!(is_public_scheme(&results[0].url));
+            }
+            Err(SearchError::Blocked(message)) => {
+                assert!(message.contains("bot challenge"));
+            }
+            Err(error) => panic!("unexpected DuckDuckGo smoke-test error: {error}"),
+        }
     }
 }

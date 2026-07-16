@@ -85,7 +85,10 @@ Inputs:
 - `query`: search query.
 - `max_results`: optional result cap.
 
-Search behavior depends on the selected web-search mode.
+Search uses the configured application-owned backend (`duckduckgo`, `searxng`,
+or `none`). Results are capped, normalized, and followed by best-effort
+Lectito extraction of public result URLs. Private result URLs are reported as
+per-result extraction failures.
 
 ## `read_url`
 

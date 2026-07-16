@@ -685,7 +685,7 @@ fn registry_execute_foreground_command_returns_shell_result() {
         "call_1".to_string(),
     );
 
-    let execution = tools::registry::execute(&request, tools::registry::ToolContext::new(dir.path()));
+    let execution = tools::registry::execute(&request, &tools::registry::ToolContext::new(dir.path()));
 
     assert_eq!(execution.output.status, ToolStatus::Ok);
     let result = execution.shell_result.expect("shell audit metadata");
@@ -703,7 +703,7 @@ fn registry_execute_background_command_preserves_kind_for_registration() {
         "call_1".to_string(),
     );
 
-    let execution = tools::registry::execute(&request, tools::registry::ToolContext::new(dir.path()));
+    let execution = tools::registry::execute(&request, &tools::registry::ToolContext::new(dir.path()));
 
     assert_eq!(execution.output.status, ToolStatus::Ok);
     let result = execution.shell_result.expect("shell audit metadata");
@@ -716,7 +716,7 @@ fn registry_execute_missing_program_fails_without_shell_result() {
     let dir = tempfile::tempdir().expect("temp dir");
     let request = tools::ToolUseRequest::new("run_shell".to_string(), r#"{}"#.to_string(), "call_1".to_string());
 
-    let execution = tools::registry::execute(&request, tools::registry::ToolContext::new(dir.path()));
+    let execution = tools::registry::execute(&request, &tools::registry::ToolContext::new(dir.path()));
 
     assert_eq!(execution.output.status, ToolStatus::Failed);
     assert!(execution.shell_result.is_none());
@@ -739,7 +739,7 @@ fn registry_execute_rejects_cwd_escape() {
         "call_1".to_string(),
     );
 
-    let execution = tools::registry::execute(&request, tools::registry::ToolContext::new(dir.path()));
+    let execution = tools::registry::execute(&request, &tools::registry::ToolContext::new(dir.path()));
 
     assert_eq!(execution.output.status, ToolStatus::Failed);
     assert!(execution.shell_result.is_none());
@@ -906,7 +906,7 @@ fn shell_output_persisted_in_tool_finished_is_redacted() {
         "test",
         "umans",
         "umans-coder",
-        "native",
+        "duckduckgo",
         "0.1.0",
         None,
     )
@@ -943,7 +943,7 @@ fn shell_exec_persists_full_lifecycle_for_success() {
         "test",
         "umans",
         "umans-coder",
-        "native",
+        "duckduckgo",
         "0.1.0",
         None,
     )

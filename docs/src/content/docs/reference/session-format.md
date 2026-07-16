@@ -10,7 +10,7 @@ are appended and not rewritten.
 
 ## Record Types
 
-- `session_meta`: session id, cwd, title, provider, model, websearch mode, and
+- `session_meta`: session id, cwd, title, provider, model, web-search backend, and
   app version.
 - `context`: loaded `AGENTS.md` metadata: path, scope, content hash,
   truncation state, and byte count.

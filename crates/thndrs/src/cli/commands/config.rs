@@ -252,7 +252,7 @@ fn write_config<W: Write>(config: &config::Config, writer: &mut W) -> io::Result
     writeln!(
         writer,
         "  websearch: {}",
-        config.websearch.unwrap_or(WebSearchMode::Auto).label()
+        config.websearch.unwrap_or(WebSearchMode::DuckDuckGo).label()
     )?;
     writeln!(
         writer,

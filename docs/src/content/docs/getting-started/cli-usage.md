@@ -45,12 +45,12 @@ and configured ACP agents are advanced integrations.
 Use `--websearch` to choose the web-search policy.
 
 ```sh
-thndrs --websearch native
-thndrs --websearch exa
+thndrs --websearch duckduckgo
+thndrs --websearch searxng --websearch-url http://127.0.0.1:8080
 thndrs --websearch none
 ```
 
-`auto` is the default. `none` disables provider-side web search.
+`duckduckgo` is the default. `none` disables application-owned web search.
 
 ## Prompt Inspection
 

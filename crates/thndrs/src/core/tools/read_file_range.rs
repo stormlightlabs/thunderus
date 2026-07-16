@@ -93,7 +93,7 @@ pub fn parse_arguments(arguments: &str) -> Result<ReadFileRangeInput, ToolError>
 }
 
 /// Execute a registry request for `read_file_range`.
-pub fn execute_request(request: &ToolUseRequest, ctx: ToolContext<'_>) -> ToolExecution {
+pub fn execute_request(request: &ToolUseRequest, ctx: &ToolContext<'_>) -> ToolExecution {
     match parse_arguments(&request.arguments) {
         Ok(input) => ToolExecution::output(exec_input(&input, ctx.root)),
         Err(error) => ToolExecution::output(ToolOutput::failed(NAME, error.to_string())),
@@ -168,7 +168,7 @@ mod tests {
             "call_1".to_string(),
         );
 
-        let output = tools::registry::execute(&request, tools::registry::ToolContext::new(dir.path())).output;
+        let output = tools::registry::execute(&request, &tools::registry::ToolContext::new(dir.path())).output;
 
         assert_eq!(output.status, ToolStatus::Ok);
         assert_eq!(output.output, vec!["2: b", "3: c"]);

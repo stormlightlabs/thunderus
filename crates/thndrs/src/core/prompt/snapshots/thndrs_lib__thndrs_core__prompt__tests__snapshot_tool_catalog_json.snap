@@ -1,6 +1,5 @@
 ---
-source: src/core/prompt/tests.rs
-assertion_line: 806
+source: crates/thndrs/src/core/prompt/tests.rs
 expression: json
 ---
 [
@@ -166,11 +165,11 @@ expression: json
     "name": "sawk"
   },
   {
-    "description": "web_search\n\nSearch the web for current information.\n\nUse this when the workspace does not contain the answer and you need external\ndocumentation, API specs, or current facts. Prefer reading local files and\nsearching the workspace first. With native/exa modes, Umans executes server-side\nsearch; with none, a local DuckDuckGo HTML fallback is used. Pair results with\nread_url when page content is needed. Capped at 10 results by default.",
+    "description": "web_search\n\nSearch the web for current information.\n\nUse this when the workspace does not contain the answer and you need external\ndocumentation, API specs, or current facts. Prefer reading local files and\nsearching the workspace first. Results are normalized and their public URLs are\nread with Lectito when possible; private result URLs are rejected. The backend\nis configured as duckduckgo, searxng, or none. Capped at 10 results.",
     "input_schema": {
       "properties": {
         "max_results": {
-          "description": "Maximum number of results to return.",
+          "description": "Maximum number of results to return (capped at 10).",
           "type": "integer"
         },
         "query": {

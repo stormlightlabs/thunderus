@@ -1,9 +1,7 @@
 //! Web search tool boundary.
 //!
-//! The executor delegates to the local DuckDuckGo fallback in [`crate::search`].
-//! Provider-native search modes are handled by providers; this registry entry
-//! preserves the local tool name, schema, argument parsing, result cap, and
-//! formatted output.
+//! The executor delegates to the application-owned backend in [`crate::search`].
+//! Provider adapters never select or lower a web-search backend.
 
 use crate::search;
 use crate::tools::registry::{ToolContext, ToolError, ToolExecution};
@@ -14,8 +12,8 @@ const NAME: &str = "web_search";
 /// Parsed provider input for `web_search`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WebSearchInput {
-    query: String,
-    max_results: usize,
+    pub(crate) query: String,
+    pub(crate) max_results: usize,
 }
 
 /// Provider-visible definition for `web_search`.
@@ -28,14 +26,14 @@ Search the web for current information.
 
 Use this when the workspace does not contain the answer and you need external
 documentation, API specs, or current facts. Prefer reading local files and
-searching the workspace first. With native/exa modes, Umans executes server-side
-search; with none, a local DuckDuckGo HTML fallback is used. Pair results with
-read_url when page content is needed. Capped at 10 results by default."#,
+searching the workspace first. Results are normalized and their public URLs are
+read with Lectito when possible; private result URLs are rejected. The backend
+is configured as duckduckgo, searxng, or none. Capped at 10 results."#,
         serde_json::json!({
             "type": "object",
             "properties": {
                 "query": { "type": "string", "description": "The search query." },
-                "max_results": { "type": "integer", "description": "Maximum number of results to return." }
+                "max_results": { "type": "integer", "description": "Maximum number of results to return (capped at 10)." }
             },
             "required": ["query"]
         }),
@@ -60,17 +58,17 @@ pub fn parse_arguments(arguments: &str) -> Result<WebSearchInput, ToolError> {
 }
 
 /// Execute a registry request for `web_search`.
-pub fn execute_request(request: &ToolUseRequest, _ctx: ToolContext<'_>) -> ToolExecution {
+pub fn execute_request(request: &ToolUseRequest, ctx: &ToolContext<'_>) -> ToolExecution {
     match parse_arguments(&request.arguments) {
-        Ok(input) => ToolExecution::output(exec_input(&input)),
+        Ok(input) => ToolExecution::output(exec_input(&input, &ctx.search)),
         Err(error) => ToolExecution::output(ToolOutput::failed(NAME, error.to_string())),
     }
 }
 
-fn exec_input(input: &WebSearchInput) -> ToolOutput {
-    match search::search_duckduckgo(&input.query, input.max_results) {
+fn exec_input(input: &WebSearchInput, config: &search::SearchConfig) -> ToolOutput {
+    match search::search_and_extract(config, &input.query, input.max_results) {
         Ok(results) if results.is_empty() => ToolOutput::ok(NAME, vec!["no results found".to_string()]),
-        Ok(results) => ToolOutput::ok(NAME, search::format_search_results(&results)),
+        Ok(results) => ToolOutput::ok(NAME, search::format_search_results_with_content(&results)),
         Err(error) => ToolOutput::failed(NAME, error.to_string()),
     }
 }
@@ -104,7 +102,7 @@ mod tests {
             "call_1".to_string(),
         );
 
-        let output = tools::registry::execute(&request, tools::registry::ToolContext::new(Path::new("."))).output;
+        let output = tools::registry::execute(&request, &tools::registry::ToolContext::new(Path::new("."))).output;
 
         assert_eq!(output.name, NAME);
         assert!(

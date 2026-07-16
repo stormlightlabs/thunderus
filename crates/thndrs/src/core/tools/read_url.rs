@@ -52,7 +52,7 @@ pub fn parse_arguments(arguments: &str) -> Result<ReadUrlInput, ToolError> {
 }
 
 /// Execute a registry request for `read_url`.
-pub fn execute_request(request: &ToolUseRequest, _ctx: ToolContext<'_>) -> ToolExecution {
+pub fn execute_request(request: &ToolUseRequest, _ctx: &ToolContext<'_>) -> ToolExecution {
     match parse_arguments(&request.arguments) {
         Ok(input) => ToolExecution::output(exec_input(&input)),
         Err(error) => ToolExecution::output(ToolOutput::failed(NAME, error.to_string())),
@@ -100,7 +100,7 @@ mod tests {
             "call_1".to_string(),
         );
 
-        let output = tools::registry::execute(&request, tools::registry::ToolContext::new(Path::new("."))).output;
+        let output = tools::registry::execute(&request, &tools::registry::ToolContext::new(Path::new("."))).output;
 
         assert_eq!(output.status, ToolStatus::Failed);
         assert!(
@@ -120,7 +120,7 @@ mod tests {
             "call_1".to_string(),
         );
 
-        let output = tools::registry::execute(&request, tools::registry::ToolContext::new(Path::new("."))).output;
+        let output = tools::registry::execute(&request, &tools::registry::ToolContext::new(Path::new("."))).output;
 
         assert_eq!(output.status, ToolStatus::Failed);
         assert!(

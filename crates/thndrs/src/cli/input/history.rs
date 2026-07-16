@@ -76,21 +76,6 @@ impl InputHistoryStore {
         Ok(Some(recent_texts(&content)))
     }
 
-    /// Seed a missing history file from legacy session-derived prompts.
-    pub fn seed_if_missing(&self, session_id: &str, prompts: &[String]) -> io::Result<()> {
-        let _lock = self.acquire_lock()?;
-        if self.path.exists() {
-            return Ok(());
-        }
-        self.ensure_parent()?;
-        let records = prompts.iter().map(|text| InputHistoryRecord::new(session_id, text));
-        self.rewrite_records(records)?;
-        if std::fs::metadata(&self.path)?.len() > self.max_bytes as u64 {
-            self.compact()?;
-        }
-        Ok(())
-    }
-
     /// Append one submitted prompt and compact when the hard byte cap is
     /// exceeded. The newest prompt is retained even when it alone exceeds the
     /// configured soft cap.
@@ -256,24 +241,6 @@ mod tests {
         assert_eq!(
             store.load_recent().expect("load history"),
             Some(vec!["first".to_string(), "second".to_string()])
-        );
-    }
-
-    #[test]
-    fn seed_only_writes_when_history_is_missing() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let store = InputHistoryStore::with_limits(dir.path().join(HISTORY_FILE_NAME), 4096, 3072);
-
-        store
-            .seed_if_missing("legacy", &["old prompt".to_string()])
-            .expect("seed history");
-        store
-            .seed_if_missing("legacy", &["replacement".to_string()])
-            .expect("leave existing history");
-
-        assert_eq!(
-            store.load_recent().expect("load history"),
-            Some(vec!["old prompt".to_string()])
         );
     }
 

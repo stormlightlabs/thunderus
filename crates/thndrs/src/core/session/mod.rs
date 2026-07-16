@@ -525,7 +525,7 @@ pub struct PromptMetadata {
     /// Selected provider label.
     #[serde(default)]
     pub provider: String,
-    /// Web search mode label.
+    /// Application-owned web-search backend label.
     pub search_mode: String,
     /// Renderer mode label.
     #[serde(default)]
@@ -568,7 +568,7 @@ pub struct PromptMetadata {
 impl PromptMetadata {
     /// Extract prompt metadata from a [`PromptBundle`] for session storage.
     ///
-    /// This captures the structural metadata of the turn — model, search mode,
+    /// This captures the structural metadata of the turn — model, search backend,
     /// context sources (hashes and truncation, not content), tool count, and
     /// transcript tail size. It does not store prompt text, AGENTS.md content,
     /// or provider request/response bodies.

@@ -70,7 +70,7 @@ fn fresh_startup_records_context_without_memory_state() {
 }
 
 #[test]
-fn from_cli_seeds_up_arrow_history_from_project_sessions() {
+fn from_cli_does_not_scan_session_history() {
     let dir = tempfile::tempdir().expect("create temp dir");
     let sessions_dir = session::sessions_dir(dir.path());
     let mut writer = session::SessionWriter::create(
@@ -86,51 +86,24 @@ fn from_cli_seeds_up_arrow_history_from_project_sessions() {
     )
     .expect("create old session");
     writer
-        .append_entry(&Entry::User { text: String::from("first project prompt") }, "turn_1")
-        .expect("append first entry");
-    writer
-        .append_entry(&Entry::User { text: String::from("second project prompt") }, "turn_2")
-        .expect("append second entry");
+        .append_entry(&Entry::User { text: String::from("old session prompt") }, "turn_1")
+        .expect("append old entry");
 
     let cli = Cli { cwd: dir.path().to_path_buf(), model: "umans-coder".to_string(), ..Cli::default() };
-    let mut app = App::from_cli(&cli);
-    app.first_run_recovery = None;
+    let app = App::from_cli(&cli);
 
-    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)));
-
-    assert_eq!(app.input.as_str(), "second project prompt");
-    assert!(
-        app.transcript.is_empty(),
-        "project history should seed recall without replaying old transcript"
-    );
+    assert!(app.input_history.is_empty());
     assert!(
         InputHistoryStore::for_workspace(dir.path())
             .load_recent()
             .expect("load dedicated history")
-            .is_some(),
-        "legacy session prompts should seed the dedicated history once"
+            .is_none()
     );
 }
 
 #[test]
-fn from_cli_prefers_dedicated_input_history_over_session_scan() {
+fn from_cli_uses_dedicated_input_history() {
     let dir = tempfile::tempdir().expect("create temp dir");
-    let sessions_dir = session::sessions_dir(dir.path());
-    let mut writer = session::SessionWriter::create(
-        &sessions_dir,
-        "session-old",
-        "/repo",
-        "old",
-        "umans",
-        "umans-coder",
-        "none",
-        "0.1.0",
-        None,
-    )
-    .expect("create old session");
-    writer
-        .append_entry(&Entry::User { text: "session-derived prompt".to_string() }, "turn_1")
-        .expect("append old entry");
     InputHistoryStore::for_workspace(dir.path())
         .append("history-session", "dedicated prompt")
         .expect("append dedicated history");
@@ -158,7 +131,8 @@ fn from_cli_writes_effective_config_metadata_to_session_meta() {
     let cli = Cli {
         cwd: dir.path().to_path_buf(),
         model: "env-model".to_string(),
-        websearch: crate::cli::WebSearchMode::Native,
+        websearch: crate::cli::WebSearchMode::DuckDuckGo,
+        websearch_url: None,
         session_dir: Some(session_dir.clone()),
         config_layers: vec![LoadedConfigLayer {
             source: ConfigSource::ProjectFile,
@@ -189,7 +163,7 @@ fn from_cli_writes_effective_config_metadata_to_session_meta() {
     let workspace_root = discover_workspace_root(dir.path());
     assert_eq!(cwd, &workspace_root.display().to_string());
     assert_eq!(model, "env-model");
-    assert_eq!(websearch, "native");
+    assert_eq!(websearch, "duckduckgo");
     assert_eq!(config.session_dir.as_deref(), Some(session_dir_display.as_str()));
     assert_eq!(config.files[0].path, ".thndrs/config.toml");
     assert_eq!(config.files[0].source, "project");

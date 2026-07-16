@@ -24,7 +24,7 @@ and the absence of raw shell access.
 ## Environment Metadata
 
 Environment metadata includes workspace root, rounded current date/timezone,
-selected model, and search mode.
+selected model, and search backend.
 
 ## Self-Knowledge Snapshot
 
@@ -32,7 +32,7 @@ The generated `thndrs_self_knowledge` block describes the current harness run in
 a compact, model-visible form. It includes:
 
 - app version and broad capabilities
-- runtime state: workspace, renderer mode, provider, model, search mode, search
+- runtime state: workspace, renderer mode, provider, model, search backend, search
   backend details, URL-reading behavior, and tool names
 - major capabilities
 - references: local documentation entry points and available skill names and

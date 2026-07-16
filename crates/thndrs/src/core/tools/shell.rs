@@ -481,7 +481,7 @@ fn optional_u64(args: &serde_json::Value, field: &str) -> Result<Option<u64>, To
 }
 
 /// Execute a registry request for `run_shell`.
-pub fn execute_request(request: &ToolUseRequest, ctx: ToolContext<'_>) -> ToolExecution {
+pub fn execute_request(request: &ToolUseRequest, ctx: &ToolContext<'_>) -> ToolExecution {
     let cancel = CancelToken::new();
     execute_request_with_cancel(request, ctx.root, &cancel)
 }

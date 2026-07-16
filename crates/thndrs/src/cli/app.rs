@@ -34,8 +34,8 @@ pub use onboarding::setup_model_options;
 pub use onboarding::{ChatGptOAuthDriver, ChatGptOAuthMethod, ChatGptOAuthRecovery, FirstRunRecovery, RecoveryStage};
 
 use input::{
-    handle_key, handle_mouse, load_legacy_project_input_history, offline_model_picker_items, open_model_picker,
-    open_reasoning_effort_picker, open_skill_picker, submit_user_turn,
+    handle_key, handle_mouse, offline_model_picker_items, open_model_picker, open_reasoning_effort_picker,
+    open_skill_picker, submit_user_turn,
 };
 use onboarding::{
     PendingSetupReasoningEffort, advance_after_setup_model_config, handle_first_run_key, poll_chatgpt_oauth_on_tick,
@@ -83,8 +83,6 @@ pub const VISIBLE_ROWS: usize = 8;
 /// stays responsive while still surfacing enough nearby files or skills.
 const LARGE_PICKER_LIMIT: usize = 200;
 const MODEL_PICKER_LIMIT: usize = 50;
-const PROJECT_INPUT_HISTORY_SESSION_LIMIT: usize = 32;
-const PROJECT_INPUT_HISTORY_BYTES_PER_SESSION: usize = 64 * 1024;
 
 /// Semantic run state, used for the status line.
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
@@ -446,14 +444,7 @@ impl From<&Cli> for App {
             .unwrap_or_else(|| session::sessions_dir(&workspace_root));
         let session_id = session::generate_session_id();
         let input_history_store = InputHistoryStore::for_workspace(&workspace_root);
-        let input_history = match input_history_store.load_recent() {
-            Ok(Some(history)) => history,
-            Ok(None) | Err(_) => {
-                let history = load_legacy_project_input_history(&sessions_dir);
-                let _ = input_history_store.seed_if_missing(&session_id, &history);
-                history
-            }
-        };
+        let input_history = input_history_store.load_recent().ok().flatten().unwrap_or_default();
         let (mcp_config_files, mcp_config_diagnostics) = agent_lifecycle::load_mcp_config_audit(&workspace_root);
 
         let config_meta = {

@@ -10,7 +10,6 @@ use std::path::Path;
 use crate::cli::{ReasoningEffort, ReasoningSummary};
 use crate::{
     app::AgentEvent,
-    cli::WebSearchMode,
     providers::{
         self, KnownModel, ProviderContentBlock, ProviderContinuation, ProviderError, ProviderMessage,
         ProviderMessageContent, Result, StreamFormat, StreamingProvider, StreamingRequest, provider_http_agent,
@@ -223,7 +222,7 @@ impl StreamingProvider for ChatGptCodexClient {
         String::from("provider: loading ChatGPT Codex auth")
     }
 
-    fn request_status(&self, model: &str, _search_mode: WebSearchMode) -> String {
+    fn request_status(&self, model: &str) -> String {
         format!("provider: POST /backend-api/codex/responses model={model} (ChatGPT-backed, experimental)")
     }
 

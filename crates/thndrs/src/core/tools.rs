@@ -39,6 +39,7 @@ use thndrs_agent::CancelToken;
 use crate::app::ToolStatus;
 use crate::cli::{ReasoningEffort, ReasoningSummary, WebSearchMode};
 use crate::mcp::manager::McpManager;
+use crate::search::SearchConfig;
 
 /// Maximum number of tool-call iterations per agent turn before the loop
 /// stops with a cap-exceeded error.
@@ -98,6 +99,8 @@ pub struct AgentRunConfig {
     pub model: String,
     /// Web search mode.
     pub search_mode: WebSearchMode,
+    /// Optional SearXNG base URL used by the application-owned web search tool.
+    pub search_url: Option<String>,
     /// Reasoning effort requested for supporting provider models.
     ///
     /// TODO: Route this through every provider/model family that supports
@@ -120,6 +123,7 @@ impl AgentRunConfig {
             root,
             model,
             search_mode,
+            search_url: None,
             reasoning_effort: ReasoningEffort::default(),
             reasoning_summary: ReasoningSummary::default(),
             max_tool_iterations: MAX_TOOL_ITERATIONS,
@@ -132,6 +136,17 @@ impl AgentRunConfig {
         self.reasoning_effort = effort;
         self.reasoning_summary = summary;
         self
+    }
+
+    /// Apply the configured SearXNG base URL for this run.
+    pub fn with_search_url(mut self, search_url: Option<String>) -> Self {
+        self.search_url = search_url;
+        self
+    }
+
+    /// Build the application-owned search configuration for this run.
+    pub fn search_config(&self) -> SearchConfig {
+        SearchConfig::from_parts(self.search_mode, self.search_url.clone())
     }
 
     /// Attach an MCP manager to this run.
@@ -269,24 +284,27 @@ pub fn sorted_json_value(value: &serde_json::Value) -> serde_json::Value {
 pub fn dispatch_full(
     request: &ToolUseRequest, root: &Path,
 ) -> (ToolOutput, Option<WriteResult>, Option<shell::ProcessResult>) {
-    let execution = registry::execute(request, registry::ToolContext::new(root));
+    dispatch_full_with_search(request, root, &SearchConfig::default())
+}
+
+/// Dispatch a provider tool-use request with the active search backend.
+pub fn dispatch_full_with_search(
+    request: &ToolUseRequest, root: &Path, search: &SearchConfig,
+) -> (ToolOutput, Option<WriteResult>, Option<shell::ProcessResult>) {
+    let context = registry::ToolContext::with_search(root, search);
+    let execution = registry::execute(request, &context);
     (execution.output, execution.write_result, execution.shell_result)
 }
 
-/// Dispatch a provider tool-use request while honoring the active agent
-/// cancellation token for built-in tools that run subprocesses.
-///
-/// The generic registry executor intentionally has a minimal, stable context.
-/// `run_shell` is the only built-in whose synchronous execution must share the
-/// enclosing agent cancellation token, so it is handled here without widening
-/// the registry API for every tool.
-pub(crate) fn dispatch_full_with_cancel(
-    request: &ToolUseRequest, root: &Path, cancel: &CancelToken,
+/// Dispatch a request with cancellation and the active search backend.
+pub(crate) fn dispatch_full_with_cancel_and_search(
+    request: &ToolUseRequest, root: &Path, cancel: &CancelToken, search: &SearchConfig,
 ) -> (ToolOutput, Option<WriteResult>, Option<shell::ProcessResult>) {
     let execution = if request.name == shell::NAME {
         shell::execute_request_with_cancel(request, root, cancel)
     } else {
-        registry::execute(request, registry::ToolContext::new(root))
+        let context = registry::ToolContext::with_search(root, search);
+        registry::execute(request, &context)
     };
     (execution.output, execution.write_result, execution.shell_result)
 }
@@ -303,17 +321,29 @@ pub fn dispatch_runtime_full(
     dispatch_full(request, root)
 }
 
-/// Dispatch through MCP first, sharing the active agent cancellation token
-/// with cancellation-aware built-in tools.
-pub(crate) fn dispatch_runtime_full_with_cancel(
-    request: &ToolUseRequest, root: &Path, mcp_manager: Option<&McpManager>, cancel: &CancelToken,
+/// Dispatch through MCP or built-ins with the active search backend.
+pub fn dispatch_runtime_full_with_search(
+    request: &ToolUseRequest, root: &Path, mcp_manager: Option<&McpManager>, search: &SearchConfig,
 ) -> (ToolOutput, Option<WriteResult>, Option<shell::ProcessResult>) {
     if request.name.starts_with("mcp__")
         && let Some(manager) = mcp_manager
     {
         return (manager.call_tool(request), None, None);
     }
-    dispatch_full_with_cancel(request, root, cancel)
+    dispatch_full_with_search(request, root, search)
+}
+
+/// Dispatch through MCP or built-ins with cancellation and search settings.
+pub(crate) fn dispatch_runtime_full_with_cancel_and_search(
+    request: &ToolUseRequest, root: &Path, mcp_manager: Option<&McpManager>, cancel: &CancelToken,
+    search: &SearchConfig,
+) -> (ToolOutput, Option<WriteResult>, Option<shell::ProcessResult>) {
+    if request.name.starts_with("mcp__")
+        && let Some(manager) = mcp_manager
+    {
+        return (manager.call_tool(request), None, None);
+    }
+    dispatch_full_with_cancel_and_search(request, root, cancel, search)
 }
 
 /// Return searchable file paths for UI features that need file selection.
@@ -377,7 +407,8 @@ mod tests {
         });
         let started = std::time::Instant::now();
 
-        let (output, _, process) = dispatch_runtime_full_with_cancel(&request, dir.path(), None, &cancel);
+        let (output, _, process) =
+            dispatch_runtime_full_with_cancel_and_search(&request, dir.path(), None, &cancel, &SearchConfig::default());
 
         stopper.join().expect("cancellation thread");
         let process = process.expect("shell process result");

@@ -115,10 +115,12 @@ The startup screen shows a compact inventory of the run before the first
 transcript entry. It is deliberately similar to the kind of boot summary shown
 by other local agent tools:
 
+<!-- TODO: this is a little out of date -->
+
 ```text
-[Runtime] umans | umans-coder | search auto | direct-inline
+[Runtime] umans | umans-coder | search duckduckgo | direct-inline
 [Context] /repo/AGENTS.md
-[Search] auto: native search when prompt appears current-web dependent; DuckDuckGo HTML fallback via web_search tool; read_url fetches public HTTP(S) and extracts HTML with Lectito
+[Search] duckduckgo...
 [Skills] inspect-project, release-notes
 [Diagnostics] (none)
 ```
@@ -141,9 +143,9 @@ docs or hard-coded assumptions.
 The snapshot is structured around real runtime boundaries:
 
 - identity: app name, version, and broad capabilities
-- runtime: workspace, renderer mode, provider name, model, selected search
-  mode, provider search header, local DuckDuckGo fallback, Lectito-backed
-  `read_url`, and exposed tool names
+- runtime: workspace, renderer mode, provider name, model, selected
+  application-owned search backend, Lectito-backed `read_url`, and exposed
+  tool names
 - references: local documentation entry points plus discovered skill names and
   paths
 - prompt context: prompt fragment names and loaded `AGENTS.md` source metadata;

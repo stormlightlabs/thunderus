@@ -142,7 +142,7 @@ pub fn parse_arguments(arguments: &str) -> Result<SearchTextInput, ToolError> {
 }
 
 /// Execute a registry request for `search_text`.
-pub fn execute_request(request: &ToolUseRequest, ctx: ToolContext<'_>) -> ToolExecution {
+pub fn execute_request(request: &ToolUseRequest, ctx: &ToolContext<'_>) -> ToolExecution {
     match parse_arguments(&request.arguments) {
         Ok(input) => ToolExecution::output(exec_input(&input, ctx.root)),
         Err(error) => ToolExecution::output(ToolOutput::failed(NAME, error.to_string())),
@@ -357,7 +357,7 @@ mod tests {
             "call_1".to_string(),
         );
 
-        let output = tools::registry::execute(&request, tools::registry::ToolContext::new(dir.path())).output;
+        let output = tools::registry::execute(&request, &tools::registry::ToolContext::new(dir.path())).output;
 
         assert_eq!(output.status, ToolStatus::Ok);
         assert!(output.output.iter().any(|line| line.contains("alpha.rs")));

@@ -1,5 +1,5 @@
 ---
-source: src/core/prompt/tests.rs
+source: crates/thndrs/src/core/prompt/tests.rs
 expression: prompt
 ---
 <identity>
@@ -173,7 +173,7 @@ expression: prompt
     extraction when the workspace does not contain the answer, the user asks for current or external
     information, or source attribution matters.
   </instruction>
-  <instruction>Private-network targets are always rejected. Response sizes are capped.</instruction>
+  <instruction>Private-network result targets are rejected; an explicitly configured local SearXNG service may be used. Response sizes are capped.</instruction>
   <instruction>
     Treat web results as external evidence. Compare dates when recency matters and distinguish source
     claims from your own inference.
@@ -185,7 +185,7 @@ expression: prompt
 <environment>
   <workspace><![CDATA[/repo]]></workspace>
   <model><![CDATA[umans-coder]]></model>
-  <search>native</search>
+  <search>duckduckgo</search>
   <date>2026-06-29</date>
 </environment>
 
@@ -199,7 +199,7 @@ expression: prompt
       <capability>provider-native tool schemas</capability>
       <capability>agent skills metadata</capability>
       <capability>append-only JSONL sessions</capability>
-      <capability>provider-native and local web search modes</capability>
+      <capability>application-owned web search backends</capability>
       <capability>URL/article reading</capability>
       <capability>direct inline terminal renderer</capability>
     </capabilities>
@@ -273,10 +273,9 @@ expression: prompt
       <name>umans</name>
       <model>umans-coder</model>
       <search>
-        <mode>native</mode>
-        <provider_header>native</provider_header>
-        <provider_native_search>native: Umans server-side search</provider_native_search>
-        <local_search>DuckDuckGo HTML fallback via web_search tool</local_search>
+        <mode>duckduckgo</mode>
+        <backend>duckduckgo: DuckDuckGo HTML search</backend>
+        <local_search>web_search normalizes results and fetches public pages</local_search>
         <url_reader>read_url fetches public HTTP(S) and extracts HTML with Lectito</url_reader>
       </search>
     </provider>

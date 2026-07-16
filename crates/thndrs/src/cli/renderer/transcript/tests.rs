@@ -54,7 +54,8 @@ fn test_app() -> App {
     let mut app = App::from_cli(&Cli {
         cwd: PathBuf::from("."),
         model: "test-model".to_string(),
-        websearch: WebSearchMode::Native,
+        websearch: WebSearchMode::DuckDuckGo,
+        websearch_url: None,
         reasoning_effort: Default::default(),
         reasoning_summary: Default::default(),
         tick_rate_ms: 100,
@@ -885,7 +886,7 @@ fn banner_normal_viewport_shows_all_sections() {
         "No project instructions",
         "skills",
         "Web Search",
-        "native",
+        "duckduckgo",
     ] {
         assert!(
             rendered.contains(section),
@@ -925,7 +926,7 @@ fn banner_search_metadata_uses_quiet_color() {
     let label = search
         .spans
         .iter()
-        .find(|span| span.text == "native")
+        .find(|span| span.text == "duckduckgo")
         .expect("search metadata span");
     assert_eq!(label.style.fg, renderer::style::palette().overlay1);
 }

@@ -621,6 +621,7 @@ fn run_acp_server(cli: &Cli) -> io::Result<()> {
         cli.websearch.label().to_string(),
         cli.session_dir.clone(),
     )
+    .with_search_url(cli.websearch_url.clone())
     .with_reasoning(cli.reasoning_effort, cli.reasoning_summary);
     let _ = tracing_subscriber::fmt()
         .with_writer(io::stderr)
@@ -1368,8 +1369,8 @@ fn maybe_spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>) {
     let prompt = active_provider_prompt(app);
     let cli = app.cli.clone();
     let workspace_root = crate::context::discover_workspace_root(&cli.cwd);
-    let resolved_websearch = cli.websearch.resolve_for_prompt(&prompt);
-    let mut config = tools::AgentRunConfig::new(workspace_root, cli.model.clone(), resolved_websearch)
+    let mut config = tools::AgentRunConfig::new(workspace_root, cli.model.clone(), cli.websearch)
+        .with_search_url(cli.websearch_url.clone())
         .with_reasoning(cli.reasoning_effort, cli.reasoning_summary);
     if let Some(acp_name) = acp::config::parse_model_id(&cli.model) {
         tracing::info!(
@@ -1403,7 +1404,7 @@ fn maybe_spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>) {
         cwd = %config.root.display(),
         model = %config.model,
         requested_websearch = %cli.websearch.label(),
-        resolved_websearch = %config.search_mode.header_value(),
+        search_backend = %config.search_mode.label(),
         "spawning agent run"
     );
 
@@ -1541,7 +1542,7 @@ mod tests {
             environment: prompt::EnvironmentMetadata {
                 cwd: "/repo".to_string(),
                 model: "umans-coder".to_string(),
-                search_mode: WebSearchMode::Native,
+                search_mode: WebSearchMode::DuckDuckGo,
                 date: "2026-06-29".to_string(),
             },
             project_context: vec![source],
@@ -1735,7 +1736,8 @@ for line in sys.stdin:
         );
         let cli = Cli {
             model: "umans-glm-5.2".to_string(),
-            websearch: WebSearchMode::Exa,
+            websearch: WebSearchMode::Searxng,
+            websearch_url: Some("http://127.0.0.1:8080".to_string()),
             session_dir: Some(PathBuf::from("/repo/custom-sessions")),
             config_layers: vec![config::LoadedConfigLayer {
                 source: config::ConfigSource::ProjectFile,
@@ -1754,7 +1756,7 @@ for line in sys.stdin:
         assert!(output.contains("=== Effective Config ==="));
         assert!(output.contains("provider: umans"));
         assert!(output.contains("model: umans-glm-5.2"));
-        assert!(output.contains("search: exa"));
+        assert!(output.contains("search: searxng"));
         assert!(output.contains("workspace: /repo"));
         assert!(output.contains("session_dir: /repo/custom-sessions"));
         assert!(output.contains("project .thndrs/config.toml abc123"));
@@ -1767,7 +1769,7 @@ for line in sys.stdin:
 === Effective Config ===
   provider: umans
   model: umans-glm-5.2
-  search: exa
+  search: searxng
   workspace: /repo
   session_dir: /repo/custom-sessions
   files:

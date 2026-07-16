@@ -27,17 +27,17 @@ fn with_home<T>(home: &Path, f: impl FnOnce() -> T) -> T {
 fn config_merge_overrides_only_present_values() {
     let base = Config {
         model: Some("base".to_string()),
-        websearch: Some(WebSearchMode::Auto),
+        websearch: Some(WebSearchMode::DuckDuckGo),
         verbose: Some(false),
         ..Config::default()
     };
-    let over = Config { websearch: Some(WebSearchMode::Native), mouse: Some(true), ..Config::default() };
+    let over = Config { websearch: Some(WebSearchMode::Searxng), mouse: Some(true), ..Config::default() };
 
     assert_eq!(
         base.merge(over),
         Config {
             model: Some("base".to_string()),
-            websearch: Some(WebSearchMode::Native),
+            websearch: Some(WebSearchMode::Searxng),
             verbose: Some(false),
             mouse: Some(true),
             ..Config::default()
@@ -50,7 +50,7 @@ fn parses_known_config_fields() {
     let config: Config = toml::from_str(
         r#"
         model = "umans-glm-5.2"
-        websearch = "native"
+        websearch = "searxng"
         reasoning_effort = "xhigh"
         reasoning_summary = "auto"
         tick_rate_ms = 250
@@ -71,7 +71,7 @@ fn parses_known_config_fields() {
     .expect("config parses");
 
     assert_eq!(config.model.as_deref(), Some("umans-glm-5.2"));
-    assert_eq!(config.websearch, Some(WebSearchMode::Native));
+    assert_eq!(config.websearch, Some(WebSearchMode::Searxng));
     assert_eq!(config.reasoning_effort, Some(ReasoningEffort::Xhigh));
     assert_eq!(config.reasoning_summary, Some(ReasoningSummary::Auto));
     assert_eq!(config.tick_rate_ms, Some(250));
@@ -520,8 +520,13 @@ fn env_rejects_cli_only_keys() {
 fn env_loads_websearch() {
     let mut o = BTreeMap::new();
     let mut d = Vec::new();
-    let config = load_env(&[("THNDRS_WEBSEARCH".to_string(), "exa".to_string())], &mut o, &mut d).unwrap();
-    assert_eq!(config.websearch, Some(WebSearchMode::Exa));
+    let config = load_env(
+        &[("THNDRS_WEBSEARCH".to_string(), "searxng".to_string())],
+        &mut o,
+        &mut d,
+    )
+    .unwrap();
+    assert_eq!(config.websearch, Some(WebSearchMode::Searxng));
 }
 
 #[test]
@@ -614,7 +619,7 @@ fn effective_config_defaults_when_no_files() {
 
     assert!(effective.layers.is_empty(), "no config files should produce no layers");
     assert_eq!(effective.config.model, None);
-    assert_eq!(effective.config.websearch, Some(WebSearchMode::Auto));
+    assert_eq!(effective.config.websearch, Some(WebSearchMode::DuckDuckGo));
     assert_eq!(effective.config.tick_rate_ms, Some(DEFAULT_TICK_RATE_MS));
     assert_eq!(effective.config.mouse, Some(false));
     assert_eq!(effective.config.verbose, Some(false));
@@ -1005,7 +1010,7 @@ fn effective_config_snapshot() {
     fs::create_dir_all(workspace.join(".thndrs")).unwrap();
     fs::write(
         workspace.join(".thndrs").join("config.toml"),
-        "model = \"project-model\"\nwebsearch = \"native\"\nsession_dir = \"sessions\"\n",
+        "model = \"project-model\"\nwebsearch = \"searxng\"\nsession_dir = \"sessions\"\n",
     )
     .unwrap();
 
@@ -1038,10 +1043,10 @@ fn effective_config_snapshot() {
 
     insta::assert_snapshot!(snapshot, @r###"
 model=Some("project-model")
-websearch=Some(Native)
+websearch=Some(Searxng)
 verbose=Some(true)
 session_dir_suffix=.thndrs/sessions
 layers=[("project", ".thndrs/config.toml")]
-origins=[("acp_agents", "default", "default"), ("context", "default", "default"), ("default_workspace", "default", "default"), ("model", "project", ".thndrs/config.toml"), ("mouse", "default", "default"), ("reasoning_effort", "default", "default"), ("reasoning_summary", "default", "default"), ("session_dir", "project", ".thndrs/config.toml"), ("skill_dirs", "default", "default"), ("theme", "default", "default"), ("tick_rate_ms", "default", "default"), ("verbose", "env", "THNDRS_VERBOSE"), ("websearch", "project", ".thndrs/config.toml")]
+origins=[("acp_agents", "default", "default"), ("context", "default", "default"), ("default_workspace", "default", "default"), ("model", "project", ".thndrs/config.toml"), ("mouse", "default", "default"), ("reasoning_effort", "default", "default"), ("reasoning_summary", "default", "default"), ("session_dir", "project", ".thndrs/config.toml"), ("skill_dirs", "default", "default"), ("theme", "default", "default"), ("tick_rate_ms", "default", "default"), ("verbose", "env", "THNDRS_VERBOSE"), ("websearch", "project", ".thndrs/config.toml"), ("websearch_url", "default", "default")]
 "###);
 }

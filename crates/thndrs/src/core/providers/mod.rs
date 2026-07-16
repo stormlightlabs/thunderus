@@ -6,7 +6,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::app::AgentEvent;
-use crate::cli::{ReasoningEffort, ReasoningSummary, WebSearchMode};
+use crate::cli::{ReasoningEffort, ReasoningSummary};
 use crate::tools::ToolUseRequest;
 
 /// Bound DNS resolution and TCP/TLS setup so a disconnected provider cannot
@@ -85,7 +85,7 @@ pub trait StreamingProvider: Sized {
 
     fn name(&self) -> &'static str;
     fn load_status(&self) -> String;
-    fn request_status(&self, model: &str, search_mode: WebSearchMode) -> String;
+    fn request_status(&self, model: &str) -> String;
     fn from_env_or_dotenv(root: &Path) -> Result<Self>;
     fn load_metadata(&self) -> Result<Self::Metadata>;
     fn metadata_loaded_event(&self, _metadata: &Self::Metadata) -> Option<AgentEvent> {
@@ -133,7 +133,6 @@ impl ProviderContinuation {
 /// Per-turn settings passed to an internal streaming provider request.
 pub struct StreamingRequest<'a> {
     pub max_tokens: u32,
-    pub search_mode: WebSearchMode,
     /// Model-specific reasoning control, validated by the provider boundary.
     pub reasoning_effort: ReasoningEffort,
     /// Whether supporting providers should return reasoning summaries.

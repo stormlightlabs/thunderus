@@ -430,8 +430,8 @@ fn config_options_have_stable_ids_and_validate_values() {
     let model = validate_config_option(MODEL_CONFIG_OPTION_ID, "claude-3-opus").expect("model");
     assert!(matches!(model, ConfigOptionValue::Model(model) if model == "claude-3-opus"));
 
-    let ws = validate_config_option(WEBSEARCH_CONFIG_OPTION_ID, "native").expect("websearch");
-    assert!(matches!(ws, ConfigOptionValue::WebSearch(WebSearchMode::Native)));
+    let ws = validate_config_option(WEBSEARCH_CONFIG_OPTION_ID, "searxng").expect("websearch");
+    assert!(matches!(ws, ConfigOptionValue::WebSearch(WebSearchMode::Searxng)));
     assert!(matches!(
         validate_config_option(REASONING_EFFORT_CONFIG_OPTION_ID, "xhigh"),
         Ok(ConfigOptionValue::ReasoningEffort(ReasoningEffort::Xhigh))
@@ -474,13 +474,13 @@ fn session_metadata_placeholder_is_set_and_updatable() {
         .update_session_metadata(
             session_id.as_str(),
             Some("model-x".to_string()),
-            Some(WebSearchMode::Exa),
+            Some(WebSearchMode::Searxng),
         )
         .expect("update metadata");
 
     let session = store.session(session_id.as_str()).expect("session");
     assert_eq!(session.metadata.model.as_deref(), Some("model-x"));
-    assert_eq!(session.metadata.websearch, Some(WebSearchMode::Exa));
+    assert_eq!(session.metadata.websearch, Some(WebSearchMode::Searxng));
 }
 
 #[test]
@@ -637,7 +637,7 @@ fn state_for_tests(cwd: PathBuf, session_dir: Option<PathBuf>) -> ServerState {
     ServerState::new(ServerConfig::new(
         cwd,
         String::from("umans-coder"),
-        String::from("auto"),
+        String::from("duckduckgo"),
         session_dir,
     ))
 }

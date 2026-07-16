@@ -4,7 +4,7 @@
     extraction when the workspace does not contain the answer, the user asks for current or external
     information, or source attribution matters.
   </instruction>
-  <instruction>Private-network targets are always rejected. Response sizes are capped.</instruction>
+  <instruction>Private-network result targets are rejected; an explicitly configured local SearXNG service may be used. Response sizes are capped.</instruction>
   <instruction>
     Treat web results as external evidence. Compare dates when recency matters and distinguish source
     claims from your own inference.

@@ -177,7 +177,7 @@ impl ServerState {
             .metadata
             .websearch
             .or_else(|| websearch_mode(&self.config.websearch))
-            .unwrap_or(WebSearchMode::Auto);
+            .unwrap_or(WebSearchMode::DuckDuckGo);
         let effort = session
             .metadata
             .reasoning_effort
@@ -1313,7 +1313,7 @@ fn run_prompt_turn(
         .metadata
         .websearch
         .or_else(|| websearch_mode(&state.config.websearch))
-        .unwrap_or(WebSearchMode::Auto);
+        .unwrap_or(WebSearchMode::DuckDuckGo);
     let model = session.metadata.model.unwrap_or_else(|| state.config.model.clone());
 
     let effort = session
@@ -1324,7 +1324,9 @@ fn run_prompt_turn(
         .metadata
         .reasoning_summary
         .unwrap_or(state.config.reasoning_summary);
-    let mut config = AgentRunConfig::new(session.cwd, model, websearch).with_reasoning(effort, summary);
+    let mut config = AgentRunConfig::new(session.cwd, model, websearch)
+        .with_search_url(state.config.websearch_url.clone())
+        .with_reasoning(effort, summary);
     if let Some(mcp_config) = session.mcp_config {
         config = config.with_mcp_manager(Arc::new(McpManager::from_config(&mcp_config)));
     }
@@ -1649,9 +1651,8 @@ fn json_text_or_value(raw: String) -> serde_json::Value {
 
 fn websearch_mode(value: &str) -> Option<WebSearchMode> {
     match value {
-        "auto" => Some(WebSearchMode::Auto),
-        "native" => Some(WebSearchMode::Native),
-        "exa" => Some(WebSearchMode::Exa),
+        "duckduckgo" => Some(WebSearchMode::DuckDuckGo),
+        "searxng" => Some(WebSearchMode::Searxng),
         "none" => Some(WebSearchMode::None),
         _ => None,
     }
@@ -1698,7 +1699,7 @@ mod tests {
         ServerState::new(ServerConfig::new(
             PathBuf::from("/tmp/workspace"),
             String::from("umans-coder"),
-            String::from("auto"),
+            String::from("duckduckgo"),
             None,
         ))
     }
@@ -1858,7 +1859,7 @@ mod tests {
         let state = ServerState::new(ServerConfig::new(
             workspace_path.clone(),
             "umans-coder".to_string(),
-            "auto".to_string(),
+            "duckduckgo".to_string(),
             Some(session_dir.path().to_path_buf()),
         ));
 
@@ -1931,7 +1932,7 @@ mod tests {
         let state = ServerState::new(ServerConfig::new(
             workspace_path.clone(),
             "umans-coder".to_string(),
-            "auto".to_string(),
+            "duckduckgo".to_string(),
             Some(session_dir.path().to_path_buf()),
         ));
 

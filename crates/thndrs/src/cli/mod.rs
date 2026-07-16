@@ -42,14 +42,16 @@ pub enum Theme {
 #[derive(ValueEnum, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum WebSearchMode {
-    /// Let thndrs choose provider-native search only for prompts that need it.
+    /// Search through DuckDuckGo's HTML endpoint.
     #[default]
-    Auto,
-    /// Umans server-side native web search.
-    Native,
-    /// Exa-backed server-side search for manual experiments.
-    Exa,
-    /// Pass a local `web_search` tool through unchanged.
+    #[value(name = "duckduckgo")]
+    #[serde(rename = "duckduckgo")]
+    DuckDuckGo,
+    /// Search through a configured SearXNG instance.
+    #[value(name = "searxng")]
+    #[serde(rename = "searxng")]
+    Searxng,
+    /// Disable the application-owned web search tool.
     None,
 }
 
@@ -244,36 +246,10 @@ impl WebSearchMode {
     /// Display/config label for this mode.
     pub fn label(self) -> &'static str {
         match self {
-            WebSearchMode::Auto => "auto",
-            WebSearchMode::Native => "native",
-            WebSearchMode::Exa => "exa",
+            WebSearchMode::DuckDuckGo => "duckduckgo",
+            WebSearchMode::Searxng => "searxng",
             WebSearchMode::None => "none",
         }
-    }
-
-    /// Map a concrete [`WebSearchMode`] to the header value expected by
-    /// `X-Umans-Websearch-Provider`.
-    ///
-    /// - `Native` -> `"native"` (Kimi-backed server-side search)
-    /// - `Exa` -> `"exa"` (Exa-backed server-side search)
-    /// - `None` -> `"none"` (disable server-side search; pass a local
-    ///   `web_search` tool through unchanged)
-    pub fn header_value(self) -> &'static str {
-        match self {
-            WebSearchMode::Auto => "none",
-            WebSearchMode::Native => "native",
-            WebSearchMode::Exa => "exa",
-            WebSearchMode::None => "none",
-        }
-    }
-
-    /// Resolve `auto` into a concrete provider mode for a single user prompt.
-    pub fn resolve_for_prompt(self, prompt: &str) -> Self {
-        if self != WebSearchMode::Auto {
-            return self;
-        }
-
-        if prompt_needs_web_search(prompt) { WebSearchMode::Native } else { WebSearchMode::None }
     }
 }
 
@@ -290,9 +266,12 @@ pub struct Cli {
     /// coding workspace becomes usable.
     #[arg(long, default_value = "")]
     pub model: String,
-    /// Web search provider policy.
-    #[arg(long, value_enum, default_value = "auto")]
+    /// Application-owned web search backend.
+    #[arg(long, value_enum, default_value = "duckduckgo")]
     pub websearch: WebSearchMode,
+    /// Base URL for the SearXNG web search backend.
+    #[arg(long = "websearch-url")]
+    pub websearch_url: Option<String>,
     /// Configured reasoning effort for supporting provider models.
     ///
     /// TODO: Route this through every provider/model family that supports
@@ -356,7 +335,8 @@ impl Default for Cli {
         Cli {
             cwd: PathBuf::from("."),
             model: String::new(),
-            websearch: WebSearchMode::Auto,
+            websearch: WebSearchMode::DuckDuckGo,
+            websearch_url: None,
             reasoning_effort: ReasoningEffort::default(),
             reasoning_summary: ReasoningSummary::default(),
             tick_rate_ms: DEFAULT_TICK_RATE_MS,
@@ -451,6 +431,10 @@ impl Cli {
             config.websearch = Some(self.websearch);
             insert_cli_origin(&mut origins, "websearch", "--websearch");
         }
+        if is_command_line(matches, "websearch_url") {
+            config.websearch_url = self.websearch_url.clone();
+            insert_cli_origin(&mut origins, "websearch_url", "--websearch-url");
+        }
         if is_command_line(matches, "tick_rate_ms") {
             config.tick_rate_ms = Some(self.tick_rate_ms);
             insert_cli_origin(&mut origins, "tick_rate_ms", "--tick-rate-ms");
@@ -491,6 +475,7 @@ impl Cli {
         };
         self.model = config.model.unwrap_or(defaults.model);
         self.websearch = config.websearch.unwrap_or(defaults.websearch);
+        self.websearch_url = config.websearch_url.or(defaults.websearch_url);
         self.reasoning_effort = config.reasoning_effort.unwrap_or(defaults.reasoning_effort);
         self.reasoning_summary = config.reasoning_summary.unwrap_or(defaults.reasoning_summary);
         self.tick_rate_ms = config.tick_rate_ms.unwrap_or(defaults.tick_rate_ms);
@@ -505,31 +490,6 @@ impl Cli {
         self.acp_agents = config.acp_agents;
         self
     }
-}
-
-fn prompt_needs_web_search(prompt: &str) -> bool {
-    let text = prompt.to_ascii_lowercase();
-    const NEEDLES: &[&str] = &[
-        "latest",
-        "current",
-        "today",
-        "recent",
-        "news",
-        "release",
-        "changelog",
-        "docs",
-        "documentation",
-        "look up",
-        "lookup",
-        "search web",
-        "web search",
-        "browse",
-        "internet",
-        "online",
-        "pricing",
-        "benchmark",
-    ];
-    NEEDLES.iter().any(|needle| text.contains(needle))
 }
 
 fn is_command_line(matches: &clap::ArgMatches, id: &str) -> bool {
@@ -553,7 +513,7 @@ mod tests {
         let cli = Cli::try_parse_from(["thndrs"]).expect("default parse");
         assert_eq!(cli.cwd, PathBuf::from("."));
         assert!(cli.model.is_empty());
-        assert_eq!(cli.websearch, WebSearchMode::Auto);
+        assert_eq!(cli.websearch, WebSearchMode::DuckDuckGo);
         assert_eq!(cli.tick_rate_ms, DEFAULT_TICK_RATE_MS);
         assert!(!cli.no_mouse);
         assert!(!cli.mouse);
@@ -569,7 +529,7 @@ mod tests {
         fs::create_dir_all(workspace.join(".thndrs")).expect("create .thndrs dir");
         fs::write(
             workspace.join(".thndrs").join("config.toml"),
-            "model = \"config-model\"\nwebsearch = \"native\"\ntick_rate_ms = 250\nverbose = false\ntheme = \"eldritch-minimal\"\n",
+            "model = \"config-model\"\nwebsearch = \"duckduckgo\"\ntick_rate_ms = 250\nverbose = false\ntheme = \"eldritch-minimal\"\n",
         )
         .expect("write config");
 
@@ -586,7 +546,7 @@ mod tests {
         let cli = cli.with_effective(effective, &matches);
 
         assert_eq!(cli.model, "cli-model");
-        assert_eq!(cli.websearch, WebSearchMode::Native);
+        assert_eq!(cli.websearch, WebSearchMode::DuckDuckGo);
         assert_eq!(cli.tick_rate_ms, 250);
         assert!(cli.verbose);
         assert_eq!(cli.theme, Theme::CatppuccinMocha);
@@ -683,14 +643,11 @@ mod tests {
     #[test]
     // TODO: this should be a table drive test
     fn websearch_explicit_values_parse() {
-        let auto = Cli::try_parse_from(["thndrs", "--websearch", "auto"]).unwrap();
-        assert_eq!(auto.websearch, WebSearchMode::Auto);
+        let duckduckgo = Cli::try_parse_from(["thndrs", "--websearch", "duckduckgo"]).unwrap();
+        assert_eq!(duckduckgo.websearch, WebSearchMode::DuckDuckGo);
 
-        let native = Cli::try_parse_from(["thndrs", "--websearch", "native"]).unwrap();
-        assert_eq!(native.websearch, WebSearchMode::Native);
-
-        let exa = Cli::try_parse_from(["thndrs", "--websearch", "exa"]).unwrap();
-        assert_eq!(exa.websearch, WebSearchMode::Exa);
+        let searxng = Cli::try_parse_from(["thndrs", "--websearch", "searxng"]).unwrap();
+        assert_eq!(searxng.websearch, WebSearchMode::Searxng);
 
         let none = Cli::try_parse_from(["thndrs", "--websearch", "none"]).unwrap();
         assert_eq!(none.websearch, WebSearchMode::None);
@@ -1031,35 +988,10 @@ mod tests {
     }
 
     #[test]
-    fn websearch_header_value_native() {
-        assert_eq!(WebSearchMode::Native.header_value(), "native");
-    }
-
-    #[test]
-    fn websearch_label_auto() {
-        assert_eq!(WebSearchMode::Auto.label(), "auto");
-    }
-
-    #[test]
-    fn websearch_header_value_exa() {
-        assert_eq!(WebSearchMode::Exa.header_value(), "exa");
-    }
-
-    #[test]
-    fn websearch_header_value_none() {
-        assert_eq!(WebSearchMode::None.header_value(), "none");
-    }
-
-    #[test]
-    fn auto_websearch_resolves_from_prompt() {
-        assert_eq!(
-            WebSearchMode::Auto.resolve_for_prompt("Can you clear completed sections from TODO.md?"),
-            WebSearchMode::None
-        );
-        assert_eq!(
-            WebSearchMode::Auto.resolve_for_prompt("Look up the latest Umans docs"),
-            WebSearchMode::Native
-        );
+    fn websearch_labels_are_application_backends() {
+        assert_eq!(WebSearchMode::DuckDuckGo.label(), "duckduckgo");
+        assert_eq!(WebSearchMode::Searxng.label(), "searxng");
+        assert_eq!(WebSearchMode::None.label(), "none");
     }
 
     #[test]

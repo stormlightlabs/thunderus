@@ -43,3 +43,4 @@
   queued steering/follow-up summaries while a turn is running.
 - Redacted diagnostics, prompt inspection, configuration provenance, and
   session inspection/export.
+- Web search tool with configurable backend (DuckDuckGo or SearXNG)

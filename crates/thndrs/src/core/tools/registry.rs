@@ -16,6 +16,7 @@ use std::path::Path;
 use thiserror::Error;
 
 use super::{ToolDefinition, ToolOutput, ToolUseRequest, WriteResult, shell};
+use crate::search::SearchConfig;
 
 const BUILTIN_TOOLS: &[ToolEntry] = &[
     ToolEntry {
@@ -97,16 +98,23 @@ pub enum ProviderSchemaFormat {
 }
 
 /// Runtime context shared by tool executors.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct ToolContext<'a> {
     /// Workspace root used for containment and relative paths.
     pub root: &'a Path,
+    /// Application-owned web-search configuration.
+    pub search: SearchConfig,
 }
 
 impl<'a> ToolContext<'a> {
     /// Create a tool context for a workspace root.
     pub fn new(root: &'a Path) -> Self {
-        Self { root }
+        Self { root, search: SearchConfig::default() }
+    }
+
+    /// Create a tool context with the active application-owned search backend.
+    pub fn with_search(root: &'a Path, search: &SearchConfig) -> Self {
+        Self { root, search: search.clone() }
     }
 }
 
@@ -157,7 +165,7 @@ pub struct ToolEntry {
     /// Provider-visible tool definition.
     pub definition: fn() -> ToolDefinition,
     /// Execute the tool and return output plus structured side effects.
-    pub execute: fn(&ToolUseRequest, ToolContext<'_>) -> ToolExecution,
+    pub execute: fn(&ToolUseRequest, &ToolContext<'_>) -> ToolExecution,
     /// Stable valid JSON input used by registry tests and future docs.
     pub example_input: &'static str,
 }
@@ -219,7 +227,7 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
 }
 
 /// Execute a registered tool, or return a stable failed output for unknown names.
-pub fn execute(request: &ToolUseRequest, ctx: ToolContext<'_>) -> ToolExecution {
+pub fn execute(request: &ToolUseRequest, ctx: &ToolContext<'_>) -> ToolExecution {
     match get(&request.name) {
         Some(entry) => (entry.execute)(request, ctx),
         None => ToolExecution::output(ToolOutput::failed(

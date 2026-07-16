@@ -383,7 +383,7 @@ impl RunHandle {
 
             if send(
                 tx,
-                AgentEvent::Status(provider.request_status(&self.config.model, self.config.search_mode)),
+                AgentEvent::Status(provider.request_status(&self.config.model)),
                 cancel,
             )
             .is_none()
@@ -397,7 +397,6 @@ impl RunHandle {
                 model: &self.config.model,
                 messages: &messages,
                 max_tokens,
-                search_mode: self.config.search_mode,
                 reasoning_effort: self.config.reasoning_effort,
                 reasoning_summary: self.config.reasoning_summary,
                 tool_schemas: &tool_schemas,
@@ -598,7 +597,9 @@ impl RunHandle {
                 Some(_) => step(),
             }
 
-            let (search_output, _, _) = tools::dispatch_full(&search_req, &self.config.root);
+            let search_config = self.config.search_config();
+            let (search_output, _, _) =
+                tools::dispatch_full_with_search(&search_req, &self.config.root, &search_config);
             let search_status = search_output.status;
             let search_display_output = tool_display_output(&search_output);
             match send(
@@ -735,7 +736,6 @@ where
     model: &'a str,
     messages: &'a [ProviderMessage],
     max_tokens: u32,
-    search_mode: WebSearchMode,
     reasoning_effort: ReasoningEffort,
     reasoning_summary: ReasoningSummary,
     tool_schemas: &'a serde_json::Value,
@@ -835,11 +835,13 @@ fn dispatch_tool_request(
     {
         return output;
     }
-    tools::dispatch_runtime_full_with_cancel(
+    let search_config = handle.config.search_config();
+    tools::dispatch_runtime_full_with_cancel_and_search(
         request,
         &handle.config.root,
         handle.config.mcp_manager.as_deref(),
         cancel,
+        &search_config,
     )
 }
 
@@ -959,7 +961,6 @@ where
 {
     let provider_request = StreamingRequest {
         max_tokens: request.max_tokens,
-        search_mode: request.search_mode,
         reasoning_effort: request.reasoning_effort,
         reasoning_summary: request.reasoning_summary,
         tools: request.tool_schemas,
@@ -1699,7 +1700,11 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     fn config() -> AgentRunConfig {
-        AgentRunConfig::new(PathBuf::from("."), String::from("fake-agent"), WebSearchMode::Native)
+        AgentRunConfig::new(
+            PathBuf::from("."),
+            String::from("fake-agent"),
+            WebSearchMode::DuckDuckGo,
+        )
     }
 
     struct MetadataErrorProvider {
@@ -1717,7 +1722,7 @@ mod tests {
             "provider: loading metadata-test".to_string()
         }
 
-        fn request_status(&self, _model: &str, _search_mode: WebSearchMode) -> String {
+        fn request_status(&self, _model: &str) -> String {
             "provider: requesting metadata-test".to_string()
         }
 
@@ -1843,9 +1848,9 @@ mod tests {
     }
 
     #[test]
-    fn fake_stream_with_native_search_emits_search_tool_event() {
+    fn fake_stream_with_duckduckgo_search_emits_search_tool_event() {
         let mut cfg = config();
-        cfg.search_mode = WebSearchMode::Native;
+        cfg.search_mode = WebSearchMode::DuckDuckGo;
         let handle = RunHandle::fake(cfg, String::new());
         let rx = handle.spawn();
 
@@ -1857,7 +1862,7 @@ mod tests {
         let has_search = events
             .iter()
             .any(|e| matches!(e, AgentEvent::ToolStarted { name, .. } if name == "web_search"));
-        assert!(has_search, "native search should emit web_search tool event");
+        assert!(has_search, "DuckDuckGo search should emit web_search tool event");
     }
 
     #[test]

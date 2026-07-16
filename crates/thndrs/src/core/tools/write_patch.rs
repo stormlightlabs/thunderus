@@ -184,7 +184,7 @@ failures leave the file unchanged."#,
 }
 
 /// Execute a registry request for `write_patch`.
-pub fn execute_request(request: &ToolUseRequest, ctx: ToolContext<'_>) -> ToolExecution {
+pub fn execute_request(request: &ToolUseRequest, ctx: &ToolContext<'_>) -> ToolExecution {
     match Patch::from_json(&request.arguments) {
         Ok(patch) => {
             let (output, write_result) = patch.exec(ctx.root);
@@ -493,7 +493,8 @@ mod tests {
             "call_1".to_string(),
         );
 
-        let execution = crate::tools::registry::execute(&request, crate::tools::registry::ToolContext::new(dir.path()));
+        let execution =
+            crate::tools::registry::execute(&request, &crate::tools::registry::ToolContext::new(dir.path()));
 
         assert_eq!(execution.output.status, ToolStatus::Ok);
         assert_eq!(
@@ -516,7 +517,8 @@ mod tests {
             "call_1".to_string(),
         );
 
-        let execution = crate::tools::registry::execute(&request, crate::tools::registry::ToolContext::new(dir.path()));
+        let execution =
+            crate::tools::registry::execute(&request, &crate::tools::registry::ToolContext::new(dir.path()));
 
         assert_eq!(execution.output.status, ToolStatus::Ok);
         assert_eq!(
@@ -540,7 +542,8 @@ mod tests {
             "call_1".to_string(),
         );
 
-        let execution = crate::tools::registry::execute(&request, crate::tools::registry::ToolContext::new(dir.path()));
+        let execution =
+            crate::tools::registry::execute(&request, &crate::tools::registry::ToolContext::new(dir.path()));
 
         assert_eq!(execution.output.status, ToolStatus::Failed);
         assert!(execution.write_result.is_none());
@@ -563,7 +566,8 @@ mod tests {
             "call_1".to_string(),
         );
 
-        let execution = crate::tools::registry::execute(&request, crate::tools::registry::ToolContext::new(dir.path()));
+        let execution =
+            crate::tools::registry::execute(&request, &crate::tools::registry::ToolContext::new(dir.path()));
 
         assert_eq!(execution.output.status, ToolStatus::Failed);
         assert!(execution.write_result.is_none());

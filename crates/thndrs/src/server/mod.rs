@@ -28,6 +28,8 @@ pub struct ServerConfig {
     pub model: String,
     /// Web search policy label selected for future harness turns.
     pub websearch: String,
+    /// Optional base URL for the SearXNG backend.
+    pub websearch_url: Option<String>,
     /// Default reasoning effort for ChatGPT Codex GPT-5.6 sessions.
     pub reasoning_effort: ReasoningEffort,
     /// Default reasoning-summary policy for ChatGPT Codex GPT-5.6 sessions.
@@ -43,6 +45,7 @@ impl ServerConfig {
             cwd,
             model,
             websearch,
+            websearch_url: None,
             reasoning_effort: ReasoningEffort::default(),
             reasoning_summary: ReasoningSummary::default(),
             session_dir,
@@ -53,6 +56,12 @@ impl ServerConfig {
     pub fn with_reasoning(mut self, effort: ReasoningEffort, summary: ReasoningSummary) -> Self {
         self.reasoning_effort = effort;
         self.reasoning_summary = summary;
+        self
+    }
+
+    /// Apply the configured SearXNG base URL.
+    pub fn with_search_url(mut self, url: Option<String>) -> Self {
+        self.websearch_url = url;
         self
     }
 }

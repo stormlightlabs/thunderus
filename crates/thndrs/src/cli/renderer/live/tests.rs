@@ -17,7 +17,8 @@ fn test_app() -> App {
     let mut app = App::from_cli(&Cli {
         cwd: PathBuf::from("."),
         model: "test-model".to_string(),
-        websearch: WebSearchMode::Native,
+        websearch: WebSearchMode::DuckDuckGo,
+        websearch_url: None,
         reasoning_effort: Default::default(),
         reasoning_summary: Default::default(),
         tick_rate_ms: 100,

@@ -18,9 +18,10 @@ use thndrs_agent::context::ContextConfig;
 use crate::cli::{DEFAULT_TICK_RATE_MS, ReasoningEffort, ReasoningSummary, Theme, WebSearchMode};
 use crate::utils;
 
-static CONFIG_KEYS: [&str; 13] = [
+static CONFIG_KEYS: [&str; 14] = [
     "model",
     "websearch",
+    "websearch_url",
     "reasoning_effort",
     "reasoning_summary",
     "tick_rate_ms",
@@ -33,10 +34,6 @@ static CONFIG_KEYS: [&str; 13] = [
     "acp_agents",
     "context",
 ];
-
-/// Historical model identifier retained for compatibility with provider and
-/// fixture code. It is no longer used as an application default.
-pub const DEFAULT_MODEL: &str = "opencode/big-pickle";
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
@@ -111,6 +108,7 @@ pub type AcpAgentsConfig = BTreeMap<String, AcpAgentConfig>;
 pub struct Config {
     pub model: Option<String>,
     pub websearch: Option<WebSearchMode>,
+    pub websearch_url: Option<String>,
     pub reasoning_effort: Option<ReasoningEffort>,
     pub reasoning_summary: Option<ReasoningSummary>,
     pub tick_rate_ms: Option<u64>,
@@ -129,6 +127,7 @@ impl Config {
     pub fn merge(mut self, other: Config) -> Self {
         self.model = other.model.or(self.model);
         self.websearch = other.websearch.or(self.websearch);
+        self.websearch_url = other.websearch_url.or(self.websearch_url);
         self.reasoning_effort = other.reasoning_effort.or(self.reasoning_effort);
         self.reasoning_summary = other.reasoning_summary.or(self.reasoning_summary);
         self.tick_rate_ms = other.tick_rate_ms.or(self.tick_rate_ms);
@@ -495,6 +494,10 @@ pub fn load_env(
                 config.websearch = Some(parse_websearch_env(key, value)?);
                 origins.insert("websearch".to_string(), env_origin(key));
             }
+            "websearch_url" => {
+                config.websearch_url = Some(value.clone());
+                origins.insert("websearch_url".to_string(), env_origin(key));
+            }
             "reasoning_effort" => {
                 config.reasoning_effort = Some(parse_reasoning_effort_env(key, value)?);
                 origins.insert("reasoning_effort".to_string(), env_origin(key));
@@ -564,13 +567,12 @@ fn parse_u64_env(name: &str, value: &str) -> Result<u64, ConfigError> {
 
 fn parse_websearch_env(name: &str, value: &str) -> Result<WebSearchMode, ConfigError> {
     match value.to_lowercase().as_str() {
-        "auto" => Ok(WebSearchMode::Auto),
-        "native" => Ok(WebSearchMode::Native),
-        "exa" => Ok(WebSearchMode::Exa),
+        "duckduckgo" => Ok(WebSearchMode::DuckDuckGo),
+        "searxng" => Ok(WebSearchMode::Searxng),
         "none" => Ok(WebSearchMode::None),
         _ => Err(ConfigError::InvalidEnv {
             name: name.to_string(),
-            message: format!("must be one of auto, native, exa, none (got '{value}')"),
+            message: format!("must be one of duckduckgo, searxng, none (got '{value}')"),
         }),
     }
 }
@@ -707,6 +709,12 @@ fn record_origins(config: &Config, source: ConfigSource, detail: &str, origins: 
             ConfigOrigin { source, detail: detail.to_string() },
         );
     }
+    if config.websearch_url.is_some() {
+        origins.insert(
+            "websearch_url".to_string(),
+            ConfigOrigin { source, detail: detail.to_string() },
+        );
+    }
     if config.reasoning_effort.is_some() {
         origins.insert(
             "reasoning_effort".to_string(),
@@ -772,6 +780,7 @@ fn record_origins(config: &Config, source: ConfigSource, detail: &str, origins: 
 fn has_any_value(config: &Config) -> bool {
     config.model.is_some()
         || config.websearch.is_some()
+        || config.websearch_url.is_some()
         || config.reasoning_effort.is_some()
         || config.reasoning_summary.is_some()
         || config.tick_rate_ms.is_some()
@@ -787,7 +796,8 @@ fn has_any_value(config: &Config) -> bool {
 fn default_config(workspace: &Path, cwd: &Path) -> Config {
     Config {
         model: None,
-        websearch: Some(WebSearchMode::Auto),
+        websearch: Some(WebSearchMode::DuckDuckGo),
+        websearch_url: None,
         reasoning_effort: Some(ReasoningEffort::default()),
         reasoning_summary: Some(ReasoningSummary::default()),
         tick_rate_ms: Some(DEFAULT_TICK_RATE_MS),

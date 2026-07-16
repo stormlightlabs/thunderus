@@ -131,15 +131,14 @@ fn validate_model(value: &str) -> Result<ConfigOptionValue, ConfigOptionError> {
 
 fn validate_websearch(value: &str) -> Result<ConfigOptionValue, ConfigOptionError> {
     let mode = match value.to_lowercase().as_str() {
-        "auto" => WebSearchMode::Auto,
-        "native" => WebSearchMode::Native,
-        "exa" => WebSearchMode::Exa,
+        "duckduckgo" => WebSearchMode::DuckDuckGo,
+        "searxng" => WebSearchMode::Searxng,
         "none" => WebSearchMode::None,
         other => {
             return Err(ConfigOptionError::InvalidValue {
                 id: WEBSEARCH_CONFIG_OPTION_ID.to_string(),
                 value: other.to_string(),
-                reason: "must be one of auto/native/exa/none".to_string(),
+                reason: "must be one of duckduckgo/searxng/none".to_string(),
             });
         }
     };
@@ -184,9 +183,8 @@ fn websearch_config_option(websearch: WebSearchMode) -> SessionConfigOption {
         "Web Search",
         current,
         vec![
-            SessionConfigSelectOption::new("auto", "Auto"),
-            SessionConfigSelectOption::new("native", "Native"),
-            SessionConfigSelectOption::new("exa", "Exa"),
+            SessionConfigSelectOption::new("duckduckgo", "DuckDuckGo"),
+            SessionConfigSelectOption::new("searxng", "SearXNG"),
             SessionConfigSelectOption::new("none", "None"),
         ],
     )

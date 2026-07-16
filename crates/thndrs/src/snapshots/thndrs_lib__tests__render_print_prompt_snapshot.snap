@@ -1,5 +1,5 @@
 ---
-source: src/lib.rs
+source: crates/thndrs/src/lib.rs
 expression: output
 ---
 === System Prompt ===
@@ -174,7 +174,7 @@ expression: output
     extraction when the workspace does not contain the answer, the user asks for current or external
     information, or source attribution matters.
   </instruction>
-  <instruction>Private-network targets are always rejected. Response sizes are capped.</instruction>
+  <instruction>Private-network result targets are rejected; an explicitly configured local SearXNG service may be used. Response sizes are capped.</instruction>
   <instruction>
     Treat web results as external evidence. Compare dates when recency matters and distinguish source
     claims from your own inference.
@@ -186,7 +186,7 @@ expression: output
 <environment>
   <workspace><![CDATA[/repo]]></workspace>
   <model><![CDATA[umans-coder]]></model>
-  <search>native</search>
+  <search>duckduckgo</search>
   <date>2026-06-29</date>
 </environment>
 
@@ -200,7 +200,7 @@ expression: output
       <capability>provider-native tool schemas</capability>
       <capability>agent skills metadata</capability>
       <capability>append-only JSONL sessions</capability>
-      <capability>provider-native and local web search modes</capability>
+      <capability>application-owned web search backends</capability>
       <capability>URL/article reading</capability>
       <capability>direct inline terminal renderer</capability>
     </capabilities>
@@ -274,10 +274,9 @@ expression: output
       <name>umans</name>
       <model>umans-coder</model>
       <search>
-        <mode>native</mode>
-        <provider_header>native</provider_header>
-        <provider_native_search>native: Umans server-side search</provider_native_search>
-        <local_search>DuckDuckGo HTML fallback via web_search tool</local_search>
+        <mode>duckduckgo</mode>
+        <backend>duckduckgo: DuckDuckGo HTML search</backend>
+        <local_search>web_search normalizes results and fetches public pages</local_search>
         <url_reader>read_url fetches public HTTP(S) and extracts HTML with Lectito</url_reader>
       </search>
     </provider>
@@ -496,11 +495,11 @@ Build with cargo. Run tests with cargo test.
     "name": "sawk"
   },
   {
-    "description": "web_search\n\nSearch the web for current information.\n\nUse this when the workspace does not contain the answer and you need external\ndocumentation, API specs, or current facts. Prefer reading local files and\nsearching the workspace first. With native/exa modes, Umans executes server-side\nsearch; with none, a local DuckDuckGo HTML fallback is used. Pair results with\nread_url when page content is needed. Capped at 10 results by default.",
+    "description": "web_search\n\nSearch the web for current information.\n\nUse this when the workspace does not contain the answer and you need external\ndocumentation, API specs, or current facts. Prefer reading local files and\nsearching the workspace first. Results are normalized and their public URLs are\nread with Lectito when possible; private result URLs are rejected. The backend\nis configured as duckduckgo, searxng, or none. Capped at 10 results.",
     "input_schema": {
       "properties": {
         "max_results": {
-          "description": "Maximum number of results to return.",
+          "description": "Maximum number of results to return (capped at 10).",
           "type": "integer"
         },
         "query": {
@@ -684,7 +683,7 @@ Build with cargo. Run tests with cargo test.
 === Environment ===
   cwd: /repo
   model: umans-coder
-  search: native
+  search: duckduckgo
   date: [date]
   context_sources: 1
   skills: 0

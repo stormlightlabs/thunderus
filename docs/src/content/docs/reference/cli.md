@@ -6,7 +6,8 @@ title: "CLI Reference"
 
 - `--cwd <path>`: working directory for context loading and display.
 - `--model <name>`: completion model.
-- `--websearch <auto|native|exa|none>`: web search provider policy.
+- `--websearch <duckduckgo|searxng|none>`: application-owned web-search backend.
+- `--websearch-url <url>`: SearXNG HTTP(S) base URL when `searxng` is selected.
 - `--verbose`: show diagnostic transcript rows such as provider events and log paths.
 - `--theme <eldritch-minimal|iceberg-dark|catppuccin-mocha>`: UI color theme.
 - `--mouse`: enable terminal mouse capture for overlay mouse events.
@@ -68,7 +69,8 @@ stdout is protocol-only; diagnostics go to stderr.
 
 - `thndrs --cwd <path> acp serve`: start the ACP server for a workspace.
 - `--model <model>`: provider model for new sessions.
-- `--websearch <auto|native|exa|none>`: web search provider policy.
+- `--websearch <duckduckgo|searxng|none>`: application-owned web-search backend.
+- `--websearch-url <url>`: SearXNG HTTP(S) base URL.
 - `--session-dir <path>`: append-only local session JSONL directory.
 
 ### MCP (Model Context Protocol)

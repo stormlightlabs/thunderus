@@ -902,36 +902,6 @@ pub fn offline_model_picker_items() -> Vec<PickerItem> {
         .collect()
 }
 
-pub fn load_legacy_project_input_history(sessions_dir: &Path) -> Vec<String> {
-    let mut newest_first = Vec::new();
-
-    for path in session::list_session_files(sessions_dir)
-        .into_iter()
-        .take(PROJECT_INPUT_HISTORY_SESSION_LIMIT)
-    {
-        for record in session::SessionReader::read_records_from_tail(&path, PROJECT_INPUT_HISTORY_BYTES_PER_SESSION)
-            .into_iter()
-            .rev()
-        {
-            let session::SessionRecord::User { text, .. } = record else {
-                continue;
-            };
-            let text = text.trim();
-            if text.is_empty() || newest_first.last().is_some_and(|last| last == text) {
-                continue;
-            }
-            newest_first.push(text.to_string());
-            if newest_first.len() >= INPUT_HISTORY_LIMIT {
-                newest_first.reverse();
-                return newest_first;
-            }
-        }
-    }
-
-    newest_first.reverse();
-    newest_first
-}
-
 pub fn close_prompt_accessory(app: &mut App) {
     if matches!(
         app.prompt_accessory,

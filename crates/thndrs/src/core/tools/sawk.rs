@@ -113,7 +113,7 @@ Paths are contained; output is capped/truncated; no sed -i or awk system()."#,
 }
 
 /// Execute a registry request for `sawk`.
-pub fn execute_request(request: &ToolUseRequest, ctx: ToolContext<'_>) -> ToolExecution {
+pub fn execute_request(request: &ToolUseRequest, ctx: &ToolContext<'_>) -> ToolExecution {
     let args = serde_json::from_str::<Value>(&request.arguments).unwrap_or(Value::Null);
     ToolExecution::output(exec(&args, ctx.root))
 }
@@ -354,7 +354,7 @@ mod tests {
             "call_1".to_string(),
         );
 
-        let output = tools::registry::execute(&request, tools::registry::ToolContext::new(dir.path())).output;
+        let output = tools::registry::execute(&request, &tools::registry::ToolContext::new(dir.path())).output;
 
         assert_eq!(output.status, ToolStatus::Ok);
         assert_eq!(output.output, vec!["2: b", "3: c"]);

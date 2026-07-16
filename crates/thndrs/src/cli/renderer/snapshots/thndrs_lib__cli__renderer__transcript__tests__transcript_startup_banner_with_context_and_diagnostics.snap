@@ -7,7 +7,7 @@ expression: contents
 │                                                                                   # [-]=                                                                                
 │   │   ✓ AGENTS.md loaded                                        ./AGENTS.md       # [-]=   [fg=#3b4261]=│    [fg=#37f499]=✓  [fg=#abb4da]=AGENTS.md loaded [fg=#abb4da]=                                         [fg=#6473b7]=./AGENTS.md [-]=    [-]=  
 │   │   · No skills available                                          skills       # [-]=   [fg=#3b4261]=│    [fg=#abb4da]=·  [fg=#abb4da]=No skills available [fg=#abb4da]=                                           [fg=#6473b7]=skills [-]=    [-]=  
-│   │   ✓ Web Search                                                   native       # [-]=   [fg=#3b4261]=│    [fg=#37f499]=✓  [fg=#abb4da]=Web Search [fg=#abb4da]=                                                    [fg=#6473b7]=native [-]=    [-]=  
+│   │   ✓ Web Search                                               duckduckgo       # [-]=   [fg=#3b4261]=│    [fg=#37f499]=✓  [fg=#abb4da]=Web Search [fg=#abb4da]=                                                [fg=#6473b7]=duckduckgo [-]=    [-]=  
 │                                                                                   # [-]=                                                                                
 │   ATTENTION                                                                       # [-]=   [fg=#f7c67f b]=ATTENTION [-]=                                                                    [-]=  
 │     skill diagnostic /Users/test/.thndrs/skills/bad/SKILL.md: invalid YAML        # [-]=   [fg=#abb4da]=  skill diagnostic /Users/test/.thndrs/skills/bad/SKILL.md: invalid YAML [-]=     [-]=  

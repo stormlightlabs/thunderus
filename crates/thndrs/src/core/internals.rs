@@ -37,7 +37,7 @@ const CAPABILITIES: &[&str] = &[
     "provider-native tool schemas",
     "agent skills metadata",
     "append-only JSONL sessions",
-    "provider-native and local web search modes",
+    "application-owned web search backends",
     "URL/article reading",
     "direct inline terminal renderer",
 ];
@@ -102,8 +102,7 @@ impl Default for AppIdentitySnapshot {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SearchSnapshot {
     pub mode: String,
-    pub provider_header: String,
-    pub provider_native_search: String,
+    pub backend: String,
     pub local_search: String,
     pub url_reader: String,
 }
@@ -112,14 +111,12 @@ impl From<WebSearchMode> for SearchSnapshot {
     fn from(mode: WebSearchMode) -> Self {
         Self {
             mode: mode.label().to_string(),
-            provider_header: mode.header_value().to_string(),
-            provider_native_search: match mode {
-                WebSearchMode::Auto => "auto: native search when prompt appears current-web dependent".to_string(),
-                WebSearchMode::Native => "native: Umans server-side search".to_string(),
-                WebSearchMode::Exa => "exa: Umans server-side Exa search".to_string(),
-                WebSearchMode::None => "none: local web_search tool remains available".to_string(),
+            backend: match mode {
+                WebSearchMode::DuckDuckGo => "duckduckgo: DuckDuckGo HTML search".to_string(),
+                WebSearchMode::Searxng => "searxng: configured SearXNG JSON search".to_string(),
+                WebSearchMode::None => "none: application-owned web search disabled".to_string(),
             },
-            local_search: "DuckDuckGo HTML fallback via web_search tool".to_string(),
+            local_search: "web_search normalizes results and fetches public pages".to_string(),
             url_reader: "read_url fetches public HTTP(S) and extracts HTML with Lectito".to_string(),
         }
     }
@@ -278,18 +275,7 @@ impl SelfKnowledgeSnapshot {
         element(&mut out, 6, "model", &self.runtime.provider.model);
         out.push_str("      <search>\n");
         element(&mut out, 8, "mode", &self.runtime.provider.search.mode);
-        element(
-            &mut out,
-            8,
-            "provider_header",
-            &self.runtime.provider.search.provider_header,
-        );
-        element(
-            &mut out,
-            8,
-            "provider_native_search",
-            &self.runtime.provider.search.provider_native_search,
-        );
+        element(&mut out, 8, "backend", &self.runtime.provider.search.backend);
         element(&mut out, 8, "local_search", &self.runtime.provider.search.local_search);
         element(&mut out, 8, "url_reader", &self.runtime.provider.search.url_reader);
         out.push_str("      </search>\n");
@@ -363,7 +349,7 @@ impl SelfKnowledgeSnapshot {
                 "Search",
                 vec![format!(
                     "{}; {}; {}",
-                    self.runtime.provider.search.provider_native_search,
+                    self.runtime.provider.search.backend,
                     self.runtime.provider.search.local_search,
                     self.runtime.provider.search.url_reader
                 )],
@@ -479,7 +465,7 @@ mod tests {
         let diagnostic = SkillDiagnostic { path: "/repo/bad/SKILL.md".into(), message: "invalid".to_string() };
         let snapshot = test_snapshot(
             "test-model",
-            WebSearchMode::Native,
+            WebSearchMode::DuckDuckGo,
             vec!["base_identity".to_string(), "self_knowledge".to_string()],
             &[source],
             &crate::tools::tool_definitions(),

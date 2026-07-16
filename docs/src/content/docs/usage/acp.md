@@ -87,7 +87,8 @@ Supported flags:
 - `--cwd <path>`: default workspace when the client does not provide a more
   specific session cwd.
 - `--model <model>`: provider model for new ACP sessions.
-- `--websearch <auto|native|exa|none>`: web search mode.
+- `--websearch <duckduckgo|searxng|none>`: application-owned web-search backend.
+- `--websearch-url <url>`: SearXNG HTTP(S) base URL.
 - `--session-dir <path>`: directory for append-only local session JSONL files.
 
 The binary also reads the normal `thndrs` config layers. CLI flags override
@@ -116,7 +117,7 @@ server in commands that print banners or progress text to stdout.
   `session/resume`, `session/close`, and non-destructive `session/delete`.
 - Text prompts, image prompt blocks, resource links, and embedded text/blob
   resources. Audio prompt blocks are rejected.
-- Session config options for model and web search mode.
+- Session config options for model, web-search backend, and SearXNG base URL.
 - Tool-call updates for read, search, edit, fetch, shell, thinking, and other
   tools.
 - Permission requests before local file writes and shell commands.

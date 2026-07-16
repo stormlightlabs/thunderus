@@ -22,7 +22,7 @@ fn bundle_with_context() -> PromptBundle {
     PromptBundle::new(
         Path::new("/repo"),
         "umans-coder",
-        WebSearchMode::Native,
+        WebSearchMode::DuckDuckGo,
         &[source],
         &[],
         "explain this repo",
@@ -82,7 +82,7 @@ fn from_bundle_captures_model_and_search_mode() {
     let bundle = bundle_with_context();
     let meta = PromptMetadata::from_bundle(&bundle);
     assert_eq!(meta.model, "umans-coder");
-    assert_eq!(meta.search_mode, "native");
+    assert_eq!(meta.search_mode, "duckduckgo");
 }
 
 #[test]
@@ -152,7 +152,7 @@ fn from_bundle_captures_transcript_tail_size_and_user_turn() {
     let bundle = PromptBundle::new(
         Path::new("/repo"),
         "umans-coder",
-        WebSearchMode::Native,
+        WebSearchMode::DuckDuckGo,
         &[],
         &transcript,
         "next question",
@@ -164,7 +164,14 @@ fn from_bundle_captures_transcript_tail_size_and_user_turn() {
 
 #[test]
 fn from_bundle_empty_user_turn_records_false() {
-    let bundle = PromptBundle::new(Path::new("/repo"), "umans-coder", WebSearchMode::Native, &[], &[], "");
+    let bundle = PromptBundle::new(
+        Path::new("/repo"),
+        "umans-coder",
+        WebSearchMode::DuckDuckGo,
+        &[],
+        &[],
+        "",
+    );
     let meta = PromptMetadata::from_bundle(&bundle);
     assert!(!meta.has_user_turn);
 }
@@ -205,7 +212,7 @@ fn json_round_trip_truncated_context() {
     let bundle = PromptBundle::new(
         Path::new("/repo"),
         "umans-glm-5.2",
-        WebSearchMode::Exa,
+        WebSearchMode::Searxng,
         &[source],
         &[],
         "explain",
@@ -271,7 +278,7 @@ fn session_record_json_round_trip_session_meta() {
         title: "scratch".to_string(),
         provider: "umans".to_string(),
         model: "umans-coder".to_string(),
-        websearch: "native".to_string(),
+        websearch: "duckduckgo".to_string(),
         app_version: "0.1.0".to_string(),
         config: None,
     };
@@ -292,7 +299,7 @@ fn session_record_session_meta_persists_config_session_dir() {
         title: "scratch".to_string(),
         provider: "umans".to_string(),
         model: "umans-coder".to_string(),
-        websearch: "native".to_string(),
+        websearch: "duckduckgo".to_string(),
         app_version: "0.1.0".to_string(),
         config: Some(SessionConfigMeta {
             session_dir: Some("/repo/.thndrs/sessions".to_string()),
@@ -349,7 +356,7 @@ fn session_record_session_meta_persists_effective_config_metadata() {
         title: "scratch".to_string(),
         provider: "umans".to_string(),
         model: "env-model".to_string(),
-        websearch: "native".to_string(),
+        websearch: "duckduckgo".to_string(),
         app_version: "0.1.0".to_string(),
         config: Some(SessionConfigMeta {
             session_dir: Some("/repo/custom-sessions".to_string()),
@@ -370,7 +377,7 @@ fn session_record_session_meta_persists_effective_config_metadata() {
     assert_eq!(record, restored);
     assert!(json.contains("\"cwd\":\"/repo\""));
     assert!(json.contains("\"model\":\"env-model\""));
-    assert!(json.contains("\"websearch\":\"native\""));
+    assert!(json.contains("\"websearch\":\"duckduckgo\""));
     assert!(json.contains("\"session_dir\":\"/repo/custom-sessions\""));
     assert!(json.contains("\"path\":\".thndrs/config.toml\""));
     assert!(json.contains("\"model\":\"env:THNDRS_MODEL\""));
@@ -387,7 +394,7 @@ fn session_record_session_meta_persists_mcp_config_metadata() {
         title: "scratch".to_string(),
         provider: "umans".to_string(),
         model: "umans-coder".to_string(),
-        websearch: "native".to_string(),
+        websearch: "duckduckgo".to_string(),
         app_version: "0.1.0".to_string(),
         config: Some(SessionConfigMeta {
             mcp_files: vec![SessionConfigFile {
@@ -450,7 +457,7 @@ fn session_config_metadata_does_not_include_provider_secret_values() {
         title: "scratch".to_string(),
         provider: "umans".to_string(),
         model: "umans-coder".to_string(),
-        websearch: "native".to_string(),
+        websearch: "duckduckgo".to_string(),
         app_version: "0.1.0".to_string(),
         config: Some(SessionConfigMeta {
             session_dir: Some("/repo/.thndrs/sessions".to_string()),
@@ -922,7 +929,7 @@ fn writer_creates_file_and_appends_records() {
         "scratch",
         "umans",
         "umans-coder",
-        "native",
+        "duckduckgo",
         "0.1.0",
         None,
     )
@@ -952,7 +959,7 @@ fn writer_creates_session_file_in_custom_session_dir() {
         "scratch",
         "umans",
         "umans-coder",
-        "native",
+        "duckduckgo",
         "0.1.0",
         Some(SessionConfigMeta { session_dir: Some(custom_dir.display().to_string()), ..SessionConfigMeta::default() }),
     )
@@ -1033,7 +1040,7 @@ fn writer_appends_context_metadata() {
         "scratch",
         "umans",
         "umans-coder",
-        "native",
+        "duckduckgo",
         "0.1.0",
         None,
     )
@@ -1065,7 +1072,7 @@ fn context_metadata_write_read_round_trip() {
         "scratch",
         "umans",
         "umans-coder",
-        "native",
+        "duckduckgo",
         "0.1.0",
         None,
     )
@@ -1134,7 +1141,7 @@ fn reader_reconstructs_transcript() {
         "scratch",
         "umans",
         "umans-coder",
-        "native",
+        "duckduckgo",
         "0.1.0",
         None,
     )
@@ -1172,7 +1179,7 @@ fn reader_projects_tool_write_shell_and_status_rows() {
         "scratch",
         "umans",
         "umans-coder",
-        "native",
+        "duckduckgo",
         "0.1.0",
         None,
     )
@@ -1304,7 +1311,7 @@ fn reader_preserves_record_order() {
         "scratch",
         "umans",
         "umans-coder",
-        "native",
+        "duckduckgo",
         "0.1.0",
         None,
     )
@@ -1343,7 +1350,7 @@ fn reader_reads_title_from_session_meta() {
         "my title",
         "umans",
         "umans-coder",
-        "native",
+        "duckduckgo",
         "0.1.0",
         None,
     )
@@ -1366,7 +1373,7 @@ fn reader_reads_latest_renamed_title() {
         "original",
         "umans",
         "umans-coder",
-        "native",
+        "duckduckgo",
         "0.1.0",
         None,
     )
@@ -1399,7 +1406,7 @@ fn list_session_files_returns_jsonl_sorted_newest_first() {
         "first",
         "umans",
         "umans-coder",
-        "native",
+        "duckduckgo",
         "0.1.0",
         None,
     )
@@ -1414,7 +1421,7 @@ fn list_session_files_returns_jsonl_sorted_newest_first() {
         "second",
         "umans",
         "umans-coder",
-        "native",
+        "duckduckgo",
         "0.1.0",
         None,
     )
@@ -1442,7 +1449,7 @@ fn list_session_titles_returns_titles_newest_first() {
         "first session",
         "umans",
         "umans-coder",
-        "native",
+        "duckduckgo",
         "0.1.0",
         None,
     )
@@ -1457,7 +1464,7 @@ fn list_session_titles_returns_titles_newest_first() {
         "second session",
         "umans",
         "umans-coder",
-        "native",
+        "duckduckgo",
         "0.1.0",
         None,
     )
@@ -1479,7 +1486,7 @@ fn latest_session_file_returns_newest() {
         "old",
         "umans",
         "umans-coder",
-        "native",
+        "duckduckgo",
         "0.1.0",
         None,
     )
@@ -1492,7 +1499,7 @@ fn latest_session_file_returns_newest() {
         "new",
         "umans",
         "umans-coder",
-        "native",
+        "duckduckgo",
         "0.1.0",
         None,
     )
@@ -1605,7 +1612,7 @@ fn test_writer(dir: &Path, name: &str) -> SessionWriter {
         "test",
         "umans",
         "umans-coder",
-        "native",
+        "duckduckgo",
         "0.1.0",
         None,
     )
