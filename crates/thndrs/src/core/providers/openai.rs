@@ -1,6 +1,7 @@
 //! Provider-neutral OpenAI-compatible chat-completions helpers.
 
 use crate::providers::{ProviderContentBlock, ProviderImageSource, ProviderMessage, ProviderMessageContent};
+use thndrs_agent::ProviderUsageComponents;
 
 /// Parsed OpenAI-compatible chat-completions stream event.
 #[derive(Clone, Debug, PartialEq)]
@@ -13,6 +14,7 @@ pub enum ChatSseEvent {
     ResponseStatus(String),
     Error(String),
     Usage { input_tokens: u64, output_tokens: u64 },
+    UsageComponents(ProviderUsageComponents),
     Done,
     Malformed(String),
     Other,
@@ -61,8 +63,17 @@ pub fn parse_chat_sse_event(data: &str) -> Vec<ChatSseEvent> {
     if let Some(status) = extract_chat_status(&value) {
         events.push(ChatSseEvent::ResponseStatus(status));
     }
-    if let Some((input_tokens, output_tokens)) = extract_chat_usage(&value) {
-        events.push(ChatSseEvent::Usage { input_tokens, output_tokens });
+    if let Some(usage) = extract_chat_usage(&value) {
+        if usage.cache_read_input_tokens.is_some()
+            || usage.cache_creation_input_tokens.is_some()
+            || usage.reasoning_tokens.is_some()
+        {
+            events.push(ChatSseEvent::UsageComponents(usage));
+        } else if let (Some(input_tokens), Some(output_tokens)) = (usage.input_tokens, usage.output_tokens) {
+            events.push(ChatSseEvent::Usage { input_tokens, output_tokens });
+        } else {
+            events.push(ChatSseEvent::UsageComponents(usage));
+        }
     }
 
     let Some(choices) = value.get("choices").and_then(|v| v.as_array()) else {
@@ -155,7 +166,7 @@ fn extract_chat_status(value: &serde_json::Value) -> Option<String> {
         .map(str::to_string)
 }
 
-fn extract_chat_usage(value: &serde_json::Value) -> Option<(u64, u64)> {
+fn extract_chat_usage(value: &serde_json::Value) -> Option<ProviderUsageComponents> {
     let usage = value
         .get("usage")
         .or_else(|| value.get("normalizedUsage"))
@@ -163,14 +174,29 @@ fn extract_chat_usage(value: &serde_json::Value) -> Option<(u64, u64)> {
     let input_tokens = usage
         .get("prompt_tokens")
         .or_else(|| usage.get("inputTokens"))
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
+        .and_then(|v| v.as_u64());
     let output_tokens = usage
         .get("completion_tokens")
         .or_else(|| usage.get("outputTokens"))
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
-    if input_tokens == 0 && output_tokens == 0 { None } else { Some((input_tokens, output_tokens)) }
+        .and_then(|v| v.as_u64());
+    if input_tokens.is_none() && output_tokens.is_none() {
+        return None;
+    }
+    let details = usage
+        .get("prompt_tokens_details")
+        .or_else(|| usage.get("input_tokens_details"));
+    Some(ProviderUsageComponents {
+        input_tokens,
+        output_tokens,
+        cache_read_input_tokens: details
+            .and_then(|details| details.get("cached_tokens"))
+            .and_then(|value| value.as_u64()),
+        cache_creation_input_tokens: None,
+        reasoning_tokens: usage
+            .get("completion_tokens_details")
+            .and_then(|details| details.get("reasoning_tokens"))
+            .and_then(|value| value.as_u64()),
+    })
 }
 
 fn openai_messages(messages: &[ProviderMessage]) -> serde_json::Value {
@@ -339,5 +365,19 @@ mod tests {
                 vec![ChatSseEvent::ResponseStatus(status.to_string())]
             );
         }
+    }
+
+    #[test]
+    fn parse_chat_sse_event_retains_cache_and_reasoning_components() {
+        let events = parse_chat_sse_event(
+            r#"{"usage":{"prompt_tokens":100,"completion_tokens":12,"prompt_tokens_details":{"cached_tokens":40},"completion_tokens_details":{"reasoning_tokens":5}}}"#,
+        );
+        assert!(events.contains(&ChatSseEvent::UsageComponents(ProviderUsageComponents {
+            input_tokens: Some(100),
+            output_tokens: Some(12),
+            cache_read_input_tokens: Some(40),
+            cache_creation_input_tokens: None,
+            reasoning_tokens: Some(5),
+        })));
     }
 }

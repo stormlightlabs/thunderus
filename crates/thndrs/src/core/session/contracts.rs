@@ -63,6 +63,9 @@ pub struct ContextItemMeta {
     pub token_estimate: usize,
     /// Inclusion state for this snapshot or action.
     pub visibility: ContextVisibility,
+    /// Stable policy code for this state.
+    #[serde(default)]
+    pub reason_code: String,
     /// Redacted explanation of the assigned visibility.
     pub reason: String,
 }
@@ -78,6 +81,7 @@ impl From<&ContextItem> for ContextItemMeta {
             byte_count: item.byte_count,
             token_estimate: item.token_estimate,
             visibility: item.visibility.clone(),
+            reason_code: item.reason_code.clone(),
             reason: redact_audit_text(&item.reason),
         }
     }

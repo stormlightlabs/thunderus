@@ -95,12 +95,21 @@ pub trait StreamingProvider: Sized {
         None
     }
     fn token_budget(&self, model: &str, metadata: Option<&Self::Metadata>) -> u32;
+    /// Serialize exactly the request body that the adapter sends.
+    fn serialized_request_body(
+        &self, model: &str, messages: &[ProviderMessage], request: &StreamingRequest<'_>,
+    ) -> Result<Vec<u8>>;
     fn send_streaming_request(
         &self, model: &str, messages: &[ProviderMessage], request: &StreamingRequest<'_>,
     ) -> Result<ureq::http::Response<ureq::Body>>;
     fn stream_format(&self, model: &str) -> Result<StreamFormat>;
     fn request_error_message(error: &ProviderError) -> String;
     fn is_retryable_request_error(error: &ProviderError) -> bool;
+}
+
+/// Serialize a provider request body at the accounting boundary.
+pub(crate) fn serialize_request_body(body: &serde_json::Value) -> Result<Vec<u8>> {
+    serde_json::to_vec(&body).map_err(|error| ProviderError::Json(error.to_string()))
 }
 
 /// Provider-private continuation state retained only for one active agent run.
@@ -411,6 +420,8 @@ pub struct ProviderTurn {
     pub assistant_text: String,
     pub stop_reason: Option<String>,
     pub response_items: Vec<serde_json::Value>,
+    /// Provider usage accumulated across stream updates, if reported.
+    pub usage: Option<thndrs_agent::ProviderUsageComponents>,
 }
 
 pub fn summarize_error_body(body: &str) -> String {

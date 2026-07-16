@@ -11,7 +11,7 @@ use crate::{
     cli::{ReasoningEffort, ReasoningSummary},
     providers::{
         self, KnownModel, ProviderContinuation, ProviderError, ProviderHttpClient, ProviderMessage, Result,
-        StreamFormat, StreamingProvider,
+        StreamFormat, StreamingProvider, StreamingRequest,
     },
     thndrs_core::auth,
 };
@@ -262,6 +262,21 @@ impl StreamingProvider for OpenCodeZenClient {
 
     fn token_budget(&self, _model: &str, _metadata: Option<&Self::Metadata>) -> u32 {
         DEFAULT_RECOMMENDED_MAX_TOKENS
+    }
+
+    fn serialized_request_body(
+        &self, model: &str, messages: &[ProviderMessage], request: &StreamingRequest<'_>,
+    ) -> Result<Vec<u8>> {
+        let body = Self::build_request_body(
+            model,
+            messages,
+            request.max_tokens,
+            Some(request.tools),
+            request.reasoning_effort,
+            request.reasoning_summary,
+            request.continuation,
+        )?;
+        providers::serialize_request_body(&body)
     }
 
     fn send_streaming_request(

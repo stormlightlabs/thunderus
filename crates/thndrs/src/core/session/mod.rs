@@ -25,6 +25,7 @@ use crate::prompt::{EnvironmentMetadata, HistoryReuse, PromptBundle};
 use crate::skills::{SkillActivation, SkillReferenceMeta};
 use crate::tools::{WriteOp, shell};
 use crate::{datetime, internals, tools};
+use thndrs_agent::ProviderRequestAccounting;
 use thndrs_agent::context::{ContextItem, ContextLedger};
 
 pub use contracts::{
@@ -169,6 +170,15 @@ pub enum SessionRecord {
         time: String,
         input_tokens: u64,
         output_tokens: u64,
+    },
+    /// Exact request-size accounting and provider usage for one request.
+    #[serde(rename = "request_accounting")]
+    RequestAccounting {
+        schema_version: u32,
+        seq: u64,
+        time: String,
+        turn_id: String,
+        accounting: ProviderRequestAccounting,
     },
     /// A tool call started.
     #[serde(rename = "tool_started")]
@@ -382,6 +392,7 @@ impl SessionRecord {
             | SessionRecord::AssistantFinished { seq, .. }
             | SessionRecord::ReasoningFinished { seq, .. }
             | SessionRecord::Usage { seq, .. }
+            | SessionRecord::RequestAccounting { seq, .. }
             | SessionRecord::ToolStarted { seq, .. }
             | SessionRecord::ToolFinished { seq, .. }
             | SessionRecord::Cancelled { seq, .. }
@@ -1031,6 +1042,19 @@ impl SessionWriter {
         Ok(())
     }
 
+    /// Append accounting for one successful provider request.
+    pub fn append_request_accounting(
+        &mut self, turn_id: &str, accounting: &ProviderRequestAccounting,
+    ) -> std::io::Result<()> {
+        self.append(SessionRecord::RequestAccounting {
+            schema_version: SCHEMA_VERSION,
+            seq: 0,
+            time: datetime::now_iso8601(),
+            turn_id: turn_id.to_string(),
+            accounting: accounting.clone(),
+        })
+    }
+
     /// Append a file-write audit record.
     ///
     /// Records the operation type, path, before/after hashes and byte counts,
@@ -1350,6 +1374,9 @@ impl SessionReader {
         let mut model = String::from("unknown");
         let mut input_tokens = 0u64;
         let mut output_tokens = 0u64;
+        let mut accounted_input_tokens = 0u64;
+        let mut accounted_output_tokens = 0u64;
+        let mut has_request_accounting = false;
 
         for record in records {
             match record {
@@ -1362,8 +1389,22 @@ impl SessionReader {
                     input_tokens = input_tokens.saturating_add(i);
                     output_tokens = output_tokens.saturating_add(o);
                 }
+                SessionRecord::RequestAccounting { accounting, .. } => {
+                    has_request_accounting = true;
+                    if let Some(usage) = accounting.provider_usage {
+                        accounted_input_tokens =
+                            accounted_input_tokens.saturating_add(usage.components.input_tokens.unwrap_or(0));
+                        accounted_output_tokens =
+                            accounted_output_tokens.saturating_add(usage.components.output_tokens.unwrap_or(0));
+                    }
+                }
                 _ => {}
             }
+        }
+
+        if has_request_accounting {
+            input_tokens = accounted_input_tokens;
+            output_tokens = accounted_output_tokens;
         }
 
         SessionSummary { title, model, input_tokens, output_tokens }
@@ -1633,6 +1674,7 @@ fn set_seq(record: &mut SessionRecord, seq: u64) {
         | SessionRecord::AssistantFinished { seq: s, .. }
         | SessionRecord::ReasoningFinished { seq: s, .. }
         | SessionRecord::Usage { seq: s, .. }
+        | SessionRecord::RequestAccounting { seq: s, .. }
         | SessionRecord::ToolStarted { seq: s, .. }
         | SessionRecord::ToolFinished { seq: s, .. }
         | SessionRecord::Cancelled { seq: s, .. }

@@ -453,6 +453,8 @@ pub struct ContextItem {
     pub token_estimate: usize,
     /// Inclusion status this turn.
     pub visibility: ContextVisibility,
+    /// Stable policy code for why this state was assigned.
+    pub reason_code: String,
     /// Why the item is visible, omitted, archived, dropped, blocked, or summary-only.
     pub reason: String,
 }

@@ -877,6 +877,21 @@ fn write_acp_event<W: io::Write>(writer: &mut W, event: app::AgentEvent) -> io::
         app::AgentEvent::Usage { input_tokens, output_tokens } => {
             writeln!(writer, "usage: input={input_tokens} output={output_tokens}")?
         }
+        app::AgentEvent::RequestAccounting(accounting) => {
+            let input = accounting
+                .provider_usage
+                .as_ref()
+                .and_then(|usage| usage.components.input_tokens);
+            let output = accounting
+                .provider_usage
+                .as_ref()
+                .and_then(|usage| usage.components.output_tokens);
+            writeln!(
+                writer,
+                "request: {} bytes input={input:?} output={output:?}",
+                accounting.serialized_bytes.value
+            )?;
+        }
         app::AgentEvent::ToolStarted { id, name, arguments } => {
             writeln!(writer, "tool_started: {name}#{id} {arguments}")?
         }
@@ -1410,6 +1425,8 @@ fn maybe_spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>) {
 
     let tool_catalog = tools::runtime_tool_definitions(mcp_manager.as_deref());
     let ledger = app.refresh_context_ledger(Some(&prompt));
+    let turn_id = format!("turn_{}", app.turn_count);
+    config = config.with_request_context(turn_id, &ledger);
     let bundle = PromptBundle::new_with_skills(
         &config.root,
         &config.model,

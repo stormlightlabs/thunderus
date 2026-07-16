@@ -503,6 +503,18 @@ impl PersistedTurn {
                     },
                 );
             }
+            AgentEvent::RequestAccounting(accounting) => {
+                state.append_record(
+                    session_id,
+                    SessionRecord::RequestAccounting {
+                        schema_version: SCHEMA_VERSION,
+                        seq: 0,
+                        time: crate::utils::datetime::now_iso8601(),
+                        turn_id: accounting.turn_id.clone(),
+                        accounting: accounting.as_ref().clone(),
+                    },
+                );
+            }
             AgentEvent::ToolStarted { id, name, arguments } => {
                 state.append_record(
                     session_id,
@@ -1633,7 +1645,8 @@ fn record_time(record: &SessionRecord) -> Option<String> {
         | SessionRecord::SkillActivated { time, .. }
         | SessionRecord::QueuedInput { time, .. }
         | SessionRecord::AcpPermissionRequest { time, .. }
-        | SessionRecord::AcpPermissionOutcome { time, .. } => Some(time.clone()),
+        | SessionRecord::AcpPermissionOutcome { time, .. }
+        | SessionRecord::RequestAccounting { time, .. } => Some(time.clone()),
     }
 }
 

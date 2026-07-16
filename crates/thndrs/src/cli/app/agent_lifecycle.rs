@@ -29,6 +29,20 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
             }
             None
         }
+        AgentEvent::RequestAccounting(accounting) => {
+            if let Some(usage) = &accounting.provider_usage {
+                if let Some(input_tokens) = usage.components.input_tokens {
+                    app.session_tokens_in = app.session_tokens_in.saturating_add(input_tokens);
+                }
+                if let Some(output_tokens) = usage.components.output_tokens {
+                    app.session_tokens_out = app.session_tokens_out.saturating_add(output_tokens);
+                }
+            }
+            if let Some(writer) = app.session_writer.as_mut() {
+                let _ = writer.append_request_accounting(&accounting.turn_id, &accounting);
+            }
+            None
+        }
         AgentEvent::AssistantDelta(delta) => {
             app.ttft.stop_on_semantic_output();
             finalize_reasoning(app);

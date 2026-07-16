@@ -40,6 +40,7 @@ use crate::providers::{
 use crate::providers::{anthropic, codex, openai, opencode, umans};
 use crate::tools::{self, AgentRunConfig, ToolOutput, ToolUseRequest, WriteResult, shell::ProcessResult};
 use thndrs_agent::CancelToken;
+use thndrs_agent::{ProviderRequestAccounting, ProviderUsageComponents, ProviderUsageRule};
 
 const PROVIDER_RETRY_POLICY: RetryPolicy = RetryPolicy::new(4, Duration::from_millis(2500));
 
@@ -401,6 +402,8 @@ impl RunHandle {
                 reasoning_summary: self.config.reasoning_summary,
                 tool_schemas: &tool_schemas,
                 continuation: &continuation,
+                turn_id: self.config.accounting_turn_id.as_deref().unwrap_or("turn_unknown"),
+                context: &self.config.accounting_context,
             };
             let Some(mut turn) = request_provider_turn_with_retries(&request, tool_budget.total_batches(), tx, cancel)
             else {
@@ -718,6 +721,7 @@ struct AnthropicStreamState {
     assistant_text: String,
     stop_reason: Option<String>,
     provider_content_blocks: Vec<String>,
+    usage: ProviderUsageComponents,
 }
 
 #[cfg(test)]
@@ -741,6 +745,8 @@ where
     reasoning_summary: ReasoningSummary,
     tool_schemas: &'a serde_json::Value,
     continuation: &'a ProviderContinuation,
+    turn_id: &'a str,
+    context: &'a [thndrs_agent::ContextItemSnapshot],
 }
 
 /// Best-effort classifier for prompts that should not finish without a
@@ -917,7 +923,7 @@ where
             retry_attempt,
             "requesting provider turn"
         );
-        let attempt_result = provider_request_attempt(request, tx, cancel);
+        let attempt_result = provider_request_attempt(request, iteration, retry_attempt + 1, tx, cancel);
 
         match attempt_result {
             Ok(turn) => return Some(turn),
@@ -938,7 +944,7 @@ where
 }
 
 fn provider_request_attempt<P>(
-    request: &ProviderTurnRequest<'_, P>, tx: &Sender<AgentEvent>, cancel: &CancelToken,
+    request: &ProviderTurnRequest<'_, P>, iteration: usize, attempt: u32, tx: &Sender<AgentEvent>, cancel: &CancelToken,
 ) -> Result<ProviderTurn, ProviderAttemptError>
 where
     P: StreamingProvider,
@@ -950,6 +956,10 @@ where
         tools: request.tool_schemas,
         continuation: request.continuation,
     };
+    let serialized_body = request
+        .provider
+        .serialized_request_body(request.model, request.messages, &provider_request)
+        .map_err(ProviderAttemptError::Request)?;
     match request
         .provider
         .send_streaming_request(request.model, request.messages, &provider_request)
@@ -969,10 +979,53 @@ where
                     cancel,
                     request.max_tokens,
                 )
-                .map_err(ProviderAttemptError::Stream),
+                .map_err(ProviderAttemptError::Stream)
+                .and_then(|mut turn| {
+                    let stream_format = request
+                        .provider
+                        .stream_format(request.model)
+                        .map_err(ProviderAttemptError::Request)?;
+                    let provider_usage = turn.usage.take().and_then(|components| {
+                        if components.input_tokens.is_none()
+                            && components.output_tokens.is_none()
+                            && components.cache_read_input_tokens.is_none()
+                            && components.cache_creation_input_tokens.is_none()
+                            && components.reasoning_tokens.is_none()
+                        {
+                            None
+                        } else {
+                            Some(
+                                components
+                                    .normalize(request.provider.name(), usage_rule_for_stream_format(stream_format)),
+                            )
+                        }
+                    });
+                    let mut accounting = ProviderRequestAccounting::from_serialized_request(
+                        request.turn_id,
+                        format!("{}:request:{iteration}", request.turn_id),
+                        attempt,
+                        request.provider.name(),
+                        request.model,
+                        &serialized_body,
+                        request.context.to_vec(),
+                    );
+                    accounting.provider_usage = provider_usage;
+                    if send(tx, AgentEvent::RequestAccounting(Box::new(accounting)), cancel).is_none() {
+                        return Err(ProviderAttemptError::Stream("cancelled".to_string()));
+                    }
+                    Ok(turn)
+                }),
             }
         }
         Err(e) => Err(ProviderAttemptError::Request(e)),
+    }
+}
+
+fn usage_rule_for_stream_format(format: StreamFormat) -> ProviderUsageRule {
+    match format {
+        StreamFormat::AnthropicMessages => ProviderUsageRule::AnthropicMessages,
+        StreamFormat::OpenAiChat => ProviderUsageRule::OpenAiChat,
+        StreamFormat::ChatGptCodexResponses => ProviderUsageRule::OpenAiResponses,
     }
 }
 
@@ -1140,6 +1193,7 @@ fn stream_anthropic_response(
         assistant_text: state.assistant_text,
         stop_reason: state.stop_reason,
         response_items: Vec::new(),
+        usage: Some(state.usage),
     })
 }
 
@@ -1167,6 +1221,7 @@ fn stream_openai_chat_response(
     let mut event_count = 0usize;
     let mut saw_response = false;
     let mut stop_reason = None;
+    let mut usage = ProviderUsageComponents::default();
     tracing::info!("reading OpenAI-compatible chat-completions SSE stream");
 
     for line_result in reader.lines() {
@@ -1194,6 +1249,13 @@ fn stream_openai_chat_response(
             event_count += 1;
             let events = openai::parse_chat_sse_event(&data);
             for event in events {
+                match &event {
+                    openai::ChatSseEvent::Usage { input_tokens, output_tokens } => {
+                        usage.merge_snapshot(&ProviderUsageComponents::new(*input_tokens, *output_tokens));
+                    }
+                    openai::ChatSseEvent::UsageComponents(components) => usage.merge_snapshot(components),
+                    _ => {}
+                }
                 collect_openai_chat_event(
                     event,
                     &mut tool_blocks,
@@ -1244,7 +1306,7 @@ fn stream_openai_chat_response(
         cancel,
     );
 
-    Ok(ProviderTurn { tool_requests, assistant_text, stop_reason, response_items: Vec::new() })
+    Ok(ProviderTurn { tool_requests, assistant_text, stop_reason, response_items: Vec::new(), usage: Some(usage) })
 }
 
 fn collect_openai_chat_event(
@@ -1298,11 +1360,8 @@ fn collect_openai_chat_event(
             tracing::error!(error = %message, "provider emitted SSE error");
             return Err(format!("provider error: {message}"));
         }
-        openai::ChatSseEvent::Usage { input_tokens, output_tokens } => {
-            if send(tx, AgentEvent::Usage { input_tokens, output_tokens }, cancel).is_none() {
-                return Err("cancelled".to_string());
-            }
-        }
+        openai::ChatSseEvent::Usage { .. } => {}
+        openai::ChatSseEvent::UsageComponents(_) => {}
         openai::ChatSseEvent::Malformed(payload) => {
             return Err(format!("malformed provider stream payload: {payload}"));
         }
@@ -1323,6 +1382,7 @@ fn stream_chatgpt_codex_response(
     let mut saw_response = false;
     let mut stop_reason = None;
     let mut response_items = Vec::new();
+    let mut usage = ProviderUsageComponents::default();
     tracing::info!("reading ChatGPT Codex Responses SSE stream");
 
     for line_result in reader.lines() {
@@ -1355,6 +1415,13 @@ fn stream_chatgpt_codex_response(
         for data in codex::parse_responses_sse_chunk(&(line + "\n")) {
             event_count += 1;
             for event in codex::parse_responses_sse_event(&data) {
+                match &event {
+                    codex::ResponsesSseEvent::Usage { input_tokens, output_tokens } => {
+                        usage.merge_snapshot(&ProviderUsageComponents::new(*input_tokens, *output_tokens));
+                    }
+                    codex::ResponsesSseEvent::UsageComponents(components) => usage.merge_snapshot(components),
+                    _ => {}
+                }
                 if let codex::ResponsesSseEvent::OutputItem(item) = &event {
                     response_items.push(item.clone());
                 }
@@ -1408,7 +1475,7 @@ fn stream_chatgpt_codex_response(
         cancel,
     );
 
-    Ok(ProviderTurn { tool_requests, assistant_text, stop_reason, response_items })
+    Ok(ProviderTurn { tool_requests, assistant_text, stop_reason, response_items, usage: Some(usage) })
 }
 
 fn collect_chatgpt_codex_event(
@@ -1480,11 +1547,8 @@ fn collect_chatgpt_codex_event(
             tracing::error!(error = %message, "ChatGPT Codex emitted SSE error");
             return Err(format!("provider error: {message}"));
         }
-        codex::ResponsesSseEvent::Usage { input_tokens, output_tokens } => {
-            if send(tx, AgentEvent::Usage { input_tokens, output_tokens }, cancel).is_none() {
-                return Err("cancelled".to_string());
-            }
-        }
+        codex::ResponsesSseEvent::Usage { .. } => {}
+        codex::ResponsesSseEvent::UsageComponents(_) => {}
         codex::ResponsesSseEvent::OutputItem(_) => {}
         codex::ResponsesSseEvent::Malformed(payload) => {
             return Err(format!("malformed provider stream payload: {payload}"));
@@ -1533,10 +1597,8 @@ fn collect_anthropic_event(
 ) -> Result<(), String> {
     let sse_event = anthropic::parse_sse_event(event_type, data);
 
-    if let Some((input_tokens, output_tokens)) = extract_usage(data)
-        && send(tx, AgentEvent::Usage { input_tokens, output_tokens }, cancel).is_none()
-    {
-        return Err("cancelled".to_string());
+    if let Some(usage) = extract_usage(data) {
+        state.usage.merge_snapshot(&usage);
     }
 
     if event_type == "content_block_start"
@@ -1590,15 +1652,33 @@ fn collect_anthropic_event(
     Ok(())
 }
 
-fn extract_usage(data: &str) -> Option<(u64, u64)> {
+fn extract_usage(data: &str) -> Option<ProviderUsageComponents> {
     let v: serde_json::Value = serde_json::from_str(data).ok()?;
     let usage = v
         .get("usage")
         .or_else(|| v.get("message").and_then(|m| m.get("usage")))
         .or_else(|| v.get("delta").and_then(|d| d.get("usage")))?;
-    let input_tokens = usage.get("input_tokens").and_then(|t| t.as_u64()).unwrap_or(0);
-    let output_tokens = usage.get("output_tokens").and_then(|t| t.as_u64()).unwrap_or(0);
-    if input_tokens == 0 && output_tokens == 0 { None } else { Some((input_tokens, output_tokens)) }
+    let input_tokens = usage.get("input_tokens").and_then(|t| t.as_u64());
+    let output_tokens = usage.get("output_tokens").and_then(|t| t.as_u64());
+    let cache_read_input_tokens = usage.get("cache_read_input_tokens").and_then(|value| value.as_u64());
+    let cache_creation_input_tokens = usage
+        .get("cache_creation_input_tokens")
+        .and_then(|value| value.as_u64());
+    if input_tokens.is_none()
+        && output_tokens.is_none()
+        && cache_read_input_tokens.is_none()
+        && cache_creation_input_tokens.is_none()
+    {
+        None
+    } else {
+        Some(ProviderUsageComponents {
+            input_tokens,
+            output_tokens,
+            cache_read_input_tokens,
+            cache_creation_input_tokens,
+            reasoning_tokens: None,
+        })
+    }
 }
 
 fn collect_content_block_start_text(
@@ -1720,6 +1800,12 @@ mod tests {
 
         fn token_budget(&self, _model: &str, _metadata: Option<&Self::Metadata>) -> u32 {
             1
+        }
+
+        fn serialized_request_body(
+            &self, _model: &str, _messages: &[ProviderMessage], _request: &StreamingRequest<'_>,
+        ) -> providers::Result<Vec<u8>> {
+            panic!("a rejected metadata request must abort before serializing the prompt")
         }
 
         fn send_streaming_request(
@@ -2157,7 +2243,7 @@ mod tests {
         let events: Vec<AgentEvent> = rx.try_iter().collect();
         assert!(events.contains(&AgentEvent::AssistantDelta("hello".to_string())));
         assert!(events.contains(&AgentEvent::ReasoningDelta("thinking".to_string())));
-        assert!(events.contains(&AgentEvent::Usage { input_tokens: 2, output_tokens: 3 }));
+        assert!(!events.iter().any(|event| matches!(event, AgentEvent::Usage { .. })));
     }
 
     #[test]
@@ -2313,7 +2399,7 @@ mod tests {
         let events: Vec<AgentEvent> = rx.try_iter().collect();
         assert!(events.contains(&AgentEvent::AssistantDelta("hello".to_string())));
         assert!(events.contains(&AgentEvent::ReasoningDelta("thinking".to_string())));
-        assert!(events.contains(&AgentEvent::Usage { input_tokens: 3, output_tokens: 5 }));
+        assert!(!events.iter().any(|event| matches!(event, AgentEvent::Usage { .. })));
     }
 
     #[test]

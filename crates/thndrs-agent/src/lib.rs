@@ -3,6 +3,7 @@
 #![warn(missing_docs)]
 #![warn(rustdoc::broken_intra_doc_links)]
 
+pub mod accounting;
 pub mod adapters;
 pub mod budget;
 pub mod cancel;
@@ -10,6 +11,11 @@ pub mod context;
 pub mod contracts;
 pub mod run;
 
+pub use accounting::{
+    ByteMeasurement, ContextItemSnapshot, MeasurementProvenance, ProviderRequestAccounting, ProviderUsage,
+    ProviderUsageComponents, ProviderUsageRule, TOKEN_ESTIMATOR_VERSION, TokenMeasurement, USAGE_NORMALIZATION_VERSION,
+    estimate_serialized_tokens, snapshot_context,
+};
 pub use adapters::{ToolExecutionHook, ToolPermissionHook};
 pub use budget::{ToolBudgetDecision, ToolIterationBudget};
 pub use cancel::CancelToken;

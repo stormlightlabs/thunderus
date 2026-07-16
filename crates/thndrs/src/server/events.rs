@@ -165,6 +165,15 @@ pub fn map_agent_event(event: &AgentEvent) -> Vec<SessionUpdateIntent> {
         AgentEvent::Usage { input_tokens, output_tokens } => {
             vec![SessionUpdateIntent::Usage { input_tokens: *input_tokens, output_tokens: *output_tokens }]
         }
+        AgentEvent::RequestAccounting(accounting) => {
+            let Some(usage) = &accounting.provider_usage else {
+                return vec![];
+            };
+            vec![SessionUpdateIntent::Usage {
+                input_tokens: usage.components.input_tokens.unwrap_or(0),
+                output_tokens: usage.components.output_tokens.unwrap_or(0),
+            }]
+        }
         AgentEvent::ToolStarted { id, name, arguments } => {
             let kind = classify_tool(name);
             vec![SessionUpdateIntent::ToolStarted {

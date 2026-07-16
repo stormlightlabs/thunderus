@@ -53,21 +53,23 @@ values.
 
 **Blocked by:** Ticket 1: Separate Evidence, Display, And Model Projections
 
+**Status:** Complete
+
 **Acceptance criteria:**
 
-- [ ] Byte and token values carry measurement provenance and estimator or
+- [x] Byte and token values carry measurement provenance and estimator or
       normalization version.
-- [ ] The final pre-send boundary snapshots all context candidates exactly once
+- [x] The final pre-send boundary snapshots all context candidates exactly once
       with a state and stable reason code.
-- [ ] Provider adapters retain available input, output, cache-read,
+- [x] Provider adapters retain available input, output, cache-read,
       cache-creation, and reasoning components and derive inclusive input using
       fixture-tested provider rules.
-- [ ] Providers that omit a component leave it unknown; zero remains a measured
+- [x] Providers that omit a component leave it unknown; zero remains a measured
       value.
-- [ ] Streaming updates and retries cannot double-count a request.
-- [ ] Session records correlate request accounting with the turn and context
+- [x] Streaming updates and retries cannot double-count a request.
+- [x] Session records correlate request accounting with the turn and context
       ledger without persisting raw provider payloads.
-- [ ] Existing aggregate session summaries remain correct during migration.
+- [x] Existing aggregate session summaries remain correct during migration.
 
 **Verification:**
 

@@ -16,6 +16,7 @@ use crate::{
     },
     thndrs_core::auth::{self, ChatGptCodexAuth},
 };
+use thndrs_agent::ProviderUsageComponents;
 
 /// ChatGPT Codex backend base URL.
 pub const BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
@@ -60,6 +61,7 @@ pub enum ResponsesSseEvent {
         input_tokens: u64,
         output_tokens: u64,
     },
+    UsageComponents(ProviderUsageComponents),
     /// Complete output item retained only for in-memory continuation.
     OutputItem(serde_json::Value),
     Done,
@@ -246,6 +248,20 @@ impl StreamingProvider for ChatGptCodexClient {
 
     fn token_budget(&self, _model: &str, _metadata: Option<&Self::Metadata>) -> u32 {
         DEFAULT_RECOMMENDED_MAX_TOKENS
+    }
+
+    fn serialized_request_body(
+        &self, model: &str, messages: &[ProviderMessage], request: &StreamingRequest<'_>,
+    ) -> Result<Vec<u8>> {
+        let body = Self::build_responses_request_body_with_reasoning(
+            model,
+            messages,
+            Some(request.tools),
+            request.reasoning_effort,
+            request.reasoning_summary,
+            request.continuation,
+        )?;
+        providers::serialize_request_body(&body)
     }
 
     fn send_streaming_request(
@@ -460,8 +476,17 @@ pub fn parse_responses_sse_event(data: &str) -> Vec<ResponsesSseEvent> {
     if let Some(status) = extract_responses_status(&value, event_type) {
         events.push(ResponsesSseEvent::ResponseStatus(status));
     }
-    if let Some((input_tokens, output_tokens)) = extract_responses_usage(&value) {
-        events.push(ResponsesSseEvent::Usage { input_tokens, output_tokens });
+    if let Some(usage) = extract_responses_usage(&value) {
+        if usage.cache_read_input_tokens.is_some()
+            || usage.cache_creation_input_tokens.is_some()
+            || usage.reasoning_tokens.is_some()
+        {
+            events.push(ResponsesSseEvent::UsageComponents(usage));
+        } else if let (Some(input_tokens), Some(output_tokens)) = (usage.input_tokens, usage.output_tokens) {
+            events.push(ResponsesSseEvent::Usage { input_tokens, output_tokens });
+        } else {
+            events.push(ResponsesSseEvent::UsageComponents(usage));
+        }
     }
     if let Some(text) = extract_responses_text_delta(&value, event_type) {
         events.push(ResponsesSseEvent::TextDelta(text));
@@ -587,7 +612,7 @@ fn extract_responses_status(value: &serde_json::Value, event_type: &str) -> Opti
     Some(status.to_string())
 }
 
-fn extract_responses_usage(value: &serde_json::Value) -> Option<(u64, u64)> {
+fn extract_responses_usage(value: &serde_json::Value) -> Option<ProviderUsageComponents> {
     let usage = value
         .get("usage")
         .or_else(|| value.get("response").and_then(|response| response.get("usage")))
@@ -596,15 +621,31 @@ fn extract_responses_usage(value: &serde_json::Value) -> Option<(u64, u64)> {
         .get("input_tokens")
         .or_else(|| usage.get("prompt_tokens"))
         .or_else(|| usage.get("inputTokens"))
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
+        .and_then(|v| v.as_u64());
     let output_tokens = usage
         .get("output_tokens")
         .or_else(|| usage.get("completion_tokens"))
         .or_else(|| usage.get("outputTokens"))
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
-    if input_tokens == 0 && output_tokens == 0 { None } else { Some((input_tokens, output_tokens)) }
+        .and_then(|v| v.as_u64());
+    if input_tokens.is_none() && output_tokens.is_none() {
+        return None;
+    }
+    let details = usage
+        .get("input_tokens_details")
+        .or_else(|| usage.get("prompt_tokens_details"));
+    Some(ProviderUsageComponents {
+        input_tokens,
+        output_tokens,
+        cache_read_input_tokens: details
+            .and_then(|details| details.get("cached_tokens"))
+            .and_then(|value| value.as_u64()),
+        cache_creation_input_tokens: None,
+        reasoning_tokens: usage
+            .get("output_tokens_details")
+            .or_else(|| usage.get("completion_tokens_details"))
+            .and_then(|details| details.get("reasoning_tokens"))
+            .and_then(|value| value.as_u64()),
+    })
 }
 
 fn event_item_id(value: &serde_json::Value) -> Option<String> {
@@ -1175,6 +1216,22 @@ mod tests {
             vec![ResponsesSseEvent::ResponseStatus("in_progress".to_string())]
         );
         assert_eq!(parse_responses_sse_event("[DONE]"), vec![ResponsesSseEvent::Done]);
+    }
+
+    #[test]
+    fn parse_responses_sse_event_retains_cache_and_reasoning_components() {
+        let events = parse_responses_sse_event(
+            r#"{"type":"response.completed","usage":{"input_tokens":100,"output_tokens":12,"input_tokens_details":{"cached_tokens":40},"output_tokens_details":{"reasoning_tokens":5}}}"#,
+        );
+        assert!(
+            events.contains(&ResponsesSseEvent::UsageComponents(ProviderUsageComponents {
+                input_tokens: Some(100),
+                output_tokens: Some(12),
+                cache_read_input_tokens: Some(40),
+                cache_creation_input_tokens: None,
+                reasoning_tokens: Some(5),
+            }))
+        );
     }
 
     #[test]

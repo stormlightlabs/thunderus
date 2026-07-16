@@ -175,6 +175,7 @@ impl App {
                 content: None,
                 token_estimate: agent_context::estimate_tokens(candidate.bytes),
                 visibility: ContextVisibility::Pinned,
+                reason_code: "user_pin".to_string(),
                 reason: "user pin".to_string(),
             };
             (candidate, item)

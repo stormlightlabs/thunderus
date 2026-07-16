@@ -9,6 +9,7 @@ use thndrs_agent::context::{
     ContextBudget, ContextItem, ContextItemKind, ContextLedger, ContextVisibility, ModelContextLimits,
     ModelLimitConfidence, ModelLimitSource,
 };
+use thndrs_agent::{ProviderRequestAccounting, ProviderUsageComponents, ProviderUsageRule};
 
 fn bundle_with_context() -> PromptBundle {
     let source = ContextSource {
@@ -41,6 +42,7 @@ fn context_item(content: &str) -> ContextItem {
         content: Some(content.to_string()),
         token_estimate: 64,
         visibility: ContextVisibility::Archived,
+        reason_code: "test_archived".to_string(),
         reason: "archived after budget selection".to_string(),
     }
 }
@@ -800,6 +802,34 @@ fn usage_record_json_round_trip() {
     let restored = SessionRecord::from_json(&json).expect("deserialize");
     assert_eq!(record, restored);
     assert!(json.contains("\"type\":\"usage\""));
+}
+
+#[test]
+fn request_accounting_record_round_trips_without_payload_content() {
+    let mut accounting = ProviderRequestAccounting::from_serialized_request(
+        "turn_1",
+        "turn_1:request:0",
+        1,
+        "anthropic",
+        "model",
+        b"{\"messages\":[]}",
+        Vec::new(),
+    );
+    accounting.provider_usage =
+        Some(ProviderUsageComponents::new(100, 12).normalize("anthropic", ProviderUsageRule::AnthropicMessages));
+    let record = SessionRecord::RequestAccounting {
+        schema_version: 1,
+        seq: 7,
+        time: "2026-06-29T12:00:09Z".to_string(),
+        turn_id: "turn_1".to_string(),
+        accounting,
+    };
+    let json = record.to_json().expect("serialize");
+    let restored = SessionRecord::from_json(&json).expect("deserialize");
+    assert_eq!(record, restored);
+    assert!(!json.contains(r#"{"messages":[]}"#));
+    assert!(json.contains("serialized_bytes"));
+    assert!(json.contains("anthropic_input_plus_cache_components"));
 }
 
 #[test]

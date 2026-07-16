@@ -262,6 +262,20 @@ impl StreamingProvider for UmansClient {
         recommended_max_tokens_for_model(model, metadata)
     }
 
+    fn serialized_request_body(
+        &self, model: &str, messages: &[ProviderMessage], request: &StreamingRequest<'_>,
+    ) -> Result<Vec<u8>> {
+        let body = UmansClient::build_messages_request_body_with_reasoning(
+            model,
+            messages,
+            request.max_tokens,
+            true,
+            Some(request.tools),
+            request.reasoning_effort,
+        )?;
+        providers::serialize_request_body(&body)
+    }
+
     fn send_streaming_request(
         &self, model: &str, messages: &[ProviderMessage], request: &StreamingRequest<'_>,
     ) -> Result<ureq::http::Response<ureq::Body>> {

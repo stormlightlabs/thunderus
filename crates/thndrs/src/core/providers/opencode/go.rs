@@ -11,6 +11,7 @@ use crate::{
     app::AgentEvent,
     providers::{
         self, KnownModel, ProviderError, ProviderHttpClient, ProviderMessage, Result, StreamFormat, StreamingProvider,
+        StreamingRequest,
     },
     thndrs_core::auth,
 };
@@ -235,6 +236,20 @@ impl StreamingProvider for OpenCodeGoClient {
 
     fn token_budget(&self, model: &str, metadata: Option<&Self::Metadata>) -> u32 {
         recommended_max_tokens_for_model(model, metadata)
+    }
+
+    fn serialized_request_body(
+        &self, model: &str, messages: &[ProviderMessage], request: &StreamingRequest<'_>,
+    ) -> Result<Vec<u8>> {
+        let body = match endpoint_family(raw_model_id(model)?) {
+            EndpointFamily::OpenAiChat => {
+                Self::build_chat_request_body(model, messages, request.max_tokens, true, Some(request.tools))?
+            }
+            EndpointFamily::AnthropicMessages => {
+                Self::build_messages_request_body(model, messages, request.max_tokens, true, Some(request.tools))?
+            }
+        };
+        providers::serialize_request_body(&body)
     }
 
     /// TODO: Map reasoning effort and summaries when the OpenCode Go backend

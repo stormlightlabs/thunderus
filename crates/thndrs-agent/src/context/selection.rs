@@ -275,6 +275,10 @@ impl UserTurnCandidate {
 ///
 /// Builds a [`ContextLedger`] from [`SelectionInput`] and the resolved
 /// [`ModelContextLimits`]. The policy is deterministic for the same inputs.
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "The selection order is intentionally explicit so every candidate receives an auditable state and reason."
+)]
 pub fn select_context(input: &SelectionInput, limits: ModelContextLimits) -> ContextLedger {
     let mut items: Vec<ContextItem> = Vec::new();
     let mut diagnostics = Vec::new();
@@ -293,6 +297,7 @@ pub fn select_context(input: &SelectionInput, limits: ModelContextLimits) -> Con
             content: None,
             token_estimate: estimate_tokens(harness.bytes),
             visibility: ContextVisibility::Visible,
+            reason_code: "harness_always_loaded".to_string(),
             reason: "always-loaded harness context".to_string(),
         });
     }
@@ -309,6 +314,7 @@ pub fn select_context(input: &SelectionInput, limits: ModelContextLimits) -> Con
             content: None,
             token_estimate: estimate_tokens(turn.bytes),
             visibility: ContextVisibility::Visible,
+            reason_code: "current_user_turn".to_string(),
             reason: "current user turn, outside ordinary budget eviction".to_string(),
         });
     }
@@ -323,6 +329,12 @@ pub fn select_context(input: &SelectionInput, limits: ModelContextLimits) -> Con
             ContextVisibility::Pinned
         };
         let reason = visibility.reason("user pin");
+        let reason_code = match visibility {
+            ContextVisibility::Dropped => "explicit_drop",
+            ContextVisibility::Blocked => "pinned_item_over_budget",
+            ContextVisibility::Pinned => "user_pin",
+            _ => "user_pin",
+        };
         items.push(ContextItem {
             id: pin.id.clone(),
             kind: pin.kind.clone(),
@@ -334,6 +346,7 @@ pub fn select_context(input: &SelectionInput, limits: ModelContextLimits) -> Con
             content: None,
             token_estimate: estimate_tokens(pin.bytes),
             visibility,
+            reason_code: reason_code.to_string(),
             reason,
         });
     }
@@ -354,6 +367,12 @@ pub fn select_context(input: &SelectionInput, limits: ModelContextLimits) -> Con
         };
         let reason =
             visibility.reason(if instruction.applicable { "applicable AGENTS.md" } else { "discovered AGENTS.md" });
+        let reason_code = match visibility {
+            ContextVisibility::Dropped => "explicit_drop",
+            ContextVisibility::Blocked => "project_instruction_over_budget",
+            ContextVisibility::Candidate => "instruction_not_applicable",
+            _ => "applicable_project_instruction",
+        };
         items.push(ContextItem {
             id,
             kind: ContextItemKind::ProjectInstruction,
@@ -365,6 +384,7 @@ pub fn select_context(input: &SelectionInput, limits: ModelContextLimits) -> Con
             content: if visibility.is_rendered() { instruction.content.clone() } else { None },
             token_estimate: estimate_tokens(instruction.byte_count),
             visibility,
+            reason_code: reason_code.to_string(),
             reason,
         });
     }
@@ -384,6 +404,12 @@ pub fn select_context(input: &SelectionInput, limits: ModelContextLimits) -> Con
             ContextVisibility::Candidate
         };
         let reason = visibility.reason(if skill.loaded { "loaded skill" } else { "discovered skill metadata" });
+        let reason_code = match visibility {
+            ContextVisibility::Dropped => "explicit_drop",
+            ContextVisibility::Blocked => "skill_over_budget",
+            ContextVisibility::Candidate => "skill_metadata_only",
+            _ => "skill_loaded",
+        };
         items.push(ContextItem {
             id,
             kind: ContextItemKind::Skill,
@@ -395,6 +421,7 @@ pub fn select_context(input: &SelectionInput, limits: ModelContextLimits) -> Con
             content: None,
             token_estimate: estimate_tokens(skill.bytes),
             visibility,
+            reason_code: reason_code.to_string(),
             reason,
         });
     }
@@ -416,6 +443,12 @@ pub fn select_context(input: &SelectionInput, limits: ModelContextLimits) -> Con
             ContextVisibility::Archived
         };
         let reason = visibility.reason("compaction summary");
+        let reason_code = match visibility {
+            ContextVisibility::Dropped => "explicit_drop",
+            ContextVisibility::Blocked => "summary_over_budget",
+            ContextVisibility::Archived => "summary_not_current",
+            _ => "latest_compaction_summary",
+        };
         items.push(ContextItem {
             id: summary.id.clone(),
             kind: ContextItemKind::Summary,
@@ -427,6 +460,7 @@ pub fn select_context(input: &SelectionInput, limits: ModelContextLimits) -> Con
             content: if visibility.is_rendered() { summary.content.clone() } else { None },
             token_estimate: estimate_tokens(summary.bytes),
             visibility,
+            reason_code: reason_code.to_string(),
             reason,
         });
     }
@@ -472,16 +506,32 @@ fn push_transcript(items: &mut Vec<ContextItem>, input: &SelectionInput, availab
             candidate.seq,
             candidate.seq,
         );
-        let (visibility, reason) = if candidate.ui_only {
-            (ContextVisibility::Candidate, "omitted: ui-only transcript entry")
+        let (visibility, reason_code, reason) = if candidate.ui_only {
+            (
+                ContextVisibility::Candidate,
+                "ui_only_transcript",
+                "omitted: ui-only transcript entry",
+            )
         } else if candidate.streaming {
-            (ContextVisibility::Candidate, "omitted: live-only streaming entry")
+            (
+                ContextVisibility::Candidate,
+                "live_only_transcript",
+                "omitted: live-only streaming entry",
+            )
         } else if input.dropped_ids.iter().any(|d| d == &id) {
-            (ContextVisibility::Dropped, "explicit drop")
+            (ContextVisibility::Dropped, "explicit_drop", "explicit drop")
         } else if selected_seq.contains(&candidate.seq) {
-            (ContextVisibility::Visible, "recent transcript entry")
+            (
+                ContextVisibility::Visible,
+                "recent_transcript",
+                "recent transcript entry",
+            )
         } else {
-            (ContextVisibility::Archived, "archived: evicted under budget pressure")
+            (
+                ContextVisibility::Archived,
+                "evicted_under_budget",
+                "archived: evicted under budget pressure",
+            )
         };
         items.push(ContextItem {
             id,
@@ -494,6 +544,7 @@ fn push_transcript(items: &mut Vec<ContextItem>, input: &SelectionInput, availab
             content: None,
             token_estimate: estimate_tokens(candidate.bytes),
             visibility,
+            reason_code: reason_code.to_string(),
             reason: reason.to_string(),
         });
     }

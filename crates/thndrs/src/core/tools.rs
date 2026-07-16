@@ -115,6 +115,10 @@ pub struct AgentRunConfig {
     pub max_tool_iterations: usize,
     /// Optional MCP manager used to extend the built-in tool registry.
     pub mcp_manager: Option<Arc<McpManager>>,
+    /// Turn id associated with request accounting.
+    pub accounting_turn_id: Option<String>,
+    /// Context candidates captured before the first provider request.
+    pub accounting_context: Vec<thndrs_agent::ContextItemSnapshot>,
 }
 
 impl AgentRunConfig {
@@ -128,6 +132,8 @@ impl AgentRunConfig {
             reasoning_summary: ReasoningSummary::default(),
             max_tool_iterations: MAX_TOOL_ITERATIONS,
             mcp_manager: None,
+            accounting_turn_id: None,
+            accounting_context: Vec::new(),
         }
     }
 
@@ -152,6 +158,15 @@ impl AgentRunConfig {
     /// Attach an MCP manager to this run.
     pub fn with_mcp_manager(mut self, manager: Arc<McpManager>) -> Self {
         self.mcp_manager = Some(manager);
+        self
+    }
+
+    /// Attach the immutable context snapshot used by provider request accounting.
+    pub fn with_request_context(
+        mut self, turn_id: impl Into<String>, ledger: &thndrs_agent::context::ContextLedger,
+    ) -> Self {
+        self.accounting_turn_id = Some(turn_id.into());
+        self.accounting_context = thndrs_agent::snapshot_context(&ledger.items);
         self
     }
 }

@@ -51,6 +51,7 @@ use std::time::{Duration, Instant};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use serde::{Deserialize, Serialize};
 use thndrs_agent::CancelToken;
+use thndrs_agent::ProviderRequestAccounting;
 pub use thndrs_agent::ToolStatus;
 use thndrs_agent::context::{self as agent_context, CompactionConfig, CompactionPolicy};
 use thndrs_agent::context::{
@@ -256,6 +257,8 @@ pub enum AgentEvent {
         input_tokens: u64,
         output_tokens: u64,
     },
+    /// One successful provider request with exact size and optional usage.
+    RequestAccounting(Box<ProviderRequestAccounting>),
     AssistantDelta(String),
     ReasoningDelta(String),
     ToolStarted {
