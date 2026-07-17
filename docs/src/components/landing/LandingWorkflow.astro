@@ -4,29 +4,31 @@ import Eyebrow from "./Eyebrow.astro";
 
 <section class="workflow" aria-labelledby="workflow-title">
   <div class="workflow__copy">
-    <Eyebrow label="Start anywhere" />
-    <h2 id="workflow-title">Talk to thndrs like any other agent.</h2>
+    <Eyebrow label="Use your stack" />
+    <h2 id="workflow-title">Run frontier models from one harness.</h2>
     <p>
-      Thndrs loads the relevant <code>AGENTS.md</code> guidance, and any installed skills you have before connecting to your
-      preferred model.
+      Use frontier GPT coding models with ChatGPT Codex. OpenCode Go, OpenCode Zen, and Umans.ai provide routes to
+      open-weight coding models. External ACP agents and MCP servers fit the same TUI and local session workflow.
     </p>
-    <a class="workflow__link" href="/docs/usage/project-context/">
-      Read about project context
+    <a class="workflow__link" href="/docs/usage/models/">
+      See models and providers
       <span class="i-ri-arrow-right-up-line" aria-hidden="true"></span>
     </a>
   </div>
   <ol class="workflow__steps">
     <li>
       <span>1</span>
-      <div><code>cd path/to/project</code><p>Open the repository you want the agent to understand.</p></div>
+      <div><code>cd path/to/project</code><p>Start where your code and <code>AGENTS.md</code> already live.</p></div>
     </li>
     <li>
       <span>2</span>
-      <div><code>thndrs</code><p>First run walks you through provider and model setup.</p></div>
+      <div><code>thndrs</code><p>Choose a provider and model on first run, then switch later from the TUI.</p></div>
     </li>
     <li>
       <span>3</span>
-      <div><code>Ask for a change.</code><p>Steer the run as needed, then inspect the diff and transcript.</p></div>
+      <div>
+        <code>Describe the outcome.</code><p>Follow each tool call, steer the active run, and inspect the diff.</p>
+      </div>
     </li>
   </ol>
 </section>

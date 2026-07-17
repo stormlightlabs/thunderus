@@ -6,29 +6,31 @@ import TerminalPreview from "./TerminalPreview.astro";
 
 <section class="hero" aria-labelledby="hero-title">
   <div class="hero__copy">
-    <Eyebrow label="Your AI Pair Programmer" />
+    <Eyebrow label="Your minimal pair programmer" />
     <h1 id="hero-title">Stay in the loop.</h1>
     <p class="hero__lede">
-      thndrs (thunderus) loads your project guidance and works through explicit tools. Every turn, tool call, and result
-      stays in a session you can inspect & steer.
+      thndrs loads the <code>AGENTS.md</code> guidance and skills that apply to your task, then gives your chosen model visible,
+      bounded tools. Requests go straight to the provider. Session data stays on your device, ready to inspect or resume.
     </p>
-    <div class="hero__actions">
-      <LandingButton href="/docs/getting-started/installation/" variant="primary" icon="arrow">
-        Install thndrs
-      </LandingButton>
-      <LandingButton href="/docs/">Read the docs</LandingButton>
-    </div>
-    <div class="install" aria-label="Install command">
-      <span aria-hidden="true">$</span>
-      <code>cargo install --locked thndrs</code>
-      <button
-        class="install__copy"
-        type="button"
-        data-copy="cargo install --locked thndrs"
-        aria-label="Copy install command">
-        <span class="install__copy-icon i-bi-copy" aria-hidden="true"></span>
-        <span class="install__check-icon i-bi-check-lg" aria-hidden="true"></span>
-      </button>
+    <div class="hero__controls">
+      <div class="hero__actions">
+        <LandingButton href="/docs/getting-started/installation/" variant="primary" icon="arrow">
+          Install thndrs
+        </LandingButton>
+        <LandingButton href="/docs/">Read the docs</LandingButton>
+      </div>
+      <div class="install" aria-label="Install command">
+        <span aria-hidden="true">$</span>
+        <code>cargo install --locked thndrs</code>
+        <button
+          class="install__copy"
+          type="button"
+          data-copy="cargo install --locked thndrs"
+          aria-label="Copy install command">
+          <span class="install__copy-icon i-bi-copy" aria-hidden="true"></span>
+          <span class="install__check-icon i-bi-check-lg" aria-hidden="true"></span>
+        </button>
+      </div>
     </div>
   </div>
   <TerminalPreview />
@@ -91,19 +93,26 @@ import TerminalPreview from "./TerminalPreview.astro";
     text-wrap: pretty;
   }
 
+  .hero__controls {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+    margin-top: 2rem;
+  }
+
   .hero__actions {
     display: flex;
-    flex-wrap: wrap;
+    flex: 0 0 auto;
     gap: 0.75rem;
-    margin-top: 2rem;
   }
 
   .install {
     display: flex;
+    flex: none;
     align-items: center;
     width: fit-content;
     min-height: 3rem;
-    margin-top: 1.5rem;
     padding-left: 0.9375rem;
     border: 1px solid var(--thndrs-border);
     border-radius: 0.5rem;
@@ -179,6 +188,7 @@ import TerminalPreview from "./TerminalPreview.astro";
     .hero h1 {
       max-width: 12ch;
     }
+
   }
 
   @media (max-width: 40rem) {
@@ -192,8 +202,18 @@ import TerminalPreview from "./TerminalPreview.astro";
       font-size: clamp(3rem, 14vw, 4.25rem);
     }
 
+    .hero__actions {
+      flex-wrap: nowrap;
+    }
+
+    .hero__actions :global(.button) {
+      min-width: 0;
+      padding-inline: clamp(0.625rem, 3vw, 1.25rem);
+      font-size: clamp(0.82rem, 3.7vw, 0.92rem);
+      white-space: nowrap;
+    }
+
     .install {
-      width: 100%;
       font-size: 0.7rem;
     }
 

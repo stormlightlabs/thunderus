@@ -4,27 +4,32 @@ import Eyebrow from "./Eyebrow.astro";
 
 <section class="features" aria-labelledby="features-title">
   <header class="features__header">
-    <h2 id="features-title">Stay oriented while the agent works.</h2>
+    <h2 id="features-title">Inspectable iteration.</h2>
   </header>
   <div class="features__grid">
     <article>
       <p class="features__number">01 / Context</p>
-      <h3>Context stays visible.</h3>
+      <h3>Control Model Context</h3>
       <p>
-        See the project instructions, skills, model, and search mode shaping the current run before you send a prompt.
+        See the model, search mode, loaded project instructions, and discovered skills before the first prompt. Pin,
+        drop, recover, or export context when you need more control.
       </p>
     </article>
     <article>
-      <p class="features__number">02 / Tools</p>
-      <h3>Every tool call has a shape.</h3>
+      <p class="features__number">02 / ACP</p>
+      <h3>Full ACP Implementation</h3>
       <p>
-        The model reads, searches, edits, and runs commands through typed tools with workspace limits and capped output.
+        Launch a configured ACP agent from the thndrs TUI, or run thndrs as an agent inside an ACP-compatible editor.
+        Tool updates, permissions, usage, and local session records follow the same workflow.
       </p>
     </article>
     <article>
-      <p class="features__number">03 / Sessions</p>
-      <h3>Sessions leave a trail.</h3>
-      <p>Resume a structured transcript with tool status, token usage, and audit metadata already attached.</p>
+      <p class="features__number">03 / Local sessions</p>
+      <h3>No Telemetry</h3>
+      <p>
+        thndrs has no hosted relay. Model requests go straight to the selected provider, while append-only JSONL records
+        keep the transcript, tool outcomes, token usage, and audit metadata local.
+      </p>
     </article>
   </div>
 </section>

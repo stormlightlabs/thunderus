@@ -2,7 +2,7 @@
 interface Props {
   href: string;
   variant?: "primary" | "secondary";
-  icon?: "arrow";
+  icon?: "arrow" | "github";
 }
 
 const { href, variant = "secondary", icon } = Astro.props;
@@ -11,6 +11,7 @@ const { href, variant = "secondary", icon } = Astro.props;
 <a class:list={["button", `button--${variant}`]} href={href}>
   <slot />
   {icon === "arrow" && <span class="button__icon i-ri-arrow-right-line" aria-hidden="true" />}
+  {icon === "github" && <span class="button__icon i-ri-github-fill" aria-hidden="true" />}
 </a>
 
 <style>
