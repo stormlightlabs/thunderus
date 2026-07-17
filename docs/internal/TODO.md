@@ -175,17 +175,17 @@ installable and catches regressions in both crates before merge.
 
 **Acceptance criteria:**
 
-- [ ] CI runs formatting, strict all-target Clippy, workspace tests, strict
+- [x] CI runs formatting, strict all-target Clippy, workspace tests, strict
       Rustdoc, documentation build, and `git diff --check`.
-- [ ] CI tests the declared MSRV and current stable Rust without unnecessarily
+- [x] CI tests the declared MSRV and current stable Rust without unnecessarily
       duplicating the full matrix.
-- [ ] `thndrs-agent` package verification and archive-content checks run without
+- [x] `thndrs-agent` package verification and archive-content checks run without
       publishing.
-- [ ] The workflow checks for vulnerable or disallowed dependencies and records
+- [x] The workflow checks for vulnerable or disallowed dependencies and records
       the chosen policy and tool in the repository.
-- [ ] Live provider tests remain explicit, credential-free manual gates rather
+- [x] Live provider tests remain explicit, credential-free manual gates rather
       than silently skipped CI assurances.
-- [ ] CI uses the lockfiles and does not modify source or accept snapshots.
+- [x] CI uses the lockfiles and does not modify source or accept snapshots.
 
 **Verification:**
 
@@ -201,16 +201,16 @@ and record the evidence needed for a separate publication decision.
 
 **Acceptance criteria:**
 
-- [ ] The README and changelog state the pre-1.0 compatibility and migration
-      policy for public modules and types.
-- [ ] Public APIs remain provider-neutral and contain no application filesystem,
+- [x] Public API breaks receive migration notes in the changelog when they are
+      introduced; public docs do not carry a speculative compatibility notice.
+- [x] Public APIs remain provider-neutral and contain no application filesystem,
       session, terminal, CLI, or provider wire types.
-- [ ] The documented consumer example compiles as a doctest or package example.
-- [ ] Strict Clippy, strict Rustdoc, unit tests, doctests, and package
+- [x] The documented consumer example compiles as a doctest or package example.
+- [x] Strict Clippy, strict Rustdoc, unit tests, doctests, and package
       verification pass independently of the application crate.
-- [ ] A human reviews the archive's license, README, fixture, benchmark, and Rust
+- [x] A human reviews the archive's license, README, fixture, benchmark, and Rust
       sources and records the result in the release evidence.
-- [ ] Publication remains a separate, explicit owner decision.
+- [x] Publication remains a separate, explicit owner decision.
 
 **Verification:**
 

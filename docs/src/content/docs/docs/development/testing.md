@@ -74,6 +74,24 @@ ChatGPT Codex live tests require network access plus real ChatGPT subscription
 credentials. They cover login, streaming, tool calls, and refresh behavior only
 when explicitly enabled.
 
+CI never injects provider credentials or runs ignored tests. A release owner
+runs each applicable live test by its full name as a manual release gate and
+records only redacted results in `docs/internal/qa.md`.
+
+## Continuous Integration
+
+The CI workflow runs the full formatting, strict Clippy, test, strict Rustdoc,
+and public documentation gates on stable Rust. A separate Rust 1.88 job runs
+`cargo check` across all targets and features so the MSRV does not duplicate
+the full stable suite.
+
+The stable job also verifies the `thndrs-agent` package and prints its archive
+contents. The package manifest's `include` list is the archive allowlist.
+`cargo-deny` checks RustSec advisories, licenses, duplicate and wildcard
+dependencies, and dependency sources using the policy in `deny.toml`. All Cargo
+and pnpm commands use their committed lockfiles. CI fails if a check changes
+tracked files; it never accepts snapshots.
+
 ### Search
 
 Search and extraction tests use local fixtures before any live web behavior.

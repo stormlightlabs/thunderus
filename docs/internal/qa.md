@@ -58,6 +58,26 @@ Record:
 - Included sources and fixtures reviewed:
 - Excluded/generated artifact result:
 
+### `thndrs-agent` pre-publication archive evidence
+
+Prepared on 2026-07-16 by Codex. This is a mechanical and API-boundary review,
+not the required human archive review or permission to publish.
+
+- Archive: `target/package/thndrs-agent-0.1.0.crate`
+- Contents: 21 files, 176.4 KiB before compression, 43.5 KiB compressed
+- Included material: Apache-2.0 license, package metadata, library README, 13
+  Rust source files, the context replay benchmark, and its JSON fixture
+- Exclusion review: no credentials, `.thndrs` state, logs, editor files, build
+  output, application sources, internal planning documents, or unrelated files
+- API-boundary review: public modules expose agent contracts, context policy,
+  accounting, replay evaluation, hooks, cancellation, and run control. They do
+  not expose application session, terminal, CLI, provider client, or provider
+  wire types. Path values are inert context metadata; the crate performs no
+  filesystem I/O.
+- Verification: `cargo package -p thndrs-agent --allow-dirty --locked`
+  packaged and compiled successfully; `tar -tzf
+  target/package/thndrs-agent-0.1.0.crate` listed the reviewed contents
+
 After `thndrs-agent 0.1.0` is available from crates.io, repeat the archive
 review for `thndrs` before approving its publication. Confirm that its README,
 license, application sources, intended tests/fixtures, and no generated or
