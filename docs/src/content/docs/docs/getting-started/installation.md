@@ -6,7 +6,9 @@ title: "Installation"
 
 - Rust toolchain.
 - A terminal with Unicode support.
-- `fd` and `rg` for the read-only repository tools.
+- `rg` for `search_text`.
+- `fd` is optional. File discovery falls back to `find`, and file listing can
+  also use `rg` or `find`.
 
 ## Install
 
@@ -49,6 +51,9 @@ thndrs doctor --json
 `doctor --json` is safe to paste into bug reports. It reports config files,
 credential sources, tool availability, session directory status, MCP/ACP
 counts, and blocking setup issues without printing credential values.
+
+The tool section labels `rg` as required for content search and `fd` as an
+optional faster file-discovery backend.
 
 If a provider rejects a credential, `thndrs` keeps the prompt out of the coding
 path and points to the appropriate login action.

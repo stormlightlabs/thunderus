@@ -1,5 +1,5 @@
 use super::config::parse_model_id;
-use super::events::map_session_update;
+use super::events::{MAX_TOOL_FIELD_BYTES, TRUNCATION_MARKER, cap, map_session_update, redact};
 use super::runner::{RunHandle, close_session, list_sessions, load_session, new_session_request, resume_session};
 use crate::app::{AgentEvent, ToolStatus};
 use crate::config::AcpAgentConfig;
@@ -131,6 +131,72 @@ fn maps_tool_start_and_completion_with_redaction() {
             shell_result: None,
         }]
     );
+}
+
+#[test]
+fn caps_tool_fields_at_utf8_boundaries() {
+    let cases = [
+        "a".repeat(MAX_TOOL_FIELD_BYTES + 1),
+        "界".repeat(MAX_TOOL_FIELD_BYTES),
+        "🙂".repeat(MAX_TOOL_FIELD_BYTES),
+        "e\u{301}".repeat(MAX_TOOL_FIELD_BYTES),
+        "a界🙂e\u{301}".repeat(MAX_TOOL_FIELD_BYTES),
+    ];
+
+    for value in cases {
+        let capped = cap(&value);
+        assert!(capped.ends_with(TRUNCATION_MARKER));
+        assert!(capped.len() <= MAX_TOOL_FIELD_BYTES + TRUNCATION_MARKER.len());
+    }
+}
+
+#[test]
+fn caps_multibyte_characters_that_cross_the_byte_limit() {
+    for character in ["界", "🙂", "\u{301}"] {
+        let value = format!("{}{character}tail", "a".repeat(MAX_TOOL_FIELD_BYTES - 1));
+        let capped = cap(&value);
+
+        assert_eq!(
+            capped,
+            format!("{}{}", "a".repeat(MAX_TOOL_FIELD_BYTES - 1), TRUNCATION_MARKER)
+        );
+    }
+}
+
+#[test]
+fn maps_capped_multibyte_raw_input_output_and_text_content() {
+    let long_text = format!("{}🙂tail", "a".repeat(MAX_TOOL_FIELD_BYTES - 1));
+    let started = map_session_update(SessionUpdate::ToolCall(
+        ToolCall::new("tool-utf8", "run command").raw_input(Some(serde_json::json!(long_text))),
+    ));
+    assert!(matches!(
+        started.as_slice(),
+        [AgentEvent::ToolStarted { arguments, .. }] if arguments.ends_with(TRUNCATION_MARKER)
+    ));
+
+    let completed = map_session_update(SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
+        "tool-utf8",
+        ToolCallUpdateFields::new()
+            .status(ToolCallStatus::Completed)
+            .raw_output(Some(serde_json::json!(long_text)))
+            .content(Some(vec![ToolCallContent::Content(Content::new(ContentBlock::Text(
+                TextContent::new(long_text),
+            )))])),
+    )));
+    assert!(matches!(
+        completed.as_slice(),
+        [AgentEvent::ToolFinished { output, .. }]
+            if output.len() == 2 && output.iter().all(|line| line.ends_with(TRUNCATION_MARKER))
+    ));
+}
+
+#[test]
+fn redacts_tool_fields_before_applying_the_cap() {
+    let value = format!("{}sk-secret", "a".repeat(MAX_TOOL_FIELD_BYTES - 3));
+    let capped = cap(&redact(&value));
+
+    assert!(capped.ends_with(TRUNCATION_MARKER));
+    assert!(!capped.contains("sk-secret"));
 }
 
 #[test]

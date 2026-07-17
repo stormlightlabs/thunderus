@@ -20,7 +20,7 @@ use crate::thndrs_core::diagnostics::{
 use crate::tools::shell::redact_secrets;
 use clap::Args;
 
-const DOCTOR_DOCS_URL: &str = "https://github.com/StormlightLabs/thndrs";
+const DOCTOR_DOCS_URL: &str = "https://thndrs.stormlightlabs.org/docs/";
 
 /// Options for `thndrs doctor`.
 #[derive(Clone, Debug, Eq, PartialEq, Args)]
@@ -69,7 +69,7 @@ pub fn run_with_writer<W: Write>(cli: &Cli, command: &DoctorCommand, writer: &mu
 fn gather_doctor_report(cli: &Cli) -> DoctorReport {
     let workspace = context::discover_workspace_root(&cli.cwd);
     let model = cli.model.clone();
-    let provider = provider_label(&model).to_string();
+    let provider = (!model.trim().is_empty()).then(|| provider_label(&model).to_string());
     let config_diagnostics = cli.config_diagnostics.iter().map(|line| redact_secrets(line)).collect();
 
     let config_files = cli
@@ -96,11 +96,19 @@ fn gather_doctor_report(cli: &Cli) -> DoctorReport {
     let mut blocking_issues = Vec::new();
     let mut setup_hint = None;
 
-    if let Some(env_var) = required_credential_env_for_provider(&provider) {
-        if auth::credential_source(env_var, &workspace).is_none() {
-            let hint = format!("run `thndrs setup --provider {provider}` or `thndrs login {provider}`");
-            blocking_issues.push(format!("missing credential for model provider {provider}: {env_var}"));
-            setup_hint = Some(hint);
+    match provider.as_deref() {
+        None => {
+            blocking_issues.push(String::from("no model provider selected"));
+            setup_hint = Some(String::from("run `thndrs setup` to choose a provider and model"));
+        }
+        Some(provider) => {
+            if let Some(env_var) = required_credential_env_for_provider(provider)
+                && auth::credential_source(env_var, &workspace).is_none()
+            {
+                let hint = format!("run `thndrs setup --provider {provider}` or `thndrs login {provider}`");
+                blocking_issues.push(format!("missing credential for model provider {provider}: {env_var}"));
+                setup_hint = Some(hint);
+            }
         }
     }
 
@@ -257,7 +265,7 @@ fn render_human_report<W: Write>(report: &DoctorReport, writer: &mut W) -> io::R
     writeln!(writer, "app_version: {}", report.app_version)?;
     writeln!(writer, "workspace: {}", report.workspace)?;
     writeln!(writer, "model: {}", report.model)?;
-    writeln!(writer, "provider: {}", report.provider)?;
+    writeln!(writer, "provider: {}", report.provider.as_deref().unwrap_or("<none>"))?;
 
     writeln!(writer, "config_files:")?;
     if report.config_files.is_empty() {
@@ -287,8 +295,16 @@ fn render_human_report<W: Write>(report: &DoctorReport, writer: &mut W) -> io::R
     }
 
     writeln!(writer, "tools:")?;
-    writeln!(writer, "  rg: {}", bool_to_status(report.tools.rg))?;
-    writeln!(writer, "  fd: {}", bool_to_status(report.tools.fd))?;
+    writeln!(
+        writer,
+        "  rg: {} (required for search_text)",
+        bool_to_status(report.tools.rg)
+    )?;
+    writeln!(
+        writer,
+        "  fd: {} (optional; file discovery falls back to find)",
+        bool_to_status(report.tools.fd)
+    )?;
 
     writeln!(
         writer,
@@ -467,7 +483,7 @@ mod tests {
         assert!(!output.contains("sk-very-secret-umans"));
         let report: DoctorReport = serde_json::from_str(&output).expect("valid JSON");
         assert_eq!(report.model, "umans-coder");
-        assert_eq!(report.provider, "umans");
+        assert_eq!(report.provider.as_deref(), Some("umans"));
         assert_eq!(report.credentials[0].provider, "umans");
         assert!(matches!(
             report.credentials[0].source.as_str(),
@@ -477,7 +493,7 @@ mod tests {
     }
 
     #[test]
-    fn doctor_human_output_includes_setup_hint_for_missing_credentials() {
+    fn doctor_human_output_reports_incomplete_setup_without_assuming_umans() {
         let workspace = workspace_with_doctor_config();
         let workspace_path = workspace.path().to_str().expect("workspace path");
 
@@ -491,8 +507,62 @@ mod tests {
         );
 
         assert!(output.contains("thndrs doctor"));
-        assert!(output.contains("setup:"));
-        assert!(output.contains("missing credential for model provider"));
+        assert!(output.contains("model: \nprovider: <none>"));
+        assert!(output.contains("issue: no model provider selected"));
+        assert!(output.contains("setup: run `thndrs setup` to choose a provider and model"));
+        assert!(!output.contains("missing credential for model provider umans"));
+        assert!(!output.contains("UMANS_API_KEY"));
+        assert_eq!(error_kind, Some(io::ErrorKind::PermissionDenied));
+    }
+
+    #[test]
+    fn doctor_json_reports_no_provider_for_incomplete_setup() {
+        let workspace = workspace_with_doctor_config();
+        let workspace_path = workspace.path().to_str().expect("workspace path");
+
+        let (output, error_kind) = with_env_vars(&[("HOME", Some(workspace_path))], || {
+            run_with_output(&["thndrs", "--cwd", workspace_path, "doctor", "--json"])
+        });
+
+        let report: DoctorReport = serde_json::from_str(&output).expect("doctor json");
+        assert_eq!(report.model, "");
+        assert_eq!(report.provider, None);
+        assert_eq!(report.blocking_issues, vec!["no model provider selected"]);
+        assert_eq!(
+            report.setup_hint.as_deref(),
+            Some("run `thndrs setup` to choose a provider and model")
+        );
+        assert!(!output.contains("UMANS_API_KEY"));
+        assert_eq!(error_kind, Some(io::ErrorKind::PermissionDenied));
+    }
+
+    #[test]
+    fn doctor_keeps_provider_specific_diagnostics_after_model_selection() {
+        let workspace = workspace_with_doctor_config();
+        let workspace_path = workspace.path().to_str().expect("workspace path");
+
+        let (output, error_kind) = with_env_vars(&[("HOME", Some(workspace_path)), ("UMANS_API_KEY", None)], || {
+            run_with_output(&[
+                "thndrs",
+                "--cwd",
+                workspace_path,
+                "--model",
+                "umans-coder",
+                "doctor",
+                "--json",
+            ])
+        });
+
+        let report: DoctorReport = serde_json::from_str(&output).expect("doctor json");
+        assert_eq!(report.provider.as_deref(), Some("umans"));
+        assert_eq!(
+            report.blocking_issues,
+            vec!["missing credential for model provider umans: UMANS_API_KEY"]
+        );
+        assert_eq!(
+            report.setup_hint.as_deref(),
+            Some("run `thndrs setup --provider umans` or `thndrs login umans`")
+        );
         assert_eq!(error_kind, Some(io::ErrorKind::PermissionDenied));
     }
 
@@ -508,7 +578,17 @@ mod tests {
                 ("OPENCODE_GO_KEY", Some("op-secret")),
                 ("OPENCODE_ZEN_KEY", Some("zen-secret")),
             ],
-            || run_with_output(&["thndrs", "--cwd", workspace_path, "doctor", "--json"]),
+            || {
+                run_with_output(&[
+                    "thndrs",
+                    "--cwd",
+                    workspace_path,
+                    "--model",
+                    "umans-coder",
+                    "doctor",
+                    "--json",
+                ])
+            },
         );
 
         assert_eq!(error_kind, None);
@@ -556,7 +636,7 @@ mod tests {
         );
         assert_eq!(error_kind, None);
         let report: DoctorReport = serde_json::from_str(&output).expect("parse report");
-        assert_eq!(report.provider, "acp");
+        assert_eq!(report.provider.as_deref(), Some("acp"));
         assert!(
             report.session.path.ends_with(".thndrs/sessions"),
             "unexpected session path: {}",

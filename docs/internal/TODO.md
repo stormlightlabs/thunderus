@@ -70,13 +70,13 @@ string between UTF-8 code units.
 
 **Acceptance criteria:**
 
-- [ ] The cap helper truncates by a valid UTF-8 boundary and preserves the
+- [x] The cap helper truncates by a valid UTF-8 boundary and preserves the
       existing byte bound and truncation marker.
-- [ ] Long ASCII, CJK, emoji, combining-mark, and mixed strings never panic.
-- [ ] Raw tool input, raw output, and text content all use the safe helper.
-- [ ] Redaction still happens before capped data reaches the transcript or
+- [x] Long ASCII, CJK, emoji, combining-mark, and mixed strings never panic.
+- [x] Raw tool input, raw output, and text content all use the safe helper.
+- [x] Redaction still happens before capped data reaches the transcript or
       session path.
-- [ ] Regression tests place multibyte characters directly across the cap
+- [x] Regression tests place multibyte characters directly across the cap
       boundary.
 
 **Verification:**
@@ -94,16 +94,16 @@ instead of silently diagnosing Umans, and direct users to a working support URL.
 
 **Acceptance criteria:**
 
-- [ ] With an empty model, `doctor` reports no selected provider and does not
+- [x] With an empty model, `doctor` reports no selected provider and does not
       claim that `UMANS_API_KEY` is the blocking credential.
-- [ ] The setup hint asks the user to choose a provider through `thndrs setup`.
-- [ ] Once a model is selected, provider-specific credential diagnostics behave
+- [x] The setup hint asks the user to choose a provider through `thndrs setup`.
+- [x] Once a model is selected, provider-specific credential diagnostics behave
       as they do today.
-- [ ] Human and JSON reports use the same state and remain free of credential
+- [x] Human and JSON reports use the same state and remain free of credential
       values.
-- [ ] The reported documentation or support URL returns a successful response
+- [x] The reported documentation or support URL returns a successful response
       and matches the public site or repository URL.
-- [ ] The installation requirements and `doctor` output agree about whether
+- [x] The installation requirements and `doctor` output agree about whether
       `rg` and `fd` are required, optional, or replaceable by a fallback.
 
 **Verification:**

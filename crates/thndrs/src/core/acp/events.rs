@@ -6,7 +6,8 @@ use agent_client_protocol::schema::v1::{
 
 use crate::app::{AgentEvent, ToolStatus};
 
-const MAX_TOOL_FIELD_CHARS: usize = 4096;
+pub(super) const MAX_TOOL_FIELD_BYTES: usize = 4096;
+pub(super) const TRUNCATION_MARKER: &str = "...[truncated]";
 
 /// Convert a stable ACP v1 session update into one or more UI agent events.
 pub fn map_session_update(update: SessionUpdate) -> Vec<AgentEvent> {
@@ -150,14 +151,18 @@ fn capped_json(value: Option<&serde_json::Value>) -> String {
     }
 }
 
-fn cap(value: &str) -> String {
-    if value.len() <= MAX_TOOL_FIELD_CHARS {
+pub(super) fn cap(value: &str) -> String {
+    if value.len() <= MAX_TOOL_FIELD_BYTES {
         value.to_string()
     } else {
-        format!("{}...[truncated]", &value[..MAX_TOOL_FIELD_CHARS])
+        let mut end = MAX_TOOL_FIELD_BYTES;
+        while !value.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}{}", &value[..end], TRUNCATION_MARKER)
     }
 }
 
-fn redact(value: &str) -> String {
+pub(super) fn redact(value: &str) -> String {
     value.replace("sk-", "sk-[redacted]-")
 }

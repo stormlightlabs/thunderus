@@ -17,13 +17,14 @@ cannot be exposed without an executor or executed without a schema. See the
 
 ## File Discovery
 
-`find_files` discovers paths inside the selected workspace. It is backed by
-`fd` and keeps hidden or ignored files out of the default search.
+`find_files` discovers paths inside the selected workspace. It uses `fd` when
+available and falls back to `find`. Both paths keep hidden files out of the
+default search. `fd` also respects ignore files.
 
 ### Searchable Files
 
 `list_searchable_files` lists files that are reasonable candidates for content
-search. It uses `rg --files` or `fd --type file`.
+search. It uses `fd --type file`, `rg --files`, or `find`, in that order.
 
 ### File Range Reads
 

@@ -11,8 +11,8 @@ pub struct DoctorReport {
     pub workspace: String,
     /// Effective model configured for this CLI invocation.
     pub model: String,
-    /// Resolved provider for the selected model.
-    pub provider: String,
+    /// Resolved provider for the selected model, or `None` before setup.
+    pub provider: Option<String>,
     /// Loaded config files and redacted metadata.
     pub config_files: Vec<DoctorConfigFile>,
     /// Config-load diagnostics from resolved config files.
