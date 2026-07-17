@@ -257,6 +257,55 @@ fn bg_command_lists_registered_background_processes() {
 }
 
 #[test]
+fn bg_cancel_terminates_real_owned_child() {
+    let mut app = fresh_app();
+    let dir = tempfile::tempdir().expect("temp dir");
+    let args = crate::tools::shell::ShellArgs {
+        program: "sh".to_string(),
+        args: vec!["-c".to_string(), "exec sleep 30".to_string()],
+        cwd: None,
+        timeout: Some(std::time::Duration::from_secs(60)),
+        kind: crate::tools::shell::ProcessKind::Background,
+    };
+    let result = crate::tools::shell::run_command_with_registry(
+        &args,
+        dir.path(),
+        &CancelToken::new(),
+        Some(&app.process_registry),
+    )
+    .expect("spawn background child");
+    let id = result.process_id.expect("process id");
+    app.process_registry.announce(id);
+
+    app.mode = Mode::Command;
+    app.input = PromptInput::from(format!("bg cancel {id}"));
+    update(&mut app, &Msg::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+    assert!(app.process_registry.get(id).is_some(), "cancellation is asynchronous");
+    assert!(
+        app.transcript
+            .iter()
+            .any(|entry| { matches!(entry, Entry::Status { text } if text.contains("cancellation requested")) })
+    );
+
+    for _ in 0..50 {
+        update(&mut app, &Msg::Tick);
+        if app.process_registry.get(id).is_none() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(
+        app.process_registry.get(id).is_none(),
+        "child should be reaped on a tick"
+    );
+    assert!(
+        app.transcript
+            .iter()
+            .any(|entry| { matches!(entry, Entry::Status { text } if text.contains("cancelled")) })
+    );
+}
+
+#[test]
 fn model_command_opens_picker_and_selects_model() {
     let mut app = fresh_app();
     update(&mut app, &key(KeyCode::Char(':'), KeyModifiers::NONE));

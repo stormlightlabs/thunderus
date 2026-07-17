@@ -58,6 +58,7 @@ Supported command families include:
 | `clear`                       | Clear the visible transcript.                         |
 | `help`                        | Open help.                                            |
 | `bg`                          | List background processes.                            |
+| `bg cancel <id>`              | Cancel one owned background process.                 |
 | `model`                       | Open the model picker.                                |
 | `skills`                      | Browse loaded skills.                                 |
 | `context`                     | Inspect the bounded active context working set.       |

@@ -281,6 +281,7 @@ fn run_command_captures_elapsed_time() {
 #[test]
 fn process_result_summary_includes_command_and_status() {
     let result = ProcessResult {
+        process_id: None,
         command: vec!["cargo".to_string(), "test".to_string()],
         cwd: PathBuf::from("/repo"),
         status: ProcessStatus::Ok,
@@ -300,6 +301,7 @@ fn process_result_summary_includes_command_and_status() {
 #[test]
 fn process_result_to_output_lines_includes_markers() {
     let result = ProcessResult {
+        process_id: None,
         command: vec!["echo".to_string()],
         cwd: PathBuf::from("/repo"),
         status: ProcessStatus::Ok,
@@ -320,6 +322,7 @@ fn process_result_to_output_lines_includes_markers() {
 #[test]
 fn process_result_to_output_lines_omits_empty_streams() {
     let result = ProcessResult {
+        process_id: None,
         command: vec!["echo".to_string()],
         cwd: PathBuf::from("/repo"),
         status: ProcessStatus::Ok,
@@ -336,6 +339,7 @@ fn process_result_to_output_lines_omits_empty_streams() {
 #[test]
 fn process_result_to_failed_output_for_timeout() {
     let result = ProcessResult {
+        process_id: None,
         command: vec!["sleep".to_string(), "30".to_string()],
         cwd: PathBuf::from("/repo"),
         status: ProcessStatus::Timeout,
@@ -354,6 +358,7 @@ fn process_result_to_failed_output_for_timeout() {
 #[test]
 fn process_result_to_failed_output_for_cancelled() {
     let result = ProcessResult {
+        process_id: None,
         command: vec!["sleep".to_string(), "30".to_string()],
         cwd: PathBuf::from("/repo"),
         status: ProcessStatus::Cancelled,
@@ -371,6 +376,7 @@ fn process_result_to_failed_output_for_cancelled() {
 #[test]
 fn process_result_to_failed_output_for_failure() {
     let result = ProcessResult {
+        process_id: None,
         command: vec!["false".to_string()],
         cwd: PathBuf::from("/repo"),
         status: ProcessStatus::Failed,
@@ -395,7 +401,7 @@ fn registry_starts_empty() {
 
 #[test]
 fn registry_register_assigns_incrementing_ids() {
-    let mut reg = ProcessRegistry::new();
+    let reg = ProcessRegistry::new();
     let id1 = reg.register(
         vec!["echo".to_string()],
         PathBuf::from("/repo"),
@@ -415,7 +421,7 @@ fn registry_register_assigns_incrementing_ids() {
 
 #[test]
 fn registry_get_returns_active_process() {
-    let mut reg = ProcessRegistry::new();
+    let reg = ProcessRegistry::new();
     let id = reg.register(
         vec!["cargo".to_string(), "test".to_string()],
         PathBuf::from("/repo"),
@@ -435,7 +441,7 @@ fn registry_get_missing_returns_none() {
 
 #[test]
 fn registry_remove_removes_process() {
-    let mut reg = ProcessRegistry::new();
+    let reg = ProcessRegistry::new();
     let id = reg.register(
         vec!["echo".to_string()],
         PathBuf::from("/repo"),
@@ -449,13 +455,13 @@ fn registry_remove_removes_process() {
 
 #[test]
 fn registry_remove_missing_returns_none() {
-    let mut reg = ProcessRegistry::new();
+    let reg = ProcessRegistry::new();
     assert!(reg.remove(999).is_none());
 }
 
 #[test]
 fn registry_counts_by_kind() {
-    let mut reg = ProcessRegistry::new();
+    let reg = ProcessRegistry::new();
     reg.register(
         vec!["a".to_string()],
         PathBuf::from("/repo"),
@@ -482,7 +488,7 @@ fn registry_counts_by_kind() {
 
 #[test]
 fn registry_cancel_signals_flag() {
-    let mut reg = ProcessRegistry::new();
+    let reg = ProcessRegistry::new();
     let cancel = CancelToken::new();
     let id = reg.register(
         vec!["sleep".to_string(), "30".to_string()],
@@ -496,13 +502,13 @@ fn registry_cancel_signals_flag() {
 
 #[test]
 fn registry_cancel_missing_returns_false() {
-    let mut reg = ProcessRegistry::new();
+    let reg = ProcessRegistry::new();
     assert!(!reg.cancel(999));
 }
 
 #[test]
 fn registry_cancel_all_signals_all_flags() {
-    let mut reg = ProcessRegistry::new();
+    let reg = ProcessRegistry::new();
     let c1 = CancelToken::new();
     let c2 = CancelToken::new();
     reg.register(
@@ -525,7 +531,7 @@ fn registry_cancel_all_signals_all_flags() {
 
 #[test]
 fn registry_ids_iterates_all() {
-    let mut reg = ProcessRegistry::new();
+    let reg = ProcessRegistry::new();
     reg.register(
         vec!["a".to_string()],
         PathBuf::from("/repo"),
@@ -546,7 +552,7 @@ fn registry_ids_iterates_all() {
 
 #[test]
 fn registry_background_ids_filters() {
-    let mut reg = ProcessRegistry::new();
+    let reg = ProcessRegistry::new();
     reg.register(
         vec!["a".to_string()],
         PathBuf::from("/repo"),
@@ -573,7 +579,7 @@ fn registry_background_ids_filters() {
 
 #[test]
 fn registry_active_process_elapsed_tracks_time() {
-    let mut reg = ProcessRegistry::new();
+    let reg = ProcessRegistry::new();
     let id = reg.register(
         vec!["sleep".to_string()],
         PathBuf::from("/repo"),
@@ -695,20 +701,172 @@ fn registry_execute_foreground_command_returns_shell_result() {
 }
 
 #[test]
-fn registry_execute_background_command_preserves_kind_for_registration() {
+fn registry_execute_background_process_returns_promptly_and_owns_child() {
     let dir = tempfile::tempdir().expect("temp dir");
+    let registry = ProcessRegistry::new();
     let request = tools::ToolUseRequest::new(
         "run_shell".to_string(),
-        r#"{"program":"echo","args":["background"],"background":true}"#.to_string(),
+        r#"{"argv":["sh","-c","exec sleep 30"],"background":true}"#.to_string(),
         "call_1".to_string(),
     );
+    let context = tools::registry::ToolContext::new(dir.path()).with_process_registry(registry.clone());
+    let started = Instant::now();
 
-    let execution = tools::registry::execute(&request, &tools::registry::ToolContext::new(dir.path()));
+    let execution = tools::registry::execute(&request, &context);
 
     assert_eq!(execution.output.status, ToolStatus::Ok);
     let result = execution.shell_result.expect("shell audit metadata");
     assert_eq!(result.kind, ProcessKind::Background);
-    assert_eq!(result.stdout, vec!["background".to_string()]);
+    assert_eq!(result.status, ProcessStatus::Running);
+    let id = result.process_id.expect("owned process id");
+    registry.announce(id);
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "background call waited for child"
+    );
+    let process = registry.get(id).expect("child should be registered");
+    assert_eq!(process.status, ProcessStatus::Running);
+    assert_eq!(process.command, vec!["sh", "-c", "exec sleep 30"]);
+
+    assert!(registry.cancel(id));
+    let results = wait_for_completed(&registry);
+    assert_eq!(results[0].process_id, Some(id));
+    assert_eq!(results[0].status, ProcessStatus::Cancelled);
+    assert!(registry.is_empty());
+}
+
+#[test]
+fn registry_execute_background_process_drains_natural_exit_and_output() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let registry = ProcessRegistry::new();
+    let request = tools::ToolUseRequest::new(
+        "run_shell".to_string(),
+        r#"{"argv":["sh","-c","printf 'background done\\n'; sleep 0.1"],"background":true}"#.to_string(),
+        "call_1".to_string(),
+    );
+    let context = tools::registry::ToolContext::new(dir.path()).with_process_registry(registry.clone());
+
+    let execution = tools::registry::execute(&request, &context);
+    let id = execution
+        .shell_result
+        .expect("shell audit metadata")
+        .process_id
+        .expect("process id");
+    registry.announce(id);
+    assert_eq!(execution.output.status, ToolStatus::Ok);
+    assert!(registry.background_ids().any(|active_id| active_id == id));
+
+    let results = wait_for_completed(&registry);
+    assert_eq!(results[0].status, ProcessStatus::Ok);
+    assert_eq!(results[0].stdout, vec!["background done"]);
+    assert!(registry.background_ids().next().is_none());
+}
+
+#[test]
+fn background_child_cancellation_handle_is_independent_from_agent_turn() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let registry = ProcessRegistry::new();
+    let parent_cancel = CancelToken::new();
+    let args = ShellArgs {
+        program: "sleep".to_string(),
+        args: vec!["30".to_string()],
+        cwd: None,
+        timeout: Some(Duration::from_secs(60)),
+        kind: ProcessKind::Background,
+    };
+    let result = run_command_with_registry(&args, dir.path(), &parent_cancel, Some(&registry)).expect("spawn");
+    let id = result.process_id.expect("process id");
+    registry.announce(id);
+
+    parent_cancel.cancel();
+    std::thread::sleep(Duration::from_millis(50));
+    assert_eq!(registry.get(id).expect("owned child").status, ProcessStatus::Running);
+
+    let results = registry.shutdown();
+    assert_eq!(results[0].status, ProcessStatus::Cancelled);
+}
+
+#[test]
+fn background_command_requires_application_registry() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let args = ShellArgs {
+        program: "sleep".to_string(),
+        args: vec!["30".to_string()],
+        cwd: None,
+        timeout: None,
+        kind: ProcessKind::Background,
+    };
+    let error = run_command(&args, dir.path(), &CancelToken::new()).expect_err("registry is required");
+    assert!(error.contains("application-owned process registry"));
+}
+
+#[test]
+fn registry_shutdown_cancels_and_reaps_owned_child() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let registry = ProcessRegistry::new();
+    let args = ShellArgs {
+        program: "sh".to_string(),
+        args: vec!["-c".to_string(), "exec sleep 30".to_string()],
+        cwd: None,
+        timeout: Some(Duration::from_secs(60)),
+        kind: ProcessKind::Background,
+    };
+    let result = run_command_with_registry(&args, dir.path(), &CancelToken::new(), Some(&registry)).expect("spawn");
+    let id = result.process_id.expect("process id");
+    let final_results = registry.shutdown();
+
+    assert_eq!(final_results.len(), 1);
+    assert_eq!(final_results[0].process_id, Some(id));
+    assert_eq!(final_results[0].status, ProcessStatus::Cancelled);
+    assert!(registry.is_empty());
+}
+
+#[test]
+fn registry_background_child_reports_failure_and_timeout() {
+    let dir = tempfile::tempdir().expect("temp dir");
+
+    let failure_registry = ProcessRegistry::new();
+    let failure_args = ShellArgs {
+        program: "sh".to_string(),
+        args: vec!["-c".to_string(), "exit 3".to_string()],
+        cwd: None,
+        timeout: Some(Duration::from_secs(1)),
+        kind: ProcessKind::Background,
+    };
+    let failure = run_command_with_registry(&failure_args, dir.path(), &CancelToken::new(), Some(&failure_registry))
+        .expect("spawn failing child");
+    let failure_id = failure.process_id.expect("failure id");
+    failure_registry.announce(failure_id);
+    let failure_result = wait_for_completed(&failure_registry);
+    assert_eq!(failure_result[0].status, ProcessStatus::Failed);
+    assert_eq!(failure_result[0].exit_code, Some(3));
+
+    let timeout_registry = ProcessRegistry::new();
+    let timeout_args = ShellArgs {
+        program: "sleep".to_string(),
+        args: vec!["30".to_string()],
+        cwd: None,
+        timeout: Some(Duration::from_millis(50)),
+        kind: ProcessKind::Background,
+    };
+    let timeout = run_command_with_registry(&timeout_args, dir.path(), &CancelToken::new(), Some(&timeout_registry))
+        .expect("spawn timeout child");
+    let timeout_id = timeout.process_id.expect("timeout id");
+    timeout_registry.announce(timeout_id);
+    let timeout_result = wait_for_completed(&timeout_registry);
+    assert_eq!(timeout_result[0].status, ProcessStatus::Timeout);
+    assert!(timeout_result[0].exit_code.is_none());
+}
+
+fn wait_for_completed(registry: &ProcessRegistry) -> Vec<ProcessResult> {
+    for _ in 0..200 {
+        let results = registry.drain_completed();
+        if !results.is_empty() {
+            return results;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    panic!("background process did not complete");
 }
 
 #[test]

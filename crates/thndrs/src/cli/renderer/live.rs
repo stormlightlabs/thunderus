@@ -141,12 +141,12 @@ pub fn prompt_rows_for(app: &App, width: usize) -> (Vec<Row>, Option<CursorCoord
 }
 
 /// Number of horizontal frame rows reserved by the composer at this width.
-pub(crate) fn composer_frame_height(width: usize) -> usize {
+pub fn composer_frame_height(width: usize) -> usize {
     usize::from(super::layout::content_width(width) >= COMPOSER_MIN_CONTENT_WIDTH) * 2
 }
 
 /// Add the horizontal frame around already-wrapped prompt body rows.
-pub(crate) fn frame_prompt_rows(
+pub fn frame_prompt_rows(
     app: &App, width: usize, rows: Vec<Row>, cursor: Option<CursorCoord>,
 ) -> (Vec<Row>, Option<CursorCoord>) {
     if composer_frame_height(width) == 0 {

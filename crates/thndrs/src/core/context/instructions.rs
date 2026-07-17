@@ -455,11 +455,9 @@ mod tests {
 
         let mentioned = vec![PathBuf::from("docs/readme.md")];
         let selection = select_instructions(&inventory.sources, &mentioned, &[]);
-        let applicable_scopes: Vec<&str> = selection.applicable.iter().map(|s| s.scope.as_str()).collect();
-        assert!(applicable_scopes.contains(&"."));
-        assert!(!applicable_scopes.contains(&"src"));
-        let overridden_scopes: Vec<&str> = selection.overridden.iter().map(|s| s.scope.as_str()).collect();
-        assert!(overridden_scopes.contains(&"src"));
+        assert!(selection.applicable.iter().any(|s| s.scope == "."));
+        assert!(!selection.applicable.iter().any(|s| s.scope == "src"));
+        assert!(selection.overridden.iter().any(|s| s.scope == "src"));
     }
 
     #[test]
@@ -486,8 +484,7 @@ mod tests {
 
         let pinned = vec![PathBuf::from("src/lib.rs")];
         let selection = select_instructions(&inventory.sources, &[], &pinned);
-        let applicable_scopes: Vec<&str> = selection.applicable.iter().map(|s| s.scope.as_str()).collect();
-        assert!(applicable_scopes.contains(&"src"));
+        assert!(selection.applicable.iter().any(|s| s.scope == "src"));
     }
 
     #[test]

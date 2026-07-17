@@ -11,19 +11,19 @@ use crate::tools::ToolUseRequest;
 
 /// Bound DNS resolution and TCP/TLS setup so a disconnected provider cannot
 /// hold an agent run indefinitely.
-pub(crate) const PROVIDER_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+pub const PROVIDER_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Bound request transmission, including request bodies such as tool schemas.
-pub(crate) const PROVIDER_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+pub const PROVIDER_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Bound the wait for a provider to begin its HTTP response.
-pub(crate) const PROVIDER_RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
+pub const PROVIDER_RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Bound one stalled read from a streaming provider response.
 ///
 /// This is deliberately not a global request deadline: active SSE streams may
 /// continue longer than this interval as long as they keep producing data.
-pub(crate) const PROVIDER_STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+pub const PROVIDER_STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub mod anthropic;
 pub mod codex;
@@ -41,7 +41,7 @@ pub type Result<T> = std::result::Result<T, ProviderError>;
 /// `ureq` applies `timeout_recv_body` to each blocking body read. That gives
 /// streaming responses a finite inactivity timeout without imposing a total
 /// lifetime on an otherwise healthy SSE response.
-pub(crate) fn provider_http_agent() -> ureq::Agent {
+pub fn provider_http_agent() -> ureq::Agent {
     ureq::Agent::config_builder()
         .timeout_resolve(Some(PROVIDER_CONNECT_TIMEOUT))
         .timeout_connect(Some(PROVIDER_CONNECT_TIMEOUT))
@@ -108,7 +108,7 @@ pub trait StreamingProvider: Sized {
 }
 
 /// Serialize a provider request body at the accounting boundary.
-pub(crate) fn serialize_request_body(body: &serde_json::Value) -> Result<Vec<u8>> {
+pub fn serialize_request_body(body: &serde_json::Value) -> Result<Vec<u8>> {
     serde_json::to_vec(&body).map_err(|error| ProviderError::Json(error.to_string()))
 }
 

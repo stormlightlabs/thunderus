@@ -5,7 +5,9 @@
 
 use std::path::Path;
 
-use super::{ToolDefinition, ToolOutput, ToolUseRequest, WriteOp, WriteResult, hash_content, path};
+use super::{
+    ToolDefinition, ToolOutput, ToolUseRequest, WriteOp, WriteResult, atomic_write, hash_content, path, replace_range,
+};
 use crate::tools::registry::{ToolContext, ToolError, ToolExecution};
 
 const NAME: &str = "create_file";
@@ -33,6 +35,10 @@ pub fn exec(path_str: &str, root: &Path, content: &str) -> (ToolOutput, Option<W
         }
     };
 
+    replace_range::with_file_lock(&resolved, || exec_locked(&resolved, content))
+}
+
+fn exec_locked(resolved: &Path, content: &str) -> (ToolOutput, Option<WriteResult>) {
     if resolved.exists() {
         return (
             ToolOutput::failed("create_file", format!("file already exists: {}", resolved.display())),
@@ -53,13 +59,18 @@ pub fn exec(path_str: &str, root: &Path, content: &str) -> (ToolOutput, Option<W
     let after_hash = hash_content(content);
     let after_bytes = content.len();
 
-    if let Err(e) = std::fs::write(&resolved, content) {
-        return (ToolOutput::failed("create_file", format!("write failed: {e}")), None);
+    if let Err(e) = atomic_write::write(resolved, content.as_bytes(), atomic_write::WriteMode::Create) {
+        let message = if e.kind() == std::io::ErrorKind::AlreadyExists {
+            format!("file already exists: {}", resolved.display())
+        } else {
+            format!("write failed: {e}")
+        };
+        return (ToolOutput::failed("create_file", message), None);
     }
 
     let result = WriteResult {
         op: WriteOp::Create,
-        path: resolved,
+        path: resolved.to_path_buf(),
         before_hash: None,
         before_bytes: None,
         after_hash,
@@ -79,7 +90,8 @@ Create a new file with the given content.
 
 Use this for direct new-file writes. Prefer write_patch op=create when doing a
 mixed edit. Fails if the file exists. Paths are contained to the workspace root;
-escapes are rejected. Parent directories are created if needed."#,
+escapes are rejected. Parent directories are created if needed. Failed writes
+leave no partial target or temporary file."#,
         serde_json::json!({
             "type": "object",
             "properties": {
@@ -207,6 +219,32 @@ mod tests {
 
         let written = std::fs::read_to_string(root.join("empty.txt")).expect("read file");
         assert!(written.is_empty());
+    }
+
+    #[test]
+    fn create_file_failed_write_leaves_no_target_or_temporary_file() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let root = dir.path();
+        atomic_write::fail_next_for_test(atomic_write::FailurePoint::AfterPartialWrite);
+
+        let (output, result) = exec("failed.txt", root, "content");
+
+        assert_eq!(output.status, ToolStatus::Failed);
+        assert!(result.is_none());
+        assert!(!root.join("failed.txt").exists());
+        assert_no_temporary_files(root);
+    }
+
+    fn assert_no_temporary_files(root: &Path) {
+        let temporary_files = std::fs::read_dir(root)
+            .expect("read workspace")
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with(".thndrs-write-"))
+            .collect::<Vec<_>>();
+        assert!(
+            temporary_files.is_empty(),
+            "temporary files remain: {temporary_files:?}"
+        );
     }
 
     #[test]

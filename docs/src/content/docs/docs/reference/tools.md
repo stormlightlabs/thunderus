@@ -18,9 +18,7 @@ Session records keep both the configured server name and the original MCP tool n
 MCP definitions come from server `tools/list` responses.
 
 Their JSON input schemas are passed through to the provider under the namespaced tool name,
-and tool-call results are converted back into the local `ToolOutput` shape.
-
-Text content is emitted as output lines; structured content is rendered as a bounded line in the transcript.
+and tool-call results are converted back into the agent's domain model.
 
 ## `find_files`
 
@@ -111,7 +109,10 @@ Inputs:
 - `content`: full file content.
 
 The tool fails if the file already exists and creates parent directories when
-needed.
+needed. It writes the complete content to a same-directory temporary file
+before installation, so a failed create leaves no partial target. If a target
+appears after validation, the no-clobber install fails instead of overwriting
+it.
 
 ## `replace_range`
 
@@ -125,6 +126,11 @@ Inputs:
 
 The edit fails if `old_string` appears zero or multiple times. Failed edits
 leave the file unchanged.
+
+The write is assembled in a same-directory temporary file and installed only after
+the complete content is synchronized.
+
+Target permissions are preserved where the platform exposes them.
 
 ## `write_patch`
 
@@ -147,7 +153,9 @@ Use `edit` for small exact replacements, `create` for new files, and `replace`
 only when overwriting the full file is intentional. A call may contain one
 `create` or `replace` patch, or one or more `edit` patches for the same file.
 Every edit matches the original file content. The tool validates the full batch
-before writing, so a failed batch leaves the file unchanged.
+before writing, so a failed batch leaves the file unchanged. Writes use a
+same-directory temporary file and a final install after the content is
+synchronized. `create` never clobbers a target that appears during validation.
 
 ## `run_shell`
 
@@ -159,19 +167,26 @@ Inputs:
 - `argv`: non-empty array containing the program followed by its arguments.
 - `cwd`: optional working directory relative to the workspace root.
 - `timeout_ms`: optional timeout in milliseconds.
-- `background`: run as a long-lived background process.
+- `background`: start a long-lived process owned by the interactive
+  application and return immediately with its process id.
 
 Commands run as the local `thndrs` process, not in a sandbox. Output is capped,
-truncated, and redacted where deterministic redaction is possible.
+truncated, and redacted where deterministic redaction is possible. Use `:bg`
+to list live background processes and `:bg cancel <id>` to cancel one. Quitting
+the TUI cancels and reaps every owned background child. A background start is
+recorded as `running`. A later `shell_exec` record records its terminal
+`ok`, `failed`, `timeout`, or `cancelled` state.
 
 ## Side-Effect Records
 
 Every tool call has a `tool_started` and `tool_finished` session record. Write
 tools also append `file_write` audit metadata with operation, path, hashes, byte
 counts, and status. `run_shell` also appends `shell_exec` metadata with command,
-working directory, process kind, exit status, elapsed time, and cancellation or
-background state. Full file contents and uncapped stdout/stderr are not stored
-in those side-effect records.
+working directory, optional process id, process kind, exit status, elapsed time,
+and cancellation or background state.
+
+Background commands append one start record and one terminal record. Full file
+contents and uncapped stdout/stderr are not stored in those side-effect records.
 
 MCP tool output follows the same transcript/session limits as built-in tool
 output: lines and bytes are capped, deterministic secret redaction is applied,

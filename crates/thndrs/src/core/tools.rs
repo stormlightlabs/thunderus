@@ -16,6 +16,7 @@
 
 pub mod shell;
 
+mod atomic_write;
 mod create_file;
 mod find_files;
 mod list_searchable_files;
@@ -115,6 +116,8 @@ pub struct AgentRunConfig {
     pub max_tool_iterations: usize,
     /// Optional MCP manager used to extend the built-in tool registry.
     pub mcp_manager: Option<Arc<McpManager>>,
+    /// Shared application owner for background shell processes.
+    pub process_registry: Option<shell::ProcessRegistry>,
     /// Turn id associated with request accounting.
     pub accounting_turn_id: Option<String>,
     /// Context candidates captured before the first provider request.
@@ -132,6 +135,7 @@ impl AgentRunConfig {
             reasoning_summary: ReasoningSummary::default(),
             max_tool_iterations: MAX_TOOL_ITERATIONS,
             mcp_manager: None,
+            process_registry: None,
             accounting_turn_id: None,
             accounting_context: Vec::new(),
         }
@@ -158,6 +162,12 @@ impl AgentRunConfig {
     /// Attach an MCP manager to this run.
     pub fn with_mcp_manager(mut self, manager: Arc<McpManager>) -> Self {
         self.mcp_manager = Some(manager);
+        self
+    }
+
+    /// Attach the application-owned registry used for background shell tools.
+    pub fn with_process_registry(mut self, registry: shell::ProcessRegistry) -> Self {
+        self.process_registry = Some(registry);
         self
     }
 
@@ -314,11 +324,20 @@ pub fn dispatch_full_with_search(
 }
 
 /// Dispatch a request with cancellation and the active search backend.
-pub(crate) fn dispatch_full_with_cancel_and_search(
+pub fn dispatch_full_with_cancel_and_search(
     request: &ToolUseRequest, root: &Path, cancel: &CancelToken, search: &SearchConfig,
 ) -> (ToolOutput, Option<WriteResult>, Option<shell::ProcessResult>) {
+    dispatch_full_with_cancel_and_search_and_registry(request, root, cancel, search, None)
+}
+
+/// Dispatch a request with cancellation, search settings, and an optional
+/// application-owned background-process registry.
+pub fn dispatch_full_with_cancel_and_search_and_registry(
+    request: &ToolUseRequest, root: &Path, cancel: &CancelToken, search: &SearchConfig,
+    process_registry: Option<&shell::ProcessRegistry>,
+) -> (ToolOutput, Option<WriteResult>, Option<shell::ProcessResult>) {
     let execution = if request.name == shell::NAME {
-        shell::execute_request_with_cancel(request, root, cancel)
+        shell::execute_request_with_cancel_and_registry(request, root, cancel, process_registry)
     } else {
         let context = registry::ToolContext::with_search(root, search);
         registry::execute(request, &context)
@@ -351,16 +370,25 @@ pub fn dispatch_runtime_full_with_search(
 }
 
 /// Dispatch through MCP or built-ins with cancellation and search settings.
-pub(crate) fn dispatch_runtime_full_with_cancel_and_search(
+pub fn dispatch_runtime_full_with_cancel_and_search(
     request: &ToolUseRequest, root: &Path, mcp_manager: Option<&McpManager>, cancel: &CancelToken,
     search: &SearchConfig,
+) -> (ToolOutput, Option<WriteResult>, Option<shell::ProcessResult>) {
+    dispatch_runtime_full_with_cancel_and_search_and_registry(request, root, mcp_manager, cancel, search, None)
+}
+
+/// Dispatch through MCP or built-ins with cancellation, search settings, and
+/// an optional application-owned background-process registry.
+pub fn dispatch_runtime_full_with_cancel_and_search_and_registry(
+    request: &ToolUseRequest, root: &Path, mcp_manager: Option<&McpManager>, cancel: &CancelToken,
+    search: &SearchConfig, process_registry: Option<&shell::ProcessRegistry>,
 ) -> (ToolOutput, Option<WriteResult>, Option<shell::ProcessResult>) {
     if request.name.starts_with("mcp__")
         && let Some(manager) = mcp_manager
     {
         return (manager.call_tool(request), None, None);
     }
-    dispatch_full_with_cancel_and_search(request, root, cancel, search)
+    dispatch_full_with_cancel_and_search_and_registry(request, root, cancel, search, process_registry)
 }
 
 /// Return searchable file paths for UI features that need file selection.

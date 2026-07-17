@@ -20,7 +20,7 @@ const MIN_TABLE_RENDER_WIDTH: usize = 24;
 pub const GUTTER: &str = "   │ ";
 
 /// Role rail shown on transcript entry rows and partial-entry continuations.
-pub(crate) const ENTRY_RAIL: &str = "│ ";
+pub const ENTRY_RAIL: &str = "│ ";
 
 #[derive(Clone, Copy)]
 enum TableAlign {
@@ -40,7 +40,7 @@ pub struct TranscriptRowContext<'a> {
     /// originating entry.
     pub entry_index: Option<usize>,
     /// Whether this entry begins a consecutive group of tool activity.
-    pub(crate) tool_group_start: bool,
+    pub tool_group_start: bool,
 }
 
 impl TranscriptRowContext<'_> {

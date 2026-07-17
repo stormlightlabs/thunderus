@@ -10,7 +10,9 @@
 
 use std::path::Path;
 
-use super::{ToolDefinition, ToolOutput, ToolUseRequest, WriteOp, WriteResult, create_file, path, replace_range};
+use super::{
+    ToolDefinition, ToolOutput, ToolUseRequest, WriteOp, WriteResult, atomic_write, create_file, path, replace_range,
+};
 use crate::tools::registry::{ToolContext, ToolExecution};
 use replace_range::Replacement;
 
@@ -156,7 +158,8 @@ Apply one or more structured patches to a file.
 Use this as the preferred file-write tool. Put operations in patches. A call may
 contain one create/replace operation or one or more edits for the same file. All
 edits match the original file, not earlier edits in the call. Paths are contained;
-failures leave the file unchanged."#,
+failures leave the file unchanged. Content is synchronized in a same-directory
+temporary file before installation."#,
         serde_json::json!({
             "type": "object",
             "properties": {
@@ -256,7 +259,7 @@ fn exec_replace_locked(
         );
     }
 
-    match std::fs::write(resolved, content) {
+    match atomic_write::write(resolved, content.as_bytes(), atomic_write::WriteMode::Replace) {
         Err(e) => (ToolOutput::failed("write_patch", format!("write failed: {e}")), None),
         Ok(_) => {
             let result = WriteResult {
@@ -572,5 +575,38 @@ mod tests {
         assert_eq!(execution.output.status, ToolStatus::Failed);
         assert!(execution.write_result.is_none());
         assert!(!outside.exists());
+    }
+
+    #[test]
+    fn patch_apply_replace_failed_write_preserves_previous_bytes_and_cleans_temporary_file() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let root = dir.path();
+        let file = root.join("file.txt");
+        std::fs::write(&file, "old content\n").expect("write");
+        atomic_write::fail_next_for_test(atomic_write::FailurePoint::BeforeInstall);
+
+        let patch = Patch::Replace {
+            path: "file.txt".to_string(),
+            content: "new content\n".to_string(),
+            expected_before_hash: None,
+        };
+        let (output, result) = patch.exec(root);
+
+        assert_eq!(output.status, ToolStatus::Failed);
+        assert!(result.is_none());
+        assert_eq!(std::fs::read_to_string(&file).expect("read"), "old content\n");
+        assert_no_temporary_files(root);
+    }
+
+    fn assert_no_temporary_files(root: &Path) {
+        let temporary_files = std::fs::read_dir(root)
+            .expect("read workspace")
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with(".thndrs-write-"))
+            .collect::<Vec<_>>();
+        assert!(
+            temporary_files.is_empty(),
+            "temporary files remain: {temporary_files:?}"
+        );
     }
 }

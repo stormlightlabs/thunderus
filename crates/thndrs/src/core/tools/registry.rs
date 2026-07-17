@@ -104,17 +104,26 @@ pub struct ToolContext<'a> {
     pub root: &'a Path,
     /// Application-owned web-search configuration.
     pub search: SearchConfig,
+    /// Shared owner for background shell children, when running inside the
+    /// interactive application.
+    pub process_registry: Option<shell::ProcessRegistry>,
 }
 
 impl<'a> ToolContext<'a> {
     /// Create a tool context for a workspace root.
     pub fn new(root: &'a Path) -> Self {
-        Self { root, search: SearchConfig::default() }
+        Self { root, search: SearchConfig::default(), process_registry: None }
     }
 
     /// Create a tool context with the active application-owned search backend.
     pub fn with_search(root: &'a Path, search: &SearchConfig) -> Self {
-        Self { root, search: search.clone() }
+        Self { root, search: search.clone(), process_registry: None }
+    }
+
+    /// Attach an application-owned process registry to this context.
+    pub fn with_process_registry(mut self, process_registry: shell::ProcessRegistry) -> Self {
+        self.process_registry = Some(process_registry);
+        self
     }
 }
 

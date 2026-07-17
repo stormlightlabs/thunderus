@@ -498,7 +498,7 @@ mod tests {
         assert!(markdown.contains("Inclusive input: 106"));
         assert!(markdown.contains("Recovery"));
         let round_trip: ContextExport = serde_json::from_str(&json).expect("round trip");
-        assert_eq!(round_trip.items[0].recovery_available, true);
+        assert!(round_trip.items[0].recovery_available);
         assert_eq!(
             round_trip.accounting.as_ref().expect("accounting").model_projection,
             Vec::new()

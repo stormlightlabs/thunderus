@@ -1303,7 +1303,7 @@ pub fn submit_user_turn(app: &mut App, text: String) -> Option<Msg> {
 /// Compaction uses this for its configured-model summary request. It remains
 /// an ordinary agent turn for lifecycle and cancellation purposes, but is not
 /// text the user entered and should never be rendered as such.
-pub(super) fn submit_internal_turn(app: &mut App, text: String) -> Option<Msg> {
+pub fn submit_internal_turn(app: &mut App, text: String) -> Option<Msg> {
     start_turn(app, text, false)
 }
 

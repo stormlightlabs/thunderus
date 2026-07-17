@@ -1248,6 +1248,7 @@ fn reader_projects_tool_write_shell_and_status_rows() {
         .expect("append file write");
 
     let shell = tools::shell::ProcessResult {
+        process_id: None,
         command: vec!["cargo".to_string(), "test".to_string()],
         cwd: PathBuf::from("/repo"),
         status: tools::shell::ProcessStatus::Ok,
@@ -2015,6 +2016,7 @@ fn shell_exec_record_json_round_trip() {
         seq: 5,
         time: "2026-06-29T12:00:06Z".to_string(),
         turn_id: "turn_1".to_string(),
+        process_id: None,
         command: "cargo test".to_string(),
         cwd: "/repo".to_string(),
         process_status: "ok".to_string(),
@@ -2038,6 +2040,7 @@ fn shell_exec_record_round_trip_timeout() {
         seq: 6,
         time: "2026-06-29T12:00:07Z".to_string(),
         turn_id: "turn_1".to_string(),
+        process_id: None,
         command: "sleep 30".to_string(),
         cwd: "/repo".to_string(),
         process_status: "timeout".to_string(),
@@ -2058,6 +2061,7 @@ fn shell_exec_record_round_trip_cancelled() {
         seq: 7,
         time: "2026-06-29T12:00:08Z".to_string(),
         turn_id: "turn_1".to_string(),
+        process_id: Some(7),
         command: "cargo build".to_string(),
         cwd: "/repo".to_string(),
         process_status: "cancelled".to_string(),
@@ -2079,6 +2083,7 @@ fn shell_exec_record_round_trip_failed() {
         seq: 8,
         time: "2026-06-29T12:00:09Z".to_string(),
         turn_id: "turn_1".to_string(),
+        process_id: None,
         command: "false".to_string(),
         cwd: "/repo".to_string(),
         process_status: "failed".to_string(),
@@ -2094,11 +2099,48 @@ fn shell_exec_record_round_trip_failed() {
 }
 
 #[test]
+fn append_shell_exec_preserves_background_start_and_terminal_lifecycle() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let mut writer = test_writer(dir.path(), "background-lifecycle-session");
+    let running = tools::shell::ProcessResult {
+        process_id: Some(11),
+        command: vec!["sleep".to_string(), "30".to_string()],
+        cwd: PathBuf::from("/repo"),
+        status: tools::shell::ProcessStatus::Running,
+        exit_code: None,
+        stdout: vec![],
+        stderr: vec![],
+        elapsed: Duration::from_millis(2),
+        kind: tools::shell::ProcessKind::Background,
+    };
+    let terminal = tools::shell::ProcessResult {
+        status: tools::shell::ProcessStatus::Failed,
+        exit_code: Some(3),
+        elapsed: Duration::from_millis(40),
+        ..running.clone()
+    };
+
+    writer.append_shell_exec("turn_1", &running).expect("append start");
+    writer.append_shell_exec("turn_1", &terminal).expect("append terminal");
+
+    let records = SessionReader::read_records(writer.path());
+    let shell_records = records
+        .iter()
+        .filter_map(|record| match record {
+            SessionRecord::ShellExec { process_id, process_status, .. } => Some((*process_id, process_status.as_str())),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(shell_records, vec![(Some(11), "running"), (Some(11), "failed")]);
+}
+
+#[test]
 fn append_shell_exec_persists_metadata() {
     let dir = tempfile::tempdir().expect("temp dir");
     let mut writer = test_writer(dir.path(), "shell-session");
 
     let result = tools::shell::ProcessResult {
+        process_id: None,
         command: vec!["cargo".to_string(), "test".to_string()],
         cwd: PathBuf::from("/repo"),
         status: tools::shell::ProcessStatus::Ok,
@@ -2156,6 +2198,7 @@ fn append_shell_exec_round_trip_for_timeout() {
     let mut writer = test_writer(dir.path(), "shell-timeout-session");
 
     let result = tools::shell::ProcessResult {
+        process_id: None,
         command: vec!["sleep".to_string(), "30".to_string()],
         cwd: PathBuf::from("/repo"),
         status: tools::shell::ProcessStatus::Timeout,
@@ -2193,6 +2236,7 @@ fn shell_exec_record_does_not_store_stdout_stderr() {
     let mut writer = test_writer(dir.path(), "shell-no-output");
 
     let result = tools::shell::ProcessResult {
+        process_id: None,
         command: vec!["echo".to_string()],
         cwd: PathBuf::from("/repo"),
         status: tools::shell::ProcessStatus::Ok,
@@ -2223,6 +2267,7 @@ fn shell_exec_record_maps_to_status_entry_on_resume() {
         seq: 3,
         time: "t".to_string(),
         turn_id: "turn_1".to_string(),
+        process_id: None,
         command: "cargo test".to_string(),
         cwd: "/repo".to_string(),
         process_status: "ok".to_string(),
@@ -2249,6 +2294,7 @@ fn shell_exec_failed_record_maps_to_status_entry_on_resume() {
         seq: 4,
         time: "t".to_string(),
         turn_id: "turn_1".to_string(),
+        process_id: None,
         command: "false".to_string(),
         cwd: "/repo".to_string(),
         process_status: "failed".to_string(),

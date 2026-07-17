@@ -15,8 +15,10 @@
 //!   worker thread between reads; when signalled the process is killed and the
 //!   result is recorded as `Cancelled`.
 //! - A [`ProcessRegistry`] tracks active commands, separating one-shot commands
-//!   (waited on for completion) from long-lived background processes (left
-//!   running and tracked by id).
+//!   (waited on for completion) from long-lived background processes. A
+//!   background child gets an independent cancellation handle, stays owned by
+//!   the registry after the tool call returns, and is reaped on completion,
+//!   explicit cancellation, application quit, or registry drop.
 //!
 //! ## Safety
 //!
@@ -36,6 +38,9 @@ use std::fmt;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use super::{MAX_OUTPUT_BYTES, TIMEOUT_SECS, ToolDefinition, ToolOutput, ToolUseRequest, path};
@@ -46,7 +51,7 @@ use thndrs_agent::CancelToken;
 
 /// Maximum number of output lines retained for the transcript/tool result.
 const MAX_OUTPUT_LINES: usize = 200;
-pub(crate) const NAME: &str = "run_shell";
+pub const NAME: &str = "run_shell";
 
 /// Outcome of waiting for a process, honoring timeout and cancellation.
 enum WaitOutcome {
@@ -139,6 +144,8 @@ impl fmt::Display for ProcessKind {
 /// the byte cap.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProcessResult {
+    /// Registry id for an owned background process, if applicable.
+    pub process_id: Option<u64>,
     /// The argv that was run (program + args).
     pub command: Vec<String>,
     /// Working directory the command ran in.
@@ -202,7 +209,7 @@ impl ProcessResult {
     /// Build the [`ToolOutput`] corresponding to this process result.
     pub fn to_tool_output(&self) -> ToolOutput {
         match ToolStatus::from(self.status) {
-            ToolStatus::Ok => ToolOutput::ok(NAME, self.to_output_lines()),
+            ToolStatus::Running | ToolStatus::Ok => ToolOutput::ok(NAME, self.to_output_lines()),
             _ => {
                 let mut output = self.to_failed_output();
                 let lines = self.to_output_lines();
@@ -214,8 +221,17 @@ impl ProcessResult {
     }
 }
 
-/// A running process tracked by the registry.
-#[derive(Debug)]
+/// A bounded snapshot of output retained for an active process.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ProcessOutput {
+    /// Redacted, line-capped stdout retained so far.
+    pub stdout: Vec<String>,
+    /// Redacted, line-capped stderr retained so far.
+    pub stderr: Vec<String>,
+}
+
+/// A process snapshot returned by the registry.
+#[derive(Clone, Debug)]
 pub struct ActiveProcess {
     /// Unique id assigned by the registry.
     pub id: u64,
@@ -229,6 +245,11 @@ pub struct ActiveProcess {
     pub cancel: CancelToken,
     /// When the process started.
     pub started: Instant,
+    /// Current lifecycle status.
+    pub status: ProcessStatus,
+    /// Bounded output retained so far.
+    pub output: ProcessOutput,
+    control: Option<Arc<ProcessControl>>,
 }
 
 impl ActiveProcess {
@@ -239,7 +260,11 @@ impl ActiveProcess {
 
     /// Request cancellation.
     pub fn cancel(&self) {
-        self.cancel.cancel();
+        if let Some(control) = &self.control {
+            control.cancel();
+        } else {
+            self.cancel.cancel();
+        }
     }
 }
 
@@ -250,10 +275,125 @@ impl ActiveProcess {
 ///
 /// Wired into the live app: background `run_shell` results are registered
 /// here, the `:bg` command lists them, and `cancel_all` runs on quit.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct ProcessRegistry {
+    inner: Arc<RegistryInner>,
+}
+
+#[derive(Debug, Default)]
+struct RegistryInner {
+    state: Mutex<RegistryState>,
+}
+
+#[derive(Debug, Default)]
+struct RegistryState {
     next_id: u64,
-    active: HashMap<u64, ActiveProcess>,
+    active: HashMap<u64, TrackedProcess>,
+}
+
+#[derive(Debug)]
+struct TrackedProcess {
+    id: u64,
+    command: Vec<String>,
+    cwd: PathBuf,
+    kind: ProcessKind,
+    cancel: CancelToken,
+    started: Instant,
+    control: Option<Arc<ProcessControl>>,
+    output: Arc<OutputCapture>,
+    result: Arc<Mutex<Option<ProcessResult>>>,
+    worker: Option<JoinHandle<()>>,
+    announced: bool,
+}
+
+impl TrackedProcess {
+    fn synthetic(id: u64, command: Vec<String>, cwd: PathBuf, kind: ProcessKind, cancel: CancelToken) -> Self {
+        Self {
+            id,
+            command,
+            cwd,
+            kind,
+            cancel,
+            started: Instant::now(),
+            control: None,
+            output: Arc::new(OutputCapture::default()),
+            result: Arc::new(Mutex::new(None)),
+            worker: None,
+            announced: true,
+        }
+    }
+
+    fn snapshot(&self) -> ActiveProcess {
+        let result = self.result.lock().ok().and_then(|result| result.clone());
+        let output = result.as_ref().map_or_else(
+            || self.output.snapshot(),
+            |result| ProcessOutput { stdout: result.stdout.clone(), stderr: result.stderr.clone() },
+        );
+        ActiveProcess {
+            id: self.id,
+            command: self.command.clone(),
+            cwd: self.cwd.clone(),
+            kind: self.kind,
+            cancel: self.cancel.clone(),
+            started: self.started,
+            status: result.map_or(ProcessStatus::Running, |result| result.status),
+            output,
+            control: self.control.clone(),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct ProcessControl {
+    cancel: CancelToken,
+    child: Arc<Mutex<Option<Child>>>,
+}
+
+impl ProcessControl {
+    fn cancel(&self) {
+        self.cancel.cancel();
+        if let Ok(mut child) = self.child.lock()
+            && let Some(child) = child.as_mut()
+        {
+            let _ = child.kill();
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct OutputCapture {
+    stdout: Mutex<Vec<u8>>,
+    stderr: Mutex<Vec<u8>>,
+    readers: AtomicUsize,
+}
+
+impl OutputCapture {
+    fn append(&self, stdout: bool, bytes: &[u8]) {
+        let target = if stdout { &self.stdout } else { &self.stderr };
+        let Ok(mut target) = target.lock() else {
+            return;
+        };
+        let remaining = MAX_OUTPUT_BYTES.saturating_sub(target.len());
+        target.extend_from_slice(&bytes[..bytes.len().min(remaining)]);
+    }
+
+    fn snapshot(&self) -> ProcessOutput {
+        let stdout = self.stdout.lock().map(|bytes| bytes.clone()).unwrap_or_default();
+        let stderr = self.stderr.lock().map(|bytes| bytes.clone()).unwrap_or_default();
+        ProcessOutput { stdout: split_and_cap(&stdout), stderr: split_and_cap(&stderr) }
+    }
+}
+
+struct BackgroundMonitor {
+    id: u64,
+    command: Vec<String>,
+    cwd: PathBuf,
+    timeout: Duration,
+    start: Instant,
+    cancel: CancelToken,
+    child: Arc<Mutex<Option<Child>>>,
+    output: Arc<OutputCapture>,
+    result_slot: Arc<Mutex<Option<ProcessResult>>>,
 }
 
 impl ProcessRegistry {
@@ -265,84 +405,275 @@ impl ProcessRegistry {
     /// Number of currently active processes (one-shot + background).
     #[cfg(test)]
     pub fn len(&self) -> usize {
-        self.active.len()
+        self.inner.state.lock().map(|state| state.active.len()).unwrap_or(0)
     }
 
     /// Whether the registry has no active processes.
     #[cfg(test)]
     pub fn is_empty(&self) -> bool {
-        self.active.is_empty()
+        self.len() == 0
     }
 
     /// Number of background processes.
     #[cfg(test)]
     pub fn background_count(&self) -> usize {
-        self.active
-            .values()
-            .filter(|p| p.kind == ProcessKind::Background)
-            .count()
+        self.inner
+            .state
+            .lock()
+            .map(|state| {
+                state
+                    .active
+                    .values()
+                    .filter(|process| {
+                        process.kind == ProcessKind::Background && process.snapshot().status == ProcessStatus::Running
+                    })
+                    .count()
+            })
+            .unwrap_or(0)
     }
 
     /// Number of one-shot processes.
     #[cfg(test)]
     pub fn one_shot_count(&self) -> usize {
-        self.active.values().filter(|p| p.kind == ProcessKind::OneShot).count()
+        self.inner
+            .state
+            .lock()
+            .map(|state| state.active.values().filter(|p| p.kind == ProcessKind::OneShot).count())
+            .unwrap_or(0)
     }
 
     /// Register a new process and return its id.
-    pub fn register(&mut self, command: Vec<String>, cwd: PathBuf, kind: ProcessKind, cancel: CancelToken) -> u64 {
-        let id = self.next_id;
-        self.next_id += 1;
-        self.active.insert(
-            id,
-            ActiveProcess { id, command, cwd, kind, cancel, started: Instant::now() },
-        );
+    pub fn register(&self, command: Vec<String>, cwd: PathBuf, kind: ProcessKind, cancel: CancelToken) -> u64 {
+        let mut state = recover_lock(&self.inner.state);
+        let id = state.next_id;
+        state.next_id += 1;
+        state
+            .active
+            .insert(id, TrackedProcess::synthetic(id, command, cwd, kind, cancel));
         id
     }
 
     /// Look up an active process by id.
-    pub fn get(&self, id: u64) -> Option<&ActiveProcess> {
-        self.active.get(&id)
+    pub fn get(&self, id: u64) -> Option<ActiveProcess> {
+        let state = self.inner.state.lock().ok()?;
+        state.active.get(&id).map(TrackedProcess::snapshot)
     }
 
     /// Request cancellation of a process by id.
     ///
     /// Returns `true` if the process existed and cancellation was signalled.
-    #[cfg(test)]
-    pub fn cancel(&mut self, id: u64) -> bool {
-        if let Some(p) = self.active.get(&id) {
-            p.cancel();
-            true
-        } else {
-            false
+    pub fn cancel(&self, id: u64) -> bool {
+        let Some(process) = self.get(id) else {
+            return false;
+        };
+        if process.status != ProcessStatus::Running {
+            return false;
         }
+        process.cancel();
+        true
     }
 
     /// Remove a completed process from the registry.
-    #[cfg(test)]
-    pub fn remove(&mut self, id: u64) -> Option<ActiveProcess> {
-        self.active.remove(&id)
+    pub fn remove(&self, id: u64) -> Option<ActiveProcess> {
+        let mut tracked = self.inner.state.lock().ok()?.active.remove(&id)?;
+        if let Some(control) = &tracked.control {
+            control.cancel();
+        }
+        join_worker(tracked.worker.take());
+        Some(tracked.snapshot())
     }
 
     /// Cancel all active processes.
-    pub fn cancel_all(&mut self) {
-        for p in self.active.values() {
-            p.cancel();
+    pub fn cancel_all(&self) {
+        let state = recover_lock(&self.inner.state);
+        for process in state.active.values() {
+            if process.snapshot().status == ProcessStatus::Running {
+                if let Some(control) = &process.control {
+                    control.cancel();
+                } else {
+                    process.cancel.cancel();
+                }
+            }
         }
     }
 
     /// Iterate over active process ids.
     #[cfg(test)]
-    pub fn ids(&self) -> impl Iterator<Item = u64> + '_ {
-        self.active.keys().copied()
+    pub fn ids(&self) -> impl Iterator<Item = u64> {
+        self.inner
+            .state
+            .lock()
+            .map(|state| state.active.keys().copied().collect::<Vec<_>>())
+            .unwrap_or_default()
+            .into_iter()
     }
 
     /// Iterate over active background process ids.
-    pub fn background_ids(&self) -> impl Iterator<Item = u64> + '_ {
-        self.active
-            .values()
-            .filter(|p| p.kind == ProcessKind::Background)
-            .map(|p| p.id)
+    pub fn background_ids(&self) -> impl Iterator<Item = u64> {
+        self.inner
+            .state
+            .lock()
+            .map(|state| {
+                state
+                    .active
+                    .values()
+                    .filter(|process| {
+                        process.kind == ProcessKind::Background && process.snapshot().status == ProcessStatus::Running
+                    })
+                    .map(|process| process.id)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+            .into_iter()
+    }
+
+    /// Mark an application-visible background process as announced.
+    pub fn announce(&self, id: u64) -> bool {
+        let Ok(mut state) = self.inner.state.lock() else {
+            return false;
+        };
+        let Some(process) = state.active.get_mut(&id) else {
+            return false;
+        };
+        process.announced = true;
+        true
+    }
+
+    /// Return completed background results after their start event was observed.
+    pub fn drain_completed(&self) -> Vec<ProcessResult> {
+        self.drain_completed_inner(false)
+    }
+
+    /// Cancel and reap every owned process, returning all final results.
+    pub fn shutdown(&self) -> Vec<ProcessResult> {
+        let tracked = {
+            let mut state = recover_lock(&self.inner.state);
+            for process in state.active.values() {
+                if let Some(control) = &process.control {
+                    control.cancel();
+                } else {
+                    process.cancel.cancel();
+                }
+            }
+            state.active.drain().map(|(_, process)| process).collect::<Vec<_>>()
+        };
+
+        let mut results = Vec::new();
+        for process in tracked {
+            join_worker(process.worker);
+            if let Ok(mut result) = process.result.lock()
+                && let Some(result) = result.take()
+            {
+                results.push(result);
+            }
+        }
+        results.sort_by_key(|result| result.process_id);
+        results
+    }
+
+    fn drain_completed_inner(&self, include_unannounced: bool) -> Vec<ProcessResult> {
+        let tracked = {
+            let mut state = recover_lock(&self.inner.state);
+            if include_unannounced {
+                for process in state.active.values() {
+                    if let Some(control) = &process.control {
+                        control.cancel();
+                    } else {
+                        process.cancel.cancel();
+                    }
+                }
+            }
+            let mut ids = Vec::new();
+            for (id, process) in &state.active {
+                let completed = process.result.lock().ok().is_some_and(|result| result.is_some());
+                if (include_unannounced || process.announced) && completed {
+                    ids.push(*id);
+                }
+            }
+            ids.into_iter()
+                .filter_map(|id| state.active.remove(&id))
+                .collect::<Vec<_>>()
+        };
+
+        let mut results = Vec::new();
+        for process in tracked {
+            join_worker(process.worker);
+            if let Ok(mut result) = process.result.lock()
+                && let Some(result) = result.take()
+            {
+                results.push(result);
+            }
+        }
+        results.sort_by_key(|result| result.process_id);
+        results
+    }
+
+    pub(crate) fn spawn_background(
+        &self, args: &ShellArgs, cwd: PathBuf, child: Child, start: Instant, cancel: CancelToken,
+    ) -> u64 {
+        let argv = args.argv();
+        let timeout = args.timeout.unwrap_or(Duration::from_secs(TIMEOUT_SECS));
+        let child = Arc::new(Mutex::new(Some(child)));
+        let control = Arc::new(ProcessControl { cancel: cancel.clone(), child: child.clone() });
+        let output = Arc::new(OutputCapture::default());
+        let result = Arc::new(Mutex::new(None));
+        if let Ok(mut child_guard) = child.lock()
+            && let Some(child) = child_guard.as_mut()
+        {
+            if let Some(stdout) = child.stdout.take() {
+                spawn_output_reader(stdout, output.clone(), true);
+            }
+            if let Some(stderr) = child.stderr.take() {
+                spawn_output_reader(stderr, output.clone(), false);
+            }
+        }
+
+        let mut state = recover_lock(&self.inner.state);
+        let id = state.next_id;
+        state.next_id += 1;
+        let output_for_worker = output.clone();
+        let result_for_worker = result.clone();
+        let cancel_for_worker = cancel.clone();
+        let cwd_for_worker = cwd.clone();
+        let worker = std::thread::spawn(move || {
+            BackgroundMonitor {
+                id,
+                command: argv,
+                cwd: cwd_for_worker,
+                timeout,
+                start,
+                cancel: cancel_for_worker,
+                child,
+                output: output_for_worker,
+                result_slot: result_for_worker,
+            }
+            .run();
+        });
+        state.active.insert(
+            id,
+            TrackedProcess {
+                id,
+                command: args.argv(),
+                cwd,
+                kind: ProcessKind::Background,
+                cancel,
+                started: start,
+                control: Some(control),
+                output,
+                result,
+                worker: Some(worker),
+                announced: false,
+            },
+        );
+        id
+    }
+}
+
+impl Drop for ProcessRegistry {
+    fn drop(&mut self) {
+        if Arc::strong_count(&self.inner) == 1 {
+            let _ = self.shutdown();
+        }
     }
 }
 
@@ -379,12 +710,12 @@ pub fn definition() -> ToolDefinition {
 
 Run an argv command in the workspace and capture stdout, stderr, and exit status.
 
-Prefer narrow tools when they fit: find_files, search_text, read_file_range,
-create_file, replace_range, read_url. Use for build, test, format, inspection.
+Prefer narrower tools when they fit. Use for build, test, format, and inspection.
 
-Runs as thndrs with its permissions — not sandboxed. Avoid destructive commands
-unless explicitly requested. Output is capped, truncated, and redacted.
-Timeouts enforced."#,
+Runs as thndrs with its permissions, not in a sandbox. Output is capped,
+truncated, and redacted; timeouts are enforced. With background=true, the
+interactive app owns the child, returns its registry id immediately, and
+supports :bg listing and cancellation."#,
         serde_json::json!({
             "type": "object",
             "properties": {
@@ -426,66 +757,10 @@ pub fn parse_arguments(arguments: &str) -> Result<ShellArgs, ToolError> {
     Ok(ShellArgs { program, args: cmd_args, cwd, timeout, kind })
 }
 
-fn parse_argv(args: &serde_json::Value) -> Result<(String, Vec<String>), ToolError> {
-    if let Some((field, argv)) = args
-        .get("argv")
-        .map(|argv| ("argv", argv))
-        .or_else(|| args.get("command").map(|command| ("command", command)))
-    {
-        let argv = argv
-            .as_array()
-            .ok_or_else(|| ToolError::InvalidArguments(format!("'{field}' must be an array")))?;
-        let argv = argv
-            .iter()
-            .enumerate()
-            .map(|(index, value)| {
-                value
-                    .as_str()
-                    .map(str::to_string)
-                    .ok_or_else(|| ToolError::InvalidArguments(format!("{field}[{index}] must be a string")))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let (program, command_args) = argv
-            .split_first()
-            .ok_or_else(|| ToolError::InvalidArguments(format!("'{field}' must contain a program")))?;
-        if program.is_empty() {
-            return Err(ToolError::InvalidArguments(format!("{field}[0] must not be empty")));
-        }
-        return Ok((program.clone(), command_args.to_vec()));
-    }
-
-    let program = args
-        .get("program")
-        .and_then(|value| value.as_str())
-        .unwrap_or("")
-        .to_string();
-    let command_args = args
-        .get("args")
-        .and_then(|value| value.as_array())
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|value| value.as_str().map(str::to_string))
-                .collect()
-        })
-        .unwrap_or_default();
-    Ok((program, command_args))
-}
-
-fn optional_u64(args: &serde_json::Value, field: &str) -> Result<Option<u64>, ToolError> {
-    match args.get(field) {
-        None => Ok(None),
-        Some(value) => value
-            .as_u64()
-            .map(Some)
-            .ok_or_else(|| ToolError::InvalidArguments(format!("'{field}' must be a non-negative integer"))),
-    }
-}
-
 /// Execute a registry request for `run_shell`.
 pub fn execute_request(request: &ToolUseRequest, ctx: &ToolContext<'_>) -> ToolExecution {
     let cancel = CancelToken::new();
-    execute_request_with_cancel(request, ctx.root, &cancel)
+    execute_request_with_cancel_and_registry(request, ctx.root, &cancel, ctx.process_registry.as_ref())
 }
 
 /// Execute a `run_shell` request with the cancellation token for its enclosing
@@ -494,11 +769,17 @@ pub fn execute_request(request: &ToolUseRequest, ctx: &ToolContext<'_>) -> ToolE
 /// The registry entry uses [`execute_request`] to preserve its stable generic
 /// executor signature. The live agent dispatcher calls this variant so
 /// stopping an agent also terminates its active shell child.
-pub(crate) fn execute_request_with_cancel(
-    request: &ToolUseRequest, root: &Path, cancel: &CancelToken,
+pub fn execute_request_with_cancel(request: &ToolUseRequest, root: &Path, cancel: &CancelToken) -> ToolExecution {
+    execute_request_with_cancel_and_registry(request, root, cancel, None)
+}
+
+/// Execute a `run_shell` request with cancellation and an optional
+/// application-owned background-process registry.
+pub fn execute_request_with_cancel_and_registry(
+    request: &ToolUseRequest, root: &Path, cancel: &CancelToken, registry: Option<&ProcessRegistry>,
 ) -> ToolExecution {
     match parse_arguments(&request.arguments) {
-        Ok(args) => execute_args(&args, root, cancel),
+        Ok(args) => execute_args(&args, root, cancel, registry),
         Err(error) => ToolExecution::output(ToolOutput::failed(NAME, error.to_string())),
     }
 }
@@ -521,57 +802,48 @@ pub(crate) fn execute_request_with_cancel(
 /// [`MAX_OUTPUT_LINES`] lines. Lines longer than `MAX_LINE_LEN` chars are
 /// truncated with `...`.
 pub fn run_command(args: &ShellArgs, root: &Path, cancel: &CancelToken) -> Result<ProcessResult, String> {
+    run_command_with_registry(args, root, cancel, None)
+}
+
+/// Execute a shell command, handing background ownership to `registry`.
+pub fn run_command_with_registry(
+    args: &ShellArgs, root: &Path, cancel: &CancelToken, registry: Option<&ProcessRegistry>,
+) -> Result<ProcessResult, String> {
     let cwd = resolve_cwd(root, &args.cwd)?;
     let argv = args.argv();
 
-    let mut cmd = Command::new(&args.program);
-    cmd.args(&args.args)
-        .current_dir(&cwd)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .stdin(Stdio::null());
+    if args.kind == ProcessKind::Background {
+        let registry = registry
+            .ok_or_else(|| String::from("background commands require an application-owned process registry"))?;
+        let mut cmd = Command::new(&args.program);
+        cmd.args(&args.args)
+            .current_dir(&cwd)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .stdin(Stdio::null());
+        let start = Instant::now();
+        let child = cmd
+            .spawn()
+            .map_err(|error| format!("failed to spawn '{}': {error}", args.program))?;
+        // Background ownership is independent from the enclosing agent turn:
+        // cancelling one registry entry must not cancel its sibling tools or
+        // the agent loop that started it.
+        let process_cancel = CancelToken::new();
+        let id = registry.spawn_background(args, cwd.clone(), child, start, process_cancel);
+        return Ok(ProcessResult {
+            process_id: Some(id),
+            command: argv,
+            cwd,
+            status: ProcessStatus::Running,
+            exit_code: None,
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+            elapsed: start.elapsed(),
+            kind: ProcessKind::Background,
+        });
+    }
 
-    let timeout = args.timeout.unwrap_or(Duration::from_secs(TIMEOUT_SECS));
-    let start = Instant::now();
-
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("failed to spawn '{}': {e}", args.program))?;
-
-    let stdout = child.stdout.take().expect("stdout piped");
-    let stderr = child.stderr.take().expect("stderr piped");
-
-    let stdout_handle = std::thread::spawn(move || read_to_capped_vec(stdout));
-    let stderr_handle = std::thread::spawn(move || read_to_capped_vec(stderr));
-
-    let final_status = wait_with_timeout(&mut child, &timeout, cancel, &start);
-
-    let elapsed = start.elapsed();
-    let (status, exit_code) = match final_status {
-        WaitOutcome::Exited(code) => {
-            if code == 0 {
-                (ProcessStatus::Ok, Some(code))
-            } else {
-                (ProcessStatus::Failed, Some(code))
-            }
-        }
-        WaitOutcome::Timeout => (ProcessStatus::Timeout, None),
-        WaitOutcome::Cancelled => (ProcessStatus::Cancelled, None),
-    };
-
-    let stdout_buf = stdout_handle.join().unwrap_or_default();
-    let stderr_buf = stderr_handle.join().unwrap_or_default();
-
-    Ok(ProcessResult {
-        command: argv,
-        cwd,
-        status,
-        exit_code,
-        stdout: split_and_cap(&stdout_buf),
-        stderr: split_and_cap(&stderr_buf),
-        elapsed,
-        kind: args.kind,
-    })
+    run_foreground_command(args, cwd, argv, cancel)
 }
 
 /// Execute a one-shot shell command and return a [`ToolOutput`] suitable for
@@ -668,7 +940,9 @@ fn read_to_capped_vec<R: Read>(mut stream: R) -> Vec<u8> {
             Ok(n) => {
                 let remaining = max_bytes.saturating_sub(buf.len());
                 if remaining == 0 {
-                    break;
+                    // Keep draining the pipe after the retained prefix is
+                    // full so a verbose child cannot block before it exits.
+                    continue;
                 }
                 let take = n.min(remaining);
                 buf.extend_from_slice(&chunk[..take]);
@@ -701,7 +975,9 @@ fn split_and_cap(buf: &[u8]) -> Vec<String> {
     lines
 }
 
-fn execute_args(args: &ShellArgs, root: &Path, cancel: &CancelToken) -> ToolExecution {
+fn execute_args(
+    args: &ShellArgs, root: &Path, cancel: &CancelToken, registry: Option<&ProcessRegistry>,
+) -> ToolExecution {
     if args.program.is_empty() {
         return ToolExecution::output(ToolOutput::failed(
             NAME,
@@ -709,7 +985,7 @@ fn execute_args(args: &ShellArgs, root: &Path, cancel: &CancelToken) -> ToolExec
         ));
     }
 
-    match run_command(args, root, cancel) {
+    match run_command_with_registry(args, root, cancel, registry) {
         Ok(result) => ToolExecution::full(output_from_result(&result), None, Some(result)),
         Err(error) => ToolExecution::output(ToolOutput::failed(NAME, error)),
     }
@@ -717,4 +993,226 @@ fn execute_args(args: &ShellArgs, root: &Path, cancel: &CancelToken) -> ToolExec
 
 fn output_from_result(result: &ProcessResult) -> ToolOutput {
     result.to_tool_output()
+}
+
+fn join_worker(worker: Option<JoinHandle<()>>) {
+    if let Some(worker) = worker {
+        let _ = worker.join();
+    }
+}
+
+fn recover_lock<T>(lock: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn spawn_output_reader<R: Read + Send + 'static>(mut reader: R, output: Arc<OutputCapture>, stdout: bool) {
+    output.readers.fetch_add(1, Ordering::SeqCst);
+    std::thread::spawn(move || {
+        let mut chunk = [0_u8; 4096];
+        loop {
+            match reader.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => output.append(stdout, &chunk[..n]),
+                Err(ref error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(_) => break,
+            }
+        }
+        output.readers.fetch_sub(1, Ordering::SeqCst);
+    });
+}
+
+impl BackgroundMonitor {
+    fn run(self) {
+        let Self { id, command, cwd, timeout, start, cancel, child, output, result_slot } = self;
+        let outcome = loop {
+            match try_wait_owned(&child) {
+                Ok(Some(_status)) if cancel.is_cancelled() => break WaitOutcome::Cancelled,
+                Ok(Some(status)) => break WaitOutcome::Exited(status.code().unwrap_or(-1)),
+                Ok(None) => {
+                    if cancel.is_cancelled() {
+                        kill_and_reap(&child);
+                        break WaitOutcome::Cancelled;
+                    }
+                    if start.elapsed() > timeout {
+                        kill_and_reap(&child);
+                        break WaitOutcome::Timeout;
+                    }
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                Err(_) => {
+                    kill_and_reap(&child);
+                    break WaitOutcome::Cancelled;
+                }
+            }
+        };
+
+        let drain_deadline = Instant::now() + Duration::from_millis(100);
+        while output.readers.load(Ordering::SeqCst) > 0 && Instant::now() < drain_deadline {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+
+        let (status, exit_code) = match outcome {
+            WaitOutcome::Exited(code) if code == 0 => (ProcessStatus::Ok, Some(code)),
+            WaitOutcome::Exited(code) => (ProcessStatus::Failed, Some(code)),
+            WaitOutcome::Timeout => (ProcessStatus::Timeout, None),
+            WaitOutcome::Cancelled => (ProcessStatus::Cancelled, None),
+        };
+        let captured = output.snapshot();
+        let result = ProcessResult {
+            process_id: Some(id),
+            command,
+            cwd,
+            status,
+            exit_code,
+            stdout: captured.stdout,
+            stderr: captured.stderr,
+            elapsed: start.elapsed(),
+            kind: ProcessKind::Background,
+        };
+        let mut slot = recover_lock(&result_slot);
+        *slot = Some(result);
+    }
+}
+
+fn try_wait_owned(child: &Arc<Mutex<Option<Child>>>) -> io::Result<Option<std::process::ExitStatus>> {
+    let mut guard = child
+        .lock()
+        .map_err(|_| io::Error::other("process child lock poisoned"))?;
+    let Some(child) = guard.as_mut() else {
+        return Ok(None);
+    };
+    match child.try_wait()? {
+        Some(status) => {
+            *guard = None;
+            Ok(Some(status))
+        }
+        None => Ok(None),
+    }
+}
+
+fn kill_and_reap(child: &Arc<Mutex<Option<Child>>>) {
+    let Ok(mut guard) = child.lock() else {
+        return;
+    };
+    if let Some(child) = guard.as_mut() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    *guard = None;
+}
+
+fn parse_argv(args: &serde_json::Value) -> Result<(String, Vec<String>), ToolError> {
+    if let Some((field, argv)) = args
+        .get("argv")
+        .map(|argv| ("argv", argv))
+        .or_else(|| args.get("command").map(|command| ("command", command)))
+    {
+        let argv = argv
+            .as_array()
+            .ok_or_else(|| ToolError::InvalidArguments(format!("'{field}' must be an array")))?;
+        let argv = argv
+            .iter()
+            .enumerate()
+            .map(|(index, value)| {
+                value
+                    .as_str()
+                    .map(str::to_string)
+                    .ok_or_else(|| ToolError::InvalidArguments(format!("{field}[{index}] must be a string")))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let (program, command_args) = argv
+            .split_first()
+            .ok_or_else(|| ToolError::InvalidArguments(format!("'{field}' must contain a program")))?;
+        if program.is_empty() {
+            return Err(ToolError::InvalidArguments(format!("{field}[0] must not be empty")));
+        }
+        return Ok((program.clone(), command_args.to_vec()));
+    }
+
+    let program = args
+        .get("program")
+        .and_then(|value| value.as_str())
+        .unwrap_or("")
+        .to_string();
+    let command_args = args
+        .get("args")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|value| value.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok((program, command_args))
+}
+
+fn optional_u64(args: &serde_json::Value, field: &str) -> Result<Option<u64>, ToolError> {
+    match args.get(field) {
+        None => Ok(None),
+        Some(value) => value
+            .as_u64()
+            .map(Some)
+            .ok_or_else(|| ToolError::InvalidArguments(format!("'{field}' must be a non-negative integer"))),
+    }
+}
+
+fn run_foreground_command(
+    args: &ShellArgs, cwd: PathBuf, argv: Vec<String>, cancel: &CancelToken,
+) -> Result<ProcessResult, String> {
+    let mut cmd = Command::new(&args.program);
+    cmd.args(&args.args)
+        .current_dir(&cwd)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::null());
+
+    let timeout = args.timeout.unwrap_or(Duration::from_secs(TIMEOUT_SECS));
+    let start = Instant::now();
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("failed to spawn '{}': {e}", args.program))?;
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| String::from("failed to capture child stdout"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| String::from("failed to capture child stderr"))?;
+
+    let stdout_handle = std::thread::spawn(move || read_to_capped_vec(stdout));
+    let stderr_handle = std::thread::spawn(move || read_to_capped_vec(stderr));
+
+    let final_status = wait_with_timeout(&mut child, &timeout, cancel, &start);
+
+    let elapsed = start.elapsed();
+    let (status, exit_code) = match final_status {
+        WaitOutcome::Exited(code) => {
+            if code == 0 {
+                (ProcessStatus::Ok, Some(code))
+            } else {
+                (ProcessStatus::Failed, Some(code))
+            }
+        }
+        WaitOutcome::Timeout => (ProcessStatus::Timeout, None),
+        WaitOutcome::Cancelled => (ProcessStatus::Cancelled, None),
+    };
+
+    let stdout_buf = stdout_handle.join().unwrap_or_default();
+    let stderr_buf = stderr_handle.join().unwrap_or_default();
+
+    Ok(ProcessResult {
+        process_id: None,
+        command: argv,
+        cwd,
+        status,
+        exit_code,
+        stdout: split_and_cap(&stdout_buf),
+        stderr: split_and_cap(&stderr_buf),
+        elapsed,
+        kind: ProcessKind::OneShot,
+    })
 }

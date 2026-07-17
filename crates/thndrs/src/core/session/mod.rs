@@ -301,18 +301,21 @@ pub enum SessionRecord {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         diagnostics: Vec<String>,
     },
-    /// A shell command execution completed.
+    /// A shell command lifecycle event.
     ///
-    /// Records the command argv, working directory, lifecycle status, exit
-    /// code, elapsed time, and process kind for session audit. stdout/stderr
-    /// are not stored directly — they are captured in the `tool_finished`
-    /// record's output lines (which are already redacted and capped).
+    /// One-shot commands produce a terminal record. Background commands
+    /// produce a `running` start record followed by a terminal record when
+    /// they exit, time out, or are cancelled. stdout/stderr are not stored
+    /// directly — they are captured in redacted, capped output records.
     #[serde(rename = "shell_exec")]
     ShellExec {
         schema_version: u32,
         seq: u64,
         time: String,
         turn_id: String,
+        /// Registry id for a background process, when applicable.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        process_id: Option<u64>,
         /// Full argv (program + args) joined with spaces.
         command: String,
         /// Working directory the command ran in.
@@ -519,8 +522,9 @@ impl SessionRecord {
                 Some(Entry::Status { text: format!("{} {}: {path}", status.icon(), op.label()) })
             }
             SessionRecord::McpConfigChanged { .. } => None,
-            SessionRecord::ShellExec { command, process_status, elapsed_ms, .. } => {
-                Some(Entry::Status { text: format!("shell {process_status}: {command} ({elapsed_ms}ms)") })
+            SessionRecord::ShellExec { command, process_status, process_id, elapsed_ms, .. } => {
+                let id = process_id.map_or_else(String::new, |id| format!(" [{id}]"));
+                Some(Entry::Status { text: format!("shell{id} {process_status}: {command} ({elapsed_ms}ms)") })
             }
             SessionRecord::SkillActivated { name, path, .. } => {
                 Some(Entry::Status { text: format!("skill activated: {name} ({path})") })
@@ -1136,16 +1140,17 @@ impl SessionWriter {
 
     /// Append a shell-execution audit record.
     ///
-    /// Records the command argv, working directory, lifecycle status, exit
-    /// code, elapsed time, and process kind. stdout/stderr are not stored
-    /// here — they are captured in the `tool_finished` record's output lines
-    /// (already redacted and capped).
+    /// Records the command argv, working directory, registry id, lifecycle
+    /// status, exit code, elapsed time, and process kind. stdout/stderr are
+    /// not stored here — they are captured in redacted and capped output
+    /// records.
     pub fn append_shell_exec(&mut self, turn_id: &str, result: &shell::ProcessResult) -> std::io::Result<()> {
         let record = SessionRecord::ShellExec {
             schema_version: SCHEMA_VERSION,
             seq: self.seq,
             time: datetime::now_iso8601(),
             turn_id: turn_id.to_string(),
+            process_id: result.process_id,
             command: shell::redact_secrets(&result.command.join(" ")),
             cwd: result.cwd.display().to_string(),
             process_status: result.status.label().to_string(),

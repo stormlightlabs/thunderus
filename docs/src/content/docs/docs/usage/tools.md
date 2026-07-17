@@ -68,7 +68,10 @@ unique exact string occurrence. `write_patch` is the unified create, replace,
 or edit entry point. Its `patches` array accepts one create/replace operation or
 one or more edits for the same file. Batched edits all match the original file,
 and the tool validates them before writing. All write paths must stay inside
-the workspace root.
+the workspace root. Writes complete and synchronize same-directory temporary
+files before installation, so failed writes preserve the previous target;
+creates also fail rather than clobbering a target that appears during
+validation.
 
 ## Shell
 
@@ -80,7 +83,10 @@ and commands that do not fit a narrower tool.
 The shell tool is not a sandbox. Commands run as the local `thndrs` process.
 If shell syntax is required, the model must invoke an explicit shell program in
 argv, such as `sh` with `-c`; `thndrs` does not add a separate command-string
-tool.
+tool. With `background: true`, the interactive application owns the child and
+returns its id without waiting. Use `:bg` to list live children or
+`:bg cancel <id>` to cancel one; quitting reaps all owned children. Background lifecycle
+events are recorded separately from the initial tool result.
 
 Configured [MCP tools](/docs/usage/mcp/) enter through the external-tool path. Their
 provider names are namespaced, and their results use the same output limits,
@@ -98,7 +104,7 @@ Queued input is written to the session log as audit metadata, but resume does
 not rebuild pending queues after a crash. If that audit append fails, the TUI
 keeps the queued input buffer and shows an error in the transcript.
 
-Slash commands are restricted while a run is active. `/help`, `/bg`, `/quit`,
+Slash commands are restricted while a run is active. `/help`, `/bg`, `/bg cancel <id>`, `/quit`,
 and `/exit` can run immediately; commands that mutate idle-only UI state, such
 as `/clear`, `/model`, and `/skills`, are rejected until the run finishes. To
 queue a follow-up that intentionally starts with `/`, prefix it with `//`; for

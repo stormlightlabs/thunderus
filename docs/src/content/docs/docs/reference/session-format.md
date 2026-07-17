@@ -45,9 +45,15 @@ byte counts, and status. It does not store full file content.
 
 ## Shell Records
 
-`shell_exec` stores the command, working directory, process status, exit code,
-elapsed time, and whether the process was one-shot or background. Stdout and
-stderr are represented through the corresponding capped `tool_finished` output.
+`shell_exec` stores the command, working directory, optional background process
+id, process status, exit code, elapsed time, and whether the process was
+one-shot or background.
+
+One-shot commands have one terminal record.
+
+Background commands have a `running` start record followed by a terminal record when
+the owned child exits, times out, or is cancelled. Output is capped and redacted
+before it is displayed; full stdout and stderr are not stored in `shell_exec`.
 
 ## ACP Records
 

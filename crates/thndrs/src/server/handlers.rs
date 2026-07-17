@@ -574,6 +574,7 @@ impl PersistedTurn {
                             seq: 0,
                             time: crate::utils::datetime::now_iso8601(),
                             turn_id: self.turn_id.clone(),
+                            process_id: result.process_id,
                             command: crate::tools::shell::redact_secrets(&result.command.join(" ")),
                             cwd: result.cwd.display().to_string(),
                             process_status: result.status.label().to_string(),
@@ -1282,6 +1283,7 @@ fn process_result_from_terminal(
         stdout.insert(0, "[terminal output truncated]".to_string());
     }
     ProcessResult {
+        process_id: None,
         command: args.argv(),
         cwd,
         status,

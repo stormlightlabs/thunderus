@@ -10,17 +10,17 @@ implemented behavior must match the public unchanged-on-failure guarantee.
 
 **Acceptance criteria:**
 
-- [ ] Edits and replacements write to a same-directory temporary file and only
+- [x] Edits and replacements write to a same-directory temporary file and only
       replace the target after the complete content has been written and closed.
-- [ ] Existing file permissions are preserved where the platform exposes them.
-- [ ] Creation remains no-clobber: it never overwrites a target that appeared
+- [x] Existing file permissions are preserved where the platform exposes them.
+- [x] Creation remains no-clobber: it never overwrites a target that appeared
       after validation.
-- [ ] Failed writes do not leave a partial target or a stale temporary file.
-- [ ] Stale-hash, duplicate-match, overlap, symlink-containment, and concurrent
+- [x] Failed writes do not leave a partial target or a stale temporary file.
+- [x] Stale-hash, duplicate-match, overlap, symlink-containment, and concurrent
       cooperating-writer behavior remain intact.
-- [ ] Deterministic failure-injection tests prove that the previous bytes survive
+- [x] Deterministic failure-injection tests prove that the previous bytes survive
       a failed write.
-- [ ] Public tool and safety documentation describes the guarantees that the
+- [x] Public tool and safety documentation describes the guarantees that the
       implementation actually provides on each supported platform.
 
 **Verification:**
@@ -40,19 +40,19 @@ cancelled.
 
 **Acceptance criteria:**
 
-- [ ] `background: true` does not wait for the child to exit before returning a
+- [x] `background: true` does not wait for the child to exit before returning a
       successful tool result.
-- [ ] The process registry contains the live child, its real cancellation
+- [x] The process registry contains the live child, its real cancellation
       handle, start time, command, working directory, and bounded output state.
-- [ ] `:bg` lists only processes that are still running and removes or marks a
+- [x] `:bg` lists only processes that are still running and removes or marks a
       process when it exits.
-- [ ] Cancelling one process and quitting the application terminate and reap the
+- [x] Cancelling one process and quitting the application terminate and reap the
       owned children without leaving zombies or detached commands.
-- [ ] Foreground timeout, output caps, redaction, cancellation, and session audit
+- [x] Foreground timeout, output caps, redaction, cancellation, and session audit
       behavior remain unchanged.
-- [ ] Session records distinguish a background process starting, exiting,
+- [x] Session records distinguish a background process starting, exiting,
       failing, timing out, and being cancelled.
-- [ ] Tests use a genuinely long-running child and prove that the agent remains
+- [x] Tests use a genuinely long-running child and prove that the agent remains
       responsive while it runs.
 
 **Verification:**

@@ -258,7 +258,7 @@ pub struct TranscriptView {
 ///
 /// Alternate-screen caching uses this boundary to invalidate a changing entry
 /// without rebuilding settled entries above it.
-pub(crate) fn project_transcript_entry(app: &App, entry_index: usize, width: usize) -> (Vec<Row>, Vec<Row>) {
+pub fn project_transcript_entry(app: &App, entry_index: usize, width: usize) -> (Vec<Row>, Vec<Row>) {
     let Some(entry) = app.transcript.get(entry_index) else {
         return (Vec::new(), Vec::new());
     };
@@ -733,7 +733,7 @@ pub struct LiveView {
 }
 
 impl LiveView {
-    pub(crate) fn build(
+    pub fn build(
         app: &App, width: usize, _height: usize, transcript: &TranscriptView, semantic: &SemanticUiView,
     ) -> LiveView {
         let live_tail = transcript.live_rows.clone();

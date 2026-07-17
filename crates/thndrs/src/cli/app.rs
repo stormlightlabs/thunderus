@@ -370,12 +370,12 @@ pub struct App {
     pub ctrl_d_pending: Option<u64>,
     /// Tick deadline that bounds how long a cancelled run may remain in the
     /// `Stopping` state while its worker unwinds.
-    pub(crate) stopping_deadline: Option<u64>,
+    pub stopping_deadline: Option<u64>,
     /// Append-only session writer. `None` when persistence is disabled
     /// (e.g. the sessions directory is not writable).
     pub session_writer: Option<session::SessionWriter>,
     /// Tool-call ids mapped to their bounded redacted recovery handles.
-    pub(crate) tool_artifacts: HashMap<String, String>,
+    pub tool_artifacts: HashMap<String, String>,
     /// Monotonic turn counter for session record correlation.
     pub turn_count: u64,
     /// Registry of background processes started via `run_shell`.
@@ -782,7 +782,8 @@ pub fn update(app: &mut App, msg: &Msg) -> Option<Msg> {
         Msg::Key(key) => handle_key(app, *key),
         Msg::Mouse(mouse) => handle_mouse(app, *mouse),
         Msg::Quit => {
-            app.process_registry.cancel_all();
+            let results = app.process_registry.shutdown();
+            agent_lifecycle::record_background_results(app, results);
             app.quit = true;
             None
         }
@@ -793,6 +794,7 @@ pub fn update(app: &mut App, msg: &Msg) -> Option<Msg> {
             {
                 app.ctrl_d_pending = None;
             }
+            agent_lifecycle::drain_background_processes(app);
             agent_lifecycle::finish_stopping_if_due(app);
             poll_chatgpt_oauth_on_tick(app);
             None

@@ -113,6 +113,10 @@ pub fn handle_command(app: &mut App, command: &str) -> Option<Msg> {
         return None;
     }
 
+    if let Some(rest) = command.strip_prefix("bg cancel") {
+        return cancel_background_process(app, rest.trim());
+    }
+
     match command {
         "compact" => super::context::start_compaction(app, session::CompactionTrigger::Manual, None),
         "clear" => {
@@ -243,7 +247,8 @@ pub fn command_suggestions_for_app(app: &App) -> Vec<(&'static str, &'static str
 ///
 /// Prefix with `//` to queue a literal slash-prefixed follow-up.
 pub fn handle_running_command(app: &mut App, command: &str) -> Option<Msg> {
-    let is_read_only = matches!(command, "quit" | "exit" | "help" | "bg")
+    let is_read_only = matches!(command, "quit" | "exit" | "help" | "bg" | "bg cancel")
+        || command.starts_with("bg cancel ")
         || matches!(command, "history" | "tokens" | "debug log")
         || matches!(command, "context" | "context show" | "doctor")
         || command.starts_with("context export ")
@@ -468,6 +473,7 @@ fn read_session_log_command(app: &mut App, requested_session_id: Option<&str>) -
 
 /// List background processes in the transcript.
 fn list_background_processes(app: &mut App) {
+    super::agent_lifecycle::drain_background_processes(app);
     let bg_ids: Vec<u64> = app.process_registry.background_ids().collect();
     if bg_ids.is_empty() {
         app.transcript
@@ -486,6 +492,28 @@ fn list_background_processes(app: &mut App) {
         app.transcript
             .push(Entry::Status { text: format!("background processes:\n{}", lines.join("\n")) });
     }
+}
+
+fn cancel_background_process(app: &mut App, id_text: &str) -> Option<Msg> {
+    super::agent_lifecycle::drain_background_processes(app);
+    if id_text.is_empty() {
+        app.transcript
+            .push(Entry::Error { text: String::from("usage: :bg cancel <id>") });
+        return None;
+    }
+    let Ok(id) = id_text.parse::<u64>() else {
+        app.transcript
+            .push(Entry::Error { text: format!("invalid background process id: {id_text}") });
+        return None;
+    };
+    if app.process_registry.cancel(id) {
+        app.transcript
+            .push(Entry::Status { text: format!("cancellation requested for background process [{id}]") });
+    } else {
+        app.transcript
+            .push(Entry::Error { text: format!("background process [{id}] is not running") });
+    }
+    None
 }
 
 fn list_mcp_servers(app: &mut App) {

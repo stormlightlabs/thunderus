@@ -374,7 +374,7 @@ fn compact_uses_provider_summary_and_replaces_active_context_only_after_success(
 fn failed_compaction_restores_active_context_without_restoring_internal_prompt() {
     let mut app = fresh_app();
     let original = vec![Entry::User { text: "inspect the parser".to_string() }];
-    app.transcript = original.clone();
+    app.transcript = original;
 
     assert_eq!(
         handle_command(&mut app, "compact"),
@@ -458,7 +458,7 @@ fn risky_compaction_waits_for_review_and_preserves_context_until_approval() {
             output: vec!["error details".to_string()],
         },
     ];
-    app.transcript = original.clone();
+    app.transcript = original;
 
     assert_eq!(
         handle_command(&mut app, "compact"),
@@ -2249,6 +2249,7 @@ fn background_shell_result_registers_in_process_registry() {
     update(&mut app, &Msg::Agent(AgentEvent::Started));
 
     let shell_result = tools::shell::ProcessResult {
+        process_id: None,
         command: vec!["sleep".to_string(), "10".to_string()],
         cwd: std::path::PathBuf::from("."),
         status: tools::shell::ProcessStatus::Ok,

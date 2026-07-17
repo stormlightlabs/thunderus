@@ -843,12 +843,15 @@ fn dispatch_tool_request(
         return output;
     }
     let search_config = handle.config.search_config();
-    tools::dispatch_runtime_full_with_cancel_and_search(
+    tools::dispatch_runtime_full_with_cancel_and_search_and_registry(
+        // The application-owned registry keeps background children alive after
+        // this tool call returns and lets the TUI cancel/reap them later.
         request,
         &handle.config.root,
         handle.config.mcp_manager.as_deref(),
         cancel,
         &search_config,
+        handle.config.process_registry.as_ref(),
     )
 }
 

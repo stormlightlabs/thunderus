@@ -12,8 +12,8 @@ const NAME: &str = "web_search";
 /// Parsed provider input for `web_search`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WebSearchInput {
-    pub(crate) query: String,
-    pub(crate) max_results: usize,
+    pub query: String,
+    pub max_results: usize,
 }
 
 /// Provider-visible definition for `web_search`.

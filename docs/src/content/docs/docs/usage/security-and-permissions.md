@@ -19,7 +19,7 @@ limits.
 
 ## Shell Commands
 
-`run_shell` executes an argv array with `std::process::Command`; it is not a
+`run_shell` executes an argv array with `std::process::Command`. It is not a
 raw shell string tool. The command runs with the permissions of the `thndrs`
 process and is not sandboxed by approval prompts or in-process policy.
 
@@ -49,16 +49,30 @@ workspace boundary, TUI permission prompts, cancellation, and local session
 records.
 
 ACP filesystem callbacks are workspace-contained. ACP terminal callbacks run as
-local child processes under the same user account as `thndrs`; their cwd is
+local child processes under the same user account as `thndrs`. Their cwd is
 kept inside the workspace, output is capped and redacted, and lifecycle metadata
 is recorded in the session log.
 
 ## Writes
 
-Write-capable tools are workspace-contained and transcripted. Failed writes
-leave the target unchanged where the operation can be made atomic. Session
-records store write metadata such as path, operation, hashes, and byte counts;
-they do not store full file contents.
+Write-capable tools are workspace-contained and transcripted. Each create,
+replace, and patch write builds the complete new content in a temporary file in
+the target directory, flushes and synchronizes it, closes it, and only then
+installs it.
+
+A failed write therefore leaves the previous target bytes intact and cleans
+up its temporary file.
+
+Creates use a no-clobber install: if another writer creates the target after
+validation, the create fails instead of overwriting it.
+
+Replacements preserve the existing target permissions on platforms that expose them.
+Replacement installs are atomic on Unix-like platforms. On platforms whose filesystem
+does not support replacing an existing path with `rename` (including Windows), the
+operation fails without replacing the target.
+
+Session records store write metadata such as path, operation, hashes, and byte counts
+but do not store full file contents.
 
 ## Secrets
 

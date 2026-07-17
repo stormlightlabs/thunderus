@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use super::{ToolDefinition, ToolOutput, ToolUseRequest, WriteOp, WriteResult, hash_content, path};
+use super::{ToolDefinition, ToolOutput, ToolUseRequest, WriteOp, WriteResult, atomic_write, hash_content, path};
 use crate::tools::registry::{ToolContext, ToolError, ToolExecution};
 use crate::utils;
 
@@ -65,13 +65,13 @@ struct MatchedReplacement {
 pub fn with_file_lock<T>(path: &Path, f: impl FnOnce() -> T) -> T {
     let lock = {
         let locks = FILE_LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
-        let mut guard = locks.lock().expect("file lock map poisoned");
+        let mut guard = locks.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         guard
             .entry(path.to_path_buf())
             .or_insert_with(|| Arc::new(Mutex::new(())))
             .clone()
     };
-    let _guard = lock.lock().expect("file lock poisoned");
+    let _guard = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     f()
 }
 
@@ -118,7 +118,9 @@ Replace a unique exact string occurrence in an existing file.
 
 Use this for direct small edits. Prefer write_patch op=edit when doing a mixed
 edit. old_string must match exactly and once; include surrounding context for
-uniqueness. Paths are contained to the root; failed edits leave files unchanged."#,
+uniqueness. Paths are contained to the root; failed edits leave files unchanged.
+The complete replacement is synchronized in a same-directory temporary file
+before installation."#,
         serde_json::json!({
             "type": "object",
             "properties": {
@@ -219,7 +221,7 @@ fn exec_many_locked(
     let after_hash = hash_content(&final_content);
     let after_bytes = final_content.len();
 
-    match std::fs::write(resolved, &final_content) {
+    match atomic_write::write(resolved, final_content.as_bytes(), atomic_write::WriteMode::Replace) {
         Err(e) => (ToolOutput::failed("replace_range", format!("write failed: {e}")), None),
         Ok(_) => {
             let result = WriteResult {
@@ -630,6 +632,52 @@ mod tests {
         assert!(result.is_none());
         assert!(output.error.as_ref().is_some_and(|e| e.contains("stale file")));
         assert_eq!(std::fs::read_to_string(&file).expect("read"), "hello\n");
+    }
+
+    #[test]
+    fn replace_range_failed_write_preserves_previous_bytes_and_cleans_temporary_file() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let root = dir.path();
+        let file = root.join("file.txt");
+        std::fs::write(&file, "old content\n").expect("write");
+        atomic_write::fail_next_for_test(atomic_write::FailurePoint::AfterPartialWrite);
+
+        let (output, result) = exec("file.txt", root, "old", "new");
+
+        assert_eq!(output.status, ToolStatus::Failed);
+        assert!(result.is_none());
+        assert_eq!(std::fs::read_to_string(&file).expect("read"), "old content\n");
+        assert_no_temporary_files(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn replace_range_preserves_target_permissions() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        let dir = tempfile::tempdir().expect("temp dir");
+        let root = dir.path();
+        let file = root.join("file.txt");
+        std::fs::write(&file, "old\n").expect("write");
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o640)).expect("permissions");
+
+        let (output, result) = exec("file.txt", root, "old", "new");
+
+        assert_eq!(output.status, ToolStatus::Ok);
+        assert!(result.is_some());
+        assert_eq!(std::fs::metadata(&file).expect("metadata").mode() & 0o777, 0o640);
+    }
+
+    fn assert_no_temporary_files(root: &Path) {
+        let temporary_files = std::fs::read_dir(root)
+            .expect("read workspace")
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with(".thndrs-write-"))
+            .collect::<Vec<_>>();
+        assert!(
+            temporary_files.is_empty(),
+            "temporary files remain: {temporary_files:?}"
+        );
     }
 
     #[test]

@@ -1,5 +1,6 @@
 ---
 source: crates/thndrs/src/core/prompt/tests.rs
+assertion_line: 842
 expression: json
 ---
 [
@@ -201,7 +202,7 @@ expression: json
     "name": "read_url"
   },
   {
-    "description": "create_file\n\nCreate a new file with the given content.\n\nUse this for direct new-file writes. Prefer write_patch op=create when doing a\nmixed edit. Fails if the file exists. Paths are contained to the workspace root;\nescapes are rejected. Parent directories are created if needed.",
+    "description": "create_file\n\nCreate a new file with the given content.\n\nUse this for direct new-file writes. Prefer write_patch op=create when doing a\nmixed edit. Fails if the file exists. Paths are contained to the workspace root;\nescapes are rejected. Parent directories are created if needed. Failed writes\nleave no partial target or temporary file.",
     "input_schema": {
       "properties": {
         "content": {
@@ -222,7 +223,7 @@ expression: json
     "name": "create_file"
   },
   {
-    "description": "replace_range\n\nReplace a unique exact string occurrence in an existing file.\n\nUse this for direct small edits. Prefer write_patch op=edit when doing a mixed\nedit. old_string must match exactly and once; include surrounding context for\nuniqueness. Paths are contained to the root; failed edits leave files unchanged.",
+    "description": "replace_range\n\nReplace a unique exact string occurrence in an existing file.\n\nUse this for direct small edits. Prefer write_patch op=edit when doing a mixed\nedit. old_string must match exactly and once; include surrounding context for\nuniqueness. Paths are contained to the root; failed edits leave files unchanged.\nThe complete replacement is synchronized in a same-directory temporary file\nbefore installation.",
     "input_schema": {
       "properties": {
         "expected_before_hash": {
@@ -252,7 +253,7 @@ expression: json
     "name": "replace_range"
   },
   {
-    "description": "write_patch\n\nApply one or more structured patches to a file.\n\nUse this as the preferred file-write tool. Put operations in patches. A call may\ncontain one create/replace operation or one or more edits for the same file. All\nedits match the original file, not earlier edits in the call. Paths are contained;\nfailures leave the file unchanged.",
+    "description": "write_patch\n\nApply one or more structured patches to a file.\n\nUse this as the preferred file-write tool. Put operations in patches. A call may\ncontain one create/replace operation or one or more edits for the same file. All\nedits match the original file, not earlier edits in the call. Paths are contained;\nfailures leave the file unchanged. Content is synchronized in a same-directory\ntemporary file before installation.",
     "input_schema": {
       "properties": {
         "patches": {
@@ -307,7 +308,7 @@ expression: json
     "name": "write_patch"
   },
   {
-    "description": "run_shell\n\nRun an argv command in the workspace and capture stdout, stderr, and exit status.\n\nPrefer narrow tools when they fit: find_files, search_text, read_file_range,\ncreate_file, replace_range, read_url. Use for build, test, format, inspection.\n\nRuns as thndrs with its permissions — not sandboxed. Avoid destructive commands\nunless explicitly requested. Output is capped, truncated, and redacted.\nTimeouts enforced.",
+    "description": "run_shell\n\nRun an argv command in the workspace and capture stdout, stderr, and exit status.\n\nPrefer narrower tools when they fit. Use for build, test, format, and inspection.\n\nRuns as thndrs with its permissions, not in a sandbox. Output is capped,\ntruncated, and redacted; timeouts are enforced. With background=true, the\ninteractive app owns the child, returns its registry id immediately, and\nsupports :bg listing and cancellation.",
     "input_schema": {
       "properties": {
         "argv": {

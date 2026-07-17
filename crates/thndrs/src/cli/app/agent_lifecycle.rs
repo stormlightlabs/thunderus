@@ -93,12 +93,23 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
 
             if let Some(result) = shell_result {
                 if result.kind == tools::shell::ProcessKind::Background {
-                    let cancel = CancelToken::new();
-                    let id =
-                        app.process_registry
-                            .register(result.command.clone(), result.cwd.clone(), result.kind, cancel);
+                    let process_id = result.process_id.unwrap_or_else(|| {
+                        // Keep synthetic adapter/test events visible while the
+                        // live shell path uses the id assigned before spawn
+                        // returns.
+                        app.process_registry.register(
+                            result.command.clone(),
+                            result.cwd.clone(),
+                            result.kind,
+                            CancelToken::new(),
+                        )
+                    });
+                    app.process_registry.announce(process_id);
                     app.transcript.push(Entry::Status {
-                        text: format!("background process [{id}] started: {}", result.command.join(" ")),
+                        text: format!(
+                            "background process [{process_id}] started: {}",
+                            result.command.join(" ")
+                        ),
                     });
                 }
 
@@ -214,6 +225,30 @@ pub fn handle_agent_event(app: &mut App, event: AgentEvent) -> Option<Msg> {
     }
 }
 
+/// Drain completed application-owned background processes into the transcript
+/// and append their terminal shell lifecycle records.
+pub fn drain_background_processes(app: &mut App) {
+    let results = app.process_registry.drain_completed();
+    record_background_results(app, results);
+}
+
+/// Record terminal results returned while the application is shutting down or
+/// while a normal UI tick drains the process registry.
+pub fn record_background_results(app: &mut App, results: Vec<tools::shell::ProcessResult>) {
+    for result in results {
+        let process_id = result.process_id.map_or_else(|| String::from("?"), |id| id.to_string());
+        let mut lines = result.to_output_lines();
+        if let Some(first) = lines.first_mut() {
+            *first = format!("background process [{process_id}] {first}");
+        }
+        app.transcript.push(Entry::Status { text: lines.join("\n") });
+        if let Some(writer) = app.session_writer.as_mut() {
+            let turn_id = format!("turn_{}", app.turn_count);
+            let _ = writer.append_shell_exec(&turn_id, &result);
+        }
+    }
+}
+
 fn finish_tool_output(
     app: &mut App, id: &str, status: ToolStatus, output: &[String],
 ) -> Option<crate::artifacts::ArtifactMetadata> {
@@ -314,7 +349,7 @@ pub fn finish_stopping_if_due(app: &mut App) {
 }
 
 /// Translate the fixed stop grace period to the configured tick cadence.
-pub(super) fn stopping_grace_ticks(app: &App) -> u64 {
+pub fn stopping_grace_ticks(app: &App) -> u64 {
     let tick_ms = app.cli.tick_rate_ms.max(1);
     STOPPING_GRACE_MS / tick_ms + u64::from(STOPPING_GRACE_MS % tick_ms != 0)
 }

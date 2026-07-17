@@ -628,7 +628,7 @@ mod tests {
             "secret",
         )
         .expect("credential");
-        let cli = Cli { cwd: workspace.clone(), ..Cli::default() };
+        let cli = Cli { cwd: workspace, ..Cli::default() };
         let command = SetupCommand { provider: Some(SetupProviderArg::OpencodeZen), global: false, project: false };
         let mut output = Vec::new();
 

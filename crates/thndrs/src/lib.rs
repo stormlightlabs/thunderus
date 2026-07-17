@@ -1387,7 +1387,8 @@ fn maybe_spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>) {
     let workspace_root = crate::context::discover_workspace_root(&cli.cwd);
     let mut config = tools::AgentRunConfig::new(workspace_root, cli.model.clone(), cli.websearch)
         .with_search_url(cli.websearch_url.clone())
-        .with_reasoning(cli.reasoning_effort, cli.reasoning_summary);
+        .with_reasoning(cli.reasoning_effort, cli.reasoning_summary)
+        .with_process_registry(app.process_registry.clone());
     if let Some(acp_name) = acp::config::parse_model_id(&cli.model) {
         tracing::info!(
             cwd = %config.root.display(),

@@ -69,7 +69,7 @@ Available while the help overlay is open.
 
 Available while typing a `:` command.
 
-Commands currently include `clear`, `quit`, `exit`, `help`, `bg`, `model`,
+Commands currently include `clear`, `quit`, `exit`, `help`, `bg`, `bg cancel <id>`, `model`,
 `skills`, `doctor`, `auth status`, `config path`, `config show`, `setup`,
 `login`, and `logout`.
 

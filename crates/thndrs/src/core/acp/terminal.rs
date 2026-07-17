@@ -241,6 +241,7 @@ impl TerminalProcess {
             None => ProcessStatus::Running,
         };
         ProcessResult {
+            process_id: None,
             command: self.command.clone(),
             cwd: self.cwd.clone(),
             status: process_status,
