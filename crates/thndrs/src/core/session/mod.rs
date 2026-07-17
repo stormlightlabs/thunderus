@@ -468,7 +468,7 @@ impl SessionRecord {
                 turn_id: turn_id.to_string(),
                 error: text.clone(),
             }),
-            Entry::Tool { name, arguments, status, output } if *status != ToolStatus::Running => {
+            Entry::Tool { name, arguments: _, status, output } if *status != ToolStatus::Running => {
                 let (tool_name, call_id) = split_tool_name_id(name);
                 Some(SessionRecord::ToolFinished {
                     schema_version: SCHEMA_VERSION,
@@ -915,9 +915,9 @@ impl SessionWriter {
     /// Append a `tool_started` record for a tool call that has begun.
     ///
     /// This records the command start: tool name, call id, and arguments.
-    /// The matching `tool_finished` (via [`append_entry`]) records the
+    /// The matching `tool_finished` (via [`Self::append_entry`]) records the
     /// output, status, and summary. For `run_shell`, an additional
-    /// [`append_shell_exec`] record captures exit code, elapsed time, and
+    /// [`Self::append_shell_exec`] record captures exit code, elapsed time, and
     /// process kind.
     pub fn append_tool_started(&mut self, turn_id: &str, call_id: &str, name: &str, args: &str) -> std::io::Result<()> {
         let record = SessionRecord::ToolStarted {

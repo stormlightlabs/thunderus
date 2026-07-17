@@ -290,7 +290,7 @@ impl ContextExport {
                     .unwrap_or_else(|| "unavailable".to_string());
                 let _ = writeln!(output, "- `{}`: {}", artifact.handle, state);
                 if let Some(diagnostic) = &artifact.diagnostic {
-                    let _ = writeln!(output, "  - diagnostic: {}", diagnostic);
+                    let _ = writeln!(output, "  - diagnostic: {diagnostic}");
                 }
                 if let Some(body) = &artifact.body {
                     for line in body.lines() {

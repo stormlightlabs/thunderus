@@ -11,7 +11,7 @@
 //!   a worker thread; the TUI drains the result through the normal tool event
 //!   channel so it never blocks.
 //! - Timeouts kill the process and produce a `Timeout` status.
-//! - Cancellation is cooperative: a shared [`CancelFlag`] is checked by the
+//! - Cancellation is cooperative: a shared [`CancelToken`] is checked by the
 //!   worker thread between reads; when signalled the process is killed and the
 //!   result is recorded as `Cancelled`.
 //! - A [`ProcessRegistry`] tracks active commands, separating one-shot commands
@@ -794,12 +794,12 @@ pub fn execute_request_with_cancel_and_registry(
 ///
 /// The process is killed if:
 /// - the timeout elapses, or
-/// - the [`CancelFlag`] is signalled.
+/// - the [`CancelToken`] is signalled.
 ///
 /// stdout/stderr are read on dedicated threads so that a process producing no
 /// output (e.g. `sleep 30`) can still be killed on timeout/cancellation. The
 /// captured output is capped at [`MAX_OUTPUT_BYTES`] bytes and
-/// [`MAX_OUTPUT_LINES`] lines. Lines longer than `MAX_LINE_LEN` chars are
+/// `MAX_OUTPUT_LINES` lines. Lines longer than `MAX_LINE_LEN` chars are
 /// truncated with `...`.
 pub fn run_command(args: &ShellArgs, root: &Path, cancel: &CancelToken) -> Result<ProcessResult, String> {
     run_command_with_registry(args, root, cancel, None)

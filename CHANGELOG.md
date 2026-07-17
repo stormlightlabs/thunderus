@@ -2,6 +2,10 @@
 
 ## v0.1.0
 
+This release introduces `thndrs` as experimental pre-1.0 software. Its CLI,
+configuration, provider, session, and tool behavior may change during the
+pre-1.0 release line.
+
 ### Added
 
 - TOML configuration loading from `~/.thndrs/config.toml` and `.thndrs/config.toml`.

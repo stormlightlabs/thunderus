@@ -714,18 +714,15 @@ fn timing_separates_prompt_editing_from_wrapping_and_width() {
 
     assert!(
         edit_elapsed.as_secs() < 2,
-        "prompt editing should be fast: {:?}",
-        edit_elapsed
+        "prompt editing should be fast: {edit_elapsed:?}"
     );
     assert!(
         wrap_elapsed.as_secs() < 2,
-        "visual wrapping should be fast: {:?}",
-        wrap_elapsed
+        "visual wrapping should be fast: {wrap_elapsed:?}"
     );
     assert!(
         width_elapsed.as_secs() < 2,
-        "display-width measurement should be fast: {:?}",
-        width_elapsed
+        "display-width measurement should be fast: {width_elapsed:?}"
     );
 }
 

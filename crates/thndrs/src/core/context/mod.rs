@@ -55,8 +55,8 @@ impl ContextSource {
     pub fn summary(&self) -> String {
         let path_display = self.path.display().to_string();
         match self.truncated {
-            true => format!("loaded {} (truncated, {} bytes)", path_display, self.byte_count),
-            false => format!("loaded {}", path_display),
+            true => format!("loaded {path_display} (truncated, {} bytes)", self.byte_count),
+            false => format!("loaded {path_display}"),
         }
     }
 }

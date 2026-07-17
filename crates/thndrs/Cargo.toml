@@ -12,7 +12,7 @@ readme = "README.md"
 keywords = ["agent", "ai", "cli", "tui", "mcp"]
 categories = ["command-line-utilities", "development-tools"]
 default-run = "thndrs"
-include = ["/Cargo.toml", "/README.md", "/src/**", "/tests/**"]
+include = ["/Cargo.toml", "/LICENSE", "/README.md", "/src/**", "/tests/**"]
 
 [lib]
 name = "thndrs_lib"

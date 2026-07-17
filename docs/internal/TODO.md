@@ -123,15 +123,15 @@ available from crates.io.
 
 **Acceptance criteria:**
 
-- [ ] The archive includes the Apache-2.0 license, `Cargo.toml`, application
+- [x] The archive includes the Apache-2.0 license, `Cargo.toml`, application
       README, intended sources, tests, and fixtures.
-- [ ] The archive excludes credentials, `.thndrs` state, logs, editor files,
+- [x] The archive excludes credentials, `.thndrs` state, logs, editor files,
       build output, internal planning documents, and unrelated repository files.
-- [ ] The packaged README's links and installation instructions work for a
+- [x] The packaged README's links and installation instructions work for a
       crates.io user rather than relying on the workspace root.
-- [ ] Package metadata, README wording, and the changelog consistently label the
+- [x] Package metadata, README wording, and the changelog consistently label the
       application as experimental pre-1.0 software.
-- [ ] Package review records file count, compressed size, included fixtures, and
+- [x] Package review records file count, compressed size, included fixtures, and
       the reviewer without recording secrets.
 
 **Verification:**
@@ -149,15 +149,15 @@ errors so strict checks can be used as release gates.
 
 **Acceptance criteria:**
 
-- [ ] Test-only redundant clones, boolean assertion style, and needless
+- [x] Test-only redundant clones, boolean assertion style, and needless
       collections are cleaned up without weakening tests.
-- [ ] Public documentation contains no broken, private, stale, or invalid HTML
+- [x] Public documentation contains no broken, private, stale, or invalid HTML
       links.
-- [ ] Names in module documentation match current types and functions, including
+- [x] Names in module documentation match current types and functions, including
       cancellation and provider-lowering terminology.
-- [ ] The Git status watcher test is deterministic under the normal suite and no
+- [x] The Git status watcher test is deterministic under the normal suite and no
       longer ignored as flaky.
-- [ ] Normal and strict Clippy and Rustdoc commands pass on the declared MSRV as
+- [x] Normal and strict Clippy and Rustdoc commands pass on the declared MSRV as
       well as the current stable toolchain.
 
 **Verification:**

@@ -1113,11 +1113,11 @@ pub fn store_recovery_credential(app: &mut App, recovery: &FirstRunRecovery) {
     };
     match auth::set_credential(&path, env_var, key) {
         Ok(()) => {
-            if scope == CredentialScope::Project {
-                if let Err(err) = auth::ensure_git_exclude(&app.cwd) {
-                    app.transcript
-                        .push(Entry::Error { text: format!("git exclude update failed: {err}") });
-                }
+            if scope == CredentialScope::Project
+                && let Err(err) = auth::ensure_git_exclude(&app.cwd)
+            {
+                app.transcript
+                    .push(Entry::Error { text: format!("git exclude update failed: {err}") });
             }
             app.transcript
                 .push(Entry::Status { text: format!("{} credential stored in {}", provider.label(), scope.label()) });

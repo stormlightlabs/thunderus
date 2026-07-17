@@ -351,7 +351,7 @@ pub fn finish_stopping_if_due(app: &mut App) {
 /// Translate the fixed stop grace period to the configured tick cadence.
 pub fn stopping_grace_ticks(app: &App) -> u64 {
     let tick_ms = app.cli.tick_rate_ms.max(1);
-    STOPPING_GRACE_MS / tick_ms + u64::from(STOPPING_GRACE_MS % tick_ms != 0)
+    STOPPING_GRACE_MS / tick_ms + u64::from(!STOPPING_GRACE_MS.is_multiple_of(tick_ms))
 }
 
 pub fn cancel_pending_permission(app: &mut App) {

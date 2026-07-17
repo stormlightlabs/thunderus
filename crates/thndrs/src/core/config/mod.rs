@@ -474,7 +474,7 @@ fn hex_encode(bytes: &[u8]) -> String {
 }
 
 pub fn load_env(
-    env_vars: &[(String, String)], origins: &mut BTreeMap<String, ConfigOrigin>, _diagnostics: &mut Vec<String>,
+    env_vars: &[(String, String)], origins: &mut BTreeMap<String, ConfigOrigin>, _diagnostics: &mut [String],
 ) -> Result<Config, ConfigError> {
     let mut config = Config::default();
 

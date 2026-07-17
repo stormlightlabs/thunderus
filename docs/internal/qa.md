@@ -63,6 +63,22 @@ review for `thndrs` before approving its publication. Confirm that its README,
 license, application sources, intended tests/fixtures, and no generated or
 secret material are present.
 
+### Pre-publication `thndrs` archive review
+
+Reviewed on 2026-07-16 by Codex. Cargo assembled the application archive with
+a command-local crates.io patch pointing to the workspace copy of
+`thndrs-agent`; the package manifest still names the registry dependency. The
+normal two-stage package check remains due after `thndrs-agent 0.1.0` is
+available from crates.io.
+
+- Archive: `target/package/thndrs-0.1.0.crate`
+- Contents: 226 files, 2.8 MiB before compression, 542.4 KiB compressed
+- Fixtures: three provider fixtures and two ACP smoke-test fixtures
+- Included material: Apache-2.0 license, package metadata, application README,
+  Rust sources, snapshots, tests, prompt fragments, and the five fixtures
+- Exclusion review: no credentials, `.thndrs` state, logs, editor files, build
+  output, internal planning documents, or unrelated repository files
+
 ## Clean Install Evidence
 
 Run this only after the publication order makes the application installable:

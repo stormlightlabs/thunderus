@@ -137,7 +137,7 @@ fn collect_credential_statuses(workspace: &Path) -> Vec<DoctorCredential> {
         ("opencode-go", auth::OPENCODE_GO_KEY_ENV),
         ("opencode-zen", auth::OPENCODE_ZEN_KEY_ENV),
     ]
-    .iter()
+    .into_iter()
     .map(|(provider, env_var)| DoctorCredential {
         provider: provider.to_string(),
         source: auth::credential_source(env_var, workspace)
@@ -374,7 +374,7 @@ mod tests {
 
         let previous: Vec<(String, Option<OsString>)> = vars
             .iter()
-            .map(|(key, _)| (key.to_string(), std::env::var_os(key)))
+            .map(|&(key, _)| (key.to_string(), std::env::var_os(key)))
             .collect();
 
         for (key, _) in &previous {

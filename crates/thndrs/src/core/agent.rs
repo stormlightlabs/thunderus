@@ -5,7 +5,7 @@
 //!
 //! ## Lifecycle
 //!
-//! 1. [`spawn_run`] starts a thread with a [`RunHandle`] (config + cancel flag).
+//! 1. [`RunHandle::spawn`] starts a thread with a run configuration and cancellation token.
 //! 2. The run emits `Started`, then streams reasoning/assistant deltas and
 //!    tool-use requests.
 //! 3. Each tool-use request is dispatched via [`tools::dispatch_full`] and the
@@ -16,7 +16,7 @@
 //!    the message history, and the provider is re-requested.
 //! 5. The loop enforces bounded tool-budget continuations to prevent recursive
 //!    or unbounded tool-call loops while still allowing longer useful runs.
-//! 6. Cancellation is cooperative: the loop checks the shared [`CancellationToken`]
+//! 6. Cancellation is cooperative: the loop checks the shared [`CancelToken`]
 //!    between events, lines, and tool executions. When cancelled, it emits
 //!    [`AgentEvent::Cancelled`] and stops.
 
@@ -199,7 +199,7 @@ impl RunHandle {
     /// return `Err(Disconnected)` once the run completes.
     ///
     /// If the receiver is dropped early (e.g. the user cancels), the thread exits
-    /// on the next failed send. The [`CancellationToken`] inside `handle` can also be
+    /// on the next failed send. The [`CancelToken`] inside the handle can also be
     /// signalled for cooperative cancellation.
     pub fn spawn(self) -> Receiver<AgentEvent> {
         let cancel = self.cancel.clone();
@@ -428,8 +428,7 @@ impl RunHandle {
                     let _ = send(
                         tx,
                         AgentEvent::Failed(format!(
-                            "provider stopped at max_tokens ({}) before producing assistant text",
-                            max_tokens
+                            "provider stopped at max_tokens ({max_tokens}) before producing assistant text"
                         )),
                         cancel,
                     );

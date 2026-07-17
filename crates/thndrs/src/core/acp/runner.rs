@@ -704,8 +704,7 @@ async fn authenticate_if_advertised(
     {
         Ok(_) => {
             let _ = tx.send(AgentEvent::Status(format!(
-                "acp: authentication succeeded for `{name}` via {}",
-                method_id
+                "acp: authentication succeeded for `{name}` via {method_id}"
             )));
             Ok(())
         }

@@ -683,11 +683,12 @@ pub fn set_credential(path: &Path, key: &str, value: &str) -> Result<(), AuthErr
     let mut lines = existing;
 
     for line in &mut lines {
-        if let Some((line_key, _)) = parse_credential_line(line) {
-            if line_key == key && !replaced {
-                *line = new_line.clone();
-                replaced = true;
-            }
+        if let Some((line_key, _)) = parse_credential_line(line)
+            && line_key == key
+            && !replaced
+        {
+            *line = new_line.clone();
+            replaced = true;
         }
     }
 
@@ -736,32 +737,31 @@ pub fn redact_value(_value: &str) -> String {
 ///
 /// Returns `None` when the key is not found in any source.
 pub fn resolve_credential(key: &str, workspace: &Path) -> Option<(String, CredentialSource)> {
-    if let Ok(value) = std::env::var(key) {
-        if !value.is_empty() {
-            return Some((value, CredentialSource::Environment));
-        }
+    if let Ok(value) = std::env::var(key)
+        && !value.is_empty()
+    {
+        return Some((value, CredentialSource::Environment));
     }
 
-    if let Ok(global_path) = global_credentials_path() {
-        if let Ok(creds) = read_credentials(&global_path) {
-            if let Some(value) = creds.get(key) {
-                return Some((value.clone(), CredentialSource::GlobalStore));
-            }
-        }
+    if let Ok(global_path) = global_credentials_path()
+        && let Ok(creds) = read_credentials(&global_path)
+        && let Some(value) = creds.get(key)
+    {
+        return Some((value.clone(), CredentialSource::GlobalStore));
     }
 
     let project_path = project_credentials_path(workspace);
-    if let Ok(creds) = read_credentials(&project_path) {
-        if let Some(value) = creds.get(key) {
-            return Some((value.clone(), CredentialSource::ProjectStore));
-        }
+    if let Ok(creds) = read_credentials(&project_path)
+        && let Some(value) = creds.get(key)
+    {
+        return Some((value.clone(), CredentialSource::ProjectStore));
     }
 
     let dotenv_path = workspace.join(".env");
-    if let Ok(creds) = read_credentials(&dotenv_path) {
-        if let Some(value) = creds.get(key) {
-            return Some((value.clone(), CredentialSource::DotEnvLegacy));
-        }
+    if let Ok(creds) = read_credentials(&dotenv_path)
+        && let Some(value) = creds.get(key)
+    {
+        return Some((value.clone(), CredentialSource::DotEnvLegacy));
     }
 
     None

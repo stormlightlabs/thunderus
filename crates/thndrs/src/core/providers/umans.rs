@@ -169,7 +169,8 @@ impl UmansClient {
     /// sent every turn.
     ///
     /// The caller reads lines from the response body and feeds them to
-    /// [`parse_sse_chunk`] and [`parse_sse_event`].
+    /// [`crate::providers::anthropic::parse_sse_chunk`] and
+    /// [`crate::providers::anthropic::parse_sse_event`].
     pub fn send_streaming_request(
         &self, model: &str, messages: &[ProviderMessage], max_tokens: u32, tools: Option<&serde_json::Value>,
         effort: ReasoningEffort,
@@ -498,9 +499,9 @@ fn compact_token_count(tokens: u64) -> String {
     const K: u64 = 1024;
     const M: u64 = K * K;
 
-    if tokens >= M && tokens % M == 0 {
+    if tokens >= M && tokens.is_multiple_of(M) {
         format!("{}M", tokens / M)
-    } else if tokens >= K && tokens % K == 0 {
+    } else if tokens >= K && tokens.is_multiple_of(K) {
         format!("{}k", tokens / K)
     } else {
         tokens.to_string()

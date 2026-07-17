@@ -26,5 +26,10 @@ Use a container, VM, or OS-level sandbox when isolation matters.
 The [docs](https://thndrs.stormlightlabs.org/) cover provider setup,
 configuration, sessions, diagnostics, and tool safety.
 
-`thndrs` is an experimental application. Its CLI, configuration, provider, session,
-and tool behavior may evolve during the pre-v1 release line.
+`thndrs` is experimental pre-1.0 software. Its CLI, configuration, provider,
+session, and tool behavior may evolve during the pre-1.0 release line.
+
+## License
+
+`thndrs` is licensed under the Apache License, Version 2.0. See
+[`LICENSE`](./LICENSE) for the full text.

@@ -244,9 +244,9 @@ pub fn is_private_url(url_str: &str) -> bool {
 /// - Only `http`/`https` schemes are allowed.
 /// - Private/loopback/link-local addresses are rejected, both for the requested
 ///   URL and for the final URL after redirects (prevents open-redirect SSRF).
-/// - At most [`MAX_REDIRECTS`] redirects are followed; the chain errors on excess.
-/// - The entire request is bounded by a [`FETCH_TIMEOUT_SECS`] global timeout.
-/// - Response size is capped at [`MAX_RESPONSE_BYTES`], enforced *while streaming*
+/// - At most `MAX_REDIRECTS` redirects are followed; the chain errors on excess.
+/// - The entire request is bounded by a `FETCH_TIMEOUT_SECS` global timeout.
+/// - Response size is capped at `MAX_RESPONSE_BYTES`, enforced *while streaming*
 ///   so a large body cannot exhaust memory before the cap triggers.
 /// - Content type must be on the [`allowed_content_kind`] allow-list: HTML/XHTML
 ///   is extracted via Lectito; other text types (JSON, XML, plain text, feeds,

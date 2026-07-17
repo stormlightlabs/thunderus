@@ -7,11 +7,11 @@
 //! The root module declares the shared state and message vocabulary. The child
 //! modules implement the event families that [`update`] dispatches:
 //!
-//! - [`onboarding`] handles provider setup, credential recovery, and OAuth.
-//! - [`input`] handles editing, history, pickers, and prompt submission.
-//! - [`commands`] handles slash-command parsing and command actions.
-//! - [`context`] is reserved for context and compaction operations.
-//! - [`agent_lifecycle`] is reserved for agent events and session persistence.
+//! - `onboarding` handles provider setup, credential recovery, and OAuth.
+//! - `input` handles editing, history, pickers, and prompt submission.
+//! - `commands` handles slash-command parsing and command actions.
+//! - `context` handles context inspection and compaction operations.
+//! - `agent_lifecycle` handles agent events and session persistence.
 
 mod agent_lifecycle;
 mod commands;
@@ -274,7 +274,7 @@ pub enum AgentEvent {
         /// Structured write result if this was a file-write tool, else `None`.
         write_result: Option<tools::WriteResult>,
         /// Structured shell result if this was a `run_shell` tool, else `None`.
-        /// Boxed to avoid a large enum variant (ProcessResult carries multiple Vec<String>).
+        /// Boxed to avoid a large enum variant (`ProcessResult` carries multiple `Vec<String>` values).
         shell_result: Option<Box<tools::shell::ProcessResult>>,
     },
     ModelMetadataLoaded(Vec<(String, String)>),
@@ -829,5 +829,5 @@ fn is_verbose_status(text: &str) -> bool {
 /// selected for smoother streaming output.
 fn quit_confirm_timeout_ticks(app: &App) -> u64 {
     let tick_ms = app.cli.tick_rate_ms.max(1);
-    QUIT_CONFIRM_TIMEOUT_MS / tick_ms + u64::from(QUIT_CONFIRM_TIMEOUT_MS % tick_ms != 0)
+    QUIT_CONFIRM_TIMEOUT_MS / tick_ms + u64::from(!QUIT_CONFIRM_TIMEOUT_MS.is_multiple_of(tick_ms))
 }

@@ -548,7 +548,7 @@ fn validate_name(path: &Path, name: &str, parent_name: &str) -> Result<(), Skill
     if name != parent_name {
         return Err(SkillDiagnostic::new(
             path,
-            format!("name {:?} must match parent directory {:?}", name, parent_name),
+            format!("name {name:?} must match parent directory {parent_name:?}"),
         ));
     }
     if name.len() > SkillConstants::NameLen.into() {

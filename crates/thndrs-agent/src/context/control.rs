@@ -766,9 +766,9 @@ fn static_provider_limits(provider: &str, model: &str) -> Option<ModelContextLim
 fn compact_token_count(tokens: u64) -> String {
     const K: u64 = 1_000;
     const M: u64 = K * 1_000;
-    if tokens >= M && tokens % M == 0 {
+    if tokens >= M && tokens.is_multiple_of(M) {
         format!("{}M", tokens / M)
-    } else if tokens >= K && tokens % K == 0 {
+    } else if tokens >= K && tokens.is_multiple_of(K) {
         format!("{}k", tokens / K)
     } else {
         tokens.to_string()

@@ -97,8 +97,7 @@ pub fn run_login(cli: &Cli, command: &LoginCommand) -> io::Result<()> {
     ) {
         writeln!(
             writer,
-            "{} is set in the environment and takes precedence over stored credentials.",
-            env_var
+            "{env_var} is set in the environment and takes precedence over stored credentials."
         )?;
         if !confirm(&mut writer, "Store a credential anyway?")? {
             writeln!(writer, "login cancelled")?;

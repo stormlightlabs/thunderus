@@ -6,7 +6,7 @@ use super::*;
 
 /// Helper: build a ShellArgs for `echo`.
 fn echo(args: &[&str]) -> ShellArgs {
-    let v: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+    let v: Vec<String> = args.iter().map(|&s| s.to_string()).collect();
     one_shot("echo", v)
 }
 
@@ -257,7 +257,7 @@ fn run_command_truncates_long_lines() {
     let cancel = CancelToken::new();
     let max_len: usize = MAX_LINE_LEN;
     let long_line = "x".repeat(max_len + 100);
-    let script = format!("printf '{}\\n'", long_line);
+    let script = format!("printf '{long_line}\\n'");
     let args = sh(&script);
     let result = run_command(&args, root, &cancel).expect("run");
     assert_eq!(result.status, ProcessStatus::Ok);

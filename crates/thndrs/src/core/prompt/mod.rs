@@ -86,9 +86,9 @@ impl PromptFragment {
 
 /// The structured prompt bundle before provider-specific lowering.
 ///
-/// Each field is a separate piece of model context. The [`Display`] impl
-/// renders the full system prompt text; [`PromptBundle::lower_to_umans`]
-/// converts it to Anthropic-compatible messages.
+/// Each field is a separate piece of model context. The [`std::fmt::Display`]
+/// implementation renders the full system prompt text;
+/// [`lower_to_umans_messages`] converts it to Anthropic-compatible messages.
 #[derive(Clone, Debug)]
 pub struct PromptBundle {
     /// Ordered prompt fragments: base identity, communication style, action
@@ -382,7 +382,7 @@ fn push_item_meta(out: &mut String, indent: usize, item: &ContextItem) {
         out.push_str(&format!("{pad}<path>{}</path>\n", utils::escape_xml(&path_str)));
     }
     if let Some(hash) = item.content_hash {
-        out.push_str(&format!("{pad}<hash>{}</hash>\n", hash));
+        out.push_str(&format!("{pad}<hash>{hash}</hash>\n"));
     }
 }
 

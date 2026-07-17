@@ -86,6 +86,7 @@ struct AgentSlot {
 
 struct GitStatusWatcher {
     receiver: mpsc::Receiver<Option<renderer::git::GitStatusSummary>>,
+    _initialized: mpsc::Receiver<()>,
     stop: mpsc::Sender<()>,
 }
 
@@ -96,9 +97,11 @@ impl GitStatusWatcher {
 
     fn spawn_with_interval(cwd: PathBuf, interval: Duration) -> Self {
         let (status_tx, status_rx) = mpsc::channel();
+        let (initialized_tx, initialized_rx) = mpsc::channel();
         let (stop_tx, stop_rx) = mpsc::channel();
         thread::spawn(move || {
             let mut last = renderer::git::collect(&cwd);
+            let _ = initialized_tx.send(());
             loop {
                 match stop_rx.recv_timeout(interval) {
                     Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
@@ -114,7 +117,14 @@ impl GitStatusWatcher {
                 }
             }
         });
-        Self { receiver: status_rx, stop: stop_tx }
+        Self { receiver: status_rx, _initialized: initialized_rx, stop: stop_tx }
+    }
+
+    #[cfg(test)]
+    fn wait_until_initialized(&self) {
+        self._initialized
+            .recv()
+            .expect("git status watcher should report initialization");
     }
 }
 
@@ -2538,7 +2548,6 @@ for line in sys.stdin:
     }
 
     #[test]
-    #[ignore = "this test is flaky and should either be fixed or run on its own"]
     fn git_status_watcher_reports_external_change() {
         let dir = tempfile::tempdir().expect("temp git dir");
         git(dir.path(), &["init"]);
@@ -2549,7 +2558,7 @@ for line in sys.stdin:
         git(dir.path(), &["commit", "-m", "initial"]);
 
         let watcher = GitStatusWatcher::spawn_with_interval(dir.path().to_path_buf(), Duration::from_millis(50));
-        thread::sleep(Duration::from_millis(100));
+        watcher.wait_until_initialized();
         std::fs::write(dir.path().join("tracked.txt"), "dirty\n").expect("modify tracked file");
 
         let status = watcher

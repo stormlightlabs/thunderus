@@ -36,7 +36,7 @@ pub struct TranscriptRowContext<'a> {
     pub cwd: &'a Path,
     pub width: usize,
     /// Index of the entry in the transcript. When present, rows are tagged with a
-    /// [`RowGroupId`] so viewport navigation can correlate rows to the
+    /// [`renderer::row::RowGroupId`] so viewport navigation can correlate rows to the
     /// originating entry.
     pub entry_index: Option<usize>,
     /// Whether this entry begins a consecutive group of tool activity.

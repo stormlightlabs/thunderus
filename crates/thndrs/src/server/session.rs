@@ -331,10 +331,8 @@ impl AcpSessionStore {
 
 /// Generate deterministic opaque ACP session ids.
 pub fn generate_session_id(sequence: u64) -> String {
-    format!(
-        "{ACP_SESSION_ID_PREFIX}-{sequence:0width$}",
-        width = ACP_SESSION_SEQUENCE_WIDTH
-    )
+    let width = ACP_SESSION_SEQUENCE_WIDTH;
+    format!("{ACP_SESSION_ID_PREFIX}-{sequence:0width$}")
 }
 
 /// Normalize and validate a workspace cwd for a new ACP session.
