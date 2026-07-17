@@ -3,7 +3,6 @@ title: "Overview"
 ---
 
 import { Image } from "astro:assets";
-import screencap from "../../../assets/screencap.png";
 
 `thndrs` is a minimal, LLM powered pair programmer.
 
@@ -13,7 +12,13 @@ to stay focused on reading and writing code with the essentials. You provide it 
 the command-line tools you need for your projects.
 
 <div style="padding: 0.75rem; background: black; border-radius: 1rem;">
-  <Image src={screencap} alt="welcome screen" style="padding: 0.5rem; border-radius: 1rem;" />
+  <Image
+    src="/screenshot.png"
+    width={1600}
+    height={900}
+    alt="welcome screen"
+    style="padding: 0.5rem; border-radius: 1rem;"
+  />
 </div>
 
 ## Features

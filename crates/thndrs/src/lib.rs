@@ -167,7 +167,7 @@ pub fn render_print_prompt(bundle: &PromptBundle) -> String {
     let tool_catalog = prompt::render_tool_catalog(bundle);
     let mut out = String::new();
 
-    out.push_str(&format!("=== System Prompt ===\n{}\n\n", &system_prompt));
+    out.push_str(&format!("=== System Prompt ===\n{}\n\n", system_prompt));
     out.push_str(&format!("=== Tool Catalog ({} tools) ===\n", bundle.tool_catalog.len()));
     out.push_str(&serde_json::to_string_pretty(&tools::sorted_json_value(&tool_catalog)).unwrap_or_default());
     out.push_str(&format!(
