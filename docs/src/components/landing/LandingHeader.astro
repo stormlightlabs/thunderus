@@ -1,0 +1,88 @@
+---
+import Brand from "./Brand.astro";
+---
+
+<header class="header">
+  <Brand />
+  <nav class="header__nav" aria-label="Primary navigation">
+    <a href="/docs/">Docs</a>
+    <a href="https://github.com/stormlightlabs/thunderus">GitHub</a>
+    <a class="header__install" href="/docs/getting-started/installation/">Install</a>
+  </nav>
+</header>
+
+<style>
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: min(var(--thndrs-content-width), calc(100% - 3rem));
+    min-height: 5.25rem;
+    margin-inline: auto;
+  }
+
+  .header__nav {
+    display: flex;
+    align-items: center;
+    gap: 1.875rem;
+    color: var(--thndrs-fg-muted);
+    font-size: 0.9rem;
+  }
+
+  .header__nav a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    color: inherit;
+    text-decoration: none;
+    transition:
+      background-color 160ms ease-out,
+      box-shadow 160ms ease-out,
+      color 160ms ease-out,
+      transform 160ms ease-out;
+  }
+
+  .header__nav a:hover {
+    color: var(--thndrs-fg);
+  }
+
+  .header__nav a:focus-visible {
+    border-radius: 0.25rem;
+    outline: 2px solid var(--thndrs-cyan);
+    outline-offset: 3px;
+  }
+
+  .header__nav .header__install {
+    min-height: 2.5rem;
+    padding-inline: 1.0625rem;
+    border-radius: 0.45rem;
+    background: var(--thndrs-fg);
+    color: var(--thndrs-bg-dark);
+    font-weight: 650;
+  }
+
+  .header__nav .header__install:hover {
+    background: var(--thndrs-green);
+    box-shadow: 0 0.5rem 1.5rem color-mix(in srgb, var(--thndrs-green) 14%, transparent);
+    color: var(--thndrs-bg-dark);
+  }
+
+  .header__nav .header__install:active {
+    transform: scale(0.96);
+  }
+
+  @media (max-width: 40rem) {
+    .header {
+      width: calc(100% - 1.75rem);
+      min-height: 4.5rem;
+    }
+
+    .header__nav {
+      gap: 1rem;
+    }
+
+    .header__nav a:not(.header__install) {
+      display: none;
+    }
+  }
+</style>

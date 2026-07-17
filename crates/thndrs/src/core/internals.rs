@@ -14,21 +14,21 @@ use thndrs_agent::context::render_model_dashboard;
 pub const RENDERER_MODE: &str = "direct-inline";
 
 const DOCUMENTATION_MAP: &[DocumentationEntry] = &[
-    DocumentationEntry { topic: "CLI", path: "docs/src/content/docs/reference/cli.md" },
-    DocumentationEntry { topic: "configuration", path: "docs/src/content/docs/reference/configuration.md" },
-    DocumentationEntry { topic: "sessions", path: "docs/src/content/docs/reference/session-format.md" },
-    DocumentationEntry { topic: "tool boundary", path: "docs/src/content/docs/concepts/tool-boundary.md" },
-    DocumentationEntry { topic: "tools", path: "docs/src/content/docs/reference/tools.md" },
-    DocumentationEntry { topic: "web search and URL reading", path: "docs/src/content/docs/usage/web-search.md" },
-    DocumentationEntry { topic: "prompt assembly", path: "docs/src/content/docs/concepts/prompt-assembly.md" },
-    DocumentationEntry { topic: "project context", path: "docs/src/content/docs/usage/project-context.md" },
-    DocumentationEntry { topic: "skills", path: "docs/src/content/docs/usage/skills.md" },
-    DocumentationEntry { topic: "Umans provider", path: "docs/src/content/docs/providers/umans.md" },
-    DocumentationEntry { topic: "OpenCode Go provider", path: "docs/src/content/docs/providers/opencode-go.md" },
-    DocumentationEntry { topic: "OpenCode Zen provider", path: "docs/src/content/docs/providers/opencode-zen.md" },
-    DocumentationEntry { topic: "ChatGPT Codex provider", path: "docs/src/content/docs/providers/chatgpt.md" },
-    DocumentationEntry { topic: "renderer", path: "docs/src/content/docs/usage/tui.md" },
-    DocumentationEntry { topic: "development workflow", path: "docs/src/content/docs/development/workflow.md" },
+    DocumentationEntry { topic: "CLI", path: "docs/src/content/docs/docs/reference/cli.md" },
+    DocumentationEntry { topic: "configuration", path: "docs/src/content/docs/docs/reference/configuration.md" },
+    DocumentationEntry { topic: "sessions", path: "docs/src/content/docs/docs/reference/session-format.md" },
+    DocumentationEntry { topic: "tool boundary", path: "docs/src/content/docs/docs/concepts/tool-boundary.md" },
+    DocumentationEntry { topic: "tools", path: "docs/src/content/docs/docs/reference/tools.md" },
+    DocumentationEntry { topic: "web search and URL reading", path: "docs/src/content/docs/docs/usage/web-search.md" },
+    DocumentationEntry { topic: "prompt assembly", path: "docs/src/content/docs/docs/concepts/prompt-assembly.md" },
+    DocumentationEntry { topic: "project context", path: "docs/src/content/docs/docs/usage/project-context.md" },
+    DocumentationEntry { topic: "skills", path: "docs/src/content/docs/docs/usage/skills.md" },
+    DocumentationEntry { topic: "Umans provider", path: "docs/src/content/docs/docs/providers/umans.md" },
+    DocumentationEntry { topic: "OpenCode Go provider", path: "docs/src/content/docs/docs/providers/opencode-go.md" },
+    DocumentationEntry { topic: "OpenCode Zen provider", path: "docs/src/content/docs/docs/providers/opencode-zen.md" },
+    DocumentationEntry { topic: "ChatGPT Codex provider", path: "docs/src/content/docs/docs/providers/chatgpt.md" },
+    DocumentationEntry { topic: "renderer", path: "docs/src/content/docs/docs/usage/tui.md" },
+    DocumentationEntry { topic: "development workflow", path: "docs/src/content/docs/docs/development/workflow.md" },
 ];
 
 const CAPABILITIES: &[&str] = &[
@@ -477,7 +477,7 @@ mod tests {
         assert!(rendered.contains("<thndrs_self_knowledge>"));
         assert!(rendered.contains("<name>umans</name>"));
         assert!(rendered.contains("<renderer_mode>direct-inline</renderer_mode>"));
-        assert!(rendered.contains("docs/src/content/docs/reference/cli.md"));
+        assert!(rendered.contains("docs/src/content/docs/docs/reference/cli.md"));
         assert!(rendered.contains("<fragment>base_identity</fragment>"));
         assert!(rendered.contains("<tool>read_file_range</tool>"));
         assert!(rendered.contains("<name>inspect</name>"));

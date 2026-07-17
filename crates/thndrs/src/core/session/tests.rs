@@ -120,7 +120,7 @@ fn from_bundle_captures_self_knowledge_inputs_without_content() {
     assert!(meta.prompt_fragments.contains(&"base_identity".to_string()));
     assert!(
         meta.docs_map
-            .contains(&"docs/src/content/docs/reference/tools.md".to_string())
+            .contains(&"docs/src/content/docs/docs/reference/tools.md".to_string())
     );
     assert!(meta.tool_names.contains(&"read_file_range".to_string()));
     assert!(meta.skill_names.is_empty());

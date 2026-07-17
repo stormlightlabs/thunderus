@@ -1,0 +1,142 @@
+<figure class="terminal">
+  <figcaption class="terminal__bar">
+    <span class="terminal__dots" aria-hidden="true"><i></i><i></i><i></i></span>
+    <span>thndrs · ~/path/to/your/project</span>
+  </figcaption>
+  <div class="terminal__screen">
+    <img
+      src="/screenshot.png"
+      alt="thndrs showing loaded project context, tool activity, and the result of a coding task"
+      width="1600"
+      height="900"
+      loading="eager"
+      fetchpriority="high"
+    />
+  </div>
+  <p class="terminal__note"><span>ALT</span> Thndrs adding a health check to a project.</p>
+</figure>
+
+<style>
+  .terminal {
+    position: relative;
+    min-width: 0;
+    margin: 0;
+    padding: 0.5rem;
+    border-radius: 1.5rem;
+    background: color-mix(in srgb, var(--thndrs-bg) 82%, transparent);
+    box-shadow:
+      0 0 0 1px var(--thndrs-border-strong),
+      0 2.75rem 6.25rem color-mix(in srgb, var(--thndrs-bg-dark) 72%, transparent);
+  }
+
+  .terminal::before {
+    position: absolute;
+    z-index: -1;
+    inset: 8% 10% -5%;
+    background: radial-gradient(ellipse, color-mix(in srgb, var(--thndrs-purple) 20%, transparent), transparent 65%);
+    filter: blur(3rem);
+    content: "";
+  }
+
+  .terminal__bar {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    min-height: 2.875rem;
+    padding-inline: 0.9375rem;
+    color: var(--thndrs-comment);
+    font-family: var(--thndrs-font-mono);
+    font-size: 0.72rem;
+  }
+
+  .terminal__dots {
+    display: flex;
+    gap: 0.4375rem;
+  }
+
+  .terminal__dots i {
+    display: inline-block;
+    border-radius: 50%;
+  }
+
+  .terminal__dots i {
+    width: 0.5rem;
+    height: 0.5rem;
+    background: var(--thndrs-red);
+  }
+
+  .terminal__dots i:nth-child(2) {
+    background: var(--thndrs-yellow);
+  }
+
+  .terminal__dots i:nth-child(3) {
+    background: var(--thndrs-green);
+  }
+
+  .terminal__status {
+    justify-self: end;
+  }
+
+  .terminal__status i {
+    width: 0.375rem;
+    height: 0.375rem;
+    margin-right: 0.3125rem;
+    background: var(--thndrs-green);
+    box-shadow: 0 0 0.5rem var(--thndrs-green);
+  }
+
+  .terminal__screen {
+    overflow: hidden;
+    border-radius: 1rem;
+    background: var(--thndrs-bg-dark);
+    box-shadow: 0 0 0 1px var(--thndrs-border-strong);
+  }
+
+  .terminal__screen img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+
+  .terminal__note {
+    display: flex;
+    justify-content: center;
+    gap: 0.875rem;
+    margin: 1rem 0.375rem 0.25rem;
+    color: var(--thndrs-comment);
+    font-family: var(--thndrs-font-mono);
+    font-size: 0.72rem;
+    line-height: 1.5;
+  }
+
+  .terminal__note span {
+    color: var(--thndrs-cyan);
+  }
+
+  @media (max-width: 40rem) {
+    .terminal {
+      padding: 0.3125rem;
+      border-radius: 0.9375rem;
+    }
+
+    .terminal__bar {
+      min-height: 2.375rem;
+      padding-inline: 0.5625rem;
+      font-size: 0.58rem;
+    }
+
+    .terminal__dots i {
+      width: 0.375rem;
+      height: 0.375rem;
+    }
+
+    .terminal__screen {
+      border-radius: 0.625rem;
+    }
+
+    .terminal__note {
+      justify-content: flex-start;
+      margin-top: 0.875rem;
+    }
+  }
+</style>

@@ -1,0 +1,43 @@
+---
+import Brand from "./Brand.astro";
+---
+
+<footer class="footer">
+  <Brand />
+  <p>Apache-2.0 · Built by <a href="https://stormlightlabs.org">Stormlight Labs</a></p>
+</footer>
+
+<style>
+  .footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: min(var(--thndrs-content-width), calc(100% - 3rem));
+    min-height: 5.875rem;
+    margin-inline: auto;
+    border-top: 1px solid var(--thndrs-border);
+    color: var(--thndrs-comment);
+    font-size: 0.78rem;
+  }
+
+  .footer p {
+    margin: 0;
+  }
+
+  .footer a {
+    color: var(--thndrs-fg-muted);
+    text-decoration-color: color-mix(in srgb, var(--thndrs-fg-muted) 28%, transparent);
+    text-underline-offset: 0.25rem;
+  }
+
+  @media (max-width: 40rem) {
+    .footer {
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: center;
+      gap: 0.25rem;
+      width: calc(100% - 1.75rem);
+      padding-block: 1.25rem;
+    }
+  }
+</style>

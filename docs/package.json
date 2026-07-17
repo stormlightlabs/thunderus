@@ -8,6 +8,7 @@
     "build": "astro build",
     "deploy": "pnpm build && wrangler pages deploy",
     "preview": "astro preview",
+    "screenshot:tui": "vhs tui/landing.tape",
     "astro": "astro"
   },
   "dependencies": {
@@ -25,8 +26,12 @@
     "typescript": "^6.0.3"
   },
   "devDependencies": {
+    "@iconify-json/bi": "^1.2.7",
+    "@iconify-json/ri": "^1.2.10",
+    "@unocss/astro": "^66.7.5",
     "prettier": "^3.9.4",
     "prettier-plugin-astro": "^0.14.1",
+    "unocss": "^66.7.5",
     "wrangler": "^4.107.0"
   }
 }

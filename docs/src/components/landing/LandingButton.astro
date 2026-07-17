@@ -1,0 +1,78 @@
+---
+interface Props {
+  href: string;
+  variant?: "primary" | "secondary";
+  icon?: "arrow";
+}
+
+const { href, variant = "secondary", icon } = Astro.props;
+---
+
+<a class:list={["button", `button--${variant}`]} href={href}>
+  <slot />
+  {icon === "arrow" && <span class="button__icon i-ri-arrow-right-line" aria-hidden="true" />}
+</a>
+
+<style>
+  .button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 3rem;
+    padding-inline: 1.25rem;
+    border-radius: 0.5rem;
+    font-size: 0.92rem;
+    font-weight: 680;
+    text-decoration: none;
+    transition:
+      background-color 160ms ease-out,
+      box-shadow 160ms ease-out,
+      color 160ms ease-out,
+      transform 160ms ease-out;
+  }
+
+  .button:active {
+    transform: scale(0.96);
+  }
+
+  .button:focus-visible {
+    outline: 2px solid var(--thndrs-cyan);
+    outline-offset: 3px;
+  }
+
+  .button__icon {
+    width: 1.0625rem;
+    height: 1.0625rem;
+    margin-left: 0.5rem;
+  }
+
+  .button--primary {
+    background: var(--thndrs-green);
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--thndrs-green) 25%, transparent),
+      0 0.5rem 1.875rem color-mix(in srgb, var(--thndrs-green) 12%, transparent);
+    color: var(--thndrs-bg-dark);
+  }
+
+  .button--primary:hover {
+    background: var(--thndrs-yellow);
+    color: var(--thndrs-bg-dark);
+  }
+
+  .button--secondary {
+    background: var(--thndrs-surface-translucent);
+    box-shadow: 0 0 0 1px var(--thndrs-border-strong);
+    color: var(--thndrs-fg);
+  }
+
+  .button--secondary:hover {
+    background: var(--thndrs-bg-highlight);
+    color: var(--thndrs-fg);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .button {
+      transition-duration: 0.01ms;
+    }
+  }
+</style>

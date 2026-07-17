@@ -207,63 +207,63 @@ expression: prompt
   <docs_map>
     <doc>
       <topic>CLI</topic>
-      <path>docs/src/content/docs/reference/cli.md</path>
+      <path>docs/src/content/docs/docs/reference/cli.md</path>
     </doc>
     <doc>
       <topic>configuration</topic>
-      <path>docs/src/content/docs/reference/configuration.md</path>
+      <path>docs/src/content/docs/docs/reference/configuration.md</path>
     </doc>
     <doc>
       <topic>sessions</topic>
-      <path>docs/src/content/docs/reference/session-format.md</path>
+      <path>docs/src/content/docs/docs/reference/session-format.md</path>
     </doc>
     <doc>
       <topic>tool boundary</topic>
-      <path>docs/src/content/docs/concepts/tool-boundary.md</path>
+      <path>docs/src/content/docs/docs/concepts/tool-boundary.md</path>
     </doc>
     <doc>
       <topic>tools</topic>
-      <path>docs/src/content/docs/reference/tools.md</path>
+      <path>docs/src/content/docs/docs/reference/tools.md</path>
     </doc>
     <doc>
       <topic>web search and URL reading</topic>
-      <path>docs/src/content/docs/usage/web-search.md</path>
+      <path>docs/src/content/docs/docs/usage/web-search.md</path>
     </doc>
     <doc>
       <topic>prompt assembly</topic>
-      <path>docs/src/content/docs/concepts/prompt-assembly.md</path>
+      <path>docs/src/content/docs/docs/concepts/prompt-assembly.md</path>
     </doc>
     <doc>
       <topic>project context</topic>
-      <path>docs/src/content/docs/usage/project-context.md</path>
+      <path>docs/src/content/docs/docs/usage/project-context.md</path>
     </doc>
     <doc>
       <topic>skills</topic>
-      <path>docs/src/content/docs/usage/skills.md</path>
+      <path>docs/src/content/docs/docs/usage/skills.md</path>
     </doc>
     <doc>
       <topic>Umans provider</topic>
-      <path>docs/src/content/docs/providers/umans.md</path>
+      <path>docs/src/content/docs/docs/providers/umans.md</path>
     </doc>
     <doc>
       <topic>OpenCode Go provider</topic>
-      <path>docs/src/content/docs/providers/opencode-go.md</path>
+      <path>docs/src/content/docs/docs/providers/opencode-go.md</path>
     </doc>
     <doc>
       <topic>OpenCode Zen provider</topic>
-      <path>docs/src/content/docs/providers/opencode-zen.md</path>
+      <path>docs/src/content/docs/docs/providers/opencode-zen.md</path>
     </doc>
     <doc>
       <topic>ChatGPT Codex provider</topic>
-      <path>docs/src/content/docs/providers/chatgpt.md</path>
+      <path>docs/src/content/docs/docs/providers/chatgpt.md</path>
     </doc>
     <doc>
       <topic>renderer</topic>
-      <path>docs/src/content/docs/usage/tui.md</path>
+      <path>docs/src/content/docs/docs/usage/tui.md</path>
     </doc>
     <doc>
       <topic>development workflow</topic>
-      <path>docs/src/content/docs/development/workflow.md</path>
+      <path>docs/src/content/docs/docs/development/workflow.md</path>
     </doc>
   </docs_map>
   <runtime_state>

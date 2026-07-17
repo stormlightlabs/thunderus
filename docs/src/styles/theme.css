@@ -16,7 +16,15 @@
   --thndrs-orange: #f7c67f;
   --thndrs-red: #f16c75;
 
-  --sl-font: "IBM Plex Sans Variable";
+  --thndrs-font-sans: "IBM Plex Sans Variable", sans-serif;
+  --thndrs-font-serif: "Literata Variable", Georgia, serif;
+  --thndrs-font-mono: "SFMono-Regular", "Cascadia Code", "Liberation Mono", monospace;
+  --thndrs-content-width: 74rem;
+  --thndrs-border: color-mix(in srgb, var(--thndrs-comment) 22%, transparent);
+  --thndrs-border-strong: color-mix(in srgb, var(--thndrs-fg) 12%, transparent);
+  --thndrs-surface-translucent: color-mix(in srgb, var(--thndrs-bg-highlight) 66%, transparent);
+
+  --sl-font: var(--thndrs-font-sans);
   --sl-content-width: 48rem;
   --sl-line-height: 1.75;
 
@@ -63,6 +71,12 @@
   --sl-color-red-high: var(--thndrs-red);
 }
 
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 html {
   background: var(--thndrs-bg-dark);
 }
@@ -72,7 +86,7 @@ body {
 }
 
 :where(h1, h2, h3, h4, h5, h6) {
-  font-family: "Literata Variable", var(--__sl-font);
+  font-family: var(--thndrs-font-serif);
   font-weight: 500;
   color: var(--thndrs-fg);
 }
@@ -87,7 +101,7 @@ body {
   text-decoration-color: currentColor;
 }
 
-:where(code):not(:where(pre *)) {
+.sl-markdown-content :where(code):not(:where(pre *)) {
   border: 1px solid var(--sl-color-hairline-light);
   border-radius: 0.3rem;
   color: var(--thndrs-orange);

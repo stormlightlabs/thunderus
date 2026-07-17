@@ -1,0 +1,74 @@
+---
+import Eyebrow from "./Eyebrow.astro";
+import LandingButton from "./LandingButton.astro";
+---
+
+<section class="cta" aria-labelledby="cta-title">
+  <Eyebrow label="Ready when you are" />
+  <h2 id="cta-title">Try thndrs today.</h2>
+  <p>
+    Install thndrs with Cargo and run it from any repository. It loads the project guidance it finds and keeps context
+    and tool activity in view.
+  </p>
+  <div class="cta__actions">
+    <LandingButton href="/docs/getting-started/installation/" variant="primary" icon="arrow">
+      Install thndrs
+    </LandingButton>
+    <LandingButton href="https://github.com/stormlightlabs/thunderus">View the source</LandingButton>
+  </div>
+</section>
+
+<style>
+  .cta {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: min(var(--thndrs-content-width), calc(100% - 3rem));
+    margin-inline: auto;
+    padding-block: clamp(4rem, 15vw, 6rem) clamp(3rem, 13vw, 5rem);
+    overflow: hidden;
+    text-align: center;
+  }
+
+  .cta h2 {
+    max-width: 14ch;
+    margin: 1.625rem 0 0;
+    color: var(--thndrs-fg);
+    font-family: var(--thndrs-font-serif);
+    font-size: clamp(2.7rem, 5.5vw, 5rem);
+    font-weight: 450;
+    letter-spacing: -0.055em;
+    line-height: 1.04;
+    text-wrap: balance;
+  }
+
+  .cta > p {
+    max-width: 36rem;
+    margin: 1.5rem 0 0;
+    color: var(--thndrs-fg-muted);
+    font-size: 1.05rem;
+    line-height: 1.65;
+    text-wrap: pretty;
+  }
+
+  .cta__actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.75rem;
+    margin-top: 2rem;
+  }
+
+  @media (max-width: 40rem) {
+    .cta {
+      width: calc(100% - 1.75rem);
+    }
+
+    .cta__mark {
+      top: 2.5rem;
+      width: 16rem;
+      height: 16rem;
+    }
+  }
+</style>

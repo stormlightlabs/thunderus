@@ -1,0 +1,124 @@
+---
+import Eyebrow from "./Eyebrow.astro";
+---
+
+<section class="features" aria-labelledby="features-title">
+  <header class="features__header">
+    <h2 id="features-title">Stay oriented while the agent works.</h2>
+  </header>
+  <div class="features__grid">
+    <article>
+      <p class="features__number">01 / Context</p>
+      <h3>Context stays visible.</h3>
+      <p>
+        See the project instructions, skills, model, and search mode shaping the current run before you send a prompt.
+      </p>
+    </article>
+    <article>
+      <p class="features__number">02 / Tools</p>
+      <h3>Every tool call has a shape.</h3>
+      <p>
+        The model reads, searches, edits, and runs commands through typed tools with workspace limits and capped output.
+      </p>
+    </article>
+    <article>
+      <p class="features__number">03 / Sessions</p>
+      <h3>Sessions leave a trail.</h3>
+      <p>Resume a structured transcript with tool status, token usage, and audit metadata already attached.</p>
+    </article>
+  </div>
+</section>
+
+<style>
+  .features {
+    width: min(var(--thndrs-content-width), calc(100% - 3rem));
+    margin-inline: auto;
+    padding-block: clamp(4rem, 11vw, 6rem);
+  }
+
+  .features__header {
+    padding-bottom: 2rem;
+    border-bottom: 1px solid var(--thndrs-border);
+  }
+
+  .features h2 {
+    margin: 0;
+    color: var(--thndrs-fg);
+    font-family: var(--thndrs-font-serif);
+    font-size: clamp(2rem, 5vw, 4rem);
+    font-weight: 450;
+    letter-spacing: -0.025em;
+    line-height: 1.04;
+  }
+
+  .features__grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .features article {
+    min-height: 21rem;
+    padding: 2.625rem 2.125rem 2rem 0;
+    border-bottom: 1px solid var(--thndrs-border);
+  }
+
+  .features article + article {
+    padding-left: 2.125rem;
+    border-left: 1px solid var(--thndrs-border);
+  }
+
+  .features__number {
+    color: var(--thndrs-purple);
+    font-family: var(--thndrs-font-mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .features h3 {
+    margin: 0 0 1.125rem;
+    color: var(--thndrs-fg);
+    font-family: var(--thndrs-font-serif);
+    font-size: 1.55rem;
+    font-weight: 500;
+    letter-spacing: -0.025em;
+  }
+
+  .features article > p:last-child {
+    margin: 0;
+    color: var(--thndrs-fg-muted);
+    line-height: 1.7;
+    text-wrap: pretty;
+  }
+
+  @media (max-width: 56rem) {
+    .features__header,
+    .features__grid {
+      grid-template-columns: 1fr;
+    }
+
+    .features__header {
+      gap: 1.5rem;
+    }
+
+    .features article {
+      min-height: auto;
+      padding: 2.125rem 0 2.5rem;
+    }
+
+    .features article + article {
+      padding-left: 0;
+      border-left: 0;
+    }
+
+    .features__number {
+      margin-bottom: 2.125rem;
+    }
+  }
+
+  @media (max-width: 40rem) {
+    .features {
+      width: calc(100% - 1.75rem);
+    }
+  }
+</style>

@@ -23,10 +23,8 @@ Use a container, VM, or OS-level sandbox when the task needs isolation.
 
 ## Documentation
 
-The [documentation site](https://thndrs.stormlightlabs.org/) covers setup,
-[ChatGPT Codex](https://thndrs.stormlightlabs.org/providers/chatgpt/),
-[Umans](https://thndrs.stormlightlabs.org/providers/umans/), configuration,
-sessions, diagnostics, and tool safety.
+The [documentation site](https://thndrs.stormlightlabs.org/docs/) covers setup,
+configuration, sessions, diagnostics, and tool safety.
 
 `thndrs` is an experimental pre-1.0 application.
 

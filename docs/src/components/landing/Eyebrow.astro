@@ -1,0 +1,31 @@
+---
+interface Props {
+  label: string;
+}
+
+const { label } = Astro.props;
+---
+
+<p class="eyebrow"><span aria-hidden="true"></span>{label}</p>
+
+<style>
+  .eyebrow {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    margin: 0;
+    color: var(--thndrs-cyan);
+    font-family: var(--thndrs-font-mono);
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+  }
+
+  .eyebrow span {
+    width: 1.625rem;
+    height: 1px;
+    background: currentColor;
+    box-shadow: 0 0 0.5rem currentColor;
+  }
+</style>

@@ -1,0 +1,70 @@
+---
+import "@fontsource-variable/ibm-plex-sans/index.css";
+import "@fontsource-variable/literata/index.css";
+import "../styles/theme.css";
+import LandingCta from "../components/landing/LandingCta.astro";
+import LandingFeatures from "../components/landing/LandingFeatures.astro";
+import LandingFooter from "../components/landing/LandingFooter.astro";
+import LandingHeader from "../components/landing/LandingHeader.astro";
+import LandingHero from "../components/landing/LandingHero.astro";
+import LandingWorkflow from "../components/landing/LandingWorkflow.astro";
+
+const title = "thndrs — an inspectable coding agent for your terminal";
+const description =
+  "Run coding models in your terminal with visible project context, explicit tool calls, and resumable sessions.";
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#171928" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://thndrs.stormlightlabs.org/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>{title}</title>
+  </head>
+  <body class="landing-page">
+    <LandingHeader />
+    <main>
+      <LandingHero />
+      <LandingFeatures />
+      <LandingWorkflow />
+      <LandingCta />
+    </main>
+    <LandingFooter />
+  </body>
+</html>
+
+<style>
+  .landing-page {
+    min-width: 20rem;
+    margin: 0;
+    overflow-x: hidden;
+    background:
+      radial-gradient(circle at 82% 9%, color-mix(in srgb, var(--thndrs-cyan) 8%, transparent), transparent 26rem),
+      linear-gradient(180deg, var(--thndrs-bg) 0%, var(--thndrs-bg-dark) 72%);
+    color: var(--thndrs-fg);
+    font-family: var(--thndrs-font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  .landing-page::before {
+    position: fixed;
+    z-index: -1;
+    inset: 0;
+    background-image:
+      linear-gradient(color-mix(in srgb, var(--thndrs-comment) 5%, transparent) 1px, transparent 1px),
+      linear-gradient(90deg, color-mix(in srgb, var(--thndrs-comment) 5%, transparent) 1px, transparent 1px);
+    background-size: 4.5rem 4.5rem;
+    mask-image: linear-gradient(to bottom, black, transparent 68%);
+    content: "";
+    pointer-events: none;
+  }
+</style>

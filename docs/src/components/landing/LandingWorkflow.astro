@@ -1,0 +1,153 @@
+---
+import Eyebrow from "./Eyebrow.astro";
+---
+
+<section class="workflow" aria-labelledby="workflow-title">
+  <div class="workflow__copy">
+    <Eyebrow label="Start anywhere" />
+    <h2 id="workflow-title">Talk to thndrs like any other agent.</h2>
+    <p>
+      Thndrs loads the relevant <code>AGENTS.md</code> guidance, and any installed skills you have before connecting to your
+      preferred model.
+    </p>
+    <a class="workflow__link" href="/docs/usage/project-context/">
+      Read about project context
+      <span class="i-ri-arrow-right-up-line" aria-hidden="true"></span>
+    </a>
+  </div>
+  <ol class="workflow__steps">
+    <li>
+      <span>1</span>
+      <div><code>cd path/to/project</code><p>Open the repository you want the agent to understand.</p></div>
+    </li>
+    <li>
+      <span>2</span>
+      <div><code>thndrs</code><p>First run walks you through provider and model setup.</p></div>
+    </li>
+    <li>
+      <span>3</span>
+      <div><code>Ask for a change.</code><p>Steer the run as needed, then inspect the diff and transcript.</p></div>
+    </li>
+  </ol>
+</section>
+
+<style>
+  .workflow {
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+    gap: clamp(4rem, 8vw, 6.25rem);
+    width: min(var(--thndrs-content-width), calc(100% - 3rem));
+    margin-inline: auto;
+    padding: 4rem 3rem;
+    border: 1px solid var(--thndrs-border-strong);
+    border-radius: 1.625rem;
+    background:
+      radial-gradient(circle at 0 0, color-mix(in srgb, var(--thndrs-purple) 10%, transparent), transparent 24rem),
+      var(--thndrs-bg);
+    box-shadow: 0 1.625rem 4.375rem color-mix(in srgb, var(--thndrs-bg-dark) 42%, transparent);
+  }
+
+  .workflow h2 {
+    margin: 1.5rem 0 0;
+    color: var(--thndrs-fg);
+    font-family: var(--thndrs-font-serif);
+    font-size: clamp(2.5rem, 4.6vw, 4.4rem);
+    font-weight: 450;
+    letter-spacing: -0.055em;
+    line-height: 1.04;
+    text-wrap: balance;
+  }
+
+  .workflow__copy > p {
+    max-width: 30rem;
+    margin: 1.75rem 0 0;
+    color: var(--thndrs-fg-muted);
+    line-height: 1.75;
+    text-wrap: pretty;
+  }
+
+  .workflow__copy code,
+  .workflow__steps code {
+    color: var(--thndrs-fg);
+    font-family: var(--thndrs-font-mono);
+  }
+
+  .workflow__link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    margin-top: 1.375rem;
+    color: var(--thndrs-green);
+    font-weight: 650;
+    text-decoration-color: color-mix(in srgb, var(--thndrs-green) 32%, transparent);
+    text-underline-offset: 0.3125rem;
+  }
+
+  .workflow__link span {
+    width: 1.0625rem;
+    height: 1.0625rem;
+    margin-left: 0.5rem;
+  }
+
+  .workflow__steps {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .workflow__steps li {
+    display: grid;
+    grid-template-columns: 2.375rem 1fr;
+    gap: 1.125rem;
+    padding-block: 1.875rem;
+    align-items: center;
+    border-bottom: 1px solid var(--thndrs-border);
+  }
+
+  .workflow__steps li:first-child {
+    padding-top: 0;
+  }
+
+  .workflow__steps li:last-child {
+    border: 0;
+  }
+
+  .workflow__steps li > span {
+    display: grid;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    background: var(--thndrs-bg-highlight);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--thndrs-cyan) 20%, transparent);
+    color: var(--thndrs-cyan);
+    font-family: var(--thndrs-font-mono);
+    font-size: 0.72rem;
+  }
+
+  .workflow__steps p {
+    margin: 0.5625rem 0 0;
+    color: var(--thndrs-fg-muted);
+    font-size: 0.91rem;
+    line-height: 1.55;
+  }
+
+  @media (max-width: 56rem) {
+    .workflow {
+      grid-template-columns: 1fr;
+      gap: 4.5rem;
+    }
+  }
+
+  @media (max-width: 40rem) {
+    .workflow {
+      width: 100%;
+      padding: 4.25rem 1.75rem;
+      border-inline: 0;
+      border-radius: 0;
+    }
+  }
+</style>
