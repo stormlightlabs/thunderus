@@ -280,7 +280,8 @@ path.
 
 **Verification:**
 
-- Complete and sign off the applicable sections of `docs/internal/qa.md`.
+- Complete and sign off the applicable sections of `docs/internal/qa/README.md`
+  and its channel checklists.
 - Run the ignored live tests individually only with the required account and
   privacy prerequisites.
 
@@ -307,7 +308,7 @@ explicit go/no-go decision for `thndrs 0.1.0`.
 
 **Verification:**
 
-- Re-run the complete command list in `docs/internal/qa.md` from the approved
+- Re-run the complete command list in `docs/internal/qa/README.md` from the approved
   candidate revision.
 - Review the final crates.io pages, docs site, repository links, and release
   notes after publication.

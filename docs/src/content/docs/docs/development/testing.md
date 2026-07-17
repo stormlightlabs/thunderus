@@ -76,7 +76,8 @@ when explicitly enabled.
 
 CI never injects provider credentials or runs ignored tests. A release owner
 runs each applicable live test by its full name as a manual release gate and
-records only redacted results in `docs/internal/qa.md`.
+records only redacted results in `docs/internal/qa/README.md` and the applicable
+channel checklist.
 
 ## Continuous Integration
 
