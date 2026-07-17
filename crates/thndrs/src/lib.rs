@@ -2434,9 +2434,17 @@ for line in sys.stdin:
 
     #[test]
     fn maybe_spawn_agent_auto_compacts_oversized_turn_instead_of_spawning() {
+        let workspace = tempfile::tempdir().expect("create authenticated workspace");
+        crate::thndrs_core::auth::set_credential(
+            &crate::thndrs_core::auth::project_credentials_path(workspace.path()),
+            crate::thndrs_core::auth::UMANS_API_KEY_ENV,
+            "test-umans-key",
+        )
+        .expect("seed test credential");
         let mut config = config::Config::default();
         config.context.compaction.mode = agent_context::CompactionMode::Auto;
         let cli = Cli {
+            cwd: workspace.path().to_path_buf(),
             model: "fake-agent".to_string(),
             config_layers: vec![config::LoadedConfigLayer {
                 source: config::ConfigSource::ProjectFile,
