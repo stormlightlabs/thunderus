@@ -788,6 +788,7 @@ mod tests {
         let cli = Cli { model: "fake-agent".to_string(), ..Cli::default() };
         let mut app = App::from_cli(&cli);
         app.session_writer = None;
+        app.first_run_recovery = None;
         app.prompt_accessory = PromptAccessory::Help;
         let mut viewport = AlternateViewport::default();
         let event = Event::Key(crossterm::event::KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE));

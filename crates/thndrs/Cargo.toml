@@ -26,6 +26,7 @@ http.workspace = true
 iocraft.workspace = true
 lectito.workspace = true
 markdown.workspace = true
+process-wrap.workspace = true
 ratatui = { workspace = true, features = ["crossterm"] }
 regex-lite.workspace = true
 rmcp.workspace = true

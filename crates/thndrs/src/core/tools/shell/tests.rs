@@ -165,6 +165,29 @@ fn run_command_cancellation_kills_process() {
     assert!(result.elapsed < Duration::from_secs(5));
 }
 
+#[cfg(unix)]
+#[test]
+fn foreground_exit_terminates_descendants_that_inherit_output_pipes() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let marker = dir.path().join("descendant-survived");
+    let script = format!(
+        "(sleep 1; printf survived > '{}') & printf parent-done",
+        marker.display()
+    );
+    let started = Instant::now();
+
+    let result = run_command(&sh(&script), dir.path(), &CancelToken::new()).expect("run");
+
+    assert_eq!(result.status, ProcessStatus::Ok);
+    assert_eq!(result.stdout, vec!["parent-done"]);
+    assert!(
+        started.elapsed() < Duration::from_millis(900),
+        "descendant kept output pipes open"
+    );
+    std::thread::sleep(Duration::from_millis(1_100));
+    assert!(!marker.exists(), "descendant survived its owning foreground command");
+}
+
 #[test]
 fn run_command_runs_in_workspace_root_by_default() {
     let dir = tempfile::tempdir().expect("temp dir");
@@ -819,6 +842,34 @@ fn registry_shutdown_cancels_and_reaps_owned_child() {
     assert_eq!(final_results[0].process_id, Some(id));
     assert_eq!(final_results[0].status, ProcessStatus::Cancelled);
     assert!(registry.is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn registry_cancellation_terminates_background_descendants() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let marker = dir.path().join("background-descendant-survived");
+    let registry = ProcessRegistry::new();
+    let args = ShellArgs {
+        program: "sh".to_string(),
+        args: vec![
+            "-c".to_string(),
+            format!("(sleep 1; printf survived > '{}') & wait", marker.display()),
+        ],
+        cwd: None,
+        timeout: Some(Duration::from_secs(30)),
+        kind: ProcessKind::Background,
+    };
+    let result = run_command_with_registry(&args, dir.path(), &CancelToken::new(), Some(&registry)).expect("spawn");
+    let id = result.process_id.expect("process id");
+    registry.announce(id);
+
+    assert!(registry.cancel(id));
+    let results = wait_for_completed(&registry);
+
+    assert_eq!(results[0].status, ProcessStatus::Cancelled);
+    std::thread::sleep(Duration::from_millis(1_100));
+    assert!(!marker.exists(), "descendant survived registry cancellation");
 }
 
 #[test]

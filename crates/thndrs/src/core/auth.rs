@@ -1168,11 +1168,9 @@ fn set_unix_permissions(_path: &Path) {}
 
 #[cfg(test)]
 mod tests {
-    use std::sync::MutexGuard;
-
     use super::*;
 
-    fn env_test_lock() -> MutexGuard<'static, ()> {
+    fn env_test_lock() -> crate::test_env::Guard {
         crate::test_env::lock()
     }
 

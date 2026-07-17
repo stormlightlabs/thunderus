@@ -33,6 +33,7 @@ fn test_app() -> App {
         acp_agents: std::collections::BTreeMap::new(),
         command: None,
     });
+    app.first_run_recovery = None;
     app.session_id = "test-session".to_string();
     app.git_status =
         Some(renderer::git::GitStatusSummary { branch: Some("main".to_string()), added: 0, modified: 0, deleted: 0 });

@@ -131,6 +131,7 @@ pub fn fresh_app() -> App {
     let cli = Cli { cwd, model: "umans-coder".to_string(), ..Cli::default() };
     let mut app = App::from_cli(&cli);
     app.session_writer = None;
+    app.first_run_recovery = None;
     app
 }
 

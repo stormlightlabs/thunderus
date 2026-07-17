@@ -37,11 +37,17 @@ use std::collections::HashMap;
 use std::fmt;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
+
+#[cfg(windows)]
+use process_wrap::std::JobObject;
+#[cfg(unix)]
+use process_wrap::std::ProcessGroup;
+use process_wrap::std::{ChildWrapper, CommandWrap};
 
 use super::{MAX_OUTPUT_BYTES, TIMEOUT_SECS, ToolDefinition, ToolOutput, ToolUseRequest, path};
 use crate::app::ToolStatus;
@@ -52,6 +58,8 @@ use thndrs_agent::CancelToken;
 /// Maximum number of output lines retained for the transcript/tool result.
 const MAX_OUTPUT_LINES: usize = 200;
 pub const NAME: &str = "run_shell";
+
+type OwnedChild = Box<dyn ChildWrapper>;
 
 /// Outcome of waiting for a process, honoring timeout and cancellation.
 enum WaitOutcome {
@@ -346,7 +354,7 @@ impl TrackedProcess {
 #[derive(Debug)]
 struct ProcessControl {
     cancel: CancelToken,
-    child: Arc<Mutex<Option<Child>>>,
+    child: Arc<Mutex<Option<OwnedChild>>>,
 }
 
 impl ProcessControl {
@@ -355,7 +363,7 @@ impl ProcessControl {
         if let Ok(mut child) = self.child.lock()
             && let Some(child) = child.as_mut()
         {
-            let _ = child.kill();
+            let _ = child.start_kill();
         }
     }
 }
@@ -391,7 +399,7 @@ struct BackgroundMonitor {
     timeout: Duration,
     start: Instant,
     cancel: CancelToken,
-    child: Arc<Mutex<Option<Child>>>,
+    child: Arc<Mutex<Option<OwnedChild>>>,
     output: Arc<OutputCapture>,
     result_slot: Arc<Mutex<Option<ProcessResult>>>,
 }
@@ -609,7 +617,7 @@ impl ProcessRegistry {
     }
 
     pub(crate) fn spawn_background(
-        &self, args: &ShellArgs, cwd: PathBuf, child: Child, start: Instant, cancel: CancelToken,
+        &self, args: &ShellArgs, cwd: PathBuf, child: OwnedChild, start: Instant, cancel: CancelToken,
     ) -> u64 {
         let argv = args.argv();
         let timeout = args.timeout.unwrap_or(Duration::from_secs(TIMEOUT_SECS));
@@ -620,10 +628,10 @@ impl ProcessRegistry {
         if let Ok(mut child_guard) = child.lock()
             && let Some(child) = child_guard.as_mut()
         {
-            if let Some(stdout) = child.stdout.take() {
+            if let Some(stdout) = child.stdout().take() {
                 spawn_output_reader(stdout, output.clone(), true);
             }
-            if let Some(stderr) = child.stderr.take() {
+            if let Some(stderr) = child.stderr().take() {
                 spawn_output_reader(stderr, output.clone(), false);
             }
         }
@@ -822,9 +830,7 @@ pub fn run_command_with_registry(
             .stderr(Stdio::piped())
             .stdin(Stdio::null());
         let start = Instant::now();
-        let child = cmd
-            .spawn()
-            .map_err(|error| format!("failed to spawn '{}': {error}", args.program))?;
+        let child = spawn_owned_command(cmd).map_err(|error| format!("failed to spawn '{}': {error}", args.program))?;
         // Background ownership is independent from the enclosing agent turn:
         // cancelling one registry entry must not cancel its sibling tools or
         // the agent loop that started it.
@@ -886,26 +892,30 @@ pub fn redact_secrets(line: &str) -> String {
 
 /// Wait for a child to exit, killing it if the timeout elapses or cancellation
 /// is signalled.
-fn wait_with_timeout(child: &mut Child, timeout: &Duration, cancel: &CancelToken, start: &Instant) -> WaitOutcome {
+fn wait_with_timeout(
+    child: &mut dyn ChildWrapper, timeout: &Duration, cancel: &CancelToken, start: &Instant,
+) -> WaitOutcome {
     loop {
         match child.try_wait() {
-            Ok(Some(status)) => return WaitOutcome::Exited(status.code().unwrap_or(-1)),
+            Ok(Some(status)) => {
+                // The direct child can exit while descendants retain its pipes.
+                // Terminate the remaining owned group before joining readers.
+                let _ = child.start_kill();
+                return WaitOutcome::Exited(status.code().unwrap_or(-1));
+            }
             Ok(None) => {
                 if cancel.is_cancelled() {
                     let _ = child.kill();
-                    let _ = child.wait();
                     return WaitOutcome::Cancelled;
                 }
                 if start.elapsed() > *timeout {
                     let _ = child.kill();
-                    let _ = child.wait();
                     return WaitOutcome::Timeout;
                 }
                 std::thread::sleep(Duration::from_millis(20));
             }
             Err(_) => {
                 let _ = child.kill();
-                let _ = child.wait();
                 return WaitOutcome::Cancelled;
             }
         }
@@ -1074,7 +1084,7 @@ impl BackgroundMonitor {
     }
 }
 
-fn try_wait_owned(child: &Arc<Mutex<Option<Child>>>) -> io::Result<Option<std::process::ExitStatus>> {
+fn try_wait_owned(child: &Arc<Mutex<Option<OwnedChild>>>) -> io::Result<Option<std::process::ExitStatus>> {
     let mut guard = child
         .lock()
         .map_err(|_| io::Error::other("process child lock poisoned"))?;
@@ -1083,6 +1093,9 @@ fn try_wait_owned(child: &Arc<Mutex<Option<Child>>>) -> io::Result<Option<std::p
     };
     match child.try_wait()? {
         Some(status) => {
+            // Do not let a successful direct child detach descendants from the
+            // registry. They belong to this process entry and end with it.
+            let _ = child.start_kill();
             *guard = None;
             Ok(Some(status))
         }
@@ -1090,13 +1103,12 @@ fn try_wait_owned(child: &Arc<Mutex<Option<Child>>>) -> io::Result<Option<std::p
     }
 }
 
-fn kill_and_reap(child: &Arc<Mutex<Option<Child>>>) {
+fn kill_and_reap(child: &Arc<Mutex<Option<OwnedChild>>>) {
     let Ok(mut guard) = child.lock() else {
         return;
     };
     if let Some(child) = guard.as_mut() {
         let _ = child.kill();
-        let _ = child.wait();
     }
     *guard = None;
 }
@@ -1157,6 +1169,15 @@ fn optional_u64(args: &serde_json::Value, field: &str) -> Result<Option<u64>, To
     }
 }
 
+fn spawn_owned_command(command: Command) -> io::Result<OwnedChild> {
+    let mut command = CommandWrap::from(command);
+    #[cfg(unix)]
+    command.wrap(ProcessGroup::leader());
+    #[cfg(windows)]
+    command.wrap(JobObject);
+    command.spawn()
+}
+
 fn run_foreground_command(
     args: &ShellArgs, cwd: PathBuf, argv: Vec<String>, cancel: &CancelToken,
 ) -> Result<ProcessResult, String> {
@@ -1170,23 +1191,21 @@ fn run_foreground_command(
     let timeout = args.timeout.unwrap_or(Duration::from_secs(TIMEOUT_SECS));
     let start = Instant::now();
 
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("failed to spawn '{}': {e}", args.program))?;
+    let mut child = spawn_owned_command(cmd).map_err(|e| format!("failed to spawn '{}': {e}", args.program))?;
 
     let stdout = child
-        .stdout
+        .stdout()
         .take()
         .ok_or_else(|| String::from("failed to capture child stdout"))?;
     let stderr = child
-        .stderr
+        .stderr()
         .take()
         .ok_or_else(|| String::from("failed to capture child stderr"))?;
 
     let stdout_handle = std::thread::spawn(move || read_to_capped_vec(stdout));
     let stderr_handle = std::thread::spawn(move || read_to_capped_vec(stderr));
 
-    let final_status = wait_with_timeout(&mut child, &timeout, cancel, &start);
+    let final_status = wait_with_timeout(child.as_mut(), &timeout, cancel, &start);
 
     let elapsed = start.elapsed();
     let (status, exit_code) = match final_status {

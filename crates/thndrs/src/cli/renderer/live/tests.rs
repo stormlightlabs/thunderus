@@ -35,6 +35,7 @@ fn test_app() -> App {
         acp_agents: std::collections::BTreeMap::new(),
         command: None,
     });
+    app.first_run_recovery = None;
     app.git_status = Some(GitStatusSummary { branch: Some("main".to_string()), added: 0, modified: 0, deleted: 0 });
     app
 }

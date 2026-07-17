@@ -164,7 +164,7 @@ commands above.
 ### `thndrs-agent 0.1.0`
 
 - Archive: `target/package/thndrs-agent-0.1.0.crate`
-- Contents: 21 files, 176.4 KiB before compression, 43.5 KiB compressed
+- Contents: 20 files, 176.3 KiB before compression, 43.4 KiB compressed
 - Included material: Apache-2.0 license, package metadata, library README, 13
   Rust source files, the context replay benchmark, and its JSON fixture
 - Exclusion review: no credentials, `.thndrs` state, logs, editor files, build
@@ -174,8 +174,9 @@ commands above.
   not expose application session, terminal, CLI, provider client, or provider
   wire types. Path values are inert context metadata; the crate performs no
   filesystem I/O.
-- Verification: `cargo package -p thndrs-agent --allow-dirty --locked`
-  packaged and compiled successfully.
+- Verification: a clean copy without repository metadata passed
+  `cargo package -p thndrs-agent --locked`; Cargo packaged and compiled the
+  archive successfully.
 
 ### `thndrs 0.1.0`
 

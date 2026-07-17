@@ -13,11 +13,14 @@
 //! - Bot-challenge detection: checks for known DDG anomaly markers.
 //! - Result limits: kept small (default 5, hard maximum 10).
 
-use std::time::Duration;
+use std::io;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::time::{Duration, Instant};
 
 use crate::cli::WebSearchMode;
 use scraper::{Html, Selector};
-use ureq::ResponseExt;
+use ureq::unversioned::resolver::{DefaultResolver, ResolvedSocketAddrs, Resolver};
+use ureq::unversioned::transport::{DefaultConnector, NextTimeout};
 
 /// Maximum number of local search results returned by default.
 pub const DEFAULT_SEARCH_LIMIT: usize = 5;
@@ -47,6 +50,10 @@ const MAX_REDIRECTS: u32 = 5;
 /// redirects, and body read. Prevents a slow or malicious server from hanging
 /// the agent loop.
 const FETCH_TIMEOUT_SECS: u64 = 15;
+
+/// Marker used to distinguish a resolver-level public-network rejection from
+/// unrelated I/O permission failures.
+const PRIVATE_RESOLUTION_ERROR: &str = "resolved host includes a non-public network address";
 
 /// User agent string for DuckDuckGo requests.
 const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)  \
@@ -99,6 +106,35 @@ pub enum SearchError {
     /// The response content type is not HTML.
     #[error("unexpected content type: {0}")]
     BadContentType(String),
+}
+
+/// Resolver wrapper that validates the exact addresses handed to the socket
+/// connector. Rejecting the whole answer when any address is non-public avoids
+/// DNS rebinding and mixed public/private answer ambiguity.
+#[derive(Debug)]
+struct PublicResolver<R> {
+    inner: R,
+}
+
+impl<R> PublicResolver<R> {
+    fn new(inner: R) -> Self {
+        Self { inner }
+    }
+}
+
+impl<R: Resolver> Resolver for PublicResolver<R> {
+    fn resolve(
+        &self, uri: &ureq::http::Uri, config: &ureq::config::Config, timeout: NextTimeout,
+    ) -> std::result::Result<ResolvedSocketAddrs, ureq::Error> {
+        let addresses = self.inner.resolve(uri, config, timeout)?;
+        if addresses.iter().any(|address| !is_public_ip(address.ip())) {
+            return Err(ureq::Error::Io(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                PRIVATE_RESOLUTION_ERROR,
+            )));
+        }
+        Ok(addresses)
+    }
 }
 
 /// One result from DuckDuckGo's HTML search page.
@@ -205,11 +241,9 @@ pub fn is_public_scheme(url_str: &str) -> bool {
     url_str.starts_with("http://") || url_str.starts_with("https://")
 }
 
-/// Check whether a URL points to a private or loopback network address.
-///
-/// Rejects: `localhost`, `127.x.x.x`, `10.x.x.x`, `172.16-31.x.x`,
-/// `192.168.x.x`, `169.254.x.x` (link-local), `::1`, `fc00::`/`fd00::`
-/// (IPv6 private), and `0.0.0.0`.
+/// Check whether a URL has a literal non-public network address or a localhost
+/// hostname. Domain names are resolved and checked at connection time by the
+/// fetcher's public-address resolver.
 pub fn is_private_url(url_str: &str) -> bool {
     let Ok(parsed) = url::Url::parse(url_str) else {
         return true;
@@ -225,13 +259,13 @@ pub fn is_private_url(url_str: &str) -> bool {
         None => return true,
     };
 
-    if host == "localhost" || host == "localhost." {
+    if host.eq_ignore_ascii_case("localhost") || host.eq_ignore_ascii_case("localhost.") {
         return true;
     }
 
     match parsed.host() {
-        Some(url::Host::Ipv4(v4)) => is_private_ipv4(v4),
-        Some(url::Host::Ipv6(v6)) => is_private_ipv6(v6),
+        Some(url::Host::Ipv4(v4)) => !is_public_ipv4(v4),
+        Some(url::Host::Ipv6(v6)) => !is_public_ipv6(v6),
         Some(url::Host::Domain(_)) => false,
         None => true,
     }
@@ -242,8 +276,10 @@ pub fn is_private_url(url_str: &str) -> bool {
 /// ## Safety guards
 ///
 /// - Only `http`/`https` schemes are allowed.
-/// - Private/loopback/link-local addresses are rejected, both for the requested
-///   URL and for the final URL after redirects (prevents open-redirect SSRF).
+/// - Literal and DNS-resolved non-public addresses are rejected before a
+///   connection is opened.
+/// - Redirects are followed one at a time and every target is validated before
+///   its request is sent.
 /// - At most `MAX_REDIRECTS` redirects are followed; the chain errors on excess.
 /// - The entire request is bounded by a `FETCH_TIMEOUT_SECS` global timeout.
 /// - Response size is capped at `MAX_RESPONSE_BYTES`, enforced *while streaming*
@@ -252,6 +288,12 @@ pub fn is_private_url(url_str: &str) -> bool {
 ///   is extracted via Lectito; other text types (JSON, XML, plain text, feeds,
 ///   YAML, CSV, JS) are returned as raw text. Binary types are rejected.
 pub fn fetch_url(url_str: &str) -> Result<FetchedContent> {
+    fetch_url_with_agent_factory(url_str, public_fetch_agent)
+}
+
+fn fetch_url_with_agent_factory(
+    url_str: &str, mut agent_factory: impl FnMut(Duration) -> ureq::Agent,
+) -> Result<FetchedContent> {
     if !is_public_scheme(url_str) {
         return Err(SearchError::UnsupportedScheme(url_str.to_string()));
     }
@@ -259,37 +301,31 @@ pub fn fetch_url(url_str: &str) -> Result<FetchedContent> {
         return Err(SearchError::PrivateNetwork(url_str.to_string()));
     }
 
-    let config = ureq::Agent::config_builder()
-        .max_redirects(MAX_REDIRECTS)
-        .max_redirects_will_error(true)
-        .timeout_global(Some(Duration::from_secs(FETCH_TIMEOUT_SECS)))
-        .build();
+    let started = Instant::now();
+    let timeout = Duration::from_secs(FETCH_TIMEOUT_SECS);
+    let mut current = url::Url::parse(url_str).map_err(|error| SearchError::Http(error.to_string()))?;
+    let mut redirect_count = 0;
 
-    let agent = ureq::Agent::new_with_config(config);
-    let response = match agent
-        .get(url_str)
-        .header("User-Agent", USER_AGENT)
-        .header("Accept", ALLOWED_ACCEPT_HEADER)
-        .call()
-    {
-        Ok(r) => r,
-        Err(ureq::Error::StatusCode(code)) => {
-            return Err(SearchError::HttpStatus { status: code, body: String::new() });
+    let response = loop {
+        let remaining = timeout
+            .checked_sub(started.elapsed())
+            .filter(|remaining| !remaining.is_zero())
+            .ok_or(SearchError::Timeout { secs: FETCH_TIMEOUT_SECS })?;
+        let agent = agent_factory(remaining);
+        let response = request_public_url(&agent, current.as_str())?;
+
+        let Some(next) = redirect_target(&current, &response)? else {
+            break response;
+        };
+        if redirect_count >= MAX_REDIRECTS {
+            return Err(SearchError::TooManyRedirects { max: MAX_REDIRECTS });
         }
-        Err(ureq::Error::TooManyRedirects) => return Err(SearchError::TooManyRedirects { max: MAX_REDIRECTS }),
-        Err(ureq::Error::Timeout(_)) => return Err(SearchError::Timeout { secs: FETCH_TIMEOUT_SECS }),
-        Err(ureq::Error::BodyExceedsLimit(limit)) => return Err(SearchError::Oversized { max: limit as usize }),
-        Err(e) => return Err(SearchError::Http(e.to_string())),
+        validate_public_url(next.as_str())?;
+        current = next;
+        redirect_count += 1;
     };
 
-    let final_url = response.get_uri().to_string();
-
-    if is_private_url(&final_url) {
-        return Err(SearchError::PrivateNetwork(final_url));
-    }
-    if !is_public_scheme(&final_url) {
-        return Err(SearchError::UnsupportedScheme(final_url));
-    }
+    let final_url = current.to_string();
 
     let status = response.status().as_u16();
     let content_type = response
@@ -320,6 +356,7 @@ pub fn fetch_url(url_str: &str) -> Result<FetchedContent> {
     let mut diagnostics = vec![
         format!("status: {status}"),
         format!("content_type: {content_type}"),
+        format!("redirects_followed: {redirect_count}"),
         format!("max_redirects: {MAX_REDIRECTS}"),
         format!("timeout_secs: {FETCH_TIMEOUT_SECS}"),
         format!("max_bytes: {MAX_RESPONSE_BYTES}"),
@@ -340,6 +377,69 @@ pub fn fetch_url(url_str: &str) -> Result<FetchedContent> {
         truncated,
         diagnostics,
     })
+}
+
+fn public_fetch_agent(timeout: Duration) -> ureq::Agent {
+    let config = ureq::Agent::config_builder()
+        .max_redirects(0)
+        // A proxy can resolve the destination itself and bypass the guarded
+        // resolver. Public URL fetching therefore always connects directly.
+        .proxy(None)
+        .timeout_global(Some(timeout))
+        .build();
+    ureq::Agent::with_parts(
+        config,
+        DefaultConnector::default(),
+        PublicResolver::new(DefaultResolver::default()),
+    )
+}
+
+fn request_public_url(agent: &ureq::Agent, url: &str) -> Result<ureq::http::Response<ureq::Body>> {
+    match agent
+        .get(url)
+        .header("User-Agent", USER_AGENT)
+        .header("Accept", ALLOWED_ACCEPT_HEADER)
+        .call()
+    {
+        Ok(response) => Ok(response),
+        Err(ureq::Error::StatusCode(code)) => Err(SearchError::HttpStatus { status: code, body: String::new() }),
+        Err(ureq::Error::Timeout(_)) => Err(SearchError::Timeout { secs: FETCH_TIMEOUT_SECS }),
+        Err(ureq::Error::BodyExceedsLimit(limit)) => Err(SearchError::Oversized { max: limit as usize }),
+        Err(ureq::Error::Io(error)) if is_private_resolution_error(&error) => {
+            Err(SearchError::PrivateNetwork(url.to_string()))
+        }
+        Err(error) => Err(SearchError::Http(error.to_string())),
+    }
+}
+
+fn redirect_target(current: &url::Url, response: &ureq::http::Response<ureq::Body>) -> Result<Option<url::Url>> {
+    if !response.status().is_redirection() {
+        return Ok(None);
+    }
+    let Some(location) = response.headers().get("Location") else {
+        return Ok(None);
+    };
+    let location = location
+        .to_str()
+        .map_err(|error| SearchError::Http(format!("invalid redirect location: {error}")))?;
+    let next = current
+        .join(location)
+        .map_err(|error| SearchError::Http(format!("invalid redirect location: {error}")))?;
+    Ok(Some(next))
+}
+
+fn validate_public_url(url_str: &str) -> Result<()> {
+    if !is_public_scheme(url_str) {
+        return Err(SearchError::UnsupportedScheme(url_str.to_string()));
+    }
+    if is_private_url(url_str) {
+        return Err(SearchError::PrivateNetwork(url_str.to_string()));
+    }
+    Ok(())
+}
+
+fn is_private_resolution_error(error: &io::Error) -> bool {
+    error.kind() == io::ErrorKind::PermissionDenied && error.to_string() == PRIVATE_RESOLUTION_ERROR
 }
 
 /// Classify a `Content-Type` header value into a [`ContentKind`] on the allow-list.
@@ -842,28 +942,51 @@ fn cap_text(text: &str, max_bytes: usize) -> String {
     format!("{}…", &text[..end])
 }
 
-/// Check if an IPv4 address is private/loopback/link-local.
-///
-/// In order, check loopback, private 10.0.0.0/8, 0.0.0.0/8
-/// private 172.16/12, private 192.168/16, link-local 169.254/16
-fn is_private_ipv4(ip: std::net::Ipv4Addr) -> bool {
-    let octets = ip.octets();
-    octets[0] == 127
-        || octets[0] == 10
-        || octets[0] == 0
-        || (octets[0] == 172 && (16..=31).contains(&octets[1]))
-        || (octets[0] == 192 && octets[1] == 168)
-        || (octets[0] == 169 && octets[1] == 254)
+fn is_public_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ip) => is_public_ipv4(ip),
+        IpAddr::V6(ip) => is_public_ipv6(ip),
+    }
 }
 
-/// Check if an IPv6 address is private/loopback/link-local.
-///
-/// In order, check ::1, ::, unique local fc00::/7, link-local fe80::/10
-fn is_private_ipv6(ip: std::net::Ipv6Addr) -> bool {
-    ip.is_loopback()
-        || ip.is_unspecified()
-        || (ip.segments()[0] & 0xfe00) == 0xfc00
-        || (ip.segments()[0] & 0xffc0) == 0xfe80
+/// Return whether an IPv4 address is globally routable. The explicit special
+/// ranges keep this compatible with the project's Rust 1.88 MSRV.
+fn is_public_ipv4(ip: Ipv4Addr) -> bool {
+    let [a, b, c, _] = ip.octets();
+    !(a == 0
+        || a == 10
+        || a == 127
+        || (a == 100 && (64..=127).contains(&b))
+        || (a == 169 && b == 254)
+        || (a == 172 && (16..=31).contains(&b))
+        || (a == 192 && b == 0 && c == 0)
+        || (a == 192 && b == 0 && c == 2)
+        || (a == 192 && b == 88 && c == 99)
+        || (a == 192 && b == 168)
+        || (a == 198 && (b == 18 || b == 19))
+        || (a == 198 && b == 51 && c == 100)
+        || (a == 203 && b == 0 && c == 113)
+        || a >= 224)
+}
+
+/// Return whether an IPv6 address is globally routable. IPv4-mapped addresses
+/// inherit the IPv4 classification; local, documentation, benchmarking, and
+/// transition ranges are rejected conservatively.
+fn is_public_ipv6(ip: Ipv6Addr) -> bool {
+    if let Some(ipv4) = ip.to_ipv4_mapped() {
+        return is_public_ipv4(ipv4);
+    }
+
+    let segments = ip.segments();
+    let first = segments[0];
+    let second = segments[1];
+    let global_unicast = (first & 0xe000) == 0x2000;
+    let teredo = first == 0x2001 && second == 0;
+    let benchmarking = first == 0x2001 && second == 2 && segments[2] == 0;
+    let orchid = first == 0x2001 && (second & 0xfff0 == 0x0010 || second & 0xfff0 == 0x0020);
+    let documentation = (first == 0x2001 && second == 0x0db8) || (first == 0x3fff && second & 0xf000 == 0);
+
+    global_unicast && !(teredo || benchmarking || orchid || documentation || first == 0x2002)
 }
 
 /// Minimal percent-decoding without an extra dependency.
@@ -934,9 +1057,34 @@ fn html_unescape(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use std::io::{Read, Write};
-    use std::net::TcpListener;
+    use std::net::{SocketAddr, TcpListener};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
+
+    #[derive(Clone, Debug)]
+    struct FixedResolver {
+        address: SocketAddr,
+    }
+
+    impl Resolver for FixedResolver {
+        fn resolve(
+            &self, _uri: &ureq::http::Uri, _config: &ureq::config::Config, _timeout: NextTimeout,
+        ) -> std::result::Result<ResolvedSocketAddrs, ureq::Error> {
+            let mut addresses = self.empty();
+            addresses.push(self.address);
+            Ok(addresses)
+        }
+    }
+
+    fn test_agent(timeout: Duration, resolver: impl Resolver) -> ureq::Agent {
+        let config = ureq::Agent::config_builder()
+            .max_redirects(0)
+            .timeout_global(Some(timeout))
+            .build();
+        ureq::Agent::with_parts(config, DefaultConnector::default(), resolver)
+    }
 
     fn spawn_http_response(response: String) -> (String, std::thread::JoinHandle<()>) {
         let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind test server");
@@ -1108,8 +1256,17 @@ mod tests {
             ("private 192.168.0", "http://192.168.0.0/test"),
             ("link-local", "http://169.254.1.1/test"),
             ("link-local metadata", "http://169.254.169.254/latest/meta-data"),
+            ("shared address space", "http://100.64.0.1/test"),
+            ("benchmarking", "http://198.18.0.1/test"),
+            ("documentation", "http://203.0.113.10/test"),
+            ("multicast", "http://224.0.0.1/test"),
             ("zero address", "http://0.0.0.0/test"),
             ("ipv6 loopback", "http://[::1]/test"),
+            ("ipv6 mapped loopback", "http://[::ffff:127.0.0.1]/test"),
+            ("ipv6 documentation", "http://[2001:db8::1]/test"),
+            ("ipv6 documentation 3fff", "http://[3fff::1]/test"),
+            ("ipv6 unique local", "http://[fd00::1]/test"),
+            ("ipv6 reserved", "http://[4000::1]/test"),
             ("file scheme", "file:///etc/passwd"),
             ("ftp scheme", "ftp://example.com/file"),
             ("javascript scheme", "javascript:alert(1)"),
@@ -1126,6 +1283,7 @@ mod tests {
         let allowed: &[(&str, &str)] = &[
             ("public domain", "https://example.com/article"),
             ("public ipv4", "http://93.184.216.34/test"),
+            ("public ipv6", "https://[2606:2800:220:1:248:1893:25c8:1946]/test"),
             ("public blog", "https://blog.rust-lang.org/2024/01/01/post"),
         ];
         for (label, url) in allowed {
@@ -1154,6 +1312,67 @@ mod tests {
 
         let result = fetch_url("http://localhost/admin");
         assert!(matches!(result, Err(SearchError::PrivateNetwork(_))));
+    }
+
+    #[test]
+    fn fetch_url_rejects_domain_that_resolves_to_private_address_before_connecting() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind test server");
+        listener.set_nonblocking(true).expect("nonblocking test server");
+        let address = listener.local_addr().expect("test server address");
+        let url = format!("http://public.test:{}/secret", address.port());
+
+        let result = fetch_url_with_agent_factory(&url, |timeout| {
+            test_agent(timeout, PublicResolver::new(FixedResolver { address }))
+        });
+
+        assert!(matches!(result, Err(SearchError::PrivateNetwork(target)) if target == url));
+        let error = listener
+            .accept()
+            .expect_err("private destination must not receive a connection");
+        assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
+    }
+
+    #[test]
+    fn fetch_url_rejects_private_redirect_before_second_request() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind test server");
+        let address = listener.local_addr().expect("test server address");
+        let requests = Arc::new(AtomicUsize::new(0));
+        let requests_for_server = requests.clone();
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("first request");
+            requests_for_server.fetch_add(1, Ordering::SeqCst);
+            let mut request = [0_u8; 1024];
+            let _ = stream.read(&mut request);
+            let response = format!(
+                "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:{}/secret\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                address.port()
+            );
+            stream.write_all(response.as_bytes()).expect("redirect response");
+            listener.set_nonblocking(true).expect("nonblocking test server");
+            for _ in 0..20 {
+                match listener.accept() {
+                    Ok((_stream, _)) => {
+                        requests_for_server.fetch_add(1, Ordering::SeqCst);
+                        break;
+                    }
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+        let url = format!("http://public.test:{}/start", address.port());
+
+        let result = fetch_url_with_agent_factory(&url, |timeout| test_agent(timeout, FixedResolver { address }));
+
+        assert!(matches!(result, Err(SearchError::PrivateNetwork(target)) if target.contains("127.0.0.1")));
+        handle.join().expect("test server");
+        assert_eq!(
+            requests.load(Ordering::SeqCst),
+            1,
+            "redirect target must not receive a request"
+        );
     }
 
     #[test]

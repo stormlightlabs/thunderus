@@ -3191,6 +3191,7 @@ dependencies = [
  "iocraft",
  "lectito",
  "markdown",
+ "process-wrap",
  "ratatui",
  "regex-lite",
  "rmcp",

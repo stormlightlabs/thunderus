@@ -25,6 +25,10 @@ jobs:
         with:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
+      - name: Install test tool dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ripgrep
       - uses: pnpm/action-setup@v4
         with:
           version: 10

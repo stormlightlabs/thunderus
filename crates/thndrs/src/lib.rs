@@ -24,12 +24,32 @@ pub use thndrs_core::{
 
 #[cfg(test)]
 pub mod test_env {
+    use std::cell::Cell;
     use std::sync::{Mutex, MutexGuard};
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
+    thread_local! {
+        static LOCK_DEPTH: Cell<usize> = const { Cell::new(0) };
+    }
 
-    pub fn lock() -> MutexGuard<'static, ()> {
-        ENV_LOCK.lock().expect("test environment lock")
+    pub struct Guard {
+        _lock: Option<MutexGuard<'static, ()>>,
+    }
+
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            LOCK_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
+        }
+    }
+
+    pub fn lock() -> Guard {
+        let nested = LOCK_DEPTH.with(|depth| {
+            let nested = depth.get() > 0;
+            depth.set(depth.get() + 1);
+            nested
+        });
+        let lock = (!nested).then(|| ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner()));
+        Guard { _lock: lock }
     }
 }
 
@@ -167,7 +187,7 @@ pub fn render_print_prompt(bundle: &PromptBundle) -> String {
     let tool_catalog = prompt::render_tool_catalog(bundle);
     let mut out = String::new();
 
-    out.push_str(&format!("=== System Prompt ===\n{}\n\n", system_prompt));
+    out.push_str(&format!("=== System Prompt ===\n{system_prompt}\n\n"));
     out.push_str(&format!("=== Tool Catalog ({} tools) ===\n", bundle.tool_catalog.len()));
     out.push_str(&serde_json::to_string_pretty(&tools::sorted_json_value(&tool_catalog)).unwrap_or_default());
     out.push_str(&format!(

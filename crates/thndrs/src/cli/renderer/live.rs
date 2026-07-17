@@ -431,8 +431,7 @@ pub fn static_status_row(app: &App, width: usize) -> Row {
         push_segment(trust_text, subtext, &mut used);
     }
     if show_cwd {
-        let mut used = used + 6;
-        let cwd_display = super::path_display::footer_segment(&app.cwd, width, used);
+        let cwd_display = super::path_display::footer_segment(&app.cwd, width, used + 3);
         push_segment(&cwd_display, muted, &mut used);
     }
 
