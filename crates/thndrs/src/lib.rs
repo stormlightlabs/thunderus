@@ -653,7 +653,8 @@ fn run_acp_server(cli: &Cli) -> io::Result<()> {
         cli.session_dir.clone(),
     )
     .with_search_url(cli.websearch_url.clone())
-    .with_reasoning(cli.reasoning_effort, cli.reasoning_summary);
+    .with_reasoning(cli.reasoning_effort, cli.reasoning_summary)
+    .with_model_reduction(cli.context.reduction.clone());
     let _ = tracing_subscriber::fmt()
         .with_writer(io::stderr)
         .with_ansi(false)
@@ -1418,6 +1419,7 @@ fn maybe_spawn_agent(app: &mut App, agent: &mut Option<AgentSlot>) {
     let mut config = tools::AgentRunConfig::new(workspace_root, cli.model.clone(), cli.websearch)
         .with_search_url(cli.websearch_url.clone())
         .with_reasoning(cli.reasoning_effort, cli.reasoning_summary)
+        .with_model_reduction(app.effective_model_reduction())
         .with_process_registry(app.process_registry.clone());
     if let Some(acp_name) = acp::config::parse_model_id(&cli.model) {
         tracing::info!(

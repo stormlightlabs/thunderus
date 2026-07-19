@@ -324,6 +324,9 @@ pub struct Cli {
     /// Effective external ACP agent configs.
     #[arg(skip)]
     pub acp_agents: config::AcpAgentsConfig,
+    /// Effective context-control and model-projection reduction settings.
+    #[arg(skip)]
+    pub context: thndrs_agent::context::ContextConfig,
     /// Optional non-interactive command.
     #[command(subcommand)]
     pub command: Option<Command>,
@@ -351,6 +354,7 @@ impl Default for Cli {
             config_layers: Vec::new(),
             config_origins: BTreeMap::new(),
             acp_agents: BTreeMap::new(),
+            context: thndrs_agent::context::ContextConfig::default(),
             command: None,
         }
     }
@@ -488,6 +492,7 @@ impl Cli {
         self.config_layers = effective.layers;
         self.config_origins = origins;
         self.acp_agents = config.acp_agents;
+        self.context = config.context;
         self
     }
 }

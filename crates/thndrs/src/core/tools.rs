@@ -122,6 +122,8 @@ pub struct AgentRunConfig {
     pub accounting_turn_id: Option<String>,
     /// Context candidates captured before the first provider request.
     pub accounting_context: Vec<thndrs_agent::ContextItemSnapshot>,
+    /// Independent model-projection reducer configuration.
+    pub model_reduction: thndrs_agent::context::ReductionConfig,
 }
 
 impl AgentRunConfig {
@@ -138,6 +140,7 @@ impl AgentRunConfig {
             process_registry: None,
             accounting_turn_id: None,
             accounting_context: Vec::new(),
+            model_reduction: thndrs_agent::context::ReductionConfig::default(),
         }
     }
 
@@ -177,6 +180,12 @@ impl AgentRunConfig {
     ) -> Self {
         self.accounting_turn_id = Some(turn_id.into());
         self.accounting_context = thndrs_agent::snapshot_context(&ledger.items);
+        self
+    }
+
+    /// Attach the independent model-projection reducer configuration.
+    pub fn with_model_reduction(mut self, config: thndrs_agent::context::ReductionConfig) -> Self {
+        self.model_reduction = config;
         self
     }
 }

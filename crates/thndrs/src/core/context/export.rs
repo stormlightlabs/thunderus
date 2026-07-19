@@ -135,7 +135,7 @@ pub struct ContextExport {
     pub items: Vec<ExportContextItem>,
     /// Bounded model-facing projection for the selected request.
     pub model_projection: Vec<ExportProjectionMessage>,
-    /// Shadow/applied reduction receipts.
+    /// Shadow, applied, and baseline-fallback reduction receipts.
     pub receipts: Vec<ContextReductionReceipt>,
     /// Export-safe diagnostics.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -174,7 +174,7 @@ impl ContextExport {
             .unwrap_or_default();
         let receipts = accounting
             .as_ref()
-            .map(|accounting| accounting.shadow_receipts.clone())
+            .map(ProviderRequestAccounting::reduction_receipts)
             .unwrap_or_default();
         Self {
             schema_version: CONTEXT_EXPORT_SCHEMA_VERSION.to_string(),
@@ -263,7 +263,29 @@ impl ContextExport {
             } else {
                 let _ = writeln!(output, "- Provider usage: unknown");
             }
-            let _ = writeln!(output, "- Shadow receipts: {}", self.receipts.len());
+            let shadow = self
+                .receipts
+                .iter()
+                .filter(|receipt| receipt.mode == thndrs_agent::ContextReductionMode::Shadow)
+                .count();
+            let applied = self
+                .receipts
+                .iter()
+                .filter(|receipt| receipt.mode == thndrs_agent::ContextReductionMode::Applied)
+                .count();
+            let fallback = self
+                .receipts
+                .iter()
+                .filter(|receipt| receipt.mode == thndrs_agent::ContextReductionMode::BaselineFallback)
+                .count();
+            let _ = writeln!(
+                output,
+                "- Reduction receipts: {} total ({} shadow, {} applied, {} baseline fallback)",
+                self.receipts.len(),
+                shadow,
+                applied,
+                fallback
+            );
         } else {
             let _ = writeln!(output, "\n## Request\n\nNo completed provider request is selected.");
         }

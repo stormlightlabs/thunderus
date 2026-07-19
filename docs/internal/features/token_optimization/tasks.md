@@ -13,182 +13,36 @@ behavior-equivalent.
 
 ### Ticket 1: Separate Evidence, Display, And Model Projections
 
-**What to build:** Expand the provider-neutral tool result contract so one tool
+Expanded the provider-neutral tool result contract so one tool
 execution can carry bounded durable-evidence metadata, a user-facing display,
 and a model-facing projection while every current provider, ACP, CLI, TUI, MCP,
 and session path continues to send and display the same content as before.
 
-Use expand/migrate/contract: introduce the new form beside compatibility
-construction, migrate each application path, then remove the coupled output
-form only after all callers are green.
-
-**Blocked by:** None - can start immediately
-
-**Status:** Complete
-
-**Acceptance criteria:**
-
-- [x] Provider-neutral types distinguish evidence metadata, display projection,
-      and model projection without importing provider or filesystem types.
-- [x] Existing tool constructors have a simple compatibility path that creates
-      equivalent display and model projections during migration.
-- [x] Prompt-tail lowering and active tool-loop feedback consume the model
-      projection, while UI/ACP surfaces consume the display projection.
-- [x] Existing provider-request and renderer fixtures remain behavior-equivalent.
-- [x] Raw unredacted output is not added to a durable public contract.
-- [x] Module/API documentation explains ownership and redaction expectations.
-
-**Verification:**
-
-- Focused `thndrs-agent` contract tests.
-- Focused tool, agent-loop, prompt, ACP, and session tests.
-- `cargo test --workspace`
-
 ### Ticket 2: Account For Every Final Provider Request
 
-**What to build:** Record exact serialized bytes, conservative estimated tokens,
+Recorded exact serialized bytes, conservative estimated tokens,
 and provider-reported usage components for each final provider request through
 one provider-neutral accounting model with explicit provenance and unknown
 values.
 
-**Blocked by:** Ticket 1: Separate Evidence, Display, And Model Projections
-
-**Status:** Complete
-
-**Acceptance criteria:**
-
-- [x] Byte and token values carry measurement provenance and estimator or
-      normalization version.
-- [x] The final pre-send boundary snapshots all context candidates exactly once
-      with a state and stable reason code.
-- [x] Provider adapters retain available input, output, cache-read,
-      cache-creation, and reasoning components and derive inclusive input using
-      fixture-tested provider rules.
-- [x] Providers that omit a component leave it unknown; zero remains a measured
-      value.
-- [x] Streaming updates and retries cannot double-count a request.
-- [x] Session records correlate request accounting with the turn and context
-      ledger without persisting raw provider payloads.
-- [x] Existing aggregate session summaries remain correct during migration.
-
-**Verification:**
-
-- Provider usage fixtures for every supported first-party provider path.
-- Session JSONL round-trip/resume and redaction tests.
-- Focused final-request projection tests.
-- `cargo test --workspace`
-
 ### Ticket 3: Preserve Bounded Redacted Artifacts And Recovery
 
-**What to build:** Store bounded redacted tool evidence locally, refer to it by
+Stores bounded redacted tool evidence locally, refer to it by
 stable handles from tool results and context items, and recover it through the
 existing context-control boundary without making raw output durable by default.
 
-**Blocked by:** Ticket 1: Separate Evidence, Display, And Model Projections
-
-**Status:** Complete
-
-**Acceptance criteria:**
-
-- [x] Artifact creation applies redaction and byte caps before persistence.
-- [x] Artifact metadata includes identity, kind, content hash, original/bounded
-      byte counts, truncation, creation, and expiry/retention state.
-- [x] Session JSONL stores artifact metadata and handles rather than raw
-      unredacted bodies.
-- [x] Recovery returns bounded redacted evidence and records the recovery
-      action.
-- [x] Missing or expired artifacts produce an explicit diagnostic while their
-      audit metadata remains usable.
-- [x] Full unredacted retention is disabled by default and cannot be reached
-      through export.
-- [x] Secret-shaped fixtures do not appear in stored records, recovered output,
-      logs, or error messages.
-
-**Verification:**
-
-- Artifact store create/read/expire/corruption tests using temporary roots.
-- Session resume and recovery-action tests.
-- Redaction and size-bound adversarial tests.
-- `cargo test --workspace`
-
 ### Ticket 4: Establish The Replay And Benchmark Framework
 
-**What to build:** Add frozen context fixtures, a typed baseline/candidate
+Adds frozen context fixtures, a typed baseline/candidate
 evaluator, and Divan benchmarks so maintainers can measure projection size,
 preservation, recovery, and runtime before reducers change production requests.
 
-**Blocked by:**
-
-- Ticket 2: Account For Every Final Provider Request
-- Ticket 3: Preserve Bounded Redacted Artifacts And Recovery
-
-**Status:** Complete
-
-**Acceptance criteria:**
-
-- [x] The fixture schema is versioned, deterministic, provider-neutral where
-      practical, and represents required facts separately from expected prose.
-- [x] Fixtures cover repeated/overlapping reads, passing/failing test output,
-      noisy progress, a middle-position error, repeated commands across state
-      changes, failed writes with large inputs, protected evidence, cache
-      components, and recovery.
-- [x] The evaluator compares baseline and candidate projections and emits one
-      typed report as deterministic JSON or Markdown.
-- [x] Reports include exact bytes, estimated tokens, receipts, required-fact
-      preservation, recovery outcomes, and elapsed time; provider usage appears
-      only when present in a recorded fixture.
-- [x] Divan benchmarks pure selection, projection, receipt generation, and
-      export/evaluation with byte/item counters on stable Rust.
-- [x] Timing results do not decide correctness; failed invariants make the
-      evaluator fail independently of Divan output.
-- [x] Focused benchmark commands and fixture-authoring guidance are documented.
-
-**Verification:**
-
-- Run the evaluator twice and compare deterministic JSON/Markdown output.
-- `cargo bench -p thndrs-agent --bench context_projection`
-- Focused evaluator/fixture schema tests.
-- `cargo test --workspace`
-
 ### Ticket 5: Inspect And Export Context Accounting
 
-**What to build:** Complete the observability-first user slice: extend context
+Completed the observability-first user slice: extend context
 inspection, add request token detail, render the quiet workbench indicator, and
 export the selected request through versioned JSON or Markdown from one typed
 model.
-
-**Blocked by:**
-
-- Ticket 2: Account For Every Final Provider Request
-- Ticket 3: Preserve Bounded Redacted Artifacts And Recovery
-- Ticket 4: Establish The Replay And Benchmark Framework
-
-**Status:** Complete
-
-**Acceptance criteria:**
-
-- [x] `/context` exposes item state, reason, replacement, protection, and
-      recovery availability without displaying raw archived bodies by default.
-- [x] `/tokens` exposes request estimates, provenance, provider components,
-      normalized totals, shadow receipts, and estimate error.
-- [x] The normal workbench indicator remains compact and labels estimated and
-      provider-reported values distinctly.
-- [x] One versioned export model renders deterministically to JSON and Markdown.
-- [x] Default export includes accounting metadata and the bounded rendered model
-      projection but excludes artifact bodies and unselected content.
-- [x] An explicit option adds only bounded redacted artifact bodies; no option
-      exports unredacted artifacts.
-- [x] Export redacts and caps again and fails safely on unwritable targets.
-- [x] Narrow-terminal, long-label, unknown-usage, and secret fixtures have
-      deterministic behavior coverage.
-
-**Verification:**
-
-- Focused command/update and renderer tests/snapshots.
-- JSON schema/round-trip and Markdown golden tests from the same typed fixture.
-- Export secret and size-cap tests.
-- `cargo test --workspace`
-- `pnpm --dir docs build`
 
 ## Milestone 2: Apply Proven Deterministic Reductions
 
@@ -198,36 +52,9 @@ recovery, or workspace behavior. No behavioral preset is introduced.
 
 ### Ticket 6: Add Explicit Lifecycle, Protection, And Verification Relations
 
-**What to build:** Give context items auditable lifecycle and protection state,
+Gives context items auditable lifecycle and protection state,
 then let the agent propose and the user approve/reject/release verification
 links without inferring task completion or command meaning.
-
-**Blocked by:** Ticket 5: Inspect And Export Context Accounting
-
-**Status:** Complete
-
-**Acceptance criteria:**
-
-- [x] Lifecycle state is separate from request visibility and supports explicit
-      duplicate, supersession, summary, verification, archive, and recovery
-      relations.
-- [x] Current user context, explicit constraints, safety state, pending
-      permissions, pins, recovery metadata, failures, and unverified write/edit
-      evidence receive the specified conservative protection.
-- [x] A proposed verification relation names the protected evidence and the
-      candidate result; it changes no protection until approved.
-- [x] Approval, rejection, release, and recovery append session records and are
-      atomic across failure/resume.
-- [x] Recency, assistant prose, and command names never release protection.
-- [x] `/context` and exports explain lifecycle, protection, and verification
-      relations.
-
-**Verification:**
-
-- Pure lifecycle transition-table tests.
-- Application review/approval/rejection/resume tests.
-- Adversarial tests for successful but unrelated commands.
-- `cargo test --workspace`
 
 ### Ticket 7: Apply Lossless Terminal And Repetition Reduction
 
@@ -235,6 +62,8 @@ links without inferring task completion or command meaning.
 blank-run normalization, and exact repeated-line collapse from shadow receipts
 to independently configurable model projections after their preservation gates
 pass.
+
+**Status:** Complete
 
 **Blocked by:**
 
@@ -244,26 +73,26 @@ pass.
 
 **Acceptance criteria:**
 
-- [ ] Each reducer is independently named, versioned, inspectable, and
+- [x] Each reducer is independently named, versioned, inspectable, and
       explicitly configurable; there is no bundled behavior preset.
-- [ ] Reducers operate on bounded projections and never mutate durable evidence.
-- [ ] Exact repetitions include a count and preserve line order around the
+- [x] Reducers operate on bounded projections and never mutate durable evidence.
+- [x] Exact repetitions include a count and preserve line order around the
       collapsed run.
-- [ ] ANSI/progress cleanup retains semantic text, status, and meaningful value
+- [x] ANSI/progress cleanup retains semantic text, status, and meaningful value
       changes.
-- [ ] Shadow and applied receipts use the same measurement method.
-- [ ] A reducer that fails a preservation invariant leaves the baseline
+- [x] Shadow and applied receipts use the same measurement method.
+- [x] A reducer that fails a preservation invariant leaves the baseline
       projection active and emits a diagnostic.
-- [ ] The model dashboard aggregates routine omissions without placeholder
+- [x] The model dashboard aggregates routine omissions without placeholder
       spam.
 
 **Verification:**
 
-- Focused reducer unit/property tests and adversarial fixtures.
-- Baseline/candidate evaluator reports.
-- Divan reducer benchmarks.
-- Provider-request structure tests.
-- `cargo test --workspace`
+- [x] Focused reducer unit/property tests and adversarial fixtures.
+- [x] Baseline/candidate evaluator reports.
+- [x] Divan reducer benchmarks.
+- [x] Provider-request structure tests.
+- [x] `cargo test --workspace`
 
 ### Ticket 8: Deduplicate Only State-Identical Evidence
 

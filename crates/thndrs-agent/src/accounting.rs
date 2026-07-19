@@ -226,6 +226,37 @@ pub struct ContextReductionReceipt {
     pub after_bytes: u64,
     /// Whether the proposed decision may remove information.
     pub lossy: bool,
+    /// Whether the reducer was measured only, applied, or rejected in favor
+    /// of the baseline projection.
+    #[serde(default)]
+    pub mode: ContextReductionMode,
+    /// Bounded diagnostic when a preservation gate rejected the candidate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostic: Option<String>,
+}
+
+/// Lifecycle of one deterministic reduction decision.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContextReductionMode {
+    /// The candidate was measured but was not used in the request.
+    #[default]
+    Shadow,
+    /// The candidate became the model-visible projection.
+    Applied,
+    /// The candidate failed a preservation gate and baseline remained active.
+    BaselineFallback,
+}
+
+impl ContextReductionMode {
+    /// Stable label used by `/tokens`, exports, and model dashboards.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Shadow => "shadow",
+            Self::Applied => "applied",
+            Self::BaselineFallback => "baseline_fallback",
+        }
+    }
 }
 
 /// One context candidate captured at the final request boundary.
@@ -297,6 +328,14 @@ pub struct ProviderRequestAccounting {
     /// Shadow reducer receipts for this request.
     #[serde(default)]
     pub shadow_receipts: Vec<ContextReductionReceipt>,
+    /// Reducer receipts for candidates applied to this request's model
+    /// projection.
+    #[serde(default)]
+    pub applied_receipts: Vec<ContextReductionReceipt>,
+    /// Reducer receipts whose candidates failed a preservation gate and fell
+    /// back to the baseline projection.
+    #[serde(default)]
+    pub fallback_receipts: Vec<ContextReductionReceipt>,
     /// In-memory model projection for the selected request.
     ///
     /// This is not durable session data and is skipped during serialization;
@@ -332,8 +371,34 @@ impl ProviderRequestAccounting {
             provider_usage: None,
             context,
             shadow_receipts: Vec::new(),
+            applied_receipts: Vec::new(),
+            fallback_receipts: Vec::new(),
             model_projection: Vec::new(),
         }
+    }
+
+    /// Attach reduction receipts while keeping shadow and applied decisions
+    /// separately inspectable.
+    pub fn with_reduction_receipts(mut self, receipts: Vec<ContextReductionReceipt>) -> Self {
+        for receipt in receipts {
+            match receipt.mode {
+                ContextReductionMode::Shadow => self.shadow_receipts.push(receipt),
+                ContextReductionMode::Applied => self.applied_receipts.push(receipt),
+                ContextReductionMode::BaselineFallback => self.fallback_receipts.push(receipt),
+            }
+        }
+        self
+    }
+
+    /// Return all reduction receipts, grouped into shadow and applied/fallback
+    /// decisions for export and inspection.
+    pub fn reduction_receipts(&self) -> Vec<ContextReductionReceipt> {
+        self.shadow_receipts
+            .iter()
+            .chain(&self.applied_receipts)
+            .chain(&self.fallback_receipts)
+            .cloned()
+            .collect()
     }
 
     /// Attach a bounded in-memory model projection without changing durable
@@ -458,5 +523,41 @@ mod tests {
         assert_eq!(accounting.estimated_input_tokens.value, Some(17));
         assert_eq!(accounting.context.len(), 1);
         assert_eq!(accounting.context[0].reason_code, "recent_transcript");
+    }
+
+    #[test]
+    fn reduction_receipts_remain_inspectable_by_decision_mode() {
+        let receipt = |method: &str, mode: ContextReductionMode| ContextReductionReceipt {
+            item_id: "tool:1".to_string(),
+            method: method.to_string(),
+            version: "test-v1".to_string(),
+            before_bytes: 10,
+            after_bytes: 5,
+            lossy: false,
+            mode,
+            diagnostic: None,
+        };
+        let accounting = ProviderRequestAccounting::from_serialized_request(
+            "turn_1",
+            "turn_1:request:0",
+            1,
+            "provider",
+            "model",
+            b"{}",
+            Vec::new(),
+        )
+        .with_reduction_receipts(vec![
+            receipt("terminal", ContextReductionMode::Shadow),
+            receipt("blank", ContextReductionMode::Applied),
+            receipt("repeat", ContextReductionMode::BaselineFallback),
+        ]);
+
+        assert_eq!(accounting.shadow_receipts.len(), 1);
+        assert_eq!(accounting.applied_receipts.len(), 1);
+        assert_eq!(accounting.fallback_receipts.len(), 1);
+        assert_eq!(accounting.reduction_receipts().len(), 3);
+        let json = serde_json::to_string(&accounting).expect("accounting serializes");
+        assert!(json.contains("baseline_fallback"));
+        assert!(!json.contains("model_projection"));
     }
 }

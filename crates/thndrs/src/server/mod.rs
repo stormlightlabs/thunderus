@@ -17,6 +17,7 @@ use std::path::PathBuf;
 
 use crate::cli::{ReasoningEffort, ReasoningSummary};
 use agent_client_protocol::Result;
+use thndrs_agent::context::ReductionConfig;
 
 /// Runtime configuration accepted by the ACP agent binary.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -36,6 +37,8 @@ pub struct ServerConfig {
     pub reasoning_summary: ReasoningSummary,
     /// Optional append-only session directory.
     pub session_dir: Option<PathBuf>,
+    /// Independent model-projection reducer configuration.
+    pub model_reduction: ReductionConfig,
 }
 
 impl ServerConfig {
@@ -49,6 +52,7 @@ impl ServerConfig {
             reasoning_effort: ReasoningEffort::default(),
             reasoning_summary: ReasoningSummary::default(),
             session_dir,
+            model_reduction: ReductionConfig::default(),
         }
     }
 
@@ -62,6 +66,12 @@ impl ServerConfig {
     /// Apply the configured SearXNG base URL.
     pub fn with_search_url(mut self, url: Option<String>) -> Self {
         self.websearch_url = url;
+        self
+    }
+
+    /// Apply independent model-projection reducer settings.
+    pub fn with_model_reduction(mut self, config: ReductionConfig) -> Self {
+        self.model_reduction = config;
         self
     }
 }

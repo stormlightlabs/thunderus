@@ -70,6 +70,7 @@ fn test_app() -> App {
         config_layers: Vec::new(),
         config_origins: std::collections::BTreeMap::new(),
         acp_agents: std::collections::BTreeMap::new(),
+        context: thndrs_agent::context::ContextConfig::default(),
         command: None,
     });
     app.first_run_recovery = None;

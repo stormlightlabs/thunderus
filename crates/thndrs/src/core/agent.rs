@@ -321,6 +321,7 @@ impl RunHandle {
             thndrs_agent::ToolIterationBudget::new(self.config.max_tool_iterations, tools::MAX_TOOL_CONTINUATIONS);
         let mut wrote_file = false;
         let mut continuation = ProviderContinuation::default();
+        let mut pending_reduction_receipts = Vec::new();
 
         loop {
             if cancel.is_cancelled() {
@@ -404,11 +405,13 @@ impl RunHandle {
                 continuation: &continuation,
                 turn_id: self.config.accounting_turn_id.as_deref().unwrap_or("turn_unknown"),
                 context: &self.config.accounting_context,
+                reduction_receipts: &pending_reduction_receipts,
             };
             let Some(mut turn) = request_provider_turn_with_retries(&request, tool_budget.total_batches(), tx, cancel)
             else {
                 return;
             };
+            pending_reduction_receipts.clear();
             if matches!(self.provider, ProviderKind::ChatGptCodex | ProviderKind::OpenCodeZen)
                 && matches!(
                     provider.stream_format(&self.config.model),
@@ -501,7 +504,6 @@ impl RunHandle {
                 };
                 let status = output.status;
                 let display_output = output.display_lines();
-                let model_output = output.model_lines();
                 if write_result.is_some() && status == ToolStatus::Ok {
                     wrote_file = true;
                 }
@@ -529,10 +531,18 @@ impl RunHandle {
                     input,
                 });
 
-                let result_content =
-                    if model_output.is_empty() { "(no output)".to_string() } else { model_output.join("\n") };
-                let is_error = status == ToolStatus::Failed;
-                tool_results.push(ProviderMessage::tool_result(&tool_id, &result_content, is_error));
+                let (tool_result, result_content, reduced) =
+                    model_tool_result(&tool_id, &output, &self.config.model_reduction);
+                for diagnostic in &reduced.diagnostics {
+                    tracing::warn!(
+                        reducer = diagnostic.reducer.map(|reducer| reducer.label()).unwrap_or("pipeline"),
+                        code = %diagnostic.code,
+                        message = %diagnostic.message,
+                        "model projection reducer kept the baseline"
+                    );
+                }
+                pending_reduction_receipts.extend(reduced.receipts);
+                tool_results.push(tool_result);
                 response_tool_outputs.push((tool_id, result_content));
             }
 
@@ -746,6 +756,26 @@ where
     continuation: &'a ProviderContinuation,
     turn_id: &'a str,
     context: &'a [thndrs_agent::ContextItemSnapshot],
+    reduction_receipts: &'a [thndrs_agent::ContextReductionReceipt],
+}
+
+/// Build the provider-native tool result from the independent model projection.
+///
+/// The display projection and structured evidence remain owned by `output`.
+/// An explicit applied reducer configuration adds only the bounded aggregate
+/// dashboard to the model result; shadow-only measurement leaves the model
+/// request unchanged.
+fn model_tool_result(
+    tool_id: &str, output: &ToolOutput, config: &thndrs_agent::context::ReductionConfig,
+) -> (ProviderMessage, String, thndrs_agent::context::ReductionResult) {
+    let reduced = thndrs_agent::reduce_lines(&format!("tool:{tool_id}"), output.model_lines(), config);
+    let mut content = if reduced.lines.is_empty() { "(no output)".to_string() } else { reduced.lines.join("\n") };
+    if !config.enabled_reducers().is_empty() {
+        content.push('\n');
+        content.push_str(&reduced.render_dashboard());
+    }
+    let message = ProviderMessage::tool_result(tool_id, &content, output.status == ToolStatus::Failed);
+    (message, content, reduced)
 }
 
 /// Best-effort classifier for prompts that should not finish without a
@@ -1010,7 +1040,8 @@ where
                         request.model,
                         &serialized_body,
                         request.context.to_vec(),
-                    );
+                    )
+                    .with_reduction_receipts(request.reduction_receipts.to_vec());
                     accounting = accounting.with_model_projection(
                         request
                             .messages
@@ -2770,5 +2801,28 @@ mod tests {
             failure.display_lines(),
             vec!["error: missing command: provide non-empty 'argv', 'command', or 'program'"]
         );
+    }
+
+    #[test]
+    fn provider_tool_result_reduces_model_only_and_keeps_provider_structure() {
+        let mut reduction = thndrs_agent::context::ReductionConfig::disabled();
+        reduction.repeated_line = true;
+        let output = ToolOutput::ok("run_shell", vec!["same".to_string(); 10]);
+        let display_before = output.display_lines();
+
+        let (message, content, result) = model_tool_result("toolu_1", &output, &reduction);
+
+        assert_eq!(output.display_lines(), display_before);
+        assert_eq!(output.model.lines, vec!["same".to_string(); 10]);
+        assert!(content.contains("same [repeated 10 times]"));
+        assert!(content.contains("<reduction_dashboard>"));
+        assert!(result.changed());
+        assert_eq!(result.receipts[0].mode, thndrs_agent::ContextReductionMode::Applied);
+
+        assert_eq!(message.role, "user");
+        let value = serde_json::to_value(&message).expect("provider message serializes");
+        assert_eq!(value["content"][0]["type"], "tool_result");
+        assert_eq!(value["content"][0]["tool_use_id"], "toolu_1");
+        assert_eq!(value["content"][0]["content"], content);
     }
 }

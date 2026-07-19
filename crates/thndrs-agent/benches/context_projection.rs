@@ -4,14 +4,41 @@ use divan::{
     Bencher,
     counter::{BytesCount, ItemsCount},
 };
+use thndrs_agent::context::{ReducerKind, ReductionConfig};
 use thndrs_agent::{
-    BaselinePolicy, CandidatePolicy, ReplayEvaluator, ReplayFixture, load_fixture, project_fixture, select_items,
+    BaselinePolicy, CandidatePolicy, ReplayEvaluator, ReplayFixture, load_fixture, project_fixture, reduce_lines,
+    select_items,
 };
 
 const FIXTURE: &str = include_str!("../fixtures/context-replay/context.json");
 
 fn fixture() -> ReplayFixture {
     load_fixture(FIXTURE).expect("repository fixture is valid")
+}
+
+fn reduction_fixture() -> Vec<String> {
+    vec![
+        "\u{1b}[32mcompile\u{1b}[0m 10%\r\u{1b}[32mcompile\u{1b}[0m 100%".to_string(),
+        "".to_string(),
+        "".to_string(),
+        "same line".to_string(),
+        "same line".to_string(),
+        "same line".to_string(),
+        "same line".to_string(),
+        "same line".to_string(),
+        "after".to_string(),
+    ]
+}
+
+fn reduction_config(kind: ReducerKind) -> ReductionConfig {
+    let mut config = ReductionConfig::disabled();
+    match kind {
+        ReducerKind::TerminalControl => config.terminal_control = true,
+        ReducerKind::ProgressRedraw => config.progress_redraw = true,
+        ReducerKind::BlankRun => config.blank_run = true,
+        ReducerKind::RepeatedLine => config.repeated_line = true,
+    }
+    config
 }
 
 fn main() {
@@ -75,4 +102,48 @@ fn export_and_evaluation(bencher: Bencher) {
                 .expect("baseline candidate preserve the fixture");
             black_box(report.to_json().expect("json report").len() + report.to_markdown().len())
         });
+}
+
+#[divan::bench]
+fn reducer_terminal_control(bencher: Bencher) {
+    let input = reduction_fixture();
+    let config = reduction_config(ReducerKind::TerminalControl);
+    let result = reduce_lines("bench", input.clone(), &config);
+    bencher
+        .counter(BytesCount::from(result.dashboard.after_bytes))
+        .counter(ItemsCount::from(result.lines.len()))
+        .bench(|| black_box(reduce_lines("bench", input.clone(), &config)));
+}
+
+#[divan::bench]
+fn reducer_progress_redraw(bencher: Bencher) {
+    let input = reduction_fixture();
+    let config = reduction_config(ReducerKind::ProgressRedraw);
+    let result = reduce_lines("bench", input.clone(), &config);
+    bencher
+        .counter(BytesCount::from(result.dashboard.after_bytes))
+        .counter(ItemsCount::from(result.lines.len()))
+        .bench(|| black_box(reduce_lines("bench", input.clone(), &config)));
+}
+
+#[divan::bench]
+fn reducer_blank_run(bencher: Bencher) {
+    let input = reduction_fixture();
+    let config = reduction_config(ReducerKind::BlankRun);
+    let result = reduce_lines("bench", input.clone(), &config);
+    bencher
+        .counter(BytesCount::from(result.dashboard.after_bytes))
+        .counter(ItemsCount::from(result.lines.len()))
+        .bench(|| black_box(reduce_lines("bench", input.clone(), &config)));
+}
+
+#[divan::bench]
+fn reducer_repeated_line(bencher: Bencher) {
+    let input = reduction_fixture();
+    let config = reduction_config(ReducerKind::RepeatedLine);
+    let result = reduce_lines("bench", input.clone(), &config);
+    bencher
+        .counter(BytesCount::from(result.dashboard.after_bytes))
+        .counter(ItemsCount::from(result.lines.len()))
+        .bench(|| black_box(reduce_lines("bench", input.clone(), &config)));
 }

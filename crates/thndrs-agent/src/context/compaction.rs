@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{ContextBudget, ModelContextLimits};
+use super::{ContextBudget, ModelContextLimits, ReductionConfig};
 
 /// User-selected compaction behavior.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -47,6 +47,8 @@ pub enum CompactionReview {
 pub struct ContextConfig {
     /// Compaction-specific options.
     pub compaction: CompactionConfig,
+    /// Independent deterministic model-projection reducer options.
+    pub reduction: ReductionConfig,
 }
 
 /// Compaction configuration parsed from `[context.compaction]`.
@@ -212,7 +214,7 @@ pub fn preflight_auto_compaction(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::context::{ContextBudget, ModelContextLimits, ModelLimitConfidence, ModelLimitSource};
+    use crate::context::{ContextBudget, ModelContextLimits, ModelLimitConfidence, ModelLimitSource, ReducerKind};
 
     fn budget(used: u64) -> ContextBudget {
         let limits = ModelContextLimits {
@@ -232,6 +234,31 @@ mod tests {
         let config: ContextConfig = serde_json::from_str(r#"{"compaction":{}}"#).expect("parse config");
         assert_eq!(config.compaction.mode, CompactionMode::Manual);
         assert_eq!(config.compaction.review, CompactionReview::Auto);
+        assert!(config.reduction.shadow);
+        assert!(config.reduction.enabled_reducers().is_empty());
+    }
+
+    #[test]
+    fn reduction_switches_are_independently_configurable() {
+        let config: ContextConfig = serde_json::from_str(
+            r#"{
+                "reduction": {
+                    "shadow": false,
+                    "terminal_control": true,
+                    "progress_redraw": false,
+                    "blank_run": true,
+                    "repeated_line": false,
+                    "max_blank_lines": 2
+                }
+            }"#,
+        )
+        .expect("parse reduction config");
+
+        assert!(!config.reduction.shadow);
+        assert_eq!(
+            config.reduction.enabled_reducers(),
+            vec![ReducerKind::TerminalControl, ReducerKind::BlankRun]
+        );
     }
 
     #[test]

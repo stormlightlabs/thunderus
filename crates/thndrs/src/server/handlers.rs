@@ -1344,7 +1344,8 @@ fn run_prompt_turn(
         .unwrap_or(state.config.reasoning_summary);
     let mut config = AgentRunConfig::new(session.cwd, model, websearch)
         .with_search_url(state.config.websearch_url.clone())
-        .with_reasoning(effort, summary);
+        .with_reasoning(effort, summary)
+        .with_model_reduction(state.config.model_reduction.clone());
     if let Some(mcp_config) = session.mcp_config {
         config = config.with_mcp_manager(Arc::new(McpManager::from_config(&mcp_config)));
     }

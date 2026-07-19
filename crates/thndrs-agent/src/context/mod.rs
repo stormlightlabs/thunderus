@@ -8,6 +8,7 @@ mod support;
 pub mod compaction;
 pub mod control;
 pub mod lifecycle;
+pub mod reduction;
 pub mod selection;
 
 pub use compaction::{
@@ -26,6 +27,12 @@ pub use control::{
 pub use lifecycle::{
     ContextLifecycle, ContextLifecycleAction, ContextLifecycleError, ContextLifecycleState, ContextProtection,
     ContextProtectionReason, ContextRelation, ContextRelationKind, ContextRelationStatus, relation_id_for,
+};
+pub use reduction::{
+    BLANK_RUN_REDUCER_VERSION, BoundedProjection, DEFAULT_PROJECTION_MAX_BYTES, MAX_BLANK_LINES,
+    PROGRESS_REDRAW_REDUCER_VERSION, REDUCTION_CONFIG_VERSION, REPEATED_LINE_REDUCER_VERSION, ReducerKind,
+    ReductionConfig, ReductionConfigError, ReductionDashboard, ReductionDiagnostic, ReductionResult,
+    TERMINAL_CONTROL_REDUCER_VERSION, measure_lines, reduce_lines, reduce_projection, render_reduction_dashboard,
 };
 pub use selection::{
     CompactionSummaryCandidate, HarnessCandidate, InstructionCandidate, PendingPermissionCandidate, PinnedCandidate,

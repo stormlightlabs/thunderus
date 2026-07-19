@@ -13,13 +13,15 @@ pub mod replay;
 pub mod run;
 
 pub use accounting::{
-    ByteMeasurement, ContextItemSnapshot, ContextReductionReceipt, MeasurementProvenance, ModelProjectionMessage,
-    ProviderRequestAccounting, ProviderUsage, ProviderUsageComponents, ProviderUsageRule, TOKEN_ESTIMATOR_VERSION,
-    TokenMeasurement, USAGE_NORMALIZATION_VERSION, estimate_serialized_tokens, snapshot_context,
+    ByteMeasurement, ContextItemSnapshot, ContextReductionMode, ContextReductionReceipt, MeasurementProvenance,
+    ModelProjectionMessage, ProviderRequestAccounting, ProviderUsage, ProviderUsageComponents, ProviderUsageRule,
+    TOKEN_ESTIMATOR_VERSION, TokenMeasurement, USAGE_NORMALIZATION_VERSION, estimate_serialized_tokens,
+    snapshot_context,
 };
 pub use adapters::{ToolExecutionHook, ToolPermissionHook};
 pub use budget::{ToolBudgetDecision, ToolIterationBudget};
 pub use cancel::CancelToken;
+pub use context::reduction::{measure_lines, reduce_lines, reduce_projection, render_reduction_dashboard};
 pub use contracts::{
     AgentEvent, AgentMessage, AgentTurn, RetryPolicy, ToolDefinition, ToolDisplayProjection, ToolEvidenceKind,
     ToolEvidenceMetadata, ToolModelProjection, ToolOutput, ToolPermissionDecision, ToolStatus, ToolUseRequest,

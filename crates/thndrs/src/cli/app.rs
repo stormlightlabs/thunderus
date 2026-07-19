@@ -54,7 +54,7 @@ use serde::{Deserialize, Serialize};
 use thndrs_agent::CancelToken;
 use thndrs_agent::ProviderRequestAccounting;
 pub use thndrs_agent::ToolStatus;
-use thndrs_agent::context::{self as agent_context, CompactionConfig, CompactionPolicy};
+use thndrs_agent::context::{self as agent_context, CompactionConfig, CompactionPolicy, ReductionConfig};
 use thndrs_agent::context::{
     CompactionSummaryCandidate, ContextItemKind, ContextVisibility, HarnessCandidate, InstructionCandidate,
     PendingPermissionCandidate, PinnedCandidate, SelectionInput, SkillCandidate, TranscriptCandidate,
@@ -618,13 +618,15 @@ impl App {
         };
         let Some(usage) = accounting.provider_usage.as_ref() else {
             return format!(
-                "tokens\nrequest: {} attempt {}\nlocal: {} bytes, {} tokens ({})\nprovider: unknown\nshadow receipts: {}",
+                "tokens\nrequest: {} attempt {}\nlocal: {} bytes, {} tokens ({})\nprovider: unknown\nshadow receipts: {}\napplied receipts: {}\nbaseline fallback receipts: {}",
                 accounting.request_id,
                 accounting.attempt,
                 accounting.serialized_bytes.value,
                 estimate,
                 estimate_source,
-                accounting.shadow_receipts.len()
+                accounting.shadow_receipts.len(),
+                accounting.applied_receipts.len(),
+                accounting.fallback_receipts.len()
             );
         };
         let inclusive = usage
@@ -639,7 +641,7 @@ impl App {
             _ => "unknown".to_string(),
         };
         format!(
-            "tokens\nrequest: {} attempt {}\nlocal: {} bytes, {} tokens ({})\nprovider {} reported: {} input / {} output\ncache: {} read / {} create\nnormalized input: {} ({})\nestimate error: {} tokens\nshadow receipts: {}",
+            "tokens\nrequest: {} attempt {}\nlocal: {} bytes, {} tokens ({})\nprovider {} reported: {} input / {} output\ncache: {} read / {} create\nnormalized input: {} ({})\nestimate error: {} tokens\nshadow receipts: {}\napplied receipts: {}\nbaseline fallback receipts: {}",
             accounting.request_id,
             accounting.attempt,
             accounting.serialized_bytes.value,
@@ -653,7 +655,9 @@ impl App {
             inclusive,
             usage.rule.label(),
             estimate_error,
-            accounting.shadow_receipts.len()
+            accounting.shadow_receipts.len(),
+            accounting.applied_receipts.len(),
+            accounting.fallback_receipts.len()
         )
     }
 
@@ -774,6 +778,19 @@ impl App {
             .cloned()
             .unwrap_or_default();
         CompactionPolicy::from_config(&config)
+    }
+
+    /// Resolve the independent model-projection reducers from loaded config
+    /// layers, preserving the parsed CLI snapshot when no layer overrides it.
+    pub fn effective_model_reduction(&self) -> ReductionConfig {
+        self.cli
+            .config_layers
+            .iter()
+            .map(|layer| &layer.config.context.reduction)
+            .rev()
+            .find(|config| **config != ReductionConfig::default())
+            .cloned()
+            .unwrap_or_else(|| self.cli.context.reduction.clone())
     }
 }
 
